@@ -1,9 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import type { ProcessInput, ProcessResult, RunProcess } from "../command";
 import type { Step } from "../types";
-import { createPaneBackend, type PaneConfig } from "./pane";
+import { createHerdrAdapter, type HerdrConfig } from "./herdr";
 
-const CONFIG: PaneConfig = {
+const CONFIG: HerdrConfig = {
   session: "wf-lab",
   workspaceLabel: "e2",
   commandTimeoutMs: 1_000,
@@ -47,11 +47,11 @@ function argv(calls: ProcessInput[], key: string): string[] {
   return found ? [...found.argv] : [];
 }
 
-describe("createPaneBackend", () => {
+describe("createHerdrAdapter", () => {
   test("the call id reaches the agent through the pane environment", async () => {
     const { run, calls } = stub(OPEN);
 
-    await createPaneBackend(CONFIG, run).open(STEP, CALL);
+    await createHerdrAdapter(CONFIG, run).open(STEP, CALL);
 
     const created = argv(calls, "workspace create");
     expect(created).toContain("WF_RUN=/runs/r");
@@ -59,16 +59,26 @@ describe("createPaneBackend", () => {
     expect(created.join(" ")).toContain("PATH=/wf/bin:");
   });
 
-  test("the harness is launched by its Herdr kind, with its own flags after --", async () => {
+  test("the provider-neutral launch is translated to Herdr kind and arguments", async () => {
     const { run, calls } = stub(OPEN);
 
-    await createPaneBackend(CONFIG, run).open({ ...STEP, harness: "codex", model: "gpt-5" }, CALL);
+    await createHerdrAdapter(CONFIG, run).open({ ...STEP, harness: "codex", model: "gpt-5" }, CALL);
 
     const start = argv(calls, "agent start");
     expect(start[start.indexOf("--kind") + 1]).toBe("codex");
     expect(start.slice(start.indexOf("--")).join(" ")).toBe(
       "-- --sandbox danger-full-access --ask-for-approval never --model gpt-5",
     );
+  });
+
+  test("Herdr naming stays local when its kind differs from the executable", async () => {
+    const { run, calls } = stub(OPEN);
+
+    await createHerdrAdapter(CONFIG, run).open({ ...STEP, harness: "cursor" }, CALL);
+
+    const start = argv(calls, "agent start");
+    expect(start[start.indexOf("--kind") + 1]).toBe("cursor");
+    expect(start.slice(start.indexOf("--")).join(" ")).toBe("-- --force");
   });
 
   /** E1 saw `agent_pane_busy` on 10 of 24 starts; without the retry every batch loses its first. */
@@ -91,7 +101,7 @@ describe("createPaneBackend", () => {
       };
     };
 
-    await createPaneBackend(CONFIG, run).open(STEP, CALL);
+    await createHerdrAdapter(CONFIG, run).open(STEP, CALL);
 
     expect(starts).toBe(2);
   });
@@ -112,14 +122,14 @@ describe("createPaneBackend", () => {
     };
 
     await expect(
-      createPaneBackend({ ...CONFIG, startAttempts: 3 }, run).open(STEP, CALL),
+      createHerdrAdapter({ ...CONFIG, startAttempts: 3 }, run).open(STEP, CALL),
     ).rejects.toThrow("agent start failed after 3: agent_pane_busy");
     expect(argv(calls, "workspace close")).toContain("w1");
   });
 
   test("a prompt is submitted and waited on in one command, timed in milliseconds", async () => {
     const { run, calls } = stub({ ...OPEN, "agent prompt": { agent: { agent_status: "idle" } } });
-    const session = await createPaneBackend(CONFIG, run).open(STEP, CALL);
+    const session = await createHerdrAdapter(CONFIG, run).open(STEP, CALL);
 
     expect(await session.prompt("go")).toEqual({ state: "idle", detail: "idle" });
     const prompt = argv(calls, "agent prompt");
@@ -137,14 +147,14 @@ describe("createPaneBackend", () => {
         agent: { agent_status: "idle", agent_session: { kind: "id", value: "sess-9" } },
       },
     });
-    const session = await createPaneBackend(CONFIG, run).open(STEP, CALL);
+    const session = await createHerdrAdapter(CONFIG, run).open(STEP, CALL);
 
     expect((await session.prompt("go")).sessionRef).toBe("sess-9");
   });
 
   test("a status Herdr reports that we do not know is unknown, never done", async () => {
     const { run } = stub({ ...OPEN, "agent prompt": { agent: { agent_status: "compacting" } } });
-    const session = await createPaneBackend(CONFIG, run).open(STEP, CALL);
+    const session = await createHerdrAdapter(CONFIG, run).open(STEP, CALL);
 
     expect((await session.prompt("go")).state).toBe("unknown");
   });
@@ -159,7 +169,7 @@ describe("createPaneBackend", () => {
             exitCode: 0,
             timedOut: false,
           };
-    const session = await createPaneBackend(CONFIG, run).open(STEP, CALL);
+    const session = await createHerdrAdapter(CONFIG, run).open(STEP, CALL);
 
     expect(await session.prompt("go")).toEqual({
       state: "unknown",
@@ -177,7 +187,7 @@ describe("createPaneBackend", () => {
             exitCode: 0,
             timedOut: false,
           };
-    const session = await createPaneBackend(CONFIG, run).open(STEP, CALL);
+    const session = await createHerdrAdapter(CONFIG, run).open(STEP, CALL);
 
     expect(await session.transcript()).toContain("<<<WF_RESULT");
   });
@@ -192,14 +202,14 @@ describe("createPaneBackend", () => {
             exitCode: 0,
             timedOut: false,
           };
-    const session = await createPaneBackend(CONFIG, run).open(STEP, CALL);
+    const session = await createHerdrAdapter(CONFIG, run).open(STEP, CALL);
 
     expect(await session.transcript()).toBeNull();
   });
 
   test("closing the session closes the workspace it opened", async () => {
     const { run, calls } = stub(OPEN);
-    const session = await createPaneBackend(CONFIG, run).open(STEP, CALL);
+    const session = await createHerdrAdapter(CONFIG, run).open(STEP, CALL);
 
     await session.close();
 
@@ -221,7 +231,7 @@ describe("createPaneBackend", () => {
       timedOut: false,
     });
 
-    await expect(createPaneBackend(CONFIG, run).open(STEP, CALL)).rejects.toThrow(
+    await expect(createHerdrAdapter(CONFIG, run).open(STEP, CALL)).rejects.toThrow(
       "workspace create failed: session_not_running",
     );
   });

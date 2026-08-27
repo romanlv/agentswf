@@ -1,6 +1,6 @@
 import type {
   AgentSession,
-  AgentSessionBackend,
+  AgentSessionDriver,
   BackendKind,
   CallIdentity,
   SettledState,
@@ -20,7 +20,7 @@ export type FakeTurnContext = {
   prompt: string;
   /** 1 for the task, 2 for the nudge. */
   turn: number;
-  /** What the agent writes to its terminal. A blind backend keeps it and shows nobody. */
+  /** What the agent writes to its terminal. A blind driver keeps it and shows nobody. */
   print(text: string): void;
 };
 
@@ -45,13 +45,13 @@ export function createManualClock(start = 0): ManualClock {
   };
 }
 
-export type FakeBackend = AgentSessionBackend & {
+export type FakeSessionDriver = AgentSessionDriver & {
   opened: { callId: string; step: Step }[];
   prompts: { callId: string; turn: number; text: string }[];
   closed: string[];
 };
 
-export function createFakeBackend(options: {
+export function createFakeSessionDriver(options: {
   script: FakeScript;
   kind?: BackendKind;
   clock?: ManualClock;
@@ -59,22 +59,22 @@ export function createFakeBackend(options: {
   blind?: boolean;
   /** Throws instead of opening, the way a busy Herdr server does. */
   openError?: string;
-}): FakeBackend {
-  const backend: FakeBackend = {
+}): FakeSessionDriver {
+  const driver: FakeSessionDriver = {
     kind: options.kind ?? "headless",
     opened: [],
     prompts: [],
     closed: [],
     async open(step: Step, call: CallIdentity): Promise<AgentSession> {
       if (options.openError) throw new Error(options.openError);
-      backend.opened.push({ callId: call.callId, step });
+      driver.opened.push({ callId: call.callId, step });
       let turn = 0;
       let transcript = "";
 
       return {
         async prompt(text: string) {
           turn += 1;
-          backend.prompts.push({ callId: call.callId, turn, text });
+          driver.prompts.push({ callId: call.callId, turn, text });
           const context: FakeTurnContext = {
             runDir: call.runDir,
             callId: call.callId,
@@ -97,10 +97,10 @@ export function createFakeBackend(options: {
           return options.blind ? null : transcript;
         },
         async close() {
-          backend.closed.push(call.callId);
+          driver.closed.push(call.callId);
         },
       };
     },
   };
-  return backend;
+  return driver;
 }

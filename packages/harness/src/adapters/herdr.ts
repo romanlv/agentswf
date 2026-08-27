@@ -2,14 +2,14 @@ import { runProcess, type RunProcess } from "../command";
 import { harnessSpec } from "../spec";
 import type {
   AgentSession,
-  AgentSessionBackend,
+  AgentSessionDriver,
   CallIdentity,
   SettledState,
   Step,
   TurnOutcome,
 } from "../types";
 
-export type PaneConfig = {
+export type HerdrConfig = {
   /** Never `review-loop`: that session has a live loop attached to it. */
   session: string;
   workspaceLabel: string;
@@ -25,14 +25,21 @@ type HerdrResult =
   | { ok: true; result: Record<string, unknown>; stdout: string }
   | { ok: false; error: string };
 
+const HERDR_KINDS: Record<Step["harness"], string> = {
+  claude: "claude",
+  codex: "codex",
+  pi: "pi",
+  cursor: "cursor",
+};
+
 /**
  * A workspace per call, closed after. Every Herdr verb the experiment uses is in this file and
- * every harness flag it passes through is in `harness.ts`.
+ * every harness flag it passes through is in `spec.ts`.
  */
-export function createPaneBackend(
-  config: PaneConfig,
+export function createHerdrAdapter(
+  config: HerdrConfig,
   run: RunProcess = runProcess,
-): AgentSessionBackend {
+): AgentSessionDriver {
   const startAttempts = config.startAttempts ?? 5;
   const startRetryMs = config.startRetryMs ?? 2_000;
 
@@ -120,7 +127,15 @@ export function createPaneBackend(
         if (workspaceId) await herdr(["workspace", "close", workspaceId]);
       };
 
-      const started = await startAgent(name, spec.herdrKind, paneId, spec.paneArgs(step.model));
+      const launch = spec.interactive(step.model);
+      const command = launch.argv[0];
+      if (!command) throw new Error(`${step.harness} has no interactive command`);
+      const started = await startAgent(
+        name,
+        HERDR_KINDS[step.harness],
+        paneId,
+        launch.argv.slice(1),
+      );
       if (!started.ok) {
         await closeWorkspace();
         throw new Error(`agent start failed after ${started.attempts}: ${started.error}`);

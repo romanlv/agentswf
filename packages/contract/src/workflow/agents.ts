@@ -7,6 +7,7 @@ export type RuntimeAliasName = string;
 export type TurnId = string;
 export type CompactionId = string;
 export type HarnessKind = string;
+/** Execution behavior, not the implementation that provides it (for example Herdr or tmux). */
 export type BackendKind = "pane" | "headless";
 export type SpendPoolKey = string;
 

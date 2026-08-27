@@ -3,13 +3,13 @@ import { runProcess, type RunProcess } from "../command";
 import { harnessSpec } from "../spec";
 import type {
   AgentSession,
-  AgentSessionBackend,
+  AgentSessionDriver,
   CallIdentity,
   Step,
   TurnOutcome,
 } from "../types";
 
-export type HeadlessConfig = {
+export type DirectProcessConfig = {
   turnTimeoutMs: number;
   /** Prepended to PATH so the agent's `wf` is this run's `wf`. */
   binDir?: string;
@@ -18,12 +18,12 @@ export type HeadlessConfig = {
 
 /**
  * One subprocess per turn. The first turn starts a session; a nudge resumes it, which only
- * works for a harness whose spec knows how — see `harness.ts`.
+ * works for a harness whose spec knows how — see `spec.ts`.
  */
-export function createHeadlessBackend(
-  config: HeadlessConfig,
+export function createDirectProcessAdapter(
+  config: DirectProcessConfig,
   run: RunProcess = runProcess,
-): AgentSessionBackend {
+): AgentSessionDriver {
   const newSessionId = config.newSessionId ?? randomUUID;
   return {
     kind: "headless",

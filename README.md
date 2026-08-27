@@ -2,8 +2,9 @@
 
 An engine for **workflows made of coding agents**. A workflow is ordinary TypeScript: it opens
 agents, gives them work, waits for structured answers, and composes the results. The agents are
-real terminal coding agents — claude, codex, pi, cursor — driven either as a Herdr pane or as a
-headless process.
+real terminal coding agents — claude, codex, pi, cursor — driven through a configured session
+adapter. Herdr is the current pane adapter and direct subprocesses provide headless execution;
+neither is part of the workflow interface.
 
 The distinguishing constraint is that the workers are non-deterministic processes that bill
 money and sometimes fail to answer. That is not a normal task queue, and it drives the design.

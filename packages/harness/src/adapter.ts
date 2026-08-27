@@ -66,14 +66,16 @@ export interface HarnessActivation {
   previousSessionId?: string;
 }
 
-export interface AgentHarnessAdapter {
-  readonly kind: HarnessKind;
-  readonly backends: readonly [BackendKind, ...BackendKind[]];
+export interface AgentSessionAdapter {
+  /** The execution behavior this adapter provides; its concrete tool is operator configuration. */
+  readonly backend: BackendKind;
+  readonly harnesses: readonly [HarnessKind, ...HarnessKind[]];
   activate(request: HarnessActivation): Promise<HarnessSession>;
 }
 
 /** Engine-owned configuration assembled once, outside workflow definitions. */
 export interface AgentRuntimeConfig {
   aliases: RuntimeAliases;
-  harnesses: readonly AgentHarnessAdapter[];
+  /** At most one installed adapter provides each backend kind. */
+  backends: Readonly<Partial<Record<BackendKind, AgentSessionAdapter>>>;
 }

@@ -6,8 +6,8 @@
   "exports": {
     ".": "./src/index.ts",
     "./adapter": "./src/adapter.ts",
-    "./backends/pane": "./src/backends/pane.ts",
-    "./backends/headless": "./src/backends/headless.ts",
+    "./adapters/herdr": "./src/adapters/herdr.ts",
+    "./adapters/direct-process": "./src/adapters/direct-process.ts",
     "./testing": "./src/testing/fake.ts"
   },
   "dependencies": {

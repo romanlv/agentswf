@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type { ProcessInput, RunProcess } from "../command";
 import { HARNESSES } from "../spec";
 import type { Step } from "../types";
-import { createHeadlessBackend } from "./headless";
+import { createDirectProcessAdapter } from "./direct-process";
 
 const CALL = { runDir: "/runs/r", callId: "c1" };
 const STEP: Step = { prompt: "count the e's", harness: "claude", backend: "headless" };
@@ -22,10 +22,10 @@ function stub(stdouts: string[]): { run: RunProcess; calls: ProcessInput[] } {
 const claudeOut = (result: string, sessionId = "sess-1") =>
   JSON.stringify({ session_id: sessionId, result });
 
-describe("createHeadlessBackend", () => {
+describe("createDirectProcessAdapter", () => {
   test("the call reaches the agent through the subprocess environment", async () => {
     const { run, calls } = stub([claudeOut("done")]);
-    const session = await createHeadlessBackend(
+    const session = await createDirectProcessAdapter(
       { turnTimeoutMs: 1_000, binDir: "/wf/bin" },
       run,
     ).open(STEP, CALL);
@@ -39,7 +39,7 @@ describe("createHeadlessBackend", () => {
 
   test("a nudge resumes the session the first turn left behind", async () => {
     const { run, calls } = stub([claudeOut("done"), claudeOut("ok")]);
-    const session = await createHeadlessBackend({ turnTimeoutMs: 1_000 }, run).open(STEP, CALL);
+    const session = await createDirectProcessAdapter({ turnTimeoutMs: 1_000 }, run).open(STEP, CALL);
 
     await session.prompt("go");
     await session.prompt("report now");
@@ -51,7 +51,7 @@ describe("createHeadlessBackend", () => {
 
   test("the transcript is what the agent said, not the harness envelope", async () => {
     const { run } = stub([claudeOut("the count is 3")]);
-    const session = await createHeadlessBackend({ turnTimeoutMs: 1_000 }, run).open(STEP, CALL);
+    const session = await createDirectProcessAdapter({ turnTimeoutMs: 1_000 }, run).open(STEP, CALL);
 
     await session.prompt("go");
 
@@ -60,7 +60,7 @@ describe("createHeadlessBackend", () => {
 
   test("the prompt rides on stdin, where no CLI reinterprets it", async () => {
     const { run, calls } = stub([claudeOut("done")]);
-    const session = await createHeadlessBackend({ turnTimeoutMs: 1_000 }, run).open(STEP, CALL);
+    const session = await createDirectProcessAdapter({ turnTimeoutMs: 1_000 }, run).open(STEP, CALL);
 
     await session.prompt("count the e's in 'agent terminal'");
 
@@ -70,7 +70,7 @@ describe("createHeadlessBackend", () => {
 
   test("the session id pi is given up front is the one its nudge resumes", async () => {
     const { run, calls } = stub(["{}", "{}"]);
-    const session = await createHeadlessBackend(
+    const session = await createDirectProcessAdapter(
       { turnTimeoutMs: 1_000, newSessionId: () => "chosen-id" },
       run,
     ).open({ ...STEP, harness: "pi" }, CALL);
@@ -91,7 +91,7 @@ describe("createHeadlessBackend", () => {
         usage: { input_tokens: 2, output_tokens: 7, cache_read_input_tokens: 900 },
       }),
     ]);
-    const session = await createHeadlessBackend({ turnTimeoutMs: 1_000 }, run).open(STEP, CALL);
+    const session = await createDirectProcessAdapter({ turnTimeoutMs: 1_000 }, run).open(STEP, CALL);
 
     expect((await session.prompt("go")).usage).toMatchObject({
       costUsd: 0.042,
@@ -105,7 +105,7 @@ describe("createHeadlessBackend", () => {
     const { resumeTurn } = HARNESSES.codex;
     delete HARNESSES.codex.resumeTurn;
     try {
-      const session = await createHeadlessBackend({ turnTimeoutMs: 1_000 }, run).open(
+      const session = await createDirectProcessAdapter({ turnTimeoutMs: 1_000 }, run).open(
         { ...STEP, harness: "codex" },
         CALL,
       );
@@ -128,7 +128,7 @@ describe("createHeadlessBackend", () => {
       exitCode: 1,
       timedOut: false,
     });
-    const session = await createHeadlessBackend({ turnTimeoutMs: 1_000 }, run).open(STEP, CALL);
+    const session = await createDirectProcessAdapter({ turnTimeoutMs: 1_000 }, run).open(STEP, CALL);
 
     const outcome = await session.prompt("go");
 
@@ -143,7 +143,7 @@ describe("createHeadlessBackend", () => {
       exitCode: 137,
       timedOut: true,
     });
-    const session = await createHeadlessBackend({ turnTimeoutMs: 1_000 }, run).open(STEP, CALL);
+    const session = await createDirectProcessAdapter({ turnTimeoutMs: 1_000 }, run).open(STEP, CALL);
 
     expect(await session.prompt("go")).toMatchObject({
       state: "unknown",

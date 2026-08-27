@@ -50,7 +50,9 @@ export type AgentSession = {
   close(): Promise<void>;
 };
 
-export type AgentSessionBackend = {
+/** Internal terminal-driving seam used by concrete session adapters. */
+export type AgentSessionDriver = {
+  /** The mode callers request. The concrete provider remains an implementation detail. */
   kind: BackendKind;
   open(step: Step, call: CallIdentity): Promise<AgentSession>;
 };

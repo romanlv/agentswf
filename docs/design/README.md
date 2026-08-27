@@ -92,16 +92,16 @@ specific agent harness.
 The engine is configured with:
 
 - `AgentRuntimeConfig.aliases` — central runtime aliases.
-- `AgentRuntimeConfig.harnesses` — installed `AgentHarnessAdapter` implementations.
+- `AgentRuntimeConfig.backends` — one installed `AgentSessionAdapter` per backend kind.
 
-An adapter declares its harness kind and supported backends. The engine calls `activate()` with the
-resolved execution, working directory, instructions, skills, and recovery session id. The returned
-`HarnessSession` can report status, start turns, compact context, and close. A `HarnessTurn` exposes
-its eventual outcome, continuation delivery, nudge, and cancellation.
+An adapter declares the backend kind it provides and the harnesses it supports. The engine calls
+`activate()` with the resolved execution, working directory, instructions, skills, and recovery
+session id. The returned `HarnessSession` can report status, start turns, compact context, and
+close. A `HarnessTurn` exposes its eventual outcome, continuation delivery, nudge, and cancellation.
 
 | Object | Calls |
 | --- | --- |
-| `AgentHarnessAdapter` | `activate(request)` |
+| `AgentSessionAdapter` | `activate(request)` |
 | `HarnessSession` | `status()`, `start(turn)`, `compact(id, prompt)`, `close(reason?)` |
 | `HarnessTurn` | `result`, `deliver(prompt)`, `nudge(spec)`, `cancel(reason?)` |
 
@@ -109,6 +109,29 @@ The engine, not the adapter, owns logical-agent identity, runtime alias resoluti
 idempotency, lifecycle and recovery policy, global admission, workflow usage collection, and the
 public `run()` convenience operation. The adapter owns translation to native harness commands and
 reconciliation of terminal state with an actual reported result.
+
+### Session adapters, not a Herdr dependency
+
+`BackendKind` describes behavior the workflow may depend on: `pane` retains an interactive
+terminal session, while `headless` drives the harness as a direct process. It deliberately does not
+name the program that supplies that behavior.
+
+Herdr is the first and default `pane` adapter because the experiments exercised its lifecycle and
+liveness behavior. It is not an engine dependency or a workflow capability. Operator configuration
+may replace that entry with a tmux adapter, and the `headless` entry already demonstrates execution
+without a terminal multiplexer. A future adapter may use neither, provided it satisfies the same
+session interface and reports unsupported capabilities honestly.
+
+The configuration admits at most one adapter for each backend kind. That keeps selection outside
+workflow code: aliases resolve to `pane` or `headless`, then the engine uses the configured adapter
+for that kind. Installing both Herdr and tmux as candidates does not introduce a second routing
+language; the operator chooses which one occupies the `pane` slot.
+
+The current Stage 0 factories implement the smaller `AgentSessionDriver` seam used by the archived
+experiments; `AgentSessionAdapter` is still design-only. Stage D must compose or replace those
+drivers behind the engine-facing interface rather than exposing both seams to the engine. The
+shared harness table now supplies provider-neutral interactive commands. Herdr's agent-kind mapping
+stays in the Herdr implementation, where a tmux or raw-PTY implementation does not need to know it.
 
 ## What an agent inside a session sees
 

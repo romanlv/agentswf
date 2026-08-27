@@ -136,7 +136,7 @@ than scaffolding.
 - `telemetry/src/testing/conformance.ts` read properly, and applied to `harness/testing` — the
   pattern was named here and only half-applied.
 - `vitest-evals/` as the concrete shape for the eval reporter and summary.
-- `session-backends` as a family, against this project's `backends/`.
+- `session-backends` as a family, against this project's session adapters.
 
 ## openclaw/openclaw
 

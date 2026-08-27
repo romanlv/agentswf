@@ -15,8 +15,9 @@ including where it departed from this plan.
 
 An engine that runs **workflows made of coding agents**. A workflow is ordinary TypeScript: it
 opens agents, gives them work, waits for structured answers, and composes the results. The agents
-are real terminal coding agents — claude, codex, pi, cursor — driven either as a Herdr pane or as a
-headless process.
+are real terminal coding agents — claude, codex, pi, cursor — driven through a configured session
+adapter. Herdr is the first pane adapter and a direct subprocess is the first headless adapter; the
+workflow interface depends on those behaviors, not those implementations.
 
 The distinguishing constraint is that the workers are **non-deterministic processes that bill money
 and sometimes fail to answer**. That is not a normal task queue, and it drives most of what follows.
@@ -202,11 +203,22 @@ Two things that were in earlier drafts of this plan have moved out. **Run-direct
 which is the only writer; only the *format* stays here. **The conformance kit** moves to
 `harness/testing`, for the reason in section 10.
 
-**`harness`** — open a coding agent as a Herdr pane or a headless process; prompt it; know when it
-settled; read its raw outcome and what it cost. Contains the per-harness flag table, `command.ts`,
-`backends/{pane,headless,fake}`, liveness (from `agent_status`, per E1), `testing/` (the pure
+**`harness`** — open a coding agent through a configured session adapter; prompt it; know when it
+settled; read its raw outcome and what it cost. Herdr currently provides `pane` and direct process
+execution provides `headless`, but either implementation is replaceable without changing a
+workflow. Contains the provider-neutral harness launch table, `command.ts`,
+`adapters/{herdr,direct-process}`, liveness (from `agent_status`, per E1), `testing/` (the pure
 conformance kit, run against the fake), and `usage/` — **extraction only**. Pricing and aggregation
 are policy and live elsewhere; see section 8.
+
+`pane` and `headless` are backend kinds, not provider names. Runtime aliases may select those
+behaviors; they never select Herdr, tmux, or another hosting tool. Operator configuration installs
+one session adapter per backend kind, with Herdr as the initial `pane` default. Swapping that entry
+must not change workflow definitions, runtime aliases, or run-record formats.
+
+Stage 0's concrete factories still satisfy the smaller `AgentSessionDriver` interface used by the
+experiments; the engine-facing `AgentSessionAdapter` remains Stage D design. The driver is an
+implementation seam, not a second choice exposed to workflows or the eventual engine.
 
 **`cli-agent`** — the binary that goes on the in-session agent's `PATH`. `wf result`, and later
 `wf peers` / `wf send`. It *compiles* against `contract` alone, and at runtime it talks to the
@@ -582,7 +594,7 @@ The requirement is that pieces drop into existing work — the ad-hoc review and
 engine.
 
 **Every package is independently useful, within a stated limit.** `harness` with no engine is "run
-claude in a pane, know when it settled, read the transcript and what it cost" — a raw session
+claude through a configured adapter, know when it settled, read the transcript and what it cost" — a raw session
 outcome. It cannot on its own promise the engine's *accepted structured result*, because that
 settles through the control plane; a standalone caller either takes the raw outcome or supplies its
 own result sink. Saying otherwise would be promising the engine while claiming not to need it.

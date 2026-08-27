@@ -1,7 +1,8 @@
 # @wf/harness
 
-Drive one coding agent: open it as a Herdr pane or a headless process, prompt it, know when it
-settled, read its raw outcome and what it cost.
+Drive one coding agent through a configured session adapter, prompt it, know when it settled, read
+its raw outcome and what it cost. Herdr currently provides pane sessions and a direct subprocess
+provides headless sessions; neither provider is part of the workflow interface.
 
 This package knows nothing about workflows, run directories, or how a value gets reported. It
 must never import `@wf/engine` — the dependency runs the other way.
@@ -10,10 +11,11 @@ must never import `@wf/engine` — the dependency runs the other way.
 | --- | --- |
 | `spec.ts` | every harness-specific string in the project, in one table |
 | `command.ts` | subprocess execution with a timeout and a capture cap |
-| `backends/pane.ts` | Herdr-backed sessions |
-| `backends/headless.ts` | one subprocess per turn; a nudge resumes the session |
+| `adapters/herdr.ts` | the current Herdr adapter for pane sessions |
+| `adapters/direct-process.ts` | one subprocess per turn; a nudge resumes the session |
 | `adapter.ts` | the designed adapter seam (unimplemented) |
-| `testing/fake.ts` | a scriptable stand-in, so nudges and tallies are proven without tokens |
+| `types.ts` | the internal session-driver seam used by today's adapters |
+| `testing/fake.ts` | a scriptable driver, so nudges and tallies are proven without tokens |
 
 Two things to know before editing:
 
@@ -22,5 +24,10 @@ Two things to know before editing:
 - **`CallIdentity` is identifiers, not credentials.** Anything holding a `runDir` and a
   `callId` can name a call. Stage 2 replaces it with an unforgeable, invocation-scoped
   capability; until then, nothing may treat it as proof of the right to settle a call.
+- **A backend kind is not a provider.** `pane` and `headless` describe execution behavior. Herdr,
+  a future tmux integration, and direct subprocess execution are replaceable session adapters
+  selected by operator configuration.
+- **The two seams have different callers.** The engine will use `AgentSessionAdapter`; concrete
+  adapters use the smaller `AgentSessionDriver` internally while Stage D remains unimplemented.
 
 `spec.ts` rows carry `confirmed`. Set it only when the row has actually been run end to end.

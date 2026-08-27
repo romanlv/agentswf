@@ -21,10 +21,8 @@ export type TurnUsage = {
 export type TurnContext = { model?: string; sessionHint: string };
 
 export type HarnessSpec = {
-  /** `herdr agent start --kind`. */
-  herdrKind: string;
-  /** Arguments after `--` when Herdr launches the harness in a pane. */
-  paneArgs(model?: string): string[];
+  /** A retained interactive launch, independent of the terminal provider that hosts it. */
+  interactive(model?: string): TurnPlan;
   /** A one-shot, non-interactive run of `prompt`. */
   headlessTurn(prompt: string, context: TurnContext): TurnPlan;
   /**
@@ -90,10 +88,11 @@ const claudeUsage = (stdout: string): TurnUsage => {
 
 export const HARNESSES: Record<Harness, HarnessSpec> = {
   claude: {
-    herdrKind: "claude",
     // `Bash` has to be allowed or the agent cannot run `wf` at all, which would measure the
     // permission prompt rather than the return channel.
-    paneArgs: (model) => ["--allowed-tools", "Bash", ...(model ? ["--model", model] : [])],
+    interactive: (model) => ({
+      argv: ["claude", "--allowed-tools", "Bash", ...(model ? ["--model", model] : [])],
+    }),
     // `--output-format json` is the only place the resumable session id is printed, and
     // without it there is no headless nudge.
     headlessTurn: (prompt, { model }) => ({
@@ -129,14 +128,16 @@ export const HARNESSES: Record<Harness, HarnessSpec> = {
   },
 
   codex: {
-    herdrKind: "codex",
-    paneArgs: (model) => [
-      "--sandbox",
-      "danger-full-access",
-      "--ask-for-approval",
-      "never",
-      ...(model ? ["--model", model] : []),
-    ],
+    interactive: (model) => ({
+      argv: [
+        "codex",
+        "--sandbox",
+        "danger-full-access",
+        "--ask-for-approval",
+        "never",
+        ...(model ? ["--model", model] : []),
+      ],
+    }),
     // `exec resume` takes no `-s`, so the sandbox is set through `-c` on both turns rather
     // than through a flag that exists on only one of them.
     headlessTurn: (prompt, { model }) => ({
@@ -190,8 +191,7 @@ export const HARNESSES: Record<Harness, HarnessSpec> = {
   },
 
   pi: {
-    herdrKind: "pi",
-    paneArgs: (model) => (model ? ["--model", model] : []),
+    interactive: (model) => ({ argv: ["pi", ...(model ? ["--model", model] : [])] }),
     // pi is the one harness whose session id we choose: `--session-id` creates it on the first
     // turn and reuses it on the second, so no id has to be scraped back out of the output.
     headlessTurn: (prompt, { model, sessionHint }) => ({
@@ -243,8 +243,9 @@ export const HARNESSES: Record<Harness, HarnessSpec> = {
   },
 
   cursor: {
-    herdrKind: "cursor",
-    paneArgs: (model) => ["--force", ...(model ? ["--model", model] : [])],
+    interactive: (model) => ({
+      argv: ["cursor-agent", "--force", ...(model ? ["--model", model] : [])],
+    }),
     headlessTurn: (prompt, { model }) => ({
       argv: [
         "cursor-agent",
