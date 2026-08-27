@@ -151,6 +151,7 @@ awf/
     foundation.md           # this file
     design/                 # the interface design notes — messaging, composition, the map
     findings/               # the measurement record, frozen
+    research/               # background reading behind a design note — input, not evidence
     reference.md            # surveyed repos: taken, rejected, still unmined, clone paths
     adr/                    # decisions taken later
 

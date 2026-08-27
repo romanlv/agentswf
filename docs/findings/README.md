@@ -1,19 +1,24 @@
-# wf-poc1 findings
+# Findings
 
 What the experiments established, above the level of any single one. Plan and open questions:
-the herdr-workflows plan in the `braintrust/docs` repository.
+[`../foundation.md`](../foundation.md).
 
 | | question | verdict |
 |---|---|---|
-| [E1](e1-harness-matrix.md) | can each harness be driven as a pane and headless? | **yes, 24/24** |
-| [E2](e2-return-channel.md) | how often does a terminal agent hand a value back? | **100%, 480 trials** |
+| [E1](e1-harness-matrix.md) | can each harness be driven as a pane and headless? | **yes, 48/48** |
+| [E2](e2-return-channel.md) | how often does a terminal agent hand a value back? | **480/480 — 4 needed a nudge** |
 | [E3](e3-call-cost.md) | what does a call cost? | **pane per call; pooling buys time, not tokens** |
 | E4 | how many agents at once? | not run |
 | [E5](e5-self-correction.md) | does the schema error get it to self-correct? | **yes, 240/240 — and it should not have to** |
 | [E6](e6-resume.md) | does the journal replay? | **yes, and it is not enough** |
 
+The verdict column is corrected against [`../foundation.md`](../foundation.md) §2 and §4. The
+reports below are frozen as written, so E1's own text still reads 24/24 — that counts one
+prompt-size arm of the 48 rows in `e1/results/e1.jsonl`.
+
 Both gates are cleared. The design's premise holds: four harnesses, two backends, three return
-channels, all of them work.
+channels, all of them work. Delivery is feasible and needs a nudge policy — it is not solved: 4 of
+480 needed a nudge to land, and E3, which sends none, lost 4 of 80.
 
 ## What changed in the plan because of a measurement
 

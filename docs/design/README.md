@@ -1,6 +1,7 @@
 # Workflow interface map
 
-This directory designs the interface; it does not specify an implementation.
+This directory designs the interface; it does not specify an implementation. Stage 0 moved the
+source into `packages/`; what lives here is the map, not the code.
 
 `wf` has three distinct interfaces. Keeping them separate makes it clear which capabilities belong
 to workflow code, which belong to the engine, and which are visible to the agent running inside a
@@ -8,8 +9,8 @@ harness.
 
 | Audience | Interface | Source |
 | --- | --- | --- |
-| Workflow author | Public TypeScript interface | [`index.ts`](index.ts) |
-| Engine and harness adapter | Internal TypeScript interface | [`harness.ts`](harness.ts) |
+| Workflow author | Public TypeScript interface | [`packages/contract/src/workflow/`](../../packages/contract/src/workflow/) |
+| Engine and harness adapter | Internal TypeScript interface | [`packages/harness/src/adapter.ts`](../../packages/harness/src/adapter.ts) |
 | Agent inside a session | Prompt, skills, harness tools, and result CLI | Described below |
 
 The scenarios under [`examples/`](../../examples/) use only the public interface. They do not know how
