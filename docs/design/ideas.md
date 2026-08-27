@@ -33,3 +33,17 @@ given enough data, sandbox and some freedom, iterate on the variables to create 
 ## self improving
 
 - figure out how it works in hermes agent
+
+## messaging 
+
+I still not quite sure if messaging can be it's own tool or not, in theory, adhoc workflows, can be implmented with messaging/signaling too and some prompts, or maybe it's just one of the commands in the toolchain? and it can be integrated 
+
+## sandboxing
+This deserves some upfront thinking, although it can be a next step after that, I still need to prove that design is right for the workflows, let's postpone
+
+## memory 
+self documenting and self cleaning, maybe some kind of skills for now 
+
+## awf powered by awf? 
+
+that can be quite cool
