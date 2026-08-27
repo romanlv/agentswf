@@ -1,0 +1,16 @@
+{
+  "name": "@wf/harness",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./adapter": "./src/adapter.ts",
+    "./backends/pane": "./src/backends/pane.ts",
+    "./backends/headless": "./src/backends/headless.ts",
+    "./testing": "./src/testing/fake.ts"
+  },
+  "dependencies": {
+    "@wf/contract": "workspace:*"
+  }
+}

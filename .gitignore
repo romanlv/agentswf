@@ -1,0 +1,10 @@
+node_modules/
+runs/
+reference/
+
+# Per-call run dirs: result.json, call.json and attempts.jsonl, ~1,200 files an experiment.
+# The aggregate trials.jsonl and the findings files carry everything read off them.
+**/results/*/calls/
+
+# Runner stdout. Nothing in docs/findings/ cites one; the jsonl beside them is the record.
+*.log

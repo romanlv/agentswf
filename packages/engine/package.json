@@ -1,0 +1,15 @@
+{
+  "name": "@wf/engine",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "bin": { "wf": "./bin/wf" },
+  "exports": {
+    ".": "./src/index.ts",
+    "./testing": "./src/testing.ts"
+  },
+  "dependencies": {
+    "@wf/contract": "workspace:*",
+    "@wf/harness": "workspace:*"
+  }
+}

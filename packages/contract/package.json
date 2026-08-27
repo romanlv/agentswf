@@ -1,0 +1,13 @@
+{
+  "name": "@wf/contract",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./schema": "./src/schema.ts",
+    "./records": "./src/records.ts",
+    "./workflow": "./src/workflow/index.ts",
+    "./testing": "./src/testing/fixtures.ts"
+  }
+}

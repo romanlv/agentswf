@@ -1,0 +1,87 @@
+{
+  "lockfileVersion": 2,
+  "configVersion": 1,
+  "workspaces": {
+    "": {
+      "name": "awf",
+      "devDependencies": {
+        "@types/bun": "catalog:",
+        "typescript": "catalog:",
+      },
+    },
+    "examples": {
+      "name": "@wf/examples",
+      "version": "0.0.0",
+      "dependencies": {
+        "@wf/contract": "workspace:*",
+      },
+    },
+    "experiments/_archive": {
+      "name": "@wf/experiments-archive",
+      "version": "0.0.0",
+      "dependencies": {
+        "@wf/contract": "workspace:*",
+        "@wf/engine": "workspace:*",
+        "@wf/harness": "workspace:*",
+      },
+    },
+    "experiments/e4-concurrency": {
+      "name": "@wf/e4-concurrency",
+      "version": "0.0.0",
+      "dependencies": {
+        "@wf/contract": "workspace:*",
+        "@wf/engine": "workspace:*",
+        "@wf/harness": "workspace:*",
+      },
+    },
+    "packages/contract": {
+      "name": "@wf/contract",
+      "version": "0.0.0",
+    },
+    "packages/engine": {
+      "name": "@wf/engine",
+      "version": "0.0.0",
+      "bin": {
+        "wf": "./bin/wf",
+      },
+      "dependencies": {
+        "@wf/contract": "workspace:*",
+        "@wf/harness": "workspace:*",
+      },
+    },
+    "packages/harness": {
+      "name": "@wf/harness",
+      "version": "0.0.0",
+      "dependencies": {
+        "@wf/contract": "workspace:*",
+      },
+    },
+  },
+  "catalog": {
+    "@types/bun": "^1.3.4",
+    "typescript": "^5.9.3",
+  },
+  "packages": {
+    "@types/bun": ["@types/bun@1.4.0", "", { "dependencies": { "bun-types": "1.4.0" } }, "sha512-K+lZULY23vRgK/CfTjFIV+tyifaNdSMlPh9j+6mQ/cLfpOznLyAuzgV/JQysyECpkBQLVMSyvjlr2fBUSA9wFQ=="],
+
+    "@types/node": ["@types/node@26.4.0", "", { "dependencies": { "undici-types": "~8.3.0" } }, "sha512-faiGnoIrLH/V8cibOMEAZ8pMw6oXqSukl29ra4mN8GdaB2ZewzeaLj+INpV5N+Z1eKWzY+IzaIZH2EIR6YZRNQ=="],
+
+    "@wf/contract": ["@wf/contract@workspace:packages/contract"],
+
+    "@wf/e4-concurrency": ["@wf/e4-concurrency@workspace:experiments/e4-concurrency"],
+
+    "@wf/engine": ["@wf/engine@workspace:packages/engine"],
+
+    "@wf/examples": ["@wf/examples@workspace:examples"],
+
+    "@wf/experiments-archive": ["@wf/experiments-archive@workspace:experiments/_archive"],
+
+    "@wf/harness": ["@wf/harness@workspace:packages/harness"],
+
+    "bun-types": ["bun-types@1.4.0", "", { "dependencies": { "@types/node": "*" } }, "sha512-iIKw23BspnQQYd3prITOBxeUsxBHnwzX6YJfGMuNOZzeNcMmVqzIIVGRm1l69ogaPQmb4wB6BN8mA5bE9YuC5Q=="],
+
+    "typescript": ["typescript@5.9.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-jl1vZzPDinLr9eUt3J/t7V6FgNEw9QjvBPdysz9KfQDD41fQrC2Y4vKQdiaUpFT4bXlb1RHhLpp8wtm6M5TgSw=="],
+
+    "undici-types": ["undici-types@8.3.0", "", {}, "sha512-j375ScV60dom+YkPFIfTLcOiPxkN/buHz5GobjLhixFuANaNs3C9l4GmrWqejgXWJ7BbJcFYpTEUkS1Ge8bpZQ=="],
+  }
+}

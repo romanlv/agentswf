@@ -1,0 +1,11 @@
+{
+  "name": "@wf/experiments-archive",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@wf/contract": "workspace:*",
+    "@wf/engine": "workspace:*",
+    "@wf/harness": "workspace:*"
+  }
+}

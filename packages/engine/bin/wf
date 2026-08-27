@@ -1,0 +1,3 @@
+#!/bin/sh
+# The callback an agent runs to hand its answer back. On PATH inside a call's pane or process.
+exec bun run "$(dirname "$0")/../src/cli.ts" "$@"

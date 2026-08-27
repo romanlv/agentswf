@@ -1,0 +1,4 @@
+[test]
+# `bun test` collects `*.test.ts`. Anything that spends money on live agents is named
+# `*.eval.ts`, so it is excluded by that pattern rather than by a list someone has to maintain.
+coverageSkipTestFiles = true
