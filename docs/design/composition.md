@@ -141,8 +141,8 @@ the command writes them successfully. Outstanding response obligations remain vi
 are answered, even after their messages have been delivered.
 
 `--wait` requires a bounded duration. It returns when a message arrives and exits unsuccessfully on
-timeout, leaving inbox state unchanged. This pull operation is necessary because the engine has no
-agent operation through which it can wake an outside session.
+timeout, leaving inbox state unchanged. Delivery is always this pull: the engine has no operation
+through which to run an outside session, so nothing is ever pushed into its context.
 
 `send` follows the messaging contract. Sending to a peer awaiting this participant's response
 satisfies that obligation and may add `--expect-response`. The participant may have at most one
@@ -156,8 +156,26 @@ human-readable route name, not a capability or correlation id.
 
 Any CLI call reports outstanding obligations before its normal output. The engine can record
 deadlines and release waiting agents, but it cannot force a quiet outside session to invoke the
-CLI. Harness-specific notifications may improve responsiveness without changing delivery
-semantics.
+CLI.
+
+## Waking an outside session
+
+A backend that can locate sessions it did not start may offer `OutsideSessionControl`, and the
+engine then wakes a participant that has unread messages instead of waiting for it to look.
+
+The wake carries no message. It only causes the session to take a turn; the content is still read
+through `inbox`, so delivery semantics are unchanged and responsiveness is the only difference.
+That is what makes the wake safe to repeat — a lost one costs nothing, so it is retried against
+`status` rather than confirmed by the call that sent it.
+
+The two receipts answer different questions and neither replaces the other. `status` reporting
+`working` says a turn started, which is enough to stop waking. The participant's next CLI call says
+the message was read. A `blocked` session is escalated rather than woken again, because no number
+of turns clears a prompt that is waiting on a person.
+
+The adapter discovers the session handle when it installs the CLI binding, so terminal identity
+stays out of workflow code and out of the participant spec. Where no adapter provides the
+capability, `wf inbox --wait` is the whole mechanism.
 
 ## Review loop
 

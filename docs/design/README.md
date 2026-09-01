@@ -104,6 +104,7 @@ close. A `HarnessTurn` exposes its eventual outcome, continuation delivery, nudg
 | `AgentSessionAdapter` | `activate(request)` |
 | `HarnessSession` | `status()`, `start(turn)`, `compact(id, prompt)`, `close(reason?)` |
 | `HarnessTurn` | `result`, `deliver(prompt)`, `nudge(spec)`, `cancel(reason?)` |
+| `OutsideSessionControl` | `status(session)`, `wake(session)` — optional, see below |
 
 The engine, not the adapter, owns logical-agent identity, runtime alias resolution, queue ordering,
 idempotency, lifecycle and recovery policy, global admission, workflow usage collection, and the
@@ -121,6 +122,10 @@ liveness behavior. It is not an engine dependency or a workflow capability. Oper
 may replace that entry with a tmux adapter, and the `headless` entry already demonstrates execution
 without a terminal multiplexer. A future adapter may use neither, provided it satisfies the same
 session interface and reports unsupported capabilities honestly.
+
+An adapter that can locate sessions it did not start advertises `outsideWake` and exposes
+`outside`. That is how a connected outside session is woken when it has unread messages; it does
+not deliver anything, and [`composition.md`](composition.md) holds the semantics.
 
 The configuration admits at most one adapter for each backend kind. That keeps selection outside
 workflow code: aliases resolve to `pane` or `headless`, then the engine uses the configured adapter

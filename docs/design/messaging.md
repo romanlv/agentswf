@@ -127,7 +127,7 @@ state live outside model context and survive compaction.
 
 An expected-response message keeps a bound agent operation open until it replies or the obligation
 ends. If the agent finishes without replying, the engine may nudge it. An outside participant has
-no operation to hold or nudge. The waiting command receives an explicit failure on timeout,
+no operation to hold or nudge, though its session may be woken. The waiting command receives an explicit failure on timeout,
 delivery failure, recipient failure or cancellation, or an engine limit. If the engine refuses an
 attempted reply after identifying its peer, the waiter receives the same failure immediately.
 
@@ -227,8 +227,9 @@ There is no `ask`, `tell`, visible message id, channel, team, broadcast, dynamic
 convergence primitive. Known fan-out uses `workflow.parallel`; shared files hold durable state.
 
 `wf receive` remains deferred. Inbound delivery already wakes an idle retained agent. Outside
-sessions, which have no operation to wake, use the bounded `wf inbox --wait` described in
-[`composition.md`](composition.md).
+sessions have no operation to wake and read through the bounded `wf inbox --wait` described in
+[`composition.md`](composition.md); waking such a session may prompt that call but never replaces
+it.
 
 ## Open questions
 
