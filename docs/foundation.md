@@ -155,6 +155,7 @@ awf/
     research/               # background reading behind a design note — input, not evidence
     reference.md            # surveyed repos: taken, rejected, still unmined, clone paths
     adr/                    # decisions taken later
+    stories/                # complete deliverables, each decomposed into reviewed tasks
 
   packages/
     contract/               # pure: types, schema, record formats, the author surface. no I/O

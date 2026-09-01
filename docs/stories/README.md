@@ -1,0 +1,163 @@
+---
+title: Stories
+type: guide
+status: active
+---
+
+# Stories
+
+A story is a complete deliverable: one coherent outcome that can be planned, implemented, reviewed,
+verified, and accepted by a human. Tasks are the ordered units of work inside a story.
+
+## Lifecycle
+
+1. Capture newly discovered deliverables in [`todo/`](todo/). A todo records enough context to
+   recover the idea later, but it is not implementation-ready and must not expand the current
+   story's scope.
+2. Refine selected work into a numbered story in this directory using
+   [`_template.md`](_template.md).
+   Refinement includes reading the relevant code, repository evidence, and external sources when
+   they can change the design.
+3. Mark the story `ready` only when every readiness item is satisfied. `ready` means the proposed
+   direction is coherent; it does not skip the implementation agent's planning pass.
+4. Execute the story's tasks in order. Each task goes through planning, implementation, subagent
+   review, finding resolution, and focused verification before the next task starts.
+5. After every task is complete, run story-level verification, set the story to
+   `awaiting-human-review`, and hand it to the user with
+   the outcome, review findings, verification evidence, deviations, and remaining risks.
+6. Mark the story `done` only after explicit human approval. Git preserves completed stories; do not
+   turn this directory into a changelog.
+
+Number stories in creation order as `NNN-short-name.md`. Frontmatter is authoritative metadata. Story
+status is one of `todo`, `draft`, `ready`, `in-progress`, `blocked`, `awaiting-human-review`, or
+`done`; guides use `active` or `archived`.
+
+## Stories at a glance
+
+- [`001` — Run a minimum multi-agent review workflow](001-multi-agent-review.md) — `ready` — Prove
+  that the engine can run parallel review agents and compose accepted structured results.
+
+This is the high-level index of numbered stories. Keep each entry to its title, status, and
+one-sentence summary; put code maps, research, design, tasks, and verification in the linked story.
+Todo items stay in [`todo/`](todo/) until selected for refinement.
+
+## What belongs in a story
+
+A story owns the proposed outcome, scoped code map, implementation approach, tasks, and verification
+plan.
+It links to authoritative material instead of copying it:
+
+- `docs/findings/` for measured evidence (frozen);
+- `docs/research/` for background reading;
+- `docs/design/` for interface design;
+- `docs/adr/` when a decision changes `foundation.md`;
+- `docs/foundation.md` for package ownership and stage gates.
+
+Research is proportional to uncertainty. A local behavior may only require code and test reading.
+An external interface or unsettled design may require primary-source research. Record what was
+checked and what conclusion it supports; a list of links alone is not a handoff.
+
+## Task and story gates
+
+Every numbered story contains ordered tasks under `Tasks at a glance`. Every task uses the first
+four gates below, including focused verification in Gate 4, before the next task begins. Story-level
+verification and human review happen only after all tasks are complete. Todo inbox notes do not
+need these gates.
+
+### 1. Plan and choose the architecture
+
+- Re-read the story, the current task, their comments, `foundation.md`, the affected package
+  instructions, and the current code and tests before editing.
+- Check the working tree and preserve unrelated user changes.
+- Identify the modules, their interfaces, the seams, ownership of state and I/O, invariants,
+  failure modes, and the tests that will exercise the same interfaces callers use.
+- Prefer deep modules: keep the interface small, hide complexity in the implementation, and avoid
+  adding a seam until more than one adapter actually needs it.
+- Compare credible alternatives when a decision is expensive. Record why the selected design is
+  cleaner and what was rejected.
+- Update the story before coding when evidence changes its proposed design. Ask the user only when
+  the choice changes product behavior, scope, a public record format, a package seam, or another
+  decision that needs their attention.
+- Resolve technical unknowns through code reading, repository evidence, focused experiments, and
+  primary-source research. An implementation detail being unknown is not by itself a reason to ask
+  the user.
+
+### 2. Implement
+
+- Implement the current task's smallest coherent slice.
+- Add focused tests with each slice so incorrect behavior is caught while the context is local.
+- Put newly discovered adjacent deliverables in `todo/`; do not silently expand the story.
+- Record only meaningful deviations and their evidence in `Implementation notes`.
+
+### 3. Review with subagents
+
+- After the coherent implementation and focused tests pass, ask at least two independent subagents
+  to review the actual diff. Reviewers report findings; they do not edit the implementation.
+- Give both reviewers the story, current task, relevant foundation constraints, diff, and focused
+  test results.
+- Give one reviewer architecture and scope: module depth, interface size, seam placement, ownership,
+  compatibility, and accidental expansion.
+- Give another reviewer correctness and proof: races, failure paths, security, cleanup, test gaps,
+  and whether the acceptance criteria are genuinely demonstrated.
+- Record each actionable finding and its disposition. A reviewer saying only that the code looks
+  good is not evidence; the review should name what it checked.
+
+### 4. Resolve findings
+
+- Fix every accepted blocking or important finding and rerun the affected focused tests.
+- Explain rejected findings with concrete evidence.
+- Request another targeted subagent review when a fix materially changes an interface or the
+  architecture selected during planning.
+- Run the current task's focused checks, satisfy its `Done when` items, and record the results. Only
+  then check the task in `Tasks at a glance` and begin the next task.
+
+### 5. Verify
+
+- After all tasks pass their focused verification, run the story's repository-wide checks and any
+  bounded manual or live evaluation specified by the story.
+- Record exact commands and outcomes. Do not hide a failure behind retries or mark an unrun check
+  complete.
+- When no blocking review finding or required verification remains, set the story status to
+  `awaiting-human-review` and prepare the evidence for the user.
+
+### 6. Human review and close
+
+- Present the implemented outcome, important architecture decisions, subagent findings and their
+  dispositions, exact verification results, meaningful deviations, and remaining risks.
+- The human may approve, request changes, or change the story's scope. Requested changes return the
+  affected task to the appropriate earlier gate and must be reviewed and verified again as needed.
+- Only explicit human approval permits changing the story status to `done`.
+
+## Markdown format
+
+Story files target Obsidian:
+
+- Put note properties in YAML frontmatter at the top of the file.
+- Use ordinary relative Markdown links between files so the notes also work outside Obsidian.
+- Use Obsidian wikilinks for headings in the same note: `[[#Heading|Label]]`.
+- Use `- [ ]` and `- [x]` for task checkboxes.
+- Prefer headings and lists over HTML, wide tables, or GitHub-specific formatting.
+
+## Agent rules
+
+- Refine before implementing. Do not mark a story `ready` by filling placeholders with guesses.
+- Do not edit production code for a task before its planning and architecture gate is recorded.
+- Do not start the next task until the current task's focused verification and review findings are
+  complete.
+- Do not mark a numbered story `done` without explicit human approval.
+- Add every numbered story to `Stories at a glance`, and update its status there when the frontmatter
+  changes.
+- Treat `Out of scope` as a constraint. Add adjacent work to `todo/` rather than silently widening
+  the story.
+- Cite paths and symbols in the code map. Line numbers may be added for navigation but are not the
+  identity of the code.
+- Prefer headings and short lists for detailed material. Use tables only for compact mappings whose
+  cells stay easy to scan in a plain Markdown editor.
+- Separate observed facts, proposed decisions, and assumptions.
+- Put one `Open questions` section immediately after `Tasks at a glance`. Group questions under the
+  affected task number and include enough context to show what decision or later work each blocks.
+  Write `None.` when no questions remain.
+- Stop and return the story for refinement when an unresolved question could change an expensive
+  interface, record format, package seam, or stage gate.
+- Keep the story current when implementation invalidates its plan. The code is authoritative for
+  completed behavior; the story should explain meaningful deviations, not narrate every edit.
