@@ -34,6 +34,16 @@
         "@wf/harness": "workspace:*",
       },
     },
+    "packages/cli-agent": {
+      "name": "@wf/cli-agent",
+      "version": "0.0.0",
+      "bin": {
+        "wf": "./src/cli.ts",
+      },
+      "dependencies": {
+        "@wf/contract": "workspace:*",
+      },
+    },
     "packages/contract": {
       "name": "@wf/contract",
       "version": "0.0.0",
@@ -42,9 +52,10 @@
       "name": "@wf/engine",
       "version": "0.0.0",
       "bin": {
-        "wf": "./bin/wf",
+        "awf": "./src/operator-cli.ts",
       },
       "dependencies": {
+        "@wf/cli-agent": "workspace:*",
         "@wf/contract": "workspace:*",
         "@wf/harness": "workspace:*",
       },
@@ -65,6 +76,8 @@
     "@types/bun": ["@types/bun@1.4.0", "", { "dependencies": { "bun-types": "1.4.0" } }, "sha512-K+lZULY23vRgK/CfTjFIV+tyifaNdSMlPh9j+6mQ/cLfpOznLyAuzgV/JQysyECpkBQLVMSyvjlr2fBUSA9wFQ=="],
 
     "@types/node": ["@types/node@26.4.0", "", { "dependencies": { "undici-types": "~8.3.0" } }, "sha512-faiGnoIrLH/V8cibOMEAZ8pMw6oXqSukl29ra4mN8GdaB2ZewzeaLj+INpV5N+Z1eKWzY+IzaIZH2EIR6YZRNQ=="],
+
+    "@wf/cli-agent": ["@wf/cli-agent@workspace:packages/cli-agent"],
 
     "@wf/contract": ["@wf/contract@workspace:packages/contract"],
 

@@ -10,8 +10,10 @@
     }
   },
   "scripts": {
+    "awf": "bun packages/engine/src/operator-cli.ts",
     "check": "tsc --noEmit && bun run scripts/check-boundaries.ts",
-    "test": "bun test"
+    "test": "bun test",
+    "ts-check": "tsc --noEmit"
   },
   "devDependencies": {
     "@types/bun": "catalog:",

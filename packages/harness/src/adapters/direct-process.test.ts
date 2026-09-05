@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type { ProcessInput, RunProcess } from "../command";
 import { HARNESSES } from "../spec";
 import type { Step } from "../types";
-import { createDirectProcessAdapter } from "./direct-process";
+import { createDirectProcessAdapter, createHeadlessAdapter } from "./direct-process";
 
 const CALL = { runDir: "/runs/r", callId: "c1" };
 const STEP: Step = { prompt: "count the e's", harness: "claude", backend: "headless" };
@@ -149,5 +149,180 @@ describe("createDirectProcessAdapter", () => {
       state: "unknown",
       detail: "timed out after 1000ms",
     });
+  });
+});
+
+describe("createHeadlessAdapter", () => {
+  const activation = {
+    key: "reviewer",
+    deadline: { unixMilliseconds: Date.now() + 60_000 },
+    cwd: "/repo",
+    instructions: "Follow repository instructions.",
+    execution: {
+      harness: "claude",
+      model: "opus",
+    },
+  };
+  const firstBinding = {
+    endpoint: "/private/engine.sock",
+    operationId: "op-1",
+    capability: "A".repeat(43),
+  };
+  const secondBinding = {
+    endpoint: "/private/engine.sock",
+    operationId: "op-2",
+    capability: "B".repeat(43),
+  };
+
+  test("reuses one operation binding when nudging the native session", async () => {
+    const { run, calls } = stub([claudeOut("first"), claudeOut("second")]);
+    const adapter = createHeadlessAdapter(
+      { turnTimeoutMs: 10_000, binDir: "/wf/bin", newSessionId: () => "chosen" },
+      run,
+    );
+    const session = await adapter.activate(activation);
+    const first = await session.start(
+      { id: "turn-1", prompt: "review", deadline: activation.deadline },
+      firstBinding,
+    );
+    await expect(first.settled).resolves.toMatchObject({
+      state: "completed",
+      resultEvidence: { kind: "transcript", text: "first" },
+    });
+    const nudge = await first.nudge(
+      { id: "turn-1:nudge", prompt: "report", deadline: activation.deadline },
+    );
+    await nudge.settled;
+
+    expect(calls[0]?.env).toMatchObject({
+      WF_ENDPOINT: firstBinding.endpoint,
+      WF_OPERATION: firstBinding.operationId,
+      WF_CAPABILITY: firstBinding.capability,
+    });
+    expect(calls[1]?.env).toMatchObject({
+      WF_ENDPOINT: firstBinding.endpoint,
+      WF_OPERATION: firstBinding.operationId,
+      WF_CAPABILITY: firstBinding.capability,
+    });
+    expect(JSON.stringify(calls[1]?.env)).not.toContain(secondBinding.capability);
+  });
+
+  test("compaction resumes without result authority", async () => {
+    const { run, calls } = stub([claudeOut("first"), claudeOut("summary")]);
+    const session = await createHeadlessAdapter(
+      { turnTimeoutMs: 10_000, newSessionId: () => "chosen" },
+      run,
+    ).activate(activation);
+    const turn = await session.start(
+      { id: "turn-1", prompt: "review", deadline: activation.deadline },
+      firstBinding,
+    );
+    await turn.settled;
+    const compact = await session.compact("compact-1", "summarize", activation.deadline);
+    await compact.settled;
+
+    expect(calls[1]?.env).toEqual({});
+    expect(calls[1]?.argv).toContain("--resume");
+  });
+
+  test("reports lifecycle status and closes idempotently", async () => {
+    let release!: () => void;
+    const run: RunProcess = async () => {
+      await new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      return { stdout: claudeOut("done"), stderr: "", exitCode: 0, timedOut: false };
+    };
+    const session = await createHeadlessAdapter({ turnTimeoutMs: 10_000 }, run).activate(activation);
+    const turn = await session.start(
+      { id: "turn-1", prompt: "review", deadline: activation.deadline },
+      firstBinding,
+    );
+    expect(await session.status()).toEqual({ state: "working" });
+    release();
+    await turn.settled;
+    expect(await session.status()).toEqual({ state: "idle" });
+    await session.close();
+    await session.close();
+    expect(await session.status()).toEqual({ state: "missing" });
+  });
+
+  test("cancellation reaches the active child process", async () => {
+    const run: RunProcess = async (input) =>
+      new Promise((resolve) => {
+        input.signal?.addEventListener(
+          "abort",
+          () =>
+            resolve({
+              stdout: "",
+              stderr: "",
+              exitCode: 137,
+              timedOut: false,
+              cancelled: true,
+            }),
+          { once: true },
+        );
+      });
+    const session = await createHeadlessAdapter({ turnTimeoutMs: 10_000 }, run).activate(activation);
+    const turn = await session.start(
+      { id: "turn-1", prompt: "review", deadline: activation.deadline },
+      firstBinding,
+    );
+
+    await expect(turn.release("stop", activation.deadline)).resolves.toMatchObject({
+      kind: "released",
+    });
+    await expect(turn.settled).resolves.toMatchObject({ state: "cancelled" });
+  });
+
+  test("distinguishes the adapter's native timeout from the operation deadline", async () => {
+    const run: RunProcess = async () => ({
+      stdout: "",
+      stderr: "",
+      exitCode: 137,
+      timedOut: true,
+    });
+    const session = await createHeadlessAdapter({ turnTimeoutMs: 250 }, run).activate(activation);
+    const turn = await session.start(
+      { id: "turn-1", prompt: "review", deadline: activation.deadline },
+      firstBinding,
+    );
+
+    await expect(turn.settled).resolves.toMatchObject({
+      state: "timed-out",
+      detail: "native turn timed out after 250ms",
+    });
+  });
+
+  test("close aborts and waits for the active child", async () => {
+    let aborted = false;
+    const run: RunProcess = async (input) =>
+      new Promise((resolve) =>
+        input.signal?.addEventListener(
+          "abort",
+          () => {
+            aborted = true;
+            resolve({
+              stdout: "",
+              stderr: "",
+              exitCode: 137,
+              timedOut: false,
+              cancelled: true,
+            });
+          },
+          { once: true },
+        ),
+      );
+    const session = await createHeadlessAdapter({ turnTimeoutMs: 10_000 }, run).activate(activation);
+    const turn = await session.start(
+      { id: "turn-1", prompt: "review", deadline: activation.deadline },
+      firstBinding,
+    );
+
+    await session.close();
+
+    expect(aborted).toBe(true);
+    await expect(turn.settled).resolves.toMatchObject({ state: "cancelled" });
+    await expect(session.status()).resolves.toEqual({ state: "missing" });
   });
 });

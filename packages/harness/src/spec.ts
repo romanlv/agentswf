@@ -23,6 +23,8 @@ export type TurnContext = { model?: string; sessionHint: string };
 export type HarnessSpec = {
   /** A retained interactive launch, independent of the terminal provider that hosts it. */
   interactive(model?: string): TurnPlan;
+  /** Starts a new interactive process attached to a previously observed native session. */
+  interactiveResume?(sessionId: string, model?: string): TurnPlan;
   /** A one-shot, non-interactive run of `prompt`. */
   headlessTurn(prompt: string, context: TurnContext): TurnPlan;
   /**
@@ -93,6 +95,16 @@ export const HARNESSES: Record<Harness, HarnessSpec> = {
     interactive: (model) => ({
       argv: ["claude", "--allowed-tools", "Bash", ...(model ? ["--model", model] : [])],
     }),
+    interactiveResume: (sessionId, model) => ({
+      argv: [
+        "claude",
+        "--resume",
+        sessionId,
+        "--allowed-tools",
+        "Bash",
+        ...(model ? ["--model", model] : []),
+      ],
+    }),
     // `--output-format json` is the only place the resumable session id is printed, and
     // without it there is no headless nudge.
     headlessTurn: (prompt, { model }) => ({
@@ -131,6 +143,18 @@ export const HARNESSES: Record<Harness, HarnessSpec> = {
     interactive: (model) => ({
       argv: [
         "codex",
+        "--sandbox",
+        "danger-full-access",
+        "--ask-for-approval",
+        "never",
+        ...(model ? ["--model", model] : []),
+      ],
+    }),
+    interactiveResume: (sessionId, model) => ({
+      argv: [
+        "codex",
+        "resume",
+        sessionId,
         "--sandbox",
         "danger-full-access",
         "--ask-for-approval",

@@ -7,6 +7,13 @@
  */
 import { Glob } from "bun";
 import { dirname, join, relative } from "node:path";
+import {
+  allowsComputedWorkflowImport,
+  containsPath,
+  escapedPathImport,
+  WORKSPACE_MANIFEST_GLOBS,
+} from "./boundary-paths";
+import { extractImports, hasUnresolvedDynamicImport } from "./boundary-imports";
 
 const ROOT = join(import.meta.dir, "..");
 
@@ -28,6 +35,14 @@ const RULES: Rule[] = [
   { dir: "packages/contract", allow: [], forbid: NO_RUNTIME_API },
   { dir: "packages/harness", allow: ["@wf/contract", "@wf/contract/*"] },
   {
+    dir: "packages/cli-agent",
+    allow: ["@wf/contract", "@wf/contract/*"],
+    forbid: [
+      { pattern: /^@wf\/(engine|harness)/, reason: "cli-agent reaches the engine only over wire" },
+      { pattern: /^(?:node:)?fs(?:\/|$)/, reason: "cli-agent never performs run-directory I/O" },
+    ],
+  },
+  {
     dir: "examples",
     allow: ["@wf/contract/workflow"],
     forbid: [
@@ -41,6 +56,7 @@ const RULES: Rule[] = [
 
 /** `Bun.file`, `Bun.write`, `Bun.spawn` — an import ban alone would miss the global. */
 const BUN_GLOBAL = /(^|[^\w.])Bun\s*\./;
+const BUN_FILE_IO = /(^|[^\w.])Bun\s*\.\s*(file|write)\s*\(/;
 
 const problems: string[] = [];
 
@@ -53,9 +69,21 @@ for (const rule of RULES) {
     if (rule.dir === "packages/contract" && BUN_GLOBAL.test(source)) {
       problems.push(`${where}: uses the Bun global; contract is types and pure functions only`);
     }
+    if (rule.dir === "packages/cli-agent" && BUN_FILE_IO.test(source)) {
+      problems.push(`${where}: cli-agent never performs run-directory I/O`);
+    }
+    if (hasUnresolvedDynamicImport(source) && !allowsComputedWorkflowImport(where)) {
+      problems.push(`${where}: contains a computed import whose boundary cannot be verified`);
+    }
 
-    for (const spec of imports(source)) {
-      if (spec.startsWith(".") || spec === "bun:test") continue;
+    for (const spec of extractImports(source)) {
+      const escaped = escapedPathImport(abs, file, spec);
+      if (escaped) {
+        problems.push(`${where}: path import ${spec} escapes ${rule.dir}`);
+        continue;
+      }
+      if (spec.startsWith(".") || spec.startsWith("/") || spec.startsWith("file:")) continue;
+      if (spec === "bun:test") continue;
       const forbidden = rule.forbid?.find((f) => f.pattern.test(spec));
       if (forbidden) {
         problems.push(`${where}: imports ${spec} — ${forbidden.reason}`);
@@ -70,18 +98,46 @@ for (const rule of RULES) {
 }
 
 // Rule 4: a cross-package import has to be a declared dependency, not just a hoisted symlink.
-for await (const manifest of new Glob("{packages,examples,experiments}/*/package.json").scan({
-  cwd: ROOT,
-  absolute: true,
-})) {
-  const pkg = (await Bun.file(manifest).json()) as {
-    name: string;
-    dependencies?: Record<string, string>;
-  };
+const manifests: string[] = [];
+for (const pattern of WORKSPACE_MANIFEST_GLOBS) {
+  for await (const manifest of new Glob(pattern).scan({ cwd: ROOT, absolute: true })) {
+    manifests.push(manifest);
+  }
+}
+const packageInfo = await Promise.all(
+  manifests.map(async (manifest) => ({
+    manifest,
+    directory: dirname(manifest),
+    pkg: (await Bun.file(manifest).json()) as {
+      name: string;
+      dependencies?: Record<string, string>;
+    },
+  })),
+);
+
+for (const { directory, pkg } of packageInfo) {
   const declared = new Set(Object.keys(pkg.dependencies ?? {}));
-  for await (const file of new Glob("**/*.ts").scan({ cwd: dirname(manifest), absolute: true })) {
+  for await (const file of new Glob("**/*.ts").scan({ cwd: directory, absolute: true })) {
     const source = await Bun.file(file).text();
-    for (const spec of imports(source)) {
+    if (
+      hasUnresolvedDynamicImport(source) &&
+      !allowsComputedWorkflowImport(relative(ROOT, file))
+    ) {
+      const problem = `${relative(ROOT, file)}: contains a computed import whose boundary cannot be verified`;
+      if (!problems.includes(problem)) problems.push(problem);
+    }
+    for (const spec of extractImports(source)) {
+      if (spec.startsWith(".") || spec.startsWith("/") || spec.startsWith("file:")) {
+        const target = escapedPathImport(directory, file, spec);
+        if (!target) continue;
+        const owner = packageInfo.find((candidate) => containsPath(candidate.directory, target));
+        if (owner && !declared.has(owner.pkg.name)) {
+          problems.push(
+            `${relative(ROOT, file)}: imports ${spec}, but ${pkg.name} does not declare ${owner.pkg.name}`,
+          );
+        }
+        continue;
+      }
       if (!spec.startsWith("@wf/")) continue;
       const owner = spec.split("/").slice(0, 2).join("/");
       if (owner === pkg.name || declared.has(owner)) continue;
@@ -90,15 +146,6 @@ for await (const manifest of new Glob("{packages,examples,experiments}/*/package
       );
     }
   }
-}
-
-function imports(source: string): string[] {
-  const found: string[] = [];
-  for (const match of source.matchAll(/(?:from|import)\s*["']([^"']+)["']/g)) {
-    const spec = match[1];
-    if (spec) found.push(spec);
-  }
-  return found;
 }
 
 function match(allowed: string, spec: string): boolean {

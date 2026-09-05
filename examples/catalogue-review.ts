@@ -1,7 +1,6 @@
 import type {
   OutputSchema,
   RuntimeAliasName,
-  SpendPoolKey,
   TurnUsage,
   WorkflowContext,
   WorkflowDefinition,
@@ -42,12 +41,10 @@ type Verdict = {
 type CatalogueArgs = {
   project: string;
   iid: number;
-  cwd: string;
   range: string;
   lenses: Lens[];
   maxVerifyPerLens?: number;
   runtimeAlias: RuntimeAliasName;
-  spendPool: SpendPoolKey;
 };
 
 type Failure = {
@@ -85,7 +82,7 @@ export const catalogueReview: WorkflowDefinition<CatalogueArgs, CatalogueResult>
     const lensResults = await workflow.parallel(
       args.lenses,
       (lens) => runLens(workflow, args, lens),
-      { label: "Catalogue lenses", concurrency: 6 },
+      { label: "Catalogue lenses", concurrency: 6, deadline: workflow.deadline },
     );
     const lensFailures = lensResults.flatMap((result) =>
       result.kind === "failed"
@@ -140,20 +137,22 @@ async function runLens(
 ): Promise<LensResult> {
   try {
     const reviewer = await workflow.agents.open({
+      deadline: workflow.deadline,
       key: `run:${workflow.runId}:mr:${args.project}:${args.iid}:lens:${lens.id}`,
-      cwd: args.cwd,
+      cwd: workflow.cwd,
       instructions: `Apply only the ${lens.id} lens from ${lens.page}.`,
       lifecycle: { retention: { kind: "workflow" } },
-      runtime: { alias: args.runtimeAlias, pool: args.spendPool },
+      runtime: { alias: args.runtimeAlias },
       labels: { lens: lens.id },
     });
     const { outcome } = await reviewer.run({
+      deadline: workflow.deadline,
       prompt: [
         `Read ${args.range} for ${args.project}!${args.iid}.`,
         `Read ${lens.page}, follow it exactly, and review the diff.`,
       ].join("\n"),
       schema: FINDINGS,
-      nudge: true,
+      nudge: { deadline: workflow.deadline },
     });
 
     return outcome.kind === "answered"
@@ -186,14 +185,16 @@ async function verifyFindings(
     async (finding, index) => {
       try {
         const verifier = await workflow.agents.open({
+          deadline: workflow.deadline,
           key: `run:${workflow.runId}:mr:${args.project}:${args.iid}:verifier:${index}`,
-          cwd: args.cwd,
+          cwd: workflow.cwd,
           instructions: "Try to refute this finding against the diff and surrounding code.",
           lifecycle: { retention: { kind: "workflow" } },
-          runtime: { alias: args.runtimeAlias, pool: args.spendPool },
+          runtime: { alias: args.runtimeAlias },
           labels: { verifier: index },
         });
         const { outcome } = await verifier.run({
+          deadline: workflow.deadline,
           prompt: [
             "Try to refute this finding. Default to refuted=true when uncertain.",
             `Diff: ${args.range}`,
@@ -206,7 +207,7 @@ async function verifyFindings(
             "trigger matches.",
           ].join("\n"),
           schema: VERDICT,
-          nudge: true,
+          nudge: { deadline: workflow.deadline },
         });
 
         return outcome.kind === "answered"
@@ -216,7 +217,7 @@ async function verifyFindings(
         return { finding: notVerified(finding), failure: message(error) };
       }
     },
-    { label: "Verify findings", concurrency: 4 },
+    { label: "Verify findings", concurrency: 4, deadline: workflow.deadline },
   );
 
   return {

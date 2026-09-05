@@ -12,15 +12,12 @@ a call and an attempt; the engine owns the files.
 | `.` | `CallResult`, the record formats, the schema subset, the semantic seam |
 | `./schema` | the JSON Schema subset, `validate`, `describe`, `formatErrors` |
 | `./records` | `CallSpec`, `Attempt`, `RECORD_VERSION` — formats only |
+| `./wire` | versioned, runtime-decodable control-plane messages |
 | `./workflow` | the author surface: `WorkflowContext`, `AgentRef`, messaging, composition |
 | `./testing` | fixtures shared by tests in other packages |
 
-`./workflow` is designed and unimplemented — it is the surface `examples/` is written against.
-Six defects in it are listed in `docs/foundation.md` §7 and are not yet fixed. Read that list
-before extending it.
-
-`@wf/contract/wire` — the control-plane messages, with runtime-decodable schemas — does not
-exist yet. It arrives with the control plane in Stage 2, not before.
+`./workflow` is the author surface used by `examples/`; the engine implementation is intentionally
+partial. Read the interface decisions in Story 001 before extending it.
 
 The per-field error text in `schema.ts` is load-bearing: E5 measured 2.00 correction attempts
 against 2.90–4.95 for a bare refusal. Do not make it terser.

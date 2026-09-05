@@ -16,8 +16,8 @@ including where it departed from this plan.
 An engine that runs **workflows made of coding agents**. A workflow is ordinary TypeScript: it
 opens agents, gives them work, waits for structured answers, and composes the results. The agents
 are real terminal coding agents — claude, codex, pi, cursor — driven through a configured session
-adapter. Herdr is the first pane adapter and a direct subprocess is the first headless adapter; the
-workflow interface depends on those behaviors, not those implementations.
+host. Herdr is the first run host; provider-specific launch and continuation stay behind that host.
+The workflow interface selects agent behavior, not terminal placement or process topology.
 
 The distinguishing constraint is that the workers are **non-deterministic processes that bill money
 and sometimes fail to answer**. That is not a normal task queue, and it drives most of what follows.
@@ -160,7 +160,8 @@ awf/
   packages/
     contract/               # pure: types, schema, record formats, the author surface. no I/O
     harness/                # drive a coding agent. adapters, liveness, usage extraction
-    engine/                 # the workflow runtime, the run directory, and the `wf` binary
+    engine/                 # the workflow runtime, run-directory I/O, and local control plane
+    cli-agent/              # the in-session `wf` binary; contract plus wire client only
 
   examples/                 # scenario workflows written against the author surface
   experiments/
@@ -169,8 +170,8 @@ awf/
   scripts/                  # check-boundaries.ts, and ad-hoc dev commands
 ```
 
-`packages/cli-agent` is the fourth package and does not exist yet; the reason is in the next
-subsection.
+`packages/cli-agent` is the fourth package. It was created only when the versioned wire boundary
+and engine-owned local endpoint existed, as required below.
 
 Four packages. The justification for each is that something outside it must import it.
 
@@ -204,33 +205,53 @@ Two things that were in earlier drafts of this plan have moved out. **Run-direct
 which is the only writer; only the *format* stays here. **The conformance kit** moves to
 `harness/testing`, for the reason in section 10.
 
-**`harness`** — open a coding agent through a configured session adapter; prompt it; know when it
-settled; read its raw outcome and what it cost. Herdr currently provides `pane` and direct process
-execution provides `headless`, but either implementation is replaceable without changing a
-workflow. Contains the provider-neutral harness launch table, `command.ts`,
-`adapters/{herdr,direct-process}`, liveness (from `agent_status`, per E1), `testing/` (the pure
+**`harness`** — open one run-owned agent host, then open logical agents and operations inside it;
+prompt them; inspect their normalized state; know when native work settled; read raw outcome and
+usage evidence. Herdr is the initial host. Provider-specific Claude, Codex, pi, and cursor launch,
+continuation, transcript, authentication, and usage behavior is composed inside the host rather
+than selected as a per-agent terminal backend. Contains the provider-neutral launch table,
+`command.ts`, host/provider adapters, liveness (from `agent_status`, per E1), `testing/` (the pure
 conformance kit, run against the fake), and `usage/` — **extraction only**. Pricing and aggregation
 are policy and live elsewhere; see section 8.
 
-`pane` and `headless` are backend kinds, not provider names. Runtime aliases may select those
-behaviors; they never select Herdr, tmux, or another hosting tool. Operator configuration installs
-one session adapter per backend kind, with Herdr as the initial `pane` default. Swapping that entry
-must not change workflow definitions, runtime aliases, or run-record formats.
+Terminal placement is run policy, not workflow intent. `pane | headless` does not belong in the
+author surface, runtime aliases, or resolved agent identity: exposing it let two logical peers use
+different lifecycle and observability models. Operator configuration installs one run host, and
+every logical agent in that run crosses the same host interface. The host may use different native
+provider commands internally, but inspection, authority, deadlines, cancellation, cleanup, and
+evidence remain symmetric. Swapping Herdr for another host must not change workflow definitions or
+runtime aliases.
 
-Stage 0's concrete factories still satisfy the smaller `AgentSessionDriver` interface used by the
-experiments; the engine-facing `AgentSessionAdapter` remains Stage D design. The driver is an
-implementation seam, not a second choice exposed to workflows or the eventual engine.
+One run host owns one terminal group and its final cleanup. Logical-agent handles own continuity;
+each distinct operation receives fresh result authority and an operation pane. An initial prompt
+and its one nudge are delivery attempts for the same operation, slot, capability, schema, and pane.
+A later operation may resume native context only when the host has measured continuation support
+and terminal evidence; native session references never cross into workflow or engine-owned state.
+Durable result acceptance, client acknowledgement, and native release are distinct facts. An
+accepted result may determine the author-visible answer, but the next operation is not admitted
+until the prior pane is released or continuation is explicitly severed and failed closed.
+
+Per-pane environment injection provides routing for cooperative-but-fallible agents. It is not a
+security boundary against mutually hostile same-UID processes: child agents inherit environment,
+and access to process state or the Herdr control socket can cross panes. Capabilities remain useful
+against stale commands and accidental cross-wiring, but adversarial confinement requires the OS
+isolation gate in `design/permissions.md`. Prompts that forbid delegation are spending guidance,
+not proof of confinement.
+
+Stage 0's concrete factory names still satisfy the smaller `AgentSessionDriver` interface used by
+the frozen experiments. That compatibility seam stays out of production run hosting. Herdr and a
+fake host satisfy the run-host interface; provider variation is internal composition, not another
+choice exposed to workflows or the engine.
 
 **`cli-agent`** — the binary that goes on the in-session agent's `PATH`. `wf result`, and later
 `wf peers` / `wf send`. It *compiles* against `contract` alone, and at runtime it talks to the
 engine over the local control plane described in section 7. It never links the engine and never
 touches the run directory itself.
 
-**It does not exist yet, deliberately.** Today's `wf` binary is `engine/bin/wf`, and `cli.ts`
-links `result-layer` and writes the run directory — which is what it actually is. Standing the
-package up now would mean declaring the boundary and violating it in the same commit, which is
-worse than not declaring it. Stage 2 builds the local endpoint and moves the binary across; the
-`@wf/contract/wire` subpath arrives with it, for the same reason.
+It was deliberately absent through Stage 0. Stage 2 created it together with
+`@wf/contract/wire` and the engine-owned endpoint, then removed the engine-linked binary. The
+package now has a real boundary to uphold: it submits over the local socket and cannot reach the
+run directory or engine implementation.
 
 **`engine`** — logical-agent identity, alias resolution, queueing, idempotency, `parallel`, `steps`,
 `signals`, usage collection, spend-pool admission, **all run-directory I/O, and the local
@@ -337,8 +358,9 @@ them would set them in concrete.
 (`packages/contract/src/workflow/agents.ts:151-170`). Those are engine concepts — the interface map says so itself
 (`docs/design/README.md:107-110`). As written, an adapter must either know engine internals or be
 handed enough context to fake them, which defeats the boundary the package split exists to draw.
-The adapter should return terminal state, result evidence, a session reference and harness-native
-usage samples; the engine wraps that and attaches identity, call path, attempts and aggregation.
+The adapter should return terminal state, result evidence, and harness-native usage samples; its
+host keeps native continuation references private. The engine wraps terminal evidence with logical
+identity, call path, and aggregated operation usage.
 
 **Fork is on the roadmap and nowhere in the interface.** `grep -c fork packages/contract/src/workflow/*.ts` is zero;
 `HarnessSession` has `compact` and no fork (`packages/harness/src/adapter.ts:49-57`). Earlier drafts of this
@@ -454,11 +476,12 @@ is a *user* of this engine rather than a part of it.
 It is also the most demanding consumer on the list, which makes it the useful one to design
 against. Four things follow, all cheap now and expensive later.
 
-**Everything it varies must be a parameter, not configuration.** Runtime aliases are described in
-the interface map as engine configuration. An optimizer cannot read a config file — it has to inject
-the model, harness, backend and pool per run. Skills and tools are already per-agent (`skills: [...]`
-on open), and the `skill:name` grammar keeps them comparable across harnesses. The alias table has
-to be an argument to the engine, not a file it loads.
+**Everything it varies must be injectable, with workload and provisioning kept distinct.** An
+optimizer supplies runtime aliases and run policy programmatically. Harness, model, settings,
+skills, and tools are workload parameters. Terminal host/topology, authentication route, funding
+pool, and admission are operator provisioning and accounting policy. Both may vary per run without
+letting workflow code choose infrastructure. The alias table and run policy are arguments to the
+engine, not files it silently loads.
 
 **The engine needs a programmatic entry point.** Run a workflow with injected configuration, get a
 structured result. The operator CLI is a wrapper over that, never the only way in.
@@ -542,22 +565,30 @@ account, is charged to nobody; `claude -p` bills metered even with no API key in
 The dimensions a cost record has to carry are **charge basis, funding pool, estimation basis and
 rate-card version**. Without them it will silently report one as the other.
 
-## 9. `examples/`, not `workflows/`
+## 9. Explicit workflow files, not a catalogue
 
-The three scenarios in `examples/` — `catalogue-review.ts`, `feature-delivery.ts`,
-`review-loop.ts`, 1044 lines — are examples. Every import in all three is `import type`; they
-compile against the public interface and none of them has ever run. They show what a workflow looks
-like, and they fail the typecheck if the author surface regresses. That is what an example is for,
-and calling it a specification would be dressing it up.
+The scenarios in `examples/` compile against `@wf/contract/workflow` and never import the engine or
+a harness. `catalogue-review.ts` and `feature-delivery.ts` remain typechecked design examples.
+`minimum-review.ts` is the reusable one-round definition, and `review-loop.ts` is its executable
+operator wrapper. An executable workflow default-exports the small author-side descriptor consumed
+by `awf run`. The workflow may constrain an operator alias to an exact model when that choice is
+part of its behavior; alias definitions, adapters, authentication, run-directory I/O, loading, and
+cleanup stay in the operator and engine. The engine supplies the invocation working directory and
+one enforced absolute run deadline through `WorkflowContext`; they are not domain arguments. The
+operator derives that bound from `awf run --timeout` (ten minutes by default). Expiry cancels active
+agent work; shutdown has a separate fixed five-second grace so an uncooperative adapter cannot keep
+the operator open. A configuration source for the run timeout remains a future operator concern,
+not an author-surface addition.
 
-So: a top-level `examples/` directory, which is also what openai-agents-js, inngest and openclaw all
-do. One `package.json` so `workspace:*` imports resolve, private, inside the typecheck gate, not in
-the default test run.
+`awf run <local-file>` is explicit loading of trusted code, not discovery. The named module runs
+with the operator's filesystem and process authority before its export can be validated. There is
+no registry, installed workflow catalogue, package-specifier loading, or `workflows/` deployment
+surface. Add one only when multiple distributed workflows create evidence for its ownership and
+lifecycle; executability alone is no longer the trigger.
 
-`workflows/` is a different thing — workflows that actually execute — and there are none until
-Stage 3, when the ad-hoc review loop becomes the first. Creating the directory now would be the exact failure mode section 10
-is meant to prevent: a directory that exists gets filled. It gets created when the first workflow
-runs, and the examples stay where they are.
+Keep the top-level `examples/` package private and inside the typecheck and import-boundary gates.
+Runnable examples also receive focused engine integration tests, while live agent execution stays
+opt-in.
 
 ## 10. Deliberately not built yet
 
@@ -571,8 +602,6 @@ named trigger fires.
 | skill/tool capability resolution | request and report *shapes* in `contract`, resolution in `harness/src/capabilities/`, fail-vs-downgrade policy in `engine` | two adapters demonstrate what is actually portable |
 | context-usage reading | `harness/src/context/` | — |
 | per-adapter packages | `harness/src/adapters/` | an adapter needs its own dependencies |
-| `workflows/` | `examples/` (typecheck only, never runs) | the first workflow executes |
-| operator surface | `engine` bin | checkpoints need a human to answer them |
 | journal / resume | shelved, **and its public types removed** | after deciding effect boundaries, persistence and versioning (E6) |
 | remote execution | not built | the local control plane already draws the boundary; this only swaps the transport |
 | TUI | not built | — |
@@ -624,32 +653,29 @@ fault is cheapest to fix while it is still a `.ts` file nobody imports — which
 author surface is. Fixing them by writing the replacement implementation would be the expensive
 order.
 
-**Stage 0 has run; Stage D has not.** The move went first because the layout was the settled part
-and the interface is not, and because putting the surface behind a checked boundary is what makes
-"nobody imports it" true rather than merely current. Stage D now happens in
-`packages/contract/src/workflow/` instead of `interfaces/`; nothing else about it changes.
+**Stage 0 and Stage D have run. Stage 2 is implemented through the non-live proof, but its live
+acceptance is still open.** Story 001 is the current execution record. In particular, the symmetric
+Herdr host must stop treating an ambiguous `idle` report as proof of native completion before the
+minimum engine is an accepted foundation.
 
-- **Stage D — fix the interface, in place, as design.** Correct the six defects in
+- **Stage D — fix the interface, in place, as design. Done.** The six defects were corrected in
   `packages/contract/src/workflow/` where they live: `HarnessTurn.result` becomes a harness-local
-  outcome; `ReplayPolicy`'s journal arm comes out; a checkpoint gets modelled as its own primitive
-  rather than a signal, with Temporal's Update semantics as the reference (`reference.md`); fork
-  gets an adapter capability flag and no public API; the acceptance gate's contract states
-  atomicity; every waiting primitive takes a required deadline and a distinct timed-out outcome.
-  The three workflows in `examples/` are the test — they typecheck against the surface and nothing
-  else does, so a fix that makes them worse is a bad fix. Gate: `tsc --noEmit`, all three still
-  compile, and the section 7 list is empty. No implementation, no new packages.
+  outcome; `ReplayPolicy`'s journal arm comes out; checkpoints are removed from signal semantics
+  and deferred until an admission-barrier primitive is designed; fork gets an adapter capability
+  flag and no public API; the acceptance gate's contract states atomicity; every waiting primitive
+  takes a required deadline and a distinct timed-out outcome.
+  The workflows in `examples/` typecheck against the author surface and no runtime package. Story
+  001 Task 1 records the reset design and verification.
 - **Stage 0 — skeleton and move. Done.** The three packages exist, `bun test` is 114 pass / 0 fail
   across 12 files — the same 114 assertions and the same 220 `expect()` calls poc1 ran — `tsc
   --noEmit` is clean, and `scripts/check-boundaries.ts` passes. Five things the move decided that
   this plan had left open, each because writing the code forced the question:
 
-  - **`cli-agent` was not created.** The reason is in section 6: the boundary it exists to draw
-    does not exist until Stage 2, and announcing it early would mean violating it immediately.
-    `wf` is an engine binary for now, and says so.
-  - **`CallEnv` was renamed, not replaced.** Section 6 called for replacing it with an
-    unforgeable, invocation-scoped capability — but there is nothing to replace it *with* before
-    the control plane. It is `CallIdentity` in `harness`, documented as identifiers rather than
-    credentials, so nothing downstream can quietly start treating it as authentication.
+  - **`cli-agent` was not created during Stage 0.** Stage 2 has now created it behind the real wire
+    boundary; `wf` no longer imports the engine or writes the run directory.
+  - **`CallEnv` was renamed rather than treated as authority during Stage 0.** Stage 2 now binds
+    each operation to an invocation-scoped capability. `CallIdentity` remains only in the frozen
+    experiment compatibility surface and must not be used by new engine code.
   - **`ReturnMethod` left the contract as planned, and `CallSpec` shrank with it.** The record
     format carries `callId`, `question` and `schema`; `Attempt.source` is a string, because which
     channel carried a value is not something the format should enumerate. E2's `method` and
@@ -663,17 +689,16 @@ and the interface is not, and because putting the surface behind a checked bound
   a package move should not mean editing evidence, and the shim imports public entrypoints only —
   so the archive is held to the same boundaries as everything else.
 
-- **Stage 1 — prove the harness stands alone.** Pure adapter-contract tests in `harness/testing`
-  against the fake, the live E1 matrix as an opt-in `*.eval.ts`, and one real ad-hoc command in
-  `scripts/` that imports `harness` and nothing else. Gate: the command is short, and writing it
-  does not require importing `engine`.
-- **Stage 2 — minimum engine and the control plane.** `agents.open/run`, `parallel`, the result gate,
-  `cli-agent`, and the local endpoint between them — with an atomic accept replacing
-  `writeAccepted`'s check-then-write. Gate: reproduce E2's delivery result through the engine rather
-  than through `trial.ts`; prove two submissions carrying the same operation capability settle once;
-  and prove that wrong, stale, closed and cross-operation capabilities are all rejected. The
-  interface already requires the capability to be invocation-scoped so a delayed command cannot
-  settle a later operation (`docs/design/README.md:144-166`) — that is the property to test.
+- **Stage 1 — prove the harness stands alone. In progress.** The production adapter contract,
+  shared fake, direct-process adapter, isolated-pane adapter, and symmetric Herdr run host have
+  focused tests and remain engine-independent. A small general-purpose standalone command has not
+  been accepted and is not silently claimed by Story 001.
+- **Stage 2 — minimum engine and the control plane. Implemented; live acceptance pending.**
+  `agents.open/run`, `parallel`, secure result slots, `cli-agent`, the local endpoint, the run
+  handle, and the explicit workflow loader now exist. Tests prove atomic first settlement and
+  reject wrong, stale, closed, and cross-operation capabilities. The fake-backed two-agent workflow
+  passes through the production result path. Story 001 keeps this stage open because Herdr `idle`
+  is not reliable native-completion evidence and the reset live evaluation has not run.
 - **Stage 3 — measure and run something real.** Evals from E2/E5, the first executing workflow, then
   **E4** — the one question never answered, and the only remaining measurement that changes the
   engine rather than confirming it. Telemetry probably becomes a package here.

@@ -1,5 +1,6 @@
 import type { JsonObject, JsonValue, OutputSchema } from "./json";
 import type { ParticipantRef } from "./participants";
+import type { AbsoluteDeadline } from "./timing";
 
 export type AgentKey = string;
 export type SkillName = string;
@@ -7,9 +8,6 @@ export type RuntimeAliasName = string;
 export type TurnId = string;
 export type CompactionId = string;
 export type HarnessKind = string;
-/** Execution behavior, not the implementation that provides it (for example Herdr or tmux). */
-export type BackendKind = "pane" | "headless";
-export type SpendPoolKey = string;
 
 export type ModelSettings = {
   /** Harness-defined reasoning effort, such as `low`, `medium`, or `high`. */
@@ -23,8 +21,6 @@ export type ModelSettings = {
 export type ExecutionConfig = {
   harness: HarnessKind;
   model: string;
-  backend: BackendKind;
-  pool: SpendPoolKey;
   settings?: ModelSettings;
 };
 
@@ -65,8 +61,6 @@ export type ExecutionRequirements = {
   alias: RuntimeAliasName;
   harness?: HarnessKind;
   model?: string;
-  backend?: BackendKind;
-  pool?: SpendPoolKey;
   /** Exact structural match, including provider options. */
   settings?: ModelSettings;
 };
@@ -83,6 +77,8 @@ export type UsageExecution = Omit<AgentExecution, "settings">;
 
 export interface AgentOpenSpec {
   key: AgentKey;
+  /** Bounds activation. The engine rejects with `DeadlineExceededError` after owned cleanup. */
+  deadline: AbsoluteDeadline;
   /** Defaults to the workflow's working directory. */
   cwd?: string;
   instructions?: string;
@@ -97,10 +93,14 @@ export interface AgentOpenSpec {
 
 interface AgentTurnBase {
   prompt: string;
+  /** Bounds this turn, including waiting for an accepted result. */
+  deadline: AbsoluteDeadline;
   label?: string;
 }
 
 export interface NudgeOptions {
+  /** Bounds presentation and settlement of the continuation. */
+  deadline: AbsoluteDeadline;
   /** Uses the engine's standard missing-answer recovery prompt when omitted. */
   prompt?: string;
 }
@@ -122,7 +122,7 @@ interface AgentRunBase extends AgentTurnBase {
   /** Idempotency key scoped to this agent. Generated when omitted. */
   id?: TurnId;
   /** On `unanswered`, invokes `TurnRef.nudge` before later queued turns. */
-  nudge?: true | NudgeOptions;
+  nudge?: NudgeOptions;
 }
 
 export interface AgentRunTextSpec extends AgentRunBase {
@@ -166,6 +166,7 @@ export type TurnOutcome<T extends JsonValue> = (
   | { kind: "answered"; value: T }
   | { kind: "unanswered"; reason: string }
   | { kind: "blocked"; reason: string }
+  | { kind: "timed-out"; reason: string }
   | { kind: "failed"; reason: string; retryable: boolean }
   | { kind: "cancelled"; reason: string }
 ) & { usage: TurnUsage };
@@ -173,8 +174,8 @@ export type TurnOutcome<T extends JsonValue> = (
 export type RunResult<T extends JsonValue> = {
   /** The nudge outcome when one ran; otherwise the initial outcome. */
   outcome: TurnOutcome<T>;
-  /** Usage for the initial operation and its nudge, when one ran. */
-  usage: TurnUsage[];
+  /** Aggregated usage for every delivery attempt made to settle this operation. */
+  usage: TurnUsage;
 };
 
 export interface TurnRef<T extends JsonValue> {
@@ -182,10 +183,11 @@ export interface TurnRef<T extends JsonValue> {
   /** Resolves to an explicit terminal state; an absent agent answer is never successful data. */
   readonly result: Promise<TurnOutcome<T>>;
   /**
-   * Continues an unanswered turn as a separately accounted operation with a derived id. Repeating
-   * the same nudge returns the same ref; a different nudge or later queued operation rejects.
+   * Makes one additional delivery attempt against this turn's existing result slot and authority.
+   * Repeating the same nudge returns the same ref; a different nudge or later queued operation
+   * rejects.
    */
-  nudge(options?: NudgeOptions): Promise<TurnRef<T>>;
+  nudge(options: NudgeOptions): Promise<TurnRef<T>>;
   /** Returns false when cancellation is unsupported or the turn is already terminal. */
   cancel(reason?: string): Promise<boolean>;
 }
@@ -193,6 +195,7 @@ export interface TurnRef<T extends JsonValue> {
 export interface CompactSpec {
   id: CompactionId;
   prompt: string;
+  deadline: AbsoluteDeadline;
 }
 
 export interface AgentRef extends ParticipantRef {

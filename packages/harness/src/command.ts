@@ -6,28 +6,33 @@ export type ProcessResult = {
   stderr: string;
   exitCode: number;
   timedOut: boolean;
+  cancelled?: boolean;
 };
 
 export type ProcessInput = {
   argv: readonly string[];
   cwd?: string;
   /** Merged over the parent environment. `WF_RUN` and `WF_CALL` ride in here for headless. */
-  env?: Record<string, string>;
+  env?: Record<string, string | undefined>;
   /** Fed to the child and closed. The prompt rides here: no CLI reinterprets stdin. */
   stdin?: string;
   timeoutMs: number;
+  signal?: AbortSignal;
 };
 
 export type RunProcess = (input: ProcessInput) => Promise<ProcessResult>;
 
 /** A nonzero exit is a normal result, not a throw; the reason is on `stderr`. */
-export const runProcess: RunProcess = async ({ argv, cwd, env, stdin, timeoutMs }) => {
+export const runProcess: RunProcess = async ({ argv, cwd, env, stdin, timeoutMs, signal }) => {
+  if (signal?.aborted) {
+    return { stdout: "", stderr: "process cancelled", exitCode: 130, timedOut: false, cancelled: true };
+  }
   let child: Bun.Subprocess<"ignore", "pipe", "pipe">;
   try {
     child = Bun.spawn({
       cmd: [...argv],
       cwd,
-      env: { ...process.env, ...env },
+      env: childEnvironment(env),
       stdin: stdin === undefined ? "ignore" : new TextEncoder().encode(stdin),
       stdout: "pipe",
       stderr: "pipe",
@@ -38,6 +43,12 @@ export const runProcess: RunProcess = async ({ argv, cwd, env, stdin, timeoutMs 
   }
 
   let timedOut = false;
+  let cancelled = false;
+  const abort = () => {
+    cancelled = true;
+    child.kill("SIGKILL");
+  };
+  signal?.addEventListener("abort", abort, { once: true });
   const timer = setTimeout(() => {
     timedOut = true;
     child.kill("SIGKILL");
@@ -49,13 +60,35 @@ export const runProcess: RunProcess = async ({ argv, cwd, env, stdin, timeoutMs 
       readCapped(child.stderr),
       child.exited,
     ]);
-    return { stdout, stderr, exitCode, timedOut };
+    return { stdout, stderr, exitCode, timedOut, ...(cancelled ? { cancelled: true } : {}) };
   } finally {
     clearTimeout(timer);
+    signal?.removeEventListener("abort", abort);
   }
 };
 
+function childEnvironment(env?: Record<string, string | undefined>): Record<string, string | undefined> {
+  const inherited = { ...process.env };
+  delete inherited.WF_ENDPOINT;
+  delete inherited.WF_OPERATION;
+  delete inherited.WF_CAPABILITY;
+  return { ...inherited, ...env };
+}
+
 async function readCapped(stream: ReadableStream<Uint8Array>): Promise<string> {
-  const text = await new Response(stream).text();
-  return text.length > MAX_OUTPUT_BYTES ? text.slice(0, MAX_OUTPUT_BYTES) : text;
+  const chunks: Uint8Array[] = [];
+  let captured = 0;
+  for await (const chunk of stream) {
+    if (captured >= MAX_OUTPUT_BYTES) continue;
+    const kept = chunk.subarray(0, MAX_OUTPUT_BYTES - captured);
+    chunks.push(kept);
+    captured += kept.byteLength;
+  }
+  const joined = new Uint8Array(captured);
+  let offset = 0;
+  for (const chunk of chunks) {
+    joined.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return new TextDecoder().decode(joined);
 }

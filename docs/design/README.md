@@ -216,6 +216,8 @@ The interface names injected skills, but it does not describe the harness-native
 commands, filesystem access, network access, or approval policy available to the model. Those are
 currently adapter launch details. Consequently, this interface can answer which skills an agent
 gets, but it cannot yet provide a complete auditable list of everything that agent may call.
+[`permissions.md`](permissions.md) designs the grant, the operator ceiling, and the honest report
+that closes it.
 
 Messaging is defined by the public `Messaging` interface, the internal `HarnessTurn.deliver` seam,
 and the agent-bound commands documented in [`messaging.md`](messaging.md).

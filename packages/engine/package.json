@@ -3,12 +3,13 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "bin": { "wf": "./bin/wf" },
+  "bin": { "awf": "./src/operator-cli.ts" },
   "exports": {
     ".": "./src/index.ts",
     "./testing": "./src/testing.ts"
   },
   "dependencies": {
+    "@wf/cli-agent": "workspace:*",
     "@wf/contract": "workspace:*",
     "@wf/harness": "workspace:*"
   }

@@ -24,7 +24,7 @@ export type SettledState = "idle" | "done" | "blocked" | "unknown";
 /**
  * Which call a session is serving. These are identifiers, not credentials — anything holding
  * them can name the call, which is why the engine must not treat them as proof of the right
- * to settle it. Stage 2 replaces this with an unforgeable, invocation-scoped capability.
+ * to settle it. Production uses `HarnessOperationBinding`; this remains for frozen experiments.
  */
 export type CallIdentity = { runDir: string; callId: string };
 
@@ -50,7 +50,7 @@ export type AgentSession = {
   close(): Promise<void>;
 };
 
-/** Internal terminal-driving seam used by concrete session adapters. */
+/** Legacy seam retained for frozen experiments. Production uses `AgentSessionAdapter`. */
 export type AgentSessionDriver = {
   /** The mode callers request. The concrete provider remains an implementation detail. */
   kind: BackendKind;

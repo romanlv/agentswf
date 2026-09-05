@@ -1,15 +1,41 @@
 import { open } from "node:fs/promises";
 
-/**
- * O(1) and atomic for a line under PIPE_BUF. Read-modify-write would be O(n^2) across a run
- * and would lose one of two concurrent appends, which is exactly what E4 does.
- */
+const appendQueues = new Map<string, Promise<void>>();
+
 export async function appendLine(path: string, line: string): Promise<void> {
+  const previous = appendQueues.get(path) ?? Promise.resolve();
+  const current = previous.catch(() => undefined).then(() => appendCompleteLine(path, line));
+  appendQueues.set(path, current);
+  try {
+    await current;
+  } finally {
+    if (appendQueues.get(path) === current) appendQueues.delete(path);
+  }
+}
+
+async function appendCompleteLine(path: string, line: string): Promise<void> {
   const handle = await open(path, "a");
   try {
-    await handle.write(`${line}\n`);
+    await writeAll(handle, new TextEncoder().encode(`${line}\n`));
   } finally {
     await handle.close();
+  }
+}
+
+type AppendWriter = {
+  write(
+    bytes: Uint8Array,
+    offset: number,
+    length: number,
+  ): Promise<{ bytesWritten: number }>;
+};
+
+export async function writeAll(handle: AppendWriter, bytes: Uint8Array): Promise<void> {
+  let offset = 0;
+  while (offset < bytes.byteLength) {
+    const { bytesWritten } = await handle.write(bytes, offset, bytes.byteLength - offset);
+    if (bytesWritten === 0) throw new Error("append made no progress");
+    offset += bytesWritten;
   }
 }
 

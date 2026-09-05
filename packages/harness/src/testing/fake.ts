@@ -1,4 +1,11 @@
 import type {
+  AgentSessionAdapter,
+  HarnessActivation,
+  HarnessOperationBinding,
+} from "../adapter";
+import { createSessionAdapter } from "../session-core";
+import type { TurnUsage } from "../spec";
+import type {
   AgentSession,
   AgentSessionDriver,
   BackendKind,
@@ -103,4 +110,116 @@ export function createFakeSessionDriver(options: {
     },
   };
   return driver;
+}
+
+export type FakeAdapterTurnContext = {
+  activation: HarnessActivation;
+  id: string;
+  prompt: string;
+  kind: "turn" | "nudge" | "compact";
+  binding?: HarnessOperationBinding;
+  previousSessionRef?: string;
+  turn: number;
+  signal: AbortSignal;
+};
+
+export type FakeAdapterTurn = {
+  state?: "completed" | "blocked" | "timed-out" | "failed" | "cancelled";
+  detail?: string;
+  transcript?: string;
+  sessionRef?: string;
+  nativeUsage?: readonly TurnUsage[];
+  durationMs?: number;
+  act?: (context: FakeAdapterTurnContext) => void | Promise<void>;
+};
+
+export type FakeAgentSessionAdapter = AgentSessionAdapter & {
+  activations: HarnessActivation[];
+  turns: FakeAdapterTurnContext[];
+  closed: string[];
+};
+
+export function createFakeAdapter(options: {
+  script: (context: FakeAdapterTurnContext) => FakeAdapterTurn | Promise<FakeAdapterTurn>;
+  harnesses?: readonly [string, ...string[]];
+  clock?: ManualClock;
+}): FakeAgentSessionAdapter {
+  const activations: HarnessActivation[] = [];
+  const turns: FakeAdapterTurnContext[] = [];
+  const closed: string[] = [];
+  const adapter = createSessionAdapter({
+    harnesses: options.harnesses ?? ["fake"],
+    ...(options.clock ? { now: options.clock.now } : {}),
+    async activate(activation) {
+      activations.push(activation);
+      let turn = 0;
+      let isClosed = false;
+      let activeController: AbortController | undefined;
+      let activeCompletion: Promise<void> | undefined;
+      return {
+        identity: {
+          sessionId: `fake-${activation.key}`,
+          cwd: activation.cwd,
+        },
+        async execute(operation) {
+          if (isClosed) throw new Error("fake session is closed");
+          const controller = new AbortController();
+          activeController = controller;
+          let finish!: () => void;
+          activeCompletion = new Promise<void>((resolve) => {
+            finish = resolve;
+          });
+          turn += 1;
+          const context: FakeAdapterTurnContext = {
+            activation,
+            id: operation.id,
+            prompt: operation.prompt,
+            kind: operation.kind,
+            ...(operation.binding ? { binding: operation.binding } : {}),
+            ...(operation.previousSessionRef
+              ? { previousSessionRef: operation.previousSessionRef }
+              : {}),
+            turn,
+            signal: controller.signal,
+          };
+          turns.push(context);
+          try {
+            const scripted = await options.script(context);
+            await scripted.act?.(context);
+            options.clock?.advance(scripted.durationMs ?? 0);
+            return {
+              state: controller.signal.aborted ? "cancelled" : scripted.state ?? "completed",
+              ...(controller.signal.aborted
+                ? { detail: "fake operation cancelled" }
+                : scripted.detail
+                  ? { detail: scripted.detail }
+                  : {}),
+              resultEvidence: scripted.transcript
+                ? ({ kind: "transcript", text: scripted.transcript } as const)
+                : ({ kind: "unavailable" } as const),
+              ...(scripted.sessionRef ? { sessionRef: scripted.sessionRef } : {}),
+              nativeUsage: scripted.nativeUsage ?? [],
+            };
+          } finally {
+            if (activeController === controller) activeController = undefined;
+            finish();
+          }
+        },
+        async cancel() {
+          if (!activeController) return false;
+          activeController.abort();
+          await activeCompletion;
+          return true;
+        },
+        async close() {
+          if (isClosed) return;
+          activeController?.abort();
+          await activeCompletion;
+          isClosed = true;
+          closed.push(activation.key);
+        },
+      };
+    },
+  });
+  return Object.assign(adapter, { activations, turns, closed });
 }

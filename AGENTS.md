@@ -25,21 +25,19 @@ what would have to happen first.
 | --- | --- |
 | `packages/contract` | types, schema, record formats. **Pure — no I/O, no `Bun.*`, no `node:`** |
 | `packages/harness` | driving one coding agent: adapters, liveness, usage extraction |
-| `packages/engine` | the runtime: run-directory I/O, the result gate, and the `wf` binary |
+| `packages/engine` | the runtime: run-directory I/O, result slots, and the local control plane |
+| `packages/cli-agent` | the in-session `wf` command; imports contract only and talks over wire |
 | `examples/` | scenario workflows, written against `@wf/contract/workflow` only |
 | `experiments/_archive/` | E1–E3, E5–E6. Frozen evidence. Do not refactor to taste |
 | `docs/findings/` | the measurement record. Frozen — cite it, do not edit it |
 | `docs/reference.md` | surveyed repositories: what was taken, rejected, still unmined |
 
-Three boundaries, enforced by `bun run scripts/check-boundaries.ts`:
+Four boundaries, enforced by `bun run scripts/check-boundaries.ts`:
 
 1. `contract` imports nothing, performs no I/O, and uses no runtime-specific API.
-2. `examples/` imports the author surface only — never the engine, never a harness.
-3. A cross-package import must be a declared dependency, not just a hoisted symlink.
-
-`packages/cli-agent` does not exist yet. Today's `wf` binary links the engine directly, which
-is what it is; Stage 2 cuts it over to the local control plane and moves it out. Do not create
-the package before the wire boundary is real.
+2. `cli-agent` imports contract only and performs no run-directory I/O.
+3. `examples/` imports the author surface only — never the engine, never a harness.
+4. A cross-package import must be a declared dependency, not just a hoisted symlink.
 
 ## Working here
 

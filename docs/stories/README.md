@@ -34,8 +34,9 @@ status is one of `todo`, `draft`, `ready`, `in-progress`, `blocked`, `awaiting-h
 
 ## Stories at a glance
 
-- [`001` — Run a minimum multi-agent review workflow](001-multi-agent-review.md) — `ready` — Prove
-  that the engine can run parallel review agents and compose accepted structured results.
+- [`001` — Run a minimum multi-agent review workflow](001-multi-agent-review.md) —
+  `in-progress` — Run parallel review agents through `awf run` and compose accepted structured
+  results.
 
 This is the high-level index of numbered stories. Keep each entry to its title, status, and
 one-sentence summary; put code maps, research, design, tasks, and verification in the linked story.
