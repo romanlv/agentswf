@@ -48,8 +48,7 @@ export type HerdrConfig = {
   trustSettleMs?: number;
 };
 
-/** The process kill behind one `agent start`; the wait herdr is asked for is `--timeout 120000`. */
-const AGENT_START_TIMEOUT_MS = 150_000;
+const AGENT_START_WAIT_MS = 120_000;
 
 export function createHerdrCommands(config: HerdrConfig, run: RunProcess) {
   const startAttempts = config.startAttempts ?? 5;
@@ -125,10 +124,10 @@ export function createHerdrCommands(config: HerdrConfig, run: RunProcess) {
           "--pane",
           paneId,
           "--timeout",
-          "120000",
+          String(AGENT_START_WAIT_MS),
           ...(args.length > 0 ? ["--", ...args] : []),
         ],
-        Math.min(AGENT_START_TIMEOUT_MS, remaining),
+        Math.min(AGENT_START_WAIT_MS + HERDR_REPORT_GRACE_MS, remaining),
         signal,
       );
       if (started.ok) return succeeded(attempt);
@@ -149,8 +148,11 @@ export function createHerdrCommands(config: HerdrConfig, run: RunProcess) {
       if (!hasHerdrErrorCode(error, "agent_pane_busy")) {
         return stopped(attempt, error, { timedOut });
       }
+      if (attempt === startAttempts) break;
       const retryRemaining = deadlineUnixMs - Date.now();
-      if (retryRemaining <= 0) break;
+      if (retryRemaining <= 0) {
+        return stopped(attempt, "operation deadline exceeded", { timedOut: true });
+      }
       if (!(await abortableDelay(Math.min(startRetryMs, retryRemaining), signal))) {
         return stopped(attempt, "operation cancelled", { cancelled: true });
       }

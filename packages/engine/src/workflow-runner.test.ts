@@ -2,6 +2,7 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { getEventListeners } from "node:events";
 import { readdir } from "node:fs/promises";
 import { createConnection } from "node:net";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type {
   AgentRuntimeConfig,
@@ -190,6 +191,7 @@ describe("runWorkflow", () => {
 
   test("a synchronous host acquisition failure still closes the result endpoint", async () => {
     const runRoot = tempRunDir();
+    const before = await controlDirectories();
     const runtime: AgentRuntimeConfig = {
       aliases: {},
       host: {
@@ -207,9 +209,7 @@ describe("runWorkflow", () => {
       ),
     ).rejects.toThrow("host construction failed");
 
-    const [runId] = await readdir(runRoot);
-    expect(runId).toBeDefined();
-    expect((await readdir(join(runRoot, runId!))).some((name) => name.startsWith("wf-control-"))).toBe(false);
+    expect(await controlDirectoriesSince(before)).toEqual([]);
   });
 
   test("the run deadline cancels and closes an active turn with a later operation deadline", async () => {
@@ -239,6 +239,7 @@ describe("runWorkflow", () => {
       return null;
     });
     const runRoot = tempRunDir();
+    const before = await controlDirectories();
 
     await expect(
       runWorkflow(workflow, null, {
@@ -249,9 +250,7 @@ describe("runWorkflow", () => {
     ).rejects.toBeInstanceOf(DeadlineExceededError);
     expect(nativeCancelled).toBe(1);
     expect(adapter.closed).toEqual(["reviewer"]);
-    const [runId] = await readdir(runRoot);
-    expect(runId).toBeDefined();
-    expect((await readdir(join(runRoot, runId!))).some((name) => name.startsWith("wf-control-"))).toBe(false);
+    expect(await controlDirectoriesSince(before)).toEqual([]);
   });
 
   test("cleanup is bounded when activation and adapter close never settle", async () => {
@@ -1605,6 +1604,15 @@ function emptyRuntime(): AgentRuntimeConfig {
     aliases: {},
     host: createSingleSessionHostFactory(createFakeAdapter({ script: () => ({}) })),
   };
+}
+
+/** The control plane's directories live under the system temp directory, not the run directory. */
+async function controlDirectories(): Promise<Set<string>> {
+  return new Set((await readdir(tmpdir())).filter((name) => name.startsWith("awf-")));
+}
+
+async function controlDirectoriesSince(before: Set<string>): Promise<string[]> {
+  return [...(await controlDirectories())].filter((name) => !before.has(name));
 }
 
 function connect(endpoint: string): Promise<void> {

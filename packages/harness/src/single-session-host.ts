@@ -4,8 +4,8 @@ import type {
   AgentSessionAdapter,
   AgentState,
   HarnessAgentSnapshot,
-  HarnessSession,
   HarnessOperationBinding,
+  HarnessSession,
   HarnessSessionStatus,
   HarnessTurn,
 } from "./adapter";

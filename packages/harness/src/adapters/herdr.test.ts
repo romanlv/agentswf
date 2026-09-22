@@ -731,6 +731,27 @@ describe("createPaneAdapter", () => {
     expect(calls.filter((call) => verb(call) === "workspace close")).toHaveLength(1);
   });
 
+  test("a busy pane is not waited on after its last attempt", async () => {
+    const { run: baseRun } = operationStub();
+    const run: RunProcess = async (input) =>
+      verb(input) === "agent start"
+        ? { stdout: "", stderr: "agent_pane_busy", exitCode: 1, timedOut: false }
+        : baseRun(input);
+
+    const session = await createPaneAdapter(
+      { ...CONFIG, startAttempts: 1, startRetryMs: 5_000 },
+      run,
+    ).activate(activation);
+    const startedAt = Date.now();
+    const turn = await session.start(
+      { id: "turn-1", prompt: "review", deadline: activation.deadline },
+      firstBinding,
+    );
+
+    await expect(turn.settled).resolves.toMatchObject({ state: "failed" });
+    expect(Date.now() - startedAt).toBeLessThan(1_000);
+  });
+
   test("preserves a native Herdr timeout as timed-out", async () => {
     const { run: baseRun } = operationStub();
     const run: RunProcess = async (input) =>

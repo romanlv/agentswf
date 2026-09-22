@@ -9,6 +9,7 @@ import { createHerdrCommands, type HerdrConfig } from "./herdr";
 import {
   emptyEnvironmentArgs,
   herdrFailure,
+  HERDR_REPORT_GRACE_MS,
   knownHarness,
   readId,
   readPaneId,
@@ -142,7 +143,7 @@ async function activateLegacyPane(
             "--timeout",
             String(Math.min(config.settleTimeoutMs, remaining)),
           ],
-          Math.min(config.settleTimeoutMs + 30_000, remaining),
+          Math.min(config.settleTimeoutMs + HERDR_REPORT_GRACE_MS, remaining),
           controller.signal,
         );
         if (!sent.ok) {
