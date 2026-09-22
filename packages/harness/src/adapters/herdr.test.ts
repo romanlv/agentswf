@@ -2,11 +2,11 @@ import { describe, expect, test } from "bun:test";
 import type { ProcessInput, ProcessResult, RunProcess } from "../command";
 import type { Step } from "../types";
 import {
-  createHerdrAdapter,
   createHerdrRunHostFactory,
   createPaneAdapter,
   type HerdrConfig,
 } from "./herdr";
+import { createHerdrAdapter } from "./herdr-legacy";
 
 const CONFIG: HerdrConfig = {
   session: "wf-lab",
@@ -500,6 +500,46 @@ describe("createPaneAdapter", () => {
 
     await expect(turn.settled).resolves.toMatchObject({ state: "completed" });
     expect(Date.now() - startedAt).toBeLessThan(100);
+  });
+
+  test("a startup block is answered even when its envelope does not parse", async () => {
+    const { run: baseRun, calls } = operationStub();
+    let trustAccepted = false;
+    const run: RunProcess = async (input) => {
+      if (verb(input) === "agent start" && !trustAccepted) {
+        const envelope = JSON.stringify({ error: { code: "agent_not_ready", message: "blocked" } });
+        return {
+          stdout: "",
+          stderr: `herdr: ${envelope.slice(0, 40)}`,
+          exitCode: 1,
+          timedOut: false,
+        };
+      }
+      if (verb(input) === "agent read" && !trustAccepted) {
+        return {
+          stdout: "Do you trust the contents of this directory?\n1. Yes, continue",
+          stderr: "",
+          exitCode: 0,
+          timedOut: false,
+        };
+      }
+      if (verb(input) === "agent send-keys") {
+        calls.push(input);
+        trustAccepted = true;
+      }
+      return baseRun(input);
+    };
+    const session = await createPaneAdapter(
+      { ...CONFIG, acceptWorkspaceTrust: true },
+      run,
+    ).activate({ ...activation, execution: { ...activation.execution, harness: "codex" } });
+    const turn = await session.start(
+      { id: "review", prompt: "review", deadline: activation.deadline },
+      firstBinding,
+    );
+
+    await expect(turn.settled).resolves.toMatchObject({ state: "completed" });
+    expect(calls.some((call) => verb(call) === "agent send-keys")).toBe(true);
   });
 
   test("the process kill outlasts every wait herdr is asked to report on", async () => {
@@ -1170,7 +1210,7 @@ describe("createHerdrRunHostFactory", () => {
       if (verb(input) === "workspace create") {
         return commandResult({
           workspace: { workspace_id: "w1" },
-          root_pane: { pane_id: "w1:p1" },
+          tab: { tab_id: "w1:t1" },
         });
       }
       if (verb(input) === "workspace close") {

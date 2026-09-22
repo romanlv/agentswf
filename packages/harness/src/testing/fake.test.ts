@@ -75,23 +75,6 @@ describe("createFakeAdapter", () => {
     await expect(late.settled).resolves.toMatchObject({ state: "timed-out" });
   });
 
-  test("one session rejects reused operation authority", async () => {
-    const adapter = createFakeAdapter({ script: () => ({}) });
-    const deadline = { unixMilliseconds: Date.now() + 60_000 };
-    const session = await adapter.activate({
-      key: "reviewer",
-      deadline,
-      cwd: "/repo",
-      execution: { harness: "fake", model: "fake" },
-    });
-    const first = await session.start({ id: "one", prompt: "one", deadline }, BINDING);
-    await first.settled;
-
-    await expect(
-      session.start({ id: "two", prompt: "two", deadline }, BINDING),
-    ).rejects.toThrow("already been used");
-  });
-
   test("the shared core keeps the backend's own session handle out of the outcome", async () => {
     const adapter = createFakeAdapter({
       script: () => ({

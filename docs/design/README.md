@@ -36,13 +36,14 @@ const workflow: WorkflowDefinition<Args, Result> = {
 - `messages` — grant one-way or two-way messaging routes between participants.
 - `call` — run a child workflow in its own scope.
 - `parallel` — apply an async operation with bounded local concurrency.
-- `steps` — run a named operation or sleep, with optional journal replay.
+- `steps` — run a named operation or sleep.
 - `signals` — wait for external text or schema-validated JSON.
 - `usage()` — snapshot completed agent-operation usage for the run.
 - `log()` — record workflow diagnostics.
 
-An agent is opened with a run-scoped logical key, instructions, a runtime, and optional skills and
-lifecycle policy. Its working directory and deadline inherit from the current workflow scope:
+An agent is opened with a run-scoped logical key, instructions, a runtime, and optional skills,
+which the runner does not resolve yet and refuses. Its working directory and deadline inherit from
+the current workflow scope:
 
 ```ts
 const reviewer = await context.agents.open({
@@ -81,45 +82,50 @@ its own usage record. Tokens and cost are absent when the harness cannot report 
 known zero remains distinct from unavailable.
 
 Runtime aliases are engine configuration, not workflow definitions. A workflow normally names an
-alias and may constrain its harness, model, or settings. The resolved harness, model, settings, and
-selected alias are available on `AgentRef.execution` and remain fixed for that logical agent.
+alias and may constrain its harness or model. The resolved harness, model, and selected alias are
+available on `AgentRef.execution` and remain fixed for that logical agent.
 
 ## Internal interface for the engine and adapters
 
-`harness.ts` is not exported through `index.ts`. It is the seam between the workflow engine and a
-specific agent harness.
+`adapter.ts` is the seam between the workflow engine and a specific agent harness. It is published
+as the `./adapter` subpath rather than through `index.ts`, so a caller reaches it deliberately.
 
 The engine is configured with:
 
 - `AgentRuntimeConfig.aliases` — central runtime aliases.
-- `AgentRuntimeConfig.backends` — one installed `AgentSessionAdapter` per backend kind.
+- `AgentRuntimeConfig.host` — the one run host that owns placement, inspection, continuation, and
+  cleanup for a run.
 
-An adapter declares the backend kind it provides and the harnesses it supports. The engine calls
-`activate()` with the resolved execution, working directory, instructions, skills, and recovery
-session id. The returned `HarnessSession` can report status, start turns, compact context, and
-close. A `HarnessTurn` exposes its eventual outcome, continuation delivery, nudge, and cancellation.
+An adapter declares the harnesses it drives and the capabilities it can honestly report. The engine
+calls `activate()` with the logical key, resolved execution, working directory, instructions, and
+labels. The returned `HarnessSession` can report status, start turns, compact context,
+and close. A `HarnessTurn` exposes its eventual native outcome, continuation delivery, nudge, and
+release.
 
 | Object | Calls |
 | --- | --- |
 | `AgentSessionAdapter` | `activate(request)` |
-| `HarnessSession` | `status()`, `start(turn)`, `compact(id, prompt)`, `close(reason?)` |
-| `HarnessTurn` | `result`, `deliver(prompt)`, `nudge(spec)`, `cancel(reason?)` |
+| `HarnessSession` | `status()`, `start(turn, binding)`, `compact(id, prompt, deadline)`, `close(reason?)` |
+| `HarnessTurn` | `settled`, `deliver(prompt)`, `nudge(spec)`, `release(reason, deadline)` |
 | `OutsideSessionControl` | `status(session)`, `wake(session)` — optional, see below |
 
 The engine, not the adapter, owns logical-agent identity, runtime alias resolution, queue ordering,
-idempotency, lifecycle and recovery policy, global admission, workflow usage collection, and the
-public `run()` convenience operation. The adapter owns translation to native harness commands and
-reconciliation of terminal state with an actual reported result.
+idempotency, global admission, workflow usage collection, and the public `run()` convenience
+operation. The adapter owns translation to native harness commands and reconciliation of terminal
+state with an actual reported result.
 
 ### Session adapters, not a Herdr dependency
 
-`BackendKind` describes behavior the workflow may depend on: `pane` retains an interactive
-terminal session, while `headless` drives the harness as a direct process. It deliberately does not
-name the program that supplies that behavior.
+`pane | headless` is legacy vocabulary. It named behavior a workflow could depend on — `pane`
+retains an interactive terminal session, `headless` drives the harness as a direct process — and
+[`foundation.md`](../foundation.md) §6 has since taken it off every surface, because exposing it let
+two logical peers in one run take different lifecycle and observability models. `BackendKind`
+survives in `packages/harness/src/types.ts` only so the frozen experiments remain runnable. Nothing
+live reads it, and nothing new should.
 
-Herdr is the first and default `pane` adapter because the experiments exercised its lifecycle and
+Herdr is the first and default terminal host because the experiments exercised its lifecycle and
 liveness behavior. It is not an engine dependency or a workflow capability. Operator configuration
-may replace that entry with a tmux adapter, and the `headless` entry already demonstrates execution
+may install a tmux host instead, and direct-process execution already demonstrates a session
 without a terminal multiplexer. A future adapter may use neither, provided it satisfies the same
 session interface and reports unsupported capabilities honestly.
 
@@ -127,16 +133,16 @@ An adapter that can locate sessions it did not start advertises `outsideWake` an
 `outside`. That is how a connected outside session is woken when it has unread messages; it does
 not deliver anything, and [`composition.md`](composition.md) holds the semantics.
 
-The configuration admits at most one adapter for each backend kind. That keeps selection outside
-workflow code: aliases resolve to `pane` or `headless`, then the engine uses the configured adapter
-for that kind. Installing both Herdr and tmux as candidates does not introduce a second routing
-language; the operator chooses which one occupies the `pane` slot.
+The configuration admits exactly one run host. That keeps selection outside workflow code: the
+operator chooses the host, and every logical agent in that run crosses the same interface.
+Installing both Herdr and tmux does not introduce a second routing language; the operator picks
+which one opens the run.
 
-The current Stage 0 factories implement the smaller `AgentSessionDriver` seam used by the archived
-experiments; `AgentSessionAdapter` is still design-only. Stage D must compose or replace those
-drivers behind the engine-facing interface rather than exposing both seams to the engine. The
-shared harness table now supplies provider-neutral interactive commands. Herdr's agent-kind mapping
-stays in the Herdr implementation, where a tmux or raw-PTY implementation does not need to know it.
+`AgentSessionAdapter` is the only seam the engine uses, and `session-core.ts` holds the session
+lifecycle shared behind it. The `AgentSessionDriver` shapes survive so the archived experiments
+remain runnable, and nowhere else. The shared harness table supplies provider-neutral interactive
+commands. Herdr's agent-kind mapping stays in the Herdr implementation, where a tmux or raw-PTY
+implementation does not need to know it.
 
 ## What an agent inside a session sees
 
@@ -147,7 +153,6 @@ At activation it receives, through harness-specific mechanisms:
 
 - its working directory;
 - the workflow-supplied instructions;
-- the selected skills;
 - the native tools and permissions granted by the harness adapter.
 
 For each operation it receives the turn prompt and, for structured work, the required JSON Schema.
@@ -159,8 +164,8 @@ inbound messages.
 The engine-owned CLI provides result submission, route discovery, and messaging:
 
 ```sh
-wf result '{"verdict":"approve"}'
-wf result < result.json
+wf result <call-id> '{"verdict":"approve"}'
+wf result <call-id> < result.json
 
 wf peers
 wf send reviewer 'Findings are ready in REVIEW.md'

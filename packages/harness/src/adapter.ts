@@ -8,7 +8,6 @@ import type {
   HarnessKind,
   NudgeOptions,
   RuntimeAliases,
-  SkillName,
   TurnId,
 } from "@wf/contract/workflow";
 import type { JsonObject, JsonValue } from "@wf/contract/workflow";
@@ -34,11 +33,15 @@ export interface HarnessNudgeSpec extends NudgeOptions {
 }
 
 /**
- * Where an operation's result goes. Nothing here is secret: the agent reaches the control plane
- * over a socket only it can open, so the authority is the connection rather than anything a
- * harness has to carry into the agent's environment.
+ * Which call this turn answers. Nothing here is secret: the agent reaches the control plane over a
+ * socket only it can open, so the authority is the connection rather than anything a harness has
+ * to carry into the agent's environment.
  */
 export type HarnessOperationBinding = {
+  /**
+   * The socket this operation's result goes to. A production adapter never reads it — the prompt
+   * names a launcher that already points there — only a test adapter playing the agent does.
+   */
   endpoint: string;
   operationId: string;
 };
@@ -70,10 +73,6 @@ export interface HarnessTurn {
 }
 
 export interface HarnessSession {
-  /** Capabilities of this activated harness/backend pair. */
-  readonly capabilities: {
-    nativeFork: false | NativeForkCapability;
-  };
   status(): Promise<HarnessSessionStatus>;
   start(turn: AgentTextTurnSpec, binding: HarnessOperationBinding): Promise<HarnessTurn>;
   start<T extends JsonValue>(
@@ -84,17 +83,11 @@ export interface HarnessSession {
   close(reason?: string): Promise<void>;
 }
 
-export interface NativeForkCapability {
-  /** A harness-native primitive only; the engine must assign any resulting logical identity. */
-  fork(deadline: AbsoluteDeadline): Promise<HarnessSession>;
-}
-
 export interface HarnessActivation {
   key: AgentKey;
   deadline: AbsoluteDeadline;
   cwd: string;
   instructions?: string;
-  skills?: readonly SkillName[];
   labels?: JsonObject;
   execution: AgentExecution;
 }

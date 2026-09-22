@@ -227,29 +227,31 @@ runtime aliases.
 
 One run host owns one terminal group and its final cleanup. Logical-agent handles own continuity;
 each distinct operation receives fresh result authority and an operation pane. An initial prompt
-and its one nudge are delivery attempts for the same operation, slot, capability, schema, and pane.
+and its one nudge are delivery attempts for the same operation, slot, schema, and pane.
 A later operation may resume native context only when the host has measured continuation support
 and terminal evidence; native session references never cross into workflow or engine-owned state.
 Durable result acceptance, client acknowledgement, and native release are distinct facts. An
 accepted result may determine the author-visible answer, but the next operation is not admitted
 until the prior pane is released or continuation is explicitly severed and failed closed.
 
-Per-pane environment injection provides routing for cooperative-but-fallible agents. It is not a
-security boundary against mutually hostile same-UID processes: child agents inherit environment,
-and access to process state or the Herdr control socket can cross panes. Capabilities remain useful
-against stale commands and accidental cross-wiring, but adversarial confinement requires the OS
-isolation gate in `design/permissions.md`. Prompts that forbid delegation are spending guidance,
-not proof of confinement.
+A socket per agent provides routing for cooperative-but-fallible agents. The engine installs a
+launcher that holds the socket and names its path in the prompt, so the connection says who is
+answering and nothing secret has to survive the trip into a pane. It is not a security boundary
+against mutually hostile same-UID processes: anything running as the engine's own user can run that
+launcher, and access to process state or the Herdr control socket can cross panes. The connection
+remains useful against stale commands and accidental cross-wiring, but adversarial confinement
+requires the OS isolation gate in `design/permissions.md`. Prompts that forbid delegation are
+spending guidance, not proof of confinement.
 
 Stage 0's concrete factory names still satisfy the smaller `AgentSessionDriver` interface used by
 the frozen experiments. That compatibility seam stays out of production run hosting. Herdr and a
 fake host satisfy the run-host interface; provider variation is internal composition, not another
 choice exposed to workflows or the engine.
 
-**`cli-agent`** — the binary that goes on the in-session agent's `PATH`. `wf result`, and later
-`wf peers` / `wf send`. It *compiles* against `contract` alone, and at runtime it talks to the
-engine over the local control plane described in section 7. It never links the engine and never
-touches the run directory itself.
+**`cli-agent`** — the command the in-session agent is told to run, through a launcher the engine
+installs per agent. `wf result`, and later `wf peers` / `wf send`. It *compiles* against `contract`
+alone, and at runtime it talks to the engine over the local control plane described in section 7.
+It never links the engine and never touches the run directory itself.
 
 It was deliberately absent through Stage 0. Stage 2 created it together with
 `@wf/contract/wire` and the engine-owned endpoint, then removed the engine-linked binary. The
@@ -301,7 +303,7 @@ nowhere to go does.
 
 | From `ideas.md` | Lands in | Decided now |
 | --- | --- | --- |
-| forking / compact without destroying the original | native primitive + capability flag in `harness`; logical branch creation in `engine` | no public fork API yet — see below |
+| forking / compact without destroying the original | native primitive in `harness`; logical branch creation in `engine` | no fork in any interface until E7's cost split is settled — see [`findings/`](findings/README.md) |
 | team of agents / messaging | cross-cutting all four, over a local control plane | the control plane exists from Stage 2, not "when remote execution arrives" |
 | unified `skill:name` / `tool:name` | request and report shapes in `contract`; resolution in `harness`; downgrade policy in `engine` | model request-vs-granted; do not standardise the grammar yet |
 | workflows calling workflows | `engine` | `contract/workflow` already has `call` |
@@ -315,8 +317,8 @@ Three of these need more than a table row.
 
 ### Messaging cannot be one package
 
-`ideas.md` says messaging can be its own package. Reading `messaging.md` and `feedback.md`, it
-cannot — not cleanly. The feature spans every layer:
+`ideas.md` says messaging can be its own package. Reading `messaging.md`, it cannot — not cleanly.
+The feature spans every layer:
 
 - route, envelope and obligation **types** — needed by everything
 - `HarnessTurn.deliver`, presenting a message at the next safe model continuation — **harness**
@@ -350,69 +352,24 @@ socket is the control plane; the directory is the record; the engine is the only
 Messaging remains the most demanding test of whether the split is right. If it lands cleanly, the
 seams hold for everything else on the list.
 
-### Six defects in the author surface that the migration has to fix
+### Six defects in the author surface that the migration had to fix
 
-These are faults in the designed interface, not in the packaging. Moving the files without fixing
-them would set them in concrete.
-
-**The harness seam makes adapters manufacture engine-owned identity.** `HarnessTurn.result` returns
-`TurnOutcome` (`packages/harness/src/adapter.ts:40-46`), and every `TurnOutcome` embeds a `TurnUsage` carrying
-`callPath`, `agent: AgentKey`, `operationId` and the resolved execution
-(`packages/contract/src/workflow/agents.ts:151-170`). Those are engine concepts — the interface map says so itself
-(`docs/design/README.md:107-110`). As written, an adapter must either know engine internals or be
-handed enough context to fake them, which defeats the boundary the package split exists to draw.
-The adapter should return terminal state, result evidence, and harness-native usage samples; its
-host keeps native continuation references private. The engine wraps terminal evidence with logical
-identity, call path, and aggregated operation usage.
-
-**Fork is on the roadmap and nowhere in the interface.** `grep -c fork packages/contract/src/workflow/*.ts` is zero;
-`HarnessSession` has `compact` and no fork (`packages/harness/src/adapter.ts:49-57`). Earlier drafts of this
-document said the session type "carries fork/compact" — it does not. And fork is not a session
-lifecycle call: it creates a new logical agent with its own execution identity, queue, result
-binding, admission claim and usage lineage, all engine-owned. E7 adds that the capability varies by
-(harness, backend), that cursor has none, and that a cold agent is usually the better move anyway.
-Model an adapter capability flag and a native primitive in `harness`; expose logical branching
-through `engine`; commit to no public fork API until fallback, identity and accounting are designed.
-
-**Resume is shelved and its public types are not.** The plan says journal replay stays shelved, yet
-the day-one author surface publishes `ReplayPolicy.kind = "journal"` with caller fingerprints,
-journaled steps and journaled signals (`packages/contract/src/workflow/workflow.ts:17-31, 40-50`). E6's conclusion is
-stronger than "needs work": working-tree inputs replay stale answers, workflow side effects repeat,
-and agent side effects do not replay at all. Publishing these types commits the author surface to a
-durability model the experiments rejected. Remove journal replay from the initial public API; if the
-code is kept, call it an experimental memoization cache, not workflow resume.
-
-**A checkpoint is not a signal.** `ideas.md` asks for approval that stops everything.
-`Signals.receive` suspends the calling branch and journals one value
-(`packages/contract/src/workflow/workflow.ts:46-50`) — other parallel branches, queued turns, retained agents, message
-wake-ups and spend all continue. A checkpoint needs an engine admission barrier with an explicit
-scope: pause dispatch, decide what happens to in-flight turns, persist the pending approval, define
-cancellation and restart. A signal may carry the approval *value*; it is not the suspension
-mechanism.
-
-**The acceptance gate has a race.** `writeAccepted` checks existence and then writes
-(`packages/engine/src/run-dir.ts:54-62`). "First accepted value wins" is not enforced against two concurrent or
-delayed invocations. poc1's own code review fixed a different atomicity bug — concurrent journal
-appends — and this one survived. The reproducer is two submissions carrying the *same* operation
-capability, not E4: a fan-out issues distinct call ids and never races two acceptances for one
-slot.
-
-**Every wait needs a bound.** `Signals.receive` originally took a correlation key and no deadline
-(`packages/contract/src/workflow/workflow.ts:46-50`), and nothing else that waits takes one either. Inngest pairs every
-wait with both — `step.waitForEvent(id, { event, match, timeout })` — and the reason is visible in
-this project's own evidence: `review-feedback`'s "both sides idle looks identical to work in
-progress", where neither side blocks and a stalled loop surfaces only when a human opens the tab. An
-unbounded wait on a worker that can silently fail to receive its prompt is a hang, not a wait. The
-operator now supplies one enforced run deadline, and every author-side wait inherits the current
-workflow scope unless it requests a narrower deadline or timeout. Resolved engine and harness specs
-still carry an absolute deadline, and terminal operations retain a distinct timed-out outcome — see
-`reference.md`.
+These were faults in the designed interface, not in the packaging, which is why they were worth
+finding here: the harness seam made adapters manufacture engine-owned identity; fork was on the
+roadmap and nowhere in the interface; resume was shelved while its public types were not; a
+checkpoint was modelled as a signal, which suspends one branch and lets every other branch, queued
+turn, retained agent and spend continue; the acceptance gate checked existence and then wrote, so
+"first accepted value wins" was not enforced against two delayed invocations; and nothing that
+waited took a bound. Moving the files without fixing them would have set them in concrete, so all
+six were corrected in place first; §12's Stage D entry records what each correction was, and
+`docs/adr/` records any decision taken against it since.
 
 ### The consumers are the review workflows, and they exist already
 
-Section 9 calls the three scenarios examples because none of them has ever run. That is a statement
-about the code, not about the workload. Each one describes something that runs today, by hand, in
-`braintrust/agent`:
+Section 9 calls the three scenarios examples because none of them had ever run when it was written;
+`review-loop.ts` has since run live under Story 001, and the other two still have not. That is a
+statement about the code, not about the workload. Each one describes something that runs today, by
+hand, in `braintrust/agent`:
 
 | Scenario | Runs today as | Shape |
 | --- | --- | --- |
@@ -616,6 +573,9 @@ named trigger fires.
 | context-usage reading | `harness/src/context/` | — |
 | per-adapter packages | `harness/src/adapters/` | an adapter needs its own dependencies |
 | journal / resume | shelved, **and its public types removed** | after deciding effect boundaries, persistence and versioning (E6) |
+| fork | not built, **no capability flag** — [ADR 0001](adr/0001-unbuilt-interface-leaves-the-surface.md) | E7's cost split is settled |
+| model settings | not built, **public types removed** — ADR 0001 | an implementation and a workflow that needs it land together |
+| agent retention and crash recovery | not built, **public types removed** — ADR 0001 | pane release is measured (Story 001), then as for model settings |
 | remote execution | not built | the local control plane already draws the boundary; this only swaps the transport |
 | TUI | not built | — |
 
@@ -678,10 +638,11 @@ it, is deferred measurement, not a claim this stage makes.
 - **Stage D — fix the interface, in place, as design. Done.** The six defects were corrected in
   `packages/contract/src/workflow/` where they live: `HarnessTurn.result` becomes a harness-local
   outcome; `ReplayPolicy`'s journal arm comes out; checkpoints are removed from signal semantics
-  and deferred until an admission-barrier primitive is designed; fork gets an adapter capability
-  flag and no public API; the acceptance gate's contract states atomicity; every waiting primitive
-  resolves an inherited or explicit deadline and terminal operations retain a distinct timed-out
-  outcome.
+  and deferred until an admission-barrier primitive is designed; fork gets no public API; the
+  acceptance gate's contract states atomicity; every waiting primitive resolves an inherited or
+  explicit deadline and terminal operations retain a distinct timed-out outcome. The fork
+  capability flag this stage first added has since come out, with the other unbuilt types —
+  [ADR 0001](adr/0001-unbuilt-interface-leaves-the-surface.md).
   The workflows in `examples/` typecheck against the author surface and no runtime package. Story
   001 Task 1 records the reset design and verification.
 - **Stage 0 — skeleton and move. Done.** The three packages exist, `bun test` is 114 pass / 0 fail

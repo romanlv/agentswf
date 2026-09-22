@@ -10,16 +10,19 @@ export type ResultSubmitRequest = {
   raw: string;
 };
 
-export type ResultSubmitCode =
-  | "unknown-operation"
-  | "wrong-agent"
-  | "expired-operation"
-  | "closed-operation"
-  | "invalid-result"
-  | "invalid-request"
-  | "unsupported-version"
-  | "request-too-large"
-  | "internal-error";
+const RESULT_SUBMIT_CODES = [
+  "unknown-operation",
+  "wrong-agent",
+  "expired-operation",
+  "closed-operation",
+  "invalid-result",
+  "invalid-request",
+  "unsupported-version",
+  "request-too-large",
+  "internal-error",
+] as const;
+
+export type ResultSubmitCode = (typeof RESULT_SUBMIT_CODES)[number];
 
 export type ResultSubmitResponse =
   | { version: typeof WIRE_VERSION; kind: "accepted" }
@@ -35,22 +38,12 @@ export type WireDecodeResult<T> =
   | { ok: false; code: "invalid-request" | "unsupported-version"; error: string };
 
 const REQUEST_FIELDS = ["version", "operationId", "raw"] as const;
-const RESPONSE_CODES = new Set<ResultSubmitCode>([
-  "unknown-operation",
-  "wrong-agent",
-  "expired-operation",
-  "closed-operation",
-  "invalid-result",
-  "invalid-request",
-  "unsupported-version",
-  "request-too-large",
-  "internal-error",
-]);
+const RESPONSE_CODES = new Set<ResultSubmitCode>(RESULT_SUBMIT_CODES);
 
-export function decodeResultSubmitRequest(value: unknown): WireDecodeResult<ResultSubmitRequest> {
-  if (!isRecord(value)) return invalid("request must be a JSON object");
+function checkEnvelope(value: unknown, label: string): WireDecodeResult<Record<string, unknown>> {
+  if (!isRecord(value)) return invalid(`${label} must be a JSON object`);
   if (typeof value.version !== "number" || !Number.isSafeInteger(value.version)) {
-    return invalid("request.version must be an integer");
+    return invalid(`${label}.version must be an integer`);
   }
   if (value.version !== WIRE_VERSION) {
     return {
@@ -59,20 +52,29 @@ export function decodeResultSubmitRequest(value: unknown): WireDecodeResult<Resu
       error: `unsupported wire version; expected ${WIRE_VERSION}`,
     };
   }
-  const extra = Object.keys(value).some(
+  return { ok: true, value };
+}
+
+export function decodeResultSubmitRequest(value: unknown): WireDecodeResult<ResultSubmitRequest> {
+  const envelope = checkEnvelope(value, "request");
+  if (!envelope.ok) return envelope;
+  const request = envelope.value;
+  const extra = Object.keys(request).some(
     (key) => !REQUEST_FIELDS.includes(key as (typeof REQUEST_FIELDS)[number]),
   );
   if (extra) return invalid("request has unexpected fields");
-  if (!nonEmpty(value.operationId)) return invalid("request.operationId must be a non-empty string");
-  if (typeof value.raw !== "string" || value.raw.trim() === "") {
+  if (!nonEmpty(request.operationId)) {
+    return invalid("request.operationId must be a non-empty string");
+  }
+  if (typeof request.raw !== "string" || request.raw.trim() === "") {
     return invalid("request.raw must be a non-empty string");
   }
   return {
     ok: true,
     value: {
       version: WIRE_VERSION,
-      operationId: value.operationId,
-      raw: value.raw,
+      operationId: request.operationId,
+      raw: request.raw,
     },
   };
 }
@@ -80,37 +82,29 @@ export function decodeResultSubmitRequest(value: unknown): WireDecodeResult<Resu
 export function decodeResultSubmitResponse(
   value: unknown,
 ): WireDecodeResult<ResultSubmitResponse> {
-  if (!isRecord(value)) return invalid("response must be a JSON object");
-  if (typeof value.version !== "number" || !Number.isSafeInteger(value.version)) {
-    return invalid("response.version must be an integer");
-  }
-  if (value.version !== WIRE_VERSION) {
-    return {
-      ok: false,
-      code: "unsupported-version",
-      error: `unsupported wire version; expected ${WIRE_VERSION}`,
-    };
-  }
-  if (value.kind === "accepted") {
-    const fields = Object.keys(value);
+  const envelope = checkEnvelope(value, "response");
+  if (!envelope.ok) return envelope;
+  const response = envelope.value;
+  if (response.kind === "accepted") {
+    const fields = Object.keys(response);
     if (fields.length !== 2) return invalid("accepted response has unexpected fields");
     return { ok: true, value: { version: WIRE_VERSION, kind: "accepted" } };
   }
-  if (value.kind !== "rejected") return invalid("response.kind must be accepted or rejected");
-  if (Object.keys(value).some((key) => !["version", "kind", "code", "error"].includes(key))) {
+  if (response.kind !== "rejected") return invalid("response.kind must be accepted or rejected");
+  if (Object.keys(response).some((key) => !["version", "kind", "code", "error"].includes(key))) {
     return invalid("rejected response has unexpected fields");
   }
-  if (!RESPONSE_CODES.has(value.code as ResultSubmitCode)) {
+  if (!RESPONSE_CODES.has(response.code as ResultSubmitCode)) {
     return invalid("response.code is not recognized");
   }
-  if (!nonEmpty(value.error)) return invalid("response.error must be a non-empty string");
+  if (!nonEmpty(response.error)) return invalid("response.error must be a non-empty string");
   return {
     ok: true,
     value: {
       version: WIRE_VERSION,
       kind: "rejected",
-      code: value.code as ResultSubmitCode,
-      error: value.error,
+      code: response.code as ResultSubmitCode,
+      error: response.error,
     },
   };
 }

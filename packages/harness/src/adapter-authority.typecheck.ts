@@ -47,12 +47,6 @@ async function boundStart(): Promise<void> {
   // @ts-expect-error Harness compaction is bounded.
   await session.compact("compact", "Summarize");
 
-  const activated = await adapter.activate(activation);
-  const nativeFork = activated.capabilities.nativeFork;
-  if (nativeFork) await nativeFork.fork(turn.deadline);
-  // @ts-expect-error Unsupported native fork is a literal false, not an optional method.
-  if (!nativeFork) await nativeFork.fork(turn.deadline);
-
   const engineOutcome: HarnessTurnOutcome = {
     state: "completed",
     resultEvidence: { kind: "unavailable" },

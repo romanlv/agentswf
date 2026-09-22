@@ -1,9 +1,5 @@
 import type { Harness } from "./types";
 
-/**
- * Every harness-specific string in the project lives in this table. The flags are the ones E1
- * drove and E2 re-drove live; `confirmed` records that a row has actually been run end to end.
- */
 export type TurnPlan = {
   argv: string[];
   /** The prompt goes on stdin everywhere: it is the one channel no CLI reinterprets. */
@@ -23,8 +19,6 @@ export type TurnContext = { model?: string; sessionHint: string };
 export type HarnessSpec = {
   /** A retained interactive launch, independent of the terminal provider that hosts it. */
   interactive(model?: string): TurnPlan;
-  /** Starts a new interactive process attached to a previously observed native session. */
-  interactiveResume?(sessionId: string, model?: string): TurnPlan;
   /** A one-shot, non-interactive run of `prompt`. */
   headlessTurn(prompt: string, context: TurnContext): TurnPlan;
   /**
@@ -39,7 +33,6 @@ export type HarnessSpec = {
   readTranscript?(stdout: string): string;
   /** Tokens and, where the harness gives one, dollars for the turn just run. */
   readUsage?(stdout: string): TurnUsage;
-  confirmed: boolean;
 };
 
 type Row = Record<string, unknown>;
@@ -88,22 +81,17 @@ const claudeUsage = (stdout: string): TurnUsage => {
   };
 };
 
+/**
+ * Every harness's flags and output readers live in this table; the startup screens a pane shows
+ * are Herdr's business and live in `adapters/herdr-startup.ts`. The flags are the ones E1 drove and
+ * E2 re-drove live.
+ */
 export const HARNESSES: Record<Harness, HarnessSpec> = {
   claude: {
     // `Bash` has to be allowed or the agent cannot run `wf` at all, which would measure the
     // permission prompt rather than the return channel.
     interactive: (model) => ({
       argv: ["claude", "--allowed-tools", "Bash", ...(model ? ["--model", model] : [])],
-    }),
-    interactiveResume: (sessionId, model) => ({
-      argv: [
-        "claude",
-        "--resume",
-        sessionId,
-        "--allowed-tools",
-        "Bash",
-        ...(model ? ["--model", model] : []),
-      ],
     }),
     // `--output-format json` is the only place the resumable session id is printed, and
     // without it there is no headless nudge.
@@ -136,25 +124,12 @@ export const HARNESSES: Record<Harness, HarnessSpec> = {
     readSessionId: (stdout) => str(lastJson(stdout)?.session_id),
     readTranscript: (stdout) => str(lastJson(stdout)?.result) ?? stdout,
     readUsage: claudeUsage,
-    confirmed: true,
   },
 
   codex: {
     interactive: (model) => ({
       argv: [
         "codex",
-        "--sandbox",
-        "danger-full-access",
-        "--ask-for-approval",
-        "never",
-        ...(model ? ["--model", model] : []),
-      ],
-    }),
-    interactiveResume: (sessionId, model) => ({
-      argv: [
-        "codex",
-        "resume",
-        sessionId,
         "--sandbox",
         "danger-full-access",
         "--ask-for-approval",
@@ -211,7 +186,6 @@ export const HARNESSES: Record<Harness, HarnessSpec> = {
         cachedInputTokens: num(usage?.cached_input_tokens),
       };
     },
-    confirmed: true,
   },
 
   pi: {
@@ -263,7 +237,6 @@ export const HARNESSES: Record<Harness, HarnessSpec> = {
         costUsd: num(record(usage?.cost)?.total),
       };
     },
-    confirmed: true,
   },
 
   cursor: {
@@ -305,7 +278,6 @@ export const HARNESSES: Record<Harness, HarnessSpec> = {
         cachedInputTokens: num(usage?.cacheReadTokens),
       };
     },
-    confirmed: true,
   },
 };
 

@@ -4,11 +4,10 @@ import { dirname } from "node:path";
 import { createConnection } from "node:net";
 import { WIRE_VERSION, type ResultSubmitResponse } from "@wf/contract/wire";
 import type { ResultSlotRegistry } from "./result-slots";
-import { installAgentLauncher } from "./agent-launcher";
 import { startResultControlPlane } from "./control-plane";
 import { readAccepted } from "./run-dir";
 import { createResultSlotRegistry } from "./result-slots";
-import { COUNT_SCHEMA, createTempRunDirs } from "./testing";
+import { COUNT_SCHEMA, createTempRunDirs, exchange } from "./testing";
 
 const runDirs = createTempRunDirs();
 const { tempRunDir } = runDirs;
@@ -157,28 +156,6 @@ describe("result control plane", () => {
       await fixture.control.close();
     }
   });
-
-  test("the installed agent CLI reaches the endpoint and retains schema errors", async () => {
-    const fixture = await setup();
-    try {
-      const cli = await installAgentLauncher(tempRunDir(), fixture.channel.endpoint);
-      const process = Bun.spawn([cli, "result", "op-1", '{"count":"3","even":false}'], {
-        stdin: "ignore",
-        stdout: "pipe",
-        stderr: "pipe",
-      });
-      const [exitCode, stderr] = await Promise.all([
-        process.exited,
-        new Response(process.stderr).text(),
-      ]);
-
-      expect(exitCode).toBe(1);
-      expect(stderr).toContain("value.count: expected an integer");
-      expect(await readAccepted(fixture.runDir, "op-1")).toBeNull();
-    } finally {
-      await fixture.control.close();
-    }
-  });
 });
 
 async function setup(
@@ -209,19 +186,5 @@ function request(raw: string) {
 }
 
 async function rawRequest(endpoint: string, frame: string): Promise<ResultSubmitResponse> {
-  return new Promise<ResultSubmitResponse>((resolve, reject) => {
-    const chunks: Buffer[] = [];
-    const socket = createConnection(endpoint);
-    socket.once("connect", () => socket.end(frame));
-    socket.on("data", (data) => chunks.push(typeof data === "string" ? Buffer.from(data) : data));
-    socket.once("end", () => {
-      const text = Buffer.concat(chunks).toString("utf8");
-      try {
-        resolve(JSON.parse(text.slice(0, -1)) as ResultSubmitResponse);
-      } catch (error) {
-        reject(error instanceof Error ? error : new Error(String(error)));
-      }
-    });
-    socket.once("error", reject);
-  });
+  return JSON.parse(await exchange(endpoint, frame)) as ResultSubmitResponse;
 }

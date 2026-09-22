@@ -4,27 +4,20 @@ import { Glob } from "bun";
 import {
   allowsComputedWorkflowImport,
   escapedPathImport,
-  escapedRelativeImport,
   WORKSPACE_MANIFEST_GLOBS,
 } from "./boundary-paths";
 
 describe("boundary path resolution", () => {
-  test("distinguishes internal relative imports from cross-package escapes", () => {
+  test("distinguishes internal imports from relative, absolute and file-URL escapes", () => {
     const packageDirectory = "/repo/packages/cli-agent";
     const source = join(packageDirectory, "src/cli.ts");
+    const escape = "/repo/packages/engine/src/run-dir";
 
-    expect(escapedRelativeImport(packageDirectory, source, "./client")).toBeNull();
-    expect(escapedRelativeImport(packageDirectory, source, "../../engine/src/run-dir")).toBe(
-      "/repo/packages/engine/src/run-dir",
-    );
-  });
-
-  test("detects absolute and file-URL package escapes", () => {
-    const source = "/repo/packages/cli-agent/src/cli.ts";
-    expect(escapedPathImport("/repo/packages/cli-agent", source, "/repo/packages/engine/src/index.ts"))
-      .toBe("/repo/packages/engine/src/index.ts");
-    expect(escapedPathImport("/repo/packages/cli-agent", source, "file:///repo/packages/engine/src/index.ts"))
-      .toBe("/repo/packages/engine/src/index.ts");
+    expect(escapedPathImport(packageDirectory, source, "./client")).toBeNull();
+    expect(escapedPathImport(packageDirectory, source, "@wf/contract")).toBeNull();
+    expect(escapedPathImport(packageDirectory, source, "../../engine/src/run-dir")).toBe(escape);
+    expect(escapedPathImport(packageDirectory, source, escape)).toBe(escape);
+    expect(escapedPathImport(packageDirectory, source, `file://${escape}`)).toBe(escape);
   });
 
   test("the dependency scan includes the top-level examples package", async () => {

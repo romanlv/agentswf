@@ -9,60 +9,19 @@ export type TurnId = string;
 export type CompactionId = string;
 export type HarnessKind = string;
 
-export type ModelSettings = {
-  /** Harness-defined reasoning effort, such as `low`, `medium`, or `high`. */
-  effort?: string;
-  /** Positive maximum number of generated tokens. */
-  maxOutputTokens?: number;
-  /** Additional model-provider settings, validated by the selected harness. */
-  providerOptions?: JsonObject;
-};
-
 export type ExecutionConfig = {
   harness: HarnessKind;
   model: string;
-  settings?: ModelSettings;
 };
 
 /** A centrally configured name for an execution configuration. */
 export type RuntimeAliases = Readonly<Record<RuntimeAliasName, ExecutionConfig>>;
-
-export type RetentionPolicy =
-  | { kind: "workflow" }
-  | {
-      kind: "idle";
-      /** Positive retention duration after becoming idle. */
-      milliseconds: number;
-    }
-  | { kind: "explicit" };
-
-/** Recovery retries the in-flight turn under its existing id; exhaustion resolves as `failed`. */
-export type RecoveryPolicy =
-  | { onCrash: "fail" }
-  | {
-      onCrash: "resume";
-      /** Non-negative restart limit. */
-      maxRestarts: number;
-    }
-  | {
-      /** Starts a fresh session with the same execution if resume is unavailable. */
-      onCrash: "resume-or-replace";
-      /** Non-negative restart limit. */
-      maxRestarts: number;
-    };
-
-export interface AgentLifecycle {
-  retention: RetentionPolicy;
-  recovery?: RecoveryPolicy;
-}
 
 export type ExecutionRequirements = {
   /** Alias resolution happens first; every other supplied field must then match exactly. */
   alias: RuntimeAliasName;
   harness?: HarnessKind;
   model?: string;
-  /** Exact structural match, including provider options. */
-  settings?: ModelSettings;
 };
 
 /** An alias, constrained alias, or complete execution configuration. */
@@ -73,8 +32,6 @@ export type AgentExecution = ExecutionConfig & {
   alias?: RuntimeAliasName;
 };
 
-export type UsageExecution = Omit<AgentExecution, "settings">;
-
 export interface AgentOpenSpec {
   /** Logical identity scoped to the current workflow run. */
   key: AgentKey;
@@ -83,8 +40,6 @@ export interface AgentOpenSpec {
   /** Defaults to the workflow's working directory. */
   cwd?: string;
   instructions?: string;
-  /** Defaults to workflow retention with no crash recovery. */
-  lifecycle?: AgentLifecycle;
   /** Selects the harness and model. */
   runtime: RuntimeSelection;
   /** Harness-neutral skill names made available to this logical agent. */
@@ -162,7 +117,7 @@ export type TurnUsage = {
   agent: AgentKey;
   operationId: string;
   /** Resolved execution for this operation. */
-  execution: UsageExecution;
+  execution: AgentExecution;
   /** Totals across every attempt made for this operation. */
   tokens?: TokenUsage;
   /** Total across attempts. Absent means unavailable; zero is a known zero. */

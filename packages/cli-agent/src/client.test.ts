@@ -9,17 +9,17 @@ const REQUEST = {
   raw: "{}",
 } as const;
 
-test("a timed-out submission settles and closes its socket", async () => {
+test("a peer that never answers settles the submission and closes its socket", async () => {
   const endpoint = `/tmp/wf-client-${crypto.randomUUID()}.sock`;
   let peer: Socket | undefined;
   let client: Socket | undefined;
-  let markConnected!: () => void;
-  const connected = new Promise<void>((resolve) => {
-    markConnected = resolve;
-  });
+  let received = "";
+  // Accepted, read, and never answered: the case an agent must be told about rather than wait out.
   const server = createServer({ allowHalfOpen: true }, (socket) => {
     peer = socket;
-    markConnected();
+    socket.on("data", (chunk) => {
+      received += chunk.toString("utf8");
+    });
   });
   await new Promise<void>((resolve, reject) => {
     server.once("error", reject);
@@ -27,13 +27,12 @@ test("a timed-out submission settles and closes its socket", async () => {
   });
 
   try {
-    const submission = submitResult(endpoint, REQUEST, 30, (path) => {
+    const submission = submitResult(endpoint, REQUEST, 0.2, (path) => {
       client = createConnection(path);
       return client;
     });
-    await connected;
-    client?.emit("timeout");
     await expect(submission).rejects.toThrow("timed out");
+    expect(received).toContain('"operationId":"op-1"');
     expect(client?.destroyed).toBe(true);
   } finally {
     peer?.destroy();

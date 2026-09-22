@@ -59,15 +59,14 @@ config and pane environment are not in the key. The cheap repair is a caller-com
 out-of-band inputs in the fingerprint, which turns a silent wrong replay into a correct miss.
 Resume's honest scope is read-only fan-outs over inputs pinned in the prompt.
 
-**Fork's real capability is not `nativeFork`.** Every harness that forks does it natively and
+**Fork's real capability is not whether it can.** Every harness that forks does it natively and
 inherits context correctly, so "can it fork" is the uninteresting question. The economics split by
 **(harness, backend)**: a warm headless claude fork costs about what a resume costs; codex gets 33%
 of its input cached where a resume gets 96%; pi pays about 7x a resume; cursor has no fork. In a
 pane it inverts — six pane forks scored zero cache hits, so fourteen forks write the prefix fourteen
-times where fourteen cold agents write it once, about 11x. `packages/harness/src/adapter.ts` ships
-`capabilities.nativeFork`, which cannot tell a cheap fork from an expensive one, and §6 has since
-removed `pane | headless` — the axis the economics split on — from every surface. Settle that before
-fork is ever exposed.
+times where fourteen cold agents write it once, about 11x. A boolean fork capability cannot tell a
+cheap fork from an expensive one, and §6 has since removed `pane | headless` — the axis the
+economics split on — from every surface. Settle that before fork is ever exposed.
 
 **E7 is prose-only.** It was ad-hoc CLI probing, never committed: no scripts, no
 `experiments/_archive/e7/`, no raw rows. Its numbers cannot be re-derived from this repository —

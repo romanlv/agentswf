@@ -312,7 +312,6 @@ export function describe(schema: JsonSchema): string {
           : "string";
     case "number":
     case "integer":
-      return schema.const === undefined ? schema.type : String(schema.const);
     case "boolean":
       return schema.const === undefined ? schema.type : String(schema.const);
     case "null":

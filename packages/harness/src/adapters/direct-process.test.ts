@@ -2,7 +2,11 @@ import { describe, expect, test } from "bun:test";
 import type { ProcessInput, RunProcess } from "../command";
 import { HARNESSES } from "../spec";
 import type { Step } from "../types";
-import { createDirectProcessAdapter, createHeadlessAdapter } from "./direct-process";
+import {
+  createDirectProcessAdapter,
+  createHeadlessAdapter,
+  type DirectProcessConfig,
+} from "./direct-process";
 
 const CALL = { runDir: "/runs/r", callId: "c1" };
 const STEP: Step = { prompt: "count the e's", harness: "claude", backend: "headless" };
@@ -37,18 +41,6 @@ describe("createDirectProcessAdapter", () => {
     expect(calls[0]?.env?.PATH?.startsWith("/wf/bin:")).toBe(true);
   });
 
-  test("a nudge resumes the session the first turn left behind", async () => {
-    const { run, calls } = stub([claudeOut("done"), claudeOut("ok")]);
-    const session = await createDirectProcessAdapter({ turnTimeoutMs: 1_000 }, run).open(STEP, CALL);
-
-    await session.prompt("go");
-    await session.prompt("report now");
-
-    expect(calls[0]?.argv).not.toContain("--resume");
-    expect(calls[1]?.argv).toContain("--resume");
-    expect(calls[1]?.argv[calls[1].argv.indexOf("--resume") + 1]).toBe("sess-1");
-  });
-
   test("the transcript is what the agent said, not the harness envelope", async () => {
     const { run } = stub([claudeOut("the count is 3")]);
     const session = await createDirectProcessAdapter({ turnTimeoutMs: 1_000 }, run).open(STEP, CALL);
@@ -58,67 +50,25 @@ describe("createDirectProcessAdapter", () => {
     expect(await session.transcript()).toBe("the count is 3");
   });
 
-  test("the prompt rides on stdin, where no CLI reinterprets it", async () => {
-    const { run, calls } = stub([claudeOut("done")]);
-    const session = await createDirectProcessAdapter({ turnTimeoutMs: 1_000 }, run).open(STEP, CALL);
-
-    await session.prompt("count the e's in 'agent terminal'");
-
-    expect(calls[0]?.stdin).toBe("count the e's in 'agent terminal'");
-    expect(calls[0]?.argv).not.toContain("count the e's in 'agent terminal'");
-  });
-
-  test("the session id pi is given up front is the one its nudge resumes", async () => {
-    const { run, calls } = stub(["{}", "{}"]);
-    const session = await createDirectProcessAdapter(
-      { turnTimeoutMs: 1_000, newSessionId: () => "chosen-id" },
-      run,
-    ).open({ ...STEP, harness: "pi" }, CALL);
-
-    await session.prompt("go");
-    await session.prompt("report now");
-
-    expect(calls[0]?.argv[calls[0].argv.indexOf("--session-id") + 1]).toBe("chosen-id");
-    expect(calls[1]?.argv[calls[1].argv.indexOf("--session-id") + 1]).toBe("chosen-id");
-  });
-
-  test("what the turn cost is carried out of the harness envelope", async () => {
-    const { run } = stub([
+  test("a second prompt resumes the first turn's session and carries its usage", async () => {
+    const { run, calls } = stub([
+      claudeOut("done"),
       JSON.stringify({
-        session_id: "s",
-        result: "done",
+        session_id: "sess-1",
+        result: "ok",
         total_cost_usd: 0.042,
-        usage: { input_tokens: 2, output_tokens: 7, cache_read_input_tokens: 900 },
+        usage: { input_tokens: 2, output_tokens: 7 },
       }),
     ]);
     const session = await createDirectProcessAdapter({ turnTimeoutMs: 1_000 }, run).open(STEP, CALL);
 
-    expect((await session.prompt("go")).usage).toMatchObject({
-      costUsd: 0.042,
-      outputTokens: 7,
-      cachedInputTokens: 900,
-    });
-  });
+    await session.prompt("go");
+    const second = await session.prompt("again");
 
-  test("a harness with no confirmed resume cannot be nudged, and says so", async () => {
-    const { run, calls } = stub(["first turn", "second turn"]);
-    const { resumeTurn } = HARNESSES.codex;
-    delete HARNESSES.codex.resumeTurn;
-    try {
-      const session = await createDirectProcessAdapter({ turnTimeoutMs: 1_000 }, run).open(
-        { ...STEP, harness: "codex" },
-        CALL,
-      );
-
-      await session.prompt("go");
-      const second = await session.prompt("report now");
-
-      expect(second.state).toBe("unknown");
-      expect(second.detail).toContain("no confirmed headless resume");
-      expect(calls).toHaveLength(1);
-    } finally {
-      HARNESSES.codex.resumeTurn = resumeTurn;
-    }
+    expect(calls[0]?.argv).not.toContain("--resume");
+    expect(calls[1]?.argv[calls[1].argv.indexOf("--resume") + 1]).toBe("sess-1");
+    expect(second.usage).toMatchObject({ costUsd: 0.042, outputTokens: 7 });
+    expect(await session.transcript()).toBe("doneok");
   });
 
   test("a nonzero exit is unknown, not a completed turn", async () => {
@@ -130,10 +80,10 @@ describe("createDirectProcessAdapter", () => {
     });
     const session = await createDirectProcessAdapter({ turnTimeoutMs: 1_000 }, run).open(STEP, CALL);
 
-    const outcome = await session.prompt("go");
-
-    expect(outcome.state).toBe("unknown");
-    expect(outcome.detail).toContain("credit balance too low");
+    expect(await session.prompt("go")).toMatchObject({
+      state: "unknown",
+      detail: expect.stringContaining("credit balance too low"),
+    });
   });
 
   test("a timeout is reported as such rather than as an empty answer", async () => {
@@ -167,50 +117,128 @@ describe("createHeadlessAdapter", () => {
     endpoint: "/private/engine.sock",
     operationId: "op-1",
   };
+  const turnSpec = { id: "turn-1", prompt: "review", deadline: activation.deadline };
+  const nudgeSpec = { id: "turn-1:nudge", prompt: "report", deadline: activation.deadline };
+
+  const headless = (
+    run: RunProcess,
+    config: Partial<DirectProcessConfig> = {},
+    request: typeof activation = activation,
+  ) => createHeadlessAdapter({ turnTimeoutMs: 10_000, ...config }, run).activate(request);
 
   test("a nudge resumes the native session in a fresh process environment", async () => {
     const { run, calls } = stub([claudeOut("first"), claudeOut("second")]);
-    const adapter = createHeadlessAdapter(
-      { turnTimeoutMs: 10_000, newSessionId: () => "chosen" },
-      run,
-    );
-    const session = await adapter.activate(activation);
-    const first = await session.start(
-      { id: "turn-1", prompt: "review", deadline: activation.deadline },
-      firstBinding,
-    );
+    const session = await headless(run, { newSessionId: () => "chosen" });
+    const first = await session.start(turnSpec, firstBinding);
     await expect(first.settled).resolves.toMatchObject({
       state: "completed",
       resultEvidence: { kind: "transcript", text: "first" },
     });
-    const nudge = await first.nudge(
-      { id: "turn-1:nudge", prompt: "report", deadline: activation.deadline },
-    );
+    const nudge = await first.nudge(nudgeSpec);
     await nudge.settled;
 
     // Nothing about the operation: the agent is told the launcher's path in the prompt, so a
     // turn that carried an environment would be carrying something the next turn must not reuse.
     expect(calls[0]?.env).toEqual({});
     expect(calls[1]?.env).toEqual({});
-    expect(calls[1]?.argv).toContain("--resume");
+    expect(calls[0]?.argv).not.toContain("--resume");
+    expect(calls[1]?.argv[calls[1].argv.indexOf("--resume") + 1]).toBe("sess-1");
   });
 
   test("compaction resumes without result authority", async () => {
     const { run, calls } = stub([claudeOut("first"), claudeOut("summary")]);
-    const session = await createHeadlessAdapter(
-      { turnTimeoutMs: 10_000, newSessionId: () => "chosen" },
-      run,
-    ).activate(activation);
-    const turn = await session.start(
-      { id: "turn-1", prompt: "review", deadline: activation.deadline },
-      firstBinding,
-    );
+    const session = await headless(run, { newSessionId: () => "chosen" });
+    const turn = await session.start(turnSpec, firstBinding);
     await turn.settled;
     const compact = await session.compact("compact-1", "summarize", activation.deadline);
     await compact.settled;
 
     expect(calls[1]?.env).toEqual({});
     expect(calls[1]?.argv).toContain("--resume");
+  });
+
+  test("the prompt rides on stdin, where no CLI reinterprets it", async () => {
+    const { run, calls } = stub([claudeOut("done")]);
+    const prompt = "count the e's in 'agent terminal'";
+    const session = await headless(run);
+    await (await session.start({ ...turnSpec, prompt }, firstBinding)).settled;
+
+    expect(calls[0]?.stdin).toBe(`${activation.instructions}\n\n${prompt}`);
+    expect(calls[0]?.argv).not.toContain(prompt);
+  });
+
+  test("the session id pi is given up front is the one its nudge resumes", async () => {
+    const { run, calls } = stub(["{}", "{}"]);
+    const session = await headless(
+      run,
+      { newSessionId: () => "chosen-id" },
+      { ...activation, execution: { harness: "pi", model: "opus" } },
+    );
+    const turn = await session.start(turnSpec, firstBinding);
+    await turn.settled;
+    await (await turn.nudge(nudgeSpec)).settled;
+
+    expect(calls[0]?.argv[calls[0].argv.indexOf("--session-id") + 1]).toBe("chosen-id");
+    expect(calls[1]?.argv[calls[1].argv.indexOf("--session-id") + 1]).toBe("chosen-id");
+  });
+
+  test("what the turn cost is carried out of the harness envelope", async () => {
+    const { run } = stub([
+      JSON.stringify({
+        session_id: "s",
+        result: "done",
+        total_cost_usd: 0.042,
+        usage: { input_tokens: 2, output_tokens: 7, cache_read_input_tokens: 900 },
+      }),
+    ]);
+    const session = await headless(run);
+    const turn = await session.start(turnSpec, firstBinding);
+
+    expect((await turn.settled).nativeUsage[0]).toMatchObject({
+      costUsd: 0.042,
+      outputTokens: 7,
+      cachedInputTokens: 900,
+    });
+  });
+
+  test("a harness with no confirmed resume cannot be nudged, and says so", async () => {
+    const { run, calls } = stub(["first turn", "second turn"]);
+    const { resumeTurn } = HARNESSES.codex;
+    delete HARNESSES.codex.resumeTurn;
+    try {
+      const session = await headless(
+        run,
+        {},
+        { ...activation, execution: { harness: "codex", model: "gpt-5.6-sol" } },
+      );
+      const turn = await session.start(turnSpec, firstBinding);
+      await turn.settled;
+      const nudge = await turn.nudge(nudgeSpec);
+
+      await expect(nudge.settled).resolves.toMatchObject({
+        state: "failed",
+        detail: expect.stringContaining("no confirmed headless resume"),
+      });
+      expect(calls).toHaveLength(1);
+    } finally {
+      HARNESSES.codex.resumeTurn = resumeTurn;
+    }
+  });
+
+  test("a nonzero exit fails the turn instead of passing off an empty answer", async () => {
+    const run: RunProcess = async () => ({
+      stdout: "",
+      stderr: "credit balance too low",
+      exitCode: 1,
+      timedOut: false,
+    });
+    const session = await headless(run);
+    const turn = await session.start(turnSpec, firstBinding);
+
+    await expect(turn.settled).resolves.toMatchObject({
+      state: "failed",
+      detail: expect.stringContaining("credit balance too low"),
+    });
   });
 
   test("reports lifecycle status and closes idempotently", async () => {
@@ -221,11 +249,8 @@ describe("createHeadlessAdapter", () => {
       });
       return { stdout: claudeOut("done"), stderr: "", exitCode: 0, timedOut: false };
     };
-    const session = await createHeadlessAdapter({ turnTimeoutMs: 10_000 }, run).activate(activation);
-    const turn = await session.start(
-      { id: "turn-1", prompt: "review", deadline: activation.deadline },
-      firstBinding,
-    );
+    const session = await headless(run);
+    const turn = await session.start(turnSpec, firstBinding);
     expect(await session.status()).toEqual({ state: "working" });
     release();
     await turn.settled;
@@ -251,11 +276,8 @@ describe("createHeadlessAdapter", () => {
           { once: true },
         );
       });
-    const session = await createHeadlessAdapter({ turnTimeoutMs: 10_000 }, run).activate(activation);
-    const turn = await session.start(
-      { id: "turn-1", prompt: "review", deadline: activation.deadline },
-      firstBinding,
-    );
+    const session = await headless(run);
+    const turn = await session.start(turnSpec, firstBinding);
 
     await expect(turn.release("stop", activation.deadline)).resolves.toMatchObject({
       kind: "released",
@@ -270,11 +292,8 @@ describe("createHeadlessAdapter", () => {
       exitCode: 137,
       timedOut: true,
     });
-    const session = await createHeadlessAdapter({ turnTimeoutMs: 250 }, run).activate(activation);
-    const turn = await session.start(
-      { id: "turn-1", prompt: "review", deadline: activation.deadline },
-      firstBinding,
-    );
+    const session = await headless(run, { turnTimeoutMs: 250 });
+    const turn = await session.start(turnSpec, firstBinding);
 
     await expect(turn.settled).resolves.toMatchObject({
       state: "timed-out",
@@ -301,11 +320,8 @@ describe("createHeadlessAdapter", () => {
           { once: true },
         ),
       );
-    const session = await createHeadlessAdapter({ turnTimeoutMs: 10_000 }, run).activate(activation);
-    const turn = await session.start(
-      { id: "turn-1", prompt: "review", deadline: activation.deadline },
-      firstBinding,
-    );
+    const session = await headless(run);
+    const turn = await session.start(turnSpec, firstBinding);
 
     await session.close();
 

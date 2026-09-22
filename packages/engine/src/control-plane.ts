@@ -1,4 +1,4 @@
-import { chmod, mkdir, mkdtemp, rm, unlink } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -8,8 +8,8 @@ import {
 } from "@wf/contract/wire";
 import type { ResultSlotRegistry } from "./result-slots";
 
-export const MAX_RESULT_REQUEST_BYTES = 1024 * 1024;
-export const MAX_CONTROL_CONNECTIONS = 64;
+const MAX_RESULT_REQUEST_BYTES = 1024 * 1024;
+const MAX_CONTROL_CONNECTIONS = 64;
 const CONNECTION_TIMEOUT_SECONDS = 30;
 
 export type ResultChannel = {
@@ -47,18 +47,28 @@ export async function startResultControlPlane(options: {
   if (process.platform === "win32") {
     throw new Error("result control plane requires POSIX Unix-domain sockets");
   }
-  const maxRequestBytes = options.maxRequestBytes ?? MAX_RESULT_REQUEST_BYTES;
-  if (!Number.isSafeInteger(maxRequestBytes) || maxRequestBytes <= 0) {
-    throw new Error("maxRequestBytes must be a positive safe integer");
-  }
-  const maxConnections = options.maxConnections ?? MAX_CONTROL_CONNECTIONS;
-  const connectionLifetimeMs = options.connectionLifetimeMs ?? CONNECTION_TIMEOUT_SECONDS * 1000;
-  if (!Number.isSafeInteger(maxConnections) || maxConnections <= 0) {
-    throw new Error("maxConnections must be a positive safe integer");
-  }
-  if (!Number.isSafeInteger(connectionLifetimeMs) || connectionLifetimeMs <= 0) {
-    throw new Error("connectionLifetimeMs must be a positive safe integer");
-  }
+  const positive = (name: string, value: number | undefined, fallback: number): number => {
+    const resolved = value ?? fallback;
+    if (!Number.isSafeInteger(resolved) || resolved <= 0) {
+      throw new Error(`${name} must be a positive safe integer`);
+    }
+    return resolved;
+  };
+  const maxRequestBytes = positive(
+    "maxRequestBytes",
+    options.maxRequestBytes,
+    MAX_RESULT_REQUEST_BYTES,
+  );
+  const maxConnections = positive(
+    "maxConnections",
+    options.maxConnections,
+    MAX_CONTROL_CONNECTIONS,
+  );
+  const connectionLifetimeMs = positive(
+    "connectionLifetimeMs",
+    options.connectionLifetimeMs,
+    CONNECTION_TIMEOUT_SECONDS * 1000,
+  );
   const root = options.socketRoot ?? tmpdir();
   await mkdir(root, { recursive: true });
   const directory = await mkdtemp(join(root, "awf-"));
@@ -69,13 +79,13 @@ export async function startResultControlPlane(options: {
   // Shared across channels: the budget protects the engine, not any one agent.
   let activeConnections = 0;
   let accepting = true;
-  const activeHandlers = new Set<Promise<void>>();
   const channels = new Set<ResultChannel>();
-  let sockets = 0;
 
   const openChannel = async (agentId: string): Promise<ResultChannel> => {
     if (!accepting) throw new Error("result control plane is closed");
-    sockets += 1;
+    // Per channel, unlike the connection budget: closing one agent must not wait on a submission
+    // another agent is still making.
+    const activeHandlers = new Set<Promise<void>>();
     // The agent key never reaches the path: it is arbitrary length and arbitrary text, and two
     // keys that differ only outside `[A-Za-z0-9._-]` would name the same directory.
     const home = await mkdtemp(join(directory, "a"));
@@ -105,9 +115,8 @@ export async function startResultControlPlane(options: {
             }
             socket.data.counted = true;
             activeConnections += 1;
-            // Idle and total budget are the same window: a caller that lengthens the lifetime for a
-            // slow submission would otherwise still lose the connection to the fixed idle timeout.
-            socket.timeout(Math.max(1, Math.ceil(connectionLifetimeMs / 1000)));
+            // Absolute, not idle: the budget is the whole submission, and a trickle of bytes must
+            // not extend it indefinitely.
             socket.data.lifetime = setTimeout(() => socket.terminate(), connectionLifetimeMs);
           },
           async data(socket, data) {
@@ -150,9 +159,6 @@ export async function startResultControlPlane(options: {
           error(socket) {
             socket.terminate();
           },
-          timeout(socket) {
-            socket.terminate();
-          },
           close(socket) {
             socket.data.closed = true;
             socket.data.responded?.();
@@ -168,7 +174,7 @@ export async function startResultControlPlane(options: {
         },
       });
     } catch (error) {
-      await rm(home, { recursive: true, force: true }).catch(ignoreMissing);
+      await rm(home, { recursive: true, force: true });
       throw error;
     }
     await chmod(endpoint, 0o600).catch(ignoreMissing);
@@ -183,8 +189,7 @@ export async function startResultControlPlane(options: {
           listener.stop(false);
           await Promise.allSettled([...activeHandlers]);
           listener.stop(true);
-          await unlink(endpoint).catch(ignoreMissing);
-          await rm(home, { recursive: true, force: true }).catch(ignoreMissing);
+          await rm(home, { recursive: true, force: true });
           channels.delete(channel);
         })();
         return channelClosing;
@@ -200,11 +205,10 @@ export async function startResultControlPlane(options: {
     close() {
       closing ??= (async () => {
         accepting = false;
-        await Promise.allSettled([...activeHandlers]);
         await Promise.allSettled([...channels].map((channel) => channel.close()));
         await chmod(directory, 0o700).catch(ignoreMissing);
         // Recursive: each agent's socket and launcher live in a directory of their own.
-        await rm(directory, { recursive: true, force: true }).catch(ignoreMissing);
+        await rm(directory, { recursive: true, force: true });
       })();
       return closing;
     },

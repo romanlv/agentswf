@@ -5,9 +5,9 @@ import type {
   AgentState,
   HarnessAgentSnapshot,
   HarnessSession,
+  HarnessOperationBinding,
   HarnessSessionStatus,
   HarnessTurn,
-  HarnessTurnOutcome,
 } from "./adapter";
 import type {
   AgentExecution,
@@ -15,7 +15,7 @@ import type {
   AgentTextTurnSpec,
   JsonValue,
 } from "@wf/contract/workflow";
-import type { HarnessOperationBinding } from "./adapter";
+import { outcomeStatus } from "./session-core";
 
 /**
  * Places one session adapter behind the run-host seam: per-agent sessions, status snapshots and
@@ -150,7 +150,6 @@ function observeSession(
     };
   };
   return {
-    capabilities: session.capabilities,
     async status() {
       const status = await session.status();
       record(status);
@@ -177,20 +176,6 @@ function observeSession(
   };
 }
 
-function outcomeStatus(outcome: HarnessTurnOutcome): HarnessSessionStatus {
-  switch (outcome.state) {
-    case "completed":
-      return { state: "idle" };
-    case "blocked":
-      return { state: "blocked", ...(outcome.detail ? { detail: outcome.detail } : {}) };
-    case "cancelled":
-      return { state: "dormant", ...(outcome.detail ? { detail: outcome.detail } : {}) };
-    case "timed-out":
-    case "failed":
-      return { state: "unknown", ...(outcome.detail ? { detail: outcome.detail } : {}) };
-  }
-}
-
 function setSnapshot(
   snapshots: Map<string, HarnessAgentSnapshot>,
   key: string,
@@ -205,5 +190,3 @@ function setSnapshot(
     ...(status.detail ? { detail: status.detail } : {}),
   });
 }
-
-

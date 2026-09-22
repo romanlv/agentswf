@@ -101,7 +101,7 @@ In scope:
 
 - two logical review agents running concurrently;
 - one run-owned Herdr workspace and tab with visible sibling operation panes;
-- distinct one-use result authority for each operation pane;
+- a private engine-owned socket for each agent and one result slot for each operation;
 - structured result acceptance through the engine control plane;
 - ordered composition, inspection, deadlines, cancellation, and cleanup;
 - fake-backed proof and one explicit bounded live evaluation;
@@ -132,8 +132,9 @@ Out of scope:
 
 - One engine run opens one `AgentRunHost`.
 - The production host owns one Herdr workspace and tab.
-- Every distinct operation receives a fresh sibling pane and a fresh capability.
-- Initial delivery and an optional nudge belong to the same operation, pane, and capability.
+- Every distinct operation receives a fresh sibling pane; every agent receives a socket of its own
+  and a launcher that points at it.
+- Initial delivery and an optional nudge belong to the same operation, pane, and result slot.
 - A logical agent takes one operation. The production host refuses a second one, because nothing it
   can observe proves the first pane released; that is why the story's workflow is one turn per
   reviewer plus an optional nudge.
@@ -144,13 +145,14 @@ Out of scope:
 
 ### Result path
 
-- The engine creates a 32-byte base64url bearer capability for each operation.
-- Non-empty `WF_ENDPOINT`, `WF_OPERATION`, and `WF_CAPABILITY` bindings exist only in the bound
-  operation pane; the workspace/root pane receives empty values to clear inherited authority.
-- `wf result` sends one bounded, versioned JSON request over an engine-owned Unix socket.
+- The engine opens one Unix socket per agent, in a directory of its own under a root no agent can
+  list, and installs beside it a launcher carrying that socket's path.
+- The agent is told the launcher's path and its call id in the prompt, and nothing else. Nothing
+  secret has to survive the trip into a pane, because the connection is what says who is answering.
+- `wf result <call-id>` sends one bounded, versioned JSON request over that socket.
 - The engine validates first, then atomically accepts at most one result.
-- Capabilities never appear in public records, prompts, snapshots, diagnostics, or later Herdr
-  commands.
+- A submission naming a call the connecting agent does not own is refused, so the call id travelling
+  in prompts, records, snapshots and diagnostics costs nothing.
 
 ### Deadlines
 
@@ -165,8 +167,9 @@ Out of scope:
 
 ### Threat model
 
-Capabilities prevent stale or accidental cross-settlement among cooperative peers. They do not
-sandbox hostile processes owned by the same local user. The broader permissions design is in
+A socket per agent prevents stale or accidental cross-settlement among cooperative peers. It does
+not sandbox hostile processes owned by the same local user: every agent runs as the engine's own
+user, so one that goes hunting for a sibling's socket finds it. The broader permissions design is in
 [`permissions.md`](../design/permissions.md).
 
 ## Code map
@@ -174,10 +177,11 @@ sandbox hostile processes owned by the same local user. The broader permissions 
 - `packages/contract/src/workflow/` — workflow author surface and executable descriptor.
 - `packages/contract/src/wire.ts` — versioned result-submission messages.
 - `packages/harness/src/adapter.ts` — engine-facing run-host contract.
-- `packages/harness/src/adapters/herdr.ts` — three hosts: the symmetric production run host, plus
-  the isolated-pane and legacy adapters kept for frozen compatibility.
-- `packages/engine/src/result-slots.ts` — capability-bound atomic settlement.
-- `packages/engine/src/control-plane.ts` — private result endpoint.
+- `packages/harness/src/adapters/herdr.ts` — the symmetric production run host, plus the
+  isolated-pane adapter; `herdr-protocol.ts` and `herdr-startup.ts` hold what both share, and
+  `herdr-legacy.ts` the legacy adapter kept for frozen compatibility.
+- `packages/engine/src/result-slots.ts` — agent-bound atomic settlement.
+- `packages/engine/src/control-plane.ts` — one private result socket per agent.
 - `packages/engine/src/workflow-runner.ts` — one-run ownership and workflow execution.
 - `packages/engine/src/operator-cli.ts` — trusted `awf run` entry point.
 - `packages/cli-agent/` — in-session `wf result` command.
@@ -304,7 +308,9 @@ and the third; the second only became visible once Codex got far enough to use t
 - **The agent's pane never received the run's environment.** `--env` was passed to
   `workspace create` only, and every agent runs in a `pane split`, which launches its own process.
   So the return-channel `wf` was off the agent's PATH and the metered credentials the run promises
-  to withhold were never actually cleared there. The same arguments now go to both.
+  to withhold were never actually cleared there. The same arguments now go to both. That fix has
+  since been superseded: the return channel no longer rides in the environment at all — the agent
+  is given a launcher path in its prompt, and the socket behind it is the authority.
 - **A prompt submitted into a just-dismissed modal is lost.** After the trust handshake
   `agent wait --until idle` returns in about 200 ms with `interactive_ready: true`, but the agent's
   terminal UI is not accepting input yet: the prompt is typed and discarded, Herdr answers
@@ -480,18 +486,15 @@ Reviewing the fixes themselves then found two defects in them, both accepted:
 
 - Agent processes have broad local authority. This story states the cooperative-peer boundary but
   does not deliver OS-level sandboxing.
-- Herdr 0.8.2 passes pane environment as command arguments, so an operation capability is locally
-  observable during pane creation. The host limits its lifetime and prevents later persistence,
-  but Herdr needs a different environment transport to remove that exposure.
+- Herdr 0.8.2 passes pane environment as command arguments, so anything the host put there would be
+  locally observable during pane creation. Nothing the return channel needs goes there any more, but
+  a run's other environment still crosses that way.
 - Executable workflow modules are trusted local code and run with operator authority.
 - Prompt-level no-delegation guidance cannot prevent a provider from spawning subagents.
 - A pane agent takes one operation. Multi-turn pane workflows are unavailable until verified release
   and an identity observer exist; a second operation fails closed rather than resuming unsafely.
 - The pane path reports no usage. Live turns settle correctly but cost nothing observable, so spend
   cannot be bounded from a run's own evidence.
-- An agent's own shell tooling rebuilds its PATH. Codex resolved `wf` by searching for it rather
-  than finding it on PATH, which cost a minute of its turn; the pane environment is correct, but a
-  provider that re-execs through a login shell does not inherit it.
 - A status daemon, stable event stream, and author-facing layout policy remain deliberately
   deferred.
 

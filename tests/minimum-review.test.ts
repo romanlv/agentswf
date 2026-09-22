@@ -1,14 +1,13 @@
 import { afterAll, describe, expect, test } from "bun:test";
-import { createConnection } from "node:net";
 import type {
   AgentStructuredTurnSpec,
   AgentTextTurnSpec,
   JsonObject,
   JsonValue,
 } from "../packages/contract/src/workflow";
-import { WIRE_VERSION, type ResultSubmitResponse } from "../packages/contract/src/wire";
+import type { ResultSubmitResponse } from "../packages/contract/src/wire";
 import { runWorkflow } from "../packages/engine/src";
-import { createTempRunDirs } from "../packages/engine/src/testing";
+import { createTempRunDirs, future, submit } from "../packages/engine/src/testing";
 import type {
   AgentRuntimeConfig,
   AgentSessionAdapter,
@@ -114,7 +113,11 @@ describe("minimum two-agent review", () => {
     const adapter = createFakeAdapter({
       script: (context) =>
         lensOf(context) === "maintainability"
-          ? { act: () => submitVoid(context.binding!, accepted("maintainability", "maintainability")) }
+          ? {
+              act: async () => {
+                await submit(context.binding!, accepted("maintainability", "maintainability"));
+              },
+            }
           : {},
     });
 
@@ -292,10 +295,6 @@ function args(): MinimumReviewArgs {
   return { target: "examples/fixtures/review-target.ts" };
 }
 
-function future(milliseconds = 60_000) {
-  return { unixMilliseconds: Date.now() + milliseconds };
-}
-
 function runtime(adapter: AgentSessionAdapter): AgentRuntimeConfig {
   return {
     aliases: {
@@ -349,34 +348,4 @@ function accepted(lens: ReviewLens, subject: ReviewLens): Omit<AcceptedReview, "
             },
           ],
   };
-}
-
-async function submitVoid(binding: HarnessOperationBinding, value: unknown): Promise<void> {
-  await submit(binding, value);
-}
-
-async function submit(
-  binding: HarnessOperationBinding,
-  value: unknown,
-): Promise<ResultSubmitResponse> {
-  const response = await exchange(
-    binding.endpoint,
-    `${JSON.stringify({
-      version: WIRE_VERSION,
-      operationId: binding.operationId,
-      raw: JSON.stringify(value),
-    })}\n`,
-  );
-  return JSON.parse(response) as ResultSubmitResponse;
-}
-
-function exchange(endpoint: string, frame: string): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const socket = createConnection(endpoint);
-    const chunks: Buffer[] = [];
-    socket.once("connect", () => socket.end(frame));
-    socket.on("data", (chunk) => chunks.push(Buffer.from(chunk)));
-    socket.once("end", () => resolve(Buffer.concat(chunks).toString("utf8").trim()));
-    socket.once("error", reject);
-  });
 }

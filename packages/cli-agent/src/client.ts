@@ -36,7 +36,6 @@ export function submitResult(
       reject(error);
     };
 
-    socket.setTimeout(timeoutSeconds * 1000);
     socket.once("connect", () => socket.end(outgoing));
     socket.on("data", (data) => {
       if (settled) return;
@@ -71,7 +70,6 @@ export function submitResult(
       clearTimeout(lifetime);
       resolve(decoded.value);
     });
-    socket.once("timeout", () => fail(new Error("control plane response timed out")));
     socket.once("error", fail);
     socket.once("close", () => {
       if (!settled) fail(new Error("control plane closed without a response"));

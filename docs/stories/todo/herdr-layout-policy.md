@@ -17,9 +17,10 @@ bookkeeping.
 
 Known context: `createHerdrRunHostFactory` in
 `packages/harness/src/adapters/herdr.ts` owns workspace, tab, and pane I/O. `AgentRunHostFactory`
-is intentionally provider- and topology-neutral. Per-operation authority is injected only into the
-pane that runs that operation; changing presentation must preserve that isolation, lifecycle,
-inspection, continuation, and whole-run cleanup behavior.
+is intentionally provider- and topology-neutral. Each agent reaches the engine over a socket of its
+own, through a launcher whose path is named in that agent's prompt rather than placed in any pane's
+environment; changing presentation must preserve that binding, lifecycle, inspection, continuation,
+and whole-run cleanup behavior.
 
 Likely seam: an operator-owned presentation policy supplied to the Herdr host. Its interface should
 describe intent such as grouping, labels, split direction, and relative size. The adapter should
@@ -29,7 +30,8 @@ authors should not choose raw workspace, tab, or pane IDs.
 Refinement must compare at least two real layouts before adding an interface—for example, all peers
 as sibling panes in one tab versus role groups in separate tabs. Keep the module deep: callers
 choose a small policy while the implementation owns admission order, deterministic placement,
-concurrent topology changes, focus behavior, authority clearing, reflow limits, and cleanup.
+concurrent topology changes, focus behavior, socket and launcher lifetime, reflow limits, and
+cleanup.
 
 Open questions:
 

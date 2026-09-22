@@ -98,8 +98,7 @@ if (import.meta.main) {
     console.error("wf result input exceeds the size limit");
     process.exit(2);
   }
-  const stdin = stdinText === "" ? null : stdinText;
-  const outcome = await runCli(process.argv.slice(2), stdin);
+  const outcome = await runCli(process.argv.slice(2), stdinText);
   if (outcome.stdout) console.log(outcome.stdout);
   if (outcome.stderr) console.error(outcome.stderr);
   process.exit(outcome.exitCode);

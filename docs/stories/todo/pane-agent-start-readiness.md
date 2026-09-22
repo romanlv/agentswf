@@ -19,9 +19,9 @@ and failed evaluations retain mode-0600 safe outcome evidence. Those evaluator a
 not close this todo.
 
 Unresolved deliverable: retain a redacted native `agent.start` diagnostic in the engine-owned run
-record. A failed pane launch must remain diagnosable after workspace cleanup without copying the
-capability, raw command arguments, or unsafe provider output. Refine the record shape and redaction
-boundary before implementation because this changes durable evidence.
+record. A failed pane launch must remain diagnosable after workspace cleanup without copying raw
+command arguments or unsafe provider output. Refine the record shape and redaction boundary before
+implementation because this changes durable evidence.
 
 The original retained evidence is under
 `/var/folders/4g/s95glx9x6n71bq4hc08ly2gm0000gn/T/awf-minimum-review-J4rjad` while available. Do not

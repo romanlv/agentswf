@@ -27,7 +27,7 @@ export type NativeTurnRequest = {
   kind: "turn" | "nudge" | "compact";
 };
 
-type NativeTurnOutcome = HarnessTurnOutcome & { sessionRef?: string };
+export type NativeTurnOutcome = HarnessTurnOutcome & { sessionRef?: string };
 
 type NativeSessionIdentity = {
   sessionId: string;
@@ -170,7 +170,6 @@ function createSession(
   };
 
   const session: HarnessSession = {
-    capabilities: { nativeFork: false },
     async status() {
       if (closed) return { state: "missing" };
       if (quarantined) return lastStatus;
@@ -242,7 +241,7 @@ async function releaseBefore(
   }
 }
 
-function outcomeStatus(outcome: HarnessTurnOutcome): HarnessSessionStatus {
+export function outcomeStatus(outcome: HarnessTurnOutcome): HarnessSessionStatus {
   switch (outcome.state) {
     case "completed":
       return { state: "idle" };

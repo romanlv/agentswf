@@ -5,7 +5,6 @@ import { describe, parseJsonSchema, type JsonSchema } from "@wf/contract/schema"
 import {
   DeadlineExceededError,
   type AbsoluteDeadline,
-  type AgentDirectory,
   type AgentExecution,
   type AgentKey,
   type AgentOpenSpec,
@@ -22,14 +21,12 @@ import {
   type RuntimeSelection,
   type TurnOutcome,
   type TurnUsage,
-  type UsageExecution,
   type WorkflowContext,
   type WorkflowDefinition,
 } from "@wf/contract/workflow";
 import type {
   AgentRunHost,
   AgentRuntimeConfig,
-  HarnessOperationBinding,
   HarnessSession,
   HarnessTurn,
   HarnessTurnOutcome,
@@ -96,8 +93,10 @@ export type WorkflowRunSnapshot = {
 type AgentEntry = {
   identity: AgentIdentity;
   state: Promise<LogicalAgent>;
-  /** Closed with the agent: its socket is its authority, so it must not outlive it. */
-  /** `undefined` when the channel never opened; the agent state carries the reason. */
+  /**
+   * Closed with the agent: its socket is its authority, so it must not outlive it.
+   * `undefined` when the channel never opened; the agent state carries the reason.
+   */
   channel: Promise<ResultChannel | undefined>;
 };
 
@@ -105,8 +104,6 @@ type AgentIdentity = {
   execution: AgentExecution;
   cwd: string;
   instructions?: string;
-  lifecycle: NonNullable<AgentOpenSpec["lifecycle"]>;
-  skills: readonly string[];
   labels?: AgentOpenSpec["labels"];
 };
 
@@ -255,9 +252,6 @@ async function runUntilStopped<T>(
     rejectStopped(new DeadlineExceededError(deadline));
   });
   try {
-    const aborted = signals.find((signal) => signal.aborted);
-    if (aborted) throw new WorkflowCancelledError(aborted.reason);
-    if (Date.now() >= deadline.unixMilliseconds) throw new DeadlineExceededError(deadline);
     return await Promise.race([execute(), stopped]);
   } finally {
     cancelDeadline();
@@ -289,7 +283,11 @@ class WorkflowOwner {
       runId: options.runId,
       cwd: options.cwd,
       deadline: options.deadline,
-      agents: this.agentDirectory(),
+      agents: {
+        open: (spec) => this.openAgent(spec),
+        attach: () => unavailable("agents.attach"),
+        stop: () => unavailable("agents.stop"),
+      },
       participants: {
         connect: () => unavailable("participants.connect"),
         get: () => unavailable("participants.get"),
@@ -318,52 +316,38 @@ class WorkflowOwner {
   }
 
   async close(deadline: AbsoluteDeadline): Promise<unknown[]> {
-    if (this.#closing) return this.#closing;
-    this.#closing = this.closeOnce(deadline);
-    return this.#closing;
-  }
-
-  private async closeOnce(deadline: AbsoluteDeadline): Promise<unknown[]> {
-    this.#closed = true;
-    const cleanup = Promise.all([
-      Promise.allSettled([this.options.host.close("workflow complete")]),
-      Promise.allSettled([...this.#inFlight]),
-    ]).then(async (settled) => {
-      // Only now: an agent can still be submitting from inside its own close, and taking its
-      // socket away first turns that into a connection error it cannot report.
-      await Promise.allSettled(
-        [...this.#agents.values()].map((agent) => agent.channel.then((c) => c?.close())),
-      );
-      return settled;
-    });
-    let closed: PromiseSettledResult<void>[];
-    try {
-      [closed] = await waitForDeadline(cleanup, deadline);
-    } catch (error) {
-      if (error instanceof DeadlineExceededError) {
-        return [
-          new Error(`agent cleanup exceeded ${CLEANUP_GRACE_MILLISECONDS}ms shutdown grace`),
-        ];
+    this.#closing ??= (async (): Promise<unknown[]> => {
+      this.#closed = true;
+      const cleanup = Promise.all([
+        Promise.allSettled([this.options.host.close("workflow complete")]),
+        Promise.allSettled([...this.#inFlight]),
+      ]).then(async (settled) => {
+        // Only now: an agent can still be submitting from inside its own close, and taking its
+        // socket away first turns that into a connection error it cannot report.
+        await Promise.allSettled(
+          [...this.#agents.values()].map((agent) => agent.channel.then((c) => c?.close())),
+        );
+        return settled;
+      });
+      let closed: PromiseSettledResult<void>[];
+      try {
+        [closed] = await waitForDeadline(cleanup, deadline);
+      } catch (error) {
+        if (error instanceof DeadlineExceededError) {
+          return [
+            new Error(`agent cleanup exceeded ${CLEANUP_GRACE_MILLISECONDS}ms shutdown grace`),
+          ];
+        }
+        throw error;
       }
-      throw error;
-    }
-    return closed.flatMap((result) =>
-      result.status === "rejected" ? [result.reason] : [],
-    );
-  }
-
-  private agentDirectory(): AgentDirectory {
-    return {
-      open: (spec) => this.openAgent(spec),
-      attach: () => unavailable("agents.attach"),
-      stop: () => unavailable("agents.stop"),
-    };
+      return closed.flatMap((result) => (result.status === "rejected" ? [result.reason] : []));
+    })();
+    return this.#closing;
   }
 
   private openAgent(spec: AgentOpenSpec): Promise<AgentRef> {
     if (this.#closed) throw new Error("workflow context is closed");
     scopes.getStore()?.assertAccepting();
-    assertMinimumLifecycle(spec);
     if (spec.skills && spec.skills.length > 0) {
       throw new Error("agent skills are not implemented by this runner");
     }
@@ -375,10 +359,6 @@ class WorkflowOwner {
       execution,
       cwd: spec.cwd ?? this.options.cwd,
       ...(spec.instructions === undefined ? {} : { instructions: spec.instructions }),
-      lifecycle: structuredClone(
-        spec.lifecycle ?? { retention: { kind: "workflow" as const } },
-      ),
-      skills: structuredClone(spec.skills ?? []),
       ...(spec.labels === undefined ? {} : { labels: structuredClone(spec.labels) }),
     };
     const scope = scopes.getStore();
@@ -410,7 +390,6 @@ class WorkflowOwner {
         cwd: identity.cwd,
         execution,
         ...(spec.instructions === undefined ? {} : { instructions: spec.instructions }),
-        ...(spec.skills === undefined ? {} : { skills: spec.skills }),
         ...(spec.labels === undefined ? {} : { labels: spec.labels }),
       })
       .catch(async (error: unknown) => {
@@ -532,11 +511,6 @@ class LogicalAgent implements AgentRef {
       scope?.track(existing.result);
       return existing.result as Promise<RunResult<string | T>>;
     }
-    try {
-      scope?.assertAccepting();
-    } catch (error) {
-      return Promise.reject(error);
-    }
     let deadline: AbsoluteDeadline;
     try {
       if (spec.deadline && spec.timeoutMs !== undefined) {
@@ -556,7 +530,7 @@ class LogicalAgent implements AgentRef {
         throw new Error("logical agent is closed");
       }
       scope?.assertActive();
-      return this.executeRun(completeSpec, scope, deadline);
+      return this.executeOperation(completeSpec, scope, deadline);
     });
     const tracked = this.options.track(result);
     scope?.track(tracked);
@@ -594,37 +568,12 @@ class LogicalAgent implements AgentRef {
     return result;
   }
 
-  private async executeRun(
+  private async executeOperation(
     spec: AgentRunTextSpec | AgentRunStructuredSpec<JsonValue>,
     scope: ExecutionScope | undefined,
     deadline: AbsoluteDeadline,
   ): Promise<RunResult<JsonValue>> {
-    return this.executeOperation(
-      spec.id!,
-      spec.prompt,
-      deadline,
-      spec.schema,
-      spec.nudge === false ? undefined : spec.nudge ?? {},
-      scope,
-      (turn, binding) =>
-        turn.schema
-          ? this.options.session.start(turn as AgentStructuredTurnSpec<JsonValue>, binding)
-          : this.options.session.start(turn as AgentTextTurnSpec, binding),
-    );
-  }
-
-  private async executeOperation<T extends JsonValue>(
-    turnId: string,
-    prompt: string,
-    deadline: AbsoluteDeadline,
-    outputSchema: OutputSchema<T> | undefined,
-    nudge: Exclude<AgentRunTextSpec["nudge"], false>,
-    scope: ExecutionScope | undefined,
-    start: (
-      turn: AgentTextTurnSpec | AgentStructuredTurnSpec<T>,
-      binding: HarnessOperationBinding,
-    ) => Promise<HarnessTurn>,
-  ): Promise<RunResult<T>> {
+    const nudge = spec.nudge === false ? undefined : spec.nudge ?? {};
     assertDeadlineValue(deadline);
     scope?.assertActive();
     if (nudge?.deadline) assertDeadlineValue(nudge.deadline);
@@ -635,132 +584,80 @@ class LogicalAgent implements AgentRef {
         : nudge.deadline ?? this.options.deadline
       : undefined;
     const operationId = randomUUID();
-    const schema = resultSchema(outputSchema);
+    const schema = resultSchema(spec.schema);
     if (Date.now() >= operationDeadline.unixMilliseconds) {
-      return this.beforeDispatchTimeout<T>(operationId);
+      const saveBeforeDispatch = this.options.reserveUsage();
+      const usage = workflowUsage(this.key, operationId, this.execution, []);
+      saveBeforeDispatch(usage);
+      return {
+        outcome: { kind: "timed-out", reason: "operation deadline exceeded", usage },
+        usage,
+      };
     }
-    const slotDeadline = nudgeDeadline
-      ? laterDeadline(operationDeadline, nudgeDeadline)
-      : operationDeadline;
     const slot = await this.options.slots.open({
       operationId,
       agentId: this.options.key,
-      question: prompt,
+      question: spec.prompt,
       schema,
-      deadline: slotDeadline,
+      deadline: nudgeDeadline
+        ? laterDeadline(operationDeadline, nudgeDeadline)
+        : operationDeadline,
     });
     const binding = { endpoint: this.options.endpoint, operationId };
-    let nativeTurn: HarnessTurn | undefined;
-    let removeCanceller: (() => void) | undefined;
+    const samples: NativeUsage[] = [];
     const saveUsage = this.options.reserveUsage();
+    const finish = async (
+      native: HarnessTurnOutcome | "expired",
+      settlement?: ResultSlotSettlement,
+    ): Promise<RunResult<JsonValue>> => {
+      await this.options.slots.close(operationId);
+      const settled = settlement ?? (await slot.settled);
+      const usage = workflowUsage(this.key, operationId, this.execution, samples);
+      saveUsage(usage);
+      return { outcome: reconcile<JsonValue>(native, settled, usage), usage };
+    };
+    /** The native turn this operation currently answers for; a nudge replaces it. */
+    const held: { turn?: HarnessTurn } = {};
+    let removeCanceller: (() => void) | undefined;
     try {
       scope?.assertActive();
-      if (Date.now() >= operationDeadline.unixMilliseconds) {
-        await this.options.slots.close(operationId);
-        const usage = workflowUsage(this.key, operationId, this.execution, []);
-        saveUsage(usage);
-        return {
-          outcome: { kind: "timed-out", reason: "operation deadline exceeded", usage },
-          usage,
-        };
-      }
-      const turn = {
-        id: turnId,
-        prompt: operationPrompt(prompt, schema, this.options.launcher, operationId),
+      if (Date.now() >= operationDeadline.unixMilliseconds) return await finish("expired");
+      const turn: AgentTextTurnSpec = {
+        id: spec.id!,
+        prompt: operationPrompt(spec.prompt, schema, this.options.launcher, operationId),
         deadline: operationDeadline,
-        ...(outputSchema ? { schema: outputSchema } : {}),
-      } as AgentTextTurnSpec | AgentStructuredTurnSpec<T>;
-      try {
-        const acquiring = start(turn, binding);
-        const acquisition = await observeTurnAcquisition(
-          acquiring,
-          operationDeadline,
-          slot.settled,
-        );
-        if (acquisition.kind !== "turn") {
-          const reason =
-            acquisition.kind === "result" && acquisition.settlement.kind === "accepted"
-              ? "result slot settled before native turn acquisition"
-              : "operation deadline exceeded before native turn acquisition";
-          this.abandonTurnAcquisition(acquiring, reason);
-          await this.options.slots.close(operationId);
-          const settlement =
-            acquisition.kind === "result" ? acquisition.settlement : await slot.settled;
-          const usage = workflowUsage(this.key, operationId, this.execution, []);
-          saveUsage(usage);
-          return {
-            outcome: reconcile<T>(
-              settlement.kind === "accepted" ? unresolvedReleaseOutcome() : "expired",
-              settlement,
-              usage,
-            ),
-            usage,
-          };
-        }
-        nativeTurn = acquisition.turn;
-        if (scope?.cancelled || Date.now() >= operationDeadline.unixMilliseconds) {
-          this.abandonTurnAcquisition(
-            Promise.resolve(nativeTurn),
-            "operation deadline exceeded during native turn acquisition",
-          );
-          await this.options.slots.close(operationId);
-          const settlement = await slot.settled;
-          const usage = workflowUsage(this.key, operationId, this.execution, []);
-          saveUsage(usage);
-          return {
-            outcome: reconcile<T>("expired", settlement, usage),
-            usage,
-          };
-        }
-      } catch (error) {
+      };
+      const outputSchema = spec.schema;
+      removeCanceller = scope?.add((reason) =>
+        held.turn ? requestTurnRelease(held.turn, reason) : Promise.resolve(),
+      );
+      const first = await this.attemptTurn(
+        () =>
+          outputSchema
+            ? this.options.session.start({ ...turn, schema: outputSchema }, binding)
+            : this.options.session.start(turn, binding),
+        operationDeadline,
+        slot.settled,
+        scope,
+        "turn",
+        held,
+      );
+      if (first.kind === "unacquired") {
+        const expiry = first.error instanceof DeadlineExceededError;
         const native: HarnessTurnOutcome = {
-          state: error instanceof DeadlineExceededError ? "timed-out" : "failed",
-          detail:
-            error instanceof DeadlineExceededError
-              ? "operation deadline exceeded"
-              : reasonOf(error),
+          state: expiry ? "timed-out" : "failed",
+          detail: expiry ? "operation deadline exceeded" : reasonOf(first.error),
           resultEvidence: { kind: "unavailable" },
           nativeUsage: [],
         };
         void this.close(native.detail).catch(() => undefined);
-        await this.options.slots.close(operationId);
-        const settlement = await slot.settled;
-        const usage = workflowUsage(this.key, operationId, this.execution, []);
-        saveUsage(usage);
-        return {
-          outcome: reconcile<T>(native, settlement, usage),
-          usage,
-        };
+        return await finish(native);
       }
-      removeCanceller = scope?.add((reason) => requestTurnRelease(nativeTurn!, reason));
-      let settlement: ResultSlotSettlement | undefined;
-      let native: HarnessTurnOutcome | "expired";
-      let nativeReleaseAttempted = false;
-      let nativeReleaseResolved = false;
-      const first = await observeTurnAndResult(
-        nativeTurn,
-        operationDeadline,
-        slot.settled,
-      );
-      const samples: NativeUsage[] = [];
-      if (first.kind === "result") {
-        settlement = first.settlement;
-        if (settlement.kind === "accepted") {
-          nativeReleaseAttempted = true;
-          const released = await releaseSettledTurn(nativeTurn, "result slot settled");
-          native = released ?? unresolvedReleaseOutcome();
-          if (released) {
-            nativeReleaseResolved = true;
-            samples.push(...released.nativeUsage);
-          }
-        } else {
-          native = "expired";
-        }
-      } else {
-        native = first.native;
-        if (native !== "expired") samples.push(...native.nativeUsage);
-      }
-      settlement ??= await settledNow(slot.settled);
+      if (first.kind === "abandoned") return await finish(first.native, first.settlement);
+      samples.push(...first.samples);
+      let { native, settlement, releaseAttempted, releaseResolved } = first;
+      // Peek rather than wait: a slot that has not settled must not hold the operation open.
+      settlement ??= await Promise.race([slot.settled, Promise.resolve(undefined)]);
       if (
         settlement === undefined &&
         native !== "expired" &&
@@ -769,67 +666,32 @@ class LogicalAgent implements AgentRef {
         nudgeDeadline
       ) {
         try {
-          const acquiring = nativeTurn.nudge({
-            id: `${turnId}:nudge`,
-            prompt: operationPrompt(
-              nudge.prompt ??
-                "You finished without reporting the requested result. Report it now.",
-              schema,
-              this.options.launcher,
-              operationId,
-            ),
-            deadline: nudgeDeadline,
-          });
-          const acquisition = await observeTurnAcquisition(
-            acquiring,
+          const again = await this.attemptTurn(
+            () =>
+              held.turn!.nudge({
+                id: `${spec.id!}:nudge`,
+                prompt: operationPrompt(
+                  nudge.prompt ??
+                    "You finished without reporting the requested result. Report it now.",
+                  schema,
+                  this.options.launcher,
+                  operationId,
+                ),
+                deadline: nudgeDeadline,
+              }),
             nudgeDeadline,
             slot.settled,
+            scope,
+            "nudge",
+            held,
           );
-          if (acquisition.kind !== "turn") {
-            const reason =
-              acquisition.kind === "result" && acquisition.settlement.kind === "accepted"
-                ? "result slot settled before native nudge acquisition"
-                : "operation deadline exceeded before native nudge acquisition";
-            this.abandonTurnAcquisition(acquiring, reason);
-            nativeReleaseAttempted = true;
-            settlement =
-              acquisition.kind === "result" ? acquisition.settlement : undefined;
-            native = settlement?.kind === "accepted" ? unresolvedReleaseOutcome() : "expired";
+          if (again.kind === "unacquired") throw again.error;
+          ({ native, settlement } = again);
+          if (again.kind === "abandoned") {
+            releaseAttempted = true;
           } else {
-            nativeTurn = acquisition.turn;
-            if (scope?.cancelled || Date.now() >= nudgeDeadline.unixMilliseconds) {
-              this.abandonTurnAcquisition(
-                Promise.resolve(nativeTurn),
-                "operation deadline exceeded during native nudge acquisition",
-              );
-              nativeReleaseAttempted = true;
-              native = "expired";
-            } else {
-              const nudged = await observeTurnAndResult(
-                nativeTurn,
-                nudgeDeadline,
-                slot.settled,
-              );
-              if (nudged.kind === "result") {
-                settlement = nudged.settlement;
-                if (settlement.kind === "accepted") {
-                  nativeReleaseAttempted = true;
-                  const released = await releaseSettledTurn(nativeTurn, "result slot settled");
-                  native = released ?? unresolvedReleaseOutcome();
-                  if (released) {
-                    nativeReleaseResolved = true;
-                    samples.push(...released.nativeUsage);
-                  }
-                } else {
-                  native = "expired";
-                }
-              } else {
-                native = nudged.native;
-              }
-              if (nudged.kind === "native" && native !== "expired") {
-                samples.push(...native.nativeUsage);
-              }
-            }
+            ({ releaseAttempted, releaseResolved } = again);
+            samples.push(...again.samples);
           }
         } catch (error) {
           native = {
@@ -840,36 +702,15 @@ class LogicalAgent implements AgentRef {
           };
         }
       }
-      if (
-        native === "expired" ||
-        (native.state !== "completed" && !nativeReleaseResolved)
-      ) {
+      if (native === "expired" || (native.state !== "completed" && !releaseResolved)) {
         const reason =
           native === "expired"
             ? "operation deadline exceeded"
             : native.detail ?? `native turn ${native.state}`;
-        if (!nativeReleaseAttempted) await requestTurnRelease(nativeTurn, reason);
+        if (!releaseAttempted) await requestTurnRelease(held.turn!, reason);
         void this.close(reason).catch(() => undefined);
       }
-      await this.options.slots.close(operationId);
-      settlement ??= await slot.settled;
-      const usage = workflowUsage(
-        this.key,
-        operationId,
-        this.execution,
-        samples,
-      );
-      saveUsage(usage);
-      return {
-        outcome: reconcile<T>(
-          native === "expired"
-            ? native
-            : native,
-          settlement,
-          usage,
-        ),
-        usage,
-      };
+      return await finish(native, settlement);
     } catch (error) {
       await this.options.slots.close(operationId);
       throw error;
@@ -878,13 +719,76 @@ class LogicalAgent implements AgentRef {
     }
   }
 
-  private beforeDispatchTimeout<T extends JsonValue>(operationId: string): RunResult<T> {
-    const saveUsage = this.options.reserveUsage();
-    const usage = workflowUsage(this.key, operationId, this.execution, []);
-    saveUsage(usage);
+  /**
+   * One attempt against the native turn — the opening dispatch or a nudge. `held` takes custody
+   * of a turn this operation keeps, so scope cancellation releases it. An error before acquisition
+   * comes back as `unacquired`, because the opening dispatch and a nudge diagnose it differently;
+   * an error after acquisition propagates.
+   */
+  private async attemptTurn(
+    begin: () => Promise<HarnessTurn>,
+    deadline: AbsoluteDeadline,
+    settled: Promise<ResultSlotSettlement>,
+    scope: ExecutionScope | undefined,
+    what: "turn" | "nudge",
+    held: { turn?: HarnessTurn },
+  ): Promise<TurnAttempt> {
+    let acquiring: Promise<HarnessTurn>;
+    let acquisition: TurnAcquisition;
+    try {
+      acquiring = begin();
+      acquisition = await observeTurnAcquisition(acquiring, deadline, settled);
+    } catch (error) {
+      return { kind: "unacquired", error };
+    }
+    if (acquisition.kind !== "turn") {
+      const settlement = acquisition.kind === "result" ? acquisition.settlement : undefined;
+      this.abandonTurnAcquisition(
+        acquiring,
+        settlement?.kind === "accepted"
+          ? `result slot settled before native ${what} acquisition`
+          : `operation deadline exceeded before native ${what} acquisition`,
+      );
+      return {
+        kind: "abandoned",
+        native: settlement?.kind === "accepted" ? unresolvedReleaseOutcome() : "expired",
+        settlement,
+      };
+    }
+    const turn = acquisition.turn;
+    if (scope?.cancelled || Date.now() >= deadline.unixMilliseconds) {
+      this.abandonTurnAcquisition(
+        Promise.resolve(turn),
+        `operation deadline exceeded during native ${what} acquisition`,
+      );
+      return { kind: "abandoned", native: "expired", settlement: undefined };
+    }
+    held.turn = turn;
+    const observed = await observeTurnAndResult(turn, deadline, settled);
+    const unreleased = {
+      kind: "observed",
+      releaseAttempted: false,
+      releaseResolved: false,
+    } as const;
+    if (observed.kind === "native") {
+      return {
+        ...unreleased,
+        native: observed.native,
+        settlement: undefined,
+        samples: observed.native === "expired" ? [] : observed.native.nativeUsage,
+      };
+    }
+    if (observed.settlement.kind !== "accepted") {
+      return { ...unreleased, native: "expired", settlement: observed.settlement, samples: [] };
+    }
+    const released = await releaseSettledTurn(turn, "result slot settled");
     return {
-      outcome: { kind: "timed-out", reason: "operation deadline exceeded", usage },
-      usage,
+      kind: "observed",
+      native: released ?? unresolvedReleaseOutcome(),
+      settlement: observed.settlement,
+      samples: released?.nativeUsage ?? [],
+      releaseAttempted: true,
+      releaseResolved: released !== undefined,
     };
   }
 
@@ -1032,16 +936,22 @@ async function executeParallel<Item, Result>(
   }
 }
 
-async function nativeBeforeDeadline(
-  turn: HarnessTurn,
-  deadline: AbsoluteDeadline,
-): Promise<HarnessTurnOutcome | "expired"> {
-  let cancelTimer: (() => void) | undefined;
-  const expired = new Promise<"expired">((resolve) => {
-    cancelTimer = scheduleAt(deadline, () => resolve("expired"));
-  });
-  return Promise.race([turn.settled, expired]).finally(() => cancelTimer?.());
-}
+type TurnAttempt =
+  | { kind: "unacquired"; error: unknown }
+  | {
+      /** No turn came under this operation; `abandonTurnAcquisition` releases any late one. */
+      kind: "abandoned";
+      native: HarnessTurnOutcome | "expired";
+      settlement: ResultSlotSettlement | undefined;
+    }
+  | {
+      kind: "observed";
+      native: HarnessTurnOutcome | "expired";
+      settlement: ResultSlotSettlement | undefined;
+      samples: readonly NativeUsage[];
+      releaseAttempted: boolean;
+      releaseResolved: boolean;
+    };
 
 type TurnObservation =
   | { kind: "native"; native: HarnessTurnOutcome | "expired" }
@@ -1079,10 +989,14 @@ async function observeTurnAndResult(
   deadline: AbsoluteDeadline,
   settlement: Promise<ResultSlotSettlement>,
 ): Promise<TurnObservation> {
+  let cancelTimer: (() => void) | undefined;
+  const expired = new Promise<"expired">((resolve) => {
+    cancelTimer = scheduleAt(deadline, () => resolve("expired"));
+  });
   return Promise.race([
-    nativeBeforeDeadline(turn, deadline).then(
-      (native): TurnObservation => ({ kind: "native", native }),
-    ),
+    Promise.race([turn.settled, expired])
+      .finally(() => cancelTimer?.())
+      .then((native): TurnObservation => ({ kind: "native", native })),
     settlement.then(
       (value): TurnObservation => ({ kind: "result", settlement: value }),
     ),
@@ -1179,12 +1093,11 @@ function workflowUsage(
   const costs = samples
     .map((sample) => sample.costUsd)
     .filter((amount): amount is number => amount !== undefined);
-  const { settings: _settings, ...usageExecution } = execution;
   return {
     callPath: [],
     agent,
     operationId,
-    execution: usageExecution as UsageExecution,
+    execution,
     ...(Object.keys(tokens).length > 0 ? { tokens } : {}),
     ...(costs.length > 0
       ? {
@@ -1232,18 +1145,18 @@ function resolveExecution(
   selection: RuntimeSelection,
   runtime: AgentRuntimeConfig,
 ): AgentExecution {
-  if (typeof selection === "string") return assertSupportedExecution(resolveAlias(selection, runtime));
+  if (typeof selection === "string") return resolveAlias(selection, runtime);
   if ("alias" in selection) {
     const resolved = resolveAlias(selection.alias, runtime);
-    for (const field of ["harness", "model", "settings"] as const) {
+    for (const field of ["harness", "model"] as const) {
       const required = selection[field];
       if (required !== undefined && !isDeepStrictEqual(required, resolved[field])) {
         throw new Error(`runtime alias ${selection.alias} does not satisfy required ${field}`);
       }
     }
-    return assertSupportedExecution(resolved);
+    return resolved;
   }
-  return assertSupportedExecution(structuredClone(selection));
+  return structuredClone(selection);
 }
 
 function constrainExistingExecution(
@@ -1260,7 +1173,7 @@ function constrainExistingExecution(
     if (existing.alias !== selection.alias) {
       throw new Error(`existing agent does not use runtime alias ${selection.alias}`);
     }
-    for (const field of ["harness", "model", "settings"] as const) {
+    for (const field of ["harness", "model"] as const) {
       const required = selection[field];
       if (required !== undefined && !isDeepStrictEqual(required, existing[field])) {
         throw new Error(`existing agent does not satisfy required ${field}`);
@@ -1268,37 +1181,17 @@ function constrainExistingExecution(
     }
     return existing;
   }
-  if (!isDeepStrictEqual(selection, withoutAlias(existing))) {
+  const { alias: _alias, ...configured } = existing;
+  if (!isDeepStrictEqual(selection, configured)) {
     throw new Error("existing agent uses a different runtime configuration");
   }
   return existing;
-}
-
-function withoutAlias(execution: AgentExecution): Omit<AgentExecution, "alias"> {
-  const { alias: _alias, ...config } = execution;
-  return config;
 }
 
 function resolveAlias(alias: string, runtime: AgentRuntimeConfig): AgentExecution {
   const selected = runtime.aliases[alias];
   if (!selected) throw new Error(`unknown runtime alias: ${alias}`);
   return { ...structuredClone(selected), alias };
-}
-
-function assertSupportedExecution(execution: AgentExecution): AgentExecution {
-  if (execution.settings !== undefined) {
-    throw new Error("model settings are not implemented by this runner");
-  }
-  return execution;
-}
-
-function assertMinimumLifecycle(spec: AgentOpenSpec): void {
-  if (spec.lifecycle?.retention.kind !== undefined && spec.lifecycle.retention.kind !== "workflow") {
-    throw new Error("agent retention other than workflow is not implemented by this runner");
-  }
-  if (spec.lifecycle?.recovery) {
-    throw new Error("agent crash recovery is not implemented by this runner");
-  }
 }
 
 function assertCompatibleAgent(
@@ -1309,7 +1202,7 @@ function assertCompatibleAgent(
 ): void {
   if (!isDeepStrictEqual(existing.execution, requested.execution)) conflict(key, "runtime");
   if (spec.cwd !== undefined && existing.cwd !== requested.cwd) conflict(key, "cwd");
-  for (const field of ["instructions", "lifecycle", "skills", "labels"] as const) {
+  for (const field of ["instructions", "labels"] as const) {
     if (spec[field] !== undefined && !isDeepStrictEqual(existing[field], requested[field])) {
       conflict(key, field);
     }
@@ -1349,12 +1242,6 @@ function deadlineWithin(milliseconds: number, ceiling: AbsoluteDeadline): Absolu
 
 function laterDeadline(left: AbsoluteDeadline, right: AbsoluteDeadline): AbsoluteDeadline {
   return left.unixMilliseconds >= right.unixMilliseconds ? left : right;
-}
-
-async function settledNow<T>(promise: Promise<T>): Promise<T | undefined> {
-  const pending = Symbol("pending");
-  const result = await Promise.race([promise, Promise.resolve(pending)]);
-  return result === pending ? undefined : result;
 }
 
 function scheduleAt(deadline: AbsoluteDeadline, action: () => void): () => void {

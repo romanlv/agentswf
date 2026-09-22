@@ -11,17 +11,6 @@ export function allowsComputedWorkflowImport(repositoryPath: string): boolean {
   return repositoryPath === "packages/engine/src/workflow-loader.ts";
 }
 
-export function escapedRelativeImport(
-  packageDirectory: string,
-  importingFile: string,
-  specifier: string,
-): string | null {
-  if (!specifier.startsWith(".")) return null;
-  const target = resolve(dirname(importingFile), specifier);
-  const fromPackage = relative(packageDirectory, target);
-  return fromPackage === ".." || fromPackage.startsWith("../") ? target : null;
-}
-
 export function escapedPathImport(
   packageDirectory: string,
   importingFile: string,

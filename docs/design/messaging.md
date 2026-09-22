@@ -11,13 +11,13 @@ delivery, waiting, limits, and accounting.
 ```ts
 export type MessageAccess =
   | {
-      from: AgentRef;
-      to: AgentRef;
+      from: ParticipantRef;
+      to: ParticipantRef;
       between?: never;
       purpose: string;
     }
   | {
-      between: readonly [AgentRef, AgentRef];
+      between: readonly [ParticipantRef, ParticipantRef];
       from?: never;
       to?: never;
       purpose: string;
@@ -71,8 +71,8 @@ wf send reviewer 'The revision is ready' --expect-response
 wf send reviewer --expect-response < message.md
 wf send reviewer 'The revision is ready' --expect-response --timeout 5m
 
-wf result '{"verdict":"approve"}'
-wf result < result.json
+wf result <call-id> '{"verdict":"approve"}'
+wf result <call-id> < result.json
 ```
 
 `wf peers` lists the current agent's incoming and outgoing routes, their purposes, whether each peer
@@ -186,22 +186,21 @@ the review verdict does.
 
 ## Agent binding and adapter seam
 
-An agent runs a launcher the engine installed and names the call it was given; it copies no run,
-message, or authority token into a command. The socket behind that launcher is what binds the
-shared `wf` CLI to the workflow run and logical agent:
+An agent runs a launcher the engine installed and names the call it was given; why the socket
+behind that launcher is the authority is argued once, in
+[`README.md`](README.md#what-an-agent-inside-a-session-sees). The binding every `wf` verb relies on:
 
 ```text
 agent socket + call id -> active operation -> open result schema
 ```
 
 The call id keeps a delayed command from an earlier operation off a later one on the same agent;
-the socket keeps one agent from answering for another. A harness that can deliver a prompt can
-expose messaging and `wf result`, and delivering a prompt is all it has to do.
+the socket keeps one agent from answering for another.
 
 Messaging adds one capability to the internal harness seam:
 
 ```ts
-export interface HarnessTurn<T extends JsonValue> {
+export interface HarnessTurn {
   // ...existing members
   /** Continues this operation and resolves once the prompt is presented to the model. */
   deliver(prompt: string): Promise<void>;
@@ -215,8 +214,8 @@ both preserve the same operation, context, result slot, and usage record.
 
 ## Usage and limits
 
-Every workflow-started or message operation reports its resolved harness, model, backend, spend
-pool, tokens, and cost through the existing usage interface. Missing usage remains unavailable
+Every workflow-started or message operation reports its resolved harness, model, spend pool,
+tokens, and cost through the existing usage interface. Missing usage remains unavailable
 rather than becoming zero. Waiting time is wall time, not model usage.
 
 Engine limits bound message volume, response waits, spend, and accidental ping-pong. Convergence

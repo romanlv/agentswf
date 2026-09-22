@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { HarnessTurn } from "../packages/harness/src/adapter";
 import type { ProcessInput } from "../packages/harness/src/command";
+import type { NativeOutcomeEvidence } from "./minimum-review.eval";
 import {
   agentVersionEvidence,
   assertCompletedReviews,
@@ -17,6 +18,19 @@ import {
   retainEvaluationEvidence,
   runLiveEvaluation,
 } from "./minimum-review.eval";
+
+const nativeOutcome = (
+  reviewer: "correctness" | "maintainability",
+  overrides: Partial<NativeOutcomeEvidence> = {},
+): NativeOutcomeEvidence => ({
+  agent: `reviewer:${reviewer}`,
+  harness: reviewer === "correctness" ? "claude" : "codex",
+  operation: "turn",
+  settlement: "native",
+  state: "completed",
+  usageSamples: 0,
+  ...overrides,
+});
 
 describe("minimum review live evaluation plan", () => {
   test("is bounded to two subscription reviewers with one run-owned host", async () => {
@@ -39,6 +53,7 @@ describe("minimum review live evaluation plan", () => {
       };
     });
 
+    // The only spending guard `bun test` runs: a metered model or a longer bound fails here.
     expect(LIVE_EVALUATION_BOUNDS).toMatchObject({
       workflowMilliseconds: 600_000,
       initialTurnMilliseconds: 300_000,
@@ -48,14 +63,8 @@ describe("minimum review live evaluation plan", () => {
       workspaceTrust: "evaluator-created-disposable",
     });
     expect(runtime.aliases).toEqual({
-      correctness: {
-        harness: "claude",
-        model: "sonnet",
-      },
-      maintainability: {
-        harness: "codex",
-        model: "gpt-5.6-sol",
-      },
+      correctness: { harness: "claude", model: "sonnet" },
+      maintainability: { harness: "codex", model: "gpt-5.6-sol" },
     });
     const host = await runtime.host.openRun({
       runId: "test",
@@ -184,87 +193,25 @@ describe("minimum review live evaluation plan", () => {
 
   test("requires terminal native evidence from both configured harnesses", () => {
     expect(() =>
-      assertNativeEvidence([
-        {
-          agent: "reviewer:correctness",
-          harness: "claude",
-          operation: "turn",
-          settlement: "native",
-          state: "completed",
-          usageSamples: 0,
-        },
-        {
-          agent: "reviewer:maintainability",
-          harness: "codex",
-          operation: "turn",
-          settlement: "native",
-          state: "completed",
-          usageSamples: 0,
-        },
-      ]),
+      assertNativeEvidence([nativeOutcome("correctness"), nativeOutcome("maintainability")]),
     ).not.toThrow();
     expect(() =>
       assertNativeEvidence([
-        {
-          agent: "reviewer:correctness",
-          harness: "claude",
-          operation: "turn",
-          settlement: "native",
-          state: "timed-out",
-          usageSamples: 0,
-        },
+        nativeOutcome("correctness", { settlement: "released", state: "cancelled" }),
+        nativeOutcome("maintainability", { settlement: "released", state: "cancelled" }),
       ]),
+    ).not.toThrow();
+    expect(() =>
+      assertNativeEvidence([nativeOutcome("correctness", { state: "timed-out" })]),
     ).toThrow("native completion or confirmed release");
-
-    expect(() =>
-      assertNativeEvidence([
-        {
-          agent: "reviewer:correctness",
-          harness: "claude",
-          operation: "turn",
-          settlement: "released",
-          state: "cancelled",
-          usageSamples: 0,
-        },
-        {
-          agent: "reviewer:maintainability",
-          harness: "codex",
-          operation: "turn",
-          settlement: "released",
-          state: "cancelled",
-          usageSamples: 0,
-        },
-      ]),
-    ).not.toThrow();
   });
 
   test("rejects a failed nudge even after that reviewer's initial native completion", () => {
     expect(() =>
       assertNativeEvidence([
-        {
-          agent: "reviewer:correctness",
-          harness: "claude",
-          operation: "turn",
-          settlement: "native",
-          state: "completed",
-          usageSamples: 0,
-        },
-        {
-          agent: "reviewer:correctness",
-          harness: "claude",
-          operation: "nudge",
-          settlement: "native",
-          state: "timed-out",
-          usageSamples: 0,
-        },
-        {
-          agent: "reviewer:maintainability",
-          harness: "codex",
-          operation: "turn",
-          settlement: "native",
-          state: "completed",
-          usageSamples: 0,
-        },
+        nativeOutcome("correctness"),
+        nativeOutcome("correctness", { operation: "nudge", state: "timed-out" }),
+        nativeOutcome("maintainability"),
       ]),
     ).toThrow("native completion or confirmed release");
   });

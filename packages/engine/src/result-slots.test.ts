@@ -4,6 +4,7 @@ import { readAccepted, readAttempts, recordAttempt, writeAcceptedExclusive, writ
 import {
   createResultSlotRegistry,
   type ResultSlotRegistryOptions,
+  type ResultSlotSpec,
 } from "./result-slots";
 import { COUNT_SCHEMA, createTempRunDirs } from "./testing";
 
@@ -16,6 +17,24 @@ const AGENT = "agent-1";
 const NOW = 1_800_000_000_000;
 const DEADLINE = { unixMilliseconds: NOW + 10_000 };
 type TestPersistence = NonNullable<ResultSlotRegistryOptions["persistence"]>;
+
+function call(overrides: Partial<ResultSlotSpec> = {}): ResultSlotSpec {
+  return {
+    operationId: "op-1",
+    agentId: AGENT,
+    question: "review",
+    deadline: DEADLINE,
+    ...overrides,
+  };
+}
+
+function answer(raw = "{}", overrides: { operationId?: string; agentId?: string } = {}) {
+  return { operationId: "op-1", agentId: AGENT, raw, source: SOURCE, ...overrides };
+}
+
+function persistenceWith(overrides: Partial<TestPersistence>): TestPersistence {
+  return { writeCall, recordAttempt, writeAcceptedExclusive, ...overrides };
+}
 
 describe("result slots", () => {
   test("concurrent valid submissions settle once and only the winner is accepted", async () => {
@@ -32,23 +51,10 @@ describe("result slots", () => {
     };
     const runDir = tempRunDir();
     const slots = createResultSlotRegistry({ runDir, now: () => NOW });
-    const binding = await slots.open({
-      operationId: "op-1",
-      agentId: AGENT,
-      question: "review",
-      semantic,
-      deadline: DEADLINE,
-    });
+    const binding = await slots.open(call({ semantic }));
 
     const submissions = await Promise.all(
-      Array.from({ length: 12 }, (_, n) =>
-        slots.submit({
-          operationId: "op-1",
-          agentId: AGENT,
-          raw: JSON.stringify({ n }),
-          source: SOURCE,
-        }),
-      ),
+      Array.from({ length: 12 }, (_, n) => slots.submit(answer(JSON.stringify({ n })))),
     );
 
     expect(submissions.filter((item) => item.kind === "accepted")).toHaveLength(1);
@@ -72,69 +78,34 @@ describe("result slots", () => {
     let now = NOW;
     const runDir = tempRunDir();
     const slots = createResultSlotRegistry({ runDir, now: () => now });
-    const first = await slots.open({
-      operationId: "op-1",
-      agentId: AGENT,
-      question: "review",
-      deadline: DEADLINE,
-    });
-    const second = await slots.open({
-      operationId: "op-2",
-      agentId: "agent-2",
-      question: "review",
-      deadline: DEADLINE,
-    });
+    const first = await slots.open(call());
+    const second = await slots.open(call({ operationId: "op-2", agentId: "agent-2" }));
 
     await expect(
-      slots.submit({
-        operationId: "op-2",
-        agentId: AGENT,
-        raw: "{}",
-        source: SOURCE,
-      }),
+      slots.submit(answer("{}", { operationId: "op-2" })),
     ).resolves.toMatchObject({ kind: "rejected", code: "wrong-agent" });
-    await expect(
-      slots.submit({
-        operationId: "op-3",
-        agentId: AGENT,
-        raw: "{}",
-        source: SOURCE,
-      }),
-    ).resolves.toEqual({
+    await expect(slots.submit(answer("{}", { operationId: "op-3" }))).resolves.toEqual({
       kind: "rejected",
       code: "unknown-operation",
       error: "unknown-operation",
     });
 
     now = DEADLINE.unixMilliseconds;
-    await expect(
-      slots.submit({
-        operationId: "op-1",
-        agentId: AGENT,
-        raw: "{}",
-        source: SOURCE,
-      }),
-    ).resolves.toMatchObject({ kind: "rejected", code: "expired-operation" });
+    await expect(slots.submit(answer())).resolves.toMatchObject({
+      kind: "rejected",
+      code: "expired-operation",
+    });
     await expect(first.settled).resolves.toEqual({ kind: "expired" });
-    await expect(
-      slots.submit({
-        operationId: "op-1",
-        agentId: AGENT,
-        raw: "{}",
-        source: SOURCE,
-      }),
-    ).resolves.toMatchObject({ kind: "rejected", code: "expired-operation" });
+    await expect(slots.submit(answer())).resolves.toMatchObject({
+      kind: "rejected",
+      code: "expired-operation",
+    });
 
     now = NOW;
     expect(await slots.close(second.operationId)).toBe(true);
     await expect(second.settled).resolves.toEqual({ kind: "closed" });
     await expect(
-      slots.submit({
-        operationId: "op-2",
-        agentId: "agent-2",
-        raw: "{}",
-        source: SOURCE,
-      }),
+      slots.submit(answer("{}", { operationId: "op-2", agentId: "agent-2" })),
     ).resolves.toMatchObject({ kind: "rejected", code: "closed-operation" });
     expect(await readAccepted(runDir, "op-1")).toBeNull();
     expect(await readAccepted(runDir, "op-2")).toBeNull();
@@ -150,35 +121,11 @@ describe("result slots", () => {
         return () => undefined;
       },
     });
-    const binding = await slots.open({
-      operationId: "op-1",
-      agentId: AGENT,
-      question: "review",
-      deadline: DEADLINE,
-    });
+    const binding = await slots.open(call());
 
     expire();
 
     await expect(binding.settled).resolves.toEqual({ kind: "expired" });
-  });
-
-  test("one operation id cannot silently open two slots", async () => {
-    const slots = createResultSlotRegistry({ runDir: tempRunDir(), now: () => NOW });
-    await slots.open({
-      operationId: "op-1",
-      agentId: AGENT,
-      question: "review",
-      deadline: DEADLINE,
-    });
-
-    await expect(
-      slots.open({
-        operationId: "op-1",
-        agentId: AGENT,
-        question: "again",
-        deadline: DEADLINE,
-      }),
-    ).rejects.toThrow("already exists for operation op-1");
   });
 
   test("concurrent opens reserve the operation id before persistence", async () => {
@@ -187,36 +134,24 @@ describe("result slots", () => {
       release = resolve;
     });
     let writes = 0;
-    const persistence: TestPersistence = {
+    const persistence = persistenceWith({
       async writeCall(...args) {
         writes += 1;
         await gate;
         return writeCall(...args);
       },
-      recordAttempt,
-      writeAcceptedExclusive,
-    };
+    });
     const slots = createResultSlotRegistry({
       runDir: tempRunDir(),
       now: () => NOW,
       persistence,
     });
 
-    const first = slots.open({
-      operationId: "op-1",
-      agentId: AGENT,
-      question: "review",
-      deadline: DEADLINE,
-    });
+    const first = slots.open(call());
     await Promise.resolve();
-    await expect(
-      slots.open({
-        operationId: "op-1",
-        agentId: AGENT,
-        question: "again",
-        deadline: DEADLINE,
-      }),
-    ).rejects.toThrow("already exists for operation op-1");
+    await expect(slots.open(call({ question: "again" }))).rejects.toThrow(
+      "already exists for operation op-1",
+    );
     expect(writes).toBe(1);
     release();
     await first;
@@ -224,55 +159,36 @@ describe("result slots", () => {
 
   test("failed call persistence rolls back the operation reservation", async () => {
     let fail = true;
-    const persistence: TestPersistence = {
+    const persistence = persistenceWith({
       async writeCall(...args) {
         if (fail) throw new Error("call record unavailable");
         return writeCall(...args);
       },
-      recordAttempt,
-      writeAcceptedExclusive,
-    };
+    });
     const slots = createResultSlotRegistry({
       runDir: tempRunDir(),
       now: () => NOW,
       persistence,
     });
-    const spec = {
-      operationId: "op-1",
-      agentId: AGENT,
-      question: "review",
-      deadline: DEADLINE,
-    };
 
-    await expect(slots.open(spec)).rejects.toThrow("call record unavailable");
+    await expect(slots.open(call())).rejects.toThrow("call record unavailable");
     fail = false;
-    await expect(slots.open(spec)).resolves.toMatchObject({ operationId: "op-1" });
+    await expect(slots.open(call())).resolves.toMatchObject({ operationId: "op-1" });
   });
 
   test("schema and semantic failures remain field-level rejected attempts", async () => {
     const runDir = tempRunDir();
     const slots = createResultSlotRegistry({ runDir, now: () => NOW });
-    await slots.open({
-      operationId: "op-1",
-      agentId: AGENT,
-      question: "count letters",
-      schema: COUNT_SCHEMA,
-      semantic: async () => ({ kind: "rejected", reason: "wrong source text" }),
-      deadline: DEADLINE,
-    });
+    await slots.open(
+      call({
+        question: "count letters",
+        schema: COUNT_SCHEMA,
+        semantic: async () => ({ kind: "rejected", reason: "wrong source text" }),
+      }),
+    );
 
-    const malformed = await slots.submit({
-      operationId: "op-1",
-      agentId: AGENT,
-      raw: '{"count":"three","even":false}',
-      source: SOURCE,
-    });
-    const semantic = await slots.submit({
-      operationId: "op-1",
-      agentId: AGENT,
-      raw: '{"count":3,"even":false}',
-      source: SOURCE,
-    });
+    const malformed = await slots.submit(answer('{"count":"three","even":false}'));
+    const semantic = await slots.submit(answer('{"count":3,"even":false}'));
 
     expect(malformed).toMatchObject({ kind: "rejected", code: "invalid-result" });
     expect(malformed.kind === "rejected" ? malformed.error : "").toContain(
@@ -294,23 +210,16 @@ describe("result slots", () => {
     });
     const runDir = tempRunDir();
     const slots = createResultSlotRegistry({ runDir, now: () => NOW });
-    const binding = await slots.open({
-      operationId: "op-1",
-      agentId: AGENT,
-      question: "review",
-      deadline: DEADLINE,
-      semantic: async () => {
-        entered();
-        await gate;
-        return { kind: "accepted" };
-      },
-    });
-    const submission = slots.submit({
-      operationId: "op-1",
-      agentId: AGENT,
-      raw: "{}",
-      source: SOURCE,
-    });
+    const binding = await slots.open(
+      call({
+        semantic: async () => {
+          entered();
+          await gate;
+          return { kind: "accepted" };
+        },
+      }),
+    );
+    const submission = slots.submit(answer());
     await validationStarted;
 
     expect(await slots.close(binding.operationId)).toBe(true);
@@ -327,26 +236,20 @@ describe("result slots", () => {
   test("semantic checks cannot mutate the validated value that is accepted", async () => {
     const runDir = tempRunDir();
     const slots = createResultSlotRegistry({ runDir, now: () => NOW });
-    const binding = await slots.open({
-      operationId: "op-1",
-      agentId: AGENT,
-      question: "count letters",
-      schema: COUNT_SCHEMA,
-      semantic: async ({ value }) => {
-        const mutable = value as Record<string, unknown>;
-        mutable.count = "invalid after validation";
-        return { kind: "accepted" };
-      },
-      deadline: DEADLINE,
-    });
+    const binding = await slots.open(
+      call({
+        question: "count letters",
+        schema: COUNT_SCHEMA,
+        semantic: async ({ value }) => {
+          const mutable = value as Record<string, unknown>;
+          mutable.count = "invalid after validation";
+          return { kind: "accepted" };
+        },
+      }),
+    );
     const original = { count: 3, even: false };
 
-    const outcome = await slots.submit({
-      operationId: "op-1",
-      agentId: AGENT,
-      raw: JSON.stringify(original),
-      source: SOURCE,
-    });
+    const outcome = await slots.submit(answer(JSON.stringify(original)));
 
     expect(outcome).toMatchObject({ kind: "accepted", value: original });
     expect(await readAccepted(runDir, "op-1")).toEqual({ value: original });
@@ -371,23 +274,16 @@ describe("result slots", () => {
         return () => undefined;
       },
     });
-    await slots.open({
-      operationId: "op-1",
-      agentId: AGENT,
-      question: "review",
-      semantic: async () => {
-        entered();
-        await gate;
-        return { kind: "rejected", reason: "too late" };
-      },
-      deadline: DEADLINE,
-    });
-    const submission = slots.submit({
-      operationId: "op-1",
-      agentId: AGENT,
-      raw: "{}",
-      source: SOURCE,
-    });
+    await slots.open(
+      call({
+        semantic: async () => {
+          entered();
+          await gate;
+          return { kind: "rejected", reason: "too late" };
+        },
+      }),
+    );
+    const submission = slots.submit(answer());
     await validationStarted;
     expire();
     finish();
@@ -400,58 +296,33 @@ describe("result slots", () => {
 
   test("a persistence failure leaves the slot open for a later valid submission", async () => {
     let fail = true;
-    const persistence: TestPersistence = {
-      writeCall,
-      recordAttempt,
+    const persistence = persistenceWith({
       async writeAcceptedExclusive(...args) {
         if (fail) throw new Error("disk unavailable");
         return writeAcceptedExclusive(...args);
       },
-    };
+    });
     const runDir = tempRunDir();
     const slots = createResultSlotRegistry({ runDir, now: () => NOW, persistence });
-    await slots.open({
-      operationId: "op-1",
-      agentId: AGENT,
-      question: "review",
-      deadline: DEADLINE,
-    });
-    const input = {
-      operationId: "op-1",
-      agentId: AGENT,
-      raw: "{}",
-      source: SOURCE,
-    };
+    await slots.open(call());
 
-    await expect(slots.submit(input)).rejects.toThrow("disk unavailable");
+    await expect(slots.submit(answer())).rejects.toThrow("disk unavailable");
     fail = false;
-    await expect(slots.submit(input)).resolves.toMatchObject({ kind: "accepted" });
+    await expect(slots.submit(answer())).resolves.toMatchObject({ kind: "accepted" });
     expect((await readAttempts(runDir, "op-1")).filter((attempt) => attempt.accepted)).toHaveLength(1);
   });
 
   test("attempt-log failure after atomic settlement cannot turn acceptance into rejection", async () => {
-    const persistence: TestPersistence = {
-      writeCall,
+    const persistence = persistenceWith({
       async recordAttempt() {
         throw new Error("attempt log unavailable");
       },
-      writeAcceptedExclusive,
-    };
+    });
     const runDir = tempRunDir();
     const slots = createResultSlotRegistry({ runDir, now: () => NOW, persistence });
-    const binding = await slots.open({
-      operationId: "op-1",
-      agentId: AGENT,
-      question: "review",
-      deadline: DEADLINE,
-    });
+    const binding = await slots.open(call());
 
-    const outcome = await slots.submit({
-      operationId: "op-1",
-      agentId: AGENT,
-      raw: "{}",
-      source: SOURCE,
-    });
+    const outcome = await slots.submit(answer());
 
     expect(outcome).toEqual({ kind: "accepted", value: {}, attemptRecorded: false });
     await expect(binding.settled).resolves.toEqual({
@@ -467,36 +338,24 @@ describe("result slots", () => {
     const gate = new Promise<void>((resolve) => {
       release = resolve;
     });
-    const persistence: TestPersistence = {
-      writeCall,
+    const persistence = persistenceWith({
       async recordAttempt(...args) {
         await gate;
         return recordAttempt(...args);
       },
-      writeAcceptedExclusive,
-    };
+    });
     const slots = createResultSlotRegistry({
       runDir: tempRunDir(),
       now: () => NOW,
       persistence,
     });
-    const binding = await slots.open({
-      operationId: "op-1",
-      agentId: AGENT,
-      question: "review",
-      deadline: DEADLINE,
-    });
+    const binding = await slots.open(call());
     let settled = false;
     void binding.settled.then(() => {
       settled = true;
     });
 
-    const submission = slots.submit({
-      operationId: "op-1",
-      agentId: AGENT,
-      raw: "{}",
-      source: SOURCE,
-    });
+    const submission = slots.submit(answer());
     await Bun.sleep(0);
     expect(settled).toBe(false);
 
