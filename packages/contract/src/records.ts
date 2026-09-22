@@ -5,7 +5,7 @@ export const RECORD_VERSION = 1;
 
 /**
  * What the run directory records about one call. The agent is told none of this beyond its
- * call id, which arrives in its environment; the CLI reads the rest from here, so a prompt
+ * call id, which arrives in its prompt; the CLI reads the rest from here, so a prompt
  * never carries a schema the agent could paraphrase back at us.
  *
  * This is the format only. The code that reads and writes it lives in the engine.

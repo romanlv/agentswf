@@ -23,7 +23,7 @@ export interface StepSpec {
 
 export interface Steps {
   run<T extends JsonValue>(
-    spec: StepSpec & { deadline: AbsoluteDeadline },
+    spec: StepSpec & { deadline?: AbsoluteDeadline },
     operation: () => Promise<T>,
   ): Promise<T>;
   /** Its requested duration is already a bound, so sleep has no second deadline. */
@@ -31,8 +31,8 @@ export interface Steps {
 }
 
 export interface ParallelOptions {
-  /** Bounds collection and cancels operations owned by this call before rejection. */
-  deadline: AbsoluteDeadline;
+  /** Defaults to the current workflow scope deadline. */
+  deadline?: AbsoluteDeadline;
   /** Positive integer local maximum; global admission may reduce it. */
   concurrency?: number;
   label?: string;
@@ -42,7 +42,8 @@ export interface SignalSpec {
   /** Idempotency key scoped to this workflow context. Reusing it with a different spec rejects. */
   id: SignalId;
   name: string;
-  deadline: AbsoluteDeadline;
+  /** Defaults to the current workflow scope deadline. */
+  deadline?: AbsoluteDeadline;
 }
 
 export interface Signals {
@@ -64,7 +65,7 @@ export interface WorkflowContext {
   parallel<Item, Result>(
     items: readonly Item[],
     operation: (item: Item, index: number) => Promise<Result>,
-    options: ParallelOptions,
+    options?: ParallelOptions,
   ): Promise<Result[]>;
 
   call<Args extends JsonValue, Result extends JsonValue>(

@@ -1,29 +1,43 @@
-import type {
-  ExecutableWorkflow,
-  OutputSchema,
-  RuntimeSelection,
-  TurnUsage,
-  WorkflowDefinition,
-  WorkflowInvocation,
-} from "@wf/contract/workflow";
 import {
   defineExecutableWorkflow,
-  EXECUTABLE_WORKFLOW_KIND,
+  isAnswered,
+  type ExecutableWorkflow,
+  type RuntimeSelection,
+  type TurnUsage,
+  type WorkflowDefinition,
+  type WorkflowInvocation,
+  type WorkflowMeta,
 } from "@wf/contract/workflow";
+import Type from "typebox";
+import { outputSchema } from "./output-schema";
 
-export type ReviewLens = "correctness" | "maintainability";
+const LENSES = ["correctness", "maintainability"] as const;
 
-export type ReviewFinding = {
-  severity: "blocking" | "non-blocking";
-  summary: string;
-  evidence: string;
-};
+export type ReviewLens = (typeof LENSES)[number];
 
-export type AcceptedReview = {
+const REVIEW_FINDING_SCHEMA = Type.Object(
+  {
+    severity: Type.Enum(["blocking", "non-blocking"]),
+    summary: Type.String(),
+    evidence: Type.String(),
+  },
+  { additionalProperties: false },
+);
+
+const REVIEW_SCHEMA = Type.Object(
+  {
+    lens: Type.Enum(LENSES),
+    summary: Type.String(),
+    findings: Type.Array(REVIEW_FINDING_SCHEMA),
+  },
+  { additionalProperties: false },
+);
+
+export type ReviewFinding = Type.Static<typeof REVIEW_FINDING_SCHEMA>;
+type ReviewPayload = Type.Static<typeof REVIEW_SCHEMA>;
+
+export type AcceptedReview = ReviewPayload & {
   kind: "completed";
-  lens: ReviewLens;
-  summary: string;
-  findings: ReviewFinding[];
 };
 
 export type IncompleteReview = {
@@ -45,14 +59,9 @@ export type MinimumReviewResult = {
   usage: TurnUsage[];
 };
 
-const LENSES: readonly ReviewLens[] = ["correctness", "maintainability"];
-
 export type ReviewRuntimes = Readonly<Record<ReviewLens, RuntimeSelection>>;
 
-export type ReviewWorkflowConfig = {
-  name: string;
-  description: string;
-  whenToUse?: string;
+export type ReviewWorkflowConfig = WorkflowMeta & {
   reviewers: ReviewRuntimes;
   firstTurnMs?: number;
 };
@@ -79,25 +88,21 @@ export function createMinimumReview(
         async (lens): Promise<ReviewOutcome> => {
           const reviewer = await workflow.agents.open({
             key: `reviewer:${lens}`,
-            deadline: workflow.deadline,
             instructions: instructionFor(lens),
-            lifecycle: { retention: { kind: "workflow" } },
             runtime: runtimes[lens],
             labels: { lens },
           });
           const { outcome } = await reviewer.run({
-            id: `review:${lens}`,
-            deadline: firstTurnDeadline(workflow.deadline, firstTurnMs),
+            timeoutMs: firstTurnMs,
             prompt: `Review target ${JSON.stringify(args.target)} using only the ${lens} lens.`,
             schema: reviewSchema(lens),
-            nudge: { deadline: workflow.deadline },
           });
 
-          return outcome.kind === "answered"
+          return isAnswered(outcome)
             ? { kind: "completed", ...outcome.value }
             : { kind: "incomplete", lens, outcome: outcome.kind, reason: outcome.reason };
         },
-        { label: "Minimum review", concurrency: 2, deadline: workflow.deadline },
+        { label: "Minimum review" },
       );
 
       return {
@@ -118,13 +123,10 @@ export function createMinimumReview(
 export function defineReviewWorkflow(
   config: ReviewWorkflowConfig,
 ): ExecutableWorkflow<MinimumReviewArgs, MinimumReviewResult> {
-  const minimumReview = createMinimumReview(config.reviewers, config.firstTurnMs);
+  const { reviewers, firstTurnMs, ...meta } = config;
+  const minimumReview = createMinimumReview(reviewers, firstTurnMs);
   const definition: WorkflowDefinition<MinimumReviewArgs, MinimumReviewResult> = {
-    meta: {
-      name: config.name,
-      description: config.description,
-      ...(config.whenToUse ? { whenToUse: config.whenToUse } : {}),
-    },
+    meta,
     async run(workflow, args) {
       const result = await minimumReview.run(workflow, args);
       const incomplete = result.reviews.filter((review) => review.kind === "incomplete");
@@ -137,22 +139,9 @@ export function defineReviewWorkflow(
     },
   };
   return defineExecutableWorkflow({
-    kind: EXECUTABLE_WORKFLOW_KIND,
     definition,
-    prepare: (invocation) => ({ target: parseReviewTarget(config.name, invocation) }),
+    prepare: (invocation) => ({ target: parseReviewTarget(meta.name, invocation) }),
   });
-}
-
-function firstTurnDeadline(
-  workflowDeadline: { unixMilliseconds: number },
-  firstTurnMs: number,
-): { unixMilliseconds: number } {
-  return {
-    unixMilliseconds: Math.min(
-      workflowDeadline.unixMilliseconds,
-      Date.now() + firstTurnMs,
-    ),
-  };
 }
 
 function parseReviewTarget(name: string, invocation: WorkflowInvocation): string {
@@ -172,29 +161,15 @@ function instructionFor(lens: ReviewLens): string {
   return `${lensInstruction} Perform the review yourself. Do not delegate, launch subagents, or create background agents.`;
 }
 
-function reviewSchema(lens: ReviewLens): OutputSchema<Omit<AcceptedReview, "kind">> {
-  return {
-    jsonSchema: {
-      type: "object",
-      properties: {
-        lens: { type: "string", enum: [lens] },
-        summary: { type: "string" },
-        findings: {
-          type: "array",
-          items: {
-            type: "object",
-            properties: {
-              severity: { type: "string", enum: ["blocking", "non-blocking"] },
-              summary: { type: "string" },
-              evidence: { type: "string" },
-            },
-            required: ["severity", "summary", "evidence"],
-            additionalProperties: false,
-          },
-        },
+function reviewSchema(lens: ReviewLens) {
+  return outputSchema(
+    Type.Object(
+      {
+        lens: Type.Enum([lens]),
+        summary: Type.String(),
+        findings: Type.Array(REVIEW_FINDING_SCHEMA),
       },
-      required: ["lens", "summary", "findings"],
-      additionalProperties: false,
-    },
-  };
+      { additionalProperties: false },
+    ),
+  );
 }

@@ -1,5 +1,5 @@
 import type { FakeTurn } from "@wf/harness/testing";
-import { runCli } from "@wf/engine";
+import { runCli } from "@wf/engine/archive-compat";
 import { RESULT_END, RESULT_START } from "./return-method";
 import { resultFilePath } from "./trial";
 

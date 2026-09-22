@@ -1,5 +1,6 @@
 node_modules/
 runs/
+.awf/
 reference/
 
 # Per-call run dirs: result.json, call.json and attempts.jsonl, ~1,200 files an experiment.

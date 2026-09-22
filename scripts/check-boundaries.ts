@@ -50,6 +50,12 @@ const RULES: Rule[] = [
         pattern: /^@wf\/(engine|harness)/,
         reason: "a workflow is written against the author surface, never the runtime",
       },
+      {
+        // "Approved pure schema authoring libraries" is not a list the checker can hold; what it
+        // can hold is that nothing here reaches a runtime, which is what made them approvable.
+        pattern: /^(?:node:|bun$)/,
+        reason: "a workflow is pure: schema authoring and prompts, never runtime I/O",
+      },
     ],
   },
 ];
@@ -71,6 +77,9 @@ for (const rule of RULES) {
     }
     if (rule.dir === "packages/cli-agent" && BUN_FILE_IO.test(source)) {
       problems.push(`${where}: cli-agent never performs run-directory I/O`);
+    }
+    if (rule.dir === "examples" && BUN_GLOBAL.test(source)) {
+      problems.push(`${where}: uses the Bun global; a workflow is pure`);
     }
     if (hasUnresolvedDynamicImport(source) && !allowsComputedWorkflowImport(where)) {
       problems.push(`${where}: contains a computed import whose boundary cannot be verified`);

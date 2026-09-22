@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "dependencies": {
-    "@wf/contract": "workspace:*"
+    "@wf/contract": "workspace:*",
+    "typebox": "^1.3.34"
   }
 }

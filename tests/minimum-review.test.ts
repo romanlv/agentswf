@@ -87,8 +87,12 @@ describe("minimum two-agent review", () => {
     ]);
     expect(result.value.blockingFindingCount).toBe(1);
     expect(result.value.usage).toEqual(result.usage);
+    // Composition order is the workflow's promise; usage is charged in whichever order the two
+    // concurrent turns reserve their slots, so only the per-agent totals are asserted.
     expect(
-      result.value.usage.map(({ agent, tokens }) => ({ agent, tokens })),
+      result.value.usage
+        .map(({ agent, tokens }) => ({ agent, tokens }))
+        .sort((left, right) => left.agent.localeCompare(right.agent)),
     ).toEqual([
       { agent: "reviewer:correctness", tokens: { input: 2, output: 1 } },
       { agent: "reviewer:maintainability", tokens: { input: 2, output: 1 } },
@@ -245,36 +249,42 @@ describe("minimum two-agent review", () => {
     expect(result.value.blockingFindingCount).toBe(0);
   });
 
-  test("timed-out and blocked lenses retain their distinct outcomes", async () => {
-    const adapter = createFakeAdapter({
-      script: (context) =>
-        lensOf(context) === "correctness"
-          ? { state: "timed-out", detail: "review turn timed out" }
-          : { state: "blocked", detail: "target could not be read" },
-    });
+  test("each incomplete lens keeps its own outcome and reason", async () => {
+    for (const pair of [
+      ["timed-out", "blocked"],
+      ["failed", "cancelled"],
+    ] as const) {
+      const [first, second] = pair;
+      const adapter = createFakeAdapter({
+        script: (context) =>
+          lensOf(context) === "correctness"
+            ? { state: first, detail: `correctness went ${first}` }
+            : { state: second, detail: `maintainability went ${second}` },
+      });
 
-    const result = await runWorkflow(minimumReview, args(), {
-      runRoot: tempRunDir(),
-      runtime: runtime(adapter),
-      deadline: future(),
-      cwd: "/repo",
-    });
+      const result = await runWorkflow(minimumReview, args(), {
+        runRoot: tempRunDir(),
+        runtime: runtime(adapter),
+        deadline: future(),
+        cwd: "/repo",
+      });
 
-    expect(result.value.reviews).toEqual([
-      {
-        kind: "incomplete",
-        lens: "correctness",
-        outcome: "timed-out",
-        reason: "review turn timed out",
-      },
-      {
-        kind: "incomplete",
-        lens: "maintainability",
-        outcome: "blocked",
-        reason: "target could not be read",
-      },
-    ]);
-    expect(result.value.blockingFindingCount).toBe(0);
+      expect(result.value.reviews).toEqual([
+        {
+          kind: "incomplete",
+          lens: "correctness",
+          outcome: first,
+          reason: `correctness went ${first}`,
+        },
+        {
+          kind: "incomplete",
+          lens: "maintainability",
+          outcome: second,
+          reason: `maintainability went ${second}`,
+        },
+      ]);
+      expect(result.value.blockingFindingCount).toBe(0);
+    }
   });
 });
 
@@ -354,7 +364,6 @@ async function submit(
     `${JSON.stringify({
       version: WIRE_VERSION,
       operationId: binding.operationId,
-      capability: binding.capability,
       raw: JSON.stringify(value),
     })}\n`,
   );

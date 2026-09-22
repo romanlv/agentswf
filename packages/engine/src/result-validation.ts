@@ -11,7 +11,6 @@ export async function evaluateResult(
   call: Pick<CallSpec, "question" | "schema">,
   raw: string,
   semantic: SemanticCheck = acceptAny,
-  forbiddenValues: readonly string[] = [],
 ): Promise<CandidateEvaluation> {
   let value: unknown;
   try {
@@ -28,9 +27,6 @@ export async function evaluateResult(
     };
   }
 
-  if (forbiddenValues.some((forbidden) => containsString(value, forbidden))) {
-    return { kind: "rejected", error: "the value contains protected operation authority" };
-  }
   if (call.schema) {
     const errors = validate(call.schema, value);
     if (errors.length > 0) return { kind: "rejected", error: formatErrors(errors) };
@@ -49,11 +45,3 @@ function expectedShape(call: Pick<CallSpec, "schema">): string {
   return call.schema ? JSON.stringify(call.schema) : "any JSON value";
 }
 
-function containsString(value: unknown, target: string): boolean {
-  if (typeof value === "string") return value.includes(target);
-  if (Array.isArray(value)) return value.some((item) => containsString(item, target));
-  if (!value || typeof value !== "object") return false;
-  return Object.entries(value).some(
-    ([key, item]) => key.includes(target) || containsString(item, target),
-  );
-}

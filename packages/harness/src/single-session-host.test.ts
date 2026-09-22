@@ -35,7 +35,6 @@ describe("createSingleSessionHostFactory", () => {
       "maintainability",
     ]);
     expect(JSON.stringify(snapshot)).not.toContain("fake-correctness");
-    expect(JSON.stringify(snapshot)).not.toContain("capability");
 
     await host.close("done");
     expect(adapter.closed.sort()).toEqual(["correctness", "maintainability"]);
@@ -128,11 +127,7 @@ describe("createSingleSessionHostFactory", () => {
     const operationDeadline = deadline();
     const turn = await session.start(
       { id: "one", prompt: "one", deadline: operationDeadline },
-      {
-        endpoint: "/private/engine.sock",
-        operationId: "op-1",
-        capability: "A".repeat(43),
-      },
+      { endpoint: "/private/engine.sock", operationId: "op-1" },
     );
     await started;
     expect(host.inspect().agents[0]?.state).toBe("working");
@@ -149,70 +144,10 @@ describe("createSingleSessionHostFactory", () => {
     await expect(
       session.start(
         { id: "two", prompt: "two", deadline: deadline() },
-        {
-          endpoint: "/private/engine.sock",
-          operationId: "op-2",
-          capability: "B".repeat(43),
-        },
+        { endpoint: "/private/engine.sock", operationId: "op-2" },
       ),
     ).rejects.toThrow("quarantined");
     expect(host.inspect().agents[0]?.state).toBe("quarantined");
-    await host.close();
-  });
-
-  test("snapshot diagnostics redact authority issued to a sibling agent", async () => {
-    let firstCapability = "";
-    const adapter = createFakeAdapter({
-      script: (context) => {
-        if (context.activation.key === "first") {
-          firstCapability = context.binding!.capability;
-          return {};
-        }
-        return { state: "failed", detail: `sibling ${firstCapability}` };
-      },
-    });
-    const host = await createSingleSessionHostFactory(adapter).openRun({
-      runId: "run-1",
-      cwd: "/repo",
-      deadline: deadline(),
-    });
-    const first = await host.openAgent({
-      key: "first",
-      cwd: "/repo",
-      deadline: deadline(),
-      execution: { harness: "fake", model: "fake" },
-    });
-    await (
-      await first.start(
-        { id: "first", prompt: "first", deadline: deadline() },
-        {
-          endpoint: "/private/engine.sock",
-          operationId: "op-1",
-          capability: "A".repeat(43),
-        },
-      )
-    ).settled;
-    const second = await host.openAgent({
-      key: "second",
-      cwd: "/repo",
-      deadline: deadline(),
-      execution: { harness: "fake", model: "fake" },
-    });
-    await (
-      await second.start(
-        { id: "second", prompt: "second", deadline: deadline() },
-        {
-          endpoint: "/private/engine.sock",
-          operationId: "op-2",
-          capability: "B".repeat(43),
-        },
-      )
-    ).settled;
-
-    expect(host.inspect().agents.find((agent) => agent.key === "second")?.detail).toBe(
-      "agent state has no safe diagnostic detail",
-    );
-    expect(JSON.stringify(host.inspect())).not.toContain(firstCapability);
     await host.close();
   });
 });

@@ -33,15 +33,14 @@ export interface HarnessNudgeSpec extends NudgeOptions {
   id: TurnId;
 }
 
+/**
+ * Where an operation's result goes. Nothing here is secret: the agent reaches the control plane
+ * over a socket only it can open, so the authority is the connection rather than anything a
+ * harness has to carry into the agent's environment.
+ */
 export type HarnessOperationBinding = {
   endpoint: string;
   operationId: string;
-  /**
-   * Opaque bearer authority for one result slot. Validation does not close the slot; its first
-   * valid submission closes it atomically. Never include this value in prompts, records, or
-   * diagnostics.
-   */
-  capability: string;
 };
 
 export type HarnessResultEvidence =

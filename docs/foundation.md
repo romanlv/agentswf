@@ -52,7 +52,9 @@ directory. Its own README already sorts the code into *keep* (`types`, `schema`,
 `runner`, the per-experiment scripts), and *shelved* (`journal`).
 
 **`findings/`** — the measurements. These are the repository's most valuable asset and the reason
-the design is not speculative. Load-bearing conclusions:
+the design is not speculative. The per-experiment reports were removed once the design absorbed
+them; [`findings/README.md`](findings/README.md) keeps what is still live and the raw rows stay in
+`experiments/_archive/*/results/`. Load-bearing conclusions:
 
 - All three result channels work across the tested matrix — 480 trials, with a negative control
   that fails correctly. The measured conditions were narrow: short JSON, a trivial task, sequential
@@ -61,13 +63,14 @@ the design is not speculative. Load-bearing conclusions:
 - A pane on a subscription is charged to nobody *on the measured account*; `claude -p` bills
   metered even with no API key in the environment. E3 says the mechanism is undocumented and
   account-specific. Per sequential call that is $0 against ~$0.117 for claude. **The $0-vs-$1.64
-  fourteen-way figure is fourteen times one sequential call, not a fan-out measurement** —
-  `e3-call-cost.md:251` says so explicitly. Cost is still a first-class domain concern.
+  fourteen-way figure is fourteen times one sequential call, not a fan-out measurement**. Cost is
+  still a first-class domain concern.
 - Branching a session (fork, `/fork`, `/clear`) re-pays the context almost everywhere. Continuing
   it keeps the cache. Cold agents plus prefix caching beat forking in a pane by ~11x.
 - Schema constraints must be in the prompt, not just in the validator: 0/160 first-attempt validity
   without, 80/80 with — headless, one schema. Field-level error text costs 2.00 attempts against
-  2.90–4.95 for a bare refusal, worst case 11.
+  2.90–4.95 for a bare refusal, worst case 11. **The runner still prompts through `describe()`, so
+  the engine reproduces the 0% arm today** — `docs/stories/todo/schema-in-prompt.md`.
 - A tool call returning success is not evidence the model received anything. Confirm from the
   transcript.
 
@@ -151,7 +154,7 @@ awf/
   docs/
     foundation.md           # this file
     design/                 # the interface design notes — messaging, composition, the map
-    findings/               # the measurement record, frozen
+    findings/               # what the measurements settled; raw data in experiments/_archive/
     research/               # background reading behind a design note — input, not evidence
     reference.md            # surveyed repos: taken, rejected, still unmined, clone paths
     adr/                    # decisions taken later
@@ -275,8 +278,8 @@ are checked by `scripts/check-boundaries.ts`, which `bun run check` runs:
 1. `contract` imports nothing, performs no I/O, and uses no runtime-specific API. If a file in it
    needs `Bun.*` or `node:fs`, it is in the wrong package.
 2. `cli-agent` imports `contract` only, and reaches the engine over the wire, never by linking.
-3. `examples/` and any future workflow import `@wf/contract/workflow` only — never the engine,
-   never a harness.
+3. `examples/` and any future workflow import `@wf/contract/workflow` plus approved pure schema
+   authoring libraries — never the engine or a harness.
 
 A fourth rule falls out of the same check: a cross-package import has to be a declared dependency
 in that package's `package.json`, not merely a symlink that happens to resolve.
@@ -336,7 +339,7 @@ current storage cannot substitute for a server: `writeAccepted` is an existence 
 write (`packages/engine/src/run-dir.ts:54-62`), so two delayed invocations can both pass it.
 
 So: **the engine owns a local control plane from Stage 2**, an authenticated local endpoint it
-serves and `cli-agent` calls. Wire messages and capability shapes go in `@wf/contract/wire`, the
+serves and `cli-agent` calls. Wire messages go in `@wf/contract/wire`, the
 client is `cli-agent`'s internals, the state and transactions are the engine's. Remote execution
 later replaces the transport without having to invent the boundary — which is why "client/server
 split when remote execution arrives" was the wrong trigger.
@@ -394,13 +397,16 @@ appends — and this one survived. The reproducer is two submissions carrying th
 capability, not E4: a fan-out issues distinct call ids and never races two acceptances for one
 slot.
 
-**Every wait is unbounded.** `Signals.receive` takes a correlation key and no deadline
+**Every wait needs a bound.** `Signals.receive` originally took a correlation key and no deadline
 (`packages/contract/src/workflow/workflow.ts:46-50`), and nothing else that waits takes one either. Inngest pairs every
 wait with both — `step.waitForEvent(id, { event, match, timeout })` — and the reason is visible in
 this project's own evidence: `review-feedback`'s "both sides idle looks identical to work in
 progress", where neither side blocks and a stalled loop surfaces only when a human opens the tab. An
-unbounded wait on a worker that can silently fail to receive its prompt is a hang, not a wait. Give
-every waiting primitive a required deadline and a distinct timed-out outcome — see `reference.md`.
+unbounded wait on a worker that can silently fail to receive its prompt is a hang, not a wait. The
+operator now supplies one enforced run deadline, and every author-side wait inherits the current
+workflow scope unless it requests a narrower deadline or timeout. Resolved engine and harness specs
+still carry an absolute deadline, and terminal operations retain a distinct timed-out outcome — see
+`reference.md`.
 
 ### The consumers are the review workflows, and they exist already
 
@@ -567,8 +573,11 @@ rate-card version**. Without them it will silently report one as the other.
 
 ## 9. Explicit workflow files, not a catalogue
 
-The scenarios in `examples/` compile against `@wf/contract/workflow` and never import the engine or
-a harness. `catalogue-review.ts` and `feature-delivery.ts` remain typechecked design examples.
+The scenarios in `examples/` compile against `@wf/contract/workflow`, may use a pure JSON Schema
+authoring library, and never import the engine or a harness. TypeBox is the first such authoring
+dependency: its inferred types and schema objects stay in the workflow package while contract owns
+the supported subset, prompting, and validation. `catalogue-review.ts` and `feature-delivery.ts`
+remain typechecked design examples.
 `minimum-review.ts` is the reusable one-round definition, and `review-loop.ts` is its executable
 operator wrapper. An executable workflow default-exports the small author-side descriptor consumed
 by `awf run`. The workflow may constrain an operator alias to an exact model when that choice is
@@ -579,6 +588,10 @@ operator derives that bound from `awf run --timeout` (ten minutes by default). E
 agent work; shutdown has a separate fixed five-second grace so an uncooperative adapter cannot keep
 the operator open. A configuration source for the run timeout remains a future operator concern,
 not an author-surface addition.
+
+Agent activation, turns, parallel collection, steps, signals, and child calls inherit that deadline
+when the workflow omits one. A turn may instead give `timeoutMs`, which the engine resolves against
+the current scope. This is author-side shorthand only: no engine or harness wait is unbounded.
 
 `awf run <local-file>` is explicit loading of trusted code, not discovery. The named module runs
 with the operator's filesystem and process authority before its export can be validated. There is
@@ -654,16 +667,21 @@ author surface is. Fixing them by writing the replacement implementation would b
 order.
 
 **Stage 0 and Stage D have run. Stage 2 is implemented through the non-live proof, but its live
-acceptance is still open.** Story 001 is the current execution record. In particular, the symmetric
-Herdr host must stop treating an ambiguous `idle` report as proof of native completion before the
-minimum engine is an accepted foundation.
+acceptance is still open.** Story 001 is the current execution record. Its Task 4 settled what an
+ambiguous `idle` may decide: nothing author-visible and no continuation. Lifecycle state still
+reaches the engine as a harness `completed`, which the engine reads as `unanswered` — the agent went
+quiet without answering — and which arms the one measured nudge. What it no longer does is
+manufacture a terminal outcome from a stalled prompt observation, or authorize resuming a session
+whose pane may still be live. Proving native release, and the pane continuation that would depend on
+it, is deferred measurement, not a claim this stage makes.
 
 - **Stage D — fix the interface, in place, as design. Done.** The six defects were corrected in
   `packages/contract/src/workflow/` where they live: `HarnessTurn.result` becomes a harness-local
   outcome; `ReplayPolicy`'s journal arm comes out; checkpoints are removed from signal semantics
   and deferred until an admission-barrier primitive is designed; fork gets an adapter capability
   flag and no public API; the acceptance gate's contract states atomicity; every waiting primitive
-  takes a required deadline and a distinct timed-out outcome.
+  resolves an inherited or explicit deadline and terminal operations retain a distinct timed-out
+  outcome.
   The workflows in `examples/` typecheck against the author surface and no runtime package. Story
   001 Task 1 records the reset design and verification.
 - **Stage 0 — skeleton and move. Done.** The three packages exist, `bun test` is 114 pass / 0 fail
@@ -673,9 +691,11 @@ minimum engine is an accepted foundation.
 
   - **`cli-agent` was not created during Stage 0.** Stage 2 has now created it behind the real wire
     boundary; `wf` no longer imports the engine or writes the run directory.
-  - **`CallEnv` was renamed rather than treated as authority during Stage 0.** Stage 2 now binds
-    each operation to an invocation-scoped capability. `CallIdentity` remains only in the frozen
-    experiment compatibility surface and must not be used by new engine code.
+  - **`CallEnv` was renamed rather than treated as authority during Stage 0.** Stage 2 bound each
+    operation to an invocation-scoped capability; Stage 3 replaced that with a socket per agent,
+    because a bearer token has to be delivered and no harness will promise to deliver one.
+    `CallIdentity` remains only in the frozen experiment compatibility surface and must not be
+    used by new engine code.
   - **`ReturnMethod` left the contract as planned, and `CallSpec` shrank with it.** The record
     format carries `callId`, `question` and `schema`; `Attempt.source` is a string, because which
     channel carried a value is not something the format should enumerate. E2's `method` and
@@ -696,7 +716,7 @@ minimum engine is an accepted foundation.
 - **Stage 2 — minimum engine and the control plane. Implemented; live acceptance pending.**
   `agents.open/run`, `parallel`, secure result slots, `cli-agent`, the local endpoint, the run
   handle, and the explicit workflow loader now exist. Tests prove atomic first settlement and
-  reject wrong, stale, closed, and cross-operation capabilities. The fake-backed two-agent workflow
+  reject unknown, stale, closed, and cross-agent calls. The fake-backed two-agent workflow
   passes through the production result path. Story 001 keeps this stage open because Herdr `idle`
   is not reliable native-completion evidence and the reset live evaluation has not run.
 - **Stage 3 — measure and run something real.** Evals from E2/E5, the first executing workflow, then
@@ -719,13 +739,11 @@ and if it lands without moving a boundary, the split was right.
    result gate and multi-round messaging. What stays open is its stopping rule — the existing skill
    ends a reviewer disagreement with the implementer's adjudication, which is a checkpoint, and
    checkpoints are Stage 4.
-4. **Is bun the supported public runtime?** Publishing does not force a build — bun's `bun` export
-   condition ships untranspiled TypeScript — so the real question is whether an external consumer is
-   required to run bun. Answer it deliberately; it decides whether compiled JavaScript is ever
-   needed. Purity in `contract` does not settle it: it makes one package portable, and says nothing
-   about pack contents, export maps, unresolved `workspace:*`, or `harness`, which an external
-   consumer wants too. The `bun pm pack` smoke test in section 7 is what settles it, and it is due
-   before the autoresearch repository starts. %% yes, for now bun is supported runtime %%
+4. **Is bun the supported public runtime?** Answered for the current stage: yes. External consumers
+   may be required to run Bun, and the repository does not promise compiled JavaScript or Node.js
+   compatibility yet. Revisit that decision before publishing for non-Bun consumers; purity in
+   `contract` alone does not settle pack contents, export maps, unresolved `workspace:*`, or the
+   runtime requirements of `harness`.
 5. **What must a run record carry so an external optimiser can score it?** Cost and wall clock are
    already measurable. Quality is not — and whatever stands in for it has to be *emitted here*, or
    the optimiser will happily find the cheapest way to be wrong.

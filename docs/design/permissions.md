@@ -412,12 +412,12 @@ permission field.
 **Nothing an agent runs raises its own authority.** No `wf` verb widens a grant or lowers an
 isolation. A native fork holds at most what its parent held, at the same level.
 
-**A harness's own subagent inherits the isolation, never the capability.** Reach is inherited by
-construction. The operation capability must not be: today it travels in the environment, so every
-child process can settle the parent's result slot and send as the parent, a result race and an
-impersonation by default. A subagent that cannot call `wf` is right; it does work and the parent
-reports. How the capability reaches `wf` without the environment is open in
-[`messaging.md`](messaging.md).
+**A harness's own subagent inherits the isolation, never the right to report.** Reach is inherited
+by construction. Answering must not be: the agent reaches the control plane by running a launcher
+at a known path, and anything running as the same user that can read that path can run it too — a
+result race and an impersonation available to every subagent that sees the prompt. A subagent that
+does not call `wf` is right; it does work and the parent reports. Making that a rule the engine
+enforces rather than a convention needs a per-process distinction the filesystem does not give us.
 
 **A skill is code.** Skills resolve by name from an operator-controlled root, mounted read-only.
 A path from a workflow would be code injection; a writable skill is a command that runs at the
@@ -526,9 +526,10 @@ What a real provider actually denies is the study's evidence, and the first eval
 2. **Mixed runtimes in one workflow.** Two agents in different sandboxes share the engine and
    nothing else, and the shared-file pattern assumes one runtime without detecting it. Provider
    shared tree, workflow rule, or refusal to mix: undecided.
-3. **A remote provider moves the control plane.** The endpoint is a unix socket today, and the
-   operation capability rides in the environment. Both must cross a network. Foundation §7 says
-   remote execution only swaps the transport; the remote provider is what forces that swap.
+3. **A remote provider moves the control plane.** Authority today *is* the unix socket: the agent
+   is trusted because it opened a file only it can reach. Nothing about that crosses a network, so
+   a remote provider needs an authority that travels — the one thing this design deliberately does
+   not have. Foundation §7 says remote execution only swaps the transport; it swaps more than that.
 4. **Harness-level translation loss.** Codex widens domains to a boolean, cursor's rules live in
    files, claude's are argument-scoped. Two adapters before the translation is called a contract.
 5. **Sandboxed is not disposable.** The worktree, a shared git object store, a shared package cache

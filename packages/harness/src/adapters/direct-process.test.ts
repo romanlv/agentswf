@@ -166,18 +166,12 @@ describe("createHeadlessAdapter", () => {
   const firstBinding = {
     endpoint: "/private/engine.sock",
     operationId: "op-1",
-    capability: "A".repeat(43),
-  };
-  const secondBinding = {
-    endpoint: "/private/engine.sock",
-    operationId: "op-2",
-    capability: "B".repeat(43),
   };
 
-  test("reuses one operation binding when nudging the native session", async () => {
+  test("a nudge resumes the native session in a fresh process environment", async () => {
     const { run, calls } = stub([claudeOut("first"), claudeOut("second")]);
     const adapter = createHeadlessAdapter(
-      { turnTimeoutMs: 10_000, binDir: "/wf/bin", newSessionId: () => "chosen" },
+      { turnTimeoutMs: 10_000, newSessionId: () => "chosen" },
       run,
     );
     const session = await adapter.activate(activation);
@@ -194,17 +188,11 @@ describe("createHeadlessAdapter", () => {
     );
     await nudge.settled;
 
-    expect(calls[0]?.env).toMatchObject({
-      WF_ENDPOINT: firstBinding.endpoint,
-      WF_OPERATION: firstBinding.operationId,
-      WF_CAPABILITY: firstBinding.capability,
-    });
-    expect(calls[1]?.env).toMatchObject({
-      WF_ENDPOINT: firstBinding.endpoint,
-      WF_OPERATION: firstBinding.operationId,
-      WF_CAPABILITY: firstBinding.capability,
-    });
-    expect(JSON.stringify(calls[1]?.env)).not.toContain(secondBinding.capability);
+    // Nothing about the operation: the agent is told the launcher's path in the prompt, so a
+    // turn that carried an environment would be carrying something the next turn must not reuse.
+    expect(calls[0]?.env).toEqual({});
+    expect(calls[1]?.env).toEqual({});
+    expect(calls[1]?.argv).toContain("--resume");
   });
 
   test("compaction resumes without result authority", async () => {

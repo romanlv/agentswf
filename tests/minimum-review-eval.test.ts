@@ -3,11 +3,13 @@ import { chmod, lstat, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { HarnessTurn } from "../packages/harness/src/adapter";
+import type { ProcessInput } from "../packages/harness/src/command";
 import {
   agentVersionEvidence,
   assertCompletedReviews,
   assertLiveOptIn,
   assertNativeEvidence,
+  herdrBehaviourCheck,
   herdrVersionCheck,
   LIVE_EVALUATION_BOUNDS,
   liveRuntime,
@@ -19,7 +21,7 @@ import {
 describe("minimum review live evaluation plan", () => {
   test("is bounded to two subscription reviewers with one run-owned host", async () => {
     const commands: string[][] = [];
-    const runtime = liveRuntime("/tmp/wf-eval-bin", [], async (input) => {
+    const runtime = liveRuntime([], async (input: ProcessInput) => {
       commands.push([...input.argv]);
       return {
         stdout: JSON.stringify({
@@ -86,6 +88,23 @@ describe("minimum review live evaluation plan", () => {
     expect(
       herdrVersionCheck({ stdout: "herdr 0.8.20", stderr: "", exitCode: 0 }),
     ).toMatchObject({ ok: false });
+  });
+
+  test("catches Herdr dropping the behaviour the pane host is built on", () => {
+    const help = (text: string) => ({ stdout: text, stderr: "", exitCode: 0 });
+    const prompt = help(
+      "returns agent_prompt_stalled. It does not track turns: if the agent is already working,",
+    );
+    const split = help("      --env <KEY=VALUE>\n          Set an environment variable");
+
+    expect(herdrBehaviourCheck(prompt, split).ok).toBe(true);
+    expect(herdrBehaviourCheck(help("returns agent_prompt_stalled."), split).detail).toContain(
+      "turn tracking",
+    );
+    expect(herdrBehaviourCheck(help("it does not track turns"), split).detail).toContain(
+      "agent_prompt_stalled",
+    );
+    expect(herdrBehaviourCheck(prompt, help("      --cwd <PATH>")).detail).toContain("--env");
   });
 
   test("the exported spending function refuses to begin without opt-in", async () => {

@@ -1,4 +1,3 @@
-import { randomBytes } from "node:crypto";
 import { acceptAny, type SemanticCheck } from "@wf/contract";
 import type { AttemptSource } from "@wf/contract/records";
 import type { JsonSchema } from "@wf/contract/schema";
@@ -30,12 +29,13 @@ export type ResultSlotSettlement =
 
 export type ResultSlotBinding = {
   operationId: string;
-  capability: string;
   settled: Promise<ResultSlotSettlement>;
 };
 
 export type ResultSlotSpec = {
   operationId: string;
+  /** The only agent allowed to answer this call. Its socket is what proves which agent asked. */
+  agentId: string;
   question: string;
   schema?: JsonSchema;
   semantic?: SemanticCheck;
@@ -44,7 +44,6 @@ export type ResultSlotSpec = {
 
 export type ResultSlotRegistryOptions = {
   runDir: string;
-  generateCapability?: () => string;
   now?: () => number;
   schedule?: (delayMilliseconds: number, expire: () => void) => () => void;
   persistence?: ResultSlotPersistence;
@@ -60,19 +59,19 @@ export interface ResultSlotRegistry {
   open(spec: ResultSlotSpec): Promise<ResultSlotBinding>;
   submit(input: {
     operationId: string;
-    capability: string;
+    /** Taken from the socket the request arrived on, never from the request itself. */
+    agentId: string;
     raw: string;
     source: AttemptSource;
   }): Promise<ResultSubmission>;
-  close(capability: string): Promise<boolean>;
+  close(operationId: string): Promise<boolean>;
 }
 
-/** A settled slot is kept for the rest of the run so a late submission is told why its capability
- *  is unusable rather than that it never existed. */
+/** A settled slot is kept for the rest of the run so a late submission is told why the call is
+ *  unusable rather than that it never existed. */
 type SlotState = "open" | "accepted" | "closed" | "expired";
 
 type Slot = ResultSlotSpec & {
-  capability: string;
   state: SlotState;
   settle(value: ResultSlotSettlement): void;
   cancelExpiry(): void;
@@ -82,7 +81,6 @@ type Slot = ResultSlotSpec & {
 export function createResultSlotRegistry(
   options: ResultSlotRegistryOptions,
 ): ResultSlotRegistry {
-  const generateCapability = options.generateCapability ?? defaultCapability;
   const now = options.now ?? Date.now;
   const schedule = options.schedule ?? scheduleExpiry;
   const persistence = options.persistence ?? {
@@ -91,27 +89,11 @@ export function createResultSlotRegistry(
     writeAcceptedExclusive,
   };
   const slots = new Map<string, Slot>();
-  const operations = new Set<string>();
-  /** Every issued capability stays protected for the run lifetime because a closed pane, delayed
-   * child, or diagnostic can still echo authority after its slot settles. */
-  const protectedCapabilities = (own?: string): string[] => {
-    const protectedValues = own === undefined ? [] : [own];
-    for (const slot of slots.values()) {
-      if (slot.capability !== own) protectedValues.push(slot.capability);
-    }
-    return protectedValues;
-  };
 
   return {
     async open(spec) {
-      if (operations.has(spec.operationId)) {
+      if (slots.has(spec.operationId)) {
         throw new Error(`result slot already exists for operation ${spec.operationId}`);
-      }
-      const capability = generateCapability();
-      if (slots.has(capability)) throw new Error("result capability generator produced a collision");
-      const forbiddenCapabilities = [capability, ...protectedCapabilities()];
-      if (forbiddenCapabilities.some((item) => containsString(spec, item))) {
-        throw new Error("result slot metadata contains protected operation authority");
       }
 
       let settle!: (value: ResultSlotSettlement) => void;
@@ -120,14 +102,12 @@ export function createResultSlotRegistry(
       });
       const slot: Slot = {
         ...spec,
-        capability,
         state: "open",
         settle,
         cancelExpiry: () => undefined,
         tail: Promise.resolve(),
       };
-      slots.set(capability, slot);
-      operations.add(spec.operationId);
+      slots.set(spec.operationId, slot);
       try {
         await persistence.writeCall(options.runDir, {
           callId: spec.operationId,
@@ -135,8 +115,7 @@ export function createResultSlotRegistry(
           ...(spec.schema ? { schema: spec.schema } : {}),
         });
       } catch (error) {
-        slots.delete(capability);
-        operations.delete(spec.operationId);
+        slots.delete(spec.operationId);
         throw error;
       }
       if (now() >= spec.deadline.unixMilliseconds) {
@@ -148,81 +127,45 @@ export function createResultSlotRegistry(
           });
         });
       }
-      return { operationId: spec.operationId, capability, settled };
+      return { operationId: spec.operationId, settled };
     },
 
     async submit(input) {
-      const slot = slots.get(input.capability);
-      if (!slot) return rejected("unknown-capability");
-      if (input.operationId !== slot.operationId) {
-        return rejectKnown(
-          persistence,
-          options.runDir,
-          slot,
-          input,
-          "wrong-operation",
-          now,
-          protectedCapabilities(slot.capability),
-        );
-      }
+      const slot = slots.get(input.operationId);
+      if (!slot) return rejected("unknown-operation");
+      // The agent id comes from the socket, so this refuses one agent answering another's call.
+      // No attempt is recorded: the value came from somebody else, and this call's own log is
+      // read as the history of the agent that owns it.
+      if (input.agentId !== slot.agentId) return rejected("wrong-agent");
 
       const unavailable = await serialize(slot, async () => unavailableCode(slot, now()));
       if (unavailable) {
-        return rejectKnown(
-          persistence,
-          options.runDir,
-          slot,
-          input,
-          unavailable,
-          now,
-          protectedCapabilities(slot.capability),
-        );
+        return rejectKnown(persistence, options.runDir, slot, input, unavailable, now);
       }
 
-      const validationCapabilities = protectedCapabilities(slot.capability);
-      const evaluated = await evaluateResult(
-        slot,
-        input.raw,
-        slot.semantic ?? acceptAny,
-        validationCapabilities,
-      );
+      const evaluated = await evaluateResult(slot, input.raw, slot.semantic ?? acceptAny);
 
       return serialize(slot, async () => {
-        const currentCapabilities = protectedCapabilities(slot.capability);
         const unavailable = unavailableCode(slot, now());
         if (unavailable) {
-          return rejectKnown(
-            persistence,
-            options.runDir,
-            slot,
-            input,
-            unavailable,
-            now,
-            currentCapabilities,
-          );
+          return rejectKnown(persistence, options.runDir, slot, input, unavailable, now);
         }
-        const safeRaw = redactCapabilities(input.raw, currentCapabilities);
-        const safeSource = redactCapabilities(input.source, currentCapabilities);
-        const validationError = evaluated.kind === "rejected"
-          ? evaluated.error
-          : currentCapabilities.some((capability) => containsString(evaluated.value, capability))
-            ? "the value contains protected operation authority"
-            : undefined;
-        if (validationError) {
-          const safeError = redactCapabilities(validationError, currentCapabilities);
+        if (evaluated.kind === "rejected") {
           await recordRejected(
             persistence,
             options.runDir,
             slot.operationId,
-            safeSource,
-            safeRaw,
-            safeError,
+            input.source,
+            input.raw,
+            evaluated.error,
             now,
           );
-          return { kind: "rejected" as const, code: "invalid-result" as const, error: safeError };
+          return {
+            kind: "rejected" as const,
+            code: "invalid-result" as const,
+            error: evaluated.error,
+          };
         }
-        if (evaluated.kind === "rejected") throw new Error("unreachable rejected result");
-
         const won = await persistence.writeAcceptedExclusive(
           options.runDir,
           slot.operationId,
@@ -230,15 +173,7 @@ export function createResultSlotRegistry(
         );
         if (!won) {
           closeSlot(slot, "closed");
-          return rejectKnown(
-            persistence,
-            options.runDir,
-            slot,
-            input,
-            "closed-capability",
-            now,
-            currentCapabilities,
-          );
+          return rejectKnown(persistence, options.runDir, slot, input, "closed-operation", now);
         }
 
         slot.state = "accepted";
@@ -247,9 +182,9 @@ export function createResultSlotRegistry(
         try {
           await persistence.recordAttempt(options.runDir, slot.operationId, {
             at: new Date(now()).toISOString(),
-            source: safeSource,
+            source: input.source,
             accepted: true,
-            raw: safeRaw,
+            raw: input.raw,
           });
         } catch {
           // result.json is already the authoritative atomic settlement and cannot be reported lost.
@@ -265,8 +200,8 @@ export function createResultSlotRegistry(
       });
     },
 
-    async close(capability) {
-      const slot = slots.get(capability);
+    async close(operationId) {
+      const slot = slots.get(operationId);
       if (!slot) return false;
       return serialize(slot, async () => {
         if (slot.state !== "open") return false;
@@ -277,16 +212,12 @@ export function createResultSlotRegistry(
   };
 }
 
-function defaultCapability(): string {
-  return randomBytes(32).toString("base64url");
-}
-
 function unavailableCode(slot: Slot, now: number): ResultRejectionCode | null {
-  if (slot.state === "expired") return "expired-capability";
-  if (slot.state !== "open") return "closed-capability";
+  if (slot.state === "expired") return "expired-operation";
+  if (slot.state !== "open") return "closed-operation";
   if (now >= slot.deadline.unixMilliseconds) {
     closeSlot(slot, "expired");
-    return "expired-capability";
+    return "expired-operation";
   }
   return null;
 }
@@ -302,20 +233,11 @@ async function rejectKnown(
   persistence: ResultSlotPersistence,
   runDir: string,
   slot: Slot,
-  input: { raw: string; source: AttemptSource; capability: string },
+  input: { raw: string; source: AttemptSource },
   code: ResultRejectionCode,
   now: () => number,
-  protectedCapabilities: readonly string[],
 ): Promise<ResultSubmission> {
-  await recordRejected(
-    persistence,
-    runDir,
-    slot.operationId,
-    redactCapabilities(input.source, protectedCapabilities),
-    redactCapabilities(input.raw, protectedCapabilities),
-    code,
-    now,
-  );
+  await recordRejected(persistence, runDir, slot.operationId, input.source, input.raw, code, now);
   return rejected(code);
 }
 
@@ -339,36 +261,6 @@ async function recordRejected(
 
 function rejected(code: ResultRejectionCode): ResultSubmission {
   return { kind: "rejected", code, error: code };
-}
-
-function redactCapabilities(text: string, capabilities: readonly string[]): string {
-  const decoded = decodeAsciiEscapes(text);
-  return capabilities.some((capability) => text.includes(capability) || decoded.includes(capability))
-    ? "[redacted-capability-bearing-text]"
-    : text;
-}
-
-function decodeAsciiEscapes(text: string): string {
-  return text
-    .replace(/\\u([0-9a-f]{4})/gi, (_match, code: string) =>
-      String.fromCharCode(Number.parseInt(code, 16)),
-    )
-    .replace(/\\x([0-9a-f]{2})/gi, (_match, code: string) =>
-      String.fromCharCode(Number.parseInt(code, 16)),
-    );
-}
-
-function containsString(value: unknown, target: string): boolean {
-  if (typeof value === "string") return containsCapability(value, target);
-  if (Array.isArray(value)) return value.some((item) => containsString(item, target));
-  if (!value || typeof value !== "object") return false;
-  return Object.entries(value).some(
-    ([key, item]) => containsCapability(key, target) || containsString(item, target),
-  );
-}
-
-function containsCapability(text: string, capability: string): boolean {
-  return text.includes(capability) || decodeAsciiEscapes(text).includes(capability);
 }
 
 function serialize<T>(slot: Slot, operation: () => Promise<T>): Promise<T> {

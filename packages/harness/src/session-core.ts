@@ -80,7 +80,6 @@ function createSession(
   let lastStatus: HarnessSessionStatus = { state: "idle" };
   let sessionRef: string | undefined;
   const usedOperationIds = new Set<string>();
-  const usedCapabilities = new Set<string>();
 
   const start = (
     request: NativeTurnRequest,
@@ -96,20 +95,15 @@ function createSession(
       if (usedOperationIds.has(request.binding.operationId)) {
         throw new Error("harness operation id has already been used in this session");
       }
-      if (usedCapabilities.has(request.binding.capability)) {
-        throw new Error("harness operation capability has already been used in this session");
-      }
       usedOperationIds.add(request.binding.operationId);
-      usedCapabilities.add(request.binding.capability);
     }
     active = true;
     lastStatus = { state: "working" };
-    const authorities = [...usedOperationIds, ...usedCapabilities];
     const settled = native
       .execute({ ...request, ...(sessionRef ? { previousSessionRef: sessionRef } : {}) })
       .catch((error): NativeTurnOutcome => ({
         state: "failed",
-        detail: safeDetail(error, authorities),
+        detail: reasonOf(error),
         resultEvidence: { kind: "unavailable" },
         nativeUsage: [],
       }))
@@ -125,17 +119,13 @@ function createSession(
           : outcome,
       )
       .then((outcome) => {
-        if (
-          outcome.state === "completed" &&
-          outcome.sessionRef &&
-          !containsAuthority(outcome.sessionRef, authorities)
-        ) {
+        if (outcome.state === "completed" && outcome.sessionRef) {
           sessionRef = outcome.sessionRef;
           observeSessionRef?.(sessionRef);
         }
-        const protectedOutcome = protectOutcome(outcome, authorities);
-        if (!quarantined) lastStatus = outcomeStatus(protectedOutcome);
-        return protectedOutcome;
+        const reported = withoutSessionRef(outcome);
+        if (!quarantined) lastStatus = outcomeStatus(reported);
+        return reported;
       })
       .finally(() => {
         active = false;
@@ -206,9 +196,7 @@ function createSession(
       closeAttempt ??= native
         .close(reason)
         .catch((error: unknown) => {
-          throw new Error(
-            safeDetail(error, [...usedOperationIds, ...usedCapabilities]),
-          );
+          throw new Error(reasonOf(error));
         })
         .then(() => {
           closed = true;
@@ -268,42 +256,12 @@ function outcomeStatus(outcome: HarnessTurnOutcome): HarnessSessionStatus {
   }
 }
 
-function safeDetail(error: unknown, authorities: readonly string[]): string {
-  const detail = error instanceof Error ? error.message : String(error);
-  return containsAuthority(detail, authorities)
-    ? "harness operation failed without safe diagnostic detail"
-    : detail;
+function reasonOf(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
-function protectOutcome(
-  outcome: NativeTurnOutcome,
-  authorities: readonly string[],
-): HarnessTurnOutcome {
-  const unsafe =
-    (outcome.detail && containsAuthority(outcome.detail, authorities)) ||
-    (outcome.sessionRef && containsAuthority(outcome.sessionRef, authorities)) ||
-    (outcome.resultEvidence.kind === "transcript" &&
-      containsAuthority(outcome.resultEvidence.text, authorities));
-  const { sessionRef: _sessionRef, ...publicOutcome } = outcome;
-  if (!unsafe) return publicOutcome;
-  return {
-    ...publicOutcome,
-    ...(outcome.detail
-      ? { detail: "harness operation produced no safe diagnostic detail" }
-      : {}),
-    resultEvidence: { kind: "unavailable" },
-  };
-}
-
-function containsAuthority(text: string, authorities: readonly string[]): boolean {
-  const decodedHex = text.replace(/\\x([0-9a-fA-F]{2})/g, (_match, digits: string) =>
-    String.fromCharCode(Number.parseInt(digits, 16)),
-  );
-  const decodedEscapes = decodedHex.replace(
-    /\\u([0-9a-fA-F]{4})/g,
-    (_match, digits: string) => String.fromCharCode(Number.parseInt(digits, 16)),
-  );
-  return authorities.some(
-    (authority) => text.includes(authority) || decodedEscapes.includes(authority),
-  );
+/** `sessionRef` is the harness's own handle for resuming; the engine is given the rest. */
+function withoutSessionRef(outcome: NativeTurnOutcome): HarnessTurnOutcome {
+  const { sessionRef: _sessionRef, ...reported } = outcome;
+  return reported;
 }

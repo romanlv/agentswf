@@ -23,6 +23,9 @@ the engine cancels active work and allows at most five additional seconds for re
 broken adapter cannot keep the command open indefinitely. A future configuration file may provide
 the same setting, but configuration is not part of the current interface.
 
+`agent.run()` makes one standard missing-answer recovery attempt by default. Workflows only mention
+nudging when they customize it or deliberately disable it with `nudge: false`.
+
 By default the review target is the current directory. To review one file or directory relative to
 the current working directory, put its path after `--`:
 

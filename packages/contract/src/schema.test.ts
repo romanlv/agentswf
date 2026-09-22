@@ -1,5 +1,5 @@
 import { describe as group, expect, test } from "bun:test";
-import { describe, formatErrors, validate, type JsonSchema } from "./schema";
+import { describe, formatErrors, parseJsonSchema, validate, type JsonSchema } from "./schema";
 import { COUNT_SCHEMA } from "./testing/fixtures";
 
 group("validate", () => {
@@ -48,6 +48,15 @@ group("validate", () => {
     ]);
   });
 
+  test("a TypeBox-style enum without a redundant type is validated", () => {
+    const schema = parseJsonSchema({ enum: ["pass", "fail"] });
+
+    expect(validate(schema, "pass")).toEqual([]);
+    expect(validate(schema, "PASS")).toEqual([
+      { path: "value", message: 'expected one of "pass", "fail"; got "PASS"' },
+    ]);
+  });
+
   test("an array error carries the index of the item that failed", () => {
     const schema: JsonSchema = {
       type: "array",
@@ -72,6 +81,25 @@ group("validate", () => {
     const errors = validate(COUNT_SCHEMA, { count: -1, even: "yes" });
 
     expect(errors.map((error) => error.path)).toEqual(["value.count", "value.even"]);
+  });
+});
+
+group("parseJsonSchema", () => {
+  test("accepts the supported TypeBox object shape", () => {
+    expect(
+      parseJsonSchema({
+        type: "object",
+        required: ["verdict"],
+        properties: { verdict: { enum: ["pass", "fail"] } },
+        additionalProperties: false,
+      }),
+    ).toBeDefined();
+  });
+
+  test("rejects constraints the result validator would otherwise ignore", () => {
+    expect(() => parseJsonSchema({ type: "string", pattern: "^pass$" })).toThrow(
+      'output schema keyword "pattern" is unsupported',
+    );
   });
 });
 

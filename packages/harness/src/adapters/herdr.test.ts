@@ -15,6 +15,7 @@ const CONFIG: HerdrConfig = {
   settleTimeoutMs: 60_000,
   binDir: "/wf/bin",
   startRetryMs: 0,
+  trustSettleMs: 0,
 };
 
 const STEP: Step = { prompt: "count the e's", harness: "claude", backend: "pane" };
@@ -83,9 +84,9 @@ describe("createHerdrAdapter", () => {
     expect(created).toContain("ANTHROPIC_BASE_URL=");
   });
 
-  test("does not let workspace environment overrides replace adapter authority", () => {
-    expect(() => createPaneAdapter({ ...CONFIG, emptyEnvironment: ["WF_CAPABILITY"] })).toThrow(
-      "Herdr workspace environment is adapter-owned: WF_CAPABILITY",
+  test("does not let workspace environment overrides replace adapter-owned names", () => {
+    expect(() => createPaneAdapter({ ...CONFIG, emptyEnvironment: ["WF_CALL"] })).toThrow(
+      "Herdr workspace environment is adapter-owned: WF_CALL",
     );
   });
 
@@ -280,12 +281,10 @@ describe("createPaneAdapter", () => {
   const firstBinding = {
     endpoint: "/private/engine.sock",
     operationId: "op-1",
-    capability: "A".repeat(43),
   };
   const secondBinding = {
     endpoint: "/private/engine.sock",
     operationId: "op-2",
-    capability: "B".repeat(43),
   };
 
   function operationStub() {
@@ -328,7 +327,7 @@ describe("createPaneAdapter", () => {
     return { run, calls };
   }
 
-  test("uses a capability-bound workspace only with the confirmed interactive launch", async () => {
+  test("uses a launcher-bound workspace only with the confirmed interactive launch", async () => {
     const { run, calls } = operationStub();
     const session = await createPaneAdapter(CONFIG, run).activate(activation);
     const first = await session.start(
@@ -349,10 +348,8 @@ describe("createPaneAdapter", () => {
 
     const creates = calls.filter((call) => verb(call) === "workspace create");
     expect(creates).toHaveLength(1);
-    // Herdr 0.8.2 exposes workspace environment only through `--env KEY=VALUE` arguments.
-    expect(creates[0]?.argv).toContain(`WF_CAPABILITY=${firstBinding.capability}`);
-    expect(calls.filter((call) => verb(call) !== "workspace create").flatMap((call) => call.argv))
-      .not.toContain(`WF_CAPABILITY=${firstBinding.capability}`);
+    // The return channel puts nothing in the pane: the agent is told a path and runs it.
+    expect(creates[0]?.argv.join(" ")).not.toContain("PATH=");
     const starts = calls.filter((call) => verb(call) === "agent start");
     expect(starts).toHaveLength(1);
     expect(starts[0]?.argv).not.toContain("-p");
@@ -414,6 +411,19 @@ describe("createPaneAdapter", () => {
         "Do you trust the contents of this directory?\n1. Yes, continue",
         ["enter"],
       ],
+      // Herdr renders the block into the pane's width, and this host's panes are half-width.
+      [
+        "claude",
+        " Quick safety check: Is this a project you created or one you\n trust? (Like your own" +
+          " code, a well-known open source project)\n\n ❯ No, exit\n   Yes, I trust this folder",
+        ["down", "enter"],
+      ],
+      [
+        "codex",
+        "  Do you trust the contents of this\n  directory? Working with untrusted\n  contents" +
+          " comes with higher risk.\n\n› 1. Yes, continue\n  2. No, quit",
+        ["enter"],
+      ],
     ] as const) {
       const { run: baseRun, calls } = operationStub();
       let trustAccepted = false;
@@ -453,6 +463,43 @@ describe("createPaneAdapter", () => {
       expect(argv(calls, "agent wait")).toContain("idle");
       expect(calls.filter((call) => verb(call) === "agent start")).toHaveLength(1);
     }
+  });
+
+  test("a settle it cannot afford is skipped, not spent turning the agent into a timeout", async () => {
+    const { run: baseRun } = operationStub();
+    let trustAccepted = false;
+    const run: RunProcess = async (input) => {
+      if (verb(input) === "agent start" && !trustAccepted) {
+        return {
+          stdout: "",
+          stderr: JSON.stringify({ error: { code: "agent_not_ready", message: "blocked" } }),
+          exitCode: 1,
+          timedOut: false,
+        };
+      }
+      if (verb(input) === "agent read" && !trustAccepted) {
+        return {
+          stdout: "Do you trust the contents of this directory?\n1. Yes, continue",
+          stderr: "",
+          exitCode: 0,
+          timedOut: false,
+        };
+      }
+      if (verb(input) === "agent send-keys") trustAccepted = true;
+      return baseRun(input);
+    };
+    const session = await createPaneAdapter(
+      { ...CONFIG, acceptWorkspaceTrust: true, trustSettleMs: 5_000 },
+      run,
+    ).activate({ ...activation, execution: { ...activation.execution, harness: "codex" } });
+    const startedAt = Date.now();
+    const turn = await session.start(
+      { id: "review", prompt: "review", deadline: { unixMilliseconds: Date.now() + 150 } },
+      firstBinding,
+    );
+
+    await expect(turn.settled).resolves.toMatchObject({ state: "completed" });
+    expect(Date.now() - startedAt).toBeLessThan(100);
   });
 
   test("the process kill outlasts every wait herdr is asked to report on", async () => {
@@ -644,20 +691,6 @@ describe("createPaneAdapter", () => {
     expect(calls.filter((call) => verb(call) === "workspace close")).toHaveLength(1);
   });
 
-  test("compaction explicitly clears inherited operation authority", async () => {
-    const { run, calls } = operationStub();
-    const session = await createPaneAdapter(CONFIG, run).activate(activation);
-    const compact = await session.compact("compact-1", "summarize", activation.deadline);
-
-    await compact.settled;
-
-    const created = calls.find((call) => verb(call) === "workspace create");
-    expect(created?.argv).toContain("WF_ENDPOINT=");
-    expect(created?.argv).toContain("WF_OPERATION=");
-    expect(created?.argv).toContain("WF_CAPABILITY=");
-    expect(created?.argv.join(" ")).not.toContain(firstBinding.capability);
-  });
-
   test("preserves a native Herdr timeout as timed-out", async () => {
     const { run: baseRun } = operationStub();
     const run: RunProcess = async (input) =>
@@ -717,7 +750,7 @@ describe("createPaneAdapter", () => {
     expect(calls).toHaveLength(settledCalls);
   });
 
-  test("redacts close failures and retains the handle so close can retry", async () => {
+  test("retains the handle after a close failure so close can retry", async () => {
     const { run: baseRun, calls } = operationStub();
     let closeAttempts = 0;
     const run: RunProcess = async (input) => {
@@ -727,7 +760,7 @@ describe("createPaneAdapter", () => {
       return closeAttempts <= 2
         ? {
             stdout: "",
-            stderr: `busy ${firstBinding.operationId} ${firstBinding.capability}`,
+            stderr: `busy ${firstBinding.operationId}`,
             exitCode: 1,
             timedOut: false,
           }
@@ -738,13 +771,12 @@ describe("createPaneAdapter", () => {
       { id: "turn-1", prompt: "review", deadline: activation.deadline },
       firstBinding,
     );
-    const outcome = await turn.settled;
-    expect(outcome).toMatchObject({ state: "completed" });
-    expect(JSON.stringify(outcome)).not.toContain(firstBinding.capability);
+    expect(await turn.settled).toMatchObject({ state: "completed" });
 
+    // The reason reaches the caller verbatim: a close failure names the workspace that would
+    // otherwise be left behind.
     const firstClose = session.close();
-    await expect(firstClose).rejects.toThrow("without safe diagnostic detail");
-    await expect(firstClose).rejects.not.toThrow(firstBinding.operationId);
+    await expect(firstClose).rejects.toThrow(firstBinding.operationId);
     await session.close();
 
     expect(closeAttempts).toBe(3);
@@ -759,10 +791,16 @@ describe("createHerdrRunHostFactory", () => {
     exitCode: 0,
     timedOut: false,
   });
-  const binding = (operationId: string, capability: string) => ({
+  const binding = (operationId: string) => ({
     endpoint: "/private/engine.sock",
     operationId,
-    capability,
+  });
+
+  const errorResult = (code: string): ProcessResult => ({
+    stdout: JSON.stringify({ error: { code, message: code } }),
+    stderr: "",
+    exitCode: 1,
+    timedOut: false,
   });
 
   function hostStub(options: { exposeSession?: boolean } = {}) {
@@ -810,7 +848,7 @@ describe("createHerdrRunHostFactory", () => {
     return { run, calls };
   }
 
-  test("places peer providers in authority-isolated sibling panes of one run tab", async () => {
+  test("places peer providers in sibling panes of one run tab", async () => {
     const { run, calls } = hostStub();
     const host = await createHerdrRunHostFactory(CONFIG, run).openRun({
       runId: "run-1",
@@ -831,8 +869,8 @@ describe("createHerdrRunHostFactory", () => {
         execution: { harness: "codex", model: "gpt-5.6-sol" },
       }),
     ]);
-    const first = binding("op-1", "A".repeat(43));
-    const second = binding("op-2", "B".repeat(43));
+    const first = binding("op-1");
+    const second = binding("op-2");
     await Promise.all([
       (await claude.start({ id: "one", prompt: "review", deadline: deadline() }, first)).settled,
       (await codex.start({ id: "two", prompt: "review", deadline: deadline() }, second)).settled,
@@ -842,113 +880,21 @@ describe("createHerdrRunHostFactory", () => {
     const splits = calls.filter((call) => verb(call) === "pane split");
     const starts = calls.filter((call) => verb(call) === "agent start");
     expect(creates).toHaveLength(1);
-    expect(creates[0]?.argv).toContain("WF_CAPABILITY=");
-    expect(creates[0]?.argv).not.toContain(`WF_CAPABILITY=${first.capability}`);
-    expect(creates[0]?.argv).not.toContain(`WF_CAPABILITY=${second.capability}`);
     expect(splits).toHaveLength(2);
     expect(splits.every((call) => call.argv.includes("w1:p1"))).toBe(true);
-    expect(splits[0]?.argv).toContain(`WF_CAPABILITY=${first.capability}`);
-    expect(splits[0]?.argv).not.toContain(`WF_CAPABILITY=${second.capability}`);
-    expect(splits[1]?.argv).toContain(`WF_CAPABILITY=${second.capability}`);
-    expect(splits[1]?.argv).not.toContain(`WF_CAPABILITY=${first.capability}`);
+    // With nothing to withhold there is nothing to set: the return channel needs no environment,
+    // and `herdr-contract.test.ts` holds the case where credentials do have to be repeated.
+    expect(splits.every((call) => !call.argv.includes("--env"))).toBe(true);
     expect(starts.map((call) => call.argv[call.argv.indexOf("--kind") + 1]).sort()).toEqual([
       "claude",
       "codex",
     ]);
-    const laterArguments = calls
-      .filter((call) => !["workspace create", "pane split"].includes(verb(call)))
-      .flatMap((call) => call.argv);
-    expect(laterArguments).not.toContain(first.capability);
-    expect(laterArguments).not.toContain(second.capability);
-    expect(JSON.stringify(host.inspect())).not.toContain(first.capability);
-    expect(JSON.stringify(host.inspect())).not.toContain(second.capability);
 
     await host.close();
     expect(calls.filter((call) => verb(call) === "workspace close")).toHaveLength(1);
   });
 
-  test("sibling authority cannot become turn evidence or a native resume reference", async () => {
-    const firstCapability = "A".repeat(43);
-    const escapedFirst = `\\u${firstCapability.charCodeAt(0).toString(16).padStart(4, "0")}${firstCapability.slice(1)}`;
-    const base = hostStub();
-    let prompts = 0;
-    let reads = 0;
-    const run: RunProcess = async (input) => {
-      if (verb(input) === "agent prompt") {
-        base.calls.push(input);
-        prompts += 1;
-        return commandResult({
-          agent: {
-            agent_status: "idle",
-            agent_session: {
-              kind: "id",
-              value: prompts === 1 ? "safe-first-session" : escapedFirst,
-            },
-          },
-        });
-      }
-      if (verb(input) === "agent read") {
-        base.calls.push(input);
-        reads += 1;
-        return {
-          stdout:
-            reads === 1
-              ? JSON.stringify({ session_id: "safe-first-session", result: "reviewed" })
-              : JSON.stringify({ session_id: escapedFirst, result: `leak ${escapedFirst}` }),
-          stderr: "",
-          exitCode: 0,
-          timedOut: false,
-        };
-      }
-      return base.run(input);
-    };
-    const host = await createHerdrRunHostFactory(CONFIG, run).openRun({
-      runId: "run-1",
-      cwd: "/repo",
-      deadline: deadline(),
-    });
-    const first = await host.openAgent({
-      key: "first",
-      cwd: "/repo",
-      deadline: deadline(),
-      execution: { harness: "claude", model: "opus" },
-    });
-    const second = await host.openAgent({
-      key: "second",
-      cwd: "/repo",
-      deadline: deadline(),
-      execution: { harness: "claude", model: "opus" },
-    });
-    await (
-      await first.start(
-        { id: "one", prompt: "review", deadline: deadline() },
-        binding("op-1", firstCapability),
-      )
-    ).settled;
-    const leaked = await (
-      await second.start(
-        { id: "two", prompt: "review", deadline: deadline() },
-        binding("op-2", "B".repeat(43)),
-      )
-    ).settled;
-    expect(leaked.resultEvidence).toEqual({ kind: "unavailable" });
-    expect(JSON.stringify(leaked)).not.toContain(firstCapability);
-    expect(JSON.stringify(leaked)).not.toContain(escapedFirst);
-
-    const later = await second.start(
-      { id: "three", prompt: "again", deadline: deadline() },
-      binding("op-3", "C".repeat(43)),
-    );
-    await expect(later.settled).resolves.toMatchObject({ state: "failed" });
-    const laterCommands = base.calls
-      .filter((call) => verb(call) === "agent start")
-      .flatMap((call) => call.argv);
-    expect(laterCommands).not.toContain(firstCapability);
-    expect(laterCommands).not.toContain(escapedFirst);
-    await host.close();
-  });
-
-  test("nudge stays in its pane and a later operation resumes in a fresh pane", async () => {
+  test("a nudge stays in its pane and a later operation is refused, not resumed", async () => {
     const { run, calls } = hostStub();
     const host = await createHerdrRunHostFactory(CONFIG, run).openRun({
       runId: "run-1",
@@ -963,28 +909,56 @@ describe("createHerdrRunHostFactory", () => {
     });
     const first = await session.start(
       { id: "one", prompt: "review", deadline: deadline() },
-      binding("op-1", "A".repeat(43)),
+      binding("op-1"),
     );
     await first.settled;
     await (await first.nudge({ id: "one:nudge", prompt: "report", deadline: deadline() })).settled;
-    await (
-      await session.start(
-        { id: "two", prompt: "review again", deadline: deadline() },
-        binding("op-2", "B".repeat(43)),
-      )
-    ).settled;
+    const second = await session.start(
+      { id: "two", prompt: "review again", deadline: deadline() },
+      binding("op-2"),
+    );
 
-    expect(calls.filter((call) => verb(call) === "agent prompt")).toHaveLength(3);
-    expect(calls.filter((call) => verb(call) === "pane split")).toHaveLength(2);
-    const starts = calls.filter((call) => verb(call) === "agent start");
-    expect(starts).toHaveLength(2);
-    expect(starts[1]?.argv).toContain("resume");
-    expect(starts[1]?.argv.some((argument) => argument.startsWith("session-"))).toBe(true);
+    await expect(second.settled).resolves.toMatchObject({
+      state: "failed",
+      detail: expect.stringContaining("one operation per agent"),
+    });
+    expect(calls.filter((call) => verb(call) === "agent prompt")).toHaveLength(2);
+    expect(calls.filter((call) => verb(call) === "pane split")).toHaveLength(1);
+    expect(calls.filter((call) => verb(call) === "agent start")).toHaveLength(1);
+    expect(calls.every((call) => !call.argv.includes("resume"))).toBe(true);
     await host.close();
   });
 
-  test("a later operation fails closed without native continuation evidence", async () => {
-    const { run, calls } = hostStub({ exposeSession: false });
+  test("the agent's own pane carries the scrubbed environment, not just the workspace", async () => {
+    const { run, calls } = hostStub();
+    const host = await createHerdrRunHostFactory(
+      { ...CONFIG, emptyEnvironment: ["ANTHROPIC_API_KEY", "OPENAI_API_KEY"] },
+      run,
+    ).openRun({ runId: "run-1", cwd: "/repo", deadline: deadline() });
+    const session = await host.openAgent({
+      key: "reviewer",
+      cwd: "/repo",
+      deadline: deadline(),
+      execution: { harness: "claude", model: "opus" },
+    });
+    await (
+      await session.start(
+        { id: "one", prompt: "review", deadline: deadline() },
+        binding("op-1"),
+      )
+    ).settled;
+
+    for (const scope of ["workspace create", "pane split"] as const) {
+      const emitted = argv(calls, scope);
+      expect(emitted).toContain("ANTHROPIC_API_KEY=");
+      expect(emitted).toContain("OPENAI_API_KEY=");
+      expect(emitted.join(" ")).not.toContain("PATH=");
+    }
+    await host.close();
+  });
+
+  test("every later operation on an agent is refused without opening a pane", async () => {
+    const { run, calls } = hostStub();
     const host = await createHerdrRunHostFactory(CONFIG, run).openRun({
       runId: "run-1",
       cwd: "/repo",
@@ -999,44 +973,37 @@ describe("createHerdrRunHostFactory", () => {
     await (
       await session.start(
         { id: "one", prompt: "review", deadline: deadline() },
-        binding("op-1", "A".repeat(43)),
+        binding("op-1"),
       )
     ).settled;
     const second = await session.start(
       { id: "two", prompt: "again", deadline: deadline() },
-      binding("op-2", "B".repeat(43)),
+      binding("op-2"),
     );
 
     await expect(second.settled).resolves.toMatchObject({
       state: "failed",
-      detail: expect.stringContaining("continuation evidence"),
+      detail: expect.stringContaining("one operation per agent"),
     });
     const third = await session.start(
       { id: "three", prompt: "again", deadline: deadline() },
-      binding("op-3", "C".repeat(43)),
+      binding("op-3"),
     );
     await expect(third.settled).resolves.toMatchObject({
       state: "failed",
-      detail: expect.stringContaining("continuation evidence"),
+      detail: expect.stringContaining("one operation per agent"),
     });
     expect(calls.filter((call) => verb(call) === "pane split")).toHaveLength(1);
     await host.close();
   });
 
-  test("blocked and unknown generations permanently deny later continuation", async () => {
+  test("a blocked or unknown generation keeps its own state", async () => {
     for (const terminalState of ["blocked", "unknown"] as const) {
       const base = hostStub();
-      let prompts = 0;
       const run: RunProcess = async (input) => {
         if (verb(input) !== "agent prompt") return base.run(input);
         base.calls.push(input);
-        prompts += 1;
-        return commandResult({
-          agent: {
-            agent_status: prompts === 1 ? "idle" : terminalState,
-            agent_session: { kind: "id", value: `session-${prompts}` },
-          },
-        });
+        return commandResult({ agent: { agent_status: terminalState, agent_status_text: "stuck" } });
       };
       const host = await createHerdrRunHostFactory(CONFIG, run).openRun({
         runId: `run-${terminalState}`,
@@ -1049,33 +1016,14 @@ describe("createHerdrRunHostFactory", () => {
         deadline: deadline(),
         execution: { harness: "claude", model: "opus" },
       });
-      await (
-        await session.start(
-          { id: "one", prompt: "one", deadline: deadline() },
-          binding("op-1", "A".repeat(43)),
-        )
-      ).settled;
-      const second = await session.start(
-        { id: "two", prompt: "two", deadline: deadline() },
-        binding("op-2", "B".repeat(43)),
+      const turn = await session.start(
+        { id: "one", prompt: "one", deadline: deadline() },
+        binding("op-1"),
       );
-      await expect(second.settled).resolves.toMatchObject({
+
+      await expect(turn.settled).resolves.toMatchObject({
         state: terminalState === "blocked" ? "blocked" : "failed",
       });
-      for (const [id, capability] of [
-        ["op-3", "C".repeat(43)],
-        ["op-4", "D".repeat(43)],
-      ] as const) {
-        const later = await session.start(
-          { id, prompt: "again", deadline: deadline() },
-          binding(id, capability),
-        );
-        await expect(later.settled).resolves.toMatchObject({
-          state: "failed",
-          detail: expect.stringContaining("continuation evidence"),
-        });
-      }
-      expect(base.calls.filter((call) => verb(call) === "pane split")).toHaveLength(2);
       await host.close();
     }
   });
@@ -1115,7 +1063,7 @@ describe("createHerdrRunHostFactory", () => {
     });
     const turn = await session.start(
       { id: "one", prompt: "review", deadline: deadline() },
-      binding("op-1", "A".repeat(43)),
+      binding("op-1"),
     );
     await promptStarted;
 
@@ -1124,17 +1072,14 @@ describe("createHerdrRunHostFactory", () => {
       outcome: { state: "cancelled" },
     });
     expect(base.calls.filter((call) => verb(call) === "pane close")).toHaveLength(1);
-    for (const [id, capability] of [
-      ["op-2", "B".repeat(43)],
-      ["op-3", "C".repeat(43)],
-    ] as const) {
+    for (const id of ["op-2", "op-3"] as const) {
       const later = await session.start(
         { id, prompt: "again", deadline: deadline() },
-        binding(id, capability),
+        binding(id),
       );
       await expect(later.settled).resolves.toMatchObject({
         state: "failed",
-        detail: expect.stringContaining("continuation evidence"),
+        detail: expect.stringContaining("one operation per agent"),
       });
     }
     expect(base.calls.filter((call) => verb(call) === "pane split")).toHaveLength(1);
@@ -1175,18 +1120,18 @@ describe("createHerdrRunHostFactory", () => {
     });
     const turn = await session.start(
       { id: "one", prompt: "review", deadline: deadline() },
-      binding("op-1", "A".repeat(43)),
+      binding("op-1"),
     );
     await promptStarted;
     await turn.release("stop", deadline());
 
     const later = await session.start(
       { id: "two", prompt: "again", deadline: deadline() },
-      binding("op-2", "B".repeat(43)),
+      binding("op-2"),
     );
     await expect(later.settled).resolves.toMatchObject({
       state: "failed",
-      detail: expect.stringContaining("continuation evidence"),
+      detail: expect.stringContaining("one operation per agent"),
     });
     expect(base.calls.filter((call) => verb(call) === "pane split")).toHaveLength(1);
     await host.close();
@@ -1242,5 +1187,129 @@ describe("createHerdrRunHostFactory", () => {
       }),
     ).rejects.toThrow("acquisition and cleanup failed");
     expect(calls.map(verb)).toEqual(["workspace create", "workspace close"]);
+  });
+  async function stalledReviewer(run: RunProcess, operationMs: number) {
+    const host = await createHerdrRunHostFactory(CONFIG, run).openRun({
+      runId: "run-1",
+      cwd: "/repo",
+      deadline: deadline(),
+    });
+    const session = await host.openAgent({
+      key: "reviewer",
+      cwd: "/repo",
+      deadline: deadline(),
+      execution: { harness: "claude", model: "opus" },
+    });
+    const turn = await session.start(
+      { id: "one", prompt: "review", deadline: { unixMilliseconds: Date.now() + operationMs } },
+      binding("op-1"),
+    );
+    return { host, turn };
+  }
+
+  /**
+   * Herdr accepts the submission before the stall is reported, so the turn may be running. E2
+   * measured the nudge recovering silent turns, but a nudge here would be a second prompt into a
+   * live agent, and settling would close the result slot under it.
+   */
+  test("a stall waits the operation out instead of settling or closing the pane", async () => {
+    const base = hostStub();
+    const run: RunProcess = async (input) => {
+      if (verb(input) !== "agent prompt") return base.run(input);
+      base.calls.push(input);
+      return errorResult("agent_prompt_stalled");
+    };
+    const { host, turn } = await stalledReviewer(run, 150);
+    const startedAt = Date.now();
+
+    await expect(turn.settled).resolves.toMatchObject({
+      state: "timed-out",
+      detail: "operation deadline exceeded after a stalled prompt observation",
+    });
+    expect(Date.now() - startedAt).toBeGreaterThanOrEqual(140);
+    expect(base.calls.filter((call) => verb(call) === "agent prompt")).toHaveLength(1);
+    // The agent may still be working, so its pane and authority outlive the outcome; only the
+    // engine's release or the run's cleanup takes them away.
+    expect(base.calls.filter((call) => verb(call) === "pane close")).toHaveLength(0);
+    await host.close();
+  });
+
+  test("a fatal prompt error that merely quotes the stall code still fails at once", async () => {
+    const base = hostStub();
+    const run: RunProcess = async (input) => {
+      if (verb(input) !== "agent prompt") return base.run(input);
+      base.calls.push(input);
+      // The prompt argv carries workflow-authored text, and this story's own reviewers are told
+      // about `agent_prompt_stalled`; a usage error echoing it back must not read as a stall.
+      return {
+        stdout: "",
+        stderr: 'error: unexpected argument\n  herdr agent prompt wf-x "explain agent_prompt_stalled"',
+        exitCode: 2,
+        timedOut: false,
+      };
+    };
+    const { host, turn } = await stalledReviewer(run, 60_000);
+    const startedAt = Date.now();
+
+    await expect(turn.settled).resolves.toMatchObject({
+      state: "failed",
+      detail: expect.stringContaining("unexpected argument"),
+    });
+    expect(Date.now() - startedAt).toBeLessThan(1_000);
+    await host.close();
+  });
+
+  test("a prompt failure Herdr does not call a stall still fails the operation", async () => {
+    const base = hostStub();
+    const run: RunProcess = async (input) => {
+      if (verb(input) !== "agent prompt") return base.run(input);
+      base.calls.push(input);
+      return errorResult("agent_blocked");
+    };
+    const { host, turn } = await stalledReviewer(run, 60_000);
+
+    await expect(turn.settled).resolves.toMatchObject({
+      state: "failed",
+      detail: expect.stringContaining("agent_blocked"),
+    });
+    await host.close();
+  });
+
+  test("an operation whose pane never opened does not consume the agent", async () => {
+    const base = hostStub();
+    let splits = 0;
+    const run: RunProcess = async (input) => {
+      if (verb(input) !== "pane split") return base.run(input);
+      base.calls.push(input);
+      splits += 1;
+      return splits === 1 ? errorResult("pane_split_failed") : commandResult({ pane: { pane_id: "w1:p2" } });
+    };
+    const host = await createHerdrRunHostFactory(CONFIG, run).openRun({
+      runId: "run-1",
+      cwd: "/repo",
+      deadline: deadline(),
+    });
+    const session = await host.openAgent({
+      key: "reviewer",
+      cwd: "/repo",
+      deadline: deadline(),
+      execution: { harness: "claude", model: "opus" },
+    });
+    await expect(
+      (
+        await session.start(
+          { id: "one", prompt: "review", deadline: deadline() },
+          binding("op-1"),
+        )
+      ).settled,
+    ).resolves.toMatchObject({ state: "failed", detail: expect.stringContaining("pane split") });
+
+    const second = await session.start(
+      { id: "two", prompt: "review", deadline: deadline() },
+      binding("op-2"),
+    );
+    await expect(second.settled).resolves.toMatchObject({ state: "completed" });
+    expect(splits).toBe(2);
+    await host.close();
   });
 });

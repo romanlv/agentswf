@@ -10,6 +10,9 @@ export * from "@wf/contract";
 export * from "@wf/harness";
 export * from "@wf/harness/testing";
 export * from "@wf/engine";
+// Its own entrypoint, not the barrel: `acceptResult` writes `result.json` with no slot behind it,
+// which is right for E2/E5 and wrong anywhere near a live run.
+export * from "@wf/engine/archive-compat";
 export { tempRunDir } from "@wf/engine/testing";
 export { COUNT_SCHEMA } from "@wf/contract/testing";
 export * from "./run-log";

@@ -12,7 +12,7 @@ export type ProcessResult = {
 export type ProcessInput = {
   argv: readonly string[];
   cwd?: string;
-  /** Merged over the parent environment. `WF_RUN` and `WF_CALL` ride in here for headless. */
+  /** Merged over the parent environment. The frozen legacy driver's `WF_RUN`/`WF_CALL` ride here. */
   env?: Record<string, string | undefined>;
   /** Fed to the child and closed. The prompt rides here: no CLI reinterprets stdin. */
   stdin?: string;
@@ -67,11 +67,14 @@ export const runProcess: RunProcess = async ({ argv, cwd, env, stdin, timeoutMs,
   }
 };
 
+/**
+ * `WF_RUN` and `WF_CALL` are the legacy driver's, and only for the process it sets them on. An
+ * `awf` started from inside one would otherwise hand its own agents that run's directory.
+ */
 function childEnvironment(env?: Record<string, string | undefined>): Record<string, string | undefined> {
   const inherited = { ...process.env };
-  delete inherited.WF_ENDPOINT;
-  delete inherited.WF_OPERATION;
-  delete inherited.WF_CAPABILITY;
+  delete inherited.WF_RUN;
+  delete inherited.WF_CALL;
   return { ...inherited, ...env };
 }
 

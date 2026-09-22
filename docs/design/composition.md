@@ -119,13 +119,13 @@ is discoverable from the workflow working directory; `bindingPath` supports sess
 explicit location. Installing a binding is exclusive and atomic. A second live connection cannot
 replace it, and `release` removes only the binding owned by that reference.
 
-The binding carries a stable participant capability, not an operation capability. It permits
-`peers`, `inbox`, and `send`, but never `result`. Releasing the participant removes its routes,
+The binding is the participant's own socket, held for as long as it stays connected rather than
+for one operation. It permits `peers`, `inbox`, and `send`, but never `result`. Releasing the participant removes its routes,
 discards unread ordinary messages, and fails outstanding response obligations. Workflow completion
 does the same automatically.
 
 When `bindingPath` is supplied, the outside session's CLI must already be configured to discover
-that location. The model still does not pass the path or capability in commands.
+that location. The model runs a launcher by path and names peers; it passes no authority token.
 
 ## Outside-session CLI
 
@@ -240,4 +240,4 @@ Durable findings remain in files; messages carry only coordination.
 - workflows presented as agents;
 - running or collecting results from an outside participant;
 - sharing a runnable parent agent with a child workflow;
-- visible message ids or capability tokens in agent commands.
+- visible message ids or authority tokens in agent commands.

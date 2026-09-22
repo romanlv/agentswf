@@ -2,19 +2,14 @@ import { describe, expect, test } from "bun:test";
 import { WIRE_VERSION, type ResultSubmitRequest, type ResultSubmitResponse } from "@wf/contract/wire";
 import { readBoundedStdin, readCliStdin, runCli } from "./cli";
 
-const CAPABILITY = "A".repeat(43);
-const ENV = {
-  WF_ENDPOINT: "/private/control.sock",
-  WF_OPERATION: "op-1",
-  WF_CAPABILITY: CAPABILITY,
-};
+const ENDPOINT = "/private/control.sock";
+const at = (...args: readonly string[]) => ["--at", ENDPOINT, ...args];
 
 describe("wf result", () => {
-  test("submits an exact argument request without exposing authority", async () => {
+  test("submits an exact argument request", async () => {
     const seen: Array<{ endpoint: string; request: ResultSubmitRequest }> = [];
     const outcome = await runCli(
-      ["result", '{"count":3}'],
-      ENV,
+      at("result", "op-1", '{"count":3}'),
       null,
       async (endpoint, request) => {
         seen.push({ endpoint, request });
@@ -25,24 +20,26 @@ describe("wf result", () => {
     expect(outcome).toEqual({ exitCode: 0, stdout: "wf: result accepted", stderr: "" });
     expect(seen).toEqual([
       {
-        endpoint: ENV.WF_ENDPOINT,
+        endpoint: ENDPOINT,
         request: {
-          version: 1,
+          version: WIRE_VERSION,
           operationId: "op-1",
-          capability: CAPABILITY,
           raw: '{"count":3}',
         },
       },
     ]);
-    expect(JSON.stringify(outcome)).not.toContain(CAPABILITY);
   });
 
   test("standard input is the alternative single source", async () => {
     let raw = "";
-    const outcome = await runCli(["result"], ENV, '{"count":3}\n', async (_endpoint, request) => {
-      raw = request.raw;
-      return { version: 1, kind: "accepted" };
-    });
+    const outcome = await runCli(
+      at("result", "op-1"),
+      '{"count":3}\n',
+      async (_endpoint, request) => {
+        raw = request.raw;
+        return { version: WIRE_VERSION, kind: "accepted" };
+      },
+    );
 
     expect(outcome.exitCode).toBe(0);
     expect(raw).toBe('{"count":3}\n');
@@ -55,40 +52,41 @@ describe("wf result", () => {
       },
     });
 
-    expect(await readCliStdin(["result", '{"count":3}'], false, unreadable)).toBeNull();
+    expect(await readCliStdin(at("result", "op-1", '{"count":3}'), false, unreadable)).toBeNull();
   });
 
   test("both, neither, extra arguments, and empty input fail before connecting", async () => {
     let calls = 0;
     const submit = async (): Promise<ResultSubmitResponse> => {
       calls += 1;
-      return { version: 1, kind: "accepted" };
+      return { version: WIRE_VERSION, kind: "accepted" };
     };
 
     // Direct callers can still violate the single-source contract; the executable never reads
     // stdin when an argument is present.
-    expect((await runCli(["result", "{}"], ENV, "{}", submit)).exitCode).toBe(2);
-    expect((await runCli(["result"], ENV, null, submit)).exitCode).toBe(2);
-    expect((await runCli(["result", "a", "b"], ENV, null, submit)).exitCode).toBe(2);
-    expect((await runCli(["result"], ENV, "  \n", submit)).exitCode).toBe(2);
+    expect((await runCli(at("result", "op-1", "{}"), "{}", submit)).exitCode).toBe(2);
+    expect((await runCli(at("result", "op-1"), null, submit)).exitCode).toBe(2);
+    expect((await runCli(at("result", "op-1", "a", "b"), null, submit)).exitCode).toBe(2);
+    expect((await runCli(at("result", "op-1"), "  \n", submit)).exitCode).toBe(2);
+    expect((await runCli(at("result"), "{}", submit)).exitCode).toBe(2);
     expect(calls).toBe(0);
   });
 
-  test("missing binding fails before connecting", async () => {
+  test("a bare invocation fails before connecting", async () => {
     let called = false;
-    const outcome = await runCli(["result", "{}"], {}, null, async () => {
+    const outcome = await runCli(["result", "op-1", "{}"], null, async () => {
       called = true;
-      return { version: 1, kind: "accepted" };
+      return { version: WIRE_VERSION, kind: "accepted" };
     });
 
     expect(outcome.exitCode).toBe(2);
-    expect(outcome.stderr).toContain("WF_ENDPOINT");
+    expect(outcome.stderr).toContain("launcher");
     expect(called).toBe(false);
   });
 
-  test("a rejected response retains actionable field detail but not authority", async () => {
-    const outcome = await runCli(["result", "{}"], ENV, null, async () => ({
-      version: 1,
+  test("a rejected response retains actionable field detail", async () => {
+    const outcome = await runCli(at("result", "op-1", "{}"), null, async () => ({
+      version: WIRE_VERSION,
       kind: "rejected",
       code: "invalid-result",
       error: "value.count: expected an integer",
@@ -97,50 +95,30 @@ describe("wf result", () => {
     expect(outcome.exitCode).toBe(1);
     expect(outcome.stderr).toContain("value.count: expected an integer");
     expect(outcome.stderr).toContain("run wf result again");
-    expect(outcome.stderr).not.toContain(CAPABILITY);
   });
 
-  test("does not expose authority from untrusted diagnostics", async () => {
-    const thrown = await runCli(["result", "{}"], ENV, null, async () => {
-      throw new Error(`transport echoed ${CAPABILITY}`);
-    });
-    const rejected = await runCli(["result", "{}"], ENV, null, async () => ({
-      version: 1,
-      kind: "rejected",
-      code: "invalid-result",
-      error: `value.note: ${CAPABILITY} op-1`,
-    }));
-
-    const transport = await runCli(["result", "{}"], ENV, null, async () => {
+  test("a transport failure reports the reason it was given", async () => {
+    const outcome = await runCli(at("result", "op-1", "{}"), null, async () => {
       throw new Error("connect ENOENT /run/engine.sock");
     });
-    const escaped = `\\x${CAPABILITY.charCodeAt(0).toString(16)}${CAPABILITY.slice(1)}`;
-    const escapedThrown = await runCli(["result", "{}"], ENV, null, async () => {
-      throw new Error(`transport echoed ${escaped}`);
-    });
 
-    expect(thrown.stderr).toContain("without safe diagnostic detail");
-    expect(thrown.stderr).not.toContain(CAPABILITY);
-    expect(escapedThrown.stderr).toContain("without safe diagnostic detail");
-    expect(escapedThrown.stderr).not.toContain(escaped);
-    expect(transport.stderr).toContain("connect ENOENT /run/engine.sock");
-    expect(rejected.stderr).not.toContain(CAPABILITY);
-    expect(rejected.stderr).not.toContain("op-1");
+    expect(outcome.exitCode).toBe(1);
+    expect(outcome.stderr).toContain("connect ENOENT /run/engine.sock");
   });
 
   test("only validation failures tell the agent to change and retry the value", async () => {
     for (const code of [
-      "unknown-capability",
-      "wrong-operation",
-      "expired-capability",
-      "closed-capability",
+      "unknown-operation",
+      "wrong-agent",
+      "expired-operation",
+      "closed-operation",
       "invalid-request",
       "unsupported-version",
       "request-too-large",
       "internal-error",
     ] as const) {
-      const outcome = await runCli(["result", "{}"], ENV, null, async () => ({
-        version: 1,
+      const outcome = await runCli(at("result", "op-1", "{}"), null, async () => ({
+        version: WIRE_VERSION,
         kind: "rejected",
         code,
         error: "not actionable by changing JSON",

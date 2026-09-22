@@ -1,41 +1,51 @@
-import type {
-  AbsoluteDeadline,
-  AgentRef,
-  OutputSchema,
-  RuntimeAliasName,
-  TurnUsage,
-  WorkflowContext,
-  WorkflowDefinition,
+import {
+  isAnswered,
+  type AgentRef,
+  type RuntimeSelection,
+  type TurnUsage,
+  type WorkflowContext,
+  type WorkflowDefinition,
 } from "@wf/contract/workflow";
+import {
+  reviewPrompt,
+  revisionPrompt,
+  type ReviewSubject,
+} from "./feature-delivery.prompts";
+import {
+  REVIEW_VERDICT_SCHEMA,
+  type ReviewVerdict,
+  WORK_UPDATE_SCHEMA,
+  type WorkUpdate,
+} from "./feature-delivery.schema";
 
-type RoleRuntime = { alias: RuntimeAliasName };
-type AdditionalReviewer = RoleRuntime & { name: string };
+const ROLE_CONFIG = {
+  planner: {
+    instructions: "Own the ticket document. Verify current behavior and keep the document implementation-ready.",
+    skills: ["ticket-doc"],
+  },
+  implementer: {
+    instructions: "Implement the approved ticket doc and keep it current as the decision record.",
+  },
+  reviewer: {
+    instructions: "Gate both the ticket doc and implementation. Be specific when requesting changes.",
+  },
+} satisfies Record<string, { instructions: string; skills?: string[] }>;
+
+type PrimaryRole = keyof typeof ROLE_CONFIG;
+type AdditionalReviewer = { name: string; runtime: RuntimeSelection };
+type FeatureRuntimes = Record<PrimaryRole, RuntimeSelection> & {
+  additionalReviewers: AdditionalReviewer[];
+};
 
 type FeatureArgs = {
   ticket: string;
-  runtimes: {
-    planner: RoleRuntime;
-    implementer: RoleRuntime;
-    reviewer: RoleRuntime;
-    additionalReviewers: AdditionalReviewer[];
-  };
+  runtimes: FeatureRuntimes;
   maxRevisionRounds?: number;
 };
 
-type WorkUpdate = {
-  docPath: string;
-  summary: string;
-  decisions: string[];
-};
-
-type ReviewVerdict =
-  | { kind: "ready"; summary: string }
-  | { kind: "changes-requested"; feedback: [string, ...string[]] }
-  | { kind: "inconclusive"; reason: string };
-
 type CompletedAdditionalReview =
   | { reviewer: string; kind: "ready"; summary: string }
-  | { reviewer: string; kind: "changes-addressed"; feedback: [string, ...string[]] };
+  | { reviewer: string; kind: "changes-addressed"; feedback: string[] };
 
 type Handoff = {
   docPath: string;
@@ -72,9 +82,6 @@ type ReviewPass =
   | { kind: "ready"; summary: string; work: WorkUpdate }
   | { kind: "deferred"; reason: string; work: WorkUpdate };
 
-declare const WORK_UPDATE: OutputSchema<WorkUpdate>;
-declare const REVIEW_VERDICT: OutputSchema<ReviewVerdict>;
-
 export const featureDelivery: WorkflowDefinition<FeatureArgs, FeatureResult> = {
   meta: {
     name: "feature-delivery",
@@ -98,8 +105,8 @@ async function deliverFeature(
     throw new Error("feature-delivery: additional reviewer names must be unique");
   }
 
-  const planner = await openPlanner(workflow, args);
-  const reviewer = await openPrimaryReviewer(workflow, args);
+  const planner = await openFeatureAgent(workflow, args, "planner");
+  const reviewer = await openFeatureAgent(workflow, args, "reviewer");
 
   if (reviewer.execution.model === planner.execution.model) {
     return deferred(
@@ -109,13 +116,11 @@ async function deliverFeature(
   }
 
   const planned = await planner.run({
-    deadline: workflow.deadline,
     label: "Create ticket doc",
     prompt: `Create an implementation-ready ticket doc for ${args.ticket}.`,
-    schema: WORK_UPDATE,
-    nudge: { deadline: workflow.deadline },
+    schema: WORK_UPDATE_SCHEMA,
   });
-  if (planned.outcome.kind !== "answered") {
+  if (!isAnswered(planned.outcome)) {
     return deferred("ticket-doc", planned.outcome.reason);
   }
 
@@ -124,25 +129,22 @@ async function deliverFeature(
     planner,
     planned.outcome.value,
     maxRevisions,
-    workflow.deadline,
     { kind: "ticket-doc", ticket: args.ticket },
   );
   if (docReview.kind === "deferred") {
     return deferred("doc-review", docReview.reason, docReview.work.docPath);
   }
 
-  const implementer = await openImplementer(workflow, args);
+  const implementer = await openFeatureAgent(workflow, args, "implementer");
   const implemented = await implementer.run({
-    deadline: workflow.deadline,
     label: "Implement feature",
     prompt: [
       `Implement ${args.ticket} from ${docReview.work.docPath}.`,
       "Update that document with the decisions made and any deviations from the plan.",
     ].join("\n"),
-    schema: WORK_UPDATE,
-    nudge: { deadline: workflow.deadline },
+    schema: WORK_UPDATE_SCHEMA,
   });
-  if (implemented.outcome.kind !== "answered") {
+  if (!isAnswered(implemented.outcome)) {
     return deferred("implementation", implemented.outcome.reason, docReview.work.docPath);
   }
   if (implemented.outcome.value.docPath !== docReview.work.docPath) {
@@ -158,7 +160,6 @@ async function deliverFeature(
     implementer,
     implemented.outcome.value,
     maxRevisions,
-    workflow.deadline,
     { kind: "implementation" },
   );
   if (implementationReview.kind === "deferred") {
@@ -171,7 +172,7 @@ async function deliverFeature(
 
   const additionalReviews = await reviewWithAdditionalAgents(
     workflow,
-    args,
+    args.runtimes.additionalReviewers,
     implementationReview.work,
   );
   const incomplete = additionalReviews.find((review) => review.verdict.kind === "inconclusive");
@@ -192,17 +193,15 @@ async function deliverFeature(
 
   if (additionalFeedback.length > 0) {
     const revised = await implementer.run({
-      deadline: workflow.deadline,
       label: "Apply additional review",
       prompt: [
         "Apply this additional review feedback:",
         ...additionalFeedback.map((feedback) => `- ${feedback}`),
         `Update ${implementationReview.work.docPath} with any resulting decisions.`,
       ].join("\n"),
-      schema: WORK_UPDATE,
-      nudge: { deadline: workflow.deadline },
+      schema: WORK_UPDATE_SCHEMA,
     });
-    if (revised.outcome.kind !== "answered") {
+    if (!isAnswered(revised.outcome)) {
       return deferred(
         "additional-review",
         revised.outcome.reason,
@@ -222,7 +221,6 @@ async function deliverFeature(
       implementer,
       revised.outcome.value,
       maxRevisions,
-      workflow.deadline,
       { kind: "implementation", focus: additionalFeedback },
     );
     if (finalReview.kind === "deferred") {
@@ -248,16 +246,11 @@ async function deliverFeature(
   };
 }
 
-type ReviewSubject =
-  | { kind: "ticket-doc"; ticket: string }
-  | { kind: "implementation"; focus?: string[] };
-
 async function reviewUntilReady(
   reviewer: AgentRef,
   author: AgentRef,
   initial: WorkUpdate,
   maxRevisions: number,
-  deadline: AbsoluteDeadline,
   subject: ReviewSubject,
 ): Promise<ReviewPass> {
   let work = initial;
@@ -265,13 +258,11 @@ async function reviewUntilReady(
 
   for (let revision = 0; revision <= maxRevisions; revision += 1) {
     const review = await reviewer.run({
-      deadline,
       label: `Review ${name}`,
       prompt: reviewPrompt(subject, work),
-      schema: REVIEW_VERDICT,
-      nudge: { deadline },
+      schema: REVIEW_VERDICT_SCHEMA,
     });
-    if (review.outcome.kind !== "answered") {
+    if (!isAnswered(review.outcome)) {
       return { kind: "deferred", reason: review.outcome.reason, work };
     }
     if (review.outcome.value.kind === "ready") {
@@ -285,13 +276,11 @@ async function reviewUntilReady(
     }
 
     const revised = await author.run({
-      deadline,
       label: `Revise ${name}`,
       prompt: revisionPrompt(subject, work, review.outcome.value.feedback),
-      schema: WORK_UPDATE,
-      nudge: { deadline },
+      schema: WORK_UPDATE_SCHEMA,
     });
-    if (revised.outcome.kind !== "answered") {
+    if (!isAnswered(revised.outcome)) {
       return { kind: "deferred", reason: revised.outcome.reason, work };
     }
     if (revised.outcome.value.docPath !== work.docPath) {
@@ -308,70 +297,27 @@ async function reviewUntilReady(
   return { kind: "deferred", reason: `${name} review did not finish`, work };
 }
 
-function reviewPrompt(subject: ReviewSubject, work: WorkUpdate): string {
-  if (subject.kind === "ticket-doc") {
-    return [
-      `Review ${work.docPath} for ${subject.ticket}.`,
-      "Return ready only when its claims are verified and someone can implement it without more research.",
-    ].join("\n");
-  }
-
-  return [
-    `Review the implementation described by ${work.docPath}.`,
-    "Inspect the actual changes and return ready only when they are correct and complete.",
-    ...(subject.focus && subject.focus.length > 0
-      ? [
-          "Verify that this additional feedback was resolved:",
-          ...subject.focus.map((item) => `- ${item}`),
-        ]
-      : []),
-  ].join("\n");
-}
-
-function revisionPrompt(
-  subject: ReviewSubject,
-  work: WorkUpdate,
-  feedback: [string, ...string[]],
-): string {
-  return subject.kind === "ticket-doc"
-    ? [
-        `Revise ${work.docPath} from this review:`,
-        ...feedback.map((item) => `- ${item}`),
-        "Recheck the affected claims before returning.",
-      ].join("\n")
-    : [
-        "Apply this review feedback:",
-        ...feedback.map((item) => `- ${item}`),
-        `Update ${work.docPath} with any resulting decisions or deviations.`,
-      ].join("\n");
-}
-
 async function reviewWithAdditionalAgents(
   workflow: WorkflowContext,
-  args: FeatureArgs,
+  reviewers: AdditionalReviewer[],
   work: WorkUpdate,
 ) {
   return workflow.parallel(
-    args.runtimes.additionalReviewers,
+    reviewers,
     async (candidate) => {
       const reviewer = await workflow.agents.open({
-        deadline: workflow.deadline,
-        key: `run:${workflow.runId}:feature:additional-reviewer:${candidate.name}`,
-        cwd: workflow.cwd,
+        key: `additional-reviewer:${candidate.name}`,
         instructions: "Independently review the implementation. Do not defer judgment to prior reviewers.",
-        lifecycle: { retention: { kind: "workflow" } },
-        runtime: { alias: candidate.alias },
+        runtime: candidate.runtime,
         labels: { role: "additional-reviewer", reviewer: candidate.name },
       });
       const { outcome } = await reviewer.run({
-        deadline: workflow.deadline,
         label: `Review implementation: ${candidate.name}`,
         prompt: `Review the implementation described by ${work.docPath}. Inspect the actual changes.`,
-        schema: REVIEW_VERDICT,
-        nudge: { deadline: workflow.deadline },
+        schema: REVIEW_VERDICT_SCHEMA,
       });
       const verdict: ReviewVerdict =
-        outcome.kind === "answered"
+        isAnswered(outcome)
           ? outcome.value
           : { kind: "inconclusive", reason: outcome.reason };
 
@@ -380,44 +326,22 @@ async function reviewWithAdditionalAgents(
         verdict,
       };
     },
-    { label: "Additional implementation reviews", concurrency: 4, deadline: workflow.deadline },
+    { label: "Additional implementation reviews", concurrency: 4 },
   );
 }
 
-function openPlanner(workflow: WorkflowContext, args: FeatureArgs) {
+function openFeatureAgent(
+  workflow: WorkflowContext,
+  args: FeatureArgs,
+  role: PrimaryRole,
+) {
+  const config = ROLE_CONFIG[role];
   return workflow.agents.open({
-    deadline: workflow.deadline,
-    key: `run:${workflow.runId}:feature:planner`,
-    cwd: workflow.cwd,
-    instructions: "Own the ticket document. Verify current behavior and keep the document implementation-ready.",
-    lifecycle: { retention: { kind: "workflow" } },
-    runtime: { alias: args.runtimes.planner.alias },
-    skills: ["ticket-doc"],
-    labels: { role: "planner", ticket: args.ticket },
-  });
-}
-
-function openImplementer(workflow: WorkflowContext, args: FeatureArgs) {
-  return workflow.agents.open({
-    deadline: workflow.deadline,
-    key: `run:${workflow.runId}:feature:implementer`,
-    cwd: workflow.cwd,
-    instructions: "Implement the approved ticket doc and keep it current as the decision record.",
-    lifecycle: { retention: { kind: "workflow" } },
-    runtime: { alias: args.runtimes.implementer.alias },
-    labels: { role: "implementer", ticket: args.ticket },
-  });
-}
-
-function openPrimaryReviewer(workflow: WorkflowContext, args: FeatureArgs) {
-  return workflow.agents.open({
-    deadline: workflow.deadline,
-    key: `run:${workflow.runId}:feature:reviewer`,
-    cwd: workflow.cwd,
-    instructions: "Gate both the ticket doc and implementation. Be specific when requesting changes.",
-    lifecycle: { retention: { kind: "workflow" } },
-    runtime: { alias: args.runtimes.reviewer.alias },
-    labels: { role: "reviewer", ticket: args.ticket },
+    key: role,
+    instructions: config.instructions,
+    runtime: args.runtimes[role],
+    ...("skills" in config ? { skills: config.skills } : {}),
+    labels: { role, ticket: args.ticket },
   });
 }
 

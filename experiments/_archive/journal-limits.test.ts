@@ -7,7 +7,7 @@ import type { CallResult, Step } from "./deps";
 
 /**
  * What the journal cannot see. Each test here is a workflow that resumes cleanly and is wrong,
- * or resumes correctly and saves nothing. They are the evidence for `findings/e6-resume.md`.
+ * or resumes correctly and saves nothing. They are the evidence behind E6 in `docs/findings/README.md`.
  */
 
 function step(prompt: string): Step {

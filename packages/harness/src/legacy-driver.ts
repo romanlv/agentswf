@@ -31,7 +31,7 @@ export function createLegacyDriver(options: {
         },
       });
       let current: HarnessTurn | undefined;
-      let currentBinding: { endpoint: string; operationId: string; capability: string } | undefined;
+      let currentBinding: { endpoint: string; operationId: string } | undefined;
       let currentDeadline: { unixMilliseconds: number } | undefined;
       let turn = 0;
       let transcript = "";
@@ -40,11 +40,7 @@ export function createLegacyDriver(options: {
           turn += 1;
           const operationId = `${call.callId}:legacy:${turn}`;
           if (!current) {
-            currentBinding = {
-              endpoint: call.runDir,
-              operationId,
-              capability: `legacy-${turn.toString(36).padStart(36, "0")}`,
-            };
+            currentBinding = { endpoint: call.runDir, operationId };
             currentDeadline = deadline();
             current = await session.start(
               { id: operationId, prompt: text, deadline: currentDeadline },

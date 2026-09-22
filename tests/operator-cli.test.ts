@@ -317,7 +317,11 @@ describe("awf run", () => {
 
     expect(exitCode).toBe(1);
     expect(output).toEqual([]);
-    expect(errors.join("\n")).toContain("runtime cleanup failed: cleanup broke");
+    const reported = errors.join("\n");
+    expect(reported).toContain("runtime cleanup failed");
+    expect(reported).toContain("cleanup broke");
+    // Stdout is withheld, so the failure has to say where the run's work ended up.
+    expect(reported).toContain("artifacts retained under");
   });
 
   test("fails an incomplete review instead of reporting successful review output", async () => {
@@ -522,7 +526,6 @@ async function submit(
     `${JSON.stringify({
       version: WIRE_VERSION,
       operationId: binding.operationId,
-      capability: binding.capability,
       raw: JSON.stringify(value),
     })}\n`,
   );

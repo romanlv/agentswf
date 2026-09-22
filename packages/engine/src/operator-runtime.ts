@@ -1,8 +1,3 @@
-import { createRequire } from "node:module";
-import { access, mkdtemp, readFile, rm, symlink } from "node:fs/promises";
-import { constants } from "node:fs";
-import { dirname, join, resolve } from "node:path";
-import { tmpdir } from "node:os";
 import type { AgentRuntimeConfig } from "@wf/harness/adapter";
 import {
   createHerdrRunHostFactory,
@@ -22,14 +17,12 @@ export async function installOperatorRuntime(
   environment: Readonly<Record<string, string | undefined>> = process.env,
 ): Promise<OperatorRuntimeInstallation> {
   await assertSubscriptionAuthentication(timeoutMilliseconds, run, environment);
-  const binDir = await installAgentCommand();
   const host = createHerdrRunHostFactory(
     {
       session: environment.AWF_HERDR_SESSION || "default",
       workspaceLabel: "awf run",
       commandTimeoutMs: Math.min(timeoutMilliseconds, 150_000),
       settleTimeoutMs: timeoutMilliseconds,
-      binDir,
       emptyEnvironment: METERED_CREDENTIAL_ENVIRONMENT,
       acceptWorkspaceTrust: true,
     },
@@ -49,7 +42,9 @@ export async function installOperatorRuntime(
       },
       host,
     },
-    cleanup: () => rm(binDir, { recursive: true, force: true }),
+    // Nothing to undo: the agent's `wf` is a launcher the control plane installs beside its own
+    // socket, and the control plane removes both when the run closes.
+    cleanup: async () => undefined,
   };
 }
 
@@ -118,26 +113,5 @@ async function assertSubscriptionAuthentication(
     !/logged in using chatgpt/i.test(`${codex.stdout}\n${codex.stderr}`)
   ) {
     throw new Error("Codex subscription authentication is required (ChatGPT login)");
-  }
-}
-
-async function installAgentCommand(): Promise<string> {
-  const require = createRequire(import.meta.url);
-  const manifestPath = require.resolve("@wf/cli-agent/package.json");
-  const manifest = JSON.parse(await readFile(manifestPath, "utf8")) as {
-    bin?: string | Record<string, string>;
-  };
-  const relativeTarget =
-    typeof manifest.bin === "string" ? manifest.bin : manifest.bin?.wf;
-  if (!relativeTarget) throw new Error("@wf/cli-agent does not publish the wf command");
-  const target = resolve(dirname(manifestPath), relativeTarget);
-  await access(target, constants.X_OK);
-  const binDir = await mkdtemp(join(tmpdir(), "awf-agent-bin-"));
-  try {
-    await symlink(target, join(binDir, "wf"));
-    return binDir;
-  } catch (error) {
-    await rm(binDir, { recursive: true, force: true });
-    throw error;
   }
 }

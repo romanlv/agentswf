@@ -1,17 +1,20 @@
-export const WIRE_VERSION = 1 as const;
+/**
+ * Version 2 dropped the per-operation bearer capability. An agent reaches the control plane over a
+ * socket of its own, so the connection is the authority and nothing secret crosses the wire.
+ */
+export const WIRE_VERSION = 2 as const;
 
 export type ResultSubmitRequest = {
   version: typeof WIRE_VERSION;
   operationId: string;
-  capability: string;
   raw: string;
 };
 
 export type ResultSubmitCode =
-  | "unknown-capability"
-  | "wrong-operation"
-  | "expired-capability"
-  | "closed-capability"
+  | "unknown-operation"
+  | "wrong-agent"
+  | "expired-operation"
+  | "closed-operation"
   | "invalid-result"
   | "invalid-request"
   | "unsupported-version"
@@ -31,12 +34,12 @@ export type WireDecodeResult<T> =
   | { ok: true; value: T }
   | { ok: false; code: "invalid-request" | "unsupported-version"; error: string };
 
-const REQUEST_FIELDS = ["version", "operationId", "capability", "raw"] as const;
+const REQUEST_FIELDS = ["version", "operationId", "raw"] as const;
 const RESPONSE_CODES = new Set<ResultSubmitCode>([
-  "unknown-capability",
-  "wrong-operation",
-  "expired-capability",
-  "closed-capability",
+  "unknown-operation",
+  "wrong-agent",
+  "expired-operation",
+  "closed-operation",
   "invalid-result",
   "invalid-request",
   "unsupported-version",
@@ -61,9 +64,6 @@ export function decodeResultSubmitRequest(value: unknown): WireDecodeResult<Resu
   );
   if (extra) return invalid("request has unexpected fields");
   if (!nonEmpty(value.operationId)) return invalid("request.operationId must be a non-empty string");
-  if (!capability(value.capability)) {
-    return invalid("request.capability must be a 32-byte base64url value");
-  }
   if (typeof value.raw !== "string" || value.raw.trim() === "") {
     return invalid("request.raw must be a non-empty string");
   }
@@ -72,7 +72,6 @@ export function decodeResultSubmitRequest(value: unknown): WireDecodeResult<Resu
     value: {
       version: WIRE_VERSION,
       operationId: value.operationId,
-      capability: value.capability,
       raw: value.raw,
     },
   };
@@ -126,8 +125,4 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function nonEmpty(value: unknown): value is string {
   return typeof value === "string" && value.trim() !== "";
-}
-
-function capability(value: unknown): value is string {
-  return typeof value === "string" && /^[A-Za-z0-9_-]{43}$/.test(value);
 }

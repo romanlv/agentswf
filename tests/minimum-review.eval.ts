@@ -93,7 +93,6 @@ const METERED_CREDENTIAL_ENV = [
 ] as const;
 
 export function liveRuntime(
-  binDir: string,
   nativeOutcomes: NativeOutcomeEvidence[] = [],
   run: RunProcess = runProcess,
 ): AgentRuntimeConfig {
@@ -103,7 +102,6 @@ export function liveRuntime(
       workspaceLabel: "awf minimum review live evaluation",
       commandTimeoutMs: 150_000,
       settleTimeoutMs: LIVE_EVALUATION_BOUNDS.initialTurnMilliseconds,
-      binDir,
       emptyEnvironment: METERED_CREDENTIAL_ENV,
       acceptWorkspaceTrust: true,
     },
@@ -146,6 +144,12 @@ export async function evaluationPreflight(): Promise<EvaluationPreflight> {
 
   const herdrVersion = await command(["herdr", "--version"]);
   checks.push(herdrVersionCheck(herdrVersion));
+  checks.push(
+    herdrBehaviourCheck(
+      await command(["herdr", "agent", "prompt", "--help"]),
+      await command(["herdr", "pane", "split", "--help"]),
+    ),
+  );
 
   for (const [name, argv] of [
     ["claude", ["claude", "--version"]],
@@ -216,7 +220,7 @@ export async function runLiveEvaluation() {
       { target: "review-target.ts" },
       {
         runRoot: prepared.runRoot,
-        runtime: liveRuntime(prepared.binDir, nativeOutcomes),
+        runtime: liveRuntime(nativeOutcomes),
         deadline: {
           unixMilliseconds: startedAt + LIVE_EVALUATION_BOUNDS.workflowMilliseconds,
         },
@@ -505,14 +509,14 @@ async function repositoryFingerprint(): Promise<string> {
 async function smokeWorkflowCli(): Promise<Check> {
   const prepared = await prepareEvaluationDirectory();
   try {
+    // Run bare, the way nothing is meant to: the refusal proves the executable built and its
+    // contract imports resolved. The live path reaches it through the engine's own launcher.
     const result = await command([join(prepared.binDir, "wf")]);
+    const ok = result.exitCode === 2 && result.stderr.includes("must be run through the launcher");
     return {
       name: "workflow-cli-smoke",
-      ok: result.exitCode === 2 && result.stderr.includes("usage: wf result"),
-      detail:
-        result.exitCode === 2 && result.stderr.includes("usage: wf result")
-          ? "wf executable and contract imports resolve"
-          : safeDetail(result),
+      ok,
+      detail: ok ? "wf executable and contract imports resolve" : safeDetail(result),
     };
   } finally {
     await rm(prepared.root, { recursive: true, force: true });
@@ -533,6 +537,32 @@ export function agentVersionEvidence(
   result: CommandResult,
 ): Check {
   return { name: `${name}-version`, ok: true, detail: safeDetail(result) };
+}
+
+/**
+ * The adapter's fake Herdr (`packages/harness/src/testing/herdr-cli.ts`) encodes these, so a suite
+ * built on it stays green when Herdr stops behaving this way. Reading them back from the installed
+ * CLI costs nothing and fails the dry run instead of a live one.
+ */
+export function herdrBehaviourCheck(prompt: CommandResult, split: CommandResult): Check {
+  const promptHelp = `${prompt.stdout}\n${prompt.stderr}`;
+  const splitHelp = `${split.stdout}\n${split.stderr}`;
+  const missing = [
+    ...(promptHelp.includes("agent_prompt_stalled")
+      ? []
+      : ["`agent prompt` no longer documents agent_prompt_stalled"]),
+    ...(/does not track turns/i.test(promptHelp)
+      ? []
+      : ["`agent prompt --wait` no longer disclaims turn tracking"]),
+    ...(/--env <KEY=VALUE>/.test(splitHelp)
+      ? []
+      : ["`pane split` no longer takes --env, so an agent pane cannot be given one"]),
+  ];
+  return {
+    name: "herdr-documented-behaviour",
+    ok: missing.length === 0,
+    detail: missing.length === 0 ? "prompt settlement and pane environment unchanged" : missing.join("; "),
+  };
 }
 
 export function herdrVersionCheck(result: CommandResult): Check {

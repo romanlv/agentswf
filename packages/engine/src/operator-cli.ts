@@ -65,6 +65,11 @@ export async function runOperatorCli(
     return 2;
   }
 
+  // Loading the workflow imports operator-supplied code, and installing the runtime probes two
+  // subscription logins. Both run before anything is listening to the signal, so a Ctrl-C in that
+  // window would otherwise be swallowed and have to be pressed again.
+  if (environment.signal?.aborted) return interrupted(environment.signal, stderr);
+
   let installed: OperatorRuntimeInstallation;
   try {
     installed = await (environment.installRuntime ?? installOperatorRuntime)(
@@ -73,6 +78,10 @@ export async function runOperatorCli(
   } catch (error) {
     stderr(`awf: runtime: ${message(error)}`);
     return 1;
+  }
+  if (environment.signal?.aborted) {
+    await installed.cleanup().catch(() => undefined);
+    return interrupted(environment.signal, stderr);
   }
 
   const invocationRoot = join(command.runRoot, `invocation-${randomUUID()}`);
@@ -128,11 +137,21 @@ export async function runOperatorCli(
     return 1;
   }
   if (cleanupError !== undefined) {
-    stderr(`awf: runtime cleanup failed: ${message(cleanupError)}`);
+    // Stdout stays empty: it is the result of a run whose teardown did not finish, and a caller
+    // reading it without checking the exit code would take that for a clean one. The artifacts
+    // are named instead, so the work is still reachable.
+    stderr(
+      `awf: runtime cleanup failed; artifacts retained under ${invocationRoot}: ${message(cleanupError)}`,
+    );
     return 1;
   }
   stdout(output as string);
   return 0;
+}
+
+function interrupted(signal: AbortSignal, stderr: (line: string) => void): number {
+  stderr("awf: run cancelled before it started");
+  return signal.reason === "SIGTERM" ? 143 : 130;
 }
 
 type RunCommand = {

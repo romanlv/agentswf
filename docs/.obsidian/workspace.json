@@ -11,10 +11,14 @@
             "id": "13e8e63d68e7921b",
             "type": "leaf",
             "state": {
-              "type": "empty",
-              "state": {},
+              "type": "markdown",
+              "state": {
+                "file": "design/permissions.md",
+                "mode": "preview",
+                "source": false
+              },
               "icon": "lucide-file",
-              "title": "New tab"
+              "title": "permissions"
             }
           }
         ]
@@ -95,7 +99,7 @@
             "state": {
               "type": "backlink",
               "state": {
-                "file": "stories/001-multi-agent-review.md",
+                "file": "tasks/001-multi-agent-review.md",
                 "collapseAll": false,
                 "extraContext": false,
                 "sortOrder": "alphabetical",
@@ -114,7 +118,7 @@
             "state": {
               "type": "outgoing-link",
               "state": {
-                "file": "stories/001-multi-agent-review.md",
+                "file": "tasks/001-multi-agent-review.md",
                 "linksCollapsed": false,
                 "unlinkedCollapsed": true
               },
@@ -157,6 +161,7 @@
             "state": {
               "type": "outline",
               "state": {
+                "file": "design/permissions.md",
                 "followCursor": false,
                 "showSearch": false,
                 "searchQuery": ""
@@ -186,7 +191,24 @@
   "active": "13e8e63d68e7921b",
   "lastOpenFiles": [
     "stories/001-multi-agent-review.md",
-    "stories/001-multi-agent-review.md",
+    "stories/todo/schema-in-prompt.md",
+    "findings/e7-fork.md",
+    "findings/e6-resume.md",
+    "findings/e5-self-correction.md",
+    "findings/e3-call-cost.md",
+    "findings/e2-return-channel.md",
+    "findings/e2-design.md",
+    "findings/e1-harness-matrix.md",
+    "findings/code-review-1.md",
+    "findings/README.md",
+    "findings",
+    "design/first-sketch.md",
+    "stories/todo/live-eval-disclosure.md",
+    "stories/todo/operator-run-observation.md",
+    "stories/todo/herdr-pane-settlement.md",
+    "stories/todo/pane-agent-start-readiness.md",
+    "design/permissions.md",
+    "tasks/001-multi-agent-review.md",
     "stories/todo/README.md",
     "stories/todo",
     "stories/_template.md",

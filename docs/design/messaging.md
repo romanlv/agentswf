@@ -186,16 +186,17 @@ the review verdict does.
 
 ## Agent binding and adapter seam
 
-Agents do not copy run, operation, or message tokens into commands. The harness binds the shared
-`wf` CLI to the workflow run, logical agent, and current operation:
+An agent runs a launcher the engine installed and names the call it was given; it copies no run,
+message, or authority token into a command. The socket behind that launcher is what binds the
+shared `wf` CLI to the workflow run and logical agent:
 
 ```text
-workflow run + logical agent + operation capability -> active operation -> open result schema
+agent socket + call id -> active operation -> open result schema
 ```
 
-The operation capability prevents a delayed command from an earlier operation affecting a later
-one on the same agent. A harness that cannot provide this binding cannot expose messaging or
-`wf result`.
+The call id keeps a delayed command from an earlier operation off a later one on the same agent;
+the socket keeps one agent from answering for another. A harness that can deliver a prompt can
+expose messaging and `wf result`, and delivering a prompt is all it has to do.
 
 Messaging adds one capability to the internal harness seam:
 
@@ -236,7 +237,7 @@ it.
 - Which harnesses can keep a CLI invocation blocked, and which require suspended continuation?
 - Can each adapter present `deliver` without losing an in-flight response or creating a second
   operation?
-- How should a long-lived pane receive a fresh operation capability without exposing it to the
-  model?
+- A long-lived pane keeps one socket across operations, so what has to change per operation is the
+  call id it is told. How does it learn the new one in a way that stops the old one working?
 - Does a waiting harness consume provider concurrency or subscription capacity?
 - Should workflows be able to tighten engine-wide message, response, and spend limits?

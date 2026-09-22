@@ -1,6 +1,4 @@
 import { afterAll, describe, expect, test } from "bun:test";
-import { readdir } from "node:fs/promises";
-import { join } from "node:path";
 import type { SemanticCheck } from "@wf/contract";
 import { readAccepted, readAttempts, recordAttempt, writeAcceptedExclusive, writeCall } from "./run-dir";
 import {
@@ -14,23 +12,12 @@ const { tempRunDir } = runDirs;
 afterAll(() => runDirs.cleanup());
 
 const SOURCE = "control-plane";
+const AGENT = "agent-1";
 const NOW = 1_800_000_000_000;
 const DEADLINE = { unixMilliseconds: NOW + 10_000 };
 type TestPersistence = NonNullable<ResultSlotRegistryOptions["persistence"]>;
 
 describe("result slots", () => {
-  test("a generated capability is 32 random bytes encoded as base64url", async () => {
-    const slots = createResultSlotRegistry({ runDir: tempRunDir(), now: () => NOW });
-
-    const binding = await slots.open({
-      operationId: "op-1",
-      question: "review",
-      deadline: DEADLINE,
-    });
-
-    expect(binding.capability).toMatch(/^[A-Za-z0-9_-]{43}$/);
-  });
-
   test("concurrent valid submissions settle once and only the winner is accepted", async () => {
     let arrivals = 0;
     let release!: () => void;
@@ -44,13 +31,10 @@ describe("result slots", () => {
       return { kind: "accepted" };
     };
     const runDir = tempRunDir();
-    const slots = createResultSlotRegistry({
-      runDir,
-      now: () => NOW,
-      generateCapability: () => "capability-op-1",
-    });
+    const slots = createResultSlotRegistry({ runDir, now: () => NOW });
     const binding = await slots.open({
       operationId: "op-1",
+      agentId: AGENT,
       question: "review",
       semantic,
       deadline: DEADLINE,
@@ -60,7 +44,7 @@ describe("result slots", () => {
       Array.from({ length: 12 }, (_, n) =>
         slots.submit({
           operationId: "op-1",
-          capability: binding.capability,
+          agentId: AGENT,
           raw: JSON.stringify({ n }),
           source: SOURCE,
         }),
@@ -70,7 +54,7 @@ describe("result slots", () => {
     expect(submissions.filter((item) => item.kind === "accepted")).toHaveLength(1);
     expect(
       submissions.filter(
-        (item) => item.kind === "rejected" && item.code === "closed-capability",
+        (item) => item.kind === "rejected" && item.code === "closed-operation",
       ),
     ).toHaveLength(11);
     const attempts = await readAttempts(runDir, "op-1");
@@ -84,22 +68,19 @@ describe("result slots", () => {
     });
   });
 
-  test("wrong, unknown, expired, and closed capabilities have stable codes", async () => {
+  test("wrong agent, unknown, expired, and closed operations have stable codes", async () => {
     let now = NOW;
-    const capabilities = ["capability-op-1", "capability-op-2"];
     const runDir = tempRunDir();
-    const slots = createResultSlotRegistry({
-      runDir,
-      now: () => now,
-      generateCapability: () => capabilities.shift() ?? "unexpected",
-    });
+    const slots = createResultSlotRegistry({ runDir, now: () => now });
     const first = await slots.open({
       operationId: "op-1",
+      agentId: AGENT,
       question: "review",
       deadline: DEADLINE,
     });
     const second = await slots.open({
       operationId: "op-2",
+      agentId: "agent-2",
       question: "review",
       deadline: DEADLINE,
     });
@@ -107,54 +88,54 @@ describe("result slots", () => {
     await expect(
       slots.submit({
         operationId: "op-2",
-        capability: first.capability,
+        agentId: AGENT,
         raw: "{}",
         source: SOURCE,
       }),
-    ).resolves.toMatchObject({ kind: "rejected", code: "wrong-operation" });
+    ).resolves.toMatchObject({ kind: "rejected", code: "wrong-agent" });
     await expect(
       slots.submit({
-        operationId: "op-1",
-        capability: "not-a-capability",
+        operationId: "op-3",
+        agentId: AGENT,
         raw: "{}",
         source: SOURCE,
       }),
     ).resolves.toEqual({
       kind: "rejected",
-      code: "unknown-capability",
-      error: "unknown-capability",
+      code: "unknown-operation",
+      error: "unknown-operation",
     });
 
     now = DEADLINE.unixMilliseconds;
     await expect(
       slots.submit({
         operationId: "op-1",
-        capability: first.capability,
+        agentId: AGENT,
         raw: "{}",
         source: SOURCE,
       }),
-    ).resolves.toMatchObject({ kind: "rejected", code: "expired-capability" });
+    ).resolves.toMatchObject({ kind: "rejected", code: "expired-operation" });
     await expect(first.settled).resolves.toEqual({ kind: "expired" });
     await expect(
       slots.submit({
         operationId: "op-1",
-        capability: first.capability,
+        agentId: AGENT,
         raw: "{}",
         source: SOURCE,
       }),
-    ).resolves.toMatchObject({ kind: "rejected", code: "expired-capability" });
+    ).resolves.toMatchObject({ kind: "rejected", code: "expired-operation" });
 
     now = NOW;
-    expect(await slots.close(second.capability)).toBe(true);
+    expect(await slots.close(second.operationId)).toBe(true);
     await expect(second.settled).resolves.toEqual({ kind: "closed" });
     await expect(
       slots.submit({
         operationId: "op-2",
-        capability: second.capability,
+        agentId: "agent-2",
         raw: "{}",
         source: SOURCE,
       }),
-    ).resolves.toMatchObject({ kind: "rejected", code: "closed-capability" });
+    ).resolves.toMatchObject({ kind: "rejected", code: "closed-operation" });
     expect(await readAccepted(runDir, "op-1")).toBeNull();
     expect(await readAccepted(runDir, "op-2")).toBeNull();
   });
@@ -164,7 +145,6 @@ describe("result slots", () => {
     const slots = createResultSlotRegistry({
       runDir: tempRunDir(),
       now: () => NOW,
-      generateCapability: () => "capability-op-1",
       schedule: (_delay, callback) => {
         expire = callback;
         return () => undefined;
@@ -172,6 +152,7 @@ describe("result slots", () => {
     });
     const binding = await slots.open({
       operationId: "op-1",
+      agentId: AGENT,
       question: "review",
       deadline: DEADLINE,
     });
@@ -181,23 +162,26 @@ describe("result slots", () => {
     await expect(binding.settled).resolves.toEqual({ kind: "expired" });
   });
 
-  test("one operation and one capability cannot silently open two slots", async () => {
-    const slots = createResultSlotRegistry({
-      runDir: tempRunDir(),
-      now: () => NOW,
-      generateCapability: () => "same-capability",
+  test("one operation id cannot silently open two slots", async () => {
+    const slots = createResultSlotRegistry({ runDir: tempRunDir(), now: () => NOW });
+    await slots.open({
+      operationId: "op-1",
+      agentId: AGENT,
+      question: "review",
+      deadline: DEADLINE,
     });
-    await slots.open({ operationId: "op-1", question: "review", deadline: DEADLINE });
 
     await expect(
-      slots.open({ operationId: "op-1", question: "again", deadline: DEADLINE }),
+      slots.open({
+        operationId: "op-1",
+        agentId: AGENT,
+        question: "again",
+        deadline: DEADLINE,
+      }),
     ).rejects.toThrow("already exists for operation op-1");
-    await expect(
-      slots.open({ operationId: "op-2", question: "review", deadline: DEADLINE }),
-    ).rejects.toThrow("capability generator produced a collision");
   });
 
-  test("concurrent opens reserve both operation id and capability before persistence", async () => {
+  test("concurrent opens reserve the operation id before persistence", async () => {
     let release!: () => void;
     const gate = new Promise<void>((resolve) => {
       release = resolve;
@@ -215,24 +199,30 @@ describe("result slots", () => {
     const slots = createResultSlotRegistry({
       runDir: tempRunDir(),
       now: () => NOW,
-      generateCapability: () => "same-capability",
       persistence,
     });
 
-    const first = slots.open({ operationId: "op-1", question: "review", deadline: DEADLINE });
+    const first = slots.open({
+      operationId: "op-1",
+      agentId: AGENT,
+      question: "review",
+      deadline: DEADLINE,
+    });
     await Promise.resolve();
     await expect(
-      slots.open({ operationId: "op-1", question: "again", deadline: DEADLINE }),
+      slots.open({
+        operationId: "op-1",
+        agentId: AGENT,
+        question: "again",
+        deadline: DEADLINE,
+      }),
     ).rejects.toThrow("already exists for operation op-1");
-    await expect(
-      slots.open({ operationId: "op-2", question: "review", deadline: DEADLINE }),
-    ).rejects.toThrow("capability generator produced a collision");
     expect(writes).toBe(1);
     release();
     await first;
   });
 
-  test("failed call persistence rolls back operation and capability reservations", async () => {
+  test("failed call persistence rolls back the operation reservation", async () => {
     let fail = true;
     const persistence: TestPersistence = {
       async writeCall(...args) {
@@ -245,28 +235,26 @@ describe("result slots", () => {
     const slots = createResultSlotRegistry({
       runDir: tempRunDir(),
       now: () => NOW,
-      generateCapability: () => "capability-op-1",
       persistence,
     });
-    const spec = { operationId: "op-1", question: "review", deadline: DEADLINE };
+    const spec = {
+      operationId: "op-1",
+      agentId: AGENT,
+      question: "review",
+      deadline: DEADLINE,
+    };
 
     await expect(slots.open(spec)).rejects.toThrow("call record unavailable");
     fail = false;
-    await expect(slots.open(spec)).resolves.toMatchObject({
-      operationId: "op-1",
-      capability: "capability-op-1",
-    });
+    await expect(slots.open(spec)).resolves.toMatchObject({ operationId: "op-1" });
   });
 
   test("schema and semantic failures remain field-level rejected attempts", async () => {
     const runDir = tempRunDir();
-    const slots = createResultSlotRegistry({
-      runDir,
-      now: () => NOW,
-      generateCapability: () => "capability-op-1",
-    });
-    const binding = await slots.open({
+    const slots = createResultSlotRegistry({ runDir, now: () => NOW });
+    await slots.open({
       operationId: "op-1",
+      agentId: AGENT,
       question: "count letters",
       schema: COUNT_SCHEMA,
       semantic: async () => ({ kind: "rejected", reason: "wrong source text" }),
@@ -275,13 +263,13 @@ describe("result slots", () => {
 
     const malformed = await slots.submit({
       operationId: "op-1",
-      capability: binding.capability,
+      agentId: AGENT,
       raw: '{"count":"three","even":false}',
       source: SOURCE,
     });
     const semantic = await slots.submit({
       operationId: "op-1",
-      capability: binding.capability,
+      agentId: AGENT,
       raw: '{"count":3,"even":false}',
       source: SOURCE,
     });
@@ -305,13 +293,10 @@ describe("result slots", () => {
       release = resolve;
     });
     const runDir = tempRunDir();
-    const slots = createResultSlotRegistry({
-      runDir,
-      now: () => NOW,
-      generateCapability: () => "capability-op-1",
-    });
+    const slots = createResultSlotRegistry({ runDir, now: () => NOW });
     const binding = await slots.open({
       operationId: "op-1",
+      agentId: AGENT,
       question: "review",
       deadline: DEADLINE,
       semantic: async () => {
@@ -322,130 +307,34 @@ describe("result slots", () => {
     });
     const submission = slots.submit({
       operationId: "op-1",
-      capability: binding.capability,
+      agentId: AGENT,
       raw: "{}",
       source: SOURCE,
     });
     await validationStarted;
 
-    expect(await slots.close(binding.capability)).toBe(true);
+    expect(await slots.close(binding.operationId)).toBe(true);
     release();
 
     await expect(submission).resolves.toMatchObject({
       kind: "rejected",
-      code: "closed-capability",
+      code: "closed-operation",
     });
     await expect(binding.settled).resolves.toEqual({ kind: "closed" });
     expect(await readAccepted(runDir, "op-1")).toBeNull();
   });
 
-  test("the bearer capability cannot enter a result, record, or diagnostic", async () => {
-    const runDir = tempRunDir();
-    const capability = "secret-capability-that-must-not-leak";
-    const otherCapability = "other-active-capability-must-not-leak";
-    const generated = [capability, otherCapability];
-    const slots = createResultSlotRegistry({
-      runDir,
-      now: () => NOW,
-      generateCapability: () => generated.shift() ?? "unexpected",
-    });
-    await slots.open({ operationId: "op-1", question: "review", deadline: DEADLINE });
-    await slots.open({ operationId: "op-2", question: "review", deadline: DEADLINE });
-
-    const escapedCapability = `\\u${capability.charCodeAt(0).toString(16).padStart(4, "0")}${capability.slice(1)}`;
-
-    const outcome = await slots.submit({
-      operationId: "op-1",
-      capability,
-      raw: `{"key-${escapedCapability}":"${otherCapability}"}`,
-      source: `source-${capability}`,
-    });
-    const wrongOperation = await slots.submit({
-      operationId: "op-2",
-      capability,
-      raw: JSON.stringify({ leak: otherCapability }),
-      source: SOURCE,
-    });
-    expect(await slots.close(capability)).toBe(true);
-    const closed = await slots.submit({
-      operationId: "op-1",
-      capability,
-      raw: JSON.stringify({ leak: otherCapability }),
-      source: SOURCE,
-    });
-
-    expect(outcome).toMatchObject({ kind: "rejected", code: "invalid-result" });
-    expect(wrongOperation).toMatchObject({ kind: "rejected", code: "wrong-operation" });
-    expect(closed).toMatchObject({ kind: "rejected", code: "closed-capability" });
-    expect(JSON.stringify(outcome)).not.toContain(capability);
-    const records = (await readAllFiles(runDir)).join("\n");
-    expect(records).not.toContain(capability);
-    expect(records).not.toContain(escapedCapability);
-    expect(records).not.toContain(otherCapability);
-    expect(await readAccepted(runDir, "op-1")).toBeNull();
-  });
-
-  test("a settled capability stays protected for the full run", async () => {
-    const runDir = tempRunDir();
-    const settled = "settled-capability-remains-protected";
-    const generated = [
-      settled,
-      "literal-metadata-capability",
-      "escaped-metadata-capability",
-      "live-capability",
-    ];
-    const slots = createResultSlotRegistry({
-      runDir,
-      now: () => NOW,
-      generateCapability: () => generated.shift() ?? "unexpected",
-    });
-    await slots.open({ operationId: "op-1", question: "review", deadline: DEADLINE });
-    expect(await slots.close(settled)).toBe(true);
-
-    await expect(slots.open({
-      operationId: "rejected-metadata",
-      question: `the earlier attempt used ${settled}`,
-      deadline: DEADLINE,
-    })).rejects.toThrow("metadata contains protected operation authority");
-    const escaped = `\\u${settled.charCodeAt(0).toString(16).padStart(4, "0")}${settled.slice(1)}`;
-    await expect(slots.open({
-      operationId: "rejected-escaped-metadata",
-      question: `the earlier attempt used ${escaped}`,
-      deadline: DEADLINE,
-    })).rejects.toThrow("metadata contains protected operation authority");
-    await slots.open({ operationId: "op-2", question: "safe", deadline: DEADLINE });
-    const raw = JSON.stringify({ note: settled });
-    const outcome = await slots.submit({
-      operationId: "op-2",
-      capability: "live-capability",
-      raw,
-      source: SOURCE,
-    });
-
-    expect(outcome).toMatchObject({ kind: "rejected", code: "invalid-result" });
-    expect((await readAttempts(runDir, "op-2")).map((attempt) => attempt.raw)).toEqual([
-      "[redacted-capability-bearing-text]",
-    ]);
-    expect((await readAllFiles(runDir)).join("\n")).not.toContain(settled);
-    expect((await readAllFiles(runDir)).join("\n")).not.toContain(escaped);
-  });
-
   test("semantic checks cannot mutate the validated value that is accepted", async () => {
     const runDir = tempRunDir();
-    const capability = "capability-op-1";
-    const slots = createResultSlotRegistry({
-      runDir,
-      now: () => NOW,
-      generateCapability: () => capability,
-    });
+    const slots = createResultSlotRegistry({ runDir, now: () => NOW });
     const binding = await slots.open({
       operationId: "op-1",
+      agentId: AGENT,
       question: "count letters",
       schema: COUNT_SCHEMA,
       semantic: async ({ value }) => {
         const mutable = value as Record<string, unknown>;
         mutable.count = "invalid after validation";
-        mutable.leak = capability;
         return { kind: "accepted" };
       },
       deadline: DEADLINE,
@@ -454,7 +343,7 @@ describe("result slots", () => {
 
     const outcome = await slots.submit({
       operationId: "op-1",
-      capability,
+      agentId: AGENT,
       raw: JSON.stringify(original),
       source: SOURCE,
     });
@@ -477,14 +366,14 @@ describe("result slots", () => {
     const slots = createResultSlotRegistry({
       runDir: tempRunDir(),
       now: () => NOW,
-      generateCapability: () => "capability-op-1",
       schedule: (_delay, callback) => {
         expire = callback;
         return () => undefined;
       },
     });
-    const binding = await slots.open({
+    await slots.open({
       operationId: "op-1",
+      agentId: AGENT,
       question: "review",
       semantic: async () => {
         entered();
@@ -495,7 +384,7 @@ describe("result slots", () => {
     });
     const submission = slots.submit({
       operationId: "op-1",
-      capability: binding.capability,
+      agentId: AGENT,
       raw: "{}",
       source: SOURCE,
     });
@@ -505,7 +394,7 @@ describe("result slots", () => {
 
     await expect(submission).resolves.toMatchObject({
       kind: "rejected",
-      code: "expired-capability",
+      code: "expired-operation",
     });
   });
 
@@ -520,20 +409,16 @@ describe("result slots", () => {
       },
     };
     const runDir = tempRunDir();
-    const slots = createResultSlotRegistry({
-      runDir,
-      now: () => NOW,
-      generateCapability: () => "capability-op-1",
-      persistence,
-    });
-    const binding = await slots.open({
+    const slots = createResultSlotRegistry({ runDir, now: () => NOW, persistence });
+    await slots.open({
       operationId: "op-1",
+      agentId: AGENT,
       question: "review",
       deadline: DEADLINE,
     });
     const input = {
       operationId: "op-1",
-      capability: binding.capability,
+      agentId: AGENT,
       raw: "{}",
       source: SOURCE,
     };
@@ -553,21 +438,17 @@ describe("result slots", () => {
       writeAcceptedExclusive,
     };
     const runDir = tempRunDir();
-    const slots = createResultSlotRegistry({
-      runDir,
-      now: () => NOW,
-      generateCapability: () => "capability-op-1",
-      persistence,
-    });
+    const slots = createResultSlotRegistry({ runDir, now: () => NOW, persistence });
     const binding = await slots.open({
       operationId: "op-1",
+      agentId: AGENT,
       question: "review",
       deadline: DEADLINE,
     });
 
     const outcome = await slots.submit({
       operationId: "op-1",
-      capability: binding.capability,
+      agentId: AGENT,
       raw: "{}",
       source: SOURCE,
     });
@@ -597,11 +478,11 @@ describe("result slots", () => {
     const slots = createResultSlotRegistry({
       runDir: tempRunDir(),
       now: () => NOW,
-      generateCapability: () => "capability-op-1",
       persistence,
     });
     const binding = await slots.open({
       operationId: "op-1",
+      agentId: AGENT,
       question: "review",
       deadline: DEADLINE,
     });
@@ -612,7 +493,7 @@ describe("result slots", () => {
 
     const submission = slots.submit({
       operationId: "op-1",
-      capability: binding.capability,
+      agentId: AGENT,
       raw: "{}",
       source: SOURCE,
     });
@@ -628,14 +509,3 @@ describe("result slots", () => {
     });
   });
 });
-
-async function readAllFiles(directory: string): Promise<string[]> {
-  const entries = await readdir(directory, { withFileTypes: true });
-  const contents: string[] = [];
-  for (const entry of entries) {
-    const path = join(directory, entry.name);
-    if (entry.isDirectory()) contents.push(...(await readAllFiles(path)));
-    else contents.push(await Bun.file(path).text());
-  }
-  return contents;
-}

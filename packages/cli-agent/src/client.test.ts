@@ -6,7 +6,6 @@ import { submitResult } from "./client";
 const REQUEST = {
   version: WIRE_VERSION,
   operationId: "op-1",
-  capability: "A".repeat(43),
   raw: "{}",
 } as const;
 
@@ -74,10 +73,10 @@ test("the response lifetime is absolute even when a peer keeps sending data", as
 
 test("validates the complete response across fragmented data", async () => {
   await withServerResponse(
-    ['{"version":1,"kind":', '"accepted"}\n'],
+    ['{"version":2,"kind":', '"accepted"}\n'],
     async (endpoint) => {
       await expect(submitResult(endpoint, REQUEST)).resolves.toEqual({
-        version: 1,
+        version: WIRE_VERSION,
         kind: "accepted",
       });
     },
@@ -88,8 +87,8 @@ test("rejects malformed, extra-line, and oversized responses", async () => {
   for (const chunks of [
     ["not-json\n"],
     [
-      '{"version":1,"kind":"accepted"}\n',
-      '{"version":1,"kind":"accepted"}\n',
+      '{"version":2,"kind":"accepted"}\n',
+      '{"version":2,"kind":"accepted"}\n',
     ],
     ["x".repeat(256 * 1024 + 1)],
   ]) {

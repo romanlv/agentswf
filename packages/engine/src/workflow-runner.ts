@@ -1,7 +1,7 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { randomUUID } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
-import { describe, type JsonSchema } from "@wf/contract/schema";
+import { describe, parseJsonSchema, type JsonSchema } from "@wf/contract/schema";
 import {
   DeadlineExceededError,
   type AbsoluteDeadline,
@@ -35,7 +35,9 @@ import type {
   HarnessTurnOutcome,
 } from "@wf/harness/adapter";
 import type { TurnUsage as NativeUsage } from "@wf/harness";
-import { startResultControlPlane } from "./control-plane";
+import { startResultControlPlane, type ResultChannel, type ResultControlPlane } from "./control-plane";
+import { dirname } from "node:path";
+import { installAgentLauncher } from "./agent-launcher";
 import {
   createResultSlotRegistry,
   type ResultSlotRegistry,
@@ -94,6 +96,9 @@ export type WorkflowRunSnapshot = {
 type AgentEntry = {
   identity: AgentIdentity;
   state: Promise<LogicalAgent>;
+  /** Closed with the agent: its socket is its authority, so it must not outlive it. */
+  /** `undefined` when the channel never opened; the agent state carries the reason. */
+  channel: Promise<ResultChannel | undefined>;
 };
 
 type AgentIdentity = {
@@ -126,7 +131,7 @@ export async function startWorkflow<Args extends JsonValue, Result extends JsonV
   const runId = randomUUID();
   const runDir = await createRunDir(options.runRoot, runId);
   const slots = createResultSlotRegistry({ runDir });
-  const control = await startResultControlPlane({ socketRoot: runDir, slots });
+  const control = await startResultControlPlane({ slots });
   const cwd = options.cwd ?? process.cwd();
   let host: AgentRunHost;
   const openingHost = Promise.resolve().then(() =>
@@ -156,7 +161,7 @@ export async function startWorkflow<Args extends JsonValue, Result extends JsonV
     runtime: options.runtime,
     host,
     slots,
-    endpoint: control.endpoint,
+    control,
     onLog: options.onLog,
   });
   const stopped = new AbortController();
@@ -265,7 +270,6 @@ class WorkflowOwner {
   readonly #agents = new Map<string, AgentEntry>();
   readonly #usage: Array<TurnUsage | undefined> = [];
   readonly #inFlight = new Set<Promise<unknown>>();
-  readonly #authorities = new Set<string>();
   #closed = false;
   #closing: Promise<unknown[]> | undefined;
 
@@ -277,7 +281,7 @@ class WorkflowOwner {
       runtime: AgentRuntimeConfig;
       host: AgentRunHost;
       slots: ResultSlotRegistry;
-      endpoint: string;
+      control: ResultControlPlane;
       onLog?: RunWorkflowOptions["onLog"];
     },
   ) {
@@ -296,8 +300,13 @@ class WorkflowOwner {
         sleep: () => unavailable("steps.sleep"),
       },
       signals: { receive: () => unavailable("signals.receive") },
-      parallel: (items, operation, parallelOptions) =>
-        runParallel(items, operation, parallelOptions.deadline, parallelOptions.concurrency),
+      parallel: (items, operation, parallelOptions) => {
+        const inherited = scopes.getStore()?.deadline ?? options.deadline;
+        const deadline = parallelOptions?.deadline
+          ? earlierDeadline(parallelOptions.deadline, inherited)
+          : inherited;
+        return runParallel(items, operation, deadline, parallelOptions?.concurrency);
+      },
       call: () => unavailable("call"),
       usage: () => this.usage(),
       log: (message, fields) => options.onLog?.(message, fields),
@@ -319,7 +328,14 @@ class WorkflowOwner {
     const cleanup = Promise.all([
       Promise.allSettled([this.options.host.close("workflow complete")]),
       Promise.allSettled([...this.#inFlight]),
-    ]);
+    ]).then(async (settled) => {
+      // Only now: an agent can still be submitting from inside its own close, and taking its
+      // socket away first turns that into a connection error it cannot report.
+      await Promise.allSettled(
+        [...this.#agents.values()].map((agent) => agent.channel.then((c) => c?.close())),
+      );
+      return settled;
+    });
     let closed: PromiseSettledResult<void>[];
     try {
       [closed] = await waitForDeadline(cleanup, deadline);
@@ -347,7 +363,6 @@ class WorkflowOwner {
   private openAgent(spec: AgentOpenSpec): Promise<AgentRef> {
     if (this.#closed) throw new Error("workflow context is closed");
     scopes.getStore()?.assertAccepting();
-    assertDeadline(spec.deadline);
     assertMinimumLifecycle(spec);
     if (spec.skills && spec.skills.length > 0) {
       throw new Error("agent skills are not implemented by this runner");
@@ -367,9 +382,11 @@ class WorkflowOwner {
       ...(spec.labels === undefined ? {} : { labels: structuredClone(spec.labels) }),
     };
     const scope = scopes.getStore();
-    const effectiveDeadline = scope
-      ? earlierDeadline(spec.deadline, scope.deadline)
-      : spec.deadline;
+    const inheritedDeadline = scope?.deadline ?? this.options.deadline;
+    const effectiveDeadline = spec.deadline
+      ? earlierDeadline(spec.deadline, inheritedDeadline)
+      : inheritedDeadline;
+    assertDeadline(effectiveDeadline);
     if (existing) {
       assertCompatibleAgent(spec.key, existing.identity, identity, spec);
       const attached = this.track(waitForDeadline(existing.state, effectiveDeadline));
@@ -377,6 +394,15 @@ class WorkflowOwner {
       return attached;
     }
 
+    // Opened before the session so registration below stays synchronous: two concurrent `agent()`
+    // calls for one key must not each build an agent.
+    const reachable = this.options.control.openChannel(spec.key).then(async (channel) => ({
+      channel,
+      // Beside the socket, in the directory the control plane made for this agent alone. Deriving
+      // a directory from the key instead would let two keys that differ only in punctuation share
+      // one, and the second install would point the first agent at the wrong socket.
+      launcher: await installAgentLauncher(dirname(channel.endpoint), channel.endpoint),
+    }));
     const state = this.options.host
       .openAgent({
         key: spec.key,
@@ -387,26 +413,38 @@ class WorkflowOwner {
         ...(spec.skills === undefined ? {} : { skills: spec.skills }),
         ...(spec.labels === undefined ? {} : { labels: spec.labels }),
       })
-      .then(
-        (session) =>
-          new LogicalAgent({
+      .catch(async (error: unknown) => {
+        // The socket authorizes an agent that never started. Nothing else closes it until the run
+        // ends, and the launcher beside it stays runnable that whole time.
+        await reachable.then(({ channel }) => channel.close()).catch(() => undefined);
+        throw error;
+      })
+      .then(async (session) => {
+        const { channel, launcher } = await reachable;
+        return new LogicalAgent({
             key: spec.key,
             execution,
             session,
             slots: this.options.slots,
-            endpoint: this.options.endpoint,
+            endpoint: channel.endpoint,
+            launcher,
+            deadline: this.options.deadline,
             reserveUsage: () => this.reserveUsage(),
             track: (promise) => this.track(promise),
             isRunClosing: () => this.#closed,
-            rememberAuthority: (binding) => {
-              this.#authorities.add(binding.operationId);
-              this.#authorities.add(binding.capability);
-            },
-            authorities: () => [...this.#authorities],
-          }),
-      );
+          });
+      });
     const ownedState = this.track(state);
-    this.#agents.set(spec.key, { identity, state: ownedState });
+    this.#agents.set(spec.key, {
+      identity,
+      state: ownedState,
+      // Never rejects: the failure is already carried by `state`, and a second copy with no
+      // reader is an unhandled rejection that takes the process down with it.
+      channel: reachable.then(
+        ({ channel }) => channel,
+        () => undefined,
+      ),
+    });
     const activated = this.track(waitForDeadline(ownedState, effectiveDeadline));
     scope?.track(activated);
     return activated;
@@ -443,11 +481,12 @@ class LogicalAgent implements AgentRef {
       session: HarnessSession;
       slots: ResultSlotRegistry;
       endpoint: string;
+      /** The path this agent is told to run; see `installAgentLauncher`. */
+      launcher: string;
+      deadline: AbsoluteDeadline;
       reserveUsage(): (usage: TurnUsage) => void;
       track<T>(promise: Promise<T>): Promise<T>;
       isRunClosing(): boolean;
-      rememberAuthority(binding: HarnessOperationBinding): void;
-      authorities(): readonly string[];
     },
   ) {}
 
@@ -498,12 +537,26 @@ class LogicalAgent implements AgentRef {
     } catch (error) {
       return Promise.reject(error);
     }
+    let deadline: AbsoluteDeadline;
+    try {
+      if (spec.deadline && spec.timeoutMs !== undefined) {
+        throw new Error("a turn cannot specify both deadline and timeoutMs");
+      }
+      const inheritedDeadline = scope?.deadline ?? this.options.deadline;
+      deadline = spec.timeoutMs === undefined
+        ? spec.deadline ?? inheritedDeadline
+        : deadlineWithin(spec.timeoutMs, inheritedDeadline);
+    } catch (error) {
+      const rejected = Promise.reject<RunResult<string | T>>(error);
+      scope?.track(rejected);
+      return rejected;
+    }
     const result = this.queue(async () => {
       if (this.#closed || this.options.isRunClosing()) {
         throw new Error("logical agent is closed");
       }
       scope?.assertActive();
-      return this.executeRun(completeSpec, scope);
+      return this.executeRun(completeSpec, scope, deadline);
     });
     const tracked = this.options.track(result);
     scope?.track(tracked);
@@ -544,13 +597,14 @@ class LogicalAgent implements AgentRef {
   private async executeRun(
     spec: AgentRunTextSpec | AgentRunStructuredSpec<JsonValue>,
     scope: ExecutionScope | undefined,
+    deadline: AbsoluteDeadline,
   ): Promise<RunResult<JsonValue>> {
     return this.executeOperation(
       spec.id!,
       spec.prompt,
-      spec.deadline,
+      deadline,
       spec.schema,
-      spec.nudge,
+      spec.nudge === false ? undefined : spec.nudge ?? {},
       scope,
       (turn, binding) =>
         turn.schema
@@ -564,7 +618,7 @@ class LogicalAgent implements AgentRef {
     prompt: string,
     deadline: AbsoluteDeadline,
     outputSchema: OutputSchema<T> | undefined,
-    nudge: AgentRunTextSpec["nudge"],
+    nudge: Exclude<AgentRunTextSpec["nudge"], false>,
     scope: ExecutionScope | undefined,
     start: (
       turn: AgentTextTurnSpec | AgentStructuredTurnSpec<T>,
@@ -573,12 +627,12 @@ class LogicalAgent implements AgentRef {
   ): Promise<RunResult<T>> {
     assertDeadlineValue(deadline);
     scope?.assertActive();
-    if (nudge) assertDeadlineValue(nudge.deadline);
+    if (nudge?.deadline) assertDeadlineValue(nudge.deadline);
     const operationDeadline = scope ? earlierDeadline(deadline, scope.deadline) : deadline;
     const nudgeDeadline = nudge
       ? scope
-        ? earlierDeadline(nudge.deadline, scope.deadline)
-        : nudge.deadline
+        ? earlierDeadline(nudge.deadline ?? scope.deadline, scope.deadline)
+        : nudge.deadline ?? this.options.deadline
       : undefined;
     const operationId = randomUUID();
     const schema = resultSchema(outputSchema);
@@ -590,23 +644,19 @@ class LogicalAgent implements AgentRef {
       : operationDeadline;
     const slot = await this.options.slots.open({
       operationId,
+      agentId: this.options.key,
       question: prompt,
       schema,
       deadline: slotDeadline,
     });
-    const binding = {
-      endpoint: this.options.endpoint,
-      operationId,
-      capability: slot.capability,
-    };
-    this.options.rememberAuthority(binding);
+    const binding = { endpoint: this.options.endpoint, operationId };
     let nativeTurn: HarnessTurn | undefined;
     let removeCanceller: (() => void) | undefined;
     const saveUsage = this.options.reserveUsage();
     try {
       scope?.assertActive();
       if (Date.now() >= operationDeadline.unixMilliseconds) {
-        await this.options.slots.close(slot.capability);
+        await this.options.slots.close(operationId);
         const usage = workflowUsage(this.key, operationId, this.execution, []);
         saveUsage(usage);
         return {
@@ -616,7 +666,7 @@ class LogicalAgent implements AgentRef {
       }
       const turn = {
         id: turnId,
-        prompt: operationPrompt(prompt, schema),
+        prompt: operationPrompt(prompt, schema, this.options.launcher, operationId),
         deadline: operationDeadline,
         ...(outputSchema ? { schema: outputSchema } : {}),
       } as AgentTextTurnSpec | AgentStructuredTurnSpec<T>;
@@ -633,7 +683,7 @@ class LogicalAgent implements AgentRef {
               ? "result slot settled before native turn acquisition"
               : "operation deadline exceeded before native turn acquisition";
           this.abandonTurnAcquisition(acquiring, reason);
-          await this.options.slots.close(slot.capability);
+          await this.options.slots.close(operationId);
           const settlement =
             acquisition.kind === "result" ? acquisition.settlement : await slot.settled;
           const usage = workflowUsage(this.key, operationId, this.execution, []);
@@ -653,7 +703,7 @@ class LogicalAgent implements AgentRef {
             Promise.resolve(nativeTurn),
             "operation deadline exceeded during native turn acquisition",
           );
-          await this.options.slots.close(slot.capability);
+          await this.options.slots.close(operationId);
           const settlement = await slot.settled;
           const usage = workflowUsage(this.key, operationId, this.execution, []);
           saveUsage(usage);
@@ -668,12 +718,12 @@ class LogicalAgent implements AgentRef {
           detail:
             error instanceof DeadlineExceededError
               ? "operation deadline exceeded"
-              : safeOperationReason(error, this.options.authorities()),
+              : reasonOf(error),
           resultEvidence: { kind: "unavailable" },
           nativeUsage: [],
         };
         void this.close(native.detail).catch(() => undefined);
-        await this.options.slots.close(slot.capability);
+        await this.options.slots.close(operationId);
         const settlement = await slot.settled;
         const usage = workflowUsage(this.key, operationId, this.execution, []);
         saveUsage(usage);
@@ -725,6 +775,8 @@ class LogicalAgent implements AgentRef {
               nudge.prompt ??
                 "You finished without reporting the requested result. Report it now.",
               schema,
+              this.options.launcher,
+              operationId,
             ),
             deadline: nudgeDeadline,
           });
@@ -782,7 +834,7 @@ class LogicalAgent implements AgentRef {
         } catch (error) {
           native = {
             state: error instanceof DeadlineExceededError ? "timed-out" : "failed",
-            detail: safeOperationReason(error, this.options.authorities()),
+            detail: reasonOf(error),
             resultEvidence: { kind: "unavailable" },
             nativeUsage: [],
           };
@@ -799,7 +851,7 @@ class LogicalAgent implements AgentRef {
         if (!nativeReleaseAttempted) await requestTurnRelease(nativeTurn, reason);
         void this.close(reason).catch(() => undefined);
       }
-      await this.options.slots.close(slot.capability);
+      await this.options.slots.close(operationId);
       settlement ??= await slot.settled;
       const usage = workflowUsage(
         this.key,
@@ -812,14 +864,14 @@ class LogicalAgent implements AgentRef {
         outcome: reconcile<T>(
           native === "expired"
             ? native
-            : protectHarnessOutcome(native, this.options.authorities()),
+            : native,
           settlement,
           usage,
         ),
         usage,
       };
     } catch (error) {
-      await this.options.slots.close(slot.capability);
+      await this.options.slots.close(operationId);
       throw error;
     } finally {
       removeCanceller?.();
@@ -1090,20 +1142,26 @@ function reconcile<T extends JsonValue>(
 }
 
 function resultSchema<T extends JsonValue>(schema: OutputSchema<T> | undefined): JsonSchema {
-  return schema ? (schema.jsonSchema as JsonSchema) : { type: "string" };
+  return schema ? parseJsonSchema(schema) : { type: "string" };
 }
 
-function operationPrompt(prompt: string, schema: JsonSchema): string {
+function operationPrompt(
+  prompt: string,
+  schema: JsonSchema,
+  launcher: string,
+  callId: string,
+): string {
+  // The full path, because the command is not on the agent's PATH and in some harnesses cannot be.
   return [
     prompt,
     "",
     "When the answer is ready, return it by running:",
     "",
-    "  wf result '<json>'",
+    `  ${launcher} result ${callId} '<json>'`,
     "",
     `The JSON value must match this shape: ${describe(schema)}`,
-    "If wf rejects the value, correct it and run wf result again.",
-    "Only a value accepted by wf counts as the result.",
+    "If it rejects the value, correct it and run the command again.",
+    "Only a value it accepts counts as the result.",
   ].join("\n");
 }
 
@@ -1153,44 +1211,8 @@ function sumField(
     : {};
 }
 
-function safeOperationReason(error: unknown, authorities: readonly string[]): string {
-  const reason = error instanceof Error ? error.message : String(error);
-  return containsAuthority(reason, authorities)
-    ? "harness operation failed without safe diagnostic detail"
-    : reason;
-}
-
-function protectHarnessOutcome(
-  outcome: HarnessTurnOutcome,
-  authorities: readonly string[],
-): HarnessTurnOutcome {
-  const transcript = outcome.resultEvidence.kind === "transcript"
-    ? outcome.resultEvidence.text
-    : undefined;
-  const unsafe =
-    (outcome.detail && containsAuthority(outcome.detail, authorities)) ||
-    (transcript !== undefined && containsAuthority(transcript, authorities));
-  if (!unsafe) return outcome;
-  return {
-    ...outcome,
-    ...(outcome.detail
-      ? { detail: "harness operation produced no safe diagnostic detail" }
-      : {}),
-    resultEvidence: { kind: "unavailable" },
-  };
-}
-
-function containsAuthority(text: string, authorities: readonly string[]): boolean {
-  const decodedHex = text.replace(/\\x([0-9a-fA-F]{2})/g, (_match, digits: string) =>
-    String.fromCharCode(Number.parseInt(digits, 16)),
-  );
-  const decodedEscapes = decodedHex.replace(
-    /\\u([0-9a-fA-F]{4})/g,
-    (_match, digits: string) => String.fromCharCode(Number.parseInt(digits, 16)),
-  );
-  return authorities.some(
-    (authority) => text.includes(authority) || decodedEscapes.includes(authority),
-  );
+function reasonOf(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 function requestTurnRelease(turn: HarnessTurn, reason: string): Promise<void> {
@@ -1316,6 +1338,13 @@ function assertDeadlineValue(deadline: AbsoluteDeadline): void {
 
 function earlierDeadline(left: AbsoluteDeadline, right: AbsoluteDeadline): AbsoluteDeadline {
   return left.unixMilliseconds <= right.unixMilliseconds ? left : right;
+}
+
+function deadlineWithin(milliseconds: number, ceiling: AbsoluteDeadline): AbsoluteDeadline {
+  if (!Number.isSafeInteger(milliseconds) || milliseconds <= 0) {
+    throw new Error("timeoutMs must be a positive safe integer");
+  }
+  return earlierDeadline({ unixMilliseconds: Date.now() + milliseconds }, ceiling);
 }
 
 function laterDeadline(left: AbsoluteDeadline, right: AbsoluteDeadline): AbsoluteDeadline {

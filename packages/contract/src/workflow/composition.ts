@@ -10,8 +10,8 @@ export interface WorkflowCallSpec<Args extends JsonValue, Result extends JsonVal
   id: WorkflowCallId;
   definition: WorkflowDefinition<Args, Result>;
   args: Args;
-  /** Bounds the child call; expiry cancels work owned by the call before rejecting. */
-  deadline: AbsoluteDeadline;
+  /** Defaults to the current workflow scope deadline. */
+  deadline?: AbsoluteDeadline;
   /** Parent participants exposed under child-local keys. */
   participants?: Readonly<Record<ParticipantKey, ParticipantRef>>;
   label?: string;

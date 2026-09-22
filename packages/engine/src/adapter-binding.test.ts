@@ -14,6 +14,7 @@ test("a delayed command from one turn cannot settle the next turn on the same ag
   const deadline = { unixMilliseconds: Date.now() + 60_000 };
   const first = await slots.open({
     operationId: "op-1",
+    agentId: "reviewer",
     question: "first",
     schema: COUNT_SCHEMA,
     deadline,
@@ -27,13 +28,14 @@ test("a delayed command from one turn cannot settle the next turn on the same ag
   });
   const firstTurn = await session.start(
     { id: "turn-1", prompt: "first", deadline },
-    { endpoint: "/private/engine.sock", operationId: "op-1", capability: first.capability },
+    { endpoint: "/private/engine.sock", operationId: first.operationId },
   );
   await firstTurn.settled;
-  await slots.close(first.capability);
+  await slots.close(first.operationId);
 
   await slots.open({
     operationId: "op-2",
+    agentId: "reviewer",
     question: "second",
     schema: COUNT_SCHEMA,
     deadline,
@@ -45,15 +47,20 @@ test("a delayed command from one turn cannot settle the next turn on the same ag
   });
   await secondTurn.settled;
 
+  // Replayed from the binding the adapter actually gave the first turn, not from a literal: a
+  // nudge that was handed a fresh binding would point this at `op-2`, and it would be accepted.
+  const delayed = adapter.turns[0]?.binding;
+  if (!delayed) throw new Error("the first turn was given no binding to replay");
   await expect(
     slots.submit({
-      operationId: "op-1",
-      capability: first.capability,
+      operationId: delayed.operationId,
+      agentId: "reviewer",
       raw: '{"count":1,"even":false}',
       source: "delayed-first-turn-command",
     }),
-  ).resolves.toMatchObject({ kind: "rejected", code: "closed-capability" });
+  ).resolves.toMatchObject({ kind: "rejected", code: "closed-operation" });
   expect(await readAccepted(runDir, "op-2")).toBeNull();
-  expect(adapter.turns[0]?.binding?.capability).toBe(first.capability);
-  expect(adapter.turns[1]?.binding?.capability).toBe(first.capability);
+  expect(delayed.operationId).toBe("op-1");
+  // The nudge continues the same operation, so it carries no binding of its own to replay.
+  expect(adapter.turns[1]?.binding?.operationId ?? delayed.operationId).toBe("op-1");
 });

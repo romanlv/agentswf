@@ -8,7 +8,6 @@ import { createFakeAdapter } from "./testing/fake";
 const binding = {
   endpoint: "/private/engine.sock",
   operationId: "operation-1",
-  capability: "A".repeat(43),
 };
 
 function headless(): AgentSessionAdapter {

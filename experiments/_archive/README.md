@@ -1,8 +1,9 @@
 # Archived experiments
 
 E1–E3 and E5–E6, frozen. The scripts still run; the raw results beside them are the evidence
-[`docs/findings/`](../../docs/findings/) is written from. **Do not refactor this to taste** —
-rewriting an experiment is editing evidence.
+[`docs/findings/`](../../docs/findings/) is written from, and the only copy of it — the
+per-experiment reports were removed once their prose was distilled. **Do not refactor this to
+taste** — rewriting an experiment is editing evidence.
 
 Three kinds of thing live here.
 

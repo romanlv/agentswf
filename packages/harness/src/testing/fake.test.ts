@@ -4,7 +4,6 @@ import { createFakeAdapter, createManualClock } from "./fake";
 const BINDING = {
   endpoint: "/private/engine.sock",
   operationId: "op-1",
-  capability: "A".repeat(43),
 };
 
 describe("createFakeAdapter", () => {
@@ -93,12 +92,12 @@ describe("createFakeAdapter", () => {
     ).rejects.toThrow("already been used");
   });
 
-  test("the shared core removes operation authority from backend output", async () => {
+  test("the shared core keeps the backend's own session handle out of the outcome", async () => {
     const adapter = createFakeAdapter({
       script: () => ({
-        detail: `echoed ${BINDING.operationId}`,
-        transcript: `echoed ${BINDING.capability}`,
-        sessionRef: BINDING.capability,
+        detail: "reviewed",
+        transcript: "reviewed",
+        sessionRef: "native-session-7",
       }),
     });
     const deadline = { unixMilliseconds: Date.now() + 60_000 };
@@ -111,43 +110,9 @@ describe("createFakeAdapter", () => {
     const turn = await session.start({ id: "turn-1", prompt: "review", deadline }, BINDING);
     const outcome = await turn.settled;
 
-    expect(outcome.resultEvidence).toEqual({ kind: "unavailable" });
-    expect(JSON.stringify(outcome)).not.toContain(BINDING.operationId);
-    expect(JSON.stringify(outcome)).not.toContain(BINDING.capability);
-  });
-
-  test("later outcomes cannot expose authority issued earlier in the session", async () => {
-    const prior = { ...BINDING };
-    const next = {
-      endpoint: BINDING.endpoint,
-      operationId: "op-2",
-      capability: "B".repeat(43),
-    };
-    const adapter = createFakeAdapter({
-      script: ({ turn }) =>
-        turn === 1
-          ? {}
-          : {
-              detail: `earlier ${prior.operationId}`,
-              transcript: `earlier ${prior.capability}`,
-              sessionRef: prior.capability,
-            },
-    });
-    const deadline = { unixMilliseconds: Date.now() + 60_000 };
-    const session = await adapter.activate({
-      key: "reviewer",
-      deadline,
-      cwd: "/repo",
-      execution: { harness: "fake", model: "fake" },
-    });
-    await (await session.start({ id: "one", prompt: "one", deadline }, prior)).settled;
-    const outcome = await (
-      await session.start({ id: "two", prompt: "two", deadline }, next)
-    ).settled;
-
-    expect(JSON.stringify(outcome)).not.toContain(prior.operationId);
-    expect(JSON.stringify(outcome)).not.toContain(prior.capability);
-    expect(outcome.resultEvidence).toEqual({ kind: "unavailable" });
+    // `sessionRef` is how the harness resumes; the engine is given evidence, not that handle.
+    expect(outcome.resultEvidence).toEqual({ kind: "transcript", text: "reviewed" });
+    expect(JSON.stringify(outcome)).not.toContain("native-session-7");
   });
 
   test("quarantine is observable and prevents continuation", async () => {
@@ -183,11 +148,7 @@ describe("createFakeAdapter", () => {
     });
     await expect(turn.nudge({ id: "nudge", deadline })).rejects.toThrow("quarantined");
     await expect(
-      session.start({ id: "two", prompt: "two", deadline }, {
-        ...BINDING,
-        operationId: "op-2",
-        capability: "B".repeat(43),
-      }),
+      session.start({ id: "two", prompt: "two", deadline }, { ...BINDING, operationId: "op-2" }),
     ).rejects.toThrow("quarantined");
     await session.close();
   });

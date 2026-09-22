@@ -47,8 +47,20 @@ function isArrayIndex(key: PropertyKey): boolean {
   return Number.isSafeInteger(index) && index >= 0 && index < 4_294_967_295;
 }
 
-/** Carries a TypeScript output type beside the runtime JSON Schema. */
-export interface OutputSchema<T extends JsonValue> {
-  readonly jsonSchema: JsonObject;
-  readonly "~output"?: T;
-}
+/**
+ * Any authoring library may supply a JSON Schema object; the engine checks its supported subset.
+ * That is why `object` is as narrow as the first arm gets: an unbranded schema from an unknown
+ * library has to be accepted here and rejected by `parseJsonSchema`, so only a branded one is
+ * checked against `Output`.
+ *
+ * The second arm looks subsumed by the first and is not: excess-property checking applies to an
+ * object literal written at this type, so without an index signature to land in, a schema written
+ * inline — `{ type: "object", properties: … }` — is rejected for every keyword it names.
+ */
+export type OutputSchema<Output extends JsonValue = JsonValue> = object & {
+  /** Type-only carrier for structurally compatible schema libraries. */
+  readonly "~output"?: Output;
+} | {
+  readonly [keyword: string]: unknown;
+  readonly "~output"?: Output;
+};

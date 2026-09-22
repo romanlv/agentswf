@@ -1,23 +1,19 @@
-import type {
-  OutputSchema,
-  RuntimeAliasName,
-  TurnUsage,
-  WorkflowContext,
-  WorkflowDefinition,
+import {
+  isAnswered,
+  type RuntimeSelection,
+  type TurnUsage,
+  type WorkflowContext,
+  type WorkflowDefinition,
 } from "@wf/contract/workflow";
+import { catalogueLensPrompt, verificationPrompt } from "./catalogue-review.prompts";
+import {
+  FINDINGS_SCHEMA,
+  type RawFinding,
+  VERDICT_SCHEMA,
+  type Verdict,
+} from "./catalogue-review.schema";
 
 type Lens = { id: string; page: string };
-
-type RawFinding = {
-  source: "catalogue" | "general";
-  rule?: string;
-  severity: "issue" | "minor" | "observation";
-  file: string;
-  line?: number;
-  claim: string;
-  evidence: string;
-  suggestion?: string;
-};
 
 type Finding = RawFinding & { lens: string; page: string };
 
@@ -31,20 +27,13 @@ type ReviewedFinding = Finding & {
   attributionFailure?: string;
 };
 
-type Findings = { findings: RawFinding[] };
-type Verdict = {
-  refuted: boolean;
-  reason: string;
-  attribution: "valid" | "invalid" | "not-applicable";
-};
-
 type CatalogueArgs = {
   project: string;
   iid: number;
   range: string;
   lenses: Lens[];
   maxVerifyPerLens?: number;
-  runtimeAlias: RuntimeAliasName;
+  runtime: RuntimeSelection;
 };
 
 type Failure = {
@@ -63,9 +52,6 @@ type LensResult =
   | { kind: "completed"; lens: Lens; findings: RawFinding[] }
   | { kind: "failed"; lens: Lens; reason: string };
 
-declare const FINDINGS: OutputSchema<Findings>;
-declare const VERDICT: OutputSchema<Verdict>;
-
 export const catalogueReview: WorkflowDefinition<CatalogueArgs, CatalogueResult> = {
   meta: {
     name: "catalogue-review",
@@ -82,7 +68,7 @@ export const catalogueReview: WorkflowDefinition<CatalogueArgs, CatalogueResult>
     const lensResults = await workflow.parallel(
       args.lenses,
       (lens) => runLens(workflow, args, lens),
-      { label: "Catalogue lenses", concurrency: 6, deadline: workflow.deadline },
+      { label: "Catalogue lenses", concurrency: 6 },
     );
     const lensFailures = lensResults.flatMap((result) =>
       result.kind === "failed"
@@ -137,25 +123,17 @@ async function runLens(
 ): Promise<LensResult> {
   try {
     const reviewer = await workflow.agents.open({
-      deadline: workflow.deadline,
-      key: `run:${workflow.runId}:mr:${args.project}:${args.iid}:lens:${lens.id}`,
-      cwd: workflow.cwd,
+      key: `lens:${lens.id}`,
       instructions: `Apply only the ${lens.id} lens from ${lens.page}.`,
-      lifecycle: { retention: { kind: "workflow" } },
-      runtime: { alias: args.runtimeAlias },
+      runtime: args.runtime,
       labels: { lens: lens.id },
     });
     const { outcome } = await reviewer.run({
-      deadline: workflow.deadline,
-      prompt: [
-        `Read ${args.range} for ${args.project}!${args.iid}.`,
-        `Read ${lens.page}, follow it exactly, and review the diff.`,
-      ].join("\n"),
-      schema: FINDINGS,
-      nudge: { deadline: workflow.deadline },
+      prompt: catalogueLensPrompt(args.project, args.iid, args.range, lens.page),
+      schema: FINDINGS_SCHEMA,
     });
 
-    return outcome.kind === "answered"
+    return isAnswered(outcome)
       ? {
           kind: "completed",
           lens,
@@ -185,39 +163,24 @@ async function verifyFindings(
     async (finding, index) => {
       try {
         const verifier = await workflow.agents.open({
-          deadline: workflow.deadline,
-          key: `run:${workflow.runId}:mr:${args.project}:${args.iid}:verifier:${index}`,
-          cwd: workflow.cwd,
+          key: `verifier:${index}`,
           instructions: "Try to refute this finding against the diff and surrounding code.",
-          lifecycle: { retention: { kind: "workflow" } },
-          runtime: { alias: args.runtimeAlias },
+          runtime: args.runtime,
           labels: { verifier: index },
         });
         const { outcome } = await verifier.run({
-          deadline: workflow.deadline,
-          prompt: [
-            "Try to refute this finding. Default to refuted=true when uncertain.",
-            `Diff: ${args.range}`,
-            `File: ${finding.file}${finding.line ? `:${finding.line}` : ""}`,
-            `Claim: ${finding.claim}`,
-            `Evidence: ${finding.evidence}`,
-            `Catalogue page: ${finding.page}`,
-            `Attribution: ${finding.source}${finding.rule ? ` / ${finding.rule}` : ""}`,
-            "For a catalogue finding, attribution=valid only when the named rule's",
-            "trigger matches.",
-          ].join("\n"),
-          schema: VERDICT,
-          nudge: { deadline: workflow.deadline },
+          prompt: verificationPrompt(args.range, finding),
+          schema: VERDICT_SCHEMA,
         });
 
-        return outcome.kind === "answered"
+        return isAnswered(outcome)
           ? { finding: applyVerdict(finding, outcome.value) }
           : { finding: notVerified(finding), failure: outcome.reason };
       } catch (error) {
         return { finding: notVerified(finding), failure: message(error) };
       }
     },
-    { label: "Verify findings", concurrency: 4, deadline: workflow.deadline },
+    { label: "Verify findings", concurrency: 4 },
   );
 
   return {

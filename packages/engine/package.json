@@ -3,10 +3,13 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "bin": { "awf": "./src/operator-cli.ts" },
+  "bin": {
+    "awf": "./src/operator-cli.ts"
+  },
   "exports": {
     ".": "./src/index.ts",
-    "./testing": "./src/testing.ts"
+    "./testing": "./src/testing.ts",
+    "./archive-compat": "./src/archive-compat.ts"
   },
   "dependencies": {
     "@wf/cli-agent": "workspace:*",

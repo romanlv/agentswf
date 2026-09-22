@@ -41,22 +41,22 @@ const workflow: WorkflowDefinition<Args, Result> = {
 - `usage()` — snapshot completed agent-operation usage for the run.
 - `log()` — record workflow diagnostics.
 
-An agent is opened with a stable logical key, a working directory, instructions, a runtime, and
-optional skills and lifecycle policy:
+An agent is opened with a run-scoped logical key, instructions, a runtime, and optional skills and
+lifecycle policy. Its working directory and deadline inherit from the current workflow scope:
 
 ```ts
 const reviewer = await context.agents.open({
   key: "reviewer:42",
-  cwd,
   instructions: "Review the change and record findings in the ledger.",
-  runtime: { alias: "reviewer", pool: "subscription" },
+  runtime: "reviewer",
   skills: ["air-code-review"],
 });
 ```
 
 `AgentRef` has three ways to perform work:
 
-- `run()` queues one turn and waits for its terminal outcome. Its id is generated when omitted.
+- `run()` queues one turn and waits for its terminal outcome. Its id is generated when omitted, and
+  one standard missing-answer nudge runs unless `nudge: false` disables it.
 - `enqueue()` durably queues detached work and returns a `TurnRef` for later observation,
   cancellation, or an unanswered-result nudge. Detached turns require a caller-supplied id.
 - `compact()` asks the agent to summarize retained context. Only an `answered` outcome replaces
@@ -69,20 +69,20 @@ The public call surface is:
 | `AgentDirectory` | `open(spec)`, `attach(key, runtime?)`, `stop(key, reason?)` |
 | `ParticipantDirectory` | `connect(spec)`, `get(key)` |
 | `AgentRef` | `run(spec)`, `enqueue(spec)`, `compact(spec)` |
-| `TurnRef` | `result`, `nudge(options?)`, `cancel(reason?)` |
+| `TurnRef` | `result`, `nudge(options)`, `cancel(reason?)` |
 | `Messaging` | `allow(access)` |
 | `Steps` | `run(spec, operation)`, `sleep(spec)` |
 | `Signals` | `receive(spec, schema?)` |
 | `WorkflowContext` | `call(spec)`, `parallel(items, operation, options?)`, `usage()`, `log(message, fields?)` |
 
-Every turn ends as `answered`, `unanswered`, `blocked`, `failed`, or `cancelled`. An answered turn
+Every turn ends as `answered`, `unanswered`, `blocked`, `timed-out`, `failed`, or `cancelled`. An answered turn
 contains either text or JSON validated against the supplied `OutputSchema`. Every outcome carries
-its own routing and usage record. Tokens and cost are absent when the harness cannot report them;
+its own usage record. Tokens and cost are absent when the harness cannot report them;
 known zero remains distinct from unavailable.
 
 Runtime aliases are engine configuration, not workflow definitions. A workflow normally names an
-alias and may constrain its spend pool. The resolved harness, model, backend, pool, and settings are
-available on `AgentRef.execution` and remain fixed for that logical agent.
+alias and may constrain its harness, model, or settings. The resolved harness, model, settings, and
+selected alias are available on `AgentRef.execution` and remain fixed for that logical agent.
 
 ## Internal interface for the engine and adapters
 
@@ -170,45 +170,48 @@ wf send reviewer 'Please review the revision' --expect-response
 See [`messaging.md`](messaging.md) for delivery, response, wake-up, and failure semantics.
 See [`composition.md`](composition.md) for child workflow scopes and outside-session bindings.
 
-The model does not supply a turn or result identifier. The harness adapter binds the CLI to the
-logical agent and current operation. Since an `AgentRef` runs at most one operation at a time, that
-binding identifies exactly one open result slot even while other agents run concurrently.
+The model supplies the call id it was given and nothing else. It cannot answer for another agent
+by naming that agent's call: the launcher it runs holds a socket the engine opened for this agent,
+so the engine learns who is answering from the connection rather than from the argument. Agents
+that share a user are not otherwise separated; see [`permissions.md`](permissions.md).
 
 | Identifier | Visible to | Purpose |
 | --- | --- | --- |
 | `TurnId` | Workflow and engine | Idempotent queueing of the logical turn |
-| Operation capability | Adapter and engine | Bind a CLI invocation to one result slot |
+| Call id | Agent, adapter and engine | Name the one result slot an invocation answers |
 | Usage operation id | Engine and workflow result | Account for attempts, nudges, and recovery |
 
-The operation capability is generated and attached automatically; it is never copied into a
-prompt or command by the model. It must be scoped to one operation, not just the logical agent, so
-a delayed command from an earlier operation cannot submit a result for the next queued operation.
+The call id is scoped to one operation, not just the logical agent, so a delayed command from an
+earlier operation cannot submit a result for the next queued operation. It is not a secret: it
+travels in the prompt, and a submission naming a call the connecting agent does not own is refused.
 
 JSON must come from exactly one source: the argument or standard input. This supports files and
 generated output without adding filesystem behavior to the CLI itself. Supplying both sources,
 neither source, or empty input is an error.
 
-The adapter must put `wf` on `PATH`, permit the agent to execute it, and attach the operation
-capability without model involvement. `wf result` validates the JSON against the open schema. On
-rejection it exits nonzero with a field-level error; the result slot stays open so the agent can
-correct the value and call it again during the same operation. An accepted value atomically closes
-the slot. A missing, closed, or mismatched capability is rejected. Normal terminal output is not an
-accepted result.
+The engine installs one launcher per agent and puts its path in the prompt; the adapter's whole
+duty is to deliver that prompt and let the agent execute the path. A pane's environment and `PATH`
+are not channels a harness can be relied on to deliver, so nothing the return channel needs may
+depend on one. `wf result` validates the JSON against the open schema. On rejection it exits
+nonzero with a field-level error; the result slot stays open so the agent can correct the value and
+call it again during the same operation. An accepted value atomically closes the slot. A missing,
+closed, expired, or already-answered call is rejected, as is one belonging to another agent. Normal
+terminal output is not an accepted result.
 
 One operation always has one final result. If its prompt asks several questions, its schema collects
 their answers into one object or array. If the workflow needs independently settling answers, it
 queues separate operations; the engine activates and binds each one in order.
 
 Turn completion and result submission are separate signals. When the harness reports that the
-agent is idle but the result slot has no accepted value, the attempt is `unanswered` and the slot is
-suspended. If the caller requests a nudge, the engine reactivates that slot before prompting the
-same session to submit the missing result, using the same operation binding and schema. The nudge is
-a separate usage operation. If it also settles without an accepted value, its outcome is
+agent is idle but the result slot has no accepted value, the attempt is `unanswered` and the engine
+reactivates that slot for one standard nudge before prompting the same session to submit the missing
+result, using the same operation binding and schema. A caller can customize that attempt or disable
+it with `nudge: false`. If the nudge also settles without an accepted value, its outcome is
 `unanswered`.
 
-The current POC's `WF_RUN` and `WF_CALL` pair is one possible operation binding because it creates
-one session per call. A long-lived session needs an equivalent invocation-scoped capability in
-addition to its stable logical-agent identity.
+One socket per agent is enough while a session answers one call at a time. A long-lived session
+answering several leans on the pair: the connection proves which agent, the call id proves which
+call.
 
 ## Capability gap
 

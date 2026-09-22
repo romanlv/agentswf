@@ -3,7 +3,6 @@ import type {
   AgentRunHostFactory,
   AgentSessionAdapter,
   HarnessActivation,
-  HarnessOperationBinding,
 } from "../adapter";
 import { runProcess, type RunProcess } from "../command";
 import { createLegacyDriver } from "../legacy-driver";
@@ -18,14 +17,17 @@ export type HerdrConfig = {
   workspaceLabel: string;
   commandTimeoutMs: number;
   settleTimeoutMs: number;
+  /** Prepended to PATH for the frozen legacy driver, whose `wf` is still found by name. */
   binDir?: string;
   /** Names forced to an empty value in every workspace. Values never cross the Herdr argv. */
   emptyEnvironment?: readonly string[];
   /** `agent start` refuses a pane that has not reached its shell prompt; see `startAgent`. */
   startAttempts?: number;
   startRetryMs?: number;
-  /** Accept only the known Claude/Codex trust gate for a workspace the caller created and vetted. */
+  /** Answer the known startup blocks — trust gates included — for a workspace the caller vetted. */
   acceptWorkspaceTrust?: boolean;
+  /** How long an agent is left alone after each startup block it is sent; see `startAgent`. */
+  trustSettleMs?: number;
 };
 
 type HerdrResult =
@@ -39,6 +41,22 @@ type HerdrResult =
  * discarded.
  */
 const HERDR_REPORT_GRACE_MS = 30_000;
+
+/**
+ * An agent that has just dismissed a startup block reports ready before its terminal UI accepts
+ * input again, and a prompt submitted into that window is discarded with no record: Herdr answers
+ * `agent_prompt_stalled` and the pane sits idle for the rest of the operation. The same length
+ * separates one block from the next, which is why it is spent inside the loop. Story 001 holds the
+ * measurement behind it.
+ */
+const TRUST_HANDSHAKE_SETTLE_MS = 2_000;
+
+/**
+ * Startup shows a queue, not one gate: a Codex release turns the trust block into an update notice
+ * followed by the trust block. The loop ends on its own once no unanswered block matches; this
+ * only bounds how long an agent that keeps raising new ones is worked through.
+ */
+const MAX_STARTUP_BLOCKS = 3;
 
 const HERDR_KINDS: Record<Step["harness"], string> = {
   claude: "claude",
@@ -63,7 +81,9 @@ function createHerdrCommands(config: HerdrConfig, run: RunProcess) {
     if (result.exitCode !== 0) {
       return {
         ok: false,
-        error: (result.stderr || result.stdout || "herdr command failed").trim().slice(0, 400),
+        error: readable(result.stderr || result.stdout || "herdr command failed")
+          .trim()
+          .slice(0, 400),
         timedOut: result.timedOut,
         cancelled: result.cancelled === true,
       };
@@ -144,10 +164,11 @@ function createHerdrCommands(config: HerdrConfig, run: RunProcess) {
         };
       }
       if (config.acceptWorkspaceTrust && herdrErrorCode(error) === "agent_not_ready") {
-        const trusted = await acceptKnownWorkspaceTrust(
+        const trusted = await answerStartupBlocks(
           herdr,
           name,
           kind,
+          config.trustSettleMs ?? TRUST_HANDSHAKE_SETTLE_MS,
           deadlineUnixMs,
           signal,
         );
@@ -162,7 +183,7 @@ function createHerdrCommands(config: HerdrConfig, run: RunProcess) {
           cancelled: trusted.cancelled,
         };
       }
-      if (!isRetryableStartError(error)) {
+      if (!hasHerdrErrorCode(error, "agent_pane_busy")) {
         return {
           ok: false,
           attempts: attempt,
@@ -198,7 +219,7 @@ function createHerdrCommands(config: HerdrConfig, run: RunProcess) {
   return { herdr, startAgent };
 }
 
-async function acceptKnownWorkspaceTrust(
+async function answerStartupBlocks(
   herdr: (
     args: string[],
     timeoutMs?: number,
@@ -206,40 +227,60 @@ async function acceptKnownWorkspaceTrust(
   ) => Promise<HerdrResult>,
   name: string,
   kind: string,
+  settleMs: number,
   deadlineUnixMs?: number,
   signal?: AbortSignal,
 ): Promise<HerdrResult> {
   const remaining = () => deadlineUnixMs === undefined ? 150_000 : deadlineUnixMs - Date.now();
-  const inactive = trustHandshakeInactive(deadlineUnixMs, signal);
-  if (inactive) return inactive;
-  const read = await herdr(
-    ["agent", "read", name, "--source", "detection"],
-    Math.max(1, remaining()),
-    signal,
-  );
-  if (!read.ok) return read;
+  const answered = new Set<string>();
+  let screen = "";
 
-  const keys = workspaceTrustKeys(kind, read.stdout);
-  if (!keys) {
+  while (answered.size < MAX_STARTUP_BLOCKS) {
+    const inactive = trustHandshakeInactive(deadlineUnixMs, signal);
+    if (inactive) return inactive;
+    const read = await herdr(
+      ["agent", "read", name, "--source", "detection"],
+      Math.max(1, remaining()),
+      signal,
+    );
+    if (!read.ok) return read;
+    screen = read.stdout;
+
+    const block = startupBlock(kind, screen, answered);
+    if (!block) break;
+
+    const inactiveAfterRead = trustHandshakeInactive(deadlineUnixMs, signal);
+    if (inactiveAfterRead) return inactiveAfterRead;
+    const sent = await herdr(
+      ["agent", "send-keys", name, ...block.keys],
+      Math.max(1, remaining()),
+      signal,
+    );
+    if (!sent.ok) return sent;
+    answered.add(block.id);
+
+    // Settling is only worth it if the operation can still use the agent afterwards. Spending the
+    // last of the deadline here would report a timeout against an agent that is past its blocks,
+    // so stop instead and let the caller's own deadline check decide.
+    if (remaining() <= settleMs) break;
+    if (!(await abortableDelay(settleMs, signal))) {
+      return { ok: false, error: "operation cancelled", timedOut: false, cancelled: true };
+    }
+  }
+
+  if (answered.size === 0) {
     return {
       ok: false,
-      error: "agent startup stopped at an unrecognized startup block",
+      error: `agent startup stopped at an unrecognized startup block: ${oneLine(screen)}`,
       timedOut: false,
       cancelled: false,
     };
   }
-  const inactiveAfterRead = trustHandshakeInactive(deadlineUnixMs, signal);
-  if (inactiveAfterRead) return inactiveAfterRead;
-  const sent = await herdr(
-    ["agent", "send-keys", name, ...keys],
-    Math.max(1, remaining()),
-    signal,
-  );
-  if (!sent.ok) return sent;
+
   const inactiveAfterInput = trustHandshakeInactive(deadlineUnixMs, signal);
   if (inactiveAfterInput) return inactiveAfterInput;
   const waitMs = Math.max(1, remaining());
-  return herdr(
+  const ready = await herdr(
     [
       "agent",
       "wait",
@@ -254,6 +295,19 @@ async function acceptKnownWorkspaceTrust(
     waitMs + HERDR_REPORT_GRACE_MS,
     signal,
   );
+  if (!ready.ok) return ready;
+  // Herdr answers this call for a blocked agent too. Reporting it started would put the prompt
+  // into a pane that is still showing a question, where it is typed and discarded.
+  const waited = record(ready.result.agent) ?? ready.result;
+  if (settledState(waited) === "blocked") {
+    return {
+      ok: false,
+      error: `agent is still blocked after ${answered.size} answered startup block(s): ${oneLine(screen)}`,
+      timedOut: false,
+      cancelled: false,
+    };
+  }
+  return trustHandshakeInactive(deadlineUnixMs, signal) ?? ready;
 }
 
 function trustHandshakeInactive(
@@ -279,23 +333,88 @@ function trustHandshakeInactive(
   return undefined;
 }
 
-function workspaceTrustKeys(kind: string, screen: string): string[] | null {
-  if (
-    kind === "claude" &&
-    screen.includes("Quick safety check: Is this a project you created or one you trust?") &&
-    screen.includes("Yes, I trust this folder")
-  ) {
-    return ["down", "enter"];
-  }
-  if (
-    kind === "codex" &&
-    screen.includes("Do you trust the contents of this directory?") &&
-    screen.includes("1. Yes, continue")
-  ) {
-    return ["enter"];
-  }
-  return null;
+/**
+ * Every phrase must appear for the block to be answered, and the keys must reach the option those
+ * phrases name even if the menu is reordered: Codex's update block offers `curl | sh` above the
+ * option this host wants, so it is dismissed by the digit that labels the option and never by
+ * arrowing onto it.
+ */
+type StartupBlockSpec = {
+  id: string;
+  kind: string;
+  phrases: readonly string[];
+  keys: readonly string[];
+};
+
+const STARTUP_BLOCKS: readonly StartupBlockSpec[] = [
+  {
+    id: "claude-trust",
+    kind: "claude",
+    phrases: [
+      "Quick safety check: Is this a project you created or one you trust?",
+      "Yes, I trust this folder",
+    ],
+    keys: ["down", "enter"],
+  },
+  {
+    id: "codex-trust",
+    kind: "codex",
+    phrases: ["Do you trust the contents of this directory?", "1. Yes, continue"],
+    keys: ["enter"],
+  },
+  {
+    id: "codex-update",
+    kind: "codex",
+    phrases: ["Update available!", "2. Skip"],
+    keys: ["2"],
+  },
+];
+
+/**
+ * The block is rendered into the pane's own width and styled by the agent's own TUI, so neither
+ * the whitespace nor the escape sequences in it are ours to predict: a half-width pane broke
+ * Codex's question across two lines, and a terminal breaking at the column rather than at a space
+ * turns `directory?` into `direc tory?`. None of the phrases mean anything by their spacing, so
+ * none of it is compared.
+ */
+function matchable(text: string): string {
+  return text.replace(ANSI_SEQUENCE, "").replace(/\s+/g, "");
 }
+
+/**
+ * An answered block whose screen has not repainted away still matches, and both Codex blocks can
+ * be on the pane at once. Table order would then choose the keys, and on the update block the
+ * wrong keys run an installer — so the live block is taken to be the lowest one on the screen.
+ */
+function startupBlock(kind: string, screen: string, answered: ReadonlySet<string>) {
+  const normalized = matchable(screen);
+  const at = (block: StartupBlockSpec) =>
+    Math.min(...block.phrases.map((phrase) => normalized.indexOf(matchable(phrase))));
+  return STARTUP_BLOCKS.filter(
+    (block) =>
+      block.kind === kind &&
+      !answered.has(block.id) &&
+      block.phrases.every((phrase) => normalized.includes(matchable(phrase))),
+  ).sort((left, right) => at(right) - at(left))[0];
+}
+
+/** Enough of an unanswerable screen to name it, on the single line an error detail gets. */
+function oneLine(screen: string): string {
+  const unwrapped = readable(screen).replace(/\s+/g, " ").trim();
+  return unwrapped.length > 300 ? `${unwrapped.slice(0, 300)}…` : unwrapped;
+}
+
+/**
+ * A pane screen and Herdr's own stderr both carry terminal control bytes. The content is not
+ * secret, but a record holding raw escape sequences restyles every terminal that later prints it.
+ */
+function readable(text: string): string {
+  // eslint-disable-next-line no-control-regex
+  return text.replace(ANSI_SEQUENCE, "").replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, "");
+}
+
+// eslint-disable-next-line no-control-regex
+const ANSI_SEQUENCE = /\u001B\[[0-?]*[ -/]*[@-~]|\u001B\][^\u0007\u001B]*(?:\u0007|\u001B\\)|\u001B[@-Z\\-_]/g;
 
 function herdrErrorCode(error: string): string | undefined {
   try {
@@ -308,13 +427,14 @@ function herdrErrorCode(error: string): string | undefined {
 
 /**
  * The envelope is truncated to 400 characters and may carry a preamble, so a parse failure is
- * ordinary and the retry cannot depend on one. The raw fallback matches the code field, never a
- * message that merely names the code.
+ * ordinary and no decision can depend on one. The raw fallback matches the code field, never a
+ * message that merely names the code: the prompt argv carries workflow-authored text that can
+ * quote a code straight back.
  */
-function isRetryableStartError(error: string): boolean {
-  const code = herdrErrorCode(error);
-  if (code !== undefined) return code === "agent_pane_busy";
-  return /"code"\s*:\s*"agent_pane_busy"/.test(error) || error.trim() === "agent_pane_busy";
+function hasHerdrErrorCode(error: string, code: string): boolean {
+  const parsed = herdrErrorCode(error);
+  if (parsed !== undefined) return parsed === code;
+  return new RegExp(`"code"\\s*:\\s*"${code}"`).test(error) || error.trim() === code;
 }
 
 export function createPaneAdapter(
@@ -330,6 +450,13 @@ export function createHerdrRunHostFactory(
   run: RunProcess = runProcess,
 ): AgentRunHostFactory {
   const emptyEnvironment = emptyEnvironmentArgs(config.emptyEnvironment);
+  /**
+   * Every split launches its own process, so the workspace's environment does not reach it and the
+   * metered credentials this run promises to withhold would survive in an agent pane. Nothing the
+   * return channel needs is repeated here: a pane inherits its `PATH` from the login shell Herdr
+   * starts, and the launcher the agent is told to run is named by absolute path regardless.
+   */
+  const paneEnvironment = [...emptyEnvironment];
   const { herdr, startAgent } = createHerdrCommands(config, run);
 
   return {
@@ -342,11 +469,7 @@ export function createHerdrRunHostFactory(
           "create",
           "--label",
           `${config.workspaceLabel} ${runSpec.runId}`,
-          ...emptyEnvironment,
-          ...bindingArgs(undefined),
-          ...(config.binDir
-            ? ["--env", `PATH=${config.binDir}:${process.env.PATH ?? ""}`]
-            : []),
+          ...paneEnvironment,
           "--cwd",
           runSpec.cwd,
           "--no-focus",
@@ -375,7 +498,6 @@ export function createHerdrRunHostFactory(
       let topologyOpen = true;
       let topologyTail = Promise.resolve();
       const panes = new Set<string>();
-      const authorities = new Set<string>();
       const mutate = <T>(operation: () => Promise<T>): Promise<T> => {
         const result = topologyTail.then(operation);
         topologyTail = result.then(
@@ -389,18 +511,11 @@ export function createHerdrRunHostFactory(
           if (!panes.has(paneId)) return;
           const closed = await herdr(["pane", "close", paneId]);
           if (!closed.ok) {
-            throw new Error(
-              safeProtectedDetail(
-                `operation pane close failed: ${closed.error}`,
-                authorities,
-                "operation pane close failed without safe diagnostic detail",
-              ),
-            );
+            throw new Error(`operation pane close failed: ${closed.error}`);
           }
           panes.delete(paneId);
         });
       const allocatePane = (
-        binding: HarnessOperationBinding | undefined,
         cwd: string,
         deadlineUnixMilliseconds: number,
         signal: AbortSignal,
@@ -422,20 +537,14 @@ export function createHerdrRunHostFactory(
               "0.5",
               "--cwd",
               cwd,
-              ...bindingArgs(binding),
+              ...paneEnvironment,
               "--no-focus",
             ],
             Math.min(config.commandTimeoutMs, remainingMilliseconds),
             signal,
           );
           if (!split.ok) {
-            throw new Error(
-              safeProtectedDetail(
-                `operation pane split failed: ${split.error}`,
-                authorities,
-                "operation pane split failed without safe diagnostic detail",
-              ),
-            );
+            throw new Error(`operation pane split failed: ${split.error}`);
           }
           const paneId = readPaneId(split.result);
           if (!paneId) throw new Error("operation pane split returned no pane identity");
@@ -451,14 +560,11 @@ export function createHerdrRunHostFactory(
           let current:
             | {
                 operationId: string;
-                capability?: string;
                 paneId: string;
                 agentName: string;
               }
             | undefined;
           let closed = false;
-          let continuationReady = false;
-          let continuationRef: string | undefined;
           let hasExecuted = false;
           let activeController: AbortController | undefined;
           let activeCompletion: Promise<void> | undefined;
@@ -474,10 +580,6 @@ export function createHerdrRunHostFactory(
             identity: { sessionId: randomUUID(), cwd: request.cwd },
             async execute(operation) {
               if (closed) throw new Error("Herdr run session is closed");
-              if (operation.binding) {
-                authorities.add(operation.binding.operationId);
-                authorities.add(operation.binding.capability);
-              }
               const controller = new AbortController();
               activeController = controller;
               let finish!: () => void;
@@ -487,33 +589,18 @@ export function createHerdrRunHostFactory(
               try {
                 const operationId =
                   operation.binding?.operationId ?? `internal:${request.key}:${operation.id}`;
-                const sameOperation =
-                  current?.operationId === operationId &&
-                  current.capability === operation.binding?.capability;
+                const sameOperation = current?.operationId === operationId;
                 if (!sameOperation) {
                   await closeCurrentPane();
-                  if (
-                    hasExecuted &&
-                    (!continuationReady ||
-                      !continuationRef ||
-                      operation.previousSessionRef !== continuationRef)
-                  ) {
+                  // Herdr lifecycle state does not track a turn, so nothing this host observes
+                  // proves the previous pane released.
+                  if (hasExecuted) {
                     return localOutcome(
                       "failed",
-                      "confirmed native continuation evidence is unavailable for the next operation",
+                      "this host runs one operation per agent: native release cannot be proved for a later one",
                     );
                   }
-                  if (operation.previousSessionRef && !spec.interactiveResume) {
-                    return localOutcome(
-                      "failed",
-                      `${harness} has no measured interactive resume command`,
-                    );
-                  }
-                  hasExecuted = true;
-                  continuationReady = false;
-                  continuationRef = undefined;
                   const paneId = await allocatePane(
-                    operation.binding,
                     request.cwd,
                     operation.deadline.unixMilliseconds,
                     controller.signal,
@@ -522,15 +609,8 @@ export function createHerdrRunHostFactory(
                     `wf-${request.key}`,
                     `${runSpec.runId}:${request.key}:${operationId}`,
                   );
-                  current = {
-                    operationId,
-                    ...(operation.binding ? { capability: operation.binding.capability } : {}),
-                    paneId,
-                    agentName,
-                  };
-                  const launch = operation.previousSessionRef
-                    ? spec.interactiveResume!(operation.previousSessionRef, request.execution.model)
-                    : spec.interactive(request.execution.model);
+                  current = { operationId, paneId, agentName };
+                  const launch = spec.interactive(request.execution.model);
                   const started = await startAgent(
                     agentName,
                     HERDR_KINDS[harness],
@@ -546,22 +626,20 @@ export function createHerdrRunHostFactory(
                     }
                     return localOutcome(
                       started.timedOut ? "timed-out" : "failed",
-                      safeProtectedDetail(
-                        `agent start failed after ${started.attempts}: ${started.error}`,
-                        authorities,
-                        "agent start failed without safe diagnostic detail",
-                      ),
+                      `agent start failed after ${started.attempts}: ${started.error}`,
                     );
                   }
+                  hasExecuted = true;
                 }
 
                 const placement = current;
                 if (!placement) throw new Error("operation pane was not retained");
-                continuationReady = false;
-                continuationRef = undefined;
-                const prompt = request.instructions
-                  ? `${request.instructions}\n\n${operation.prompt}`
-                  : operation.prompt;
+                // Only with the pane: a nudge reaches an agent that has already read these, and
+                // sending them again reads as a new assignment rather than a reminder.
+                const prompt =
+                  !sameOperation && request.instructions
+                    ? `${request.instructions}\n\n${operation.prompt}`
+                    : operation.prompt;
                 const remainingMs = operation.deadline.unixMilliseconds - Date.now();
                 if (remainingMs <= 0) {
                   return localOutcome("timed-out", "operation deadline exceeded");
@@ -581,15 +659,24 @@ export function createHerdrRunHostFactory(
                   controller.signal,
                 );
                 if (!sent.ok) {
-                  const failure = herdrFailure(sent, operation.binding, remainingMs);
-                  return {
-                    ...failure,
-                    detail: safeProtectedDetail(
-                      failure.detail,
-                      authorities,
-                      "pane operation failed without safe diagnostic detail",
-                    ),
-                  };
+                  if (sent.cancelled || controller.signal.aborted) {
+                    return localOutcome("cancelled", "pane operation cancelled");
+                  }
+                  if (hasHerdrErrorCode(sent.error, "agent_prompt_stalled")) {
+                    // Herdr had already accepted the submission, so the turn may be running.
+                    // Settling here would close the result slot under a live agent and arm the
+                    // nudge; resending would duplicate a delivered prompt.
+                    return (await abortableDelay(
+                      Math.max(0, operation.deadline.unixMilliseconds - Date.now()),
+                      controller.signal,
+                    ))
+                      ? localOutcome(
+                          "timed-out",
+                          "operation deadline exceeded after a stalled prompt observation",
+                        )
+                      : localOutcome("cancelled", "pane operation cancelled");
+                  }
+                  return herdrFailure(sent, remainingMs);
                 }
                 const read = await herdr(
                   ["agent", "read", placement.agentName, "--source", "detection"],
@@ -600,23 +687,16 @@ export function createHerdrRunHostFactory(
                   return localOutcome("cancelled", "pane operation cancelled");
                 }
                 const rawTranscript = read.ok && read.stdout.trim() !== "" ? read.stdout : null;
-                const safeTranscript =
-                  rawTranscript &&
-                  !containsProtectedAuthority(rawTranscript, authorities)
-                    ? spec.readTranscript?.(rawTranscript) ?? rawTranscript
-                    : null;
+                const transcript = rawTranscript
+                  ? spec.readTranscript?.(rawTranscript) ?? rawTranscript
+                  : null;
                 const agent = record(sent.result.agent) ?? sent.result;
-                const nativeSessionCandidate =
+                const nativeSession =
                   readSessionRef(agent) ??
                   (rawTranscript ? spec.readSessionId?.(rawTranscript) : undefined);
-                const nativeSession =
-                  nativeSessionCandidate &&
-                  !containsProtectedAuthority(nativeSessionCandidate, authorities)
-                    ? nativeSessionCandidate
-                    : undefined;
                 const common = {
-                  resultEvidence: safeTranscript
-                    ? ({ kind: "transcript", text: safeTranscript } as const)
+                  resultEvidence: transcript
+                    ? ({ kind: "transcript", text: transcript } as const)
                     : ({ kind: "unavailable" } as const),
                   ...(nativeSession ? { sessionRef: nativeSession } : {}),
                   nativeUsage:
@@ -625,45 +705,21 @@ export function createHerdrRunHostFactory(
                 switch (settledState(agent)) {
                   case "idle":
                   case "done":
-                    continuationReady =
-                      nativeSession !== undefined &&
-                      Date.now() < operation.deadline.unixMilliseconds;
-                    continuationRef = continuationReady ? nativeSession : undefined;
                     return {
                       state: "completed" as const,
-                      ...(statusText(agent)
-                        ? {
-                            detail: safeProtectedDetail(
-                              statusText(agent)!,
-                              authorities,
-                              "agent completed without safe status detail",
-                            ),
-                          }
-                        : {}),
+                      ...(statusText(agent) ? { detail: statusText(agent)! } : {}),
                       ...common,
                     };
                   case "blocked":
                     return {
                       state: "blocked" as const,
-                      ...(statusText(agent)
-                        ? {
-                            detail: safeProtectedDetail(
-                              statusText(agent)!,
-                              authorities,
-                              "agent blocked without safe status detail",
-                            ),
-                          }
-                        : {}),
+                      ...(statusText(agent) ? { detail: statusText(agent)! } : {}),
                       ...common,
                     };
                   case "unknown":
                     return {
                       state: "failed" as const,
-                      detail: safeProtectedDetail(
-                        statusText(agent) ?? "unknown agent status",
-                        authorities,
-                        "agent failed without safe status detail",
-                      ),
+                      detail: statusText(agent) ?? "unknown agent status",
                       ...common,
                     };
                 }
@@ -674,23 +730,15 @@ export function createHerdrRunHostFactory(
             },
             async cancel() {
               if (!activeController && !current) return false;
-              continuationReady = false;
-              continuationRef = undefined;
               activeController?.abort();
               await activeCompletion;
-              continuationReady = false;
-              continuationRef = undefined;
               await closeCurrentPane();
               return true;
             },
             async close() {
               if (closed) return;
-              continuationReady = false;
-              continuationRef = undefined;
               activeController?.abort();
               await activeCompletion;
-              continuationReady = false;
-              continuationRef = undefined;
               await closeCurrentPane();
               closed = true;
             },
@@ -721,14 +769,9 @@ export function createHerdrRunHostFactory(
               .filter(
                 (result): result is PromiseRejectedResult => result.status === "rejected",
               )
-              .map((result) => safeHostError(result.reason, authorities));
+              .map((result) => asError(result.reason));
             if (!workspaceClose.ok) {
-              failures.push(
-                safeHostError(
-                  new Error(`run workspace close failed: ${workspaceClose.error}`),
-                  authorities,
-                ),
-              );
+              failures.push(new Error(`run workspace close failed: ${workspaceClose.error}`));
             }
             if (failures.length > 0) {
               throw new AggregateError(failures, "Herdr run host cleanup failed");
@@ -829,10 +872,6 @@ function createPaneAdapterCore(
                 "--label",
                 `${config.workspaceLabel} ${request.key} ${operation.id}`,
                 ...emptyEnvironment,
-                ...bindingArgs(operation.binding),
-                ...(config.binDir
-                  ? ["--env", `PATH=${config.binDir}:${process.env.PATH ?? ""}`]
-                  : []),
                 "--cwd",
                 request.cwd,
                 "--no-focus",
@@ -840,7 +879,7 @@ function createPaneAdapterCore(
               Math.max(1, remaining()),
               controller.signal,
             );
-            if (!created.ok) return herdrFailure(created, operation.binding, remaining());
+            if (!created.ok) return herdrFailure(created, remaining());
             const paneId = readPaneId(created.result);
             workspaceId = readId(created.result.workspace, "workspace_id");
             if (workspaceId) openWorkspaces.add(workspaceId);
@@ -880,7 +919,7 @@ function createPaneAdapterCore(
               waitMs + HERDR_REPORT_GRACE_MS,
               controller.signal,
             );
-            if (!sent.ok) return herdrFailure(sent, operation.binding, remaining());
+            if (!sent.ok) return herdrFailure(sent, remaining());
             if (remaining() <= 0) return localOutcome("timed-out", "operation deadline exceeded");
             const read = await herdr(
               ["agent", "read", name, "--source", "detection"],
@@ -891,35 +930,20 @@ function createPaneAdapterCore(
               return localOutcome("cancelled", "pane operation cancelled");
             }
             const rawTranscript = read.ok && read.stdout.trim() !== "" ? read.stdout : null;
-            const authorities = operation.binding
-              ? [operation.binding.operationId, operation.binding.capability]
-              : [];
-            const safeRawTranscript =
-              rawTranscript && !authorities.some((authority) => rawTranscript.includes(authority))
-                ? rawTranscript
-                : null;
-            const safeTranscript = safeRawTranscript
-              ? spec.readTranscript?.(safeRawTranscript) ?? safeRawTranscript
+            const transcript = rawTranscript
+              ? spec.readTranscript?.(rawTranscript) ?? rawTranscript
               : null;
             const agent = record(sent.result.agent) ?? sent.result;
             const nativeSession =
               readSessionRef(agent) ??
-              (safeRawTranscript ? spec.readSessionId?.(safeRawTranscript) : undefined);
-            if (
-              nativeSession &&
-              !authorities.some((authority) => nativeSession.includes(authority))
-            ) {
-              identity.sessionId = nativeSession;
-            }
+              (rawTranscript ? spec.readSessionId?.(rawTranscript) : undefined);
+            if (nativeSession) identity.sessionId = nativeSession;
             const common = {
-              resultEvidence: safeTranscript
-                ? ({ kind: "transcript", text: safeTranscript } as const)
+              resultEvidence: transcript
+                ? ({ kind: "transcript", text: transcript } as const)
                 : ({ kind: "unavailable" } as const),
-              ...(nativeSession && !authorities.some((authority) => nativeSession.includes(authority))
-                ? { sessionRef: nativeSession }
-                : {}),
-              nativeUsage:
-                safeRawTranscript && spec.readUsage ? [spec.readUsage(safeRawTranscript)] : [],
+              ...(nativeSession ? { sessionRef: nativeSession } : {}),
+              nativeUsage: rawTranscript && spec.readUsage ? [spec.readUsage(rawTranscript)] : [],
             };
             switch (settledState(agent)) {
               case "idle":
@@ -1069,10 +1093,7 @@ async function activateLegacyPane(
           controller.signal,
         );
         if (!sent.ok) {
-          return herdrFailure(
-            sent,
-            undefined,
-            operation.deadline.unixMilliseconds - Date.now(),
+          return herdrFailure(sent, operation.deadline.unixMilliseconds - Date.now(),
           );
         }
         const read = await herdr(
@@ -1171,25 +1192,7 @@ function knownHarness(value: string): Harness {
   throw new Error(`unsupported harness: ${value}`);
 }
 
-function bindingArgs(binding: HarnessOperationBinding | undefined): string[] {
-  return [
-        "--env",
-        `WF_ENDPOINT=${binding?.endpoint ?? ""}`,
-        "--env",
-        `WF_OPERATION=${binding?.operationId ?? ""}`,
-        "--env",
-        `WF_CAPABILITY=${binding?.capability ?? ""}`,
-      ];
-}
-
-const RESERVED_WORKSPACE_ENVIRONMENT = new Set([
-  "PATH",
-  "WF_ENDPOINT",
-  "WF_OPERATION",
-  "WF_CAPABILITY",
-  "WF_RUN",
-  "WF_CALL",
-]);
+const RESERVED_WORKSPACE_ENVIRONMENT = new Set(["PATH", "WF_RUN", "WF_CALL"]);
 
 function emptyEnvironmentArgs(names: readonly string[] | undefined): string[] {
   const args: string[] = [];
@@ -1215,47 +1218,8 @@ function safeAgentName(value: string, identity = value): string {
   return `${prefix}-${suffix}`;
 }
 
-function safeOperationDetail(
-  detail: string,
-  binding: HarnessOperationBinding | undefined,
-): string {
-  return binding &&
-    (detail.includes(binding.operationId) || detail.includes(binding.capability))
-    ? "pane operation failed without safe diagnostic detail"
-    : detail;
-}
-
-function safeHostError(error: unknown, authorities: ReadonlySet<string>): Error {
-  const detail = error instanceof Error ? error.message : String(error);
-  return containsProtectedAuthority(detail, authorities)
-    ? new Error("Herdr run host cleanup failed without safe diagnostic detail")
-    : error instanceof Error
-      ? error
-      : new Error(detail);
-}
-
-function safeProtectedDetail(
-  detail: string,
-  authorities: Iterable<string>,
-  fallback: string,
-): string {
-  return containsProtectedAuthority(detail, authorities) ? fallback : detail;
-}
-
-function containsProtectedAuthority(
-  text: string,
-  authorities: Iterable<string>,
-): boolean {
-  const decoded = text
-    .replace(/\\x([0-9a-f]{2})/gi, (_match, digits: string) =>
-      String.fromCharCode(Number.parseInt(digits, 16)),
-    )
-    .replace(/\\u([0-9a-f]{4})/gi, (_match, digits: string) =>
-      String.fromCharCode(Number.parseInt(digits, 16)),
-    );
-  return [...authorities].some(
-    (authority) => text.includes(authority) || decoded.includes(authority),
-  );
+function asError(error: unknown): Error {
+  return error instanceof Error ? error : new Error(String(error));
 }
 
 function localOutcome(state: "failed" | "timed-out" | "cancelled", detail: string) {
@@ -1267,25 +1231,26 @@ function localOutcome(state: "failed" | "timed-out" | "cancelled", detail: strin
   };
 }
 
-function herdrFailure(
-  result: Extract<HerdrResult, { ok: false }>,
-  binding: HarnessOperationBinding | undefined,
-  remainingMs: number,
-) {
+function herdrFailure(result: Extract<HerdrResult, { ok: false }>, remainingMs: number) {
   if (result.cancelled) return localOutcome("cancelled", "pane operation cancelled");
   if (result.timedOut || remainingMs <= 0) {
     return localOutcome("timed-out", "pane operation timed out");
   }
-  return localOutcome("failed", safeOperationDetail(result.error, binding));
+  return localOutcome("failed", result.error);
 }
 
+/**
+ * This now holds a whole operation deadline, not the two-second start retry it was written for, so
+ * the clamp matters: a `setTimeout` above 2^31−1 ms fires at once, which would read as an expired
+ * wait.
+ */
 function abortableDelay(milliseconds: number, signal?: AbortSignal): Promise<boolean> {
   if (signal?.aborted) return Promise.resolve(false);
   return new Promise((resolve) => {
     const timer = setTimeout(() => {
       signal?.removeEventListener("abort", abort);
       resolve(true);
-    }, milliseconds);
+    }, Math.min(milliseconds, 2_147_483_647));
     const abort = () => {
       clearTimeout(timer);
       resolve(false);

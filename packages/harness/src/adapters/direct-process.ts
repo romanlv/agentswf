@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { HarnessKind } from "@wf/contract/workflow";
-import type { AgentSessionAdapter, HarnessOperationBinding } from "../adapter";
+import type { AgentSessionAdapter } from "../adapter";
 import { runProcess, type RunProcess } from "../command";
 import { createSessionAdapter } from "../session-core";
 import { createLegacyDriver } from "../legacy-driver";
@@ -9,7 +9,7 @@ import type { AgentSessionDriver, CallIdentity, Harness } from "../types";
 
 export type DirectProcessConfig = {
   turnTimeoutMs: number;
-  /** Prepended to PATH so the agent's `wf` is this run's `wf`. */
+  /** Prepended to PATH for the frozen legacy driver, whose `wf` is still found by name. */
   binDir?: string;
   newSessionId?: () => string;
 };
@@ -20,15 +20,14 @@ export function createHeadlessAdapter(
   config: DirectProcessConfig,
   run: RunProcess = runProcess,
 ): AgentSessionAdapter {
-  return createHeadlessAdapterCore(config, run, (binding) =>
-    operationEnvironment(binding, config.binDir),
-  );
+  // Nothing about the operation: the agent is told the launcher's path in its prompt.
+  return createHeadlessAdapterCore(config, run, () => ({}));
 }
 
 function createHeadlessAdapterCore(
   config: DirectProcessConfig,
   run: RunProcess,
-  environment: (binding: HarnessOperationBinding | undefined) => Record<string, string>,
+  environment: () => Record<string, string>,
   legacy = false,
 ): AgentSessionAdapter & { legacySessionRef(): string | undefined } {
   const newSessionId = config.newSessionId ?? randomUUID;
@@ -81,7 +80,7 @@ function createHeadlessAdapterCore(
           const running = run({
             argv: plan.argv,
             cwd: request.cwd,
-            env: environment(operation.binding),
+            env: environment(),
             ...(plan.stdin === undefined ? {} : { stdin: plan.stdin }),
             timeoutMs: nativeTimeoutMs,
             signal: controller.signal,
@@ -93,25 +92,17 @@ function createHeadlessAdapterCore(
           const result = await running.finally(() => {
             if (active === controller) active = undefined;
           });
-          const authorities = operation.binding
-            ? [operation.binding.operationId, operation.binding.capability]
-            : [];
           const transcript = spec.readTranscript
             ? spec.readTranscript(result.stdout)
             : result.stdout;
-          const safeTranscript = containsAuthority(transcript, authorities) ? null : transcript;
           const nativeSession =
             spec.readSessionId?.(result.stdout) ?? operation.previousSessionRef ?? identity.sessionId;
-          if (nativeSession && !containsAuthority(nativeSession, authorities)) {
-            identity.sessionId = nativeSession;
-          }
+          if (nativeSession) identity.sessionId = nativeSession;
           const common = {
-            resultEvidence: safeTranscript
-              ? ({ kind: "transcript", text: safeTranscript } as const)
+            resultEvidence: transcript
+              ? ({ kind: "transcript", text: transcript } as const)
               : ({ kind: "unavailable" } as const),
-            ...(nativeSession && !containsAuthority(nativeSession, authorities)
-              ? { sessionRef: nativeSession }
-              : {}),
+            ...(nativeSession ? { sessionRef: nativeSession } : {}),
             nativeUsage: spec.readUsage ? [spec.readUsage(result.stdout)] : [],
           };
           if (result.cancelled) {
@@ -129,12 +120,9 @@ function createHeadlessAdapterCore(
             };
           }
           if (result.exitCode !== 0) {
-            const detail = `${plan.argv[0]} exited ${result.exitCode}: ${result.stderr.trim().slice(0, 400)}`;
             return {
               state: "failed" as const,
-              detail: containsAuthority(detail, authorities)
-                ? "agent process failed without safe diagnostic detail"
-                : detail,
+              detail: `${plan.argv[0]} exited ${result.exitCode}: ${result.stderr.trim().slice(0, 400)}`,
               ...common,
             };
           }
@@ -182,26 +170,6 @@ export function createDirectProcessAdapter(
 function knownHarness(value: HarnessKind): Harness {
   if (SUPPORTED_HARNESSES.includes(value as Harness)) return value as Harness;
   throw new Error(`unsupported harness: ${value}`);
-}
-
-function operationEnvironment(
-  binding: HarnessOperationBinding | undefined,
-  binDir: string | undefined,
-): Record<string, string> {
-  return {
-    ...(binding
-      ? {
-          WF_ENDPOINT: binding.endpoint,
-          WF_OPERATION: binding.operationId,
-          WF_CAPABILITY: binding.capability,
-        }
-      : {}),
-    ...(binDir ? { PATH: `${binDir}:${process.env.PATH ?? ""}` } : {}),
-  };
-}
-
-function containsAuthority(text: string, authorities: readonly string[]): boolean {
-  return authorities.some((authority) => text.includes(authority));
 }
 
 function outcome(state: "timed-out" | "failed", detail: string) {

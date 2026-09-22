@@ -15,8 +15,13 @@ export interface ExecutableWorkflow<Args extends JsonValue, Result extends JsonV
   prepare(invocation: WorkflowInvocation): Args;
 }
 
+type ExecutableWorkflowSpec<Args extends JsonValue, Result extends JsonValue> = Omit<
+  ExecutableWorkflow<Args, Result>,
+  "kind"
+>;
+
 export function defineExecutableWorkflow<Args extends JsonValue, Result extends JsonValue>(
-  executable: ExecutableWorkflow<Args, Result>,
+  spec: ExecutableWorkflowSpec<Args, Result>,
 ): ExecutableWorkflow<Args, Result> {
-  return executable;
+  return { ...spec, kind: EXECUTABLE_WORKFLOW_KIND };
 }

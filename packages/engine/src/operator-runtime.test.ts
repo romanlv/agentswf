@@ -59,7 +59,7 @@ describe("operator runtime", () => {
     );
   });
 
-  test("removes metered credentials while preserving operation binding", () => {
+  test("removes metered credentials and leaves everything else alone", () => {
     const input = withoutMeteredCredentials({
       argv: ["codex", "exec"],
       timeoutMs: 1_000,
@@ -68,7 +68,7 @@ describe("operator runtime", () => {
         OPENAI_BASE_URL: "https://metered.example",
         CODEX_API_KEY: "metered",
         ANTHROPIC_API_KEY: "metered",
-        WF_ENDPOINT: "/private/socket",
+        TERM: "xterm-256color",
       },
     });
     expect(input.env).toMatchObject({
@@ -78,7 +78,7 @@ describe("operator runtime", () => {
       ANTHROPIC_API_KEY: undefined,
       ANTHROPIC_AUTH_TOKEN: undefined,
       ANTHROPIC_BASE_URL: undefined,
-      WF_ENDPOINT: "/private/socket",
+      TERM: "xterm-256color",
     });
   });
   test("the herdr session name comes from the injected environment", async () => {

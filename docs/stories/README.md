@@ -48,7 +48,7 @@ A story owns the proposed outcome, scoped code map, implementation approach, tas
 plan.
 It links to authoritative material instead of copying it:
 
-- `docs/findings/` for measured evidence (frozen);
+- `docs/findings/` for what the measurements settled, and `experiments/_archive/*/results/` for the raw rows;
 - `docs/research/` for background reading;
 - `docs/design/` for interface design;
 - `docs/adr/` when a decision changes `foundation.md`;

@@ -76,9 +76,10 @@ export type AgentExecution = ExecutionConfig & {
 export type UsageExecution = Omit<AgentExecution, "settings">;
 
 export interface AgentOpenSpec {
+  /** Logical identity scoped to the current workflow run. */
   key: AgentKey;
-  /** Bounds activation. The engine rejects with `DeadlineExceededError` after owned cleanup. */
-  deadline: AbsoluteDeadline;
+  /** Defaults to the current workflow scope deadline. */
+  deadline?: AbsoluteDeadline;
   /** Defaults to the workflow's working directory. */
   cwd?: string;
   instructions?: string;
@@ -118,11 +119,17 @@ export interface AgentStructuredTurnSpec<T extends JsonValue> extends EnqueuedTu
   schema: OutputSchema<T>;
 }
 
-interface AgentRunBase extends AgentTurnBase {
+interface AgentRunBase {
   /** Idempotency key scoped to this agent. Generated when omitted. */
   id?: TurnId;
-  /** On `unanswered`, invokes `TurnRef.nudge` before later queued turns. */
-  nudge?: NudgeOptions;
+  prompt: string;
+  /** Defaults to the current workflow scope deadline. */
+  deadline?: AbsoluteDeadline;
+  /** Relative bound, capped by the current workflow scope deadline. */
+  timeoutMs?: number;
+  label?: string;
+  /** On `unanswered`, runs standard recovery by default; `false` disables it. */
+  nudge?: false | (Omit<NudgeOptions, "deadline"> & { deadline?: AbsoluteDeadline });
 }
 
 export interface AgentRunTextSpec extends AgentRunBase {
@@ -170,6 +177,12 @@ export type TurnOutcome<T extends JsonValue> = (
   | { kind: "failed"; reason: string; retryable: boolean }
   | { kind: "cancelled"; reason: string }
 ) & { usage: TurnUsage };
+
+export function isAnswered<T extends JsonValue>(
+  outcome: TurnOutcome<T>,
+): outcome is Extract<TurnOutcome<T>, { kind: "answered" }> {
+  return outcome.kind === "answered";
+}
 
 export type RunResult<T extends JsonValue> = {
   /** The nudge outcome when one ran; otherwise the initial outcome. */

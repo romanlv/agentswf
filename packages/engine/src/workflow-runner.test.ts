@@ -33,12 +33,10 @@ afterAll(() => runDirs.cleanup());
 type Answer = { answer: string };
 
 const ANSWER_SCHEMA: OutputSchema<Answer> = {
-  jsonSchema: {
-    type: "object",
-    properties: { answer: { type: "string" } },
-    required: ["answer"],
-    additionalProperties: false,
-  },
+  type: "object",
+  properties: { answer: { type: "string" } },
+  required: ["answer"],
+  additionalProperties: false,
 };
 
 describe("runWorkflow", () => {
@@ -349,9 +347,9 @@ describe("runWorkflow", () => {
         nativeUsage: [{ inputTokens: 3, outputTokens: 2, costUsd: 0.01 }],
         act: async () => {
           expect(context.binding).toBeDefined();
-          expect(context.prompt).toContain("wf result '<json>'");
-          expect(context.prompt).not.toContain(context.binding!.operationId);
-          expect(context.prompt).not.toContain(context.binding!.capability);
+          expect(context.prompt).toContain(
+            `result ${context.binding!.operationId} '<json>'`,
+          );
           await expect(submit(context.binding!, { answer: "ready" })).resolves.toMatchObject({
             kind: "accepted",
           });
@@ -412,7 +410,7 @@ describe("runWorkflow", () => {
           const otherKey = context.activation.key === "slow" ? "fast" : "slow";
           const other = bindings.get(otherKey)!;
           crossResponses.push(
-            await submit({ ...binding, capability: other.capability }, { answer: "wrong" }),
+            await submit({ ...binding, operationId: other.operationId }, { answer: "wrong" }),
           );
           await submit(binding, { answer: context.activation.key });
           if (context.activation.key === "slow") await Bun.sleep(10);
@@ -451,7 +449,7 @@ describe("runWorkflow", () => {
     expect(crossResponses.every((response) => response.kind === "rejected")).toBe(true);
     expect(
       crossResponses.every(
-        (response) => response.kind === "rejected" && response.code === "wrong-operation",
+        (response) => response.kind === "rejected" && response.code === "wrong-agent",
       ),
     ).toBe(true);
     expect(new Set(result.usage.map((usage) => usage.operationId)).size).toBe(2);
@@ -473,13 +471,12 @@ describe("runWorkflow", () => {
       async run(context) {
         const agent = await context.agents.open({
           key: "slow",
-          deadline: future(),
           runtime: "review",
         });
         const result = await agent.run({
           id: "slow",
           prompt: "Wait.",
-          deadline: { unixMilliseconds: Date.now() + 20 },
+          timeoutMs: 20,
         });
         return result.outcome.kind;
       },
@@ -601,17 +598,15 @@ describe("runWorkflow", () => {
     expect(fake.turns).toHaveLength(1);
   });
 
-  test("one agent serializes runs and a configured nudge reuses its authority", async () => {
+  test("one agent serializes runs and the default nudge reuses its authority", async () => {
     let active = 0;
     let maximumActive = 0;
-    const capabilities: string[] = [];
     const operationIds: string[] = [];
     const adapter = createFakeAdapter({
       script: (context) => ({
         act: async () => {
           active += 1;
           maximumActive = Math.max(maximumActive, active);
-          capabilities.push(context.binding!.capability);
           operationIds.push(context.binding!.operationId);
           await Bun.sleep(5);
           if (context.turn !== 1) {
@@ -633,7 +628,6 @@ describe("runWorkflow", () => {
           id: "first",
           prompt: "First.",
           deadline: future(),
-          nudge: { deadline: future() },
         });
         const second = agent.run({ id: "second", prompt: "Second.", deadline: future() });
         const results = await Promise.all([first, second]);
@@ -651,13 +645,32 @@ describe("runWorkflow", () => {
 
     expect(result.value).toEqual(["answer-2", "answer-3"]);
     expect(maximumActive).toBe(1);
-    expect(new Set(capabilities).size).toBe(2);
-    expect(capabilities[1]).toBe(capabilities[0]);
-    expect(capabilities[2]).not.toBe(capabilities[0]);
+    expect(new Set(operationIds).size).toBe(2);
     expect(operationIds[1]).toBe(operationIds[0]);
     expect(operationIds[2]).not.toBe(operationIds[0]);
     expect(result.usage).toHaveLength(2);
     expect(adapter.turns.map((turn) => turn.kind)).toEqual(["turn", "nudge", "turn"]);
+  });
+
+  test("a run can disable the default nudge", async () => {
+    const adapter = createFakeAdapter({ script: () => ({}) });
+    const workflow: WorkflowDefinition<null, string> = {
+      meta: { name: "no-nudge", description: "explicitly disabled recovery" },
+      async run(context) {
+        const agent = await context.agents.open({ key: "reviewer", runtime: "review" });
+        const result = await agent.run({ prompt: "Review.", nudge: false });
+        return result.outcome.kind;
+      },
+    };
+
+    const result = await runWorkflow(workflow, null, {
+      runRoot: tempRunDir(),
+      deadline: future(),
+      runtime: runtime(adapter),
+    });
+
+    expect(result.value).toBe("unanswered");
+    expect(adapter.turns.map((turn) => turn.kind)).toEqual(["turn"]);
   });
 
   test("an accepted result wins while native nudge acquisition is still pending", async () => {
@@ -1476,7 +1489,7 @@ describe("runWorkflow", () => {
             return {
               ...native,
               async release() {
-                throw new Error(`cancel failed ${binding.capability}`);
+                throw new Error(`cancel failed ${binding.operationId}`);
               },
             };
           }) as HarnessSession["start"],
@@ -1884,94 +1897,6 @@ describe("runWorkflow", () => {
     expect(result.value).toBe(true);
   });
 
-  test("escaped capabilities are removed from native start diagnostics", async () => {
-    const fake = createFakeAdapter({ script: () => ({}) });
-    const adapter: AgentSessionAdapter = {
-      ...fake,
-      async activate(request) {
-        const session = await fake.activate(request);
-        return {
-          ...session,
-          start: (async (
-            _turn: AgentTextTurnSpec | AgentStructuredTurnSpec<JsonValue>,
-            binding: HarnessOperationBinding,
-          ) => {
-            const escaped = [...binding.capability]
-              .map((character) => `\\x${character.charCodeAt(0).toString(16).padStart(2, "0")}`)
-              .join("");
-            throw new Error(`native start failed: ${escaped}`);
-          }) as HarnessSession["start"],
-        };
-      },
-    };
-    const workflow: WorkflowDefinition<null, string> = {
-      meta: { name: "redacted-start", description: "authority-safe diagnostics" },
-      async run(context) {
-        const agent = await context.agents.open({
-          key: "redacted",
-          deadline: future(),
-          runtime: "review",
-        });
-        const result = await agent.run({ id: "fail", prompt: "Fail.", deadline: future() });
-        if (result.outcome.kind !== "failed") throw new Error("expected failed outcome");
-        return result.outcome.reason;
-      },
-    };
-
-    const result = await runWorkflow(workflow, null, {
-      runRoot: tempRunDir(),
-      deadline: future(),
-      runtime: runtime(adapter),
-    });
-
-    expect(result.value).toBe("harness operation failed without safe diagnostic detail");
-    expect(JSON.stringify(result)).not.toContain("\\x");
-  });
-
-  test("a later agent cannot return authority issued earlier in the run", async () => {
-    let earlierCapability = "";
-    const adapter = createFakeAdapter({
-      script: (context) => {
-        if (context.activation.key === "first") {
-          earlierCapability = context.binding!.capability;
-          return {};
-        }
-        return {
-          state: "failed",
-          detail: `leaked ${earlierCapability}`,
-          transcript: earlierCapability,
-        };
-      },
-    });
-    const workflow: WorkflowDefinition<null, string> = {
-      meta: { name: "run-redaction", description: "full-run authority redaction" },
-      async run(context) {
-        const first = await context.agents.open({
-          key: "first",
-          deadline: future(),
-          runtime: "review",
-        });
-        await first.run({ id: "first", prompt: "First.", deadline: future() });
-        const second = await context.agents.open({
-          key: "second",
-          deadline: future(),
-          runtime: "review",
-        });
-        const result = await second.run({ id: "second", prompt: "Second.", deadline: future() });
-        return result.outcome.kind === "failed" ? result.outcome.reason : result.outcome.kind;
-      },
-    };
-
-    const result = await runWorkflow(workflow, null, {
-      runRoot: tempRunDir(),
-      runtime: runtime(adapter),
-      deadline: future(),
-    });
-
-    expect(result.value).toBe("harness operation produced no safe diagnostic detail");
-    expect(JSON.stringify(result)).not.toContain(earlierCapability);
-  });
-
   test("shutdown does not dispatch an already queued fire-and-forget run", async () => {
     let began!: () => void;
     const started = new Promise<void>((resolve) => {
@@ -2081,67 +2006,6 @@ describe("runWorkflow", () => {
     expect(result.value).toBeNull();
     expect(performance.now() - started).toBeGreaterThanOrEqual(8);
   });
-
-  test("agent cleanup can submit while the control plane is still available", async () => {
-    let closeSubmission: ResultSubmitResponse | undefined;
-    let turnStarted!: () => void;
-    const started = new Promise<void>((resolve) => {
-      turnStarted = resolve;
-    });
-    const fake = createFakeAdapter({
-      script: (context) => ({
-        act: async () => {
-          turnStarted();
-          await new Promise<void>((resolve) => {
-            if (context.signal.aborted) resolve();
-            else context.signal.addEventListener("abort", () => resolve(), { once: true });
-          });
-        },
-      }),
-    });
-    const adapter: AgentSessionAdapter = {
-      ...fake,
-      async activate(request) {
-        const session = await fake.activate(request);
-        let binding: HarnessOperationBinding | undefined;
-        return {
-          ...session,
-          start: (async (
-            turn: AgentTextTurnSpec | AgentStructuredTurnSpec<JsonValue>,
-            nextBinding: HarnessOperationBinding,
-          ) => {
-            binding = nextBinding;
-            return dispatch(session, turn, nextBinding);
-          }) as HarnessSession["start"],
-          async close(reason?: string) {
-            if (binding) closeSubmission = await submit(binding, "submitted-during-close");
-            await session.close(reason);
-          },
-        };
-      },
-    };
-    const workflow: WorkflowDefinition<null, null> = {
-      meta: { name: "cleanup-order", description: "agents close before result endpoint" },
-      async run(context) {
-        const agent = await context.agents.open({
-          key: "closer",
-          deadline: future(),
-          runtime: "review",
-        });
-        void agent.run({ id: "pending", prompt: "Wait.", deadline: future() });
-        await started;
-        return null;
-      },
-    };
-
-    await runWorkflow(workflow, null, {
-      runRoot: tempRunDir(),
-      deadline: future(),
-      runtime: runtime(adapter),
-    });
-
-    expect(closeSubmission).toMatchObject({ kind: "accepted" });
-  });
 });
 
 function runtime(adapter: AgentSessionAdapter): AgentRuntimeConfig {
@@ -2170,7 +2034,6 @@ async function submit(binding: HarnessOperationBinding, value: JsonObject | stri
     `${JSON.stringify({
       version: WIRE_VERSION,
       operationId: binding.operationId,
-      capability: binding.capability,
       raw: JSON.stringify(value),
     })}\n`,
   );
