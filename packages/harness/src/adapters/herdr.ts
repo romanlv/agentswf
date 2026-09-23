@@ -3,27 +3,25 @@ import type { AgentRunHostFactory, AgentSessionAdapter } from "../adapter";
 import { runProcess, type RunProcess } from "../command";
 import {
   createSessionAdapter,
+  localOutcome,
   type ActivatedSessionBackend,
   type NativeTurnOutcome,
 } from "../session-core";
 import { createSingleSessionHostFactory } from "../single-session-host";
-import { harnessSpec, type HarnessSpec } from "../spec";
+import { HARNESS_NAMES, harnessSpec, knownHarness, type HarnessSpec } from "../spec";
 import {
   abortableDelay,
   emptyEnvironmentArgs,
   hasHerdrErrorCode,
   herdrFailure,
   HERDR_REPORT_GRACE_MS,
-  knownHarness,
-  localOutcome,
   readable,
   readId,
   readPaneId,
   readSessionRef,
   record,
   safeAgentName,
-  settledState,
-  statusText,
+  settledOutcome,
   type HerdrCommand,
   type HerdrResult,
 } from "./herdr-protocol";
@@ -169,7 +167,7 @@ export function createPaneAdapter(
   const emptyEnvironment = emptyEnvironmentArgs(config.emptyEnvironment);
   const { herdr, startAgent } = createHerdrCommands(config, run);
   return createSessionAdapter({
-    harnesses: ["claude", "codex", "pi", "cursor"],
+    harnesses: HARNESS_NAMES,
     async activate(request) {
       const harness = knownHarness(request.execution.harness);
       const spec = harnessSpec(harness);
@@ -191,12 +189,10 @@ export function createPaneAdapter(
         }
         throw new Error(`workspace close failed: ${result.error}`);
       };
-      const closeOpenWorkspaces = async (): Promise<boolean> => {
-        const pending = [...openWorkspaces];
-        const results = await Promise.allSettled(pending.map(closeWorkspace));
+      const closeOpenWorkspaces = async (): Promise<void> => {
+        const results = await Promise.allSettled([...openWorkspaces].map(closeWorkspace));
         const failed = results.find((result) => result.status === "rejected");
         if (failed?.status === "rejected") throw failed.reason;
-        return pending.length > 0;
       };
 
       return {
@@ -601,7 +597,8 @@ export function createHerdrRunHostFactory(
           if (workspaceClosed) return;
           closeAttempt ??= (async () => {
             hostState = "closing";
-            const sessionClose = await Promise.allSettled([inner.close(reason)]);
+            const failures: Error[] = [];
+            await inner.close(reason).catch((error: unknown) => failures.push(asError(error)));
             topologyOpen = false;
             const workspaceClose = await herdr(["workspace", "close", workspaceId]);
             if (workspaceClose.ok) {
@@ -609,11 +606,6 @@ export function createHerdrRunHostFactory(
               workspaceClosed = true;
               hostState = "closed";
             }
-            const failures = sessionClose
-              .filter(
-                (result): result is PromiseRejectedResult => result.status === "rejected",
-              )
-              .map((result) => asError(result.reason));
             if (!workspaceClose.ok) {
               failures.push(new Error(`run workspace close failed: ${workspaceClose.error}`));
             }
@@ -646,23 +638,14 @@ function paneOutcome(
   const agent = record(sent.result.agent) ?? sent.result;
   const nativeSession =
     readSessionRef(agent) ?? (rawTranscript ? spec.readSessionId?.(rawTranscript) : undefined);
-  const status = statusText(agent);
-  const common = {
+  return {
+    ...settledOutcome(agent),
     resultEvidence: transcript
-      ? ({ kind: "transcript", text: transcript } as const)
-      : ({ kind: "unavailable" } as const),
+      ? { kind: "transcript", text: transcript }
+      : { kind: "unavailable" },
     ...(nativeSession ? { sessionRef: nativeSession } : {}),
     nativeUsage: rawTranscript && spec.readUsage ? [spec.readUsage(rawTranscript)] : [],
   };
-  switch (settledState(agent)) {
-    case "idle":
-    case "done":
-      return { state: "completed", ...(status ? { detail: status } : {}), ...common };
-    case "blocked":
-      return { state: "blocked", ...(status ? { detail: status } : {}), ...common };
-    case "unknown":
-      return { state: "failed", detail: status ?? "unknown agent status", ...common };
-  }
 }
 
 function asError(error: unknown): Error {

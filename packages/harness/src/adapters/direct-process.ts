@@ -1,11 +1,10 @@
 import { randomUUID } from "node:crypto";
-import type { HarnessKind } from "@wf/contract/workflow";
 import type { AgentSessionAdapter } from "../adapter";
 import { runProcess, type RunProcess } from "../command";
-import { createSessionAdapter } from "../session-core";
+import { createSessionAdapter, localOutcome } from "../session-core";
 import { createLegacyDriver } from "../legacy-driver";
-import { harnessSpec } from "../spec";
-import type { AgentSessionDriver, CallIdentity, Harness } from "../types";
+import { HARNESS_NAMES, harnessSpec, knownHarness } from "../spec";
+import type { AgentSessionDriver, CallIdentity } from "../types";
 
 export type DirectProcessConfig = {
   turnTimeoutMs: number;
@@ -13,8 +12,6 @@ export type DirectProcessConfig = {
   binDir?: string;
   newSessionId?: () => string;
 };
-
-const SUPPORTED_HARNESSES = ["claude", "codex", "pi", "cursor"] as const;
 
 export function createHeadlessAdapter(
   config: DirectProcessConfig,
@@ -33,7 +30,7 @@ function createHeadlessAdapterCore(
   const newSessionId = config.newSessionId ?? randomUUID;
   let legacySessionRef: string | undefined;
   const adapter = createSessionAdapter({
-    harnesses: SUPPORTED_HARNESSES,
+    harnesses: HARNESS_NAMES,
     observeSessionRef: (sessionRef) => {
       legacySessionRef = sessionRef;
     },
@@ -51,13 +48,13 @@ function createHeadlessAdapterCore(
           if (closed) throw new Error("headless session is closed");
           const remaining = operation.deadline.unixMilliseconds - Date.now();
           if (remaining <= 0) {
-            return outcome("timed-out", "operation deadline exceeded");
+            return localOutcome("timed-out", "operation deadline exceeded");
           }
           if (hasExecuted && !operation.previousSessionRef) {
-            return outcome("failed", `${harness} produced no resumable native session reference`);
+            return localOutcome("failed", `${harness} produced no resumable native session reference`);
           }
           if (operation.previousSessionRef && !spec.resumeTurn) {
-            return outcome(
+            return localOutcome(
               "failed",
               `${harness} has no confirmed headless resume, so the operation could not continue`,
             );
@@ -165,18 +162,4 @@ export function createDirectProcessAdapter(
       return createHeadlessAdapterCore(config, run, environment, true);
     },
   });
-}
-
-function knownHarness(value: HarnessKind): Harness {
-  if (SUPPORTED_HARNESSES.includes(value as Harness)) return value as Harness;
-  throw new Error(`unsupported harness: ${value}`);
-}
-
-function outcome(state: "timed-out" | "failed", detail: string) {
-  return {
-    state,
-    detail,
-    resultEvidence: { kind: "unavailable" } as const,
-    nativeUsage: [],
-  };
 }

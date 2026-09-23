@@ -94,8 +94,8 @@ if (import.meta.main) {
       process.stdin.isTTY === true,
       Bun.stdin.stream(),
     );
-  } catch {
-    console.error("wf result input exceeds the size limit");
+  } catch (error) {
+    console.error(`wf result: ${error instanceof Error ? error.message : String(error)}`);
     process.exit(2);
   }
   const outcome = await runCli(process.argv.slice(2), stdinText);
@@ -125,17 +125,28 @@ export async function readBoundedStdin(
   maxBytes = MAX_STDIN_BYTES,
   timeoutMs = STDIN_TIMEOUT_MS,
 ): Promise<string> {
+  const reader = stream.getReader();
   const chunks: Uint8Array[] = [];
   let bytes = 0;
-  const expiry = setTimeout(() => void stream.cancel().catch(() => undefined), timeoutMs);
+  let expire!: () => void;
+  const expired = new Promise<"expired">((resolve) => {
+    expire = () => resolve("expired");
+  });
+  const expiry = setTimeout(expire, timeoutMs);
   try {
-    for await (const chunk of stream) {
-      bytes += chunk.byteLength;
+    for (;;) {
+      const next = await Promise.race([reader.read(), expired]);
+      if (next === "expired") {
+        await reader.cancel().catch(() => undefined);
+        throw new Error("stdin was not closed in time");
+      }
+      if (next.done) break;
+      bytes += next.value.byteLength;
       if (bytes > maxBytes) {
-        await stream.cancel().catch(() => undefined);
+        await reader.cancel().catch(() => undefined);
         throw new Error("stdin exceeds the size limit");
       }
-      chunks.push(chunk);
+      chunks.push(next.value);
     }
   } finally {
     clearTimeout(expiry);

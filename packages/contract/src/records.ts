@@ -8,8 +8,8 @@ export type CallSpec = {
 };
 
 /**
- * Which channel carried a candidate value. Production submits `control-plane`; `cli-callback` and
- * E2's other two are archive vocabulary and widen this at their own boundary.
+ * Which channel carried a candidate value — `control-plane` in production. A string, because the
+ * archived experiments name channels of their own and the format should not enumerate them.
  */
 export type AttemptSource = string;
 

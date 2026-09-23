@@ -1128,17 +1128,11 @@ function reasonOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+/** Release without waiting on the outcome: the timeout or cancellation that asked is authoritative. */
 function requestTurnRelease(turn: HarnessTurn, reason: string): Promise<void> {
-  return Promise.resolve().then(async () => {
-    try {
-      const deadline = {
-        unixMilliseconds: Date.now() + CLEANUP_GRACE_MILLISECONDS,
-      };
-      await waitForDeadline(turn.release(reason, deadline), deadline);
-    } catch {
-      // The timeout/caller cancellation remains authoritative over adapter diagnostics.
-    }
-  });
+  return Promise.resolve()
+    .then(() => releaseSettledTurn(turn, reason))
+    .then(() => undefined);
 }
 
 function resolveExecution(

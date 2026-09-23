@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
-import type { Harness, SettledState } from "../types";
+import { localOutcome } from "../session-core";
+import type { SettledState } from "../types";
 
 export type HerdrResult =
   | { ok: true; result: Record<string, unknown>; stdout: string }
@@ -40,7 +41,7 @@ export function readPaneId(result: Record<string, unknown>): string | null {
   return readId(result.root_pane ?? result.pane, "pane_id") ?? null;
 }
 
-export function statusText(result: Record<string, unknown>): string | undefined {
+function statusText(result: Record<string, unknown>): string | undefined {
   const status = result.agent_status ?? result.status ?? result.state;
   return typeof status === "string" ? status : undefined;
 }
@@ -92,13 +93,6 @@ export function hasHerdrErrorCode(error: string, code: string): boolean {
   return new RegExp(`"code"\\s*:\\s*"${code}"`).test(error) || error.trim() === code;
 }
 
-export function knownHarness(value: string): Harness {
-  if (value === "claude" || value === "codex" || value === "pi" || value === "cursor") {
-    return value;
-  }
-  throw new Error(`unsupported harness: ${value}`);
-}
-
 const RESERVED_WORKSPACE_ENVIRONMENT = new Set(["PATH", "WF_RUN", "WF_CALL"]);
 
 export function emptyEnvironmentArgs(names: readonly string[] | undefined): string[] {
@@ -125,13 +119,21 @@ export function safeAgentName(value: string, identity = value): string {
   return `${prefix}-${suffix}`;
 }
 
-export function localOutcome(state: "failed" | "timed-out" | "cancelled", detail: string) {
-  return {
-    state,
-    detail,
-    resultEvidence: { kind: "unavailable" } as const,
-    nativeUsage: [],
-  };
+/** The terminal state an agent's own settled status proves, before any evidence is attached. */
+export function settledOutcome(agent: Record<string, unknown>): {
+  state: "completed" | "blocked" | "failed";
+  detail?: string;
+} {
+  const status = statusText(agent);
+  switch (settledState(agent)) {
+    case "idle":
+    case "done":
+      return { state: "completed", ...(status ? { detail: status } : {}) };
+    case "blocked":
+      return { state: "blocked", ...(status ? { detail: status } : {}) };
+    case "unknown":
+      return { state: "failed", detail: status ?? "unknown agent status" };
+  }
 }
 
 export function herdrFailure(result: Extract<HerdrResult, { ok: false }>, remainingMs: number) {

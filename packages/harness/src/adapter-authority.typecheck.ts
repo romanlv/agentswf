@@ -1,6 +1,5 @@
 import type { AgentStructuredTurnSpec, OutputSchema } from "@wf/contract/workflow";
 import type {
-  AgentSessionAdapter,
   HarnessActivation,
   HarnessNudgeSpec,
   HarnessOperationBinding,
@@ -11,8 +10,6 @@ import type {
 declare const session: HarnessSession;
 declare const schema: OutputSchema<{ verdict: string }>;
 declare const binding: HarnessOperationBinding;
-declare const adapter: AgentSessionAdapter;
-declare const activation: HarnessActivation;
 declare const nudge: HarnessNudgeSpec;
 
 const turn = {

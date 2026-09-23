@@ -131,4 +131,11 @@ describe("wf result", () => {
     const stream = new Blob(["123", "456"]).stream();
     await expect(readBoundedStdin(stream, 5)).rejects.toThrow("size limit");
   });
+
+  test("gives up on a pipe that is never closed", async () => {
+    const neverCloses = new ReadableStream<Uint8Array>({ pull: () => new Promise(() => {}) });
+    const startedAt = Date.now();
+    await expect(readBoundedStdin(neverCloses, 1024, 50)).rejects.toThrow("not closed in time");
+    expect(Date.now() - startedAt).toBeLessThan(1_000);
+  });
 });

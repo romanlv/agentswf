@@ -3,21 +3,19 @@ import type { AgentSessionAdapter, HarnessActivation } from "../adapter";
 import { runProcess, type RunProcess } from "../command";
 import { createLegacyDriver } from "../legacy-driver";
 import { createSessionAdapter, type ActivatedSessionBackend } from "../session-core";
-import { harnessSpec } from "../spec";
+import { HARNESS_NAMES, harnessSpec, knownHarness } from "../spec";
 import type { AgentSessionDriver, CallIdentity } from "../types";
 import { createHerdrCommands, type HerdrConfig } from "./herdr";
 import {
   emptyEnvironmentArgs,
   herdrFailure,
   HERDR_REPORT_GRACE_MS,
-  knownHarness,
   readId,
   readPaneId,
   readSessionRef,
   record,
   safeAgentName,
-  settledState,
-  statusText,
+  settledOutcome,
   type HerdrCommand,
 } from "./herdr-protocol";
 
@@ -47,7 +45,7 @@ function createLegacyPaneAdapter(
   let legacyTranscript: (() => Promise<string | null>) | undefined;
   let legacySessionRef: string | undefined;
   const adapter = createSessionAdapter({
-    harnesses: ["claude", "codex", "pi", "cursor"],
+    harnesses: HARNESS_NAMES,
     observeSessionRef: (sessionRef) => {
       legacySessionRef = sessionRef;
     },
@@ -157,15 +155,8 @@ async function activateLegacyPane(
         const transcript = read.ok && read.stdout.trim() !== "" ? read.stdout : undefined;
         const agent = record(sent.result.agent) ?? sent.result;
         const sessionRef = readSessionRef(agent);
-        const state = settledState(agent);
         return {
-          state:
-            state === "idle" || state === "done"
-              ? "completed"
-              : state === "blocked"
-                ? "blocked"
-                : "failed",
-          ...(statusText(agent) ? { detail: statusText(agent) } : {}),
+          ...settledOutcome(agent),
           resultEvidence: transcript
             ? { kind: "transcript" as const, text: transcript }
             : { kind: "unavailable" as const },

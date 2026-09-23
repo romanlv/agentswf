@@ -29,6 +29,16 @@ export type NativeTurnRequest = {
 
 export type NativeTurnOutcome = HarnessTurnOutcome & { sessionRef?: string };
 
+/** An outcome the backend decided on its own, with no native evidence behind it. */
+export function localOutcome(state: "failed" | "timed-out" | "cancelled", detail: string) {
+  return {
+    state,
+    detail,
+    resultEvidence: { kind: "unavailable" } as const,
+    nativeUsage: [],
+  };
+}
+
 type NativeSessionIdentity = {
   sessionId: string;
   cwd: string;
@@ -81,17 +91,13 @@ function createSession(
   let sessionRef: string | undefined;
   const usedOperationIds = new Set<string>();
 
-  const start = (
-    request: NativeTurnRequest,
-    bindingIsNew = true,
-    canNudge = true,
-  ): HarnessTurn => {
+  const start = (request: NativeTurnRequest): HarnessTurn => {
     if (closed) throw new Error("harness session is closed");
     if (quarantined) throw new Error("harness session is quarantined");
     if (closeAttempt) throw new Error("harness session is closing");
     if (active) throw new Error("harness session already has an active operation");
     assertDeadline(request.deadline, now);
-    if (request.binding && bindingIsNew) {
+    if (request.binding && request.kind !== "nudge") {
       if (usedOperationIds.has(request.binding.operationId)) {
         throw new Error("harness operation id has already been used in this session");
       }
@@ -138,22 +144,18 @@ function createSession(
         throw new Error("harness delivery is unavailable until messaging acknowledgement exists");
       },
       async nudge(spec: HarnessNudgeSpec) {
-        if (!canNudge) throw new Error("harness turn permits at most one nudge");
+        if (request.kind === "nudge") throw new Error("harness turn permits at most one nudge");
         if (nudged) throw new Error("harness turn has already been nudged");
         if (!request.binding) throw new Error("harness turn has no result authority to reuse");
         nudged = true;
         await settled;
-        return start(
-          {
-            id: spec.id,
-            prompt: spec.prompt ?? "Provide the requested result now.",
-            deadline: spec.deadline,
-            binding: request.binding,
-            kind: "nudge",
-          },
-          false,
-          false,
-        );
+        return start({
+          id: spec.id,
+          prompt: spec.prompt ?? "Provide the requested result now.",
+          deadline: spec.deadline,
+          binding: request.binding,
+          kind: "nudge",
+        });
       },
       async release(reason, deadline): Promise<HarnessReleaseDisposition> {
         const releasing = Promise.resolve()

@@ -284,3 +284,10 @@ export const HARNESSES: Record<Harness, HarnessSpec> = {
 export function harnessSpec(harness: Harness): HarnessSpec {
   return HARNESSES[harness];
 }
+
+export const HARNESS_NAMES = Object.keys(HARNESSES) as [Harness, ...Harness[]];
+
+export function knownHarness(value: string): Harness {
+  if (Object.hasOwn(HARNESSES, value)) return value as Harness;
+  throw new Error(`unsupported harness: ${value}`);
+}

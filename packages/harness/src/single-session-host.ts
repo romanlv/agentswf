@@ -39,12 +39,7 @@ export function createSingleSessionHostFactory(
           if (snapshots.has(request.key)) {
             return Promise.reject(new Error(`run host already contains agent ${request.key}`));
           }
-          snapshots.set(request.key, {
-            key: request.key,
-            execution: structuredClone(request.execution),
-            state: "starting",
-            observedAt: Date.now(),
-          });
+          setSnapshot(snapshots, request.key, request.execution, { state: "starting" });
           const activation = (async () => {
             try {
               const session = await adapter.activate(request);
@@ -57,11 +52,8 @@ export function createSingleSessionHostFactory(
               setSnapshot(snapshots, request.key, request.execution, { state: "idle" });
               return observed;
             } catch (error) {
-              snapshots.set(request.key, {
-                key: request.key,
-                execution: structuredClone(request.execution),
+              setSnapshot(snapshots, request.key, request.execution, {
                 state: "missing",
-                observedAt: Date.now(),
                 detail: error instanceof Error ? error.message : String(error),
               });
               throw error;
