@@ -95,10 +95,10 @@ function createHeadlessAdapterCore(
           const transcript = spec.readTranscript
             ? spec.readTranscript(result.stdout)
             : result.stdout;
+          // Never the id we generated unless the plan handed it over: resuming one the harness never
+          // saw fails as an opaque exit instead of saying no session came back.
           const nativeSession =
-            spec.readSessionId?.(result.stdout) ??
-            operation.previousSessionRef ??
-            identity.sessionId;
+            spec.readSessionId?.(result.stdout) ?? plan.sessionId ?? operation.previousSessionRef;
           if (nativeSession) identity.sessionId = nativeSession;
           const common = {
             resultEvidence: transcript

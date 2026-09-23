@@ -168,7 +168,7 @@ export interface CompactSpec {
 
 export interface AgentRef extends ParticipantRef {
   readonly key: AgentKey;
-  /** Fixed for this logical agent, including replacement after a crash. */
+  /** Fixed for this logical agent. */
   readonly execution: AgentExecution;
   /** Resolves once durably queued. Turns execute one at a time in enqueue order. */
   enqueue(spec: AgentTextTurnSpec): Promise<TurnRef<string>>;

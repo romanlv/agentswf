@@ -4,6 +4,8 @@ export type TurnPlan = {
   argv: string[];
   /** The prompt goes on stdin everywhere: it is the one channel no CLI reinterprets. */
   stdin?: string;
+  /** The session this turn runs under, when the plan chose it rather than the harness. */
+  sessionId?: string;
 };
 
 export type TurnUsage = {
@@ -206,6 +208,7 @@ export const HARNESSES: Record<Harness, HarnessSpec> = {
         ...(model ? ["--model", model] : []),
       ],
       stdin: prompt,
+      sessionId: sessionHint,
     }),
     resumeTurn: (prompt, sessionId, { model }) => ({
       argv: [

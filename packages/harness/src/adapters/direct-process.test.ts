@@ -201,6 +201,20 @@ describe("createHeadlessAdapter", () => {
     });
   });
 
+  test("a turn that reports no session is not resumed under an id the harness never saw", async () => {
+    const { run, calls } = stub(["no session id anywhere in this output"]);
+    const session = await headless(run, { newSessionId: () => "invented" });
+    const turn = await session.start(turnSpec, firstBinding);
+    await turn.settled;
+    const nudge = await turn.nudge(nudgeSpec);
+
+    await expect(nudge.settled).resolves.toMatchObject({
+      state: "failed",
+      detail: expect.stringContaining("no resumable native session reference"),
+    });
+    expect(calls).toHaveLength(1);
+  });
+
   test("usage a turn never reported stays absent rather than becoming zero", async () => {
     const { run } = stub(["a screen with no JSON on it"]);
     const session = await headless(run);
@@ -210,7 +224,7 @@ describe("createHeadlessAdapter", () => {
   });
 
   test("a harness with no confirmed resume cannot be nudged, and says so", async () => {
-    const { run, calls } = stub(["first turn", "second turn"]);
+    const { run, calls } = stub([JSON.stringify({ type: "thread.started", thread_id: "t-1" })]);
     const { resumeTurn } = HARNESSES.codex;
     delete HARNESSES.codex.resumeTurn;
     try {
