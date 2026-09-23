@@ -50,7 +50,8 @@ bun run check             # Biome lint and format check, tsc, and the boundaries
 bun run format            # Biome: format, organize imports, apply safe fixes
 ```
 
-Biome skips `experiments/_archive`, `docs` and fixtures. A lint rule is suppressed only at its
+`bun install` points `core.hooksPath` at `.githooks`, whose pre-commit runs Biome's safe fixes on the
+staged files and stages the result; what it cannot fix blocks the commit. Biome skips `experiments/_archive`, `docs` and fixtures. A lint rule is suppressed only at its
 site, with a `biome-ignore` comment saying why.
 
 `*.eval.ts` is anything that spends money on live agents. It is excluded from `bun test` and

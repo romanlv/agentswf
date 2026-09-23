@@ -18,6 +18,7 @@
     "check": "biome check . && tsc --noEmit && bun run scripts/check-boundaries.ts",
     "format": "biome check --write .",
     "lint": "biome check .",
+    "prepare": "git config core.hooksPath .githooks",
     "test": "bun test",
     "ts-check": "tsc --noEmit"
   },
