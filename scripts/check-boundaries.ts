@@ -5,15 +5,16 @@
  * `node_modules`, so any package can import any other and still typecheck. The rules are the
  * design; this is what makes breaking one an error rather than a note in a document.
  */
-import { Glob } from "bun";
+
 import { dirname, join, relative } from "node:path";
+import { Glob } from "bun";
+import { extractImports, hasUnresolvedDynamicImport } from "./boundary-imports";
 import {
   allowsComputedWorkflowImport,
   containsPath,
   escapedPathImport,
   WORKSPACE_MANIFEST_GLOBS,
 } from "./boundary-paths";
-import { extractImports, hasUnresolvedDynamicImport } from "./boundary-imports";
 
 const ROOT = join(import.meta.dir, "..");
 
@@ -128,10 +129,7 @@ for (const { directory, pkg } of packageInfo) {
   const declared = new Set(Object.keys(pkg.dependencies ?? {}));
   for await (const file of new Glob("**/*.ts").scan({ cwd: directory, absolute: true })) {
     const source = await Bun.file(file).text();
-    if (
-      hasUnresolvedDynamicImport(source) &&
-      !allowsComputedWorkflowImport(relative(ROOT, file))
-    ) {
+    if (hasUnresolvedDynamicImport(source) && !allowsComputedWorkflowImport(relative(ROOT, file))) {
       const problem = `${relative(ROOT, file)}: contains a computed import whose boundary cannot be verified`;
       if (!problems.includes(problem)) problems.push(problem);
     }

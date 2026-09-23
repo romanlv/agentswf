@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import type { AgentSessionAdapter } from "./adapter";
-import type { RunProcess } from "./command";
 import { createHeadlessAdapter } from "./adapters/direct-process";
 import { createPaneAdapter } from "./adapters/herdr";
+import type { RunProcess } from "./command";
 import { createFakeAdapter } from "./testing/fake";
 
 const binding = {
@@ -63,7 +63,11 @@ const implementations: ReadonlyArray<{
   harness: string;
   create(): AgentSessionAdapter;
 }> = [
-  { name: "fake", harness: "fake", create: () => createFakeAdapter({ script: () => ({ sessionRef: "native-1" }) }) },
+  {
+    name: "fake",
+    harness: "fake",
+    create: () => createFakeAdapter({ script: () => ({ sessionRef: "native-1" }) }),
+  },
   { name: "headless", harness: "claude", create: headless },
   { name: "pane", harness: "claude", create: pane },
 ];

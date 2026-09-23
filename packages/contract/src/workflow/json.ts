@@ -22,8 +22,11 @@ function isJsonValueAt(value: unknown, ancestors: Set<object>): value is JsonVal
         if (key === "length") return true;
         if (!isArrayIndex(key)) return false;
         const descriptor = Object.getOwnPropertyDescriptor(value, key);
-        return descriptor?.enumerable === true && "value" in descriptor &&
-          isJsonValueAt(descriptor.value, ancestors);
+        return (
+          descriptor?.enumerable === true &&
+          "value" in descriptor &&
+          isJsonValueAt(descriptor.value, ancestors)
+        );
       });
     }
     const prototype = Object.getPrototypeOf(value);
@@ -31,8 +34,11 @@ function isJsonValueAt(value: unknown, ancestors: Set<object>): value is JsonVal
     return Reflect.ownKeys(value).every((key) => {
       if (typeof key !== "string") return false;
       const descriptor = Object.getOwnPropertyDescriptor(value, key);
-      return descriptor?.enumerable === true && "value" in descriptor &&
-        isJsonValueAt(descriptor.value, ancestors);
+      return (
+        descriptor?.enumerable === true &&
+        "value" in descriptor &&
+        isJsonValueAt(descriptor.value, ancestors)
+      );
     });
   } catch {
     return false;
@@ -57,10 +63,12 @@ function isArrayIndex(key: PropertyKey): boolean {
  * object literal written at this type, so without an index signature to land in, a schema written
  * inline — `{ type: "object", properties: … }` — is rejected for every keyword it names.
  */
-export type OutputSchema<Output extends JsonValue = JsonValue> = object & {
-  /** Type-only carrier for structurally compatible schema libraries. */
-  readonly "~output"?: Output;
-} | {
-  readonly [keyword: string]: unknown;
-  readonly "~output"?: Output;
-};
+export type OutputSchema<Output extends JsonValue = JsonValue> =
+  | (object & {
+      /** Type-only carrier for structurally compatible schema libraries. */
+      readonly "~output"?: Output;
+    })
+  | {
+      readonly [keyword: string]: unknown;
+      readonly "~output"?: Output;
+    };

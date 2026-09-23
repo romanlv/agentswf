@@ -7,7 +7,11 @@ test("child processes inherit no stale run binding", async () => {
   for (const name of names) process.env[name] = `stale-${name}`;
   try {
     const result = await runProcess({
-      argv: [process.execPath, "-e", "console.log(JSON.stringify([process.env.WF_RUN, process.env.WF_CALL]))"],
+      argv: [
+        process.execPath,
+        "-e",
+        "console.log(JSON.stringify([process.env.WF_RUN, process.env.WF_CALL]))",
+      ],
       timeoutMs: 5_000,
     });
     expect(result.exitCode).toBe(0);

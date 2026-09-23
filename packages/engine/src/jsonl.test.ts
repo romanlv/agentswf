@@ -17,8 +17,9 @@ describe("JSONL persistence", () => {
 
     await Promise.all(records.map((record) => appendLine(path, JSON.stringify(record))));
 
-    expect((await readLines<typeof records[number]>(path)).sort((a, b) => a.index - b.index))
-      .toEqual(records);
+    expect(
+      (await readLines<(typeof records)[number]>(path)).sort((a, b) => a.index - b.index),
+    ).toEqual(records);
   });
 
   test("completes short writes and rejects zero progress", async () => {
@@ -38,7 +39,11 @@ describe("JSONL persistence", () => {
     ]);
     await expect(
       writeAll(
-        { async write(_bytes: Uint8Array) { return { bytesWritten: 0, buffer: _bytes }; } },
+        {
+          async write(_bytes: Uint8Array) {
+            return { bytesWritten: 0, buffer: _bytes };
+          },
+        },
         new Uint8Array(1),
       ),
     ).rejects.toThrow("no progress");

@@ -1,13 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import { FINDINGS_SCHEMA, VERDICT_SCHEMA } from "../examples/catalogue-review/schema";
+import { REVIEW_VERDICT_SCHEMA, WORK_UPDATE_SCHEMA } from "../examples/feature-delivery/schema";
 import { parseJsonSchema, validate } from "../packages/contract/src/schema";
-import {
-  FINDINGS_SCHEMA,
-  VERDICT_SCHEMA,
-} from "../examples/catalogue-review/schema";
-import {
-  REVIEW_VERDICT_SCHEMA,
-  WORK_UPDATE_SCHEMA,
-} from "../examples/feature-delivery/schema";
 
 describe("example workflow schemas", () => {
   test("every TypeBox schema stays inside the supported contract subset", () => {

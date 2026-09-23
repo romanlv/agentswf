@@ -23,11 +23,7 @@ async function appendCompleteLine(path: string, line: string): Promise<void> {
 }
 
 type AppendWriter = {
-  write(
-    bytes: Uint8Array,
-    offset: number,
-    length: number,
-  ): Promise<{ bytesWritten: number }>;
+  write(bytes: Uint8Array, offset: number, length: number): Promise<{ bytesWritten: number }>;
 };
 
 export async function writeAll(handle: AppendWriter, bytes: Uint8Array): Promise<void> {

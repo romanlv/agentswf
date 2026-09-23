@@ -1,7 +1,7 @@
 import {
   defineExecutableWorkflow,
-  isAnswered,
   type ExecutableWorkflow,
+  isAnswered,
   type RuntimeSelection,
   type TurnUsage,
   type WorkflowDefinition,
@@ -148,6 +148,7 @@ function parseReviewTarget(name: string, invocation: WorkflowInvocation): string
   if (invocation.argv.length > 1) throw new Error(`${name} accepts at most one target`);
   const target = invocation.argv[0] ?? ".";
   if (target.trim() === "") throw new Error("review target cannot be empty");
+  // biome-ignore lint/suspicious/noControlCharactersInRegex: rejecting control characters is the point
   if (/[\u0000-\u001f\u007f]/.test(target)) {
     throw new Error("review target cannot contain control characters");
   }
@@ -155,9 +156,10 @@ function parseReviewTarget(name: string, invocation: WorkflowInvocation): string
 }
 
 function instructionFor(lens: ReviewLens): string {
-  const lensInstruction = lens === "correctness"
-    ? "Find behavioral defects. Do not report style or architecture preferences."
-    : "Find changeability and clarity problems. Do not report behavioral defects.";
+  const lensInstruction =
+    lens === "correctness"
+      ? "Find behavioral defects. Do not report style or architecture preferences."
+      : "Find changeability and clarity problems. Do not report behavioral defects.";
   return `${lensInstruction} Perform the review yourself. Do not delegate, launch subagents, or create background agents.`;
 }
 

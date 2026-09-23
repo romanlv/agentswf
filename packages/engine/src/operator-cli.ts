@@ -4,9 +4,9 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import type { ExecutableWorkflow, JsonObject, JsonValue } from "@wf/contract/workflow";
-import { runWorkflow, WorkflowCancelledError } from "./workflow-runner";
-import { assertJsonValue, loadWorkflowFile } from "./workflow-loader";
 import { installOperatorRuntime, type OperatorRuntimeInstallation } from "./operator-runtime";
+import { assertJsonValue, loadWorkflowFile } from "./workflow-loader";
+import { runWorkflow, WorkflowCancelledError } from "./workflow-runner";
 
 const DEFAULT_TIMEOUT_MILLISECONDS = 30 * 60_000;
 
@@ -52,7 +52,7 @@ export async function runOperatorCli(
 
   const startedAt = (environment.now ?? Date.now)();
   const deadline = { unixMilliseconds: startedAt + command.timeoutMilliseconds };
-  let loaded;
+  let loaded: Awaited<ReturnType<typeof loadWorkflowFile>>;
   try {
     loaded = await loadWorkflowFile(command.workflowFile, command.cwd);
   } catch (error) {
@@ -60,7 +60,7 @@ export async function runOperatorCli(
     return 2;
   }
 
-  let args;
+  let args: JsonValue;
   try {
     args = loaded.executable.prepare({
       argv: command.workflowArgs,
@@ -144,7 +144,8 @@ export async function runOperatorCli(
         ? `awf: ${cancellation ? "run cancelled" : "run failed"}; artifacts retained under ${invocationRoot}: ${errorDetail(runError)}`
         : `awf: ${cancellation ? "run cancelled" : "run failed"}; artifacts were not created at ${invocationRoot}: ${errorDetail(runError)}`,
     );
-    if (cleanupError !== undefined) stderr(`awf: runtime cleanup also failed: ${message(cleanupError)}`);
+    if (cleanupError !== undefined)
+      stderr(`awf: runtime cleanup also failed: ${message(cleanupError)}`);
     if (cancellation) {
       return cancellation.reason === "SIGTERM" ? 143 : 130;
     }

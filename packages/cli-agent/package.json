@@ -3,7 +3,9 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "bin": { "wf": "./src/cli.ts" },
+  "bin": {
+    "wf": "./src/cli.ts"
+  },
   "dependencies": {
     "@wf/contract": "workspace:*"
   }

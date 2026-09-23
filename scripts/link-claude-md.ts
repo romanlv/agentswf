@@ -6,9 +6,10 @@
  *
  * Idempotent: an existing `CLAUDE.md` is never replaced, whatever it is.
  */
-import { Glob } from "bun";
-import { dirname, join, relative } from "node:path";
+
 import { lstat, readlink, symlink } from "node:fs/promises";
+import { dirname, join, relative } from "node:path";
+import { Glob } from "bun";
 
 const ROOT = join(import.meta.dir, "..");
 

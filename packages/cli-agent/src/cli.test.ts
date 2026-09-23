@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import {
-  WIRE_VERSION,
   type ResultSubmitRequest,
   type ResultSubmitResponse,
+  WIRE_VERSION,
 } from "@wf/contract/wire";
 import { readBoundedStdin, readCliStdin, runCli } from "./cli";
 

@@ -1,8 +1,8 @@
 import { afterAll, describe, expect, test } from "bun:test";
-import { createTempRunDirs } from "./testing";
-import { readAccepted, writeAcceptedExclusive } from "./run-dir";
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
+import { readAccepted, writeAcceptedExclusive } from "./run-dir";
+import { createTempRunDirs } from "./testing";
 
 const runDirs = createTempRunDirs();
 const { tempRunDir } = runDirs;
@@ -29,6 +29,6 @@ describe("writeAcceptedExclusive", () => {
     expect(claims.filter(Boolean)).toHaveLength(1);
     const accepted = await readAccepted(runDir, "c1");
     expect(accepted).not.toBeNull();
-    expect(claims[Number((accepted?.value as { n: number }).n)]).toBe(true);
+    expect(claims[Number((accepted!.value as { n: number }).n)]).toBe(true);
   });
 });

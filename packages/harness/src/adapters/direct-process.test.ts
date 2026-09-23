@@ -43,7 +43,10 @@ describe("createDirectProcessAdapter", () => {
 
   test("the transcript is what the agent said, not the harness envelope", async () => {
     const { run } = stub([claudeOut("the count is 3")]);
-    const session = await createDirectProcessAdapter({ turnTimeoutMs: 1_000 }, run).open(STEP, CALL);
+    const session = await createDirectProcessAdapter({ turnTimeoutMs: 1_000 }, run).open(
+      STEP,
+      CALL,
+    );
 
     await session.prompt("go");
 
@@ -60,7 +63,10 @@ describe("createDirectProcessAdapter", () => {
         usage: { input_tokens: 2, output_tokens: 7 },
       }),
     ]);
-    const session = await createDirectProcessAdapter({ turnTimeoutMs: 1_000 }, run).open(STEP, CALL);
+    const session = await createDirectProcessAdapter({ turnTimeoutMs: 1_000 }, run).open(
+      STEP,
+      CALL,
+    );
 
     await session.prompt("go");
     const second = await session.prompt("again");
@@ -78,7 +84,10 @@ describe("createDirectProcessAdapter", () => {
       exitCode: 1,
       timedOut: false,
     });
-    const session = await createDirectProcessAdapter({ turnTimeoutMs: 1_000 }, run).open(STEP, CALL);
+    const session = await createDirectProcessAdapter({ turnTimeoutMs: 1_000 }, run).open(
+      STEP,
+      CALL,
+    );
 
     expect(await session.prompt("go")).toMatchObject({
       state: "unknown",
@@ -93,7 +102,10 @@ describe("createDirectProcessAdapter", () => {
       exitCode: 137,
       timedOut: true,
     });
-    const session = await createDirectProcessAdapter({ turnTimeoutMs: 1_000 }, run).open(STEP, CALL);
+    const session = await createDirectProcessAdapter({ turnTimeoutMs: 1_000 }, run).open(
+      STEP,
+      CALL,
+    );
 
     expect(await session.prompt("go")).toMatchObject({
       state: "unknown",

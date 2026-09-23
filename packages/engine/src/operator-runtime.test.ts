@@ -45,14 +45,18 @@ describe("operator runtime", () => {
     };
     await expect(
       installOperatorRuntime(60_000, run, { OPENAI_API_KEY: "metered" }),
-    ).rejects.toThrow("subscription runtime refused metered credential environment: OPENAI_API_KEY");
+    ).rejects.toThrow(
+      "subscription runtime refused metered credential environment: OPENAI_API_KEY",
+    );
     expect(calls).toBe(0);
   });
 
   test("requires persisted subscription authentication", async () => {
     const run: RunProcess = async (input) =>
       input.argv[0] === "claude"
-        ? success(JSON.stringify({ loggedIn: true, authMethod: "apiKey", apiProvider: "firstParty" }))
+        ? success(
+            JSON.stringify({ loggedIn: true, authMethod: "apiKey", apiProvider: "firstParty" }),
+          )
         : success("Logged in using ChatGPT");
     await expect(installOperatorRuntime(60_000, run, {})).rejects.toThrow(
       "Claude subscription authentication is required",
@@ -118,13 +122,15 @@ function subscriptionRunner(calls: ProcessInput[]): RunProcess {
       return success("Logged in using ChatGPT");
     }
     if (input.argv.slice(3, 5).join(" ") === "workspace create") {
-      return success(JSON.stringify({
-        result: {
-          workspace: { workspace_id: "w1" },
-          tab: { tab_id: "w1:t1" },
-          root_pane: { pane_id: "w1:p1" },
-        },
-      }));
+      return success(
+        JSON.stringify({
+          result: {
+            workspace: { workspace_id: "w1" },
+            tab: { tab_id: "w1:t1" },
+            root_pane: { pane_id: "w1:p1" },
+          },
+        }),
+      );
     }
     if (input.argv.slice(3, 5).join(" ") === "workspace close") {
       return success(JSON.stringify({ result: {} }));

@@ -191,7 +191,7 @@ export function createFakeHerdr(options: FakeHerdrOptions = {}): FakeHerdr {
         if (!agent) return fail("agent_not_found", `agent ${target} not found`);
         const block = agent.blocks[0];
         const current =
-          block === undefined ? "ready" : SCREENS[agent.kind]?.[block] ?? "unknown block";
+          block === undefined ? "ready" : (SCREENS[agent.kind]?.[block] ?? "unknown block");
         // A pane does not repaint an answered block away on its own, so the live one is below it.
         const screen = [...agent.answeredScreens, current].join(" ");
         return {

@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { createConnection } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { WIRE_VERSION, type ResultSubmitResponse } from "@wf/contract/wire";
+import { type ResultSubmitResponse, WIRE_VERSION } from "@wf/contract/wire";
 
 export function createTempRunDirs(): {
   tempRunDir(): string;

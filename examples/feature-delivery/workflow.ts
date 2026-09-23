@@ -1,16 +1,12 @@
 import {
-  isAnswered,
   type AgentRef,
+  isAnswered,
   type RuntimeSelection,
   type TurnUsage,
   type WorkflowContext,
   type WorkflowDefinition,
 } from "@wf/contract/workflow";
-import {
-  reviewPrompt,
-  revisionPrompt,
-  type ReviewSubject,
-} from "./prompts";
+import { type ReviewSubject, reviewPrompt, revisionPrompt } from "./prompts";
 import {
   REVIEW_VERDICT_SCHEMA,
   type ReviewVerdict,
@@ -20,14 +16,16 @@ import {
 
 const ROLE_CONFIG = {
   planner: {
-    instructions: "Own the ticket document. Verify current behavior and keep the document implementation-ready.",
+    instructions:
+      "Own the ticket document. Verify current behavior and keep the document implementation-ready.",
     skills: ["ticket-doc"],
   },
   implementer: {
     instructions: "Implement the approved ticket doc and keep it current as the decision record.",
   },
   reviewer: {
-    instructions: "Gate both the ticket doc and implementation. Be specific when requesting changes.",
+    instructions:
+      "Gate both the ticket doc and implementation. Be specific when requesting changes.",
   },
 } satisfies Record<string, { instructions: string; skills?: string[] }>;
 
@@ -109,10 +107,7 @@ async function deliverFeature(
   const reviewer = await openFeatureAgent(workflow, args, "reviewer");
 
   if (reviewer.execution.model === planner.execution.model) {
-    return deferred(
-      "doc-review",
-      "The planner and primary reviewer must use different models",
-    );
+    return deferred("doc-review", "The planner and primary reviewer must use different models");
   }
 
   const planned = await planner.run({
@@ -124,13 +119,10 @@ async function deliverFeature(
     return deferred("ticket-doc", planned.outcome.reason);
   }
 
-  const docReview = await reviewUntilReady(
-    reviewer,
-    planner,
-    planned.outcome.value,
-    maxRevisions,
-    { kind: "ticket-doc", ticket: args.ticket },
-  );
+  const docReview = await reviewUntilReady(reviewer, planner, planned.outcome.value, maxRevisions, {
+    kind: "ticket-doc",
+    ticket: args.ticket,
+  });
   if (docReview.kind === "deferred") {
     return deferred("doc-review", docReview.reason, docReview.work.docPath);
   }
@@ -224,11 +216,7 @@ async function deliverFeature(
       { kind: "implementation", focus: additionalFeedback },
     );
     if (finalReview.kind === "deferred") {
-      return deferred(
-        "implementation-review",
-        finalReview.reason,
-        finalReview.work.docPath,
-      );
+      return deferred("implementation-review", finalReview.reason, finalReview.work.docPath);
     }
   }
 
@@ -307,7 +295,8 @@ async function reviewWithAdditionalAgents(
     async (candidate) => {
       const reviewer = await workflow.agents.open({
         key: `additional-reviewer:${candidate.name}`,
-        instructions: "Independently review the implementation. Do not defer judgment to prior reviewers.",
+        instructions:
+          "Independently review the implementation. Do not defer judgment to prior reviewers.",
         runtime: candidate.runtime,
         labels: { role: "additional-reviewer", reviewer: candidate.name },
       });
@@ -316,10 +305,9 @@ async function reviewWithAdditionalAgents(
         prompt: `Review the implementation described by ${work.docPath}. Inspect the actual changes.`,
         schema: REVIEW_VERDICT_SCHEMA,
       });
-      const verdict: ReviewVerdict =
-        isAnswered(outcome)
-          ? outcome.value
-          : { kind: "inconclusive", reason: outcome.reason };
+      const verdict: ReviewVerdict = isAnswered(outcome)
+        ? outcome.value
+        : { kind: "inconclusive", reason: outcome.reason };
 
       return {
         reviewer: candidate.name,
@@ -330,11 +318,7 @@ async function reviewWithAdditionalAgents(
   );
 }
 
-function openFeatureAgent(
-  workflow: WorkflowContext,
-  args: FeatureArgs,
-  role: PrimaryRole,
-) {
+function openFeatureAgent(workflow: WorkflowContext, args: FeatureArgs, role: PrimaryRole) {
   const config = ROLE_CONFIG[role];
   return workflow.agents.open({
     key: role,
@@ -345,11 +329,7 @@ function openFeatureAgent(
   });
 }
 
-function deferred(
-  stage: Stage,
-  reason: string,
-  docPath?: string,
-): FeatureOutcome {
+function deferred(stage: Stage, reason: string, docPath?: string): FeatureOutcome {
   return docPath
     ? { kind: "deferred", stage, reason, docPath }
     : { kind: "deferred", stage, reason };

@@ -1,9 +1,9 @@
 import type {
+  AbsoluteDeadline,
   AgentExecution,
   AgentKey,
   AgentStructuredTurnSpec,
   AgentTextTurnSpec,
-  AbsoluteDeadline,
   CompactionId,
   HarnessKind,
   JsonObject,
@@ -47,9 +47,7 @@ export type HarnessOperationBinding = {
   operationId: string;
 };
 
-export type HarnessResultEvidence =
-  | { kind: "transcript"; text: string }
-  | { kind: "unavailable" };
+export type HarnessResultEvidence = { kind: "transcript"; text: string } | { kind: "unavailable" };
 
 export type HarnessTurnOutcome = {
   state: "completed" | "blocked" | "timed-out" | "failed" | "cancelled";

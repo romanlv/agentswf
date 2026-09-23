@@ -1,11 +1,17 @@
 import { afterAll, describe, expect, test } from "bun:test";
+import {
+  type AcceptedReview,
+  createMinimumReview,
+  type MinimumReviewArgs,
+  type ReviewLens,
+} from "../examples/minimum-review/workflow";
+import type { ResultSubmitResponse } from "../packages/contract/src/wire";
 import type {
   AgentStructuredTurnSpec,
   AgentTextTurnSpec,
   JsonObject,
   JsonValue,
 } from "../packages/contract/src/workflow";
-import type { ResultSubmitResponse } from "../packages/contract/src/wire";
 import { runWorkflow } from "../packages/engine/src";
 import { createTempRunDirs, future, submit } from "../packages/engine/src/testing";
 import type {
@@ -15,14 +21,8 @@ import type {
   HarnessOperationBinding,
   HarnessSession,
 } from "../packages/harness/src/adapter";
-import { createFakeAdapter } from "../packages/harness/src/testing/fake";
 import { createSingleSessionHostFactory } from "../packages/harness/src/single-session-host";
-import {
-  type AcceptedReview,
-  createMinimumReview,
-  type MinimumReviewArgs,
-  type ReviewLens,
-} from "../examples/minimum-review/workflow";
+import { createFakeAdapter } from "../packages/harness/src/testing/fake";
 
 const runDirs = createTempRunDirs();
 const { tempRunDir } = runDirs;

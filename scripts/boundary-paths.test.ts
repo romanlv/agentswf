@@ -11,13 +11,13 @@ describe("boundary path resolution", () => {
   test("distinguishes internal imports from relative, absolute and file-URL escapes", () => {
     const packageDirectory = "/repo/packages/cli-agent";
     const source = join(packageDirectory, "src/cli.ts");
-    const escape = "/repo/packages/engine/src/run-dir";
+    const escaped = "/repo/packages/engine/src/run-dir";
 
     expect(escapedPathImport(packageDirectory, source, "./client")).toBeNull();
     expect(escapedPathImport(packageDirectory, source, "@wf/contract")).toBeNull();
-    expect(escapedPathImport(packageDirectory, source, "../../engine/src/run-dir")).toBe(escape);
-    expect(escapedPathImport(packageDirectory, source, escape)).toBe(escape);
-    expect(escapedPathImport(packageDirectory, source, `file://${escape}`)).toBe(escape);
+    expect(escapedPathImport(packageDirectory, source, "../../engine/src/run-dir")).toBe(escaped);
+    expect(escapedPathImport(packageDirectory, source, escaped)).toBe(escaped);
+    expect(escapedPathImport(packageDirectory, source, `file://${escaped}`)).toBe(escaped);
   });
 
   test("the dependency scan includes the top-level examples package", async () => {

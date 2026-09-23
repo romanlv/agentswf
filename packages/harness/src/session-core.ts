@@ -1,8 +1,8 @@
 import {
-  DeadlineExceededError,
+  type AbsoluteDeadline,
   type AgentStructuredTurnSpec,
   type AgentTextTurnSpec,
-  type AbsoluteDeadline,
+  DeadlineExceededError,
   type HarnessKind,
   type JsonValue,
 } from "@wf/contract/workflow";
@@ -64,9 +64,7 @@ export function createSessionAdapter(options: {
     async activate(request) {
       assertDeadline(request.deadline, now);
       if (!options.harnesses.includes(request.execution.harness)) {
-        throw new Error(
-          `adapter does not support harness ${request.execution.harness}`,
-        );
+        throw new Error(`adapter does not support harness ${request.execution.harness}`);
       }
       const native = await options.activate(request);
       if (expired(request.deadline, now)) {
@@ -107,22 +105,25 @@ function createSession(
     lastStatus = { state: "working" };
     const settled = native
       .execute({ ...request, ...(sessionRef ? { previousSessionRef: sessionRef } : {}) })
-      .catch((error): NativeTurnOutcome => ({
-        state: "failed",
-        detail: reasonOf(error),
-        resultEvidence: { kind: "unavailable" },
-        nativeUsage: [],
-      }))
-      .then((outcome): NativeTurnOutcome =>
-        expired(request.deadline, now) &&
-        outcome.state !== "cancelled" &&
-        outcome.state !== "timed-out"
-          ? {
-              ...outcome,
-              state: "timed-out",
-              detail: "operation completed after its deadline",
-            }
-          : outcome,
+      .catch(
+        (error): NativeTurnOutcome => ({
+          state: "failed",
+          detail: reasonOf(error),
+          resultEvidence: { kind: "unavailable" },
+          nativeUsage: [],
+        }),
+      )
+      .then(
+        (outcome): NativeTurnOutcome =>
+          expired(request.deadline, now) &&
+          outcome.state !== "cancelled" &&
+          outcome.state !== "timed-out"
+            ? {
+                ...outcome,
+                state: "timed-out",
+                detail: "operation completed after its deadline",
+              }
+            : outcome,
       )
       .then((outcome) => {
         if (outcome.state === "completed" && outcome.sessionRef) {

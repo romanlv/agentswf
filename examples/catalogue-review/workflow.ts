@@ -1,7 +1,7 @@
 import {
   defineExecutableWorkflow,
-  isAnswered,
   type ExecutableWorkflow,
+  isAnswered,
   type RuntimeSelection,
   type TurnUsage,
   type WorkflowContext,
@@ -133,9 +133,7 @@ function selectVerificationCandidates(
     candidates.push(...ranked.slice(0, verificationLimit));
     unchecked.push(...ranked.slice(verificationLimit).map(notVerified));
     if (ranked.length > verificationLimit) {
-      workflow.log(
-        `${result.lens.id}: ${ranked.length - verificationLimit} findings not verified`,
-      );
+      workflow.log(`${result.lens.id}: ${ranked.length - verificationLimit} findings not verified`);
     }
   }
   return { candidates, unchecked };
@@ -336,6 +334,7 @@ function parseCatalogueArgs(
     }
     if (!value) throw new Error(`${name}: ${option} needs a value`);
     if (option === "--range") {
+      // biome-ignore lint/suspicious/noControlCharactersInRegex: rejecting control characters is the point
       if (/[\u0000-\u001f\u007f]/.test(value)) throw new Error(`${name}: invalid range`);
       range = value;
     } else {
@@ -355,10 +354,7 @@ function parseCatalogueArgs(
   return { range, lenses, named };
 }
 
-function selectLenses(
-  lenses: Lens[],
-  changed: string[],
-): { lenses: Lens[]; skipped: string[] } {
+function selectLenses(lenses: Lens[], changed: string[]): { lenses: Lens[]; skipped: string[] } {
   const applies = (lens: Lens) =>
     !lens.paths || changed.some((path) => matchesAny(path, lens.paths!));
   return {

@@ -1,8 +1,4 @@
-import type {
-  AgentSessionAdapter,
-  HarnessActivation,
-  HarnessOperationBinding,
-} from "../adapter";
+import type { AgentSessionAdapter, HarnessActivation, HarnessOperationBinding } from "../adapter";
 import { createSessionAdapter } from "../session-core";
 import type { TurnUsage } from "../spec";
 import type {
@@ -188,7 +184,7 @@ export function createFakeAdapter(options: {
             await scripted.act?.(context);
             options.clock?.advance(scripted.durationMs ?? 0);
             return {
-              state: controller.signal.aborted ? "cancelled" : scripted.state ?? "completed",
+              state: controller.signal.aborted ? "cancelled" : (scripted.state ?? "completed"),
               ...(controller.signal.aborted
                 ? { detail: "fake operation cancelled" }
                 : scripted.detail

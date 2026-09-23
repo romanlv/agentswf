@@ -22,9 +22,7 @@ import { outcomeStatus } from "./session-core";
  * ordered cleanup, with no topology of its own. The Herdr run host wraps its own adapter in this
  * rather than repeating that bookkeeping.
  */
-export function createSingleSessionHostFactory(
-  adapter: AgentSessionAdapter,
-): AgentRunHostFactory {
+export function createSingleSessionHostFactory(adapter: AgentSessionAdapter): AgentRunHostFactory {
   return {
     async openRun() {
       const sessions = new Map<string, HarnessSession>();

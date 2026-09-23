@@ -1,16 +1,19 @@
 import { afterAll, describe, expect, test } from "bun:test";
-import type { AgentRuntimeConfig, AgentSessionAdapter } from "../packages/harness/src/adapter";
-import { runWorkflow } from "../packages/engine/src";
-import { createTempRunDirs, future, submit } from "../packages/engine/src/testing";
-import { createFakeAdapter } from "../packages/harness/src/testing/fake";
-import { createSingleSessionHostFactory } from "../packages/harness/src/single-session-host";
+import { matchesAny } from "../examples/catalogue-review/paths";
+import {
+  presentCatalogueResult,
+  reportCatalogueResult,
+} from "../examples/catalogue-review/present";
 import {
   type CatalogueResult,
   defineCatalogueReview,
   type Lens,
 } from "../examples/catalogue-review/workflow";
-import { presentCatalogueResult, reportCatalogueResult } from "../examples/catalogue-review/present";
-import { matchesAny } from "../examples/catalogue-review/paths";
+import { runWorkflow } from "../packages/engine/src";
+import { createTempRunDirs, future, submit } from "../packages/engine/src/testing";
+import type { AgentRuntimeConfig, AgentSessionAdapter } from "../packages/harness/src/adapter";
+import { createSingleSessionHostFactory } from "../packages/harness/src/single-session-host";
+import { createFakeAdapter } from "../packages/harness/src/testing/fake";
 
 const runDirs = createTempRunDirs();
 afterAll(() => runDirs.cleanup());
@@ -110,15 +113,23 @@ describe("catalogue review entry point", () => {
       maxVerifyPerLens: 1,
     });
 
-    const result = await runWorkflow(judged.definition, judged.prepare({ argv: [], cwd: "/repo" }), {
-      runRoot: runDirs.tempRunDir(),
-      runtime: runtime(adapter),
-      deadline: future(),
-      cwd: "/repo",
-    });
+    const result = await runWorkflow(
+      judged.definition,
+      judged.prepare({ argv: [], cwd: "/repo" }),
+      {
+        runRoot: runDirs.tempRunDir(),
+        runtime: runtime(adapter),
+        deadline: future(),
+        cwd: "/repo",
+      },
+    );
 
     expect(
-      result.value.findings.map((finding) => [finding.lens, finding.line, finding.verification.kind]),
+      result.value.findings.map((finding) => [
+        finding.lens,
+        finding.line,
+        finding.verification.kind,
+      ]),
     ).toEqual([
       ["database", 2, "confirmed"],
       ["deploys", 5, "confirmed"],
@@ -303,7 +314,15 @@ describe("catalogue review report", () => {
       range: "A...B",
       lenses: ["database"],
       skipped: [],
-      findings: [{ ...finding, severity: "issue", file: "a.sql", claim, verification: { kind: "not-checked" } }],
+      findings: [
+        {
+          ...finding,
+          severity: "issue",
+          file: "a.sql",
+          claim,
+          verification: { kind: "not-checked" },
+        },
+      ],
       failures: [],
       usage: [],
     });

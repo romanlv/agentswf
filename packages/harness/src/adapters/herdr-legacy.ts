@@ -1,22 +1,22 @@
 import { randomUUID } from "node:crypto";
 import type { AgentSessionAdapter, HarnessActivation } from "../adapter";
-import { runProcess, type RunProcess } from "../command";
+import { type RunProcess, runProcess } from "../command";
 import { createLegacyDriver } from "../legacy-driver";
-import { createSessionAdapter, type ActivatedSessionBackend } from "../session-core";
+import { type ActivatedSessionBackend, createSessionAdapter } from "../session-core";
 import { HARNESS_NAMES, harnessSpec, knownHarness } from "../spec";
 import type { AgentSessionDriver, CallIdentity } from "../types";
 import { createHerdrCommands, type HerdrConfig } from "./herdr";
 import {
   emptyEnvironmentArgs,
-  herdrFailure,
   HERDR_REPORT_GRACE_MS,
+  type HerdrCommand,
+  herdrFailure,
   readId,
   readPaneId,
   readSessionRef,
   record,
   safeAgentName,
   settledOutcome,
-  type HerdrCommand,
 } from "./herdr-protocol";
 
 /** A workspace per call, closed after. Every harness flag it passes through is in `spec.ts`. */

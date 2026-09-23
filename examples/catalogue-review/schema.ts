@@ -16,10 +16,7 @@ const RAW_FINDING_SCHEMA = Type.Object(
 );
 
 export const FINDINGS_SCHEMA = outputSchema(
-  Type.Object(
-    { findings: Type.Array(RAW_FINDING_SCHEMA) },
-    { additionalProperties: false },
-  ),
+  Type.Object({ findings: Type.Array(RAW_FINDING_SCHEMA) }, { additionalProperties: false }),
 );
 
 export const VERDICT_SCHEMA = outputSchema(

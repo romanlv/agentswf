@@ -4,8 +4,8 @@ import { join } from "node:path";
 import { runOperatorCli } from "../packages/engine/src/operator-cli";
 import { createTempRunDirs, submit } from "../packages/engine/src/testing";
 import type { AgentRuntimeConfig, AgentSessionAdapter } from "../packages/harness/src/adapter";
-import { createFakeAdapter } from "../packages/harness/src/testing/fake";
 import { createSingleSessionHostFactory } from "../packages/harness/src/single-session-host";
+import { createFakeAdapter } from "../packages/harness/src/testing/fake";
 
 const ROOT = join(import.meta.dir, "..");
 const runDirs = createTempRunDirs();
@@ -23,9 +23,10 @@ describe("awf run", () => {
           await submit(context.binding!, {
             lens,
             summary: `${lens} complete`,
-            findings: lens === "correctness"
-              ? [{ severity: "blocking", summary: "broken", evidence: "line 1" }]
-              : [],
+            findings:
+              lens === "correctness"
+                ? [{ severity: "blocking", summary: "broken", evidence: "line 1" }]
+                : [],
           });
         },
       }),
@@ -128,8 +129,14 @@ describe("awf run", () => {
     const nonJsonArguments = join(root, "invalid-arguments.js");
     await Bun.write(nonJsonArguments, executableModule("return new Date();", "return null;"));
     const cases = [
-      { argv: ["run", "--timeout", "forever", "examples/minimum-review/review-loop.ts"], text: "invalid duration" },
-      { argv: ["run", "examples/minimum-review/review-loop.ts", "target"], text: "put -- before workflow arguments" },
+      {
+        argv: ["run", "--timeout", "forever", "examples/minimum-review/review-loop.ts"],
+        text: "invalid duration",
+      },
+      {
+        argv: ["run", "examples/minimum-review/review-loop.ts", "target"],
+        text: "put -- before workflow arguments",
+      },
       { argv: ["run", "missing-workflow.ts"], text: "workflow file not found" },
       {
         argv: ["run", "examples/minimum-review/review-loop.ts", "--", "one", "two"],
@@ -209,7 +216,9 @@ describe("awf run", () => {
     });
     expect(bodyExit).toBe(1);
     expect(bodyErrors.join("\n")).toContain("body broke");
-    expect(existsSync(join(retainedRunDir(retainedRoot(bodyErrors.join("\n"))), "calls"))).toBe(true);
+    expect(existsSync(join(retainedRunDir(retainedRoot(bodyErrors.join("\n"))), "calls"))).toBe(
+      true,
+    );
   });
 
   test("without flags, a run gets 30 minutes and keeps its artifacts out of the working directory", async () => {
@@ -246,16 +255,20 @@ describe("awf run", () => {
       executableModule(
         "return null;",
         "return { total: 2 };",
+        // biome-ignore lint/suspicious/noTemplateCurlyInString: workflow source text
         "present(result) { return `total ${result.total}`; }, report(result) { return `# ${result.total} found`; },",
       ),
     );
     const invoke = async (...flags: string[]) => {
       const output: string[] = [];
-      const exitCode = await runOperatorCli(["run", "--run-root", runDirs.tempRunDir(), ...flags, workflow], {
-        cwd: ROOT,
-        stdout: (text) => output.push(text),
-        installRuntime: emptyRuntime,
-      });
+      const exitCode = await runOperatorCli(
+        ["run", "--run-root", runDirs.tempRunDir(), ...flags, workflow],
+        {
+          cwd: ROOT,
+          stdout: (text) => output.push(text),
+          installRuntime: emptyRuntime,
+        },
+      );
       expect(exitCode).toBe(0);
       return output.join("\n");
     };
@@ -266,7 +279,9 @@ describe("awf run", () => {
     const artifacts = artifactsLine!.replace("Full result and agent records: ", "");
     expect(reportLine).toBe(`Report: ${join(artifacts, "report.md")}`);
     expect(readFileSync(join(artifacts, "report.md"), "utf8")).toBe("# 2 found\n");
-    expect(JSON.parse(readFileSync(join(artifacts, "output.json"), "utf8")).value).toEqual({ total: 2 });
+    expect(JSON.parse(readFileSync(join(artifacts, "output.json"), "utf8")).value).toEqual({
+      total: 2,
+    });
 
     const json = JSON.parse(await invoke("--json"));
     expect(json.value).toEqual({ total: 2 });
@@ -359,20 +374,28 @@ describe("awf run", () => {
     const adapter = createFakeAdapter({
       harnesses: ["claude", "codex"],
       script: () => ({
-        act: (context) => new Promise<void>((resolve) => {
-          if (context.signal.aborted) {
-            resolve();
-            return;
-          }
-          context.signal.addEventListener("abort", () => resolve(), { once: true });
-        }),
+        act: (context) =>
+          new Promise<void>((resolve) => {
+            if (context.signal.aborted) {
+              resolve();
+              return;
+            }
+            context.signal.addEventListener("abort", () => resolve(), { once: true });
+          }),
       }),
     });
     const controller = new AbortController();
     let cleaned = 0;
     const errors: string[] = [];
     const running = runOperatorCli(
-      ["run", "--timeout", "1s", "--run-root", runDirs.tempRunDir(), "examples/minimum-review/review-loop.ts"],
+      [
+        "run",
+        "--timeout",
+        "1s",
+        "--run-root",
+        runDirs.tempRunDir(),
+        "examples/minimum-review/review-loop.ts",
+      ],
       {
         cwd: ROOT,
         signal: controller.signal,
@@ -398,10 +421,11 @@ describe("awf run", () => {
     const base = createFakeAdapter({
       harnesses: ["claude", "codex"],
       script: () => ({
-        act: (context) => new Promise<void>((resolve) => {
-          if (context.signal.aborted) return resolve();
-          context.signal.addEventListener("abort", () => resolve(), { once: true });
-        }),
+        act: (context) =>
+          new Promise<void>((resolve) => {
+            if (context.signal.aborted) return resolve();
+            context.signal.addEventListener("abort", () => resolve(), { once: true });
+          }),
       }),
     });
     const failingClose: AgentSessionAdapter = {
@@ -421,7 +445,14 @@ describe("awf run", () => {
     const errors: string[] = [];
     let cleaned = 0;
     const running = runOperatorCli(
-      ["run", "--timeout", "1s", "--run-root", runDirs.tempRunDir(), "examples/minimum-review/review-loop.ts"],
+      [
+        "run",
+        "--timeout",
+        "1s",
+        "--run-root",
+        runDirs.tempRunDir(),
+        "examples/minimum-review/review-loop.ts",
+      ],
       {
         cwd: ROOT,
         signal: controller.signal,

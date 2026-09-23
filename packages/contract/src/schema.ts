@@ -96,7 +96,8 @@ export function parseJsonSchema(value: unknown): JsonSchema {
       if (
         value.additionalProperties !== undefined &&
         typeof value.additionalProperties !== "boolean"
-      ) invalid("additionalProperties");
+      )
+        invalid("additionalProperties");
       break;
     }
     default:
@@ -227,9 +228,7 @@ function check(schema: JsonSchema, value: unknown, path: string): SchemaError[] 
       for (const [key, item] of Object.entries(record)) {
         // Same reach, worse symptom: a value carrying a `toString` key would resolve to
         // Object.prototype.toString and be switched on as if it were a schema.
-        const property = Object.hasOwn(schema.properties, key)
-          ? schema.properties[key]
-          : undefined;
+        const property = Object.hasOwn(schema.properties, key) ? schema.properties[key] : undefined;
         if (!property) {
           if (schema.additionalProperties === false) {
             const known = Object.keys(schema.properties).map(quote).join(", ");

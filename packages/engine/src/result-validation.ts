@@ -44,4 +44,3 @@ export async function evaluateResult(
 function expectedShape(call: Pick<CallSpec, "schema">): string {
   return call.schema ? JSON.stringify(call.schema) : "any JSON value";
 }
-

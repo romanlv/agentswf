@@ -1,10 +1,10 @@
-import type { AgentRuntimeConfig } from "@wf/harness/adapter";
 import {
   createHerdrRunHostFactory,
-  runProcess,
   type ProcessInput,
   type RunProcess,
+  runProcess,
 } from "@wf/harness";
+import type { AgentRuntimeConfig } from "@wf/harness/adapter";
 
 export type OperatorRuntimeInstallation = {
   config: AgentRuntimeConfig;
@@ -75,9 +75,7 @@ async function assertSubscriptionAuthentication(
   run: RunProcess,
   environment: Readonly<Record<string, string | undefined>>,
 ): Promise<void> {
-  const configured = METERED_CREDENTIAL_ENVIRONMENT.filter(
-    (name) => environment[name]?.trim(),
-  );
+  const configured = METERED_CREDENTIAL_ENVIRONMENT.filter((name) => environment[name]?.trim());
   if (configured.length > 0) {
     throw new Error(
       `subscription runtime refused metered credential environment: ${configured.join(", ")}`,

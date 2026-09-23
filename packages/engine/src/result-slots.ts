@@ -1,8 +1,8 @@
 import { acceptAny, type SemanticCheck } from "@wf/contract";
 import type { AttemptSource } from "@wf/contract/records";
 import type { JsonSchema } from "@wf/contract/schema";
-import type { AbsoluteDeadline } from "@wf/contract/workflow";
 import type { ResultSubmitCode } from "@wf/contract/wire";
+import type { AbsoluteDeadline } from "@wf/contract/workflow";
 import { evaluateResult } from "./result-validation";
 import { recordAttempt, writeAcceptedExclusive, writeCall } from "./run-dir";
 
@@ -22,10 +22,7 @@ export type ResultSubmission =
   | ResultSlotAccepted
   | { kind: "rejected"; code: ResultRejectionCode; error: string };
 
-export type ResultSlotSettlement =
-  | ResultSlotAccepted
-  | { kind: "closed" }
-  | { kind: "expired" };
+export type ResultSlotSettlement = ResultSlotAccepted | { kind: "closed" } | { kind: "expired" };
 
 export type ResultSlotBinding = {
   operationId: string;
@@ -78,9 +75,7 @@ type Slot = ResultSlotSpec & {
   tail: Promise<void>;
 };
 
-export function createResultSlotRegistry(
-  options: ResultSlotRegistryOptions,
-): ResultSlotRegistry {
+export function createResultSlotRegistry(options: ResultSlotRegistryOptions): ResultSlotRegistry {
   const now = options.now ?? Date.now;
   const schedule = options.schedule ?? scheduleExpiry;
   const persistence = options.persistence ?? {

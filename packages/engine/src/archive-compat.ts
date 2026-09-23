@@ -3,9 +3,7 @@ import type { AttemptSource } from "@wf/contract/records";
 import { evaluateResult } from "./result-validation";
 import { readCall, recordAttempt, writeAcceptedExclusive } from "./run-dir";
 
-export type Acceptance =
-  | { kind: "accepted"; value: unknown }
-  | { kind: "rejected"; error: string };
+export type Acceptance = { kind: "accepted"; value: unknown } | { kind: "rejected"; error: string };
 
 /** Frozen E2/E5 compatibility. Production submission goes through the control plane. */
 export async function acceptResult(

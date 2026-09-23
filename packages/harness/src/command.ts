@@ -25,7 +25,13 @@ export type RunProcess = (input: ProcessInput) => Promise<ProcessResult>;
 /** A nonzero exit is a normal result, not a throw; the reason is on `stderr`. */
 export const runProcess: RunProcess = async ({ argv, cwd, env, stdin, timeoutMs, signal }) => {
   if (signal?.aborted) {
-    return { stdout: "", stderr: "process cancelled", exitCode: 130, timedOut: false, cancelled: true };
+    return {
+      stdout: "",
+      stderr: "process cancelled",
+      exitCode: 130,
+      timedOut: false,
+      cancelled: true,
+    };
   }
   let child: Bun.Subprocess<"ignore", "pipe", "pipe">;
   try {
@@ -71,7 +77,9 @@ export const runProcess: RunProcess = async ({ argv, cwd, env, stdin, timeoutMs,
  * `WF_RUN` and `WF_CALL` are the legacy driver's, and only for the process it sets them on. An
  * `awf` started from inside one would otherwise hand its own agents that run's directory.
  */
-function childEnvironment(env?: Record<string, string | undefined>): Record<string, string | undefined> {
+function childEnvironment(
+  env?: Record<string, string | undefined>,
+): Record<string, string | undefined> {
   const inherited = { ...process.env };
   delete inherited.WF_RUN;
   delete inherited.WF_CALL;

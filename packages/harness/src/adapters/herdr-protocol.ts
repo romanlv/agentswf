@@ -65,12 +65,17 @@ export function settledState(result: Record<string, unknown>): SettledState {
  * secret, but a record holding raw escape sequences restyles every terminal that later prints it.
  */
 export function readable(text: string): string {
-  // eslint-disable-next-line no-control-regex
-  return text.replace(ANSI_SEQUENCE, "").replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, "");
+  return (
+    text
+      .replace(ANSI_SEQUENCE, "")
+      // biome-ignore lint/suspicious/noControlCharactersInRegex: stripping control characters is the point
+      .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, "")
+  );
 }
 
-// eslint-disable-next-line no-control-regex
-export const ANSI_SEQUENCE = /\u001B\[[0-?]*[ -/]*[@-~]|\u001B\][^\u0007\u001B]*(?:\u0007|\u001B\\)|\u001B[@-Z\\-_]/g;
+export const ANSI_SEQUENCE =
+  // biome-ignore lint/suspicious/noControlCharactersInRegex: ANSI escape sequences start with ESC
+  /\u001B\[[0-?]*[ -/]*[@-~]|\u001B\][^\u0007\u001B]*(?:\u0007|\u001B\\)|\u001B[@-Z\\-_]/g;
 
 function herdrErrorCode(error: string): string | undefined {
   try {
@@ -151,10 +156,13 @@ export function herdrFailure(result: Extract<HerdrResult, { ok: false }>, remain
 export function abortableDelay(milliseconds: number, signal?: AbortSignal): Promise<boolean> {
   if (signal?.aborted) return Promise.resolve(false);
   return new Promise((resolve) => {
-    const timer = setTimeout(() => {
-      signal?.removeEventListener("abort", abort);
-      resolve(true);
-    }, Math.min(milliseconds, 2_147_483_647));
+    const timer = setTimeout(
+      () => {
+        signal?.removeEventListener("abort", abort);
+        resolve(true);
+      },
+      Math.min(milliseconds, 2_147_483_647),
+    );
     const abort = () => {
       clearTimeout(timer);
       resolve(false);

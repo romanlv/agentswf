@@ -1,11 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { ProcessInput, ProcessResult, RunProcess } from "../command";
 import type { Step } from "../types";
-import {
-  createHerdrRunHostFactory,
-  createPaneAdapter,
-  type HerdrConfig,
-} from "./herdr";
+import { createHerdrRunHostFactory, createPaneAdapter, type HerdrConfig } from "./herdr";
 import { createHerdrAdapter } from "./herdr-legacy";
 
 const CONFIG: HerdrConfig = {
@@ -311,7 +307,10 @@ describe("createPaneAdapter", () => {
       if (verb(input) === "agent read") {
         reads += 1;
         return {
-          stdout: JSON.stringify({ session_id: "sess-1", result: reads === 1 ? "first" : "second" }),
+          stdout: JSON.stringify({
+            session_id: "sess-1",
+            result: reads === 1 ? "first" : "second",
+          }),
           stderr: "",
           exitCode: 0,
           timedOut: false,
@@ -338,9 +337,11 @@ describe("createPaneAdapter", () => {
       state: "completed",
       resultEvidence: { kind: "transcript", text: "first" },
     });
-    const nudge = await first.nudge(
-      { id: "turn-1:nudge", prompt: "report", deadline: activation.deadline },
-    );
+    const nudge = await first.nudge({
+      id: "turn-1:nudge",
+      prompt: "report",
+      deadline: activation.deadline,
+    });
     await expect(nudge.settled).resolves.toMatchObject({
       state: "failed",
       detail: expect.stringContaining("interactive-resume"),
@@ -390,9 +391,7 @@ describe("createPaneAdapter", () => {
 
     await otherTurn.settled;
 
-    const names = calls
-      .filter((call) => verb(call) === "agent start")
-      .map((call) => call.argv[5]);
+    const names = calls.filter((call) => verb(call) === "agent start").map((call) => call.argv[5]);
     expect(names).toHaveLength(2);
     expect(names[0]).toMatch(/^[a-z][a-z0-9_-]{0,31}$/);
     expect(names[0]).toStartWith("wf-maintainability");
@@ -406,11 +405,7 @@ describe("createPaneAdapter", () => {
         "Quick safety check: Is this a project you created or one you trust?\nYes, I trust this folder",
         ["down", "enter"],
       ],
-      [
-        "codex",
-        "Do you trust the contents of this directory?\n1. Yes, continue",
-        ["enter"],
-      ],
+      ["codex", "Do you trust the contents of this directory?\n1. Yes, continue", ["enter"]],
       // Herdr renders the block into the pane's width, which a narrow terminal makes short.
       [
         "claude",
@@ -568,9 +563,10 @@ describe("createPaneAdapter", () => {
       if (verb(input) === "agent send-keys") trustAccepted = true;
       return baseRun(input);
     };
-    const session = await createPaneAdapter({ ...CONFIG, acceptWorkspaceTrust: true }, run).activate(
-      activation,
-    );
+    const session = await createPaneAdapter(
+      { ...CONFIG, acceptWorkspaceTrust: true },
+      run,
+    ).activate(activation);
     const turn = await session.start(
       { id: "review", prompt: "review", deadline: activation.deadline },
       firstBinding,
@@ -656,10 +652,7 @@ describe("createPaneAdapter", () => {
       { ...CONFIG, acceptWorkspaceTrust: true },
       run,
     ).activate({ ...activation, deadline });
-    const turn = await session.start(
-      { id: "review", prompt: "review", deadline },
-      firstBinding,
-    );
+    const turn = await session.start({ id: "review", prompt: "review", deadline }, firstBinding);
 
     await expect(turn.settled).resolves.toMatchObject({ state: "timed-out" });
     expect(calls.filter((call) => verb(call) === "agent send-keys")).toHaveLength(0);
@@ -681,7 +674,9 @@ describe("createPaneAdapter", () => {
       }
       return baseRun(input);
     };
-    const session = await createPaneAdapter({ ...CONFIG, startAttempts: 3 }, run).activate(activation);
+    const session = await createPaneAdapter({ ...CONFIG, startAttempts: 3 }, run).activate(
+      activation,
+    );
     const turn = await session.start(
       { id: "review", prompt: "review", deadline: activation.deadline },
       firstBinding,
@@ -705,7 +700,9 @@ describe("createPaneAdapter", () => {
       }
       return baseRun(input);
     };
-    const session = await createPaneAdapter({ ...CONFIG, startAttempts: 3 }, run).activate(activation);
+    const session = await createPaneAdapter({ ...CONFIG, startAttempts: 3 }, run).activate(
+      activation,
+    );
     const turn = await session.start(
       { id: "review", prompt: "review", deadline: activation.deadline },
       firstBinding,
@@ -721,7 +718,9 @@ describe("createPaneAdapter", () => {
       verb(input) === "agent start"
         ? { stdout: "", stderr: "agent_pane_busy", exitCode: 1, timedOut: false }
         : baseRun(input);
-    const session = await createPaneAdapter({ ...CONFIG, startAttempts: 1 }, run).activate(activation);
+    const session = await createPaneAdapter({ ...CONFIG, startAttempts: 1 }, run).activate(
+      activation,
+    );
     const turn = await session.start(
       { id: "turn-1", prompt: "review", deadline: activation.deadline },
       firstBinding,
@@ -773,7 +772,9 @@ describe("createPaneAdapter", () => {
       verb(input) === "agent start"
         ? { stdout: "", stderr: "start deadline", exitCode: 137, timedOut: true }
         : baseRun(input);
-    const session = await createPaneAdapter({ ...CONFIG, startAttempts: 1 }, run).activate(activation);
+    const session = await createPaneAdapter({ ...CONFIG, startAttempts: 1 }, run).activate(
+      activation,
+    );
     const turn = await session.start(
       { id: "turn-1", prompt: "review", deadline: activation.deadline },
       firstBinding,
@@ -785,12 +786,16 @@ describe("createPaneAdapter", () => {
   test("cancellation aborts native work and finishes cleanup before returning", async () => {
     const { run: baseRun, calls } = operationStub();
     let promptStarted!: () => void;
-    const started = new Promise<void>((resolve) => { promptStarted = resolve; });
+    const started = new Promise<void>((resolve) => {
+      promptStarted = resolve;
+    });
     const run: RunProcess = async (input) => {
       if (verb(input) !== "agent prompt") return baseRun(input);
       calls.push(input);
       promptStarted();
-      await new Promise<void>((resolve) => input.signal?.addEventListener("abort", () => resolve(), { once: true }));
+      await new Promise<void>((resolve) =>
+        input.signal?.addEventListener("abort", () => resolve(), { once: true }),
+      );
       return { stdout: "", stderr: "", exitCode: 137, timedOut: false, cancelled: true };
     };
     const session = await createPaneAdapter(CONFIG, run).activate(activation);
@@ -897,9 +902,7 @@ describe("createHerdrRunHostFactory", () => {
       if (command === "agent read") {
         return {
           stdout: `${JSON.stringify({ result: {} })}\n${JSON.stringify({
-            ...(options.exposeSession === false
-              ? {}
-              : { session_id: `session-${input.argv[5]}` }),
+            ...(options.exposeSession === false ? {} : { session_id: `session-${input.argv[5]}` }),
             result: "reviewed",
           })}`,
           stderr: "",
@@ -944,7 +947,9 @@ describe("createHerdrRunHostFactory", () => {
     const tabs = calls.filter((call) => verb(call) === "tab create");
     const starts = calls.filter((call) => verb(call) === "agent start");
     expect(creates).toHaveLength(1);
-    expect(tabs.every((call) => call.argv[call.argv.indexOf("--workspace") + 1] === "w1")).toBe(true);
+    expect(tabs.every((call) => call.argv[call.argv.indexOf("--workspace") + 1] === "w1")).toBe(
+      true,
+    );
     expect(tabs.map((call) => call.argv[call.argv.indexOf("--label") + 1]).sort()).toEqual([
       "correctness",
       "maintainability",
@@ -1009,10 +1014,7 @@ describe("createHerdrRunHostFactory", () => {
       execution: { harness: "claude", model: "opus" },
     });
     await (
-      await session.start(
-        { id: "one", prompt: "review", deadline: deadline() },
-        binding("op-1"),
-      )
+      await session.start({ id: "one", prompt: "review", deadline: deadline() }, binding("op-1"))
     ).settled;
 
     for (const scope of ["workspace create", "tab create"] as const) {
@@ -1082,10 +1084,7 @@ describe("createHerdrRunHostFactory", () => {
       execution: { harness: "claude", model: "opus" },
     });
     await (
-      await session.start(
-        { id: "one", prompt: "review", deadline: deadline() },
-        binding("op-1"),
-      )
+      await session.start({ id: "one", prompt: "review", deadline: deadline() }, binding("op-1"))
     ).settled;
     const second = await session.start(
       { id: "two", prompt: "again", deadline: deadline() },
@@ -1114,7 +1113,9 @@ describe("createHerdrRunHostFactory", () => {
       const run: RunProcess = async (input) => {
         if (verb(input) !== "agent prompt") return base.run(input);
         base.calls.push(input);
-        return commandResult({ agent: { agent_status: terminalState, agent_status_text: "stuck" } });
+        return commandResult({
+          agent: { agent_status: terminalState, agent_status_text: "stuck" },
+        });
       };
       const host = await createHerdrRunHostFactory(CONFIG, run).openRun({
         runId: `run-${terminalState}`,
@@ -1184,10 +1185,7 @@ describe("createHerdrRunHostFactory", () => {
     });
     expect(base.calls.filter((call) => verb(call) === "tab close")).toHaveLength(1);
     for (const id of ["op-2", "op-3"] as const) {
-      const later = await session.start(
-        { id, prompt: "again", deadline: deadline() },
-        binding(id),
-      );
+      const later = await session.start({ id, prompt: "again", deadline: deadline() }, binding(id));
       await expect(later.settled).resolves.toMatchObject({
         state: "failed",
         detail: expect.stringContaining("one operation per agent"),
@@ -1354,7 +1352,8 @@ describe("createHerdrRunHostFactory", () => {
       // about `agent_prompt_stalled`; a usage error echoing it back must not read as a stall.
       return {
         stdout: "",
-        stderr: 'error: unexpected argument\n  herdr agent prompt wf-x "explain agent_prompt_stalled"',
+        stderr:
+          'error: unexpected argument\n  herdr agent prompt wf-x "explain agent_prompt_stalled"',
         exitCode: 2,
         timedOut: false,
       };
@@ -1393,7 +1392,9 @@ describe("createHerdrRunHostFactory", () => {
       if (verb(input) !== "tab create") return base.run(input);
       base.calls.push(input);
       splits += 1;
-      return splits === 1 ? errorResult("pane_split_failed") : commandResult({ tab: { tab_id: "w1:t2" }, root_pane: { pane_id: "w1:p2" } });
+      return splits === 1
+        ? errorResult("pane_split_failed")
+        : commandResult({ tab: { tab_id: "w1:t2" }, root_pane: { pane_id: "w1:p2" } });
     };
     const host = await createHerdrRunHostFactory(CONFIG, run).openRun({
       runId: "run-1",
@@ -1407,12 +1408,8 @@ describe("createHerdrRunHostFactory", () => {
       execution: { harness: "claude", model: "opus" },
     });
     await expect(
-      (
-        await session.start(
-          { id: "one", prompt: "review", deadline: deadline() },
-          binding("op-1"),
-        )
-      ).settled,
+      (await session.start({ id: "one", prompt: "review", deadline: deadline() }, binding("op-1")))
+        .settled,
     ).resolves.toMatchObject({ state: "failed", detail: expect.stringContaining("tab create") });
 
     const second = await session.start(

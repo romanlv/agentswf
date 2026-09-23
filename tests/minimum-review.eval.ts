@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+import { constants } from "node:fs";
 import {
   access,
   copyFile,
@@ -8,10 +10,15 @@ import {
   rm,
   writeFile,
 } from "node:fs/promises";
-import { constants } from "node:fs";
-import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { createMinimumReview, type ReviewOutcome } from "../examples/minimum-review/workflow";
+import type {
+  AgentStructuredTurnSpec,
+  AgentTextTurnSpec,
+  JsonValue,
+} from "../packages/contract/src/workflow";
+import { runWorkflow } from "../packages/engine/src";
 import type {
   AgentRunHostFactory,
   AgentRuntimeConfig,
@@ -20,15 +27,8 @@ import type {
   HarnessSession,
   HarnessTurn,
 } from "../packages/harness/src/adapter";
-import type {
-  AgentStructuredTurnSpec,
-  AgentTextTurnSpec,
-  JsonValue,
-} from "../packages/contract/src/workflow";
 import { createHerdrRunHostFactory } from "../packages/harness/src/adapters/herdr";
-import { runProcess, type RunProcess } from "../packages/harness/src/command";
-import { runWorkflow } from "../packages/engine/src";
-import { createMinimumReview, type ReviewOutcome } from "../examples/minimum-review/workflow";
+import { type RunProcess, runProcess } from "../packages/harness/src/command";
 
 export const LIVE_EVALUATION_BOUNDS = {
   workflowMilliseconds: 10 * 60_000,
@@ -176,10 +176,9 @@ export async function evaluationPreflight(): Promise<EvaluationPreflight> {
   checks.push({
     name: "claude-subscription-auth",
     ok: claudeSubscription,
-    detail:
-      claudeSubscription
-        ? "authenticated via claude.ai first-party subscription"
-        : "Claude Code is not authenticated through a claude.ai subscription",
+    detail: claudeSubscription
+      ? "authenticated via claude.ai first-party subscription"
+      : "Claude Code is not authenticated through a claude.ai subscription",
   });
 
   const codex = await command(["codex", "login", "status"]);
@@ -271,7 +270,9 @@ export function assertCompletedReviews(reviews: ReviewOutcome[]): void {
           : `${review.lens}:incomplete:${review.outcome}:${review.reason}`,
       )
       .join(", ");
-    throw new Error(`live evaluation requires completed reviews in lens order; observed ${observed}`);
+    throw new Error(
+      `live evaluation requires completed reviews in lens order; observed ${observed}`,
+    );
   }
 }
 
@@ -323,17 +324,14 @@ export function assertNativeEvidence(outcomes: NativeOutcomeEvidence[]): void {
   ) {
     const observed = outcomes
       .map(
-        (outcome) =>
-          `${outcome.agent}:${outcome.operation}:${outcome.settlement}:${outcome.state}`,
+        (outcome) => `${outcome.agent}:${outcome.operation}:${outcome.settlement}:${outcome.state}`,
       )
       .join(", ");
     throw new Error(
       `live evaluation requires native completion or confirmed release; observed ${observed}`,
     );
   }
-  const completed = new Map(
-    outcomes.map((outcome) => [outcome.agent, outcome]),
-  );
+  const completed = new Map(outcomes.map((outcome) => [outcome.agent, outcome]));
   if (
     completed.get("reviewer:correctness")?.harness !== "claude" ||
     completed.get("reviewer:maintainability")?.harness !== "codex"
@@ -341,7 +339,9 @@ export function assertNativeEvidence(outcomes: NativeOutcomeEvidence[]): void {
     const observed = outcomes
       .map((outcome) => `${outcome.agent}:${outcome.harness}:${outcome.state}`)
       .join(", ");
-    throw new Error(`live evaluation requires native completion from both harnesses; observed ${observed}`);
+    throw new Error(
+      `live evaluation requires native completion from both harnesses; observed ${observed}`,
+    );
   }
 }
 
@@ -357,12 +357,7 @@ function observeNativeOutcomes(
         close: (reason) => host.close(reason),
         async openAgent(activation) {
           const session = await host.openAgent(activation);
-          return observeSession(
-            session,
-            activation.key,
-            activation.execution.harness,
-            evidence,
-          );
+          return observeSession(session, activation.key, activation.execution.harness, evidence);
         },
       };
     },
@@ -484,13 +479,22 @@ async function prepareEvaluationDirectory(): Promise<{
     "--outfile",
     join(binDir, "wf"),
   ]);
-  if (built.exitCode !== 0) throw new Error(`failed to compile evaluation wf CLI: ${safeDetail(built)}`);
+  if (built.exitCode !== 0)
+    throw new Error(`failed to compile evaluation wf CLI: ${safeDetail(built)}`);
   return { root, workDir, runRoot, binDir };
 }
 
 async function repositoryFingerprint(): Promise<string> {
-  const listed = await command(["git", "ls-files", "--cached", "--others", "--exclude-standard", "-z"]);
-  if (listed.exitCode !== 0) throw new Error(`could not fingerprint repository: ${safeDetail(listed)}`);
+  const listed = await command([
+    "git",
+    "ls-files",
+    "--cached",
+    "--others",
+    "--exclude-standard",
+    "-z",
+  ]);
+  if (listed.exitCode !== 0)
+    throw new Error(`could not fingerprint repository: ${safeDetail(listed)}`);
   const paths = listed.stdout.split("\0").filter(Boolean).sort();
   const hash = createHash("sha256");
   for (const path of paths) {
@@ -532,10 +536,7 @@ async function executable(name: string, path: string, requireExecute = true): Pr
   }
 }
 
-export function agentVersionEvidence(
-  name: "claude" | "codex",
-  result: CommandResult,
-): Check {
+export function agentVersionEvidence(name: "claude" | "codex", result: CommandResult): Check {
   return { name: `${name}-version`, ok: true, detail: safeDetail(result) };
 }
 
@@ -561,7 +562,8 @@ export function herdrBehaviourCheck(prompt: CommandResult, tab: CommandResult): 
   return {
     name: "herdr-documented-behaviour",
     ok: missing.length === 0,
-    detail: missing.length === 0 ? "prompt settlement and tab environment unchanged" : missing.join("; "),
+    detail:
+      missing.length === 0 ? "prompt settlement and tab environment unchanged" : missing.join("; "),
   };
 }
 

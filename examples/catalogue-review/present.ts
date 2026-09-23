@@ -65,7 +65,13 @@ export function reportCatalogueResult(result: CatalogueResult): string {
     );
   }
   if (refuted.length > 0) {
-    lines.push("", "## Refuted", "", "Raised and then disproved; listed so they are not chased again.", "");
+    lines.push(
+      "",
+      "## Refuted",
+      "",
+      "Raised and then disproved; listed so they are not chased again.",
+      "",
+    );
     for (const finding of refuted) {
       lines.push(
         `- \`${location(finding)}\` (${attribution(finding)}): ${finding.claim}`,

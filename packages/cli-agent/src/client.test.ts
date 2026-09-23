@@ -71,24 +71,18 @@ test("the response lifetime is absolute even when a peer keeps sending data", as
 });
 
 test("validates the complete response across fragmented data", async () => {
-  await withServerResponse(
-    ['{"version":2,"kind":', '"accepted"}\n'],
-    async (endpoint) => {
-      await expect(submitResult(endpoint, REQUEST)).resolves.toEqual({
-        version: WIRE_VERSION,
-        kind: "accepted",
-      });
-    },
-  );
+  await withServerResponse(['{"version":2,"kind":', '"accepted"}\n'], async (endpoint) => {
+    await expect(submitResult(endpoint, REQUEST)).resolves.toEqual({
+      version: WIRE_VERSION,
+      kind: "accepted",
+    });
+  });
 });
 
 test("rejects malformed, extra-line, and oversized responses", async () => {
   for (const chunks of [
     ["not-json\n"],
-    [
-      '{"version":2,"kind":"accepted"}\n',
-      '{"version":2,"kind":"accepted"}\n',
-    ],
+    ['{"version":2,"kind":"accepted"}\n', '{"version":2,"kind":"accepted"}\n'],
     ["x".repeat(256 * 1024 + 1)],
   ]) {
     await withServerResponse(chunks, async (endpoint) => {

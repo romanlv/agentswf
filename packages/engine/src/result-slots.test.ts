@@ -1,11 +1,17 @@
 import { afterAll, describe, expect, test } from "bun:test";
 import type { SemanticCheck } from "@wf/contract";
-import { readAccepted, readAttempts, recordAttempt, writeAcceptedExclusive, writeCall } from "./run-dir";
 import {
   createResultSlotRegistry,
   type ResultSlotRegistryOptions,
   type ResultSlotSpec,
 } from "./result-slots";
+import {
+  readAccepted,
+  readAttempts,
+  recordAttempt,
+  writeAcceptedExclusive,
+  writeCall,
+} from "./run-dir";
 import { COUNT_SCHEMA, createTempRunDirs } from "./testing";
 
 const runDirs = createTempRunDirs();
@@ -59,9 +65,7 @@ describe("result slots", () => {
 
     expect(submissions.filter((item) => item.kind === "accepted")).toHaveLength(1);
     expect(
-      submissions.filter(
-        (item) => item.kind === "rejected" && item.code === "closed-operation",
-      ),
+      submissions.filter((item) => item.kind === "rejected" && item.code === "closed-operation"),
     ).toHaveLength(11);
     const attempts = await readAttempts(runDir, "op-1");
     expect(attempts.filter((attempt) => attempt.accepted)).toHaveLength(1);
@@ -81,9 +85,10 @@ describe("result slots", () => {
     const first = await slots.open(call());
     const second = await slots.open(call({ operationId: "op-2", agentId: "agent-2" }));
 
-    await expect(
-      slots.submit(answer("{}", { operationId: "op-2" })),
-    ).resolves.toMatchObject({ kind: "rejected", code: "wrong-agent" });
+    await expect(slots.submit(answer("{}", { operationId: "op-2" }))).resolves.toMatchObject({
+      kind: "rejected",
+      code: "wrong-agent",
+    });
     await expect(slots.submit(answer("{}", { operationId: "op-3" }))).resolves.toEqual({
       kind: "rejected",
       code: "unknown-operation",
@@ -309,7 +314,9 @@ describe("result slots", () => {
     await expect(slots.submit(answer())).rejects.toThrow("disk unavailable");
     fail = false;
     await expect(slots.submit(answer())).resolves.toMatchObject({ kind: "accepted" });
-    expect((await readAttempts(runDir, "op-1")).filter((attempt) => attempt.accepted)).toHaveLength(1);
+    expect((await readAttempts(runDir, "op-1")).filter((attempt) => attempt.accepted)).toHaveLength(
+      1,
+    );
   });
 
   test("attempt-log failure after atomic settlement cannot turn acceptance into rejection", async () => {
@@ -360,7 +367,11 @@ describe("result slots", () => {
     expect(settled).toBe(false);
 
     release();
-    await expect(submission).resolves.toEqual({ kind: "accepted", value: {}, attemptRecorded: true });
+    await expect(submission).resolves.toEqual({
+      kind: "accepted",
+      value: {},
+      attemptRecorded: true,
+    });
     await expect(binding.settled).resolves.toEqual({
       kind: "accepted",
       value: {},

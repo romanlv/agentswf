@@ -12,6 +12,7 @@ describe("isJsonValue", () => {
     expect(isJsonValue(Number.NaN)).toBe(false);
     expect(isJsonValue(new Date())).toBe(false);
     expect(isJsonValue(new Map())).toBe(false);
+    // biome-ignore lint/suspicious/noSparseArray: a hole is the input under test
     expect(isJsonValue([, "value"])).toBe(false);
     expect(isJsonValue({ value: undefined })).toBe(false);
   });

@@ -2,9 +2,8 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { randomUUID } from "node:crypto";
 import { dirname } from "node:path";
 import { isDeepStrictEqual } from "node:util";
-import { describe, parseJsonSchema, type JsonSchema } from "@wf/contract/schema";
+import { describe, type JsonSchema, parseJsonSchema } from "@wf/contract/schema";
 import {
-  DeadlineExceededError,
   type AbsoluteDeadline,
   type AgentExecution,
   type AgentKey,
@@ -14,9 +13,10 @@ import {
   type AgentRunTextSpec,
   type AgentStructuredTurnSpec,
   type AgentTextTurnSpec,
+  DeadlineExceededError,
+  isJsonValue,
   type JsonObject,
   type JsonValue,
-  isJsonValue,
   type OutputSchema,
   type RunResult,
   type RuntimeSelection,
@@ -25,6 +25,7 @@ import {
   type WorkflowContext,
   type WorkflowDefinition,
 } from "@wf/contract/workflow";
+import type { TurnUsage as NativeUsage } from "@wf/harness";
 import type {
   AgentRunHost,
   AgentRuntimeConfig,
@@ -32,12 +33,11 @@ import type {
   HarnessTurn,
   HarnessTurnOutcome,
 } from "@wf/harness/adapter";
-import type { TurnUsage as NativeUsage } from "@wf/harness";
 import { installAgentLauncher } from "./agent-launcher";
 import {
-  startResultControlPlane,
   type ResultChannel,
   type ResultControlPlane,
+  startResultControlPlane,
 } from "./control-plane";
 import {
   createResultSlotRegistry,
@@ -541,9 +541,10 @@ class LogicalAgent implements AgentRef {
         throw new Error("a turn cannot specify both deadline and timeoutMs");
       }
       const inheritedDeadline = scope?.deadline ?? this.options.deadline;
-      deadline = spec.timeoutMs === undefined
-        ? spec.deadline ?? inheritedDeadline
-        : deadlineWithin(spec.timeoutMs, inheritedDeadline);
+      deadline =
+        spec.timeoutMs === undefined
+          ? (spec.deadline ?? inheritedDeadline)
+          : deadlineWithin(spec.timeoutMs, inheritedDeadline);
     } catch (error) {
       const rejected = Promise.reject<RunResult<string | T>>(error);
       scope?.track(rejected);
@@ -597,7 +598,7 @@ class LogicalAgent implements AgentRef {
     scope: ExecutionScope | undefined,
     deadline: AbsoluteDeadline,
   ): Promise<RunResult<JsonValue>> {
-    const nudge = spec.nudge === false ? undefined : spec.nudge ?? {};
+    const nudge = spec.nudge === false ? undefined : (spec.nudge ?? {});
     assertDeadlineValue(deadline);
     scope?.assertActive();
     if (nudge?.deadline) assertDeadlineValue(nudge.deadline);
@@ -605,7 +606,7 @@ class LogicalAgent implements AgentRef {
     const nudgeDeadline = nudge
       ? scope
         ? earlierDeadline(nudge.deadline ?? scope.deadline, scope.deadline)
-        : nudge.deadline ?? this.options.deadline
+        : (nudge.deadline ?? this.options.deadline)
       : undefined;
     const operationId = randomUUID();
     const schema = resultSchema(spec.schema);
@@ -623,9 +624,7 @@ class LogicalAgent implements AgentRef {
       agentId: this.options.key,
       question: spec.prompt,
       schema,
-      deadline: nudgeDeadline
-        ? laterDeadline(operationDeadline, nudgeDeadline)
-        : operationDeadline,
+      deadline: nudgeDeadline ? laterDeadline(operationDeadline, nudgeDeadline) : operationDeadline,
     });
     const binding = { endpoint: this.options.endpoint, operationId };
     const samples: NativeUsage[] = [];
@@ -730,7 +729,7 @@ class LogicalAgent implements AgentRef {
         const reason =
           native === "expired"
             ? "operation deadline exceeded"
-            : native.detail ?? `native turn ${native.state}`;
+            : (native.detail ?? `native turn ${native.state}`);
         if (!releaseAttempted) await requestTurnRelease(held.turn!, reason);
         void this.close(reason).catch(() => undefined);
       }
@@ -816,10 +815,7 @@ class LogicalAgent implements AgentRef {
     };
   }
 
-  private abandonTurnAcquisition(
-    acquiring: Promise<HarnessTurn>,
-    reason: string,
-  ): void {
+  private abandonTurnAcquisition(acquiring: Promise<HarnessTurn>, reason: string): void {
     const lateRelease = acquiring.then(
       (turn) => requestTurnRelease(turn, reason),
       () => undefined,
@@ -998,9 +994,7 @@ async function observeTurnAcquisition(
   try {
     return await Promise.race([
       acquiring.then((turn): TurnAcquisition => ({ kind: "turn", turn })),
-      settlement.then(
-        (value): TurnAcquisition => ({ kind: "result", settlement: value }),
-      ),
+      settlement.then((value): TurnAcquisition => ({ kind: "result", settlement: value })),
       expired,
     ]);
   } finally {
@@ -1021,9 +1015,7 @@ async function observeTurnAndResult(
     Promise.race([turn.settled, expired])
       .finally(() => cancelTimer?.())
       .then((native): TurnObservation => ({ kind: "native", native })),
-    settlement.then(
-      (value): TurnObservation => ({ kind: "result", settlement: value }),
-    ),
+    settlement.then((value): TurnObservation => ({ kind: "result", settlement: value })),
   ]);
 }
 
@@ -1143,9 +1135,7 @@ function sumField(
   const values = samples
     .map((sample) => sample[source])
     .filter((value): value is number => value !== undefined);
-  return values.length > 0
-    ? { [target]: values.reduce((total, value) => total + value, 0) }
-    : {};
+  return values.length > 0 ? { [target]: values.reduce((total, value) => total + value, 0) } : {};
 }
 
 function reasonOf(error: unknown): string {
@@ -1239,10 +1229,7 @@ function assertDeadline(deadline: AbsoluteDeadline): void {
 }
 
 function assertDeadlineValue(deadline: AbsoluteDeadline): void {
-  if (
-    !Number.isSafeInteger(deadline.unixMilliseconds) ||
-    deadline.unixMilliseconds < 0
-  ) {
+  if (!Number.isSafeInteger(deadline.unixMilliseconds) || deadline.unixMilliseconds < 0) {
     throw new Error("deadline.unixMilliseconds must be a non-negative safe integer");
   }
 }

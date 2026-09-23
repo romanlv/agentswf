@@ -1,12 +1,12 @@
 import { afterAll, describe, expect, test } from "bun:test";
 import { stat } from "node:fs/promises";
-import { dirname } from "node:path";
 import { createConnection } from "node:net";
-import { WIRE_VERSION, type ResultSubmitResponse } from "@wf/contract/wire";
-import type { ResultSlotRegistry } from "./result-slots";
+import { dirname } from "node:path";
+import { type ResultSubmitResponse, WIRE_VERSION } from "@wf/contract/wire";
 import { startResultControlPlane } from "./control-plane";
-import { readAccepted } from "./run-dir";
+import type { ResultSlotRegistry } from "./result-slots";
 import { createResultSlotRegistry } from "./result-slots";
+import { readAccepted } from "./run-dir";
 import { COUNT_SCHEMA, createTempRunDirs, exchange } from "./testing";
 
 const runDirs = createTempRunDirs();

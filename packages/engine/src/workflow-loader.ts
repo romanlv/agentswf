@@ -23,7 +23,7 @@ export async function loadWorkflowFile(file: string, cwd: string): Promise<Loade
   if (!WORKFLOW_EXTENSIONS.has(extname(absolute))) {
     throw new Error("workflow file must end in .ts, .mts, .js, or .mjs");
   }
-  let info;
+  let info: Awaited<ReturnType<typeof stat>>;
   try {
     info = await stat(absolute);
   } catch {
@@ -34,9 +34,7 @@ export async function loadWorkflowFile(file: string, cwd: string): Promise<Loade
   const namespace: unknown = await import(pathToFileURL(absolute).href);
   const exported = record(namespace)?.default;
   if (!isExecutableWorkflow(exported)) {
-    throw new Error(
-      `default export must be an ${EXECUTABLE_WORKFLOW_KIND} executable workflow`,
-    );
+    throw new Error(`default export must be an ${EXECUTABLE_WORKFLOW_KIND} executable workflow`);
   }
   return { file: absolute, executable: exported };
 }
@@ -45,9 +43,7 @@ export function assertJsonValue(value: unknown, label: string): asserts value is
   if (!isJsonValue(value)) throw new Error(`${label} must contain only JSON values`);
 }
 
-function isExecutableWorkflow(
-  value: unknown,
-): value is ExecutableWorkflow<JsonValue, JsonValue> {
+function isExecutableWorkflow(value: unknown): value is ExecutableWorkflow<JsonValue, JsonValue> {
   const executable = record(value);
   const definition = record(executable?.definition);
   const meta = record(definition?.meta);

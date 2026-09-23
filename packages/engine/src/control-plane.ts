@@ -2,9 +2,9 @@ import { chmod, mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-  WIRE_VERSION,
   decodeResultSubmitRequest,
   type ResultSubmitResponse,
+  WIRE_VERSION,
 } from "@wf/contract/wire";
 import type { ResultSlotRegistry } from "./result-slots";
 
@@ -296,10 +296,7 @@ function rejected(
   return { version: WIRE_VERSION, kind: "rejected", code, error };
 }
 
-function queueResponse(
-  socket: Bun.Socket<ConnectionState>,
-  response: ResultSubmitResponse,
-): void {
+function queueResponse(socket: Bun.Socket<ConnectionState>, response: ResultSubmitResponse): void {
   socket.data.outgoing = Buffer.from(`${JSON.stringify(response)}\n`);
   socket.data.written = 0;
   flushResponse(socket);

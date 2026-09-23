@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { AgentSessionAdapter } from "../adapter";
-import { runProcess, type RunProcess } from "../command";
+import { type RunProcess, runProcess } from "../command";
 import { createLegacyDriver } from "../legacy-driver";
 import { createSessionAdapter, localOutcome } from "../session-core";
 import { HARNESS_NAMES, harnessSpec, knownHarness } from "../spec";
@@ -124,9 +124,7 @@ function createHeadlessAdapterCore(
           if (result.exitCode !== 0) {
             return {
               state: "failed" as const,
-              detail:
-                `${plan.argv[0]} exited ${result.exitCode}: ` +
-                result.stderr.trim().slice(0, 400),
+              detail: `${plan.argv[0]} exited ${result.exitCode}: ${result.stderr.trim().slice(0, 400)}`,
               ...common,
             };
           }

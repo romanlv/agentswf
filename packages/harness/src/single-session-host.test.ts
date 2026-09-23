@@ -138,9 +138,7 @@ describe("createSingleSessionHostFactory", () => {
       state: "quarantined",
       detail: "release deadline exceeded",
     });
-    await expect(turn.nudge({ id: "nudge", deadline: deadline() })).rejects.toThrow(
-      "quarantined",
-    );
+    await expect(turn.nudge({ id: "nudge", deadline: deadline() })).rejects.toThrow("quarantined");
     await expect(
       session.start(
         { id: "two", prompt: "two", deadline: deadline() },

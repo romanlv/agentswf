@@ -1,5 +1,5 @@
 import type { JsonValue, OutputSchema } from "@wf/contract/workflow";
-import Type from "typebox";
+import type Type from "typebox";
 
 type OutputOf<Schema extends Type.TSchema> = Extract<Type.Static<Schema>, JsonValue>;
 

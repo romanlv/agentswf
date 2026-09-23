@@ -32,11 +32,7 @@ describe("createFakeAdapter", () => {
       state: "completed",
       resultEvidence: { kind: "transcript", text: "turn 1" },
     });
-    const compact = await session.compact(
-      "compact-1",
-      "summarize",
-      { unixMilliseconds: 2_000 },
-    );
+    const compact = await session.compact("compact-1", "summarize", { unixMilliseconds: 2_000 });
     await compact.settled;
     await session.close();
 
@@ -122,9 +118,10 @@ describe("createFakeAdapter", () => {
     const turn = await session.start({ id: "one", prompt: "one", deadline }, BINDING);
     await started;
 
-    await expect(
-      turn.release("stop", { unixMilliseconds: Date.now() }),
-    ).resolves.toEqual({ kind: "quarantined", reason: "release deadline exceeded" });
+    await expect(turn.release("stop", { unixMilliseconds: Date.now() })).resolves.toEqual({
+      kind: "quarantined",
+      reason: "release deadline exceeded",
+    });
     await expect(session.status()).resolves.toEqual({
       state: "quarantined",
       detail: "release deadline exceeded",
@@ -138,7 +135,9 @@ describe("createFakeAdapter", () => {
 
   test("cancellation interrupts a hanging fake and close waits for it", async () => {
     let began!: () => void;
-    const started = new Promise<void>((resolve) => { began = resolve; });
+    const started = new Promise<void>((resolve) => {
+      began = resolve;
+    });
     const adapter = createFakeAdapter({
       script: async ({ signal }) => {
         began();

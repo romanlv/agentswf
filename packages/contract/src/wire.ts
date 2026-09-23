@@ -79,9 +79,7 @@ export function decodeResultSubmitRequest(value: unknown): WireDecodeResult<Resu
   };
 }
 
-export function decodeResultSubmitResponse(
-  value: unknown,
-): WireDecodeResult<ResultSubmitResponse> {
+export function decodeResultSubmitResponse(value: unknown): WireDecodeResult<ResultSubmitResponse> {
   const envelope = checkEnvelope(value, "response");
   if (!envelope.ok) return envelope;
   const response = envelope.value;

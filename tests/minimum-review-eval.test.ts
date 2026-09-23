@@ -91,12 +91,13 @@ describe("minimum review live evaluation plan", () => {
         exitCode: 2,
       }),
     ).toMatchObject({ ok: true, detail: "unknown option --version" });
-    expect(
-      herdrVersionCheck({ stdout: "herdr 0.9.0", stderr: "", exitCode: 0 }),
-    ).toMatchObject({ ok: false, detail: expect.stringContaining("herdr 0.8.2") });
-    expect(
-      herdrVersionCheck({ stdout: "herdr 0.8.20", stderr: "", exitCode: 0 }),
-    ).toMatchObject({ ok: false });
+    expect(herdrVersionCheck({ stdout: "herdr 0.9.0", stderr: "", exitCode: 0 })).toMatchObject({
+      ok: false,
+      detail: expect.stringContaining("herdr 0.8.2"),
+    });
+    expect(herdrVersionCheck({ stdout: "herdr 0.8.20", stderr: "", exitCode: 0 })).toMatchObject({
+      ok: false,
+    });
   });
 
   test("catches Herdr dropping the behaviour the pane host is built on", () => {
@@ -240,13 +241,7 @@ describe("minimum review live evaluation plan", () => {
         },
       };
       const evidence: Parameters<typeof observeTurn>[4] = [];
-      const observed = observeTurn(
-        turn,
-        "turn",
-        "reviewer:correctness",
-        "claude",
-        evidence,
-      );
+      const observed = observeTurn(turn, "turn", "reviewer:correctness", "claude", evidence);
 
       if (releaseFailure === "rejected") {
         await expect(

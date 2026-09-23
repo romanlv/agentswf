@@ -1,5 +1,5 @@
-import { describe as group, expect, test } from "bun:test";
-import { describe, formatErrors, parseJsonSchema, validate, type JsonSchema } from "./schema";
+import { expect, describe as group, test } from "bun:test";
+import { describe, formatErrors, type JsonSchema, parseJsonSchema, validate } from "./schema";
 import { COUNT_SCHEMA } from "./testing/fixtures";
 
 group("validate", () => {

@@ -1,9 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import {
-  WIRE_VERSION,
-  decodeResultSubmitRequest,
-  decodeResultSubmitResponse,
-} from "./wire";
+import { decodeResultSubmitRequest, decodeResultSubmitResponse, WIRE_VERSION } from "./wire";
 
 describe("result-submit wire", () => {
   test("decodes one exact versioned request", () => {
@@ -47,13 +43,12 @@ describe("result-submit wire", () => {
   });
 
   test("rejects extra, empty, and malformed fields", () => {
-    const extra =
-      decodeResultSubmitRequest({
-        version: WIRE_VERSION,
-        operationId: "op-1",
-        raw: "{}",
-        extra: true,
-      });
+    const extra = decodeResultSubmitRequest({
+      version: WIRE_VERSION,
+      operationId: "op-1",
+      raw: "{}",
+      extra: true,
+    });
     expect(extra).toMatchObject({ ok: false, code: "invalid-request" });
     expect(JSON.stringify(extra)).not.toContain("extra");
     expect(

@@ -61,9 +61,7 @@ export function createLegacyDriver(options: {
             state: legacyState(outcome.state, outcome.detail),
             ...(outcome.detail ? { detail: outcome.detail } : {}),
             ...(outcome.nativeUsage[0] ? { usage: outcome.nativeUsage[0] } : {}),
-            ...(adapter.legacySessionRef?.()
-              ? { sessionRef: adapter.legacySessionRef!() }
-              : {}),
+            ...(adapter.legacySessionRef?.() ? { sessionRef: adapter.legacySessionRef!() } : {}),
           };
         },
         async transcript() {

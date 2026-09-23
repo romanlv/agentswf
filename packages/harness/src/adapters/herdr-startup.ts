@@ -1,12 +1,12 @@
 import {
-  abortableDelay,
   ANSI_SEQUENCE,
+  abortableDelay,
   HERDR_REPORT_GRACE_MS,
+  type HerdrCommand,
+  type HerdrResult,
   readable,
   record,
   settledState,
-  type HerdrCommand,
-  type HerdrResult,
 } from "./herdr-protocol";
 
 /**
@@ -84,17 +84,7 @@ export async function answerStartupBlocks(
   if (inactiveAfterInput) return inactiveAfterInput;
   const waitMs = Math.max(1, remaining());
   const ready = await herdr(
-    [
-      "agent",
-      "wait",
-      name,
-      "--until",
-      "idle",
-      "--until",
-      "done",
-      "--timeout",
-      String(waitMs),
-    ],
+    ["agent", "wait", name, "--until", "idle", "--until", "done", "--timeout", String(waitMs)],
     waitMs + HERDR_REPORT_GRACE_MS,
     signal,
   );

@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import { createHerdrRunHostFactory } from "./herdr";
 import { createFakeHerdr } from "../testing/herdr-cli";
 import type { HerdrConfig } from "./herdr";
+import { createHerdrRunHostFactory } from "./herdr";
 
 /**
  * The run host against a Herdr that behaves like 0.8.2 rather than one that answers whatever it is
@@ -53,7 +53,11 @@ describe("the run host against a Herdr that behaves like 0.8.2", () => {
     async (harness) => {
       // In a narrow terminal the block's sentences break mid-phrase. Matching the raw screen misses
       // it and the agent never starts.
-      const { agent, outcome } = await reviewOnce(createFakeHerdr({ rootColumns: 60 }), {}, harness);
+      const { agent, outcome } = await reviewOnce(
+        createFakeHerdr({ rootColumns: 60 }),
+        {},
+        harness,
+      );
 
       expect(outcome).toMatchObject({ state: "completed" });
       expect(agent.delivered).toHaveLength(1);

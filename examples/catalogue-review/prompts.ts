@@ -60,7 +60,9 @@ export function verificationPrompt(
     `File: ${finding.file}${finding.line ? `:${finding.line}` : ""}`,
     `Claim: ${finding.claim}`,
     `Evidence: ${finding.evidence}`,
-    rules ? `Catalogue rules, from ${finding.page}:\n\n${rules}` : `Catalogue page: ${finding.page}`,
+    rules
+      ? `Catalogue rules, from ${finding.page}:\n\n${rules}`
+      : `Catalogue page: ${finding.page}`,
     `Attribution: ${finding.source}${finding.rule ? ` / ${finding.rule}` : ""}`,
     "",
     "Check the claim in the code yourself; the evidence above is the reviewer's, not a fact.",

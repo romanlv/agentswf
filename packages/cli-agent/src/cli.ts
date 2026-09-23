@@ -1,8 +1,8 @@
 #!/usr/bin/env bun
 import {
-  WIRE_VERSION,
   type ResultSubmitRequest,
   type ResultSubmitResponse,
+  WIRE_VERSION,
 } from "@wf/contract/wire";
 import { submitResult } from "./client";
 
@@ -21,8 +21,10 @@ export type CliOutcome = { exitCode: number; stdout: string; stderr: string };
 export async function runCli(
   argv: readonly string[],
   stdin: string | null,
-  submit: (endpoint: string, request: ResultSubmitRequest) => Promise<ResultSubmitResponse> =
-    submitResult,
+  submit: (
+    endpoint: string,
+    request: ResultSubmitRequest,
+  ) => Promise<ResultSubmitResponse> = submitResult,
 ): Promise<CliOutcome> {
   // The launcher the engine installs supplies `--at`; the socket is an address, not a secret.
   const [flag, endpoint, command, ...args] = argv;

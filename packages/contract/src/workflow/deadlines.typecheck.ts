@@ -7,8 +7,8 @@ import type {
   ParallelOptions,
   SignalSpec,
   StepSpec,
-  TurnRef,
   TurnOutcome,
+  TurnRef,
   WorkflowCallSpec,
   WorkflowContext,
   WorkflowDefinition,
@@ -52,10 +52,7 @@ function rejectedShapes(): void {
   turnRef.nudge();
   // @ts-expect-error Compaction is a bounded turn.
   const missingCompactDeadline: CompactSpec = { id: "compact", prompt: "Summarize" };
-  void [
-    unboundedNudge,
-    missingCompactDeadline,
-  ];
+  void [unboundedNudge, missingCompactDeadline];
 }
 
 void [

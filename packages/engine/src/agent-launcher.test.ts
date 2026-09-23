@@ -28,7 +28,10 @@ async function twoAgents() {
     runDir,
     slots,
     control,
-    alice: { channel: alice, wf: await installAgentLauncher(dirname(alice.endpoint), alice.endpoint) },
+    alice: {
+      channel: alice,
+      wf: await installAgentLauncher(dirname(alice.endpoint), alice.endpoint),
+    },
     bob: { channel: bob, wf: await installAgentLauncher(dirname(bob.endpoint), bob.endpoint) },
   };
 }

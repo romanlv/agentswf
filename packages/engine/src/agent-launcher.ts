@@ -14,10 +14,7 @@ import { dirname, join, resolve } from "node:path";
  * isolation: every agent runs as the same user as the engine, so one that goes looking for a
  * sibling's socket can still find it. Separating those needs a uid per agent.
  */
-export async function installAgentLauncher(
-  directory: string,
-  endpoint: string,
-): Promise<string> {
+export async function installAgentLauncher(directory: string, endpoint: string): Promise<string> {
   const command = await resolveAgentCommand();
   await mkdir(directory, { recursive: true });
   await chmod(directory, 0o700);

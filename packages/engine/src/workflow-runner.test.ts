@@ -4,6 +4,18 @@ import { readdir } from "node:fs/promises";
 import { createConnection } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { ResultSubmitResponse } from "@wf/contract/wire";
+import type {
+  AgentStructuredTurnSpec,
+  AgentTextTurnSpec,
+  JsonValue,
+  OutputSchema,
+  RunResult,
+  WorkflowContext,
+  WorkflowDefinition,
+} from "@wf/contract/workflow";
+import { DeadlineExceededError } from "@wf/contract/workflow";
+import { createSingleSessionHostFactory } from "@wf/harness";
 import type {
   AgentRuntimeConfig,
   AgentSessionAdapter,
@@ -12,20 +24,8 @@ import type {
   HarnessTurn,
 } from "@wf/harness/adapter";
 import { createFakeAdapter } from "@wf/harness/testing";
-import { createSingleSessionHostFactory } from "@wf/harness";
-import type {
-  JsonValue,
-  AgentStructuredTurnSpec,
-  AgentTextTurnSpec,
-  OutputSchema,
-  RunResult,
-  WorkflowContext,
-  WorkflowDefinition,
-} from "@wf/contract/workflow";
-import { DeadlineExceededError } from "@wf/contract/workflow";
-import type { ResultSubmitResponse } from "@wf/contract/wire";
-import { runWorkflow, startWorkflow, WorkflowCancelledError } from "./workflow-runner";
 import { createTempRunDirs, future, submit } from "./testing";
+import { runWorkflow, startWorkflow, WorkflowCancelledError } from "./workflow-runner";
 
 const runDirs = createTempRunDirs();
 const { tempRunDir } = runDirs;
@@ -333,9 +333,7 @@ describe("runWorkflow", () => {
         nativeUsage: [{ inputTokens: 3, outputTokens: 2, costUsd: 0.01 }],
         act: async () => {
           expect(context.binding).toBeDefined();
-          expect(context.prompt).toContain(
-            `result ${context.binding!.operationId} '<json>'`,
-          );
+          expect(context.prompt).toContain(`result ${context.binding!.operationId} '<json>'`);
           await expect(submit(context.binding!, { answer: "ready" })).resolves.toMatchObject({
             kind: "accepted",
           });
@@ -534,7 +532,7 @@ describe("runWorkflow", () => {
       const first = await agent.run({ id: "one", prompt: "one", deadline: future() });
       const second = await agent.run({ id: "two", prompt: "two", deadline: future() }).then(
         (value) => value.outcome.kind,
-        (error: unknown) => error instanceof Error ? error.message : String(error),
+        (error: unknown) => (error instanceof Error ? error.message : String(error)),
       );
       return [first.outcome.kind, second];
     });
@@ -852,23 +850,24 @@ describe("runWorkflow", () => {
     const workflow = workflowOf("scoped-start", async (context) => {
       const agent = await openReviewer(context);
       const scopeDeadline = { unixMilliseconds: Date.now() + 20 };
-      const outcome = await context.parallel(
-        [null],
-        async () => {
-          const result = await agent.run({
-            id: "pending",
-            prompt: "Wait.",
-            deadline: future(),
-          });
-          return result.outcome.kind;
-        },
-        { deadline: scopeDeadline },
-      ).then(
-        (values) => values[0]!,
-        (error: unknown) => error instanceof Error && "code" in error
-          ? String(error.code)
-          : "wrong-error",
-      );
+      const outcome = await context
+        .parallel(
+          [null],
+          async () => {
+            const result = await agent.run({
+              id: "pending",
+              prompt: "Wait.",
+              deadline: future(),
+            });
+            return result.outcome.kind;
+          },
+          { deadline: scopeDeadline },
+        )
+        .then(
+          (values) => values[0]!,
+          (error: unknown) =>
+            error instanceof Error && "code" in error ? String(error.code) : "wrong-error",
+        );
       expect(observedTurnDeadline).toBe(scopeDeadline.unixMilliseconds);
       release();
       await Bun.sleep(0);
@@ -914,24 +913,25 @@ describe("runWorkflow", () => {
     }));
     const workflow = workflowOf("late-nudge", async (context) => {
       const agent = await openReviewer(context);
-      const outcome = await context.parallel(
-        [null],
-        async () => {
-          const result = await agent.run({
-            id: "review",
-            prompt: "Review.",
-            deadline: future(),
-            nudge: { deadline: future() },
-          });
-          return result.outcome.kind;
-        },
-        { deadline: { unixMilliseconds: Date.now() + 20 } },
-      ).then(
-        (values) => values[0]!,
-        (error: unknown) => error instanceof Error && "code" in error
-          ? String(error.code)
-          : "wrong-error",
-      );
+      const outcome = await context
+        .parallel(
+          [null],
+          async () => {
+            const result = await agent.run({
+              id: "review",
+              prompt: "Review.",
+              deadline: future(),
+              nudge: { deadline: future() },
+            });
+            return result.outcome.kind;
+          },
+          { deadline: { unixMilliseconds: Date.now() + 20 } },
+        )
+        .then(
+          (values) => values[0]!,
+          (error: unknown) =>
+            error instanceof Error && "code" in error ? String(error.code) : "wrong-error",
+        );
       releaseNudge();
       return outcome;
     });
@@ -969,7 +969,11 @@ describe("runWorkflow", () => {
     });
 
     await expect(
-      runWorkflow(workflow, null, { runRoot: tempRunDir(), runtime: runtime(adapter), deadline: future() }),
+      runWorkflow(workflow, null, {
+        runRoot: tempRunDir(),
+        runtime: runtime(adapter),
+        deadline: future(),
+      }),
     ).rejects.toMatchObject({ code: "deadline-exceeded" });
     expect(adapter.closed.sort()).toEqual(["one", "two"]);
     expect(adapter.turns.every((turn) => turn.signal.aborted)).toBe(true);
@@ -978,16 +982,18 @@ describe("runWorkflow", () => {
   test("a parallel deadline rejects even when a callback cannot cooperate", async () => {
     const adapter = createFakeAdapter({ script: () => ({}) });
     const workflow = workflowOf("non-cooperative", async (context) => {
-      await context.parallel(
-        [null],
-        () => new Promise<never>(() => undefined),
-        { deadline: { unixMilliseconds: Date.now() + 20 } },
-      );
+      await context.parallel([null], () => new Promise<never>(() => undefined), {
+        deadline: { unixMilliseconds: Date.now() + 20 },
+      });
       return null;
     });
 
     await expect(
-      runWorkflow(workflow, null, { runRoot: tempRunDir(), runtime: runtime(adapter), deadline: future() }),
+      runWorkflow(workflow, null, {
+        runRoot: tempRunDir(),
+        runtime: runtime(adapter),
+        deadline: future(),
+      }),
     ).rejects.toMatchObject({ code: "deadline-exceeded" });
   });
 
@@ -1015,7 +1021,11 @@ describe("runWorkflow", () => {
     });
 
     await expect(
-      runWorkflow(workflow, null, { runRoot: tempRunDir(), runtime: runtime(adapter), deadline: future() }),
+      runWorkflow(workflow, null, {
+        runRoot: tempRunDir(),
+        runtime: runtime(adapter),
+        deadline: future(),
+      }),
     ).rejects.toMatchObject({ code: "deadline-exceeded" });
     expect(signal?.aborted).toBe(true);
     expect(adapter.closed).toEqual(["owned"]);
@@ -1052,7 +1062,11 @@ describe("runWorkflow", () => {
     });
 
     await expect(
-      runWorkflow(workflow, null, { runRoot: tempRunDir(), runtime: runtime(adapter), deadline: future() }),
+      runWorkflow(workflow, null, {
+        runRoot: tempRunDir(),
+        runtime: runtime(adapter),
+        deadline: future(),
+      }),
     ).rejects.toThrow("turn id same-id was reused with a different specification");
     expect(adapter.turns).toHaveLength(1);
   });
@@ -1577,7 +1591,11 @@ describe("runWorkflow", () => {
     });
 
     await expect(
-      runWorkflow(workflow, null, { runRoot: tempRunDir(), runtime: runtime(adapter), deadline: future() }),
+      runWorkflow(workflow, null, {
+        runRoot: tempRunDir(),
+        runtime: runtime(adapter),
+        deadline: future(),
+      }),
     ).rejects.toThrow("activation failed");
     expect(fake.closed).toEqual(["good"]);
     await expect(connect(endpoint)).rejects.toBeDefined();

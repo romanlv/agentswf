@@ -1,20 +1,22 @@
 import { randomUUID } from "node:crypto";
 import type { AgentRunHostFactory, AgentSessionAdapter } from "../adapter";
-import { runProcess, type RunProcess } from "../command";
+import { type RunProcess, runProcess } from "../command";
 import {
+  type ActivatedSessionBackend,
   createSessionAdapter,
   localOutcome,
-  type ActivatedSessionBackend,
   type NativeTurnOutcome,
 } from "../session-core";
 import { createSingleSessionHostFactory } from "../single-session-host";
-import { HARNESS_NAMES, harnessSpec, knownHarness, type HarnessSpec } from "../spec";
+import { HARNESS_NAMES, type HarnessSpec, harnessSpec, knownHarness } from "../spec";
 import {
   abortableDelay,
   emptyEnvironmentArgs,
+  HERDR_REPORT_GRACE_MS,
+  type HerdrCommand,
+  type HerdrResult,
   hasHerdrErrorCode,
   herdrFailure,
-  HERDR_REPORT_GRACE_MS,
   readable,
   readId,
   readPaneId,
@@ -22,8 +24,6 @@ import {
   record,
   safeAgentName,
   settledOutcome,
-  type HerdrCommand,
-  type HerdrResult,
 } from "./herdr-protocol";
 import { answerStartupBlocks } from "./herdr-startup";
 
@@ -217,10 +217,9 @@ export function createPaneAdapter(
           });
           let workspaceId: string | undefined;
           try {
-            const prompt =
-              request.instructions
-                ? `${request.instructions}\n\n${operation.prompt}`
-                : operation.prompt;
+            const prompt = request.instructions
+              ? `${request.instructions}\n\n${operation.prompt}`
+              : operation.prompt;
             const name = safeAgentName(
               `wf-${request.key}`,
               operation.binding?.operationId ?? `${request.key}-${operation.id}`,
@@ -267,15 +266,7 @@ export function createPaneAdapter(
             if (remaining() <= 0) return localOutcome("timed-out", "operation deadline exceeded");
             const waitMs = Math.max(1, Math.min(config.settleTimeoutMs, remaining()));
             const sent = await herdr(
-              [
-                "agent",
-                "prompt",
-                name,
-                prompt,
-                "--wait",
-                "--timeout",
-                String(waitMs),
-              ],
+              ["agent", "prompt", name, prompt, "--wait", "--timeout", String(waitMs)],
               waitMs + HERDR_REPORT_GRACE_MS,
               controller.signal,
             );
@@ -426,7 +417,8 @@ export function createHerdrRunHostFactory(
           }
           const tabId = readId(created.result.tab, "tab_id");
           const paneId = readPaneId(created.result);
-          if (!tabId || !paneId) throw new Error("agent tab create returned no tab or pane identity");
+          if (!tabId || !paneId)
+            throw new Error("agent tab create returned no tab or pane identity");
           panes.set(paneId, tabId);
           return paneId;
         });
@@ -647,15 +639,13 @@ function paneOutcome(
   read: HerdrResult,
 ): NativeTurnOutcome {
   const rawTranscript = read.ok && read.stdout.trim() !== "" ? read.stdout : null;
-  const transcript = rawTranscript ? spec.readTranscript?.(rawTranscript) ?? rawTranscript : null;
+  const transcript = rawTranscript ? (spec.readTranscript?.(rawTranscript) ?? rawTranscript) : null;
   const agent = record(sent.result.agent) ?? sent.result;
   const nativeSession =
     readSessionRef(agent) ?? (rawTranscript ? spec.readSessionId?.(rawTranscript) : undefined);
   return {
     ...settledOutcome(agent),
-    resultEvidence: transcript
-      ? { kind: "transcript", text: transcript }
-      : { kind: "unavailable" },
+    resultEvidence: transcript ? { kind: "transcript", text: transcript } : { kind: "unavailable" },
     ...(nativeSession ? { sessionRef: nativeSession } : {}),
     nativeUsage: rawTranscript && spec.readUsage ? [spec.readUsage(rawTranscript)] : [],
   };
