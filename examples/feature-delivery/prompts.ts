@@ -1,4 +1,4 @@
-import type { WorkUpdate } from "./feature-delivery.schema";
+import type { WorkUpdate } from "./schema";
 
 export type ReviewSubject =
   | { kind: "ticket-doc"; ticket: string }

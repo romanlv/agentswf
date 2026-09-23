@@ -1,5 +1,5 @@
 import Type from "typebox";
-import { outputSchema } from "./output-schema";
+import { outputSchema } from "../output-schema";
 
 const RAW_FINDING_SCHEMA = Type.Object(
   {

@@ -15,8 +15,8 @@ provider destinations. That ambiguity blocked Story 001's approved evaluation be
 launched.
 
 Known context: the current evaluation sends only the disposable contents copied from
-`examples/fixtures/review-target.ts` to subscription-authenticated Anthropic Claude and OpenAI
-Codex sessions. It rejects metered credentials, fingerprints the repository, retains private
+`examples/minimum-review/fixtures/review-target.ts` to subscription-authenticated Anthropic Claude
+and OpenAI Codex sessions. It rejects metered credentials, fingerprints the repository, retains private
 evidence, and does not retry. General workflows may select different targets and providers, so a
 hard-coded confirmation string is not a reusable interface.
 

@@ -5,13 +5,13 @@ import {
   type WorkflowContext,
   type WorkflowDefinition,
 } from "@wf/contract/workflow";
-import { catalogueLensPrompt, verificationPrompt } from "./catalogue-review.prompts";
+import { catalogueLensPrompt, verificationPrompt } from "./prompts";
 import {
   FINDINGS_SCHEMA,
   type RawFinding,
   VERDICT_SCHEMA,
   type Verdict,
-} from "./catalogue-review.schema";
+} from "./schema";
 
 type Lens = { id: string; page: string };
 

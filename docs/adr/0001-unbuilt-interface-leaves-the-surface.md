@@ -13,8 +13,8 @@ These came out of `contract` and `harness`:
 - `HarnessSpec.interactiveResume` and `HarnessSpec.confirmed`.
 - `HarnessActivation.skills`.
 
-`AgentOpenSpec.skills` stays, because `examples/feature-delivery.ts` is written against it, and the
-runner still refuses a non-empty list.
+`AgentOpenSpec.skills` stays, because `examples/feature-delivery/workflow.ts` is written against it,
+and the runner still refuses a non-empty list.
 
 ## Why
 

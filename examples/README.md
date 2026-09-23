@@ -8,14 +8,14 @@ Scenario workflows written against `@wf/contract/workflow`. The import boundary 
 From this repository:
 
 ```sh
-bun awf run examples/review-loop.ts
+bun awf run examples/minimum-review/review-loop.ts
 ```
 
 The default run deadline is ten minutes. Set another deadline with a CLI flag before the workflow
 file:
 
 ```sh
-bun awf run --timeout 20m examples/review-loop.ts
+bun awf run --timeout 20m examples/minimum-review/review-loop.ts
 ```
 
 The run deadline bounds agent activation, turns, nudges, and result collection. After it expires,
@@ -30,13 +30,13 @@ By default the review target is the current directory. To review one file or dir
 the current working directory, put its path after `--`:
 
 ```sh
-bun awf run examples/review-loop.ts -- packages/engine/src
+bun awf run examples/minimum-review/review-loop.ts -- packages/engine/src
 ```
 
 When the `@wf/engine` package bin is installed, the shorter equivalent is:
 
 ```sh
-awf run examples/review-loop.ts -- packages/engine/src
+awf run examples/minimum-review/review-loop.ts -- packages/engine/src
 ```
 
 The command uses Herdr session `default` unless `AWF_HERDR_SESSION` selects another session. The
@@ -50,8 +50,14 @@ bounding or cancelling any external asynchronous work it starts outside the work
 
 ## Other examples
 
-- `minimum-review.ts` contains the reusable one-round, two-lens review definition.
-- `catalogue-review.ts` is a typechecked design for fan-out and per-finding verification.
-- `feature-delivery.ts` is a typechecked design for planning, implementation, review, and revision.
+Each example that spans more than one file has a folder of its own, with its workflow in
+`workflow.ts`:
 
-Only `review-loop.ts` currently has the executable default export required by `awf run`.
+- `minimum-review/` is the reusable one-round, two-lens review definition, plus `review-loop.ts`
+  that runs it and a `fixtures/` target with a known defect.
+- `catalogue-review/` is a typechecked design for fan-out and per-finding verification.
+- `feature-delivery/` is a typechecked design for planning, implementation, review, and revision.
+- `output-schema/` is the TypeBox-to-output-schema helper the workflows share, with its type tests.
+
+Only `minimum-review/review-loop.ts` currently has the executable default export required by
+`awf run`.

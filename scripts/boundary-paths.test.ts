@@ -33,6 +33,6 @@ describe("boundary path resolution", () => {
   test("only the audited operator loader may import a user-selected workflow", () => {
     expect(allowsComputedWorkflowImport("packages/engine/src/workflow-loader.ts")).toBe(true);
     expect(allowsComputedWorkflowImport("packages/engine/src/operator-cli.ts")).toBe(false);
-    expect(allowsComputedWorkflowImport("examples/review-loop.ts")).toBe(false);
+    expect(allowsComputedWorkflowImport("examples/minimum-review/review-loop.ts")).toBe(false);
   });
 });

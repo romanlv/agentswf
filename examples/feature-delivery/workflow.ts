@@ -10,13 +10,13 @@ import {
   reviewPrompt,
   revisionPrompt,
   type ReviewSubject,
-} from "./feature-delivery.prompts";
+} from "./prompts";
 import {
   REVIEW_VERDICT_SCHEMA,
   type ReviewVerdict,
   WORK_UPDATE_SCHEMA,
   type WorkUpdate,
-} from "./feature-delivery.schema";
+} from "./schema";
 
 const ROLE_CONFIG = {
   planner: {

@@ -1,4 +1,4 @@
-import type { RawFinding } from "./catalogue-review.schema";
+import type { RawFinding } from "./schema";
 
 export function catalogueLensPrompt(
   project: string,

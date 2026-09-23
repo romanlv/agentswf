@@ -9,7 +9,7 @@ import {
   type WorkflowMeta,
 } from "@wf/contract/workflow";
 import Type from "typebox";
-import { outputSchema } from "./output-schema";
+import { outputSchema } from "../output-schema";
 
 const LENSES = ["correctness", "maintainability"] as const;
 

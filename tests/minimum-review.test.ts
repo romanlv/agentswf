@@ -22,7 +22,7 @@ import {
   createMinimumReview,
   type MinimumReviewArgs,
   type ReviewLens,
-} from "../examples/minimum-review";
+} from "../examples/minimum-review/workflow";
 
 const runDirs = createTempRunDirs();
 const { tempRunDir } = runDirs;
@@ -292,7 +292,7 @@ describe("minimum two-agent review", () => {
 });
 
 function args(): MinimumReviewArgs {
-  return { target: "examples/fixtures/review-target.ts" };
+  return { target: "examples/minimum-review/fixtures/review-target.ts" };
 }
 
 function runtime(adapter: AgentSessionAdapter): AgentRuntimeConfig {

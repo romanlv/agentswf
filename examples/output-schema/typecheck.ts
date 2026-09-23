@@ -1,5 +1,5 @@
 import Type from "typebox";
-import { outputSchema } from "./output-schema";
+import { outputSchema } from "./index";
 
 const jsonOutput = outputSchema(Type.Object({ value: Type.String() }));
 

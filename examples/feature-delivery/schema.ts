@@ -1,5 +1,5 @@
 import Type from "typebox";
-import { outputSchema } from "./output-schema";
+import { outputSchema } from "../output-schema";
 
 export const WORK_UPDATE_SCHEMA = outputSchema(
   Type.Object(

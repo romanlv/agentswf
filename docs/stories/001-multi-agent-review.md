@@ -11,8 +11,8 @@ depends_on: []
 
 ## Outcome
 
-Run [`examples/review-loop.ts`](../../examples/review-loop.ts) through `awf run`, open Claude and
-Codex as visible sibling panes in one Herdr tab, accept their isolated structured results, and
+Run [`examples/minimum-review/review-loop.ts`](../../examples/minimum-review/review-loop.ts)
+through `awf run`, open Claude and Codex as visible sibling panes in one Herdr tab, accept their isolated structured results, and
 return one ordered review result.
 
 This is the first usable end-to-end proof of the engine.
@@ -119,8 +119,10 @@ looking for a sibling's socket can find it. The broader design is in
 - `packages/engine/src/workflow-runner.ts` — ownership of one run, and workflow execution.
 - `packages/engine/src/operator-cli.ts` — the trusted `awf run` entry point.
 - `packages/cli-agent/` — the in-session `wf result` client.
-- `examples/minimum-review.ts` — the review workflow: lenses, lens-bound schemas, composition.
-- `examples/review-loop.ts` — reviewer configuration and the operator-runnable default export.
+- `examples/minimum-review/workflow.ts` — the review workflow: lenses, lens-bound schemas,
+  composition.
+- `examples/minimum-review/review-loop.ts` — reviewer configuration and the operator-runnable
+  default export.
 - `tests/minimum-review.eval.ts` — the live evaluation. It spends subscription usage.
 
 ## Tasks
@@ -178,7 +180,8 @@ channel redesign:
   logins and confirm that no metered credential is present.
 - [ ] `WF_LIVE_EVAL=1 bun tests/minimum-review.eval.ts`. Both reviews must complete in lens order,
   and the repository fingerprint must be unchanged.
-- [ ] `bun run awf run --timeout 10m examples/review-loop.ts -- examples/fixtures/review-target.ts`.
+- [ ] `bun run awf run --timeout 10m examples/minimum-review/review-loop.ts --
+  examples/minimum-review/fixtures/review-target.ts`.
   It should exit zero with its artifacts under `.awf/runs/`.
 - [ ] Cleanup: `herdr workspace list` shows no run workspace, and the working tree is unchanged.
 

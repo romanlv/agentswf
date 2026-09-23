@@ -28,7 +28,7 @@ import type {
 import { createHerdrRunHostFactory } from "../packages/harness/src/adapters/herdr";
 import { runProcess, type RunProcess } from "../packages/harness/src/command";
 import { runWorkflow } from "../packages/engine/src";
-import { createMinimumReview, type ReviewOutcome } from "../examples/minimum-review";
+import { createMinimumReview, type ReviewOutcome } from "../examples/minimum-review/workflow";
 
 export const LIVE_EVALUATION_BOUNDS = {
   workflowMilliseconds: 10 * 60_000,
@@ -80,7 +80,7 @@ export type NativeOutcomeEvidence = {
 
 const ROOT = join(import.meta.dir, "..");
 const CLI_SOURCE = join(ROOT, "packages/cli-agent/src/cli.ts");
-const FIXTURE_SOURCE = join(ROOT, "examples/fixtures/review-target.ts");
+const FIXTURE_SOURCE = join(ROOT, "examples/minimum-review/fixtures/review-target.ts");
 const HERDR_SESSION = "default";
 const EXPECTED_HERDR_VERSION = "herdr 0.8.2";
 const METERED_CREDENTIAL_ENV = [

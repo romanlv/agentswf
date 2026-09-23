@@ -13,9 +13,9 @@ const usage = [
   "usage: awf run [--timeout <duration>] [--run-root <directory>] <workflow-file> [--] [workflow arguments...]",
   "",
   "Examples:",
-  "  awf run examples/review-loop.ts",
-  "  awf run --timeout 20m examples/review-loop.ts",
-  "  awf run examples/review-loop.ts -- packages/engine/src",
+  "  awf run examples/minimum-review/review-loop.ts",
+  "  awf run --timeout 20m examples/minimum-review/review-loop.ts",
+  "  awf run examples/minimum-review/review-loop.ts -- packages/engine/src",
   "",
   "Workflow files are trusted code and run with your filesystem and process authority.",
 ].join("\n");

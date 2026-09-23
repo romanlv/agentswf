@@ -1,4 +1,4 @@
-import { defineReviewWorkflow } from "./minimum-review";
+import { defineReviewWorkflow } from "./workflow";
 
 const executable = defineReviewWorkflow({
   name: "review-loop",
