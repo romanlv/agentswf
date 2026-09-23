@@ -1,5 +1,5 @@
-import { fileURLToPath } from "node:url";
 import { dirname, isAbsolute, relative, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
 export const WORKSPACE_MANIFEST_GLOBS = [
   "{packages,experiments}/*/package.json",

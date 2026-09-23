@@ -201,6 +201,14 @@ describe("createHeadlessAdapter", () => {
     });
   });
 
+  test("usage a turn never reported stays absent rather than becoming zero", async () => {
+    const { run } = stub(["a screen with no JSON on it"]);
+    const session = await headless(run);
+    const turn = await session.start(turnSpec, firstBinding);
+
+    expect((await turn.settled).nativeUsage[0]?.cachedInputTokens).toBeUndefined();
+  });
+
   test("a harness with no confirmed resume cannot be nudged, and says so", async () => {
     const { run, calls } = stub(["first turn", "second turn"]);
     const { resumeTurn } = HARNESSES.codex;

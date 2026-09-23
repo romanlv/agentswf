@@ -1,5 +1,6 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { randomUUID } from "node:crypto";
+import { dirname } from "node:path";
 import { isDeepStrictEqual } from "node:util";
 import { describe, parseJsonSchema, type JsonSchema } from "@wf/contract/schema";
 import {
@@ -32,9 +33,12 @@ import type {
   HarnessTurnOutcome,
 } from "@wf/harness/adapter";
 import type { TurnUsage as NativeUsage } from "@wf/harness";
-import { startResultControlPlane, type ResultChannel, type ResultControlPlane } from "./control-plane";
-import { dirname } from "node:path";
 import { installAgentLauncher } from "./agent-launcher";
+import {
+  startResultControlPlane,
+  type ResultChannel,
+  type ResultControlPlane,
+} from "./control-plane";
 import {
   createResultSlotRegistry,
   type ResultSlotRegistry,
@@ -401,17 +405,17 @@ class WorkflowOwner {
       .then(async (session) => {
         const { channel, launcher } = await reachable;
         return new LogicalAgent({
-            key: spec.key,
-            execution,
-            session,
-            slots: this.options.slots,
-            endpoint: channel.endpoint,
-            launcher,
-            deadline: this.options.deadline,
-            reserveUsage: () => this.reserveUsage(),
-            track: (promise) => this.track(promise),
-            isRunClosing: () => this.#closed,
-          });
+          key: spec.key,
+          execution,
+          session,
+          slots: this.options.slots,
+          endpoint: channel.endpoint,
+          launcher,
+          deadline: this.options.deadline,
+          reserveUsage: () => this.reserveUsage(),
+          track: (promise) => this.track(promise),
+          isRunClosing: () => this.#closed,
+        });
       });
     const ownedState = this.track(state);
     this.#agents.set(spec.key, {
@@ -447,7 +451,10 @@ class WorkflowOwner {
 class LogicalAgent implements AgentRef {
   readonly #operations = new Map<
     string,
-    { spec: AgentRunTextSpec | AgentRunStructuredSpec<JsonValue>; result: Promise<RunResult<JsonValue>> }
+    {
+      spec: AgentRunTextSpec | AgentRunStructuredSpec<JsonValue>;
+      result: Promise<RunResult<JsonValue>>;
+    }
   >();
   #tail: Promise<void> = Promise.resolve();
   #closed = false;
@@ -1128,7 +1135,7 @@ function reasonOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-/** Release without waiting on the outcome: the timeout or cancellation that asked is authoritative. */
+/** Release without waiting on the outcome; the timeout or cancellation that asked stands. */
 function requestTurnRelease(turn: HarnessTurn, reason: string): Promise<void> {
   return Promise.resolve()
     .then(() => releaseSettledTurn(turn, reason))

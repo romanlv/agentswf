@@ -1,5 +1,9 @@
 #!/usr/bin/env bun
-import { WIRE_VERSION, type ResultSubmitRequest, type ResultSubmitResponse } from "@wf/contract/wire";
+import {
+  WIRE_VERSION,
+  type ResultSubmitRequest,
+  type ResultSubmitResponse,
+} from "@wf/contract/wire";
 import { submitResult } from "./client";
 
 const usage = [
@@ -71,7 +75,10 @@ function rejection(
     case "unknown-operation":
       // Correctable, unlike the two below: the id is wrong, not the call gone. Transposing the id
       // and the JSON lands here, and telling the agent to give up would end a live turn.
-      return `no call named ${operationId} is open. Check the id in the request and run wf result again.`;
+      return (
+        `no call named ${operationId} is open. ` +
+        "Check the id in the request and run wf result again."
+      );
     case "expired-operation":
     case "closed-operation":
       return "that call is no longer open; the workflow engine must start a new one";

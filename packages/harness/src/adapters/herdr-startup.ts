@@ -105,7 +105,9 @@ export async function answerStartupBlocks(
   if (settledState(waited) === "blocked") {
     return {
       ok: false,
-      error: `agent is still blocked after ${answered.size} answered startup block(s): ${oneLine(screen)}`,
+      error:
+        `agent is still blocked after ${answered.size} answered startup block(s): ` +
+        oneLine(screen),
       timedOut: false,
       cancelled: false,
     };

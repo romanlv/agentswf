@@ -72,11 +72,14 @@ function num(value: unknown): number | undefined {
 const claudeUsage = (stdout: string): TurnUsage => {
   const result = lastJson(stdout);
   const usage = record(result?.usage);
+  const read = num(usage?.cache_read_input_tokens);
+  const created = num(usage?.cache_creation_input_tokens);
   return {
     inputTokens: num(usage?.input_tokens),
     outputTokens: num(usage?.output_tokens),
+    // Absent when neither was reported: a zero here would claim a measurement nobody made.
     cachedInputTokens:
-      (num(usage?.cache_read_input_tokens) ?? 0) + (num(usage?.cache_creation_input_tokens) ?? 0),
+      read === undefined && created === undefined ? undefined : (read ?? 0) + (created ?? 0),
     costUsd: num(result?.total_cost_usd),
   };
 };

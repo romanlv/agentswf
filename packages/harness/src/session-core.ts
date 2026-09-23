@@ -3,6 +3,7 @@ import {
   type AgentStructuredTurnSpec,
   type AgentTextTurnSpec,
   type AbsoluteDeadline,
+  type HarnessKind,
   type JsonValue,
 } from "@wf/contract/workflow";
 import type {
@@ -16,7 +17,6 @@ import type {
   HarnessTurn,
   HarnessTurnOutcome,
 } from "./adapter";
-import type { HarnessKind } from "@wf/contract/workflow";
 
 export type NativeTurnRequest = {
   id: string;

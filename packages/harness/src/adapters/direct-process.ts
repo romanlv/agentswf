@@ -1,8 +1,8 @@
 import { randomUUID } from "node:crypto";
 import type { AgentSessionAdapter } from "../adapter";
 import { runProcess, type RunProcess } from "../command";
-import { createSessionAdapter, localOutcome } from "../session-core";
 import { createLegacyDriver } from "../legacy-driver";
+import { createSessionAdapter, localOutcome } from "../session-core";
 import { HARNESS_NAMES, harnessSpec, knownHarness } from "../spec";
 import type { AgentSessionDriver, CallIdentity } from "../types";
 
@@ -51,7 +51,10 @@ function createHeadlessAdapterCore(
             return localOutcome("timed-out", "operation deadline exceeded");
           }
           if (hasExecuted && !operation.previousSessionRef) {
-            return localOutcome("failed", `${harness} produced no resumable native session reference`);
+            return localOutcome(
+              "failed",
+              `${harness} produced no resumable native session reference`,
+            );
           }
           if (operation.previousSessionRef && !spec.resumeTurn) {
             return localOutcome(
@@ -93,7 +96,9 @@ function createHeadlessAdapterCore(
             ? spec.readTranscript(result.stdout)
             : result.stdout;
           const nativeSession =
-            spec.readSessionId?.(result.stdout) ?? operation.previousSessionRef ?? identity.sessionId;
+            spec.readSessionId?.(result.stdout) ??
+            operation.previousSessionRef ??
+            identity.sessionId;
           if (nativeSession) identity.sessionId = nativeSession;
           const common = {
             resultEvidence: transcript
@@ -119,7 +124,9 @@ function createHeadlessAdapterCore(
           if (result.exitCode !== 0) {
             return {
               state: "failed" as const,
-              detail: `${plan.argv[0]} exited ${result.exitCode}: ${result.stderr.trim().slice(0, 400)}`,
+              detail:
+                `${plan.argv[0]} exited ${result.exitCode}: ` +
+                result.stderr.trim().slice(0, 400),
               ...common,
             };
           }

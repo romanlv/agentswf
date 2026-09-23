@@ -42,7 +42,7 @@ export type HerdrConfig = {
   startRetryMs?: number;
   /** Answer the known startup blocks — trust gates included — for a workspace the caller vetted. */
   acceptWorkspaceTrust?: boolean;
-  /** How long an agent is left alone after each startup block it is sent; see `answerStartupBlocks`. */
+  /** How long an agent is left alone after each startup block; see `answerStartupBlocks`. */
   trustSettleMs?: number;
 };
 
@@ -202,7 +202,8 @@ export function createPaneAdapter(
           if (executed || operation.previousSessionRef) {
             return localOutcome(
               "failed",
-              "safe pane continuation is unavailable without a measured interactive-resume primitive",
+              "safe pane continuation is unavailable without a measured " +
+                "interactive-resume primitive",
             );
           }
           executed = true;
@@ -473,7 +474,8 @@ export function createHerdrRunHostFactory(
                   if (hasExecuted) {
                     return localOutcome(
                       "failed",
-                      "this host runs one operation per agent: native release cannot be proved for a later one",
+                      "this host runs one operation per agent: " +
+                        "native release cannot be proved for a later one",
                     );
                   }
                   const paneId = await allocatePane(

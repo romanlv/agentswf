@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { WIRE_VERSION, type ResultSubmitRequest, type ResultSubmitResponse } from "@wf/contract/wire";
+import {
+  WIRE_VERSION,
+  type ResultSubmitRequest,
+  type ResultSubmitResponse,
+} from "@wf/contract/wire";
 import { readBoundedStdin, readCliStdin, runCli } from "./cli";
 
 const ENDPOINT = "/private/control.sock";

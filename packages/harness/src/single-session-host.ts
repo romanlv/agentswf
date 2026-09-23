@@ -1,4 +1,10 @@
 import type {
+  AgentExecution,
+  AgentStructuredTurnSpec,
+  AgentTextTurnSpec,
+  JsonValue,
+} from "@wf/contract/workflow";
+import type {
   AgentRunHost,
   AgentRunHostFactory,
   AgentSessionAdapter,
@@ -9,12 +15,6 @@ import type {
   HarnessSessionStatus,
   HarnessTurn,
 } from "./adapter";
-import type {
-  AgentExecution,
-  AgentStructuredTurnSpec,
-  AgentTextTurnSpec,
-  JsonValue,
-} from "@wf/contract/workflow";
 import { outcomeStatus } from "./session-core";
 
 /**

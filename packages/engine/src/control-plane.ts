@@ -185,7 +185,8 @@ export async function startResultControlPlane(options: {
       close() {
         channelClosing ??= (async () => {
           // Stop accepting, then let whatever is already being answered finish: taking the socket
-          // away first turns an accepted submission into a connection error the agent must guess at.
+          // away first turns an accepted submission into a connection error the agent must guess
+          // at.
           listener.stop(false);
           await Promise.allSettled([...activeHandlers]);
           listener.stop(true);

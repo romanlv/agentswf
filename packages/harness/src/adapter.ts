@@ -6,11 +6,12 @@ import type {
   AbsoluteDeadline,
   CompactionId,
   HarnessKind,
+  JsonObject,
+  JsonValue,
   NudgeOptions,
   RuntimeAliases,
   TurnId,
 } from "@wf/contract/workflow";
-import type { JsonObject, JsonValue } from "@wf/contract/workflow";
 import type { TurnUsage as NativeUsageSample } from "./spec";
 
 export type AgentState =

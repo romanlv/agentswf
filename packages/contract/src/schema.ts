@@ -83,7 +83,13 @@ export function parseJsonSchema(value: unknown): JsonSchema {
       if (value.minItems !== undefined) assertNonNegativeInteger(value.minItems, "minItems");
       break;
     case "object": {
-      assertKeys(value, ["type", "properties", "required", "additionalProperties", ...ANNOTATION_KEYS]);
+      assertKeys(value, [
+        "type",
+        "properties",
+        "required",
+        "additionalProperties",
+        ...ANNOTATION_KEYS,
+      ]);
       if (!isRecord(value.properties)) invalid("object properties");
       Object.values(value.properties).forEach(parseJsonSchema);
       if (value.required !== undefined && !isStringArray(value.required)) invalid("required");
@@ -113,7 +119,7 @@ export function formatErrors(errors: readonly SchemaError[]): string {
   return [`the value does not match the schema for this call:`, ...lines].join("\n");
 }
 
-/** Whether every constant-valued property this branch declares is present and equal in the value. */
+/** Whether every constant-valued property this branch declares is present and equal in value. */
 function tagMatches(candidate: JsonSchema, value: unknown): boolean {
   if (!("type" in candidate) || candidate.type !== "object" || !isRecord(value)) return false;
   const tags = Object.entries(candidate.properties).filter(
@@ -133,12 +139,13 @@ function check(schema: JsonSchema, value: unknown, path: string): SchemaError[] 
     // "wanted" the very thing that was supplied. E5 is what that costs in correction attempts.
     const tagged = schema.anyOf.filter((candidate) => tagMatches(candidate, value));
     if (tagged.length === 1) return check(tagged[0]!, value, path);
-    return [{ path, message: `expected one of ${schema.anyOf.map(describe).join(", ")}; got ${preview(value)}` }];
+    const options = schema.anyOf.map(describe).join(", ");
+    return [{ path, message: `expected one of ${options}; got ${preview(value)}` }];
   }
   if (!("type" in schema)) {
-    return schema.enum.includes(value as JsonPrimitive)
-      ? []
-      : [{ path, message: `expected one of ${schema.enum.map(preview).join(", ")}; got ${preview(value)}` }];
+    if (schema.enum.includes(value as JsonPrimitive)) return [];
+    const options = schema.enum.map(preview).join(", ");
+    return [{ path, message: `expected one of ${options}; got ${preview(value)}` }];
   }
   switch (schema.type) {
     case "string": {
@@ -266,7 +273,9 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 function assertKeys(value: Record<string, unknown>, allowed: readonly string[]): void {
   const accepted = new Set(allowed);
   const unsupported = Object.keys(value).find((key) => !accepted.has(key));
-  if (unsupported) throw new Error(`output schema keyword ${JSON.stringify(unsupported)} is unsupported`);
+  if (unsupported) {
+    throw new Error(`output schema keyword ${JSON.stringify(unsupported)} is unsupported`);
+  }
 }
 
 function assertPrimitiveEnum(value: unknown): asserts value is JsonPrimitive[] {
@@ -274,13 +283,17 @@ function assertPrimitiveEnum(value: unknown): asserts value is JsonPrimitive[] {
 }
 
 function assertStringEnum(value: unknown): asserts value is string[] {
-  if (!Array.isArray(value) || value.length === 0 || !value.every((item) => typeof item === "string")) {
-    invalid("string enum");
-  }
+  const strings = Array.isArray(value) && value.every((item) => typeof item === "string");
+  if (!strings || value.length === 0) invalid("string enum");
 }
 
 function isJsonPrimitive(value: unknown): value is JsonPrimitive {
-  return value === null || typeof value === "string" || typeof value === "boolean" || isFiniteNumber(value);
+  return (
+    value === null ||
+    typeof value === "string" ||
+    typeof value === "boolean" ||
+    isFiniteNumber(value)
+  );
 }
 
 function isFiniteNumber(value: unknown): value is number {
