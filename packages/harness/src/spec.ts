@@ -70,7 +70,7 @@ function num(value: unknown): number | undefined {
   return typeof value === "number" ? value : undefined;
 }
 
-/** Claude bills the same turn twice over if the CLAUDE.md prefix misses cache; both are input. */
+/** Claude bills the same turn twice over if the instructions prefix misses cache; both are input. */
 const claudeUsage = (stdout: string): TurnUsage => {
   const result = lastJson(stdout);
   const usage = record(result?.usage);
