@@ -11,7 +11,7 @@ From this repository:
 bun awf run examples/minimum-review/review-loop.ts
 ```
 
-The default run deadline is ten minutes. Set another deadline with a CLI flag before the workflow
+The default run deadline is thirty minutes. Set another deadline with a CLI flag before the workflow
 file:
 
 ```sh
@@ -42,9 +42,12 @@ awf run examples/minimum-review/review-loop.ts -- packages/engine/src
 The command uses Herdr session `default` unless `AWF_HERDR_SESSION` selects another session. The
 runtime selects subscription-authenticated Claude and Codex models without exposing terminal
 placement in workflow aliases. Metered API-key variables are removed so they cannot silently take
-precedence. The command prints structured JSON on standard output and reports retained run
-artifacts. A workflow file is trusted executable code: loading it gives the file the same
-filesystem and process authority as the operator.
+precedence. A workflow that presents its own result prints that report on standard output;
+otherwise, or with `--json`, the command prints the result as JSON. Either way the JSON is kept as
+`output.json` beside the run's other artifacts, under `~/.awf/runs` unless `--run-root` says
+otherwise, and a workflow that writes a Markdown report has it saved there as `report.md`. A workflow file is trusted
+executable code: loading it gives the file the same filesystem and process authority as the
+operator.
 Agent operations are cancelled on interruption. A custom trusted workflow remains responsible for
 bounding or cancelling any external asynchronous work it starts outside the workflow engine.
 
@@ -55,9 +58,15 @@ Each example that spans more than one file has a folder of its own, with its wor
 
 - `minimum-review/` is the reusable one-round, two-lens review definition, plus `review-loop.ts`
   that runs it and a `fixtures/` target with a known defect.
-- `catalogue-review/` is a typechecked design for fan-out and per-finding verification.
+- `catalogue-review/` fans a diff out over catalogue lenses and verifies each finding.
+  `defineCatalogueReview` turns a lens catalogue into an `awf run` entry point, which by default
+  reviews `origin/main...HEAD` through every lens; `-- --lenses a,b` and `--range` narrow it.
+  A lens with `paths` globs runs only when the diff touches a match, given the changed files by
+  the entry point. It prints a line per finding to act on, and writes `report.md` with the
+  evidence, the verifier's reasons and what was refuted, to hand back to the implementer.
 - `feature-delivery/` is a typechecked design for planning, implementation, review, and revision.
 - `output-schema/` is the TypeBox-to-output-schema helper the workflows share, with its type tests.
 
-Only `minimum-review/review-loop.ts` currently has the executable default export required by
-`awf run`.
+Only `minimum-review/review-loop.ts` has the executable default export required by `awf run`.
+A catalogue review's entry point lives beside the catalogue it reads, outside this package, because
+reading one is I/O and a workflow here is pure.

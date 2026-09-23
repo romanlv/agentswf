@@ -12,8 +12,8 @@ depends_on: []
 ## Outcome
 
 Run [`examples/minimum-review/review-loop.ts`](../../examples/minimum-review/review-loop.ts)
-through `awf run`, open Claude and Codex as visible sibling panes in one Herdr tab, accept their isolated structured results, and
-return one ordered review result.
+through `awf run`, open Claude and Codex each in a visible tab of one Herdr workspace, accept their
+isolated structured results, and return one ordered review result.
 
 This is the first usable end-to-end proof of the engine.
 
@@ -37,7 +37,7 @@ the cleanup that followed it. So the live evidence below describes older code.
 In scope:
 
 - two logical review agents running concurrently;
-- one run-owned Herdr workspace and tab, with a visible sibling pane for each operation;
+- one run-owned Herdr workspace, with a visible tab for each agent;
 - a private engine-owned socket for each agent and one result slot for each operation;
 - structured result acceptance through the engine control plane;
 - ordered composition, inspection, deadlines, cancellation, and cleanup;
@@ -56,9 +56,10 @@ Out of scope:
 
 ### Execution model
 
-- One engine run opens one `AgentRunHost`. The production host owns one Herdr workspace and tab.
-- Every operation gets a fresh sibling pane. The first delivery and the optional nudge belong to the
-  same operation, pane, and result slot.
+- One engine run opens one `AgentRunHost`. The production host owns one Herdr workspace.
+- Every agent gets a tab of its own, labelled with its key. The first delivery and the optional
+  nudge belong to the same operation, tab, and result slot. Sibling panes in one tab were the
+  first layout; at five concurrent agents they halved to columns too narrow to use.
 - A logical agent takes one operation. The production host refuses a second one, because nothing it
   can observe proves that the first pane was released.
 - Result acceptance and native release are separate. The accepted data decides the workflow value.
@@ -91,7 +92,7 @@ Herdr lifecycle state is telemetry. It does not prove that a particular prompt h
 
 ### Deadlines
 
-- `awf run --timeout` sets the enclosing workflow deadline. The default is ten minutes, with a fixed
+- `awf run --timeout` sets the enclosing workflow deadline. The default is thirty minutes, with a fixed
   five-second shutdown grace. An operation inherits the enclosing deadline unless it asks for a
   narrower one. The engine resolves an absolute deadline before it calls into the harness.
 - A turn that reaches its deadline is `timed-out`. It is not counted as `unanswered` or as a
@@ -182,7 +183,7 @@ channel redesign:
   and the repository fingerprint must be unchanged.
 - [ ] `bun run awf run --timeout 10m examples/minimum-review/review-loop.ts --
   examples/minimum-review/fixtures/review-target.ts`.
-  It should exit zero with its artifacts under `.awf/runs/`.
+  It should exit zero with its artifacts under `~/.awf/runs/`.
 - [ ] Cleanup: `herdr workspace list` shows no run workspace, and the working tree is unchanged.
 
 The last passing live runs were on 2026-09-18, using Herdr 0.8.2, Claude Code 2.1.276, and codex-cli

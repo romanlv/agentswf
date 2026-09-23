@@ -33,5 +33,7 @@ export const VERDICT_SCHEMA = outputSchema(
   ),
 );
 
+export const SEVERITY_ORDER = { issue: 0, minor: 1, observation: 2 } as const;
+
 export type RawFinding = Type.Static<typeof RAW_FINDING_SCHEMA>;
 export type Verdict = Type.Static<typeof VERDICT_SCHEMA>;

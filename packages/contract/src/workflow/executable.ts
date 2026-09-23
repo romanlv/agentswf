@@ -8,11 +8,18 @@ export type WorkflowInvocation = Readonly<{
   cwd: string;
 }>;
 
-/** Adapts operator input to one programmatic workflow call without owning runtime configuration. */
+/**
+ * Adapts operator input to one programmatic workflow call, and its result back to the operator,
+ * without owning runtime configuration.
+ */
 export interface ExecutableWorkflow<Args extends JsonValue, Result extends JsonValue> {
   readonly kind: typeof EXECUTABLE_WORKFLOW_KIND;
   readonly definition: WorkflowDefinition<Args, Result>;
   prepare(invocation: WorkflowInvocation): Args;
+  /** Renders the result for a person at a terminal. Without it the operator sees the JSON. */
+  present?(result: Result): string;
+  /** A Markdown handoff of the result for whoever acts on it; the operator saves it as report.md. */
+  report?(result: Result): string;
 }
 
 type ExecutableWorkflowSpec<Args extends JsonValue, Result extends JsonValue> = Omit<

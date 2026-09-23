@@ -54,6 +54,8 @@ function isExecutableWorkflow(
   return (
     executable?.kind === EXECUTABLE_WORKFLOW_KIND &&
     typeof executable.prepare === "function" &&
+    (executable.present === undefined || typeof executable.present === "function") &&
+    (executable.report === undefined || typeof executable.report === "function") &&
     typeof definition?.run === "function" &&
     typeof meta?.name === "string" &&
     meta.name.trim() !== "" &&

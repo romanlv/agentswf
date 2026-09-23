@@ -1,19 +1,30 @@
 import {
+  defineExecutableWorkflow,
   isAnswered,
+  type ExecutableWorkflow,
   type RuntimeSelection,
   type TurnUsage,
   type WorkflowContext,
   type WorkflowDefinition,
+  type WorkflowInvocation,
+  type WorkflowMeta,
 } from "@wf/contract/workflow";
-import { catalogueLensPrompt, verificationPrompt } from "./prompts";
+import { matchesAny } from "./paths";
+import { presentCatalogueResult, reportCatalogueResult } from "./present";
+import { catalogueLensPrompt, type LensSource, verificationPrompt } from "./prompts";
 import {
   FINDINGS_SCHEMA,
   type RawFinding,
+  SEVERITY_ORDER,
   VERDICT_SCHEMA,
   type Verdict,
 } from "./schema";
 
-type Lens = { id: string; page: string };
+export type Lens = LensSource & {
+  id: string;
+  /** Globs over repository paths; the lens runs only when the diff touches a match. Absent: always. */
+  paths?: string[];
+};
 
 type Finding = RawFinding & { lens: string; page: string };
 
@@ -22,18 +33,22 @@ type Verification =
   | { kind: "confirmed"; reason: string }
   | { kind: "refuted"; reason: string };
 
-type ReviewedFinding = Finding & {
+export type ReviewedFinding = Finding & {
   verification: Verification;
   attributionFailure?: string;
 };
 
 type CatalogueArgs = {
-  project: string;
-  iid: number;
+  /** The merge request the range belongs to, when there is one. */
+  request?: { project: string; iid: number };
   range: string;
   lenses: Lens[];
+  /** Lenses left out because the diff touches none of their paths. */
+  skipped?: string[];
   maxVerifyPerLens?: number;
   runtime: RuntimeSelection;
+  /** The verifiers' runtime; the lenses' when absent. */
+  verifierRuntime?: RuntimeSelection;
 };
 
 type Failure = {
@@ -42,7 +57,11 @@ type Failure = {
   reason: string;
 };
 
-type CatalogueResult = {
+export type CatalogueResult = {
+  range: string;
+  /** The ids of the lenses applied. */
+  lenses: string[];
+  skipped: string[];
   findings: ReviewedFinding[];
   failures: Failure[];
   usage: TurnUsage[];
@@ -51,6 +70,9 @@ type CatalogueResult = {
 type LensResult =
   | { kind: "completed"; lens: Lens; findings: RawFinding[] }
   | { kind: "failed"; lens: Lens; reason: string };
+
+const READ_ONLY =
+  "Do not modify files. Perform the review yourself: do not delegate or launch subagents.";
 
 export const catalogueReview: WorkflowDefinition<CatalogueArgs, CatalogueResult> = {
   meta: {
@@ -83,6 +105,9 @@ export const catalogueReview: WorkflowDefinition<CatalogueArgs, CatalogueResult>
     const verified = await verifyFindings(workflow, args, candidates);
 
     return {
+      range: args.range,
+      lenses: args.lenses.map((lens) => lens.id),
+      skipped: args.skipped ?? [],
       findings: [...verified.findings, ...unchecked],
       failures: [...lensFailures, ...verified.failures],
       usage: workflow.usage(),
@@ -101,15 +126,15 @@ function selectVerificationCandidates(
   for (const result of results) {
     if (result.kind === "failed") continue;
     const findings = result.findings.map((finding) => normalizeFinding(result.lens, finding));
-    const actionable = findings.filter((finding) => finding.severity !== "observation");
-    candidates.push(...actionable.slice(0, verificationLimit));
-    unchecked.push(
-      ...findings.filter((finding) => finding.severity === "observation").map(notVerified),
-      ...actionable.slice(verificationLimit).map(notVerified),
+    // Severity decides which findings the limit leaves unverified, not the order the lens wrote them.
+    const ranked = findings.toSorted(
+      (left, right) => SEVERITY_ORDER[left.severity] - SEVERITY_ORDER[right.severity],
     );
-    if (actionable.length > verificationLimit) {
+    candidates.push(...ranked.slice(0, verificationLimit));
+    unchecked.push(...ranked.slice(verificationLimit).map(notVerified));
+    if (ranked.length > verificationLimit) {
       workflow.log(
-        `${result.lens.id}: ${actionable.length - verificationLimit} findings not verified`,
+        `${result.lens.id}: ${ranked.length - verificationLimit} findings not verified`,
       );
     }
   }
@@ -124,12 +149,12 @@ async function runLens(
   try {
     const reviewer = await workflow.agents.open({
       key: `lens:${lens.id}`,
-      instructions: `Apply only the ${lens.id} lens from ${lens.page}.`,
+      instructions: `Apply only the ${lens.id} lens from ${lens.page}. ${READ_ONLY}`,
       runtime: args.runtime,
       labels: { lens: lens.id },
     });
     const { outcome } = await reviewer.run({
-      prompt: catalogueLensPrompt(args.project, args.iid, args.range, lens.page),
+      prompt: catalogueLensPrompt(args.range, lens, args.request),
       schema: FINDINGS_SCHEMA,
     });
 
@@ -164,12 +189,16 @@ async function verifyFindings(
       try {
         const verifier = await workflow.agents.open({
           key: `verifier:${index}`,
-          instructions: "Try to refute this finding against the diff and surrounding code.",
-          runtime: args.runtime,
+          instructions: `Try to refute this finding against the diff and surrounding code. ${READ_ONLY}`,
+          runtime: args.verifierRuntime ?? args.runtime,
           labels: { verifier: index },
         });
         const { outcome } = await verifier.run({
-          prompt: verificationPrompt(args.range, finding),
+          prompt: verificationPrompt(
+            args.range,
+            finding,
+            args.lenses.find((lens) => lens.id === finding.lens)?.rules,
+          ),
           schema: VERDICT_SCHEMA,
         });
 
@@ -236,4 +265,104 @@ function findingSubject(finding: Finding): string {
 
 function message(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+export type CatalogueReviewConfig = WorkflowMeta & {
+  /** Every lens the workflow can apply; `--lenses` picks a subset by id. */
+  lenses: Lens[];
+  runtime?: RuntimeSelection;
+  verifierRuntime?: RuntimeSelection;
+  range?: string;
+  maxVerifyPerLens?: number;
+  /**
+   * The repository paths the range changes. Given, a lens with `paths` runs only when one matches;
+   * naming lenses with `--lenses` runs them regardless.
+   */
+  changedFiles?: (range: string, invocation: WorkflowInvocation) => string[];
+};
+
+/**
+ * An `awf run` entry point over a fixed lens catalogue. With no arguments it reviews what the
+ * current branch adds to `origin/main` through every lens; `--range` and `--lenses a,b` narrow it.
+ */
+export function defineCatalogueReview(
+  config: CatalogueReviewConfig,
+): ExecutableWorkflow<CatalogueArgs, CatalogueResult> {
+  const {
+    lenses,
+    runtime = "claude",
+    verifierRuntime,
+    range = "origin/main...HEAD",
+    maxVerifyPerLens,
+    changedFiles,
+    ...meta
+  } = config;
+  if (lenses.length === 0) throw new Error(`${meta.name}: the lens catalogue is empty`);
+  return defineExecutableWorkflow({
+    definition: { ...catalogueReview, meta },
+    prepare: (invocation) => {
+      const parsed = parseCatalogueArgs(meta.name, invocation, lenses, range);
+      const selection =
+        parsed.named || !changedFiles
+          ? { lenses: parsed.lenses, skipped: [] }
+          : selectLenses(parsed.lenses, changedFiles(parsed.range, invocation));
+      return {
+        range: parsed.range,
+        ...selection,
+        runtime,
+        ...(verifierRuntime === undefined ? {} : { verifierRuntime }),
+        ...(maxVerifyPerLens === undefined ? {} : { maxVerifyPerLens }),
+      };
+    },
+    present: presentCatalogueResult,
+    report: reportCatalogueResult,
+  });
+}
+
+function parseCatalogueArgs(
+  name: string,
+  invocation: WorkflowInvocation,
+  catalogue: Lens[],
+  defaultRange: string,
+): { range: string; lenses: Lens[]; named: boolean } {
+  let range = defaultRange;
+  let lenses = catalogue;
+  let named = false;
+  for (let index = 0; index < invocation.argv.length; index += 2) {
+    const option = invocation.argv[index];
+    const value = invocation.argv[index + 1];
+    if (option !== "--range" && option !== "--lenses") {
+      throw new Error(`${name}: unknown option ${option}; expected --range or --lenses`);
+    }
+    if (!value) throw new Error(`${name}: ${option} needs a value`);
+    if (option === "--range") {
+      if (/[\u0000-\u001f\u007f]/.test(value)) throw new Error(`${name}: invalid range`);
+      range = value;
+    } else {
+      named = true;
+      const ids = value.split(",").map((id) => id.trim());
+      lenses = ids.map((id) => {
+        const lens = catalogue.find((candidate) => candidate.id === id);
+        if (!lens) {
+          throw new Error(
+            `${name}: unknown lens ${JSON.stringify(id)}; known: ${catalogue.map((known) => known.id).join(", ")}`,
+          );
+        }
+        return lens;
+      });
+    }
+  }
+  return { range, lenses, named };
+}
+
+function selectLenses(
+  lenses: Lens[],
+  changed: string[],
+): { lenses: Lens[]; skipped: string[] } {
+  const applies = (lens: Lens) =>
+    !lens.paths || changed.some((path) => matchesAny(path, lens.paths!));
+  return {
+    lenses: lenses.filter(applies),
+    skipped: lenses.filter((lens) => !applies(lens)).map((lens) => lens.id),
+  };
 }

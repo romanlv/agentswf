@@ -1,5 +1,5 @@
 import { afterAll, describe, expect, test } from "bun:test";
-import { existsSync, readdirSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { runOperatorCli } from "../packages/engine/src/operator-cli";
 import { createTempRunDirs, submit } from "../packages/engine/src/testing";
@@ -212,6 +212,67 @@ describe("awf run", () => {
     expect(existsSync(join(retainedRunDir(retainedRoot(bodyErrors.join("\n"))), "calls"))).toBe(true);
   });
 
+  test("without flags, a run gets 30 minutes and keeps its artifacts out of the working directory", async () => {
+    const home = runDirs.tempRunDir();
+    const cwd = runDirs.tempRunDir();
+    const workflow = join(cwd, "ok.js");
+    await Bun.write(workflow, executableModule("return null;", "return 1;"));
+    const startedAt = Date.now();
+    let timeout: number | undefined;
+    const output: string[] = [];
+
+    const exitCode = await runOperatorCli(["run", workflow], {
+      cwd,
+      home,
+      now: () => startedAt,
+      stdout: (text) => output.push(text),
+      installRuntime: async (timeoutMilliseconds) => {
+        timeout = timeoutMilliseconds;
+        return emptyRuntime();
+      },
+    });
+
+    expect(exitCode).toBe(0);
+    expect(timeout).toBe(30 * 60_000);
+    expect(existsSync(join(home, ".awf/runs"))).toBe(true);
+    expect(existsSync(join(cwd, ".awf"))).toBe(false);
+  });
+
+  test("prints what the workflow presents, or the JSON with --json, and keeps the JSON and report either way", async () => {
+    const root = runDirs.tempRunDir();
+    const workflow = join(root, "presented.js");
+    await Bun.write(
+      workflow,
+      executableModule(
+        "return null;",
+        "return { total: 2 };",
+        "present(result) { return `total ${result.total}`; }, report(result) { return `# ${result.total} found`; },",
+      ),
+    );
+    const invoke = async (...flags: string[]) => {
+      const output: string[] = [];
+      const exitCode = await runOperatorCli(["run", "--run-root", runDirs.tempRunDir(), ...flags, workflow], {
+        cwd: ROOT,
+        stdout: (text) => output.push(text),
+        installRuntime: emptyRuntime,
+      });
+      expect(exitCode).toBe(0);
+      return output.join("\n");
+    };
+
+    const presented = await invoke();
+    const [summary, , reportLine, artifactsLine] = presented.split("\n");
+    expect(summary).toBe("total 2");
+    const artifacts = artifactsLine!.replace("Full result and agent records: ", "");
+    expect(reportLine).toBe(`Report: ${join(artifacts, "report.md")}`);
+    expect(readFileSync(join(artifacts, "report.md"), "utf8")).toBe("# 2 found\n");
+    expect(JSON.parse(readFileSync(join(artifacts, "output.json"), "utf8")).value).toEqual({ total: 2 });
+
+    const json = JSON.parse(await invoke("--json"));
+    expect(json.value).toEqual({ total: 2 });
+    expect(readFileSync(json.report, "utf8")).toBe("# 2 found\n");
+  });
+
   test("retains and reports the invocation root when execution fails", async () => {
     const runRoot = runDirs.tempRunDir();
     const errors: string[] = [];
@@ -406,7 +467,7 @@ async function emptyRuntime() {
   };
 }
 
-function executableModule(prepareBody: string, runBody: string): string {
+function executableModule(prepareBody: string, runBody: string, members = ""): string {
   return `
     export default {
       kind: "awf.executable-workflow/v1",
@@ -415,6 +476,7 @@ function executableModule(prepareBody: string, runBody: string): string {
         async run() { ${runBody} },
       },
       prepare() { ${prepareBody} },
+      ${members}
     };
   `;
 }

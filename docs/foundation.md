@@ -542,7 +542,7 @@ by `awf run`. The workflow may constrain an operator alias to an exact model whe
 part of its behavior; alias definitions, adapters, authentication, run-directory I/O, loading, and
 cleanup stay in the operator and engine. The engine supplies the invocation working directory and
 one enforced absolute run deadline through `WorkflowContext`; they are not domain arguments. The
-operator derives that bound from `awf run --timeout` (ten minutes by default). Expiry cancels active
+operator derives that bound from `awf run --timeout` (thirty minutes by default). Expiry cancels active
 agent work; shutdown has a separate fixed five-second grace so an uncooperative adapter cannot keep
 the operator open. A configuration source for the run timeout remains a future operator concern,
 not an author-surface addition.
