@@ -9,3 +9,6 @@ reference/
 
 # Runner stdout. Nothing in docs/findings/ cites one; the jsonl beside them is the record.
 *.log
+
+# Obsidian per-user layout; recreated by Obsidian when missing
+docs/.obsidian/workspace*.json

@@ -191,7 +191,8 @@ The last passing live runs were on 2026-09-18, using Herdr 0.8.2, Claude Code 2.
 
 ## Remaining risks
 
-- The pane path reports no usage, so a run's own evidence cannot bound what it spends.
+- The pane path reports no usage, so a run's own evidence cannot bound what it spends. Story 002
+  closes this by reading each agent's session files when the run ends.
 - A pane agent takes one operation. Multi-turn pane workflows wait on verified pane release and an
   identity observer.
 - Agents have broad local authority. There is no OS-level sandbox, and telling reviewers not to

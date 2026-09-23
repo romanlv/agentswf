@@ -38,7 +38,7 @@ status is one of `todo`, `draft`, `ready`, `in-progress`, `blocked`, `awaiting-h
   `in-progress` — Run parallel review agents through `awf run` and compose accepted structured
   results.
 - [`002` — Know what each run cost and how long it took](002-cost-and-time-accounting.md) —
-  `draft` — The engine records time, tokens and cost for every agent in a run, without workflow
+  `awaiting-human-review` — The engine records time, tokens and cost for every agent in a run, without workflow
   code, so variants can be compared on price as well as quality.
 
 This is the high-level index of numbered stories. Keep each entry to its title, status, and
@@ -149,8 +149,8 @@ Story files target Obsidian:
 - Do not start the next task until the current task's focused verification and review findings are
   complete.
 - Do not mark a numbered story `done` without explicit human approval.
-- Add every numbered story to `Stories at a glance`, and update its status there when the frontmatter
-  changes.
+- Add every numbered story to `Stories at a glance`, and update its status there and in
+  [`../status.md`](../status.md) when the frontmatter changes.
 - Treat `Out of scope` as a constraint. Add adjacent work to `todo/` rather than silently widening
   the story.
 - Cite paths and symbols in the code map. Line numbers may be added for navigation but are not the

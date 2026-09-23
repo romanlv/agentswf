@@ -38,7 +38,8 @@ const workflow: WorkflowDefinition<Args, Result> = {
 - `parallel` — apply an async operation with bounded local concurrency.
 - `steps` — run a named operation or sleep.
 - `signals` — wait for external text or schema-validated JSON.
-- `usage()` — snapshot completed agent-operation usage for the run.
+- `usage()` — snapshot completed agent-operation times and sessions for the run. Tokens and cost
+  are read when the run ends and returned by the engine, not to workflow code.
 - `log()` — record workflow diagnostics.
 
 An agent is opened with a run-scoped logical key, instructions, a runtime, and optional skills,
@@ -78,8 +79,10 @@ The public call surface is:
 
 Every turn ends as `answered`, `unanswered`, `blocked`, `timed-out`, `failed`, or `cancelled`. An answered turn
 contains either text or JSON validated against the supplied `OutputSchema`. Every outcome carries
-its own usage record. Tokens and cost are absent when the harness cannot report them;
-known zero remains distinct from unavailable.
+its own usage record with delivery and settle times. Spend is not on it: a harness writes its last
+request after the answer is accepted, so the engine reads spend once the run ends and returns it with
+the run's result ([story 002](../stories/002-cost-and-time-accounting.md)). Unknown spend stays
+absent; known zero remains distinct from unavailable.
 
 Runtime aliases are engine configuration, not workflow definitions. A workflow normally names an
 alias and may constrain its harness or model. The resolved harness, model, and selected alias are

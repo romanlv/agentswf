@@ -1,15 +1,16 @@
 # Foundation
 
-What this repository is, what shape it should have, and why — argued against four repositories
-that already solved a version of this problem.
+What this repository is, where it is going, what shape it has, and why — argued against the
+repositories that already solved a version of this problem.
 
-This document was written to be disagreed with before any file moves. **Stage 0 has since run** —
-the code is here, in the layout section 6 argues for. Section 12 records what the move actually did,
-including where it departed from this plan.
+This is the argument, and it changes slowly. What exists right now, which stage is open and what
+comes next is in [`status.md`](status.md). Decisions taken against this document since are in
+[`adr/`](adr/README.md). The migration narrative this document once carried is in git.
 
-> **Naming is unsettled.** `wf` is used throughout as a placeholder for the project, the package
-> scope, and the agent-facing binary. `awf` and others are live candidates; npm scope availability
-> is unchecked. Every name in this document is a variable, not a decision.
+> **Naming.** The project and the operator command are `awf` (`awf run`, `~/.awf/runs`). The
+> command an agent runs inside its session is `wf` (`wf result`), and it stays short because every
+> prompt carries it. The package scope `@wf/*` is still a placeholder; npm scope availability is
+> unchecked.
 
 ## 1. What this is
 
@@ -37,25 +38,31 @@ what is deliberately unbuilt and what would have to happen before it is, and sec
 stage gate is phrased as something to *prove* rather than something to ship. `AGENTS.md` carries
 this rule into the repository itself, so an agent working here optimizes for the same thing.
 
-## 2. What exists today
+### Vision
 
-Three bodies of work, until Stage 0 inside `braintrust/agent/wf/`. Where each landed is in the
-layout below; this section is what they *are*.
+**First, a runner people trust with real work.** The review workflows that run today by hand — a
+two-reviewer feedback loop, a catalogue review fanned out over lenses, plan-implement-review
+delivery — become workflow files someone writes once. The engine owns what those scripts learn one
+failure at a time: confirmed delivery, one accepted answer per question, deadlines on every wait,
+cleanup, and an honest record of what happened.
 
-**`interfaces/`** — a designed but unimplemented public interface. `WorkflowContext` with `agents`,
-`participants`, `messages`, `steps`, `signals`, `parallel`, `call`, `usage()`. A separate internal
-`harness.ts` seam for adapters. Three scenario workflows written against the public interface only.
-Roughly 500 lines of types plus four design documents.
+**Every run is measured.** Outcome, attempts, nudges, time, tokens and cost are recorded by the
+engine, not by workflow code, so any two runs can be compared.
 
-**`poc1/`** — seven experiments (E1–E3, E5–E7; E4 unrun) with committed raw data and a findings
-directory. Its own README already sorts the code into *keep* (`types`, `schema`, `result-layer`,
-`cli`, `run-dir`, `return-method`, `command`, `harness`, `backends/`), *throwaway* (`trial`,
-`runner`, the per-experiment scripts), and *shelved* (`journal`).
+**Then, runs that improve runs.** An autoresearch loop in this repository searches over workflow
+variants — prompts, models, harnesses, verifier limits — for better, faster and cheaper ones, and
+scores them from the run record ([ADR 0002](adr/0002-autoresearch-lives-here.md)). It is a consumer
+of the runner, not a part of it. Past that, the ideas in [`design/ideas.md`](design/ideas.md) point
+at messaging between agents, human checkpoints, and eventually awf maintaining awf.
 
-**`findings/`** — the measurements. These are the repository's most valuable asset and the reason
-the design is not speculative. The per-experiment reports were removed once the design absorbed
-them; [`findings/README.md`](findings/README.md) keeps what is still live and the raw rows stay in
-`experiments/_archive/*/results/`. Load-bearing conclusions:
+The order matters. Every later step leans on the one before being trustworthy, and a runner
+shaped for an optimizer before it is shaped for people would optimize the wrong thing.
+
+## 2. The evidence
+
+The design is not speculative because of seven experiments, E1–E3 and E5–E7 (E4 is unrun), run
+before any of the code here existed. Their raw rows are in `experiments/_archive/*/results/`, and
+[`findings/README.md`](findings/README.md) keeps what is still live. Load-bearing conclusions:
 
 - All three result channels work across the tested matrix — 480 trials, with a negative control
   that fails correctly. The measured conditions were narrow: short JSON, a trivial task, sequential
@@ -75,12 +82,13 @@ them; [`findings/README.md`](findings/README.md) keeps what is still live and th
 - A tool call returning success is not evidence the model received anything. Confirm from the
   transcript.
 
-There is also a fourth body of work **outside** `wf/`: `braintrust/agent/loops/review-loop/`. It
-already contains `agents/{herdr,liveness,queue,runtime,profile}.ts` and
-`usage/{claude,price,recorder,records,store}.ts` — an independent, working implementation of
-roughly half of what the harness package below would provide. It is deliberately out of scope for
-this migration, but it is the best available reference for whether the seams are in the right
-place: code that solved the same problem without knowing about them.
+There is also working code **outside** this repository: `braintrust/agent/loops/review-loop/`,
+with `agents/{herdr,liveness,queue,runtime,profile}.ts`, and the usage accounting it shares with
+its sibling loops in `loops/shared/usage/{claude,price,recorder,records,store}.ts`. It is an
+independent implementation of roughly half of what the harness package provides. Nothing here ports
+it, but it is the best available reference for whether the seams are in the right place: code that
+solved the same problem without knowing about them. Story 002 lifted its usage reader and price
+table.
 
 ## 3. Survey
 
@@ -99,9 +107,8 @@ Section 4 is what changed *here* because of them.
 ## 4. What the survey changes
 
 **Four of six repos put a `protocol` or `*-contract` package at the bottom of the graph.** The
-current poc1 code has an accidental version of this and it is currently mis-drawn: `cli.ts` imports
-`result-layer.ts` imports `run-dir.ts`, so the agent-side binary reaches into the run directory
-directly. What is genuinely shared there is a *format*, and that is the contract. The acceptance
+poc1 code had an accidental version of this, mis-drawn: `cli.ts` imported `result-layer.ts`, which
+imported `run-dir.ts`, so the agent-side binary reached into the run directory directly. What is genuinely shared there is a *format*, and that is the contract. The acceptance
 gate and the directory I/O are engine implementation — see section 7.
 
 **`src/` versus `packages/` is the anti-overbuild lever.** openclaw runs a 100-folder application
@@ -186,7 +193,7 @@ sharper rule than "zero dependencies" and it is mechanically checkable. Formats 
 that reads and writes them does not.
 
 ```
-@wf/contract            core types, the usage record and price-card shapes
+@wf/contract            core types and the usage record
 @wf/contract/schema     validate, describe, formatErrors — pure
 @wf/contract/records    run-record and attempt *schemas*, and their version — not the file I/O
 @wf/contract/wire       control-plane messages, with runtime-decodable schemas
@@ -230,7 +237,10 @@ One run host owns one terminal group and its final cleanup. Logical-agent handle
 each distinct operation receives fresh result authority and an operation pane. An initial prompt
 and its one nudge are delivery attempts for the same operation, slot, schema, and pane.
 A later operation may resume native context only when the host has measured continuation support
-and terminal evidence; native session references never cross into workflow or engine-owned state.
+and terminal evidence; native session references never cross into workflow or engine-owned state
+as resume authority. They cross only as accounting evidence, so the engine can read what an agent
+spent from the harness's own files, and nothing resumes from them
+([story 002](stories/002-cost-and-time-accounting.md)).
 Durable result acceptance, client acknowledgement, and native release are distinct facts. An
 accepted result may determine the author-visible answer, but the next operation is not admitted
 until the prior pane is released or continuation is explicitly severed and failed closed.
@@ -310,7 +320,7 @@ nowhere to go does.
 | workflows calling workflows | `engine` | `contract/workflow` already has `call` |
 | checkpoints and human approval | an `engine` admission barrier, not a signal | a signal suspends one branch; a checkpoint must stop dispatch |
 | evals | `*.eval.ts` + a reporter | regression checks, not a system |
-| autoresearch / self-improvement loop | **a separate repository** — see below | this repo is its library and its data source |
+| autoresearch / self-improvement loop | this repository, as a consumer of the engine — see below | home decided when the first loop runs ([ADR 0002](adr/0002-autoresearch-lives-here.md)) |
 | observability | shapes in `contract`, extraction in `harness` | see below |
 | context usage / "dump zone" detection | `harness`, beside liveness and usage | per-harness reading, same shape as usage |
 
@@ -347,7 +357,7 @@ client is `cli-agent`'s internals, the state and transactions are the engine's. 
 later replaces the transport without having to invent the boundary — which is why "client/server
 split when remote execution arrives" was the wrong trigger.
 
-The run directory does not go away. It stays the durable record an external optimiser reads. The
+The run directory does not go away. It stays the durable record an optimiser reads. The
 socket is the control plane; the directory is the record; the engine is the only writer of either.
 
 Messaging remains the most demanding test of whether the split is right. If it lands cleanly, the
@@ -367,16 +377,16 @@ six were corrected in place first; §12's Stage D entry records what each correc
 
 ### The consumers are the review workflows, and they exist already
 
-Section 9 calls the three scenarios examples because none of them had ever run when it was written;
-`review-loop.ts` has since run live under Story 001, and the other two still have not. That is a
-statement about the code, not about the workload. Each one describes something that runs today, by
-hand, in `braintrust/agent`:
+The scenarios in `examples/` are called examples, but each describes something that runs today,
+by hand, in `braintrust/agent`. Two of them now also run on the engine: `minimum-review` under
+Story 001, and `catalogue-review` from an entry point beside its lens catalogue. `feature-delivery`
+has not run.
 
 | Scenario | Runs today as | Shape |
 | --- | --- | --- |
-| `review-loop.ts` | `loops/review-loop/` | MR review, findings ledger, publication to GitLab |
-| `catalogue-review.ts` | `air-code-review` under `mr-review` | fan-out over domain lenses, per-finding verification |
-| `feature-delivery.ts` | `ticket-doc` → implement → `review-feedback` | plan, implement, review, revise until clean |
+| `minimum-review/` | `loops/review-loop/` | MR review, findings ledger, publication to GitLab |
+| `catalogue-review/` | `air-code-review` under `mr-review` | fan-out over domain lenses, per-finding verification |
+| `feature-delivery/` | `ticket-doc` → implement → `review-feedback` | plan, implement, review, revise until clean |
 
 So the first consumer is one of the review workflows, and the ad-hoc one is the one to build first.
 `review-feedback` is the smallest of the three, needs no GitLab, runs against the working tree, and
@@ -425,7 +435,7 @@ The engine does not have to beat this script to be worth building. It has to mak
 something a workflow author writes once, instead of something a 349-line script learns the hard way
 one failure at a time.
 
-### Autoresearch is a separate repository
+### Autoresearch is a consumer of the engine
 
 Evals and autoresearch are two different things, and section 10's table used to collapse them.
 
@@ -433,9 +443,10 @@ Evals and autoresearch are two different things, and section 10's table used to 
 reporter, a summary. No package, no application.
 
 **Autoresearch** answers "which combination is better, faster or cheaper" — searching over workflow
-design, models, harnesses, tools and skills for an optimum. It is a separate tool in a separate
-repository. That is the right call: it has a different lifecycle, a different failure mode, and it
-is a *user* of this engine rather than a part of it.
+design, models, harnesses, tools and skills for an optimum. It lives in this repository
+([ADR 0002](adr/0002-autoresearch-lives-here.md)), but it is a *user* of the engine rather than a
+part of it: it has a different lifecycle and a different failure mode, and it reaches the engine
+only through the same programmatic entry point and run record any outside caller would use.
 
 It is also the most demanding consumer on the list, which makes it the useful one to design
 against. Four things follow, all cheap now and expensive later.
@@ -456,7 +467,9 @@ stable. This is the strongest reason the run directory and its records live in `
 than the engine's own need for them — and it means changing that format is a breaking change, not
 an implementation detail.
 
-**Cross-repository consumption has to actually work, and no-build survives it.** Bun supports a
+**Cross-repository consumption has to actually work when it comes, and no-build survives it.**
+The loop itself no longer needs it, but `harness` and `contract` are meant to be importable by
+tools outside this repository, review-loop included. Bun supports a
 `bun` export condition for publishing untranspiled TypeScript, and `bun publish` packages `.ts`
 sources — so compiled JavaScript is not required, *provided the supported public runtime is bun*.
 That has to be a decision rather than something that becomes policy by accident.
@@ -467,16 +480,15 @@ not catch a git dependency resolving the repository root instead of one workspac
 resolved because of the monorepo, or a file missing from the pack. And `contract` is not the whole
 surface: an external consumer wants `harness` too.
 
-The cheap test, run before the autoresearch repository starts and not before: `bun pm pack` each
+The cheap test, run before the first outside consumer and not before: `bun pm pack` each
 consumable workspace, install the tarballs into a throwaway bun project that is *not* part of this
 workspace, and import them. If git dependencies are chosen instead, test that exact form. Compiled
 JavaScript gets added only if a non-bun consumer becomes supported.
 
 **On `trial.ts` and `runner.ts`.** poc1's README files them under throwaway measurement scaffolding.
 They are not throwaway — a trial matrix over a variable space, jsonl results and report generation
-is a first sketch of what the other repo does. They are simply not *this* repository's future. They
-stay in `experiments/_archive/` as working prior art to lift from, not as evidence to discard once
-read.
+is a first sketch of the autoresearch loop. They stay in `experiments/_archive/` as working prior
+art to lift from, not as evidence to discard once read.
 
 ## 8. Telemetry and cost — a package, but not yet
 
@@ -492,36 +504,39 @@ their own formats. cursor records none anywhere, and Herdr reports no session re
 cursor pane either, so there is nothing to look up even if it did. Whatever reads those files
 belongs next to the adapter that knows which harness it is talking to — `harness/src/usage/`.
 
-**The record shape is not harness-specific, and it is the expensive thing to change.** `TurnUsage`,
-and the price-card type that turns tokens into dollars, go in `contract` now. If telemetry is
+**The record shape is not harness-specific, and it is the expensive thing to change.** `TurnUsage`
+lives in `contract` and records only what was observed: times, native sessions, billing mode,
+tokens by model and token class, and a charge only where an API billed one. If telemetry is
 extracted later, the shape does not move and nothing downstream breaks.
 
 **Pricing and aggregation are policy, not observation, and they do not belong beside the
-adapters.** A rate card changes independently of any harness — review-loop already embeds dated
-rates with an explicit basis (`review-loop/usage/price.ts:10-24`). Normalized accounting, price-card
-identity and versioning, and aggregation go in a runtime-neutral module; spend-pool admission is the
-engine's. Only extraction sits beside the adapter.
+adapters or in the record.** A rate card changes independently of any harness — the braintrust
+loops already embed dated rates with an explicit basis (`loops/shared/usage/price.ts`). Prices are
+applied when a run is summarised, so a run can be re-priced later with a different table, and the
+summary names the table it used. Spend-pool admission is the engine's. Only extraction sits beside
+the adapter.
 
-**And the public cost type is not expressive enough.** `TurnCost` is an ISO currency amount plus
-`charged | list | estimated` (`packages/contract/src/workflow/agents.ts:135-141`). That single field cannot distinguish
-a metered charge, an imputed list-price value, subscription-allowance consumption, usage-credit
-drawdown, rate-limit pressure, or which price card produced the number — and E3's whole finding is
-that those are different things. Reported charge and estimated economic value should be separate
-fields, with the price-card version recorded.
+**One cost field could not say which cost it was.** The earlier `TurnCost` was an amount plus
+`charged | list | estimated`, which cannot tell a metered charge from an imputed list-price value or
+name the price card behind it — and E3's whole finding is that those are different things. Story 002
+replaced it: `charged` is what an API billed, the list-price `estimate` exists only in the run's
+summary, and `billing` says whether the agent drew on a subscription or an API.
 
 What a package boundary actually buys is control over who may import something. Nothing here needs
 that: the engine and ad-hoc scripts should both be able to ask what a run cost. A boundary would
 not have prevented E3's double-count either — tests did that, and tests do not need a package.
 
-**Where it sits meanwhile.** Extraction in `harness/src/usage/`, beside the adapter that knows the
-format. Normalisation, price-card identity and aggregation in `engine/src/accounting/` — a pure
-internal module with no adapter imports, positioned to be lifted out whole. Spend-pool admission and
-budget enforcement are the engine's proper. Nothing about pricing lives beside an adapter.
+**Where it sits meanwhile.** Session-file readers and billing in `harness/src/usage/`, handed to the
+engine by the run host (`AgentRunHostFactory.accounting`), because how an agent is launched decides
+who pays. Reading at run end and splitting spend between operations in `engine/src/run-usage.ts`.
+Prices and the summary in `engine/src/accounting/` — a pure internal module with no adapter
+imports, positioned to be lifted out whole. Spend-pool admission and budget enforcement are the
+engine's proper. Nothing about pricing lives beside an adapter.
 
 **When it fires.** Two producers — the engine will emit records the harness knows nothing about
 (step start/end, agent open/close, admission waits) — and two consumers, the operator asking what a
-run cost and the autoresearch loop learning from it. Both arrive around Stage 3, and the package
-should exist by then rather than after.
+run cost and the autoresearch loop learning from it. Story 002 brings the first consumer and the
+second is next, so this is the trigger to watch.
 
 One thing to carry regardless of packaging: the two dollar columns are not the same number, and the
 difference is not currency — both are USD. A pane draws on a subscription and, on the measured
@@ -534,10 +549,11 @@ rate-card version**. Without them it will silently report one as the other.
 The scenarios in `examples/` compile against `@wf/contract/workflow`, may use a pure JSON Schema
 authoring library, and never import the engine or a harness. TypeBox is the first such authoring
 dependency: its inferred types and schema objects stay in the workflow package while contract owns
-the supported subset, prompting, and validation. `catalogue-review.ts` and `feature-delivery.ts`
-remain typechecked design examples.
-`minimum-review.ts` is the reusable one-round definition, and `review-loop.ts` is its executable
-operator wrapper. An executable workflow default-exports the small author-side descriptor consumed
+the supported subset, prompting, and validation. `minimum-review/workflow.ts` is the reusable
+one-round definition, and `minimum-review/review-loop.ts` is its executable operator wrapper.
+`catalogue-review/` exports `defineCatalogueReview`, and the executable entry point lives beside
+the lens catalogue it reads, outside this package, because reading one is I/O. `feature-delivery/`
+remains a typechecked design. An executable workflow default-exports the small author-side descriptor consumed
 by `awf run`. The workflow may constrain an operator alias to an exact model when that choice is
 part of its behavior; alias definitions, adapters, authentication, run-directory I/O, loading, and
 cleanup stay in the operator and engine. The engine supplies the invocation working directory and
@@ -568,7 +584,8 @@ named trigger fires.
 
 | Not yet | Lives in for now | Extract when |
 | --- | --- | --- |
-| `telemetry` / accounting package | extraction in `harness/src/usage/`; normalisation, price cards and aggregation in `engine/src/accounting/`; shapes in `contract` | two producers and two consumers — before Stage 3 |
+| `telemetry` / accounting package | readers and billing in `harness/src/usage/`; run-end reading in `engine/src/run-usage.ts`; prices and summary in `engine/src/accounting/`; the record in `contract` | two producers and two consumers — the autoresearch loop is the second consumer |
+| autoresearch home | nowhere yet; prior art in `experiments/_archive/` — [ADR 0002](adr/0002-autoresearch-lives-here.md) | the first loop runs; a package only if something outside imports it |
 | `messaging` state machine | `engine/src/messaging/`, types in `contract` | never as one package — see section 7 |
 | skill/tool capability resolution | request and report *shapes* in `contract`, resolution in `harness/src/capabilities/`, fail-vs-downgrade policy in `engine` | two adapters demonstrate what is actually portable |
 | context-usage reading | `harness/src/context/` | — |
@@ -583,8 +600,8 @@ named trigger fires.
 The point of the table is that none of these need building now, and none of them get quietly built
 because the directory existed.
 
-**The tripwire on `contract`.** It holds schema, record formats, wire messages, usage and
-price-card shapes, messaging types and the author surface. Subpaths keep that navigable. The
+**The tripwire on `contract`.** It holds schema, record formats, wire messages, the usage
+record, messaging types and the author surface. Subpaths keep that navigable. The
 original criterion — "two subpaths never imported by the same consumer" — was useless, because it is
 already true: examples import `workflow`, the CLI imports `wire`, the optimiser reads `records`.
 That is what subpaths are *for*. The real signals to split are a subpath needing a dependency the
@@ -615,75 +632,49 @@ Cross-repository consumption adds one requirement the in-repo cases do not: what
 `contract` export has to be usable without this repository's workspace. See section 7.
 
 **review-loop stays the eventual proof, and nothing should foreclose it.** It independently built
-`agents/{herdr,liveness,queue,runtime,profile}.ts` and `usage/{claude,price,recorder,records,store}.ts`
-— the same job as `harness`, written without knowledge of it. When it is ported, deleting both
-directories is the pass condition. Until then it is a reference to check the seam against, not work
-to do.
+`agents/{herdr,liveness,queue,runtime,profile}.ts`, and with its sibling loops
+`shared/usage/{claude,price,recorder,records,store}.ts` — the same job as `harness`, written
+without knowledge of it. When it is ported, deleting both directories is the pass condition. Until
+then it is a reference to check the seam against, not work to do.
 
-## 12. Migration
+## 12. Stages
 
 Design comes before the move. The six defects in section 7 are interface faults, and an interface
 fault is cheapest to fix while it is still a `.ts` file nobody imports — which is exactly what the
 author surface is. Fixing them by writing the replacement implementation would be the expensive
 order.
 
-**Stage 0 and Stage D have run. Stage 2 is implemented through the non-live proof, but its live
-acceptance is still open.** Story 001 is the current execution record. Its Task 4 settled what an
-ambiguous `idle` may decide: nothing author-visible and no continuation. Lifecycle state still
-reaches the engine as a harness `completed`, which the engine reads as `unanswered` — the agent went
-quiet without answering — and which arms the one measured nudge. What it no longer does is
-manufacture a terminal outcome from a stalled prompt observation, or authorize resuming a session
-whose pane may still be live. Proving native release, and the pane continuation that would depend on
-it, is deferred measurement, not a claim this stage makes.
+Each stage is a gate phrased as something to prove. Which are open is in [`status.md`](status.md).
 
-- **Stage D — fix the interface, in place, as design. Done.** The six defects were corrected in
-  `packages/contract/src/workflow/` where they live: `HarnessTurn.result` becomes a harness-local
-  outcome; `ReplayPolicy`'s journal arm comes out; checkpoints are removed from signal semantics
-  and deferred until an admission-barrier primitive is designed; fork gets no public API; the
-  acceptance gate's contract states atomicity; every waiting primitive resolves an inherited or
-  explicit deadline and terminal operations retain a distinct timed-out outcome. The fork
-  capability flag this stage first added has since come out, with the other unbuilt types —
+- **Stage D — fix the interface, in place, as design.** The six defects were corrected in
+  `packages/contract/src/workflow/`: `HarnessTurn.result` became a harness-local outcome;
+  `ReplayPolicy`'s journal arm came out; checkpoints left signal semantics until an
+  admission-barrier primitive is designed; fork got no public API; the acceptance gate's contract
+  states atomicity; every waiting primitive resolves an inherited or explicit deadline, and a
+  terminal operation keeps a distinct timed-out outcome. Unbuilt types have since come out too —
   [ADR 0001](adr/0001-unbuilt-interface-leaves-the-surface.md).
-  The workflows in `examples/` typecheck against the author surface and no runtime package. Story
-  001 Task 1 records the reset design and verification.
-- **Stage 0 — skeleton and move. Done.** The three packages exist, `bun test` is 114 pass / 0 fail
-  across 12 files — the same 114 assertions and the same 220 `expect()` calls poc1 ran — `tsc
-  --noEmit` is clean, and `scripts/check-boundaries.ts` passes. Five things the move decided that
-  this plan had left open, each because writing the code forced the question:
-
-  - **`cli-agent` was not created during Stage 0.** Stage 2 has now created it behind the real wire
-    boundary; `wf` no longer imports the engine or writes the run directory.
-  - **`CallEnv` was renamed rather than treated as authority during Stage 0.** Stage 2 bound each
-    operation to an invocation-scoped capability; Stage 3 replaced that with a socket per agent,
-    because a bearer token has to be delivered and no harness will promise to deliver one.
-    `CallIdentity` remains only in the frozen experiment compatibility surface and must not be
-    used by new engine code.
-  - **`ReturnMethod` left the contract as planned, and `CallSpec` shrank with it.** The record
-    format carries `callId`, `question` and `schema`; `Attempt.source` is a string, because which
-    channel carried a value is not something the format should enumerate. E2's `method` and
-    `filePath` live on an `E2CallSpec` in the archive.
-  - **The shelved journal went to `experiments/_archive/`.** It is frozen-but-runnable code that
-    nothing imports, which is what that directory is for. Stage 4 takes it out again.
-  - **`AgentBackend` was deleted.** Nothing imported it and `harness/adapter.ts` is the designed
-    replacement. Two seams for one job is worse than one.
-
-  One shim exists and is deliberate: `experiments/_archive/deps.ts`. The experiments are evidence,
-  a package move should not mean editing evidence, and the shim imports public entrypoints only —
-  so the archive is held to the same boundaries as everything else.
-
-- **Stage 1 — prove the harness stands alone. In progress.** The production adapter contract,
-  shared fake, direct-process adapter, isolated-pane adapter, and symmetric Herdr run host have
-  focused tests and remain engine-independent. A small general-purpose standalone command has not
-  been accepted and is not silently claimed by Story 001.
-- **Stage 2 — minimum engine and the control plane. Implemented; live acceptance pending.**
-  `agents.open/run`, `parallel`, secure result slots, `cli-agent`, the local endpoint, the run
-  handle, and the explicit workflow loader now exist. Tests prove atomic first settlement and
-  reject unknown, stale, closed, and cross-agent calls. The fake-backed two-agent workflow
-  passes through the production result path. Story 001 keeps this stage open because Herdr `idle`
-  is not reliable native-completion evidence and the reset live evaluation has not run.
-- **Stage 3 — measure and run something real.** Evals from E2/E5, the first executing workflow, then
-  **E4** — the one question never answered, and the only remaining measurement that changes the
-  engine rather than confirming it. Telemetry probably becomes a package here.
+- **Stage 0 — skeleton and move.** poc1's tests pass unchanged in the new layout, and the boundaries
+  hold. What the move decided that this plan had left open, and still stands:
+  - `CallIdentity` survives only in the frozen experiments' compatibility surface. Result
+    authority rides on a socket per agent, because a bearer token has to be delivered and no
+    harness will promise to deliver one.
+  - The record format carries `callId`, `question` and `schema`; `Attempt.source` is a string,
+    because which channel carried a value is not something the format should enumerate.
+  - The shelved journal is in `experiments/_archive/`, frozen but runnable. Stage 4 takes it out.
+  - `AgentBackend` is deleted; `harness/adapter.ts` is the one seam for that job.
+  - One shim is deliberate: `experiments/_archive/deps.ts`. The experiments are evidence, a package
+    move should not mean editing evidence, and the shim imports public entrypoints only.
+- **Stage 1 — prove the harness stands alone.** The adapter contract, the shared fake, the
+  direct-process and pane adapters and the Herdr run host are tested without the engine. The gate
+  is a small general-purpose command that drives one harness through `harness` alone.
+- **Stage 2 — minimum engine and the control plane.** `agents.open/run`, `parallel`, result slots,
+  `cli-agent`, the local endpoint and the workflow loader, proven against a fake and then live. An
+  ambiguous Herdr `idle` decides nothing author-visible and authorizes no continuation: it reads as
+  `unanswered` and arms the one measured nudge. Proving native pane release, and the continuation
+  that would depend on it, is deferred measurement, not a claim this stage makes.
+- **Stage 3 — measure and run something real.** Evals from E2/E5, a real workflow on the engine,
+  accounting for every run, then **E4** — the one question never answered, and the only remaining
+  measurement that changes the engine rather than confirming it.
 - **Stage 4 onward** — messaging, composition, checkpoints, and only then the shelved journal.
 
 Messaging in Stage 4 is the structural test: it is the one feature that touches all four packages,
@@ -691,8 +682,8 @@ and if it lands without moving a boundary, the split was right.
 
 ## 13. Open questions
 
-1. **Names.** Project, package scope, and the agent-facing binary. `wf` is a placeholder. The binary
-   name is visible in every prompt an agent ever reads, so it is worth getting right.
+1. **Names.** Answered for the project and both commands: `awf`, and `wf` inside a session (see
+   the note at the top). The package scope `@wf/*` is still open.
 2. **Author surface as a subpath or a package?** Temporal makes it a package because the constraint
    is enforced by a sandbox. Here it is enforced by discipline, so a subpath is proposed — revisit
    if a workflow ever reaches past it.
@@ -706,6 +697,6 @@ and if it lands without moving a boundary, the split was right.
    compatibility yet. Revisit that decision before publishing for non-Bun consumers; purity in
    `contract` alone does not settle pack contents, export maps, unresolved `workspace:*`, or the
    runtime requirements of `harness`.
-5. **What must a run record carry so an external optimiser can score it?** Cost and wall clock are
+5. **What must a run record carry so an optimiser can score it?** Cost and wall clock are
    already measurable. Quality is not — and whatever stands in for it has to be *emitted here*, or
    the optimiser will happily find the cheapest way to be wrong.

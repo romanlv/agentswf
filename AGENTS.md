@@ -29,6 +29,7 @@ what would have to happen first.
 | `packages/cli-agent` | the in-session `wf` command; imports contract only and talks over wire |
 | `examples/` | scenario workflows, written against the author surface and pure schema authoring libraries |
 | `experiments/_archive/` | E1–E3, E5–E6. Frozen evidence. Do not refactor to taste |
+| `docs/status.md` | what runs today and what is next. Update it when a story or stage changes state |
 | `docs/findings/` | what the measurements settled. Cite it; edit it only to record a new measurement |
 | `docs/reference.md` | surveyed repositories: what was taken, rejected, still unmined |
 
