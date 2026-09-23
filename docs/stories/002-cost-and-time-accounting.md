@@ -129,8 +129,10 @@ directory.
    `CODEX_SESSION_ID` and `CODEX_THREAD_ID`, both equal to the rollout's id. Claude's shell has
    `CLAUDE_CODE_SESSION_ID`. The `wf` launcher runs in that shell, so it can report the session to
    the engine on every call.
-3. **pi session from Herdr.** `agent_session` is `{kind: "path", value: <session file>}`, and it is
-   there from start.
+3. **pi session from Herdr and from the agent's environment.** Herdr's `agent_session` is
+   `{kind: "path", value: <session file>}`, and it is there from start. The agent's shell also
+   has `PI_SESSION_ID`, `PI_SESSION_FILE`, `PI_PROVIDER` and `PI_MODEL`. So the launcher's
+   environment variable is one source that works for all three harnesses.
 4. **When codex writes its token counts.** In a turn that wrote a file and then answered:
    - the file was written at :55;
    - the `token_count` row covering the work up to that point was at :55.901;
@@ -157,6 +159,15 @@ directory.
    can therefore serve both pane and headless runs.
 9. **A failed pi request.** It is logged as an assistant message with `stopReason: "error"` and
    zero usage. Like `<synthetic>`, it is skipped.
+10. **pi's usage and cost, checked against the proven table.**
+    - A completed two-request turn on `openai-codex/gpt-5.6-terra` logged
+      `input 4317, cacheRead 2560, cacheWrite 0, output 55` for the first request, with
+      `cost.total 0.009806`.
+    - pi's `input` excludes the cached tokens.
+    - Its cost matches the proven table exactly: terra at $2 in and $12 out per million tokens,
+      with cached input at 0.1 of the input rate.
+    - So OpenAI's cached-input multiplier for terra is 0.1, and pi's own `cost` is the same
+      list-price estimate, not a charge, even on a subscription.
 
 ## Code map
 
@@ -216,9 +227,9 @@ type TokenUsage = {
 
 **Sessions.** The engine collects each agent's session refs from every source it has:
 
-- the id the `wf` launcher reports from the harness's `sessionEnv`, which is the main source for
-  codex and claude;
-- Herdr's `agent_session`, which is the main source for pi and gives a path;
+- the id the `wf` launcher reports from the harness's `sessionEnv`: `CODEX_SESSION_ID`,
+  `CLAUDE_CODE_SESSION_ID` or `PI_SESSION_ID`. This is the main source for all three;
+- Herdr's `agent_session` when it has one. For pi it is the session file's path;
 - the headless stdout, as today.
 
 Every ref is kept. A claude `/clear` or a replaced pane adds a session, and does not replace one.
@@ -304,8 +315,6 @@ These are experiments to run, not questions for the user.
 
 ### 2. Readers
 
-- **pi.** Re-run experiment 3 with a completed turn: check that the session path stays stable, and
-  that the usage rows are right. pi's login was restored on 2026-09-23.
 - **claude `/clear`.** Check that a claude pane's `CLAUDE_CODE_SESSION_ID` changes after
   `/clear`, and that the next `wf` call reports the new id. Use one short haiku pane.
 
