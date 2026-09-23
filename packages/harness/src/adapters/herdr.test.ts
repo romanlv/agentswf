@@ -1018,6 +1018,50 @@ describe("createHerdrRunHostFactory", () => {
     await host.close();
   });
 
+  test("releasing a turn while its pane is still being split reports it cancelled", async () => {
+    const { run: base } = hostStub();
+    let splitting!: () => void;
+    const splitStarted = new Promise<void>((resolve) => {
+      splitting = resolve;
+    });
+    const run: RunProcess = async (input) => {
+      if (verb(input) !== "pane split") return base(input);
+      splitting();
+      await new Promise<void>((resolve) =>
+        input.signal?.addEventListener("abort", () => resolve(), { once: true }),
+      );
+      return {
+        stdout: "",
+        stderr: "process cancelled",
+        exitCode: 1,
+        timedOut: false,
+        cancelled: true,
+      };
+    };
+    const host = await createHerdrRunHostFactory(CONFIG, run).openRun({
+      runId: "run-1",
+      cwd: "/repo",
+      deadline: deadline(),
+    });
+    const session = await host.openAgent({
+      key: "reviewer",
+      cwd: "/repo",
+      deadline: deadline(),
+      execution: { harness: "claude", model: "opus" },
+    });
+    const turn = await session.start(
+      { id: "one", prompt: "review", deadline: deadline() },
+      binding("op-1"),
+    );
+    await splitStarted;
+
+    await expect(turn.release("stop", deadline())).resolves.toMatchObject({
+      kind: "released",
+      outcome: { state: "cancelled" },
+    });
+    await host.close();
+  });
+
   test("every later operation on an agent is refused without opening a pane", async () => {
     const { run, calls } = hostStub();
     const host = await createHerdrRunHostFactory(CONFIG, run).openRun({

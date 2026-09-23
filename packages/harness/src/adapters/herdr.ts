@@ -478,11 +478,19 @@ export function createHerdrRunHostFactory(
                         "native release cannot be proved for a later one",
                     );
                   }
-                  const paneId = await allocatePane(
-                    request.cwd,
-                    operation.deadline.unixMilliseconds,
-                    controller.signal,
-                  );
+                  let paneId: string;
+                  try {
+                    paneId = await allocatePane(
+                      request.cwd,
+                      operation.deadline.unixMilliseconds,
+                      controller.signal,
+                    );
+                  } catch (error) {
+                    if (controller.signal.aborted) {
+                      return localOutcome("cancelled", "pane operation cancelled");
+                    }
+                    throw error;
+                  }
                   const agentName = safeAgentName(
                     `wf-${request.key}`,
                     `${runSpec.runId}:${request.key}:${operationId}`,
