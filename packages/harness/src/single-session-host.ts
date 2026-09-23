@@ -119,16 +119,24 @@ function observeSession(
     if (quarantined && status.state !== "quarantined" && status.state !== "missing") return;
     setSnapshot(snapshots, key, execution, status);
   };
+  // "working" goes up before the call so inspection never lags a turn, and comes down again if
+  // the call refuses: the session's own status is the truth then.
+  const begin = async (open: () => Promise<HarnessTurn>): Promise<HarnessTurn> => {
+    record({ state: "working" });
+    try {
+      return observeTurn(await open());
+    } catch (error) {
+      await session.status().then(record, () => undefined);
+      throw error;
+    }
+  };
   const observeTurn = (turn: HarnessTurn): HarnessTurn => {
     void turn.settled.then((outcome) => {
       if (!quarantined) record(outcomeStatus(outcome));
     });
     return {
       ...turn,
-      async nudge(spec) {
-        record({ state: "working" });
-        return observeTurn(await turn.nudge(spec));
-      },
+      nudge: (spec) => begin(() => turn.nudge(spec)),
       async release(reason, deadline) {
         const disposition = await turn.release(reason, deadline);
         if (disposition.kind === "quarantined") quarantined = true;
@@ -147,20 +155,16 @@ function observeSession(
       record(status);
       return status;
     },
-    start: (async (
+    start: ((
       turn: AgentTextTurnSpec | AgentStructuredTurnSpec<JsonValue>,
       binding: HarnessOperationBinding,
-    ) => {
-      record({ state: "working" });
-      const started = turn.schema
-        ? await session.start(turn as AgentStructuredTurnSpec<JsonValue>, binding)
-        : await session.start(turn as AgentTextTurnSpec, binding);
-      return observeTurn(started);
-    }) as HarnessSession["start"],
-    async compact(id, prompt, deadline) {
-      record({ state: "working" });
-      return observeTurn(await session.compact(id, prompt, deadline));
-    },
+    ) =>
+      begin(() =>
+        turn.schema
+          ? session.start(turn as AgentStructuredTurnSpec<JsonValue>, binding)
+          : session.start(turn as AgentTextTurnSpec, binding),
+      )) as HarnessSession["start"],
+    compact: (id, prompt, deadline) => begin(() => session.compact(id, prompt, deadline)),
     async close(reason) {
       await session.close(reason);
       record({ state: "missing" });

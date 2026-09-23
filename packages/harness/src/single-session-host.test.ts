@@ -150,4 +150,24 @@ describe("createSingleSessionHostFactory", () => {
     expect(host.inspect().agents[0]?.state).toBe("quarantined");
     await host.close();
   });
+  test("a start the session refuses does not leave the agent reported as working", async () => {
+    const host = await createSingleSessionHostFactory(
+      createFakeAdapter({ script: () => ({}) }),
+    ).openRun({ runId: "run-1", cwd: "/repo", deadline: deadline() });
+    const session = await host.openAgent({
+      key: "reviewer",
+      cwd: "/repo",
+      deadline: deadline(),
+      execution: { harness: "fake", model: "fake" },
+    });
+
+    await expect(
+      session.start(
+        { id: "late", prompt: "late", deadline: { unixMilliseconds: Date.now() - 1 } },
+        { endpoint: "/private/engine.sock", operationId: "op-1" },
+      ),
+    ).rejects.toThrow();
+    expect(host.inspect().agents[0]?.state).toBe("idle");
+    await host.close();
+  });
 });

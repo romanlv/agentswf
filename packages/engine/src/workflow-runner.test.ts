@@ -189,6 +189,25 @@ describe("runWorkflow", () => {
     expect(closed).toBe(true);
   });
 
+  test("an agent that cannot be opened rejects rather than throwing out of the caller", async () => {
+    const adapter = createFakeAdapter({ script: () => ({}) });
+    const workflow = workflowOf("open-rejects", async (context) => {
+      const [good, bad] = await Promise.allSettled([
+        openReviewer(context),
+        context.agents.open({ key: "stray", runtime: "no-such-alias" }),
+      ]);
+      return [good.status, bad.status === "rejected" ? String(bad.reason) : "fulfilled"];
+    });
+
+    const result = await runWorkflow(workflow, null, {
+      runRoot: tempRunDir(),
+      deadline: future(),
+      runtime: runtime(adapter),
+    });
+
+    expect(result.value).toEqual(["fulfilled", "Error: unknown runtime alias: no-such-alias"]);
+  });
+
   test("a synchronous host acquisition failure still closes the result endpoint", async () => {
     const runRoot = tempRunDir();
     const before = await controlDirectories();

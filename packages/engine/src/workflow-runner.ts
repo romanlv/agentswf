@@ -288,7 +288,13 @@ class WorkflowOwner {
       cwd: options.cwd,
       deadline: options.deadline,
       agents: {
-        open: (spec) => this.openAgent(spec),
+        open: (spec) => {
+          try {
+            return this.openAgent(spec);
+          } catch (error) {
+            return Promise.reject(error);
+          }
+        },
         attach: () => unavailable("agents.attach"),
         stop: () => unavailable("agents.stop"),
       },
@@ -380,13 +386,18 @@ class WorkflowOwner {
 
     // Opened before the session so registration below stays synchronous: two concurrent `agent()`
     // calls for one key must not each build an agent.
-    const reachable = this.options.control.openChannel(spec.key).then(async (channel) => ({
+    const opened = this.options.control.openChannel(spec.key);
+    const reachable = opened.then(async (channel) => ({
       channel,
       // Beside the socket, in the directory the control plane made for this agent alone. Deriving
       // a directory from the key instead would let two keys that differ only in punctuation share
       // one, and the second install would point the first agent at the wrong socket.
       launcher: await installAgentLauncher(dirname(channel.endpoint), channel.endpoint),
     }));
+    // Read below only once the session exists; a failure before then is reported through `state`.
+    reachable.catch(() => undefined);
+    // An open socket authorizes an agent until something closes it, so every failure path does.
+    const closeChannel = () => opened.then((channel) => channel.close()).catch(() => undefined);
     const state = this.options.host
       .openAgent({
         key: spec.key,
@@ -397,13 +408,19 @@ class WorkflowOwner {
         ...(spec.labels === undefined ? {} : { labels: spec.labels }),
       })
       .catch(async (error: unknown) => {
-        // The socket authorizes an agent that never started. Nothing else closes it until the run
-        // ends, and the launcher beside it stays runnable that whole time.
-        await reachable.then(({ channel }) => channel.close()).catch(() => undefined);
+        await closeChannel();
         throw error;
       })
       .then(async (session) => {
-        const { channel, launcher } = await reachable;
+        let channel: ResultChannel;
+        let launcher: string;
+        try {
+          ({ channel, launcher } = await reachable);
+        } catch (error) {
+          // A session with no way to answer is no agent at all; neither half outlives the other.
+          await Promise.allSettled([session.close(reasonOf(error)), closeChannel()]);
+          throw error;
+        }
         return new LogicalAgent({
           key: spec.key,
           execution,
@@ -423,8 +440,8 @@ class WorkflowOwner {
       state: ownedState,
       // Never rejects: the failure is already carried by `state`, and a second copy with no
       // reader is an unhandled rejection that takes the process down with it.
-      channel: reachable.then(
-        ({ channel }) => channel,
+      channel: opened.then(
+        (channel) => channel,
         () => undefined,
       ),
     });

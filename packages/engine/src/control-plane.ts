@@ -80,8 +80,17 @@ export async function startResultControlPlane(options: {
   let activeConnections = 0;
   let accepting = true;
   const channels = new Set<ResultChannel>();
+  // Close waits for these: a channel still being built when close runs would otherwise miss the
+  // sweep and keep listening on a socket whose directory is gone.
+  const opening = new Set<Promise<ResultChannel>>();
 
-  const openChannel = async (agentId: string): Promise<ResultChannel> => {
+  const openChannel = (agentId: string): Promise<ResultChannel> => {
+    const pending = buildChannel(agentId).finally(() => opening.delete(pending));
+    opening.add(pending);
+    return pending;
+  };
+
+  const buildChannel = async (agentId: string): Promise<ResultChannel> => {
     if (!accepting) throw new Error("result control plane is closed");
     // Per channel, unlike the connection budget: closing one agent must not wait on a submission
     // another agent is still making.
@@ -91,7 +100,7 @@ export async function startResultControlPlane(options: {
     const home = await mkdtemp(join(directory, "a"));
     await chmod(home, 0o700);
     const endpoint = join(home, "s.sock");
-    let listener: Bun.UnixSocketListener<ConnectionState>;
+    let listener: Bun.UnixSocketListener<ConnectionState> | undefined;
     try {
       listener = Bun.listen<ConnectionState>({
         unix: endpoint,
@@ -173,11 +182,13 @@ export async function startResultControlPlane(options: {
           },
         },
       });
+      await chmod(endpoint, 0o600).catch(ignoreMissing);
     } catch (error) {
+      listener?.stop(true);
       await rm(home, { recursive: true, force: true });
       throw error;
     }
-    await chmod(endpoint, 0o600).catch(ignoreMissing);
+    const live = listener;
 
     let channelClosing: Promise<void> | undefined;
     const channel: ResultChannel = {
@@ -187,9 +198,10 @@ export async function startResultControlPlane(options: {
           // Stop accepting, then let whatever is already being answered finish: taking the socket
           // away first turns an accepted submission into a connection error the agent must guess
           // at.
-          listener.stop(false);
-          await Promise.allSettled([...activeHandlers]);
-          listener.stop(true);
+          live.stop(false);
+          // Repeated: a connection already open can still finish its request while this waits.
+          while (activeHandlers.size > 0) await Promise.allSettled([...activeHandlers]);
+          live.stop(true);
           await rm(home, { recursive: true, force: true });
           channels.delete(channel);
         })();
@@ -197,6 +209,10 @@ export async function startResultControlPlane(options: {
       },
     };
     channels.add(channel);
+    if (!accepting) {
+      await channel.close();
+      throw new Error("result control plane is closed");
+    }
     return channel;
   };
 
@@ -206,6 +222,7 @@ export async function startResultControlPlane(options: {
     close() {
       closing ??= (async () => {
         accepting = false;
+        await Promise.allSettled([...opening]);
         await Promise.allSettled([...channels].map((channel) => channel.close()));
         await chmod(directory, 0o700).catch(ignoreMissing);
         // Recursive: each agent's socket and launcher live in a directory of their own.

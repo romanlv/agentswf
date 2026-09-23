@@ -156,6 +156,14 @@ describe("result control plane", () => {
       await fixture.control.close();
     }
   });
+
+  test("a channel still being opened when the plane closes is refused, not left listening", async () => {
+    const fixture = await setup();
+    const late = fixture.control.openChannel("late");
+    await fixture.control.close();
+
+    await expect(late).rejects.toThrow("closed");
+  });
 });
 
 async function setup(
