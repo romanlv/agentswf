@@ -23,10 +23,11 @@ The distinguishing constraint is that the workers are **non-deterministic proces
 and sometimes fail to answer**. That is not a normal task queue, and it drives most of what follows.
 
 **The scarce resource here is design, not code.** A coding agent writes any of this competently and
-fast. What it does not do reliably is pick the seams — notice that a result capability has to be
-invocation-scoped rather than agent-scoped, that a checkpoint is not a signal, that publishing
-`ReplayPolicy` commits the author surface to a durability model the experiments rejected. Those
-three cost minutes to fix in a document and months to fix in a shipped interface.
+fast. What it does not do reliably is pick the seams — notice that a result's authority has to ride
+on the agent's connection rather than on a token the harness must deliver, that a checkpoint is not
+a signal, that publishing `ReplayPolicy` commits the author surface to a durability model the
+experiments rejected. Those three cost minutes to fix in a document and months to fix in a shipped
+interface.
 
 So completeness is not a goal of this repository, and feature count is not a measure of it. The
 expensive artifacts are the ones that are hard to change once something depends on them: this

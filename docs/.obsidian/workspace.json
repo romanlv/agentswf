@@ -190,6 +190,8 @@
   },
   "active": "13e8e63d68e7921b",
   "lastOpenFiles": [
+    "adr/0001-unbuilt-interface-leaves-the-surface.md",
+    "design/first-sketch.md",
     "stories/001-multi-agent-review.md",
     "stories/todo/schema-in-prompt.md",
     "findings/e7-fork.md",
@@ -202,7 +204,6 @@
     "findings/code-review-1.md",
     "findings/README.md",
     "findings",
-    "design/first-sketch.md",
     "stories/todo/live-eval-disclosure.md",
     "stories/todo/operator-run-observation.md",
     "stories/todo/herdr-pane-settlement.md",

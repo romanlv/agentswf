@@ -12,6 +12,8 @@ must never import `@wf/engine` — the dependency runs the other way.
 | `spec.ts` | every harness's argv and output readers, in one table; Herdr's startup screens are in `herdr-startup.ts` |
 | `command.ts` | subprocess execution with a timeout and a capture cap |
 | `session-core.ts` | shared `AgentSessionAdapter` lifecycle, status, and cleanup |
+| `single-session-host.ts` | one adapter behind the run-host seam: per-agent sessions and snapshots |
+| `legacy-driver.ts` | the `AgentSessionDriver` shape the frozen experiments open, over an adapter |
 | `adapters/herdr.ts` | the Herdr run host (one workspace, a pane per operation), the isolated-pane adapter (exercised by tests only), and the command runner every Herdr path uses |
 | `adapters/herdr-protocol.ts` | reading Herdr answers, building its argv, and the outcomes every pane path shares |
 | `adapters/herdr-startup.ts` | answering the blocks an agent raises before it will accept a prompt |
@@ -34,6 +36,7 @@ Before editing:
 - **A session adapter is not a provider.** Herdr, a future tmux integration, and direct subprocess
   execution are replaceable session adapters selected by operator configuration. `BackendKind` in
   `types.ts` exists only for the frozen experiments.
-- **The engine uses only `AgentSessionAdapter`.** `AgentSessionDriver`, `CallIdentity`, and the old
+- **The engine uses only the run host.** It opens sessions through `AgentRunHostFactory`, never an
+  adapter directly. `AgentSessionDriver`, `CallIdentity`, and the old
   factory names exist solely so frozen experiments remain runnable; do not build new behavior on
   them.

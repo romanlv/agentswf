@@ -96,15 +96,18 @@ The engine is configured with:
 - `AgentRuntimeConfig.host` — the one run host that owns placement, inspection, continuation, and
   cleanup for a run.
 
-An adapter declares the harnesses it drives and the capabilities it can honestly report. The engine
-calls `activate()` with the logical key, resolved execution, working directory, instructions, and
-labels. The returned `HarnessSession` can report status, start turns, compact context,
-and close. A `HarnessTurn` exposes its eventual native outcome, continuation delivery, nudge, and
-release.
+The engine opens one run through `host.openRun()` and each logical agent through the run's
+`openAgent()`, with the logical key, resolved execution, working directory, instructions, and
+labels. Behind the host, an adapter declares the harnesses it drives and the capabilities it can
+honestly report, and the host calls its `activate()`. The returned `HarnessSession` can report
+status, start turns, compact context, and close. A `HarnessTurn` exposes its eventual native
+outcome, continuation delivery, nudge, and release.
 
 | Object | Calls |
 | --- | --- |
-| `AgentSessionAdapter` | `activate(request)` |
+| `AgentRunHostFactory` | `openRun(spec)` |
+| `AgentRunHost` | `openAgent(request)`, `inspect()`, `close(reason?)` |
+| `AgentSessionAdapter` | `activate(request)` — called by the host, not the engine |
 | `HarnessSession` | `status()`, `start(turn, binding)`, `compact(id, prompt, deadline)`, `close(reason?)` |
 | `HarnessTurn` | `settled`, `deliver(prompt)`, `nudge(spec)`, `release(reason, deadline)` |
 | `OutsideSessionControl` | `status(session)`, `wake(session)` — optional, see below |
@@ -138,8 +141,9 @@ operator chooses the host, and every logical agent in that run crosses the same 
 Installing both Herdr and tmux does not introduce a second routing language; the operator picks
 which one opens the run.
 
-`AgentSessionAdapter` is the only seam the engine uses, and `session-core.ts` holds the session
-lifecycle shared behind it. The `AgentSessionDriver` shapes survive so the archived experiments
+The engine reaches sessions only through the run host; `single-session-host.ts` places one
+`AgentSessionAdapter` behind that seam, and `session-core.ts` holds the session lifecycle shared
+behind the adapter. The `AgentSessionDriver` shapes survive so the archived experiments
 remain runnable, and nowhere else. The shared harness table supplies provider-neutral interactive
 commands. Herdr's agent-kind mapping stays in the Herdr implementation, where a tmux or raw-PTY
 implementation does not need to know it.
