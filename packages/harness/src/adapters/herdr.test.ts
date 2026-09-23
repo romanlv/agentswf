@@ -411,7 +411,7 @@ describe("createPaneAdapter", () => {
         "Do you trust the contents of this directory?\n1. Yes, continue",
         ["enter"],
       ],
-      // Herdr renders the block into the pane's width, and this host's panes are half-width.
+      // Herdr renders the block into the pane's width, which a narrow terminal makes short.
       [
         "claude",
         " Quick safety check: Is this a project you created or one you\n trust? (Like your own" +
@@ -877,9 +877,12 @@ describe("createHerdrRunHostFactory", () => {
           root_pane: { pane_id: "w1:p1" },
         });
       }
-      if (command === "pane split") {
+      if (command === "tab create") {
         panes += 1;
-        return commandResult({ pane: { pane_id: `w1:p${panes}` } });
+        return commandResult({
+          tab: { tab_id: `w1:t${panes}` },
+          root_pane: { pane_id: `w1:p${panes}` },
+        });
       }
       if (command === "agent prompt") {
         return commandResult({
@@ -909,7 +912,7 @@ describe("createHerdrRunHostFactory", () => {
     return { run, calls };
   }
 
-  test("places peer providers in sibling panes of one run tab", async () => {
+  test("gives each peer agent a tab of its own in one run workspace", async () => {
     const { run, calls } = hostStub();
     const host = await createHerdrRunHostFactory(CONFIG, run).openRun({
       runId: "run-1",
@@ -938,14 +941,17 @@ describe("createHerdrRunHostFactory", () => {
     ]);
 
     const creates = calls.filter((call) => verb(call) === "workspace create");
-    const splits = calls.filter((call) => verb(call) === "pane split");
+    const tabs = calls.filter((call) => verb(call) === "tab create");
     const starts = calls.filter((call) => verb(call) === "agent start");
     expect(creates).toHaveLength(1);
-    expect(splits).toHaveLength(2);
-    expect(splits.every((call) => call.argv.includes("w1:p1"))).toBe(true);
+    expect(tabs.every((call) => call.argv[call.argv.indexOf("--workspace") + 1] === "w1")).toBe(true);
+    expect(tabs.map((call) => call.argv[call.argv.indexOf("--label") + 1]).sort()).toEqual([
+      "correctness",
+      "maintainability",
+    ]);
     // With nothing to withhold there is nothing to set: the return channel needs no environment,
     // and `herdr-contract.test.ts` holds the case where credentials do have to be repeated.
-    expect(splits.every((call) => !call.argv.includes("--env"))).toBe(true);
+    expect(tabs.every((call) => !call.argv.includes("--env"))).toBe(true);
     expect(starts.map((call) => call.argv[call.argv.indexOf("--kind") + 1]).sort()).toEqual([
       "claude",
       "codex",
@@ -955,7 +961,7 @@ describe("createHerdrRunHostFactory", () => {
     expect(calls.filter((call) => verb(call) === "workspace close")).toHaveLength(1);
   });
 
-  test("a nudge stays in its pane and a later operation is refused, not resumed", async () => {
+  test("a nudge stays in its tab and a later operation is refused, not resumed", async () => {
     const { run, calls } = hostStub();
     const host = await createHerdrRunHostFactory(CONFIG, run).openRun({
       runId: "run-1",
@@ -984,13 +990,13 @@ describe("createHerdrRunHostFactory", () => {
       detail: expect.stringContaining("one operation per agent"),
     });
     expect(calls.filter((call) => verb(call) === "agent prompt")).toHaveLength(2);
-    expect(calls.filter((call) => verb(call) === "pane split")).toHaveLength(1);
+    expect(calls.filter((call) => verb(call) === "tab create")).toHaveLength(1);
     expect(calls.filter((call) => verb(call) === "agent start")).toHaveLength(1);
     expect(calls.every((call) => !call.argv.includes("resume"))).toBe(true);
     await host.close();
   });
 
-  test("the agent's own pane carries the scrubbed environment, not just the workspace", async () => {
+  test("the agent's own tab carries the scrubbed environment, not just the workspace", async () => {
     const { run, calls } = hostStub();
     const host = await createHerdrRunHostFactory(
       { ...CONFIG, emptyEnvironment: ["ANTHROPIC_API_KEY", "OPENAI_API_KEY"] },
@@ -1009,7 +1015,7 @@ describe("createHerdrRunHostFactory", () => {
       )
     ).settled;
 
-    for (const scope of ["workspace create", "pane split"] as const) {
+    for (const scope of ["workspace create", "tab create"] as const) {
       const emitted = argv(calls, scope);
       expect(emitted).toContain("ANTHROPIC_API_KEY=");
       expect(emitted).toContain("OPENAI_API_KEY=");
@@ -1018,15 +1024,15 @@ describe("createHerdrRunHostFactory", () => {
     await host.close();
   });
 
-  test("releasing a turn while its pane is still being split reports it cancelled", async () => {
+  test("releasing a turn while its tab is still being created reports it cancelled", async () => {
     const { run: base } = hostStub();
-    let splitting!: () => void;
-    const splitStarted = new Promise<void>((resolve) => {
-      splitting = resolve;
+    let creating!: () => void;
+    const creationStarted = new Promise<void>((resolve) => {
+      creating = resolve;
     });
     const run: RunProcess = async (input) => {
-      if (verb(input) !== "pane split") return base(input);
-      splitting();
+      if (verb(input) !== "tab create") return base(input);
+      creating();
       await new Promise<void>((resolve) =>
         input.signal?.addEventListener("abort", () => resolve(), { once: true }),
       );
@@ -1053,7 +1059,7 @@ describe("createHerdrRunHostFactory", () => {
       { id: "one", prompt: "review", deadline: deadline() },
       binding("op-1"),
     );
-    await splitStarted;
+    await creationStarted;
 
     await expect(turn.release("stop", deadline())).resolves.toMatchObject({
       kind: "released",
@@ -1062,7 +1068,7 @@ describe("createHerdrRunHostFactory", () => {
     await host.close();
   });
 
-  test("every later operation on an agent is refused without opening a pane", async () => {
+  test("every later operation on an agent is refused without opening a tab", async () => {
     const { run, calls } = hostStub();
     const host = await createHerdrRunHostFactory(CONFIG, run).openRun({
       runId: "run-1",
@@ -1098,7 +1104,7 @@ describe("createHerdrRunHostFactory", () => {
       state: "failed",
       detail: expect.stringContaining("one operation per agent"),
     });
-    expect(calls.filter((call) => verb(call) === "pane split")).toHaveLength(1);
+    expect(calls.filter((call) => verb(call) === "tab create")).toHaveLength(1);
     await host.close();
   });
 
@@ -1176,7 +1182,7 @@ describe("createHerdrRunHostFactory", () => {
       kind: "released",
       outcome: { state: "cancelled" },
     });
-    expect(base.calls.filter((call) => verb(call) === "pane close")).toHaveLength(1);
+    expect(base.calls.filter((call) => verb(call) === "tab close")).toHaveLength(1);
     for (const id of ["op-2", "op-3"] as const) {
       const later = await session.start(
         { id, prompt: "again", deadline: deadline() },
@@ -1187,7 +1193,7 @@ describe("createHerdrRunHostFactory", () => {
         detail: expect.stringContaining("one operation per agent"),
       });
     }
-    expect(base.calls.filter((call) => verb(call) === "pane split")).toHaveLength(1);
+    expect(base.calls.filter((call) => verb(call) === "tab create")).toHaveLength(1);
     await host.close();
   });
 
@@ -1238,7 +1244,7 @@ describe("createHerdrRunHostFactory", () => {
       state: "failed",
       detail: expect.stringContaining("one operation per agent"),
     });
-    expect(base.calls.filter((call) => verb(call) === "pane split")).toHaveLength(1);
+    expect(base.calls.filter((call) => verb(call) === "tab create")).toHaveLength(1);
     await host.close();
   });
 
@@ -1335,7 +1341,7 @@ describe("createHerdrRunHostFactory", () => {
     expect(base.calls.filter((call) => verb(call) === "agent prompt")).toHaveLength(1);
     // The agent may still be working, so its pane and authority outlive the outcome; only the
     // engine's release or the run's cleanup takes them away.
-    expect(base.calls.filter((call) => verb(call) === "pane close")).toHaveLength(0);
+    expect(base.calls.filter((call) => verb(call) === "tab close")).toHaveLength(0);
     await host.close();
   });
 
@@ -1380,14 +1386,14 @@ describe("createHerdrRunHostFactory", () => {
     await host.close();
   });
 
-  test("an operation whose pane never opened does not consume the agent", async () => {
+  test("an operation whose tab never opened does not consume the agent", async () => {
     const base = hostStub();
     let splits = 0;
     const run: RunProcess = async (input) => {
-      if (verb(input) !== "pane split") return base.run(input);
+      if (verb(input) !== "tab create") return base.run(input);
       base.calls.push(input);
       splits += 1;
-      return splits === 1 ? errorResult("pane_split_failed") : commandResult({ pane: { pane_id: "w1:p2" } });
+      return splits === 1 ? errorResult("pane_split_failed") : commandResult({ tab: { tab_id: "w1:t2" }, root_pane: { pane_id: "w1:p2" } });
     };
     const host = await createHerdrRunHostFactory(CONFIG, run).openRun({
       runId: "run-1",
@@ -1407,7 +1413,7 @@ describe("createHerdrRunHostFactory", () => {
           binding("op-1"),
         )
       ).settled,
-    ).resolves.toMatchObject({ state: "failed", detail: expect.stringContaining("pane split") });
+    ).resolves.toMatchObject({ state: "failed", detail: expect.stringContaining("tab create") });
 
     const second = await session.start(
       { id: "two", prompt: "review", deadline: deadline() },

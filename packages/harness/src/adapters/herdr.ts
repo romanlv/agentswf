@@ -322,15 +322,15 @@ export function createPaneAdapter(
   });
 }
 
-/** The production host: one run workspace and tab, with one pane per operation. */
+/** The production host: one run workspace, with a tab for each agent. */
 export function createHerdrRunHostFactory(
   config: HerdrConfig,
   run: RunProcess = runProcess,
 ): AgentRunHostFactory {
   /**
-   * Every split launches its own process, so the workspace's environment does not reach it and the
+   * Every tab launches its own process, so the workspace's environment does not reach it and the
    * metered credentials this run promises to withhold would survive in an agent pane. Nothing the
-   * return channel needs is repeated here: a pane inherits its `PATH` from the login shell Herdr
+   * return channel needs is repeated here: a tab inherits its `PATH` from the login shell Herdr
    * starts, and the launcher the agent is told to run is named by absolute path regardless.
    */
   const paneEnvironment = emptyEnvironmentArgs(config.emptyEnvironment);
@@ -374,7 +374,8 @@ export function createHerdrRunHostFactory(
 
       let topologyOpen = true;
       let topologyTail = Promise.resolve();
-      const panes = new Set<string>();
+      // Pane to the tab it is the only pane of: an agent gets a tab, so closing it is closing that.
+      const panes = new Map<string, string>();
       const mutate = <T>(operation: () => Promise<T>): Promise<T> => {
         const result = topologyTail.then(operation);
         topologyTail = result.then(
@@ -386,13 +387,14 @@ export function createHerdrRunHostFactory(
       const closePane = (paneId: string): Promise<void> =>
         mutate(async () => {
           if (!panes.has(paneId)) return;
-          const closed = await herdr(["pane", "close", paneId]);
+          const closed = await herdr(["tab", "close", panes.get(paneId)!]);
           if (!closed.ok) {
-            throw new Error(`operation pane close failed: ${closed.error}`);
+            throw new Error(`agent tab close failed: ${closed.error}`);
           }
           panes.delete(paneId);
         });
       const allocatePane = (
+        label: string,
         cwd: string,
         deadlineUnixMilliseconds: number,
         signal: AbortSignal,
@@ -401,17 +403,16 @@ export function createHerdrRunHostFactory(
           if (!topologyOpen) throw new Error("Herdr run topology is closing");
           const remainingMilliseconds = deadlineUnixMilliseconds - Date.now();
           if (remainingMilliseconds <= 0) {
-            throw new Error("operation deadline exceeded before pane allocation");
+            throw new Error("operation deadline exceeded before tab allocation");
           }
-          const split = await herdr(
+          const created = await herdr(
             [
-              "pane",
-              "split",
-              rootPaneId,
-              "--direction",
-              "right",
-              "--ratio",
-              "0.5",
+              "tab",
+              "create",
+              "--workspace",
+              workspaceId,
+              "--label",
+              label,
               "--cwd",
               cwd,
               ...paneEnvironment,
@@ -420,12 +421,13 @@ export function createHerdrRunHostFactory(
             Math.min(config.commandTimeoutMs, remainingMilliseconds),
             signal,
           );
-          if (!split.ok) {
-            throw new Error(`operation pane split failed: ${split.error}`);
+          if (!created.ok) {
+            throw new Error(`agent tab create failed: ${created.error}`);
           }
-          const paneId = readPaneId(split.result);
-          if (!paneId) throw new Error("operation pane split returned no pane identity");
-          panes.add(paneId);
+          const tabId = readId(created.result.tab, "tab_id");
+          const paneId = readPaneId(created.result);
+          if (!tabId || !paneId) throw new Error("agent tab create returned no tab or pane identity");
+          panes.set(paneId, tabId);
           return paneId;
         });
 
@@ -481,6 +483,7 @@ export function createHerdrRunHostFactory(
                   let paneId: string;
                   try {
                     paneId = await allocatePane(
+                      request.key,
                       request.cwd,
                       operation.deadline.unixMilliseconds,
                       controller.signal,

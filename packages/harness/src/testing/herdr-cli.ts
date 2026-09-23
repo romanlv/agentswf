@@ -5,7 +5,7 @@ import type { ProcessInput, ProcessResult, RunProcess } from "../command";
  *
  * The hand-written stubs answer whatever the adapter asks, so they can only confirm its
  * expectations; four live defects passed straight through them. What is modelled here is what
- * those defects came from, and nothing else: a pane launches its own process and so sees only its
+ * those defects came from, and nothing else: a tab launches its own process and so sees only its
  * own `--env`; a startup block is rendered wrapped to the pane's width, styled by the agent's own
  * TUI, and left on the screen after it is answered; startup raises a queue of blocks whose keys
  * are not interchangeable; `agent wait` answers for a blocked agent as readily as a ready one; and
@@ -15,7 +15,7 @@ import type { ProcessInput, ProcessResult, RunProcess } from "../command";
 export type StartupBlock = "trust" | "update";
 
 export type FakeHerdrOptions = {
-  /** Columns the workspace's root pane renders at. A split pane gets half. */
+  /** Columns a pane renders at; each agent's tab gives its one pane the whole width. */
   rootColumns?: number;
   /** How long after its last block is answered an agent still discards submitted prompts. */
   inputReadyAfterMs?: number;
@@ -101,11 +101,12 @@ export function createFakeHerdr(options: FakeHerdrOptions = {}): FakeHerdr {
 
   const calls: ProcessInput[] = [];
   const agents = new Map<string, FakeAgent>();
-  const panes = new Map<string, { env: Record<string, string>; columns: number }>();
+  const panes = new Map<string, { env: Record<string, string>; columns: number; tab: string }>();
   const workspaces = new Set<string>();
   const answeredAt = new Map<string, number>();
   let workspaceCount = 0;
   let paneCount = 0;
+  let tabCount = 0;
 
   const run: RunProcess = async (input) => {
     calls.push(input);
@@ -119,24 +120,31 @@ export function createFakeHerdr(options: FakeHerdrOptions = {}): FakeHerdr {
         const workspaceId = `w${workspaceCount}`;
         workspaces.add(workspaceId);
         paneCount += 1;
+        tabCount += 1;
         const paneId = `${workspaceId}:p${paneCount}`;
-        panes.set(paneId, { env: readEnv(argv), columns: rootColumns });
+        const tabId = `${workspaceId}:t${tabCount}`;
+        panes.set(paneId, { env: readEnv(argv), columns: rootColumns, tab: tabId });
         return ok({
           workspace: { workspace_id: workspaceId },
-          tab: { tab_id: `${workspaceId}:t1` },
+          tab: { tab_id: tabId },
           root_pane: { pane_id: paneId },
         });
       }
-      case "pane split": {
-        if (!panes.has(target)) return fail("pane_not_found", `pane ${target} not found`);
+      case "tab create": {
+        const workspaceId = readOption(argv, "--workspace") ?? "";
+        if (!workspaces.has(workspaceId)) {
+          return fail("workspace_not_found", `workspace ${workspaceId} not found`);
+        }
         paneCount += 1;
-        const paneId = `${target.split(":")[0]}:p${paneCount}`;
-        // Only this command's own `--env`: the split is a separately launched process.
-        panes.set(paneId, { env: readEnv(argv), columns: Math.floor(rootColumns / 2) });
-        return ok({ pane: { pane_id: paneId } });
+        tabCount += 1;
+        const paneId = `${workspaceId}:p${paneCount}`;
+        const tabId = `${workspaceId}:t${tabCount}`;
+        // Only this command's own `--env`: the tab is a separately launched process.
+        panes.set(paneId, { env: readEnv(argv), columns: rootColumns, tab: tabId });
+        return ok({ tab: { tab_id: tabId }, root_pane: { pane_id: paneId } });
       }
-      case "pane close": {
-        panes.delete(target);
+      case "tab close": {
+        for (const [paneId, pane] of panes) if (pane.tab === target) panes.delete(paneId);
         return ok({});
       }
       case "pane get": {

@@ -9,9 +9,9 @@ depends_on: []
 
 # Control how workflow agents are displayed in Herdr
 
-Why it matters: the production host currently chooses one workspace and tab, then places every
-operation in a right-split sibling pane with a fixed ratio. That is sufficient to prove symmetric
-execution, but it hard-codes one visual arrangement. Larger workflows will need readable grouping
+Why it matters: the production host currently chooses one workspace and gives every agent a tab
+of its own. Sibling panes in one tab came first and stopped being readable at five agents, because
+each split halved the root. A tab per agent reads well but still hard-codes one arrangement. Larger workflows will need readable grouping
 without teaching workflow definitions or the engine Herdr commands, pane identifiers, or topology
 bookkeeping.
 
@@ -28,7 +28,7 @@ translate that intent into concrete Herdr operations and keep native identifiers
 authors should not choose raw workspace, tab, or pane IDs.
 
 Refinement must compare at least two real layouts before adding an interface—for example, all peers
-as sibling panes in one tab versus role groups in separate tabs. Keep the module deep: callers
+as a tab per agent versus role groups sharing a tab. Keep the module deep: callers
 choose a small policy while the implementation owns admission order, deterministic placement,
 concurrent topology changes, focus behavior, socket and launcher lifetime, reflow limits, and
 cleanup.
@@ -43,5 +43,4 @@ Open questions:
 - How should more agents than comfortably fit in one tab be grouped without making scheduling order
   visible as product semantics?
 
-This todo is not part of Story 001 acceptance and should not change the current symmetric run host
-during its live proof.
+This todo is not part of Story 001 acceptance.

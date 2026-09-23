@@ -51,9 +51,9 @@ describe("the run host against a Herdr that behaves like 0.8.2", () => {
   test.each(["claude", "codex"] as const)(
     "answers a startup trust block that the pane's width has wrapped (%s)",
     async (harness) => {
-      // The host splits at 0.5, so the block renders into half the workspace's columns and its
-      // sentences break mid-phrase. Matching the raw screen misses it and the agent never starts.
-      const { agent, outcome } = await reviewOnce(createFakeHerdr({ rootColumns: 90 }), {}, harness);
+      // In a narrow terminal the block's sentences break mid-phrase. Matching the raw screen misses
+      // it and the agent never starts.
+      const { agent, outcome } = await reviewOnce(createFakeHerdr({ rootColumns: 60 }), {}, harness);
 
       expect(outcome).toMatchObject({ state: "completed" });
       expect(agent.delivered).toHaveLength(1);
@@ -61,7 +61,7 @@ describe("the run host against a Herdr that behaves like 0.8.2", () => {
   );
 
   test("empties the metered credentials in the agent's own pane, not just the workspace", async () => {
-    // A split launches its own process, so an environment set only on the workspace never reaches
+    // A tab launches its own process, so an environment set only on the workspace never reaches
     // the agent. This is the one thing the pane's environment is still used for.
     const { agent, outcome } = await reviewOnce(createFakeHerdr());
 

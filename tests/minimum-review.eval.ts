@@ -147,7 +147,7 @@ export async function evaluationPreflight(): Promise<EvaluationPreflight> {
   checks.push(
     herdrBehaviourCheck(
       await command(["herdr", "agent", "prompt", "--help"]),
-      await command(["herdr", "pane", "split", "--help"]),
+      await command(["herdr", "tab", "create", "--help"]),
     ),
   );
 
@@ -544,9 +544,9 @@ export function agentVersionEvidence(
  * built on it stays green when Herdr stops behaving this way. Reading them back from the installed
  * CLI costs nothing and fails the dry run instead of a live one.
  */
-export function herdrBehaviourCheck(prompt: CommandResult, split: CommandResult): Check {
+export function herdrBehaviourCheck(prompt: CommandResult, tab: CommandResult): Check {
   const promptHelp = `${prompt.stdout}\n${prompt.stderr}`;
-  const splitHelp = `${split.stdout}\n${split.stderr}`;
+  const tabHelp = `${tab.stdout}\n${tab.stderr}`;
   const missing = [
     ...(promptHelp.includes("agent_prompt_stalled")
       ? []
@@ -554,14 +554,14 @@ export function herdrBehaviourCheck(prompt: CommandResult, split: CommandResult)
     ...(/does not track turns/i.test(promptHelp)
       ? []
       : ["`agent prompt --wait` no longer disclaims turn tracking"]),
-    ...(/--env <KEY=VALUE>/.test(splitHelp)
+    ...(/--env <KEY=VALUE>/.test(tabHelp)
       ? []
-      : ["`pane split` no longer takes --env, so an agent pane cannot be given one"]),
+      : ["`tab create` no longer takes --env, so an agent's tab cannot be given one"]),
   ];
   return {
     name: "herdr-documented-behaviour",
     ok: missing.length === 0,
-    detail: missing.length === 0 ? "prompt settlement and pane environment unchanged" : missing.join("; "),
+    detail: missing.length === 0 ? "prompt settlement and tab environment unchanged" : missing.join("; "),
   };
 }
 

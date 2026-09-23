@@ -104,13 +104,13 @@ describe("minimum review live evaluation plan", () => {
     const prompt = help(
       "returns agent_prompt_stalled. It does not track turns: if the agent is already working,",
     );
-    const split = help("      --env <KEY=VALUE>\n          Set an environment variable");
+    const tab = help("      --env <KEY=VALUE>\n          Set an environment variable");
 
-    expect(herdrBehaviourCheck(prompt, split).ok).toBe(true);
-    expect(herdrBehaviourCheck(help("returns agent_prompt_stalled."), split).detail).toContain(
+    expect(herdrBehaviourCheck(prompt, tab).ok).toBe(true);
+    expect(herdrBehaviourCheck(help("returns agent_prompt_stalled."), tab).detail).toContain(
       "turn tracking",
     );
-    expect(herdrBehaviourCheck(help("it does not track turns"), split).detail).toContain(
+    expect(herdrBehaviourCheck(help("it does not track turns"), tab).detail).toContain(
       "agent_prompt_stalled",
     );
     expect(herdrBehaviourCheck(prompt, help("      --cwd <PATH>")).detail).toContain("--env");

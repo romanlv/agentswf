@@ -271,7 +271,7 @@ container provider creates the box at `open` with the profile as its mounts, and
 business: for a headless agent it is the harness itself, once per turn process, through the same
 `launch` with the same profile for the life of the agent; for a pane it is the pane's shell, the
 outermost process, which the study found to be the one topology that holds, and the harness is typed
-into it. The pane adapter today opens a fresh pane per operation, so it too launches more than once.
+into it. The Herdr host today opens a fresh tab per agent, so it too launches more than once.
 Nothing operation-specific rides in the command's `env` — the launcher path is in the prompt — so
 the profile's `env` is the static allowlist and nothing sits above it.
 

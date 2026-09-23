@@ -14,7 +14,7 @@ must never import `@wf/engine` — the dependency runs the other way.
 | `session-core.ts` | shared `AgentSessionAdapter` lifecycle, status, and cleanup |
 | `single-session-host.ts` | one adapter behind the run-host seam: per-agent sessions and snapshots |
 | `legacy-driver.ts` | the `AgentSessionDriver` shape the frozen experiments open, over an adapter |
-| `adapters/herdr.ts` | the Herdr run host (one workspace, a pane per operation), the isolated-pane adapter (exercised by tests only), and the command runner every Herdr path uses |
+| `adapters/herdr.ts` | the Herdr run host (one workspace, a tab per agent), the isolated-pane adapter (exercised by tests only), and the command runner every Herdr path uses |
 | `adapters/herdr-protocol.ts` | reading Herdr answers, building its argv, and the outcomes every pane path shares |
 | `adapters/herdr-startup.ts` | answering the blocks an agent raises before it will accept a prompt |
 | `adapters/herdr-legacy.ts` | the per-call pane driver the frozen experiments still open |
