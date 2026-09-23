@@ -13,12 +13,12 @@
             "state": {
               "type": "markdown",
               "state": {
-                "file": "design/permissions.md",
-                "mode": "preview",
+                "file": "stories/002-cost-and-time-accounting.md",
+                "mode": "source",
                 "source": false
               },
               "icon": "lucide-file",
-              "title": "permissions"
+              "title": "002-cost-and-time-accounting"
             }
           }
         ]
@@ -161,7 +161,7 @@
             "state": {
               "type": "outline",
               "state": {
-                "file": "design/permissions.md",
+                "file": "stories/002-cost-and-time-accounting.md",
                 "followCursor": false,
                 "showSearch": false,
                 "searchQuery": ""
@@ -175,7 +175,7 @@
       }
     ],
     "direction": "horizontal",
-    "width": 300
+    "width": 315.390625
   },
   "left-ribbon": {
     "hiddenItems": {
@@ -190,9 +190,13 @@
   },
   "active": "13e8e63d68e7921b",
   "lastOpenFiles": [
+    "stories/001-multi-agent-review.md",
+    "stories/002-cost-and-time-accounting.md",
+    "design/permissions.md",
+    "design/ideas.md",
+    "design/composition.md",
     "adr/0001-unbuilt-interface-leaves-the-surface.md",
     "design/first-sketch.md",
-    "stories/001-multi-agent-review.md",
     "stories/todo/schema-in-prompt.md",
     "findings/e7-fork.md",
     "findings/e6-resume.md",
@@ -208,14 +212,12 @@
     "stories/todo/operator-run-observation.md",
     "stories/todo/herdr-pane-settlement.md",
     "stories/todo/pane-agent-start-readiness.md",
-    "design/permissions.md",
     "tasks/001-multi-agent-review.md",
     "stories/todo/README.md",
     "stories/todo",
     "stories/_template.md",
     "stories/README.md",
     "stories",
-    "tasks/README.md",
-    "foundation.md"
+    "tasks/README.md"
   ]
 }

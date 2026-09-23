@@ -37,6 +37,9 @@ status is one of `todo`, `draft`, `ready`, `in-progress`, `blocked`, `awaiting-h
 - [`001` — Run a minimum multi-agent review workflow](001-multi-agent-review.md) —
   `in-progress` — Run parallel review agents through `awf run` and compose accepted structured
   results.
+- [`002` — Know what each run cost and how long it took](002-cost-and-time-accounting.md) —
+  `draft` — The engine records time, tokens and cost for every agent in a run, without workflow
+  code, so variants can be compared on price as well as quality.
 
 This is the high-level index of numbered stories. Keep each entry to its title, status, and
 one-sentence summary; put code maps, research, design, tasks, and verification in the linked story.
