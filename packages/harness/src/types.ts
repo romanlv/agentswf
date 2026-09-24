@@ -1,7 +1,17 @@
 import type { JsonSchema } from "@wf/contract/schema";
-import type { TurnUsage } from "./spec";
 
 export type Harness = "claude" | "codex" | "pi" | "cursor";
+
+/**
+ * What a frozen experiment recorded for a turn. The tokens were read from stdout then; they are
+ * read from session files now, so a rerun records only the dollars.
+ */
+export type TurnUsage = {
+  inputTokens?: number;
+  outputTokens?: number;
+  cachedInputTokens?: number;
+  costUsd?: number;
+};
 
 export type BackendKind = "pane" | "headless";
 

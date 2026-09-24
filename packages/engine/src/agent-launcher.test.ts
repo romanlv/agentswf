@@ -37,9 +37,9 @@ async function twoAgents() {
 }
 
 /** No environment at all: a Codex pane runs its tool commands in a process we did not set up. */
-async function run(wf: string, args: readonly string[]) {
+async function run(wf: string, args: readonly string[], env: Record<string, string> = {}) {
   const child = Bun.spawn([wf, ...args], {
-    env: {},
+    env,
     stdin: "ignore",
     stdout: "pipe",
     stderr: "pipe",
@@ -70,6 +70,37 @@ describe("the launcher an agent is told to run", () => {
       expect(await readAccepted(fixture.runDir, "op-1")).toEqual({
         value: { count: 3, even: false },
       });
+    } finally {
+      await fixture.control.close();
+    }
+  });
+
+  test("takes the value from the heredoc the prompt shows, with nothing in it escaped", async () => {
+    const fixture = await twoAgents();
+    try {
+      await fixture.slots.open({
+        operationId: "op-1",
+        agentId: "alice",
+        question: "what went wrong?",
+        schema: { type: "object", properties: { note: { type: "string" } }, required: ["note"] },
+        deadline: DEADLINE,
+      });
+      // An apostrophe, a dollar sign and a backslash: each breaks a quoted argument one way or
+      // another, and none of them is touched inside a quoted heredoc.
+      const note = "it doesn't initialise $sum, so \\n is literal";
+      const command = [
+        `'${fixture.alice.wf}' result op-1 <<'WF_JSON'`,
+        JSON.stringify({ note }),
+        "WF_JSON",
+      ].join("\n");
+      const child = Bun.spawn(["sh", "-c", command], { env: {}, stdout: "pipe", stderr: "pipe" });
+      const [exitCode, stderr] = await Promise.all([
+        child.exited,
+        new Response(child.stderr).text(),
+      ]);
+
+      expect({ exitCode, stderr }).toEqual({ exitCode: 0, stderr: "" });
+      expect(await readAccepted(fixture.runDir, "op-1")).toEqual({ value: { note } });
     } finally {
       await fixture.control.close();
     }
@@ -115,6 +146,7 @@ describe("the launcher an agent is told to run", () => {
       expect(wrong.exitCode).toBe(1);
       expect(wrong.stderr).toContain("value.count: expected an integer");
       expect(wrong.stderr).toContain("run wf result again");
+      expect(wrong.stderr).toContain("passed with < file");
 
       // The slot stays open, so the correction lands on the same call.
       const corrected = await run(fixture.alice.wf, ["result", "op-1", '{"count":3,"even":false}']);
@@ -146,6 +178,46 @@ describe("the launcher an agent is told to run", () => {
     } finally {
       await fixture.control.close();
     }
+  });
+
+  test("reports the session the harness names in the agent's shell, even on a refused call", async () => {
+    const runDir = runDirs.tempRunDir();
+    const slots = createResultSlotRegistry({ runDir });
+    const control = await startResultControlPlane({ slots });
+    const seen: string[] = [];
+    try {
+      const channel = await control.openChannel("alice", (id) => seen.push(id));
+      const wf = await installAgentLauncher(
+        dirname(channel.endpoint),
+        channel.endpoint,
+        "CODEX_SESSION_ID",
+      );
+      await slots.open({
+        operationId: "op-1",
+        agentId: "alice",
+        question: "how many?",
+        schema: COUNT_SCHEMA,
+        deadline: DEADLINE,
+      });
+
+      const refused = await run(wf, ["result", "op-7", "{}"], { CODEX_SESSION_ID: "s-1" });
+      const unnamed = await run(wf, ["result", "op-1", '{"count":3,"even":false}']);
+      const named = await run(wf, ["result", "op-1", '{"count":3,"even":false}'], {
+        CODEX_SESSION_ID: "s-2",
+      });
+
+      expect([refused.exitCode, unnamed.exitCode, named.exitCode]).toEqual([1, 0, 1]);
+      expect(seen).toEqual(["s-1", "s-2"]);
+    } finally {
+      await control.close();
+    }
+  });
+
+  test("refuses a session variable that is not a name", async () => {
+    const directory = runDirs.tempRunDir();
+    await expect(
+      installAgentLauncher(directory, `${directory}/s.sock`, "X; rm -rf /"),
+    ).rejects.toThrow("not an environment variable name");
   });
 
   test("removes every socket, launcher and directory it made", async () => {

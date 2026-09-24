@@ -58,12 +58,12 @@ active-operation limit, so nesting cannot multiply capacity. If the child throws
 Usage preserves structure rather than encoding it into an agent key:
 
 ```ts
-export type TurnUsage = {
+export type OperationRecord = {
   /** Nested workflow call ids from outermost to innermost; empty at the root. */
   callPath: string[];
   agent: AgentKey;
   operationId: string;
-  // ...execution, tokens, and cost
+  // ...execution, times, and native sessions
 };
 ```
 

@@ -1,3 +1,4 @@
+import { record } from "../json";
 import {
   ANSI_SEQUENCE,
   abortableDelay,
@@ -5,7 +6,6 @@ import {
   type HerdrCommand,
   type HerdrResult,
   readable,
-  record,
   settledState,
 } from "./herdr-protocol";
 

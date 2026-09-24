@@ -14,12 +14,24 @@ import { dirname, join, resolve } from "node:path";
  * isolation: every agent runs as the same user as the engine, so one that goes looking for a
  * sibling's socket can still find it. Separating those needs a uid per agent.
  */
-export async function installAgentLauncher(directory: string, endpoint: string): Promise<string> {
+export async function installAgentLauncher(
+  directory: string,
+  endpoint: string,
+  /**
+   * The variable naming the native session, passed on with every call. The harness sets it in the
+   * shell that runs the agent's tool call, which the pane's own environment never reaches.
+   */
+  sessionEnv?: string,
+): Promise<string> {
+  if (sessionEnv !== undefined && !/^[A-Za-z_][A-Za-z0-9_]*$/.test(sessionEnv)) {
+    throw new Error(`not an environment variable name: ${sessionEnv}`);
+  }
   const command = await resolveAgentCommand();
   await mkdir(directory, { recursive: true });
   await chmod(directory, 0o700);
   const path = join(directory, "wf");
-  const script = `#!/bin/sh\nexec ${shellQuote(process.execPath)} ${shellQuote(command)} --at ${shellQuote(endpoint)} "$@"\n`;
+  const session = sessionEnv ? ` --session "\${${sessionEnv}:-}"` : "";
+  const script = `#!/bin/sh\nexec ${shellQuote(process.execPath)} ${shellQuote(command)} --at ${shellQuote(endpoint)}${session} "$@"\n`;
   await writeFile(path, script, { mode: 0o700 });
   await chmod(path, 0o700);
   return path;

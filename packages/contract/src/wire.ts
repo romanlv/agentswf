@@ -8,6 +8,11 @@ export type ResultSubmitRequest = {
   version: typeof WIRE_VERSION;
   operationId: string;
   raw: string;
+  /**
+   * The harness's own session id, where the agent's shell names one. Added within version 2: the
+   * engine installs the `wf` its agents run, so client and engine always ship together.
+   */
+  session?: string;
 };
 
 const RESULT_SUBMIT_CODES = [
@@ -37,7 +42,7 @@ export type WireDecodeResult<T> =
   | { ok: true; value: T }
   | { ok: false; code: "invalid-request" | "unsupported-version"; error: string };
 
-const REQUEST_FIELDS = ["version", "operationId", "raw"] as const;
+const REQUEST_FIELDS = ["version", "operationId", "raw", "session"] as const;
 const RESPONSE_CODES = new Set<ResultSubmitCode>(RESULT_SUBMIT_CODES);
 
 function checkEnvelope(value: unknown, label: string): WireDecodeResult<Record<string, unknown>> {
@@ -69,12 +74,16 @@ export function decodeResultSubmitRequest(value: unknown): WireDecodeResult<Resu
   if (typeof request.raw !== "string" || request.raw.trim() === "") {
     return invalid("request.raw must be a non-empty string");
   }
+  if (request.session !== undefined && !nonEmpty(request.session)) {
+    return invalid("request.session must be a non-empty string when present");
+  }
   return {
     ok: true,
     value: {
       version: WIRE_VERSION,
       operationId: request.operationId,
       raw: request.raw,
+      ...(request.session === undefined ? {} : { session: request.session }),
     },
   };
 }

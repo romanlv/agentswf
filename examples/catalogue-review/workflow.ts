@@ -3,7 +3,6 @@ import {
   type ExecutableWorkflow,
   isAnswered,
   type RuntimeSelection,
-  type TurnUsage,
   type WorkflowContext,
   type WorkflowDefinition,
   type WorkflowInvocation,
@@ -64,7 +63,6 @@ export type CatalogueResult = {
   skipped: string[];
   findings: ReviewedFinding[];
   failures: Failure[];
-  usage: TurnUsage[];
 };
 
 type LensResult =
@@ -110,7 +108,6 @@ export const catalogueReview: WorkflowDefinition<CatalogueArgs, CatalogueResult>
       skipped: args.skipped ?? [],
       findings: [...verified.findings, ...unchecked],
       failures: [...lensFailures, ...verified.failures],
-      usage: workflow.usage(),
     };
   },
 };

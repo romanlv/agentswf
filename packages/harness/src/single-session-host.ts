@@ -15,15 +15,19 @@ import type {
   HarnessSessionStatus,
   HarnessTurn,
 } from "./adapter";
-import { outcomeStatus } from "./session-core";
+import type { SessionAccounting } from "./usage/accounting";
 
 /**
  * Places one session adapter behind the run-host seam: per-agent sessions, status snapshots and
  * ordered cleanup, with no topology of its own. The Herdr run host wraps its own adapter in this
  * rather than repeating that bookkeeping.
  */
-export function createSingleSessionHostFactory(adapter: AgentSessionAdapter): AgentRunHostFactory {
+export function createSingleSessionHostFactory(
+  adapter: AgentSessionAdapter,
+  accounting?: SessionAccounting,
+): AgentRunHostFactory {
   return {
+    ...(accounting ? { accounting } : {}),
     async openRun() {
       const sessions = new Map<string, HarnessSession>();
       const snapshots = new Map<string, HarnessAgentSnapshot>();
@@ -112,41 +116,39 @@ function observeSession(
   session: HarnessSession,
   snapshots: Map<string, HarnessAgentSnapshot>,
 ): HarnessSession {
+  /** Only for the early "working": a quarantined session refuses the start it would announce. */
   let quarantined = false;
+  let closed = false;
   const record = (status: HarnessSessionStatus) => {
-    if (quarantined && status.state !== "quarantined" && status.state !== "missing") return;
-    setSnapshot(snapshots, key, execution, status);
+    if (!closed) setSnapshot(snapshots, key, execution, status);
   };
+  /** The session decides what a turn's end leaves the agent as, a turn left finishing included. */
+  const recordSession = () => session.status().then(record, () => undefined);
   // "working" goes up before the call so inspection never lags a turn, and comes down again if
-  // the call refuses: the session's own status is the truth then.
+  // the call refuses.
   const begin = async (open: () => Promise<HarnessTurn>): Promise<HarnessTurn> => {
-    record({ state: "working" });
+    if (!quarantined) record({ state: "working" });
     try {
       return observeTurn(await open());
     } catch (error) {
-      await session.status().then(record, () => undefined);
+      await recordSession();
       throw error;
     }
   };
-  const observeTurn = (turn: HarnessTurn): HarnessTurn => {
-    void turn.settled.then((outcome) => {
-      if (!quarantined) record(outcomeStatus(outcome));
-    });
-    return {
-      ...turn,
-      nudge: (spec) => begin(() => turn.nudge(spec)),
-      async release(reason, deadline) {
-        const disposition = await turn.release(reason, deadline);
-        if (disposition.kind === "quarantined") quarantined = true;
-        record(
-          disposition.kind === "quarantined"
-            ? { state: "quarantined", detail: disposition.reason }
-            : outcomeStatus(disposition.outcome),
-        );
-        return disposition;
-      },
-    };
-  };
+  const observeTurn = (turn: HarnessTurn): HarnessTurn => ({
+    ...turn,
+    settled: turn.settled.then(async (outcome) => {
+      await recordSession();
+      return outcome;
+    }),
+    nudge: (spec) => begin(() => turn.nudge(spec)),
+    async release(reason, deadline, options) {
+      const disposition = await turn.release(reason, deadline, options);
+      if (disposition.kind === "quarantined") quarantined = true;
+      await recordSession();
+      return disposition;
+    },
+  });
   return {
     async status() {
       const status = await session.status();
@@ -163,9 +165,11 @@ function observeSession(
           : session.start(turn as AgentTextTurnSpec, binding),
       )) as HarnessSession["start"],
     compact: (id, prompt, deadline) => begin(() => session.compact(id, prompt, deadline)),
+    ...(session.sessions ? { sessions: () => session.sessions!() } : {}),
     async close(reason) {
       await session.close(reason);
       record({ state: "missing" });
+      closed = true;
     },
   };
 }

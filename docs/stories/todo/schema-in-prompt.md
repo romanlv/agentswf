@@ -2,10 +2,17 @@
 title: Put the schema in the prompt, not a rendering of it
 summary: The runner prompts through describe(), which drops every constraint the validator enforces — the arm E5 measured at 0% first-attempt validity.
 type: story
-status: todo
+status: done
 discovered_in: "docs/findings/README.md (E5), packages/engine/src/workflow-runner.ts"
 depends_on: []
 ---
+
+> Done 2026-09-24, during story 002's human review. The operation prompt carries the schema
+> itself, and shows the value in a quoted heredoc, since a quoted argument broke on shell quoting.
+> `wf`'s rejection text mentions `< file` for a long value. Measured on headless codex: 20/20 valid
+> first answers, no broken commands (story 002, human review). Of the open questions below,
+> the rendering question is moot: `describe()` no longer reaches the agent, and the contract keeps
+> it for error text only.
 
 # Put the schema in the prompt, not a rendering of it
 

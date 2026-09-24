@@ -1,11 +1,14 @@
 import { afterAll, describe, expect, test } from "bun:test";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { RUNTIMES } from "../examples/quick-check/workflow";
+import { OUTPUT_RECORD_VERSION } from "../packages/contract/src/records";
 import { runOperatorCli } from "../packages/engine/src/operator-cli";
 import { createTempRunDirs, submit } from "../packages/engine/src/testing";
 import type { AgentRuntimeConfig, AgentSessionAdapter } from "../packages/harness/src/adapter";
 import { createSingleSessionHostFactory } from "../packages/harness/src/single-session-host";
 import { createFakeAdapter } from "../packages/harness/src/testing/fake";
+import type { SessionAccounting } from "../packages/harness/src/usage/accounting";
 
 const ROOT = join(import.meta.dir, "..");
 const runDirs = createTempRunDirs();
@@ -16,6 +19,7 @@ describe("awf run", () => {
     const adapter = createFakeAdapter({
       harnesses: ["claude", "codex"],
       script: (context) => ({
+        sessionRef: `s-${context.activation.key}`,
         act: async () => {
           const lens = context.activation.key.endsWith("correctness")
             ? "correctness"
@@ -56,7 +60,7 @@ describe("awf run", () => {
         installRuntime: async (timeoutMilliseconds) => {
           expect(timeoutMilliseconds).toBe(12 * 60_000);
           return {
-            config: runtime(adapter),
+            config: runtime(adapter, spentFromFiles()),
             cleanup: async () => {
               cleaned += 1;
             },
@@ -66,7 +70,13 @@ describe("awf run", () => {
     );
 
     expect(exitCode).toBe(0);
-    expect(errors).toEqual([]);
+    // Sonnet 5 at $2/$0.20/$10 and gpt-5.6-sol at $4/$0.40/$20 per million: $0.0088 + $0.0176.
+    expect(errors).toEqual([
+      expect.stringMatching(
+        /^2 agents · \d+s · 21k tokens \(18k cached\) · ~\$0\.03 at list prices 2026-09-23 · subscription · usage known 2\/2$/,
+      ),
+      expect.stringMatching(/^ {2}reviewer {2}2 agents · \d+s · ~\$0\.03$/),
+    ]);
     expect(cleaned).toBe(1);
     expect(adapter.turns).toHaveLength(2);
     expect(adapter.turns.every((turn) => turn.prompt.includes("packages/engine/src"))).toBe(true);
@@ -80,10 +90,12 @@ describe("awf run", () => {
       ),
     ).toBe(true);
     const result = JSON.parse(output.join("\n")) as {
+      version: number;
       workflow: { name: string; file: string };
       value: { reviews: Array<{ lens: string }>; blockingFindingCount: number };
       artifacts: string;
     };
+    expect(result.version).toBe(OUTPUT_RECORD_VERSION);
     expect(result.workflow).toEqual({
       name: "review-loop",
       file: join(ROOT, "examples/minimum-review/review-loop.ts"),
@@ -95,6 +107,74 @@ describe("awf run", () => {
     expect(result.value.blockingFindingCount).toBe(1);
     expect(result.artifacts.startsWith(runRoot)).toBe(true);
     expect(existsSync(join(result.artifacts, "calls"))).toBe(true);
+    const saved = JSON.parse(readFileSync(join(result.artifacts, "output.json"), "utf8"));
+    expect(saved.accounting).toMatchObject({
+      basis: "list prices 2026-09-23",
+      billing: "subscription",
+      totals: { agents: 2, known: 2, priced: 2 },
+      byModel: [{ model: "claude-sonnet-5" }, { model: "gpt-5.6-sol" }],
+    });
+    expect(saved.accounting.totals.estimate).toBeCloseTo(0.0264, 10);
+    expect(saved.usage.map((usage: { spend: unknown[] }) => usage.spend.length)).toEqual([1, 1]);
+  });
+
+  test("quick-check asks each runtime named, and headless ones a follow-up in the same session", async () => {
+    const adapter = createFakeAdapter({
+      harnesses: ["codex", "pi"],
+      script: (context) => ({
+        sessionRef: `s-${context.activation.key}`,
+        act: async () => {
+          const followUp = context.prompt.includes("Add 9");
+          const pi = context.activation.execution.harness === "pi";
+          await submit(context.binding!, { answer: followUp ? 400 : pi ? 391 : 390 });
+        },
+      }),
+    });
+    const output: string[] = [];
+    const errors: string[] = [];
+
+    const exitCode = await runOperatorCli(
+      [
+        "run",
+        "--run-root",
+        runDirs.tempRunDir(),
+        "examples/quick-check/workflow.ts",
+        "--",
+        "codex",
+        "pi",
+      ],
+      {
+        cwd: ROOT,
+        stdout: (text) => output.push(text),
+        stderr: (text) => errors.push(text),
+        installRuntime: async () => ({
+          config: runtime(adapter, spentFromFiles()),
+          cleanup: async () => undefined,
+        }),
+      },
+    );
+
+    expect(exitCode).toBe(0);
+    expect(adapter.activations.map((activation) => activation.execution)).toEqual([
+      RUNTIMES.codex,
+      RUNTIMES.pi,
+    ]);
+    expect(output.join("\n").split("\n").slice(0, 2)).toEqual([
+      "codex: wrong (390), then right (400)",
+      "pi: right (391), then right (400)",
+    ]);
+    expect(errors[0]).toMatch(/^2 agents · .* · usage known 2\/2/);
+    expect(errors[1]).toMatch(/^ {2}check {2}2 agents/);
+  });
+
+  test("quick-check refuses a runtime it does not know", async () => {
+    const errors: string[] = [];
+    const exitCode = await runOperatorCli(
+      ["run", "examples/quick-check/workflow.ts", "--", "cursor"],
+      { cwd: ROOT, stderr: (text) => errors.push(text), installRuntime: emptyRuntime },
+    );
+    expect(exitCode).toBe(2);
+    expect(errors.join("\n")).toContain("unknown runtime cursor; expected codex, pi, claude");
   });
 
   test("fails when an operator alias drifts from the workflow's required model", async () => {
@@ -526,12 +606,36 @@ function retainedRunDir(invocationRoot: string): string {
   return join(invocationRoot, entries[0]);
 }
 
-function runtime(adapter: AgentSessionAdapter): AgentRuntimeConfig {
+function runtime(adapter: AgentSessionAdapter, accounting?: SessionAccounting): AgentRuntimeConfig {
   return {
     aliases: {
       claude: { harness: "claude", model: "sonnet" },
       codex: { harness: "codex", model: "gpt-5.6-sol" },
     },
-    host: createSingleSessionHostFactory(adapter),
+    host: createSingleSessionHostFactory(adapter, accounting),
+  };
+}
+
+/** Each agent's session file holds one request, under the model id the harness logs. */
+function spentFromFiles(): SessionAccounting {
+  return {
+    pollMs: 5,
+    stalledMs: 50,
+    statusMs: 50,
+    async read(execution, sessions) {
+      return {
+        open: false,
+        records: sessions.map((session) => ({
+          key: session,
+          at: new Date().toISOString(),
+          model: execution.model === "sonnet" ? "claude-sonnet-5" : execution.model,
+          delegated: false,
+          tokens: { input: 1_000, cacheRead: 9_000, cacheWrite: 0, output: 500 },
+        })),
+      };
+    },
+    async billing() {
+      return "subscription";
+    },
   };
 }

@@ -1,16 +1,20 @@
 import { randomUUID } from "node:crypto";
-import type { AgentSessionAdapter } from "../adapter";
+import type { AgentRunHostFactory, AgentSessionAdapter } from "../adapter";
 import { type RunProcess, runProcess } from "../command";
 import { createLegacyDriver } from "../legacy-driver";
 import { createSessionAdapter, localOutcome } from "../session-core";
+import { createSingleSessionHostFactory } from "../single-session-host";
 import { HARNESS_NAMES, harnessSpec, knownHarness } from "../spec";
 import type { AgentSessionDriver, CallIdentity } from "../types";
+import { createSessionAccounting } from "../usage/accounting";
 
 export type DirectProcessConfig = {
   turnTimeoutMs: number;
   /** Prepended to PATH for the frozen legacy driver, whose `wf` is still found by name. */
   binDir?: string;
   newSessionId?: () => string;
+  /** How long a follow-up waits for the previous, answered turn to end before stopping it. */
+  finishGraceMs?: number;
 };
 
 export function createHeadlessAdapter(
@@ -19,6 +23,17 @@ export function createHeadlessAdapter(
 ): AgentSessionAdapter {
   // Nothing about the operation: the agent is told the launcher's path in its prompt.
   return createHeadlessAdapterCore(config, run, () => ({}));
+}
+
+/** The production headless host: a subprocess per turn, billed with the credentials `run` gives. */
+export function createHeadlessRunHostFactory(
+  config: DirectProcessConfig,
+  run: RunProcess = runProcess,
+): AgentRunHostFactory {
+  return createSingleSessionHostFactory(
+    createHeadlessAdapter(config, run),
+    createSessionAccounting(run),
+  );
 }
 
 function createHeadlessAdapterCore(
@@ -31,12 +46,20 @@ function createHeadlessAdapterCore(
   let legacySessionRef: string | undefined;
   const adapter = createSessionAdapter({
     harnesses: HARNESS_NAMES,
+    ...(config.finishGraceMs === undefined ? {} : { finishGraceMs: config.finishGraceMs }),
+    // The frozen legacy driver predates placement and never names it.
+    ...(legacy ? {} : { placement: "headless" as const }),
     observeSessionRef: (sessionRef) => {
       legacySessionRef = sessionRef;
     },
     async activate(request) {
       const harness = knownHarness(request.execution.harness);
       const spec = harnessSpec(harness);
+      if (spec.meteredHeadless && !legacy && request.execution.metered !== true) {
+        throw new Error(
+          `headless ${harness} is billed per token even on a subscription login; set metered: true to run it`,
+        );
+      }
       const identity = { sessionId: newSessionId(), cwd: request.cwd };
       let hasExecuted = false;
       let closed = false;
@@ -44,6 +67,8 @@ function createHeadlessAdapterCore(
       let activeCompletion: Promise<void> | undefined;
       return {
         identity,
+        // Each turn is a process of its own, and the next one resumes the session this one leaves.
+        finishesAnswered: !legacy,
         async execute(operation) {
           if (closed) throw new Error("headless session is closed");
           const remaining = operation.deadline.unixMilliseconds - Date.now();
@@ -96,16 +121,23 @@ function createHeadlessAdapterCore(
             ? spec.readTranscript(result.stdout)
             : result.stdout;
           // Never the id we generated unless the plan handed it over: resuming one the harness never
-          // saw fails as an opaque exit instead of saying no session came back.
+          // saw fails as an opaque exit instead of saying no session came back. A handed-over id is
+          // dropped when the process failed on its own, which may be before it made a session:
+          // resuming it would silently start a new one without the agent's instructions. A turn we
+          // stopped, as after its answer, did run.
+          const failedToRun = result.exitCode !== 0 && !result.cancelled && !result.timedOut;
           const nativeSession =
-            spec.readSessionId?.(result.stdout) ?? plan.sessionId ?? operation.previousSessionRef;
+            spec.readSessionId?.(result.stdout) ??
+            (failedToRun ? undefined : plan.sessionId) ??
+            operation.previousSessionRef;
           if (nativeSession) identity.sessionId = nativeSession;
+          const charge = spec.readCharge?.(result.stdout);
           const common = {
             resultEvidence: transcript
               ? ({ kind: "transcript", text: transcript } as const)
               : ({ kind: "unavailable" } as const),
             ...(nativeSession ? { sessionRef: nativeSession } : {}),
-            nativeUsage: spec.readUsage ? [spec.readUsage(result.stdout)] : [],
+            chargesUsd: charge === undefined ? [] : [charge],
           };
           if (result.cancelled) {
             return { state: "cancelled" as const, detail: "agent process cancelled", ...common };

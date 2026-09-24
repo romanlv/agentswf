@@ -1,6 +1,5 @@
 import type { AgentSessionAdapter, HarnessActivation, HarnessOperationBinding } from "../adapter";
 import { createSessionAdapter } from "../session-core";
-import type { TurnUsage } from "../spec";
 import type {
   AgentSession,
   AgentSessionDriver,
@@ -124,7 +123,7 @@ export type FakeAdapterTurn = {
   detail?: string;
   transcript?: string;
   sessionRef?: string;
-  nativeUsage?: readonly TurnUsage[];
+  chargesUsd?: readonly number[];
   durationMs?: number;
   act?: (context: FakeAdapterTurnContext) => void | Promise<void>;
 };
@@ -194,7 +193,7 @@ export function createFakeAdapter(options: {
                 ? ({ kind: "transcript", text: scripted.transcript } as const)
                 : ({ kind: "unavailable" } as const),
               ...(scripted.sessionRef ? { sessionRef: scripted.sessionRef } : {}),
-              nativeUsage: scripted.nativeUsage ?? [],
+              chargesUsd: scripted.chargesUsd ?? [],
             };
           } finally {
             if (activeController === controller) activeController = undefined;

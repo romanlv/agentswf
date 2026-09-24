@@ -22,6 +22,12 @@ export type ProcessInput = {
 
 export type RunProcess = (input: ProcessInput) => Promise<ProcessResult>;
 
+/** `run`, with each of `names` unset in every process it starts, whatever the caller passed. */
+export function withholding(run: RunProcess, names: readonly string[]): RunProcess {
+  const withheld = Object.fromEntries(names.map((name) => [name, undefined]));
+  return (input) => run({ ...input, env: { ...input.env, ...withheld } });
+}
+
 /** A nonzero exit is a normal result, not a throw; the reason is on `stderr`. */
 export const runProcess: RunProcess = async ({ argv, cwd, env, stdin, timeoutMs, signal }) => {
   if (signal?.aborted) {

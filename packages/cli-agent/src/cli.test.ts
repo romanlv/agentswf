@@ -34,6 +34,26 @@ describe("wf result", () => {
     ]);
   });
 
+  test("passes on the session the launcher expanded, and omits an empty one", async () => {
+    const sessions: Array<string | undefined> = [];
+    const submit = async (_endpoint: string, request: ResultSubmitRequest) => {
+      sessions.push(request.session);
+      return { version: WIRE_VERSION, kind: "accepted" } as const;
+    };
+
+    await runCli(at("--session", "s-1", "result", "op-1", "{}"), null, submit);
+    await runCli(at("--session", "", "result", "op-1", "{}"), null, submit);
+    await runCli(at("--session", "  ", "result", "op-1", "{}"), null, submit);
+
+    expect(sessions).toEqual(["s-1", undefined, undefined]);
+  });
+
+  test("a session before the command still leaves the value to standard input", async () => {
+    expect(await readCliStdin(at("--session", "s-1", "result", "op-1"), false, stream("{}"))).toBe(
+      "{}",
+    );
+  });
+
   test("standard input is the alternative single source", async () => {
     let raw = "";
     const outcome = await runCli(
@@ -143,3 +163,7 @@ describe("wf result", () => {
     expect(Date.now() - startedAt).toBeLessThan(1_000);
   });
 });
+
+function stream(text: string): ReadableStream<Uint8Array> {
+  return new Response(text).body!;
+}

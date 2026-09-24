@@ -8,7 +8,8 @@ import {
 } from "@wf/contract/wire";
 import type { ResultSlotRegistry } from "./result-slots";
 
-const MAX_RESULT_REQUEST_BYTES = 1024 * 1024;
+/** `wf` accepts a 1 MiB value; escaped into the request's JSON it can double, plus the envelope. */
+const MAX_RESULT_REQUEST_BYTES = 2 * 1024 * 1024 + 4 * 1024;
 const MAX_CONTROL_CONNECTIONS = 64;
 const CONNECTION_TIMEOUT_SECONDS = 30;
 
@@ -28,7 +29,7 @@ export type ResultControlPlane = {
    * — through the engine's own open descriptors, say — can still reach a sibling. Separating
    * agents that share a uid needs a uid per agent, which is a sandbox question, not a socket one.
    */
-  openChannel(agentId: string): Promise<ResultChannel>;
+  openChannel(agentId: string, onSession?: (id: string) => void): Promise<ResultChannel>;
   close(): Promise<void>;
 };
 
@@ -84,13 +85,19 @@ export async function startResultControlPlane(options: {
   // sweep and keep listening on a socket whose directory is gone.
   const opening = new Set<Promise<ResultChannel>>();
 
-  const openChannel = (agentId: string): Promise<ResultChannel> => {
-    const pending = buildChannel(agentId).finally(() => opening.delete(pending));
+  const openChannel = (
+    agentId: string,
+    onSession?: (id: string) => void,
+  ): Promise<ResultChannel> => {
+    const pending = buildChannel(agentId, onSession).finally(() => opening.delete(pending));
     opening.add(pending);
     return pending;
   };
 
-  const buildChannel = async (agentId: string): Promise<ResultChannel> => {
+  const buildChannel = async (
+    agentId: string,
+    onSession: ((id: string) => void) | undefined,
+  ): Promise<ResultChannel> => {
     if (!accepting) throw new Error("result control plane is closed");
     // Per channel, unlike the connection budget: closing one agent must not wait on a submission
     // another agent is still making.
@@ -156,6 +163,7 @@ export async function startResultControlPlane(options: {
               Buffer.concat(socket.data.chunks).toString("utf8"),
               options.slots,
               agentId,
+              onSession,
             )
               .then((response) => {
                 if (socket.data.closed) return;
@@ -260,6 +268,7 @@ async function handleFrame(
   frame: string,
   slots: ResultSlotRegistry,
   agentId: string,
+  onSession: ((id: string) => void) | undefined,
 ): Promise<ResultSubmitResponse> {
   if (!frame.endsWith("\n") || frame.slice(0, -1).includes("\n")) {
     return rejected("invalid-request", "expected exactly one newline-delimited JSON request");
@@ -273,6 +282,8 @@ async function handleFrame(
   }
   const decoded = decodeResultSubmitRequest(parsed);
   if (!decoded.ok) return rejected(decoded.code, decoded.error);
+  // Before the result is judged: a rejected submission still proves which session sent it.
+  if (decoded.value.session) onSession?.(decoded.value.session);
 
   try {
     const result = await slots.submit({

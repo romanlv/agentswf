@@ -3,7 +3,7 @@ id: "002"
 title: Know what each run cost and how long it took
 summary: The engine records time, tokens and cost for every agent in a run, without workflow code, so variants can be compared on price as well as quality.
 type: story
-status: awaiting-human-review
+status: done
 discovered_in: "catalogue-review quality iteration, 2026-09-23"
 depends_on: []
 ---
@@ -1032,85 +1032,330 @@ Results:
 - [x] Set the story status to `awaiting-human-review` and present the outcome, architecture
   decisions, task-level subagent findings and dispositions, exact verification results, deviations,
   and remaining risks.
-- [ ] Record the human's explicit approval or requested changes here.
-- [ ] If changes are requested, return to the affected task and repeat its review and verification.
-- [ ] Only after explicit approval, mark the story `done` and update `Stories at a glance`.
+- [x] Record the human's explicit approval or requested changes here.
+- [x] If changes are requested, return to the affected task and repeat its review and verification.
+- [x] Only after explicit approval, mark the story `done` and update `Stories at a glance`.
 
-### Requested change, 2026-09-23: headless runs
+Approved by the human on 2026-09-24, with two last requests: log a request in flight when a
+finishing turn is killed, if easy, and a subagent review of the prompt change. Both are recorded
+under "Approval, 2026-09-24" at the end.
 
-The human asked that accounting work headless too, with an example agent for quick testing,
-mainly on codex and pi, since placement makes no difference to their pricing.
+### Requested change, 2026-09-23: headless agents
+
+The human asked that accounting work for headless agents too, with an example agent for quick
+testing, mainly on codex and pi, whose pricing does not depend on placement. They then clarified
+that a workflow should be able to configure an agent to run headless, and that `awf run` needs no
+headless flag. A first version with an `awf run --headless` flag was built, reviewed and replaced;
+its useful findings are kept below.
+
+Decisions, from the human:
+
+- Placement goes on `ExecutionConfig` as `placement?: "pane" | "headless"`, so it is part of the
+  resolved agent identity and every usage record.
+- A headless claude is allowed only with an explicit extra field, `metered: true`, because
+  `claude -p` bills per token even on a subscription login (E3). It cannot be tried live here: the
+  account has no API credit.
+- No `awf run` flag.
 
 Change:
 
-- `awf run --headless` installs a single-session host over the headless adapter instead of
-  Herdr, with `createSessionAccounting({ headless: true })`. Placement stays operator policy
-  (foundation §6): the aliases are the same, and no workflow changes. Headless launches codex and
-  pi only (`DirectProcessConfig.harnesses`), because `claude -p` is metered even on a subscription
-  (E3). It checks the codex login and clears metered credentials on every subprocess.
-  `installOperatorRuntime` now takes an options object.
-- `examples/quick-check/workflow.ts` asks one agent per runtime named (`codex`, `pi`, `claude`),
-  each on its cheapest model, for 17 × 23, and prints right or wrong.
-- A headless read never reports an open turn. The single-session host's close aborts and awaits
-  each agent's process, and the read starts only after it. The engine cancels a headless codex
-  once its answer is accepted, so its rollout has `task_started` but no `task_complete`, and the
-  first live run waited the full 10 s stall limit for it.
+- Contract: `ModelSelection {harness, model}`, `AgentPlacement`, `PlacementChoice {placement?,
+  metered?}`, and `ExecutionConfig = ModelSelection & PlacementChoice`. Runtime aliases name a model
+  selection only. `ExecutionRequirements` adds the placement fields to what its alias names. This
+  reverses foundation §6's rule that kept placement out of the author surface; §6 now says so.
+- Runner: a pane is left unsaid, and `metered` is kept only when true, so one agent has one
+  identity. Reopening an agent with another placement is refused, including by a bare alias.
+- Harness: `createPlacementHostFactory({pane, headless})` is one run host that sends each agent to
+  the side for its placement. Each side opens with the first agent that needs it, so a run of only
+  headless agents never starts Herdr. Close closes every side that opened. Accounting is read and
+  billed by the side that ran the agent. `createSessionAdapter` takes the one placement an adapter
+  serves and refuses the other. The headless adapter refuses a harness with `meteredHeadless` in
+  its spec (claude) unless the execution says `metered: true`.
+- A headless read never reports an open turn. The host's close aborts and awaits each process, and
+  the read starts only after it. The engine cancels a headless codex once its answer is accepted,
+  so its rollout has `task_started` but no `task_complete`. The first live run waited the full 10 s
+  stall limit for it.
+- Operator runtime: the placement host over the Herdr host and the headless host. Both have
+  metered credentials cleared.
+- `examples/quick-check/workflow.ts` asks one agent per runtime named for 17 × 23 and prints right
+  or wrong. Its `codex` and `pi` agents run headless on `gpt-5.6-terra`, and its `claude` agent runs
+  in a pane on haiku.
 
-Live runs, `bun awf run --headless examples/quick-check/workflow.ts -- codex pi`:
+Live runs of quick-check on codex and pi, headless (the first three used the replaced flag, with the
+same adapter and accounting):
 
-- Before the fix: both answered 391. `2 agents · 7s · 27k tokens (12k cached) · ~$0.04 ·
+- Before the open-turn fix, both answered 391: `2 agents · 7s · 27k tokens (12k cached) · ~$0.04 ·
   subscription · usage known 2/2`. The read took 10.2 s.
-- After the fix: both answered 391. `2 agents · 8s · 28k tokens (16k cached) · ~$0.03 ·
-  subscription · usage known 2/2`. `output.json` was written within the second `finishedAt` names.
+- After it, both answered 391: `2 agents · 8s · 28k tokens (16k cached) · ~$0.03 · subscription ·
+  usage known 2/2`. `output.json` was written within the second that `finishedAt` names.
 - Both runs matched the raw files exactly:
   - codex: the one `token_usage_record` (19,490 input with 12,032 cached, so 7,458 uncached;
     185 output; 29 reasoning);
-  - pi: the assistant message (4,177 input, 3,584 cache read, 137 output), and its estimate
-    equals pi's own cost, $0.0107148.
+  - pi: the assistant message (4,177 input, 3,584 cache read, 137 output), and its estimate equals
+    pi's own cost, $0.0107148.
 
-Architecture and scope review:
+Review of the flag version, findings that carry over:
 
-- Placement stays operator policy; the claude exclusion is policy in the engine over a generic
-  harness restriction — accepted. The comment now says the harness's claude billing rule records
-  the same finding.
 - `open: false` might hide a cut-off request — rejected as a code change, recorded as a gap below.
-  The 17% of experiment 14 is a pane agent whose process runs on after release. Headless, the
-  engine kills the process, so the closing request is normally never sent. Letting codex finish
-  would spend a request on a closing message nobody reads.
-- `docs/status.md` does not mention `--headless`, and says pi runs on Herdr, which only runs claude
-  and codex — kept for the human. That file is uncommitted work from another session.
-- The README implied every runtime works in a pane — fixed.
-- A runtime the host cannot run is refused at `agents.open`, after sibling agents may have started
-  — recorded as a gap; the engine could check `host.harnesses` up front.
-- Pinned models in the example — kept, and the README says why.
-- pi's login is never checked — recorded as a gap.
-- The pi reader's own `open: false` is now redundant, and `read` relies on being called after
-  close — the doc comment now says so. The pi reader is unchanged: pi runs only headless.
-- Four positional parameters on `installOperatorRuntime` — fixed with an options object.
-
-Correctness and proof review:
-
+  The 17% of experiment 14 is a pane agent whose process runs on after release. Headless, the engine
+  kills the process, so the closing request is normally never sent. Letting codex finish would spend
+  a request on a closing message nobody reads.
 - A mutation test found that neither the accounting nor the agent turns were proven to get the
-  unmetered runner — fixed. The test runs a codex turn and asserts that the billing probe's env
-  clears the keys. Both mutations now fail it.
-- The CLI's wrapper could drop `placement` unnoticed — fixed by removing it. The CLI passes
-  `{ placement }` to `installOperatorRuntime` directly.
-- The ordering claim holds on every path: `account` runs only after the host closes cleanly, and
-  the close awaits each process's exit and pipe EOF.
-- `quick-check -- codex claude` under `--headless` fails the whole run and loses codex's
-  accounting. Catching the error in the workflow does not help, because the runner fails a run on
-  any failed open — recorded as a gap; the README says so.
-- The headless preflight checks codex even for a pi-only run, and nothing checks pi's
-  provider keys — recorded as a gap.
-- `--run-root --headless` takes the flag as the directory — not new; every option with a value
-  does this.
+  unmetered runner — fixed. The runtime test runs a codex turn and asserts that the billing probe's
+  env clears the keys. The ordering claim holds on every path: `account` runs only after the host
+  closes cleanly, and the close awaits each process's exit and pipe EOF.
+- `docs/status.md` says pi runs on Herdr, which only runs claude and codex — left for the human.
+  That file is uncommitted work from another session.
+- `read` relies on being called after close, and its doc comment now says so.
 
-Known gaps from this change:
+Follow-up operations, asked for next by the human: a headless agent keeps its native session, so a
+second `agent.run` continues the same conversation. It may come from workflow code, and later from
+a person or another agent through messaging.
 
-- A headless codex request in flight at the kill is not logged, so it would go uncounted: at most
-  one request per agent, and it cannot be seen in the files.
-- Naming a runtime the placement cannot run fails the run late, after siblings have spent.
-- pi's billing is inferred from `auth.json`, and nothing refuses a metered pi before the run.
+When a headless agent may be killed, which the human asked about next. Between operations a
+headless agent holds no process, only its native session, so keeping it costs nothing. The
+decision is only about the turn still running after its answer is accepted: its closing message
+leaves a whole session to resume, and killing it cuts the conversation off after the answering tool
+call. The engine cannot know whether a follow-up will come, so neither choice can be made when the
+answer is accepted. It is made later instead, with no new contract type:
 
-Verification: `bun test` 404 pass, 0 fail; `bun run check` clean (Biome, tsc, "boundaries ok").
+- An answered turn on a session that continues is left finishing. `HarnessTurn.release` takes
+  `{ answered }`, which the runner sets only after accepting the result. A backend with
+  `finishesAnswered` (the headless one) answers `{ kind: "finishing", settled }` instead of killing
+  the turn. The operation returns at once, and a single-shot or fan-out workflow waits for nothing.
+- A finishing turn is stopped after `finishGraceMs` (30 s by default), whether or not a follow-up
+  comes. An agent that keeps working after its answer would otherwise keep spending, and keep
+  changing files the rest of the workflow reads, until the run ends.
+- The session's next start waits for the finishing turn for at most half its own time, then stops
+  it and resumes the session, so the follow-up still has time to run.
+- Run end and a run-level cancel stop it at once, since nothing will resume it. So does any release
+  that is not answered, such as a timeout, and host close ends whatever is finishing. Cancelling a
+  parallel scope after the operation has returned does not reach the finishing turn; the grace
+  bounds it.
+- The native evidence of a finishing turn arrives late. The runner records its charges when it ends,
+  and the run-end account waits for those, after the host has closed.
+- Saying "this agent is done" before the run ends is what the contract's existing
+  `agents.stop(key)` is for. It is still a stub, and gets built with messaging; it matters more for
+  pane agents, which hold a live process.
+- Session-core now keeps the session ref from any turn that reported one, so an agent stopped after
+  its answer can still be resumed. A session id we handed pi counts only from a turn that ran, since
+  one that failed may have created no session, and resuming it would silently start a new one
+  without the agent's instructions.
+- The Herdr host still takes one operation per agent (`herdr-pane-settlement`), and releases a pane
+  at once.
+- quick-check asks each headless agent a follow-up that names no number: "add 9 to the number you
+  gave".
 
+Live runs of `bun awf run examples/quick-check/workflow.ts -- codex pi claude`:
+
+- With the finish wait on the release path: codex and pi answered 391 and then 400 in one native
+  session each, and claude answered 391 in a pane. Each turn ended on its own, with codex logging
+  `task_complete`. But each operation returned 3.4 s (codex) or 4.0 s (pi) after its answer. pi's
+  wait was at the kill limit, and a single-shot workflow would have paid it too.
+- With the background version: the same answers, and
+  `3 agents · 16s · 137k tokens (75k cached) · ~$0.15 · subscription · usage known 3/3`.
+  - The wait moved to the follow-up's start: 2.75 s (codex) and 4.1 s (pi) between an answer and
+    the next delivery.
+  - The last operations were accepted 31 ms before `finishedAt`, and the run did not wait for them.
+  - Codex's second turn was stopped at run end before its closing request, so no `task_complete`
+    was logged and nothing was spent after the answer. pi's finished first and is counted.
+  - Every operation matched the raw files exactly:
+    - codex: 13,064 input, 26,112 cached, 175 output; then 3,939, 19,200 and 152;
+    - pi: 1,349, 14,336 and 146; then 919, 15,360 and 118.
+
+- With the review fixes (`-- codex pi`): the same answers,
+  `2 agents · 19s · 95k tokens (66k cached) · ~$0.08 · subscription · usage known 2/2`.
+  - Every operation matched the raw files exactly:
+    - codex: 7,938 input, 31,232 cached, 173 output; then 3,935, 19,200 and 171;
+    - pi: 15,670, 0 and 130; then 887, 15,360 and 121.
+  - codex logged `task_complete` 1.7 s after its answer, but its process exited about 2 s later,
+    and the follow-up waits for the exit. That exit time is most of the 3.9 s between codex's
+    answer and its next delivery.
+
+Re-review of the background version:
+
+- A finishing turn had no bound when no follow-up came — fixed with the grace timer above, and
+  tested.
+- The host snapshot showed a follow-up `idle` or `dormant` while it ran, and a closed agent
+  `dormant` — fixed, with a test:
+  - only the newest turn's end is recorded, and nothing is recorded after close;
+  - an answered turn ending leaves the agent `idle`.
+- A finishing turn that ended after its old operation's deadline was rewritten as timed out —
+  fixed: its answer was taken in time.
+- A follow-up's wait could take its whole deadline, so a timeout closed the agent — fixed: it waits
+  at most half its time. There is a test.
+- A pi id we chose was dropped whenever its turn was stopped, even after an accepted answer —
+  fixed: it is dropped only when the process failed on its own.
+- `{ kind: "finishing", settled }` repeated `turn.settled` — fixed: now `{ kind: "finishing" }`.
+  Harness AGENTS.md now describes the finishing lifecycle.
+- The eval wrapper dropped the release options — fixed. Its run accounting reads no spend, because
+  it rebuilds the host factory without `accounting` — kept; it is a frozen measurement harness.
+- Kept, with nothing live reaching them:
+  - `HarnessSession.compact` waits, but no test covers it, because the engine cannot compact;
+  - a follow-up answered before its turn is acquired dates its delivery from before the wait;
+  - there is no conformance case for a host that answers `finishing`. The direct-process tests go
+    through the production host.
+- Once, under load from concurrent mutation runs, "cleanup is bounded when activation and adapter
+  close never settle" failed after 75 s. It passes alone, and the full suite passed twice after it.
+
+Re-review of the first follow-up version, before the background change:
+
+- Two parts could be removed with no test failing: the single-session host forwarding the release
+  options on the production path, and a timeout release wrongly marked answered — fixed. Tests now
+  go through `createSingleSessionHostFactory`, and a timed-out release is asserted unanswered.
+- The kill at the deadline, less a second, left one second to drain the pipes, and could quarantine
+  an answered agent — gone. The wait no longer shares the release deadline.
+- The eager wait on every operation, and pi at the kill limit — fixed by the background version.
+- A pi session id we chose was resumed after a failed turn — fixed, as above.
+- Scope cancellation, the run deadline and host close during the wait all stop the turn promptly,
+  and accounting still splits spend at delivery — no change.
+- The mutation that stops the run-end account waiting for late charges now fails a test, and so
+  does one that drops the options.
+
+Architecture review of per-agent placement:
+
+- Aliases typed `ModelSelection` would have built "harness and model only" into a published name,
+  though `design/permissions.md` plans a pool and sandbox there — fixed, renamed `RuntimeTarget`.
+- `metered` was kept on pane agents, putting a billing-looking field on records whose billing
+  disagreed — fixed: it is kept only on headless agents. The contract now calls it consent, not a
+  billing fact.
+- The requirements rule is now stated as one rule: target fields constrain, and agent fields are
+  added.
+- The placement host inside the harness is the right seam — no change.
+- A side opens with its first agent, so a broken Herdr now fails after headless siblings have spent
+  — recorded under the gap below.
+- The metered check lives in the headless adapter only — kept until a second headless provider.
+- Direct callers of the headless adapter must say `headless` — harness AGENTS.md now says so.
+- Foundation §8 now lists placement as a workload parameter, with `metered` as consent. The
+  `AgentRuntimeConfig.host` comment is fixed.
+- Stale elsewhere, left for the human because the files are another session's uncommitted work or
+  measurements:
+  - `docs/design/README.md` calls `pane | headless` legacy vocabulary that §6 took off every
+    surface;
+  - `docs/findings/README.md` says the same;
+  - `README.md` and `docs/status.md` describe one Herdr host.
+- The extra harness exports belong to this story's earlier tasks — kept.
+
+Correctness review of per-agent placement: no runtime bug. The reviewer ran 26 mutations; 19 were
+caught.
+
+- The races hold:
+  - an agent open racing close closes the side exactly once;
+  - no side opens after close begins;
+  - retrying a failed close works;
+  - the headless `open: false` read still starts only after every side has closed.
+- Close waiting for a side still opening, and refusing an agent after close, could each be removed
+  with no test failing; either would leak a Herdr workspace — fixed with a test for each, and both
+  mutations now fail it.
+- A misspelt placement from untyped workflow code ran in a pane — fixed; it is refused.
+- Alias values carrying extra fields were stripped, but untested — fixed.
+- The Herdr adapter's `pane` refusal and its withheld credentials on status commands are untested
+  — kept. Reaching them needs a Herdr adapter harness; the type and the operator's up-front refusal
+  cover them.
+- Herdr opens lazily. A run that fails while the first pane agent's workspace is still being created
+  waits on it past the 5 s cleanup grace — recorded under the gaps below.
+- `inspect` lists no agent for a side that failed to open — kept. The agent's open rejected with
+  the reason.
+
+Known gaps:
+
+- An agent its host cannot run, such as pi in a pane or claude headless without `metered`, is
+  refused when it opens. So is every agent of a placement whose host fails to open. That happens
+  after sibling agents may have spent, and the runner then fails the whole run. The engine could
+  check a resolved execution against its host before any agent starts. A run that fails while
+  Herdr is still creating its workspace waits on it past the cleanup grace.
+- A turn left finishing is killed when its 30 s grace runs out, or by a follow-up that has waited
+  half its time. A request in flight at that moment is not logged. At run end this is fixed (see
+  the change of 2026-09-24 below).
+- pi's billing is inferred from `auth.json`, and nothing refuses a metered pi before the run. The
+  operator still requires claude and codex logins even for a pi-only run.
+- A headless claude cannot be tried live here, since the account has no API credit.
+
+### Requested change, 2026-09-24: the result prompt
+
+While discussing headless follow-ups, the human asked whether a harness's own output schema should
+carry the answer. An experiment, E8, measured it on headless codex, 10 two-turn trials per arm:
+- native `--output-schema` answers were valid 40/40, with one request per turn;
+- `wf result` was just as valid, but one `wf result` command broke on shell quoting;
+- strict mode refuses optional properties and open objects.
+
+The human then asked for the minimal prompt below, and a rerun. Afterwards they decided `wf result`
+is good enough and native output will not be pursued; the experiment and its todo were deleted, so
+this section is its only record.
+
+- The operation prompt shows the value in a quoted heredoc, `wf result <id> <<'WF_JSON'`, and
+  carries the schema itself instead of `describe()`'s rendering. It no longer repeats what `wf`
+  says on a rejection. That closes `todo/schema-in-prompt`, marked done.
+- `wf`'s rejection text adds: "A long value can be written to a file and passed with < file."
+- Tests:
+  - the prompt carries the schema;
+  - a heredoc through a real shell delivers a value with an apostrophe, `$` and a backslash
+    untouched;
+  - the rejection text names the file route.
+- The rerun with this prompt, 10 two-turn trials:
+  - 20/20 answers valid first time, and no nudges;
+  - all 20 calls used the heredoc, and none broke;
+  - turn 1 cost $0.0144, against $0.0192 with the quoted argument and $0.0125–0.0143 native.
+- Reviewed by a subagent at approval; see below.
+
+### Approval, 2026-09-24
+
+**A request in flight at run end.** A turn left finishing was killed when the host closed, so a
+closing request still in flight never reached the session file. After a successful body the runner
+now waits for turns left finishing, for up to 10 s and never past the run's deadline, before closing
+the host; a stop or cancel ends the wait. A turn still going then is killed as before. A kill by
+the 30 s grace, or by a follow-up that stopped waiting, can still lose a request: those turns are
+runaways by then. Tests: the run waits for a turn that ends on its own and closes after it, and
+closes at the deadline for one that does not; removing the wait fails the first.
+
+**Subagent review** of the prompt change and the wait:
+
+- The prompt indented the heredoc's lines, and an indented `WF_JSON` does not close a heredoc in
+  sh, bash or zsh: copied as shown, the value runs to the end of input and fails to parse, with a
+  rejection that blames the value. The live rerun passed because codex dropped the indentation.
+  Fixed: not indented. A new test copies the command from the prompt as it stands, fills in the
+  value and runs it through `sh -c`; re-indenting fails it.
+- `stop()` did not end the finishing wait — fixed; it gets the same signals as the body.
+- `wf` reads a value of up to 1 MiB, but the control plane refused requests over 1 MiB, and escaping
+  can double a value inside the request — fixed; the request limit is 2 MiB plus the envelope.
+- Only codex has run the heredoc prompt live. claude and pi run commands in bash or zsh, where it
+  works; fish has no heredocs — kept, untested.
+- Checked and fine: stdin handling (empty, a TTY, a trailing newline, bounded size and time), a
+  value containing a `WF_JSON` line (impossible in JSON), pane agents never delaying run end, and
+  `finishedAt` including the wait, which is agent time whose cost is now counted.
+
+After the human decided native output schemas will not be pursued, E8 and its todo were deleted.
+
+Verification: `bun test` 423 pass, 0 fail; `bun run check` clean.
+
+### Cleanup review, 2026-09-24
+
+A review for duplication and slop, then two rounds of fixes and a second review. The sections
+above name things as they were built; these are the names now.
+
+- **Records.** `TurnUsage` split in two. `OperationRecord` (`@wf/contract/workflow`) is what a
+  workflow sees: times and sessions. `SettledOperation` (`@wf/contract/records`) adds billing,
+  spend and charged, and only the end-of-run settle makes one. `Billing`'s `api` is now `metered`,
+  so one word means billed per token. `RunAccounting` and its figures moved to
+  `@wf/contract/records`. `output.json` has a declared type, `OutputRecord`, with `version: 1`;
+  its top-level `startedAt` and `finishedAt` went, since `accounting` carries them. A charge in
+  another currency counts the agent as not billed instead of vanishing.
+- **Harness.** Tokens come only from session files: `readUsage` became `readCharge`, and
+  `nativeUsage` became `chargesUsd`. `findHarness` replaced `sessionEnvOf`. The headless claude
+  rule (always metered) lives only in `createSessionAccounting`. The credential withholding is
+  one helper, `withholding`, and each host factory builds its own accounting. `SessionAccounting`
+  carries `statusMs`. The finishing state lives only in session-core, and a backend whose turns
+  finish after answering must be cancellable.
+- **Engine.** The run ledger (`createRunLedger` in `run-usage.ts`) holds the operation records,
+  late charges, the end-of-run finishing wait and the settle; `workflow-runner.ts` went from 1517
+  to 1261 lines. The preflight uses the harness's billing readers, so it accepts a
+  `claude setup-token` login and its checks can no longer disagree with billing. A settle that hits
+  its bound now stops its reads and status commands.
+- **Author surface.** Reopening an agent without `placement` or `metered` means as it was opened.
+- **Boundaries.** A `pure` rule covers contract, `engine/src/accounting` and examples; a bare
+  `import "fs"` in an example now fails.
+- Kept on review: session refs in workflow records (accepted above), the per-operation spend split,
+  pi's pane session path.
+- No test yet for a turn that starts finishing while the end-of-run wait is already running.
+
+Verification: `bun test` 426 pass, 0 fail; `bun run check` clean.

@@ -9,16 +9,45 @@ export type TurnId = string;
 export type CompactionId = string;
 export type HarnessKind = string;
 
-export type ExecutionConfig = {
+/** What an alias names: today a harness and model; later perhaps a pool or sandbox. */
+export type RuntimeTarget = {
   harness: HarnessKind;
   model: string;
 };
 
-/** A centrally configured name for an execution configuration. */
-export type RuntimeAliases = Readonly<Record<RuntimeAliasName, ExecutionConfig>>;
+/**
+ * Where an agent runs: a terminal pane it keeps between turns, or a headless process per turn.
+ * Both answer through the same result channel, under the same deadlines and cleanup.
+ */
+export type AgentPlacement = "pane" | "headless";
 
-export type ExecutionRequirements = {
-  /** Alias resolution happens first; every other supplied field must then match exactly. */
+export type PlacementChoice = {
+  /** Defaults to `pane`. */
+  placement?: AgentPlacement;
+  /**
+   * The author's consent to per-token billing, needed to run headless a harness that bills that
+   * way even on a subscription login, as `claude -p` does (E3). The run host refuses such an agent
+   * without it. It says nothing about how an agent was billed: see `Billing`. It is dropped from a
+   * pane agent, where it means nothing.
+   */
+  metered?: true;
+};
+
+export function placementOf(choice: PlacementChoice): AgentPlacement {
+  return choice.placement ?? "pane";
+}
+
+export type ExecutionConfig = RuntimeTarget & PlacementChoice;
+
+/** A centrally configured name for a runtime target. Placement is the agent's choice. */
+export type RuntimeAliases = Readonly<Record<RuntimeAliasName, RuntimeTarget>>;
+
+export type ExecutionRequirements = PlacementChoice & {
+  /**
+   * Fields the alias names (`harness`, `model`) are constraints: when supplied they must match
+   * it. Fields the agent owns (`placement`, `metered`) are added to it. Reopening an agent, they
+   * are constraints too: left out, the agent stays as it was opened.
+   */
   alias: RuntimeAliasName;
   harness?: HarnessKind;
   model?: string;
@@ -95,33 +124,26 @@ export interface AgentRunStructuredSpec<T extends JsonValue> extends AgentRunBas
   schema: OutputSchema<T>;
 }
 
-export type TurnCost = {
-  /** Non-negative amount in `currency`. */
-  amount: number;
-  /** ISO 4217 currency code. */
-  currency: string;
-  basis: "charged" | "list" | "estimated";
-};
+/** A harness's own session, as it names it: an id, or for some harnesses a file path. */
+export type NativeSessionRef = { harness: HarnessKind; id: string };
 
-/** Non-negative integer token counts. */
-export type TokenUsage = {
-  input?: number;
-  output?: number;
-  cacheRead?: number;
-  cacheWrite?: number;
-};
-
-export type TurnUsage = {
+/**
+ * An operation's usage while the run goes on: its times and sessions. What it spent is read once
+ * the run has ended, into a `SettledOperation` record.
+ */
+export type OperationRecord = {
   /** Nested workflow call ids from outermost to innermost; empty at the root. */
   callPath: string[];
   agent: AgentKey;
   operationId: string;
   /** Resolved execution for this operation. */
   execution: AgentExecution;
-  /** Totals across every attempt made for this operation. */
-  tokens?: TokenUsage;
-  /** Total across attempts. Absent means unavailable; zero is a known zero. */
-  cost?: TurnCost;
+  /** ISO time the harness accepted the first attempt; absent when none was made. */
+  deliveredAt?: string;
+  /** ISO time the operation settled, after any nudge; its deadline when it expired. */
+  settledAt?: string;
+  /** Every native session seen for this agent by the time this record was made. */
+  sessions: NativeSessionRef[];
 };
 
 export type TurnOutcome<T extends JsonValue> = (
@@ -131,7 +153,7 @@ export type TurnOutcome<T extends JsonValue> = (
   | { kind: "timed-out"; reason: string }
   | { kind: "failed"; reason: string; retryable: boolean }
   | { kind: "cancelled"; reason: string }
-) & { usage: TurnUsage };
+) & { usage: OperationRecord };
 
 export function isAnswered<T extends JsonValue>(
   outcome: TurnOutcome<T>,
@@ -142,8 +164,8 @@ export function isAnswered<T extends JsonValue>(
 export type RunResult<T extends JsonValue> = {
   /** The nudge outcome when one ran; otherwise the initial outcome. */
   outcome: TurnOutcome<T>;
-  /** Aggregated usage for every delivery attempt made to settle this operation. */
-  usage: TurnUsage;
+  /** Times and sessions across every delivery attempt made to settle this operation. */
+  usage: OperationRecord;
 };
 
 export interface TurnRef<T extends JsonValue> {

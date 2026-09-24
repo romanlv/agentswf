@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { parseRow, record, text } from "../json";
 import { localOutcome } from "../session-core";
 import type { SettledState } from "../types";
 
@@ -21,13 +22,8 @@ export type HerdrCommand = (
  */
 export const HERDR_REPORT_GRACE_MS = 30_000;
 
-export function record(value: unknown): Record<string, unknown> | undefined {
-  return value && typeof value === "object" ? (value as Record<string, unknown>) : undefined;
-}
-
 export function readId(value: unknown, key: string): string | undefined {
-  const id = record(value)?.[key];
-  return typeof id === "string" && id !== "" ? id : undefined;
+  return text(record(value)?.[key]);
 }
 
 /** Herdr reports the harness's own session as `{ kind, value }`, not as a bare string. */
@@ -78,12 +74,7 @@ export const ANSI_SEQUENCE =
   /\u001B\[[0-?]*[ -/]*[@-~]|\u001B\][^\u0007\u001B]*(?:\u0007|\u001B\\)|\u001B[@-Z\\-_]/g;
 
 function herdrErrorCode(error: string): string | undefined {
-  try {
-    const parsed: unknown = JSON.parse(error);
-    return readId(record(parsed)?.error, "code");
-  } catch {
-    return undefined;
-  }
+  return readId(parseRow(error)?.error, "code");
 }
 
 /**

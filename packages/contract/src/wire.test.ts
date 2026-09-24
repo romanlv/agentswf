@@ -19,6 +19,18 @@ describe("result-submit wire", () => {
     });
   });
 
+  test("carries the agent's native session when the launcher had one", () => {
+    const request = { version: WIRE_VERSION, operationId: "op-1", raw: "{}" };
+    expect(decodeResultSubmitRequest({ ...request, session: "s-1" })).toEqual({
+      ok: true,
+      value: { ...request, session: "s-1" },
+    });
+    expect(decodeResultSubmitRequest({ ...request, session: "" })).toMatchObject({
+      ok: false,
+      code: "invalid-request",
+    });
+  });
+
   test("rejects unsupported versions separately from malformed requests", () => {
     expect(
       decodeResultSubmitRequest({

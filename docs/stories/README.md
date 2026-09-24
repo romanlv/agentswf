@@ -38,7 +38,7 @@ status is one of `todo`, `draft`, `ready`, `in-progress`, `blocked`, `awaiting-h
   `in-progress` — Run parallel review agents through `awf run` and compose accepted structured
   results.
 - [`002` — Know what each run cost and how long it took](002-cost-and-time-accounting.md) —
-  `awaiting-human-review` — The engine records time, tokens and cost for every agent in a run, without workflow
+  `done` — The engine records time, tokens and cost for every agent in a run, without workflow
   code, so variants can be compared on price as well as quality.
 
 This is the high-level index of numbered stories. Keep each entry to its title, status, and

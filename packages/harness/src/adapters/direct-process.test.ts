@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import type { HarnessActivation } from "../adapter";
 import type { ProcessInput, RunProcess } from "../command";
+import { createSingleSessionHostFactory } from "../single-session-host";
 import { HARNESSES } from "../spec";
 import type { Step } from "../types";
 import {
@@ -53,7 +55,7 @@ describe("createDirectProcessAdapter", () => {
     expect(await session.transcript()).toBe("the count is 3");
   });
 
-  test("a second prompt resumes the first turn's session and carries its usage", async () => {
+  test("a second prompt resumes the first turn's session and carries its charge", async () => {
     const { run, calls } = stub([
       claudeOut("done"),
       JSON.stringify({
@@ -73,7 +75,7 @@ describe("createDirectProcessAdapter", () => {
 
     expect(calls[0]?.argv).not.toContain("--resume");
     expect(calls[1]?.argv[calls[1].argv.indexOf("--resume") + 1]).toBe("sess-1");
-    expect(second.usage).toMatchObject({ costUsd: 0.042, outputTokens: 7 });
+    expect(second.usage).toEqual({ costUsd: 0.042 });
     expect(await session.transcript()).toBe("doneok");
   });
 
@@ -115,7 +117,7 @@ describe("createDirectProcessAdapter", () => {
 });
 
 describe("createHeadlessAdapter", () => {
-  const activation = {
+  const activation: HarnessActivation = {
     key: "reviewer",
     deadline: { unixMilliseconds: Date.now() + 60_000 },
     cwd: "/repo",
@@ -123,6 +125,8 @@ describe("createHeadlessAdapter", () => {
     execution: {
       harness: "claude",
       model: "opus",
+      placement: "headless",
+      metered: true,
     },
   };
   const firstBinding = {
@@ -184,7 +188,7 @@ describe("createHeadlessAdapter", () => {
     const session = await headless(
       run,
       { newSessionId: () => "chosen-id" },
-      { ...activation, execution: { harness: "pi", model: "opus" } },
+      { ...activation, execution: { harness: "pi", model: "opus", placement: "headless" } },
     );
     const turn = await session.start(turnSpec, firstBinding);
     await turn.settled;
@@ -206,11 +210,7 @@ describe("createHeadlessAdapter", () => {
     const session = await headless(run);
     const turn = await session.start(turnSpec, firstBinding);
 
-    expect((await turn.settled).nativeUsage[0]).toMatchObject({
-      costUsd: 0.042,
-      outputTokens: 7,
-      cachedInputTokens: 900,
-    });
+    expect((await turn.settled).chargesUsd).toEqual([0.042]);
   });
 
   test("a turn that reports no session is not resumed under an id the harness never saw", async () => {
@@ -227,12 +227,12 @@ describe("createHeadlessAdapter", () => {
     expect(calls).toHaveLength(1);
   });
 
-  test("usage a turn never reported stays absent rather than becoming zero", async () => {
+  test("a charge the turn never printed stays absent rather than becoming zero", async () => {
     const { run } = stub(["a screen with no JSON on it"]);
     const session = await headless(run);
     const turn = await session.start(turnSpec, firstBinding);
 
-    expect((await turn.settled).nativeUsage[0]?.cachedInputTokens).toBeUndefined();
+    expect((await turn.settled).chargesUsd).toEqual([]);
   });
 
   test("a harness with no confirmed resume cannot be nudged, and says so", async () => {
@@ -243,7 +243,10 @@ describe("createHeadlessAdapter", () => {
       const session = await headless(
         run,
         {},
-        { ...activation, execution: { harness: "codex", model: "gpt-5.6-sol" } },
+        {
+          ...activation,
+          execution: { harness: "codex", model: "gpt-5.6-sol", placement: "headless" },
+        },
       );
       const turn = await session.start(turnSpec, firstBinding);
       await turn.settled;
@@ -273,6 +276,20 @@ describe("createHeadlessAdapter", () => {
       state: "failed",
       detail: expect.stringContaining("credit balance too low"),
     });
+  });
+
+  test("runs only headless agents, and claude only when it is marked metered", async () => {
+    const run: RunProcess = async () => {
+      throw new Error("nothing should launch");
+    };
+    const { placement: _placement, ...pane } = activation.execution;
+    await expect(headless(run, {}, { ...activation, execution: pane })).rejects.toThrow(
+      "adapter runs headless agents, not pane",
+    );
+    const { metered: _metered, ...unmetered } = activation.execution;
+    await expect(headless(run, {}, { ...activation, execution: unmetered })).rejects.toThrow(
+      "headless claude is billed per token even on a subscription login; set metered: true",
+    );
   });
 
   test("reports lifecycle status and closes idempotently", async () => {
@@ -317,6 +334,165 @@ describe("createHeadlessAdapter", () => {
       kind: "released",
     });
     await expect(turn.settled).resolves.toMatchObject({ state: "cancelled" });
+  });
+
+  /** Codex that is still writing its closing message when its answer is taken. */
+  function finishingCodex() {
+    const calls: ProcessInput[] = [];
+    const finishers: Array<() => void> = [];
+    const thread = JSON.stringify({ type: "thread.started", thread_id: "thread-1" });
+    const run: RunProcess = async (input) => {
+      calls.push(input);
+      return new Promise((resolve) => {
+        finishers.push(() => resolve({ stdout: thread, stderr: "", exitCode: 0, timedOut: false }));
+        input.signal?.addEventListener("abort", () =>
+          resolve({ stdout: thread, stderr: "", exitCode: 137, timedOut: false, cancelled: true }),
+        );
+      });
+    };
+    const codex = {
+      ...activation,
+      execution: { harness: "codex", model: "gpt-5.6-terra", placement: "headless" as const },
+    };
+    return { calls, finishers, run, codex };
+  }
+
+  test("an answered turn is left to finish, and the next operation waits for it and resumes", async () => {
+    const { calls, finishers, run, codex } = finishingCodex();
+    // The production path: the engine reaches the adapter through the single-session host.
+    const host = await createSingleSessionHostFactory(
+      createHeadlessAdapter({ turnTimeoutMs: 10_000 }, run),
+    ).openRun({ runId: "run-1", cwd: "/repo", deadline: activation.deadline });
+    const session = await host.openAgent(codex);
+    const first = await session.start(turnSpec, firstBinding);
+
+    const released = await first.release("result slot settled", activation.deadline, {
+      answered: true,
+    });
+    expect(released.kind).toBe("finishing");
+    expect(calls[0]?.signal?.aborted).toBe(false);
+
+    let secondStarted = false;
+    const second = session
+      .start(
+        { ...turnSpec, id: "turn-2", prompt: "and now?" },
+        { ...firstBinding, operationId: "op-2" },
+      )
+      .then((turn) => {
+        secondStarted = true;
+        return turn;
+      });
+    await Bun.sleep(20);
+    expect(secondStarted).toBe(false);
+    finishers[0]!();
+    await expect(first.settled).resolves.toMatchObject({ state: "completed" });
+    await second;
+    expect(calls[1]?.argv.slice(0, 4)).toEqual(["codex", "exec", "resume", "thread-1"]);
+    expect(calls[1]?.stdin).toBe("and now?");
+    await host.close();
+    expect(calls[1]?.signal?.aborted).toBe(true);
+  });
+
+  test("a follow-up waits at most half its time for the answered turn, then stops it and resumes", async () => {
+    const { calls, run, codex } = finishingCodex();
+    const session = await headless(run, {}, codex);
+    const first = await session.start(turnSpec, firstBinding);
+    await first.release("result slot settled", activation.deadline, { answered: true });
+
+    const began = Date.now();
+    await session.start(
+      { ...turnSpec, id: "turn-2", deadline: { unixMilliseconds: began + 200 } },
+      { ...firstBinding, operationId: "op-2" },
+    );
+    const waited = Date.now() - began;
+    expect(waited).toBeGreaterThanOrEqual(90);
+    expect(waited).toBeLessThan(190);
+    expect(calls[0]?.signal?.aborted).toBe(true);
+    await expect(first.settled).resolves.toMatchObject({ state: "cancelled" });
+    expect(calls[1]?.argv.slice(0, 4)).toEqual(["codex", "exec", "resume", "thread-1"]);
+    await session.close();
+  });
+
+  test("an answered turn with no follow-up is stopped after its grace and leaves the agent idle", async () => {
+    const { calls, run, codex } = finishingCodex();
+    const session = await headless(run, { finishGraceMs: 30 }, codex);
+    const first = await session.start(
+      { ...turnSpec, deadline: { unixMilliseconds: Date.now() + 10 } },
+      firstBinding,
+    );
+    await first.release("result slot settled", activation.deadline, { answered: true });
+    await expect(session.status()).resolves.toEqual({ state: "working" });
+
+    // Past its own operation's deadline too: its answer was taken in time, so this is no timeout.
+    await expect(first.settled).resolves.toMatchObject({ state: "cancelled" });
+    expect(calls[0]?.signal?.aborted).toBe(true);
+    await expect(session.status()).resolves.toEqual({ state: "idle" });
+    await session.close();
+  });
+
+  test("the host shows a follow-up working while it waits, and a closed agent missing", async () => {
+    const { finishers, run, codex } = finishingCodex();
+    const host = await createSingleSessionHostFactory(
+      createHeadlessAdapter({ turnTimeoutMs: 10_000 }, run),
+    ).openRun({ runId: "run-1", cwd: "/repo", deadline: activation.deadline });
+    const session = await host.openAgent(codex);
+    const first = await session.start(turnSpec, firstBinding);
+    await first.release("result slot settled", activation.deadline, { answered: true });
+    const state = () => host.inspect().agents[0]?.state;
+
+    const second = session.start(
+      { ...turnSpec, id: "turn-2" },
+      { ...firstBinding, operationId: "op-2" },
+    );
+    await Bun.sleep(20);
+    expect(state()).toBe("working");
+    await expect(session.status()).resolves.toEqual({ state: "working" });
+    finishers[0]!();
+    await first.settled;
+    await second;
+    expect(state()).toBe("working");
+
+    const secondTurn = await second;
+    await secondTurn.release("result slot settled", activation.deadline, { answered: true });
+    await host.close();
+    await secondTurn.settled;
+    await Bun.sleep(0);
+    expect(state()).toBe("missing");
+  });
+
+  test("a release that is not answered stops the turn at once", async () => {
+    const { calls, run, codex } = finishingCodex();
+    const session = await headless(run, {}, codex);
+    const turn = await session.start(turnSpec, firstBinding);
+    await expect(
+      turn.release("operation deadline exceeded", activation.deadline),
+    ).resolves.toMatchObject({ kind: "released", outcome: { state: "cancelled" } });
+    expect(calls[0]?.signal?.aborted).toBe(true);
+  });
+
+  test("a session id pi was handed is not resumed when that turn failed to run", async () => {
+    const calls: ProcessInput[] = [];
+    const run: RunProcess = async (input) => {
+      calls.push(input);
+      return calls.length === 1
+        ? { stdout: "", stderr: "pi: not found", exitCode: 127, timedOut: false }
+        : { stdout: "{}", stderr: "", exitCode: 0, timedOut: false };
+    };
+    const session = await headless(
+      run,
+      { newSessionId: () => "hinted" },
+      { ...activation, execution: { harness: "pi", model: "m", placement: "headless" } },
+    );
+    await (await session.start(turnSpec, firstBinding)).settled;
+    const second = await session.start(
+      { ...turnSpec, id: "turn-2" },
+      { ...firstBinding, operationId: "op-2" },
+    );
+    await expect(second.settled).resolves.toMatchObject({
+      state: "failed",
+      detail: "pi produced no resumable native session reference",
+    });
+    expect(calls).toHaveLength(1);
   });
 
   test("distinguishes the adapter's native timeout from the operation deadline", async () => {

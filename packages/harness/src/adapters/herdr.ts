@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { AgentRunHostFactory, AgentSessionAdapter } from "../adapter";
-import { type RunProcess, runProcess } from "../command";
+import { type RunProcess, runProcess, withholding } from "../command";
+import { parseRow, record } from "../json";
 import {
   type ActivatedSessionBackend,
   createSessionAdapter,
@@ -9,6 +10,7 @@ import {
 } from "../session-core";
 import { createSingleSessionHostFactory } from "../single-session-host";
 import { HARNESS_NAMES, type HarnessSpec, harnessSpec, knownHarness } from "../spec";
+import { createSessionAccounting } from "../usage/accounting";
 import {
   abortableDelay,
   emptyEnvironmentArgs,
@@ -21,7 +23,6 @@ import {
   readId,
   readPaneId,
   readSessionRef,
-  record,
   safeAgentName,
   settledOutcome,
 } from "./herdr-protocol";
@@ -68,13 +69,8 @@ export function createHerdrCommands(config: HerdrConfig, run: RunProcess) {
       };
     }
     const line = result.stdout.split("\n").find((candidate) => candidate.trim().startsWith("{"));
-    if (!line) return { ok: true, result: {}, stdout: result.stdout };
-    try {
-      const parsed = JSON.parse(line) as { result?: Record<string, unknown> };
-      return { ok: true, result: parsed.result ?? {}, stdout: result.stdout };
-    } catch {
-      return { ok: true, result: {}, stdout: result.stdout };
-    }
+    const answer = line === undefined ? undefined : parseRow(line);
+    return { ok: true, result: record(answer?.result) ?? {}, stdout: result.stdout };
   };
   const startAgent = async (
     name: string,
@@ -328,6 +324,8 @@ export function createHerdrRunHostFactory(
   const { herdr, startAgent } = createHerdrCommands(config, run);
 
   return {
+    // A pane's agent never sees the emptied variables, so its status command must not either.
+    accounting: createSessionAccounting(withholding(run, config.emptyEnvironment ?? [])),
     async openRun(runSpec) {
       const remaining = () => runSpec.deadline.unixMilliseconds - Date.now();
       if (remaining() <= 0) throw new Error("run deadline exceeded before Herdr host creation");
@@ -425,6 +423,7 @@ export function createHerdrRunHostFactory(
 
       const adapter = createSessionAdapter({
         harnesses: ["claude", "codex"],
+        placement: "pane",
         async activate(request) {
           const harness = knownHarness(request.execution.harness);
           const spec = harnessSpec(harness);
@@ -631,7 +630,7 @@ export function createHerdrRunHostFactory(
 
 /**
  * What the pane itself proves about a settled turn: the agent's own status, the transcript the
- * harness spec can read out of the screen, and the native session that would resume it.
+ * harness spec can read out of the screen, and the native session Herdr names, when it does.
  */
 function paneOutcome(
   spec: HarnessSpec,
@@ -647,7 +646,8 @@ function paneOutcome(
     ...settledOutcome(agent),
     resultEvidence: transcript ? { kind: "transcript", text: transcript } : { kind: "unavailable" },
     ...(nativeSession ? { sessionRef: nativeSession } : {}),
-    nativeUsage: rawTranscript && spec.readUsage ? [spec.readUsage(rawTranscript)] : [],
+    // The screen is no record of spend; the engine reads the session files when the run ends.
+    chargesUsd: [],
   };
 }
 

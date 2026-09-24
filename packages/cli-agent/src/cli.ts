@@ -27,8 +27,12 @@ export async function runCli(
   ) => Promise<ResultSubmitResponse> = submitResult,
 ): Promise<CliOutcome> {
   // The launcher the engine installs supplies `--at`; the socket is an address, not a secret.
-  const [flag, endpoint, command, ...args] = argv;
-  if (flag !== "--at" || !endpoint) {
+  const {
+    endpoint,
+    session,
+    command: [command, ...args],
+  } = launched(argv);
+  if (!endpoint) {
     return usageError("wf must be run through the launcher the workflow engine installed");
   }
   if (command !== "result") return usageError(usage);
@@ -48,7 +52,12 @@ export async function runCli(
 
   let response: ResultSubmitResponse;
   try {
-    response = await submit(endpoint, { version: WIRE_VERSION, operationId, raw });
+    response = await submit(endpoint, {
+      version: WIRE_VERSION,
+      operationId,
+      raw,
+      ...(session ? { session } : {}),
+    });
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);
     return { exitCode: 1, stdout: "", stderr: `wf: result submission failed.\n${reason}` };
@@ -71,7 +80,10 @@ function rejection(
 ): string {
   switch (response.code) {
     case "invalid-result":
-      return `result rejected.\n${response.error}\nFix the value and run wf result again.`;
+      return (
+        `result rejected.\n${response.error}\nFix the value and run wf result again. ` +
+        "A long value can be written to a file and passed with < file."
+      );
     case "wrong-agent":
       return `${operationId} is another agent's call, not yours to answer`;
     case "unknown-operation":
@@ -89,6 +101,22 @@ function rejection(
       // the engine said, and whether a shorter or different value would be taken.
       return `result submission was rejected.\n${response.error}`;
   }
+}
+
+/**
+ * The launcher supplies `--at <socket>`, then `--session <id>` expanded from the harness's own
+ * variable, which is empty when the agent's shell does not set it.
+ */
+function launched(argv: readonly string[]): {
+  endpoint?: string;
+  session?: string;
+  command: readonly string[];
+} {
+  const [flag, endpoint, ...rest] = argv;
+  if (flag !== "--at" || !endpoint) return { command: rest };
+  if (rest[0] !== "--session") return { endpoint, command: rest };
+  const session = rest[1]?.trim();
+  return { endpoint, ...(session ? { session } : {}), command: rest.slice(2) };
 }
 
 function usageError(stderr: string): CliOutcome {
@@ -118,8 +146,9 @@ export async function readCliStdin(
   isTTY: boolean,
   stream: ReadableStream<Uint8Array>,
 ): Promise<string | null> {
-  // `--at <socket> result <call-id>` and nothing more: the value is coming from standard input.
-  if (isTTY || argv[2] !== "result" || argv.length !== 4) return null;
+  // `result <call-id>` and nothing more: the value is coming from standard input.
+  const { command } = launched(argv);
+  if (isTTY || command[0] !== "result" || command.length !== 2) return null;
   const text = await readBoundedStdin(stream);
   return text === "" ? null : text;
 }

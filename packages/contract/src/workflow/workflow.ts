@@ -1,4 +1,4 @@
-import type { AgentDirectory, TurnUsage } from "./agents";
+import type { AgentDirectory, OperationRecord } from "./agents";
 import type { WorkflowCallSpec } from "./composition";
 import type { JsonObject, JsonValue, OutputSchema } from "./json";
 import type { Messaging } from "./messaging";
@@ -72,8 +72,8 @@ export interface WorkflowContext {
     spec: WorkflowCallSpec<Args, Result>,
   ): Promise<Result>;
 
-  /** Completed usage in this workflow scope and its descendants, ordered by dispatch. */
-  usage(): TurnUsage[];
+  /** Completed operations in this workflow scope and its descendants, ordered by dispatch. */
+  usage(): OperationRecord[];
 
   log(message: string, fields?: JsonObject): void;
 }

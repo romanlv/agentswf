@@ -12,7 +12,7 @@ import type {
   RuntimeAliases,
   TurnId,
 } from "@wf/contract/workflow";
-import type { TurnUsage as NativeUsageSample } from "./spec";
+import type { SessionAccounting } from "./usage/accounting";
 
 export type AgentState =
   | "starting"
@@ -53,11 +53,18 @@ export type HarnessTurnOutcome = {
   state: "completed" | "blocked" | "timed-out" | "failed" | "cancelled";
   detail?: string;
   resultEvidence: HarnessResultEvidence;
-  nativeUsage: readonly NativeUsageSample[];
+  /** The dollars the harness printed for each native turn behind this outcome. */
+  chargesUsd: readonly number[];
 };
 
 export type HarnessReleaseDisposition =
   | { kind: "released"; outcome: HarnessTurnOutcome }
+  /**
+   * Answered and left to end on its own, so the session a follow-up resumes is whole. Its outcome
+   * arrives through the turn's `settled`. The host stops it after a bounded grace, the session's
+   * next start waits for it, and close ends it.
+   */
+  | { kind: "finishing" }
   | { kind: "quarantined"; reason: string };
 
 export interface HarnessTurn {
@@ -67,9 +74,24 @@ export interface HarnessTurn {
   deliver(prompt: string): Promise<void>;
   /** Makes one more delivery attempt using this operation's existing result authority. */
   nudge(spec: HarnessNudgeSpec): Promise<HarnessTurn>;
-  /** Requests termination and distinguishes observed release from unresolved native work. */
-  release(reason: string, deadline: AbsoluteDeadline): Promise<HarnessReleaseDisposition>;
+  /**
+   * Requests termination and distinguishes observed release from unresolved native work. An
+   * answered turn on a session that continues may instead be left to finish.
+   */
+  release(
+    reason: string,
+    deadline: AbsoluteDeadline,
+    options?: HarnessReleaseOptions,
+  ): Promise<HarnessReleaseDisposition>;
 }
+
+export type HarnessReleaseOptions = {
+  /**
+   * The operation's result is in. A host whose next operation resumes this session may answer
+   * `finishing` instead of stopping the turn; one that ignores this stops it, which is safe.
+   */
+  answered?: boolean;
+};
 
 export interface HarnessSession {
   status(): Promise<HarnessSessionStatus>;
@@ -80,6 +102,8 @@ export interface HarnessSession {
   ): Promise<HarnessTurn>;
   compact(id: CompactionId, prompt: string, deadline: AbsoluteDeadline): Promise<HarnessTurn>;
   close(reason?: string): Promise<void>;
+  /** Every native session id the adapter has seen for this agent, in the order first seen. */
+  sessions?(): readonly string[];
 }
 
 export interface HarnessActivation {
@@ -140,11 +164,19 @@ export interface AgentRunHost {
 
 export interface AgentRunHostFactory {
   openRun(request: HarnessRunSpec): Promise<AgentRunHost>;
+  /**
+   * How this host's agents are billed and where their spend is read. It belongs to the host,
+   * because how an agent is launched decides who pays. Absent, nothing is read.
+   */
+  readonly accounting?: SessionAccounting;
 }
 
 /** Engine-owned configuration assembled once, outside workflow definitions. */
 export interface AgentRuntimeConfig {
   aliases: RuntimeAliases;
-  /** Exactly one host owns placement, inspection, continuation, and cleanup for this run. */
+  /**
+   * Exactly one host serves every agent's placement and owns inspection, continuation, and cleanup
+   * for this run.
+   */
   host: AgentRunHostFactory;
 }

@@ -60,7 +60,9 @@ export function createLegacyDriver(options: {
           return {
             state: legacyState(outcome.state, outcome.detail),
             ...(outcome.detail ? { detail: outcome.detail } : {}),
-            ...(outcome.nativeUsage[0] ? { usage: outcome.nativeUsage[0] } : {}),
+            ...(outcome.chargesUsd[0] === undefined
+              ? {}
+              : { usage: { costUsd: outcome.chargesUsd[0] } }),
             ...(adapter.legacySessionRef?.() ? { sessionRef: adapter.legacySessionRef!() } : {}),
           };
         },

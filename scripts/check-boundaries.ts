@@ -6,6 +6,7 @@
  * design; this is what makes breaking one an error rather than a note in a document.
  */
 
+import { builtinModules } from "node:module";
 import { dirname, join, relative } from "node:path";
 import { Glob } from "bun";
 import { extractImports, hasUnresolvedDynamicImport } from "./boundary-imports";
@@ -25,15 +26,26 @@ type Rule = {
   allow?: string[];
   /** Reject any import matching this, with the reason to print. */
   forbid?: { pattern: RegExp; reason: string }[];
+  /** Reaches no runtime: imports no runtime builtin and never names the `Bun` global. */
+  pure?: true;
 };
 
-const NO_RUNTIME_API = [
-  { pattern: /^node:/, reason: "contract is pure: no node builtins" },
-  { pattern: /^bun(:|$)/, reason: "contract is pure: no bun builtins" },
-];
+/**
+ * A runtime builtin: anything `node:` or `bun:`, and every name the running Bun lists as built in,
+ * which is Node's modules without their prefix (`fs` is as impure as `node:fs`) plus `bun`.
+ */
+const RUNTIME_BUILTIN = new RegExp(
+  `^(node:.*|bun:.*|(${builtinModules.map((name) => name.replace(/[/.]/g, "\\$&")).join("|")})(/.*)?)$`,
+);
 
 const RULES: Rule[] = [
-  { dir: "packages/contract", allow: [], forbid: NO_RUNTIME_API },
+  { dir: "packages/contract", allow: [], pure: true },
+  // Pricing and totals, positioned to be lifted out whole (foundation §8): records in, figures out.
+  {
+    dir: "packages/engine/src/accounting",
+    allow: ["@wf/contract", "@wf/contract/*"],
+    pure: true,
+  },
   { dir: "packages/harness", allow: ["@wf/contract", "@wf/contract/*"] },
   {
     dir: "packages/cli-agent",
@@ -43,6 +55,8 @@ const RULES: Rule[] = [
       { pattern: /^(?:node:)?fs(?:\/|$)/, reason: "cli-agent never performs run-directory I/O" },
     ],
   },
+  // "Approved pure schema authoring libraries" is not a list the checker can hold; what it can hold
+  // is that nothing here reaches a runtime, which is what made them approvable.
   {
     dir: "examples",
     allow: ["@wf/contract/workflow"],
@@ -51,18 +65,13 @@ const RULES: Rule[] = [
         pattern: /^@wf\/(engine|harness)/,
         reason: "a workflow is written against the author surface, never the runtime",
       },
-      {
-        // "Approved pure schema authoring libraries" is not a list the checker can hold; what it
-        // can hold is that nothing here reaches a runtime, which is what made them approvable.
-        pattern: /^(?:node:|bun$)/,
-        reason: "a workflow is pure: schema authoring and prompts, never runtime I/O",
-      },
     ],
+    pure: true,
   },
 ];
 
-/** `Bun.file`, `Bun.write`, `Bun.spawn` — an import ban alone would miss the global. */
-const BUN_GLOBAL = /(^|[^\w.])Bun\s*\./;
+/** Any mention, so `globalThis.Bun` and aliases are caught too: an import ban misses the global. */
+const ANY_BUN = /\bBun\b/;
 const BUN_FILE_IO = /(^|[^\w.])Bun\s*\.\s*(file|write)\s*\(/;
 
 const problems: string[] = [];
@@ -73,14 +82,11 @@ for (const rule of RULES) {
     const source = await Bun.file(file).text();
     const where = relative(ROOT, file);
 
-    if (rule.dir === "packages/contract" && BUN_GLOBAL.test(source)) {
-      problems.push(`${where}: uses the Bun global; contract is types and pure functions only`);
+    if (rule.pure && ANY_BUN.test(source)) {
+      problems.push(`${where}: uses the Bun global; ${rule.dir} is pure`);
     }
     if (rule.dir === "packages/cli-agent" && BUN_FILE_IO.test(source)) {
       problems.push(`${where}: cli-agent never performs run-directory I/O`);
-    }
-    if (rule.dir === "examples" && BUN_GLOBAL.test(source)) {
-      problems.push(`${where}: uses the Bun global; a workflow is pure`);
     }
     if (hasUnresolvedDynamicImport(source) && !allowsComputedWorkflowImport(where)) {
       problems.push(`${where}: contains a computed import whose boundary cannot be verified`);
@@ -94,6 +100,10 @@ for (const rule of RULES) {
       }
       if (spec.startsWith(".") || spec.startsWith("/") || spec.startsWith("file:")) continue;
       if (spec === "bun:test") continue;
+      if (rule.pure && RUNTIME_BUILTIN.test(spec)) {
+        problems.push(`${where}: imports ${spec} — ${rule.dir} is pure: no runtime builtins`);
+        continue;
+      }
       const forbidden = rule.forbid?.find((f) => f.pattern.test(spec));
       if (forbidden) {
         problems.push(`${where}: imports ${spec} — ${forbidden.reason}`);

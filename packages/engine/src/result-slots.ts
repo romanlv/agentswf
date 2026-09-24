@@ -16,6 +16,8 @@ export type ResultSlotAccepted = {
   value: unknown;
   /** False only when atomic result persistence won but audit append failed. */
   attemptRecorded: boolean;
+  /** Unix milliseconds the result was taken, before the agent was told. */
+  acceptedAt: number;
 };
 
 export type ResultSubmission =
@@ -173,10 +175,11 @@ export function createResultSlotRegistry(options: ResultSlotRegistryOptions): Re
 
         slot.state = "accepted";
         slot.cancelExpiry();
+        const acceptedAt = now();
         let attemptRecorded = true;
         try {
           await persistence.recordAttempt(options.runDir, slot.operationId, {
-            at: new Date(now()).toISOString(),
+            at: new Date(acceptedAt).toISOString(),
             source: input.source,
             accepted: true,
             raw: input.raw,
@@ -189,6 +192,7 @@ export function createResultSlotRegistry(options: ResultSlotRegistryOptions): Re
           kind: "accepted",
           value: evaluated.value,
           attemptRecorded,
+          acceptedAt,
         };
         slot.settle(accepted);
         return accepted;

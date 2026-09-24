@@ -48,7 +48,6 @@ describe("minimum two-agent review", () => {
     });
     const adapter = createFakeAdapter({
       script: (context) => ({
-        nativeUsage: [{ inputTokens: 2, outputTokens: 1 }],
         act: async () => {
           started += 1;
           if (started === 2) {
@@ -85,18 +84,11 @@ describe("minimum two-agent review", () => {
       { kind: "completed", ...accepted("maintainability", "maintainability") },
     ]);
     expect(result.value.blockingFindingCount).toBe(1);
-    expect(result.value.usage).toEqual(result.usage);
-    // Composition order is the workflow's promise; usage is charged in whichever order the two
-    // concurrent turns reserve their slots, so only the per-agent totals are asserted.
-    expect(
-      result.value.usage
-        .map(({ agent, tokens }) => ({ agent, tokens }))
-        .sort((left, right) => left.agent.localeCompare(right.agent)),
-    ).toEqual([
-      { agent: "reviewer:correctness", tokens: { input: 2, output: 1 } },
-      { agent: "reviewer:maintainability", tokens: { input: 2, output: 1 } },
+    expect(result.usage.map(({ agent }) => agent).sort()).toEqual([
+      "reviewer:correctness",
+      "reviewer:maintainability",
     ]);
-    expect(new Set(result.value.usage.map(({ operationId }) => operationId)).size).toBe(2);
+    expect(new Set(result.usage.map(({ operationId }) => operationId)).size).toBe(2);
     expect(adapter.activations.map((activation) => activation.key).sort()).toEqual([
       "reviewer:correctness",
       "reviewer:maintainability",

@@ -2,7 +2,8 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { randomUUID } from "node:crypto";
 import { dirname } from "node:path";
 import { isDeepStrictEqual } from "node:util";
-import { describe, type JsonSchema, parseJsonSchema } from "@wf/contract/schema";
+import type { RunAccounting, SettledOperation } from "@wf/contract/records";
+import { type JsonSchema, parseJsonSchema } from "@wf/contract/schema";
 import {
   type AbsoluteDeadline,
   type AgentExecution,
@@ -17,22 +18,27 @@ import {
   isJsonValue,
   type JsonObject,
   type JsonValue,
+  type OperationRecord,
   type OutputSchema,
+  type PlacementChoice,
+  placementOf,
   type RunResult,
   type RuntimeSelection,
   type TurnOutcome,
-  type TurnUsage,
   type WorkflowContext,
   type WorkflowDefinition,
 } from "@wf/contract/workflow";
-import type { TurnUsage as NativeUsage } from "@wf/harness";
+import { findHarness } from "@wf/harness";
 import type {
   AgentRunHost,
   AgentRuntimeConfig,
+  HarnessReleaseDisposition,
   HarnessSession,
   HarnessTurn,
   HarnessTurnOutcome,
 } from "@wf/harness/adapter";
+import { PUBLISHED_PRICES } from "./accounting/prices";
+import { summarizeRun } from "./accounting/summary";
 import { installAgentLauncher } from "./agent-launcher";
 import {
   type ResultChannel,
@@ -40,11 +46,25 @@ import {
   startResultControlPlane,
 } from "./control-plane";
 import {
+  assertDeadline,
+  assertDeadlineValue,
+  deadlineWithin,
+  earlierDeadline,
+  laterDeadline,
+  runUntilStopped,
+  scheduleAt,
+  WorkflowCancelledError,
+  waitForDeadline,
+} from "./deadlines";
+import {
   createResultSlotRegistry,
   type ResultSlotRegistry,
   type ResultSlotSettlement,
 } from "./result-slots";
 import { createRunDir } from "./run-dir";
+import { type AgentLedger, createRunLedger, type RunLedger } from "./run-usage";
+
+export { WorkflowCancelledError } from "./deadlines";
 
 export type RunWorkflowOptions = {
   runRoot: string;
@@ -55,17 +75,19 @@ export type RunWorkflowOptions = {
   signal?: AbortSignal;
 };
 
-export class WorkflowCancelledError extends Error {
-  constructor(readonly reason: unknown) {
-    super("workflow cancelled by operator");
-    this.name = "WorkflowCancelledError";
-  }
-}
-
 export type WorkflowRunResult<Result extends JsonValue> = {
   runId: string;
   value: Result;
-  usage: TurnUsage[];
+  /** Every operation's record, completed with the spend read when the run ended. */
+  usage: SettledOperation[];
+  /** ISO times the run started and its own work, cleanup included, ended. */
+  startedAt: string;
+  finishedAt: string;
+  /**
+   * Derived from `usage` and the two times, which are what a record keeps; `summarizeRun` prices
+   * them again with another table.
+   */
+  accounting: RunAccounting;
 };
 
 export type WorkflowRunHandle<Result extends JsonValue> = {
@@ -130,6 +152,7 @@ export async function startWorkflow<Args extends JsonValue, Result extends JsonV
   assertDeadline(options.deadline);
   if (options.signal?.aborted) throw new WorkflowCancelledError(options.signal.reason);
   const runId = randomUUID();
+  const startedAt = Date.now();
   const runDir = await createRunDir(options.runRoot, runId);
   const slots = createResultSlotRegistry({ runDir });
   const control = await startResultControlPlane({ slots });
@@ -143,11 +166,7 @@ export async function startWorkflow<Args extends JsonValue, Result extends JsonV
     }),
   );
   try {
-    host = await runUntilStopped(
-      () => openingHost,
-      options.signal ? [options.signal] : [],
-      options.deadline,
-    );
+    host = await runUntilStopped(() => openingHost, options.signal, options.deadline);
   } catch (error) {
     void openingHost
       .then((lateHost) => lateHost.close("run ended before host acquisition"))
@@ -155,6 +174,7 @@ export async function startWorkflow<Args extends JsonValue, Result extends JsonV
     await control.close();
     throw error;
   }
+  const ledger = createRunLedger({ accounting: options.runtime.host.accounting, startedAt });
   const owner = new WorkflowOwner({
     runId,
     cwd,
@@ -163,9 +183,13 @@ export async function startWorkflow<Args extends JsonValue, Result extends JsonV
     host,
     slots,
     control,
+    ledger,
     onLog: options.onLog,
   });
   const stopped = new AbortController();
+  const signal = options.signal
+    ? AbortSignal.any([options.signal, stopped.signal])
+    : stopped.signal;
   const result = (async (): Promise<WorkflowRunResult<Result>> => {
     let value: Result | undefined;
     let failure: unknown;
@@ -173,9 +197,7 @@ export async function startWorkflow<Args extends JsonValue, Result extends JsonV
     try {
       value = await runUntilStopped(
         () => definition.run(owner.context, args),
-        [options.signal, stopped.signal].filter(
-          (signal): signal is AbortSignal => signal !== undefined,
-        ),
+        signal,
         options.deadline,
       );
       if (!isJsonValue(value)) throw new Error("workflow result must contain only JSON values");
@@ -184,6 +206,7 @@ export async function startWorkflow<Args extends JsonValue, Result extends JsonV
       failure = error;
     }
 
+    if (!failed) await ledger.letFinish(options.deadline, signal);
     const cleanupErrors: unknown[] = [];
     const ownerCleanupDeadline = {
       unixMilliseconds: Date.now() + CLEANUP_GRACE_MILLISECONDS,
@@ -217,7 +240,17 @@ export async function startWorkflow<Args extends JsonValue, Result extends JsonV
     if (cleanupErrors.length > 0) {
       throw new AggregateError(cleanupErrors, "workflow cleanup failed");
     }
-    return { runId, value: value as Result, usage: owner.usage() };
+    // Before the wait for session files, which is bookkeeping rather than the run's own time.
+    const finishedAt = new Date().toISOString();
+    const usage = await ledger.settle(signal);
+    const times = { startedAt: new Date(startedAt).toISOString(), finishedAt };
+    return {
+      runId,
+      value: value as Result,
+      usage,
+      ...times,
+      accounting: summarizeRun(usage, PUBLISHED_PRICES, times),
+    };
   })();
 
   return {
@@ -235,38 +268,9 @@ export async function startWorkflow<Args extends JsonValue, Result extends JsonV
   };
 }
 
-async function runUntilStopped<T>(
-  execute: () => Promise<T>,
-  signals: readonly AbortSignal[],
-  deadline: AbsoluteDeadline,
-): Promise<T> {
-  const alreadyAborted = signals.find((signal) => signal.aborted);
-  if (alreadyAborted) throw new WorkflowCancelledError(alreadyAborted.reason);
-  if (Date.now() >= deadline.unixMilliseconds) throw new DeadlineExceededError(deadline);
-  let rejectStopped!: (error: Error) => void;
-  const stopped = new Promise<never>((_resolve, reject) => {
-    rejectStopped = reject;
-  });
-  const abort = (event: Event) => {
-    const signal = event.currentTarget as AbortSignal;
-    rejectStopped(new WorkflowCancelledError(signal.reason));
-  };
-  for (const signal of signals) signal.addEventListener("abort", abort, { once: true });
-  const cancelDeadline = scheduleAt(deadline, () => {
-    rejectStopped(new DeadlineExceededError(deadline));
-  });
-  try {
-    return await Promise.race([execute(), stopped]);
-  } finally {
-    cancelDeadline();
-    for (const signal of signals) signal.removeEventListener("abort", abort);
-  }
-}
-
 class WorkflowOwner {
   readonly context: WorkflowContext;
   readonly #agents = new Map<string, AgentEntry>();
-  readonly #usage: Array<TurnUsage | undefined> = [];
   readonly #inFlight = new Set<Promise<unknown>>();
   #closed = false;
   #closing: Promise<unknown[]> | undefined;
@@ -280,6 +284,7 @@ class WorkflowOwner {
       host: AgentRunHost;
       slots: ResultSlotRegistry;
       control: ResultControlPlane;
+      ledger: RunLedger;
       onLog?: RunWorkflowOptions["onLog"];
     },
   ) {
@@ -316,13 +321,9 @@ class WorkflowOwner {
         return runParallel(items, operation, deadline, parallelOptions?.concurrency);
       },
       call: () => unavailable("call"),
-      usage: () => this.usage(),
+      usage: () => options.ledger.records(),
       log: (message, fields) => options.onLog?.(message, fields),
     };
-  }
-
-  usage(): TurnUsage[] {
-    return this.#usage.filter((item): item is TurnUsage => item !== undefined);
   }
 
   async close(deadline: AbsoluteDeadline): Promise<unknown[]> {
@@ -386,13 +387,25 @@ class WorkflowOwner {
 
     // Opened before the session so registration below stays synchronous: two concurrent `agent()`
     // calls for one key must not each build an agent.
-    const opened = this.options.control.openChannel(spec.key);
+    const launcherSessions = new Set<string>();
+    let harnessSession: HarnessSession | undefined;
+    const ledger = this.options.ledger.agent({
+      key: spec.key,
+      execution,
+      cwd: identity.cwd,
+      sessions: () => [...new Set([...launcherSessions, ...(harnessSession?.sessions?.() ?? [])])],
+    });
+    const opened = this.options.control.openChannel(spec.key, (id) => launcherSessions.add(id));
     const reachable = opened.then(async (channel) => ({
       channel,
       // Beside the socket, in the directory the control plane made for this agent alone. Deriving
       // a directory from the key instead would let two keys that differ only in punctuation share
       // one, and the second install would point the first agent at the wrong socket.
-      launcher: await installAgentLauncher(dirname(channel.endpoint), channel.endpoint),
+      launcher: await installAgentLauncher(
+        dirname(channel.endpoint),
+        channel.endpoint,
+        findHarness(execution.harness)?.sessionEnv,
+      ),
     }));
     // Read below only once the session exists; a failure before then is reported through `state`.
     reachable.catch(() => undefined);
@@ -412,6 +425,7 @@ class WorkflowOwner {
         throw error;
       })
       .then(async (session) => {
+        harnessSession = session;
         let channel: ResultChannel;
         let launcher: string;
         try {
@@ -429,7 +443,7 @@ class WorkflowOwner {
           endpoint: channel.endpoint,
           launcher,
           deadline: this.options.deadline,
-          reserveUsage: () => this.reserveUsage(),
+          ledger,
           track: (promise) => this.track(promise),
           isRunClosing: () => this.#closed,
         });
@@ -448,14 +462,6 @@ class WorkflowOwner {
     const activated = this.track(waitForDeadline(ownedState, effectiveDeadline));
     scope?.track(activated);
     return activated;
-  }
-
-  private reserveUsage(): (usage: TurnUsage) => void {
-    const index = this.#usage.length;
-    this.#usage.push(undefined);
-    return (usage) => {
-      this.#usage[index] = usage;
-    };
   }
 
   private track<T>(promise: Promise<T>): Promise<T> {
@@ -487,7 +493,7 @@ class LogicalAgent implements AgentRef {
       /** The path this agent is told to run; see `installAgentLauncher`. */
       launcher: string;
       deadline: AbsoluteDeadline;
-      reserveUsage(): (usage: TurnUsage) => void;
+      ledger: AgentLedger;
       track<T>(promise: Promise<T>): Promise<T>;
       isRunClosing(): boolean;
     },
@@ -611,9 +617,9 @@ class LogicalAgent implements AgentRef {
     const operationId = randomUUID();
     const schema = resultSchema(spec.schema);
     if (Date.now() >= operationDeadline.unixMilliseconds) {
-      const saveBeforeDispatch = this.options.reserveUsage();
-      const usage = workflowUsage(this.key, operationId, this.execution, []);
-      saveBeforeDispatch(usage);
+      const usage = this.options.ledger
+        .reserve(operationId)
+        .settle({ settledAt: operationDeadline.unixMilliseconds }, []);
       return {
         outcome: { kind: "timed-out", reason: "operation deadline exceeded", usage },
         usage,
@@ -627,20 +633,33 @@ class LogicalAgent implements AgentRef {
       deadline: nudgeDeadline ? laterDeadline(operationDeadline, nudgeDeadline) : operationDeadline,
     });
     const binding = { endpoint: this.options.endpoint, operationId };
-    const samples: NativeUsage[] = [];
-    const saveUsage = this.options.reserveUsage();
+    const charges: number[] = [];
+    let later: Promise<HarnessTurnOutcome> | undefined;
+    const entry = this.options.ledger.reserve(operationId);
+    /** The native turn this operation currently answers for; a nudge replaces it. */
+    const held: HeldTurn = {};
     const finish = async (
       native: HarnessTurnOutcome | "expired",
       settlement?: ResultSlotSettlement,
     ): Promise<RunResult<JsonValue>> => {
       await this.options.slots.close(operationId);
       const settled = settlement ?? (await slot.settled);
-      const usage = workflowUsage(this.key, operationId, this.execution, samples);
-      saveUsage(usage);
+      const usage = entry.settle(
+        {
+          ...(held.deliveredAt === undefined ? {} : { deliveredAt: held.deliveredAt }),
+          settledAt:
+            settled.kind === "accepted"
+              ? settled.acceptedAt
+              : held.ended === undefined
+                ? Math.min(Date.now(), operationDeadline.unixMilliseconds)
+                : // An attempt that ran past its deadline settled at it; the engine noticed later.
+                  Math.min(held.ended.at, held.ended.deadline.unixMilliseconds),
+        },
+        charges,
+        later,
+      );
       return { outcome: reconcile<JsonValue>(native, settled, usage), usage };
     };
-    /** The native turn this operation currently answers for; a nudge replaces it. */
-    const held: { turn?: HarnessTurn } = {};
     let removeCanceller: (() => void) | undefined;
     try {
       scope?.assertActive();
@@ -652,7 +671,7 @@ class LogicalAgent implements AgentRef {
       };
       const outputSchema = spec.schema;
       removeCanceller = scope?.add((reason) =>
-        held.turn ? requestTurnRelease(held.turn, reason) : Promise.resolve(),
+        held.turn ? releaseTurn(held.turn, reason) : Promise.resolve(),
       );
       const first = await this.attemptTurn(
         () =>
@@ -671,13 +690,14 @@ class LogicalAgent implements AgentRef {
           state: expiry ? "timed-out" : "failed",
           detail: expiry ? "operation deadline exceeded" : reasonOf(first.error),
           resultEvidence: { kind: "unavailable" },
-          nativeUsage: [],
+          chargesUsd: [],
         };
         void this.close(native.detail).catch(() => undefined);
         return await finish(native);
       }
       if (first.kind === "abandoned") return await finish(first.native, first.settlement);
-      samples.push(...first.samples);
+      charges.push(...first.charges);
+      later = first.later;
       let { native, settlement, releaseAttempted, releaseResolved } = first;
       // Peek rather than wait: a slot that has not settled must not hold the operation open.
       settlement ??= await Promise.race([slot.settled, Promise.resolve(undefined)]);
@@ -713,15 +733,15 @@ class LogicalAgent implements AgentRef {
           if (again.kind === "abandoned") {
             releaseAttempted = true;
           } else {
-            ({ releaseAttempted, releaseResolved } = again);
-            samples.push(...again.samples);
+            ({ releaseAttempted, releaseResolved, later } = again);
+            charges.push(...again.charges);
           }
         } catch (error) {
           native = {
             state: error instanceof DeadlineExceededError ? "timed-out" : "failed",
             detail: reasonOf(error),
             resultEvidence: { kind: "unavailable" },
-            nativeUsage: [],
+            chargesUsd: [],
           };
         }
       }
@@ -730,7 +750,7 @@ class LogicalAgent implements AgentRef {
           native === "expired"
             ? "operation deadline exceeded"
             : (native.detail ?? `native turn ${native.state}`);
-        if (!releaseAttempted) await requestTurnRelease(held.turn!, reason);
+        if (!releaseAttempted) await releaseTurn(held.turn!, reason);
         void this.close(reason).catch(() => undefined);
       }
       return await finish(native, settlement);
@@ -754,10 +774,11 @@ class LogicalAgent implements AgentRef {
     settled: Promise<ResultSlotSettlement>,
     scope: ExecutionScope | undefined,
     what: "turn" | "nudge",
-    held: { turn?: HarnessTurn },
+    held: HeldTurn,
   ): Promise<TurnAttempt> {
     let acquiring: Promise<HarnessTurn>;
     let acquisition: TurnAcquisition;
+    const began = Date.now();
     try {
       acquiring = begin();
       acquisition = await observeTurnAcquisition(acquiring, deadline, settled);
@@ -766,6 +787,8 @@ class LogicalAgent implements AgentRef {
     }
     if (acquisition.kind !== "turn") {
       const settlement = acquisition.kind === "result" ? acquisition.settlement : undefined;
+      // An answer proves the prompt arrived, even though the turn it came from was never held.
+      if (settlement?.kind === "accepted") held.deliveredAt ??= began;
       this.abandonTurnAcquisition(
         acquiring,
         settlement?.kind === "accepted"
@@ -787,7 +810,10 @@ class LogicalAgent implements AgentRef {
       return { kind: "abandoned", native: "expired", settlement: undefined };
     }
     held.turn = turn;
+    held.deliveredAt ??= Date.now();
     const observed = await observeTurnAndResult(turn, deadline, settled);
+    // Before any release: its grace is cleanup, not the agent's time.
+    held.ended = { at: Date.now(), deadline };
     const unreleased = {
       kind: "observed",
       releaseAttempted: false,
@@ -798,26 +824,29 @@ class LogicalAgent implements AgentRef {
         ...unreleased,
         native: observed.native,
         settlement: undefined,
-        samples: observed.native === "expired" ? [] : observed.native.nativeUsage,
+        charges: observed.native === "expired" ? [] : observed.native.chargesUsd,
       };
     }
     if (observed.settlement.kind !== "accepted") {
-      return { ...unreleased, native: "expired", settlement: observed.settlement, samples: [] };
+      return { ...unreleased, native: "expired", settlement: observed.settlement, charges: [] };
     }
-    const released = await releaseSettledTurn(turn, "result slot settled");
+    const disposition = await releaseTurn(turn, "result slot settled", true);
+    const outcome = disposition?.kind === "released" ? disposition.outcome : undefined;
+    const finishing = disposition?.kind === "finishing";
     return {
       kind: "observed",
-      native: released ?? unresolvedReleaseOutcome(),
+      native: outcome ?? (finishing ? FINISHING_OUTCOME : unresolvedReleaseOutcome()),
       settlement: observed.settlement,
-      samples: released?.nativeUsage ?? [],
+      charges: outcome?.chargesUsd ?? [],
       releaseAttempted: true,
-      releaseResolved: released !== undefined,
+      releaseResolved: outcome !== undefined || finishing,
+      ...(finishing ? { later: turn.settled } : {}),
     };
   }
 
   private abandonTurnAcquisition(acquiring: Promise<HarnessTurn>, reason: string): void {
     const lateRelease = acquiring.then(
-      (turn) => requestTurnRelease(turn, reason),
+      (turn) => releaseTurn(turn, reason),
       () => undefined,
     );
     this.options.track(lateRelease);
@@ -956,6 +985,14 @@ async function executeParallel<Item, Result>(
   }
 }
 
+type HeldTurn = {
+  turn?: HarnessTurn;
+  /** When the harness first accepted a turn for this operation. */
+  deliveredAt?: number;
+  /** When the last held attempt was seen to end, and the deadline it ran under. */
+  ended?: { at: number; deadline: AbsoluteDeadline };
+};
+
 type TurnAttempt =
   | { kind: "unacquired"; error: unknown }
   | {
@@ -968,9 +1005,11 @@ type TurnAttempt =
       kind: "observed";
       native: HarnessTurnOutcome | "expired";
       settlement: ResultSlotSettlement | undefined;
-      samples: readonly NativeUsage[];
+      charges: readonly number[];
       releaseAttempted: boolean;
       releaseResolved: boolean;
+      /** The outcome of an answered turn the host left to finish, once it has. */
+      later?: Promise<HarnessTurnOutcome>;
     };
 
 type TurnObservation =
@@ -1019,32 +1058,48 @@ async function observeTurnAndResult(
   ]);
 }
 
-async function releaseSettledTurn(
+/**
+ * `undefined` when the host throws or does not answer within the cleanup grace. After an accepted
+ * answer, a host whose session continues may leave the turn finishing, and the
+ * operation returns at once rather than waiting out the agent's closing message.
+ */
+async function releaseTurn(
   turn: HarnessTurn,
   reason: string,
-): Promise<HarnessTurnOutcome | undefined> {
+  answered = false,
+): Promise<HarnessReleaseDisposition | undefined> {
   const deadline = { unixMilliseconds: Date.now() + CLEANUP_GRACE_MILLISECONDS };
   try {
-    const disposition = await waitForDeadline(turn.release(reason, deadline), deadline);
-    return disposition.kind === "released" ? disposition.outcome : undefined;
+    return await waitForDeadline(
+      turn.release(reason, deadline, answered ? { answered } : undefined),
+      deadline,
+    );
   } catch {
     return undefined;
   }
 }
+
+/** Stands in for an answered turn still finishing; an accepted answer is what the caller sees. */
+const FINISHING_OUTCOME: HarnessTurnOutcome = {
+  state: "completed",
+  detail: "left to finish after its answer was accepted",
+  resultEvidence: { kind: "unavailable" },
+  chargesUsd: [],
+};
 
 function unresolvedReleaseOutcome(): HarnessTurnOutcome {
   return {
     state: "cancelled",
     detail: "native work was quarantined after result settlement",
     resultEvidence: { kind: "unavailable" },
-    nativeUsage: [],
+    chargesUsd: [],
   };
 }
 
 function reconcile<T extends JsonValue>(
   native: HarnessTurnOutcome | "expired",
   settlement: ResultSlotSettlement,
-  usage: TurnUsage,
+  usage: OperationRecord,
 ): TurnOutcome<T> {
   if (settlement.kind === "accepted") {
     return { kind: "answered", value: settlement.value as T, usage };
@@ -1082,71 +1137,26 @@ function operationPrompt(
   callId: string,
 ): string {
   // The full path, because the command is not on the agent's PATH and in some harnesses cannot be.
+  // A quoted heredoc passes the JSON through untouched: a quoted argument broke on shell quoting
+  // (story 002). Not indented: a copied terminator with leading spaces never closes the heredoc.
+  // The schema itself, not a rendering of it: without its bounds, first answers were 0/160 valid
+  // (E5). `wf` says what to do about a rejection, so the prompt does not.
   return [
     prompt,
     "",
     "When the answer is ready, return it by running:",
     "",
-    `  ${launcher} result ${callId} '<json>'`,
+    `${launcher} result ${callId} <<'WF_JSON'`,
+    "<json>",
+    "WF_JSON",
     "",
-    `The JSON value must match this shape: ${describe(schema)}`,
-    "If it rejects the value, correct it and run the command again.",
-    "Only a value it accepts counts as the result.",
+    "The JSON must match this schema:",
+    JSON.stringify(schema),
   ].join("\n");
-}
-
-function workflowUsage(
-  agent: string,
-  operationId: string,
-  execution: AgentExecution,
-  samples: readonly NativeUsage[],
-): TurnUsage {
-  const tokens = {
-    ...sumField(samples, "inputTokens", "input"),
-    ...sumField(samples, "outputTokens", "output"),
-    ...sumField(samples, "cachedInputTokens", "cacheRead"),
-  };
-  const costs = samples
-    .map((sample) => sample.costUsd)
-    .filter((amount): amount is number => amount !== undefined);
-  return {
-    callPath: [],
-    agent,
-    operationId,
-    execution,
-    ...(Object.keys(tokens).length > 0 ? { tokens } : {}),
-    ...(costs.length > 0
-      ? {
-          cost: {
-            amount: costs.reduce((total, amount) => total + amount, 0),
-            currency: "USD",
-            basis: "charged" as const,
-          },
-        }
-      : {}),
-  };
-}
-
-function sumField(
-  samples: readonly NativeUsage[],
-  source: "inputTokens" | "outputTokens" | "cachedInputTokens",
-  target: "input" | "output" | "cacheRead",
-): Partial<Record<"input" | "output" | "cacheRead", number>> {
-  const values = samples
-    .map((sample) => sample[source])
-    .filter((value): value is number => value !== undefined);
-  return values.length > 0 ? { [target]: values.reduce((total, value) => total + value, 0) } : {};
 }
 
 function reasonOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
-}
-
-/** Release without waiting on the outcome; the timeout or cancellation that asked stands. */
-function requestTurnRelease(turn: HarnessTurn, reason: string): Promise<void> {
-  return Promise.resolve()
-    .then(() => releaseSettledTurn(turn, reason))
-    .then(() => undefined);
 }
 
 function resolveExecution(
@@ -1162,9 +1172,30 @@ function resolveExecution(
         throw new Error(`runtime alias ${selection.alias} does not satisfy required ${field}`);
       }
     }
-    return resolved;
+    return { ...resolved, ...storedPlacement(selection) };
   }
-  return structuredClone(selection);
+  const { harness, model } = selection;
+  return { harness, model, ...storedPlacement(selection) };
+}
+
+/**
+ * A pane is the default and is left unsaid, and `metered` is kept only where it means something,
+ * so the same agent always has one identity.
+ */
+function storedPlacement(choice: PlacementChoice): PlacementChoice {
+  // A workflow is untyped JavaScript at run time; a misspelt placement must not become a pane.
+  if (
+    choice.placement !== undefined &&
+    choice.placement !== "pane" &&
+    choice.placement !== "headless"
+  ) {
+    throw new Error(
+      `unknown placement ${JSON.stringify(choice.placement)}; expected pane or headless`,
+    );
+  }
+  return placementOf(choice) === "headless"
+    ? { placement: "headless", ...(choice.metered === true ? { metered: true as const } : {}) }
+    : {};
 }
 
 function constrainExistingExecution(
@@ -1172,10 +1203,7 @@ function constrainExistingExecution(
   existing: AgentExecution,
 ): AgentExecution {
   if (typeof selection === "string") {
-    if (existing.alias !== selection) {
-      throw new Error(`existing agent does not use runtime alias ${selection}`);
-    }
-    return existing;
+    return constrainExistingExecution({ alias: selection }, existing);
   }
   if ("alias" in selection) {
     if (existing.alias !== selection.alias) {
@@ -1187,11 +1215,17 @@ function constrainExistingExecution(
         throw new Error(`existing agent does not satisfy required ${field}`);
       }
     }
-    return existing;
-  }
-  const { alias: _alias, ...configured } = existing;
-  if (!isDeepStrictEqual(selection, configured)) {
+  } else if (selection.harness !== existing.harness || selection.model !== existing.model) {
     throw new Error("existing agent uses a different runtime configuration");
+  }
+  const placed = placementOf(existing);
+  if (
+    (selection.placement !== undefined && placementOf(selection) !== placed) ||
+    (selection.metered !== undefined &&
+      placed === "headless" &&
+      selection.metered !== existing.metered)
+  ) {
+    throw new Error("existing agent uses a different placement");
   }
   return existing;
 }
@@ -1199,7 +1233,8 @@ function constrainExistingExecution(
 function resolveAlias(alias: string, runtime: AgentRuntimeConfig): AgentExecution {
   const selected = runtime.aliases[alias];
   if (!selected) throw new Error(`unknown runtime alias: ${alias}`);
-  return { ...structuredClone(selected), alias };
+  // Placement is the agent's to choose, never the operator's, so only the target is copied.
+  return { harness: selected.harness, model: selected.model, alias };
 }
 
 function assertCompatibleAgent(
@@ -1219,62 +1254,6 @@ function assertCompatibleAgent(
 
 function conflict(key: string, field: string): never {
   throw new Error(`agent ${key} is already open with different ${field}`);
-}
-
-function assertDeadline(deadline: AbsoluteDeadline): void {
-  assertDeadlineValue(deadline);
-  if (Date.now() >= deadline.unixMilliseconds) {
-    throw new DeadlineExceededError(deadline);
-  }
-}
-
-function assertDeadlineValue(deadline: AbsoluteDeadline): void {
-  if (!Number.isSafeInteger(deadline.unixMilliseconds) || deadline.unixMilliseconds < 0) {
-    throw new Error("deadline.unixMilliseconds must be a non-negative safe integer");
-  }
-}
-
-function earlierDeadline(left: AbsoluteDeadline, right: AbsoluteDeadline): AbsoluteDeadline {
-  return left.unixMilliseconds <= right.unixMilliseconds ? left : right;
-}
-
-function deadlineWithin(milliseconds: number, ceiling: AbsoluteDeadline): AbsoluteDeadline {
-  if (!Number.isSafeInteger(milliseconds) || milliseconds <= 0) {
-    throw new Error("timeoutMs must be a positive safe integer");
-  }
-  return earlierDeadline({ unixMilliseconds: Date.now() + milliseconds }, ceiling);
-}
-
-function laterDeadline(left: AbsoluteDeadline, right: AbsoluteDeadline): AbsoluteDeadline {
-  return left.unixMilliseconds >= right.unixMilliseconds ? left : right;
-}
-
-function scheduleAt(deadline: AbsoluteDeadline, action: () => void): () => void {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  let cancelled = false;
-  const schedule = () => {
-    if (cancelled) return;
-    const remaining = deadline.unixMilliseconds - Date.now();
-    if (remaining <= 0) {
-      action();
-      return;
-    }
-    timer = setTimeout(schedule, Math.min(remaining, 2_147_483_647));
-    timer.unref();
-  };
-  schedule();
-  return () => {
-    cancelled = true;
-    if (timer) clearTimeout(timer);
-  };
-}
-
-function waitForDeadline<T>(promise: Promise<T>, deadline: AbsoluteDeadline): Promise<T> {
-  let cancelTimer: (() => void) | undefined;
-  const expired = new Promise<never>((_resolve, reject) => {
-    cancelTimer = scheduleAt(deadline, () => reject(new DeadlineExceededError(deadline)));
-  });
-  return Promise.race([promise, expired]).finally(() => cancelTimer?.());
 }
 
 function unavailable(name: string): Promise<never> {

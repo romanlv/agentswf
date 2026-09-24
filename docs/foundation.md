@@ -18,7 +18,8 @@ An engine that runs **workflows made of coding agents**. A workflow is ordinary 
 opens agents, gives them work, waits for structured answers, and composes the results. The agents
 are real terminal coding agents — claude, codex, pi, cursor — driven through a configured session
 host. Herdr is the first run host; provider-specific launch and continuation stay behind that host.
-The workflow interface selects agent behavior, not terminal placement or process topology.
+The workflow interface selects agent behavior and whether an agent runs in a pane or headless, not
+which terminal or process topology provides it.
 
 The distinguishing constraint is that the workers are **non-deterministic processes that bill money
 and sometimes fail to answer**. That is not a normal task queue, and it drives most of what follows.
@@ -77,8 +78,9 @@ before any of the code here existed. Their raw rows are in `experiments/_archive
   it keeps the cache. Cold agents plus prefix caching beat forking in a pane by ~11x.
 - Schema constraints must be in the prompt, not just in the validator: 0/160 first-attempt validity
   without, 80/80 with — headless, one schema. Field-level error text costs 2.00 attempts against
-  2.90–4.95 for a bare refusal, worst case 11. **The runner still prompts through `describe()`, so
-  the engine reproduces the 0% arm today** — `docs/stories/todo/schema-in-prompt.md`.
+  2.90–4.95 for a bare refusal, worst case 11. The runner has sent the schema itself since
+  2026-09-24, with the value in a quoted heredoc: 20/20 valid first answers on headless codex
+  (story 002).
 - A tool call returning success is not evidence the model received anything. Confirm from the
   transcript.
 
@@ -193,9 +195,9 @@ sharper rule than "zero dependencies" and it is mechanically checkable. Formats 
 that reads and writes them does not.
 
 ```
-@wf/contract            core types and the usage record
+@wf/contract            core types
 @wf/contract/schema     validate, describe, formatErrors — pure
-@wf/contract/records    run-record and attempt *schemas*, and their version — not the file I/O
+@wf/contract/records    run-record formats (attempts, output.json, settled usage) and their version — not the file I/O
 @wf/contract/wire       control-plane messages, with runtime-decodable schemas
 @wf/contract/workflow   WorkflowContext, AgentRef, Messaging — what a workflow author imports
 ```
@@ -225,13 +227,17 @@ than selected as a per-agent terminal backend. Contains the provider-neutral lau
 conformance kit, run against the fake), and `usage/` — **extraction only**. Pricing and aggregation
 are policy and live elsewhere; see section 8.
 
-Terminal placement is run policy, not workflow intent. `pane | headless` does not belong in the
-author surface, runtime aliases, or resolved agent identity: exposing it let two logical peers use
-different lifecycle and observability models. Operator configuration installs one run host, and
-every logical agent in that run crosses the same host interface. The host may use different native
-provider commands internally, but inspection, authority, deadlines, cancellation, cleanup, and
-evidence remain symmetric. Swapping Herdr for another host must not change workflow definitions or
-runtime aliases.
+Placement is the agent's: `ExecutionConfig.placement` is `pane`, the default, or `headless`, and it
+is part of the resolved agent identity and every usage record. A workflow chooses it because it
+changes what an agent costs and how it can be continued: a headless claude is billed per token even
+on a subscription (E3), so it also needs `metered: true`. Runtime aliases name a harness and model
+only. This reverses an earlier rule that kept placement out of the author surface, so that two
+logical peers could not use different lifecycle and observability models; the human asked for
+per-agent placement in story 002. What remains of that rule: operator configuration still installs
+one run host, and every logical agent crosses the same host interface. That host sends each agent to
+the provider for its placement, and inspection, authority, deadlines, cancellation, cleanup, and
+evidence stay symmetric. Swapping Herdr for another pane provider must not change workflow
+definitions or runtime aliases.
 
 One run host owns one terminal group and its final cleanup. Logical-agent handles own continuity;
 each distinct operation receives fresh result authority and an operation pane. An initial prompt
@@ -452,10 +458,12 @@ It is also the most demanding consumer on the list, which makes it the useful on
 against. Four things follow, all cheap now and expensive later.
 
 **Everything it varies must be injectable, with workload and provisioning kept distinct.** An
-optimizer supplies runtime aliases and run policy programmatically. Harness, model, settings,
-skills, and tools are workload parameters. Terminal host/topology, authentication route, funding
-pool, and admission are operator provisioning and accounting policy. Both may vary per run without
-letting workflow code choose infrastructure. The alias table and run policy are arguments to the
+optimizer supplies runtime aliases and run policy programmatically. Harness, model, placement
+(pane or headless), settings, skills, and tools are workload parameters. Terminal host/topology,
+authentication route, funding pool, and admission are operator provisioning and accounting policy.
+A workflow's `metered: true` only consents to the funding consequence of a placement; the route and
+the pool stay the operator's. Both may vary per run without letting workflow code choose
+infrastructure. The alias table and run policy are arguments to the
 engine, not files it silently loads.
 
 **The engine needs a programmatic entry point.** Run a workflow with injected configuration, get a
@@ -504,9 +512,9 @@ their own formats. cursor records none anywhere, and Herdr reports no session re
 cursor pane either, so there is nothing to look up even if it did. Whatever reads those files
 belongs next to the adapter that knows which harness it is talking to — `harness/src/usage/`.
 
-**The record shape is not harness-specific, and it is the expensive thing to change.** `TurnUsage`
-lives in `contract` and records only what was observed: times, native sessions, billing mode,
-tokens by model and token class, and a charge only where an API billed one. If telemetry is
+**The record shape is not harness-specific, and it is the expensive thing to change.**
+`SettledOperation` lives in `contract` and records only what was observed: times, native sessions,
+billing mode, tokens by model and token class, and a charge only where one was billed per token. If telemetry is
 extracted later, the shape does not move and nothing downstream breaks.
 
 **Pricing and aggregation are policy, not observation, and they do not belong beside the
@@ -520,7 +528,7 @@ the adapter.
 `charged | list | estimated`, which cannot tell a metered charge from an imputed list-price value or
 name the price card behind it — and E3's whole finding is that those are different things. Story 002
 replaced it: `charged` is what an API billed, the list-price `estimate` exists only in the run's
-summary, and `billing` says whether the agent drew on a subscription or an API.
+summary, and `billing` says whether the agent drew on a subscription or was metered.
 
 What a package boundary actually buys is control over who may import something. Nothing here needs
 that: the engine and ad-hoc scripts should both be able to ask what a run cost. A boundary would
@@ -529,8 +537,8 @@ not have prevented E3's double-count either — tests did that, and tests do not
 **Where it sits meanwhile.** Session-file readers and billing in `harness/src/usage/`, handed to the
 engine by the run host (`AgentRunHostFactory.accounting`), because how an agent is launched decides
 who pays. Reading at run end and splitting spend between operations in `engine/src/run-usage.ts`.
-Prices and the summary in `engine/src/accounting/` — a pure internal module with no adapter
-imports, positioned to be lifted out whole. Spend-pool admission and budget enforcement are the
+Prices and the summary in `engine/src/accounting/` — pure, importing only the contract, and
+exported so a finished run can be priced again; positioned to be lifted out whole. Spend-pool admission and budget enforcement are the
 engine's proper. Nothing about pricing lives beside an adapter.
 
 **When it fires.** Two producers — the engine will emit records the harness knows nothing about

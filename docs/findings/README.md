@@ -37,9 +37,10 @@ Each of these survived the reports because nothing else in the repository holds 
 **Send the schema, not a rendering of it.** `describe()` renders the shape and drops `minimum`,
 `maximum`, `minItems`, `minLength` and `additionalProperties` — every constraint the validator
 enforces. First-attempt validity was 0/160 without the schema in the prompt and 80/80 with it. E5
-offered two fixes, widening `describe()` or appending the schema, and neither has been taken:
-`packages/engine/src/workflow-runner.ts` still prompts through `describe()`. Tracked in
-[`../stories/todo/schema-in-prompt.md`](../stories/todo/schema-in-prompt.md).
+offered two fixes, widening `describe()` or appending the schema. The second was taken on
+2026-09-24: the operation prompt carries the schema itself, and the value goes in a quoted heredoc
+rather than a quoted argument, which broke once on shell quoting. That prompt gave 20/20 valid
+first answers and no broken commands on headless codex (story 002, human review).
 
 **Keep the per-field error text anyway.** It costs 2.00 attempts against 2.90–4.95 for a bare
 refusal, worst case 11. It also steers the *value*, not only its shape: corrected values pin to the

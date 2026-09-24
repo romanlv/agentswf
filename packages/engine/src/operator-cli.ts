@@ -3,7 +3,9 @@ import { randomUUID } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
+import { OUTPUT_RECORD_VERSION, type OutputRecord } from "@wf/contract/records";
 import type { ExecutableWorkflow, JsonObject, JsonValue } from "@wf/contract/workflow";
+import { describeAccounting } from "./accounting/format";
 import { installOperatorRuntime, type OperatorRuntimeInstallation } from "./operator-runtime";
 import { assertJsonValue, loadWorkflowFile } from "./workflow-loader";
 import { runWorkflow, WorkflowCancelledError } from "./workflow-runner";
@@ -109,22 +111,23 @@ export async function runOperatorCli(
     });
     const artifacts = join(invocationRoot, result.runId);
     const report = await writeReport(loaded.executable, result.value, artifacts, stderr);
-    const json = JSON.stringify(
-      {
-        runId: result.runId,
-        workflow: {
-          name: loaded.executable.definition.meta.name,
-          file: loaded.file,
-        },
-        value: result.value,
-        usage: result.usage,
-        artifacts,
-        ...(report ? { report } : {}),
+    const record: OutputRecord = {
+      version: OUTPUT_RECORD_VERSION,
+      runId: result.runId,
+      workflow: {
+        name: loaded.executable.definition.meta.name,
+        file: loaded.file,
       },
-      null,
-      2,
-    );
+      value: result.value,
+      accounting: result.accounting,
+      usage: result.usage,
+      artifacts,
+      ...(report ? { report } : {}),
+    };
+    const json = JSON.stringify(record, null, 2);
     await writeFile(join(artifacts, "output.json"), `${json}\n`);
+    // Beside the result rather than in it: stdout stays the workflow's report or the JSON.
+    for (const line of describeAccounting(result.accounting)) stderr(line);
     output = command.json
       ? json
       : (present(loaded.executable, result.value, artifacts, report, stderr) ?? json);

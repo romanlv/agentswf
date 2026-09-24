@@ -40,6 +40,7 @@ export function future(milliseconds = 60_000): { unixMilliseconds: number } {
 export async function submit(
   binding: { endpoint: string; operationId: string },
   value: unknown,
+  session?: string,
 ): Promise<ResultSubmitResponse> {
   const response = await exchange(
     binding.endpoint,
@@ -47,6 +48,7 @@ export async function submit(
       version: WIRE_VERSION,
       operationId: binding.operationId,
       raw: JSON.stringify(value),
+      ...(session ? { session } : {}),
     })}\n`,
   );
   return JSON.parse(response) as ResultSubmitResponse;

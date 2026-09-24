@@ -242,7 +242,6 @@ describe("catalogue review report", () => {
       },
     ],
     failures: [{ stage: "lens", subject: "deploys", reason: "turn deadline exceeded" }],
-    usage: [],
   };
 
   test("the summary lists each finding to act on in a line, by file, and the failures", () => {
@@ -324,7 +323,6 @@ describe("catalogue review report", () => {
         },
       ],
       failures: [],
-      usage: [],
     });
     const lines = report.split("\n");
     expect(lines.every((line) => line.length <= 100)).toBe(true);

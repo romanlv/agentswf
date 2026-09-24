@@ -28,8 +28,7 @@ Raw notes on where awf could go. Not scope and not decisions: [`foundation.md`](
 - [ ] Observability.
 - [ ] Cost and timing — [story 002](../stories/002-cost-and-time-accounting.md).
 - [ ] Messaging as its own package? (§7 argues it cannot be one package.)
-- [ ] [Jev](https://typesafe.ai/blog/introducing-system-one-models-and-jev), a model that
-  classifies quickly and cheaply, as a step in a workflow? Experiment with it.
+- [ ] [Jev](https://typesafe.ai/blog/introducing-system-one-models-and-jev), a model that classifies quickly and cheaply, as a step in a workflow? Experiment with it.
 
 ## Evaluation and self-improvement
 
@@ -43,8 +42,7 @@ Raw notes on where awf could go. Not scope and not decisions: [`foundation.md`](
 ## Messaging
 
 Still not sure whether messaging can be its own tool. In theory, ad-hoc workflows can be
-implemented with messaging/signalling plus some prompts. Or maybe it is just one of the commands in
-the toolchain and can be integrated.
+implemented with messaging/signalling plus some prompts. Or maybe it is just one of the commands in the toolchain and can be integrated.
 
 ## Sandboxing
 
@@ -54,6 +52,17 @@ the workflows; postponed. ([`permissions.md`](permissions.md) has the design so 
 ## Memory
 
 Self-documenting and self-cleaning; maybe some kind of skills for now.
+
+## Events driven 
+agent session itself can generate events that other elements of the workflow can react to, so the agent keeps focusing on the task, but other parts of the workflow can be notified, to do other things. 
+Ideally it should be a context (meaning triggered) but not sure if it's possible or how to do it
+
+## Resumable workflows 
+if workflow died on specific step, it should be able to resume it from that step, without repeating from the start
+
+## Ready for loops 
+First class support to integrate with the loops (loop graphs). See where it stands
+
 
 ## Markdown linting and schema
 

@@ -3,7 +3,6 @@ import {
   type ExecutableWorkflow,
   isAnswered,
   type RuntimeSelection,
-  type TurnUsage,
   type WorkflowDefinition,
   type WorkflowInvocation,
   type WorkflowMeta,
@@ -56,7 +55,6 @@ export type MinimumReviewArgs = {
 export type MinimumReviewResult = {
   reviews: ReviewOutcome[];
   blockingFindingCount: number;
-  usage: TurnUsage[];
 };
 
 export type ReviewRuntimes = Readonly<Record<ReviewLens, RuntimeSelection>>;
@@ -114,7 +112,6 @@ export function createMinimumReview(
               : count,
           0,
         ),
-        usage: workflow.usage(),
       };
     },
   };

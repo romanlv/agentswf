@@ -75,6 +75,7 @@ describe("result slots", () => {
       kind: "accepted",
       value: persisted?.value,
       attemptRecorded: true,
+      acceptedAt: expect.any(Number),
     });
   });
 
@@ -331,11 +332,17 @@ describe("result slots", () => {
 
     const outcome = await slots.submit(answer());
 
-    expect(outcome).toEqual({ kind: "accepted", value: {}, attemptRecorded: false });
+    expect(outcome).toEqual({
+      kind: "accepted",
+      value: {},
+      attemptRecorded: false,
+      acceptedAt: NOW,
+    });
     await expect(binding.settled).resolves.toEqual({
       kind: "accepted",
       value: {},
       attemptRecorded: false,
+      acceptedAt: NOW,
     });
     expect(await readAccepted(runDir, "op-1")).toEqual({ value: {} });
   });
@@ -371,11 +378,13 @@ describe("result slots", () => {
       kind: "accepted",
       value: {},
       attemptRecorded: true,
+      acceptedAt: expect.any(Number),
     });
     await expect(binding.settled).resolves.toEqual({
       kind: "accepted",
       value: {},
       attemptRecorded: true,
+      acceptedAt: expect.any(Number),
     });
   });
 });

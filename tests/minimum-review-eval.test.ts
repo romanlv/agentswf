@@ -233,7 +233,7 @@ describe("minimum review live evaluation plan", () => {
           settle({
             state: "cancelled",
             resultEvidence: { kind: "unavailable" },
-            nativeUsage: [],
+            chargesUsd: [],
           });
           await Promise.resolve();
           if (releaseFailure === "rejected") throw new Error("release failed");

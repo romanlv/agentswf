@@ -406,7 +406,7 @@ export function observeTurn(
       settlement,
       state: outcome.state,
       ...(outcome.detail === undefined ? {} : { detail: outcome.detail }),
-      usageSamples: outcome.nativeUsage.length,
+      usageSamples: outcome.chargesUsd.length,
     });
   };
   void turn.settled
@@ -419,13 +419,13 @@ export function observeTurn(
     async nudge(spec) {
       return observeTurn(await turn.nudge(spec), "nudge", agent, harness, evidence);
     },
-    async release(reason, deadline): Promise<HarnessReleaseDisposition> {
+    async release(reason, deadline, options): Promise<HarnessReleaseDisposition> {
       releasePending = true;
       try {
-        const disposition = await turn.release(reason, deadline);
+        const disposition = await turn.release(reason, deadline, options);
         if (disposition.kind === "released") {
           record(disposition.outcome, "released");
-        } else if (!recorded) {
+        } else if (disposition.kind === "quarantined" && !recorded) {
           recorded = true;
           evidence.push({
             agent,

@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { runProcess } from "./command";
+import { type ProcessInput, runProcess, withholding } from "./command";
 
 test("child processes inherit no stale run binding", async () => {
   const names = ["WF_RUN", "WF_CALL"] as const;
@@ -23,4 +23,25 @@ test("child processes inherit no stale run binding", async () => {
       else process.env[name] = value;
     }
   }
+});
+
+test("withholding unsets the named variables and leaves everything else alone", async () => {
+  const seen: ProcessInput[] = [];
+  const run = withholding(
+    async (input) => {
+      seen.push(input);
+      return { stdout: "", stderr: "", exitCode: 0, timedOut: false };
+    },
+    ["OPENAI_API_KEY", "ANTHROPIC_API_KEY"],
+  );
+  await run({
+    argv: ["codex", "exec"],
+    timeoutMs: 1_000,
+    env: { OPENAI_API_KEY: "metered", TERM: "xterm-256color" },
+  });
+  expect(seen[0]?.env).toEqual({
+    OPENAI_API_KEY: undefined,
+    ANTHROPIC_API_KEY: undefined,
+    TERM: "xterm-256color",
+  });
 });

@@ -51,6 +51,15 @@ operator.
 Agent operations are cancelled on interruption. A custom trusted workflow remains responsible for
 bounding or cancelling any external asynchronous work it starts outside the workflow engine.
 
+## Smoke-test a harness
+
+`quick-check/` asks one agent per runtime named (codex when none is) questions with known answers,
+proving a harness, its result channel and the run's accounting for a few cents:
+
+```sh
+bun awf run examples/quick-check/workflow.ts -- codex pi
+```
+
 ## Other examples
 
 Each example that spans more than one file has a folder of its own, with its workflow in
@@ -65,8 +74,10 @@ Each example that spans more than one file has a folder of its own, with its wor
   the entry point. It prints a line per finding to act on, and writes `report.md` with the
   evidence, the verifier's reasons and what was refuted, to hand back to the implementer.
 - `feature-delivery/` is a typechecked design for planning, implementation, review, and revision.
+- `quick-check/` is the smoke test above.
 - `output-schema/` is the TypeBox-to-output-schema helper the workflows share, with its type tests.
 
-Only `minimum-review/review-loop.ts` has the executable default export required by `awf run`.
+Only `minimum-review/review-loop.ts` and `quick-check/workflow.ts` have the executable default
+export required by `awf run`.
 A catalogue review's entry point lives beside the catalogue it reads, outside this package, because
 reading one is I/O and a workflow here is pure.

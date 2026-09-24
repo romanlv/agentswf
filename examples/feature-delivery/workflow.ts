@@ -2,7 +2,6 @@ import {
   type AgentRef,
   isAnswered,
   type RuntimeSelection,
-  type TurnUsage,
   type WorkflowContext,
   type WorkflowDefinition,
 } from "@wf/contract/workflow";
@@ -74,23 +73,18 @@ type FeatureOutcome =
       docPath?: string;
     };
 
-type FeatureResult = FeatureOutcome & { usage: TurnUsage[] };
-
 type ReviewPass =
   | { kind: "ready"; summary: string; work: WorkUpdate }
   | { kind: "deferred"; reason: string; work: WorkUpdate };
 
-export const featureDelivery: WorkflowDefinition<FeatureArgs, FeatureResult> = {
+export const featureDelivery: WorkflowDefinition<FeatureArgs, FeatureOutcome> = {
   meta: {
     name: "feature-delivery",
     description: "Plan, implement, review, and prepare a feature for human review.",
     whenToUse: "Use when a ticket needs a verified plan before implementation begins.",
   },
 
-  async run(workflow, args) {
-    const result = await deliverFeature(workflow, args);
-    return { ...result, usage: workflow.usage() };
-  },
+  run: (workflow, args) => deliverFeature(workflow, args),
 };
 
 async function deliverFeature(

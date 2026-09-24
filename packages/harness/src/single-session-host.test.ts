@@ -41,6 +41,38 @@ describe("createSingleSessionHostFactory", () => {
     expect(host.inspect().state).toBe("closed");
   });
 
+  test("reports every native session its turns named, including turns that failed", async () => {
+    let turn = 0;
+    const adapter = createFakeAdapter({
+      script: () => {
+        turn += 1;
+        return turn === 1
+          ? { state: "failed" as const, sessionRef: "native-1" }
+          : { sessionRef: "native-2" };
+      },
+    });
+    const host = await createSingleSessionHostFactory(adapter).openRun({
+      runId: "run-1",
+      cwd: "/repo",
+      deadline: deadline(),
+    });
+    const session = await host.openAgent({
+      key: "reviewer",
+      cwd: "/repo",
+      deadline: deadline(),
+      execution: { harness: "fake", model: "one" },
+    });
+    const binding = (operationId: string) => ({ endpoint: "/unused", operationId });
+
+    await (await session.start({ id: "a", prompt: "A", deadline: deadline() }, binding("a")))
+      .settled;
+    await (await session.start({ id: "b", prompt: "B", deadline: deadline() }, binding("b")))
+      .settled;
+
+    expect(session.sessions?.()).toEqual(["native-1", "native-2"]);
+    await host.close("done");
+  });
+
   test("an activation that finishes after run close is closed and rejected", async () => {
     let releaseActivation!: () => void;
     const activationGate = new Promise<void>((resolve) => {

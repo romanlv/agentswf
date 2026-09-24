@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { AgentSessionAdapter, HarnessActivation } from "../adapter";
 import { type RunProcess, runProcess } from "../command";
+import { record } from "../json";
 import { createLegacyDriver } from "../legacy-driver";
 import { type ActivatedSessionBackend, createSessionAdapter } from "../session-core";
 import { HARNESS_NAMES, harnessSpec, knownHarness } from "../spec";
@@ -14,7 +15,6 @@ import {
   readId,
   readPaneId,
   readSessionRef,
-  record,
   safeAgentName,
   settledOutcome,
 } from "./herdr-protocol";
@@ -161,7 +161,7 @@ async function activateLegacyPane(
             ? { kind: "transcript" as const, text: transcript }
             : { kind: "unavailable" as const },
           ...(sessionRef ? { sessionRef } : {}),
-          nativeUsage: [],
+          chargesUsd: [],
         };
       } finally {
         if (active === controller) active = undefined;
