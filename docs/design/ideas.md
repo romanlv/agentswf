@@ -17,6 +17,7 @@ Raw notes on where awf could go. Not scope and not decisions: [`foundation.md`](
   versions, which are not the same. (§7: model request-vs-granted first.)
 - **Context usage.** Detect when an agent is in the dumb zone: what percentage of its context is
   used so far. (§7: `harness`, beside liveness and usage.)
+- agent to have custom skills, it can be a agent definition, with some random skill that will be applied only to this agent, inherit or not other skills etc...
 
 ## Workflows
 
@@ -26,7 +27,7 @@ Raw notes on where awf could go. Not scope and not decisions: [`foundation.md`](
 - [x] Monorepo structure with multiple packages.
 - [ ] Modular structure.
 - [ ] Observability.
-- [ ] Cost and timing — [story 002](../stories/002-cost-and-time-accounting.md).
+- [x] Cost and timing — [story 002](../stories/002-cost-and-time-accounting.md).
 - [ ] Messaging as its own package? (§7 argues it cannot be one package.)
 - [ ] [Jev](https://typesafe.ai/blog/introducing-system-one-models-and-jev), a model that classifies quickly and cheaply, as a step in a workflow? Experiment with it.
 
