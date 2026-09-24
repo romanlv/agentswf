@@ -3,7 +3,7 @@ id: "001"
 title: Run a minimum multi-agent review workflow
 summary: Prove that the engine can run parallel review agents and compose accepted structured results.
 type: story
-status: in-progress
+status: done
 depends_on: []
 ---
 
@@ -19,17 +19,16 @@ This is the first usable end-to-end proof of the engine.
 
 ## Where it stands
 
-All eight tasks are implemented. The automated suite is green on the current code. The live runs
-passed on 2026-09-18, but they ran before the return channel was redesigned on 2026-09-22 and before
-the cleanup that followed it. So the live evidence below describes older code.
+All eight tasks are implemented. The automated suite and the live acceptance both pass on current
+`main` (2026-09-24). Approved 2026-09-24.
 
 - [x] 1–8. Tasks implemented and reviewed (see [Tasks](#tasks)).
-- [x] Automated verification on current code: 303 pass, 0 fail. Type check and boundary check are
-  green.
+- [x] Automated verification on current code: 432 pass, 0 fail. Lint, type check and boundary check
+  are green.
 - [x] Merged into `main`.
-- [ ] Re-run live acceptance on `main`. This spends subscription usage.
-- [ ] Set status to `awaiting-human-review` and present the story.
-- [ ] Human approval, then mark `done` and update the
+- [x] Re-run live acceptance on `main` (2026-09-24, at `de11618`).
+- [x] Set status to `awaiting-human-review` and present the story.
+- [x] Human approval, then mark `done` and update the
   [Stories at a glance](README.md#stories-at-a-glance) index.
 
 ## Scope
@@ -167,32 +166,37 @@ The earlier per-task review record can be read with
 
 ## Verification
 
-Automated, on the current code (2026-09-22):
+Automated, on the current code (2026-09-24, `de11618`):
 
-- [x] `bun test` — 303 pass, 0 fail.
-- [x] Focused: `herdr.test.ts` 45, `herdr-contract.test.ts` 10, `tests/minimum-review.test.ts` 5,
-  `tests/operator-cli.test.ts` 11. All pass.
-- [x] `bun run ts-check` and `bun run scripts/check-boundaries.ts`.
+- [x] `bun test` — 432 pass, 0 fail.
+- [x] `bun run check` — Biome, `tsc --noEmit` and the boundaries.
 
-Live, on subscription sessions. These are **stale**, because they ran before the 2026-09-22 return
-channel redesign:
+Live, on subscription sessions (2026-09-24, `de11618`; Herdr 0.8.2, Claude Code 2.1.281, codex-cli
+0.156.1):
 
-- [ ] `bun tests/minimum-review.eval.ts --dry-run`. The preflight checks include both subscription
-  logins and confirm that no metered credential is present.
-- [ ] `WF_LIVE_EVAL=1 bun tests/minimum-review.eval.ts`. Both reviews must complete in lens order,
-  and the repository fingerprint must be unchanged.
-- [ ] `bun run awf run --timeout 10m examples/minimum-review/review-loop.ts --
-  examples/minimum-review/fixtures/review-target.ts`.
-  It should exit zero with its artifacts under `~/.awf/runs/`.
-- [ ] Cleanup: `herdr workspace list` shows no run workspace, and the working tree is unchanged.
+- [x] `bun tests/minimum-review.eval.ts --dry-run`. Every preflight check passes, including both
+  subscription logins, and no metered credential is present.
+- [x] `WF_LIVE_EVAL=1 bun tests/minimum-review.eval.ts`. Both reviews completed in lens order in
+  36 s, and the repository fingerprint was unchanged.
+- [x] `bun run awf run --timeout 10m examples/minimum-review/review-loop.ts --
+  examples/minimum-review/fixtures/review-target.ts`. It exited zero in 39 s with its artifacts under
+  `~/.awf/runs/`. Its accounting recorded subscription billing and each agent's tokens.
+- [x] Cleanup: `herdr workspace list` matches its state before the runs, and the working tree is
+  unchanged.
 
-The last passing live runs were on 2026-09-18, using Herdr 0.8.2, Claude Code 2.1.276, and codex-cli
-0.154.0: six in a row, taking 57 s to 218 s. Every one reported `usageSamples: 0`.
+Seen in the eval run, neither a failure:
+
+- Herdr reported codex `done` before its result was accepted, which armed the nudge. The result
+  arrived and the nudge was cancelled. Lifecycle state is telemetry, as [Settlement](#settlement)
+  says; this is the case it anticipates.
+- The eval's usage report shows zero tokens and `billing: unknown`: its own `liveRuntime` does not
+  read session files the way `awf run` does since story 002.
+
+The earlier passing live runs, on 2026-09-18 before the return-channel redesign, were six in a row
+taking 57 s to 218 s.
 
 ## Remaining risks
 
-- The pane path reports no usage, so a run's own evidence cannot bound what it spends. Story 002
-  closes this by reading each agent's session files when the run ends.
 - A pane agent takes one operation. Multi-turn pane workflows wait on verified pane release and an
   identity observer.
 - Agents have broad local authority. There is no OS-level sandbox, and telling reviewers not to
@@ -214,4 +218,4 @@ Follow-ups in [`todo/`](todo/):
 
 ## Human review
 
-Not started. Record approval or requested changes here.
+Approved 2026-09-24, on the live acceptance re-run above.

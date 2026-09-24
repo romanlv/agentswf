@@ -38,15 +38,14 @@ The gates are defined in [`foundation.md`](foundation.md) §12.
 | D — fix the author surface in place | done |
 | 0 — skeleton and move | done |
 | 1 — the harness stands alone | in progress: no standalone command is accepted yet |
-| 2 — minimum engine and control plane | implemented; live acceptance waits on story 001's re-run |
+| 2 — minimum engine and control plane | done (story 001) |
 | 3 — measure and run something real | in progress: catalogue review runs; accounting done (story 002); E4 not run |
 | 4 — messaging, composition, checkpoints, then the journal | not started |
 
 ## Stories
 
-- [001 — minimum multi-agent review](stories/001-multi-agent-review.md): all tasks implemented. The
-  live runs are stale since the return-channel redesign of 2026-09-22 and must be re-run before
-  human review.
+- [001 — minimum multi-agent review](stories/001-multi-agent-review.md): done, approved
+  2026-09-24 after its live acceptance was re-run on current code.
 - [002 — cost and time accounting](stories/002-cost-and-time-accounting.md): done, approved
   2026-09-24. It also added per-agent placement (pane or headless) and multi-turn headless
   sessions, and changed the result prompt to a quoted heredoc carrying the schema.
@@ -55,8 +54,7 @@ The inbox of possible stories is [`stories/todo/`](stories/todo/).
 
 ## Next
 
-1. Re-run story 001's live acceptance on current code and close it.
-2. The first autoresearch loop over catalogue-review variants, in this repository
+1. The first autoresearch loop over catalogue-review variants, in this repository
    ([ADR 0002](adr/0002-autoresearch-lives-here.md)), scored against merged MRs replayed as they
    were when review started. In order:
    [`failed-run-accounting`](stories/todo/failed-run-accounting.md) and
