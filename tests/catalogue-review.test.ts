@@ -80,7 +80,7 @@ describe("catalogue review entry point", () => {
     expect(matchesAny("dbx/a.sql", ["db/**"])).toBe(false);
   });
 
-  test("verifies the most severe findings first, observations included, on the verifier runtime", async () => {
+  test("verifies the most severe findings first, observations included, on the verifier runtime, and a lens runs on its own runtime", async () => {
     const raw = (severity: string, line: number) => ({
       source: "catalogue",
       rule: "idempotent migrations",
@@ -108,7 +108,7 @@ describe("catalogue review entry point", () => {
     const judged = defineCatalogueReview({
       name: "catalogue-review",
       description: "fixture",
-      lenses: LENSES,
+      lenses: [LENSES[0]!, { ...LENSES[1]!, runtime: "cheap" }],
       verifierRuntime: "judge",
       maxVerifyPerLens: 1,
     });
@@ -139,7 +139,7 @@ describe("catalogue review entry point", () => {
       adapter.activations
         .filter((activation) => activation.key.startsWith(key))
         .map((activation) => activation.execution.model);
-    expect(models("lens:")).toEqual(["fake", "fake"]);
+    expect(models("lens:")).toEqual(["fake", "cheap"]);
     expect(models("verifier:")).toEqual(["judge", "judge"]);
   });
 
@@ -335,6 +335,7 @@ function runtime(adapter: AgentSessionAdapter): AgentRuntimeConfig {
     aliases: {
       claude: { harness: "fake", model: "fake" },
       judge: { harness: "fake", model: "judge" },
+      cheap: { harness: "fake", model: "cheap" },
     },
     host: createSingleSessionHostFactory(adapter),
   };

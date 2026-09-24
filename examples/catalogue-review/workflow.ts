@@ -23,6 +23,8 @@ export type Lens = LensSource & {
   id: string;
   /** Globs over repository paths; the lens runs only when the diff touches a match. Absent: always. */
   paths?: string[];
+  /** The workflow's lens runtime when absent. */
+  runtime?: RuntimeSelection;
 };
 
 type Finding = RawFinding & { lens: string; page: string };
@@ -145,7 +147,7 @@ async function runLens(
     const reviewer = await workflow.agents.open({
       key: `lens:${lens.id}`,
       instructions: `Apply only the ${lens.id} lens from ${lens.page}. ${READ_ONLY}`,
-      runtime: args.runtime,
+      runtime: lens.runtime ?? args.runtime,
       labels: { lens: lens.id },
     });
     const { outcome } = await reviewer.run({

@@ -2,7 +2,7 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import type { ProcessInput, ProcessResult, RunProcess } from "@wf/harness";
-import { installOperatorRuntime } from "./operator-runtime";
+import { herdrSession, installOperatorRuntime } from "./operator-runtime";
 
 describe("operator runtime", () => {
   const before = new Set(readdirSync(tmpdir()).filter((name) => name.startsWith("awf-agent-bin-")));
@@ -44,7 +44,8 @@ describe("operator runtime", () => {
     const calls: ProcessInput[] = [];
     const installed = await installOperatorRuntime(60_000, {
       run: subscriptionRunner(calls),
-      environment: {},
+      // Inside a Herdr pane, where a pane agent would look its session up.
+      environment: { HERDR_SOCKET_PATH: "/h/herdr.sock" },
     });
     try {
       const { host: factory } = installed.config;
@@ -99,6 +100,30 @@ describe("operator runtime", () => {
     } finally {
       await installed.cleanup();
     }
+  });
+
+  test("agents open in the Herdr session awf runs in, unless AWF_HERDR_SESSION names one", async () => {
+    const listed = JSON.stringify({
+      sessions: [
+        { name: "default", socket_path: "/h/herdr.sock" },
+        { name: "review-loop", socket_path: "/h/sessions/review-loop/herdr.sock" },
+      ],
+    });
+    const calls: string[] = [];
+    const run: RunProcess = async (input) => {
+      calls.push(input.argv.join(" "));
+      return success(listed);
+    };
+    const inPane = { HERDR_SOCKET_PATH: "/h/sessions/review-loop/herdr.sock" };
+
+    expect(await herdrSession(run, inPane)).toBe("review-loop");
+    expect(calls).toEqual(["herdr session list --json"]);
+    expect(await herdrSession(run, { ...inPane, AWF_HERDR_SESSION: "wf-lab" })).toBe("wf-lab");
+    expect(await herdrSession(run, {})).toBe("default");
+    expect(calls).toHaveLength(1);
+    await expect(herdrSession(run, { HERDR_SOCKET_PATH: "/elsewhere.sock" })).rejects.toThrow(
+      "no Herdr session owns /elsewhere.sock",
+    );
   });
 
   test("refuses a subscription runtime when metered credentials are configured", async () => {

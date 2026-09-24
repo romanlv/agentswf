@@ -1,5 +1,6 @@
 #!/usr/bin/env bun
 import { randomUUID } from "node:crypto";
+import { statSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
@@ -7,23 +8,32 @@ import { OUTPUT_RECORD_VERSION, type OutputRecord } from "@wf/contract/records";
 import type { ExecutableWorkflow, JsonObject, JsonValue } from "@wf/contract/workflow";
 import { describeAccounting } from "./accounting/format";
 import { installOperatorRuntime, type OperatorRuntimeInstallation } from "./operator-runtime";
+import { ANSI, PLAIN, progressEvents, renderProgress } from "./progress-view";
 import { assertJsonValue, loadWorkflowFile } from "./workflow-loader";
-import { runWorkflow, WorkflowCancelledError } from "./workflow-runner";
+import {
+  startWorkflow,
+  WorkflowCancelledError,
+  type WorkflowRunHandle,
+  type WorkflowRunSnapshot,
+} from "./workflow-runner";
 
 const DEFAULT_TIMEOUT_MILLISECONDS = 30 * 60_000;
 
 const usage = [
-  "usage: awf run [--timeout <duration>] [--run-root <directory>] [--json] <workflow-file> [--] [workflow arguments...]",
+  "usage: awf run [options] <workflow-file> [options] [-- workflow arguments...]",
+  "options: --timeout <duration>, --run-root <directory>, --cwd <directory>, --json",
   "",
   "The deadline defaults to 30m. Run artifacts go to ~/.awf/runs unless --run-root says otherwise.",
   "A workflow that knows how to present its result prints that; --json prints the full result instead.",
   "Either way the full result is kept as output.json among the run's artifacts, beside report.md",
   "when the workflow writes one.",
+  "--cwd sets the directory the workflow and its agents work in; it defaults to the current one.",
   "",
   "Examples:",
   "  awf run examples/minimum-review/review-loop.ts",
   "  awf run --timeout 20m examples/minimum-review/review-loop.ts",
   "  awf run examples/minimum-review/review-loop.ts -- packages/engine/src",
+  "  awf run examples/minimum-review/review-loop.ts --cwd ../other-repo",
   "",
   "Workflow files are trusted code and run with your filesystem and process authority.",
 ].join("\n");
@@ -36,6 +46,8 @@ type OperatorEnvironment = {
   stderr?: (text: string) => void;
   installRuntime?: (timeoutMilliseconds: number) => Promise<OperatorRuntimeInstallation>;
   signal?: AbortSignal;
+  /** Given, progress is redrawn in place on it; otherwise each change is a line on stderr. */
+  terminal?: { write(text: string): void; color: boolean };
 };
 
 export async function runOperatorCli(
@@ -44,6 +56,14 @@ export async function runOperatorCli(
 ): Promise<number> {
   const stdout = environment.stdout ?? ((text) => console.log(text));
   const stderr = environment.stderr ?? ((text) => console.error(text));
+  const terminal =
+    environment.terminal ??
+    (!environment.stderr && process.stderr.isTTY
+      ? {
+          write: (text: string) => void process.stderr.write(text),
+          color: !process.env.NO_COLOR,
+        }
+      : undefined);
   let command: RunCommand;
   try {
     command = parseCommand(argv, environment.cwd ?? process.cwd(), environment.home ?? homedir());
@@ -56,7 +76,7 @@ export async function runOperatorCli(
   const deadline = { unixMilliseconds: startedAt + command.timeoutMilliseconds };
   let loaded: Awaited<ReturnType<typeof loadWorkflowFile>>;
   try {
-    loaded = await loadWorkflowFile(command.workflowFile, command.cwd);
+    loaded = await loadWorkflowFile(command.workflowFile, command.shellCwd);
   } catch (error) {
     stderr(`awf: load: ${message(error)}`);
     return 2;
@@ -100,15 +120,27 @@ export async function runOperatorCli(
   try {
     await mkdir(invocationRoot, { recursive: true });
     invocationRootCreated = true;
-    const result = await runWorkflow(loaded.executable.definition, args, {
-      runRoot: invocationRoot,
-      runtime: installed.config,
-      deadline,
-      cwd: command.cwd,
-      ...(environment.signal ? { signal: environment.signal } : {}),
-      onLog: (logMessage, fields?: JsonObject) =>
-        stderr(fields ? `${logMessage} ${JSON.stringify(fields)}` : logMessage),
+    const progress = watchProgress(loaded.executable.definition.meta.name, startedAt, {
+      stderr,
+      terminal,
+      now: environment.now ?? Date.now,
     });
+    let result: Awaited<WorkflowRunHandle<JsonValue>["result"]>;
+    try {
+      const handle = await startWorkflow(loaded.executable.definition, args, {
+        runRoot: invocationRoot,
+        runtime: installed.config,
+        deadline,
+        cwd: command.cwd,
+        ...(environment.signal ? { signal: environment.signal } : {}),
+        onLog: (logMessage, fields?: JsonObject) =>
+          progress.log(fields ? `${logMessage} ${JSON.stringify(fields)}` : logMessage),
+      });
+      progress.watch(handle);
+      result = await handle.result;
+    } finally {
+      progress.stop();
+    }
     const artifacts = join(invocationRoot, result.runId);
     const report = await writeReport(loaded.executable, result.value, artifacts, stderr);
     const record: OutputRecord = {
@@ -167,12 +199,75 @@ export async function runOperatorCli(
   return 0;
 }
 
+/**
+ * Polls the run's snapshot. On a terminal it keeps one block redrawn under the log; elsewhere it
+ * writes a line per change, so a log file or a calling agent reads what happened and when.
+ */
+function watchProgress(
+  name: string,
+  startedAt: number,
+  output: {
+    stderr: (text: string) => void;
+    terminal: OperatorEnvironment["terminal"];
+    now: () => number;
+  },
+) {
+  const { stderr, terminal, now } = output;
+  let handle: WorkflowRunHandle<JsonValue> | undefined;
+  let last: WorkflowRunSnapshot | undefined;
+  let drawn = 0;
+  const clear = () => {
+    if (terminal && drawn > 0) terminal.write(`\x1b[${drawn}F\x1b[0J`);
+    drawn = 0;
+  };
+  const tick = () => {
+    if (!handle) return;
+    const snapshot = handle.inspect();
+    if (terminal) {
+      const lines = renderProgress(snapshot, {
+        name,
+        startedAt,
+        now: now(),
+        paint: terminal.color ? ANSI : PLAIN,
+      });
+      clear();
+      terminal.write(`${lines.join("\n")}\n`);
+      drawn = lines.length;
+    } else {
+      for (const line of progressEvents(last, snapshot, { startedAt, now: now() })) stderr(line);
+    }
+    last = snapshot;
+  };
+  // Lines too long for the terminal are clipped rather than wrapped, so the redraw stays exact.
+  terminal?.write("\x1b[?25l\x1b[?7l");
+  const timer = setInterval(tick, terminal ? 100 : 1000);
+  return {
+    watch(started: WorkflowRunHandle<JsonValue>) {
+      handle = started;
+      tick();
+    },
+    log(text: string) {
+      clear();
+      stderr(text);
+      if (terminal) tick();
+    },
+    stop() {
+      clearInterval(timer);
+      tick();
+      terminal?.write("\x1b[?7h\x1b[?25h");
+    },
+  };
+}
+
 function interrupted(signal: AbortSignal, stderr: (line: string) => void): number {
   stderr("awf: run cancelled before it started");
   return signal.reason === "SIGTERM" ? 143 : 130;
 }
 
 type RunCommand = {
+  /** Where paths typed on the command line resolve. */
+  shellCwd: string;
+  /** Where the workflow and its agents work. */
   cwd: string;
   workflowFile: string;
   workflowArgs: string[];
@@ -187,34 +282,50 @@ function parseCommand(argv: readonly string[], cwd: string, home: string): RunCo
   // Not under the working directory: that is usually the repository the workflow is looking at.
   let runRoot = join(home, ".awf/runs");
   let json = false;
+  let workCwd = cwd;
+  let workflowFile: string | undefined;
+  // awf's own options may come before or after the workflow file; only `--` ends them.
   let index = 1;
-  while (argv[index]?.startsWith("--") && argv[index] !== "--") {
-    const option = argv[index];
-    const value = argv[index + 1];
-    if (option === "--json") {
-      json = true;
-      index += 1;
+  for (; index < argv.length && argv[index] !== "--"; index += 1) {
+    const option = argv[index]!;
+    if (!option.startsWith("--")) {
+      if (workflowFile !== undefined) throw new Error("put -- before workflow arguments");
+      workflowFile = option;
       continue;
     }
+    if (option === "--json") {
+      json = true;
+      continue;
+    }
+    const value = argv[index + 1];
     if (option === "--timeout") {
       if (!value) throw new Error("--timeout needs a duration such as 30m");
       timeoutMilliseconds = parseDuration(value);
     } else if (option === "--run-root") {
       if (!value) throw new Error("--run-root needs a directory");
       runRoot = resolve(cwd, value);
+    } else if (option === "--cwd") {
+      if (!value) throw new Error("--cwd needs a directory");
+      workCwd = resolve(cwd, value);
+      if (!statSync(workCwd, { throwIfNoEntry: false })?.isDirectory()) {
+        throw new Error(`--cwd: not a directory: ${workCwd}`);
+      }
     } else {
-      throw new Error(`unknown option: ${option}`);
+      throw new Error(`unknown option: ${option}; put workflow arguments after --`);
     }
-    index += 2;
+    index += 1;
   }
-  const workflowFile = argv[index];
-  if (!workflowFile || workflowFile === "--") throw new Error("run needs one workflow file");
-  index += 1;
-  if (argv[index] !== undefined && argv[index] !== "--") {
-    throw new Error("put -- before workflow arguments");
-  }
-  const workflowArgs = argv[index] === "--" ? argv.slice(index + 1) : [];
-  return { cwd, workflowFile, workflowArgs, timeoutMilliseconds, runRoot, json };
+  if (!workflowFile) throw new Error("run needs one workflow file");
+  const workflowArgs = argv.slice(index + 1);
+  return {
+    shellCwd: cwd,
+    cwd: workCwd,
+    workflowFile,
+    workflowArgs,
+    timeoutMilliseconds,
+    runRoot,
+    json,
+  };
 }
 
 function present(

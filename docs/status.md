@@ -10,7 +10,10 @@ exists, the code is right, then this page.
   in the workflow: a pane agent gets a tab in the run's one Herdr workspace, and a headless agent
   runs as a subprocess per turn that resumes one native session. claude and codex run in panes;
   codex and pi run headless. A headless claude needs `metered: true`, as `claude -p` bills per
-  token even on a subscription login.
+  token even on a subscription login. Pane agents open in the Herdr session `awf run` is started
+  from (`AWF_HERDR_SESSION` overrides it), and `--cwd` sets the directory the workflow works in.
+- While it runs, `awf run` shows each labelled `parallel` stage and its agents' turns: a block
+  redrawn in place on a terminal, a line per change otherwise.
 - Each agent answers through `wf result`, over a socket the engine opened for that agent alone. At
   most one result is accepted per operation, validated against its schema, with one nudge when an
   agent goes quiet without answering.

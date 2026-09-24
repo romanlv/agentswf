@@ -72,6 +72,10 @@ describe("awf run", () => {
     expect(exitCode).toBe(0);
     // Sonnet 5 at $2/$0.20/$10 and gpt-5.6-sol at $4/$0.40/$20 per million: $0.0088 + $0.0176.
     expect(errors).toEqual([
+      "[0:00] ▶ Minimum review (2)",
+      "[0:00] ✓ reviewer:correctness · 0s",
+      "[0:00] ✓ reviewer:maintainability · 0s",
+      "[0:00] ■ Minimum review done 2/2 in 0s",
       expect.stringMatching(
         /^2 agents · \d+s · 21k tokens \(18k cached\) · ~\$0\.03 at list prices 2026-09-23 · subscription · usage known 2\/2$/,
       ),
@@ -163,8 +167,9 @@ describe("awf run", () => {
       "codex: wrong (390), then right (400)",
       "pi: right (391), then right (400)",
     ]);
-    expect(errors[0]).toMatch(/^2 agents · .* · usage known 2\/2/);
-    expect(errors[1]).toMatch(/^ {2}check {2}2 agents/);
+    const accounting = errors.filter((line) => !line.startsWith("["));
+    expect(accounting[0]).toMatch(/^2 agents · .* · usage known 2\/2/);
+    expect(accounting[1]).toMatch(/^ {2}check {2}2 agents/);
   });
 
   test("quick-check refuses a runtime it does not know", async () => {
@@ -218,6 +223,14 @@ describe("awf run", () => {
         text: "put -- before workflow arguments",
       },
       { argv: ["run", "missing-workflow.ts"], text: "workflow file not found" },
+      {
+        argv: ["run", "--cwd", "no-such-directory", "examples/minimum-review/review-loop.ts"],
+        text: "--cwd: not a directory",
+      },
+      {
+        argv: ["run", "examples/minimum-review/review-loop.ts", "--lenses", "authz"],
+        text: "unknown option: --lenses; put workflow arguments after --",
+      },
       {
         argv: ["run", "examples/minimum-review/review-loop.ts", "--", "one", "two"],
         text: "review-loop accepts at most one target",
@@ -325,6 +338,55 @@ describe("awf run", () => {
     expect(timeout).toBe(30 * 60_000);
     expect(existsSync(join(home, ".awf/runs"))).toBe(true);
     expect(existsSync(join(cwd, ".awf"))).toBe(false);
+  });
+
+  test("--cwd, before or after the workflow file, moves where the workflow works; command-line paths stay relative to the shell", async () => {
+    const shell = runDirs.tempRunDir();
+    const target = runDirs.tempRunDir();
+    await Bun.write(
+      join(shell, "where.js"),
+      executableModule("return invocation.cwd;", "return args;")
+        .replace("run()", "run(_workflow, args)")
+        .replace("prepare()", "prepare(invocation)"),
+    );
+    const output: string[] = [];
+
+    const exitCode = await runOperatorCli(
+      ["run", "--run-root", "runs", "where.js", "--cwd", target, "--json"],
+      { cwd: shell, stdout: (text) => output.push(text), installRuntime: emptyRuntime },
+    );
+
+    expect(exitCode).toBe(0);
+    expect(JSON.parse(output.join("")).value).toBe(target);
+    expect(existsSync(join(shell, "runs"))).toBe(true);
+  });
+
+  test("on a terminal, progress is one block redrawn under the log, and the terminal is restored", async () => {
+    const root = runDirs.tempRunDir();
+    const workflow = join(root, "logs.js");
+    await Bun.write(
+      workflow,
+      executableModule("return null;", 'workflow.log("halfway"); return 1;').replace(
+        "run()",
+        "run(workflow)",
+      ),
+    );
+    const drawn: string[] = [];
+    const errors: string[] = [];
+
+    const exitCode = await runOperatorCli(["run", "--run-root", runDirs.tempRunDir(), workflow], {
+      cwd: ROOT,
+      stderr: (text) => errors.push(text),
+      terminal: { write: (text) => drawn.push(text), color: false },
+      installRuntime: emptyRuntime,
+    });
+
+    expect(exitCode).toBe(0);
+    expect(errors[0]).toBe("halfway");
+    expect(errors.some((line) => line.startsWith("["))).toBe(false);
+    expect(drawn[0]).toBe("\x1b[?25l\x1b[?7l");
+    expect(drawn.at(-1)).toBe("\x1b[?7h\x1b[?25h");
+    expect(drawn.at(-2)).toMatch(/^fixture · \d+s\n$/);
   });
 
   test("prints what the workflow presents, or the JSON with --json, and keeps the JSON and report either way", async () => {

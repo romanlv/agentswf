@@ -31,10 +31,10 @@ export async function installOperatorRuntime(
   const { run = runProcess, environment = process.env } = options;
   const unmetered = withholding(run, METERED_CREDENTIAL_ENVIRONMENT);
   await assertSubscriptionAuthentication(unmetered, environment);
-  const host = createPlacementHostFactory({
-    pane: createHerdrRunHostFactory(
+  const panes = (session: string) =>
+    createHerdrRunHostFactory(
       {
-        session: environment.AWF_HERDR_SESSION || "default",
+        session,
         workspaceLabel: "awf run",
         commandTimeoutMs: Math.min(timeoutMilliseconds, 150_000),
         settleTimeoutMs: timeoutMilliseconds,
@@ -42,7 +42,15 @@ export async function installOperatorRuntime(
         acceptWorkspaceTrust: true,
       },
       run,
-    ),
+    );
+  const { accounting } = panes("default");
+  const host = createPlacementHostFactory({
+    // The session is looked up when the first pane agent opens, so an all-headless run never
+    // calls Herdr.
+    pane: {
+      ...(accounting ? { accounting } : {}),
+      openRun: async (spec) => panes(await herdrSession(run, environment)).openRun(spec),
+    },
     headless: createHeadlessRunHostFactory({ turnTimeoutMs: timeoutMilliseconds }, unmetered),
   });
   return {
@@ -63,6 +71,34 @@ export async function installOperatorRuntime(
     // socket, and the control plane removes both when the run closes.
     cleanup: async () => undefined,
   };
+}
+
+/**
+ * `AWF_HERDR_SESSION` when set; otherwise the session of the pane awf runs in, so its agents open
+ * beside it; `default` outside Herdr.
+ */
+export async function herdrSession(
+  run: RunProcess,
+  environment: Readonly<Record<string, string | undefined>>,
+): Promise<string> {
+  if (environment.AWF_HERDR_SESSION) return environment.AWF_HERDR_SESSION;
+  const socket = environment.HERDR_SOCKET_PATH;
+  if (!socket) return "default";
+  const listed = await run({ argv: ["herdr", "session", "list", "--json"], timeoutMs: 10_000 });
+  let sessions: { name?: unknown; socket_path?: unknown }[] = [];
+  if (listed.exitCode === 0) {
+    try {
+      sessions = JSON.parse(listed.stdout).sessions ?? [];
+    } catch {}
+  }
+  const name = sessions.find((session) => session.socket_path === socket)?.name;
+  // Falling back to `default` would put the agents in a session nobody is looking at.
+  if (typeof name !== "string") {
+    throw new Error(
+      `no Herdr session owns ${socket} (\`herdr session list --json\`); set AWF_HERDR_SESSION`,
+    );
+  }
+  return name;
 }
 
 const METERED_CREDENTIAL_ENVIRONMENT = [

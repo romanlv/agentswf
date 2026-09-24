@@ -62,6 +62,7 @@ import {
   type ResultSlotSettlement,
 } from "./result-slots";
 import { createRunDir } from "./run-dir";
+import { type AgentProgress, RunProgress, type StageProgress } from "./run-progress";
 import { type AgentLedger, createRunLedger, type RunLedger } from "./run-usage";
 
 export { WorkflowCancelledError } from "./deadlines";
@@ -99,7 +100,9 @@ export type WorkflowRunHandle<Result extends JsonValue> = {
 
 export type WorkflowRunSnapshot = {
   state: "starting" | "running" | "closing" | "closed";
-  agents: readonly {
+  /** Labelled `parallel` calls, in the order they began. */
+  stages: readonly StageProgress[];
+  agents: readonly (Partial<AgentProgress> & {
     key: AgentKey;
     execution: AgentExecution;
     state:
@@ -113,7 +116,7 @@ export type WorkflowRunSnapshot = {
       | "unknown";
     observedAt: number;
     detail?: string;
-  }[];
+  })[];
 };
 
 type AgentEntry = {
@@ -175,7 +178,9 @@ export async function startWorkflow<Args extends JsonValue, Result extends JsonV
     throw error;
   }
   const ledger = createRunLedger({ accounting: options.runtime.host.accounting, startedAt });
+  const progress = new RunProgress();
   const owner = new WorkflowOwner({
+    progress,
     runId,
     cwd,
     deadline: options.deadline,
@@ -256,7 +261,15 @@ export async function startWorkflow<Args extends JsonValue, Result extends JsonV
   return {
     runId,
     result,
-    inspect: () => structuredClone(host.inspect()),
+    inspect: () => {
+      const { state, agents } = structuredClone(host.inspect());
+      const known = progress.snapshot();
+      return {
+        state,
+        stages: known.stages,
+        agents: agents.map((agent) => ({ ...known.agents.get(agent.key), ...agent })),
+      };
+    },
     async stop(reason) {
       stopped.abort(reason);
       try {
@@ -285,6 +298,7 @@ class WorkflowOwner {
       slots: ResultSlotRegistry;
       control: ResultControlPlane;
       ledger: RunLedger;
+      progress: RunProgress;
       onLog?: RunWorkflowOptions["onLog"];
     },
   ) {
@@ -318,7 +332,10 @@ class WorkflowOwner {
         const deadline = parallelOptions?.deadline
           ? earlierDeadline(parallelOptions.deadline, inherited)
           : inherited;
-        return runParallel(items, operation, deadline, parallelOptions?.concurrency);
+        const label = parallelOptions?.label;
+        return runParallel(items, operation, deadline, parallelOptions?.concurrency, () =>
+          label === undefined ? undefined : options.progress.stage(label, items.length),
+        );
       },
       call: () => unavailable("call"),
       usage: () => options.ledger.records(),
@@ -385,6 +402,7 @@ class WorkflowOwner {
       return attached;
     }
 
+    this.options.progress.agentOpened(spec.key, scope?.stage);
     // Opened before the session so registration below stays synchronous: two concurrent `agent()`
     // calls for one key must not each build an agent.
     const launcherSessions = new Set<string>();
@@ -444,6 +462,7 @@ class WorkflowOwner {
           launcher,
           deadline: this.options.deadline,
           ledger,
+          progress: this.options.progress,
           track: (promise) => this.track(promise),
           isRunClosing: () => this.#closed,
         });
@@ -494,6 +513,7 @@ class LogicalAgent implements AgentRef {
       launcher: string;
       deadline: AbsoluteDeadline;
       ledger: AgentLedger;
+      progress: RunProgress;
       track<T>(promise: Promise<T>): Promise<T>;
       isRunClosing(): boolean;
     },
@@ -561,7 +581,17 @@ class LogicalAgent implements AgentRef {
         throw new Error("logical agent is closed");
       }
       scope?.assertActive();
-      return this.executeOperation(completeSpec, scope, deadline);
+      const { progress, key } = this.options;
+      progress.turnStarted(key);
+      try {
+        const settled = await this.executeOperation(completeSpec, scope, deadline);
+        const { outcome } = settled;
+        progress.turnSettled(key, outcome.kind, "reason" in outcome ? outcome.reason : undefined);
+        return settled;
+      } catch (error) {
+        progress.turnSettled(key, "failed", reasonOf(error));
+        throw error;
+      }
     });
     const tracked = this.options.track(result);
     scope?.track(tracked);
@@ -861,7 +891,10 @@ class ExecutionScope {
   #sealed = false;
   #cancellation: Promise<void> | undefined;
 
-  constructor(readonly deadline: AbsoluteDeadline) {}
+  constructor(
+    readonly deadline: AbsoluteDeadline,
+    readonly stage?: StageProgress,
+  ) {}
 
   get cancelled(): boolean {
     return this.#cancelled;
@@ -922,6 +955,7 @@ function runParallel<Item, Result>(
   operation: (item: Item, index: number) => Promise<Result>,
   deadline: AbsoluteDeadline,
   requestedConcurrency?: number,
+  openStage?: () => StageProgress | undefined,
 ): Promise<Result[]> {
   assertDeadline(deadline);
   const concurrency = requestedConcurrency ?? Math.max(1, items.length);
@@ -931,7 +965,7 @@ function runParallel<Item, Result>(
   const parent = scopes.getStore();
   parent?.assertAccepting();
   if (items.length === 0) return Promise.resolve([]);
-  const execution = executeParallel(items, operation, deadline, concurrency, parent);
+  const execution = executeParallel(items, operation, deadline, concurrency, parent, openStage?.());
   parent?.track(execution);
   return execution;
 }
@@ -942,8 +976,10 @@ async function executeParallel<Item, Result>(
   deadline: AbsoluteDeadline,
   concurrency: number,
   parent: ExecutionScope | undefined,
+  stage?: StageProgress,
 ): Promise<Result[]> {
-  const scope = new ExecutionScope(deadline);
+  // An unlabelled parallel inside a stage stays part of it.
+  const scope = new ExecutionScope(deadline, stage ?? parent?.stage);
   const removeFromParent = parent?.add(() => scope.cancel());
   const results = new Array<Result>(items.length);
   let next = 0;
@@ -954,7 +990,12 @@ async function executeParallel<Item, Result>(
         next += 1;
         if (index >= items.length) return;
         scope.assertActive();
-        results[index] = await operation(items[index]!, index);
+        if (stage) stage.started += 1;
+        try {
+          results[index] = await operation(items[index]!, index);
+        } finally {
+          if (stage) stage.done += 1;
+        }
       }
     });
   });
@@ -980,6 +1021,7 @@ async function executeParallel<Item, Result>(
     completion.catch(() => undefined);
     throw error;
   } finally {
+    if (stage) stage.endedAt = Date.now();
     cancelTimer?.();
     removeFromParent?.();
   }

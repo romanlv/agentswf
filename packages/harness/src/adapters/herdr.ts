@@ -29,7 +29,7 @@ import {
 import { answerStartupBlocks } from "./herdr-startup";
 
 export type HerdrConfig = {
-  /** Never `review-loop`: that session has a live loop attached to it. */
+  /** The Herdr session agents open in; `awf run` picks the one it runs in. */
   session: string;
   workspaceLabel: string;
   commandTimeoutMs: number;
