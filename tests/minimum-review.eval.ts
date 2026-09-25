@@ -18,7 +18,12 @@ import type {
   AgentTextTurnSpec,
   JsonValue,
 } from "../packages/contract/src/workflow";
-import { runWorkflow } from "../packages/engine/src";
+import {
+  describeAccounting,
+  runWorkflow,
+  WorkflowRunError,
+  type WorkflowRunResult,
+} from "../packages/engine/src";
 import type {
   AgentRunHostFactory,
   AgentRuntimeConfig,
@@ -35,8 +40,9 @@ export const LIVE_EVALUATION_BOUNDS = {
   initialTurnMilliseconds: 5 * 60_000,
   maximumNudgesPerReviewer: 1,
   reviewers: [
-    { lens: "correctness", harness: "claude", model: "sonnet" },
-    { lens: "maintainability", harness: "codex", model: "gpt-5.6-sol" },
+    // The cheapest model each subscription offers: the eval checks the machinery, not the review.
+    { lens: "correctness", harness: "claude", model: "claude-haiku-4-5" },
+    { lens: "maintainability", harness: "codex", model: "gpt-6-luna" },
   ],
   meteredFallback: false,
   agentVersionPolicy: "record-only",
@@ -111,11 +117,11 @@ export function liveRuntime(
     aliases: {
       correctness: {
         harness: "claude",
-        model: "sonnet",
+        model: "claude-haiku-4-5",
       },
       maintainability: {
         harness: "codex",
-        model: "gpt-5.6-sol",
+        model: "gpt-6-luna",
       },
     },
     host: observeNativeOutcomes(host, nativeOutcomes),
@@ -196,7 +202,18 @@ export async function evaluationPreflight(): Promise<EvaluationPreflight> {
   return { ok: checks.every((check) => check.ok), checks };
 }
 
-export async function runLiveEvaluation() {
+/** Carries what a failed evaluation spent, so its cost is still reported. */
+export class LiveEvaluationError extends Error {
+  constructor(
+    message: string,
+    cause: unknown,
+    readonly estimateUsd: number | undefined,
+  ) {
+    super(message, { cause });
+  }
+}
+
+export async function runLiveEvaluation(signal?: AbortSignal) {
   assertLiveOptIn(process.env.WF_LIVE_EVAL);
   const preflight = await evaluationPreflight();
   if (!preflight.ok) {
@@ -212,7 +229,7 @@ export async function runLiveEvaluation() {
   const prepared = await prepareEvaluationDirectory();
   const startedAt = Date.now();
   const nativeOutcomes: NativeOutcomeEvidence[] = [];
-  let observedResult: unknown;
+  let observedResult: WorkflowRunResult<JsonValue> | undefined;
   try {
     const result = await runWorkflow(
       minimumReview,
@@ -224,6 +241,7 @@ export async function runLiveEvaluation() {
           unixMilliseconds: startedAt + LIVE_EVALUATION_BOUNDS.workflowMilliseconds,
         },
         cwd: prepared.workDir,
+        ...(signal ? { signal } : {}),
       },
     );
     observedResult = result;
@@ -233,6 +251,8 @@ export async function runLiveEvaluation() {
       throw new Error("repository changed during the disposable live evaluation");
     }
     const output = {
+      ok: true,
+      estimateUsd: result.accounting.totals.estimate,
       bounds: LIVE_EVALUATION_BOUNDS,
       elapsedMilliseconds: Date.now() - startedAt,
       nativeOutcomes,
@@ -244,9 +264,14 @@ export async function runLiveEvaluation() {
   } catch (error) {
     await retainEvaluationEvidence(prepared.root, startedAt, nativeOutcomes, observedResult);
     const reason = error instanceof Error ? error.message : String(error);
-    throw new Error(`live evaluation failed; artifacts retained at ${prepared.root}: ${reason}`, {
-      cause: error,
-    });
+    const accounting =
+      observedResult?.accounting ??
+      (error instanceof WorkflowRunError ? error.accounting : undefined);
+    throw new LiveEvaluationError(
+      `live evaluation failed; artifacts retained at ${prepared.root}: ${reason}`,
+      error,
+      accounting?.totals.estimate,
+    );
   }
 }
 
@@ -350,6 +375,8 @@ function observeNativeOutcomes(
   evidence: NativeOutcomeEvidence[],
 ): AgentRunHostFactory {
   return {
+    // Dropping it would leave the run's spend unread, and the eval's cost unknown.
+    ...(factory.accounting ? { accounting: factory.accounting } : {}),
     async openRun(request) {
       const host = await factory.openRun(request);
       return {
@@ -624,10 +651,18 @@ if (import.meta.main) {
       console.log(JSON.stringify(output, null, 2));
       if (!output.ok) process.exitCode = 1;
     } else {
-      console.log(JSON.stringify(await runLiveEvaluation(), null, 2));
+      const controller = new AbortController();
+      process.once("SIGINT", () => controller.abort("SIGINT"));
+      process.once("SIGTERM", () => controller.abort("SIGTERM"));
+      const evaluation = await runLiveEvaluation(controller.signal);
+      console.log(JSON.stringify(evaluation, null, 2));
+      for (const line of describeAccounting(evaluation.result.accounting)) console.error(line);
     }
   } catch (error) {
     console.error(error instanceof Error ? error.message : String(error));
+    if (error instanceof LiveEvaluationError) {
+      console.log(JSON.stringify({ ok: false, estimateUsd: error.estimateUsd }, null, 2));
+    }
     process.exitCode = 1;
   }
 }

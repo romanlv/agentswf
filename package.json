@@ -16,6 +16,7 @@
   "scripts": {
     "awf": "bun packages/engine/src/operator-cli.ts",
     "check": "biome check . && tsc --noEmit && bun run scripts/check-boundaries.ts",
+    "eval": "bun scripts/eval.ts",
     "format": "biome check --write .",
     "lint": "biome check .",
     "prepare": "git config core.hooksPath .githooks",

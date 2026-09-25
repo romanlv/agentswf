@@ -20,7 +20,8 @@ exists, the code is right, then this page.
 - Every wait has a deadline. The run's default is thirty minutes.
 - Every run reports its wall time, and for each agent, stage and model its times, tokens, billing
   and a cost estimate at dated list prices, read from the harnesses' own session files when the run
-  ends. `awf run` prints it and writes it to `output.json` (story 002).
+  ends. `awf run` prints it and writes it to `output.json` (story 002), for a run that failed or
+  was cancelled too; `runWorkflow` then rejects with a `WorkflowRunError` carrying it (story 003).
 - Two workflows have run live:
   - `examples/minimum-review/review-loop.ts`, two reviewers in parallel (story 001);
   - catalogue review, 21 codex agents over lenses with a verifier per finding, from an entry point
@@ -28,6 +29,8 @@ exists, the code is right, then this page.
 - `examples/quick-check` asks each named harness a known-answer question, with a follow-up in the
   same session for headless agents. It is the cheap smoke test for a harness and its accounting.
 - `feature-delivery` is a typechecked design and has never run.
+- `bun run eval` checks every supported feature against the live harnesses, on their cheapest
+  models, in about a minute for $0.10–0.16; [`testing.md`](testing.md) says when to run it.
 
 ## Stages
 
@@ -49,6 +52,8 @@ The gates are defined in [`foundation.md`](foundation.md) §12.
 - [002 — cost and time accounting](stories/002-cost-and-time-accounting.md): done, approved
   2026-09-24. It also added per-agent placement (pane or headless) and multi-turn headless
   sessions, and changed the result prompt to a quoted heredoc carrying the schema.
+- [003 — failed-run accounting](stories/003-failed-run-accounting.md): done, approved
+  2026-09-24. It also added `bun run eval` and moved the agents' launcher under `/tmp`.
 
 The inbox of possible stories is [`stories/todo/`](stories/todo/).
 
@@ -57,10 +62,10 @@ The inbox of possible stories is [`stories/todo/`](stories/todo/).
 1. The first autoresearch loop over catalogue-review variants, in this repository
    ([ADR 0002](adr/0002-autoresearch-lives-here.md)), scored against merged MRs replayed as they
    were when review started. In order:
-   [`failed-run-accounting`](stories/todo/failed-run-accounting.md) and
    [`historical-review-fixtures`](stories/todo/historical-review-fixtures.md), then
    [`eval-isolation`](stories/todo/eval-isolation.md) and
-   [`review-recall-scorer`](stories/todo/review-recall-scorer.md), then
+   [`review-recall-scorer`](stories/todo/review-recall-scorer.md) — settle
+   [`deadline-outcome`](stories/todo/deadline-outcome.md) before it reads `output.json` — then
    [`variant-matrix-runner`](stories/todo/variant-matrix-runner.md), and last
    [`autoresearch-loop`](stories/todo/autoresearch-loop.md).
 

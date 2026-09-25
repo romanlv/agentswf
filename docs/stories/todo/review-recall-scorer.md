@@ -16,7 +16,8 @@ mechanism can be reported at its caller.
 Notes:
 
 - Matching is by failure mechanism, so it is a judge with a rubric — itself a small awf workflow
-  reading the fixture and the run's `output.json`. The rubric and matching method are R6 in
+  reading the fixture and the run's `output.json`, which since story 003 has an `outcome`: only a
+  `succeeded` run has findings to score. The rubric and matching method are R6 in
   `braintrust/docs/projects/code-reviews/review-architecture-options.md` §9.
 - Output per run: recall per known issue, weighted by severity, with `issue`-severity misses listed
   by name; the findings matching nothing, as candidates; cost and wall time from story 002's

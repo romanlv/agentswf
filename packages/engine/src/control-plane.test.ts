@@ -3,7 +3,7 @@ import { stat } from "node:fs/promises";
 import { createConnection } from "node:net";
 import { dirname } from "node:path";
 import { type ResultSubmitResponse, WIRE_VERSION } from "@wf/contract/wire";
-import { startResultControlPlane } from "./control-plane";
+import { CONTROL_PLANE_ROOT, startResultControlPlane } from "./control-plane";
 import type { ResultSlotRegistry } from "./result-slots";
 import { createResultSlotRegistry } from "./result-slots";
 import { readAccepted } from "./run-dir";
@@ -17,6 +17,19 @@ const AGENT = "reviewer";
 const DEADLINE = { unixMilliseconds: Date.now() + 60_000 };
 
 describe("result control plane", () => {
+  test("keeps its sockets under a short root, whatever the system temp dir", async () => {
+    const control = await startResultControlPlane({
+      slots: createResultSlotRegistry({ runDir: tempRunDir() }),
+    });
+    try {
+      const channel = await control.openChannel(AGENT);
+      expect(channel.endpoint.startsWith(`${CONTROL_PLANE_ROOT}/awf-`)).toBe(true);
+      expect(channel.endpoint.length).toBeLessThan(40);
+    } finally {
+      await control.close();
+    }
+  });
+
   test("accepts one request and persists through the result-slot path", async () => {
     const fixture = await setup();
     try {

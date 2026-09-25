@@ -1,5 +1,4 @@
 import { chmod, mkdir, mkdtemp, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   decodeResultSubmitRequest,
@@ -33,11 +32,18 @@ export type ResultControlPlane = {
   close(): Promise<void>;
 };
 
+/**
+ * `/tmp`, not the system temp dir, which on macOS is a long `/var/folders/…/T/`. Agents type the
+ * launcher's path into a shell, and a cheap model was seen dropping the `/` before `T` there, every
+ * retry. It also keeps sockets far inside `sun_path`, 104 bytes on macOS.
+ */
+export const CONTROL_PLANE_ROOT = "/tmp";
+
 export async function startResultControlPlane(options: {
   /**
-   * Where the socket directory is made. Defaults to the system temp dir, and should stay there:
-   * `sun_path` is 104 bytes on macOS and a run directory alone can exceed it. Bun binds longer
-   * paths anyway, but nothing else does, which would put the sockets beyond every other tool.
+   * Where the socket directory is made; `CONTROL_PLANE_ROOT` unless a test says otherwise. A run
+   * directory is no place for it: alone it can exceed `sun_path`, and Bun binds longer paths but
+   * nothing else does.
    */
   socketRoot?: string;
   slots: ResultSlotRegistry;
@@ -70,7 +76,7 @@ export async function startResultControlPlane(options: {
     options.connectionLifetimeMs,
     CONNECTION_TIMEOUT_SECONDS * 1000,
   );
-  const root = options.socketRoot ?? tmpdir();
+  const root = options.socketRoot ?? CONTROL_PLANE_ROOT;
   await mkdir(root, { recursive: true });
   const directory = await mkdtemp(join(root, "awf-"));
   // Traversable but not listable: an agent reaches the one path it was given and cannot read the

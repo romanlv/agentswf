@@ -11,8 +11,10 @@ import { installOperatorRuntime, type OperatorRuntimeInstallation } from "./oper
 import { ANSI, PLAIN, progressEvents, renderProgress } from "./progress-view";
 import { assertJsonValue, loadWorkflowFile } from "./workflow-loader";
 import {
+  type SettledRun,
   startWorkflow,
   WorkflowCancelledError,
+  WorkflowRunError,
   type WorkflowRunHandle,
   type WorkflowRunSnapshot,
 } from "./workflow-runner";
@@ -26,7 +28,9 @@ const usage = [
   "The deadline defaults to 30m. Run artifacts go to ~/.awf/runs unless --run-root says otherwise.",
   "A workflow that knows how to present its result prints that; --json prints the full result instead.",
   "Either way the full result is kept as output.json among the run's artifacts, beside report.md",
-  "when the workflow writes one.",
+  "when the workflow writes one. A run that fails or is cancelled once its agents have started keeps",
+  "output.json too, with what it spent and why it ended; --json prints it. A second Ctrl-C stops",
+  "awf at once, without it.",
   "--cwd sets the directory the workflow and its agents work in; it defaults to the current one.",
   "",
   "Examples:",
@@ -117,6 +121,18 @@ export async function runOperatorCli(
   let invocationRootCreated = false;
   let output: string | undefined;
   let runError: unknown;
+  let failedRecord: string | undefined;
+  const recordOf = (run: SettledRun) => ({
+    version: OUTPUT_RECORD_VERSION,
+    runId: run.runId,
+    workflow: {
+      name: loaded.executable.definition.meta.name,
+      file: loaded.file,
+    },
+    accounting: run.accounting,
+    usage: run.usage,
+    artifacts: join(invocationRoot, run.runId),
+  });
   try {
     await mkdir(invocationRoot, { recursive: true });
     invocationRootCreated = true;
@@ -144,16 +160,9 @@ export async function runOperatorCli(
     const artifacts = join(invocationRoot, result.runId);
     const report = await writeReport(loaded.executable, result.value, artifacts, stderr);
     const record: OutputRecord = {
-      version: OUTPUT_RECORD_VERSION,
-      runId: result.runId,
-      workflow: {
-        name: loaded.executable.definition.meta.name,
-        file: loaded.file,
-      },
+      ...recordOf(result),
+      outcome: "succeeded",
       value: result.value,
-      accounting: result.accounting,
-      usage: result.usage,
-      artifacts,
       ...(report ? { report } : {}),
     };
     const json = JSON.stringify(record, null, 2);
@@ -165,6 +174,20 @@ export async function runOperatorCli(
       : (present(loaded.executable, result.value, artifacts, report, stderr) ?? json);
   } catch (error) {
     runError = error;
+    if (error instanceof WorkflowRunError) {
+      const record: OutputRecord = {
+        ...recordOf(error),
+        outcome: findCancellation(error) ? "cancelled" : "failed",
+        error: errorDetail(error),
+      };
+      failedRecord = JSON.stringify(record, null, 2);
+      try {
+        await writeFile(join(record.artifacts, "output.json"), `${failedRecord}\n`);
+      } catch (writeError) {
+        stderr(`awf: output.json: ${message(writeError)}`);
+      }
+      for (const line of describeAccounting(error.accounting)) stderr(line);
+    }
   }
   let cleanupError: unknown;
   try {
@@ -181,6 +204,8 @@ export async function runOperatorCli(
     );
     if (cleanupError !== undefined)
       stderr(`awf: runtime cleanup also failed: ${message(cleanupError)}`);
+    // The record says the run did not succeed, so a caller that asked for it gets it either way.
+    if (command.json && failedRecord !== undefined) stdout(failedRecord);
     if (cancellation) {
       return cancellation.reason === "SIGTERM" ? 143 : 130;
     }
@@ -356,17 +381,17 @@ async function writeReport(
   stderr: (text: string) => void,
 ): Promise<string | undefined> {
   if (!executable.report) return undefined;
-  let markdown: string;
+  // The result is still in output.json; a report that cannot be rendered or saved should not fail
+  // the run, nor cost it its record.
   try {
-    markdown = executable.report(value);
+    const markdown = executable.report(value);
+    const file = join(artifacts, "report.md");
+    await writeFile(file, `${markdown.trimEnd()}\n`);
+    return file;
   } catch (error) {
-    // The result is still in output.json; a report that cannot render should not fail the run.
     stderr(`awf: report: ${message(error)}; see output.json instead`);
     return undefined;
   }
-  const file = join(artifacts, "report.md");
-  await writeFile(file, `${markdown.trimEnd()}\n`);
-  return file;
 }
 
 function parseDuration(value: string): number {
@@ -386,6 +411,7 @@ function message(error: unknown): string {
 }
 
 function errorDetail(error: unknown): string {
+  if (error instanceof WorkflowRunError) return errorDetail(error.cause);
   return error instanceof AggregateError
     ? error.errors.map(errorDetail).join("; ")
     : message(error);
@@ -393,6 +419,7 @@ function errorDetail(error: unknown): string {
 
 function findCancellation(error: unknown): WorkflowCancelledError | undefined {
   if (error instanceof WorkflowCancelledError) return error;
+  if (error instanceof WorkflowRunError) return findCancellation(error.cause);
   if (!(error instanceof AggregateError)) return undefined;
   for (const nested of error.errors) {
     const cancellation = findCancellation(nested);

@@ -100,6 +100,7 @@ describe("awf run", () => {
       artifacts: string;
     };
     expect(result.version).toBe(OUTPUT_RECORD_VERSION);
+    expect(result).toMatchObject({ outcome: "succeeded" });
     expect(result.workflow).toEqual({
       name: "review-loop",
       file: join(ROOT, "examples/minimum-review/review-loop.ts"),
@@ -512,10 +513,75 @@ describe("awf run", () => {
     expect(errors.join("\n")).toContain("review incomplete:");
   });
 
+  test("a failed run keeps what it spent in output.json, and prints it with --json", async () => {
+    const adapter = createFakeAdapter({
+      harnesses: ["claude", "codex"],
+      script: (context) => ({ sessionRef: `s-${context.activation.key}` }),
+    });
+    for (const json of [false, true]) {
+      const output: string[] = [];
+      const errors: string[] = [];
+      const exitCode = await runOperatorCli(
+        [
+          "run",
+          "--run-root",
+          runDirs.tempRunDir(),
+          ...(json ? ["--json"] : []),
+          "examples/minimum-review/review-loop.ts",
+        ],
+        {
+          cwd: ROOT,
+          stdout: (text) => output.push(text),
+          stderr: (text) => errors.push(text),
+          installRuntime: async () => ({
+            config: runtime(adapter, spentFromFiles()),
+            cleanup: async () => undefined,
+          }),
+        },
+      );
+
+      expect(exitCode).toBe(1);
+      const reported = errors.join("\n");
+      expect(reported).toMatch(/^2 agents · .* · usage known 2\/2$/m);
+      expect(reported.indexOf("usage known")).toBeLessThan(reported.indexOf("run failed"));
+      const saved = JSON.parse(
+        readFileSync(join(retainedRunDir(retainedRoot(reported)), "output.json"), "utf8"),
+      );
+      expect(saved).toMatchObject({
+        version: OUTPUT_RECORD_VERSION,
+        outcome: "failed",
+        workflow: { name: "review-loop" },
+        accounting: { totals: { agents: 2, known: 2 } },
+      });
+      expect(saved.error).toContain("review incomplete:");
+      expect(saved).not.toHaveProperty("value");
+      expect(output).toEqual(json ? [JSON.stringify(saved, null, 2)] : []);
+    }
+  });
+
+  test("a run past its deadline is recorded as failed, not cancelled", async () => {
+    const root = runDirs.tempRunDir();
+    const workflow = join(root, "waits.js");
+    await Bun.write(workflow, executableModule("return null;", "await new Promise(() => {});"));
+    const errors: string[] = [];
+
+    const exitCode = await runOperatorCli(
+      ["run", "--timeout", "100ms", "--run-root", runDirs.tempRunDir(), workflow],
+      { cwd: ROOT, stderr: (text) => errors.push(text), installRuntime: emptyRuntime },
+    );
+
+    expect(exitCode).toBe(1);
+    const saved = JSON.parse(
+      readFileSync(join(retainedRunDir(retainedRoot(errors.join("\n"))), "output.json"), "utf8"),
+    );
+    expect(saved).toMatchObject({ outcome: "failed", accounting: { totals: { agents: 0 } } });
+  });
+
   test("cancels active agents, cleans the runtime, and exits 130 on interruption", async () => {
     const adapter = createFakeAdapter({
       harnesses: ["claude", "codex"],
-      script: () => ({
+      script: (context) => ({
+        sessionRef: `s-${context.activation.key}`,
         act: (context) =>
           new Promise<void>((resolve) => {
             if (context.signal.aborted) {
@@ -543,7 +609,7 @@ describe("awf run", () => {
         signal: controller.signal,
         stderr: (text) => errors.push(text),
         installRuntime: async () => ({
-          config: runtime(adapter),
+          config: runtime(adapter, spentFromFiles()),
           cleanup: async () => {
             cleaned += 1;
           },
@@ -557,6 +623,11 @@ describe("awf run", () => {
     expect(cleaned).toBe(1);
     expect(adapter.closed.length).toBeGreaterThan(0);
     expect(errors.join("\n")).toContain("run cancelled");
+    const saved = JSON.parse(
+      readFileSync(join(retainedRunDir(retainedRoot(errors.join("\n"))), "output.json"), "utf8"),
+    );
+    expect(saved).toMatchObject({ outcome: "cancelled", error: "workflow cancelled by operator" });
+    expect(saved.accounting.totals.known).toBeGreaterThan(0);
   });
 
   test("preserves cancellation exit status when agent cleanup also fails", async () => {
@@ -614,6 +685,11 @@ describe("awf run", () => {
     expect(cleaned).toBe(1);
     expect(errors.join("\n")).toContain("run cancelled");
     expect(errors.join("\n")).toContain("session close broke");
+    const saved = JSON.parse(
+      readFileSync(join(retainedRunDir(retainedRoot(errors.join("\n"))), "output.json"), "utf8"),
+    );
+    expect(saved.outcome).toBe("cancelled");
+    expect(saved.error).toContain("session close broke");
   });
 
   test("does not claim retention when the invocation root cannot be created", async () => {

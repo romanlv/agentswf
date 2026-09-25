@@ -2,7 +2,6 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { getEventListeners } from "node:events";
 import { readdir } from "node:fs/promises";
 import { createConnection } from "node:net";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ResultSubmitResponse } from "@wf/contract/wire";
 import type {
@@ -28,8 +27,14 @@ import type {
   HarnessTurn,
 } from "@wf/harness/adapter";
 import { createFakeAdapter } from "@wf/harness/testing";
+import { CONTROL_PLANE_ROOT } from "./control-plane";
 import { createTempRunDirs, future, submit } from "./testing";
-import { runWorkflow, startWorkflow, WorkflowCancelledError } from "./workflow-runner";
+import {
+  runWorkflow,
+  startWorkflow,
+  WorkflowCancelledError,
+  WorkflowRunError,
+} from "./workflow-runner";
 
 const runDirs = createTempRunDirs();
 const { tempRunDir } = runDirs;
@@ -88,7 +93,7 @@ describe("runWorkflow", () => {
       ]),
     });
     await handle.stop("operator stop");
-    await expect(handle.result).rejects.toBeInstanceOf(WorkflowCancelledError);
+    expect(await causeOf(handle.result)).toBeInstanceOf(WorkflowCancelledError);
     expect(handle.inspect().state).toBe("closed");
     expect(adapter.closed.sort()).toEqual(["first", "second"]);
   });
@@ -123,15 +128,17 @@ describe("runWorkflow", () => {
       return await new Promise<never>(() => undefined);
     });
 
-    await expect(
-      runWorkflow(workflow, null, {
-        runRoot: tempRunDir(),
-        runtime: emptyRuntime(),
-        deadline,
-        cwd: "/repo",
-        signal: controller.signal,
-      }),
-    ).rejects.toBeInstanceOf(DeadlineExceededError);
+    expect(
+      await causeOf(
+        runWorkflow(workflow, null, {
+          runRoot: tempRunDir(),
+          runtime: emptyRuntime(),
+          deadline,
+          cwd: "/repo",
+          signal: controller.signal,
+        }),
+      ),
+    ).toBeInstanceOf(DeadlineExceededError);
     expect(getEventListeners(controller.signal, "abort")).toHaveLength(0);
     controller.abort("too late");
   });
@@ -472,13 +479,14 @@ describe("runWorkflow", () => {
       },
     };
 
-    await expect(
-      runWorkflow(
-        workflowOf("sync-host-failure", async () => null),
-        null,
-        { runRoot, runtime, deadline: future() },
-      ),
-    ).rejects.toThrow("host construction failed");
+    const running = runWorkflow(
+      workflowOf("sync-host-failure", async () => null),
+      null,
+      { runRoot, runtime, deadline: future() },
+    );
+    await expect(running).rejects.toThrow("host construction failed");
+    // No agent ran, so there is no spend to carry.
+    await expect(running).rejects.not.toBeInstanceOf(WorkflowRunError);
 
     expect(await controlDirectoriesSince(before)).toEqual([]);
   });
@@ -512,13 +520,15 @@ describe("runWorkflow", () => {
     const runRoot = tempRunDir();
     const before = await controlDirectories();
 
-    await expect(
-      runWorkflow(workflow, null, {
-        runRoot,
-        runtime: runtime(adapter),
-        deadline: { unixMilliseconds: Date.now() + 30 },
-      }),
-    ).rejects.toBeInstanceOf(DeadlineExceededError);
+    expect(
+      await causeOf(
+        runWorkflow(workflow, null, {
+          runRoot,
+          runtime: runtime(adapter),
+          deadline: { unixMilliseconds: Date.now() + 30 },
+        }),
+      ),
+    ).toBeInstanceOf(DeadlineExceededError);
     expect(nativeCancelled).toBe(1);
     expect(adapter.closed).toEqual(["reviewer"]);
     expect(await controlDirectoriesSince(before)).toEqual([]);
@@ -560,10 +570,7 @@ describe("runWorkflow", () => {
       deadline: { unixMilliseconds: Date.now() + 30 },
     });
     const error = await Promise.race([
-      result.then(
-        () => undefined,
-        (reason: unknown) => reason,
-      ),
+      causeOf(result),
       Bun.sleep(6_000).then(() => new Error("cleanup did not respect its shutdown grace")),
     ]);
 
@@ -1460,13 +1467,15 @@ describe("runWorkflow", () => {
       return null;
     });
 
-    await expect(
-      runWorkflow(workflow, null, {
-        runRoot: tempRunDir(),
-        runtime: runtime(adapter),
-        deadline: future(),
-      }),
-    ).rejects.toMatchObject({ code: "deadline-exceeded" });
+    expect(
+      await causeOf(
+        runWorkflow(workflow, null, {
+          runRoot: tempRunDir(),
+          runtime: runtime(adapter),
+          deadline: future(),
+        }),
+      ),
+    ).toMatchObject({ code: "deadline-exceeded" });
     expect(adapter.closed.sort()).toEqual(["one", "two"]);
     expect(adapter.turns.every((turn) => turn.signal.aborted)).toBe(true);
   });
@@ -1480,13 +1489,15 @@ describe("runWorkflow", () => {
       return null;
     });
 
-    await expect(
-      runWorkflow(workflow, null, {
-        runRoot: tempRunDir(),
-        runtime: runtime(adapter),
-        deadline: future(),
-      }),
-    ).rejects.toMatchObject({ code: "deadline-exceeded" });
+    expect(
+      await causeOf(
+        runWorkflow(workflow, null, {
+          runRoot: tempRunDir(),
+          runtime: runtime(adapter),
+          deadline: future(),
+        }),
+      ),
+    ).toMatchObject({ code: "deadline-exceeded" });
   });
 
   test("parallel waits for fire-and-forget agent work and bounds it with the same scope", async () => {
@@ -1512,13 +1523,15 @@ describe("runWorkflow", () => {
       return null;
     });
 
-    await expect(
-      runWorkflow(workflow, null, {
-        runRoot: tempRunDir(),
-        runtime: runtime(adapter),
-        deadline: future(),
-      }),
-    ).rejects.toMatchObject({ code: "deadline-exceeded" });
+    expect(
+      await causeOf(
+        runWorkflow(workflow, null, {
+          runRoot: tempRunDir(),
+          runtime: runtime(adapter),
+          deadline: future(),
+        }),
+      ),
+    ).toMatchObject({ code: "deadline-exceeded" });
     expect(signal?.aborted).toBe(true);
     expect(adapter.closed).toEqual(["owned"]);
   });
@@ -2135,9 +2148,9 @@ function emptyRuntime(): AgentRuntimeConfig {
   };
 }
 
-/** The control plane's directories live under the system temp directory, not the run directory. */
+/** The control plane's directories live under `CONTROL_PLANE_ROOT`, not the run directory. */
 async function controlDirectories(): Promise<Set<string>> {
-  return new Set((await readdir(tmpdir())).filter((name) => name.startsWith("awf-")));
+  return new Set((await readdir(CONTROL_PLANE_ROOT)).filter((name) => name.startsWith("awf-")));
 }
 
 async function controlDirectoriesSince(before: Set<string>): Promise<string[]> {
@@ -2187,6 +2200,16 @@ function starting(
   ) => Promise<HarnessTurn>,
 ): HarnessSession["start"] {
   return begin as HarnessSession["start"];
+}
+
+/** The run's own error, from the `WorkflowRunError` a run that opened its host rejects with. */
+async function causeOf(result: Promise<unknown>): Promise<unknown> {
+  const error = await result.then(
+    () => undefined,
+    (reason: unknown) => reason,
+  );
+  expect(error).toBeInstanceOf(WorkflowRunError);
+  return (error as WorkflowRunError).cause;
 }
 
 function workflowOf<Result extends JsonValue>(

@@ -6,6 +6,7 @@ import type {
   WorkflowContext,
   WorkflowDefinition,
 } from "@wf/contract/workflow";
+import { DeadlineExceededError } from "@wf/contract/workflow";
 import {
   createSingleSessionHostFactory,
   type SessionAccounting,
@@ -15,7 +16,12 @@ import type { AgentRuntimeConfig, AgentSessionAdapter } from "@wf/harness/adapte
 import { createFakeAdapter, type FakeAdapterTurnContext } from "@wf/harness/testing";
 import { createRunLedger } from "./run-usage";
 import { createTempRunDirs, future, submit } from "./testing";
-import { runWorkflow, startWorkflow } from "./workflow-runner";
+import {
+  runWorkflow,
+  startWorkflow,
+  WorkflowCancelledError,
+  WorkflowRunError,
+} from "./workflow-runner";
 
 const runDirs = createTempRunDirs();
 afterAll(() => runDirs.cleanup());
@@ -475,6 +481,202 @@ describe("usage read when the run ends", () => {
 
     expect(result.usage[0]).toMatchObject({ billing: "unknown", sessions: [{ id: "s" }] });
     expect(result.usage[0]).not.toHaveProperty("spend");
+  });
+});
+
+describe("usage read when the run fails", () => {
+  /** An agent that logs a request, answers, and leaves the body to fail after it. */
+  function spender(files: ReturnType<typeof sessionFiles>) {
+    return createFakeAdapter({
+      script: (context) => ({
+        sessionRef: "s-spent",
+        act: async () => {
+          files.log("s-spent", 30);
+          await submit(context.binding!, { answer: "ok" });
+        },
+      }),
+    });
+  }
+
+  function start(
+    adapter: AgentSessionAdapter,
+    accounting: SessionAccounting,
+    body: (context: WorkflowContext) => Promise<JsonValue>,
+    options: { deadline?: ReturnType<typeof future>; signal?: AbortSignal } = {},
+  ) {
+    return startWorkflow(workflow(body), null, {
+      runRoot: runDirs.tempRunDir(),
+      deadline: options.deadline ?? future(),
+      runtime: { aliases: ALIASES, host: createSingleSessionHostFactory(adapter, accounting) },
+      ...(options.signal ? { signal: options.signal } : {}),
+    });
+  }
+
+  async function rejection(result: Promise<unknown>): Promise<WorkflowRunError> {
+    const error = await result.then(
+      () => undefined,
+      (reason: unknown) => reason,
+    );
+    expect(error).toBeInstanceOf(WorkflowRunError);
+    return error as WorkflowRunError;
+  }
+
+  function expectSpent(error: WorkflowRunError) {
+    expect(error.usage[0]).toMatchObject({
+      billing: "subscription",
+      spend: [{ model: "model-a", tokens: tokens(30) }],
+    });
+    expect(error.accounting.totals).toMatchObject({ agents: 1, known: 1 });
+    expect(error.accounting.totals.tokens.output).toBe(30);
+    expect(Date.parse(error.finishedAt)).toBeGreaterThanOrEqual(Date.parse(error.startedAt));
+  }
+
+  test("a body that throws after an agent spent rejects with that spend", async () => {
+    const files = sessionFiles();
+    const failure = new Error("variant crashed");
+    const handle = await start(spender(files), files.accounting(), async (context) => {
+      await (await open(context, "spent")).run({ prompt: "Go.", schema: ANSWER });
+      throw failure;
+    });
+
+    const error = await rejection(handle.result);
+
+    expect(error.cause).toBe(failure);
+    expect(error.message).toBe("variant crashed");
+    expect(error.runId).toBe(handle.runId);
+    expectSpent(error);
+  });
+
+  for (const how of ["stop", "signal"] as const) {
+    test(`a run cancelled through ${how === "stop" ? "stop" : "the caller's signal"} still reads what was spent`, async () => {
+      const files = sessionFiles();
+      const controller = new AbortController();
+      let answered!: () => void;
+      const reached = new Promise<void>((resolve) => {
+        answered = resolve;
+      });
+      const handle = await start(
+        spender(files),
+        files.accounting(),
+        async (context) => {
+          await (await open(context, "spent")).run({ prompt: "Go.", schema: ANSWER });
+          answered();
+          return await new Promise<JsonValue>(() => undefined);
+        },
+        { signal: controller.signal },
+      );
+      await reached;
+
+      if (how === "stop") await handle.stop("operator");
+      else controller.abort("SIGINT");
+      const error = await rejection(handle.result);
+
+      expect(error.cause).toBeInstanceOf(WorkflowCancelledError);
+      expectSpent(error);
+    });
+  }
+
+  test("a run past its deadline still reads what was spent", async () => {
+    const files = sessionFiles();
+    const handle = await start(
+      spender(files),
+      files.accounting(),
+      async (context) => {
+        await (await open(context, "spent")).run({ prompt: "Go.", schema: ANSWER });
+        return await new Promise<JsonValue>(() => undefined);
+      },
+      { deadline: future(300) },
+    );
+
+    const error = await rejection(handle.result);
+
+    expect(error.cause).toBeInstanceOf(DeadlineExceededError);
+    expectSpent(error);
+  });
+
+  test("a stop while a failed run's spend is read cuts the read short", async () => {
+    const files = sessionFiles();
+    files.open.add("s-spent");
+    const accounting = files.accounting({ pollMs: 50, stalledMs: 60_000 });
+    const handle = await start(spender(files), accounting, async (context) => {
+      await (await open(context, "spent")).run({ prompt: "Go.", schema: ANSWER });
+      throw new Error("variant crashed");
+    });
+    while (accounting.reads === 0) await Bun.sleep(5);
+
+    const started = Date.now();
+    const stopping = handle.stop("operator");
+    const error = await rejection(handle.result);
+    // The run's own failure, which was not the stop, is not swallowed.
+    await expect(stopping).rejects.toBe(error);
+
+    expect(Date.now() - started).toBeLessThan(1_000);
+    expect(error.usage[0]).toMatchObject({ billing: "unknown", sessions: [{ id: "s-spent" }] });
+    expect(error.usage[0]).not.toHaveProperty("spend");
+  });
+
+  test("a stop during a finished run's cleanup skips the read", async () => {
+    const files = sessionFiles();
+    files.open.add("s-spent");
+    const accounting = files.accounting({ pollMs: 50, stalledMs: 60_000 });
+    const inner = spender(files);
+    let closing!: () => void;
+    const closeBegan = new Promise<void>((resolve) => {
+      closing = resolve;
+    });
+    const slowClose: AgentSessionAdapter = {
+      ...inner,
+      async activate(request) {
+        const session = await inner.activate(request);
+        return {
+          ...session,
+          async close(reason) {
+            closing();
+            await Bun.sleep(200);
+            await session.close(reason);
+          },
+        };
+      },
+    };
+    const handle = await start(slowClose, accounting, async (context) => {
+      await (await open(context, "spent")).run({ prompt: "Go.", schema: ANSWER });
+      return null;
+    });
+    await closeBegan;
+
+    const started = Date.now();
+    await handle.stop("operator");
+    const result = await handle.result;
+
+    expect(Date.now() - started).toBeLessThan(1_000);
+    expect(result.usage[0]).not.toHaveProperty("spend");
+  });
+
+  test("a second stop while a cancelled run's spend is read cuts the read short", async () => {
+    const files = sessionFiles();
+    files.open.add("s-spent");
+    const accounting = files.accounting({ pollMs: 50, stalledMs: 60_000 });
+    let answered!: () => void;
+    const reached = new Promise<void>((resolve) => {
+      answered = resolve;
+    });
+    const handle = await start(spender(files), accounting, async (context) => {
+      await (await open(context, "spent")).run({ prompt: "Go.", schema: ANSWER });
+      answered();
+      return await new Promise<JsonValue>(() => undefined);
+    });
+    await reached;
+    const first = handle.stop("operator");
+    while (accounting.reads === 0) await Bun.sleep(5);
+
+    const started = Date.now();
+    await handle.stop("operator again");
+    await first;
+    const error = await rejection(handle.result);
+
+    expect(Date.now() - started).toBeLessThan(1_000);
+    expect(error.cause).toBeInstanceOf(WorkflowCancelledError);
+    expect(error.usage[0]).not.toHaveProperty("spend");
   });
 });
 

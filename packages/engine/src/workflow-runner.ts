@@ -76,9 +76,9 @@ export type RunWorkflowOptions = {
   signal?: AbortSignal;
 };
 
-export type WorkflowRunResult<Result extends JsonValue> = {
+/** What a run is known by once it has ended, whether or not it succeeded. */
+export type SettledRun = {
   runId: string;
-  value: Result;
   /** Every operation's record, completed with the spend read when the run ended. */
   usage: SettledOperation[];
   /** ISO times the run started and its own work, cleanup included, ended. */
@@ -90,6 +90,30 @@ export type WorkflowRunResult<Result extends JsonValue> = {
    */
   accounting: RunAccounting;
 };
+
+export type WorkflowRunResult<Result extends JsonValue> = SettledRun & { value: Result };
+
+/**
+ * A run that failed after its host opened, carrying what it spent. `cause` is the run's own error:
+ * the body's, or an `AggregateError` with the cleanup's.
+ */
+export class WorkflowRunError extends Error implements SettledRun {
+  readonly runId: string;
+  readonly usage: SettledOperation[];
+  readonly startedAt: string;
+  readonly finishedAt: string;
+  readonly accounting: RunAccounting;
+
+  constructor(cause: unknown, run: SettledRun) {
+    super(cause instanceof Error ? cause.message : String(cause), { cause });
+    this.name = "WorkflowRunError";
+    this.runId = run.runId;
+    this.usage = run.usage;
+    this.startedAt = run.startedAt;
+    this.finishedAt = run.finishedAt;
+    this.accounting = run.accounting;
+  }
+}
 
 export type WorkflowRunHandle<Result extends JsonValue> = {
   runId: string;
@@ -192,6 +216,10 @@ export async function startWorkflow<Args extends JsonValue, Result extends JsonV
     onLog: options.onLog,
   });
   const stopped = new AbortController();
+  // Aborted by a stop that comes after the body ended; the one that ended it does not cut short the
+  // read of what it spent.
+  const reading = new AbortController();
+  let bodyEnded = false;
   const signal = options.signal
     ? AbortSignal.any([options.signal, stopped.signal])
     : stopped.signal;
@@ -210,6 +238,9 @@ export async function startWorkflow<Args extends JsonValue, Result extends JsonV
       failed = true;
       failure = error;
     }
+    bodyEnded = true;
+    const cutReading = () => reading.abort();
+    if (!signal.aborted) signal.addEventListener("abort", cutReading, { once: true });
 
     if (!failed) await ledger.letFinish(options.deadline, signal);
     const cleanupErrors: unknown[] = [];
@@ -236,26 +267,32 @@ export async function startWorkflow<Args extends JsonValue, Result extends JsonV
       );
     }
 
-    if (failed) {
-      if (cleanupErrors.length > 0) {
-        throw new AggregateError([failure, ...cleanupErrors], "workflow and cleanup failed");
-      }
-      throw failure;
-    }
-    if (cleanupErrors.length > 0) {
-      throw new AggregateError(cleanupErrors, "workflow cleanup failed");
-    }
     // Before the wait for session files, which is bookkeeping rather than the run's own time.
     const finishedAt = new Date().toISOString();
-    const usage = await ledger.settle(signal);
+    const usage = await ledger.settle(reading.signal);
+    signal.removeEventListener("abort", cutReading);
     const times = { startedAt: new Date(startedAt).toISOString(), finishedAt };
-    return {
+    const settled: SettledRun = {
       runId,
-      value: value as Result,
       usage,
       ...times,
       accounting: summarizeRun(usage, PUBLISHED_PRICES, times),
     };
+    if (failed) {
+      throw new WorkflowRunError(
+        cleanupErrors.length > 0
+          ? new AggregateError([failure, ...cleanupErrors], "workflow and cleanup failed")
+          : failure,
+        settled,
+      );
+    }
+    if (cleanupErrors.length > 0) {
+      throw new WorkflowRunError(
+        new AggregateError(cleanupErrors, "workflow cleanup failed"),
+        settled,
+      );
+    }
+    return { ...settled, value: value as Result };
   })();
 
   return {
@@ -272,10 +309,12 @@ export async function startWorkflow<Args extends JsonValue, Result extends JsonV
     },
     async stop(reason) {
       stopped.abort(reason);
+      if (bodyEnded) reading.abort();
       try {
         await result;
       } catch (error) {
-        if (!(error instanceof WorkflowCancelledError)) throw error;
+        const cause = error instanceof WorkflowRunError ? error.cause : error;
+        if (!(cause instanceof WorkflowCancelledError)) throw error;
       }
     },
   };

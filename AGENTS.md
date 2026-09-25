@@ -30,6 +30,7 @@ what would have to happen first.
 | `examples/` | scenario workflows, written against the author surface and pure schema authoring libraries |
 | `experiments/_archive/` | E1–E3, E5–E6. Frozen evidence. Do not refactor to taste |
 | `docs/status.md` | what runs today and what is next. Update it when a story or stage changes state |
+| `docs/testing.md` | the test levels, from free to live, what each costs, and when to run it |
 | `docs/findings/` | what the measurements settled. Cite it; edit it only to record a new measurement |
 | `docs/reference.md` | surveyed repositories: what was taken, rejected, still unmined |
 
@@ -50,6 +51,7 @@ bunx tsc --noEmit
 bun run scripts/check-boundaries.ts
 bun run check             # Biome lint and format check, tsc, and the boundaries
 bun run format            # Biome: format, organize imports, apply safe fixes
+bun run eval              # live agents on the cheapest models: ~1 min, about $0.10–0.16
 ```
 
 `bun install` points `core.hooksPath` at `.githooks`, whose pre-commit runs Biome's safe fixes on the
@@ -57,7 +59,8 @@ staged files and stages the result; what it cannot fix blocks the commit. Biome 
 site, with a `biome-ignore` comment saying why.
 
 `*.eval.ts` is anything that spends money on live agents. It is excluded from `bun test` and
-run explicitly.
+run explicitly: `bun run eval` runs them all. [`docs/testing.md`](docs/testing.md) says which live check
+to run when, and what each costs.
 
 Comments are sparse: one only for non-obvious intent, a trade-off, or a constraint the code
 cannot express. Never restate the code or narrate a change.

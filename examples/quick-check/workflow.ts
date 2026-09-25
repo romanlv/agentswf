@@ -10,11 +10,11 @@ import Type from "typebox";
 import { outputSchema } from "../output-schema";
 
 /**
- * Each one's cheapest model on a subscription, so a check costs cents. Codex and pi run headless;
+ * A cheap model for each, so a check costs cents. Codex and pi run headless;
  * claude stays in a pane, because headless it is billed per token even on a subscription.
  */
 export const RUNTIMES = {
-  codex: { harness: "codex", model: "gpt-5.6-terra", placement: "headless" },
+  codex: { harness: "codex", model: "gpt-6-luna", placement: "headless" },
   pi: { harness: "pi", model: "openai-codex/gpt-5.6-terra", placement: "headless" },
   claude: { harness: "claude", model: "claude-haiku-4-5" },
 } as const satisfies Record<string, ExecutionConfig>;

@@ -45,7 +45,10 @@ placement in workflow aliases. Metered API-key variables are removed so they can
 precedence. A workflow that presents its own result prints that report on standard output;
 otherwise, or with `--json`, the command prints the result as JSON. Either way the JSON is kept as
 `output.json` beside the run's other artifacts, under `~/.awf/runs` unless `--run-root` says
-otherwise, and a workflow that writes a Markdown report has it saved there as `report.md`. A workflow file is trusted
+otherwise, and a workflow that writes a Markdown report has it saved there as `report.md`. A run
+that fails or is cancelled once it has started still writes `output.json`, with `outcome` saying
+so, its `error`, and what its agents spent. A run directory without one is a run that never
+started, or whose process was killed. A workflow file is trusted
 executable code: loading it gives the file the same filesystem and process authority as the
 operator.
 Agent operations are cancelled on interruption. A custom trusted workflow remains responsible for

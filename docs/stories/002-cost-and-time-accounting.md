@@ -541,7 +541,7 @@ Plan (Gate 1, 2026-09-23):
   `WorkflowRunResult.usage` returns these final records. Records handed to workflow code during
   the run keep what they had.
 - **Out of reach.** A workflow that throws has no result to carry its spend, so nothing is read
-  for it. Returning spend from a failed run is in `todo/failed-run-accounting.md`.
+  for it. Returning spend from a failed run is story [003](003-failed-run-accounting.md).
 - **Best effort.** A read that throws, overruns the grace, or is stopped leaves the records as they
   were at settle, with the agent's final sessions. The run's result stands.
 - **For Task 4.** `finishedAt` is taken after cleanup and before the read, so `wallMs` does not

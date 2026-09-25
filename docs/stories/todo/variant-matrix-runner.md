@@ -4,7 +4,7 @@ summary: Run each variant on each fixture several times, isolated and scored, an
 type: story
 status: todo
 discovered_in: "autoresearch planning, 2026-09-23"
-depends_on: ["failed-run-accounting", "eval-isolation", "review-recall-scorer"]
+depends_on: ["003", "eval-isolation", "review-recall-scorer"]
 ---
 
 # Run review variants across fixtures and compare them
@@ -26,7 +26,7 @@ Notes:
 - Rows go to JSONL, one per run, with a report generated from them. `experiments/_archive/trial.ts`
   and `runner.ts` are the prior art to lift.
 - A failed or contaminated run is a row with its spend, not a gap —
-  [`failed-run-accounting`](failed-run-accounting.md) is why this depends on it.
+  [story 003](../003-failed-run-accounting.md) is why this depends on it.
 - Concurrency (E4) has never been measured. Run sequentially first, or measure E4 before running
   variants in parallel.
 - Its home in the repository is decided when it first runs ([ADR 0002](../../adr/0002-autoresearch-lives-here.md)):

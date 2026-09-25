@@ -126,18 +126,30 @@ export type RunAccounting = {
   unpriced: string[];
 };
 
-export const OUTPUT_RECORD_VERSION = 1 as const;
+export const OUTPUT_RECORD_VERSION = 2 as const;
 
-/** A finished run, as the operator CLI keeps it in `output.json` and prints it with `--json`. */
+/**
+ * A run, as the operator CLI keeps it in `output.json` and prints it with `--json`. A run that
+ * failed or was cancelled keeps what it spent too; only a succeeded one has a value.
+ */
 export type OutputRecord = {
   version: typeof OUTPUT_RECORD_VERSION;
   runId: string;
   workflow: { name: string; file: string };
-  value: JsonValue;
   accounting: RunAccounting;
   usage: SettledOperation[];
   /** The run's artifact directory. */
   artifacts: string;
-  /** The workflow's Markdown report, when it wrote one. */
-  report?: string;
-};
+} & (
+  | {
+      outcome: "succeeded";
+      value: JsonValue;
+      /** The workflow's Markdown report, when it wrote one. */
+      report?: string;
+    }
+  | {
+      /** `cancelled` is the operator stopping the run; a deadline is `failed`. */
+      outcome: "failed" | "cancelled";
+      error: string;
+    }
+);
