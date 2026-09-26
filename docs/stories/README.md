@@ -44,7 +44,7 @@ status is one of `todo`, `draft`, `ready`, `in-progress`, `blocked`, `awaiting-h
   `done` — A run that fails or is cancelled still reads its agents' spend, rejects with it,
   and keeps it in `output.json`.
 - [`005` — Replay old MRs as review tests with an answer key](005-review-fixtures.md) —
-  `draft` — The format for a review test (an old MR frozen when review started, plus the real
+  `in-progress` — The format for a review test (an old MR frozen when review started, plus the real
   problems found in it, graded), and the tools that build them; the data lives outside this
   repository.
 
@@ -55,7 +55,8 @@ Todo items stay in [`todo/`](todo/) until selected for refinement.
 ## What belongs in a story
 
 A story owns the proposed outcome, scoped code map, implementation approach, tasks, and verification
-plan.
+plan. It opens with `How it works`: a diagram and a plain explanation of the mechanism, readable
+before any of the design detail.
 It links to authoritative material instead of copying it:
 
 - `docs/findings/` for what the measurements settled, and `experiments/_archive/*/results/` for the raw rows;

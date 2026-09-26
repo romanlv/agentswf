@@ -13,6 +13,13 @@ depends_on: []
 
 Describe the user- or system-observable result. State why it matters now.
 
+## How it works
+
+Explain the mechanism so someone new to it can follow in two minutes: one diagram (the data, the
+flow, or the timeline), then a few plain sentences on each part and on the case people will ask
+about first. Name files or types only where the reader needs them. Keep it current as the design
+changes.
+
 ## Scope
 
 In scope:

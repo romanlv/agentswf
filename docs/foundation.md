@@ -326,7 +326,7 @@ nowhere to go does.
 | workflows calling workflows | `engine` | `contract/workflow` already has `call` |
 | checkpoints and human approval | an `engine` admission barrier, not a signal | a signal suspends one branch; a checkpoint must stop dispatch |
 | evals | `*.eval.ts` + a reporter | regression checks, not a system |
-| autoresearch / self-improvement loop | this repository, as a consumer of the engine — see below | home decided when the first loop runs ([ADR 0002](adr/0002-autoresearch-lives-here.md)) |
+| autoresearch / self-improvement loop | `packages/autoresearch`, as a consumer of the engine — see below | the general tools here, a project's variants and fixtures in its own repository ([ADR 0003](adr/0003-autoresearch-tools-here-project-data-there.md)) |
 | observability | shapes in `contract`, extraction in `harness` | see below |
 | context usage / "dump zone" detection | `harness`, beside liveness and usage | per-harness reading, same shape as usage |
 
@@ -449,9 +449,11 @@ Evals and autoresearch are two different things, and section 10's table used to 
 reporter, a summary. No package, no application.
 
 **Autoresearch** answers "which combination is better, faster or cheaper" — searching over workflow
-design, models, harnesses, tools and skills for an optimum. It lives in this repository
-([ADR 0002](adr/0002-autoresearch-lives-here.md)), but it is a *user* of the engine rather than a
-part of it: it has a different lifecycle and a different failure mode, and it reaches the engine
+design, models, harnesses, tools and skills for an optimum. Its general tools live in this
+repository, in `packages/autoresearch`, and a project's variants and fixtures in that project's own
+([ADR 0002](adr/0002-autoresearch-lives-here.md),
+[ADR 0003](adr/0003-autoresearch-tools-here-project-data-there.md)). It is a *user* of the engine
+rather than a part of it: it has a different lifecycle and a different failure mode, and it reaches the engine
 only through the same programmatic entry point and run record any outside caller would use.
 
 It is also the most demanding consumer on the list, which makes it the useful one to design
@@ -593,7 +595,6 @@ named trigger fires.
 | Not yet | Lives in for now | Extract when |
 | --- | --- | --- |
 | `telemetry` / accounting package | readers and billing in `harness/src/usage/`; run-end reading in `engine/src/run-usage.ts`; prices and summary in `engine/src/accounting/`; the record in `contract` | two producers and two consumers — the autoresearch loop is the second consumer |
-| autoresearch home | nowhere yet; prior art in `experiments/_archive/` — [ADR 0002](adr/0002-autoresearch-lives-here.md) | the first loop runs; a package only if something outside imports it |
 | `messaging` state machine | `engine/src/messaging/`, types in `contract` | never as one package — see section 7 |
 | skill/tool capability resolution | request and report *shapes* in `contract`, resolution in `harness/src/capabilities/`, fail-vs-downgrade policy in `engine` | two adapters demonstrate what is actually portable |
 | context-usage reading | `harness/src/context/` | — |

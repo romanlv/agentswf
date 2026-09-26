@@ -1,7 +1,8 @@
 # 0002 — Autoresearch lives in this repository
 
 **Decided:** 2026-09-23. **Replaces:** `foundation.md` §7's "Autoresearch is a separate
-repository", and the §10 trigger that tied the cross-repository pack test to it.
+repository", and the §10 trigger that tied the cross-repository pack test to it. **Amended by:**
+[ADR 0003](0003-autoresearch-tools-here-project-data-there.md), which settles the home.
 
 ## What was decided
 

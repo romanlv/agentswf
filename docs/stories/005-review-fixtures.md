@@ -3,7 +3,7 @@ id: "005"
 title: Replay old MRs as review tests with an answer key
 summary: Define the format for a review test — an old merge request frozen at the moment review started, plus the real problems found in it, graded — and the tools that build them; the data itself lives outside this repository.
 type: story
-status: draft
+status: in-progress
 discovered_in: "autoresearch planning, 2026-09-23 (was todo/historical-review-fixtures)"
 depends_on: []
 ---
@@ -37,7 +37,7 @@ planned pieces read this format, so it comes first:
 In: the format, its checker, `collect` for GitLab, `draft-key`, and a first set built and checked.
 
 Out: scoring, handing a fixture to a reviewer safely, a GitHub collector, and bugs nobody raised
-during review (they join the key later, see [[#How it fits together|How it fits together]]).
+during review (they join the key later, see [[#From an MR to a score|From an MR to a score]]).
 
 ## What we learned
 
@@ -62,7 +62,39 @@ do this, and what we borrowed, is in
 6. **Building a key takes judgement.** A fixture took 70–90 minutes by hand, and most of that was
    deciding things, not fetching them.
 
-## How it fits together
+## How it works
+
+### A fixture
+
+An MR is a branch that gets pushed several times. Review starts on one of those pushes, and the
+author keeps pushing as comments come in:
+
+```text
+main ──●──●──●── base
+                  ╲
+                   c1──c2──c3 = head        ← the last push before the first review comment
+                                  ╲
+                                   v2 ── v3 ── … ── vN   ← later pushes, answering the review
+```
+
+A fixture freezes the MR at `head` and splits what it knows into two halves:
+
+- **What the reviewer gets:** the code at `head` with its real history (`snapshot.bundle`), and
+  the title and description as they read when review started (`request.md`). The change under
+  review is the whole diff `base..head`, however many commits it took. The history lets
+  `git log` and `git blame` work, as they did for the human reviewer. The bundle holds only what
+  `main` lacks, so a clone of `main` plus the bundle restores it, even after the branch was
+  rebased or deleted.
+- **What only the key sees:** the later pushes (`key/fixes.bundle`), the raw comments, and the
+  answer key itself. The later pushes are how we know a comment was right: the author changed the
+  code it pointed at. They also show fixes nobody commented on.
+
+A problem that only exists in a later push can't be found by reviewing `head`, so it isn't in the
+key. It is recorded as excluded (`not-in-snapshot`), and a reviewer is neither credited nor
+penalised for it. To test a later round of review, freeze the MR at that push as a fixture of its
+own.
+
+### From an MR to a score
 
 ```mermaid
 flowchart TD
@@ -95,15 +127,24 @@ flowchart TD
 
 ## Code map
 
-- `packages/autoresearch/src/review/` (new): `format.ts` (the schemas; `schema/` is generated from
-  it), `validate.ts` (pure checks, including a key against its fixture), `collect.ts`,
-  `draft-key.ts`, `verify.ts` (checks a fixture folder end to end), `threads.ts` (the comments as
-  the key drafter reads them), `git.ts` (bundling, and the `restore` eval-isolation will reuse),
-  `gitlab.ts`, and `fixtures.workflow.ts`, which runs collect and draft-key over a list of MRs.
-- `scripts/check-boundaries.ts`: rules for the new package.
+- `packages/autoresearch/src/review/`:
+  - pure: `format.ts` (the TypeBox schemas, the single definition of every file; `schema/` is
+    generated from it by `src/write-schemas.ts`), `validate.ts` (the checks, including a key
+    against its fixture and a key against its votes), `review-start.ts` (which push review started
+    on), `description.ts` (the description as it read then, bot text removed), `threads.ts` (the
+    comments as the drafter reads them), `grading.ts` (the rubric), `gitlab-types.ts`;
+  - I/O: `gitlab.ts` (`glab api`, read-only), `git.ts` (bundling, and the `restore`
+    eval-isolation will reuse), `collect.ts`, `draft-key.ts` (the drafter and the graders' vote),
+    `verify.ts` (checks a fixture folder end to end), and `fixtures.workflow.ts`, which runs collect
+    and draft-key over a list of MRs.
+- `packages/autoresearch/AGENTS.md`: the package's rules.
+- `scripts/check-boundaries.ts`: rules for the new package; every file in `src/review/` is pure
+  unless named as I/O.
 - `examples/catalogue-review/schema.ts` and `examples/minimum-review/workflow.ts`: two review
   workflows with different finding shapes; the first variants to read into `ReviewFinding`.
-- `docs/foundation.md` §10, `AGENTS.md`, `docs/adr/`: where the package and the split are recorded.
+- `docs/foundation.md` §7, `AGENTS.md`, and
+  [ADR 0003](../adr/0003-autoresearch-tools-here-project-data-there.md): where the package and the
+  split are recorded.
 
 ## The design
 
@@ -119,8 +160,8 @@ project goes in that project's own workflows repository.
 - **Why not all of it here:** a project's review workflow, its checklists and its data are that
   project's, and often private. They already live in its own repository, which imports awf's
   example workflows. Tuning them there keeps this repository free of any one project.
-  ADR 0002 assumed the workflows being tuned would live here, so Task 2 records this split in a
-  new ADR.
+  ADR 0002 assumed the workflows being tuned would live here;
+  [ADR 0003](../adr/0003-autoresearch-tools-here-project-data-there.md) records the split.
 - **Not `contract`.** The engine never reads fixtures, and the format is specific to code review
   and will change a few times before it settles. It shouldn't be in the package every other
   package depends on.
@@ -144,7 +185,8 @@ depend on what's being tested: a set of fixtures (`FixtureSet`) and a variant (`
     key/                never enters the reviewer's sandbox
       key.json          the answer key
       fixes.bundle      the commits that fixed the problems, for checking later
-      evidence/         the raw comments the key came from, and votes.json: every vote behind it
+      evidence/         the raw GitLab data the key came from (gitlab/), what collect decided
+                        (collect.json), and votes.json: every vote behind the key
 ```
 
 **The reviewer gets only `request.md` and the frozen code.** `fixture.json` names the MR, which a
@@ -311,7 +353,11 @@ export type FixtureSet = {
 };
 ```
 
-The variant and the finding are code, not files: a project writes its variants in TypeScript.
+`format.ts` defines all four as schemas, plus `collect.json` and `votes.json`. Nothing writes
+`set.json` yet (see [[#2. Lock the format|Task 2]]).
+
+The variant and the finding are code, not files: a project writes its variants in TypeScript. They
+are not built: the first readers are the scorer and the matrix runner, so they arrive with those.
 
 ```ts
 /** One way of doing the task: any workflow, its arguments, and how to read what it returns. */
@@ -425,6 +471,10 @@ Rejected:
 
 - [x] 1. Build five fixtures by hand, and fix the draft format from what we learned
 - [ ] 2. Lock the format: package, types, schema, checker, design doc; convert the five fixtures
+  - [x] 2a. The package, `format.ts`, the generated schemas, the checker, the boundary rules
+  - [x] 2b. The five in the new format: rebuilt by `collect` and `draft-key`, all pass the checker
+  - [ ] 2c. `set.json`: written by the builder and checked against each fixture's digest
+  - [x] 2d. ADR 0003 for the split, and foundation §7 and §10; no separate design doc
 - [x] 3. `collect`, built before Task 2 at the user's request
 - [x] 4. `draft-key`, compared with the five hand-built keys
 - [ ] 5. Build and count the first set
@@ -433,10 +483,10 @@ Rejected:
 
 ### Task 2
 
-1. **Where it lives.** Suggested: `packages/autoresearch` for the general tools, and a project's
-   variants and sets in its own workflows repository. See [[#Where it lives|Where it lives]]. %% packages/autoresearch makes sense %%
-2. **Grading.** Suggested: the four severities and eight categories in [[#Grading|Grading]]. They're in the
-   key format, so changing them later means re-grading every key. %% looks good %%
+1. **Where it lives.** Decided: `packages/autoresearch` for the general tools, and a project's
+   variants and sets in its own workflows repository. See [[#Where it lives|Where it lives]].
+2. **Grading.** Decided: the four severities and eight categories in [[#Grading|Grading]]. They're
+   in the key format, so changing them later means re-grading every key.
 
 ### Task 5
 
@@ -460,24 +510,38 @@ comments, and an older MR that was closed. Every bundle restores and every locat
 
 They were built with the draft format, so their counts will change. The draft still marked some
 true comments about old code as wrong, and used the old severity scale (`issue`, `minor`,
-`observation`). Nobody has double-checked
-the keys yet. Do that before Task 4 uses them. 
+`observation`). They stay, unconverted, in a set of their own beside the rebuilt one, as
+the baseline Task 4 compared its drafts with (see [[#Review record|Review record]]).
 
 
 ### 2. Lock the format
 
 Create `packages/autoresearch` with `src/review/format.ts` and `src/review/validate.ts`, plus a
 generated JSON Schema. Add rules to `scripts/check-boundaries.ts`: those two files do no I/O, and
-the package imports only `contract` and the engine's public entry, never a harness. Write
-`docs/design/review-fixtures.md`. Replace the "autoresearch home" row in foundation §10, add the
-package to AGENTS.md's "Where things go", and write an ADR for the split between this repository and
-a project's own.
+the package imports only `contract` and the engine's public entry, never a harness. Replace the
+"autoresearch home" row in foundation §10, add the package to AGENTS.md's "Where things go", and
+write an ADR for the split between this repository and a project's own.
 
 Convert the five fixtures. Re-grade every problem on the new scales. `pre-existing` wrong claims
 become problems with `scope: "context"`, and `harmless` ones become refuted claims with
 `not-a-defect`. Move each into the new layout, add `request.md`, `set.json` and `fixes.bundle`,
 tag `visibleIn`, then recount. The closed MR stays as a test for the checker
 but isn't in a set.
+
+State, 2026-09-26: the package, the schemas and the checker are built (2a), and `AGENTS.md` lists
+the package. [ADR 0003](../adr/0003-autoresearch-tools-here-project-data-there.md) records the
+split; foundation §7 points at it, and §10's "autoresearch home" row is gone, as the home is built
+(2d). The planned `docs/design/review-fixtures.md` was dropped: `format.ts` is the single definition
+and this story holds the reasoning, so a third copy would only drift.
+
+The five were not converted by hand: `collect` and `draft-key` rebuilt them in the new layout, into
+a draft set in the project's workflows repository, and all five pass `verifyFixture`. The closed MR among them stays for testing the checker, and won't go in a set.
+
+Still open:
+
+- **2c.** `FixtureSet` has a schema and `checkFixtureSet`, but no one writes `set.json`, and a
+  fixture's digest is never computed. Review round 2 moved this to the scorer, the first code that
+  reads the set; it is listed in [`review-recall-scorer`](todo/review-recall-scorer.md).
 
 Done when the five pass the checker, and tests show it rejecting:
 
@@ -487,7 +551,9 @@ Done when the five pass the checker, and tests show it rejecting:
 - a problem with no source that raised it;
 - a key field in `fixture.json`;
 - a raising comment written before the frozen version, or a fixing commit that isn't after it;
-- a fixture whose hash doesn't match `set.json`.
+- a fixture whose hash doesn't match `set.json` (waits on 2c).
+
+All but the last are covered in `validate.test.ts` and `collect.test.ts`.
 
 ### 3. `collect` — done 2026-09-25
 
@@ -503,13 +569,13 @@ Done when tests with made-up GitLab data cover:
 
 It must also reproduce the five hand-built fixtures' code and request.
 
-### 4. `draft-key`
+### 4. `draft-key` — done 2026-09-25
 
 It runs the checker on every draft, so impossible dates, missing lines
 and invented commits are caught mechanically.
 
 Done when its keys for the five are compared with the hand-built ones (found, missed, added, graded
-differently), and its cost is recorded.
+differently), and its cost is recorded. Both are in the [[#Review record|Review record]].
 
 ### 5. The first set
 
@@ -519,17 +585,19 @@ severity, category and scope.
 ## Verification
 
 - [ ] `bun test`, `bunx tsc --noEmit`, `bun run scripts/check-boundaries.ts`, `bun run check`
-- [ ] The checker passes on the five hand-built fixtures, then on the first set
-- [ ] `draft-key` compared with the five hand-built keys
+  (passed per task; not yet run for the story as a whole)
+- [x] The checker passes on the five: `verifyFixture` on the draft set, 2026-09-26, no problems
+- [ ] The checker passes on the first set
+- [x] `draft-key` compared with the five hand-built keys
 
 ## Readiness
 
 - [x] The outcome and boundaries are clear.
 - [x] The code involved is mapped.
 - [x] The evidence supports the design.
-- [ ] The format is settled. It waits on the open questions.
+- [x] The format is settled.
 - [x] The tasks are in order, and each can be checked on its own.
-- [ ] Every open question is answered.
+- [ ] Every open question is answered. Task 5's first question is still open.
 
 ## Review record
 

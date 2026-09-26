@@ -54,8 +54,11 @@ The gates are defined in [`foundation.md`](foundation.md) §12.
   sessions, and changed the result prompt to a quoted heredoc carrying the schema.
 - [003 — failed-run accounting](stories/003-failed-run-accounting.md): done, approved
   2026-09-24. It also added `bun run eval` and moved the agents' launcher under `/tmp`.
-- [005 — review fixtures](stories/005-review-fixtures.md): draft. Tests with known answers for
-  review workflows: old MRs frozen when review started, plus the real problems found in them, graded.
+- [005 — review fixtures](stories/005-review-fixtures.md): in progress. Tests with known answers
+  for review workflows: old MRs frozen when review started, plus the real problems found in them,
+  graded. `packages/autoresearch` builds them: `collect` freezes a GitLab MR, `draft-key` drafts
+  its key, and graders from two model families vote on it. Five are built and pass the checker;
+  still to do: `set.json` and the first full set.
 
 The inbox of possible stories is [`stories/todo/`](stories/todo/).
 

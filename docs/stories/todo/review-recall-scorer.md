@@ -56,6 +56,10 @@ What it reports per run:
   person's, a bot's, a fix nobody commented on, or a run. Most keys come from one earlier AI
   reviewer, so a variant that imitates it scores well on its comments; the split shows that.
 - Every score records the key's `revision` and `procedure`; scores are compared only on the same.
+- Every score also records the fixture's digest from `set.json`. Story 005 defined `set.json` and
+  its checker, but nothing writes it or computes a digest yet; the builder does both before the
+  first score. A set has no clean MRs yet, so it can't count false alarms on code with nothing
+  wrong; add them once there's a way to know an MR is clean.
 - A score can count only some categories, for example just `correctness` and `security`. A true
   finding outside them is neither rewarded nor penalised.
 - The run's cost and time (story 002), and the judge's own cost, kept separate.
