@@ -58,8 +58,8 @@ The gates are defined in [`foundation.md`](foundation.md) §12.
   known answers for review workflows: old MRs frozen when review started, plus the real problems
   found in them, graded. `packages/autoresearch` builds them: `collect` freezes a GitLab MR,
   `draft-key` drafts its key, graders from two model families vote on it, and the set is sealed in
-  `set.json`, each fixture pinned by a digest. The first set is built, from 60 of the private
-  project's MRs.
+  `set.json`, each fixture pinned by a digest. The first set has 33 fixtures from 61 of the
+  private project's MRs.
 
 The inbox of possible stories is [`stories/todo/`](stories/todo/).
 

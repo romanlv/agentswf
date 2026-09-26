@@ -534,8 +534,28 @@ named by its MR; testing a later review round would need that changed.
 
 ## The first set
 
-Built on 2026-09-26 from 60 merged MRs of the private project, in its autoresearch repository.
-The counts go here once the set is sealed.
+Built on 2026-09-26 in the project's autoresearch repository. 61 MRs were considered: 60 merged
+ones in a row, plus the draft set's closed one.
+
+- **In the set:** 33 fixtures, with 264 issues, 37 refuted claims and 320 comments left out.
+  - Severity: 28 must-fix, 82 should-fix, 118 could-fix, 36 nit. 227 were caused by the MR, 37
+    were already in the code around it.
+  - Must-fix or should-fix and caused by the MR, of which a set needs two: 110 in all, 2 to 9 per
+    fixture, median 3.
+  - Category: 166 correctness, 27 docs-style, 23 tests, 13 performance, 11 slop, 8 each of
+    security, design and maintainability.
+  - Visible in: 129 the diff, 42 the changed file, 93 only the wider repository.
+  - Confirmed by: 237 a later fix, 18 the author accepting it, 9 traced in the code.
+- **Left out:** 28. 26 had fewer than two serious problems the MR caused (15 none, 11 one), one
+  was closed without merging, and one had no review from anyone but its author.
+- **Agreement:** of 296 drafted issues, the three graders split on whether it was real for 74 and
+  on its severity for 195. The majority voted 32 out; the median set the severity of the rest.
+  Every vote is kept.
+- **Cost:** two runs, the first stopped by awf's 30-minute default deadline and resumed with a
+  longer one: 56 minutes, 226 agents, $41.99 at list prices. $13.26 was charged, all of it the
+  Claude grader, which bills per token when headless.
+- One draft failed its checks (every source cited a note that didn't exist) and passed on its
+  second attempt.
 
 ## Verification
 
@@ -543,6 +563,7 @@ The counts go here once the set is sealed.
   53 tests, each review fix among them.
 - `draft-key` on the five, against the hand-built keys: every hand issue a comment raised was found,
   except one the drafter judged, twice, to be only in a later push.
+- The first set: `verifySet` passes on it, 2026-09-26.
 
 ## Human review
 
