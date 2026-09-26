@@ -1,0 +1,90 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "awf collect record",
+  "type": "object",
+  "required": ["format", "collectedAt", "reviewStart", "unavailable", "notes"],
+  "properties": {
+    "format": {
+      "type": "string",
+      "const": "awf.collect-record/1"
+    },
+    "collectedAt": {
+      "type": "string",
+      "minLength": 1,
+      "description": "ISO 8601"
+    },
+    "reviewStart": {
+      "type": "object",
+      "required": ["version", "how"],
+      "properties": {
+        "version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "how": {
+          "enum": ["first-comment", "chosen"]
+        },
+        "firstComment": {
+          "type": "object",
+          "required": ["discussion", "note", "at", "author", "path", "line"],
+          "properties": {
+            "discussion": {
+              "type": "string",
+              "minLength": 1
+            },
+            "note": {
+              "type": "integer"
+            },
+            "at": {
+              "type": "string",
+              "minLength": 1,
+              "description": "ISO 8601"
+            },
+            "author": {
+              "type": "string",
+              "minLength": 1
+            },
+            "path": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "line": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "unavailable": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^[0-9a-f]{40}$"
+      }
+    },
+    "notes": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "additionalProperties": false,
+  "description": "How collect froze a fixture. The raw GitLab data beside it is kept unvalidated."
+}

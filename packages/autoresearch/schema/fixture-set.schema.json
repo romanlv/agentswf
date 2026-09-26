@@ -1,0 +1,71 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "awf fixture set",
+  "type": "object",
+  "required": ["format", "name", "builtAt", "builder", "fixtures", "excluded"],
+  "properties": {
+    "format": {
+      "type": "string",
+      "const": "awf.fixture-set/1"
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "builtAt": {
+      "type": "string",
+      "minLength": 1,
+      "description": "ISO 8601"
+    },
+    "builder": {
+      "type": "string",
+      "minLength": 1
+    },
+    "fixtures": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "at", "digest"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "at": {
+            "type": "string",
+            "minLength": 1,
+            "description": "ISO 8601"
+          },
+          "digest": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "excluded": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["project", "number", "reason"],
+        "properties": {
+          "project": {
+            "type": "string",
+            "minLength": 1
+          },
+          "number": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

@@ -1,0 +1,379 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "awf review answer key",
+  "type": "object",
+  "required": [
+    "format",
+    "fixture",
+    "revision",
+    "draftedBy",
+    "procedure",
+    "issues",
+    "refuted",
+    "excluded"
+  ],
+  "properties": {
+    "format": {
+      "type": "string",
+      "const": "awf.review-key/1"
+    },
+    "fixture": {
+      "type": "string",
+      "minLength": 1
+    },
+    "revision": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "draftedBy": {
+      "type": "string",
+      "minLength": 1
+    },
+    "procedure": {
+      "type": "string",
+      "minLength": 1,
+      "description": "A hash of the drafting and voting instructions; a key with an old one is stale."
+    },
+    "issues": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "mechanism",
+          "visibleIn",
+          "severity",
+          "category",
+          "scope",
+          "locations",
+          "confirmation",
+          "sources"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^K[0-9]+$"
+          },
+          "mechanism": {
+            "type": "string",
+            "minLength": 1,
+            "description": "What goes wrong, when, and what it causes; never the fix."
+          },
+          "visibleIn": {
+            "enum": ["diff", "file", "repo"]
+          },
+          "severity": {
+            "enum": ["must-fix", "should-fix", "could-fix", "nit"]
+          },
+          "category": {
+            "enum": [
+              "correctness",
+              "security",
+              "performance",
+              "tests",
+              "design",
+              "maintainability",
+              "docs-style",
+              "slop"
+            ]
+          },
+          "scope": {
+            "enum": ["change", "context"]
+          },
+          "locations": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["path", "start", "end"],
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "start": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "end": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              },
+              "additionalProperties": false,
+              "description": "Lines in the frozen code, both ends included."
+            }
+          },
+          "confirmation": {
+            "anyOf": [
+              {
+                "type": "object",
+                "required": ["basis", "version", "commit"],
+                "properties": {
+                  "basis": {
+                    "type": "string",
+                    "const": "fixed"
+                  },
+                  "version": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "commit": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{40}$"
+                  }
+                },
+                "additionalProperties": false,
+                "description": "A later version changed the code to fix it."
+              },
+              {
+                "type": "object",
+                "required": ["basis", "note"],
+                "properties": {
+                  "basis": {
+                    "type": "string",
+                    "const": "accepted"
+                  },
+                  "note": {
+                    "type": "object",
+                    "required": ["discussion", "note"],
+                    "properties": {
+                      "discussion": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "note": {
+                        "type": "integer"
+                      }
+                    },
+                    "additionalProperties": false,
+                    "description": "A note in key/evidence/gitlab/discussions.json."
+                  }
+                },
+                "additionalProperties": false,
+                "description": "The author agreed it was a problem."
+              },
+              {
+                "type": "object",
+                "required": ["basis", "how"],
+                "properties": {
+                  "basis": {
+                    "type": "string",
+                    "const": "verified"
+                  },
+                  "how": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "additionalProperties": false,
+                "description": "Traced in the frozen code; `how` says how."
+              }
+            ]
+          },
+          "sources": {
+            "type": "array",
+            "items": {
+              "anyOf": [
+                {
+                  "type": "object",
+                  "required": ["discussion", "note"],
+                  "properties": {
+                    "discussion": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "note": {
+                      "type": "integer"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "description": "A note in key/evidence/gitlab/discussions.json."
+                },
+                {
+                  "type": "object",
+                  "required": ["commit"],
+                  "properties": {
+                    "commit": {
+                      "type": "string",
+                      "pattern": "^[0-9a-f]{40}$"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "description": "A later push's commit that fixed a problem nobody commented on."
+                },
+                {
+                  "type": "object",
+                  "required": ["run", "finding"],
+                  "properties": {
+                    "run": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "finding": {
+                      "type": "integer",
+                      "minimum": 0
+                    }
+                  },
+                  "additionalProperties": false,
+                  "description": "A finding from an awf review run, by position."
+                }
+              ]
+            },
+            "minItems": 1
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "refuted": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "claim", "reason", "why", "sources"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^R[0-9]+$"
+          },
+          "claim": {
+            "type": "string",
+            "minLength": 1
+          },
+          "reason": {
+            "enum": ["false-premise", "not-a-defect"]
+          },
+          "why": {
+            "type": "string",
+            "minLength": 1
+          },
+          "sources": {
+            "type": "array",
+            "items": {
+              "anyOf": [
+                {
+                  "type": "object",
+                  "required": ["discussion", "note"],
+                  "properties": {
+                    "discussion": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "note": {
+                      "type": "integer"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "description": "A note in key/evidence/gitlab/discussions.json."
+                },
+                {
+                  "type": "object",
+                  "required": ["commit"],
+                  "properties": {
+                    "commit": {
+                      "type": "string",
+                      "pattern": "^[0-9a-f]{40}$"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "description": "A later push's commit that fixed a problem nobody commented on."
+                },
+                {
+                  "type": "object",
+                  "required": ["run", "finding"],
+                  "properties": {
+                    "run": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "finding": {
+                      "type": "integer",
+                      "minimum": 0
+                    }
+                  },
+                  "additionalProperties": false,
+                  "description": "A finding from an awf review run, by position."
+                }
+              ]
+            },
+            "minItems": 1
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "excluded": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["sources", "reason", "claim"],
+        "properties": {
+          "sources": {
+            "type": "array",
+            "items": {
+              "anyOf": [
+                {
+                  "type": "object",
+                  "required": ["discussion", "note"],
+                  "properties": {
+                    "discussion": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "note": {
+                      "type": "integer"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "description": "A note in key/evidence/gitlab/discussions.json."
+                },
+                {
+                  "type": "object",
+                  "required": ["commit"],
+                  "properties": {
+                    "commit": {
+                      "type": "string",
+                      "pattern": "^[0-9a-f]{40}$"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "description": "A later push's commit that fixed a problem nobody commented on."
+                },
+                {
+                  "type": "object",
+                  "required": ["run", "finding"],
+                  "properties": {
+                    "run": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "finding": {
+                      "type": "integer",
+                      "minimum": 0
+                    }
+                  },
+                  "additionalProperties": false,
+                  "description": "A finding from an awf review run, by position."
+                }
+              ]
+            },
+            "minItems": 1
+          },
+          "reason": {
+            "enum": ["not-in-snapshot", "unconfirmed", "preference", "not-a-claim"]
+          },
+          "claim": {
+            "type": "string",
+            "minLength": 1,
+            "description": "What the comment asserted, in a sentence, so a finding repeating it is recognised."
+          },
+          "detail": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false,
+  "description": "The answer key: never shown to a reviewer."
+}

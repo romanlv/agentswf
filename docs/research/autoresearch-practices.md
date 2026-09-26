@@ -39,7 +39,7 @@ Automatic optimisation of prompts and agent workflows works when three things ho
 
 ## For awf's stories
 
-**historical-review-fixtures**
+**review fixtures ([story 005](../stories/005-review-fixtures.md))**
 - Confirmed: snapshot at the first reviewed version, with confirmation by later fix (SWR-Bench and SWE-PRBench do the same). Add exclusion rules they use: bot-authored comments, non-substantive comments (nits, questions without a defect), and MRs with fewer than two substantive findings.
 - Five fixtures is enough to design the format, not to score. Paired comparisons need power analysis, so plan for tens of MRs before the loop trusts a delta ([Miller](https://arxiv.org/html/2411.00640)).
 - Record post-merge bugs later traced to the MR (SZZ-style) as extra known issues or as an exclusion reason, as SWR-Bench does.

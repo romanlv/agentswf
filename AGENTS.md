@@ -27,6 +27,7 @@ what would have to happen first.
 | `packages/harness` | driving one coding agent: adapters, liveness, usage extraction |
 | `packages/engine` | the runtime: run-directory I/O, result slots, and the local control plane; `src/accounting` prices and sums finished runs |
 | `packages/cli-agent` | the in-session `wf` command; imports contract only and talks over wire |
+| `packages/autoresearch` | evaluating workflows against cases with known answers: review fixtures, `collect`, `draft-key` and their agent votes; a consumer of the engine |
 | `examples/` | scenario workflows, written against the author surface and pure schema authoring libraries |
 | `experiments/_archive/` | E1–E3, E5–E6. Frozen evidence. Do not refactor to taste |
 | `docs/status.md` | what runs today and what is next. Update it when a story or stage changes state |

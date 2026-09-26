@@ -1,0 +1,107 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "awf key votes",
+  "type": "object",
+  "required": ["format", "procedure", "voters", "issues", "refuted"],
+  "properties": {
+    "format": {
+      "type": "string",
+      "const": "awf.key-votes/1"
+    },
+    "procedure": {
+      "type": "string",
+      "minLength": 1
+    },
+    "voters": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "minItems": 1
+    },
+    "issues": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "real", "severity", "votes"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^K[0-9]+$"
+          },
+          "real": {
+            "type": "boolean"
+          },
+          "severity": {
+            "enum": ["must-fix", "should-fix", "could-fix", "nit"]
+          },
+          "votes": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["by", "real", "severity", "why"],
+              "properties": {
+                "by": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "real": {
+                  "type": "boolean"
+                },
+                "severity": {
+                  "enum": ["must-fix", "should-fix", "could-fix", "nit"]
+                },
+                "why": {
+                  "type": "string"
+                }
+              },
+              "additionalProperties": false
+            },
+            "minItems": 1
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "refuted": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "wrong", "votes"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^R[0-9]+$"
+          },
+          "wrong": {
+            "type": "boolean"
+          },
+          "votes": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["by", "wrong", "why"],
+              "properties": {
+                "by": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "wrong": {
+                  "type": "boolean"
+                },
+                "why": {
+                  "type": "string"
+                }
+              },
+              "additionalProperties": false
+            },
+            "minItems": 1
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

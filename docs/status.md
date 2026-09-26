@@ -6,7 +6,7 @@ exists, the code is right, then this page.
 
 ## What runs today
 
-- `awf run <workflow.ts>` loads a trusted local workflow and runs it. Each agent's placement is set
+- `awf run {workflow.ts}` loads a trusted local workflow and runs it. Each agent's placement is set
   in the workflow: a pane agent gets a tab in the run's one Herdr workspace, and a headless agent
   runs as a subprocess per turn that resumes one native session. claude and codex run in panes;
   codex and pi run headless. A headless claude needs `metered: true`, as `claude -p` bills per
@@ -54,15 +54,18 @@ The gates are defined in [`foundation.md`](foundation.md) §12.
   sessions, and changed the result prompt to a quoted heredoc carrying the schema.
 - [003 — failed-run accounting](stories/003-failed-run-accounting.md): done, approved
   2026-09-24. It also added `bun run eval` and moved the agents' launcher under `/tmp`.
+- [005 — review fixtures](stories/005-review-fixtures.md): draft. Tests with known answers for
+  review workflows: old MRs frozen when review started, plus the real problems found in them, graded.
 
 The inbox of possible stories is [`stories/todo/`](stories/todo/).
 
 ## Next
 
-1. The first autoresearch loop over catalogue-review variants, in this repository
-   ([ADR 0002](adr/0002-autoresearch-lives-here.md)), scored against merged MRs replayed as they
+1. The first autoresearch loop over review variants, with its general tools in this repository
+   ([ADR 0002](adr/0002-autoresearch-lives-here.md)), scored against old MRs replayed as they
    were when review started. In order:
-   [`historical-review-fixtures`](stories/todo/historical-review-fixtures.md), then
+   [story 005](stories/005-review-fixtures.md), the fixtures to score
+   against; then
    [`eval-isolation`](stories/todo/eval-isolation.md) and
    [`review-recall-scorer`](stories/todo/review-recall-scorer.md) — settle
    [`deadline-outcome`](stories/todo/deadline-outcome.md) before it reads `output.json` — then

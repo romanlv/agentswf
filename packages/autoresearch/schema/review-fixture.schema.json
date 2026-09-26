@@ -1,0 +1,101 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "awf review fixture",
+  "type": "object",
+  "required": ["format", "id", "source", "snapshot", "request"],
+  "properties": {
+    "format": {
+      "type": "string",
+      "const": "awf.review-fixture/1"
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9._-]*$"
+    },
+    "source": {
+      "type": "object",
+      "required": ["forge", "project", "number", "url", "state"],
+      "properties": {
+        "forge": {
+          "enum": ["gitlab", "github"]
+        },
+        "project": {
+          "type": "string",
+          "minLength": 1
+        },
+        "number": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "url": {
+          "type": "string",
+          "minLength": 1
+        },
+        "state": {
+          "enum": ["merged", "open", "closed"]
+        }
+      },
+      "additionalProperties": false
+    },
+    "snapshot": {
+      "type": "object",
+      "required": ["version", "base", "head", "at"],
+      "properties": {
+        "version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "base": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$"
+        },
+        "head": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$"
+        },
+        "at": {
+          "type": "string",
+          "minLength": 1,
+          "description": "ISO 8601"
+        },
+        "start": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$"
+        }
+      },
+      "additionalProperties": false
+    },
+    "request": {
+      "type": "object",
+      "required": ["asOf", "removed"],
+      "properties": {
+        "asOf": {
+          "type": "string",
+          "minLength": 1,
+          "description": "ISO 8601"
+        },
+        "removed": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["by", "what"],
+            "properties": {
+              "by": {
+                "type": "string",
+                "minLength": 1
+              },
+              "what": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false,
+  "description": "Where an MR came from and the version review started on. The title and description are in request.md."
+}

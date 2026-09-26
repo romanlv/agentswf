@@ -22,6 +22,10 @@ const ROOT = join(import.meta.dir, "..");
 type Rule = {
   /** Workspace directory, relative to the repo root. */
   dir: string;
+  /** Files under `dir` the rule covers; every `.ts` file by default. */
+  files?: string;
+  /** Files under `dir` the rule leaves out, so anything new is covered unless named here. */
+  except?: string[];
   /** Bare specifiers this unit may import, by exact match or `pkg/*` prefix. */
   allow?: string[];
   /** Reject any import matching this, with the reason to print. */
@@ -57,6 +61,34 @@ const RULES: Rule[] = [
   },
   // "Approved pure schema authoring libraries" is not a list the checker can hold; what it can hold
   // is that nothing here reaches a runtime, which is what made them approvable.
+  // A consumer of the engine (ADR 0002): it runs workflows and reads their records, and never
+  // reaches into the engine or a harness.
+  {
+    dir: "packages/autoresearch",
+    allow: ["@wf/contract", "@wf/contract/*", "@wf/engine"],
+    forbid: [
+      {
+        pattern: /^@wf\/(engine\/|harness)/,
+        reason: "autoresearch uses the engine's public entry only, and never a harness",
+      },
+    ],
+  },
+  // The format and the decisions about it stay pure; only the files named here do I/O.
+  {
+    dir: "packages/autoresearch/src/review",
+    files: "*.ts",
+    except: [
+      "*.test.ts",
+      "*.workflow.ts",
+      "git.ts",
+      "gitlab.ts",
+      "collect.ts",
+      "verify.ts",
+      "draft-key.ts",
+      "index.ts",
+    ],
+    pure: true,
+  },
   {
     dir: "examples",
     allow: ["@wf/contract/workflow"],
@@ -78,7 +110,11 @@ const problems: string[] = [];
 
 for (const rule of RULES) {
   const abs = join(ROOT, rule.dir);
-  for await (const file of new Glob("**/*.ts").scan({ cwd: abs, absolute: true })) {
+  const excepted = (rule.except ?? []).map((pattern) => new Glob(pattern));
+  let covered = 0;
+  for await (const file of new Glob(rule.files ?? "**/*.ts").scan({ cwd: abs, absolute: true })) {
+    if (excepted.some((glob) => glob.match(relative(abs, file)))) continue;
+    covered++;
     const source = await Bun.file(file).text();
     const where = relative(ROOT, file);
 
@@ -115,6 +151,7 @@ for (const rule of RULES) {
       }
     }
   }
+  if (covered === 0) problems.push(`${rule.dir}: the rule covers no files; is it stale?`);
 }
 
 // Rule 4: a cross-package import has to be a declared dependency, not just a hoisted symlink.
