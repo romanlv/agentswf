@@ -172,7 +172,7 @@ function lineCount(repo: string, path: string): number | null {
   return text.split("\n").length - (text.endsWith("\n") ? 1 : 0);
 }
 
-async function readJson(dir: string, file: string, problems: Problem[]): Promise<unknown> {
+export async function readJson(dir: string, file: string, problems: Problem[]): Promise<unknown> {
   try {
     return await Bun.file(join(dir, file)).json();
   } catch (error) {
@@ -181,6 +181,6 @@ async function readJson(dir: string, file: string, problems: Problem[]): Promise
   }
 }
 
-function at(file: string, problem: Problem): Problem {
+export function at(file: string, problem: Problem): Problem {
   return { path: `${file}${problem.path === "/" ? "" : problem.path}`, message: problem.message };
 }

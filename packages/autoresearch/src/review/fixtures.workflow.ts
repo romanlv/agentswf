@@ -1,11 +1,13 @@
 // bun awf run packages/autoresearch/src/review/fixtures.workflow.ts -- \
-//   --project group/name --mrs 12,34 --clone ~/code/name --out ~/code/workflows/autoresearch/fixtures/draft
+//   --project group/name --mrs 12,34 --clone ~/code/name --out ~/code/autoresearch/fixtures/draft
 //
 // Builds review fixtures (story 005). For each MR, code freezes it with `collect` unless its fixture
 // already exists, then an agent drafts its answer key unless it has one. Code checks every key
 // against the fixture and hands a failing draft back to the agent; independent graders then vote on
 // what code can't check. Existing fixtures are checked, never changed; `--keys redraft` redrafts
-// keys that are stale or fail their checks, and `--keys none` skips keys.
+// keys that are stale or fail their checks, and `--keys none` skips keys. Last, it seals the whole
+// folder as a set: `set.json` pins every fixture that passes its checks and the set's rules by
+// digest, and lists every MR left out with why.
 import { existsSync } from "node:fs";
 import { join, resolve } from "node:path";
 import {
@@ -13,9 +15,11 @@ import {
   type ExecutionConfig,
   type WorkflowInvocation,
 } from "@wf/contract/workflow";
-import { collect, fixtureId } from "./collect";
+import { collect } from "./collect";
 import { type Drafted, draftKey, PROCEDURE } from "./draft-key";
 import { glabSource } from "./gitlab";
+import { inKey, sealSet } from "./seal";
+import { fixtureId } from "./set";
 import { describeProblems } from "./validate";
 import { verifyFixture } from "./verify";
 
@@ -40,7 +44,9 @@ type Built = {
   detail: string;
 };
 
-const executable = defineExecutableWorkflow<Args, { built: Built[] }>({
+type Result = { built: Built[]; set: string };
+
+const executable = defineExecutableWorkflow<Args, Result>({
   definition: {
     meta: {
       name: "build-review-fixtures",
@@ -62,8 +68,7 @@ const executable = defineExecutableWorkflow<Args, { built: Built[] }>({
               number: mr,
               clone: args.clone,
             }).catch((error) => [{ path: dir, message: String(error) }]);
-            const inKey = (path: string) => /^key\/(key\.json|evidence\/votes\.json)/.test(path);
-            if (!problems.every((p) => inKey(p.path))) {
+            if (!problems.every(inKey)) {
               return {
                 mr,
                 fixture: "failed",
@@ -131,14 +136,41 @@ const executable = defineExecutableWorkflow<Args, { built: Built[] }>({
         },
         { concurrency: args.concurrency, label: "Build fixtures" },
       );
-      return { built };
+      workflow.log("Seal the set");
+      // An MR that failed to collect is listed too, so the set says what it lacks; its folder
+      // replaces the exclusion once a later run collects it.
+      const sealed = await sealSet(args.out, {
+        clone: args.clone,
+        builder: "build-review-fixtures",
+        procedure: PROCEDURE,
+        excluded: built
+          .filter(
+            (b) =>
+              b.fixture === "excluded" ||
+              (b.fixture === "failed" &&
+                !existsSync(join(args.out, fixtureId(args.project, b.mr)))),
+          )
+          .map((b) => ({
+            project: args.project,
+            number: b.mr,
+            reason: b.fixture === "failed" ? `collect failed: ${b.detail}` : b.detail,
+          })),
+      }).catch((error) => ({ status: "broken" as const, detail: String(error) }));
+      const set =
+        sealed.status === "broken"
+          ? `set.json not written; fix or remove these first:\n${sealed.detail}`
+          : `set.json ${sealed.status}: ${sealed.set.fixtures.length} fixtures, ${sealed.set.excluded.length} excluded`;
+      return { built, set };
     },
   },
   prepare: parseArgs,
-  present: ({ built }) =>
-    built
-      .map((b) => `!${b.mr}: fixture ${b.fixture}, key ${b.key}${b.detail ? ` — ${b.detail}` : ""}`)
-      .join("\n"),
+  present: ({ built, set }) =>
+    [
+      ...built.map(
+        (b) => `!${b.mr}: fixture ${b.fixture}, key ${b.key}${b.detail ? ` — ${b.detail}` : ""}`,
+      ),
+      set,
+    ].join("\n"),
 });
 
 function parseArgs(invocation: WorkflowInvocation): Args {

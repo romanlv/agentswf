@@ -84,6 +84,7 @@ const RULES: Rule[] = [
       "gitlab.ts",
       "collect.ts",
       "verify.ts",
+      "seal.ts",
       "draft-key.ts",
       "index.ts",
     ],

@@ -48,7 +48,7 @@ script, so treat them as approximate.
 
 ## Five fixtures built by hand
 
-Stored in that project's own workflows repository. Four were merged and one was closed.
+Stored in that project's own autoresearch repository. Four were merged and one was closed.
 
 - 33 problems, 8 wrong claims, 54 comments left out. These are counts under the draft format, and
   will change when the fixtures are converted.

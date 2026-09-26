@@ -184,16 +184,34 @@ export const FixtureSetSchema = Type.Object(
     builtAt: Timestamp,
     builder: Text,
     fixtures: Type.Array(
-      Type.Object({ id: Text, at: Timestamp, digest: Text }, { additionalProperties: false }),
+      Type.Object(
+        {
+          id: Text,
+          at: Type.String({
+            minLength: 1,
+            description: "ISO 8601: when review started, the fixture's request.asOf.",
+          }),
+          digest: Type.String({
+            pattern: "^sha256:[0-9a-f]{64}$",
+            description:
+              "SHA-256 of fixture.json and request.md as canonical JSON: the MR, its frozen head and the request, not the key. Stored with every score.",
+          }),
+        },
+        { additionalProperties: false },
+      ),
     ),
     excluded: Type.Array(
       Type.Object(
         { project: Text, number: Type.Integer({ minimum: 1 }), reason: Text },
         { additionalProperties: false },
       ),
+      { description: "MRs considered and left out, and why, so a set says what it isn't." },
     ),
   },
-  { additionalProperties: false },
+  {
+    additionalProperties: false,
+    description: "The fixtures in a set, each pinned by a digest, and the MRs left out and why.",
+  },
 );
 
 export const COLLECT_RECORD_FORMAT = "awf.collect-record/1";

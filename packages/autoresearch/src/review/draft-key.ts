@@ -141,6 +141,10 @@ export async function draftKey(
       runtime: drafter,
       cwd: workspace,
     });
+    const replaced = await Bun.file(join(dir, "key", "key.json"))
+      .json()
+      .catch(() => undefined);
+    const revision = Number.isInteger(replaced?.revision) ? replaced.revision + 1 : 1;
     let prompt = draftPrompt(fixture, versions, mr.author.username);
     let detail = "no attempt made";
     for (let attempt = 1; attempt <= options.attempts; attempt++) {
@@ -153,7 +157,7 @@ export async function draftKey(
       const draft: AnswerKey = {
         format: KEY_FORMAT,
         fixture: fixture.id,
-        revision: 1,
+        revision,
         draftedBy: label(drafter),
         procedure: PROCEDURE,
         ...outcome.value,

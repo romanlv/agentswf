@@ -39,5 +39,6 @@ Notes:
   [story 003](../003-failed-run-accounting.md) is why this depends on it.
 - Concurrency (E4) has never been measured. Run sequentially first, or measure E4 before running
   variants in parallel.
-- Its home is `packages/autoresearch`, beside story 005's format. A project's own variants and
-  fixture sets live in that project's workflows repository, which imports the package.
+- Its home is `packages/autoresearch`, beside story 005's format. A project's own variants live in
+  its workflows repository and its fixture sets in its autoresearch repository, which imports the
+  package.

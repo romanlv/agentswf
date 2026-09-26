@@ -240,7 +240,7 @@ describe("votes", () => {
 
 describe("checkFixtureSet", () => {
   test("rejects a fixture listed twice", () => {
-    const entry = { id: "shop-42", at: "2026-01-01T00:00:00Z", digest: "x" };
+    const entry = { id: "shop-42", at: "2026-01-01T00:00:00Z", digest: `sha256:${"0".repeat(64)}` };
     const set = {
       format: "awf.fixture-set/1",
       name: "draft",
@@ -251,6 +251,7 @@ describe("checkFixtureSet", () => {
     };
     expect(checkFixtureSet(set).ok).toBe(false);
     expect(checkFixtureSet({ ...set, fixtures: [entry] }).ok).toBe(true);
+    expect(checkFixtureSet({ ...set, fixtures: [{ ...entry, digest: "x" }] }).ok).toBe(false);
   });
 });
 

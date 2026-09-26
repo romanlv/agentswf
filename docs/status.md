@@ -54,11 +54,12 @@ The gates are defined in [`foundation.md`](foundation.md) §12.
   sessions, and changed the result prompt to a quoted heredoc carrying the schema.
 - [003 — failed-run accounting](stories/003-failed-run-accounting.md): done, approved
   2026-09-24. It also added `bun run eval` and moved the agents' launcher under `/tmp`.
-- [005 — review fixtures](stories/005-review-fixtures.md): in progress. Tests with known answers
-  for review workflows: old MRs frozen when review started, plus the real problems found in them,
-  graded. `packages/autoresearch` builds them: `collect` freezes a GitLab MR, `draft-key` drafts
-  its key, and graders from two model families vote on it. Five are built and pass the checker;
-  still to do: `set.json` and the first full set.
+- [005 — review fixtures](stories/005-review-fixtures.md): done, approved 2026-09-26. Tests with
+  known answers for review workflows: old MRs frozen when review started, plus the real problems
+  found in them, graded. `packages/autoresearch` builds them: `collect` freezes a GitLab MR,
+  `draft-key` drafts its key, graders from two model families vote on it, and the set is sealed in
+  `set.json`, each fixture pinned by a digest. The first set is built, from 60 of the private
+  project's MRs.
 
 The inbox of possible stories is [`stories/todo/`](stories/todo/).
 
@@ -66,9 +67,8 @@ The inbox of possible stories is [`stories/todo/`](stories/todo/).
 
 1. The first autoresearch loop over review variants, with its general tools in this repository
    ([ADR 0002](adr/0002-autoresearch-lives-here.md)), scored against old MRs replayed as they
-   were when review started. In order:
-   [story 005](stories/005-review-fixtures.md), the fixtures to score
-   against; then
+   were when review started. The fixtures to score against are built
+   ([story 005](stories/005-review-fixtures.md)). In order:
    [`eval-isolation`](stories/todo/eval-isolation.md) and
    [`review-recall-scorer`](stories/todo/review-recall-scorer.md) — settle
    [`deadline-outcome`](stories/todo/deadline-outcome.md) before it reads `output.json` — then

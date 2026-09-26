@@ -12,6 +12,7 @@ import {
   type OrderedVersion,
   orderVersions,
 } from "./review-start";
+import { fixtureId } from "./set";
 import { describeProblems } from "./validate";
 import { SNAPSHOT_REF, verifyFixture } from "./verify";
 
@@ -45,10 +46,6 @@ export type Excluded = {
   reason: "draft" | "no-review" | "code-unavailable";
   detail: string;
 };
-
-export function fixtureId(project: string, number: number): string {
-  return `${project.split("/").at(-1)!.toLowerCase()}-${number}`;
-}
 
 /**
  * Freezes one MR as a fixture: the code at the version review started on, the title and

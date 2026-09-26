@@ -11,6 +11,7 @@ import type {
   GitLabMergeRequest,
   GitLabVersion,
 } from "./gitlab-types";
+import { sealSet, verifySet } from "./seal";
 import { checkCollectRecord, checkFixture } from "./validate";
 import { openKeyRepo, verifyFixture } from "./verify";
 
@@ -564,5 +565,141 @@ describe("collect", () => {
     expect(
       await run({ versions, discussions: [comment("2026-01-01T15:00:00Z", head, "author")] }),
     ).toMatchObject({ status: "excluded", reason: "no-review" });
+  });
+});
+
+describe("a set", () => {
+  /** Two fixtures from the same pushes: !7 merged, !8 closed; each with a key of two must-fixes. */
+  async function twoFixtures(): Promise<void> {
+    const m2 = git(remote, ["rev-parse", "HEAD"]);
+    const v1 = commit(remote, "app.ts", "one\nthree\n", "add three");
+    const v2 = commit(remote, "app.ts", "one\ntwo\nthree\n", "keep two");
+    const data = {
+      versions: [
+        version(11, v1, m2, "2026-01-01T09:00:00Z"),
+        version(12, v2, m2, "2026-01-02T09:00:00Z"),
+      ],
+      discussions: [comment("2026-01-01T15:00:00Z", v1)],
+    };
+    await run(data);
+    await run({ ...data, mr: mrData({ state: "closed" }) }, { mr: 8 });
+    const issue = (id: string) => ({
+      id,
+      mechanism: "Line two is dropped, so anything reading it gets three instead.",
+      visibleIn: "diff",
+      severity: "must-fix",
+      category: "correctness",
+      scope: "change",
+      locations: [{ path: "app.ts", start: 1, end: 2 }],
+      confirmation: { basis: "fixed", version: 2, commit: v2 },
+      sources: [{ discussion: "d1", note: 1 }],
+    });
+    for (const id of ["shop-7", "shop-8"]) {
+      const key = {
+        format: "awf.review-key/1",
+        fixture: id,
+        revision: 1,
+        draftedBy: "test",
+        procedure: "test",
+        issues: [issue("K1"), issue("K2")],
+        refuted: [],
+        excluded: [],
+      };
+      await writeKey(join(out, id), key);
+    }
+  }
+
+  const seal = (
+    excluded = [{ project: "acme/shop", number: 3, reason: "draft: nobody reviewed it" }],
+  ) => sealSet(out, { clone, builder: "test", procedure: "test", excluded });
+
+  test("pins what's in it by digest, and says what was left out and why", async () => {
+    await twoFixtures();
+    const sealed = await seal();
+    expect(sealed.status).toBe("sealed");
+    const set = await Bun.file(join(out, "set.json")).json();
+    expect(set).toMatchObject({
+      name: "set",
+      fixtures: [{ id: "shop-7", at: "2026-01-01T15:00:00Z" }],
+      excluded: [
+        { number: 3, reason: "draft: nobody reviewed it" },
+        { number: 8, reason: "closed, not merged" },
+      ],
+    });
+    expect(set.fixtures[0].digest).toMatch(/^sha256:[0-9a-f]{64}$/);
+    expect(await verifySet(out, clone)).toEqual([]);
+
+    // Sealing again with nothing new changes nothing, and an earlier exclusion is kept.
+    expect((await seal([])).status).toBe("unchanged");
+    expect(await Bun.file(join(out, "set.json")).json()).toEqual(set);
+  });
+
+  test("catches a fixture that changed, or appeared, after it was sealed", async () => {
+    await twoFixtures();
+    await seal();
+    const request = join(out, "shop-7", "request.md");
+    writeFileSync(request, "# Add three\n\nAdds three. Fixed in the next push.\n");
+    mkdirSync(join(out, "shop-9"));
+    mkdirSync(join(out, "shop-10.partial"));
+    const problems = async () =>
+      (await verifySet(out, clone)).map((p) => [p.path, p.message.split(":")[0]]);
+    expect(await problems()).toEqual([
+      ["shop-9", "is neither in set.json nor excluded; seal the set"],
+      ["shop-7", "changed since the set was sealed"],
+    ]);
+
+    rmSync(join(out, "shop-9"), { recursive: true });
+    await seal();
+    const fixture = join(out, "shop-7", "fixture.json");
+    const record = await Bun.file(fixture).json();
+    writeFileSync(
+      fixture,
+      JSON.stringify({ ...record, source: { ...record.source, url: "https://x" } }),
+    );
+    expect(await problems()).toEqual([["shop-7", "changed since the set was sealed"]]);
+
+    writeFileSync(fixture, JSON.stringify(record));
+    const key = await Bun.file(join(out, "shop-7", "key", "key.json")).json();
+    await writeKey(join(out, "shop-7"), { ...key, issues: key.issues.slice(0, 1) });
+    expect(await problems()).toEqual([
+      [
+        "shop-7",
+        "is in the set, but 1 must-fix or should-fix problem(s) the MR caused; a set needs two",
+      ],
+    ]);
+  });
+
+  test("refuses a fixture whose id isn't its folder's MR, and a broken set.json", async () => {
+    await twoFixtures();
+    const fixture = join(out, "shop-8", "fixture.json");
+    const record = await Bun.file(fixture).json();
+    writeFileSync(fixture, JSON.stringify({ ...record, source: { ...record.source, number: 9 } }));
+    expect(await seal()).toMatchObject({
+      status: "broken",
+      detail: expect.stringContaining("fixture.json/id"),
+    });
+    writeFileSync(fixture, JSON.stringify(record));
+
+    writeFileSync(join(out, "set.json"), '{"format": "awf.fixture-set/1", "na');
+    expect(await seal()).toMatchObject({ status: "broken" });
+    expect(await verifySet(out, clone)).toMatchObject([{ path: "set.json" }]);
+  });
+
+  test("leaves out a stale key, and won't seal while a fixture is broken", async () => {
+    await twoFixtures();
+    const stale = await sealSet(out, { clone, builder: "test", procedure: "newer" });
+    expect(stale).toMatchObject({
+      status: "sealed",
+      set: {
+        fixtures: [],
+        excluded: [
+          { number: 7, reason: "its key was drafted under older instructions" },
+          { number: 8 },
+        ],
+      },
+    });
+    writeFileSync(join(out, "shop-7", "fixture.json"), "{}");
+    expect(await seal()).toMatchObject({ status: "broken" });
+    expect((await Bun.file(join(out, "set.json")).json()).fixtures).toEqual([]);
   });
 });

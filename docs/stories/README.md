@@ -44,7 +44,7 @@ status is one of `todo`, `draft`, `ready`, `in-progress`, `blocked`, `awaiting-h
   `done` — A run that fails or is cancelled still reads its agents' spend, rejects with it,
   and keeps it in `output.json`.
 - [`005` — Replay old MRs as review tests with an answer key](005-review-fixtures.md) —
-  `in-progress` — The format for a review test (an old MR frozen when review started, plus the real
+  `done` — The format for a review test (an old MR frozen when review started, plus the real
   problems found in it, graded), and the tools that build them; the data lives outside this
   repository.
 
