@@ -1,5 +1,6 @@
 import type { JsonObject, JsonValue, OutputSchema } from "./json";
 import type { ParticipantRef } from "./participants";
+import type { InlineSandboxSpec, SandboxRef } from "./sandboxes";
 import type { AbsoluteDeadline } from "./timing";
 
 export type AgentKey = string;
@@ -74,6 +75,11 @@ export interface AgentOpenSpec {
   /** Harness-neutral skill names made available to this logical agent. */
   skills?: readonly SkillName[];
   labels?: JsonObject;
+  /**
+   * The sandbox this agent runs in: one this run opened, shared with its other agents, or a spec
+   * for a private one. Absent, the agent runs unsandboxed.
+   */
+  sandbox?: SandboxRef | InlineSandboxSpec;
 }
 
 interface AgentTurnBase {

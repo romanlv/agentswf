@@ -15,6 +15,8 @@ export interface SessionAccounting {
     execution: AgentExecution,
     sessions: readonly string[],
     cwd: string,
+    /** The agent's own harness home, when it ran in a sandbox. */
+    home?: string,
   ): Promise<SessionRead | undefined>;
   /** Asked once per agent per run, since the answer can run a status command. */
   billing(execution: AgentExecution, records: readonly UsageRecord[] | undefined): Promise<Billing>;
@@ -40,8 +42,13 @@ export function createSessionAccounting(run: RunProcess = runProcess): SessionAc
     pollMs: 1_000,
     stalledMs: 10_000,
     statusMs: STATUS_TIMEOUT_MS,
-    async read(execution, sessions, cwd) {
-      const read = await findHarness(execution.harness)?.readSessionUsage?.(sessions, cwd);
+    async read(execution, sessions, cwd, home) {
+      const spec = findHarness(execution.harness);
+      // A sandboxed agent's home is its own: every session there is its, and only those, found
+      // without following a link, count; an id it reports could name one of the operator's.
+      const all = home ? ((await spec?.homeSessions?.(home)) ?? []) : sessions;
+      if (all.length === 0) return undefined;
+      const read = await spec?.readSessionUsage?.(all, cwd, home);
       // A headless agent's process has ended by the time the host has closed, so a turn it left
       // open, such as codex killed once its answer was taken, will never be written to again.
       return read && placementOf(execution) === "headless" ? { ...read, open: false } : read;

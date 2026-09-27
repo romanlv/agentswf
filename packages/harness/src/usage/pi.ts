@@ -1,12 +1,8 @@
-import { homedir } from "node:os";
 import { basename, isAbsolute, join, relative } from "node:path";
 import { count, record, text } from "../json";
+import { harnessState } from "../state";
 import { entries, isFile, jsonRows, safeId } from "./files";
 import type { SessionRead, UsageRecord } from "./records";
-
-export function piAgentDirectory(): string {
-  return process.env.PI_CODING_AGENT_DIR ?? join(homedir(), ".pi", "agent");
-}
 
 /**
  * pi logs each assistant message with its own usage, `input` already excluding the cached part.
@@ -15,7 +11,7 @@ export function piAgentDirectory(): string {
  */
 export async function readPiUsage(
   sessions: readonly string[],
-  agentDirectory = piAgentDirectory(),
+  agentDirectory = harnessState().pi,
 ): Promise<SessionRead | undefined> {
   const root = join(agentDirectory, "sessions");
   const files = new Set<string>();

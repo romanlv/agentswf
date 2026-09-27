@@ -26,7 +26,10 @@ const STATUS_SLACK_MILLISECONDS = 2_000;
 export type AccountedAgent = {
   key: AgentKey;
   execution: AgentExecution;
+  /** Where it ran; a sandboxed agent's is set once its sandbox resolves it. */
   cwd: string;
+  /** A sandboxed agent's own harness home, where its sessions are. */
+  home?: string;
   /** Every native session id seen for the agent so far, from its `wf` calls and its adapter. */
   sessions(): readonly string[];
 };
@@ -243,9 +246,10 @@ async function readUntilSettled(
         agents.map(async (agent) => {
           const ids = agent.sessions();
           const read =
-            ids.length === 0
+            // A sandboxed agent's home names its sessions even when nothing else did.
+            ids.length === 0 && !agent.home
               ? undefined
-              : await attempt(() => accounting.read(agent.execution, ids, agent.cwd));
+              : await attempt(() => accounting.read(agent.execution, ids, agent.cwd, agent.home));
           return [agent, read] as const;
         }),
       ),

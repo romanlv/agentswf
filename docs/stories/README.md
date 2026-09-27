@@ -43,11 +43,13 @@ status is one of `todo`, `draft`, `ready`, `in-progress`, `blocked`, `awaiting-h
 - [`003` — Report what a failed run spent](003-failed-run-accounting.md) —
   `done` — A run that fails or is cancelled still reads its agents' spend, rejects with it,
   and keeps it in `output.json`.
+- [`004` — Run agents inside sandboxes the workflow opens](004-sandboxed-agents.md) —
+  `done` — A workflow opens a sandbox with what it can reach and, optionally, its provider, then
+  opens agents inside it or in a private one; srt and docker first.
 - [`005` — Replay old MRs as review tests with an answer key](005-review-fixtures.md) —
   `done` — The format for a review test (an old MR frozen when review started, plus the real
   problems found in it, graded), and the tools that build them; the data lives outside this
   repository.
-
 This is the high-level index of numbered stories. Keep each entry to its title, status, and
 one-sentence summary; put code maps, research, design, tasks, and verification in the linked story.
 Todo items stay in [`todo/`](todo/) until selected for refinement.

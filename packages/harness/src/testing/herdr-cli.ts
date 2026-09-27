@@ -23,6 +23,15 @@ export type FakeHerdrOptions = {
   startupBlocks?: readonly StartupBlock[];
   /** Break at the column rather than at a space, as a terminal does to text it did not wrap. */
   hardWrap?: boolean;
+  /**
+   * How many `agent rename` calls a harness typed into a pane answers `agent_not_found` before
+   * Herdr has detected it (H6: about a second of polling).
+   */
+  detectionPolls?: number;
+  /** The login shell swallows the prelude, as an rc file's question does, and prompts again. */
+  swallowsPrelude?: boolean;
+  /** What `herdr --version` answers. */
+  version?: string;
 };
 
 export type FakeAgent = {
@@ -43,8 +52,20 @@ export type FakeAgent = {
   emptied: string[];
 };
 
+/** A pane as the typed start sees it: what it shows, and what was typed into it. */
+export type FakePane = {
+  env: Record<string, string>;
+  columns: number;
+  tab: string;
+  screen: string[];
+  typed: string[];
+  /** A harness typed in and not yet detected: its kind, and the renames it has answered. */
+  typedHarness?: { kind: string; polls: number };
+};
+
 export type FakeHerdr = {
   run: RunProcess;
+  panes: Map<string, FakePane>;
   calls: ProcessInput[];
   agents: Map<string, FakeAgent>;
   openPanes(): string[];
@@ -101,7 +122,16 @@ export function createFakeHerdr(options: FakeHerdrOptions = {}): FakeHerdr {
 
   const calls: ProcessInput[] = [];
   const agents = new Map<string, FakeAgent>();
-  const panes = new Map<string, { env: Record<string, string>; columns: number; tab: string }>();
+  const detectionPolls = options.detectionPolls ?? 2;
+  const panes = new Map<string, FakePane>();
+  const newPane = (env: Record<string, string>, tab: string): FakePane => ({
+    env,
+    columns: rootColumns,
+    tab,
+    // A login shell's prompt, which may look like the confined shell's.
+    screen: ["user@host ~ % "],
+    typed: [],
+  });
   const workspaces = new Set<string>();
   const answeredAt = new Map<string, number>();
   let workspaceCount = 0;
@@ -111,6 +141,14 @@ export function createFakeHerdr(options: FakeHerdrOptions = {}): FakeHerdr {
   const run: RunProcess = async (input) => {
     calls.push(input);
     const argv = [...input.argv];
+    if (argv[1] === "--version") {
+      return {
+        stdout: `herdr ${options.version ?? "0.9.1"}\n`,
+        stderr: "",
+        exitCode: 0,
+        timedOut: false,
+      };
+    }
     const command = argv.slice(3, 5).join(" ");
     const target = argv[5] ?? "";
 
@@ -123,7 +161,7 @@ export function createFakeHerdr(options: FakeHerdrOptions = {}): FakeHerdr {
         tabCount += 1;
         const paneId = `${workspaceId}:p${paneCount}`;
         const tabId = `${workspaceId}:t${tabCount}`;
-        panes.set(paneId, { env: readEnv(argv), columns: rootColumns, tab: tabId });
+        panes.set(paneId, newPane(readEnv(argv), tabId));
         return ok({
           workspace: { workspace_id: workspaceId },
           tab: { tab_id: tabId },
@@ -140,8 +178,13 @@ export function createFakeHerdr(options: FakeHerdrOptions = {}): FakeHerdr {
         const paneId = `${workspaceId}:p${paneCount}`;
         const tabId = `${workspaceId}:t${tabCount}`;
         // Only this command's own `--env`: the tab is a separately launched process.
-        panes.set(paneId, { env: readEnv(argv), columns: rootColumns, tab: tabId });
+        panes.set(paneId, newPane(readEnv(argv), tabId));
         return ok({ tab: { tab_id: tabId }, root_pane: { pane_id: paneId } });
+      }
+      case "tab rename": {
+        return [...panes.values()].some((pane) => pane.tab === target)
+          ? ok({})
+          : fail("tab_not_found", `tab ${target} not found`);
       }
       case "tab close": {
         for (const [paneId, pane] of panes) if (pane.tab === target) panes.delete(paneId);
@@ -158,6 +201,56 @@ export function createFakeHerdr(options: FakeHerdrOptions = {}): FakeHerdr {
           if (paneId.startsWith(`${target}:`)) panes.delete(paneId);
         }
         return ok({});
+      }
+      case "pane read": {
+        const pane = panes.get(target);
+        if (!pane) return fail("pane_not_found", `pane ${target} not found`);
+        return { stdout: pane.screen.join("\n"), stderr: "", exitCode: 0, timedOut: false };
+      }
+      case "pane run": {
+        const pane = panes.get(target);
+        if (!pane) return fail("pane_not_found", `pane ${target} not found`);
+        const text = argv[6] ?? "";
+        pane.typed.push(text);
+        pane.screen.push(text);
+        if (text.startsWith("exec ")) {
+          // zsh draws `%#` and `%%` as `%`; a shell that never took the prelude draws its own.
+          const prompt = /PROMPT='([^']*)'/.exec(text)?.[1];
+          pane.screen.push(
+            prompt && !options.swallowsPrelude
+              ? prompt.replaceAll("%#", "%").replaceAll("%%", "%")
+              : "user@host ~ % ",
+          );
+        } else {
+          const kind = (text.split(" ")[0] ?? "").replaceAll("'", "");
+          if (kind === "claude" || kind === "codex" || kind === "pi") {
+            pane.typedHarness = { kind, polls: 0 };
+          }
+        }
+        return ok({});
+      }
+      case "agent rename": {
+        const pane = panes.get(target);
+        const name = argv[6] ?? "";
+        if (!pane) return fail("pane_not_found", `pane ${target} not found`);
+        if (agents.has(name)) return fail("agent_name_taken", `agent name ${name} is already used`);
+        const typed = pane.typedHarness;
+        if (!typed || ++typed.polls <= detectionPolls) {
+          return fail("agent_not_found", `no agent detected in pane ${target}`);
+        }
+        agents.set(name, {
+          name,
+          kind: typed.kind,
+          paneId: target,
+          blocks: [...startupBlocks],
+          ranInstaller: false,
+          delivered: [],
+          discarded: [],
+          answeredScreens: [],
+          emptied: [],
+        });
+        if (startupBlocks.length === 0) answeredAt.set(name, Date.now());
+        return ok(agentInfo(name, startupBlocks.length === 0 ? "idle" : "blocked"));
       }
       case "agent start": {
         if (agents.has(target)) {
@@ -243,6 +336,7 @@ export function createFakeHerdr(options: FakeHerdrOptions = {}): FakeHerdr {
 
   return {
     run,
+    panes,
     calls,
     agents,
     openPanes: () => [...panes.keys()],

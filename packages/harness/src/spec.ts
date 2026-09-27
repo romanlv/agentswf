@@ -1,10 +1,12 @@
+import { basename, join } from "node:path";
 import type { Billing } from "@wf/contract/records";
 import type { RunProcess } from "./command";
 import { jsonLines, type Row, record, reported, text } from "./json";
 import type { Harness } from "./types";
 import { readClaudeBilling, readCodexBilling, readPiBilling } from "./usage/billing";
-import { readClaudeUsage } from "./usage/claude";
-import { readCodexUsage } from "./usage/codex";
+import { claudeProjectsDirectory, readClaudeUsage } from "./usage/claude";
+import { codexSessionsDirectory, readCodexUsage } from "./usage/codex";
+import { ownFiles } from "./usage/files";
 import { readPiUsage } from "./usage/pi";
 import type { SessionRead } from "./usage/records";
 
@@ -24,8 +26,15 @@ export type BillingContext = {
   run: RunProcess;
 };
 
-/** A session id we choose ahead of the first turn, for a harness that will accept one. */
-export type TurnContext = { model?: string; sessionHint: string };
+/**
+ * A session id we choose ahead of the first turn, for a harness that will accept one, and the
+ * arguments a sandboxed turn adds, which each plan puts where they cannot swallow what follows.
+ */
+export type TurnContext = {
+  model?: string;
+  sessionHint: string;
+  sandboxedArgs?: readonly string[];
+};
 
 export type HarnessSpec = {
   /** The variable the harness sets in its agent's shell to name the native session. */
@@ -54,7 +63,18 @@ export type HarnessSpec = {
    * is still being written. `undefined` when none of them could be found, which is unknown rather
    * than zero.
    */
-  readSessionUsage?(sessions: readonly string[], cwd: string): Promise<SessionRead | undefined>;
+  readSessionUsage?(
+    sessions: readonly string[],
+    cwd: string,
+    /** The agent's own harness home when it ran in a sandbox; the operator's otherwise. */
+    home?: string,
+  ): Promise<SessionRead | undefined>;
+  /**
+   * Every session in a harness home the agent had alone, as `readSessionUsage` takes them: a
+   * sandboxed agent's own home holds nothing else, and a pane's harness names its session to
+   * nobody when it never calls `wf` (story 004, "Panes").
+   */
+  homeSessions?(home: string): Promise<string[]>;
   /** Whether this agent's tokens are charged, which is not always what its login says. */
   billing?(context: BillingContext): Promise<Billing>;
   /**
@@ -83,10 +103,11 @@ export const HARNESSES: Record<Harness, HarnessSpec> = {
     }),
     // `--output-format json` is the only place the resumable session id is printed, and
     // without it there is no headless nudge.
-    headlessTurn: (prompt, { model }) => ({
+    headlessTurn: (prompt, { model, sandboxedArgs = [] }) => ({
       argv: [
         "claude",
         "-p",
+        ...sandboxedArgs,
         "--output-format",
         "json",
         "--allowed-tools",
@@ -95,12 +116,13 @@ export const HARNESSES: Record<Harness, HarnessSpec> = {
       ],
       stdin: prompt,
     }),
-    resumeTurn: (prompt, sessionId, { model }) => ({
+    resumeTurn: (prompt, sessionId, { model, sandboxedArgs = [] }) => ({
       argv: [
         "claude",
         "-p",
         "--resume",
         sessionId,
+        ...sandboxedArgs,
         "--output-format",
         "json",
         "--allowed-tools",
@@ -112,7 +134,12 @@ export const HARNESSES: Record<Harness, HarnessSpec> = {
     readSessionId: (stdout) => text(lastJson(stdout)?.session_id),
     readTranscript: (stdout) => text(lastJson(stdout)?.result) ?? stdout,
     readCharge: (stdout) => reported(lastJson(stdout)?.total_cost_usd),
-    readSessionUsage: (sessions, cwd) => readClaudeUsage(sessions, cwd),
+    readSessionUsage: (sessions, cwd, home) =>
+      readClaudeUsage(sessions, cwd, claudeProjectsDirectory(home)),
+    homeSessions: async (home) =>
+      (await ownFiles(home, claudeProjectsDirectory(home)))
+        .filter((name) => /^[^/]+\/[^/]+\.jsonl$/.test(name))
+        .map((name) => basename(name, ".jsonl")),
     // E3: `claude -p` bills metered on a subscription login, with no key in the environment.
     meteredHeadless: true,
     billing: ({ run }) => readClaudeBilling(run),
@@ -132,7 +159,7 @@ export const HARNESSES: Record<Harness, HarnessSpec> = {
     }),
     // `exec resume` takes no `-s`, so the sandbox is set through `-c` on both turns rather
     // than through a flag that exists on only one of them.
-    headlessTurn: (prompt, { model }) => ({
+    headlessTurn: (prompt, { model, sandboxedArgs = [] }) => ({
       argv: [
         "codex",
         "exec",
@@ -140,12 +167,13 @@ export const HARNESSES: Record<Harness, HarnessSpec> = {
         "--skip-git-repo-check",
         "-c",
         'sandbox_mode="danger-full-access"',
+        ...sandboxedArgs,
         ...(model ? ["--model", model] : []),
         "-",
       ],
       stdin: prompt,
     }),
-    resumeTurn: (prompt, sessionId, { model }) => ({
+    resumeTurn: (prompt, sessionId, { model, sandboxedArgs = [] }) => ({
       argv: [
         "codex",
         "exec",
@@ -155,6 +183,7 @@ export const HARNESSES: Record<Harness, HarnessSpec> = {
         "--skip-git-repo-check",
         "-c",
         'sandbox_mode="danger-full-access"',
+        ...sandboxedArgs,
         ...(model ? ["--model", model] : []),
         "-",
       ],
@@ -170,7 +199,18 @@ export const HARNESSES: Record<Harness, HarnessSpec> = {
         .map((row) => text(record(row.item)?.text) ?? "");
       return messages.join("\n") || stdout;
     },
-    readSessionUsage: (sessions) => readCodexUsage(sessions),
+    readSessionUsage: (sessions, _cwd, home) =>
+      readCodexUsage(sessions, codexSessionsDirectory(home)),
+    // By start time, which a rollout's name begins with: a root session starts before the
+    // subagents it delegates to, and usage counts the first session it reads as the agent's own.
+    homeSessions: async (home) =>
+      (await ownFiles(home, codexSessionsDirectory(home)))
+        .map((name) => basename(name))
+        .sort()
+        .flatMap(
+          (name) =>
+            /^rollout-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-(.+)\.jsonl$/.exec(name)?.[1] ?? [],
+        ),
     // A ChatGPT login pays for OpenAI's models only; another provider bills on its own terms.
     billing: ({ provider, run }) =>
       provider && provider !== "openai" ? Promise.resolve("unknown") : readCodexBilling(run),
@@ -181,7 +221,7 @@ export const HARNESSES: Record<Harness, HarnessSpec> = {
     interactive: (model) => ({ argv: ["pi", ...(model ? ["--model", model] : [])] }),
     // pi is the one harness whose session id we choose: `--session-id` creates it on the first
     // turn and reuses it on the second, so no id has to be scraped back out of the output.
-    headlessTurn: (prompt, { model, sessionHint }) => ({
+    headlessTurn: (prompt, { model, sessionHint, sandboxedArgs = [] }) => ({
       argv: [
         "pi",
         "--print",
@@ -189,12 +229,13 @@ export const HARNESSES: Record<Harness, HarnessSpec> = {
         "json",
         "--session-id",
         sessionHint,
+        ...sandboxedArgs,
         ...(model ? ["--model", model] : []),
       ],
       stdin: prompt,
       sessionId: sessionHint,
     }),
-    resumeTurn: (prompt, sessionId, { model }) => ({
+    resumeTurn: (prompt, sessionId, { model, sandboxedArgs = [] }) => ({
       argv: [
         "pi",
         "--print",
@@ -202,6 +243,7 @@ export const HARNESSES: Record<Harness, HarnessSpec> = {
         "json",
         "--session-id",
         sessionId,
+        ...sandboxedArgs,
         ...(model ? ["--model", model] : []),
       ],
       stdin: prompt,
@@ -222,7 +264,13 @@ export const HARNESSES: Record<Harness, HarnessSpec> = {
       const end = jsonLines(stdout).findLast((row) => row.type === "turn_end");
       return reported(record(record(record(end?.message)?.usage)?.cost)?.total);
     },
-    readSessionUsage: (sessions) => readPiUsage(sessions),
+    readSessionUsage: (sessions, _cwd, home) => readPiUsage(sessions, home),
+    homeSessions: async (home) => {
+      const root = join(home, "sessions");
+      return (await ownFiles(home, root))
+        .filter((name) => name.endsWith(".jsonl"))
+        .map((name) => join(root, name));
+    },
     billing: ({ model, provider }) => readPiBilling(model, provider),
   },
 

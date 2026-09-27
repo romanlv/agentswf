@@ -75,6 +75,8 @@ export function createSessionAdapter(options: {
   harnesses: readonly [HarnessKind, ...HarnessKind[]];
   /** The one placement this adapter provides; an agent asking for the other is refused. */
   placement?: AgentPlacement;
+  /** It launches through an occupant; without this, a sandboxed agent is refused. */
+  launchesInSandbox?: true;
   finishGraceMs?: number;
   activate(request: HarnessActivation): Promise<ActivatedSessionBackend>;
   observeSessionRef?: (sessionRef: string) => void;
@@ -92,6 +94,9 @@ export function createSessionAdapter(options: {
       const placement = placementOf(request.execution);
       if (options.placement && placement !== options.placement) {
         throw new Error(`adapter runs ${options.placement} agents, not ${placement}`);
+      }
+      if (request.occupant && !options.launchesInSandbox) {
+        throw new Error(`${placement} agents cannot run in a sandbox yet`);
       }
       const native = await options.activate(request);
       if (expired(request.deadline, now)) {

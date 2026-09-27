@@ -63,6 +63,29 @@ proving a harness, its result channel and the run's accounting for a few cents:
 bun awf run examples/quick-check/workflow.ts -- codex pi
 ```
 
+## See what a sandbox allows
+
+`sandboxes/` shows two ways to sandbox agents, each agent running a few shell commands and
+reporting what they printed, refusals included:
+
+- **A team in one docker container, headed.** Three codex agents share a sandbox, all at once, each
+  in a pane of the container's own Herdr. They write a file each into the working directory,
+  print the container's hostname (the same for all three), and reach `registry.npmjs.org`.
+- **pi under srt, headless.** A private sandbox, given inline on the agent, that reads the working
+  directory but cannot write it, cannot read `~`, and reaches no domain beyond its model. It reads
+  the team's files.
+
+Point `--cwd` at a scratch directory, as the team writes into it:
+
+```sh
+bun awf run --cwd "$(mktemp -d)" examples/sandboxes/workflow.ts
+```
+
+The run's workspace in your Herdr shows the container's own Herdr, with the team's panes, while
+they work. `awf run --no-watch` leaves it out; the run still prints the `docker exec -it … herdr`
+command that shows them. It needs srt, docker and the default image, which the run names how to
+build if it is missing. Four agents, under a minute.
+
 ## Other examples
 
 Each example that spans more than one file has a folder of its own, with its workflow in
@@ -78,9 +101,14 @@ Each example that spans more than one file has a folder of its own, with its wor
   evidence, the verifier's reasons and what was refuted, to hand back to the implementer.
 - `feature-delivery/` is a typechecked design for planning, implementation, review, and revision.
 - `quick-check/` is the smoke test above.
+- `sandboxes/` is the sandbox tour above.
+- `sandbox-probe/` runs agents in a shared and a private sandbox, each running fixed shell
+  commands and reporting what each printed. It is the apparatus of `tests/sandbox-*.eval.ts`,
+  which plant the canaries and pass the plan as one JSON argument, not something to run by hand.
+  Its claude runs headless and so needs `CLAUDE_CODE_OAUTH_TOKEN`.
 - `output-schema/` is the TypeBox-to-output-schema helper the workflows share, with its type tests.
 
-Only `minimum-review/review-loop.ts` and `quick-check/workflow.ts` have the executable default
-export required by `awf run`.
+Only `minimum-review/review-loop.ts`, `quick-check/workflow.ts`, `sandboxes/workflow.ts` and
+`sandbox-probe/workflow.ts` have the executable default export required by `awf run`.
 A catalogue review's entry point lives beside the catalogue it reads, outside this package, because
 reading one is I/O and a workflow here is pure.

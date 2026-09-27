@@ -2,545 +2,452 @@
 
 What an agent may reach and use, who decides, how it is held, and what the record says afterwards.
 
-A workflow opens agents and gives them work. Nothing today says what those agents may touch: the
-interface can list an agent's skills, but not whether it can write to disk, reach the network, or
-read the developer's cloud credentials. This document closes that gap in the design, before any
-code.
+A workflow opens agents and gives them work. Left alone, an agent can touch whatever the operator
+can: write to disk, reach the network, read the developer's cloud credentials and past
+transcripts. This document says how that is narrowed. It has two levels. At the first, a workflow
+opens **sandboxes** as objects and puts agents in them. At the second, a harness's own permission
+system holds a grant, and a workflow hands an agent its tools and skills; that level is designed,
+not built.
+
+This is the standing statement of the design. [[004-sandboxed-agents|Story 004]] built the first
+level and records how it got there, and [[status]] says what is verified today.
 
 Terms. A **harness** is the coding agent program: claude, codex, cursor, pi. An **adapter** is the
 engine's driver for a harness under one session adapter, such as Herdr or a direct process. The
 **operator** configures the engine on a machine. The **workflow** is the TypeScript that opens
-agents, possibly written by someone else. **Isolation** is how a grant is held: by a sandbox under
-the harness, or by the harness's own permission system. A **sandbox provider** is one implementation
-of the sandbox: Seatbelt on the host, a container, a remote machine.
+agents. A **sandbox** is a boundary the workflow opens and puts agents in. A **provider** is one
+implementation of it: `srt` (Anthropic's sandbox-runtime, Seatbelt on the host) or `docker` (a
+container).
 
-The evidence behind the sandbox sections is a measured study of these harnesses under Seatbelt
-and in containers, verified 2026-08-08: `braintrust/docs/agent-sandboxing.md`, cited below as
-*the study*.
+The evidence is [[sandbox-providers]], story 004's measurements of srt and docker with these
+harnesses, and before it a study of the same harnesses under Seatbelt and in containers, verified
+2026-08-08: `braintrust/docs/agent-sandboxing.md`, cited below as *the study*.
 
-## Where things stand
+## Two kinds of agent
 
-An agent inherits the whole environment of the engine process minus two `WF_*` variables
-(`childEnvironment` in `packages/harness/src/command.ts`): every API key, cloud credential, and
-SSH socket the developer holds. The working directory is where the agent starts, not where it
-stops. Codex runs with `sandbox_mode="danger-full-access"` and cursor with `--force`, because E1
-and E2 granted everything so they could measure result delivery instead of permission prompts.
-Measurement settings became the product default.
+An agent opened with `sandbox` runs inside one. It sees its sandbox's reach, the git directories
+its paths belong to, and its base: under srt the host system and the toolchain outside the denied
+regions, under docker the image. It reaches the domains the sandbox names and its harness's model
+domains. Its processes get exactly the environment variables the provider sets, and it has a
+harness home of its own.
 
-Outside the engine, the same harnesses already run daily under `srt`, Anthropic's sandbox-runtime,
-with permission prompts bypassed inside it, and in a container with Herdr inside the box. None of
-that reaches the engine yet.
+An agent opened without `sandbox` inherits all the engine's environment variables but two `WF_*`
+ones (`childEnvironment` in `packages/harness/src/command.ts`): every API key, cloud credential and
+SSH socket the developer holds. The working directory is where it starts, not where it stops.
+Codex runs with `sandbox_mode="danger-full-access"` and cursor with `--force`, because E1 and E2
+granted everything so they could measure result delivery instead of permission prompts.
 
 ## The model
 
-Three parties, each saying what and how firmly:
+**The workflow restricts itself.** A sandbox makes agents safe from their inputs: a replayed
+reviewer cannot read the answer key, and a coder cannot leak a token to a domain it read about. It
+does not make a stranger's workflow safe to run: the workflow is trusted code, and the operator
+sets no ceiling on what it asks for. A ceiling can return later, per provider (open question 7).
 
-```text
-operator   ceiling + floor        the most any agent may hold; the weakest isolation allowed
-workflow   request + isolation    what this agent needs; how it should be held
-engine     held grant             what the agent actually got, per axis, and what holds it
-```
+**A sandbox is three things:**
 
-The engine refuses to start an agent whose request exceeds the ceiling or whose isolation is
-below the floor. A workflow can ask for less than the operator allows, never more, which is what
-makes a workflow you did not write safe to run. Codex's `allowed_sandbox_modes` and claude's
-`allowManagedPermissionRulesOnly` are the same shape, reached independently.
+1. **Reach**: which host paths the agents see, read-only or writable, and which domains they reach
+   beyond their models. It is common to every provider and means the same under each: srt enforces
+   it by re-allowing a path, docker by mounting it. A path is seen at the same path inside.
+2. **Environment**: the base the agents start from, under a key named for the provider: the host
+   and its toolchain for `srt`, an image for `docker`. Naming the key pins the provider; leaving it
+   out uses the operator's default, srt when installed, else docker. srt is the default because it
+   runs the project's own toolchain, which an image lacks.
+3. **The instance**: an object with a key and a lifetime, from `open` to the end of the run.
+   Sharing it is how agents share a box. A spec given inline to one agent is shorthand for a
+   private instance.
 
-**What** has two halves, held by different machinery. *Reach* is files, network, and environment:
-an agent has these by existing, and something takes them away. *Use* is tools, skills, and MCP
-servers: an agent has none until the harness hands them over. Messaging already works the second
-way, a route granted by the workflow and never ambient; this is that discipline extended.
+**Absent means no sandbox.** `sandbox: {}` is the reader: it reads its working directory, writes
+nothing, reaches only its model, and sees nothing else under the operator's home, the temp
+directories or harness state. That is the replayed reviewer, the case worth making effortless.
 
-**How** is three levels, strongest first:
+**A sandbox is a trust boundary.** Agents in one sandbox share its files and may reach each other's
+homes, temp directories and doors: one could post a result as its sibling, as any two agents under
+one uid can. Agents in different sandboxes reach none of each other's. So agents whose outputs must
+be independent go in separate sandboxes: replay variants, and a judge and what it judges. An
+inline spec, the easy path, is already private.
 
-```text
-sandbox    a provider starts the agent inside a boundary; the harness's permission prompts are off
-harness    the harness's own permission system holds the grant; a cooperative agent honours it
-none       nothing holds it; the record says so
-```
+**The provider is not on the alias.** The workflow chooses reach and, when it cares, the
+environment. Neither goes on a runtime alias, because `ExecutionConfig` flows into every usage
+record, and reach is the most volatile vocabulary in the project. The sandbox record carries it
+instead.
 
-A workflow names the level exactly, not as a minimum, because the levels do not nest in what they
-permit: a sandbox is stronger and also blunter, and the agent that needs SSH needs `harness`
-specifically. An engine that cannot provide the level asked for refuses. Portability across
-engines is the operator installing a provider, never the engine guessing a level.
-
-Which provider stands behind `sandbox` is part of the **runtime**, beside harness and model. An
-alias names it, the operator installs it by name, the record carries it.
-
-Every allowlist entry names a family: a path names everything beneath it, a domain with a leading
-dot names its subdomains, `skill:` names every skill. Allowlists compare by containment, so the
-ceiling check is set arithmetic, not a matching language. The study reached the same posture from
-the other side: reads are deny-by-default with twenty named paths, because a deny-list requires
-having already thought of the thing.
+The first version of this design had the workflow name an isolation level per agent, the operator
+bind a provider to an alias under a ceiling and a floor, and a sandboxed reader as the default.
+The story's "What this reverses" says why each changed.
 
 ## Example
 
-A review loop: reviewers that read, an implementer that writes, a publisher that pushes.
+A coder and a tester share a container; a reviewer gets a private reader; a lead works in a pane.
 
 ```ts
-const reviewer = await workflow.agents.open({
-  key: "reviewer:security",
-  runtime: "reviewer",
-  instructions: "Review the change and return your findings.",
+const headless = { placement: "headless" } as const;
+
+const box = await workflow.sandboxes.open({
+  key: "build",
+  write: ["."],
+  network: ["registry.npmjs.org"],
+  docker: { image: "awf-agent:node22" },
+});
+const coder = await workflow.agents.open({ key: "coder", runtime: codex, ...headless, sandbox: box });
+const tester = await workflow.agents.open({
+  key: "tester", runtime: claude, ...headless, metered: true, sandbox: box,
 });
 
-const implementer = await workflow.agents.open({
-  key: "implementer",
-  runtime: "implementer",
-  instructions: "Implement the approved ticket.",
-  grant: { write: ["."], use: ["skill:ticket-doc"] },
-});
+// A spec instead of a ref: a private sandbox on the default provider.
+const reviewer = await workflow.agents.open({ key: "reviewer", runtime: codex, ...headless, sandbox: {} });
 
-const publisher = await workflow.agents.open({
-  key: "publisher",
-  runtime: "implementer",
-  instructions: "Push the branch and open the merge request.",
-  grant: { write: ["."], read: ["~/.ssh"], network: ["gitlab.com"] },
-  isolation: "harness",
-});
+// srt: the host's toolchain instead of an image. Only the environment key differs.
+const lint = await workflow.sandboxes.open({ key: "lint", write: ["."], srt: {} });
+const lead = await workflow.agents.open({ key: "lead", runtime: claude, placement: "pane", sandbox: lint });
 ```
 
-The reviewer says nothing and gets the default: reads its working directory, writes nothing,
-reaches no network, sees a minimal environment, holds a shell, sits in a sandbox. Its findings
-return through `wf result`. The implementer asks to write and to use one skill, still sandboxed.
-The publisher needs SSH, which a sandbox denies by design, so it asks to be held by claude's own
-rules instead, visibly, where a reader of the workflow sees it. The operator's floor decides
-whether that is allowed here at all.
+The types are `SandboxSpec`, `SandboxOpenSpec`, `SandboxRef` and `InlineSandboxSpec` in
+`packages/contract/src/workflow/sandboxes.ts`. What is refused at open, and why the surface has
+this shape, is in the story's "The author surface". A refusal names its cause: a spec is held
+whole or not at all.
 
-The operator's side:
+## Isolation
+
+Harness flags are not a boundary. An agent with a shell can relaunch its own harness with
+different flags, so `allowedTools` and `sandbox_mode` bind a cooperative agent and nobody else. A
+sandbox lives below the harness, which cannot see it, let alone lift it. It is the only level that
+holds an adversarial agent, and the only one that holds pi, which has no permission system.
+
+A sandbox is also blunt: it denies SSH, keychain writes, and installs that unpack forbidden
+filenames, and it cannot be argued with. Harness rules are finer, argument-scoped on claude, and
+right when a task needs something a sandbox breaks and the operator trusts the agent to cooperate
+([[#The harness level]]).
+
+### The seam
+
+A sandbox is applied once, to a process, at launch. `srt -s {file} -- {harness executable}` starts
+the harness under Seatbelt, and every turn, tool call, shell and subagent it spawns runs under that
+policy until the process exits. Nothing is wrapped per prompt or per tool; the engine never sees a
+tool call. So the seam is shallow: **a provider opens a sandbox, and a sandbox admits agents**,
+each of which launches its outermost process through the sandbox.
+
+The seam is `packages/sandbox/src/seam.ts`, and the story's "The seam" gives each type. In short:
+
+- `open` resolves nothing itself: the engine hands it a spec with every path absolute and real,
+  and the git directories each path belongs to. It holds the whole spec, or rejects.
+- `admit` readies the sandbox for one agent and returns an **occupant**. The engine serializes it
+  per sandbox. An adapter sees only the occupant: it launches every process through
+  `occupant.launch`, and a pane asks it for a terminal. It never builds a sandbox.
+- `launch` turns the agent's command into a host command that runs it inside. `runProcess` runs
+  that command as its own process group with exactly its environment variables, kills the group
+  when a turn ends, then calls the provider's `reap` for whatever the command left inside.
+- `release` ends one agent's processes and its door; `close` ends the sandbox, after every
+  release, when the run ends.
+
+**Every provider holds seven invariants:**
+
+1. **All or nothing.** `open` and `admit` hold everything asked, or reject before anything
+   launches. The engine has no per-provider code.
+2. **Same paths.** The working directory, reach paths, homes and launchers have the same paths
+   inside as on the host. Nothing translates a path.
+3. **The door.** Each agent's launcher runs inside and reaches its endpoint. No agent writes to a
+   launcher or reaches a door in another sandbox.
+4. **Reach, and nothing else.** Unreadable inside: the operator's home, temp directories and
+   harness state, the run root outside this sandbox's directory, and other sandboxes. No domain
+   beyond the models and `network`, and no model-side web search.
+5. **Trust stops at the boundary.** Invariants 3 and 4 hold between sandboxes.
+6. **A killed turn leaves nothing running,** so the next turn resumes a session nothing else
+   writes. Each provider has one known exception: under srt, a process that starts its own session
+   escapes the group kill and runs, confined, until it exits (X21); under docker, a process that
+   leaves its group runs until `close`.
+7. **Nothing outlives `close`,** except the agents' homes, and under srt a process that started its
+   own session (X21).
+
+**What checks them.** The conformance suite in `@wf/sandbox/testing` runs `sh` through a provider
+and checks invariants 2, 3, 6 and 7. It checks 4 and 5 only for a provider that confines, which
+the fake does not, so against the fake they are skipped. Each provider's local test
+(`*.local.test.ts`) runs the suite against the real provider, and adds the network and the
+provider's own cases. No test yet covers invariant 1 as such; each refusal has its own test.
+What real agents are denied is checked by the `sandbox-*` evals, from the agents' own transcripts
+([[testing]]).
+
+**A sandbox holds the whole spec or does not open.** That one invariant is what keeps the seam
+small. A provider does not advertise what it can hold, and a sandbox does not report which parts
+it held, because the answer is always all of them: it rejects at `open` or `admit`, never opens
+wider and says so afterwards.
+
+**What a harness needs to run is a fact about the harness**, in
+`packages/harness/src/sandbox-needs.ts`: the variables that point it at its home, the credential to
+seed, first-run answers, its model domains, its executable and the install tree it reads, and the
+flags that take away what reaches past egress: model-side web search (X15), codex's apps and
+plugins (X23), pi's extensions. The workflow never names `~/.claude` or `api.anthropic.com`; the
+record does, because the agent can reach them. cursor has no entry and is refused.
+
+| | srt | docker |
+| --- | --- | --- |
+| a sandbox is | a base profile, and a profile file per agent | one container, with an `--internal` network and a filtering proxy |
+| shares with the host | the system and the toolchain, outside the denied regions | exactly the mounts |
+| network | srt's domain allowlist | the proxy's CONNECT allowlist, port 443 |
+| the door | the agent's own socket in its profile | a stdio relay over `docker exec -i` (X6) |
+| a killed turn | the group dies; a process that starts its own session survives it and `close`, confined (X21) | the in-box group, killed by its recorded pid; a process that leaves its group lives until `close` removes the box |
+| agents in one sandbox | each lists only its own socket | one uid: each can read another's environment variables, token included, and reach its door |
+| panes | in the run's Herdr | in the box's own Herdr, of the version the host runs |
+
+How each provider does it, and why, is in the story's provider sections and its implementation
+notes; a provider's known leftovers are in [[sandbox-providers]], not in a type.
+
+### A fresh harness home
+
+A sandboxed agent never sees the operator's harness state. Protecting individual files cannot be
+complete: the operator's harness state holds code the host runs (codex's binary sits under
+`~/.codex`, and hooks, plugins and extensions under the others), which changes with every release,
+and transcripts sit beside it. Write access is host code execution; read access exposes past
+transcripts, the answers a replay must not see.
+
+So the engine gives each sandboxed agent a home of its own under its sandbox's directory, and the
+workflow never declares it:
+
+- **It holds the credential and first-run answers, nothing else of the operator's.** codex and pi
+  get a copy of `auth.json`; claude gets its `CLAUDE_CODE_OAUTH_TOKEN` as an environment variable
+  instead, and is refused without it. Each harness's `defaults` are written fresh: claude's
+  onboarding, folder trust and bypass answers, codex's folder trust, pi's shell. A refreshed copy
+  is written back to the operator's file, only if that file has not changed since it was copied.
+  Whether a copy's refresh logs the operator out is X13, not yet measured.
+- **The operator's skills, `AGENTS.md` and memory are absent**, which is right for a replay. A
+  repository's own `AGENTS.md` in the working directory is still read.
+- **Accounting reads usage from the home**, and the homes stay in the run directory as evidence
+  for a contamination audit.
+
+### Doors
+
+A boundary that stops an agent reaching the host also stops it reaching the engine, unless a door
+is opened on purpose.
+
+**The control plane is the one door every provider opens.** The endpoint is a unix socket per
+agent under `/tmp`, not the run directory, because `sun_path` is 104 bytes on macOS. The launcher
+beside it runs the cli-agent, bundled into one file so it runs in any sandbox that has bun. srt
+lists the agent's socket in its profile. A container cannot connect to a host socket (X6), so
+docker relays each connection over `docker exec -i`. A provider that cannot open the door cannot
+hold an agent, because an agent that cannot call `wf result` cannot answer.
+
+**The connection says who is answering, between sandboxes.** Within one docker box, agents share a
+uid and can reach each other's doors, as the trust boundary allows. Confining agents against each
+other takes separate sandboxes.
+
+**Messaging crosses sandboxes for free.** A message goes `wf send`, engine,
+`HarnessTurn.deliver`. The engine owns the inbox and the peer's provider presents the prompt. Two
+agents in different sandboxes talk exactly as well as two on the host, through the same door.
+There is no agent-to-agent channel to preserve and this design creates none.
+
+**Shared files cross only within a sandbox.** [[messaging]] puts durable state in shared files,
+and the review workflows coordinate through a ledger in the worktree. That holds while agents
+write the same tree, which agents in one sandbox with `write: ["."]` do. Agents in different
+sandboxes, or in a reader, must carry state through results and messages (open question 2).
+
+**The session tool is not a door.** The Herdr socket is a control channel over every other pane;
+the study reads a denied private key through a neighbouring pane in one line. Under srt it lies
+under the denied `~`, so a pane agent cannot reach the run's Herdr. Under docker, panes are in a
+Herdr inside the box, which its agents may drive within the trust boundary, and which reaches
+nothing outside it.
+
+### Panes
+
+A pane agent needs a terminal the operator can watch and Herdr can drive. Herdr detects an agent
+from the processes it can see, and `agent start` refuses a pane whose root process is not a shell
+(H1, H4). So a sandboxed harness is **typed, then adopted**: the pane's shell runs a prelude that
+execs a confined shell, the engine waits for a prompt only the confined shell can draw, types the
+harness, and adopts it by name. The occupant describes which Herdr the pane lives in and what is
+typed; the Herdr host does the rest. No token crosses an argv: the prelude reads it from a file it
+deletes. The story's "Panes" section has the detail.
+
+Under srt the pane opens in the run's Herdr. Under docker it opens in a Herdr inside the box,
+which the operator watches with the `docker exec -it … herdr` the run prints (H2, H3); the host
+refuses a box whose Herdr is not the version it drives.
+
+### The harness level
+
+Designed, not built. A workflow would hand an agent a **grant**, which the adapter translates into
+the harness's own permission configuration, leaving its prompts on and set to never ask:
 
 ```ts
-const runtime: AgentRuntimeConfig = {
-  aliases: {
-    reviewer: { harness: "claude", model, pool, sandbox: "srt" },
-    implementer: { harness: "claude", model, pool, sandbox: "srt" },
-    batch: { harness: "codex", model, pool, sandbox: "box" },
-  },
-  host: herdr,
-  sandboxes: { srt: seatbelt, box: container },
-  ceiling: {
-    write: ["."],
-    read: ["~/.ssh"],
-    network: ["registry.npmjs.org", "gitlab.com", ".gitlab.com"],
-    env: ["PATH", "HOME", "LANG"],
-    use: ["tool:shell", "skill:"],
-  },
-  floor: "harness",
-};
-```
-
-Relative paths resolve against each agent's working directory. Under this ceiling a request for
-`network: ["example.com"]` or `isolation: "none"` does not start: activation fails and names the
-excess. Nothing is silently narrowed.
-
-## The types
-
-```ts
-/** An allowlist per axis. Every entry names a family. Absent means the minimum on that axis. */
+/** An allowlist per axis. Absent means the minimum on that axis. */
 export type Grant = {
-  /** Directories readable beyond the working directory, which is always readable. */
+  /** Paths readable beyond the working directory, as `SandboxReach.read`. */
   read?: readonly string[];
-  /** Directories writable. Nothing is writable unless listed, the working directory included. */
+  /** Paths writable, as `SandboxReach.write`. */
   write?: readonly string[];
-  /** Domains the agent's own commands may reach. The harness's model traffic is never listed. */
-  network?: readonly string[];
-  /** Environment variable names the agent's commands may see. */
-  env?: readonly string[];
-  /** Capabilities handed over, by ref: `skill:review-feedback`, `tool:shell`, `mcp:github`. */
+  /** Domains the agent's own commands may reach, as `SandboxReach.network`. */
+  network?: readonly Domain[];
+  /** Capabilities handed over: `skill:review-feedback`, `tool:shell`, `mcp:github`. */
   use?: readonly CapabilityRef[];
 };
 
 /** Namespaced by convention. The grammar waits until two adapters show what is portable. */
 export type CapabilityRef = string;
 
-/** How a grant is held, strongest first. */
-export type Isolation = "sandbox" | "harness" | "none";
-
-export type SandboxKind = string;
-
-export type ExecutionConfig = {
-  harness: HarnessKind;
-  model: string;
-  pool: SpendPoolKey;
-  /** Where the process lives, by installed provider name. Absent means no sandbox available. */
-  sandbox?: SandboxKind;
-};
-
-export interface AgentRuntimeConfig {
-  aliases: RuntimeAliases;
-  host: AgentRunHostFactory;
-  /** Installed providers, by the name an alias uses. */
-  sandboxes?: Readonly<Record<SandboxKind, SandboxProvider>>;
-  /** The most any agent in this engine may hold. */
-  ceiling: Grant;
-  /** The weakest isolation the operator allows. Default `"sandbox"`. */
-  floor?: Isolation;
-}
-
-export interface AgentOpenSpec {
-  // ...key, cwd, instructions, runtime
-  /** Checked against the ceiling. Absent means the default below. Replaces `skills`. */
-  grant?: Grant;
-  /** Checked against the floor. Default `"sandbox"`. */
-  isolation?: Isolation;
-}
+// AgentOpenSpec would gain:  grant?: Grant;  and `use` would replace `skills`.
 ```
 
-The provider name is the one permission word in `ExecutionConfig`, because where a process lives
-is a runtime fact like the harness, and an optimiser comparing runs wants it in the record. The
-allowlists are not: execution config flows into every usage record and the run record, which
-[`foundation.md`](../foundation.md) §7 calls a public format with an external reader, and the
-allowlists are the most volatile vocabulary in the project. An alias decides where an agent runs,
-not what it may do there.
-
-**Say nothing and you get a sandboxed reader.** The shell is there because `wf result` is a shell
-command, and it is safe because reach is narrowed underneath it: a read-only sandbox does not
-care which tool asks to write. This is the reviewer, the case worth making effortless, and it is
-checked against ceiling and floor like any other request. Until a provider is installed, the
-examples in this repository say `isolation: "none"` in the open, which is the true statement
-about them today.
-
-## Isolation
-
-Harness flags are not a boundary. An agent with a shell can relaunch its own harness with
-different flags, so `allowedTools` and `sandbox_mode` bind a cooperative agent and nobody else. A
-sandbox lives below the harness, which cannot see it, let alone lift it.
-
-Both levels are worth having. A sandbox is the default because it is the only level that holds
-an adversarial agent, and the only one that holds pi, which has no permission system. Harness
-isolation exists because a sandbox is blunt: it denies SSH, keychain writes, and installs that
-unpack forbidden filenames, and it cannot be argued with. Harness rules are finer, argument-scoped
-on claude, and right when the task needs something the sandbox breaks and the operator trusts
-the agent to cooperate. The workflow says which; the operator says how low it may go.
-
-### The sandbox seam
-
-A sandbox is applied once, to a process, at launch. `srt -s cfg claude` starts claude under
-Seatbelt, and every turn, tool call, shell, and subagent it spawns runs under that policy until
-the process exits. Nothing is wrapped per prompt or per tool; the engine never sees a tool call.
-So the seam is one method deep: **a sandbox is what starts the agent's outermost process.**
-
-```ts
-/** Everything a sandbox must hold, already summed: the held grant plus what the harness needs. */
-export type SandboxProfile = {
-  cwd: string;
-  read: readonly string[];
-  write: readonly string[];
-  network: readonly string[];
-  /** The static environment inside. Per-process values arrive with the command at `launch`. */
-  env: Readonly<Record<string, string>>;
-  /** Refused even inside `write`: git hooks, harness settings, anything that executes later. */
-  denyWrite: readonly string[];
-  /** The engine's endpoint. The one door every provider must open, so `wf` can reach the engine. */
-  controlPlane: string;
-};
-
-/** A process the engine is about to start: the harness, or the shell a harness will be typed into. */
-export type CommandSpec = {
-  argv: readonly string[];
-  cwd: string;
-  env: Readonly<Record<string, string>>;
-};
-
-export interface SandboxProvider {
-  /** Holds the whole profile or rejects, naming the axis it cannot hold. Never opens narrower. */
-  open(profile: SandboxProfile, deadline: AbsoluteDeadline): Promise<Sandbox>;
-}
-
-export interface Sandbox {
-  /** The host command that starts `root` inside the boundary. Pure; called once per process. */
-  launch(root: CommandSpec): CommandSpec;
-  /** Authority the provider could neither remove nor list: an open socket, a writable hook dir. */
-  readonly residual: false | { detail: string };
-  close(): Promise<void>;
-}
-```
-
-**A sandbox holds the whole profile or does not open.** That one invariant is what keeps the seam
-this small. A provider does not advertise what it can hold, and a sandbox does not report which
-axes it held, because the answer is always all of them: a container without an egress proxy that
-is asked for a domain list rejects at `open`, it does not open wider and say so afterwards. The
-engine therefore records `sandbox` by that provider's name on every axis, and the only thing a
-sandbox reports about itself is `residual`, the authority it knows it left behind.
-
-`launch` is a prefix on the root process's own argv. For the host provider it is `srt -s <file>`,
-the file written at `open`; there is no other object, the boundary is the running process. A
-container provider creates the box at `open` with the profile as its mounts, and `launch` is
-`docker exec` of the root inside it. A remote provider syncs the working directory at `open` and
-`launch` is an exec on that machine. The root differs by session adapter and that is the adapter's
-business: for a headless agent it is the harness itself, once per turn process, through the same
-`launch` with the same profile for the life of the agent; for a pane it is the pane's shell, the
-outermost process, which the study found to be the one topology that holds, and the harness is typed
-into it. The Herdr host today opens a fresh tab per agent, so it too launches more than once.
-Nothing operation-specific rides in the command's `env` — the launcher path is in the prompt — so
-the profile's `env` is the static allowlist and nothing sits above it.
-
-Adapters compose with the seam in one direction. The engine opens the sandbox, hands it over in
-`HarnessActivation`, and the adapter starts every root through `launch` and no other way. It never
-builds a sandbox or sees a profile. Any pairing works: a pane whose shell is
-`docker exec -it box zsh` is a host Herdr pane living in a container.
-
-| | host (`srt`, Seatbelt) | container | remote |
-| --- | --- | --- | --- |
-| shares with the host | toolchain, caches, every path in the profile | exactly the mounts | nothing; the tree is synced |
-| network | domain allowlist, a real boundary | proxy sidecar, or rejects a domain list | provider's own |
-| harness credential | read in place; claude needs one keychain file | copied or minted in | minted in |
-| status | daily use | built and smoke-tested | not built |
-
-**The profile is generated by one pure function, never hand-written per agent.** It sums the held
-grant with what the harness needs merely to run, which is a fact about the harness and so lives
-in `spec.ts` beside its other strings: state directory, credential, caches, model-traffic
-domains, and the files that execute later and must be refused. The workflow's vocabulary never
-contains `~/.claude` or `api.anthropic.com`; the record does, because the agent can read them.
-
-**Inside a sandbox, the harness's permission prompts are off.** Seatbelt underneath is answering
-every question a prompt would have asked, on every turn, without a person. That is where
-`danger-full-access` and `--force` belong. The adapter chooses that variant from the isolation
-it was activated with; `spec.ts` holds the strings for both variants and no policy.
-
-**A sandbox cannot be shed from inside.** The study tested a detached background child, tty input
-injection into the parent shell, and a login item that would run unsandboxed later. All denied.
-That is what `sandbox` means in the record. A provider that cannot make that promise is `none`
-with a reason.
-
-**A sandbox has doors, and the record names them.** A permitted domain plus a token the agent
-holds is an exfiltration path for everything readable, and the model API is one too; the egress
-list is the compensating control for every credential inside, which is why `network` is a domain
-list and not a boolean. A git hook, a harness settings file, a lockfile installed outside: writable
-inside, executed on the host later, so `denyWrite` carries the ones the harness table knows and
-the rest is `residual`. The Docker socket is the host and the Herdr socket is every other pane; a
-profile never contains a socket, and a provider that must open one reports it as `residual`.
-
-### Channels between agents
-
-A boundary that stops an agent reaching the host also stops it reaching the engine and its peers
-unless a door is opened on purpose.
-
-**The control plane is the one door every provider opens.** The endpoint is a unix socket under the
-system temp directory, not the run directory, because `sun_path` is 104 bytes on macOS and a run
-directory alone can exceed it. `srt` denies unlisted unix sockets, a container does not see a host
-socket, a remote machine has no socket to see. The profile carries the endpoint, `open` makes it
-reachable, and the launcher beside it has to be runnable from inside: `wf` is never on the agent's
-`PATH`, it is a full path the prompt names. A provider that cannot do both cannot hold an agent,
-because an agent that cannot call `wf result` cannot answer.
-
-**Messaging crosses sandboxes for free.** A message goes `wf send`, engine, `HarnessTurn.deliver`.
-The engine owns the inbox and the peer's provider presents the prompt. Two agents in different
-containers talk exactly as well as two on the host, through the same door. There is no
-agent-to-agent channel to preserve and this design creates none.
-
-**Shared files do not cross.** [`messaging.md`](messaging.md) puts durable state in shared files,
-and the review workflows coordinate through a ledger in the worktree. That holds while every
-agent sees the same working directory, which is true on the host and inside one container, and
-false the moment two agents live in different runtimes. A workflow that mixes runtimes must carry
-state through results and messages, or the providers must agree on a shared tree. Not designed
-here; recorded so the first mixed workflow does not discover it by losing a ledger.
-
-### The harness level
-
-The adapter translates the grant into the harness's own permission configuration and leaves the
-prompts on, set to never ask:
+An agent asks for the harness level by carrying a `grant` and no `sandbox`, in the open, where a
+reader of the workflow sees that a cooperative agent is trusted with it. That is the agent that
+needs SSH, which a sandbox denies by design. `use` applies with or without a sandbox: tools, skills
+and MCP servers are what an agent has none of until the harness hands them over, as a route is
+granted for messaging. A sandboxed agent's fresh home already holds none of the operator's.
 
 | | claude | codex | cursor | pi |
 | --- | --- | --- | --- | --- |
 | read / write | OS sandbox on shell children, `--add-dir` | `sandbox_mode`, `writable_roots` | `--sandbox`, `--add-dir` | none |
 | network | domain rules | a boolean | tri-state and allowlist | none |
-| env | none | none | none | none |
+| environment variables | none | none | none | none |
 | use | `--allowed-tools`, argument-scoped | mostly ambient | file rules, no flag | tool names only |
 | a denied call | blocked | blocked | blocked | never denied |
 
-The level is uneven and the record says so, per axis. Codex holds a boolean, so a domain list
-widens to "any" and is recorded as `harness` with that detail, or refused if the ceiling forbids
-the widening. No harness holds `env`; the engine's child environment does, at every level. Pi holds
-nothing, so on pi every axis is `none` and the default floor refuses it. Claude's native sandbox
-keeps the harness process outside its own boundary and so withholds claude's credential from the
-agent, which no provider can do; it may also run inside a provider's sandbox as a second layer,
-and the record shows the outer one.
+The level is uneven. Codex holds a boolean, so a domain list widens to "any". No harness holds
+environment variables; the engine's child process does. Pi holds nothing, so it would be refused.
+Claude's native sandbox keeps the harness process outside its own boundary and so withholds
+claude's credential from the agent, which no provider can do; it may also run inside a provider's
+sandbox as a second layer.
 
 ## What the record says
 
-```ts
-export type Enforcement =
-  /** `by` names the provider or the harness feature: `"srt"`, `"box"`, `"claude sandbox"`. */
-  | { isolation: "sandbox" | "harness"; by: string }
-  | { isolation: "none"; reason: string };
+`output.json` lists each sandbox once (`OutputRecord.sandboxes`): its key, provider, resolved spec,
+directory, the git directories its paths belong to, every domain reachable in the end, docker's
+image digest or srt's toolchain, and every agent admitted with its home, including one whose turns
+never completed. Membership lives there, not in the accounting, which would miss an agent that
+failed before its first operation.
 
-/** What the agent actually holds. Recorded once at activation; fixed for the life of the agent. */
-export type HeldGrant = {
-  granted: Grant;
-  /** What the workflow asked for. Every axis below is at or under it, never above. */
-  isolation: Isolation;
-  read: Enforcement;
-  write: Enforcement;
-  network: Enforcement;
-  env: Enforcement;
-  /** What the harness needed so it could run: state, credential, caches, model domains. */
-  harness: Grant;
-  /** Copied from the sandbox; `false` at the harness level, which leaves nothing behind it. */
-  residual: false | { detail: string };
-};
-```
-
-The engine fills this in, not the adapter or the provider. Under `sandbox` every axis is the
-provider's name; under `harness` each axis is what the table above says that harness holds; under
-`none` each axis carries the reason. `harness` is never read as `sandbox`, the way an absent cost
-is never read as zero anywhere else in this engine. A record showing two granted tools for a
-codex agent launched with `danger-full-access` and nothing else is a false audit: a reader
-concludes the agent could not write. The auditable answer to "what could this agent do" is
-`HeldGrant`, never `Grant`.
+An agent without a sandbox has no entry: the record says nothing held it, which is the truth. A
+per-axis record of what held each axis at which level waits for the harness level; with one level
+built, the sandbox record is the whole answer to "what could this agent do". Readers must not
+switch exhaustively over `provider`, which grows.
 
 ## Rules
 
-**Refuse, never downgrade.** A request above the ceiling, an isolation below the floor, an alias
-with no provider asked for `sandbox`, a profile a provider cannot hold, a capability that cannot
-be handed over: each fails activation and names the cause. A silent downgrade is the one outcome
-nobody can audit, and a workflow written against one can never be made strict later. The only way
-down is the workflow asking for a lower level, in the open, under the operator's floor.
+**Refuse, never downgrade.** A spec a provider cannot hold, a pinned provider that is not
+installed, a pane in a sandbox that hosts none, a harness with no sandbox needs: each fails the
+agent's open, before its channel opens, and names the cause. A silent downgrade is the one outcome
+nobody can audit, and a workflow written against one can never be made strict later.
 
-**Tighten, never loosen.** A provider or adapter may hold more strictly than asked and record
-what it applied; a blocked call surfaces as `blocked` through the turn outcome that exists. It may
-never hold less and continue, because that report would arrive after the network call.
+**Tighten, never loosen.** A provider may hold more strictly than asked: srt's base denies more
+than reach names, and docker's image is its own base. What it held shows only in the resolved spec
+and the final domains in `OutputRecord.sandboxes`. It may never hold less and continue, because
+that report would arrive after the network call.
 
-**Bypass only inside a sandbox.** The prompt-skipping flag is set at launch when, and only when, a
-provider has put a boundary underneath. Under `harness` the prompts stay on and never ask. The
-same flag with nothing underneath is `none`.
+**Bypass only inside a sandbox.** Inside one, the provider answers every question a permission
+prompt would have asked, so the prompts can be off. Outside, the same flags are what E1 and E2 left
+behind, and nothing holds the agent.
 
-**Nobody asks a human.** There is no person at the pane, and a prompt is a stalled turn. A denied
-call surfaces as `blocked`. Human approval is a checkpoint that stops dispatch, not a per-session
-permission field.
+**Nobody asks a human.** There is no person at the pane, and a prompt is a stalled turn. Human
+approval is a checkpoint that stops dispatch, not a per-session permission field.
 
-**Nothing an agent runs raises its own authority.** No `wf` verb widens a grant or lowers an
-isolation. A native fork holds at most what its parent held, at the same level.
+**Nothing an agent runs raises its own authority.** No `wf` verb opens a sandbox or widens one. A
+running box cannot gain mounts, so an agent whose working directory lies outside its sandbox's
+reach is refused.
 
-**A harness's own subagent inherits the isolation, never the right to report.** Reach is inherited
-by construction. Answering must not be: the launcher is a path anything running as the same user
-can run — see [`README.md`](README.md#what-an-agent-inside-a-session-sees) — so a result race and an
+**A harness's own subagent inherits the sandbox, never the right to report.** Reach is inherited
+by construction. Answering must not be: the launcher is a path anything in the sandbox can run —
+see [[design/README#What an agent inside a session sees|README]] — so a result race and an
 impersonation are available to every subagent that sees the prompt. A subagent that does not call
-`wf` is right; it does work and the parent reports. Making that a rule the engine
-enforces rather than a convention needs a per-process distinction the filesystem does not give us.
+`wf` is right. Making that a rule the engine enforces needs a per-process distinction the
+filesystem does not give.
 
-**A skill is code.** Skills resolve by name from an operator-controlled root, mounted read-only.
-A path from a workflow would be code injection; a writable skill is a command that runs at the
-next harness startup.
-
-**The session tool is not a capability.** The Herdr socket is a control channel over every other
-pane; the study reads a denied private key through a neighbouring pane in one line. The pane
-adapter keeps it out of the profile. An agent that needs to see sessions gets a read-only relay;
-one that needs to run things in panes gets a session inside a container. Anything else is
-`residual`.
+**A skill is code.** Designed, not built: skills resolve by name from an operator-controlled root,
+mounted read-only. A path from a workflow would be code injection; a writable skill is a command
+that runs at the next harness startup. The same holds for a git hook, and that part is built: in a
+writable git directory, what the host's git runs or follows is kept from the agent
+(`protectedGitPaths` in `packages/sandbox/src/git.ts`). srt denies writing it; docker mounts the
+existing paths read-only and moves one the agent creates into `quarantine/` at the next reap.
 
 ## Where the code goes
 
 | Package | Holds |
 | --- | --- |
-| `contract` | `Grant`, `CapabilityRef`, `Isolation`, `SandboxKind`, `Enforcement`, `HeldGrant`, and the containment check between two grants. Types and one pure function |
-| `harness` | `src/sandbox/`: the `SandboxProvider` seam, the profile function, the providers. `spec.ts`: each harness's needs and its two launch variants. Each adapter: the grant-to-native translation for `harness` |
-| `engine` | checking ceiling and floor, opening the sandbox, refusing activation, filling in `HeldGrant` |
-| `cli-agent` | nothing |
+| `contract` | the author surface (`workflow/sandboxes.ts`, `AgentOpenSpec.sandbox`, `WorkflowContext.sandboxes`) and `OutputRecord.sandboxes`; later `Grant` and `CapabilityRef` |
+| `sandbox` | `@wf/sandbox`: the seam and resolution. `@wf/sandbox/srt`, `@wf/sandbox/docker`: the providers. `@wf/sandbox/testing`: the conformance suite and a fake. Imports contract only |
+| `harness` | each harness's sandbox needs; `runProcess` running a sandboxed command; adapters launching through an occupant; the Herdr host's typed start; later, each adapter's grant translation |
+| `engine` | a run's sandboxes, homes and write-back, admission and close, the bundled launcher, the record. Only `operator-runtime.ts` imports a provider, to install it |
+| `cli-agent` | nothing: it is bundled, not changed |
 
-`HarnessActivation` gains `grant`, `isolation`, and an opened `sandbox`. `HarnessSession` gains
-nothing: the engine already has everything the record needs before it calls `activate`.
-`ExecutionConfig` and `ExecutionRequirements` gain `sandbox`. Providers know nothing about
-harnesses; the harness table knows nothing about providers; the profile function is where they
-meet, and it is pure.
-
-**The test surface is the seam.** The containment check and the profile function are pure and
-tested as such. A fake provider records the profile it was opened with and prefixes `launch`
-with a marker; the adapter conformance test then asserts that every process an adapter starts
-carries the marker, and that the `harness` variant carries the translated flags instead. The
-engine's tests assert on `HeldGrant` and on refusals by cause. None of it starts a live agent.
-What a real provider actually denies is the study's evidence, and the first eval here.
+Providers know nothing about harnesses; harness knows the seam and no provider;
+`scripts/check-boundaries.ts` holds both. A provider's unit tests fix its profile or its `docker`
+arguments.
 
 ## Build order
 
-1. The child environment becomes an allowlist instead of a two-variable denylist. One function,
-   one test, and the one axis the engine holds at every level for every agent.
-2. The host provider: `open` writes the policy file the study already uses, `launch` prefixes
-   `srt -s`. With it, the profile function and the harness needs in `spec.ts`.
-3. The container provider, once one workflow has run under the first.
+The first level, in story 004:
+
+1. The seam, the author surface, a fresh home per agent, and the record.
+2. The srt provider, headless.
+3. The docker provider, its default image, proxy and relay, headless.
+4. Pane agents: under srt in the run's Herdr, under docker in the box's own.
+
+Then, in order of need:
+
+- **Credential rotation (X13):** whether a copy's refresh logs the operator out, and whether two
+  refreshing copies trip reuse detection. It needs the operator's consent to measure.
+- **An operator-replaceable srt toolchain.** It is derived from `PATH` today.
+- **The whole workflow in a sandbox, and remote execution** ([[workflow-in-sandbox]]).
+- **The unsandboxed child's environment variables as an allowlist** instead of a two-variable
+  denylist.
+- **The harness level, and `use` with skills from an operator-controlled root.**
 
 ## Deliberately not built
 
-- **A provider field on the agent.** A workflow that needs a provider constrains the runtime
-  through `ExecutionRequirements.sandbox`, as it can for harness and model.
-- **A provider that declares what it can hold.** The invariant makes it redundant: `open`
-  rejects, and rejecting is an error mode `open` needs anyway.
+- **An operator ceiling and floor.** A sandbox is the workflow restricting itself. When a
+  stranger's workflow runs here, a ceiling returns, per provider (open question 7).
+- **Passing named environment variables into a sandbox.** A sandbox's environment variables are
+  exactly what the provider sets: the home variables, `PATH`, the harness's token and what the
+  adapter adds. A variable a workflow names is a credential more often than not, and would need
+  the egress list reasoned about with it.
+- **A provider that declares what it can hold.** The invariant makes it redundant: `open` rejects,
+  and rejecting is an error mode `open` needs anyway.
+- **A residual type.** A provider's known leftovers are measured and go in `findings/`.
+- **Closing a sandbox before the run ends.**
 - **Nested providers.** A per-agent Seatbelt inside a container is a real topology, expressible as
-  one provider whose `launch` calls another's. First-class when two providers must agree on how
-  `residual` merges.
+  one provider whose `launch` calls another's. First-class when a workflow needs it.
 - **Per-command and per-path rules** like `Bash(git *)`. Three rule languages over different
   things and pi has none; a portable one is a lowest common denominator or a translator with
-  silent holes. An operator writes them in harness-native configuration it owns, as a
-  supplement the record does not see.
-- **Per-axis isolation.** One level per agent. An agent that wants SSH from inside a sandbox wants
-  a door in the profile, which is the operator's.
-- **A sockets axis.** The sockets that matter are each a full escape. Operator profile entries
-  only, recorded as `residual`.
-- **Optional capabilities.** A dropped request is a downgrade by another name. Add when a workflow
-  actually runs both with and without one.
+  silent holes.
+- **A sockets axis.** The sockets that matter are each a full escape.
 - **Harness-native passthrough on the author surface.** It would make workflows harness-specific.
-  It lives in alias configuration, which is the operator's.
 
 ## Alternatives considered
 
-- **Bake `srt` in.** Least code and what runs today. Rejected because the container is the study's
-  most promising direction, a remote provider is the only way this engine ever leaves the laptop,
-  and the seam is one method and one invariant.
-- **Sandbox only.** Rejected because a sandbox is blunt in ways that are not going away: no SSH,
-  no keychain writes, no way to withhold the harness's own credential. Forcing those tasks out of
-  the engine forces them out of the record.
-- **Harness only.** The first draft. Three rule languages, pi with none, all of them requests. The
-  study shows one mechanism covering every harness, and what harness rules are worth once the
-  agent has a shell.
-- **The sandbox inside the session adapter.** Then every adapter reimplements every provider and a
-  tmux adapter learns Seatbelt. One direction of composition keeps both seams small.
+The story's "Alternatives rejected" covers the sandbox's own shape: its surface, a shared box, the
+door, credentials, the default provider and where the providers live. Of the rest:
+
+- **Bake srt in.** Least code. Rejected because a container is tighter beyond reach, and the seam
+  is small. Leaving the laptop is running the engine where the agents are
+  ([[workflow-in-sandbox]]), not a provider.
+- **Harness only.** Three rule languages, pi with none, all of them requests. One mechanism below
+  the harness covers every harness.
+- **The sandbox inside the session adapter.** Then every adapter reimplements every provider, and
+  a tmux adapter learns Seatbelt. One direction of composition keeps both seams small.
 - **The sandbox as a process runner.** `sandbox(run: RunProcess): RunProcess` is the same seam for
-  a headless agent and no seam at all for a pane, which Herdr starts. An argv prefix is the one
-  shape both kinds of session adapter can apply.
-- **Operator-named roles instead of a grant.** `role: "reviewer"` is trivial for the common caller
-  and hides the agent's needs in operator config, where a reader of the workflow cannot see them
-  and another operator does not have them. Sugar over `Grant` later, if a workflow repeats one.
-- **Isolation on the alias.** Rejected because the motivating case is two agents on one alias held
-  differently, and a lowered level should be visible in the workflow where a reviewer reads it.
-- **Isolation as a minimum.** Would let one workflow run on engines with and without a provider.
-  Rejected because the levels do not nest: the publisher that works under `harness` breaks under
-  `sandbox`, so the engine picking the stronger one is a downgrade in the other direction.
-- **Network as a boolean.** True that only a boolean means the same thing on every harness.
-  Irrelevant once a provider holds the list, and the egress list is what makes credentials inside
-  a sandbox acceptable at all.
-- **Clamp the request to the ceiling.** The silent downgrade in another costume. Refusal is loud
-  once at activation instead of quiet on every call.
-- **A ceiling as a predicate.** A ceiling nobody can read is a ceiling nobody can audit, and
-  containment is not a language.
-- **Absent grant means today's behaviour.** Makes the unsafe case the one you get by saying
-  nothing. Nothing is implemented, so nothing is taken away.
-- **Extend the per-agent socket.** Compaction and message turns have no result slot; the socket is
-  something the agent presents while a sandbox is applied at process construction; and a
-  connection is an authority to report, the wrong shape for a restriction.
+  a headless agent and no seam at all for a pane, which Herdr starts. A command for a headless turn
+  and a terminal for a pane are what both session adapters can apply.
+- **Network as a boolean.** Irrelevant once a provider holds the list, and the egress list is what
+  makes a credential inside a sandbox acceptable at all.
 
 ## Open questions
 
-1. **Nothing has measured a denied agent inside this engine.** The study measured denial by hand
-   under `srt`. That a denial surfaces cleanly as `blocked`, at both levels and under both
-   measured providers, is design, not evidence, and the first experiment here.
-2. **Mixed runtimes in one workflow.** Two agents in different sandboxes share the engine and
-   nothing else, and the shared-file pattern assumes one runtime without detecting it. Provider
-   shared tree, workflow rule, or refusal to mix: undecided.
-3. **A remote provider moves the control plane.** Authority today *is* the unix socket: the agent
-   is trusted because it opened a file only it can reach. Nothing about that crosses a network, so
-   a remote provider needs an authority that travels — the one thing this design deliberately does
-   not have. Foundation §7 says remote execution only swaps the transport; it swaps more than that.
+1. **How a denial surfaces.** The probe evals show the OS refusing each canary in an agent's own
+   transcript. Whether a harness reports a denied call as `blocked`, or works around it, is not
+   measured.
+2. **Mixed sandboxes in one workflow.** Two agents in different sandboxes share the engine and
+   nothing else, and the shared-file pattern assumes one tree without detecting it. Provider shared
+   tree, workflow rule, or refusal: undecided.
+3. **Remote execution runs the engine where the agents are.** Authority today *is* the unix
+   socket: the agent is trusted because it opened a file only it can reach, and nothing about that
+   crosses a network. So the control plane never does: the engine moves to the remote machine, and
+   only the invocation and `output.json` travel ([[workflow-in-sandbox]]).
 4. **Harness-level translation loss.** Codex widens domains to a boolean, cursor's rules live in
    files, claude's are argument-scoped. Two adapters before the translation is called a contract.
-5. **Sandboxed is not disposable.** The worktree, a shared git object store, a shared package cache
-   all outlive the agent. A private store per agent is the cheap win; exchanging work through a
-   remote instead of a shared gitdir is the strong one. Profile concern or provider concern is open.
+5. **Sandboxed is not disposable.** The worktree, a shared git object store and a shared package
+   cache all outlive the agent, and a worktree's store holds later commits. A private store per
+   agent is the cheap win; the history-free fixture repository is [[eval-isolation]]'s.
 6. **No shell, no return channel.** `wf result` is a shell command. E2 measured a delimited-line
    channel at full delivery, so a no-shell agent is buildable, but it is a different channel.
-7. **One ceiling and floor, or one per provider?** A container and a host sandbox share the host
-   differently. One pair per engine is what is written.
-8. **Per-agent credentials.** A credential inside a sandbox is spendable by everything inside it.
-   Scoped short-lived tokens are the answer for untrusted workflows; nothing mints them.
-9. **Outside participants.** A session the engine did not start, per
-   [`composition.md`](composition.md), cannot be held at all: every axis `none`, the least
-   trustworthy peer in every run.
+7. **A ceiling, and one per provider?** A container and a host sandbox share the host
+   differently. Needed once workflows come from someone else.
+8. **Per-agent credentials.** A credential inside a sandbox is spendable by everything inside it,
+   and under docker readable by every agent in the box. Scoped short-lived tokens are the answer
+   for untrusted workflows; nothing mints them.
+9. **Outside participants.** A session the engine did not start, per [[composition]], cannot be
+   held at all: the least trustworthy peer in every run.

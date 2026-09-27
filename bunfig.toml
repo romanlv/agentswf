@@ -1,3 +1,7 @@
+# `.env` holds local secrets for experiments, such as a claude setup token. Loading it would
+# silently change how every agent the engine starts logs in.
+env = false
+
 [test]
 # `bun test` collects `*.test.ts`. Anything that spends money on live agents is named
 # `*.eval.ts`, so it is excluded by that pattern rather than by a list someone has to maintain.

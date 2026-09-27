@@ -2,7 +2,7 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import type { ProcessInput, ProcessResult, RunProcess } from "@wf/harness";
-import { herdrSession, installOperatorRuntime } from "./operator-runtime";
+import { herdrSession, installOperatorRuntime, installSandboxes } from "./operator-runtime";
 
 describe("operator runtime", () => {
   const before = new Set(readdirSync(tmpdir()).filter((name) => name.startsWith("awf-agent-bin-")));
@@ -245,3 +245,14 @@ function subscriptionRunner(calls: ProcessInput[]): RunProcess {
 function success(stdout: string): ProcessResult {
   return { stdout, stderr: "", exitCode: 0, timedOut: false };
 }
+
+describe("installSandboxes", () => {
+  test("installs srt as the default when its CLI is on PATH, and nothing when nothing answers", async () => {
+    expect(await installSandboxes({ PATH: "/nonexistent", HOME: "/" })).toEqual({ installed: {} });
+    const here = await installSandboxes(process.env);
+    if (Bun.which("srt")) {
+      expect(here.default).toBe("srt");
+      expect(here.installed.srt).toBeDefined();
+    }
+  });
+});

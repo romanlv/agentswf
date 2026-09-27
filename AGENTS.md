@@ -27,6 +27,7 @@ what would have to happen first.
 | `packages/harness` | driving one coding agent: adapters, liveness, usage extraction |
 | `packages/engine` | the runtime: run-directory I/O, result slots, and the local control plane; `src/accounting` prices and sums finished runs |
 | `packages/cli-agent` | the in-session `wf` command; imports contract only and talks over wire |
+| `packages/sandbox` | sandboxes a workflow opens: the provider seam, resolution, and the providers; imports contract only |
 | `packages/autoresearch` | evaluating workflows against cases with known answers: review fixtures, `collect`, `draft-key` and their agent votes; a consumer of the engine |
 | `examples/` | scenario workflows, written against the author surface and pure schema authoring libraries |
 | `experiments/_archive/` | E1–E3, E5–E6. Frozen evidence. Do not refactor to taste |
@@ -35,13 +36,15 @@ what would have to happen first.
 | `docs/findings/` | what the measurements settled. Cite it; edit it only to record a new measurement |
 | `docs/reference.md` | surveyed repositories: what was taken, rejected, still unmined |
 
-Five boundaries, enforced by `bun run scripts/check-boundaries.ts`:
+Seven boundaries, enforced by `bun run scripts/check-boundaries.ts`:
 
 1. `contract` imports nothing, performs no I/O, and uses no runtime-specific API.
 2. `engine/src/accounting` imports contract only, performs no I/O, and uses no runtime-specific API.
 3. `cli-agent` imports contract only and performs no run-directory I/O.
-4. `examples/` imports the author surface and approved pure schema libraries — never the engine or a harness.
-5. A cross-package import must be a declared dependency, not just a hoisted symlink.
+4. `sandbox` imports contract only. harness and engine import its seam, `@wf/sandbox`, and their tests `@wf/sandbox/testing`; only `engine/src/operator-runtime.ts` imports a provider, and no provider imports another.
+5. `autoresearch` imports contract and the engine's public entry only, never a harness; its review format stays pure outside the files that do I/O.
+6. `examples/` imports the author surface and approved pure schema libraries — never the engine or a harness.
+7. A cross-package import must be a declared dependency, not just a hoisted symlink.
 
 ## Working here
 
@@ -52,7 +55,7 @@ bunx tsc --noEmit
 bun run scripts/check-boundaries.ts
 bun run check             # Biome lint and format check, tsc, and the boundaries
 bun run format            # Biome: format, organize imports, apply safe fixes
-bun run eval              # live agents on the cheapest models: ~1 min, about $0.10–0.16
+bun run eval              # live agents on cheap models: ~6 min, about $0.60
 ```
 
 `bun install` points `core.hooksPath` at `.githooks`, whose pre-commit runs Biome's safe fixes on the

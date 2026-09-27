@@ -1,7 +1,9 @@
 import { randomUUID } from "node:crypto";
+import { type PaneHerdr, type PaneTerminal, shellQuote } from "@wf/sandbox";
 import type { AgentRunHostFactory, AgentSessionAdapter } from "../adapter";
 import { type RunProcess, runProcess, withholding } from "../command";
 import { parseRow, record } from "../json";
+import { sandboxedArgs } from "../sandbox-needs";
 import {
   type ActivatedSessionBackend,
   createSessionAdapter,
@@ -45,19 +47,72 @@ export type HerdrConfig = {
   acceptWorkspaceTrust?: boolean;
   /** How long an agent is left alone after each startup block; see `answerStartupBlocks`. */
   trustSettleMs?: number;
+  /**
+   * At a sandbox's first pane agent, open a tab in the run's workspace attached to the sandbox's
+   * own Herdr, so its panes show beside the run's.
+   */
+  watchSandboxes?: boolean;
 };
 
 const AGENT_START_WAIT_MS = 120_000;
 
-export function createHerdrCommands(config: HerdrConfig, run: RunProcess) {
+/**
+ * The Herdr this adapter drives, as `herdr --version` answers: the run's, checked by the evals'
+ * preflight, and a box's, checked before its first pane, as the default image pins it.
+ */
+export const HERDR_VERSION = "herdr 0.9.1";
+
+type HerdrCommands = ReturnType<typeof createHerdrCommands>;
+
+/** How starting an agent in a pane ended, after how many attempts. */
+type StartResult = {
+  ok: boolean;
+  attempts: number;
+  error: string;
+  timedOut: boolean;
+  cancelled: boolean;
+};
+
+const startedAfter = (attempts: number): StartResult => ({
+  ok: true,
+  attempts,
+  error: "",
+  timedOut: false,
+  cancelled: false,
+});
+
+const stopped = (
+  attempts: number,
+  error: string,
+  how: { timedOut?: boolean; cancelled?: boolean } = {},
+): StartResult => ({
+  ok: false,
+  attempts,
+  error,
+  timedOut: how.timedOut ?? false,
+  cancelled: how.cancelled ?? false,
+});
+
+/**
+ * The commands that drive one Herdr: the run's own session, or, `via` a sandbox, the Herdr in its
+ * box, whose every command is the sandbox's to run and reap.
+ */
+export function createHerdrCommands(
+  config: HerdrConfig,
+  run: RunProcess,
+  via?: Exclude<PaneHerdr, "run">,
+) {
   const startAttempts = config.startAttempts ?? 5;
   const startRetryMs = config.startRetryMs ?? 2_000;
+  const command = (args: string[], timeoutMs: number, signal?: AbortSignal) => {
+    if (!via) {
+      return { argv: ["herdr", "--session", config.session, ...args], timeoutMs, signal };
+    }
+    const boxed = via.run(args, timeoutMs);
+    return signal ? { ...boxed, signal } : boxed;
+  };
   const herdr: HerdrCommand = async (args, timeoutMs, signal) => {
-    const result = await run({
-      argv: ["herdr", "--session", config.session, ...args],
-      timeoutMs: timeoutMs ?? config.commandTimeoutMs,
-      ...(signal ? { signal } : {}),
-    });
+    const result = await run(command(args, timeoutMs ?? config.commandTimeoutMs, signal));
     if (result.exitCode !== 0) {
       return {
         ok: false,
@@ -79,27 +134,7 @@ export function createHerdrCommands(config: HerdrConfig, run: RunProcess) {
     args: string[],
     deadlineUnixMs: number,
     signal?: AbortSignal,
-  ): Promise<{
-    ok: boolean;
-    attempts: number;
-    error: string;
-    timedOut: boolean;
-    cancelled: boolean;
-  }> => {
-    const succeeded = (attempts: number) =>
-      ({ ok: true, attempts, error: "", timedOut: false, cancelled: false }) as const;
-    const stopped = (
-      attempts: number,
-      error: string,
-      how: { timedOut?: boolean; cancelled?: boolean } = {},
-    ) =>
-      ({
-        ok: false,
-        attempts,
-        error,
-        timedOut: how.timedOut ?? false,
-        cancelled: how.cancelled ?? false,
-      }) as const;
+  ): Promise<StartResult> => {
     let error = "agent start never ran";
     let timedOut = false;
     for (let attempt = 1; attempt <= startAttempts; attempt += 1) {
@@ -124,7 +159,7 @@ export function createHerdrCommands(config: HerdrConfig, run: RunProcess) {
         Math.min(AGENT_START_WAIT_MS + HERDR_REPORT_GRACE_MS, remaining),
         signal,
       );
-      if (started.ok) return succeeded(attempt);
+      if (started.ok) return startedAfter(attempt);
       error = started.error;
       timedOut = started.timedOut;
       if (started.cancelled) return stopped(attempt, error, { cancelled: true });
@@ -137,7 +172,7 @@ export function createHerdrCommands(config: HerdrConfig, run: RunProcess) {
           deadlineUnixMs,
           signal,
         );
-        return trusted.ok ? succeeded(attempt) : stopped(attempt, trusted.error, trusted);
+        return trusted.ok ? startedAfter(attempt) : stopped(attempt, trusted.error, trusted);
       }
       if (!hasHerdrErrorCode(error, "agent_pane_busy")) {
         return stopped(attempt, error, { timedOut });
@@ -153,8 +188,158 @@ export function createHerdrCommands(config: HerdrConfig, run: RunProcess) {
     }
     return stopped(startAttempts, error, { timedOut });
   };
-  return { herdr, startAgent };
+
+  /**
+   * Waits until `by` for the screen to show something and stop changing. The login shell draws
+   * whatever the operator's rc files make of its prompt, so no prompt is looked for, and text typed
+   * before it settles may be swallowed. False once cancelled.
+   */
+  const settle = async (screen: () => Promise<string>, by: number, signal?: AbortSignal) => {
+    let shown = "";
+    while (Date.now() < by) {
+      const now = await screen();
+      if (now.trim() !== "" && now === shown) break;
+      shown = now;
+      if (!(await abortableDelay(TYPED_START_POLL_MS, signal))) return false;
+    }
+    return true;
+  };
+
+  /**
+   * Types `text` into a fresh tab's login shell once it has settled, every call ending by `by`.
+   * Undefined once cancelled.
+   */
+  const typeInto = async (paneId: string, text: string, by: number, signal?: AbortSignal) => {
+    const call = (args: string[]) =>
+      herdr(args, Math.max(1, Math.min(config.commandTimeoutMs, by - Date.now())), signal);
+    const screen = async () => {
+      const read = await call(["pane", "read", paneId]);
+      return read.ok ? read.stdout : "";
+    };
+    // If the text is swallowed nonetheless, what it should show never does.
+    if (!(await settle(screen, Math.min(by, Date.now() + TYPED_START_SETTLE_MS), signal))) {
+      return undefined;
+    }
+    return call(["pane", "run", paneId, text]);
+  };
+
+  /** Types `argv`, quoted, into a fresh tab's login shell. */
+  const typeCommand = (paneId: string, argv: readonly string[], by: number, signal: AbortSignal) =>
+    typeInto(paneId, argv.map(shellQuote).join(" "), by, signal);
+
+  /**
+   * Starts a harness in a sandbox's pane by typing it, then adopts it (story 004, H4, H6): `agent
+   * start` refuses a pane whose root is srt rather than a shell. The pane's shell takes the
+   * prelude, which becomes the confined shell; the harness is typed only once that shell's prompt
+   * shows `ready`, which nothing typed can show, so it never runs in the operator's shell; and
+   * `agent rename` names it once Herdr has detected it. A prompt sent before the agent is idle is
+   * lost (H6).
+   */
+  const adoptAgent = async (
+    name: string,
+    kind: string,
+    paneId: string,
+    terminal: { prelude: string; ready: string; harness: string },
+    args: readonly string[],
+    deadlineUnixMs: number,
+    signal?: AbortSignal,
+  ): Promise<StartResult> => {
+    // One attempt: typing twice into a shell would run what the first left.
+    const failed = (error: string, how: { timedOut?: boolean; cancelled?: boolean } = {}) =>
+      stopped(1, error, how);
+    const cancelled = () => failed("operation cancelled", { cancelled: true });
+    const remaining = () => deadlineUnixMs - Date.now();
+    const step = () => Math.min(deadlineUnixMs, Date.now() + TYPED_START_WAIT_MS);
+    const call = (args: string[]) =>
+      herdr(args, Math.max(1, Math.min(config.commandTimeoutMs, remaining())), signal);
+    const screen = async () => {
+      const read = await call(["pane", "read", paneId]);
+      return read.ok ? read.stdout : "";
+    };
+    const type = async (text: string) => {
+      const typed = await call(["pane", "run", paneId, text]);
+      return typed.ok ? undefined : failed(`typing into the pane failed: ${typed.error}`, typed);
+    };
+    const prelude = await typeInto(paneId, terminal.prelude, deadlineUnixMs, signal);
+    if (!prelude) return cancelled();
+    if (!prelude.ok) return failed(`typing into the pane failed: ${prelude.error}`, prelude);
+    const ready = terminal.ready.trimEnd();
+    let confined = false;
+    for (const limit = step(); !confined && Date.now() < limit; ) {
+      const last =
+        (await screen())
+          .split("\n")
+          .filter((line) => line.trim() !== "")
+          .at(-1) ?? "";
+      confined = last.trimEnd().endsWith(ready);
+      if (!confined && !(await abortableDelay(TYPED_START_POLL_MS, signal))) return cancelled();
+    }
+    if (!confined) {
+      return failed(
+        `the sandbox's shell never showed its prompt: ${readable(await screen()).slice(-300)}`,
+        { timedOut: true },
+      );
+    }
+    const typedHarness = await type([terminal.harness, ...args].map(shellQuote).join(" "));
+    if (typedHarness) return typedHarness;
+    let adopted = false;
+    for (const limit = step(); !adopted && Date.now() < limit; ) {
+      const renamed = await call(["agent", "rename", paneId, name]);
+      if (renamed.ok) adopted = true;
+      else if (renamed.cancelled) return cancelled();
+      else if (!hasHerdrErrorCode(renamed.error, "agent_not_found")) {
+        return failed(`adopting the agent failed: ${renamed.error}`, renamed);
+      } else if (!(await abortableDelay(TYPED_START_POLL_MS, signal))) {
+        return cancelled();
+      }
+    }
+    if (!adopted) {
+      return failed(`Herdr never detected ${kind}: ${readable(await screen()).slice(-300)}`, {
+        timedOut: true,
+      });
+    }
+    const idleWait = Math.max(1, step() - Date.now());
+    const waited = await herdr(
+      ["agent", "wait", name, "--until", "idle", "--timeout", String(idleWait)],
+      idleWait + HERDR_REPORT_GRACE_MS,
+      signal,
+    );
+    const status = waited.ok ? record(waited.result.agent)?.agent_status : undefined;
+    if (status === "blocked") {
+      if (!config.acceptWorkspaceTrust) {
+        return failed(`${kind} is blocked at startup, and workspace trust is not accepted`);
+      }
+      const answered = await answerStartupBlocks(
+        herdr,
+        name,
+        kind,
+        config.trustSettleMs,
+        deadlineUnixMs,
+        signal,
+      );
+      if (!answered.ok) return failed(answered.error, answered);
+    } else if (!waited.ok) {
+      return failed(`the agent never became idle: ${waited.error}`, waited);
+    }
+    return startedAfter(1);
+  };
+  /** `herdr --version`'s answer, which names no session. */
+  const version = async () => {
+    const answered = await run(
+      via
+        ? via.run(["--version"], config.commandTimeoutMs)
+        : { argv: ["herdr", "--version"], timeoutMs: config.commandTimeoutMs },
+    );
+    return answered.exitCode === 0 ? answered.stdout.trim() : undefined;
+  };
+  return { herdr, startAgent, adoptAgent, typeCommand, version };
 }
+
+/** How long each step of a typed start may take: detection took about a second (H6). */
+const TYPED_START_WAIT_MS = 60_000;
+/** How long the login shell has to draw its first prompt before the prelude is typed anyway. */
+const TYPED_START_SETTLE_MS = 10_000;
+const TYPED_START_POLL_MS = 300;
 
 export function createPaneAdapter(
   config: HerdrConfig,
@@ -321,112 +506,215 @@ export function createHerdrRunHostFactory(
    * starts, and the launcher the agent is told to run is named by absolute path regardless.
    */
   const paneEnvironment = emptyEnvironmentArgs(config.emptyEnvironment);
-  const { herdr, startAgent } = createHerdrCommands(config, run);
+  const runCommands = createHerdrCommands(config, run);
+
+  /**
+   * This run's workspace in one Herdr, with a tab for each agent. A box's Herdr holds no host
+   * credential, so its tabs need no variables emptied.
+   */
+  const openTopology = async (
+    commands: HerdrCommands,
+    label: string,
+    cwd: string,
+    environment: readonly string[],
+    remaining: () => number,
+    /** In a sandbox's box, which the engine removes, and every tab with it, after this host. */
+    boxed = false,
+  ) => {
+    const { herdr } = commands;
+    if (remaining() <= 0) throw new Error("run deadline exceeded before Herdr host creation");
+    const created = await herdr(
+      ["workspace", "create", "--label", label, ...environment, "--cwd", cwd, "--no-focus"],
+      Math.max(1, remaining()),
+    );
+    if (!created.ok) throw new Error(`run workspace create failed: ${created.error}`);
+    const workspaceId = readId(created.result.workspace, "workspace_id");
+    const rootPaneId = readPaneId(created.result);
+    const rootTabId = readId(created.result.tab, "tab_id");
+    if (!workspaceId || !rootPaneId) {
+      const incomplete = "run workspace create returned incomplete topology";
+      if (!workspaceId) throw new Error(incomplete);
+      const rollback = await herdr(["workspace", "close", workspaceId]);
+      if (!rollback.ok) {
+        throw new AggregateError(
+          [
+            new Error(incomplete),
+            new Error(`incomplete run workspace cleanup failed: ${rollback.error}`),
+          ],
+          "Herdr run host acquisition and cleanup failed",
+        );
+      }
+      throw new Error(incomplete);
+    }
+
+    let topologyOpen = true;
+    let topologyTail = Promise.resolve();
+    // Pane to the tab it is the only pane of: an agent gets a tab, so closing it is closing that.
+    const panes = new Map<string, string>();
+    const mutate = <T>(operation: () => Promise<T>): Promise<T> => {
+      const result = topologyTail.then(operation);
+      topologyTail = result.then(
+        () => undefined,
+        () => undefined,
+      );
+      return result;
+    };
+    const closePane = (paneId: string): Promise<void> =>
+      mutate(async () => {
+        if (!panes.has(paneId)) return;
+        const closed = await herdr(["tab", "close", panes.get(paneId)!]);
+        // A box's tab ends with its box, which the engine may already have removed.
+        if (!closed.ok && !boxed) {
+          throw new Error(`agent tab close failed: ${closed.error}`);
+        }
+        panes.delete(paneId);
+      });
+    const allocatePane = (
+      label: string,
+      cwd: string,
+      deadlineUnixMilliseconds: number,
+      signal: AbortSignal,
+    ): Promise<string> =>
+      mutate(async () => {
+        if (!topologyOpen) throw new Error("Herdr run topology is closing");
+        const remainingMilliseconds = deadlineUnixMilliseconds - Date.now();
+        if (remainingMilliseconds <= 0) {
+          throw new Error("operation deadline exceeded before tab allocation");
+        }
+        const created = await herdr(
+          [
+            "tab",
+            "create",
+            "--workspace",
+            workspaceId,
+            "--label",
+            label,
+            "--cwd",
+            cwd,
+            ...environment,
+            "--no-focus",
+          ],
+          Math.min(config.commandTimeoutMs, remainingMilliseconds),
+          signal,
+        );
+        if (!created.ok) {
+          throw new Error(`agent tab create failed: ${created.error}`);
+        }
+        const tabId = readId(created.result.tab, "tab_id");
+        const paneId = readPaneId(created.result);
+        if (!tabId || !paneId) throw new Error("agent tab create returned no tab or pane identity");
+        panes.set(paneId, tabId);
+        return paneId;
+      });
+    let closed = false;
+    /** Stops new tabs and closes the workspace; the error when it could not. */
+    const close = async (): Promise<string | undefined> => {
+      if (closed) return undefined;
+      topologyOpen = false;
+      const workspaceClose = await herdr(["workspace", "close", workspaceId]);
+      if (!workspaceClose.ok) return `run workspace close failed: ${workspaceClose.error}`;
+      panes.clear();
+      closed = true;
+      return undefined;
+    };
+    let rootTaken = false;
+    /**
+     * The workspace's first pane, once, labelled `label`, for what would otherwise leave it an idle
+     * shell. Its label is best effort; the pane is the point.
+     */
+    const takeRoot = async (label: string) => {
+      if (rootTaken || !topologyOpen) return undefined;
+      rootTaken = true;
+      if (rootTabId) await herdr(["tab", "rename", rootTabId, label]);
+      return rootPaneId;
+    };
+    return { commands, allocatePane, closePane, close, takeRoot };
+  };
 
   return {
     // A pane's agent never sees the emptied variables, so its status command must not either.
     accounting: createSessionAccounting(withholding(run, config.emptyEnvironment ?? [])),
     async openRun(runSpec) {
       const remaining = () => runSpec.deadline.unixMilliseconds - Date.now();
-      if (remaining() <= 0) throw new Error("run deadline exceeded before Herdr host creation");
-      const created = await herdr(
-        [
-          "workspace",
-          "create",
-          "--label",
-          `${config.workspaceLabel} ${runSpec.runId}`,
-          ...paneEnvironment,
-          "--cwd",
-          runSpec.cwd,
-          "--no-focus",
-        ],
-        Math.max(1, remaining()),
-      );
-      if (!created.ok) throw new Error(`run workspace create failed: ${created.error}`);
-      const workspaceId = readId(created.result.workspace, "workspace_id");
-      const rootPaneId = readPaneId(created.result);
-      if (!workspaceId || !rootPaneId) {
-        const incomplete = "run workspace create returned incomplete topology";
-        if (!workspaceId) throw new Error(incomplete);
-        const rollback = await herdr(["workspace", "close", workspaceId]);
-        if (!rollback.ok) {
-          throw new AggregateError(
-            [
-              new Error(incomplete),
-              new Error(`incomplete run workspace cleanup failed: ${rollback.error}`),
-            ],
-            "Herdr run host acquisition and cleanup failed",
-          );
+      const label = `${config.workspaceLabel} ${runSpec.runId}`;
+      type Topology = Awaited<ReturnType<typeof openTopology>>;
+      // Opened at the first tab it needs, so a run whose panes are all in boxes, unwatched, leaves
+      // no empty workspace in the operator's Herdr.
+      let runOpening: Promise<Topology> | undefined;
+      const runTopology = () => {
+        if (!runOpening) {
+          const opening = openTopology(runCommands, label, runSpec.cwd, paneEnvironment, remaining);
+          runOpening = opening;
+          opening.catch(() => {
+            if (runOpening === opening) runOpening = undefined;
+          });
         }
-        throw new Error(incomplete);
-      }
-
-      let topologyOpen = true;
-      let topologyTail = Promise.resolve();
-      // Pane to the tab it is the only pane of: an agent gets a tab, so closing it is closing that.
-      const panes = new Map<string, string>();
-      const mutate = <T>(operation: () => Promise<T>): Promise<T> => {
-        const result = topologyTail.then(operation);
-        topologyTail = result.then(
-          () => undefined,
-          () => undefined,
-        );
-        return result;
+        return runOpening;
       };
-      const closePane = (paneId: string): Promise<void> =>
-        mutate(async () => {
-          if (!panes.has(paneId)) return;
-          const closed = await herdr(["tab", "close", panes.get(paneId)!]);
-          if (!closed.ok) {
-            throw new Error(`agent tab close failed: ${closed.error}`);
-          }
-          panes.delete(paneId);
-        });
-      const allocatePane = (
-        label: string,
-        cwd: string,
-        deadlineUnixMilliseconds: number,
-        signal: AbortSignal,
-      ): Promise<string> =>
-        mutate(async () => {
-          if (!topologyOpen) throw new Error("Herdr run topology is closing");
-          const remainingMilliseconds = deadlineUnixMilliseconds - Date.now();
-          if (remainingMilliseconds <= 0) {
-            throw new Error("operation deadline exceeded before tab allocation");
-          }
-          const created = await herdr(
-            [
-              "tab",
-              "create",
-              "--workspace",
-              workspaceId,
-              "--label",
-              label,
-              "--cwd",
-              cwd,
-              ...paneEnvironment,
-              "--no-focus",
-            ],
-            Math.min(config.commandTimeoutMs, remainingMilliseconds),
-            signal,
-          );
-          if (!created.ok) {
-            throw new Error(`agent tab create failed: ${created.error}`);
-          }
-          const tabId = readId(created.result.tab, "tab_id");
-          const paneId = readPaneId(created.result);
-          if (!tabId || !paneId)
-            throw new Error("agent tab create returned no tab or pane identity");
-          panes.set(paneId, tabId);
-          return paneId;
-        });
+      // A sandbox's own Herdr, by its key: opened at its first pane agent, closed with the run.
+      const boxes = new Map<string, Promise<Topology>>();
+      /** Tabs attached to a box's Herdr, finished before the run's workspace closes. */
+      const watching = new Set<Promise<unknown>>();
+      // Aborted as the host closes: a watch not yet typed has nothing left to show.
+      const unwatch = new AbortController();
+      // Best effort: the engine has printed the same command, and an agent does not wait on it.
+      const watch = (key: string, argv: readonly string[], cwd: string) => {
+        const attached = (async () => {
+          if (unwatch.signal.aborted) return;
+          const topology = await runTopology();
+          if (unwatch.signal.aborted) return;
+          const label = `sandbox ${key}`;
+          const by = Date.now() + config.commandTimeoutMs;
+          const paneId =
+            (await topology.takeRoot(label)) ??
+            (await topology.allocatePane(label, cwd, by, unwatch.signal));
+          await runCommands.typeCommand(paneId, argv, by, unwatch.signal);
+        })().catch(() => undefined);
+        watching.add(attached);
+        attached.finally(() => watching.delete(attached));
+      };
+      const topologyFor = (terminal: PaneTerminal | undefined, cwd: string) => {
+        if (!terminal || terminal.herdr === "run") return runTopology();
+        const via = terminal.herdr;
+        let opening = boxes.get(via.key);
+        if (!opening) {
+          opening = (async () => {
+            const commands = createHerdrCommands(config, run, via);
+            const box = await commands.version();
+            if (box !== HERDR_VERSION) {
+              throw new Error(
+                `the sandbox's Herdr is ${box ?? "not answering"}, and this adapter drives ${HERDR_VERSION}`,
+              );
+            }
+            const topology = await openTopology(commands, label, cwd, [], remaining, true);
+            if (config.watchSandboxes && via.watch) watch(via.key, via.watch, cwd);
+            return topology;
+          })();
+          boxes.set(via.key, opening);
+          const failed = opening;
+          failed.catch(() => {
+            if (boxes.get(via.key) === failed) boxes.delete(via.key);
+          });
+        }
+        return opening;
+      };
 
       const adapter = createSessionAdapter({
         harnesses: ["claude", "codex"],
         placement: "pane",
+        launchesInSandbox: true,
         async activate(request) {
           const harness = knownHarness(request.execution.harness);
           const spec = harnessSpec(harness);
+          // In a sandbox, the pane's terminal is the occupant's, in the run's Herdr or the box's.
+          let terminal = request.occupant ? await request.occupant.pane?.() : undefined;
+          if (request.occupant && !terminal) throw new Error("this sandbox hosts no panes");
+          // A prelude loads its secrets once and removes them: a start after a failed one needs
+          // a terminal of its own.
+          let typed = false;
+          const topology = await topologyFor(terminal, request.cwd);
+          const { herdr, startAgent, adoptAgent } = topology.commands;
+          const { allocatePane, closePane } = topology;
           let current:
             | {
                 operationId: string;
@@ -491,14 +779,26 @@ export function createHerdrRunHostFactory(
                   );
                   current = { operationId, paneId, agentName };
                   const launch = spec.interactive(request.execution.model);
-                  const started = await startAgent(
-                    agentName,
-                    harness,
-                    paneId,
-                    launch.argv.slice(1),
-                    operation.deadline.unixMilliseconds,
-                    controller.signal,
-                  );
+                  if (terminal && typed) terminal = await request.occupant!.pane!();
+                  typed = true;
+                  const started = terminal
+                    ? await adoptAgent(
+                        agentName,
+                        harness,
+                        paneId,
+                        terminal,
+                        [...launch.argv.slice(1), ...sandboxedArgs(harness)],
+                        operation.deadline.unixMilliseconds,
+                        controller.signal,
+                      )
+                    : await startAgent(
+                        agentName,
+                        harness,
+                        paneId,
+                        launch.argv.slice(1),
+                        operation.deadline.unixMilliseconds,
+                        controller.signal,
+                      );
                   if (!started.ok) {
                     await closeCurrentPane().catch(() => undefined);
                     if (controller.signal.aborted || started.cancelled) {
@@ -603,15 +903,21 @@ export function createHerdrRunHostFactory(
             hostState = "closing";
             const failures: Error[] = [];
             await inner.close(reason).catch((error: unknown) => failures.push(asError(error)));
-            topologyOpen = false;
-            const workspaceClose = await herdr(["workspace", "close", workspaceId]);
-            if (workspaceClose.ok) {
-              panes.clear();
+            unwatch.abort();
+            await Promise.all(watching);
+            // A box's Herdr ends with its box, which the engine removes after this host closes,
+            // so failing to close its workspace leaves nothing behind.
+            await Promise.all(
+              [...boxes.values()].map((opening) =>
+                opening.then((box) => box.close()).catch(() => undefined),
+              ),
+            );
+            const opened = await runOpening?.catch(() => undefined);
+            const failed = await opened?.close();
+            if (failed) failures.push(new Error(failed));
+            else {
               workspaceClosed = true;
               hostState = "closed";
-            }
-            if (!workspaceClose.ok) {
-              failures.push(new Error(`run workspace close failed: ${workspaceClose.error}`));
             }
             if (failures.length > 0) {
               throw new AggregateError(failures, "Herdr run host cleanup failed");

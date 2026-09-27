@@ -1,11 +1,12 @@
-import { homedir } from "node:os";
 import { join } from "node:path";
 import { count, type Row, record, text } from "../json";
+import { harnessState } from "../state";
 import { entries, isFile, jsonRows, safeId } from "./files";
 import type { SessionRead, UsageRecord } from "./records";
 
-export function claudeProjectsDirectory(): string {
-  return join(process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), ".claude"), "projects");
+/** Under `home`, the harness's home: the operator's unless an agent was given its own. */
+export function claudeProjectsDirectory(home = harnessState().claude): string {
+  return join(home, "projects");
 }
 
 /**

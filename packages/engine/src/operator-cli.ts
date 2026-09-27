@@ -2,7 +2,7 @@
 import { randomUUID } from "node:crypto";
 import { statSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
-import { homedir } from "node:os";
+import { constants, homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { OUTPUT_RECORD_VERSION, type OutputRecord } from "@wf/contract/records";
 import type { ExecutableWorkflow, JsonObject, JsonValue } from "@wf/contract/workflow";
@@ -23,7 +23,7 @@ const DEFAULT_TIMEOUT_MILLISECONDS = 30 * 60_000;
 
 const usage = [
   "usage: awf run [options] <workflow-file> [options] [-- workflow arguments...]",
-  "options: --timeout <duration>, --run-root <directory>, --cwd <directory>, --json",
+  "options: --timeout <duration>, --run-root <directory>, --cwd <directory>, --json, --no-watch",
   "",
   "The deadline defaults to 30m. Run artifacts go to ~/.awf/runs unless --run-root says otherwise.",
   "A workflow that knows how to present its result prints that; --json prints the full result instead.",
@@ -32,6 +32,8 @@ const usage = [
   "output.json too, with what it spent and why it ended; --json prints it. A second Ctrl-C stops",
   "awf at once, without it.",
   "--cwd sets the directory the workflow and its agents work in; it defaults to the current one.",
+  "A sandbox with its own Herdr, as a docker box has, gets a tab in the run's workspace showing its",
+  "panes; --no-watch leaves it out, and awf still prints the command that shows them.",
   "",
   "Examples:",
   "  awf run examples/minimum-review/review-loop.ts",
@@ -48,7 +50,10 @@ type OperatorEnvironment = {
   now?: () => number;
   stdout?: (text: string) => void;
   stderr?: (text: string) => void;
-  installRuntime?: (timeoutMilliseconds: number) => Promise<OperatorRuntimeInstallation>;
+  installRuntime?: (
+    timeoutMilliseconds: number,
+    options: { watchSandboxes: boolean },
+  ) => Promise<OperatorRuntimeInstallation>;
   signal?: AbortSignal;
   /** Given, progress is redrawn in place on it; otherwise each change is a line on stderr. */
   terminal?: { write(text: string): void; color: boolean };
@@ -107,6 +112,7 @@ export async function runOperatorCli(
   try {
     installed = await (environment.installRuntime ?? installOperatorRuntime)(
       command.timeoutMilliseconds,
+      { watchSandboxes: command.watch },
     );
   } catch (error) {
     stderr(`awf: runtime: ${message(error)}`);
@@ -132,6 +138,7 @@ export async function runOperatorCli(
     accounting: run.accounting,
     usage: run.usage,
     artifacts: join(invocationRoot, run.runId),
+    ...(run.sandboxes ? { sandboxes: run.sandboxes } : {}),
   });
   try {
     await mkdir(invocationRoot, { recursive: true });
@@ -146,6 +153,11 @@ export async function runOperatorCli(
       const handle = await startWorkflow(loaded.executable.definition, args, {
         runRoot: invocationRoot,
         runtime: installed.config,
+        // Every run under the run root is out of each sandbox's reach, not only this one.
+        sandboxes: {
+          providers: installed.sandboxes ?? { installed: {} },
+          runRoot: command.runRoot,
+        },
         deadline,
         cwd: command.cwd,
         ...(environment.signal ? { signal: environment.signal } : {}),
@@ -207,7 +219,7 @@ export async function runOperatorCli(
     // The record says the run did not succeed, so a caller that asked for it gets it either way.
     if (command.json && failedRecord !== undefined) stdout(failedRecord);
     if (cancellation) {
-      return cancellation.reason === "SIGTERM" ? 143 : 130;
+      return signalExitCode(cancellation.reason);
     }
     return 1;
   }
@@ -286,7 +298,13 @@ function watchProgress(
 
 function interrupted(signal: AbortSignal, stderr: (line: string) => void): number {
   stderr("awf: run cancelled before it started");
-  return signal.reason === "SIGTERM" ? 143 : 130;
+  return signalExitCode(signal.reason);
+}
+
+/** A shell's code for a process ended by `reason`, as if the signal had killed it. */
+function signalExitCode(reason: unknown): number {
+  const number = constants.signals[reason as keyof typeof constants.signals];
+  return 128 + (number ?? constants.signals.SIGINT);
 }
 
 type RunCommand = {
@@ -299,6 +317,8 @@ type RunCommand = {
   timeoutMilliseconds: number;
   runRoot: string;
   json: boolean;
+  /** Whether each sandbox with its own Herdr gets a tab attached to it in the run's workspace. */
+  watch: boolean;
 };
 
 function parseCommand(argv: readonly string[], cwd: string, home: string): RunCommand {
@@ -307,6 +327,7 @@ function parseCommand(argv: readonly string[], cwd: string, home: string): RunCo
   // Not under the working directory: that is usually the repository the workflow is looking at.
   let runRoot = join(home, ".awf/runs");
   let json = false;
+  let watch = true;
   let workCwd = cwd;
   let workflowFile: string | undefined;
   // awf's own options may come before or after the workflow file; only `--` ends them.
@@ -320,6 +341,10 @@ function parseCommand(argv: readonly string[], cwd: string, home: string): RunCo
     }
     if (option === "--json") {
       json = true;
+      continue;
+    }
+    if (option === "--no-watch") {
+      watch = false;
       continue;
     }
     const value = argv[index + 1];
@@ -350,6 +375,7 @@ function parseCommand(argv: readonly string[], cwd: string, home: string): RunCo
     timeoutMilliseconds,
     runRoot,
     json,
+    watch,
   };
 }
 
@@ -428,16 +454,43 @@ function findCancellation(error: unknown): WorkflowCancelledError | undefined {
   return undefined;
 }
 
+/** How soon a repeated signal is the copy `bun awf` forwards, not the operator pressing again. */
+const REPEAT_MS = 1_000;
+
+/**
+ * Cancels `controller` at the first signal that asks the run to stop, and stops the process at
+ * once at a second the operator sends, without the run's cleanup. Ctrl-C reaches the whole
+ * process group and `bun awf` forwards it once more, so a repeat within `REPEAT_MS` is ignored:
+ * taken as the second, it would kill the run mid-cleanup and leave its sandboxes behind. Returns
+ * what removes the handlers.
+ */
+export function cancelOnSignals(
+  controller: AbortController,
+  exit: (code: number) => void = (code) => process.exit(code),
+  now: () => number = Date.now,
+): () => void {
+  let first: number | undefined;
+  const cancel = (signal: NodeJS.Signals) => {
+    if (first === undefined) {
+      first = now();
+      controller.abort(signal);
+    } else if (now() - first > REPEAT_MS) {
+      exit(signalExitCode(signal));
+    }
+  };
+  const signals = ["SIGINT", "SIGTERM", "SIGHUP"] as const;
+  for (const signal of signals) process.on(signal, cancel);
+  return () => {
+    for (const signal of signals) process.off(signal, cancel);
+  };
+}
+
 if (import.meta.main) {
   const controller = new AbortController();
-  const interrupt = () => controller.abort("SIGINT");
-  const terminate = () => controller.abort("SIGTERM");
-  process.once("SIGINT", interrupt);
-  process.once("SIGTERM", terminate);
+  const stop = cancelOnSignals(controller);
   try {
     process.exitCode = await runOperatorCli(process.argv.slice(2), { signal: controller.signal });
   } finally {
-    process.off("SIGINT", interrupt);
-    process.off("SIGTERM", terminate);
+    stop();
   }
 }

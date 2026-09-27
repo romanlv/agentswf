@@ -32,7 +32,7 @@ import type {
   HarnessSession,
   HarnessTurn,
 } from "../packages/harness/src/adapter";
-import { createHerdrRunHostFactory } from "../packages/harness/src/adapters/herdr";
+import { createHerdrRunHostFactory, HERDR_VERSION } from "../packages/harness/src/adapters/herdr";
 import { type RunProcess, runProcess } from "../packages/harness/src/command";
 
 export const LIVE_EVALUATION_BOUNDS = {
@@ -88,7 +88,6 @@ const ROOT = join(import.meta.dir, "..");
 const CLI_SOURCE = join(ROOT, "packages/cli-agent/src/cli.ts");
 const FIXTURE_SOURCE = join(ROOT, "examples/minimum-review/fixtures/review-target.ts");
 const HERDR_SESSION = "default";
-const EXPECTED_HERDR_VERSION = "herdr 0.8.2";
 const METERED_CREDENTIAL_ENV = [
   "ANTHROPIC_API_KEY",
   "ANTHROPIC_AUTH_TOKEN",
@@ -596,13 +595,11 @@ export function herdrBehaviourCheck(prompt: CommandResult, tab: CommandResult): 
 
 export function herdrVersionCheck(result: CommandResult): Check {
   const observed = (result.stdout || result.stderr).trim();
-  const ok = result.exitCode === 0 && observed === EXPECTED_HERDR_VERSION;
+  const ok = result.exitCode === 0 && observed === HERDR_VERSION;
   return {
     name: "herdr-version",
     ok,
-    detail: ok
-      ? EXPECTED_HERDR_VERSION
-      : `expected ${EXPECTED_HERDR_VERSION}; ${safeDetail(result)}`,
+    detail: ok ? HERDR_VERSION : `expected ${HERDR_VERSION}; ${safeDetail(result)}`,
   };
 }
 
@@ -652,8 +649,8 @@ if (import.meta.main) {
       if (!output.ok) process.exitCode = 1;
     } else {
       const controller = new AbortController();
-      process.once("SIGINT", () => controller.abort("SIGINT"));
-      process.once("SIGTERM", () => controller.abort("SIGTERM"));
+      process.on("SIGINT", () => controller.abort("SIGINT"));
+      process.on("SIGTERM", () => controller.abort("SIGTERM"));
       const evaluation = await runLiveEvaluation(controller.signal);
       console.log(JSON.stringify(evaluation, null, 2));
       for (const line of describeAccounting(evaluation.result.accounting)) console.error(line);

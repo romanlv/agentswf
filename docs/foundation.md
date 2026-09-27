@@ -175,6 +175,8 @@ awf/
     harness/                # drive a coding agent. adapters, liveness, usage extraction
     engine/                 # the workflow runtime, run-directory I/O, and local control plane
     cli-agent/              # the in-session `wf` binary; contract plus wire client only
+    sandbox/                # sandboxes a workflow opens: the provider seam and the providers
+    autoresearch/           # evaluating workflows against known answers; a consumer of the engine
 
   examples/                 # scenario workflows written against the author surface
   experiments/
@@ -184,11 +186,12 @@ awf/
 ```
 
 `packages/cli-agent` is the fourth package. It was created only when the versioned wire boundary
-and engine-owned local endpoint existed, as required below.
+and engine-owned local endpoint existed, as required below. `packages/sandbox` came with
+[[004-sandboxed-agents|story 004]], so that neither harness nor engine holds a provider's code.
 
-Four packages. The justification for each is that something outside it must import it.
+The justification for each package is that something outside it must import it.
 
-### The four packages
+### The packages
 
 **`contract`** — **pure: types and pure functions, no I/O, no runtime-specific APIs.** That is a
 sharper rule than "zero dependencies" and it is mechanically checkable. Formats live here; the code
@@ -257,8 +260,9 @@ answering and nothing secret has to survive the trip into a pane. It is not a se
 against mutually hostile same-UID processes: anything running as the engine's own user can run that
 launcher, and access to process state or the Herdr control socket can cross panes. The connection
 remains useful against stale commands and accidental cross-wiring, but adversarial confinement
-requires the OS isolation gate in `design/permissions.md`. Prompts that forbid delegation are
-spending guidance, not proof of confinement.
+requires agents in separate sandboxes: within one docker box, agents share a uid and can reach each
+other's doors ([[permissions]]). Prompts that forbid delegation are spending guidance, not proof of
+confinement.
 
 Stage 0's concrete factory names still satisfy the smaller `AgentSessionDriver` interface used by
 the frozen experiments. That compatibility seam stays out of production run hosting. Herdr and a
@@ -280,27 +284,43 @@ run directory or engine implementation.
 control-plane server**. Everything the interface map says the engine owns and the adapter does not.
 Also carries the operator CLI as a `bin` until that grows enough to move to `apps/`.
 
+**`sandbox`** — the sandboxes a workflow opens ([[004-sandboxed-agents|story 004]],
+[[permissions]]). `@wf/sandbox` is the seam and path resolution; `@wf/sandbox/srt` and
+`@wf/sandbox/docker` are the providers; `@wf/sandbox/testing` is the conformance suite and a fake.
+It imports `contract` only. harness launches through the seam's types, the engine opens sandboxes
+through it, and only the composition root, `engine/src/operator-runtime.ts`, imports a provider.
+Tests in harness and engine may use `@wf/sandbox/testing`.
+
 ### Dependency graph
 
 ```
-contract  ────────┬──────────────┬──────────────┐
-   │              │              │              │
-harness           cli-agent      examples/      scripts/*
-   │
-engine ───────────┘
+sandbox       → contract
+harness       → contract, sandbox
+engine        → contract, sandbox, harness    (a provider: operator-runtime.ts only)
+cli-agent     → contract
+autoresearch  → contract, engine
+examples/     → contract/workflow
+scripts/*     → any
 ```
 
-Three rules. TypeScript will not catch any of them on its own — workspace packages are
+Six rules. TypeScript will not catch any of them on its own — workspace packages are
 symlinked into one `node_modules`, so anything can import anything and still typecheck — so they
 are checked by `scripts/check-boundaries.ts`, which `bun run check` runs:
 
 1. `contract` imports nothing, performs no I/O, and uses no runtime-specific API. If a file in it
    needs `Bun.*` or `node:fs`, it is in the wrong package.
-2. `cli-agent` imports `contract` only, and reaches the engine over the wire, never by linking.
-3. `examples/` and any future workflow import `@wf/contract/workflow` plus approved pure schema
+2. `engine/src/accounting` imports `contract` only, performs no I/O, and uses no runtime-specific
+   API, so it can be lifted out whole (section 8).
+3. `cli-agent` imports `contract` only, and reaches the engine over the wire, never by linking.
+4. `sandbox` imports `contract` only. harness and engine import its seam, `@wf/sandbox`, and their
+   tests `@wf/sandbox/testing`; only `engine/src/operator-runtime.ts` imports a provider, and no
+   provider imports another.
+5. `autoresearch` imports `contract` and the engine's public entry only, never a harness; its
+   review format stays pure outside the files that do I/O.
+6. `examples/` and any future workflow import `@wf/contract/workflow` plus approved pure schema
    authoring libraries — never the engine or a harness.
 
-A fourth rule falls out of the same check: a cross-package import has to be a declared dependency
+A seventh rule falls out of the same check: a cross-package import has to be a declared dependency
 in that package's `package.json`, not merely a symlink that happens to resolve.
 
 ### Mechanics
@@ -603,7 +623,7 @@ named trigger fires.
 | fork | not built, **no capability flag** — [ADR 0001](adr/0001-unbuilt-interface-leaves-the-surface.md) | E7's cost split is settled |
 | model settings | not built, **public types removed** — ADR 0001 | an implementation and a workflow that needs it land together |
 | agent retention and crash recovery | not built, **public types removed** — ADR 0001 | pane release is measured (Story 001), then as for model settings |
-| remote execution | not built | the local control plane already draws the boundary; this only swaps the transport |
+| remote execution | not built — [[workflow-in-sandbox]] | the engine runs where the agents are, so the local control plane never crosses a network |
 | TUI | not built | — |
 
 The point of the table is that none of these need building now, and none of them get quietly built
@@ -686,7 +706,7 @@ Each stage is a gate phrased as something to prove. Which are open is in [`statu
   measurement that changes the engine rather than confirming it.
 - **Stage 4 onward** — messaging, composition, checkpoints, and only then the shelved journal.
 
-Messaging in Stage 4 is the structural test: it is the one feature that touches all four packages,
+Messaging in Stage 4 is the structural test: it is the one feature that touches every package,
 and if it lands without moving a boundary, the split was right.
 
 ## 13. Open questions

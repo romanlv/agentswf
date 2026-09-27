@@ -1,5 +1,12 @@
+import { REAP_GRACE_MS, type SandboxedCommand } from "@wf/sandbox";
+
 /** Per-stream capture limit; beyond it output is discarded rather than buffered. */
 const MAX_OUTPUT_BYTES = 1_048_576;
+/**
+ * How long a sandboxed command's output may keep coming once its group is dead: only a process
+ * that left the group, as a daemon does, still holds the pipes, and waiting for it could be forever.
+ */
+const DRAIN_GRACE_MS = 1_000;
 
 export type ProcessResult = {
   stdout: string;
@@ -20,64 +27,125 @@ export type ProcessInput = {
   signal?: AbortSignal;
 };
 
-export type RunProcess = (input: ProcessInput) => Promise<ProcessResult>;
+/**
+ * A `SandboxedCommand` runs as its own process group with exactly its `env`, and ends with its
+ * group killed and its `reap` awaited for up to `REAP_GRACE_MS`, however it ended; a reap that
+ * fails is its provider's to report. Anything else runs as a child of this process, in its
+ * environment.
+ */
+export type RunProcess = (input: ProcessInput | SandboxedCommand) => Promise<ProcessResult>;
 
 /** `run`, with each of `names` unset in every process it starts, whatever the caller passed. */
 export function withholding(run: RunProcess, names: readonly string[]): RunProcess {
   const withheld = Object.fromEntries(names.map((name) => [name, undefined]));
-  return (input) => run({ ...input, env: { ...input.env, ...withheld } });
+  return (input) => {
+    if (!isSandboxed(input)) return run({ ...input, env: { ...input.env, ...withheld } });
+    const env = { ...input.env };
+    for (const name of names) delete env[name];
+    return run({ ...input, env });
+  };
+}
+
+function isSandboxed(input: ProcessInput | SandboxedCommand): input is SandboxedCommand {
+  return "group" in input && input.group === true;
 }
 
 /** A nonzero exit is a normal result, not a throw; the reason is on `stderr`. */
-export const runProcess: RunProcess = async ({ argv, cwd, env, stdin, timeoutMs, signal }) => {
+export const runProcess: RunProcess = async (input) => {
+  const { argv, cwd, stdin, timeoutMs, signal } = input;
+  const sandboxed = isSandboxed(input);
+  const reap = sandboxed ? input.reap : undefined;
+  const reaped = async (result: ProcessResult) => {
+    if (reap) await reapWithin(reap);
+    return result;
+  };
   if (signal?.aborted) {
-    return {
+    return reaped({
       stdout: "",
       stderr: "process cancelled",
       exitCode: 130,
       timedOut: false,
       cancelled: true,
-    };
+    });
   }
   let child: Bun.Subprocess<"ignore", "pipe", "pipe">;
   try {
     child = Bun.spawn({
       cmd: [...argv],
       cwd,
-      env: childEnvironment(env),
+      env: sandboxed ? { ...input.env } : childEnvironment(input.env),
+      // `setsid`: the group is everything the command starts, which killing it alone would leave
+      // running (story 004, X1).
+      detached: sandboxed,
       stdin: stdin === undefined ? "ignore" : new TextEncoder().encode(stdin),
       stdout: "pipe",
       stderr: "pipe",
     });
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);
-    return { stdout: "", stderr: reason, exitCode: 127, timedOut: false };
+    return reaped({ stdout: "", stderr: reason, exitCode: 127, timedOut: false });
   }
 
+  const kill = () => {
+    if (!sandboxed) return void child.kill("SIGKILL");
+    try {
+      process.kill(-child.pid, "SIGKILL");
+    } catch {
+      // The group is already empty.
+    }
+  };
   let timedOut = false;
   let cancelled = false;
   const abort = () => {
     cancelled = true;
-    child.kill("SIGKILL");
+    kill();
   };
   signal?.addEventListener("abort", abort, { once: true });
   const timer = setTimeout(() => {
     timedOut = true;
-    child.kill("SIGKILL");
+    kill();
   }, timeoutMs);
 
+  let result: ProcessResult;
   try {
-    const [stdout, stderr, exitCode] = await Promise.all([
-      readCapped(child.stdout),
-      readCapped(child.stderr),
-      child.exited,
-    ]);
-    return { stdout, stderr, exitCode, timedOut, ...(cancelled ? { cancelled: true } : {}) };
+    const out = capture(child.stdout);
+    const err = capture(child.stderr);
+    const exitCode = await child.exited;
+    if (sandboxed) {
+      // What the command left running still holds its pipes open, so it goes before they are read.
+      kill();
+      const drained = await Promise.race([
+        Promise.all([out.text, err.text]).then(() => true),
+        Bun.sleep(DRAIN_GRACE_MS).then(() => false),
+      ]);
+      if (!drained) await Promise.all([out.stop(), err.stop()]);
+    }
+    const [stdout, stderr] = await Promise.all([out.text, err.text]);
+    result = { stdout, stderr, exitCode, timedOut, ...(cancelled ? { cancelled: true } : {}) };
   } finally {
     clearTimeout(timer);
     signal?.removeEventListener("abort", abort);
   }
+  return reaped(result);
 };
+
+/** Awaits `reap` until it settles or its grace runs out, whichever is first. */
+async function reapWithin(reap: () => Promise<void>): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const expired = new Promise<void>((resolve) => {
+    timer = setTimeout(resolve, REAP_GRACE_MS);
+  });
+  try {
+    await Promise.race([
+      Promise.resolve()
+        .then(reap)
+        .catch(() => undefined),
+      expired,
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 /**
  * `WF_RUN` and `WF_CALL` are the legacy driver's, and only for the process it sets them on. An
@@ -92,20 +160,30 @@ function childEnvironment(
   return { ...inherited, ...env };
 }
 
-async function readCapped(stream: ReadableStream<Uint8Array>): Promise<string> {
-  const chunks: Uint8Array[] = [];
-  let captured = 0;
-  for await (const chunk of stream) {
-    if (captured >= MAX_OUTPUT_BYTES) continue;
-    const kept = chunk.subarray(0, MAX_OUTPUT_BYTES - captured);
-    chunks.push(kept);
-    captured += kept.byteLength;
-  }
-  const joined = new Uint8Array(captured);
-  let offset = 0;
-  for (const chunk of chunks) {
-    joined.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
-  return new TextDecoder().decode(joined);
+/** A stream read up to the capture cap; `stop` ends the read early, keeping what came. */
+function capture(stream: ReadableStream<Uint8Array>): {
+  text: Promise<string>;
+  stop(): Promise<void>;
+} {
+  const reader = stream.getReader();
+  const text = (async () => {
+    const chunks: Uint8Array[] = [];
+    let captured = 0;
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (captured >= MAX_OUTPUT_BYTES) continue;
+      const kept = value.subarray(0, MAX_OUTPUT_BYTES - captured);
+      chunks.push(kept);
+      captured += kept.byteLength;
+    }
+    const joined = new Uint8Array(captured);
+    let offset = 0;
+    for (const chunk of chunks) {
+      joined.set(chunk, offset);
+      offset += chunk.byteLength;
+    }
+    return new TextDecoder().decode(joined);
+  })();
+  return { text, stop: () => reader.cancel() };
 }

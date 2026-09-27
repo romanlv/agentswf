@@ -87,8 +87,8 @@ function placedAccounting(
     pollMs: paced.pollMs,
     stalledMs: paced.stalledMs,
     statusMs: paced.statusMs,
-    async read(execution, sessions, cwd) {
-      return of(execution)?.read(execution, sessions, cwd);
+    async read(execution, sessions, cwd, home) {
+      return of(execution)?.read(execution, sessions, cwd, home);
     },
     async billing(execution, records) {
       return (await of(execution)?.billing(execution, records)) ?? "unknown";

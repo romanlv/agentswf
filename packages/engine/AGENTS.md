@@ -4,7 +4,9 @@ The runtime: the run directory, result slots, the local control plane, and the w
 logical-agent identity, alias resolution, queueing, idempotency, and `parallel`. Spend-pool
 admission lands here too and is not built; `docs/foundation.md` §6 has the full list.
 
-**The engine is the only writer of the run directory.** Formats come from `@wf/contract/records`;
+**The engine is the only writer of the run directory**, but for each sandbox's `homes/`, which
+the sandboxed harnesses write, and what a provider keeps in its sandbox's directory. Formats come
+from `@wf/contract/records`;
 the I/O is here and stays here.
 
 The installed `wf` command lives in `@wf/cli-agent`, compiles against contract alone, and reaches

@@ -2,7 +2,7 @@ import { join } from "node:path";
 import type { Billing } from "@wf/contract/records";
 import type { RunProcess } from "../command";
 import { parseRow, record, text } from "../json";
-import { piAgentDirectory } from "./pi";
+import { harnessState } from "../state";
 
 export const STATUS_TIMEOUT_MS = 10_000;
 
@@ -74,7 +74,7 @@ export async function readCodexBilling(run: RunProcess): Promise<Billing> {
 export async function readPiBilling(
   model: string | undefined,
   provider: string | undefined,
-  agentDirectory = piAgentDirectory(),
+  agentDirectory = harnessState().pi,
 ): Promise<Billing> {
   const [auth, settings] = await Promise.all([
     readText(join(agentDirectory, "auth.json")),

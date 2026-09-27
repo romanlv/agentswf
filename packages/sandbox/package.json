@@ -1,0 +1,15 @@
+{
+  "name": "@wf/sandbox",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./testing": "./src/testing/index.ts",
+    "./srt": "./src/srt/index.ts",
+    "./docker": "./src/docker/index.ts"
+  },
+  "dependencies": {
+    "@wf/contract": "workspace:*"
+  }
+}

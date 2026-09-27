@@ -12,3 +12,6 @@ reference/
 
 # Obsidian per-user layout; recreated by Obsidian when missing
 docs/.obsidian/workspace*.json
+
+# Local secrets, such as CLAUDE_CODE_OAUTH_TOKEN for the sandbox experiments
+.env

@@ -1,11 +1,12 @@
-import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { count, type Row, record, text } from "../json";
+import { harnessState } from "../state";
 import { entries, jsonRows, safeId } from "./files";
 import type { SessionRead, UsageRecord } from "./records";
 
-export function codexSessionsDirectory(): string {
-  return join(process.env.CODEX_HOME ?? join(homedir(), ".codex"), "sessions");
+/** Under `home`, the harness's home: the operator's unless an agent was given its own. */
+export function codexSessionsDirectory(home = harnessState().codex): string {
+  return join(home, "sessions");
 }
 
 /**

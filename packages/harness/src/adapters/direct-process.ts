@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { AgentRunHostFactory, AgentSessionAdapter } from "../adapter";
 import { type RunProcess, runProcess } from "../command";
 import { createLegacyDriver } from "../legacy-driver";
+import { sandboxable, sandboxedArgs } from "../sandbox-needs";
 import { createSessionAdapter, localOutcome } from "../session-core";
 import { createSingleSessionHostFactory } from "../single-session-host";
 import { HARNESS_NAMES, harnessSpec, knownHarness } from "../spec";
@@ -48,7 +49,7 @@ function createHeadlessAdapterCore(
     harnesses: HARNESS_NAMES,
     ...(config.finishGraceMs === undefined ? {} : { finishGraceMs: config.finishGraceMs }),
     // The frozen legacy driver predates placement and never names it.
-    ...(legacy ? {} : { placement: "headless" as const }),
+    ...(legacy ? {} : { placement: "headless" as const, launchesInSandbox: true as const }),
     observeSessionRef: (sessionRef) => {
       legacySessionRef = sessionRef;
     },
@@ -60,6 +61,8 @@ function createHeadlessAdapterCore(
           `headless ${harness} is billed per token even on a subscription login; set metered: true to run it`,
         );
       }
+      const { occupant } = request;
+      if (occupant && !sandboxable(harness)) throw new Error(`${harness} cannot run in a sandbox`);
       const identity = { sessionId: newSessionId(), cwd: request.cwd };
       let hasExecuted = false;
       let closed = false;
@@ -95,6 +98,7 @@ function createHeadlessAdapterCore(
           const context = {
             ...(request.execution.model ? { model: request.execution.model } : {}),
             sessionHint: identity.sessionId,
+            ...(occupant ? { sandboxedArgs: sandboxedArgs(harness) } : {}),
           };
           const plan = operation.previousSessionRef
             ? spec.resumeTurn!(prompt, operation.previousSessionRef, context)
@@ -102,14 +106,16 @@ function createHeadlessAdapterCore(
           const controller = new AbortController();
           active = controller;
           const nativeTimeoutMs = Math.max(1, Math.min(config.turnTimeoutMs, remaining));
-          const running = run({
+          const command = {
             argv: plan.argv,
             cwd: request.cwd,
             env: environment(),
             ...(plan.stdin === undefined ? {} : { stdin: plan.stdin }),
             timeoutMs: nativeTimeoutMs,
             signal: controller.signal,
-          });
+          };
+          // Every turn, a resumed one too, runs inside when the agent has a place there.
+          const running = run(occupant ? occupant.launch(command) : command);
           activeCompletion = running.then(
             () => undefined,
             () => undefined,

@@ -1264,6 +1264,12 @@ describe("createHerdrRunHostFactory", () => {
       cwd: "/repo",
       deadline: deadline(),
     });
+    await host.openAgent({
+      key: "reviewer",
+      cwd: "/repo",
+      deadline: deadline(),
+      execution: { harness: "claude", model: "opus" },
+    });
 
     await expect(host.close()).rejects.toThrow("Herdr run host cleanup failed");
     await host.close();
@@ -1288,11 +1294,19 @@ describe("createHerdrRunHostFactory", () => {
       throw new Error(`unexpected command: ${verb(input)}`);
     };
 
+    // Opened at its first tab, not with the host.
+    const host = await createHerdrRunHostFactory(CONFIG, run).openRun({
+      runId: "run-1",
+      cwd: "/repo",
+      deadline: deadline(),
+    });
+    expect(calls).toEqual([]);
     await expect(
-      createHerdrRunHostFactory(CONFIG, run).openRun({
-        runId: "run-1",
+      host.openAgent({
+        key: "reviewer",
         cwd: "/repo",
         deadline: deadline(),
+        execution: { harness: "claude", model: "opus" },
       }),
     ).rejects.toThrow("acquisition and cleanup failed");
     expect(calls.map(verb)).toEqual(["workspace create", "workspace close"]);

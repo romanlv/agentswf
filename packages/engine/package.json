@@ -14,6 +14,7 @@
   "dependencies": {
     "@wf/cli-agent": "workspace:*",
     "@wf/contract": "workspace:*",
-    "@wf/harness": "workspace:*"
+    "@wf/harness": "workspace:*",
+    "@wf/sandbox": "workspace:*"
   }
 }

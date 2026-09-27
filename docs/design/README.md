@@ -185,7 +185,8 @@ See [`composition.md`](composition.md) for child workflow scopes and outside-ses
 The model supplies the call id it was given and nothing else. It cannot answer for another agent
 by naming that agent's call: the launcher it runs holds a socket the engine opened for this agent,
 so the engine learns who is answering from the connection rather than from the argument. Agents
-that share a user are not otherwise separated; see [`permissions.md`](permissions.md).
+that share a user are not otherwise separated, unless they are in different sandboxes; see
+[`permissions.md`](permissions.md).
 
 | Identifier | Visible to | Purpose |
 | --- | --- | --- |
@@ -231,8 +232,9 @@ The interface names injected skills, but it does not describe the harness-native
 commands, filesystem access, network access, or approval policy available to the model. Those are
 currently adapter launch details. Consequently, this interface can answer which skills an agent
 gets, but it cannot yet provide a complete auditable list of everything that agent may call.
-[`permissions.md`](permissions.md) designs the grant, the operator ceiling, and the honest report
-that closes it.
+[`permissions.md`](permissions.md) covers the sandboxes that narrow an agent's files, network and
+environment, which are built, and designs the harness-level rules and tool grants that would close
+the rest.
 
 Messaging is defined by the public `Messaging` interface, the internal `HarnessTurn.deliver` seam,
 and the agent-bound commands documented in [`messaging.md`](messaging.md).

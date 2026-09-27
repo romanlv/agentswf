@@ -3,6 +3,7 @@ import type { WorkflowCallSpec } from "./composition";
 import type { JsonObject, JsonValue, OutputSchema } from "./json";
 import type { Messaging } from "./messaging";
 import type { ParticipantDirectory } from "./participants";
+import type { SandboxDirectory } from "./sandboxes";
 import type { AbsoluteDeadline } from "./timing";
 
 export type WorkflowRunId = string;
@@ -58,6 +59,7 @@ export interface WorkflowContext {
   readonly cwd: string;
   readonly deadline: AbsoluteDeadline;
   readonly agents: AgentDirectory;
+  readonly sandboxes: SandboxDirectory;
   readonly participants: ParticipantDirectory;
   readonly messages: Messaging;
   readonly steps: Steps;

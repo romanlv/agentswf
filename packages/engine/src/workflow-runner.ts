@@ -2,7 +2,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { randomUUID } from "node:crypto";
 import { dirname } from "node:path";
 import { isDeepStrictEqual } from "node:util";
-import type { RunAccounting, SettledOperation } from "@wf/contract/records";
+import type { RunAccounting, SandboxRecord, SettledOperation } from "@wf/contract/records";
 import { type JsonSchema, parseJsonSchema } from "@wf/contract/schema";
 import {
   type AbsoluteDeadline,
@@ -32,14 +32,16 @@ import { findHarness } from "@wf/harness";
 import type {
   AgentRunHost,
   AgentRuntimeConfig,
+  HarnessActivation,
   HarnessReleaseDisposition,
   HarnessSession,
   HarnessTurn,
   HarnessTurnOutcome,
 } from "@wf/harness/adapter";
+import type { Occupant } from "@wf/sandbox";
 import { PUBLISHED_PRICES } from "./accounting/prices";
 import { summarizeRun } from "./accounting/summary";
-import { installAgentLauncher } from "./agent-launcher";
+import { buildAgentBundle, installAgentLauncher, installSandboxedDoor } from "./agent-launcher";
 import {
   type ResultChannel,
   type ResultControlPlane,
@@ -63,7 +65,13 @@ import {
 } from "./result-slots";
 import { createRunDir } from "./run-dir";
 import { type AgentProgress, RunProgress, type StageProgress } from "./run-progress";
-import { type AgentLedger, createRunLedger, type RunLedger } from "./run-usage";
+import {
+  type AccountedAgent,
+  type AgentLedger,
+  createRunLedger,
+  type RunLedger,
+} from "./run-usage";
+import { RunSandboxes, type RunSandboxOptions, type SeatedAgent } from "./sandboxes";
 
 export { WorkflowCancelledError } from "./deadlines";
 
@@ -74,6 +82,8 @@ export type RunWorkflowOptions = {
   cwd?: string;
   onLog?: (message: string, fields?: JsonObject) => void;
   signal?: AbortSignal;
+  /** The sandbox providers agents may run in; without them, a sandboxed agent is refused. */
+  sandboxes?: RunSandboxOptions;
 };
 
 /** What a run is known by once it has ended, whether or not it succeeded. */
@@ -89,6 +99,8 @@ export type SettledRun = {
    * them again with another table.
    */
   accounting: RunAccounting;
+  /** Each sandbox the run opened, with its agents; absent when it opened none. */
+  sandboxes?: SandboxRecord[];
 };
 
 export type WorkflowRunResult<Result extends JsonValue> = SettledRun & { value: Result };
@@ -103,6 +115,7 @@ export class WorkflowRunError extends Error implements SettledRun {
   readonly startedAt: string;
   readonly finishedAt: string;
   readonly accounting: RunAccounting;
+  readonly sandboxes?: SandboxRecord[];
 
   constructor(cause: unknown, run: SettledRun) {
     super(cause instanceof Error ? cause.message : String(cause), { cause });
@@ -112,6 +125,7 @@ export class WorkflowRunError extends Error implements SettledRun {
     this.startedAt = run.startedAt;
     this.finishedAt = run.finishedAt;
     this.accounting = run.accounting;
+    if (run.sandboxes) this.sandboxes = run.sandboxes;
   }
 }
 
@@ -156,6 +170,8 @@ type AgentEntry = {
 type AgentIdentity = {
   execution: AgentExecution;
   cwd: string;
+  /** As the agent was first opened with it: a ref, an inline spec, or absent. */
+  sandbox?: unknown;
   instructions?: string;
   labels?: AgentOpenSpec["labels"];
 };
@@ -203,7 +219,16 @@ export async function startWorkflow<Args extends JsonValue, Result extends JsonV
   }
   const ledger = createRunLedger({ accounting: options.runtime.host.accounting, startedAt });
   const progress = new RunProgress();
+  const sandboxes = new RunSandboxes({
+    ...(options.sandboxes ? { sandboxes: options.sandboxes } : {}),
+    runDir,
+    runRoot: options.runRoot,
+    cwd,
+    deadline: options.deadline,
+    log: (message) => options.onLog?.(message),
+  });
   const owner = new WorkflowOwner({
+    sandboxes,
     progress,
     runId,
     cwd,
@@ -272,11 +297,13 @@ export async function startWorkflow<Args extends JsonValue, Result extends JsonV
     const usage = await ledger.settle(reading.signal);
     signal.removeEventListener("abort", cutReading);
     const times = { startedAt: new Date(startedAt).toISOString(), finishedAt };
+    const opened = sandboxes.records();
     const settled: SettledRun = {
       runId,
       usage,
       ...times,
       accounting: summarizeRun(usage, PUBLISHED_PRICES, times),
+      ...(opened.length > 0 ? { sandboxes: opened } : {}),
     };
     if (failed) {
       throw new WorkflowRunError(
@@ -320,15 +347,32 @@ export async function startWorkflow<Args extends JsonValue, Result extends JsonV
   };
 }
 
+/** An agent's sessions, as its launcher reports them and as its harness session knows them. */
+type AgentSessions = { launcher: Set<string>; harness?: HarnessSession };
+
+/** What both ways of opening an agent share. */
+type AgentOpening = {
+  spec: AgentOpenSpec;
+  execution: AgentExecution;
+  deadline: AbsoluteDeadline;
+  sessions: AgentSessions;
+  ledger: AgentLedger;
+  /** The host's activation for the agent, working in `cwd`, inside `occupant` if sandboxed. */
+  activation(cwd: string, occupant?: Occupant): HarnessActivation;
+};
+
 class WorkflowOwner {
   readonly context: WorkflowContext;
   readonly #agents = new Map<string, AgentEntry>();
   readonly #inFlight = new Set<Promise<unknown>>();
   #closed = false;
   #closing: Promise<unknown[]> | undefined;
+  /** The bundled `wf`'s source, built once, at the first sandboxed agent. */
+  #bundle: Promise<string> | undefined;
 
   constructor(
     private readonly options: {
+      sandboxes: RunSandboxes;
       runId: string;
       cwd: string;
       deadline: AbsoluteDeadline;
@@ -355,6 +399,12 @@ class WorkflowOwner {
         },
         attach: () => unavailable("agents.attach"),
         stop: () => unavailable("agents.stop"),
+      },
+      sandboxes: {
+        open: (spec) => {
+          if (this.#closed) return Promise.reject(new Error("workflow context is closed"));
+          return this.track(options.sandboxes.open(spec));
+        },
       },
       participants: {
         connect: () => unavailable("participants.connect"),
@@ -388,26 +438,42 @@ class WorkflowOwner {
       const cleanup = Promise.all([
         Promise.allSettled([this.options.host.close("workflow complete")]),
         Promise.allSettled([...this.#inFlight]),
-      ]).then(async (settled) => {
+      ]).then(async ([settled]) => {
+        // Once their sessions are closed: nothing of theirs runs inside any more.
+        const released = await this.options.sandboxes.release();
         // Only now: an agent can still be submitting from inside its own close, and taking its
         // socket away first turns that into a connection error it cannot report.
         await Promise.allSettled(
           [...this.#agents.values()].map((agent) => agent.channel.then((c) => c?.close())),
         );
-        return settled;
+        // Last, after every agent in each: closing a sandbox ends what runs in it.
+        const closed = await this.options.sandboxes.close();
+        return [
+          ...settled.flatMap((result) => (result.status === "rejected" ? [result.reason] : [])),
+          ...released,
+          ...closed,
+        ];
       });
-      let closed: PromiseSettledResult<void>[];
       try {
-        [closed] = await waitForDeadline(cleanup, deadline);
+        return await waitForDeadline(cleanup, deadline);
       } catch (error) {
         if (error instanceof DeadlineExceededError) {
+          // A session that would not close still must not outlive its sandbox: its agents are
+          // released and the sandboxes closed, which ends everything inside, on a grace of their own.
+          const sandboxes = this.options.sandboxes;
+          const closed = await waitForDeadline(
+            sandboxes
+              .release()
+              .then(async (released) => [...released, ...(await sandboxes.close())]),
+            { unixMilliseconds: Date.now() + CLEANUP_GRACE_MILLISECONDS },
+          ).catch((late: unknown) => [late]);
           return [
             new Error(`agent cleanup exceeded ${CLEANUP_GRACE_MILLISECONDS}ms shutdown grace`),
+            ...closed,
           ];
         }
         throw error;
       }
-      return closed.flatMap((result) => (result.status === "rejected" ? [result.reason] : []));
     })();
     return this.#closing;
   }
@@ -427,6 +493,7 @@ class WorkflowOwner {
       cwd: spec.cwd ?? this.options.cwd,
       ...(spec.instructions === undefined ? {} : { instructions: spec.instructions }),
       ...(spec.labels === undefined ? {} : { labels: structuredClone(spec.labels) }),
+      ...(spec.sandbox === undefined ? {} : { sandbox: spec.sandbox }),
     };
     const scope = scopes.getStore();
     const inheritedDeadline = scope?.deadline ?? this.options.deadline;
@@ -436,7 +503,13 @@ class WorkflowOwner {
     assertDeadline(effectiveDeadline);
     if (existing) {
       assertCompatibleAgent(spec.key, existing.identity, identity, spec);
-      const attached = this.track(waitForDeadline(existing.state, effectiveDeadline));
+      const seated =
+        spec.sandbox === undefined
+          ? existing.state
+          : this.assertSameSandbox(spec.key, existing.identity, spec.sandbox).then(
+              () => existing.state,
+            );
+      const attached = this.track(waitForDeadline(seated, effectiveDeadline));
       scope?.track(attached);
       return attached;
     }
@@ -444,15 +517,57 @@ class WorkflowOwner {
     this.options.progress.agentOpened(spec.key, scope?.stage);
     // Opened before the session so registration below stays synchronous: two concurrent `agent()`
     // calls for one key must not each build an agent.
-    const launcherSessions = new Set<string>();
-    let harnessSession: HarnessSession | undefined;
-    const ledger = this.options.ledger.agent({
+    const sessions: AgentSessions = { launcher: new Set() };
+    const accounted: AccountedAgent = {
       key: spec.key,
       execution,
       cwd: identity.cwd,
-      sessions: () => [...new Set([...launcherSessions, ...(harnessSession?.sessions?.() ?? [])])],
+      sessions: () => [
+        ...new Set([...sessions.launcher, ...(sessions.harness?.sessions?.() ?? [])]),
+      ],
+    };
+    const opening: AgentOpening = {
+      spec,
+      execution,
+      deadline: effectiveDeadline,
+      sessions,
+      ledger: this.options.ledger.agent(accounted),
+      activation: (cwd, occupant) => ({
+        key: spec.key,
+        deadline: effectiveDeadline,
+        cwd,
+        execution,
+        ...(spec.instructions === undefined ? {} : { instructions: spec.instructions }),
+        ...(spec.labels === undefined ? {} : { labels: spec.labels }),
+        ...(occupant ? { occupant } : {}),
+      }),
+    };
+    const { state, channel } =
+      spec.sandbox === undefined
+        ? this.openHostAgent(opening, identity.cwd)
+        : this.openSandboxedAgent(opening, identity.cwd, accounted);
+    const ownedState = this.track(state);
+    this.#agents.set(spec.key, {
+      identity,
+      state: ownedState,
+      // Never rejects: the failure is already carried by `state`, and a second copy with no
+      // reader is an unhandled rejection that takes the process down with it.
+      channel: channel.then(
+        (opened) => opened,
+        () => undefined,
+      ),
     });
-    const opened = this.options.control.openChannel(spec.key, (id) => launcherSessions.add(id));
+    const activated = this.track(waitForDeadline(ownedState, effectiveDeadline));
+    scope?.track(activated);
+    return activated;
+  }
+
+  /** An agent on the host: its channel and session open together. */
+  private openHostAgent(
+    { spec, execution, sessions, ledger, activation }: AgentOpening,
+    cwd: string,
+  ): { state: Promise<LogicalAgent>; channel: Promise<ResultChannel> } {
+    const opened = this.options.control.openChannel(spec.key, (id) => sessions.launcher.add(id));
     const reachable = opened.then(async (channel) => ({
       channel,
       // Beside the socket, in the directory the control plane made for this agent alone. Deriving
@@ -469,20 +584,13 @@ class WorkflowOwner {
     // An open socket authorizes an agent until something closes it, so every failure path does.
     const closeChannel = () => opened.then((channel) => channel.close()).catch(() => undefined);
     const state = this.options.host
-      .openAgent({
-        key: spec.key,
-        deadline: effectiveDeadline,
-        cwd: identity.cwd,
-        execution,
-        ...(spec.instructions === undefined ? {} : { instructions: spec.instructions }),
-        ...(spec.labels === undefined ? {} : { labels: spec.labels }),
-      })
+      .openAgent(activation(cwd))
       .catch(async (error: unknown) => {
         await closeChannel();
         throw error;
       })
       .then(async (session) => {
-        harnessSession = session;
+        sessions.harness = session;
         let channel: ResultChannel;
         let launcher: string;
         try {
@@ -492,34 +600,131 @@ class WorkflowOwner {
           await Promise.allSettled([session.close(reasonOf(error)), closeChannel()]);
           throw error;
         }
-        return new LogicalAgent({
-          key: spec.key,
-          execution,
-          session,
-          slots: this.options.slots,
-          endpoint: channel.endpoint,
-          launcher,
-          deadline: this.options.deadline,
-          ledger,
-          progress: this.options.progress,
-          track: (promise) => this.track(promise),
-          isRunClosing: () => this.#closed,
-        });
+        return this.logicalAgent(spec.key, execution, session, channel.endpoint, launcher, ledger);
       });
-    const ownedState = this.track(state);
-    this.#agents.set(spec.key, {
-      identity,
-      state: ownedState,
-      // Never rejects: the failure is already carried by `state`, and a second copy with no
-      // reader is an unhandled rejection that takes the process down with it.
-      channel: opened.then(
-        (channel) => channel,
-        () => undefined,
-      ),
+    return { state, channel: opened };
+  }
+
+  /**
+   * A sandboxed agent opens in order, each step before the next: its sandbox (a private one opened
+   * now), its channel, its door, its home, its admission, then its session. Everything refused
+   * about where it runs is refused before a channel opens.
+   */
+  private openSandboxedAgent(
+    { spec, execution, deadline, sessions, ledger, activation }: AgentOpening,
+    cwd: string,
+    accounted: AccountedAgent,
+  ): { state: Promise<LogicalAgent>; channel: Promise<ResultChannel> } {
+    const scope = scopes.getStore();
+    const opened = (async () => {
+      const seat = await this.options.sandboxes.seat({
+        key: spec.key,
+        sandbox: spec.sandbox,
+        cwd,
+        execution,
+      });
+      // What the agent really ran in, which is where accounting finds its sessions.
+      accounted.cwd = seat.cwd;
+      accounted.home = seat.home;
+      let channel: ResultChannel | undefined;
+      try {
+        channel = await this.options.control.openChannel(spec.key, (id) =>
+          sessions.launcher.add(id),
+        );
+        const door = await installSandboxedDoor(
+          dirname(channel.endpoint),
+          channel.endpoint,
+          await this.bundle(),
+          findHarness(execution.harness)?.sessionEnv,
+        );
+        // The last step before the agent holds anything inside; its bound may be gone by now.
+        assertDeadline(deadline);
+        scope?.assertActive();
+        const seated = await seat.admit(door);
+        return { seat, seated, channel, launcher: door.launcher };
+      } catch (error) {
+        // The channel first, as at run end; neither undoing masks why the agent did not open.
+        await channel?.close().catch(() => undefined);
+        await seat.abandon();
+        throw error;
+      }
+    })();
+    const state = opened.then(async ({ seat, seated, channel, launcher }) => {
+      let session: HarnessSession;
+      try {
+        session = await this.options.host.openAgent(activation(seat.cwd, seated.occupant));
+      } catch (error) {
+        await seated.release().catch(() => undefined);
+        await channel.close().catch(() => undefined);
+        await seat.abandon();
+        throw error;
+      }
+      sessions.harness = session;
+      return this.logicalAgent(
+        spec.key,
+        execution,
+        session,
+        channel.endpoint,
+        launcher,
+        ledger,
+        seated,
+      );
     });
-    const activated = this.track(waitForDeadline(ownedState, effectiveDeadline));
-    scope?.track(activated);
-    return activated;
+    return { state, channel: opened.then(({ channel }) => channel) };
+  }
+
+  private logicalAgent(
+    key: string,
+    execution: AgentExecution,
+    session: HarnessSession,
+    endpoint: string,
+    launcher: string,
+    ledger: AgentLedger,
+    seated?: SeatedAgent,
+  ): LogicalAgent {
+    return new LogicalAgent({
+      key,
+      execution,
+      session,
+      slots: this.options.slots,
+      endpoint,
+      launcher,
+      deadline: this.options.deadline,
+      ledger,
+      progress: this.options.progress,
+      track: (promise) => this.track(promise),
+      isRunClosing: () => this.#closed,
+      ...(seated
+        ? {
+            // A turn may have refreshed the agent's credential; the operator's copy follows it.
+            afterOperation: () =>
+              seated
+                .writeBack()
+                .catch((error) => this.options.onLog?.(`agent ${key}: ${reasonOf(error)}`)),
+          }
+        : {}),
+    });
+  }
+
+  private bundle(): Promise<string> {
+    this.#bundle ??= buildAgentBundle();
+    const building = this.#bundle;
+    // A build that failed is tried again by the next agent, not remembered.
+    building.catch(() => {
+      if (this.#bundle === building) this.#bundle = undefined;
+    });
+    return building;
+  }
+
+  /** A reopened agent names the sandbox it runs in, or none: a different one is a conflict. */
+  private async assertSameSandbox(
+    key: string,
+    existing: AgentIdentity,
+    sandbox: unknown,
+  ): Promise<void> {
+    if (!(await this.options.sandboxes.same(key, existing.sandbox, sandbox, existing.cwd))) {
+      conflict(key, "sandbox");
+    }
   }
 
   private track<T>(promise: Promise<T>): Promise<T> {
@@ -555,6 +760,8 @@ class LogicalAgent implements AgentRef {
       progress: RunProgress;
       track<T>(promise: Promise<T>): Promise<T>;
       isRunClosing(): boolean;
+      /** After each operation settles, whatever its outcome. */
+      afterOperation?(): Promise<void>;
     },
   ) {}
 
@@ -630,6 +837,8 @@ class LogicalAgent implements AgentRef {
       } catch (error) {
         progress.turnSettled(key, "failed", reasonOf(error));
         throw error;
+      } finally {
+        await this.options.afterOperation?.();
       }
     });
     const tracked = this.options.track(result);

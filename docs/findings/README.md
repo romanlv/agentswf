@@ -18,6 +18,7 @@ below is re-derivable from committed raw data, except where marked.
 | E5 | does the schema error get it to self-correct? | **yes, 240/240 — and it should not have to** |
 | E6 | does the journal replay? | **yes, and it is not enough** |
 | E7 | does forking a prepared agent save anything? | **correctness yes, tokens almost never** |
+| X1–X18 | what can srt and docker hold? | **both hold the seam; docker's door is a relay** — see [`sandbox-providers.md`](sandbox-providers.md) |
 
 E1's removed report read 24/24; that counted one prompt-size arm of the 48 rows in
 `e1/results/e1.jsonl`. [`../foundation.md`](../foundation.md) §4 carries the corrected number.

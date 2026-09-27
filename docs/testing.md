@@ -1,8 +1,10 @@
 # Testing
 
 How awf is checked, what each level costs, and when to run it. Costs are list-price estimates from
-the run's own accounting. Every live check here runs on subscription logins, so nothing is charged
-per token; the estimate is what the same tokens would cost metered, and a proxy for the quota used.
+the run's own accounting. Every live check here runs on subscription logins, and the estimate is
+what the same tokens would cost metered, a proxy for the quota used, with one exception:
+`sandbox-srt` and `sandbox-docker` run claude headless, which is billed per token even on a subscription (E3), so
+their claude share, $0.07–0.15 a run, is money.
 
 ## Levels
 
@@ -18,13 +20,19 @@ fake Herdr CLI, and fake session files stand in for the harnesses' usage logs. T
 drive the real examples (`minimum-review`, `quick-check`, `catalogue-review`) and `awf run` itself
 through those fakes, so example workflows are covered here too.
 
+Each sandbox provider also has a local test, `packages/sandbox/src/srt/srt.local.test.ts` and
+`packages/sandbox/src/docker/docker.local.test.ts`. It runs the real provider with `sh` standing in
+for each agent, no model: the conformance suite, then what the provider allows and denies. It is
+part of `bun test` and free, and skipped where its provider is not installed; docker's also where
+the daemon does not answer within 5 s or the default image is not built.
+
 The fakes encode what the real CLIs do today. They go stale silently, which is what the live levels
 are for.
 
-### 2. Evals — every supported feature, live, about $0.10–0.16
+### 2. Evals — every supported feature, live, about $0.60
 
 ```sh
-bun run eval                        # all of them, one after another: ~1 min, $0.09–0.16
+bun run eval                        # all of them, one after another: ~6 min, about $0.60
 bun run eval harnesses failed-run   # only the ones named
 ```
 
@@ -49,10 +57,31 @@ What they cover between them:
 - `failed-run` — a run that crashes, and one cancelled mid-turn, after a headless codex agent
   answered, keep that spend in `output.json` with the right `outcome` and exit code. 2 runs, ~20 s,
   under a cent.
+- `sandbox-srt` and `sandbox-docker` — the sandbox probe (story 004): codex and claude headless
+  sharing a sandbox that writes the working directory, pi in a private one that writes nothing,
+  each running fixed commands against canaries the host planted: files under `~`, in harness
+  state and in the temp directories, a listener, a disallowed domain, a git hook, another
+  sandbox's home. Checked from the agents' own transcripts, the listener and the working tree.
+  3 agents, ~2½ min, ~$0.30, of which claude's ~$0.07 is charged. codex runs on gpt-5.6-sol:
+  luna declined the probe's commands. Neither is skipped: each fails, saying why, where its
+  provider is not installed or docker's daemon does not answer within 30 s, so a sandbox
+  regression cannot pass unseen. `sandbox-docker` builds the default image first when it is
+  missing.
+- `sandbox-panes-srt` — the same probe with codex and claude in terminal panes of the run's Herdr,
+  typed in behind srt's confining prelude, and also refused the run's Herdr socket, leaving no
+  secret or process behind; processes are found by their environment, where a pane's carry the
+  run's path. 3 agents, ~3 min, ~$0.30; claude in a pane is on its subscription.
+- `sandbox-panes-docker` — the same, with the panes in the box's own Herdr, typed in behind a
+  prelude that sets their environment and loads their secret. 3 agents, ~3 min, ~$0.32. Fails,
+  saying why, where docker cannot run.
+
+The totals above are one measured run without docker; `sandbox-docker` and
+`sandbox-panes-docker` add ~6 min and ~$0.60.
 
 Not covered live, on purpose:
 
-- claude headless: it is billed per token even on a subscription, so an eval would cost real money.
+- claude headless outside a sandbox: it is billed per token even on a subscription. The sandbox
+  evals run it, as a sandboxed claude has no other way to run headless.
 - Deadlines, nudges, parallel limits and cleanup: the offline suite drives them through fakes, and
   a live run adds only a slower clock.
 
@@ -83,11 +112,13 @@ as story 002 did to check accounting against the session files.
 
 - **Every change:** level 1. The pre-commit hook runs Biome only; run the rest yourself.
 - **Before a story goes to human review, or after upgrading Herdr or a harness CLI:** `bun run
-  eval`, all of it — at $0.10–0.16 there is no reason to pick. Record the date, outcome and cost in the
+  eval`, all of it — at about $0.60 there is no reason to pick. Record the date, outcome and cost in the
   story's Verification section.
 - **While working on one area:** the matching eval — `harnesses` for an adapter, liveness or usage
   reader; `minimum-review` for panes, the control plane or the result channel; `failed-run` for run
-  lifecycle, cancellation, accounting or `output.json`.
+  lifecycle, cancellation, accounting or `output.json`; `sandbox-srt` and `sandbox-docker` for
+  `packages/sandbox`, a harness's sandbox needs, or the engine's sandboxes; `sandbox-panes-srt` and
+  `sandbox-panes-docker` for a sandboxed pane, the Herdr host's typed start or a box's Herdr.
 - **Level 4:** only when a story names it.
 
 ## Adding an eval
@@ -98,9 +129,10 @@ as story 002 did to check accounting against the session files.
 - Go through `awf run` (`runOperatorCli`) where possible, so the operator runtime and the record
   are what is tested. Use `runWorkflow` only when the eval must observe the harness from inside.
 - Assert outcomes from the record, not from prose.
+- Keep the checks a pure function of what the runner gathered, and unit-test it, as
+  `tests/sandbox-probe.test.ts` and `tests/minimum-review-eval.test.ts` do.
 - End stdout with a JSON object holding `ok` and `estimateUsd`, and say in the file's header what a
   run costs.
-- Keep any pure logic in the eval unit-testable, as `tests/minimum-review-eval.test.ts` does.
 
 ## Measured
 
@@ -110,6 +142,20 @@ claude.ai.
 - `bun run eval`: 3/3 passed in 63 s, ~$0.09 — `harnesses` ~$0.05, `minimum-review` ~$0.04,
   `failed-run` under a cent.
 - Two more full runs: ~$0.16 (`harnesses` ~$0.11) and ~$0.12. Spend varies run to run.
+- 2026-09-26, on `a7c36ef` with Herdr 0.9.1: 3/3 passed in 72 s, ~$0.09 — `harnesses` ~$0.05,
+  `minimum-review` ~$0.05, `failed-run` under a cent.
+- 2026-09-26, `sandbox` under srt (story 004): passed in 2m 20s, ~$0.13, twice in a row once
+  its three failures were fixed (X22, X23, and a probe prompt codex's cheapest model would run).
+  Under docker it has not run: the daemon was not answering. Later luna declined every command
+  in one run of two, so the probe's codex is gpt-5.6-sol: 2m 41s, ~$0.30. `sandbox-panes-srt`
+  passed after Task 5's review fixes in 2m 40s, ~$0.29.
+- 2026-09-26, all evals after story 004's Task 5 and 6: 5 passed and `sandbox-docker` skipped (its
+  daemon did not answer) in 6m 13s, ~$0.58. `sandbox-srt` was ~$0.20, of which claude's $0.15 was
+  charged: its charge varies run to run.
+- 2026-09-26, docker once its daemon answered: `sandbox-docker` passed in 2m 39s, ~$0.29, and
+  `sandbox-panes-docker` in 2m 56s, ~$0.32, each on its first run; after Task 5's review, 2m 48s
+  (~$0.31) and 3m 07s (~$0.31). OrbStack stopped answering twice when several agents drove it at
+  once: if a docker eval fails for its daemon, try it again alone.
 - luna first failed `failed-run` 3 times in 4: it typed the launcher's macOS temp path
   (`/var/folders/…/T/…/wf`) without the `/` before `T`. With the control plane under `/tmp` it
   passed 4 of 4.

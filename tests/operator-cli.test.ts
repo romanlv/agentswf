@@ -1,5 +1,5 @@
 import { afterAll, describe, expect, test } from "bun:test";
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, realpathSync } from "node:fs";
 import { join } from "node:path";
 import { RUNTIMES } from "../examples/quick-check/workflow";
 import { OUTPUT_RECORD_VERSION } from "../packages/contract/src/records";
@@ -9,6 +9,7 @@ import type { AgentRuntimeConfig, AgentSessionAdapter } from "../packages/harnes
 import { createSingleSessionHostFactory } from "../packages/harness/src/single-session-host";
 import { createFakeAdapter } from "../packages/harness/src/testing/fake";
 import type { SessionAccounting } from "../packages/harness/src/usage/accounting";
+import { createFakeSandboxProvider } from "../packages/sandbox/src/testing/fake";
 
 const ROOT = join(import.meta.dir, "..");
 const runDirs = createTempRunDirs();
@@ -183,6 +184,39 @@ describe("awf run", () => {
     expect(errors.join("\n")).toContain("unknown runtime cursor; expected codex, pi, claude");
   });
 
+  test("a sandbox's own Herdr is watched unless --no-watch", async () => {
+    const root = runDirs.tempRunDir();
+    const workflow = join(root, "nothing.js");
+    await Bun.write(workflow, executableModule("return null;", "return null;"));
+    const asked: boolean[] = [];
+    for (const flags of [[], ["--no-watch"]]) {
+      const exitCode = await runOperatorCli(
+        ["run", "--run-root", runDirs.tempRunDir(), ...flags, workflow],
+        {
+          cwd: root,
+          stdout: () => undefined,
+          stderr: () => undefined,
+          installRuntime: async (_timeout, options) => {
+            asked.push(options.watchSandboxes);
+            return emptyRuntime();
+          },
+        },
+      );
+      expect(exitCode).toBe(0);
+    }
+    expect(asked).toEqual([true, false]);
+  });
+
+  test("the sandboxes example refuses an argument it does not know", async () => {
+    const errors: string[] = [];
+    const exitCode = await runOperatorCli(
+      ["run", "examples/sandboxes/workflow.ts", "--", "firejail"],
+      { cwd: ROOT, stderr: (text) => errors.push(text), installRuntime: emptyRuntime },
+    );
+    expect(exitCode).toBe(2);
+    expect(errors.join("\n")).toContain("unexpected argument firejail; this example takes none");
+  });
+
   test("fails when an operator alias drifts from the workflow's required model", async () => {
     const adapter = createFakeAdapter({
       harnesses: ["claude", "codex"],
@@ -263,6 +297,54 @@ describe("awf run", () => {
         stderr: expect.stringContaining(item.text),
       });
     }
+  });
+
+  test("output.json lists the sandboxes a run opened, each denying every run under the run root", async () => {
+    const root = runDirs.tempRunDir();
+    const workflow = join(root, "sandboxed.js");
+    await Bun.write(
+      workflow,
+      executableModule(
+        "return null;",
+        'await arguments[0].sandboxes.open({ key: "box", network: ["registry.npmjs.org"] }); return null;',
+      ),
+    );
+    const runRoot = runDirs.tempRunDir();
+    const fake = createFakeSandboxProvider();
+    const output: string[] = [];
+    const exitCode = await runOperatorCli(["run", "--json", "--run-root", runRoot, workflow], {
+      cwd: root,
+      stdout: (text) => output.push(text),
+      stderr: () => undefined,
+      installRuntime: async () => ({
+        ...(await emptyRuntime()),
+        sandboxes: { installed: { srt: fake.provider }, default: "srt" },
+      }),
+    });
+    expect(exitCode).toBe(0);
+    const record = JSON.parse(output.join("\n"));
+    expect(record.sandboxes).toEqual([
+      {
+        callPath: [],
+        key: "box",
+        provider: "srt",
+        spec: {
+          cwd: realpathSync(root),
+          read: [],
+          write: [],
+          network: ["registry.npmjs.org"],
+          srt: {},
+        },
+        directory: expect.stringContaining(realpathSync(record.artifacts)),
+        gitdirs: [],
+        domains: ["registry.npmjs.org"],
+        agents: [],
+      },
+    ]);
+    expect(
+      JSON.parse(readFileSync(join(record.artifacts, "output.json"), "utf8")).sandboxes,
+    ).toEqual(record.sandboxes);
+    expect(fake.events[0]).toMatchObject({ kind: "open", runRoot: realpathSync(runRoot) });
   });
 
   test("rejects a non-JSON workflow result after retaining its run", async () => {

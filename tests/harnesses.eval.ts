@@ -86,7 +86,7 @@ if (import.meta.main) {
 /** Ctrl-C stops the run and its agents, as it does under `awf run`, instead of killing the process. */
 function interruption(): AbortSignal {
   const controller = new AbortController();
-  process.once("SIGINT", () => controller.abort("SIGINT"));
-  process.once("SIGTERM", () => controller.abort("SIGTERM"));
+  process.on("SIGINT", () => controller.abort("SIGINT"));
+  process.on("SIGTERM", () => controller.abort("SIGTERM"));
   return controller.signal;
 }

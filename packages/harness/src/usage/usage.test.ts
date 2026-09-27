@@ -655,3 +655,39 @@ const none = { input: 0, cacheRead: 0, cacheWrite: 0, output: 0 };
 async function unreachable(): Promise<never> {
   throw new Error("no status command should run");
 }
+
+describe("a sandboxed agent's own home", () => {
+  test("is where its usage is read, for each harness", async () => {
+    const accounting = createSessionAccounting();
+    const saved = {
+      CLAUDE_CONFIG_DIR: process.env.CLAUDE_CONFIG_DIR,
+      CODEX_HOME: process.env.CODEX_HOME,
+      PI_CODING_AGENT_DIR: process.env.PI_CODING_AGENT_DIR,
+    };
+    // The operator's homes hold none of these sessions, so only the agent's can answer.
+    const empty = mkdtempSync(join(tmpdir(), "operator-"));
+    roots.push(empty);
+    for (const name of Object.keys(saved)) process.env[name] = empty;
+    try {
+      for (const [harness, session] of [
+        ["claude", CLAUDE],
+        ["codex", CODEX],
+        ["pi", PI],
+      ] as const) {
+        const execution = { harness, model: "m", placement: "headless" as const };
+        const home = join(FIXTURES, harness);
+        expect(await accounting.read(execution, [session], "/repo")).toBeUndefined();
+        const read = await accounting.read(execution, [session], "/repo", home);
+        expect(read?.records.length).toBeGreaterThan(0);
+        // No session named at all, as for a pane that never called `wf`: its home names them.
+        const unnamed = await accounting.read(execution, [], "/repo", home);
+        expect(unnamed?.records).toEqual(expect.arrayContaining(read!.records));
+      }
+    } finally {
+      for (const [name, value] of Object.entries(saved)) {
+        if (value === undefined) delete process.env[name];
+        else process.env[name] = value;
+      }
+    }
+  });
+});

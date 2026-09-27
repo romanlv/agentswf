@@ -12,6 +12,7 @@ import type {
   RuntimeAliases,
   TurnId,
 } from "@wf/contract/workflow";
+import type { Occupant } from "@wf/sandbox";
 import type { SessionAccounting } from "./usage/accounting";
 
 export type AgentState =
@@ -113,6 +114,11 @@ export interface HarnessActivation {
   instructions?: string;
   labels?: JsonObject;
   execution: AgentExecution;
+  /**
+   * The agent's place in a sandbox: every process it runs goes through `occupant.launch`. An
+   * adapter that cannot launch through one refuses the agent.
+   */
+  occupant?: Occupant;
 }
 
 /** An opaque locator for a session the engine did not start; only the adapter interprets it. */

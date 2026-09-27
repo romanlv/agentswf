@@ -73,8 +73,8 @@ describe("minimum review live evaluation plan", () => {
     });
     expect(host.inspect()).toEqual({ state: "running", agents: [] });
     await host.close();
-    expect(commands.filter((argv) => argv.includes("create"))).toHaveLength(1);
-    expect(commands.filter((argv) => argv.includes("close"))).toHaveLength(1);
+    // The run's workspace opens at its first tab: a host no agent used leaves nothing to close.
+    expect(commands).toEqual([]);
   });
 
   test("requires an exact opt-in value at the spending boundary", () => {
@@ -93,9 +93,9 @@ describe("minimum review live evaluation plan", () => {
     ).toMatchObject({ ok: true, detail: "unknown option --version" });
     expect(herdrVersionCheck({ stdout: "herdr 0.9.0", stderr: "", exitCode: 0 })).toMatchObject({
       ok: false,
-      detail: expect.stringContaining("herdr 0.8.2"),
+      detail: expect.stringContaining("herdr 0.9.1"),
     });
-    expect(herdrVersionCheck({ stdout: "herdr 0.8.20", stderr: "", exitCode: 0 })).toMatchObject({
+    expect(herdrVersionCheck({ stdout: "herdr 0.9.10", stderr: "", exitCode: 0 })).toMatchObject({
       ok: false,
     });
   });

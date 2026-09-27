@@ -68,10 +68,19 @@
         "@wf/cli-agent": "workspace:*",
         "@wf/contract": "workspace:*",
         "@wf/harness": "workspace:*",
+        "@wf/sandbox": "workspace:*",
       },
     },
     "packages/harness": {
       "name": "@wf/harness",
+      "version": "0.0.0",
+      "dependencies": {
+        "@wf/contract": "workspace:*",
+        "@wf/sandbox": "workspace:*",
+      },
+    },
+    "packages/sandbox": {
+      "name": "@wf/sandbox",
       "version": "0.0.0",
       "dependencies": {
         "@wf/contract": "workspace:*",
@@ -120,6 +129,8 @@
     "@wf/experiments-archive": ["@wf/experiments-archive@workspace:experiments/_archive"],
 
     "@wf/harness": ["@wf/harness@workspace:packages/harness"],
+
+    "@wf/sandbox": ["@wf/sandbox@workspace:packages/sandbox"],
 
     "bun-types": ["bun-types@1.4.0", "", { "dependencies": { "@types/node": "*" } }, "sha512-iIKw23BspnQQYd3prITOBxeUsxBHnwzX6YJfGMuNOZzeNcMmVqzIIVGRm1l69ogaPQmb4wB6BN8mA5bE9YuC5Q=="],
 

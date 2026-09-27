@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import type { Occupant, SandboxedCommand, SandboxProcess } from "@wf/sandbox";
 import type { HarnessActivation } from "../adapter";
 import type { ProcessInput, RunProcess } from "../command";
 import { createSingleSessionHostFactory } from "../single-session-host";
@@ -9,12 +10,16 @@ import {
   createHeadlessAdapter,
   type DirectProcessConfig,
 } from "./direct-process";
+import { createPaneAdapter } from "./herdr";
 
 const CALL = { runDir: "/runs/r", callId: "c1" };
 const STEP: Step = { prompt: "count the e's", harness: "claude", backend: "headless" };
 
-function stub(stdouts: string[]): { run: RunProcess; calls: ProcessInput[] } {
-  const calls: ProcessInput[] = [];
+function stub(stdouts: string[]): {
+  run: RunProcess;
+  calls: (ProcessInput | SandboxedCommand)[];
+} {
+  const calls: (ProcessInput | SandboxedCommand)[] = [];
   let turn = 0;
   const run: RunProcess = async (input) => {
     calls.push(input);
@@ -159,6 +164,105 @@ describe("createHeadlessAdapter", () => {
     expect(calls[1]?.env).toEqual({});
     expect(calls[0]?.argv).not.toContain("--resume");
     expect(calls[1]?.argv[calls[1].argv.indexOf("--resume") + 1]).toBe("sess-1");
+  });
+
+  describe("with an occupant", () => {
+    function occupant() {
+      const launched: SandboxProcess[] = [];
+      let released = 0;
+      const place: Occupant = {
+        launch(root): SandboxedCommand {
+          launched.push(root);
+          return { ...root, argv: ["inside", ...root.argv], env: { MARK: "box" }, group: true };
+        },
+        async release() {
+          released += 1;
+        },
+      };
+      return { place, launched, released: () => released };
+    }
+
+    test("a first and a resumed turn both run inside, without web tools", async () => {
+      const { run, calls } = stub([claudeOut("first"), claudeOut("second")]);
+      const { place, launched } = occupant();
+      const session = await headless(run, {}, { ...activation, occupant: place });
+      const first = await session.start(turnSpec, firstBinding);
+      await first.settled;
+      await (await first.nudge(nudgeSpec)).settled;
+
+      expect(launched).toHaveLength(2);
+      for (const call of calls) {
+        expect(call).toMatchObject({ group: true, env: { MARK: "box" } });
+        expect(call.argv[0]).toBe("inside");
+        expect(call.argv).toContain("WebSearch,WebFetch");
+      }
+      expect(calls[1]?.argv[calls[1].argv.indexOf("--resume") + 1]).toBe("sess-1");
+      expect(launched[0]).toMatchObject({ cwd: "/repo", stdin: expect.stringContaining("review") });
+    });
+
+    test("an unsandboxed agent's turn is unchanged", async () => {
+      const { run, calls } = stub([claudeOut("first")]);
+      const session = await headless(run);
+      await (await session.start(turnSpec, firstBinding)).settled;
+      expect(calls[0]).not.toHaveProperty("group");
+      expect(calls[0]?.argv[0]).toBe("claude");
+      expect(calls[0]?.argv).not.toContain("--disallowed-tools");
+    });
+
+    test("codex's search flag goes before its stdin marker, on a resumed turn too", async () => {
+      const codexOut = (text: string) =>
+        [
+          JSON.stringify({ type: "thread.started", thread_id: "thread-1" }),
+          JSON.stringify({ type: "item.completed", item: { type: "agent_message", text } }),
+        ].join("\n");
+      const { run, calls } = stub([codexOut("first"), codexOut("second")]);
+      const session = await headless(
+        run,
+        {},
+        {
+          ...activation,
+          occupant: occupant().place,
+          execution: { harness: "codex", model: "gpt-6-luna", placement: "headless" },
+        },
+      );
+      const first = await session.start(turnSpec, firstBinding);
+      await first.settled;
+      await (await first.nudge(nudgeSpec)).settled;
+      for (const call of calls) {
+        const at = call.argv.indexOf('web_search="disabled"');
+        expect(call.argv[at - 1]).toBe("-c");
+        expect(call.argv.at(-1)).toBe("-");
+      }
+      expect(calls[1]?.argv.slice(1, 5)).toEqual(["codex", "exec", "resume", "thread-1"]);
+    });
+
+    test("cursor cannot run in one, and a pane adapter refuses one", async () => {
+      const run: RunProcess = async () => {
+        throw new Error("nothing should launch");
+      };
+      const { place } = occupant();
+      await expect(
+        headless(
+          run,
+          {},
+          {
+            ...activation,
+            occupant: place,
+            execution: { harness: "cursor", model: "m", placement: "headless" },
+          },
+        ),
+      ).rejects.toThrow("cursor cannot run in a sandbox");
+      await expect(
+        createPaneAdapter(
+          { session: "s", workspaceLabel: "w", commandTimeoutMs: 1_000, settleTimeoutMs: 1_000 },
+          run,
+        ).activate({
+          ...activation,
+          occupant: place,
+          execution: { harness: "claude", model: "m" },
+        }),
+      ).rejects.toThrow("pane agents cannot run in a sandbox yet");
+    });
   });
 
   test("compaction resumes without result authority", async () => {

@@ -4,5 +4,6 @@ export * from "./executable";
 export * from "./json";
 export * from "./messaging";
 export * from "./participants";
+export * from "./sandboxes";
 export * from "./timing";
 export * from "./workflow";

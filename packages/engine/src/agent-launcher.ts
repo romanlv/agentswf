@@ -1,6 +1,7 @@
-import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
+import { chmod, mkdir, readFile, realpath, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
-import { dirname, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
+import { type AgentDoor, shellQuote } from "@wf/sandbox";
 
 /**
  * The agent is given a path to run, and nothing else. Every other channel we could deliver a
@@ -23,18 +24,87 @@ export async function installAgentLauncher(
    */
   sessionEnv?: string,
 ): Promise<string> {
-  if (sessionEnv !== undefined && !/^[A-Za-z_][A-Za-z0-9_]*$/.test(sessionEnv)) {
-    throw new Error(`not an environment variable name: ${sessionEnv}`);
-  }
   const command = await resolveAgentCommand();
+  return writeLauncher(directory, [process.execPath, command], endpoint, sessionEnv);
+}
+
+/**
+ * A sandboxed agent's door: the same launcher, running the bundled `wf` with the host's bun by
+ * its real path, since a sandbox reads neither the workspace's sources nor bun's links under `~`.
+ * A box copies `boxScript` to the launcher's path, which runs the bundle with the box's own bun.
+ */
+export async function installSandboxedDoor(
+  directory: string,
+  endpoint: string,
+  /** The bundled `wf`'s source, written beside the launcher. */
+  source: string,
+  sessionEnv?: string,
+): Promise<AgentDoor> {
+  const bun = await realpath(process.execPath);
+  await mkdir(directory, { recursive: true });
+  // Real paths, as a sandbox's rules match them: `/tmp` is `/private/tmp` on macOS.
+  const real = await realpath(directory);
+  const socket = join(real, basename(endpoint));
+  // In the agent's own directory: bun will not load a module from the control plane's, which is
+  // not listable so that no agent can find another's socket.
+  const bundle = join(real, "wf.js");
+  await writeFile(bundle, source, { mode: 0o500 });
+  const launcher = await writeLauncher(real, [bun, bundle], socket, sessionEnv);
+  return {
+    endpoint: socket,
+    launcher,
+    boxScript: launcherScript(["bun", bundle], socket, sessionEnv),
+    bundle,
+    reads: [bun, bundle],
+  };
+}
+
+/**
+ * `wf` as one file's source, which a sandbox can read where it cannot read this workspace. Built by
+ * a `bun build` of its own: in process, the bundler resolved packages against the test runner's
+ * state and missed the workspace's links.
+ */
+export async function buildAgentBundle(): Promise<string> {
+  const entry = await resolveAgentCommand();
+  const built = Bun.spawn({
+    cmd: [process.execPath, "build", entry, "--target=bun"],
+    cwd: dirname(entry),
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  const [code, bundle, stderr] = await Promise.all([
+    built.exited,
+    new Response(built.stdout).text(),
+    new Response(built.stderr).text(),
+  ]);
+  if (code !== 0) throw new Error(`could not bundle wf: ${stderr.trim().slice(0, 400)}`);
+  return bundle;
+}
+
+async function writeLauncher(
+  directory: string,
+  command: readonly string[],
+  endpoint: string,
+  sessionEnv: string | undefined,
+): Promise<string> {
   await mkdir(directory, { recursive: true });
   await chmod(directory, 0o700);
   const path = join(directory, "wf");
-  const session = sessionEnv ? ` --session "\${${sessionEnv}:-}"` : "";
-  const script = `#!/bin/sh\nexec ${shellQuote(process.execPath)} ${shellQuote(command)} --at ${shellQuote(endpoint)}${session} "$@"\n`;
-  await writeFile(path, script, { mode: 0o700 });
+  await writeFile(path, launcherScript(command, endpoint, sessionEnv), { mode: 0o700 });
   await chmod(path, 0o700);
   return path;
+}
+
+function launcherScript(
+  command: readonly string[],
+  endpoint: string,
+  sessionEnv: string | undefined,
+): string {
+  if (sessionEnv !== undefined && !/^[A-Za-z_][A-Za-z0-9_]*$/.test(sessionEnv)) {
+    throw new Error(`not an environment variable name: ${sessionEnv}`);
+  }
+  const session = sessionEnv ? ` --session "\${${sessionEnv}:-}"` : "";
+  return `#!/bin/sh\nexec ${command.map(shellQuote).join(" ")} --at ${shellQuote(endpoint)}${session} "$@"\n`;
 }
 
 async function resolveAgentCommand(): Promise<string> {
@@ -46,8 +116,4 @@ async function resolveAgentCommand(): Promise<string> {
   const relative = typeof manifest.bin === "string" ? manifest.bin : manifest.bin?.wf;
   if (!relative) throw new Error("@wf/cli-agent does not publish the wf command");
   return resolve(dirname(manifestPath), relative);
-}
-
-function shellQuote(value: string): string {
-  return `'${value.replaceAll("'", `'\\''`)}'`;
 }

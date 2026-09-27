@@ -1,6 +1,13 @@
 import type { JsonSchema } from "./schema";
 import type { AgentExecution, OperationRecord } from "./workflow/agents";
-import type { JsonValue } from "./workflow/json";
+import type { JsonObject, JsonValue } from "./workflow/json";
+import type {
+  Domain,
+  Gitdir,
+  SandboxEnvironmentKey,
+  SandboxKey,
+  SandboxSpec,
+} from "./workflow/sandboxes";
 
 /** What the run directory records about one call. The format only; the engine does the I/O. */
 export type CallSpec = {
@@ -126,6 +133,31 @@ export type RunAccounting = {
   unpriced: string[];
 };
 
+/** A sandbox a run opened, with every agent it admitted. */
+export type SandboxRecord = {
+  callPath: string[];
+  /** `agent:{key}` for a private sandbox, a namespace explicit keys cannot use. */
+  key: SandboxKey;
+  /** An environment key such as `srt` or `docker`; more come with new providers, so a reader never switches on it exhaustively. */
+  provider: SandboxEnvironmentKey;
+  /** Absolute paths: `~` expanded and `.` resolved. */
+  spec: SandboxSpec & { cwd: string };
+  /** The engine-minted directory holding its homes. */
+  directory: string;
+  /** The git directories its paths belong to, reachable beyond `spec`. */
+  gitdirs: Gitdir[];
+  /** Every domain reachable in the end: `network` plus the admitted harnesses' model domains. */
+  domains: Domain[];
+  /**
+   * What only its provider knew about how it ran, in the provider's own shape, as `spec` holds its
+   * settings under its key: docker's `image`, the digest the box ran; srt's `toolchain`, the host
+   * paths it re-allowed beyond reach.
+   */
+  provided?: JsonObject;
+  /** Every agent admitted, including one whose turns never completed. */
+  agents: { callPath: string[]; agent: string; home: string }[];
+};
+
 export const OUTPUT_RECORD_VERSION = 2 as const;
 
 /**
@@ -140,6 +172,11 @@ export type OutputRecord = {
   usage: SettledOperation[];
   /** The run's artifact directory. */
   artifacts: string;
+  /**
+   * Each sandbox the run opened, once. Absent when it opened none. Readers must not switch
+   * exhaustively over a sandbox's `provider`.
+   */
+  sandboxes?: SandboxRecord[];
 } & (
   | {
       outcome: "succeeded";

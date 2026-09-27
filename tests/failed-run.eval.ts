@@ -78,8 +78,8 @@ if (import.meta.main) {
     console.error("WF_LIVE_EVAL=1 is required to start live agents");
     process.exit(1);
   }
-  process.once("SIGINT", () => operator.abort("SIGINT"));
-  process.once("SIGTERM", () => operator.abort("SIGTERM"));
+  process.on("SIGINT", () => operator.abort("SIGINT"));
+  process.on("SIGTERM", () => operator.abort("SIGTERM"));
   const observed = [await scenario("crash")];
   if (!operator.signal.aborted) observed.push(await scenario("cancel"));
   const failed = observed.flatMap(problems);
