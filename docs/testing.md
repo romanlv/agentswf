@@ -74,8 +74,8 @@ What they cover between them:
 - `skills` — agents given one probe skill each (story 007): codex, pi and a claude pane on the
   host, and codex and pi sharing one srt sandbox with different probes. Each must report the word
   only its own probe holds, list its own probe and not the other, and list none of the operator's
-  skills; `output.json` must record each agent's. 5 agents, on subscriptions; srt must be
-  installed.
+  skills; `output.json` must record each agent's. 5 agents, ~15 s, ~$0.06, on subscriptions;
+  srt must be installed.
 - `sandbox-panes-docker` — the same, with the panes in the box's own Herdr, typed in behind a
   prelude that sets their environment and loads their secret. 3 agents, ~3 min, ~$0.32. Fails,
   saying why, where docker cannot run.
@@ -162,6 +162,12 @@ claude.ai.
   `sandbox-panes-docker` in 2m 56s, ~$0.32, each on its first run; after Task 5's review, 2m 48s
   (~$0.31) and 3m 07s (~$0.31). OrbStack stopped answering twice when several agents drove it at
   once: if a docker eval fails for its daemon, try it again alone.
+- 2026-09-26, story 007: `skills` passed in 15 s, ~$0.06, its first run lost to a Haiku pane that
+  wrote over its own launcher. `harnesses`, `failed-run`, `minimum-review`, `sandbox-srt` and
+  `sandbox-panes-srt` passed, ~$0.73 in all. `sandbox-srt` needs `CLAUDE_CODE_OAUTH_TOKEN`
+  exported, and `minimum-review`'s preflight refuses one: run them apart. `minimum-review` also
+  fails if the repository changes while it runs, edits by hand included. A sandboxed claude pane
+  once declined the probe as pasted instructions.
 - luna first failed `failed-run` 3 times in 4: it typed the launcher's macOS temp path
   (`/var/folders/…/T/…/wf`) without the `/` before `T`. With the control plane under `/tmp` it
   passed 4 of 4.

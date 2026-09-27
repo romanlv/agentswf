@@ -3,7 +3,7 @@ id: "007"
 title: Give each agent the skills the workflow names
 summary: A workflow names each agent's skills, as a path or a public skill in a git repository; the engine pins and copies them, and the agent sees exactly those, on the host or in a sandbox, under claude, codex and pi.
 type: story
-status: draft
+status: awaiting-human-review
 discovered_in: "ideas.md (unified skills; custom skills per agent), 2026-09-26"
 depends_on: ["004"]
 ---
@@ -312,10 +312,10 @@ Alternatives rejected:
 
 ## Tasks at a glance
 
-- [ ] 1. The surface, the record, and resolution in the engine
-- [ ] 2. Each harness holds the set on the host
-- [ ] 3. Each harness holds the set in a sandbox
-- [ ] 4. Live eval, docs and the ADR
+- [x] 1. The surface, the record, and resolution in the engine
+- [x] 2. Each harness holds the set on the host
+- [x] 3. Each harness holds the set in a sandbox
+- [x] 4. Live eval, docs and the ADR
 
 ## Open questions
 
@@ -367,14 +367,14 @@ adapter translates them yet.
 
 Execution:
 
-- [ ] Plan: inspect the relevant code and tests, settle the cleanest module, interface, seam,
+- [x] Plan: inspect the relevant code and tests, settle the cleanest module, interface, seam,
   invariants, failure behavior, and focused proof, and record material alternatives before coding.
-- [ ] Implement: make only this task's coherent change and add focused tests with it.
-- [ ] Review: have two read-only subagents review this task's actual diff and test output—one for
+- [x] Implement: make only this task's coherent change and add focused tests with it.
+- [x] Review: have two read-only subagents review this task's actual diff and test output—one for
   architecture and scope, one for correctness and proof.
-- [ ] Resolve: fix or explicitly disposition every material finding; request targeted re-review
+- [x] Resolve: fix or explicitly disposition every material finding; request targeted re-review
   when a fix changes the selected architecture.
-- [ ] Verify: run this task's focused checks and satisfy every `Done when` item before checking the
+- [x] Verify: run this task's focused checks and satisfy every `Done when` item before checking the
   task in `Tasks at a glance` or starting the next task.
 
 Work:
@@ -398,11 +398,11 @@ a pane.
 
 Execution:
 
-- [ ] Plan: inspect the relevant code and tests and record the architecture and focused proof.
-- [ ] Implement: make only this task's coherent change and add focused tests with it.
-- [ ] Review: obtain architecture/scope and correctness/proof subagent reviews of the actual diff.
-- [ ] Resolve: disposition findings and obtain targeted re-review after material design changes.
-- [ ] Verify: satisfy every `Done when` item before checking this task.
+- [x] Plan: inspect the relevant code and tests and record the architecture and focused proof.
+- [x] Implement: make only this task's coherent change and add focused tests with it.
+- [x] Review: obtain architecture/scope and correctness/proof subagent reviews of the actual diff.
+- [x] Resolve: disposition findings and obtain targeted re-review after material design changes.
+- [x] Verify: satisfy every `Done when` item before checking this task.
 
 Work:
 
@@ -425,11 +425,11 @@ sandbox can have different sets.
 
 Execution:
 
-- [ ] Plan: inspect the relevant code and tests and record the architecture and focused proof.
-- [ ] Implement: make only this task's coherent change and add focused tests with it.
-- [ ] Review: obtain architecture/scope and correctness/proof subagent reviews of the actual diff.
-- [ ] Resolve: disposition findings and obtain targeted re-review after material design changes.
-- [ ] Verify: satisfy every `Done when` item before checking this task.
+- [x] Plan: inspect the relevant code and tests and record the architecture and focused proof.
+- [x] Implement: make only this task's coherent change and add focused tests with it.
+- [x] Review: obtain architecture/scope and correctness/proof subagent reviews of the actual diff.
+- [x] Resolve: disposition findings and obtain targeted re-review after material design changes.
+- [x] Verify: satisfy every `Done when` item before checking this task.
 
 Work:
 
@@ -448,11 +448,11 @@ Outcome: the behaviour is checked by `bun run eval`, and the design documents sa
 
 Execution:
 
-- [ ] Plan: inspect the relevant code and tests and record the architecture and focused proof.
-- [ ] Implement: make only this task's coherent change and add focused tests with it.
-- [ ] Review: obtain architecture/scope and correctness/proof subagent reviews of the actual diff.
-- [ ] Resolve: disposition findings and obtain targeted re-review after material design changes.
-- [ ] Verify: satisfy every `Done when` item before checking this task.
+- [x] Plan: inspect the relevant code and tests and record the architecture and focused proof.
+- [x] Implement: make only this task's coherent change and add focused tests with it.
+- [x] Review: obtain architecture/scope and correctness/proof subagent reviews of the actual diff.
+- [x] Resolve: disposition findings and obtain targeted re-review after material design changes.
+- [x] Verify: satisfy every `Done when` item before checking this task.
 
 Work:
 
@@ -467,18 +467,36 @@ Done when:
 
 ## Verification
 
-Automated:
+Automated, on `agent-skills` at the review fixes:
 
-- [ ] `packages/engine/src/skills/*.test.ts`: resolution, checks, cache, copy, digest.
-- [ ] `packages/harness/src/capabilities/*.test.ts`: argv, environment and home per harness.
-- [ ] The sandbox conformance case for a skill in a home.
-- [ ] `bun test`
-- [ ] `bunx tsc --noEmit`
-- [ ] `bun run scripts/check-boundaries.ts`
+- [x] `packages/engine/src/skills/*.test.ts`: sources, the copy and its refusals, the digest, a
+  path's snapshot, public skills by branch, tag, annotated tag, full and short commit, behind a
+  shallow cache, offline once kept, `export-ignore`, a path outside ASCII, one commit for two skills
+  of one repository; and, through the runner with fake harnesses, two agents in one sandbox with
+  different sets, a host codex's own home, a host pi, records for none named, refusals with no
+  record, and a reopen conflict.
+- [x] `packages/harness/src/capabilities/skills.test.ts`: layout and launch per harness, the
+  shared root turned off by real path, TOML escaping, claude's run root inside its cwd refused.
+- [x] Adapter argv: headless and resumed turns for claude, codex and pi; a claude pane's arguments
+  last; a host codex tab's `CODEX_HOME`; an adapter without `givesSkills` refusing.
+- [x] `bun test`: 734 pass, 10 skip, 0 fail.
+- [x] `bun run check`: Biome, `tsc` and the boundaries clean.
 
-Manual or live evaluation:
+Live, 2026-09-26, on subscriptions:
 
-- [ ] `skills.eval.ts` on the host and in srt; docker by hand once, as story 004 did.
+- [x] `skills`: passed, 5 agents in ~15 s, ~$0.06. codex and pi on the host and sharing one srt
+  sandbox each reported only their own probe's word and listed only their own probe; the claude pane
+  listed its probe and claude's bundled skills, none of the operator's. The first run failed on
+  the claude pane only, which wrote its answer over its launcher (todo filed).
+- [x] `harnesses` ~$0.06 and `failed-run` under a cent: passed.
+- [x] `minimum-review`: passed, ~$0.04. It first failed because this story's documents were being
+  edited in the repository it fingerprints, then on its own preflight with a setup token exported.
+- [x] `sandbox-srt`: passed, ~$0.29, with `CLAUDE_CODE_OAUTH_TOKEN` loaded from `.env`; it fails
+  without it, as it should.
+- [x] `sandbox-panes-srt`: passed, ~$0.28. One run before it failed: the sandboxed claude pane
+  declined the probe as instructions in pasted content, which no argument of this story changes.
+- [ ] `sandbox-docker` and `sandbox-panes-docker`: not run. Skills reach a box through the same
+  staged home as srt's, which the engine fills before any provider sees it.
 
 ## Review record
 
@@ -574,8 +592,8 @@ Deviations from the proposal, and why:
 
 ## Human review
 
-- [ ] Every task is complete and story-level verification passes.
-- [ ] Set the story status to `awaiting-human-review` and present the outcome, architecture
+- [x] Every task is complete and story-level verification passes.
+- [x] Set the story status to `awaiting-human-review` and present the outcome, architecture
   decisions, task-level subagent findings and dispositions, exact verification results, deviations,
   and remaining risks.
 - [ ] Record the human's explicit approval or requested changes here.
