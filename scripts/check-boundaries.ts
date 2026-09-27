@@ -91,6 +91,9 @@ function rules(root: string): Rule[] {
   ];
 }
 
+const DECISION_PROVIDER = /^packages\/engine\/src\/decisions\/openrouter(\.ts)?$/;
+const DECISION_FAKE = /^packages\/engine\/src\/decisions\/fake(\.ts)?$/;
+
 /** Any entry of `@wf/sandbox` but its main one, and `allowed`. */
 function providerImport(reason: string, allowed?: string): { pattern: RegExp; reason: string } {
   return {
@@ -131,6 +134,24 @@ const RULES: Rule[] = [
     dir: "packages/engine",
     files: "**/*.test.ts",
     forbid: [providerImport("only operator-runtime.ts imports a sandbox provider", "testing")],
+  },
+  // The same for decision providers, which the engine holds itself: only the composition root
+  // installs OpenRouter, and the fake is for tests.
+  {
+    dir: "packages/engine/src",
+    except: ["operator-runtime.ts", "**/*.test.ts"],
+    paths: (target) => !DECISION_PROVIDER.test(target) && !DECISION_FAKE.test(target),
+  },
+  {
+    dir: "packages/engine/src",
+    files: "operator-runtime.ts",
+    paths: (target) => !DECISION_FAKE.test(target),
+  },
+  {
+    dir: "packages/engine/src",
+    files: "**/*.test.ts",
+    except: ["decisions/openrouter.test.ts"],
+    paths: (target) => !DECISION_PROVIDER.test(target),
   },
   // The seam depends on nothing in harness: `runProcess` accepts its command, not the reverse.
   {

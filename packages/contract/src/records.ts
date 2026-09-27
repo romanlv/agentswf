@@ -80,7 +80,7 @@ export type SettledOperation = OperationRecord & {
  */
 export type DecisionArtifact = {
   record: SettledDecision;
-  request: { state: JsonValue; questions: Record<string, Question> };
+  request: { state: string | JsonObject | JsonValue[]; questions: Record<string, Question> };
   /** As `decide` returned them; absent when the call did not answer. */
   answers?: JsonObject;
 };

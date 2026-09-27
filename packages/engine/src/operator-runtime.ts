@@ -14,6 +14,7 @@ import type { AgentRuntimeConfig } from "@wf/harness/adapter";
 import type { SandboxProviders } from "@wf/sandbox";
 import { createDockerProvider, findDocker } from "@wf/sandbox/docker";
 import { createSrtProvider, findSrt } from "@wf/sandbox/srt";
+import { createOpenRouterProvider } from "./decisions/openrouter";
 import type { DecisionInstallation } from "./decisions/seam";
 
 export type OperatorRuntimeInstallation = {
@@ -41,7 +42,7 @@ export async function installOperatorRuntime(
   options: OperatorRuntimeOptions = {},
 ): Promise<OperatorRuntimeInstallation> {
   const { run = runProcess, environment = process.env, watchSandboxes = true } = options;
-  const unmetered = withholding(run, METERED_CREDENTIAL_ENVIRONMENT);
+  const unmetered = withholding(run, WITHHELD_ENVIRONMENT);
   await assertSubscriptionAuthentication(unmetered, environment);
   const panes = (session: string) =>
     createHerdrRunHostFactory(
@@ -50,7 +51,7 @@ export async function installOperatorRuntime(
         workspaceLabel: "awf run",
         commandTimeoutMs: Math.min(timeoutMilliseconds, 150_000),
         settleTimeoutMs: timeoutMilliseconds,
-        emptyEnvironment: METERED_CREDENTIAL_ENVIRONMENT,
+        emptyEnvironment: WITHHELD_ENVIRONMENT,
         acceptWorkspaceTrust: true,
         watchSandboxes,
       },
@@ -81,6 +82,7 @@ export async function installOperatorRuntime(
       host,
     },
     sandboxes: await installSandboxes(environment),
+    decisions: installDecisions(environment),
     // Nothing to undo: the agent's `wf` is a launcher the control plane installs beside its own
     // socket, and the control plane removes both when the run closes.
     cleanup: async () => undefined,
@@ -120,6 +122,30 @@ export async function installSandboxes(
 }
 
 /**
+ * Jev through OpenRouter, as `jev`, when `OPENROUTER_API_KEY` is set. The engine holds the key;
+ * no agent's environment has it. Without a usable key, asking for `jev` says why.
+ */
+export function installDecisions(
+  environment: Readonly<Record<string, string | undefined>>,
+): DecisionInstallation {
+  const apiKey = environment.OPENROUTER_API_KEY?.trim();
+  const refused = (reason: string) => ({
+    providers: {},
+    aliases: {},
+    unavailable: { jev: reason },
+  });
+  if (!apiKey) return refused("OPENROUTER_API_KEY is not set");
+  // A key with a space or line break in it would be quoted back by the request that failed on it.
+  if (!/^[\x21-\x7e]+$/.test(apiKey)) {
+    return refused("OPENROUTER_API_KEY is not one token of printable characters");
+  }
+  return {
+    providers: { openrouter: createOpenRouterProvider({ apiKey }) },
+    aliases: { jev: { provider: "openrouter", model: "typesafe/jev-1.13" } },
+  };
+}
+
+/**
  * `AWF_HERDR_SESSION` when set; otherwise the session of the pane awf runs in, so its agents open
  * beside it; `default` outside Herdr.
  */
@@ -155,6 +181,12 @@ const METERED_CREDENTIAL_ENVIRONMENT = [
   "OPENAI_BASE_URL",
   "CODEX_API_KEY",
 ] as const;
+
+/**
+ * Unset for every agent: the metered credentials, which also refuse the run, and the engine's own,
+ * which a harness such as pi would otherwise bill against.
+ */
+const WITHHELD_ENVIRONMENT = [...METERED_CREDENTIAL_ENVIRONMENT, "OPENROUTER_API_KEY"] as const;
 
 async function assertSubscriptionAuthentication(
   run: RunProcess,

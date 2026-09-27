@@ -111,7 +111,7 @@ export interface DecisionSpec<Q extends Record<string, Question> = Record<string
   key: string;
   model: DecisionAliasName;
   /** What every question is asked about. The provider bills it once per call, however many questions. */
-  state: string | JsonValue;
+  state: string | JsonObject | JsonValue[];
   /** At least one. They are answered independently and do not see each other's answers. */
   questions: Q;
   /** Defaults to the current scope's deadline, and can only be earlier. */

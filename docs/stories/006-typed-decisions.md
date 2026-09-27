@@ -501,7 +501,7 @@ Alternatives rejected:
 ## Tasks at a glance
 
 - [x] 1. `decide` end to end on a fake provider: the types, the engine, the record, the accounting
-- [ ] 2. The OpenRouter provider, installed from the operator's environment, with its key withheld from agents
+- [x] 2. The OpenRouter provider, installed from the operator's environment, with its key withheld from agents
 - [ ] 3. `matchFindings` and its workflow in autoresearch
 - [ ] 4. Measure matching on a variant's own findings
 
@@ -605,12 +605,12 @@ no agent can read the key.
 
 Execution:
 
-- [ ] Plan: map the request and answers both ways, classify HTTP errors, and split the credential
+- [x] Plan: map the request and answers both ways, classify HTTP errors, and split the credential
   list.
-- [ ] Implement: `openrouter.ts`, `installDecisions`, the withheld list, and the boundary rule.
-- [ ] Review: architecture and scope; correctness and proof.
-- [ ] Resolve: disposition every finding.
-- [ ] Verify: unit tests against recorded responses, the environment test, and the live eval.
+- [x] Implement: `openrouter.ts`, `installDecisions`, the withheld list, and the boundary rule.
+- [x] Review: architecture and scope; correctness and proof.
+- [x] Resolve: disposition every finding.
+- [x] Verify: unit tests against recorded responses, the environment test, and the live eval.
 
 Work:
 
@@ -770,8 +770,44 @@ code, and each has a disposition.
 
 ### Task 2
 
+Two subagents on 2026-09-26, one per dimension, after the live run. Every finding was checked
+against the code, and each has a disposition.
+
 - Architecture and scope:
+  - The triage example needs both subscription logins, because `awf run` checks them at start even
+    for a workflow with no agent. **Documented** in `examples/README.md`. Making the check lazy
+    changes the operator runtime's contract, which is a story of its own.
+  - The live eval stubbed the runtime, so `awf run` → `installOperatorRuntime` → runner was never
+    run live. **Fixed:** the eval uses the real installer.
+  - `minimum-review.eval.ts` keeps its own credential list, without the key. **Fixed:** the key
+    was added there, and `docs/testing.md` loads `.env` for `eval decisions` alone.
+  - The new boundary was not in `AGENTS.md`. **Fixed:** it is in boundary 4.
+  - The rule let `operator-runtime.ts` import the fake. **Fixed:** the rule is split, and tested.
+  - Without the key, the error did not say what to set. **Fixed:** `DecisionInstallation.unavailable`
+    names the reason, as sandboxes do: `decision model "jev" is unavailable: OPENROUTER_API_KEY is
+    not set`.
+  - Aliases are hard-coded for one model. **No change:** the seam takes more providers and
+    aliases, and a second model adds a block or an operator alias file.
+  - `triageTicket` is exported with no importer. **No change:** it shows how a decision is shared,
+    and examples export their helpers.
 - Correctness and proof:
+  - A key containing a line break was quoted back by the transport's error, retried three times,
+    and written to the record, the artifact and `output.json`. **Fixed:** `installDecisions`
+    refuses a key that is not one printable token, and the provider redacts the key from any
+    error. Tested.
+  - Missing `usage` was recorded as zero tokens, so the call was priced at $0. **Fixed:**
+    `ProviderResponse.tokens` is optional, and unknown stays unknown. Tested.
+  - A body cut off mid-read was not retried. **Fixed:** it is retried like a failed connection.
+    Tested.
+  - Spend reported with an error was dropped. **Fixed:** it is kept. Tested.
+  - A 200 carrying `{ error }` was treated as permanent, and its message was lost. **Fixed:** it is
+    classified by its code. Tested.
+  - A choice answered as a score was reported as unanswered, and a score keyed past its levels was
+    accepted. **Fixed:** both are rejected, with the reason. Tested.
+  - A number, boolean or `null` state was sent and refused by Jev. **Fixed:** `DecisionSpec.state`
+    is `string | JsonObject | JsonValue[]`, and it is checked before sending. Tested.
+  - Missing proofs are now tested: a confident "no" on the yes-no, a flagged bug, and 402, 413, 500,
+    503 and 524.
 
 ### Task 3
 
@@ -818,6 +854,25 @@ Built in the worktree `../worktrees/awf-story-006-typed-decisions`, branch
 - **An answered call whose artifact can't be written is recorded `failed`.** Without the artifact,
   its answer can't be fitted again.
 - `OperatorRuntimeInstallation.decisions` is optional and unset until Task 2 installs OpenRouter.
+
+### Task 2
+
+- **An example, at the operator's request:** `examples/triage/`. It routes support tickets with
+  one decision each, and flags an answer below 0.9 as `unsure`. `tests/triage.test.ts` runs it
+  offline, and the live eval runs it on Jev.
+- **The eval runs the example** through `awf run` and the real operator runtime, not a bare call.
+  It needs both subscription logins, as every eval does.
+- **The provider keeps only distributions.** It keeps probabilities, the snapshot, tokens, cost and
+  the request id. Jev's `choice`, `score` and `confidence` are dropped, and the directory derives
+  the picks.
+- **Retryable:** 429, any 5xx, and a connection that fails or breaks mid-body. A 200 carrying
+  `{ error }` is classified by its code.
+- **`installDecisions` always returns an installation.** Without a usable key it has no aliases,
+  and `unavailable` says why.
+- **The first accounting line of a run with no agents** reads `0 agents · 0s`, not a list of
+  agent gaps that cannot apply.
+- **Live**, 2026-09-26: `bun run eval decisions` passed, 4 tickets for $0.00007, all four routed as
+  expected. `awf run examples/triage/workflow.ts` on two tickets flagged the ambiguous answers.
 
 ## Human review
 

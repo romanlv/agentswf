@@ -484,6 +484,28 @@ describe("RunDecisions", () => {
     });
   });
 
+  test("a state Jev cannot take, or a model the operator could not install, is refused before sending", async () => {
+    const provider = createFakeDecisionProvider();
+    const decisions = new RunDecisions({
+      installation: { ...installation(provider), unavailable: { other: "OTHER_KEY is not set" } },
+      runDir: runDirs.tempRunDir(),
+    });
+    const ask = (model: string, state: unknown) =>
+      decisions
+        .decide(
+          { key: "k", model, state: state as string, questions: TRIAGE },
+          { deadline: future() },
+        )
+        .catch((error: Error) => error.message);
+    expect(await ask("jev", 42)).toBe("decision k: a state is text, an object or an array");
+    expect(await ask("jev", null)).toBe("decision k: a state is text, an object or an array");
+    expect(await ask("other", "s")).toBe(
+      'decision model "other" is unavailable: OTHER_KEY is not set',
+    );
+    expect(provider.requests).toEqual([]);
+    expect(decisions.records()).toEqual([]);
+  });
+
   test("rejects a deadline that is not one, rather than ignoring it", async () => {
     const decisions = new RunDecisions({
       installation: installation(createFakeDecisionProvider()),
@@ -571,7 +593,7 @@ describe("decision accounting", () => {
     expect(summary.byStage.map(({ stage }) => stage)).toEqual(["match", "grade"]);
     expect(summary.byAgent).toEqual([]);
     expect(describeAccounting(summary)).toEqual([
-      "0 agents · 5s · no usage known · unknown · usage known 0/0 · unpriced: other/model-v2",
+      "0 agents · 5s · unpriced: other/model-v2",
       "  3 decisions · 2.00M tokens · ~$0.04 at list prices 2026-09-26 · usage known 2/3 · priced 1/3",
       "  match  1 decision · 0s · ~$0.04",
       "  grade  2 decisions · 0s · usage known 1/2 · priced 0/2",

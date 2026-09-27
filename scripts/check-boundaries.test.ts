@@ -27,7 +27,8 @@ test("sandbox providers stay behind the seam and the composition root", async ()
     "packages/harness/src/adapter.ts": 'import "@wf/sandbox";\nimport "@wf/sandbox/srt";\n',
     "packages/engine/package.json": manifest("@wf/engine", "@wf/sandbox"),
     "packages/engine/src/runner.ts": 'import "@wf/sandbox/docker";\n',
-    "packages/engine/src/operator-runtime.ts": 'import "@wf/sandbox/srt";\n',
+    "packages/engine/src/operator-runtime.ts":
+      'import "@wf/sandbox/srt";\nimport "./decisions/openrouter";\nimport "./decisions/fake";\n',
     "packages/engine/src/runner.test.ts": 'import "@wf/sandbox/testing";\n',
     "packages/sandbox/package.json": manifest("@wf/sandbox", "@wf/harness"),
     "packages/sandbox/src/seam.ts": 'import "@wf/harness";\n',
@@ -40,9 +41,16 @@ test("sandbox providers stay behind the seam and the composition root", async ()
     "packages/harness/src/adapter.test.ts":
       'import "@wf/sandbox/testing";\nimport "@wf/sandbox/srt";\n',
     "packages/engine/src/testing-in-production.ts": 'import "@wf/sandbox/testing";\n',
+    "packages/engine/src/decisions/directory.ts": 'import "./openrouter";\nimport "./fake";\n',
+    "packages/engine/src/decisions/fake.test.ts": 'import "./fake";\nimport "./openrouter";\n',
+    "packages/engine/src/decisions/openrouter.test.ts": 'import "./openrouter";\n',
   });
   const found = (await boundaryProblems(root)).filter((problem) => !problem.includes("stale"));
   expect(found).toEqual([
+    "packages/engine/src/decisions/directory.ts: path import ./fake reaches what packages/engine/src may not",
+    "packages/engine/src/decisions/directory.ts: path import ./openrouter reaches what packages/engine/src may not",
+    "packages/engine/src/decisions/fake.test.ts: path import ./openrouter reaches what packages/engine/src may not",
+    "packages/engine/src/operator-runtime.ts: path import ./decisions/fake reaches what packages/engine/src may not",
     "packages/engine/src/runner.ts: imports @wf/sandbox/docker — only operator-runtime.ts imports a sandbox provider",
     "packages/engine/src/testing-in-production.ts: imports @wf/sandbox/testing — only operator-runtime.ts imports a sandbox provider",
     "packages/harness/src/adapter.test.ts: imports @wf/sandbox/srt — harness knows the sandbox seam, never a provider",

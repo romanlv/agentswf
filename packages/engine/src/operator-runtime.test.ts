@@ -2,7 +2,12 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import type { ProcessInput, ProcessResult, RunProcess } from "@wf/harness";
-import { herdrSession, installOperatorRuntime, installSandboxes } from "./operator-runtime";
+import {
+  herdrSession,
+  installDecisions,
+  installOperatorRuntime,
+  installSandboxes,
+} from "./operator-runtime";
 
 describe("operator runtime", () => {
   const before = new Set(readdirSync(tmpdir()).filter((name) => name.startsWith("awf-agent-bin-")));
@@ -124,6 +129,57 @@ describe("operator runtime", () => {
     await expect(herdrSession(run, { HERDR_SOCKET_PATH: "/elsewhere.sock" })).rejects.toThrow(
       "no Herdr session owns /elsewhere.sock",
     );
+  });
+
+  test("OPENROUTER_API_KEY installs Jev without refusing the run, and no agent is given it", async () => {
+    expect(installDecisions({}).unavailable).toEqual({ jev: "OPENROUTER_API_KEY is not set" });
+    expect(installDecisions({ OPENROUTER_API_KEY: "sk-or-one\nsk-or-two" })).toEqual({
+      providers: {},
+      aliases: {},
+      unavailable: { jev: "OPENROUTER_API_KEY is not one token of printable characters" },
+    });
+    const calls: ProcessInput[] = [];
+    const installed = await installOperatorRuntime(60_000, {
+      run: subscriptionRunner(calls),
+      environment: { OPENROUTER_API_KEY: "sk-or-test" },
+    });
+    try {
+      expect(installed.decisions?.aliases).toEqual({
+        jev: { provider: "openrouter", model: "typesafe/jev-1.13" },
+      });
+      const deadline = { unixMilliseconds: Date.now() + 60_000 };
+      const host = await installed.config.host.openRun({ runId: "run-1", cwd: "/repo", deadline });
+      const codex = await host.openAgent({
+        key: "headless",
+        cwd: "/repo",
+        deadline,
+        execution: { harness: "codex", model: "m", placement: "headless" },
+      });
+      const turn = await codex.start(
+        { id: "turn-1", prompt: "review", deadline },
+        { endpoint: "/private/engine.sock", operationId: "op-1" },
+      );
+      await turn.settled;
+      // A pane agent gets as far as its workspace, whose environment is where the key is emptied.
+      await host
+        .openAgent({
+          key: "pane",
+          cwd: "/repo",
+          deadline,
+          execution: { harness: "codex", model: "m" },
+        })
+        .catch(() => undefined);
+      await host.close();
+      const headless = calls.find((call) => call.argv[0] === "codex" && call.argv[1] === "exec");
+      expect(headless?.env).toHaveProperty("OPENROUTER_API_KEY", undefined);
+      const workspace = calls.find(
+        (call) => call.argv.slice(3, 5).join(" ") === "workspace create",
+      );
+      expect(workspace?.argv.join(" ")).toContain("OPENROUTER_API_KEY");
+      expect(calls.some((call) => call.argv.join(" ").includes("sk-or-test"))).toBe(false);
+    } finally {
+      await installed.cleanup();
+    }
   });
 
   test("refuses a subscription runtime when metered credentials are configured", async () => {

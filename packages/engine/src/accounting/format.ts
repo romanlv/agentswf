@@ -6,22 +6,30 @@ import type { AccountingFigures, DecisionFigures, RunAccounting } from "@wf/cont
  */
 export function describeAccounting(accounting: RunAccounting): string[] {
   const { totals } = accounting;
-  const first = [
-    plural(totals.agents, "agent"),
-    duration(accounting.wallMs),
-    totals.known === 0
-      ? "no usage known"
-      : `${plural(total(totals), "token", count)} (${count(totals.tokens.cacheRead)} cached)`,
-    ...(totals.estimate === undefined
-      ? []
-      : [`${estimate(totals.estimate)} at ${accounting.basis}`]),
-    ...(totals.charged === undefined ? [] : [`${usd(totals.charged)} charged`]),
-    accounting.billing,
-    ...(totals.billed < totals.agents ? [`billing known ${totals.billed}/${totals.agents}`] : []),
-    `usage known ${totals.known}/${totals.agents}`,
-    ...gaps(totals),
-    ...(accounting.unpriced.length === 0 ? [] : [`unpriced: ${accounting.unpriced.join(", ")}`]),
-  ];
+  const unpriced =
+    accounting.unpriced.length === 0 ? [] : [`unpriced: ${accounting.unpriced.join(", ")}`];
+  // A run that opened no agent has no agent usage to be missing.
+  const first =
+    totals.agents === 0
+      ? [plural(0, "agent"), duration(accounting.wallMs), ...unpriced]
+      : [
+          plural(totals.agents, "agent"),
+          duration(accounting.wallMs),
+          totals.known === 0
+            ? "no usage known"
+            : `${plural(total(totals), "token", count)} (${count(totals.tokens.cacheRead)} cached)`,
+          ...(totals.estimate === undefined
+            ? []
+            : [`${estimate(totals.estimate)} at ${accounting.basis}`]),
+          ...(totals.charged === undefined ? [] : [`${usd(totals.charged)} charged`]),
+          accounting.billing,
+          ...(totals.billed < totals.agents
+            ? [`billing known ${totals.billed}/${totals.agents}`]
+            : []),
+          `usage known ${totals.known}/${totals.agents}`,
+          ...gaps(totals),
+          ...unpriced,
+        ];
   const width = Math.max(0, ...accounting.byStage.map(({ stage }) => stage.length));
   return [
     first.join(" · "),

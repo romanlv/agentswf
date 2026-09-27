@@ -95,6 +95,8 @@ const METERED_CREDENTIAL_ENV = [
   "OPENAI_API_KEY",
   "OPENAI_BASE_URL",
   "CODEX_API_KEY",
+  // Not metered for agents, but pi would bill against it: withheld as the operator runtime does.
+  "OPENROUTER_API_KEY",
 ] as const;
 
 export function liveRuntime(

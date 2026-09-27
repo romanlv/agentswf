@@ -63,6 +63,23 @@ proving a harness, its result channel and the run's accounting for a few cents:
 bun awf run examples/quick-check/workflow.ts -- codex pi
 ```
 
+## Ask a decision model
+
+`triage/` routes support tickets with Jev, a decision model: one call per ticket asks which team
+owns it, whether it reports a bug, and how urgent it is, and gets a probability for every answer
+back in a few hundred milliseconds. An answer below 0.9 is flagged `unsure` rather than taken. It
+needs `OPENROUTER_API_KEY`, which the engine holds and no agent is given, and it costs about
+$0.00002 a ticket. It opens no agent, but `awf run` still checks the Claude and Codex subscription
+logins at start, as for any workflow:
+
+```sh
+OPENROUTER_API_KEY=… bun awf run examples/triage/workflow.ts
+bun awf run examples/triage/workflow.ts -- "The invoice PDF shows last month's total"
+```
+
+With no tickets after `--` it triages four synthetic ones. `triageTicket` is the call as a plain
+function, which is how a workflow shares a decision with others (story 006).
+
 ## See what a sandbox allows
 
 `sandboxes/` shows two ways to sandbox agents, each agent running a few shell commands and
@@ -102,13 +119,14 @@ Each example that spans more than one file has a folder of its own, with its wor
 - `feature-delivery/` is a typechecked design for planning, implementation, review, and revision.
 - `quick-check/` is the smoke test above.
 - `sandboxes/` is the sandbox tour above.
+- `triage/` is the decision model example above.
 - `sandbox-probe/` runs agents in a shared and a private sandbox, each running fixed shell
   commands and reporting what each printed. It is the apparatus of `tests/sandbox-*.eval.ts`,
   which plant the canaries and pass the plan as one JSON argument, not something to run by hand.
   Its claude runs headless and so needs `CLAUDE_CODE_OAUTH_TOKEN`.
 - `output-schema/` is the TypeBox-to-output-schema helper the workflows share, with its type tests.
 
-Only `minimum-review/review-loop.ts`, `quick-check/workflow.ts`, `sandboxes/workflow.ts` and
-`sandbox-probe/workflow.ts` have the executable default export required by `awf run`.
+Only `minimum-review/review-loop.ts`, `quick-check/workflow.ts`, `sandboxes/workflow.ts`,
+`sandbox-probe/workflow.ts` and `triage/workflow.ts` have the executable default export required by `awf run`.
 A catalogue review's entry point lives beside the catalogue it reads, outside this package, because
 reading one is I/O and a workflow here is pure.

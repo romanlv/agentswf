@@ -1,5 +1,5 @@
 import type { Money } from "@wf/contract/records";
-import type { JsonValue, Question } from "@wf/contract/workflow";
+import type { JsonObject, JsonValue, Question } from "@wf/contract/workflow";
 
 /**
  * A question's distribution, as awf shapes it, before the picks are derived: a choice's by option
@@ -12,7 +12,7 @@ export type ProviderAnswer =
 
 export type ProviderRequest = {
   model: string;
-  state: string | JsonValue;
+  state: string | JsonObject | JsonValue[];
   questions: Record<string, Question>;
 };
 
@@ -20,7 +20,8 @@ export type ProviderResponse = {
   /** The versioned model that answered. */
   snapshot: string;
   answers: Record<string, ProviderAnswer>;
-  tokens: { input: number; output: number };
+  /** Absent when the provider did not report them: unknown, not zero. */
+  tokens?: { input: number; output: number };
   charged?: Money;
   requestId?: string;
 };
@@ -62,4 +63,6 @@ export class DecisionProviderError extends Error {
 export type DecisionInstallation = {
   providers: Readonly<Record<string, DecisionProvider>>;
   aliases: Readonly<Record<string, { provider: string; model: string }>>;
+  /** Aliases that could not be installed, and why, so asking for one says what to fix. */
+  unavailable?: Readonly<Record<string, string>>;
 };

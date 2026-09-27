@@ -98,11 +98,18 @@ export class RunDecisions {
     const ids = Object.keys(spec.questions ?? {});
     if (ids.length === 0) throw new Error(`decision ${spec.key} asks no questions`);
     for (const id of ids) assertQuestion(spec.key, id, spec.questions[id]!);
+    if (typeof spec.state !== "string" && (typeof spec.state !== "object" || spec.state === null)) {
+      throw new Error(`decision ${spec.key}: a state is text, an object or an array`);
+    }
     const installed = this.options.installation;
     const resolved =
       installed && Object.hasOwn(installed.aliases, spec.model)
         ? installed.aliases[spec.model]
         : undefined;
+    const unavailable = installed?.unavailable;
+    if (!resolved && unavailable && Object.hasOwn(unavailable, spec.model)) {
+      throw new Error(`decision model "${spec.model}" is unavailable: ${unavailable[spec.model]}`);
+    }
     if (!installed || !resolved) {
       const known = Object.keys(installed?.aliases ?? {});
       throw new Error(
