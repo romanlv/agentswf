@@ -3,7 +3,7 @@ id: "006"
 title: Ask a decision model a typed question from a workflow
 summary: A workflow asks a System One model, Jev first, typed questions about a state and gets probabilities back, recorded and costed with the run; autoresearch uses it to match review findings to an answer key.
 type: story
-status: draft
+status: in-progress
 discovered_in: "ideas.md (Jev), 2026-09-26"
 depends_on: ["004"]
 ---
@@ -235,7 +235,7 @@ Out of scope:
 
 - `packages/contract/src/workflow/decisions.ts` (new), exported from
   `packages/contract/src/workflow/index.ts`:
-  - `DecisionSpec<Q>` and `DecisionSelection`;
+  - `DecisionSpec<Q>`;
   - `DecisionAliasName` (a string, like `RuntimeAliasName`);
   - `Question` (`ChoiceQuestion<O> | ScoreQuestion<L> | YesNoQuestion`) and `Answer<Q>`;
   - the builders `choice`, `score` and `yesNo`: pure, typed by `const` generics, and rejecting an
@@ -345,13 +345,13 @@ strict `tsc`, including the compile errors, and follow the TypeSafe SDK's `Resul
 ```ts
 type DecisionText = string | JsonObject;           // structured instructions are allowed, as Jev allows
 type DecisionAliasName = string;
-type Options = Record<string, DecisionText | null>;
-type Levels = readonly [DecisionText, ...DecisionText[]];
+type DecisionOptions = Record<string, DecisionText | null>;
+type DecisionLevels = readonly DecisionText[];   // non-empty is checked by the builder, so a run-time list compiles
 
-interface ChoiceQuestion<O extends Options = Options> {
+interface ChoiceQuestion<O extends DecisionOptions = DecisionOptions> {
   readonly type: "choice"; readonly instructions: DecisionText; readonly options: O;
 }
-interface ScoreQuestion<L extends Levels = Levels> {
+interface ScoreQuestion<L extends DecisionLevels = DecisionLevels> {
   readonly type: "score"; readonly instructions: DecisionText; readonly levels: L;
 }
 interface YesNoQuestion {
@@ -360,12 +360,12 @@ interface YesNoQuestion {
 }
 type Question = ChoiceQuestion | ScoreQuestion | YesNoQuestion;
 
-declare function choice<const O extends Options>(instructions: DecisionText, options: O): ChoiceQuestion<O>;
-declare function score<const L extends Levels>(instructions: DecisionText, levels: L): ScoreQuestion<L>;
+declare function choice<const O extends DecisionOptions>(instructions: DecisionText, options: O): ChoiceQuestion<O>;
+declare function score<const L extends DecisionLevels>(instructions: DecisionText, levels: L): ScoreQuestion<L>;
 declare function yesNo(instructions: DecisionText, criteria?: { yes: DecisionText; no: DecisionText }): YesNoQuestion;
 
 /** A tuple's indices as numbers, or `number` for a list only known at run time. */
-type LevelOf<L extends Levels> = number extends L["length"]
+type LevelOf<L extends DecisionLevels> = number extends L["length"]
   ? number
   : Extract<keyof L, `${number}`> extends `${infer N extends number}` ? N : never;
 
@@ -373,18 +373,15 @@ type Answer<Q> =
   Q extends ChoiceQuestion<infer O>
     ? { type: "choice"; choice: keyof O & string; probabilities: { readonly [K in keyof O]: number } }
   : Q extends ScoreQuestion<infer L>
-    ? { type: "score"; level: LevelOf<L>; expected: number; probabilities: { readonly [K in LevelOf<L>]: number } }
+    ? { type: "score"; level: LevelOf<L>; expected: number; probabilities: readonly number[] }
   : { type: "yes-no"; yes: number };
-
-type DecisionSelection = DecisionAliasName | { provider: string; model: string };
 
 interface DecisionSpec<Q extends Record<string, Question>> {
   key: string;                    // record identity and accounting stage; not unique
-  model: DecisionSelection;
+  model: DecisionAliasName;
   state: string | JsonValue;
   questions: Q;                   // at least one
   deadline?: AbsoluteDeadline;    // defaults to the scope deadline
-  timeoutMs?: number;
 }
 
 interface DecisionDirectory {
@@ -428,14 +425,14 @@ interface DecisionProvider {
 type DecisionRecord = {                    // @wf/contract/workflow
   callPath: string[];
   key: string;
+  alias: string;                  // as the workflow asked
   provider: string;
-  model: string;                  // as requested
-  alias?: string;
+  model: string;                  // as the alias resolved
   snapshot?: string;              // as answered; absent when none did
   startedAt: string;
   settledAt: string;
   questions: { id: string; type: Question["type"] }[];
-  /** Of every question's type, instructions, options or levels, and criteria: what a fitted threshold binds to, with `snapshot`. */
+  /** SHA-256 of the questions, a choice's option order included: what a fitted threshold binds to, with `snapshot`. */
   questionsDigest: string;
   outcome: "answered" | "failed" | "timed-out" | "cancelled";
   error?: string;
@@ -449,6 +446,12 @@ type DecisionRecord = {                    // @wf/contract/workflow
 };
 
 type SettledDecision = DecisionRecord & { charged?: Money };  // @wf/contract/records
+
+type DecisionArtifact = {                                      // decisions/{n}.json
+  record: SettledDecision;
+  request: { state: JsonValue; questions: Record<string, Question> };
+  answers?: JsonObject;                                        // as `decide` returned them
+};
 ```
 
 Invariants and errors:
@@ -458,10 +461,15 @@ Invariants and errors:
   of that is a failure and never a partial result. OpenRouter's schema marks `probabilities`
   optional, so this is checked, not assumed.
 - Probabilities are passed on as the provider gives them. Jev rounds them to two decimals and they
-  sum to 0.99–1.00 (S10); awf does not renormalise them.
+  sum to 0.99–1.00 (S10); awf does not renormalise them. It rejects a distribution whose sum is
+  further from 1 than that rounding allows (0.02, or 0.005 per value past four).
 - A failure rejects `decide`, after retries within the deadline: `DeadlineExceededError` when the
-  deadline passed, otherwise `DecisionError` with the provider's message. It is still recorded with its attempts and whatever spend was reported. A failed run keeps its
-  decisions, as story 003 keeps agent spend.
+  deadline passed, otherwise `DecisionError` with the provider's message. It is still recorded
+  with its attempts and whatever spend was reported. A failed run keeps its decisions, as story
+  003 keeps agent spend. A spec the engine refuses (an unknown alias, no questions, an invalid
+  deadline) rejects with an `Error` before anything is sent, and leaves no record.
+- An answered call whose artifact can't be written is recorded `failed`: its answer could not be
+  fitted again. Any other outcome stands, with the lost write added to its error.
 - The artifact is written by the engine, the only writer of the run directory. It holds the state,
   so it is as private as the run's other artifacts.
 - The credential is read once, when the operator runtime starts. It is withheld from every agent's
@@ -492,7 +500,7 @@ Alternatives rejected:
 
 ## Tasks at a glance
 
-- [ ] 1. `decide` end to end on a fake provider: the types, the engine, the record, the accounting
+- [x] 1. `decide` end to end on a fake provider: the types, the engine, the record, the accounting
 - [ ] 2. The OpenRouter provider, installed from the operator's environment, with its key withheld from agents
 - [ ] 3. `matchFindings` and its workflow in autoresearch
 - [ ] 4. Measure matching on a variant's own findings
@@ -555,12 +563,12 @@ prices every call. The types and their implementation land together (ADR 0001).
 
 Execution:
 
-- [ ] Plan: the ledger's shape for decisions, and the retry backoff (in the directory, not the
+- [x] Plan: the ledger's shape for decisions, and the retry backoff (in the directory, not the
   provider).
-- [ ] Implement: this task's contract and engine files from the code map, and the foundation rows.
-- [ ] Review: architecture and scope; correctness and proof.
-- [ ] Resolve: disposition every finding.
-- [ ] Verify: the focused tests, `bun test`, `bunx tsc --noEmit`, `bun run scripts/check-boundaries.ts`.
+- [x] Implement: this task's contract and engine files from the code map, and the foundation rows.
+- [x] Review: architecture and scope; correctness and proof.
+- [x] Resolve: disposition every finding.
+- [x] Verify: the focused tests, `bun test`, `bunx tsc --noEmit`, `bun run scripts/check-boundaries.ts`.
 
 Work:
 
@@ -717,8 +725,48 @@ Manual or live evaluation:
 
 ### Task 1
 
+Two read-only subagents on 2026-09-26, one per dimension. Every finding was checked against the
+code, and each has a disposition.
+
 - Architecture and scope:
+  - The artifact was an unnamed format, and `questions` meant two things. **Fixed:**
+    `DecisionArtifact` in `records`, `{ record, request, answers }`, written with the settled
+    record, `charged` included.
+  - A score's `probabilities` was typed as an object and returned as an array. **Fixed:** it is
+    `readonly number[]`.
+  - `decide`'s documentation promised a record for every rejection. **Fixed:** a refused spec is
+    documented as an unrecorded `Error`.
+  - `decisions` meant a count on `ModelFigures` and figures elsewhere, and `byAgent` allowed it.
+    **Fixed:** `ModelFigures.decisionCalls`, and `byAgent` omits `decisions` in its type.
+  - The price basis still named 2026-09-23. **Fixed:** 2026-09-26, the day Jev's rate was read.
+  - `summarizeRun`'s decisions were optional, so a re-pricing caller could silently drop them.
+    **Fixed:** required.
+  - Helper types were exported without a consumer. **Fixed:** `LevelOf` and the three answer
+    types are no longer exported. `DecisionOptions` and `DecisionLevels` stay, because they
+    constrain exported generics.
+  - `DecisionInstallation` is not in the engine's public entry. **No change:** autoresearch reaches
+    decisions through `WorkflowContext` and never builds an installation.
+  - The unwritable-artifact rule lived only in a comment. **Fixed:** it is in the invariants.
 - Correctness and proof:
+  - An unwritable artifact turned a timeout into a failure. **Fixed:** only `answered` is
+    downgraded, and the rest keep their outcome. Tested.
+  - A choice was not checked the way a score is: all zeros passed, and so did a sum of 2. **Fixed:**
+    both types reject a sum further from 1 than rounding allows. Tested.
+  - A second currency on a retry dropped the whole `charged`. **No change:** one provider bills one
+    currency. A mixed sum is unknown rather than wrong, as for agents.
+  - An option named `__proto__` gave a partial answer. **Fixed:** own-key reads, and the result is
+    built from entries. Tested.
+  - A NaN `deadline` was ignored. **Fixed:** it is validated before being combined. Tested.
+  - Stage lines hid partial pricing. **Fixed:** they show the same gaps as the totals line.
+  - An empty option map or level list still compiles. **No change, recorded:** a non-empty tuple
+    type would reject level lists known only at run time, so the builder checks when it is called.
+  - The cancel reason is generic ("workflow closed", "parallel deadline exceeded"). **No change:**
+    the outcome is right, and the reason is the engine's existing scope-cancel message, which
+    agents get too.
+  - The digest ignored option order, which breaks ties. **Fixed:** option order counts. Tested.
+  - Missing proofs are now tested: a wrong-typed answer, a yes-no without `yes`, an extra option,
+    a NaN, the cap of three requests, a retry skipped at the deadline, and a stage with both agents
+    and decisions.
 
 ### Task 2
 
@@ -745,6 +793,31 @@ Manual or live evaluation:
   the LLM baseline are left to Task 4's plan step, and they block nothing before it.
 
 ## Implementation notes
+
+### Task 1
+
+Built in the worktree `../worktrees/awf-story-006-typed-decisions`, branch
+`story-006-typed-decisions`, from `56c47be`. Where it differs from the design above, and why:
+
+- **No `DecisionSelection` and no `timeoutMs`.** `model` is an alias name only, and `deadline` is
+  the one bound. The `{ provider, model }` form and a second timeout had no consumer (ADR 0001).
+  The record keeps both `alias` and the `model` it resolved to.
+- **Decisions are not in the agent ledger.** `RunDecisions` (`engine/src/decisions/directory.ts`)
+  keeps them, as `RunSandboxes` keeps sandboxes. A decision is complete when it settles, while the
+  ledger exists to read agents' session files once the run has ended. `run-usage.ts` is unchanged.
+- **`DecisionRecord` is in `contract/workflow`, `SettledDecision` in `records`.** `decide` returns
+  the record and `DecisionError` carries it, and `workflow/` never imports `records.ts`.
+- **Decision figures are on `totals`, `byStage` and `byModel`, never `byAgent`.** A decision has no
+  agent. A stage is its key's prefix, as an agent's is.
+- **Priced by `snapshot`, else the requested model.** `RATES` has `typesafe/jev-1.13`.
+- **Retries:** at most 3 requests, backing off 500 ms then 1 s, and only while the backoff ends
+  before the deadline.
+- **Cancellation:** a parallel scope's deadline cancels its calls, and closing the workflow
+  cancels any call still in flight, which is then recorded `cancelled`. A provider that ignores
+  its `AbortSignal` still can't hold a call past its end.
+- **An answered call whose artifact can't be written is recorded `failed`.** Without the artifact,
+  its answer can't be fitted again.
+- `OperatorRuntimeInstallation.decisions` is optional and unset until Task 2 installs OpenRouter.
 
 ## Human review
 

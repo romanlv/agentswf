@@ -1,6 +1,9 @@
-import type { AccountingFigures, RunAccounting } from "@wf/contract/records";
+import type { AccountingFigures, DecisionFigures, RunAccounting } from "@wf/contract/records";
 
-/** The run in one line, then a line per stage. Gaps are named, never shown as zero. */
+/**
+ * The run in one line, its decisions in another when it asked any, then a line per stage. Gaps are
+ * named, never shown as zero.
+ */
 export function describeAccounting(accounting: RunAccounting): string[] {
   const { totals } = accounting;
   const first = [
@@ -22,19 +25,68 @@ export function describeAccounting(accounting: RunAccounting): string[] {
   const width = Math.max(0, ...accounting.byStage.map(({ stage }) => stage.length));
   return [
     first.join(" · "),
-    ...accounting.byStage.map((stage) =>
-      [
-        `  ${stage.stage.padEnd(width)}  ${plural(stage.agents, "agent")}`,
+    ...(totals.decisions ? [describeDecisions(totals.decisions, accounting.basis)] : []),
+    ...accounting.byStage.map((stage) => {
+      const agents =
+        stage.agents === 0
+          ? []
+          : [
+              stage.estimate !== undefined
+                ? estimate(stage.estimate)
+                : stage.known === 0
+                  ? "no usage known"
+                  : plural(total(stage), "token", count),
+              ...(stage.known < stage.agents ? [`usage known ${stage.known}/${stage.agents}`] : []),
+              ...gaps(stage),
+            ];
+      const decisions = stage.decisions
+        ? [
+            plural(stage.decisions.calls, "decision"),
+            ...(stage.decisions.estimate === undefined
+              ? stage.decisions.known === 0
+                ? ["no usage known"]
+                : []
+              : [
+                  stage.agents === 0
+                    ? estimate(stage.decisions.estimate)
+                    : `${estimate(stage.decisions.estimate)} in decisions`,
+                ]),
+            ...decisionGaps(stage.decisions),
+          ]
+        : [];
+      const counted = stage.agents === 0 && stage.decisions ? [] : [plural(stage.agents, "agent")];
+      return [
+        `  ${stage.stage.padEnd(width)}  ${[...counted, ...decisions.slice(0, 1)].join(", ")}`,
         duration(stage.spanMs),
-        stage.estimate !== undefined
-          ? estimate(stage.estimate)
-          : stage.known === 0
-            ? "no usage known"
-            : plural(total(stage), "token", count),
-        ...(stage.known < stage.agents ? [`usage known ${stage.known}/${stage.agents}`] : []),
-        ...gaps(stage),
-      ].join(" · "),
-    ),
+        ...agents,
+        ...decisions.slice(1),
+      ].join(" · ");
+    }),
+  ];
+}
+
+/** Decisions are not agents: their calls, tokens and cost stay on a line of their own. */
+function describeDecisions(decisions: DecisionFigures, basis: string): string {
+  const tokens = decisions.tokens.input + decisions.tokens.output;
+  return [
+    `  ${plural(decisions.calls, "decision")}`,
+    ...(decisions.attempts > decisions.calls ? [plural(decisions.attempts, "request")] : []),
+    decisions.known === 0 ? "no usage known" : plural(tokens, "token", count),
+    ...(decisions.estimate === undefined ? [] : [`${estimate(decisions.estimate)} at ${basis}`]),
+    ...(decisions.charged === undefined ? [] : [`${usd(decisions.charged)} charged`]),
+    ...decisionGaps(decisions),
+  ].join(" · ");
+}
+
+/** As for agents: unknown usage first, then usage known but not all priced. */
+function decisionGaps(decisions: DecisionFigures): string[] {
+  return [
+    ...(decisions.known < decisions.calls
+      ? [`usage known ${decisions.known}/${decisions.calls}`]
+      : []),
+    ...(decisions.priced < decisions.known
+      ? [`priced ${decisions.priced}/${decisions.calls}`]
+      : []),
   ];
 }
 

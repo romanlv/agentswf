@@ -33,7 +33,7 @@ function openai(input: number, cached: number, output: number, write = input * 1
 
 /**
  * List prices, read on 2026-09-23 from https://platform.claude.com/docs/en/about-claude/pricing
- * and https://developers.openai.com/api/docs/pricing. A subscription is not charged per token,
+ * and https://developers.openai.com/api/docs/pricing, and on 2026-09-26 from OpenRouter for Jev. A subscription is not charged per token,
  * but its allowance is drawn down roughly in proportion to these, so they price any run the same
  * way whoever pays for it.
  *
@@ -62,6 +62,8 @@ const RATES: Record<string, ModelRate> = {
   // No cache-write charge is listed for these.
   "gpt-5.5": openai(5, 0.5, 30, 5),
   "gpt-5.4": openai(2.5, 0.25, 15, 2.5),
+  // OpenRouter's listing, read on 2026-09-26: input only; output is reported and not charged.
+  "typesafe/jev-1.13": { input: 0.042, output: 0, cacheRead: 0, cacheWrite5m: 0, cacheWrite1h: 0 },
 };
 
 /**
@@ -76,7 +78,7 @@ function lookup(model: string): ModelRate | undefined {
   return own(bare) ?? (dated ? own(dated[1]!) : undefined);
 }
 
-export const PUBLISHED_PRICES: PriceTable = { basis: "list prices 2026-09-23", rate: lookup };
+export const PUBLISHED_PRICES: PriceTable = { basis: "list prices 2026-09-26", rate: lookup };
 
 /** `cacheWrite1h` is the part of `cacheWrite` with an hour's lifetime; the rest is five minutes. */
 export function costOf(tokens: TokenUsage, rate: ModelRate): number {

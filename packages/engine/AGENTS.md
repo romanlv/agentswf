@@ -21,6 +21,10 @@ production result path.
 something the engine quietly fixes. `result-slots.ts` is package-internal; callers outside the
 engine use the one-shot `runWorkflow` boundary in `workflow-runner.ts`.
 
+`src/decisions/` answers `decisions.decide`: `directory.ts` resolves aliases and owns deadlines,
+retries, artifacts and records; a provider (`seam.ts`) only sends one request and translates it.
+Only `operator-runtime.ts` installs a real provider; `fake.ts` is for tests.
+
 The runner owns one run and then disappears. Its logical agents serialize native operations, and
 its parallel scopes own activation, turns, and nested scopes until settlement. If an engine deadline
 cannot prove a native turn quiesced, that logical agent is terminalized before its queue advances.

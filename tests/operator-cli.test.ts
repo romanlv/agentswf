@@ -3,6 +3,7 @@ import { existsSync, readdirSync, readFileSync, realpathSync } from "node:fs";
 import { join } from "node:path";
 import { RUNTIMES } from "../examples/quick-check/workflow";
 import { OUTPUT_RECORD_VERSION } from "../packages/contract/src/records";
+import { createFakeDecisionProvider } from "../packages/engine/src/decisions/fake";
 import { runOperatorCli } from "../packages/engine/src/operator-cli";
 import { createTempRunDirs, submit } from "../packages/engine/src/testing";
 import type { AgentRuntimeConfig, AgentSessionAdapter } from "../packages/harness/src/adapter";
@@ -78,7 +79,7 @@ describe("awf run", () => {
       "[0:00] ✓ reviewer:maintainability · 0s",
       "[0:00] ■ Minimum review done 2/2 in 0s",
       expect.stringMatching(
-        /^2 agents · \d+s · 21k tokens \(18k cached\) · ~\$0\.03 at list prices 2026-09-23 · subscription · usage known 2\/2$/,
+        /^2 agents · \d+s · 21k tokens \(18k cached\) · ~\$0\.03 at list prices 2026-09-26 · subscription · usage known 2\/2$/,
       ),
       expect.stringMatching(/^ {2}reviewer {2}2 agents · \d+s · ~\$0\.03$/),
     ]);
@@ -115,7 +116,7 @@ describe("awf run", () => {
     expect(existsSync(join(result.artifacts, "calls"))).toBe(true);
     const saved = JSON.parse(readFileSync(join(result.artifacts, "output.json"), "utf8"));
     expect(saved.accounting).toMatchObject({
-      basis: "list prices 2026-09-23",
+      basis: "list prices 2026-09-26",
       billing: "subscription",
       totals: { agents: 2, known: 2, priced: 2 },
       byModel: [{ model: "claude-sonnet-5" }, { model: "gpt-5.6-sol" }],
@@ -345,6 +346,55 @@ describe("awf run", () => {
       JSON.parse(readFileSync(join(record.artifacts, "output.json"), "utf8")).sandboxes,
     ).toEqual(record.sandboxes);
     expect(fake.events[0]).toMatchObject({ kind: "open", runRoot: realpathSync(runRoot) });
+  });
+
+  test("output.json lists the decisions a run asked, and the accounting prints them", async () => {
+    const root = runDirs.tempRunDir();
+    const workflow = join(root, "decides.js");
+    await Bun.write(
+      workflow,
+      executableModule(
+        "return null;",
+        'const { answers } = await arguments[0].decisions.decide({ key: "triage:1", model: "jev", state: "a ticket", questions: { bug: { type: "yes-no", instructions: "Broken?" } } }); return answers.bug.yes;',
+      ),
+    );
+    const provider = createFakeDecisionProvider();
+    const output: string[] = [];
+    const errors: string[] = [];
+    const exitCode = await runOperatorCli(
+      ["run", "--json", "--run-root", runDirs.tempRunDir(), workflow],
+      {
+        cwd: root,
+        stdout: (text) => output.push(text),
+        stderr: (text) => errors.push(text),
+        installRuntime: async () => ({
+          ...(await emptyRuntime()),
+          decisions: {
+            providers: { fake: provider },
+            aliases: { jev: { provider: "fake", model: "fake/jev-1" } },
+          },
+        }),
+      },
+    );
+    expect(exitCode).toBe(0);
+    const record = JSON.parse(output.join("\n"));
+    expect(record.value).toBe(0.9);
+    expect(record.decisions).toEqual([
+      expect.objectContaining({
+        key: "triage:1",
+        provider: "fake",
+        snapshot: "fake/jev-1-20260926",
+        outcome: "answered",
+        charged: { amount: 0.000042, currency: "USD" },
+        artifact: "decisions/1.json",
+      }),
+    ]);
+    expect(existsSync(join(record.artifacts, "decisions/1.json"))).toBe(true);
+    expect(
+      JSON.parse(readFileSync(join(record.artifacts, "output.json"), "utf8")).decisions,
+    ).toEqual(record.decisions);
+    expect(record.accounting.unpriced).toEqual(["fake/jev-1-20260926"]);
+    expect(errors.some((line) => line.startsWith("  1 decision · 1k tokens"))).toBe(true);
   });
 
   test("rejects a non-JSON workflow result after retaining its run", async () => {

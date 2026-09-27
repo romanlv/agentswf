@@ -7,6 +7,7 @@ import type {
   AgentSkillsRecord,
   RunAccounting,
   SandboxRecord,
+  SettledDecision,
   SettledOperation,
 } from "@wf/contract/records";
 import { type JsonSchema, parseJsonSchema } from "@wf/contract/schema";
@@ -65,6 +66,8 @@ import {
   WorkflowCancelledError,
   waitForDeadline,
 } from "./deadlines";
+import { RunDecisions } from "./decisions/directory";
+import type { DecisionInstallation } from "./decisions/seam";
 import {
   createResultSlotRegistry,
   type ResultSlotRegistry,
@@ -95,6 +98,8 @@ export type RunWorkflowOptions = {
   sandboxes?: RunSandboxOptions;
   /** Where public skills are fetched to, shared by runs; `$XDG_CACHE_HOME/awf/skills` by default. */
   skillCache?: string;
+  /** The decision models workflows may ask; without them, `decisions.decide` is refused. */
+  decisions?: DecisionInstallation;
 };
 
 /** What a run is known by once it has ended, whether or not it succeeded. */
@@ -114,6 +119,8 @@ export type SettledRun = {
   sandboxes?: SandboxRecord[];
   /** Each agent's skills; absent when no agent opened. */
   skills?: AgentSkillsRecord[];
+  /** Every decision the run asked, in the order asked; absent when it asked none. */
+  decisions?: SettledDecision[];
 };
 
 export type WorkflowRunResult<Result extends JsonValue> = SettledRun & { value: Result };
@@ -130,6 +137,7 @@ export class WorkflowRunError extends Error implements SettledRun {
   readonly accounting: RunAccounting;
   readonly sandboxes?: SandboxRecord[];
   readonly skills?: AgentSkillsRecord[];
+  readonly decisions?: SettledDecision[];
 
   constructor(cause: unknown, run: SettledRun) {
     super(cause instanceof Error ? cause.message : String(cause), { cause });
@@ -141,6 +149,7 @@ export class WorkflowRunError extends Error implements SettledRun {
     this.accounting = run.accounting;
     if (run.sandboxes) this.sandboxes = run.sandboxes;
     if (run.skills) this.skills = run.skills;
+    if (run.decisions) this.decisions = run.decisions;
   }
 }
 
@@ -248,12 +257,17 @@ export async function startWorkflow<Args extends JsonValue, Result extends JsonV
     deadline: options.deadline,
     log: (message) => options.onLog?.(message),
   });
+  const decisions = new RunDecisions({
+    ...(options.decisions ? { installation: options.decisions } : {}),
+    runDir,
+  });
   const skills = new RunSkills({
     runDir,
     ...(options.skillCache === undefined ? {} : { cacheRoot: options.skillCache }),
     environment,
   });
   const owner = new WorkflowOwner({
+    decisions,
     sandboxes,
     skills,
     runDir,
@@ -329,13 +343,15 @@ export async function startWorkflow<Args extends JsonValue, Result extends JsonV
     const times = { startedAt: new Date(startedAt).toISOString(), finishedAt };
     const opened = sandboxes.records();
     const given = skills.records();
+    const asked = decisions.records();
     const settled: SettledRun = {
       runId,
       usage,
       ...times,
-      accounting: summarizeRun(usage, PUBLISHED_PRICES, times),
+      accounting: summarizeRun(usage, PUBLISHED_PRICES, times, asked),
       ...(opened.length > 0 ? { sandboxes: opened } : {}),
       ...(given.length > 0 ? { skills: given } : {}),
+      ...(asked.length > 0 ? { decisions: asked } : {}),
     };
     if (failed) {
       throw new WorkflowRunError(
@@ -411,6 +427,7 @@ class WorkflowOwner {
       runDir: string;
       locks: CredentialLocks;
       environment: Readonly<Record<string, string | undefined>>;
+      decisions: RunDecisions;
       runId: string;
       cwd: string;
       deadline: AbsoluteDeadline;
@@ -444,6 +461,25 @@ class WorkflowOwner {
           return this.track(options.sandboxes.open(spec));
         },
       },
+      decisions: {
+        decide: (spec) => {
+          if (this.#closed) return Promise.reject(new Error("workflow context is closed"));
+          const scope = scopes.getStore();
+          try {
+            scope?.assertAccepting();
+          } catch (error) {
+            return Promise.reject(error);
+          }
+          const decided = this.track(
+            options.decisions.decide(spec, {
+              deadline: scope?.deadline ?? options.deadline,
+              ...(scope ? { add: (cancel) => scope.add(cancel) } : {}),
+            }),
+          );
+          scope?.track(decided);
+          return decided;
+        },
+      },
       participants: {
         connect: () => unavailable("participants.connect"),
         get: () => unavailable("participants.get"),
@@ -475,7 +511,8 @@ class WorkflowOwner {
       this.#closed = true;
       const cleanup = Promise.all([
         Promise.allSettled([this.options.host.close("workflow complete")]),
-        Promise.allSettled([...this.#inFlight]),
+        // A call nobody awaited any more is cancelled and recorded, not left to its deadline.
+        this.options.decisions.close().then(() => Promise.allSettled([...this.#inFlight])),
       ]).then(async ([settled]) => {
         // Once their sessions are closed: nothing of theirs runs inside any more.
         const released = await this.options.sandboxes.release();

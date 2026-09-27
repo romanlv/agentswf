@@ -349,6 +349,7 @@ nowhere to go does.
 | autoresearch / self-improvement loop | `packages/autoresearch`, as a consumer of the engine — see below | the general tools here, a project's variants and fixtures in its own repository ([ADR 0003](adr/0003-autoresearch-tools-here-project-data-there.md)) |
 | observability | shapes in `contract`, extraction in `harness` | see below |
 | context usage / "dump zone" detection | `harness`, beside liveness and usage | per-harness reading, same shape as usage |
+| fast typed decisions (System One models) | questions, answers and the record in `contract`; the provider seam and providers in `engine/src/decisions/` | a decision is not an agent: one stateless request, recorded and costed apart from agents ([story 006](stories/006-typed-decisions.md)) |
 
 Three of these need more than a table row.
 
@@ -552,6 +553,10 @@ name the price card behind it — and E3's whole finding is that those are diffe
 replaced it: `charged` is what an API billed, the list-price `estimate` exists only in the run's
 summary, and `billing` says whether the agent drew on a subscription or was metered.
 
+A decision (story 006) is always metered, on the operator's own provider account. Its `charged` is
+what the provider reported, on the decision's record, and its list-price estimate sits in the
+summary's `decisions` figures, apart from the agents', because those count agents.
+
 What a package boundary actually buys is control over who may import something. Nothing here needs
 that: the engine and ad-hoc scripts should both be able to ask what a run cost. A boundary would
 not have prevented E3's double-count either — tests did that, and tests do not need a package.
@@ -619,6 +624,7 @@ named trigger fires.
 | tool capability resolution | request and report *shapes* in `contract`, resolution in `harness/src/capabilities/`, fail-vs-downgrade policy in `engine` | two adapters demonstrate what is actually portable; skills met it and are built (story 007) |
 | context-usage reading | `harness/src/context/` | — |
 | per-adapter packages | `harness/src/adapters/` | an adapter needs its own dependencies |
+| `decisions` package | `engine/src/decisions/`, the author surface in `contract/workflow` | a decision provider needs its own dependency |
 | journal / resume | shelved, **and its public types removed** | after deciding effect boundaries, persistence and versioning (E6) |
 | fork | not built, **no capability flag** — [ADR 0001](adr/0001-unbuilt-interface-leaves-the-surface.md) | E7's cost split is settled |
 | model settings | not built, **public types removed** — ADR 0001 | an implementation and a workflow that needs it land together |

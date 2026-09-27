@@ -140,6 +140,7 @@ export async function runOperatorCli(
     artifacts: join(invocationRoot, run.runId),
     ...(run.sandboxes ? { sandboxes: run.sandboxes } : {}),
     ...(run.skills ? { skills: run.skills } : {}),
+    ...(run.decisions ? { decisions: run.decisions } : {}),
   });
   try {
     await mkdir(invocationRoot, { recursive: true });
@@ -159,6 +160,7 @@ export async function runOperatorCli(
           providers: installed.sandboxes ?? { installed: {} },
           runRoot: command.runRoot,
         },
+        ...(installed.decisions ? { decisions: installed.decisions } : {}),
         deadline,
         cwd: command.cwd,
         ...(environment.signal ? { signal: environment.signal } : {}),

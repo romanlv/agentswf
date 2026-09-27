@@ -1,5 +1,6 @@
 import type { JsonSchema } from "./schema";
 import type { AgentExecution, OperationRecord, SkillSource } from "./workflow/agents";
+import type { DecisionRecord, Question } from "./workflow/decisions";
 import type { JsonObject, JsonValue } from "./workflow/json";
 import type {
   Domain,
@@ -73,6 +74,42 @@ export type SettledOperation = OperationRecord & {
   charged?: Money;
 };
 
+/**
+ * What `decisions/{n}.json` in a run's artifacts holds: everything asked and answered, so a
+ * threshold can be fitted again without calling the model.
+ */
+export type DecisionArtifact = {
+  record: SettledDecision;
+  request: { state: JsonValue; questions: Record<string, Question> };
+  /** As `decide` returned them; absent when the call did not answer. */
+  answers?: JsonObject;
+};
+
+/** A decision once the run has ended: what the provider said it charged, beside its record. */
+export type SettledDecision = DecisionRecord & {
+  /** As the provider reported it; absent when it reported none. */
+  charged?: Money;
+};
+
+/**
+ * What a slice's decisions cost. Kept apart from the agent figures, which count agents: a decision
+ * model with no rate folded into those would lower `estimate` with no gap showing.
+ */
+export type DecisionFigures = {
+  calls: number;
+  /** Requests sent, retries included. */
+  attempts: number;
+  tokens: { input: number; output: number };
+  /** USD at list price, over the calls whose tokens are known and priced. */
+  estimate?: number;
+  /** USD the provider reported charging. */
+  charged?: number;
+  /** How many of `calls` have known tokens. */
+  known: number;
+  /** How many of `calls` were known and priced. */
+  priced: number;
+};
+
 /** One slice of a run: all of it, a stage, or one agent. */
 export type AccountingFigures = {
   agents: number;
@@ -97,12 +134,16 @@ export type AccountingFigures = {
    * have been charged unseen.
    */
   billed: number;
+  /** Absent when the slice asked no decision model anything. */
+  decisions?: DecisionFigures;
 };
 
 /** One model's share. Time and charges belong to an operation, not a model, so are not split. */
 export type ModelFigures = {
   model: string;
   agents: number;
+  /** Decision calls whose tokens are known, as this model; absent when there are none. */
+  decisionCalls?: number;
   tokens: TokenUsage;
   delegated: TokenUsage;
   /** Absent when the table has no rate for the model; see `unpriced`. */
@@ -119,17 +160,17 @@ export type RunAccounting = {
   /** `mixed` when agents whose billing is known disagree; `unknown` when none is known. */
   billing: Billing | "mixed";
   totals: AccountingFigures;
-  /** A stage is the call path and the agent key's prefix before `:`, joined with `/`. */
+  /** A stage is the call path and the agent or decision key's prefix before `:`, joined with `/`. */
   byStage: (AccountingFigures & { stage: string; spanMs: number })[];
   byModel: ModelFigures[];
-  byAgent: (AccountingFigures & {
+  byAgent: (Omit<AccountingFigures, "decisions"> & {
     callPath: string[];
     agent: string;
     stage: string;
     execution: AgentExecution;
     billing: Billing;
   })[];
-  /** Models the table has no rate for. Their tokens are counted; their cost is not. */
+  /** Models, agents' or decisions', the table has no rate for. Their tokens are counted; their cost is not. */
   unpriced: string[];
 };
 
@@ -185,7 +226,7 @@ export type AgentSkillsRecord = {
   home?: string;
 };
 
-export const OUTPUT_RECORD_VERSION = 2 as const;
+export const OUTPUT_RECORD_VERSION = 3 as const;
 
 /**
  * A run, as the operator CLI keeps it in `output.json` and prints it with `--json`. A run that
@@ -206,6 +247,8 @@ export type OutputRecord = {
   sandboxes?: SandboxRecord[];
   /** Each agent's skills, once per agent, including one that never completed a turn. */
   skills?: AgentSkillsRecord[];
+  /** Every decision the run asked, in the order asked. Absent when it asked none. */
+  decisions?: SettledDecision[];
 } & (
   | {
       outcome: "succeeded";

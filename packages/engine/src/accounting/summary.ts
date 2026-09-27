@@ -1,7 +1,9 @@
 import type {
   AccountingFigures,
+  DecisionFigures,
   ModelFigures,
   RunAccounting,
+  SettledDecision,
   SettledOperation,
   TokenUsage,
 } from "@wf/contract/records";
@@ -11,22 +13,31 @@ import { addTokens } from "./tokens";
 const NONE: TokenUsage = { input: 0, cacheRead: 0, cacheWrite: 0, output: 0 };
 
 /**
- * What a run cost and how long it took, from its usage records alone, so a finished run can be
- * priced again with another table.
+ * What a run cost and how long it took, from its usage and decision records alone, so a finished
+ * run can be priced again with another table.
  */
 export function summarizeRun(
   usage: readonly SettledOperation[],
   prices: PriceTable,
   times: { startedAt: string; finishedAt: string },
+  decisions: readonly SettledDecision[],
 ): RunAccounting {
   const spends = usage.flatMap((record) => record.spend ?? []);
-  const models = unique(spends.map((spend) => spend.model)).sort();
+  const agentModels = unique(spends.map((spend) => spend.model));
+  const decisionModels = unique(decisions.filter((record) => record.tokens).map(decisionModelOf));
+  const models = unique([...agentModels, ...decisionModels]).sort();
   const agentIds = unique(usage.map(agentOf));
-  const stages = unique(usage.map(stageOf));
+  const stages = unique([...usage.map(stageOf), ...decisions.map(decisionStageOf)]);
   const billings = unique(usage.map((record) => record.billing)).filter(
     (billing) => billing !== "unknown",
   );
-  const figures = (records: readonly SettledOperation[]) => figuresOf(records, prices);
+  const figures = (
+    records: readonly SettledOperation[],
+    asked: readonly SettledDecision[] = [],
+  ): AccountingFigures => {
+    const agents = figuresOf(records, prices);
+    return asked.length === 0 ? agents : { ...agents, decisions: decisionFigures(asked, prices) };
+  };
 
   return {
     basis: prices.basis,
@@ -34,12 +45,19 @@ export function summarizeRun(
     finishedAt: times.finishedAt,
     wallMs: Date.parse(times.finishedAt) - Date.parse(times.startedAt),
     billing: billings.length === 0 ? "unknown" : billings.length === 1 ? billings[0]! : "mixed",
-    totals: figures(usage),
+    totals: figures(usage, decisions),
     byStage: stages.map((stage) => {
       const records = usage.filter((record) => stageOf(record) === stage);
-      return { stage, ...figures(records), spanMs: spanOf(records) };
+      const asked = decisions.filter((record) => decisionStageOf(record) === stage);
+      return { stage, ...figures(records, asked), spanMs: spanOf(records, asked) };
     }),
-    byModel: models.map((model) => modelFigures(model, usage, prices)),
+    byModel: models.map((model) => {
+      const agents = modelFigures(model, usage, prices);
+      const answered = decisions.filter(
+        (record) => record.tokens && decisionModelOf(record) === model,
+      );
+      return answered.length === 0 ? agents : withDecisions(agents, answered, prices);
+    }),
     byAgent: agentIds.map((id) => {
       const records = usage.filter((record) => agentOf(record) === id);
       const first = records[0]!;
@@ -112,6 +130,67 @@ function figuresOf(records: readonly SettledOperation[], prices: PriceTable): Ac
   };
 }
 
+function decisionFigures(records: readonly SettledDecision[], prices: PriceTable): DecisionFigures {
+  let input = 0;
+  let output = 0;
+  let estimate: number | undefined;
+  let charged: number | undefined;
+  let known = 0;
+  let priced = 0;
+  let attempts = 0;
+  for (const record of records) {
+    attempts += record.attempts;
+    // Another currency would need converting first; until then its charge is not counted.
+    if (record.charged?.currency === "USD") charged = (charged ?? 0) + record.charged.amount;
+    if (!record.tokens) continue;
+    known += 1;
+    input += record.tokens.input;
+    output += record.tokens.output;
+    const rate = prices.rate(decisionModelOf(record));
+    if (!rate) continue;
+    priced += 1;
+    estimate = (estimate ?? 0) + costOf(decisionTokens(record.tokens), rate);
+  }
+  return {
+    calls: records.length,
+    attempts,
+    tokens: { input, output },
+    ...(estimate === undefined ? {} : { estimate }),
+    ...(charged === undefined ? {} : { charged }),
+    known,
+    priced,
+  };
+}
+
+function withDecisions(
+  agents: ModelFigures,
+  answered: readonly SettledDecision[],
+  prices: PriceTable,
+): ModelFigures {
+  let tokens = agents.tokens;
+  for (const record of answered) tokens = addTokens(tokens, decisionTokens(record.tokens!));
+  const rate = prices.rate(agents.model);
+  return {
+    ...agents,
+    decisionCalls: answered.length,
+    tokens,
+    ...(rate ? { estimate: costOf(tokens, rate) } : {}),
+  };
+}
+
+function decisionTokens(tokens: { input: number; output: number }): TokenUsage {
+  return { ...NONE, input: tokens.input, output: tokens.output };
+}
+
+/** Priced as the model that answered, when one did: an alias can move, and so can its price. */
+function decisionModelOf(record: SettledDecision): string {
+  return record.snapshot ?? record.model;
+}
+
+function decisionStageOf(record: SettledDecision): string {
+  return [...record.callPath, prefixOf(record.key)].join("/");
+}
+
 function modelFigures(
   model: string,
   usage: readonly SettledOperation[],
@@ -144,18 +223,30 @@ function agentOf(record: SettledOperation): string {
 }
 
 function stageOf(record: SettledOperation): string {
-  const separator = record.agent.indexOf(":");
-  const prefix = separator === -1 ? record.agent : record.agent.slice(0, separator);
-  return [...record.callPath, prefix].join("/");
+  return [...record.callPath, prefixOf(record.agent)].join("/");
 }
 
-function spanOf(records: readonly SettledOperation[]): number {
-  const starts = records.flatMap((record) =>
-    record.deliveredAt === undefined ? [] : [Date.parse(record.deliveredAt)],
-  );
-  const ends = records.flatMap((record) =>
-    record.settledAt === undefined ? [] : [Date.parse(record.settledAt)],
-  );
+function prefixOf(key: string): string {
+  const separator = key.indexOf(":");
+  return separator === -1 ? key : key.slice(0, separator);
+}
+
+function spanOf(
+  records: readonly SettledOperation[],
+  decisions: readonly SettledDecision[] = [],
+): number {
+  const starts = [
+    ...records.flatMap((record) =>
+      record.deliveredAt === undefined ? [] : [Date.parse(record.deliveredAt)],
+    ),
+    ...decisions.map((record) => Date.parse(record.startedAt)),
+  ];
+  const ends = [
+    ...records.flatMap((record) =>
+      record.settledAt === undefined ? [] : [Date.parse(record.settledAt)],
+    ),
+    ...decisions.map((record) => Date.parse(record.settledAt)),
+  ];
   return starts.length === 0 || ends.length === 0
     ? 0
     : Math.max(0, Math.max(...ends) - Math.min(...starts));

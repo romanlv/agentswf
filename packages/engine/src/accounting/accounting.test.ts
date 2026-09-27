@@ -145,7 +145,7 @@ describe("published prices", () => {
   });
 
   test("names the table every figure came from", () => {
-    expect(PUBLISHED_PRICES.basis).toContain("2026-09-23");
+    expect(PUBLISHED_PRICES.basis).toContain("2026-09-26");
   });
 });
 
@@ -160,6 +160,7 @@ describe("summarizeRun", () => {
       ],
       PUBLISHED_PRICES,
       TIMES,
+      [],
     );
     expect(summary.totals.estimate).toBe(30);
     expect(summary.totals.delegated.output).toBe(1_000_000);
@@ -175,6 +176,7 @@ describe("summarizeRun", () => {
       [record("lens:a", [spent("claude-next", { output: 500 })])],
       empty,
       TIMES,
+      [],
     );
     expect(summary.unpriced).toEqual(["claude-next"]);
     expect(summary.totals.tokens.output).toBe(500);
@@ -191,6 +193,7 @@ describe("summarizeRun", () => {
       ],
       PUBLISHED_PRICES,
       TIMES,
+      [],
     );
     expect(summary.totals).toMatchObject({ agents: 3, known: 2, priced: 2, estimate: 2 });
     expect(summary.billing).toBe("mixed");
@@ -205,7 +208,7 @@ describe("summarizeRun", () => {
         charged: 0.5,
       }),
     ]);
-    const unknown = summarizeRun([record("lens:b", undefined)], PUBLISHED_PRICES, TIMES);
+    const unknown = summarizeRun([record("lens:b", undefined)], PUBLISHED_PRICES, TIMES, []);
     expect(unknown.totals).not.toHaveProperty("estimate");
     expect(describeAccounting(unknown)[0]).toBe(
       "1 agent · 14m 05s · no usage known · subscription · usage known 0/1",
@@ -220,6 +223,7 @@ describe("summarizeRun", () => {
       ],
       PUBLISHED_PRICES,
       TIMES,
+      [],
     );
     expect(summary.totals).toMatchObject({ agents: 2, charged: 0.5, billed: 1 });
   });
@@ -235,6 +239,7 @@ describe("summarizeRun", () => {
       ],
       PUBLISHED_PRICES,
       TIMES,
+      [],
     );
     expect(summary.wallMs).toBe(845_000);
     expect(summary.totals.agentMs).toBe(60_000 + 90_000);
@@ -250,6 +255,7 @@ describe("summarizeRun", () => {
       [record("reviewer:x", [], { callPath: ["review", "round-2"] })],
       PUBLISHED_PRICES,
       TIMES,
+      [],
     );
     expect(summary.byStage.map(({ stage }) => stage)).toEqual(["review/round-2/reviewer"]);
   });
@@ -270,6 +276,7 @@ describe("byModel", () => {
       ],
       PUBLISHED_PRICES,
       TIMES,
+      [],
     );
     expect(summary.byModel).toEqual([
       {
@@ -301,9 +308,10 @@ describe("describeAccounting", () => {
       ],
       PUBLISHED_PRICES,
       TIMES,
+      [],
     );
     expect(describeAccounting(summary)).toEqual([
-      "3 agents · 14m 05s · 3.31M tokens (2.91M cached) · ~$1.38 at list prices 2026-09-23 · subscription · usage known 2/3 · fully priced 1/3 · unpriced: codex-auto-review",
+      "3 agents · 14m 05s · 3.31M tokens (2.91M cached) · ~$1.38 at list prices 2026-09-26 · subscription · usage known 2/3 · fully priced 1/3 · unpriced: codex-auto-review",
       "  lens      2 agents · 1m 00s · ~$1.38 · usage known 1/2",
       "  verifier  1 agent · 1m 00s · 1k tokens · fully priced 0/1",
     ]);
@@ -316,11 +324,12 @@ describe("describeAccounting gaps", () => {
       [record("lens:a", []), record("lens:b", [], { billing: "unknown" })],
       PUBLISHED_PRICES,
       TIMES,
+      [],
     );
     expect(summary.billing).toBe("subscription");
     expect(summary.totals.billed).toBe(1);
     expect(describeAccounting(summary)[0]).toBe(
-      "2 agents · 14m 05s · 0 tokens (0 cached) · ~$0.00 at list prices 2026-09-23 · subscription · billing known 1/2 · usage known 2/2",
+      "2 agents · 14m 05s · 0 tokens (0 cached) · ~$0.00 at list prices 2026-09-26 · subscription · billing known 1/2 · usage known 2/2",
     );
   });
 
@@ -329,9 +338,10 @@ describe("describeAccounting gaps", () => {
       [record("lens:a", [spent("gpt-5.6-luna", { input: 1 })])],
       PUBLISHED_PRICES,
       TIMES,
+      [],
     );
     expect(describeAccounting(summary)).toEqual([
-      "1 agent · 14m 05s · 1 token (0 cached) · <$0.01 at list prices 2026-09-23 · subscription · usage known 1/1",
+      "1 agent · 14m 05s · 1 token (0 cached) · <$0.01 at list prices 2026-09-26 · subscription · usage known 1/1",
       "  lens  1 agent · 1m 00s · <$0.01",
     ]);
   });

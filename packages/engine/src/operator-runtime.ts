@@ -14,11 +14,14 @@ import type { AgentRuntimeConfig } from "@wf/harness/adapter";
 import type { SandboxProviders } from "@wf/sandbox";
 import { createDockerProvider, findDocker } from "@wf/sandbox/docker";
 import { createSrtProvider, findSrt } from "@wf/sandbox/srt";
+import type { DecisionInstallation } from "./decisions/seam";
 
 export type OperatorRuntimeInstallation = {
   config: AgentRuntimeConfig;
   /** The sandbox providers this machine has, and the one a spec naming none runs in. */
   sandboxes?: SandboxProviders;
+  /** The decision models workflows may ask, and their aliases. */
+  decisions?: DecisionInstallation;
   cleanup(): Promise<void>;
 };
 

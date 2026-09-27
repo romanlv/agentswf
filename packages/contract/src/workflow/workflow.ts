@@ -1,5 +1,6 @@
 import type { AgentDirectory, OperationRecord } from "./agents";
 import type { WorkflowCallSpec } from "./composition";
+import type { DecisionDirectory } from "./decisions";
 import type { JsonObject, JsonValue, OutputSchema } from "./json";
 import type { Messaging } from "./messaging";
 import type { ParticipantDirectory } from "./participants";
@@ -60,6 +61,8 @@ export interface WorkflowContext {
   readonly deadline: AbsoluteDeadline;
   readonly agents: AgentDirectory;
   readonly sandboxes: SandboxDirectory;
+  /** Closed questions to a decision model: probabilities back in a few hundred milliseconds. */
+  readonly decisions: DecisionDirectory;
   readonly participants: ParticipantDirectory;
   readonly messages: Messaging;
   readonly steps: Steps;
