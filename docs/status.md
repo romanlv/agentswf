@@ -39,6 +39,10 @@ exists, the code is right, then this page.
     panes of the run's Herdr, all verified live;
   - **docker**: headless agents in a container, with a filtering proxy and a relay for `wf`, and
     claude and codex in panes of the box's own Herdr, all verified live.
+- A workflow names each agent's skills, `{ path }` or a public `{ repo, skill, ref? }`, and the
+  agent has exactly those, on the host or in a sandbox, under claude, codex and pi (story 007).
+  Each agent gets a checked copy; a public skill is pinned to a commit in a cache shared by runs.
+  `output.json` records each agent's skills. An agent named none keeps the operator's on the host.
 - `feature-delivery` is a typechecked design and has never run.
 - `bun run eval` checks every supported feature against the live harnesses, on their cheapest
   models; [`testing.md`](testing.md) says what each eval takes and when to run it.

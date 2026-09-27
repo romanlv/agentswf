@@ -19,7 +19,7 @@ const planner = await workflow.agents.open({
   key: "planner",
   runtime: "planner",
   skills: [
-    { path: "./skills/ticket-doc" },                                   // next to the workflow
+    { path: new URL("./skills/ticket-doc", import.meta.url) },         // next to the workflow
     { repo: "vercel-labs/agent-skills", skill: "frontend-design", ref: "3f2a9c1" },
   ],
 });
@@ -72,11 +72,12 @@ and the runner refuses it.
 Steps 1–3 and 5 are the engine's, on the host, and the same for every harness. Step 4 is the
 harness adapter's.
 
-**Resolve.** A `path` is a directory holding a `SKILL.md`; a relative one is relative to the
-workflow file, since a skill ships with the workflow that names it. A `repo` is a public skill as
-skills.sh names it: `owner/repo` on GitHub or any git URL, the `skill` by the name in its
-`SKILL.md`, at `ref` or the default branch. The engine fetches it with the host's git into a cache
-keyed by commit, so a second run fetches nothing.
+**Resolve.** A `path` is a directory holding a `SKILL.md`, absolute or a `file:` URL: one beside
+the workflow is `new URL("./skills/name", import.meta.url)`, which stays right when another
+workflow calls it, where a relative path would not. A `repo` is a public skill as skills.sh names
+it: `owner/repo` on GitHub or any git URL, the `skill` by the name in its `SKILL.md`, at `ref` or
+the default branch. The engine fetches it with the host's git into a cache shared by runs and
+keeps every commit it resolved there, so a run that pins one again needs no network.
 
 **Check and copy.** Every agent gets a copy of its own, never a link to the source. A skill is code
 the harness runs, so a link would let an agent change what the next agent runs, or what the
@@ -87,14 +88,19 @@ operator's own harness runs if the source is theirs. The copy refuses symbolic l
 [`agent-skills`](../findings/agent-skills.md), K1–K12), and the harness package owns them:
 
 - **pi** takes `--no-skills` and a `--skill` per directory, on the host or in a sandbox (K10).
+  `--no-skills` also drops the working directory's own skills: pi keeps nothing else.
 - **claude**, in a sandbox, finds them in its fresh home's `skills/` (K6). On the host it cannot
   have a home of its own, as its login is in the keychain. It gets `--add-dir` over a directory
   laid out as `.claude/skills/{name}` (K3), and `--setting-sources project,local` to leave the
-  operator's out (K5).
+  operator's out (K5). claude drops an `--add-dir` inside its working directory without a word,
+  so a run root inside it refuses a claude agent given skills.
 - **codex** can be pointed at a skill only through its home (K11). So a codex agent given skills
   always gets a home of its own, seeded as a sandboxed one's is, with `skills.bundled.enabled=false`.
   On the host, `HOME` stays the operator's so git and ssh work, and every skill in
-  `~/.agents/skills` is turned off by its real path (K9).
+  `~/.agents/skills` is turned off by its real path (K9). That home holds the credential and
+  folder trust only: the operator's `config.toml` (providers, MCP servers, profiles) and
+  `~/.codex/AGENTS.md` do not apply to it, and an operator logged in only by API key, with no
+  `auth.json`, is refused.
 
 **The case people ask about first: leaving `skills` out.** The agent keeps what it has today: the
 operator's skills on the host, none in a sandbox. `skills: []` is how a workflow says "none of the
@@ -168,7 +174,6 @@ Out of scope:
 - `packages/engine/src/workflow-runner.ts` — `openAgent`: drop the refusal; resolve skills before
   the channel opens, so a bad source fails the open; `assertCompatibleAgent` compares skills on
   reopen.
-- `packages/engine/src/workflow-loader.ts` — `LoadedWorkflow.file`: the base for relative paths.
 - `packages/engine/src/agent-launcher.ts`, `sandboxes.ts`, `sandbox-homes.ts` — where an agent's
   home and launch are prepared; the bundle is copied into the home here. `seedHome` also seeds an
   unsandboxed codex home.
@@ -201,12 +206,13 @@ Out of scope:
 ### The author surface
 
 ```ts
-/** Where a skill comes from. Its name is the one in its SKILL.md. */
-export type SkillRef =
-  /** A directory holding a SKILL.md. Relative to the workflow file. */
-  | { path: string }
-  /** A public skill: `owner/repo` on GitHub or a git URL, at `ref` or the default branch. */
-  | { repo: string; skill: string; ref?: string };
+/** Where a skill comes from, as a record keeps it; its name is the one its SKILL.md gives. */
+export type SkillSource =
+  | { path: string }                                  // absolute
+  | { repo: string; skill: string; ref?: string };    // owner/repo or a git URL
+
+/** As a workflow names one: a path may also be a `file:` URL. */
+export type SkillRef = SkillSource | { path: URL };
 
 export interface AgentOpenSpec {
   /**
@@ -218,7 +224,8 @@ export interface AgentOpenSpec {
 ```
 
 Objects, not a string grammar: foundation §7 says not to standardise one yet, and `owner/repo@name`
-next to `./path` is a grammar. A bare string is refused with a message naming both forms.
+next to `./path` is a grammar. A bare string is refused with a message naming both forms, and so is
+a relative path.
 
 ### The record
 
@@ -226,16 +233,20 @@ next to `./path` is a grammar. A bare string is refused with a message naming bo
 export type AgentSkillsRecord = {
   callPath: string[];
   agent: string;
-  /** `operator` when the workflow left `skills` out. */
+  /** `operator` on the host when the workflow named none; in a sandbox, none named is `[]`. */
   skills: "operator" | SkillRecord[];
+  /** The harness home of its own it ran with on the host: codex's. */
+  home?: string;
 };
 
 export type SkillRecord = {
   name: string;
-  source: SkillRef;
-  /** The commit a `repo` source resolved to. */
+  source: SkillSource;
+  /** The commit a `repo` source resolved to, an annotated tag peeled. */
   commit?: string;
-  /** sha256 over the copied tree's paths and bytes. */
+  /** Where in the repository it was found. */
+  within?: string;
+  /** `sha256:` over the copied tree: each file's path, executable bit and bytes. */
   digest: string;
 };
 
@@ -243,15 +254,18 @@ export type SkillRecord = {
 ```
 
 Beside `sandboxes`, not inside the accounting, for the same reason: an agent that failed before
-its first turn still had them.
+its first turn still had them. An agent is recorded once it has a place for them; one refused
+before that, by a source that would not resolve or a harness with no route, was given nothing.
 
 ### Rules
 
 - **Resolved at open, before the channel.** An unreadable path, a repository that will not fetch,
   a `SKILL.md` without a `name` and a `description`, a name that does not match, a symbolic link, a
   tree over 10 MB, and two skills with one name each fail the open and name the cause.
-- **Once per run.** A source resolves once per run and every agent naming it gets the same commit,
-  so two agents cannot see two versions of `main`.
+- **Once per run.** A source resolves once per run, and a repository's ref once, so two agents,
+  or two skills from one repository, cannot see two versions of `main`.
+- **Every file, and only files.** A public skill is read from git's objects, not an archive, so
+  `export-ignore` drops nothing; a link or a submodule refuses it before anything is written.
 - **A copy per agent.** In a sandbox, the copy is in the agent's home. In one docker box, agents
   share a uid and can write each other's homes, so one could change another's skill: that is inside
   the trust boundary a shared sandbox already is.
@@ -305,24 +319,26 @@ Alternatives rejected:
 
 ## Open questions
 
+Each was settled on its proposed default to build the story; the first is the user's to confirm.
+
 ### 1. The surface, the record, and resolution in the engine
 
-- **Should leaving `skills` out keep the operator's skills?** Proposed: yes, so existing workflows
-  on the host keep running as they do; `skills: []` opts out, and the record says `operator`. The
-  alternative, always an exact set, is more reproducible and breaks agents that lean on an
-  operator's skill without naming it. This one is the user's call.
-- **Unpinned public skills.** Proposed: allowed, resolved once per run, commit recorded. An
-  autoresearch variant should pin; the variant runner can require it rather than the engine.
-- **Where the cache lives.** Proposed `$XDG_CACHE_HOME/awf/skills`, else `~/.cache/awf/skills`,
-  keyed by host, repository and commit, read-only once written.
+- **Leaving `skills` out keeps the operator's skills on the host.** Built so: existing workflows
+  run unchanged, `skills: []` opts out, and the record says `operator`. The alternative, always an
+  exact set, is more reproducible and breaks agents that lean on an operator's skill without naming
+  it. Awaiting the user's confirmation.
+- **Unpinned public skills are allowed**, resolved once per run per repository and ref, with the
+  commit recorded. An autoresearch variant should pin; the variant runner can require it.
+- **The cache** is `$XDG_CACHE_HOME/awf/skills`, else `~/.cache/awf/skills`: a bare repository per
+  URL, every resolved commit kept under `refs/awf/commits/`.
 
 ### 2. Each harness holds the set on the host
 
-- **claude's 18 bundled skills.** They cannot be removed without removing every skill (K4).
-  Proposed: accepted as part of the harness, like its built-in tools, and not listed in the record.
+- **claude's bundled skills stay**, as part of the harness like its built-in tools, unlisted in the
+  record: they go only with every other skill (K4). A pane lists more of them than `-p` does.
 - **`--setting-sources project,local` drops more than skills**: the operator's permissions, model
-  settings and environment from `~/.claude/settings.json`. Proposed: accepted; awf already passes
-  what a turn needs on the command line. Checked in the task's live run.
+  settings, environment and hooks from `~/.claude/settings.json`. Accepted: a claude pane given
+  skills started, used its skill and answered in the live eval.
 
 ### 3. Each harness holds the set in a sandbox
 
@@ -466,37 +482,95 @@ Manual or live evaluation:
 
 ## Review record
 
-### Task 1
+Tasks 1–3 were reviewed together, as one diff (`0bb77a7`), by two read-only subagents; see
+[[#Implementation notes]] for why.
 
-- Architecture and scope:
-- Correctness and proof:
+### Tasks 1–3
 
-### Task 2
-
-- Architecture and scope:
-- Correctness and proof:
-
-### Task 3
-
-- Architecture and scope:
-- Correctness and proof:
+- Architecture and scope: checked seam placement against foundation §7/§10, the published types
+  and record, boundaries, scope, the `givesSkills` gate, the `launchArgs` rename and the host codex
+  home. Findings, all fixed unless said:
+  - The record said `operator` for a sandboxed agent named none, which had none: now `[]`.
+  - A source's JSON shape was written three times: now one `SkillSource` in contract, which
+    `SkillRef`, the record and the engine share.
+  - The engine re-derived harness layout from paths (`dirname`, a fake `bundle: home`): now one
+    `skillsLayout` returns the whole placement, `ownHome` included, and `skillsLaunch` reads no
+    paths back.
+  - `RunSandboxes` exposed its credential locks for the host path: the locks and environment are
+    now the run's, passed to both.
+  - A host codex home lived under `skills/`, unrecorded: now under `agents/{id}/home`, in the
+    record's `home`, and engine `AGENTS.md` names `agents/` as written by harnesses.
+  - `skills: []` on a host claude pointed `--add-dir` at a directory never made: now always made.
+  - The pane's arguments bypassed `TurnContext`: `interactive` now takes the launch arguments, so
+    `spec.ts` places them for every plan.
+  - `run-skills.ts` mixed pure checks with git: split into `sources.ts` (no I/O), `fetch.ts`,
+    `tree.ts` and `run-skills.ts`.
+  - Harness `AGENTS.md` rows, the shared skills root moved to `state.ts`, and "(story 007)" tags
+    in comments dropped.
+  - Not changed: the `givesSkills` refusal of a host agent comes after its channel opens, as the
+    sandbox gate's does; the cursor refusal, from `skillsLayout`, comes before it.
+- Correctness and proof: checked resolution, the copy, the digest, the fetch and its cache under
+  concurrency, path traversal, argv placement on every plan, refusals before the channel, the
+  record, and the staged home. Findings, all fixed unless said:
+  - A commit behind a shallow cache was never found: the fallback now fetches with `--unshallow`,
+    and a commit already kept needs no fetch. Tested with an older short hash after a shallow fetch.
+  - An annotated tag recorded the tag object: now peeled to the commit. Tested.
+  - `git archive` dropped `export-ignore` files: public skills are now read from `ls-tree` and
+    `cat-file --batch`, with links, submodules and paths outside the skill refused, and the caps
+    checked, before anything is written. Tested.
+  - `ls-tree` without `-z` missed a skill outside ASCII: now `-z`. Tested.
+  - The published doc promised the repository's own skills for every harness: pi's `--no-skills`
+    drops them and codex's bundled ones are off; the doc now says what each keeps.
+  - A host claude silently drops an `--add-dir` inside its working directory: now refused, naming
+    the fix. Tested.
+  - The record was written before later refusals: now after the layout and the seat. Tested for
+    a refused agent.
+  - A host codex's trust key used the unresolved cwd: now its real path. Its missing
+    `config.toml` and API-key logins are stated in [[#How it works]].
+  - Each run re-fetched and could see two `main`s: commits are memoized per URL and ref, and kept.
+  - git had no timeout and ssh could prompt: a five-minute timeout, and `BatchMode=yes` unless the
+    operator set `GIT_SSH_COMMAND`. The lock retry is two minutes.
+  - Relative run and cache roots broke extraction: made absolute. Temporary refs are deleted in
+    one `update-ref --stdin`. DEL in a TOML path is escaped.
+  - Not changed: a copy of the codex credential stays in the run directory after the run, as a
+    sandboxed agent's does.
 
 ### Task 4
 
-- Architecture and scope:
-- Correctness and proof:
+- Reviewed with tasks 1–3 where it touched code (`tests/skills.eval.ts`,
+  `examples/skills-probe`); its documents were checked against the fixes above.
 
 ## Readiness
 
 - [x] Outcome and boundaries are concrete.
 - [x] Relevant implementation, callers, and tests are mapped.
 - [x] Evidence and research support the proposed design.
-- [ ] Expensive interface, record-format, and stage-gate decisions are settled: open question 1
-  (what absent `skills` means) and the record's shape wait for review.
+- [x] Expensive interface, record-format, and stage-gate decisions are settled: ADR 0004, and the
+  record reviewed; open question 1 awaits the user's confirmation.
 - [x] Tasks are ordered, coherent, and independently verifiable.
-- [ ] Open questions are resolved or explicitly moved out of scope.
+- [x] Open questions are resolved or explicitly moved out of scope.
 
 ## Implementation notes
+
+Deviations from the proposal, and why:
+
+- **A relative skill path is refused**, not resolved against the workflow file. A workflow called
+  by another has no file the engine knows; `new URL("./skills/x", import.meta.url)` is right
+  wherever it runs and needs no import. `LoadedWorkflow.file` is untouched.
+- **Host homes and bundles live under `{run}/agents/{id}/`**, not `{run}/agents/{agent}/`: a key
+  may hold any character. The record names each host home.
+- **`SkillRecord.within`** records where in the repository a public skill was found.
+- **pi keeps no repository skills** once given skills, and claude with skills refuses a run root
+  inside its working directory; both are what the harnesses allow (see the review record).
+- **No case was added to the sandbox package's conformance suite.** A skill in a home is the
+  engine's copy, not a provider's behaviour: `skills.integration.test.ts` checks it through the
+  fake provider, and the `skills` eval under srt.
+- **Tasks 1–3 were built and reviewed as one diff**, not one task at a time: the surface, the
+  harness translation and the sandbox copy are one mechanism that no task proves alone. One
+  review round of two reviewers covered it; its findings are above, each fixed and tested.
+- The `skills` eval's first run failed on the claude pane for a reason outside this story: Haiku
+  wrote its answer over its own launcher with `cat >`. Filed as
+  [`launcher-overwrite`](todo/launcher-overwrite.md).
 
 ## Human review
 
