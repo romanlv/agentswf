@@ -3,6 +3,9 @@ import { createRequire } from "node:module";
 import { basename, dirname, join, resolve } from "node:path";
 import { type AgentDoor, shellQuote } from "@wf/sandbox";
 
+/** bun loads the `.env` of the directory it starts in: an agent's, which is none of `wf`'s. */
+const NO_ENV = "--no-env-file";
+
 /**
  * The agent is given a path to run, and nothing else. Every other channel we could deliver a
  * return address on has turned out to be a harness's private business: a Codex pane executes its
@@ -25,7 +28,7 @@ export async function installAgentLauncher(
   sessionEnv?: string,
 ): Promise<string> {
   const command = await resolveAgentCommand();
-  return writeLauncher(directory, [process.execPath, command], endpoint, sessionEnv);
+  return writeLauncher(directory, [process.execPath, NO_ENV, command], endpoint, sessionEnv);
 }
 
 /**
@@ -49,11 +52,11 @@ export async function installSandboxedDoor(
   // not listable so that no agent can find another's socket.
   const bundle = join(real, "wf.js");
   await writeFile(bundle, source, { mode: 0o500 });
-  const launcher = await writeLauncher(real, [bun, bundle], socket, sessionEnv);
+  const launcher = await writeLauncher(real, [bun, NO_ENV, bundle], socket, sessionEnv);
   return {
     endpoint: socket,
     launcher,
-    boxScript: launcherScript(["bun", bundle], socket, sessionEnv),
+    boxScript: launcherScript(["bun", NO_ENV, bundle], socket, sessionEnv),
     bundle,
     reads: [bun, bundle],
   };

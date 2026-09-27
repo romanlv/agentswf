@@ -1,4 +1,4 @@
-#!/usr/bin/env bun
+#!/usr/bin/env -S bun --no-env-file
 import { randomUUID } from "node:crypto";
 import { statSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";

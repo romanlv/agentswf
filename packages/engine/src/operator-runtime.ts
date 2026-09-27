@@ -125,8 +125,8 @@ export async function installSandboxes(
 
 /**
  * `OPENROUTER_API_KEY` from the environment, else from `.env` in `cwd`. Only that name is read:
- * bunfig leaves `.env` unloaded because it can hold a Claude token that would change how every
- * agent logs in.
+ * awf runs bun with `--no-env-file`, and bunfig says the same here, because `.env` can hold a
+ * Claude token that would change how every agent logs in.
  */
 export async function openRouterKey(
   environment: Readonly<Record<string, string | undefined>>,

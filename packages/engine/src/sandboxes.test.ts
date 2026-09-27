@@ -500,7 +500,7 @@ describe("sandboxed agents", () => {
     expect(dirname(door!.bundle)).toBe(dirname(door!.launcher));
     expect(door!.reads).toEqual([realpathSync(process.execPath), door!.bundle]);
     expect(door!.boxScript).toBe(
-      `#!/bin/sh\nexec 'bun' '${door!.bundle}' --at '${door!.endpoint}' --session "\${CODEX_SESSION_ID:-}" "$@"\n`,
+      `#!/bin/sh\nexec 'bun' '--no-env-file' '${door!.bundle}' --at '${door!.endpoint}' --session "\${CODEX_SESSION_ID:-}" "$@"\n`,
     );
   });
 });
