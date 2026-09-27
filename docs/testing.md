@@ -61,8 +61,8 @@ What they cover between them:
   through OpenRouter (story 006): four synthetic tickets, one decision each with a choice, a yes-no
   and a score. Every call must answer from a `typesafe/jev-1.13-` snapshot, priced, with its charge
   under $0.001 all told. No agent, ~1 s, ~$0.0001. It skips, and passes, when
-  `OPENROUTER_API_KEY` is not set. The key is read from the environment; from a worktree, load the
-  main checkout's `.env` for this eval alone, `bun --env-file=../../awf/.env run eval decisions`.
+  `OPENROUTER_API_KEY` is not set. Bun reads it from `.env` in the working directory, which is
+  gitignored; copy it into a worktree.
 - `sandbox-srt` and `sandbox-docker` — the sandbox probe (story 004): codex and claude headless
   sharing a sandbox that writes the working directory, pi in a private one that writes nothing,
   each running fixed commands against canaries the host planted: files under `~`, in harness
