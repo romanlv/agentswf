@@ -32,8 +32,9 @@ const reviewer = await workflow.agents.open({
 });
 ```
 
-- **The agent sees exactly those skills**, plus the repository's own and the few its harness
-  ships with. The operator's personal skills are not among them. Two agents in one run, or in one
+- **The agent sees exactly those skills**, plus what its harness will not give up: claude's bundled
+  skills, and claude's and codex's working directory's own; pi keeps nothing else. The operator's
+  personal skills are not among them. Two agents in one run, or in one
   sandbox, can have different sets.
 - **It holds on the host and in a sandbox**, under claude, codex and pi. A harness that cannot hold
   the set refuses the agent at open; it never runs with more.
@@ -209,7 +210,7 @@ export type SkillRef =
 
 export interface AgentOpenSpec {
   /**
-   * Exactly the skills this agent has, beside the repository's own and its harness's bundled ones.
+   * Exactly the skills this agent has, beside what its harness will not give up.
    * Absent, it has what it would have without awf: the operator's on the host, none in a sandbox.
    */
   skills?: readonly SkillRef[];

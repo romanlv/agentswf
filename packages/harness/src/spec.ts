@@ -40,8 +40,11 @@ export type TurnContext = {
 export type HarnessSpec = {
   /** The variable the harness sets in its agent's shell to name the native session. */
   sessionEnv?: string;
-  /** A retained interactive launch, independent of the terminal provider that hosts it. */
-  interactive(model?: string): TurnPlan;
+  /**
+   * A retained interactive launch, independent of the terminal provider that hosts it, with the
+   * arguments its launch adds last, where nothing follows to be swallowed.
+   */
+  interactive(model?: string, launchArgs?: readonly string[]): TurnPlan;
   /** A one-shot, non-interactive run of `prompt`. */
   headlessTurn(prompt: string, context: TurnContext): TurnPlan;
   /**
@@ -99,8 +102,14 @@ export const HARNESSES: Record<Harness, HarnessSpec> = {
     sessionEnv: "CLAUDE_CODE_SESSION_ID",
     // `Bash` has to be allowed or the agent cannot run `wf` at all, which would measure the
     // permission prompt rather than the return channel.
-    interactive: (model) => ({
-      argv: ["claude", "--allowed-tools", "Bash", ...(model ? ["--model", model] : [])],
+    interactive: (model, launchArgs = []) => ({
+      argv: [
+        "claude",
+        "--allowed-tools",
+        "Bash",
+        ...(model ? ["--model", model] : []),
+        ...launchArgs,
+      ],
     }),
     // `--output-format json` is the only place the resumable session id is printed, and
     // without it there is no headless nudge.
@@ -148,7 +157,7 @@ export const HARNESSES: Record<Harness, HarnessSpec> = {
 
   codex: {
     sessionEnv: "CODEX_SESSION_ID",
-    interactive: (model) => ({
+    interactive: (model, launchArgs = []) => ({
       argv: [
         "codex",
         "--sandbox",
@@ -156,6 +165,7 @@ export const HARNESSES: Record<Harness, HarnessSpec> = {
         "--ask-for-approval",
         "never",
         ...(model ? ["--model", model] : []),
+        ...launchArgs,
       ],
     }),
     // `exec resume` takes no `-s`, so the sandbox is set through `-c` on both turns rather
@@ -219,7 +229,9 @@ export const HARNESSES: Record<Harness, HarnessSpec> = {
 
   pi: {
     sessionEnv: "PI_SESSION_ID",
-    interactive: (model) => ({ argv: ["pi", ...(model ? ["--model", model] : [])] }),
+    interactive: (model, launchArgs = []) => ({
+      argv: ["pi", ...(model ? ["--model", model] : []), ...launchArgs],
+    }),
     // pi is the one harness whose session id we choose: `--session-id` creates it on the first
     // turn and reuses it on the second, so no id has to be scraped back out of the output.
     headlessTurn: (prompt, { model, sessionHint, launchArgs = [] }) => ({

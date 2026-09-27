@@ -1,5 +1,5 @@
 import type { JsonSchema } from "./schema";
-import type { AgentExecution, OperationRecord } from "./workflow/agents";
+import type { AgentExecution, OperationRecord, SkillSource } from "./workflow/agents";
 import type { JsonObject, JsonValue } from "./workflow/json";
 import type {
   Domain,
@@ -162,8 +162,8 @@ export type SandboxRecord = {
 export type SkillRecord = {
   /** The name in its `SKILL.md`, and the directory it was copied to. */
   name: string;
-  /** As the workflow named it, with a path made absolute. */
-  source: { path: string } | { repo: string; skill: string; ref?: string };
+  /** As the workflow named it, a URL made a path. */
+  source: SkillSource;
   /** The commit a `repo` source resolved to. */
   commit?: string;
   /** Where in the repository it was found. */
@@ -172,11 +172,17 @@ export type SkillRecord = {
   digest: string;
 };
 
-/** The skills an agent was given; `operator` when the workflow left them to the operator's. */
+/** The skills an agent was given. */
 export type AgentSkillsRecord = {
   callPath: string[];
   agent: string;
+  /**
+   * `operator` for an agent on the host the workflow named none for, which had the operator's. One
+   * in a sandbox had none of them: `[]`.
+   */
   skills: "operator" | SkillRecord[];
+  /** The harness home of its own it ran with on the host, when its harness needs one for skills. */
+  home?: string;
 };
 
 export const OUTPUT_RECORD_VERSION = 2 as const;

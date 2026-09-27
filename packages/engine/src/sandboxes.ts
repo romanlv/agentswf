@@ -24,7 +24,7 @@ import {
 } from "@wf/sandbox";
 import { CONTROL_PLANE_ROOT } from "./control-plane";
 import { type CredentialLocks, type SeededHome, seedHome } from "./sandbox-homes";
-import { placeSkill, type ResolvedSkill } from "./skills/run-skills";
+import { placeSkills, type ResolvedSkill } from "./skills/run-skills";
 
 /** The providers a run may open sandboxes with, and the directory holding every run. */
 export type RunSandboxOptions = {
@@ -93,7 +93,6 @@ export class RunSandboxes {
   readonly #refs = new WeakMap<object, RunSandbox>();
   /** Every admitted agent, released after its session closes and before its channel does. */
   readonly #held: SeatedAgent[] = [];
-  readonly #locks: CredentialLocks = new Map();
   readonly #providers: SandboxProviders;
   readonly #environment: Readonly<Record<string, string | undefined>>;
   #runRoot: Promise<string> | undefined;
@@ -106,21 +105,13 @@ export class RunSandboxes {
       runRoot: string;
       cwd: string;
       deadline: AbsoluteDeadline;
+      /** The run's credential write-backs, which a host agent's own home shares. */
+      locks: CredentialLocks;
       log(message: string): void;
     },
   ) {
     this.#providers = options.sandboxes?.providers ?? { installed: {} };
     this.#environment = options.sandboxes?.environment ?? process.env;
-  }
-
-  /** One run's credential write-backs, which a host codex's own home shares (story 007). */
-  get credentialLocks(): CredentialLocks {
-    return this.#locks;
-  }
-
-  /** The operator's environment, as the providers see it. */
-  get environment(): Readonly<Record<string, string | undefined>> {
-    return this.#environment;
   }
 
   /** `workflow.sandboxes.open`. */
@@ -177,19 +168,18 @@ export class RunSandboxes {
         agent.execution.model,
         this.#environment,
       );
-      const skills = agent.skills
-        ? {
-            directory: skillsLayout(agent.execution.harness, { home, bundle: home }).directory,
-            names: agent.skills.map((skill) => skill.name),
-          }
+      const given = agent.skills;
+      const skills = given
+        ? skillsLayout(
+            agent.execution.harness,
+            given.map((skill) => skill.name),
+            { sandboxHome: home },
+          )
         : undefined;
-      // Into the staged home, before it moves where the sandbox's agents can write (story 007).
+      // Into the staged home, before it moves where the sandbox's agents can write.
       const populate =
-        agent.skills && skills
-          ? async (staged: string) => {
-              const into = join(staged, relative(home, skills.directory));
-              for (const skill of agent.skills!) await placeSkill(skill, into);
-            }
+        given && skills
+          ? (staged: string) => placeSkills(given, join(staged, relative(home, skills.directory)))
           : undefined;
       return {
         cwd,
@@ -362,7 +352,14 @@ export class RunSandboxes {
   ): Promise<SeatedAgent> {
     const admission = sandbox.admitting.then(async (): Promise<SeatedAgent> => {
       if (this.#closed) throw new Error("the run's sandboxes are closed");
-      const seeded: SeededHome = await seedHome(home, staging, needs, cwd, this.#locks, populate);
+      const seeded: SeededHome = await seedHome(
+        home,
+        staging,
+        needs,
+        cwd,
+        this.options.locks,
+        populate,
+      );
       const occupant = await sandbox.opened.admit({ cwd, home, harness: needs, door });
       sandbox.agents.push({ agent, home, domains: needs.domains });
       // Admitted as the run released its agents: released now, before its sandbox closes.

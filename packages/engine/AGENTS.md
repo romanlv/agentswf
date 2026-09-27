@@ -5,7 +5,9 @@ logical-agent identity, alias resolution, queueing, idempotency, and `parallel`.
 admission lands here too and is not built; `docs/foundation.md` §6 has the full list.
 
 **The engine is the only writer of the run directory**, but for each sandbox's `homes/`, which
-the sandboxed harnesses write, and what a provider keeps in its sandbox's directory. Formats come
+the sandboxed harnesses write, what a provider keeps in its sandbox's directory, and `agents/`,
+where a host agent given skills gets their copies and, for codex, a home of its own that its
+harness writes. `src/skills/` resolves, checks and copies skills; its `sources.ts` does no I/O. Formats come
 from `@wf/contract/records`;
 the I/O is here and stays here.
 

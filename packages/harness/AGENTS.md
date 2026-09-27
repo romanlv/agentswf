@@ -11,8 +11,9 @@ must never import `@wf/engine` — the dependency runs the other way.
 | File | Holds |
 | --- | --- |
 | `spec.ts` | every harness's argv, output readers, session-file reader and billing, in one table; Herdr's startup screens are in `herdr-startup.ts` |
-| `sandbox-needs.ts` | what each harness needs to run in a sandbox: its home variable, credentials, model domains, executable and install tree, and the flags that turn off model-side search |
-| `state.ts` | where the operator's own harness state lives, which no sandbox may reach |
+| `sandbox-needs.ts` | what each harness needs to run in a sandbox: its home variable, credentials, model domains, executable and install tree, and the flags that turn off model-side search; `hostHome`, the same home for a host agent that needs one for skills |
+| `capabilities/skills.ts` | where an agent's skills go for its harness, and the arguments and environment that hold it to exactly those |
+| `state.ts` | where the operator's own harness state lives, which no sandbox may reach, and the skills root harnesses share |
 | `json.ts` | reading what a harness wrote as JSON: stdout, session files and status commands alike |
 | `usage/claude.ts`, `usage/codex.ts`, `usage/pi.ts` | reading what an agent spent from the harness's own session files, one record per request |
 | `usage/billing.ts` | whether a login is a subscription or metered, from each harness's status command or credentials |

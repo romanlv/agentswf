@@ -172,7 +172,10 @@ describe("createHeadlessAdapter", () => {
       const session = await headless(
         run,
         {},
-        { ...activation, skills: { directory: "/run/b/.claude/skills", names: ["alpha"] } },
+        {
+          ...activation,
+          skills: { directory: "/run/b/.claude/skills", names: ["alpha"], sandboxed: false },
+        },
       );
       const first = await session.start(turnSpec, firstBinding);
       await first.settled;
@@ -199,7 +202,12 @@ describe("createHeadlessAdapter", () => {
         {
           ...activation,
           execution: { harness: "codex", model: "gpt-6-luna", placement: "headless" },
-          skills: { directory: "/run/b/home/skills", names: ["alpha"], home: "/run/b/home" },
+          skills: {
+            directory: "/run/b/home/skills",
+            names: ["alpha"],
+            ownHome: "/run/b/home",
+            sandboxed: false,
+          },
         },
       );
       await (await session.start(turnSpec, firstBinding)).settled;
@@ -222,7 +230,7 @@ describe("createHeadlessAdapter", () => {
           ...activation,
           occupant: place,
           execution: { harness: "pi", model: "openai-codex/gpt-6-luna", placement: "headless" },
-          skills: { directory: "/box/homes/h/skills", names: ["alpha"] },
+          skills: { directory: "/box/homes/h/skills", names: ["alpha"], sandboxed: true },
         },
       );
       await (await session.start(turnSpec, firstBinding)).settled;
@@ -235,6 +243,32 @@ describe("createHeadlessAdapter", () => {
       ]);
     });
 
+    test("pi's resumed turn names its skills again", async () => {
+      const piOut = JSON.stringify({ type: "session", id: "s" });
+      const { run, calls } = stub([piOut, piOut]);
+      const session = await headless(
+        run,
+        { newSessionId: () => "s" },
+        {
+          ...activation,
+          execution: { harness: "pi", model: "openai-codex/gpt-6-luna", placement: "headless" },
+          skills: { directory: "/run/b/skills", names: ["alpha"], sandboxed: false },
+        },
+      );
+      const first = await session.start(turnSpec, firstBinding);
+      await first.settled;
+      await (await first.nudge(nudgeSpec)).settled;
+      expect(calls).toHaveLength(2);
+      for (const call of calls) {
+        const at = call.argv.indexOf("--no-skills");
+        expect(call.argv.slice(at, at + 3)).toEqual([
+          "--no-skills",
+          "--skill",
+          "/run/b/skills/alpha",
+        ]);
+      }
+    });
+
     test("an adapter that cannot give skills refuses the agent", async () => {
       const adapter = createPaneAdapter({
         commandTimeoutMs: 1_000,
@@ -244,7 +278,7 @@ describe("createHeadlessAdapter", () => {
         adapter.activate({
           ...activation,
           execution: { harness: "claude", model: "opus" },
-          skills: { directory: "/run/b/.claude/skills", names: [] },
+          skills: { directory: "/run/b/.claude/skills", names: [], sandboxed: false },
         }),
       ).rejects.toThrow("cannot be given skills");
     });

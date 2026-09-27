@@ -103,9 +103,7 @@ function createHeadlessAdapterCore(
               : operation.prompt;
           hasExecuted = true;
           // Every turn, a resumed one too: none of them remembers the last one's arguments.
-          const skills = request.skills
-            ? await skillsLaunch(harness, request.skills, occupant !== undefined)
-            : undefined;
+          const skills = request.skills ? await skillsLaunch(harness, request.skills) : undefined;
           const launchArgs = [...(occupant ? sandboxedArgs(harness) : []), ...(skills?.args ?? [])];
           const context = {
             ...(request.execution.model ? { model: request.execution.model } : {}),

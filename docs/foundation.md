@@ -342,7 +342,7 @@ nowhere to go does.
 | --- | --- | --- |
 | forking / compact without destroying the original | native primitive in `harness`; logical branch creation in `engine` | no fork in any interface until E7's cost split is settled — see [`findings/`](findings/README.md) |
 | team of agents / messaging | cross-cutting all four, over a local control plane | the control plane exists from Stage 2, not "when remote execution arrives" |
-| unified `skill:name` / `tool:name` | request and report shapes in `contract`; resolution in `harness`; downgrade policy in `engine` | model request-vs-granted; do not standardise the grammar yet |
+| unified `skill:name` / `tool:name` | request and report shapes in `contract`; resolution in `harness`; downgrade policy in `engine` | skills built as sources, not a grammar ([ADR 0004](adr/0004-skills-are-copied-per-agent.md)); tools still model request-vs-granted |
 | workflows calling workflows | `engine` | `contract/workflow` already has `call` |
 | checkpoints and human approval | an `engine` admission barrier, not a signal | a signal suspends one branch; a checkpoint must stop dispatch |
 | evals | `*.eval.ts` + a reporter | regression checks, not a system |
@@ -616,7 +616,7 @@ named trigger fires.
 | --- | --- | --- |
 | `telemetry` / accounting package | readers and billing in `harness/src/usage/`; run-end reading in `engine/src/run-usage.ts`; prices and summary in `engine/src/accounting/`; the record in `contract` | two producers and two consumers — the autoresearch loop is the second consumer |
 | `messaging` state machine | `engine/src/messaging/`, types in `contract` | never as one package — see section 7 |
-| skill/tool capability resolution | request and report *shapes* in `contract`, resolution in `harness/src/capabilities/`, fail-vs-downgrade policy in `engine` | two adapters demonstrate what is actually portable |
+| tool capability resolution | request and report *shapes* in `contract`, resolution in `harness/src/capabilities/`, fail-vs-downgrade policy in `engine` | two adapters demonstrate what is actually portable; skills met it and are built (story 007) |
 | context-usage reading | `harness/src/context/` | — |
 | per-adapter packages | `harness/src/adapters/` | an adapter needs its own dependencies |
 | journal / resume | shelved, **and its public types removed** | after deciding effect boundaries, persistence and versioning (E6) |

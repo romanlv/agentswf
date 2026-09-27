@@ -575,7 +575,7 @@ export function createHerdrRunHostFactory(
       cwd: string,
       deadlineUnixMilliseconds: number,
       signal: AbortSignal,
-      /** Set for the agent's process, as a host codex's own home is (story 007). */
+      /** Set for the agent's process: a host codex's own home, say. */
       env: Readonly<Record<string, string>> = {},
     ): Promise<string> =>
       mutate(async () => {
@@ -765,7 +765,7 @@ export function createHerdrRunHostFactory(
                     );
                   }
                   const skills = request.skills
-                    ? await skillsLaunch(harness, request.skills, request.occupant !== undefined)
+                    ? await skillsLaunch(harness, request.skills)
                     : undefined;
                   let paneId: string;
                   try {
@@ -787,7 +787,10 @@ export function createHerdrRunHostFactory(
                     `${runSpec.runId}:${request.key}:${operationId}`,
                   );
                   current = { operationId, paneId, agentName };
-                  const launch = spec.interactive(request.execution.model);
+                  const launch = spec.interactive(request.execution.model, [
+                    ...(request.occupant ? sandboxedArgs(harness) : []),
+                    ...(skills?.args ?? []),
+                  ]);
                   if (terminal && typed) terminal = await request.occupant!.pane!();
                   typed = true;
                   const started = terminal
@@ -796,11 +799,7 @@ export function createHerdrRunHostFactory(
                         harness,
                         paneId,
                         terminal,
-                        [
-                          ...launch.argv.slice(1),
-                          ...sandboxedArgs(harness),
-                          ...(skills?.args ?? []),
-                        ],
+                        launch.argv.slice(1),
                         operation.deadline.unixMilliseconds,
                         controller.signal,
                       )
@@ -808,7 +807,7 @@ export function createHerdrRunHostFactory(
                         agentName,
                         harness,
                         paneId,
-                        [...launch.argv.slice(1), ...(skills?.args ?? [])],
+                        launch.argv.slice(1),
                         operation.deadline.unixMilliseconds,
                         controller.signal,
                       );

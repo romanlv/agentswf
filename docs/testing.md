@@ -71,6 +71,11 @@ What they cover between them:
   typed in behind srt's confining prelude, and also refused the run's Herdr socket, leaving no
   secret or process behind; processes are found by their environment, where a pane's carry the
   run's path. 3 agents, ~3 min, ~$0.30; claude in a pane is on its subscription.
+- `skills` — agents given one probe skill each (story 007): codex, pi and a claude pane on the
+  host, and codex and pi sharing one srt sandbox with different probes. Each must report the word
+  only its own probe holds, list its own probe and not the other, and list none of the operator's
+  skills; `output.json` must record each agent's. 5 agents, on subscriptions; srt must be
+  installed.
 - `sandbox-panes-docker` — the same, with the panes in the box's own Herdr, typed in behind a
   prelude that sets their environment and loads their secret. 3 agents, ~3 min, ~$0.32. Fails,
   saying why, where docker cannot run.
@@ -117,7 +122,8 @@ as story 002 did to check accounting against the session files.
 - **While working on one area:** the matching eval — `harnesses` for an adapter, liveness or usage
   reader; `minimum-review` for panes, the control plane or the result channel; `failed-run` for run
   lifecycle, cancellation, accounting or `output.json`; `sandbox-srt` and `sandbox-docker` for
-  `packages/sandbox`, a harness's sandbox needs, or the engine's sandboxes; `sandbox-panes-srt` and
+  `packages/sandbox`, a harness's sandbox needs, or the engine's sandboxes; `skills` for
+  `engine/src/skills`, `harness/src/capabilities` or a harness's launch arguments; `sandbox-panes-srt` and
   `sandbox-panes-docker` for a sandboxed pane, the Herdr host's typed start or a box's Herdr.
 - **Level 4:** only when a story names it.
 

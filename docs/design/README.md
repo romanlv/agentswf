@@ -42,16 +42,17 @@ const workflow: WorkflowDefinition<Args, Result> = {
   are read when the run ends and returned by the engine, not to workflow code.
 - `log()` — record workflow diagnostics.
 
-An agent is opened with a run-scoped logical key, instructions, a runtime, and optional skills,
-which the runner does not resolve yet and refuses. Its working directory and deadline inherit from
-the current workflow scope:
+An agent is opened with a run-scoped logical key, instructions, a runtime, and optional skills: a
+path, or a public skill in a git repository, each copied to the agent, which then has exactly those
+and none of the operator's ([story 007](../stories/007-agent-skills.md)). Its working directory
+and deadline inherit from the current workflow scope:
 
 ```ts
 const reviewer = await context.agents.open({
   key: "reviewer:42",
   instructions: "Review the change and record findings in the ledger.",
   runtime: "reviewer",
-  skills: ["air-code-review"],
+  skills: [{ path: new URL("./skills/air-code-review", import.meta.url) }],
 });
 ```
 
@@ -228,7 +229,7 @@ call.
 
 ## Capability gap
 
-The interface names injected skills, but it does not describe the harness-native tools, shell
+The interface names an agent's skills, and the run records them, but it does not describe the harness-native tools, shell
 commands, filesystem access, network access, or approval policy available to the model. Those are
 currently adapter launch details. Consequently, this interface can answer which skills an agent
 gets, but it cannot yet provide a complete auditable list of everything that agent may call.

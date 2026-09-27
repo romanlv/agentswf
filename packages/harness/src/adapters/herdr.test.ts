@@ -1026,6 +1026,34 @@ describe("createHerdrRunHostFactory", () => {
     await host.close();
   });
 
+  test("a host claude pane starts with its skill arguments last", async () => {
+    const { run, calls } = hostStub();
+    const host = await createHerdrRunHostFactory(CONFIG, run).openRun({
+      runId: "run-1",
+      cwd: "/repo",
+      deadline: deadline(),
+    });
+    const session = await host.openAgent({
+      key: "reviewer",
+      cwd: "/repo",
+      deadline: deadline(),
+      execution: { harness: "claude", model: "opus" },
+      skills: { directory: "/run/b/.claude/skills", names: ["alpha"], sandboxed: false },
+    });
+    await (
+      await session.start({ id: "one", prompt: "review", deadline: deadline() }, binding("op-1"))
+    ).settled;
+    expect(argv(calls, "agent start").slice(-6)).toEqual([
+      "--model",
+      "opus",
+      "--setting-sources",
+      "project,local",
+      "--add-dir",
+      "/run/b",
+    ]);
+    await host.close();
+  });
+
   test("a host codex with skills starts in a tab carrying its own home", async () => {
     const { run, calls } = hostStub();
     const host = await createHerdrRunHostFactory(CONFIG, run).openRun({
@@ -1038,7 +1066,12 @@ describe("createHerdrRunHostFactory", () => {
       cwd: "/repo",
       deadline: deadline(),
       execution: { harness: "codex", model: "gpt-5.6-sol" },
-      skills: { directory: "/run/b/home/skills", names: ["alpha"], home: "/run/b/home" },
+      skills: {
+        directory: "/run/b/home/skills",
+        names: ["alpha"],
+        ownHome: "/run/b/home",
+        sandboxed: false,
+      },
     });
     await (
       await session.start({ id: "one", prompt: "review", deadline: deadline() }, binding("op-1"))

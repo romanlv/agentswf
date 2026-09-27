@@ -577,6 +577,7 @@ describe("a run's sandboxes, opening as the run ends", () => {
       runRoot: runDirs.tempRunDir(),
       cwd: work,
       deadline: future(),
+      locks: new Map(),
       log: () => undefined,
     });
     return { sandboxes, events: fake.events, land };

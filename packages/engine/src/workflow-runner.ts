@@ -1,6 +1,6 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { randomUUID } from "node:crypto";
-import { mkdir } from "node:fs/promises";
+import { mkdir, realpath } from "node:fs/promises";
 import { dirname, join, relative } from "node:path";
 import { isDeepStrictEqual } from "node:util";
 import type {
@@ -30,6 +30,7 @@ import {
   placementOf,
   type RunResult,
   type RuntimeSelection,
+  type SkillSource,
   type TurnOutcome,
   type WorkflowContext,
   type WorkflowDefinition,
@@ -77,15 +78,9 @@ import {
   createRunLedger,
   type RunLedger,
 } from "./run-usage";
-import { seedHome } from "./sandbox-homes";
+import { type CredentialLocks, seedHome } from "./sandbox-homes";
 import { RunSandboxes, type RunSandboxOptions, type SeatedAgent } from "./sandboxes";
-import {
-  placeSkill,
-  type ResolvedSkill,
-  RunSkills,
-  readSkillSources,
-  type SkillSource,
-} from "./skills/run-skills";
+import { placeSkills, RunSkills, readSkillSources } from "./skills/run-skills";
 
 export { WorkflowCancelledError } from "./deadlines";
 
@@ -241,8 +236,12 @@ export async function startWorkflow<Args extends JsonValue, Result extends JsonV
   }
   const ledger = createRunLedger({ accounting: options.runtime.host.accounting, startedAt });
   const progress = new RunProgress();
+  // Shared by sandboxed agents' homes and a host agent's own: they may copy one credential.
+  const locks: CredentialLocks = new Map();
+  const environment = options.sandboxes?.environment ?? process.env;
   const sandboxes = new RunSandboxes({
     ...(options.sandboxes ? { sandboxes: options.sandboxes } : {}),
+    locks,
     runDir,
     runRoot: options.runRoot,
     cwd,
@@ -252,12 +251,14 @@ export async function startWorkflow<Args extends JsonValue, Result extends JsonV
   const skills = new RunSkills({
     runDir,
     ...(options.skillCache === undefined ? {} : { cacheRoot: options.skillCache }),
-    ...(options.sandboxes?.environment ? { environment: options.sandboxes.environment } : {}),
+    environment,
   });
   const owner = new WorkflowOwner({
     sandboxes,
     skills,
     runDir,
+    locks,
+    environment,
     progress,
     runId,
     cwd,
@@ -408,6 +409,8 @@ class WorkflowOwner {
       sandboxes: RunSandboxes;
       skills: RunSkills;
       runDir: string;
+      locks: CredentialLocks;
+      environment: Readonly<Record<string, string | undefined>>;
       runId: string;
       cwd: string;
       deadline: AbsoluteDeadline;
@@ -608,7 +611,7 @@ class WorkflowOwner {
   ): { state: Promise<LogicalAgent>; channel: Promise<ResultChannel> } {
     const placed = this.placeHostSkills(spec.key, execution, cwd, sources);
     const opened = placed.then((skills) => {
-      if (skills?.home) accounted.home = skills.home;
+      if (skills?.given.ownHome) accounted.home = skills.given.ownHome;
       return this.options.control.openChannel(spec.key, (id) => sessions.launcher.add(id));
     });
     const reachable = opened.then(async (channel) => ({
@@ -658,57 +661,45 @@ class WorkflowOwner {
   }
 
   /**
-   * Copies an agent's skills where its harness reads them on the host: a directory of its own, or
-   * for codex a home of its own, seeded as a sandboxed one is (story 007).
+   * Copies an agent's skills where its harness reads them on the host: a directory of the agent's
+   * own, or, for a harness that finds skills only in its home, a home of its own seeded as a
+   * sandboxed agent's is. An agent the workflow named none for keeps the operator's.
    */
   private async placeHostSkills(
     key: string,
     execution: AgentExecution,
     cwd: string,
     sources: SkillSource[] | undefined,
-  ): Promise<{ given: AgentSkills; home?: string; writeBack?: () => Promise<void> } | undefined> {
-    const resolved = await this.resolveSkills(key, sources);
-    if (!resolved) return undefined;
-    const id = randomUUID();
-    const bundle = join(this.options.runDir, "skills", "agents", id);
-    const layout = skillsLayout(execution.harness, { bundle });
-    const given: AgentSkills = {
-      directory: layout.directory,
-      names: resolved.map((skill) => skill.name),
-    };
-    if (layout.home !== "needed") {
-      for (const skill of resolved) await placeSkill(skill, layout.directory);
-      return { given };
-    }
-    const home = dirname(layout.directory);
-    const staging = join(this.options.runDir, "skills", "staging", id);
-    await mkdir(bundle, { recursive: true });
-    const seeded = await seedHome(
-      home,
-      staging,
-      hostHome(execution.harness, home, this.options.sandboxes.environment),
-      cwd,
-      this.options.sandboxes.credentialLocks,
-      async (staged) => {
-        const into = join(staged, relative(home, layout.directory));
-        for (const skill of resolved) await placeSkill(skill, into);
-      },
-    );
-    return { given: { ...given, home }, home, writeBack: () => seeded.writeBack() };
-  }
-
-  /** Resolves and records an agent's skills; `undefined` when it has the operator's. */
-  private async resolveSkills(
-    key: string,
-    sources: SkillSource[] | undefined,
-  ): Promise<ResolvedSkill[] | undefined> {
+  ): Promise<{ given: AgentSkills; writeBack?: () => Promise<void> } | undefined> {
     if (!sources) {
       this.options.skills.record(key, "operator");
       return undefined;
     }
     const resolved = await this.options.skills.resolve(sources);
-    this.options.skills.record(key, resolved);
-    return resolved;
+    const id = randomUUID();
+    // Real paths: claude compares them with its working directory, codex keys its trust by them.
+    const [runDir, realCwd] = await Promise.all([realpath(this.options.runDir), realpath(cwd)]);
+    const given = skillsLayout(
+      execution.harness,
+      resolved.map((skill) => skill.name),
+      { bundle: join(runDir, "agents", id), cwd: realCwd },
+    );
+    this.options.skills.record(key, resolved, given.ownHome);
+    const { ownHome } = given;
+    if (!ownHome) {
+      await placeSkills(resolved, given.directory);
+      return { given };
+    }
+    await mkdir(dirname(ownHome), { recursive: true });
+    const seeded = await seedHome(
+      ownHome,
+      join(runDir, "staging", id),
+      hostHome(execution.harness, ownHome, this.options.environment),
+      realCwd,
+      this.options.locks,
+      (staged) => placeSkills(resolved, join(staged, relative(ownHome, given.directory))),
+    );
+    return { given, writeBack: () => seeded.writeBack() };
   }
 
   /**
@@ -723,7 +714,7 @@ class WorkflowOwner {
   ): { state: Promise<LogicalAgent>; channel: Promise<ResultChannel> } {
     const scope = scopes.getStore();
     const opened = (async () => {
-      const skills = await this.resolveSkills(spec.key, sources);
+      const skills = sources ? await this.options.skills.resolve(sources) : undefined;
       const seat = await this.options.sandboxes.seat({
         key: spec.key,
         sandbox: spec.sandbox,
@@ -731,6 +722,9 @@ class WorkflowOwner {
         execution,
         ...(skills ? { skills } : {}),
       });
+      // Once it has a place: an agent refused one was given nothing. In a sandbox, none named is
+      // none had, as its fresh home holds none of the operator's.
+      this.options.skills.record(spec.key, skills ?? []);
       // What the agent really ran in, which is where accounting finds its sessions.
       accounted.cwd = seat.cwd;
       accounted.home = seat.home;

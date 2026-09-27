@@ -3,7 +3,7 @@ import { chmod, mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from "n
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
-import { parseSkillFile, placeSkill, RunSkills, readSkillSources } from "./run-skills";
+import { parseSkillFile, placeSkills, RunSkills, readSkillSources } from "./run-skills";
 
 let root: string;
 beforeEach(async () => {
@@ -113,7 +113,7 @@ describe("a path source", () => {
     await writeFile(join(source, "SKILL.md"), skillFile("word", "The word is TWO."));
     const [again] = await skills.resolve([{ path: source }]);
     expect(again!.snapshot).toBe(first!.snapshot);
-    await placeSkill(again!, join(root, "agent"));
+    await placeSkills([again!], join(root, "agent"));
     expect(await readFile(join(root, "agent", "word", "SKILL.md"), "utf8")).toContain("ONE");
     expect(first!.record).toEqual({
       name: "word",
@@ -125,7 +125,7 @@ describe("a path source", () => {
   test("is copied under its SKILL.md name, not its directory's", async () => {
     const source = await skillAt(join(root, "somewhere"), "named");
     const [skill] = await runSkills().resolve([{ path: source }]);
-    await placeSkill(skill!, join(root, "agent"));
+    await placeSkills([skill!], join(root, "agent"));
     expect((await stat(join(root, "agent", "named", "SKILL.md"))).isFile()).toBe(true);
   });
 
@@ -162,7 +162,7 @@ describe("a path source", () => {
     const [skill] = await runSkills().resolve([{ path: source }]);
     const [other] = await new RunSkills({ runDir: join(root, "run2") }).resolve([{ path: source }]);
     expect(other!.record.digest).toBe(skill!.record.digest);
-    await placeSkill(skill!, join(root, "agent"));
+    await placeSkills([skill!], join(root, "agent"));
     expect((await stat(join(root, "agent", "exec", "run.sh"))).mode & 0o111).not.toBe(0);
   });
 });
@@ -178,7 +178,7 @@ describe("a repo source", () => {
       within: "skills/alpha",
       digest: expect.stringMatching(/^sha256:/),
     });
-    await placeSkill(skill!, join(root, "agent"));
+    await placeSkills([skill!], join(root, "agent"));
     expect(await readFile(join(root, "agent", "alpha", "SKILL.md"), "utf8")).toContain("Alpha one");
     expect((await stat(join(root, "agent", "alpha", "run.sh"))).mode & 0o111).not.toBe(0);
   });
@@ -201,6 +201,62 @@ describe("a repo source", () => {
     expect(commit[0]!.record.commit).toBe(first);
     expect(short[0]!.record.commit).toBe(first);
     expect(await readFile(join(tag[0]!.snapshot, "SKILL.md"), "utf8")).toContain("Alpha one");
+  });
+
+  test("an older commit behind a shallow cache, by a short hash, is still found", async () => {
+    const { url, first, work } = await repository();
+    await writeFile(join(work, "skills", "alpha", "SKILL.md"), skillFile("alpha", "Alpha two."));
+    await git(work, "commit", "--quiet", "-am", "second");
+    // The default branch first, depth 1, which leaves the cache shallow at the second commit.
+    await runSkills().resolve([{ repo: url, skill: "beta" }]);
+    const [old] = await runSkills().resolve([
+      { repo: url, skill: "alpha", ref: first.slice(0, 9) },
+    ]);
+    expect(old!.record.commit).toBe(first);
+    expect(await readFile(join(old!.snapshot, "SKILL.md"), "utf8")).toContain("Alpha one");
+  });
+
+  test("an annotated tag records its commit, not the tag", async () => {
+    const { url, first, work } = await repository();
+    await git(work, "tag", "-a", "v2", "-m", "release");
+    const [tagged] = await runSkills().resolve([{ repo: url, skill: "alpha", ref: "v2" }]);
+    expect(tagged!.record.commit).toBe(first);
+  });
+
+  test("a pinned commit a run fetched resolves again with the upstream gone", async () => {
+    const { url, first, work } = await repository();
+    await runSkills().resolve([{ repo: url, skill: "alpha", ref: first }]);
+    await rm(work, { recursive: true, force: true });
+    const [again] = await new RunSkills({
+      runDir: join(root, "offline"),
+      cacheRoot: join(root, "cache"),
+    }).resolve([{ repo: url, skill: "alpha", ref: first }]);
+    expect(again!.record.commit).toBe(first);
+  });
+
+  test("keeps what .gitattributes marks export-ignore, and finds a skill outside ASCII", async () => {
+    const { url, work } = await repository();
+    await writeFile(join(work, "skills", "alpha", ".gitattributes"), "scripts export-ignore\n");
+    await mkdir(join(work, "skills", "alpha", "scripts"));
+    await writeFile(join(work, "skills", "alpha", "scripts", "go.sh"), "echo go\n");
+    await skillAt(join(work, "skills", "naïve"), "naive");
+    await git(work, "add", ".");
+    await git(work, "commit", "--quiet", "-m", "more");
+    const skills = runSkills();
+    const [alpha] = await skills.resolve([{ repo: url, skill: "alpha" }]);
+    expect(await readFile(join(alpha!.snapshot, "scripts", "go.sh"), "utf8")).toBe("echo go\n");
+    const [naive] = await skills.resolve([{ repo: url, skill: "naive" }]);
+    expect(naive!.record.within).toBe("skills/naïve");
+  });
+
+  test("two skills from one repository's default branch share one commit", async () => {
+    const { url } = await repository();
+    const skills = runSkills();
+    const [[alpha], [beta]] = await Promise.all([
+      skills.resolve([{ repo: url, skill: "alpha" }]),
+      skills.resolve([{ repo: url, skill: "beta" }]),
+    ]);
+    expect(alpha!.record.commit).toBe(beta!.record.commit!);
   });
 
   test("names the skills it has when the one asked for is not there", async () => {
@@ -234,6 +290,11 @@ describe("a repo source", () => {
     }).resolve([{ repo: url, skill: "beta" }]);
     expect(again!.record.commit).toBe(first);
   });
+});
+
+test("placing no skills still makes the directory a harness is pointed at", async () => {
+  await placeSkills([], join(root, "bundle", ".claude", "skills"));
+  expect((await stat(join(root, "bundle", ".claude", "skills"))).isDirectory()).toBe(true);
 });
 
 describe("the record", () => {

@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdtempSync, realpathSync } from "node:fs";
-import { chmod, mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { JsonValue, WorkflowContext } from "@wf/contract/workflow";
@@ -143,7 +143,7 @@ describe("agent skills", () => {
 
   test("a host codex gets a home of its own: its credential and its skills, not the operator's", async () => {
     const alpha = await skill("alpha");
-    const runRoot = runDirs.tempRunDir();
+    const runRoot = realpathSync(runDirs.tempRunDir());
     const result = await run(async (context) => {
       const agent = await context.agents.open({
         key: "coder",
@@ -153,8 +153,8 @@ describe("agent skills", () => {
       await agent.run({ prompt: "go" });
       return null;
     }, runRoot);
-    const agents = join(runRoot, result.runId, "skills", "agents");
-    const found = join(agents, (await readdir(agents))[0]!, "home");
+    const found = result.skills?.[0]?.home ?? "";
+    expect(found.startsWith(join(runRoot, result.runId, "agents"))).toBe(true);
     const log = await turns(join(found, "codex.log"));
     expect(log[0]).toContain("skill: alpha");
     expect(log[0]).not.toContain("operators-own");
@@ -166,6 +166,7 @@ describe("agent skills", () => {
         callPath: [],
         agent: "coder",
         skills: [{ name: "alpha", source: { path: alpha }, digest: expect.any(String) }],
+        home: found,
       },
     ]);
   });
@@ -192,6 +193,22 @@ describe("agent skills", () => {
     expect(result.skills?.find((given) => given.agent === "left")?.skills).toBe("operator");
   });
 
+  test("none named: a sandboxed agent records none, and a host pi given [] loads none", async () => {
+    await rm(join(logs, "pi.log"), { force: true });
+    const result = await run(async (context) => {
+      const boxed = await context.agents.open({ key: "boxed", runtime: codex, sandbox: {} });
+      const empty = await context.agents.open({ key: "empty", runtime: pi, skills: [] });
+      await boxed.run({ prompt: "go" });
+      await empty.run({ prompt: "go" });
+      return null;
+    });
+    expect(result.skills?.find((given) => given.agent === "boxed")?.skills).toEqual([]);
+    expect(result.skills?.find((given) => given.agent === "empty")?.skills).toEqual([]);
+    const [turn] = await turns(join(logs, "pi.log"));
+    expect(turn).toContain("--no-skills");
+    expect(turn).not.toContain("--skill ");
+  });
+
   test("a source that will not resolve, and a harness with no route, refuse the agent", async () => {
     for (const [runtime, skills, message] of [
       [codex, [{ path: join(root, "nowhere") }], "does not exist"],
@@ -209,6 +226,8 @@ describe("agent skills", () => {
       }).catch((error: unknown) => error);
       expect(failed).toBeInstanceOf(WorkflowRunError);
       expect((failed as Error).message).toContain(message);
+      // Refused before it was given anything: nothing says it had skills.
+      expect((failed as WorkflowRunError).skills).toBeUndefined();
     }
   });
 

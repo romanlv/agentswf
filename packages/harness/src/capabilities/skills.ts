@@ -1,65 +1,73 @@
 import { readdir, realpath } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { dirname, isAbsolute, join, relative } from "node:path";
+import { sharedSkillsRoot } from "../state";
 
 type Environment = Readonly<Record<string, string | undefined>>;
 
 /**
- * An agent's skills, each copied to `directory/{name}`, and the home it has for them when it runs
- * on the host with one of its own. What the harness finds beyond them, its repository's own and
- * its bundled ones, stays (story 007).
+ * Where an agent's skills go for its harness, and what holds the harness to them. The engine
+ * copies each to `directory/{name}` and, when `ownHome` is set, seeds that home first; everything
+ * else about the layout is this module's. Beyond these, claude keeps its working directory's skills
+ * and its bundled ones, codex its working directory's, and pi nothing.
  */
 export type AgentSkills = {
-  directory: string;
   names: readonly string[];
-  /** codex's home on the host, which `CODEX_HOME` points it at. */
-  home?: string;
+  directory: string;
+  /** A home of the agent's own on the host, which `directory` is inside: codex finds skills only there. */
+  ownHome?: string;
+  /** In a sandbox, whose fresh home holds nothing of the operator's to shut out. */
+  sandboxed: boolean;
 };
 
 /**
- * Where the engine copies an agent's skills for `harness`: into its home when it has one, a
- * sandboxed agent's or a host codex's, and otherwise into `bundle`, a directory of the agent's own.
- * `home: "needed"` asks the engine for a home on the host. Rejects a harness with no route.
+ * `names`' place for `harness`: a sandboxed agent's home, or on the host a directory the engine
+ * made for the agent alone, outside `cwd`, both by their real paths. Rejects a harness with no way
+ * to be given skills.
  */
 export function skillsLayout(
   harness: string,
-  where: { home?: string; bundle: string },
-): { directory: string; home: "needed" | "given" | "none" } {
+  names: readonly string[],
+  where: { sandboxHome: string } | { bundle: string; cwd: string },
+): AgentSkills {
+  if (!["claude", "codex", "pi"].includes(harness)) {
+    throw new Error(`${harness} has no way to be given skills; an agent with skills is refused`);
+  }
+  if ("sandboxHome" in where) {
+    return { names, directory: join(where.sandboxHome, "skills"), sandboxed: true };
+  }
   switch (harness) {
-    case "claude":
-      // A home of its own on the host would need a setup token: its login is in the keychain.
-      return where.home
-        ? { directory: join(where.home, "skills"), home: "given" }
-        : { directory: join(where.bundle, ".claude", "skills"), home: "none" };
-    case "codex":
-      // Nothing points codex at a skill but its home (findings/agent-skills.md, K11).
-      return where.home
-        ? { directory: join(where.home, "skills"), home: "given" }
-        : { directory: join(where.bundle, "home", "skills"), home: "needed" };
-    case "pi":
-      return where.home
-        ? { directory: join(where.home, "skills"), home: "given" }
-        : { directory: join(where.bundle, "skills"), home: "none" };
+    // A home of its own would need a setup token: claude's login is in the keychain.
+    case "claude": {
+      // claude drops an `--add-dir` inside its working directory, and says nothing.
+      const inside = relative(where.cwd, where.bundle);
+      if (inside === "" || (!inside.startsWith("..") && !isAbsolute(inside))) {
+        throw new Error(
+          `claude cannot be given skills from ${where.bundle}, inside its working directory; put the run root outside it`,
+        );
+      }
+      return { names, directory: join(where.bundle, ".claude", "skills"), sandboxed: false };
+    }
+    // Nothing points codex at a skill but its home (K11).
+    case "codex": {
+      const ownHome = join(where.bundle, "home");
+      return { names, directory: join(ownHome, "skills"), ownHome, sandboxed: false };
+    }
     default:
-      throw new Error(`${harness} has no way to be given skills; an agent with skills is refused`);
+      return { names, directory: join(where.bundle, "skills"), sandboxed: false };
   }
 }
 
-/**
- * The arguments and environment that hold `harness` to `skills`, on every turn and at a pane's
- * start. On the host they also shut out the operator's own; in a sandbox the fresh home already
- * holds none of them.
- */
+/** The arguments and environment that hold `harness` to `skills`, on every turn and pane start. */
 export async function skillsLaunch(
   harness: string,
   skills: AgentSkills,
-  sandboxed: boolean,
   environment: Environment = process.env,
 ): Promise<{ args: string[]; env: Record<string, string> }> {
   switch (harness) {
     case "claude":
-      if (sandboxed) return { args: [], env: {} };
+      if (skills.sandboxed) return { args: [], env: {} };
       // Without the user source: its skills, and also its hooks and settings (K5). `--add-dir` is
-      // variadic, so it is followed by a flag wherever these go.
+      // variadic, so a flag must follow it wherever these go.
       return {
         args: [
           "--setting-sources",
@@ -71,16 +79,15 @@ export async function skillsLaunch(
       };
     case "codex": {
       const args = ["-c", "skills.bundled.enabled=false"];
-      if (sandboxed) return { args, env: {} };
-      if (!skills.home) throw new Error("codex on the host needs a home of its own for skills");
-      // codex reads `~/.agents/skills` through `HOME`, whatever its own home is (K7), and has only
-      // a switch per skill: listed at each start, so one the operator adds meanwhile is off too.
-      const operators = await operatorSkillFiles(environment);
+      if (skills.sandboxed) return { args, env: {} };
+      if (!skills.ownHome) throw new Error("codex on the host needs a home of its own for skills");
+      // A switch per skill is all codex has: listed at each start, so one added meanwhile is off too.
+      const operators = await sharedSkillFiles(environment);
       if (operators.length > 0) {
-        const entries = operators.map((path) => `{path=${JSON.stringify(path)},enabled=false}`);
+        const entries = operators.map((path) => `{path=${tomlString(path)},enabled=false}`);
         args.push("-c", `skills.config=[${entries.join(",")}]`);
       }
-      return { args, env: { CODEX_HOME: skills.home } };
+      return { args, env: { CODEX_HOME: skills.ownHome } };
     }
     case "pi":
       return {
@@ -95,15 +102,19 @@ export async function skillsLaunch(
   }
 }
 
-/** Each `SKILL.md` under `~/.agents/skills`, by the real path codex compares. */
-async function operatorSkillFiles(environment: Environment): Promise<string[]> {
-  const root = join(environment.HOME ?? "", ".agents", "skills");
-  if (!environment.HOME) return [];
-  const entries = await readdir(root).catch(() => [] as string[]);
+/** Each `SKILL.md` in the shared root, by the real path codex compares. */
+async function sharedSkillFiles(environment: Environment): Promise<string[]> {
+  const root = sharedSkillsRoot(environment);
+  if (!root) return [];
   const files: string[] = [];
-  for (const entry of entries) {
+  for (const entry of await readdir(root).catch(() => [] as string[])) {
     const file = await realpath(join(root, entry, "SKILL.md")).catch(() => undefined);
     if (file) files.push(file);
   }
   return files.sort();
+}
+
+/** A TOML basic string: JSON's escapes are all TOML's, and DEL, which JSON leaves raw, TOML refuses. */
+function tomlString(value: string): string {
+  return JSON.stringify(value).replaceAll("\x7f", "\\u007F");
 }

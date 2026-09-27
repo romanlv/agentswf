@@ -5,20 +5,24 @@ import type { AbsoluteDeadline } from "./timing";
 
 export type AgentKey = string;
 /**
- * Where a skill comes from; its name is the one its `SKILL.md` gives. A skill is code its harness
- * runs, so every agent gets a copy of its own, never the source.
+ * Where a skill comes from, as a record keeps it; its name is the one its `SKILL.md` gives. A skill
+ * is code its harness runs, so every agent gets a copy of its own, never the source.
  */
-export type SkillRef =
-  /**
-   * A directory holding a `SKILL.md`: an absolute path, or a `file:` URL. One beside the workflow
-   * is `new URL("./skills/name", import.meta.url)`, which stays right when another workflow calls it.
-   */
-  | { path: string | URL }
+export type SkillSource =
+  /** A directory holding a `SKILL.md`, by its absolute path. */
+  | { path: string }
   /**
    * A public skill, as skills.sh names one: `repo` is `owner/repo` on GitHub or a git URL, `skill`
    * the name in its `SKILL.md`, at `ref` or, absent, the default branch when the run starts.
    */
   | { repo: string; skill: string; ref?: string };
+
+/**
+ * A source as a workflow names it: a path may also be a `file:` URL. One beside the workflow is
+ * `new URL("./skills/name", import.meta.url)`, which stays right when another workflow calls it; a
+ * relative path is refused, as it would not.
+ */
+export type SkillRef = SkillSource | { path: URL };
 export type RuntimeAliasName = string;
 export type TurnId = string;
 export type CompactionId = string;
@@ -87,8 +91,9 @@ export interface AgentOpenSpec {
   /** Selects the harness and model. */
   runtime: RuntimeSelection;
   /**
-   * Exactly the skills this agent has, beside its repository's own and its harness's bundled ones.
-   * Absent, it has what it would have without awf: the operator's on the host, none in a sandbox.
+   * Exactly the skills this agent has, beside what its harness will not give up: claude's bundled
+   * skills, and claude's and codex's working directory's own; pi keeps nothing else. Absent, it has
+   * what it would have without awf: the operator's on the host, none in a sandbox.
    */
   skills?: readonly SkillRef[];
   labels?: JsonObject;

@@ -6,8 +6,9 @@ A workflow opens agents and gives them work. Left alone, an agent can touch what
 can: write to disk, reach the network, read the developer's cloud credentials and past
 transcripts. This document says how that is narrowed. It has two levels. At the first, a workflow
 opens **sandboxes** as objects and puts agents in them. At the second, a harness's own permission
-system holds a grant, and a workflow hands an agent its tools and skills; that level is designed,
-not built.
+system holds a grant, and a workflow hands an agent its tools; that level is designed, not built.
+Skills are handed over at neither level but beside both: a workflow names each agent's, and the
+engine copies them to it ([[007-agent-skills|story 007]]).
 
 This is the standing statement of the design. [[004-sandboxed-agents|Story 004]] built the first
 level and records how it got there, and [[status]] says what is verified today.
@@ -210,7 +211,8 @@ workflow never declares it:
   is written back to the operator's file, only if that file has not changed since it was copied.
   Whether a copy's refresh logs the operator out is X13, not yet measured.
 - **The operator's skills, `AGENTS.md` and memory are absent**, which is right for a replay. A
-  repository's own `AGENTS.md` in the working directory is still read.
+  repository's own `AGENTS.md` in the working directory is still read. The skills the workflow
+  names for the agent are copied into the home while it is staged, before it moves into place.
 - **Accounting reads usage from the home**, and the homes stay in the run directory as evidence
   for a contamination audit.
 
@@ -274,21 +276,22 @@ export type Grant = {
   write?: readonly string[];
   /** Domains the agent's own commands may reach, as `SandboxReach.network`. */
   network?: readonly Domain[];
-  /** Capabilities handed over: `skill:review-feedback`, `tool:shell`, `mcp:github`. */
+  /** Capabilities handed over: `tool:shell`, `mcp:github`. */
   use?: readonly CapabilityRef[];
 };
 
 /** Namespaced by convention. The grammar waits until two adapters show what is portable. */
 export type CapabilityRef = string;
 
-// AgentOpenSpec would gain:  grant?: Grant;  and `use` would replace `skills`.
+// AgentOpenSpec would gain:  grant?: Grant.
 ```
 
 An agent asks for the harness level by carrying a `grant` and no `sandbox`, in the open, where a
 reader of the workflow sees that a cooperative agent is trusted with it. That is the agent that
-needs SSH, which a sandbox denies by design. `use` applies with or without a sandbox: tools, skills
-and MCP servers are what an agent has none of until the harness hands them over, as a route is
-granted for messaging. A sandboxed agent's fresh home already holds none of the operator's.
+needs SSH, which a sandbox denies by design. `use` applies with or without a sandbox: tools and MCP
+servers are what an agent has none of until the harness hands them over, as a route is granted for
+messaging. A sandboxed agent's fresh home already holds none of the operator's. Skills are not in
+`use`: `AgentOpenSpec.skills` names them, with or without a grant.
 
 | | claude | codex | cursor | pi |
 | --- | --- | --- | --- | --- |
@@ -347,9 +350,13 @@ impersonation are available to every subagent that sees the prompt. A subagent t
 `wf` is right. Making that a rule the engine enforces needs a per-process distinction the
 filesystem does not give.
 
-**A skill is code.** Designed, not built: skills resolve by name from an operator-controlled root,
-mounted read-only. A path from a workflow would be code injection; a writable skill is a command
-that runs at the next harness startup. The same holds for a git hook, and that part is built: in a
+**A skill is code.** A workflow names each agent's skills, by a path or as a public skill in a git
+repository ([ADR 0004](../adr/0004-skills-are-copied-per-agent.md)). The workflow runs with the
+operator's authority, so a path it names is no more injection than its imports. What must not
+happen is an agent writing code that runs later outside its reach: a writable skill is a command at
+the next harness startup. So every agent gets a checked copy of its own, never a link to the
+source, and a copy refuses links, which could carry what they point at into a sandbox. The same
+holds for a git hook, and that part is built too: in a
 writable git directory, what the host's git runs or follows is kept from the agent
 (`protectedGitPaths` in `packages/sandbox/src/git.ts`). srt denies writing it; docker mounts the
 existing paths read-only and moves one the agent creates into `quarantine/` at the next reap.
@@ -385,7 +392,7 @@ Then, in order of need:
 - **The whole workflow in a sandbox, and remote execution** ([[workflow-in-sandbox]]).
 - **The unsandboxed child's environment variables as an allowlist** instead of a two-variable
   denylist.
-- **The harness level, and `use` with skills from an operator-controlled root.**
+- **The harness level, and `use` for tools and MCP servers.**
 
 ## Deliberately not built
 

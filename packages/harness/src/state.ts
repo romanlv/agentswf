@@ -23,3 +23,11 @@ export function harnessState(
     cursor: join(home, ".cursor"),
   };
 }
+
+/**
+ * The skills root several harnesses share, which codex reads through `HOME` whatever its own home
+ * is (findings/agent-skills.md, K7). Absent when nothing names a home.
+ */
+export function sharedSkillsRoot(environment: Environment = process.env): string | undefined {
+  return environment.HOME ? join(environment.HOME, ".agents", "skills") : undefined;
+}
