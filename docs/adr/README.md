@@ -12,3 +12,4 @@ One file per decision: what was decided, what it replaces, and what evidence mov
   project's variants and data in its own repositories
 - [0004](0004-skills-are-copied-per-agent.md) — skills are sources a workflow names, copied to
   each agent
+- [0005](0005-published-as-agentswf.md) — published as agents.wf, the package `agentswf`
