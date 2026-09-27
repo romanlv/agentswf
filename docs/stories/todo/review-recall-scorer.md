@@ -33,6 +33,8 @@ How it works:
   doubt they stay separate (Martian).
 - Not being in the key is never enough to call a finding wrong (SWE-PRBench).
 - Location is evidence for the judge, not a gate: a correct finding on a nearby line still counts.
+- A decision model can settle the confident hits first, leaving the judge the rest: `matchFindings`
+  in [story 006](../006-typed-decisions.md) decided 72% of comments at 99% accuracy (findings S8).
 - Every score comes with written feedback: what was missed, and why. The loop reads it.
 - The judge also grades `new` findings by severity and category, so they can join the key.
   No person checks them: independent graders from a model family other than the finder's vote on

@@ -29,7 +29,7 @@ Raw notes on where awf could go. Not scope and not decisions: [`foundation.md`](
 - [ ] Observability.
 - [x] Cost and timing — [story 002](../stories/002-cost-and-time-accounting.md).
 - [ ] Messaging as its own package? (§7 argues it cannot be one package.)
-- [ ] [Jev](https://typesafe.ai/blog/introducing-system-one-models-and-jev), a model that classifies quickly and cheaply, as a step in a workflow? Experiment with it.
+- [ ] [Jev](https://typesafe.ai/blog/introducing-system-one-models-and-jev), a model that classifies quickly and cheaply, as a step in a workflow — measured, and drafted as [story 006](../stories/006-typed-decisions.md).
 
 ## Evaluation and self-improvement
 

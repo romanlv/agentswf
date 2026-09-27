@@ -75,6 +75,9 @@ The gates are defined in [`foundation.md`](foundation.md) §12.
   `draft-key` drafts its key, graders from two model families vote on it, and the set is sealed in
   `set.json`, each fixture pinned by a digest. The first set has 33 fixtures from 61 of the
   private project's MRs.
+- [006 — typed decisions](stories/006-typed-decisions.md): draft. A workflow asks a System One
+  model (Jev) closed questions and gets probabilities back; autoresearch matches findings to a key
+  with it ([findings](findings/system-one-models.md)).
 
 The inbox of possible stories is [`stories/todo/`](stories/todo/).
 
