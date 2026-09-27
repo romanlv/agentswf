@@ -68,12 +68,12 @@ bun awf run examples/quick-check/workflow.ts -- codex pi
 `triage/` routes support tickets with Jev, a decision model: one call per ticket asks which team
 owns it, whether it reports a bug, and how urgent it is, and gets a probability for every answer
 back in a few hundred milliseconds. An answer below 0.9 is flagged `unsure` rather than taken. It
-needs `OPENROUTER_API_KEY`, which the engine holds and no agent is given, and it costs about
-$0.00002 a ticket. It opens no agent, but `awf run` still checks the Claude and Codex subscription
-logins at start, as for any workflow:
+needs `OPENROUTER_API_KEY`, in the environment or in `.env`, which the engine holds and no agent is
+given, and it costs about $0.00002 a ticket. It opens no agent, but `awf run` still checks the
+Claude and Codex subscription logins at start, as for any workflow:
 
 ```sh
-OPENROUTER_API_KEY=… bun awf run examples/triage/workflow.ts
+bun awf run examples/triage/workflow.ts
 bun awf run examples/triage/workflow.ts -- "The invoice PDF shows last month's total"
 ```
 

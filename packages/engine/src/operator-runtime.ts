@@ -1,3 +1,5 @@
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 import type { SandboxEnvironmentKey } from "@wf/contract/workflow";
 import {
   createHeadlessRunHostFactory,
@@ -82,7 +84,7 @@ export async function installOperatorRuntime(
       host,
     },
     sandboxes: await installSandboxes(environment),
-    decisions: installDecisions(environment),
+    decisions: installDecisions({ OPENROUTER_API_KEY: await openRouterKey(environment) }),
     // Nothing to undo: the agent's `wf` is a launcher the control plane installs beside its own
     // socket, and the control plane removes both when the run closes.
     cleanup: async () => undefined,
@@ -119,6 +121,24 @@ export async function installSandboxes(
     ...(fallback ? { default: fallback } : {}),
     ...(Object.keys(unavailable).length > 0 ? { unavailable } : {}),
   };
+}
+
+/**
+ * `OPENROUTER_API_KEY` from the environment, else from `.env` in `cwd`. Only that name is read:
+ * bunfig leaves `.env` unloaded because it can hold a Claude token that would change how every
+ * agent logs in.
+ */
+export async function openRouterKey(
+  environment: Readonly<Record<string, string | undefined>>,
+  cwd = process.cwd(),
+): Promise<string | undefined> {
+  if (environment.OPENROUTER_API_KEY?.trim()) return environment.OPENROUTER_API_KEY;
+  const text = await readFile(join(cwd, ".env"), "utf8").catch(() => "");
+  for (const line of text.split("\n")) {
+    const found = /^\s*(?:export\s+)?OPENROUTER_API_KEY\s*=\s*(.*?)\s*$/.exec(line);
+    if (found) return found[1]!.replace(/^(["'])(.*)\1$/, "$2");
+  }
+  return undefined;
 }
 
 /**

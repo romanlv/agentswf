@@ -867,6 +867,10 @@ Built in the worktree `../worktrees/awf-story-006-typed-decisions`, branch
   the picks.
 - **Retryable:** 429, any 5xx, and a connection that fails or breaks mid-body. A 200 carrying
   `{ error }` is classified by its code.
+- **The key is read from the environment, else from `.env`.** `bunfig.toml` keeps Bun from loading
+  `.env`, because its Claude token would change how agents log in, so `openRouterKey` reads that
+  one name from the file itself. An eval that skips is shown as skipped: a skipped `decisions` was
+  once read as a pass.
 - **`installDecisions` always returns an installation.** Without a usable key it has no aliases,
   and `unavailable` says why.
 - **The first accounting line of a run with no agents** reads `0 agents · 0s`, not a list of

@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { OutputRecord } from "../packages/contract/src/records";
 import { runOperatorCli } from "../packages/engine/src/operator-cli";
+import { openRouterKey } from "../packages/engine/src/operator-runtime";
 
 /**
  * Story 006 against the live model: `examples/triage` through `awf run`, with Jev on OpenRouter as
@@ -14,7 +15,7 @@ const EXAMPLE = join(import.meta.dir, "../examples/triage/workflow.ts");
 const MOST_USD = 0.001;
 
 async function evaluate(): Promise<{ failed: string[]; record?: OutputRecord }> {
-  if (!process.env.OPENROUTER_API_KEY?.trim()) return { failed: [] };
+  if (!(await openRouterKey(process.env))) return { failed: [] };
   const output: string[] = [];
   const errors: string[] = [];
   // The operator runtime `awf run` installs, so Jev is installed from the key as an operator's is.
@@ -53,7 +54,7 @@ if (import.meta.main) {
   }
   const { failed, record } = await evaluate();
   if (!record && failed.length === 0) {
-    console.error("OPENROUTER_API_KEY is not set: skipped");
+    console.error("OPENROUTER_API_KEY is not set, nor in .env: skipped");
     console.log(JSON.stringify({ ok: true, skipped: true, failed, estimateUsd: 0 }));
   } else {
     console.log(

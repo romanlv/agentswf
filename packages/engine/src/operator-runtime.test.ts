@@ -1,12 +1,15 @@
 import { afterAll, describe, expect, test } from "bun:test";
 import { readdirSync } from "node:fs";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { ProcessInput, ProcessResult, RunProcess } from "@wf/harness";
 import {
   herdrSession,
   installDecisions,
   installOperatorRuntime,
   installSandboxes,
+  openRouterKey,
 } from "./operator-runtime";
 
 describe("operator runtime", () => {
@@ -179,6 +182,24 @@ describe("operator runtime", () => {
       expect(calls.some((call) => call.argv.join(" ").includes("sk-or-test"))).toBe(false);
     } finally {
       await installed.cleanup();
+    }
+  });
+
+  test("reads OPENROUTER_API_KEY from the environment, else that one name from .env", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "awf-dotenv-"));
+    try {
+      expect(await openRouterKey({}, directory)).toBeUndefined();
+      await writeFile(
+        join(directory, ".env"),
+        'CLAUDE_CODE_OAUTH_TOKEN=sk-ant-other\nexport OPENROUTER_API_KEY="sk-or-file"\n',
+      );
+      expect(await openRouterKey({}, directory)).toBe("sk-or-file");
+      expect(await openRouterKey({ OPENROUTER_API_KEY: "sk-or-shell" }, directory)).toBe(
+        "sk-or-shell",
+      );
+      expect(process.env.CLAUDE_CODE_OAUTH_TOKEN).not.toBe("sk-ant-other");
+    } finally {
+      await rm(directory, { recursive: true, force: true });
     }
   });
 

@@ -9,7 +9,13 @@ import { basename, join } from "node:path";
  */
 const ROOT = join(import.meta.dir, "..");
 
-type Outcome = { name: string; ok: boolean; seconds: number; estimateUsd?: number };
+type Outcome = {
+  name: string;
+  ok: boolean;
+  skipped: boolean;
+  seconds: number;
+  estimateUsd?: number;
+};
 
 const all = [...new Bun.Glob("tests/**/*.eval.ts").scanSync({ cwd: ROOT })].sort();
 const filters = process.argv.slice(2);
@@ -49,6 +55,8 @@ for (const file of files) {
   outcomes.push({
     name,
     ok: exitCode === 0 && summary?.ok === true,
+    // A pass that checked nothing is not shown as one.
+    skipped: summary?.skipped === true,
     seconds: Math.round((Date.now() - started) / 1000),
     ...(typeof estimate === "number" ? { estimateUsd: estimate } : {}),
   });
@@ -59,13 +67,14 @@ for (const file of files) {
 console.log("");
 for (const outcome of outcomes) {
   console.log(
-    `${outcome.ok ? "✓" : "✗"} ${outcome.name.padEnd(16)} ${`${outcome.seconds}s`.padStart(5)}  ${usd(outcome.estimateUsd)}`,
+    `${outcome.skipped ? "–" : outcome.ok ? "✓" : "✗"} ${outcome.name.padEnd(16)} ${`${outcome.seconds}s`.padStart(5)}  ${usd(outcome.estimateUsd)}`,
   );
 }
 const total = outcomes.reduce((sum, outcome) => sum + (outcome.estimateUsd ?? 0), 0);
 const unknown = outcomes.filter((outcome) => outcome.estimateUsd === undefined).length;
+const skipped = outcomes.filter((outcome) => outcome.skipped).length;
 console.log(
-  `${outcomes.filter((outcome) => outcome.ok).length}/${outcomes.length} passed · ${usd(total)} at list prices${unknown > 0 ? `, ${unknown} unknown` : ""}`,
+  `${outcomes.filter((outcome) => outcome.ok && !outcome.skipped).length}/${outcomes.length} passed${skipped > 0 ? `, ${skipped} skipped` : ""} · ${usd(total)} at list prices${unknown > 0 ? `, ${unknown} unknown` : ""}`,
 );
 if (interrupted) console.log(`interrupted; ${files.length - outcomes.length} not run`);
 if (interrupted || outcomes.some((outcome) => !outcome.ok)) process.exitCode = 1;
