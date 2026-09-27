@@ -71,11 +71,15 @@ What they cover between them:
   typed in behind srt's confining prelude, and also refused the run's Herdr socket, leaving no
   secret or process behind; processes are found by their environment, where a pane's carry the
   run's path. 3 agents, ~3 min, ~$0.30; claude in a pane is on its subscription.
-- `skills` — agents given one probe skill each (story 007): codex, pi and a claude pane on the
-  host, and codex and pi sharing one srt sandbox with different probes. Each must report the word
-  only its own probe holds, list its own probe and not the other, and list none of the operator's
-  skills; `output.json` must record each agent's. 5 agents, ~15 s, ~$0.06, on subscriptions;
-  srt must be installed.
+- `skills` — agents given one of two probe skills and using it (story 007): codex, pi and a
+  claude pane on the host, and codex and pi sharing one srt sandbox with different probes. The
+  prompt never mentions skills; it asks for a build's release stamp and audit seal, each claimed by
+  one probe's description and made only by a script inside it, from a secret no `SKILL.md` holds.
+  Each agent must make its own probe's value for its own build id and not the other's, leave the
+  script's receipt in its own copy and none in a source or snapshot, list its own probe and none of
+  the operator's skills; `output.json` must record each, the git-sourced probe with its commit.
+  `tests/skills-eval.test.ts` checks these checks for free. 5 agents, ~40 s, ~$0.08, on
+  subscriptions; srt must be installed.
 - `sandbox-panes-docker` — the same, with the panes in the box's own Herdr, typed in behind a
   prelude that sets their environment and loads their secret. 3 agents, ~3 min, ~$0.32. Fails,
   saying why, where docker cannot run.
@@ -168,6 +172,8 @@ claude.ai.
   exported, and `minimum-review`'s preflight refuses one: run them apart. `minimum-review` also
   fails if the repository changes while it runs, edits by hand included. A sandboxed claude pane
   once declined the probe as pasted instructions.
+- 2026-09-26, story 007 review: `skills`, rewritten to prove each agent used its skill, passed
+  5/5 on its first run in 38 s, ~$0.08.
 - luna first failed `failed-run` 3 times in 4: it typed the launcher's macOS temp path
   (`/var/folders/…/T/…/wf`) without the `/` before `T`. With the control plane under `/tmp` it
   passed 4 of 4.

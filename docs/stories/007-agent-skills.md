@@ -589,6 +589,16 @@ Deviations from the proposal, and why:
 - The `skills` eval's first run failed on the claude pane for a reason outside this story: Haiku
   wrote its answer over its own launcher with `cat >`. Filed as
   [`launcher-overwrite`](todo/launcher-overwrite.md).
+- **The `skills` eval was made to test use, not sight**, at review. Its first form told the agent
+  a skill held a word and took the agent's word for which skills it saw. Now the prompt never
+  mentions skills: it asks for a build's release stamp and audit seal, and each probe's
+  description claims one. Only a script inside the probe makes the value, from a secret no
+  `SKILL.md` holds, keyed by a build id unique to the agent, and the script leaves a receipt
+  beside itself. So a pass means the agent found its skill by description, ran its own copy
+  (its host bundle, own codex home or sandbox home, never a source or a run's snapshot), with its
+  executable bit, and could not make the other probe's value. The seal probe comes from a git
+  repository, so the fetch runs live too. `tests/skills-eval.test.ts` checks the checks for free.
+  First run: 5/5 in 38 s, ~$0.08.
 
 ## Human review
 
