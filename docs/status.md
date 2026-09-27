@@ -79,9 +79,11 @@ The gates are defined in [`foundation.md`](foundation.md) §12.
   `draft-key` drafts its key, graders from two model families vote on it, and the set is sealed in
   `set.json`, each fixture pinned by a digest. The first set has 33 fixtures from 61 of the
   private project's MRs.
-- [006 — typed decisions](stories/006-typed-decisions.md): draft. A workflow asks a System One
-  model (Jev) closed questions and gets probabilities back; autoresearch matches findings to a key
-  with it ([findings](findings/system-one-models.md)).
+- [006 — typed decisions](stories/006-typed-decisions.md): done. A workflow asks a System One
+  model (Jev, on OpenRouter) closed questions about a state and gets a probability for every answer
+  back, recorded and costed apart from agents; `examples/triage` routes tickets with it
+  ([findings](findings/system-one-models.md)). Matching review findings to a key with it moved to
+  [`decision-matching`](stories/todo/decision-matching.md).
 - [007 — agent skills](stories/007-agent-skills.md): awaiting human review. A workflow names each agent's skills,
   as a path or a public skill in a git repository, and the agent sees exactly those, on the host or
   in a sandbox ([findings](findings/agent-skills.md)).

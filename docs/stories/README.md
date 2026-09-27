@@ -51,7 +51,7 @@ status is one of `todo`, `draft`, `ready`, `in-progress`, `blocked`, `awaiting-h
   problems found in it, graded), and the tools that build them; the data lives outside this
   repository.
 - [`006` — Ask a decision model a typed question from a workflow](006-typed-decisions.md) —
-  `draft` — A workflow asks a System One model, Jev first, typed questions about a state and gets
+  `done` — A workflow asks a System One model, Jev first, typed questions about a state and gets
   probabilities back, recorded and costed with the run.
 - [`007` — Give each agent the skills the workflow names](007-agent-skills.md) —
   `awaiting-human-review` — A workflow names each agent's skills, as a path or a public skill in a git repository,
