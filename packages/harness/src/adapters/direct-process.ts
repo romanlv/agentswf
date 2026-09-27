@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { AgentRunHostFactory, AgentSessionAdapter } from "../adapter";
+import { skillsLaunch } from "../capabilities/skills";
 import { type RunProcess, runProcess } from "../command";
 import { createLegacyDriver } from "../legacy-driver";
 import { sandboxable, sandboxedArgs } from "../sandbox-needs";
@@ -49,7 +50,13 @@ function createHeadlessAdapterCore(
     harnesses: HARNESS_NAMES,
     ...(config.finishGraceMs === undefined ? {} : { finishGraceMs: config.finishGraceMs }),
     // The frozen legacy driver predates placement and never names it.
-    ...(legacy ? {} : { placement: "headless" as const, launchesInSandbox: true as const }),
+    ...(legacy
+      ? {}
+      : {
+          placement: "headless" as const,
+          launchesInSandbox: true as const,
+          givesSkills: true as const,
+        }),
     observeSessionRef: (sessionRef) => {
       legacySessionRef = sessionRef;
     },
@@ -95,10 +102,15 @@ function createHeadlessAdapterCore(
               ? `${request.instructions}\n\n${operation.prompt}`
               : operation.prompt;
           hasExecuted = true;
+          // Every turn, a resumed one too: none of them remembers the last one's arguments.
+          const skills = request.skills
+            ? await skillsLaunch(harness, request.skills, occupant !== undefined)
+            : undefined;
+          const launchArgs = [...(occupant ? sandboxedArgs(harness) : []), ...(skills?.args ?? [])];
           const context = {
             ...(request.execution.model ? { model: request.execution.model } : {}),
             sessionHint: identity.sessionId,
-            ...(occupant ? { sandboxedArgs: sandboxedArgs(harness) } : {}),
+            ...(launchArgs.length > 0 ? { launchArgs } : {}),
           };
           const plan = operation.previousSessionRef
             ? spec.resumeTurn!(prompt, operation.previousSessionRef, context)
@@ -109,7 +121,7 @@ function createHeadlessAdapterCore(
           const command = {
             argv: plan.argv,
             cwd: request.cwd,
-            env: environment(),
+            env: { ...environment(), ...skills?.env },
             ...(plan.stdin === undefined ? {} : { stdin: plan.stdin }),
             timeoutMs: nativeTimeoutMs,
             signal: controller.signal,

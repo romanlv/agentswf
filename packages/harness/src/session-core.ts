@@ -77,6 +77,8 @@ export function createSessionAdapter(options: {
   placement?: AgentPlacement;
   /** It launches through an occupant; without this, a sandboxed agent is refused. */
   launchesInSandbox?: true;
+  /** It launches with `request.skills`; without this, an agent given skills is refused. */
+  givesSkills?: true;
   finishGraceMs?: number;
   activate(request: HarnessActivation): Promise<ActivatedSessionBackend>;
   observeSessionRef?: (sessionRef: string) => void;
@@ -97,6 +99,9 @@ export function createSessionAdapter(options: {
       }
       if (request.occupant && !options.launchesInSandbox) {
         throw new Error(`${placement} agents cannot run in a sandbox yet`);
+      }
+      if (request.skills && !options.givesSkills) {
+        throw new Error(`${placement} agents cannot be given skills by this adapter`);
       }
       const native = await options.activate(request);
       if (expired(request.deadline, now)) {

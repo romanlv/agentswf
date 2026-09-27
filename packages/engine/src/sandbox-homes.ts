@@ -29,10 +29,12 @@ export type CredentialLocks = Map<string, Promise<void>>;
 export async function seedHome(
   home: string,
   staging: string,
-  needs: HarnessSandboxNeeds,
+  needs: Pick<HarnessSandboxNeeds, "seed" | "defaults">,
   /** The agent's working directory, which a harness's first-run answers name. */
   cwd: string,
   locks: CredentialLocks,
+  /** Fills the home, staged at the path it is given, before it moves into place: its skills. */
+  populate?: (staged: string) => Promise<void>,
 ): Promise<SeededHome> {
   const staged = (path: string) => {
     const inside = relative(home, path);
@@ -71,6 +73,7 @@ export async function seedHome(
       await mkdir(dirname(staged(path)), { recursive: true, mode: 0o700 });
       await writeFile(staged(path), contents, { mode: 0o600 });
     }
+    await populate?.(staging);
     await rename(staging, home);
   } catch (error) {
     // Its credentials go with it.

@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { type PaneHerdr, type PaneTerminal, shellQuote } from "@wf/sandbox";
 import type { AgentRunHostFactory, AgentSessionAdapter } from "../adapter";
+import { skillsLaunch } from "../capabilities/skills";
 import { type RunProcess, runProcess, withholding } from "../command";
 import { parseRow, record } from "../json";
 import { sandboxedArgs } from "../sandbox-needs";
@@ -574,6 +575,8 @@ export function createHerdrRunHostFactory(
       cwd: string,
       deadlineUnixMilliseconds: number,
       signal: AbortSignal,
+      /** Set for the agent's process, as a host codex's own home is (story 007). */
+      env: Readonly<Record<string, string>> = {},
     ): Promise<string> =>
       mutate(async () => {
         if (!topologyOpen) throw new Error("Herdr run topology is closing");
@@ -592,6 +595,7 @@ export function createHerdrRunHostFactory(
             "--cwd",
             cwd,
             ...environment,
+            ...Object.entries(env).flatMap(([name, value]) => ["--env", `${name}=${value}`]),
             "--no-focus",
           ],
           Math.min(config.commandTimeoutMs, remainingMilliseconds),
@@ -703,6 +707,7 @@ export function createHerdrRunHostFactory(
         harnesses: ["claude", "codex"],
         placement: "pane",
         launchesInSandbox: true,
+        givesSkills: true,
         async activate(request) {
           const harness = knownHarness(request.execution.harness);
           const spec = harnessSpec(harness);
@@ -759,6 +764,9 @@ export function createHerdrRunHostFactory(
                         "native release cannot be proved for a later one",
                     );
                   }
+                  const skills = request.skills
+                    ? await skillsLaunch(harness, request.skills, request.occupant !== undefined)
+                    : undefined;
                   let paneId: string;
                   try {
                     paneId = await allocatePane(
@@ -766,6 +774,7 @@ export function createHerdrRunHostFactory(
                       request.cwd,
                       operation.deadline.unixMilliseconds,
                       controller.signal,
+                      skills?.env,
                     );
                   } catch (error) {
                     if (controller.signal.aborted) {
@@ -787,7 +796,11 @@ export function createHerdrRunHostFactory(
                         harness,
                         paneId,
                         terminal,
-                        [...launch.argv.slice(1), ...sandboxedArgs(harness)],
+                        [
+                          ...launch.argv.slice(1),
+                          ...sandboxedArgs(harness),
+                          ...(skills?.args ?? []),
+                        ],
                         operation.deadline.unixMilliseconds,
                         controller.signal,
                       )
@@ -795,7 +808,7 @@ export function createHerdrRunHostFactory(
                         agentName,
                         harness,
                         paneId,
-                        launch.argv.slice(1),
+                        [...launch.argv.slice(1), ...(skills?.args ?? [])],
                         operation.deadline.unixMilliseconds,
                         controller.signal,
                       );

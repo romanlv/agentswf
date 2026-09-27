@@ -13,6 +13,7 @@ import type {
   TurnId,
 } from "@wf/contract/workflow";
 import type { Occupant } from "@wf/sandbox";
+import type { AgentSkills } from "./capabilities/skills";
 import type { SessionAccounting } from "./usage/accounting";
 
 export type AgentState =
@@ -119,6 +120,11 @@ export interface HarnessActivation {
    * adapter that cannot launch through one refuses the agent.
    */
   occupant?: Occupant;
+  /**
+   * The skills the workflow named, copied where this harness reads them. Absent, the harness finds
+   * whatever it would on its own.
+   */
+  skills?: AgentSkills;
 }
 
 /** An opaque locator for a session the engine did not start; only the adapter interprets it. */

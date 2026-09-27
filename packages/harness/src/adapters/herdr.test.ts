@@ -1026,6 +1026,32 @@ describe("createHerdrRunHostFactory", () => {
     await host.close();
   });
 
+  test("a host codex with skills starts in a tab carrying its own home", async () => {
+    const { run, calls } = hostStub();
+    const host = await createHerdrRunHostFactory(CONFIG, run).openRun({
+      runId: "run-1",
+      cwd: "/repo",
+      deadline: deadline(),
+    });
+    const session = await host.openAgent({
+      key: "reviewer",
+      cwd: "/repo",
+      deadline: deadline(),
+      execution: { harness: "codex", model: "gpt-5.6-sol" },
+      skills: { directory: "/run/b/home/skills", names: ["alpha"], home: "/run/b/home" },
+    });
+    await (
+      await session.start({ id: "one", prompt: "review", deadline: deadline() }, binding("op-1"))
+    ).settled;
+
+    const tab = argv(calls, "tab create");
+    expect(tab[tab.indexOf("CODEX_HOME=/run/b/home") - 1]).toBe("--env");
+    const start = argv(calls, "agent start");
+    const at = start.indexOf("skills.bundled.enabled=false");
+    expect(start[at - 1]).toBe("-c");
+    await host.close();
+  });
+
   test("releasing a turn while its tab is still being created reports it cancelled", async () => {
     const { run: base } = hostStub();
     let creating!: () => void;

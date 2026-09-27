@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { mkdir, realpath } from "node:fs/promises";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 import { isDeepStrictEqual } from "node:util";
 import type { SandboxRecord } from "@wf/contract/records";
 import type {
@@ -10,7 +10,7 @@ import type {
   SandboxEnvironmentKey,
   SandboxRef,
 } from "@wf/contract/workflow";
-import { harnessState, sandboxNeeds } from "@wf/harness";
+import { type AgentSkills, harnessState, sandboxNeeds, skillsLayout } from "@wf/harness";
 import {
   type AgentDoor,
   type HarnessSandboxNeeds,
@@ -24,6 +24,7 @@ import {
 } from "@wf/sandbox";
 import { CONTROL_PLANE_ROOT } from "./control-plane";
 import { type CredentialLocks, type SeededHome, seedHome } from "./sandbox-homes";
+import { placeSkill, type ResolvedSkill } from "./skills/run-skills";
 
 /** The providers a run may open sandboxes with, and the directory holding every run. */
 export type RunSandboxOptions = {
@@ -45,6 +46,8 @@ export type Seat = {
   /** The agent's working directory, by its real path, which is the one every provider shares. */
   cwd: string;
   home: string;
+  /** Its skills, copied into its home as it is seeded; absent when the workflow named none. */
+  skills?: AgentSkills;
   /** Admits the agent through `door`, once its home is seeded; serialized per sandbox. */
   admit(door: AgentDoor): Promise<SeatedAgent>;
   /**
@@ -110,6 +113,16 @@ export class RunSandboxes {
     this.#environment = options.sandboxes?.environment ?? process.env;
   }
 
+  /** One run's credential write-backs, which a host codex's own home shares (story 007). */
+  get credentialLocks(): CredentialLocks {
+    return this.#locks;
+  }
+
+  /** The operator's environment, as the providers see it. */
+  get environment(): Readonly<Record<string, string | undefined>> {
+    return this.#environment;
+  }
+
   /** `workflow.sandboxes.open`. */
   async open(spec: unknown): Promise<SandboxRef> {
     const key = (spec as { key?: unknown } | null)?.key;
@@ -133,6 +146,7 @@ export class RunSandboxes {
     sandbox: unknown;
     cwd: string;
     execution: AgentExecution;
+    skills?: readonly ResolvedSkill[];
   }): Promise<Seat> {
     const shared = this.#shared(agent.sandbox);
     const pane = agent.execution.placement !== "headless";
@@ -163,12 +177,27 @@ export class RunSandboxes {
         agent.execution.model,
         this.#environment,
       );
+      const skills = agent.skills
+        ? {
+            directory: skillsLayout(agent.execution.harness, { home, bundle: home }).directory,
+            names: agent.skills.map((skill) => skill.name),
+          }
+        : undefined;
+      // Into the staged home, before it moves where the sandbox's agents can write (story 007).
+      const populate =
+        agent.skills && skills
+          ? async (staged: string) => {
+              const into = join(staged, relative(home, skills.directory));
+              for (const skill of agent.skills!) await placeSkill(skill, into);
+            }
+          : undefined;
       return {
         cwd,
         home,
+        ...(skills ? { skills } : {}),
         abandon,
         admit: (door) => {
-          seated = this.#admit(sandbox, agent.key, cwd, { home, staging }, needs, door);
+          seated = this.#admit(sandbox, agent.key, cwd, { home, staging }, needs, door, populate);
           return seated;
         },
       };
@@ -329,10 +358,11 @@ export class RunSandboxes {
     { home, staging }: { home: string; staging: string },
     needs: HarnessSandboxNeeds,
     door: AgentDoor,
+    populate?: (staged: string) => Promise<void>,
   ): Promise<SeatedAgent> {
     const admission = sandbox.admitting.then(async (): Promise<SeatedAgent> => {
       if (this.#closed) throw new Error("the run's sandboxes are closed");
-      const seeded: SeededHome = await seedHome(home, staging, needs, cwd, this.#locks);
+      const seeded: SeededHome = await seedHome(home, staging, needs, cwd, this.#locks, populate);
       const occupant = await sandbox.opened.admit({ cwd, home, harness: needs, door });
       sandbox.agents.push({ agent, home, domains: needs.domains });
       // Admitted as the run released its agents: released now, before its sandbox closes.

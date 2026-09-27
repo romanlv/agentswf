@@ -166,6 +166,90 @@ describe("createHeadlessAdapter", () => {
     expect(calls[1]?.argv[calls[1].argv.indexOf("--resume") + 1]).toBe("sess-1");
   });
 
+  describe("with skills", () => {
+    test("every turn, a resumed one too, carries them where they swallow nothing", async () => {
+      const { run, calls } = stub([claudeOut("first"), claudeOut("second")]);
+      const session = await headless(
+        run,
+        {},
+        { ...activation, skills: { directory: "/run/b/.claude/skills", names: ["alpha"] } },
+      );
+      const first = await session.start(turnSpec, firstBinding);
+      await first.settled;
+      await (await first.nudge(nudgeSpec)).settled;
+      for (const call of calls) {
+        const at = call.argv.indexOf("--add-dir");
+        expect(call.argv.slice(at - 2, at + 3)).toEqual([
+          "--setting-sources",
+          "project,local",
+          "--add-dir",
+          "/run/b",
+          "--output-format",
+        ]);
+      }
+      expect(calls[1]?.argv[calls[1].argv.indexOf("--resume") + 1]).toBe("sess-1");
+    });
+
+    test("a host codex runs in its own home, with its bundled skills off", async () => {
+      const codexOut = JSON.stringify({ type: "thread.started", thread_id: "thread-1" });
+      const { run, calls } = stub([codexOut]);
+      const session = await headless(
+        run,
+        {},
+        {
+          ...activation,
+          execution: { harness: "codex", model: "gpt-6-luna", placement: "headless" },
+          skills: { directory: "/run/b/home/skills", names: ["alpha"], home: "/run/b/home" },
+        },
+      );
+      await (await session.start(turnSpec, firstBinding)).settled;
+      expect(calls[0]?.env).toEqual({ CODEX_HOME: "/run/b/home" });
+      const at = calls[0]!.argv.indexOf("skills.bundled.enabled=false");
+      expect(calls[0]?.argv[at - 1]).toBe("-c");
+      expect(calls[0]?.argv.at(-1)).toBe("-");
+    });
+
+    test("in a sandbox, pi's skills come after its extensions flag", async () => {
+      const { run, calls } = stub([""]);
+      const place: Occupant = {
+        launch: (root) => ({ ...root, env: {}, group: true }),
+        release: async () => undefined,
+      };
+      const session = await headless(
+        run,
+        {},
+        {
+          ...activation,
+          occupant: place,
+          execution: { harness: "pi", model: "openai-codex/gpt-6-luna", placement: "headless" },
+          skills: { directory: "/box/homes/h/skills", names: ["alpha"] },
+        },
+      );
+      await (await session.start(turnSpec, firstBinding)).settled;
+      const at = calls[0]!.argv.indexOf("--no-extensions");
+      expect(calls[0]?.argv.slice(at, at + 4)).toEqual([
+        "--no-extensions",
+        "--no-skills",
+        "--skill",
+        "/box/homes/h/skills/alpha",
+      ]);
+    });
+
+    test("an adapter that cannot give skills refuses the agent", async () => {
+      const adapter = createPaneAdapter({
+        commandTimeoutMs: 1_000,
+        settleTimeoutMs: 1_000,
+      } as never);
+      await expect(
+        adapter.activate({
+          ...activation,
+          execution: { harness: "claude", model: "opus" },
+          skills: { directory: "/run/b/.claude/skills", names: [] },
+        }),
+      ).rejects.toThrow("cannot be given skills");
+    });
+  });
+
   describe("with an occupant", () => {
     function occupant() {
       const launched: SandboxProcess[] = [];

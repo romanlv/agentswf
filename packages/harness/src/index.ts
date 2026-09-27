@@ -6,9 +6,10 @@ export {
 export type { HerdrConfig } from "./adapters/herdr";
 export { createHerdrRunHostFactory } from "./adapters/herdr";
 export { createHerdrAdapter } from "./adapters/herdr-legacy";
+export * from "./capabilities/skills";
 export * from "./command";
 export { createPlacementHostFactory } from "./placement-host";
-export { sandboxNeeds } from "./sandbox-needs";
+export { hostHome, sandboxNeeds } from "./sandbox-needs";
 export { createSingleSessionHostFactory } from "./single-session-host";
 export * from "./spec";
 export { harnessState } from "./state";

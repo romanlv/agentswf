@@ -4,7 +4,21 @@ import type { InlineSandboxSpec, SandboxRef } from "./sandboxes";
 import type { AbsoluteDeadline } from "./timing";
 
 export type AgentKey = string;
-export type SkillName = string;
+/**
+ * Where a skill comes from; its name is the one its `SKILL.md` gives. A skill is code its harness
+ * runs, so every agent gets a copy of its own, never the source.
+ */
+export type SkillRef =
+  /**
+   * A directory holding a `SKILL.md`: an absolute path, or a `file:` URL. One beside the workflow
+   * is `new URL("./skills/name", import.meta.url)`, which stays right when another workflow calls it.
+   */
+  | { path: string | URL }
+  /**
+   * A public skill, as skills.sh names one: `repo` is `owner/repo` on GitHub or a git URL, `skill`
+   * the name in its `SKILL.md`, at `ref` or, absent, the default branch when the run starts.
+   */
+  | { repo: string; skill: string; ref?: string };
 export type RuntimeAliasName = string;
 export type TurnId = string;
 export type CompactionId = string;
@@ -72,8 +86,11 @@ export interface AgentOpenSpec {
   instructions?: string;
   /** Selects the harness and model. */
   runtime: RuntimeSelection;
-  /** Harness-neutral skill names made available to this logical agent. */
-  skills?: readonly SkillName[];
+  /**
+   * Exactly the skills this agent has, beside its repository's own and its harness's bundled ones.
+   * Absent, it has what it would have without awf: the operator's on the host, none in a sandbox.
+   */
+  skills?: readonly SkillRef[];
   labels?: JsonObject;
   /**
    * The sandbox this agent runs in: one this run opened, shared with its other agents, or a spec

@@ -2,6 +2,7 @@ import {
   type AgentRef,
   isAnswered,
   type RuntimeSelection,
+  type SkillRef,
   type WorkflowContext,
   type WorkflowDefinition,
 } from "@wf/contract/workflow";
@@ -17,7 +18,7 @@ const ROLE_CONFIG = {
   planner: {
     instructions:
       "Own the ticket document. Verify current behavior and keep the document implementation-ready.",
-    skills: ["ticket-doc"],
+    skills: [{ path: new URL("./skills/ticket-doc", import.meta.url) }],
   },
   implementer: {
     instructions: "Implement the approved ticket doc and keep it current as the decision record.",
@@ -26,7 +27,7 @@ const ROLE_CONFIG = {
     instructions:
       "Gate both the ticket doc and implementation. Be specific when requesting changes.",
   },
-} satisfies Record<string, { instructions: string; skills?: string[] }>;
+} satisfies Record<string, { instructions: string; skills?: SkillRef[] }>;
 
 type PrimaryRole = keyof typeof ROLE_CONFIG;
 type AdditionalReviewer = { name: string; runtime: RuntimeSelection };

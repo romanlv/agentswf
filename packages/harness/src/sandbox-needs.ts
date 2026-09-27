@@ -137,6 +137,41 @@ const SANDBOXED: Record<SandboxedName, SandboxedHarness> = {
   },
 };
 
+/**
+ * A home of `harness`'s own at `home`, for an agent on the host that needs one to be given skills:
+ * the credential and first-run answers a sandboxed agent's gets, and nothing else of the operator's.
+ */
+export function hostHome(
+  harness: string,
+  home: string,
+  environment: Environment = process.env,
+): Pick<HarnessSandboxNeeds, "env" | "seed" | "defaults"> {
+  if (!sandboxable(harness)) throw new Error(`${harness} cannot have a home of its own`);
+  return ownHome(harness as SandboxedName, home, environment);
+}
+
+function ownHome(
+  harness: SandboxedName,
+  home: string,
+  environment: Environment,
+): Pick<HarnessSandboxNeeds, "env" | "seed" | "defaults"> {
+  const sandboxed = SANDBOXED[harness];
+  const state = harnessState(environment)[harness];
+  return {
+    env: { [HOME_ENV[harness]]: home },
+    seed: sandboxed.seed.map(({ file, refreshes }) => ({
+      from: join(state, file),
+      to: join(home, file),
+      refreshes,
+    })),
+    defaults: (cwd) =>
+      (sandboxed.defaults?.(cwd) ?? []).map(({ name, contents }) => ({
+        path: join(home, name),
+        contents,
+      })),
+  };
+}
+
 /** Whether a harness can run in a sandbox at all. */
 export function sandboxable(harness: string): boolean {
   return Object.hasOwn(SANDBOXED, harness);
@@ -170,19 +205,8 @@ export async function sandboxNeeds(
       `a sandboxed ${harness} needs ${sandboxed.token} (from \`claude setup-token\`): its login lives in the keychain`,
     );
   }
-  const state = harnessState(environment)[harness as SandboxedName];
   return {
-    env: { [HOME_ENV[harness as SandboxedName]]: home },
-    seed: sandboxed.seed.map(({ file, refreshes }) => ({
-      from: join(state, file),
-      to: join(home, file),
-      refreshes,
-    })),
-    defaults: (cwd) =>
-      (sandboxed.defaults?.(cwd) ?? []).map(({ name, contents }) => ({
-        path: join(home, name),
-        contents,
-      })),
+    ...ownHome(harness as SandboxedName, home, environment),
     secrets: sandboxed.token && tokenValue ? { [sandboxed.token]: tokenValue } : {},
     domains,
     command,

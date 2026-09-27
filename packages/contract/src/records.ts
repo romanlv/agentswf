@@ -158,6 +158,27 @@ export type SandboxRecord = {
   agents: { callPath: string[]; agent: string; home: string }[];
 };
 
+/** One skill an agent was given, as it was copied to it. */
+export type SkillRecord = {
+  /** The name in its `SKILL.md`, and the directory it was copied to. */
+  name: string;
+  /** As the workflow named it, with a path made absolute. */
+  source: { path: string } | { repo: string; skill: string; ref?: string };
+  /** The commit a `repo` source resolved to. */
+  commit?: string;
+  /** Where in the repository it was found. */
+  within?: string;
+  /** `sha256:` over the copied tree: each file's path, whether it is executable, and its bytes. */
+  digest: string;
+};
+
+/** The skills an agent was given; `operator` when the workflow left them to the operator's. */
+export type AgentSkillsRecord = {
+  callPath: string[];
+  agent: string;
+  skills: "operator" | SkillRecord[];
+};
+
 export const OUTPUT_RECORD_VERSION = 2 as const;
 
 /**
@@ -177,6 +198,8 @@ export type OutputRecord = {
    * exhaustively over a sandbox's `provider`.
    */
   sandboxes?: SandboxRecord[];
+  /** Each agent's skills, once per agent, including one that never completed a turn. */
+  skills?: AgentSkillsRecord[];
 } & (
   | {
       outcome: "succeeded";

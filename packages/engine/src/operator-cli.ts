@@ -139,6 +139,7 @@ export async function runOperatorCli(
     usage: run.usage,
     artifacts: join(invocationRoot, run.runId),
     ...(run.sandboxes ? { sandboxes: run.sandboxes } : {}),
+    ...(run.skills ? { skills: run.skills } : {}),
   });
   try {
     await mkdir(invocationRoot, { recursive: true });

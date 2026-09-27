@@ -1,8 +1,14 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { randomUUID } from "node:crypto";
-import { dirname } from "node:path";
+import { mkdir } from "node:fs/promises";
+import { dirname, join, relative } from "node:path";
 import { isDeepStrictEqual } from "node:util";
-import type { RunAccounting, SandboxRecord, SettledOperation } from "@wf/contract/records";
+import type {
+  AgentSkillsRecord,
+  RunAccounting,
+  SandboxRecord,
+  SettledOperation,
+} from "@wf/contract/records";
 import { type JsonSchema, parseJsonSchema } from "@wf/contract/schema";
 import {
   type AbsoluteDeadline,
@@ -28,7 +34,7 @@ import {
   type WorkflowContext,
   type WorkflowDefinition,
 } from "@wf/contract/workflow";
-import { findHarness } from "@wf/harness";
+import { type AgentSkills, findHarness, hostHome, skillsLayout } from "@wf/harness";
 import type {
   AgentRunHost,
   AgentRuntimeConfig,
@@ -71,7 +77,15 @@ import {
   createRunLedger,
   type RunLedger,
 } from "./run-usage";
+import { seedHome } from "./sandbox-homes";
 import { RunSandboxes, type RunSandboxOptions, type SeatedAgent } from "./sandboxes";
+import {
+  placeSkill,
+  type ResolvedSkill,
+  RunSkills,
+  readSkillSources,
+  type SkillSource,
+} from "./skills/run-skills";
 
 export { WorkflowCancelledError } from "./deadlines";
 
@@ -84,6 +98,8 @@ export type RunWorkflowOptions = {
   signal?: AbortSignal;
   /** The sandbox providers agents may run in; without them, a sandboxed agent is refused. */
   sandboxes?: RunSandboxOptions;
+  /** Where public skills are fetched to, shared by runs; `$XDG_CACHE_HOME/awf/skills` by default. */
+  skillCache?: string;
 };
 
 /** What a run is known by once it has ended, whether or not it succeeded. */
@@ -101,6 +117,8 @@ export type SettledRun = {
   accounting: RunAccounting;
   /** Each sandbox the run opened, with its agents; absent when it opened none. */
   sandboxes?: SandboxRecord[];
+  /** Each agent's skills; absent when no agent opened. */
+  skills?: AgentSkillsRecord[];
 };
 
 export type WorkflowRunResult<Result extends JsonValue> = SettledRun & { value: Result };
@@ -116,6 +134,7 @@ export class WorkflowRunError extends Error implements SettledRun {
   readonly finishedAt: string;
   readonly accounting: RunAccounting;
   readonly sandboxes?: SandboxRecord[];
+  readonly skills?: AgentSkillsRecord[];
 
   constructor(cause: unknown, run: SettledRun) {
     super(cause instanceof Error ? cause.message : String(cause), { cause });
@@ -126,6 +145,7 @@ export class WorkflowRunError extends Error implements SettledRun {
     this.finishedAt = run.finishedAt;
     this.accounting = run.accounting;
     if (run.sandboxes) this.sandboxes = run.sandboxes;
+    if (run.skills) this.skills = run.skills;
   }
 }
 
@@ -172,6 +192,8 @@ type AgentIdentity = {
   cwd: string;
   /** As the agent was first opened with it: a ref, an inline spec, or absent. */
   sandbox?: unknown;
+  /** Its skills' sources, checked; absent when it has the operator's. */
+  skills?: SkillSource[];
   instructions?: string;
   labels?: AgentOpenSpec["labels"];
 };
@@ -227,8 +249,15 @@ export async function startWorkflow<Args extends JsonValue, Result extends JsonV
     deadline: options.deadline,
     log: (message) => options.onLog?.(message),
   });
+  const skills = new RunSkills({
+    runDir,
+    ...(options.skillCache === undefined ? {} : { cacheRoot: options.skillCache }),
+    ...(options.sandboxes?.environment ? { environment: options.sandboxes.environment } : {}),
+  });
   const owner = new WorkflowOwner({
     sandboxes,
+    skills,
+    runDir,
     progress,
     runId,
     cwd,
@@ -298,12 +327,14 @@ export async function startWorkflow<Args extends JsonValue, Result extends JsonV
     signal.removeEventListener("abort", cutReading);
     const times = { startedAt: new Date(startedAt).toISOString(), finishedAt };
     const opened = sandboxes.records();
+    const given = skills.records();
     const settled: SettledRun = {
       runId,
       usage,
       ...times,
       accounting: summarizeRun(usage, PUBLISHED_PRICES, times),
       ...(opened.length > 0 ? { sandboxes: opened } : {}),
+      ...(given.length > 0 ? { skills: given } : {}),
     };
     if (failed) {
       throw new WorkflowRunError(
@@ -357,8 +388,10 @@ type AgentOpening = {
   deadline: AbsoluteDeadline;
   sessions: AgentSessions;
   ledger: AgentLedger;
+  /** Its skills' sources, resolved when it opens; absent when it has the operator's. */
+  skills?: SkillSource[];
   /** The host's activation for the agent, working in `cwd`, inside `occupant` if sandboxed. */
-  activation(cwd: string, occupant?: Occupant): HarnessActivation;
+  activation(cwd: string, occupant?: Occupant, skills?: AgentSkills): HarnessActivation;
 };
 
 class WorkflowOwner {
@@ -373,6 +406,8 @@ class WorkflowOwner {
   constructor(
     private readonly options: {
       sandboxes: RunSandboxes;
+      skills: RunSkills;
+      runDir: string;
       runId: string;
       cwd: string;
       deadline: AbsoluteDeadline;
@@ -481,9 +516,6 @@ class WorkflowOwner {
   private openAgent(spec: AgentOpenSpec): Promise<AgentRef> {
     if (this.#closed) throw new Error("workflow context is closed");
     scopes.getStore()?.assertAccepting();
-    if (spec.skills && spec.skills.length > 0) {
-      throw new Error("agent skills are not implemented by this runner");
-    }
     const existing = this.#agents.get(spec.key);
     const execution = existing
       ? constrainExistingExecution(spec.runtime, existing.identity.execution)
@@ -494,6 +526,7 @@ class WorkflowOwner {
       ...(spec.instructions === undefined ? {} : { instructions: spec.instructions }),
       ...(spec.labels === undefined ? {} : { labels: structuredClone(spec.labels) }),
       ...(spec.sandbox === undefined ? {} : { sandbox: spec.sandbox }),
+      ...(spec.skills === undefined ? {} : { skills: readSkillSources(spec.skills) }),
     };
     const scope = scopes.getStore();
     const inheritedDeadline = scope?.deadline ?? this.options.deadline;
@@ -532,7 +565,8 @@ class WorkflowOwner {
       deadline: effectiveDeadline,
       sessions,
       ledger: this.options.ledger.agent(accounted),
-      activation: (cwd, occupant) => ({
+      ...(identity.skills ? { skills: identity.skills } : {}),
+      activation: (cwd, occupant, skills) => ({
         key: spec.key,
         deadline: effectiveDeadline,
         cwd,
@@ -540,11 +574,12 @@ class WorkflowOwner {
         ...(spec.instructions === undefined ? {} : { instructions: spec.instructions }),
         ...(spec.labels === undefined ? {} : { labels: spec.labels }),
         ...(occupant ? { occupant } : {}),
+        ...(skills ? { skills } : {}),
       }),
     };
     const { state, channel } =
       spec.sandbox === undefined
-        ? this.openHostAgent(opening, identity.cwd)
+        ? this.openHostAgent(opening, identity.cwd, accounted)
         : this.openSandboxedAgent(opening, identity.cwd, accounted);
     const ownedState = this.track(state);
     this.#agents.set(spec.key, {
@@ -562,12 +597,20 @@ class WorkflowOwner {
     return activated;
   }
 
-  /** An agent on the host: its channel and session open together. */
+  /**
+   * An agent on the host: its skills placed first, since a source that will not resolve refuses the
+   * agent before it holds anything, then its channel and session together.
+   */
   private openHostAgent(
-    { spec, execution, sessions, ledger, activation }: AgentOpening,
+    { spec, execution, sessions, ledger, activation, skills: sources }: AgentOpening,
     cwd: string,
+    accounted: AccountedAgent,
   ): { state: Promise<LogicalAgent>; channel: Promise<ResultChannel> } {
-    const opened = this.options.control.openChannel(spec.key, (id) => sessions.launcher.add(id));
+    const placed = this.placeHostSkills(spec.key, execution, cwd, sources);
+    const opened = placed.then((skills) => {
+      if (skills?.home) accounted.home = skills.home;
+      return this.options.control.openChannel(spec.key, (id) => sessions.launcher.add(id));
+    });
     const reachable = opened.then(async (channel) => ({
       channel,
       // Beside the socket, in the directory the control plane made for this agent alone. Deriving
@@ -583,8 +626,8 @@ class WorkflowOwner {
     reachable.catch(() => undefined);
     // An open socket authorizes an agent until something closes it, so every failure path does.
     const closeChannel = () => opened.then((channel) => channel.close()).catch(() => undefined);
-    const state = this.options.host
-      .openAgent(activation(cwd))
+    const state = placed
+      .then((skills) => this.options.host.openAgent(activation(cwd, undefined, skills?.given)))
       .catch(async (error: unknown) => {
         await closeChannel();
         throw error;
@@ -600,9 +643,72 @@ class WorkflowOwner {
           await Promise.allSettled([session.close(reasonOf(error)), closeChannel()]);
           throw error;
         }
-        return this.logicalAgent(spec.key, execution, session, channel.endpoint, launcher, ledger);
+        const writeBack = (await placed)?.writeBack;
+        return this.logicalAgent(
+          spec.key,
+          execution,
+          session,
+          channel.endpoint,
+          launcher,
+          ledger,
+          writeBack ? { writeBack } : undefined,
+        );
       });
     return { state, channel: opened };
+  }
+
+  /**
+   * Copies an agent's skills where its harness reads them on the host: a directory of its own, or
+   * for codex a home of its own, seeded as a sandboxed one is (story 007).
+   */
+  private async placeHostSkills(
+    key: string,
+    execution: AgentExecution,
+    cwd: string,
+    sources: SkillSource[] | undefined,
+  ): Promise<{ given: AgentSkills; home?: string; writeBack?: () => Promise<void> } | undefined> {
+    const resolved = await this.resolveSkills(key, sources);
+    if (!resolved) return undefined;
+    const id = randomUUID();
+    const bundle = join(this.options.runDir, "skills", "agents", id);
+    const layout = skillsLayout(execution.harness, { bundle });
+    const given: AgentSkills = {
+      directory: layout.directory,
+      names: resolved.map((skill) => skill.name),
+    };
+    if (layout.home !== "needed") {
+      for (const skill of resolved) await placeSkill(skill, layout.directory);
+      return { given };
+    }
+    const home = dirname(layout.directory);
+    const staging = join(this.options.runDir, "skills", "staging", id);
+    await mkdir(bundle, { recursive: true });
+    const seeded = await seedHome(
+      home,
+      staging,
+      hostHome(execution.harness, home, this.options.sandboxes.environment),
+      cwd,
+      this.options.sandboxes.credentialLocks,
+      async (staged) => {
+        const into = join(staged, relative(home, layout.directory));
+        for (const skill of resolved) await placeSkill(skill, into);
+      },
+    );
+    return { given: { ...given, home }, home, writeBack: () => seeded.writeBack() };
+  }
+
+  /** Resolves and records an agent's skills; `undefined` when it has the operator's. */
+  private async resolveSkills(
+    key: string,
+    sources: SkillSource[] | undefined,
+  ): Promise<ResolvedSkill[] | undefined> {
+    if (!sources) {
+      this.options.skills.record(key, "operator");
+      return undefined;
+    }
+    const resolved = await this.options.skills.resolve(sources);
+    this.options.skills.record(key, resolved);
+    return resolved;
   }
 
   /**
@@ -611,17 +717,19 @@ class WorkflowOwner {
    * about where it runs is refused before a channel opens.
    */
   private openSandboxedAgent(
-    { spec, execution, deadline, sessions, ledger, activation }: AgentOpening,
+    { spec, execution, deadline, sessions, ledger, activation, skills: sources }: AgentOpening,
     cwd: string,
     accounted: AccountedAgent,
   ): { state: Promise<LogicalAgent>; channel: Promise<ResultChannel> } {
     const scope = scopes.getStore();
     const opened = (async () => {
+      const skills = await this.resolveSkills(spec.key, sources);
       const seat = await this.options.sandboxes.seat({
         key: spec.key,
         sandbox: spec.sandbox,
         cwd,
         execution,
+        ...(skills ? { skills } : {}),
       });
       // What the agent really ran in, which is where accounting finds its sessions.
       accounted.cwd = seat.cwd;
@@ -652,7 +760,9 @@ class WorkflowOwner {
     const state = opened.then(async ({ seat, seated, channel, launcher }) => {
       let session: HarnessSession;
       try {
-        session = await this.options.host.openAgent(activation(seat.cwd, seated.occupant));
+        session = await this.options.host.openAgent(
+          activation(seat.cwd, seated.occupant, seat.skills),
+        );
       } catch (error) {
         await seated.release().catch(() => undefined);
         await channel.close().catch(() => undefined);
@@ -680,7 +790,7 @@ class WorkflowOwner {
     endpoint: string,
     launcher: string,
     ledger: AgentLedger,
-    seated?: SeatedAgent,
+    seated?: Pick<SeatedAgent, "writeBack">,
   ): LogicalAgent {
     return new LogicalAgent({
       key,
@@ -1535,6 +1645,9 @@ function assertCompatibleAgent(
 ): void {
   if (!isDeepStrictEqual(existing.execution, requested.execution)) conflict(key, "runtime");
   if (spec.cwd !== undefined && existing.cwd !== requested.cwd) conflict(key, "cwd");
+  if (spec.skills !== undefined && !isDeepStrictEqual(existing.skills, requested.skills)) {
+    conflict(key, "skills");
+  }
   for (const field of ["instructions", "labels"] as const) {
     if (spec[field] !== undefined && !isDeepStrictEqual(existing[field], requested[field])) {
       conflict(key, field);

@@ -194,7 +194,7 @@ describe("sandboxNeeds", () => {
       const spec = HARNESSES[harness];
       const args = sandboxedArgs(harness);
       for (const model of ["m", undefined]) {
-        const context = { ...(model ? { model } : {}), sessionHint: "s", sandboxedArgs: args };
+        const context = { ...(model ? { model } : {}), sessionHint: "s", launchArgs: args };
         for (const plan of [
           spec.headlessTurn("prompt", context),
           spec.resumeTurn!("prompt", "session", context),

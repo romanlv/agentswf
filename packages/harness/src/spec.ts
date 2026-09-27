@@ -28,12 +28,13 @@ export type BillingContext = {
 
 /**
  * A session id we choose ahead of the first turn, for a harness that will accept one, and the
- * arguments a sandboxed turn adds, which each plan puts where they cannot swallow what follows.
+ * arguments the launch adds, a sandbox's and the agent's skills', which each plan puts where they
+ * cannot swallow what follows.
  */
 export type TurnContext = {
   model?: string;
   sessionHint: string;
-  sandboxedArgs?: readonly string[];
+  launchArgs?: readonly string[];
 };
 
 export type HarnessSpec = {
@@ -103,11 +104,11 @@ export const HARNESSES: Record<Harness, HarnessSpec> = {
     }),
     // `--output-format json` is the only place the resumable session id is printed, and
     // without it there is no headless nudge.
-    headlessTurn: (prompt, { model, sandboxedArgs = [] }) => ({
+    headlessTurn: (prompt, { model, launchArgs = [] }) => ({
       argv: [
         "claude",
         "-p",
-        ...sandboxedArgs,
+        ...launchArgs,
         "--output-format",
         "json",
         "--allowed-tools",
@@ -116,13 +117,13 @@ export const HARNESSES: Record<Harness, HarnessSpec> = {
       ],
       stdin: prompt,
     }),
-    resumeTurn: (prompt, sessionId, { model, sandboxedArgs = [] }) => ({
+    resumeTurn: (prompt, sessionId, { model, launchArgs = [] }) => ({
       argv: [
         "claude",
         "-p",
         "--resume",
         sessionId,
-        ...sandboxedArgs,
+        ...launchArgs,
         "--output-format",
         "json",
         "--allowed-tools",
@@ -159,7 +160,7 @@ export const HARNESSES: Record<Harness, HarnessSpec> = {
     }),
     // `exec resume` takes no `-s`, so the sandbox is set through `-c` on both turns rather
     // than through a flag that exists on only one of them.
-    headlessTurn: (prompt, { model, sandboxedArgs = [] }) => ({
+    headlessTurn: (prompt, { model, launchArgs = [] }) => ({
       argv: [
         "codex",
         "exec",
@@ -167,13 +168,13 @@ export const HARNESSES: Record<Harness, HarnessSpec> = {
         "--skip-git-repo-check",
         "-c",
         'sandbox_mode="danger-full-access"',
-        ...sandboxedArgs,
+        ...launchArgs,
         ...(model ? ["--model", model] : []),
         "-",
       ],
       stdin: prompt,
     }),
-    resumeTurn: (prompt, sessionId, { model, sandboxedArgs = [] }) => ({
+    resumeTurn: (prompt, sessionId, { model, launchArgs = [] }) => ({
       argv: [
         "codex",
         "exec",
@@ -183,7 +184,7 @@ export const HARNESSES: Record<Harness, HarnessSpec> = {
         "--skip-git-repo-check",
         "-c",
         'sandbox_mode="danger-full-access"',
-        ...sandboxedArgs,
+        ...launchArgs,
         ...(model ? ["--model", model] : []),
         "-",
       ],
@@ -221,7 +222,7 @@ export const HARNESSES: Record<Harness, HarnessSpec> = {
     interactive: (model) => ({ argv: ["pi", ...(model ? ["--model", model] : [])] }),
     // pi is the one harness whose session id we choose: `--session-id` creates it on the first
     // turn and reuses it on the second, so no id has to be scraped back out of the output.
-    headlessTurn: (prompt, { model, sessionHint, sandboxedArgs = [] }) => ({
+    headlessTurn: (prompt, { model, sessionHint, launchArgs = [] }) => ({
       argv: [
         "pi",
         "--print",
@@ -229,13 +230,13 @@ export const HARNESSES: Record<Harness, HarnessSpec> = {
         "json",
         "--session-id",
         sessionHint,
-        ...sandboxedArgs,
+        ...launchArgs,
         ...(model ? ["--model", model] : []),
       ],
       stdin: prompt,
       sessionId: sessionHint,
     }),
-    resumeTurn: (prompt, sessionId, { model, sandboxedArgs = [] }) => ({
+    resumeTurn: (prompt, sessionId, { model, launchArgs = [] }) => ({
       argv: [
         "pi",
         "--print",
@@ -243,7 +244,7 @@ export const HARNESSES: Record<Harness, HarnessSpec> = {
         "json",
         "--session-id",
         sessionId,
-        ...sandboxedArgs,
+        ...launchArgs,
         ...(model ? ["--model", model] : []),
       ],
       stdin: prompt,
