@@ -78,6 +78,9 @@ The gates are defined in [`foundation.md`](foundation.md) §12.
 - [006 — typed decisions](stories/006-typed-decisions.md): draft. A workflow asks a System One
   model (Jev) closed questions and gets probabilities back; autoresearch matches findings to a key
   with it ([findings](findings/system-one-models.md)).
+- [007 — agent skills](stories/007-agent-skills.md): draft. A workflow names each agent's skills,
+  as a path or a public skill in a git repository, and the agent sees exactly those, on the host or
+  in a sandbox ([findings](findings/agent-skills.md)).
 
 The inbox of possible stories is [`stories/todo/`](stories/todo/).
 

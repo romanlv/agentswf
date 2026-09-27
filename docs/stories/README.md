@@ -53,6 +53,9 @@ status is one of `todo`, `draft`, `ready`, `in-progress`, `blocked`, `awaiting-h
 - [`006` — Ask a decision model a typed question from a workflow](006-typed-decisions.md) —
   `draft` — A workflow asks a System One model, Jev first, typed questions about a state and gets
   probabilities back, recorded and costed with the run.
+- [`007` — Give each agent the skills the workflow names](007-agent-skills.md) —
+  `draft` — A workflow names each agent's skills, as a path or a public skill in a git repository,
+  and the agent sees exactly those, on the host or in a sandbox.
 
 This is the high-level index of numbered stories. Keep each entry to its title, status, and
 one-sentence summary; put code maps, research, design, tasks, and verification in the linked story.

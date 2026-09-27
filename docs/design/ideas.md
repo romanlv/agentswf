@@ -17,7 +17,7 @@ Raw notes on where awf could go. Not scope and not decisions: [`foundation.md`](
   versions, which are not the same. (§7: model request-vs-granted first.)
 - **Context usage.** Detect when an agent is in the dumb zone: what percentage of its context is
   used so far. (§7: `harness`, beside liveness and usage.)
-- agent to have custom skills, it can be a agent definition, with some random skill that will be applied only to this agent, inherit or not other skills etc...
+- Custom skills per agent: a path or a public skill, applied to this agent only, with or without the operator's — drafted as [story 007](../stories/007-agent-skills.md).
 
 ## Workflows
 
