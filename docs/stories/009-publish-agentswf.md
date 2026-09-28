@@ -75,8 +75,8 @@ This has three effects:
 
 - a workflow in any folder runs, with no install there;
 - the surface it runs against is always the engine's version, never a stale copy in the folder;
-- a later rename of the import line can keep the old name as a second alias. pi still maps
-  `@mariozechner/*`, from before its move to `@earendil-works`.
+- `typebox`, which a workflow writes its schemas with, comes from the engine too, so the
+  schemas it validates against are the ones the engine checks results with.
 
 The folder's own `agentswf` is only for the editor and `tsc`. It is declared the way pi tells
 extensions to declare their host: a peer or dev dependency, never something that gets loaded.
@@ -166,7 +166,7 @@ Out of scope:
   - `plugin({ setup(b) { b.module("agentswf/workflow", () => ({ exports, loader: "object" })) } })`
     serves a workflow in a folder with no `node_modules`, both under `bun` and in a compiled binary.
   - `onResolve` with the same filter does not reach a bare import from outside the project.
-  - In the same run, a workflow's own `import "typebox"` failed.
+  - In the same run, a workflow's own `import "typebox"` failed: the engine has to serve it too.
 - **Fact: the reference projects agree on the basics.** Checked 2026-09-28:
   - **Versions:** all three keep every package at one version, set at release. codex keeps
     `0.0.0-dev` in source and stamps the version when it stages.
@@ -269,11 +269,20 @@ Out of scope:
 The rule goes into `foundation.md`'s naming note and into ADR 0005 as an amendment. Tools named
 after the command (`awf-lab`) follow the command.
 
-**The author surface.** `awf run` registers `agentswf/workflow` as a Bun virtual module before
-it imports a workflow. Its exports are the engine's own `@agentswf/contract/workflow`. The
-engine provides only that surface. A workflow that imports another package, `typebox` included,
-installs it in its own folder, as any TypeScript file would. Nothing else in the engine becomes
-importable by that route.
+**The author surface.** `awf run` registers Bun virtual modules before it imports a workflow:
+
+- `agentswf/workflow`, whose exports are the engine's own `@agentswf/contract/workflow`;
+- `typebox` and `typebox/value`, whose exports are the engine's own copy, as pi provides typebox
+  to its extensions.
+
+Provided `typebox` pins one version for every workflow; that is the point, since a result schema
+and the engine's validation of it then agree. A workflow that imports any other package installs
+it in its own folder, as any TypeScript file would. Nothing else in the engine becomes importable
+by that route, and the list is part of the author surface: adding a name later is cheap, removing
+one breaks workflows.
+
+There is no alias for the old `@wf/contract/workflow`: the operator upgrades their existing
+workflows to `agentswf/workflow` along with the rename, which is why it lands before 0.0.1.
 
 **The package.** `scripts/pack.ts` writes `dist/agentswf/package.json`:
 
@@ -352,13 +361,9 @@ Alternatives rejected:
 
 ### 2. Author surface
 
-- **Old import name:** should the engine also serve `@wf/contract/workflow` as an alias, so the
-  operator's existing personal workflows keep running after the rename?
-  - Recommended: yes, until 0.1.
-- **`typebox`:** should the engine also provide it? pi provides typebox to its extensions.
-  - Providing it pins one version for every workflow.
-  - Not providing it means a workflow that validates with typebox installs it.
-  - Recommended: not for 0.0.1. Revisit if every workflow ends up installing it.
+- **Old import name:** decided 2026-09-28, no alias. The operator upgrades existing workflows
+  with the rename.
+- **`typebox`:** decided 2026-09-28, the engine provides `typebox` and `typebox/value`.
 
 ### 3. Package
 
@@ -429,9 +434,10 @@ Outcome: a workflow outside the repository runs under the clone's `awf`, without
 
 Execution:
 
-- [ ] Plan: settle open questions 2. Decide where the plugin is registered, once per process,
-  before the first workflow import.
-- [ ] Implement: the virtual module in `workflow-loader.ts`, and the old name if chosen.
+- [ ] Plan: decide where the plugin is registered, once per process, before the first workflow
+  import, and check `typebox`'s subpaths the examples use are all served.
+- [ ] Implement: the virtual modules in `workflow-loader.ts`: `agentswf/workflow`, `typebox`,
+  `typebox/value`.
 - [ ] Review: obtain architecture/scope and correctness/proof subagent reviews of the actual diff.
 - [ ] Resolve: disposition findings.
 - [ ] Verify: satisfy every `Done when` item.
@@ -443,8 +449,8 @@ Work:
 
 Done when:
 
-- A test loads a workflow from a temporary folder with no `node_modules` and gets the engine's
-  surface.
+- A test loads a workflow from a temporary folder with no `node_modules` that imports
+  `agentswf/workflow` and `typebox`, and gets the engine's copies of both.
 - `bun run awf run {folder}/x.ts` from the clone reaches opening the workflow's first agent.
 
 ### 3. `agentswf` packs, installs into an empty directory, and runs a workflow there
@@ -568,6 +574,9 @@ scratch workspace. Changes from the first draft:
   and is deferred rather than impossible.
 - **Release automation stays out, now with its reason:** trusted publishing needs the package to
   exist first.
+- **The operator decided, 2026-09-28:** there is no alias for `@wf/contract/workflow`, because
+  existing workflows are upgraded with the rename. The engine provides `typebox` alongside
+  `agentswf/workflow`.
 
 ## Readiness
 
