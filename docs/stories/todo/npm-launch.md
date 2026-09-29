@@ -49,13 +49,14 @@ Research, and the operator's decisions, all 2026-09-28:
 
 ## Still to decide
 
-- **Published names are permanent.**
-  - `cli-agent` is internal jargon for the package that is the `wf` command. Suggested:
-    `@agentswf/wf`.
-  - `autoresearch` ships `awf-lab`. Suggested: `@agentswf/lab`.
-  - These may already be settled in story 009's rename.
+- **Published names are permanent.** Settled in story 009's rename: `cli-agent` became
+  `@agentswf/wf`, and `autoresearch` became `@agentswf/lab`.
 - **`./testing` exports:** publish them marked unstable, and drop `./archive-compat`?
-- **`engines.bun`:** is it the minimum this repository tests on, or `BUN_VERSION` (1.4.0)?
+- **`@agentswf/lab/review/*`:** a wildcard export of every lab module, added in story 009 for the
+  operator's review repository, which uses two dozen of them. Publish it marked unstable, or name
+  the ones a project needs in `./review`?
+- **`engines.bun`:** story 009 set the engine's to `>=1.4.0`, the only version tried. Is it the
+  minimum this repository tests on, or `BUN_VERSION`?
 - **The name `agentswf` until launch:** an unscoped npm name is held only by publishing it. If it
   is taken first, the fallback is `@agentswf/cli`, with `agentswf/workflow` changing to match.
 

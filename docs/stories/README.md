@@ -61,7 +61,7 @@ status is one of `todo`, `draft`, `ready`, `in-progress`, `blocked`, `awaiting-h
   findings and the scorer's labels as records, and reports recall by severity, precision, wrong
   claims, noise, cost and time; `output.json` gains `timed-out` first.
 - [`009` — Run agents.wf on another machine from GitHub](009-publish-agentswf.md) —
-  `draft` — One naming rule, an engine that serves the author surface to any folder,
+  `in-progress` — One naming rule, an engine that serves the author surface to any folder,
   `awf --version`, and v0.0.1 installed from a clone on a second machine; npm waits for the launch.
 
 This is the high-level index of numbered stories. Keep each entry to its title, status, and

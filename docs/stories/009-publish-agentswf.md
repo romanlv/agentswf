@@ -3,7 +3,7 @@ id: "009"
 title: Run agents.wf on another machine from GitHub
 summary: One naming rule across the repository, an engine that provides the author surface to a workflow in any folder, `awf --version` and a Bun check, a README that marks it an early preview and says how to install from a clone, and v0.0.1 tagged and running on the operator's second machine. npm waits for the launch.
 type: story
-status: draft
+status: in-progress
 discovered_in: "ADR 0005, 2026-09-27"
 depends_on: []
 ---
@@ -48,7 +48,8 @@ are upgraded along with the rename.
 
 ## Where it stands
 
-As of 2026-09-28, nothing is built.
+As of 2026-09-28, tasks 1 to 4 are built, committed on `main` and not yet pushed; see
+Implementation notes. Tasks 5 and 6 are the operator's.
 
 - **Settled:**
   - the names: agents.wf, `agentswf`, `@agentswf/*`, `agentswf/workflow`, `awf`, `wf`, and the
@@ -292,10 +293,10 @@ Alternatives rejected:
 
 ## Tasks at a glance
 
-- [ ] 1. The repository follows one naming rule
-- [ ] 2. `awf run` provides `agentswf/workflow` and `typebox` to a workflow in any folder
-- [ ] 3. `awf` reports its version and refuses an old Bun
-- [ ] 4. The README marks an early preview and says how to install from a clone; MIT LICENSE
+- [x] 1. The repository follows one naming rule
+- [x] 2. `awf run` provides `agentswf/workflow` and `typebox` to a workflow in any folder
+- [x] 3. `awf` reports its version and refuses an old Bun
+- [x] 4. The README marks an early preview and says how to install from a clone; MIT LICENSE
 - [ ] 5. v0.0.1 is tagged and running on the operator's second machine
 - [ ] 6. The npm scopes and the look-alike names are reserved
 
@@ -558,6 +559,48 @@ Record reviews under the task they cover.
 - [ ] Open questions are resolved or explicitly moved out of scope. The second machine's OS.
 
 ## Implementation notes
+
+Tasks 1 to 4, 2026-09-28. The operator was low on usage, so every review was done in the main
+session, not by subagents, and no live agent ran. `bun run check` is clean, and `bun test` passes
+(886 tests before task 2, plus the new ones).
+
+- **Task 1** (8c35ecb, then 2679e59 for the docs).
+  - The rename is one mechanical commit.
+  - `experiments/_archive` follows only the imports it needs, and keeps its package name
+    `@wf/experiments-archive`.
+  - This story, ADR 0005 and [[npm-launch]] still say `@wf/`: they describe the old names.
+  - Stale `@wf` links in `node_modules` were removed, so a missed import could not still resolve.
+    None was missed.
+- **Task 2** (7f1c1a2, 1644fd0).
+  - `workflow-loader.ts` registers the virtual modules once, before its first import. The engine now
+    declares `typebox`.
+  - The test loads a workflow from a temporary folder, and fails without the plugin. It checks
+    that `agentswf/workflow`, `typebox` (named and default) and `typebox/value` are the engine's
+    own objects.
+  - `awf run` of an agentless workflow from a folder outside the clone succeeds. Opening an agent
+    from there was not tried, since it would have run a live agent.
+- **Task 3** (8bd9dda). The minimum Bun is declared once, as `engines.bun` in the engine's
+  `package.json`: `>=1.4.0`, the only version tried.
+  - `--version` prints the commit only when the engine sits at `packages/engine` of the git
+    top-level it is in, so an install inside another repository doesn't print that repository's
+    commit.
+  - The check runs in `runOperatorCli`. A Bun too old to import the CLI at all fails before it.
+- **Task 4** (3547f5c).
+  - **Deviation: editor types come from `tsconfig.json` `paths` into the clone, not `bun link`.**
+    A link of `@agentswf/contract` gives no `typebox` types. Under Bun's isolated linker, the
+    engine's copy is at `packages/engine/node_modules/typebox`, which is the one it serves anyway.
+    Checked in a scratch folder: `tsc` passes, and at run time both names resolve to the engine's
+    files.
+  - **Deviation: the README was followed by the main session, not a subagent with no context.**
+    The steps were a fresh clone of this repository, `bun install`, and `bun link` into a scratch
+    `BUN_INSTALL`. Then `awf --version`, and `awf run` of an agentless workflow from a folder
+    outside the clone. The README's `hello.ts` typechecks there, but wasn't run, since it opens a
+    live agent.
+- **The operator's review repository** (3166650). Asked for alongside the story, it now imports
+  `@agentswf/lab/review` and `agentswf/workflow` through `bun link`. That needed
+  `@agentswf/lab/review/*`, a wildcard export of the lab's modules, since it uses two dozen of
+  them. The lab's `AGENTS.md` says the wildcard carries no promise that a module stays. It is
+  unpublished, so this costs nothing yet. [[npm-launch]] has to decide it.
 
 ## Human review
 
