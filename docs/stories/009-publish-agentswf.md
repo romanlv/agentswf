@@ -422,8 +422,17 @@ Alternatives rejected:
 
 ### 1. Names
 
-- **Scope:** `@agentswf` is recommended, on the evidence above. The operator confirms it and
-  claims the npm organisation, which is free for public packages.
+- **Scope:** decided 2026-09-28, `@agentswf`. The operator claims the npm organisation, which is
+  free for public packages.
+- **Look-alike names:** decided 2026-09-28, the operator reserves them so no one can publish
+  under them.
+  - npm refuses an unscoped name that differs from a published one only in punctuation, so
+    `agents-wf` and `agents.wf` are covered once `agentswf` exists.
+  - It does not guard scopes, or names a letter apart.
+  - So the operator creates the empty npm organisations `@agentwf` and `@agents-wf`, and the
+    GitHub organisations `agentwf` and `agents-wf`.
+  - The unscoped `agentwf` is optional. npm treats an empty placeholder as squatting, so if it is
+    taken, it holds a small package whose README and deprecation message point to `agentswf`.
 - **Repository:** rename `romanlv/awf` to `agentswf/agentswf` (with the GitHub org) or to
   `romanlv/agentswf`? GitHub redirects the old URL either way.
   - It decides the `repository` fields and the README's links.
@@ -455,8 +464,7 @@ Alternatives rejected:
 
 ### 4. Docs
 
-- **License:** MIT (pi, opencode) or Apache-2.0 with a NOTICE (codex)? Apache-2.0 adds a patent
-  grant.
+- **License:** decided 2026-09-28, MIT, as pi and opencode use.
 - **Getting-started location:** does the page live in `docs/` or in the README itself?
   - Recommended: the README holds install and a first workflow; `docs/getting-started.md` holds
     the rest.
@@ -609,6 +617,7 @@ Execution:
 - [ ] Plan:
   - the operator has claimed `agentswf` and the `agentswf` organisation on npm, and the GitHub
     org if chosen;
+  - the look-alike names in open questions 1 are reserved;
   - confirm who publishes.
 - [ ] Implement:
   - `scripts/release.ts 0.0.1`;
@@ -678,6 +687,10 @@ scratch workspace. Changes from the first draft:
   - **Node:** its cost was measured and moved to [[node-runtime]].
   - **Private information:** the files that would ship were searched. One line names private
     work.
+- **The operator decided, later on 2026-09-28:**
+  - the scope is `@agentswf`;
+  - the license is MIT;
+  - the look-alike names are reserved before 0.0.1.
 
 ## Readiness
 
@@ -686,7 +699,7 @@ scratch workspace. Changes from the first draft:
   anything else locates files by repository layout.
 - [x] Evidence and research support the proposed design.
 - [ ] Expensive interface, record-format, and stage-gate decisions are settled. `agentswf/workflow`
-  and how it resolves are settled; the scope, the published exports and the license are not.
+  and how it resolves, the scope and the license are settled; the published exports are not.
 - [x] Tasks are ordered, coherent, and independently verifiable.
 - [ ] Open questions are resolved or explicitly moved out of scope.
 
