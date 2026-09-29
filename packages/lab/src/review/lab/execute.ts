@@ -9,6 +9,7 @@ import { SNAPSHOT_REF } from "../fixtures/verify";
 import type { AnswerKey, Fixture } from "../format/format";
 import type { ComparedFinding } from "../format/output";
 import {
+  type Identity,
   PARTIAL_SCORE_FORMAT,
   type PartialScore,
   SCORED_FORMAT,
@@ -18,7 +19,6 @@ import {
 } from "../format/records";
 import {
   type FindingLabel,
-  type Identity,
   JUDGEMENT_FORMAT,
   type ReviewFinding,
   type RunSummary,

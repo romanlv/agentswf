@@ -491,11 +491,7 @@ async function askOperator(plan: string, stderr: (text: string) => void): Promis
 }
 
 const refOf = (subject: Subject<unknown>) => ({ name: subject.label, version: subject.version });
-/** A record's scorer as a document names it; one from before versions has its file name's. */
-const recordRef = (identity: { name: string; version?: string }) => ({
-  name: identity.name,
-  version: identity.version ?? DEFAULT_VERSION,
-});
+const recordRef = ({ name, version }: { name: string; version: string }) => ({ name, version });
 
 /** The plan as `--json` prints it, and with `result`, what became of each step. */
 function runDocument(

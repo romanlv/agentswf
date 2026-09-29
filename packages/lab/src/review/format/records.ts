@@ -23,6 +23,20 @@ const Text = Type.String({ minLength: 1 });
 const trial = FindingsRecordSchema.properties;
 const score = ScoreRecordSchema.properties;
 
+/** A variant or scorer: its version is its identity; the commit and `dirty` are provenance. */
+const IdentitySchema = Type.Object(
+  {
+    name: Text,
+    version: Type.String({
+      pattern: "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$",
+      description: "The semver its file declared; results belong to its {major}.{minor}.",
+    }),
+    commit: trial.variant.properties.commit,
+    dirty: trial.variant.properties.dirty,
+  },
+  { additionalProperties: false },
+);
+
 /** `{results}/{dataset}/{variant}@{major}.{minor}/{case}/{trial-id}/findings.json`: one trial, written once. */
 export const TrialSchema = Type.Object(
   {
@@ -32,7 +46,7 @@ export const TrialSchema = Type.Object(
       description: "This trial's own id, its folder's name; the run may never have started.",
     }),
     at: trial.at,
-    variant: trial.variant,
+    variant: IdentitySchema,
     dataset: Text,
     case: trial.fixture,
     restoreMs: trial.restoreMs,
@@ -60,7 +74,7 @@ const ScoreResult = Type.Union([
 
 const scoreFields = {
   at: score.at,
-  scorer: score.judge,
+  scorer: IdentitySchema,
   dataset: Text,
   case: score.fixture,
   trial: Type.String({ minLength: 1, description: "The id of the trial scored." }),
@@ -95,7 +109,7 @@ export const PartialScoreSchema = Type.Object(
     asked: PartialRecordSchema.properties.asked,
     restFrom: Type.Object(
       {
-        scorer: score.judge,
+        scorer: IdentitySchema,
         at: Type.String({ minLength: 1, description: "That score's `at`." }),
         digest: Type.String({
           pattern: "^sha256:[0-9a-f]{64}$",
@@ -114,6 +128,7 @@ export const PartialScoreSchema = Type.Object(
   },
 );
 
+export type Identity = Type.Static<typeof IdentitySchema>;
 export type Trial = Type.Static<typeof TrialSchema>;
 export type Score = Type.Static<typeof ScoreSchema>;
 export type PartialScore = Type.Static<typeof PartialScoreSchema>;
@@ -132,17 +147,29 @@ function then<A, B>(checked: Checked<A>, map: (value: A) => B): Checked<B> {
   return checked.ok ? { ok: true, value: map(checked.value) } : checked;
 }
 
-export function trialFromV1(record: FindingsRecord): Trial {
-  const { format: _format, set, fixture, ...rest } = record;
-  return { format: TRIAL_FORMAT, ...rest, dataset: set, case: fixture };
+/** A first-version identity as the second writes it: `version` from where the record is filed. */
+function identityFromV1(identity: FindingsRecord["variant"], version: string): Identity {
+  const { hash: _hash, ...rest } = identity;
+  return { ...rest, version: rest.version ?? version };
 }
 
-export function scoreFromV1(record: ScoreRecord): Score {
+function trialFromV1(record: FindingsRecord, version: string): Trial {
+  const { format: _format, set, fixture, variant, ...rest } = record;
+  return {
+    format: TRIAL_FORMAT,
+    ...rest,
+    variant: identityFromV1(variant, version),
+    dataset: set,
+    case: fixture,
+  };
+}
+
+function scoreFromV1(record: ScoreRecord, version: string): Score {
   const { format: _format, judge, set, fixture, review, result, ...rest } = record;
   return {
     format: SCORED_FORMAT,
     ...rest,
-    scorer: judge,
+    scorer: identityFromV1(judge, version),
     dataset: set,
     case: fixture,
     trial: review,
@@ -150,21 +177,30 @@ export function scoreFromV1(record: ScoreRecord): Score {
   };
 }
 
-export function partialFromV1(record: PartialRecord): PartialScore {
+function partialFromV1(record: PartialRecord, version: string, baseVersion: string): PartialScore {
   const { format: _format, picked, asked, base, ...rest } = record;
-  const { format: _score, ...fields } = scoreFromV1({ ...rest, format: SCORE_FORMAT });
+  const { format: _score, ...fields } = scoreFromV1({ ...rest, format: SCORE_FORMAT }, version);
   return {
     format: PARTIAL_SCORE_FORMAT,
     ...fields,
     picked,
     asked,
-    restFrom: { scorer: base.judge, at: base.at, digest: base.digest },
+    restFrom: {
+      scorer: identityFromV1(base.judge, baseVersion),
+      at: base.at,
+      digest: base.digest,
+    },
   };
 }
 
-/** A trial, as either version; a failed trial has no findings, and one that didn't fail succeeded. */
-export function readTrial(value: unknown): Checked<Trial> {
-  if (formatOf(value) === FINDINGS_FORMAT) return then(checkFindingsRecord(value), trialFromV1);
+/**
+ * A trial, as either version; a failed trial has no findings, and one that didn't fail succeeded.
+ * A first-version record declared no version, so it takes `filed`, the one its folder names.
+ */
+export function readTrial(value: unknown, filed: string): Checked<Trial> {
+  if (formatOf(value) === FINDINGS_FORMAT) {
+    return then(checkFindingsRecord(value), (v1) => trialFromV1(v1, filed));
+  }
   if (formatOf(value) !== TRIAL_FORMAT)
     return unknownFormat(value, [TRIAL_FORMAT, FINDINGS_FORMAT]);
   const checked = checkSchema(TrialSchema, value);
@@ -175,15 +211,36 @@ export function readTrial(value: unknown): Checked<Trial> {
   return v1.ok ? checked : v1;
 }
 
-export function readScore(value: unknown): Checked<Score> {
-  if (formatOf(value) === SCORE_FORMAT) return then(checkScoreRecord(value), scoreFromV1);
+/** A score, as either version; `filed` as for `readTrial`, from its file name. */
+export function readScore(value: unknown, filed: string): Checked<Score> {
+  if (formatOf(value) === SCORE_FORMAT) {
+    return then(checkScoreRecord(value), (v1) => scoreFromV1(v1, filed));
+  }
   if (formatOf(value) !== SCORED_FORMAT) return unknownFormat(value, [SCORED_FORMAT, SCORE_FORMAT]);
   return checkSchema(ScoreSchema, value);
 }
 
-export function readPartial(value: unknown): Checked<PartialScore> {
+/**
+ * A partial score, as either version: `filed` as for `readScore`, and `baseFiled`, the version of
+ * the score a first-version one kept its other labels from, by that score's digest.
+ */
+export function readPartial(
+  value: unknown,
+  filed: string,
+  baseFiled: (digest: string) => string | undefined,
+): Checked<PartialScore> {
   if (formatOf(value) === PARTIAL_FORMAT) {
-    return then(checkSchema(PartialRecordSchema, value), partialFromV1);
+    const checked = checkSchema(PartialRecordSchema, value);
+    if (!checked.ok) return checked;
+    const base = checked.value.base;
+    const baseVersion = base.judge.version ?? baseFiled(base.digest);
+    if (!baseVersion) {
+      return {
+        ok: false,
+        problems: [{ path: "/base/digest", message: "no score beside it has this digest" }],
+      };
+    }
+    return { ok: true, value: partialFromV1(checked.value, filed, baseVersion) };
   }
   if (formatOf(value) !== PARTIAL_SCORE_FORMAT) {
     return unknownFormat(value, [PARTIAL_SCORE_FORMAT, PARTIAL_FORMAT]);

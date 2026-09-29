@@ -29,7 +29,7 @@
         "hash": {
           "type": "string",
           "pattern": "^v[0-9]+-[0-9a-f]{16,64}$",
-          "description": "A content hash, in records written before 2026-09-28; never read. The version is the identity."
+          "description": "The first version kept a content hash; never read. The version is the identity."
         },
         "version": {
           "type": "string",

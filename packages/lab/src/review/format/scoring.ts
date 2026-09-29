@@ -60,7 +60,7 @@ const IdentitySchema = Type.Object(
       Type.String({
         pattern: "^v[0-9]+-[0-9a-f]{16,64}$",
         description:
-          "A content hash, in records written before 2026-09-28; never read. The version is the identity.",
+          "The first version kept a content hash; never read. The version is the identity.",
       }),
     ),
     version: Type.Optional(
@@ -246,7 +246,6 @@ export const ScoreRecordSchema = Type.Object(
 
 export type ReviewFinding = Type.Static<typeof ReviewFindingSchema>;
 export type RunSummary = Type.Static<typeof RunSchema>;
-export type Identity = Type.Static<typeof IdentitySchema>;
 export type FindingsRecord = Type.Static<typeof FindingsRecordSchema>;
 export type FindingLabel = Type.Static<typeof FindingLabelSchema>;
 export type Label = FindingLabel["label"];

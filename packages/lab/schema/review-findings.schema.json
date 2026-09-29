@@ -20,21 +20,16 @@
     },
     "variant": {
       "type": "object",
-      "required": ["name", "commit", "dirty"],
+      "required": ["name", "version", "commit", "dirty"],
       "properties": {
         "name": {
           "type": "string",
           "minLength": 1
         },
-        "hash": {
-          "type": "string",
-          "pattern": "^v[0-9]+-[0-9a-f]{16,64}$",
-          "description": "A content hash, in records written before 2026-09-28; never read. The version is the identity."
-        },
         "version": {
           "type": "string",
           "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$",
-          "description": "The semver its file declared. Absent in records written before versions: their folder or file name says it."
+          "description": "The semver its file declared; results belong to its {major}.{minor}."
         },
         "commit": {
           "anyOf": [

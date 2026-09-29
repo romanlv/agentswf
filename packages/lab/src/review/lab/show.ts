@@ -5,7 +5,6 @@ import { formatAddress } from "./address";
 import type { CaseInfo } from "./execute";
 import type { Stored } from "./plan";
 import { duration } from "./report";
-import { DEFAULT_VERSION } from "./version";
 
 type Ref = { name: string; version: string };
 
@@ -108,7 +107,7 @@ export function buildShow(options: {
           asked: score.asked,
           restFrom: {
             name: score.restFrom.scorer.name,
-            version: score.restFrom.scorer.version ?? DEFAULT_VERSION,
+            version: score.restFrom.scorer.version,
           },
         };
       }

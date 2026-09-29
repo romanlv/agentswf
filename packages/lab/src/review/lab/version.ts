@@ -18,8 +18,8 @@ export function seriesOf(version: string): string {
 }
 
 /** Whose results a record or subject is: `{name}@{major}.{minor}`, its results folder's name. */
-export const keyOf = (identity: { name: string; version?: string }) =>
-  `${identity.name}@${seriesOf(identity.version ?? DEFAULT_VERSION)}`;
+export const keyOf = (identity: { name: string; version: string }) =>
+  `${identity.name}@${seriesOf(identity.version)}`;
 
 /** A key back into its name and series: `panel@1.2` is `panel` and `1.2`. */
 export function parseKey(key: string): { name: string; series: string } | undefined {
