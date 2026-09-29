@@ -21,6 +21,33 @@ const ROOT = join(import.meta.dir, "..");
 const runDirs = createTempRunDirs();
 afterAll(() => runDirs.cleanup());
 
+describe("awf", () => {
+  test("--version prints the engine's version and, from a clone, its commit", async () => {
+    const output: string[] = [];
+    const { version } = JSON.parse(
+      readFileSync(join(ROOT, "packages/engine/package.json"), "utf8"),
+    );
+    const commit = Bun.spawnSync(["git", "-C", ROOT, "rev-parse", "--short", "HEAD"]);
+
+    const exitCode = await runOperatorCli(["--version"], { stdout: (text) => output.push(text) });
+
+    expect(exitCode).toBe(0);
+    expect(output).toEqual([`awf ${version} (${commit.stdout.toString().trim()})`]);
+  });
+
+  test("refuses a Bun older than engines.bun, naming both versions", async () => {
+    const errors: string[] = [];
+
+    const exitCode = await runOperatorCli(["--version"], {
+      bunVersion: "1.1.0",
+      stderr: (text) => errors.push(text),
+    });
+
+    expect(exitCode).toBe(1);
+    expect(errors.join("\n")).toContain("awf needs Bun >=1.4.0, and this is Bun 1.1.0");
+  });
+});
+
 describe("awf run", () => {
   test("loads review-loop and runs both ordered reviews through the engine", async () => {
     const adapter = createFakeAdapter({

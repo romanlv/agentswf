@@ -1,6 +1,6 @@
 #!/usr/bin/env -S bun --no-env-file
 import { randomUUID } from "node:crypto";
-import { statSync } from "node:fs";
+import { existsSync, realpathSync, statSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
 import { constants, homedir } from "node:os";
 import { join, resolve } from "node:path";
@@ -12,6 +12,7 @@ import {
   type JsonObject,
   type JsonValue,
 } from "@agentswf/contract/workflow";
+import manifest from "../package.json" with { type: "json" };
 import { describeAccounting } from "./accounting/format";
 import { installOperatorRuntime, type OperatorRuntimeInstallation } from "./operator-runtime";
 import { ANSI, PLAIN, progressEvents, renderProgress } from "./progress-view";
@@ -29,6 +30,7 @@ const DEFAULT_TIMEOUT_MILLISECONDS = 30 * 60_000;
 
 const usage = [
   "usage: awf run [options] <workflow-file> [options] [-- workflow arguments...]",
+  "       awf --version",
   "options: --timeout <duration>, --run-root <directory>, --cwd <directory>, --json, --no-watch",
   "",
   "The deadline defaults to 30m. Run artifacts go to ~/.awf/runs unless --run-root says otherwise.",
@@ -63,6 +65,7 @@ type OperatorEnvironment = {
   signal?: AbortSignal;
   /** Given, progress is redrawn in place on it; otherwise each change is a line on stderr. */
   terminal?: { write(text: string): void; color: boolean };
+  bunVersion?: string;
 };
 
 export async function runOperatorCli(
@@ -79,6 +82,15 @@ export async function runOperatorCli(
           color: !process.env.NO_COLOR,
         }
       : undefined);
+  const tooOld = bunProblem(environment.bunVersion ?? Bun.version);
+  if (tooOld) {
+    stderr(`awf: ${tooOld}`);
+    return 1;
+  }
+  if (argv.length === 1 && argv[0] === "--version") {
+    stdout(describeVersion());
+    return 0;
+  }
   let command: RunCommand;
   try {
     command = parseCommand(argv, environment.cwd ?? process.cwd(), environment.home ?? homedir());
@@ -334,6 +346,32 @@ type RunCommand = {
   /** Whether each sandbox with its own Herdr gets a tab attached to it in the run's workspace. */
   watch: boolean;
 };
+
+/** Why this Bun can't run awf, against the engine's `engines.bun`; undefined when it can. */
+function bunProblem(running: string, required: string = manifest.engines.bun) {
+  if (Bun.semver.satisfies(running, required)) return undefined;
+  return `awf needs Bun ${required}, and this is Bun ${running}; bun upgrade installs a newer one`;
+}
+
+/** The engine's version, and the commit when it runs from a clone of this repository. */
+function describeVersion(): string {
+  const engine = resolve(import.meta.dir, "..");
+  const git = (...args: string[]): string | undefined => {
+    try {
+      const done = Bun.spawnSync(["git", "-C", engine, ...args], { stderr: "ignore" });
+      return done.success ? done.stdout.toString().trim() : undefined;
+    } catch {
+      return undefined;
+    }
+  };
+  const top = git("rev-parse", "--show-toplevel");
+  // Installed inside someone else's repository, its commit would be theirs, not awf's.
+  const inTop = top === undefined ? undefined : join(top, "packages/engine");
+  const clone =
+    inTop !== undefined && existsSync(inTop) && realpathSync(inTop) === realpathSync(engine);
+  const commit = clone ? git("rev-parse", "--short", "HEAD") : undefined;
+  return commit ? `awf ${manifest.version} (${commit})` : `awf ${manifest.version}`;
+}
 
 function parseCommand(argv: readonly string[], cwd: string, home: string): RunCommand {
   if (argv[0] !== "run") throw new Error("expected the run command");
