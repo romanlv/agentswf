@@ -231,6 +231,41 @@ sessions have no operation to wake and read through the bounded `wf inbox --wait
 [`composition.md`](composition.md); waking such a session may prompt that call but never replaces
 it.
 
+## Prior art: Agent Relay
+
+[Agent Relay](https://github.com/agentworkforce/relay) (read at `635cfac`, 2026-09-25) is a
+messaging layer for CLI agents: channels, DMs, threads and receipts, routed through a hosted
+service. Its broker drives each agent in a PTY it wraps itself. What the messaging story should
+take from it:
+
+- **Say what a receipt proves.** Delivery types the message into the PTY, then waits 5 s for its
+  echo in the output (`crates/broker/src/broker/delivery_verification.rs`). With no echo it acknowledges
+  anyway, as `verification: "timeout_fallback"` (`crates/broker/src/protocol.rs`). So "delivered"
+  can mean bytes written and never seen, and never means the model read it. `deliver` resolves
+  "once the prompt is presented", and a pane adapter can prove no more than Herdr observes
+  ([`herdr-pane-settlement`](../stories/todo/herdr-pane-settlement.md)). An unconfirmed
+  presentation must stay unconfirmed in the record, not become a success on timeout.
+- **Waiting versus interrupting.** Injection has two modes, `Wait | Steer`. Steer sends Esc twice
+  to interrupt the running turn first. Wait is not gated on idle: it types while the agent works
+  and relies on per-CLI screen checks, such as Codex's composer and "Working… esc to interrupt"
+  (`crates/broker/src/pty_worker.rs`). This design only has "next safe model continuation". Steer
+  is left out on purpose, and the story should say so.
+- **The envelope is plain text in their stream.** It reads `Relay message from {sender}
+  [{event_id}]: {body}` (`crates/broker/src/broker/injection_format.rs`), and peer content can
+  imitate it. That is the case the authenticated envelope here exists to prevent.
+- **Agents forget the reply channel.** Relay re-injects a reminder naming its reply tools, at
+  most every 300 s and only after enough output that compaction may have dropped the last one
+  (`MCP_REMINDER_COOLDOWN`). Its evals (`packages/evals/src/types.ts`) count "phantom" messages:
+  an agent writing "I'll tell Lead…" in prose without calling a tool. The equivalent here is an
+  agent that owes a response and answers in its own output instead of `wf send`. The nudge covers
+  it at operation end, and a live eval should count how often it happens.
+- **Channels were dropped.** Relay's own v2 flows have no channels and no idle nudge
+  (`flows/spec-builder.ts`: "`.channel(...)` → nothing; v2 has no relaycast channel"). This
+  supports deferring channels and broadcast here.
+- **No deadline on an agent step.** The same table: "`timeoutMs` (agent) → dropped —
+  `AgentStepSpec` has no timeout". Only a 120 s no-output watchdog is left. Response waits here
+  keep their bounded default.
+
 ## Open questions
 
 - Which harnesses can keep a CLI invocation blocked, and which require suspended continuation?

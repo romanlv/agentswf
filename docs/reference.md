@@ -280,6 +280,8 @@ import.
 
 ## Candidates not read yet
 
+The wider list, with links and a question for each, is [`reading.md`](reading.md).
+
 - **MCP** — capability negotiation at connect is the closest available model for an adapter
   declaring that it supports fork, compaction or a context read, and for the engine deciding
   fail-vs-downgrade when it does not.

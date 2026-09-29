@@ -29,7 +29,7 @@ Raw notes on where awf could go. Not scope and not decisions: [`foundation.md`](
 - [ ] Observability.
 - [x] Cost and timing — [story 002](../stories/002-cost-and-time-accounting.md).
 - [ ] Messaging as its own package? (§7 argues it cannot be one package.)
-- [ ] [Jev](https://typesafe.ai/blog/introducing-system-one-models-and-jev), a model that classifies quickly and cheaply, as a step in a workflow — measured, and drafted as [story 006](../stories/006-typed-decisions.md).
+- [x] [Jev](https://typesafe.ai/blog/introducing-system-one-models-and-jev), a model that classifies quickly and cheaply, as a step in a workflow — measured, and drafted as [story 006](../stories/006-typed-decisions.md).
 
 ## Evaluation and self-improvement
 
@@ -44,12 +44,21 @@ Raw notes on where awf could go. Not scope and not decisions: [`foundation.md`](
 
 Still not sure whether messaging can be its own tool. In theory, ad-hoc workflows can be
 implemented with messaging/signalling plus some prompts. Or maybe it is just one of the commands in the toolchain and can be integrated.
+## Collaboration strategies
+there could be different decisions to try out, like how information is shared, who decides
+e.g. it can be a like a trial with one judge, and prosecurtor, 3 judges in quick trial, company meeting etc... 
+those abstractions from real life can become inspiration for collaboration strategies
+
+## Building blocks 
+Maybe instead of pre-defined components, there should be logical blocks, that are documented and distributed as a complex code, and it's tied to the core api that is stable, but those logical concepts are evolving, they are like templates, like shadcn components, can be installed and modified locally 
+
+and this related to collaboration strategies as well
 
 ## Sandboxing
 
-Deserves some upfront thinking, but it can be a next step. First prove the design is right for
-the workflows; postponed. ([`permissions.md`](permissions.md) has the design so far.)
-
+Built for agents: a workflow opens sandboxes and puts agents in them (story 004). Running the
+whole workflow in one is still an idea. ([`permissions.md`](permissions.md) has the design.)
+%% this is done %%
 ## Memory
 
 Self-documenting and self-cleaning; maybe some kind of skills for now.
@@ -64,9 +73,23 @@ if workflow died on specific step, it should be able to resume it from that step
 ## Ready for loops 
 First class support to integrate with the loops (loop graphs). See where it stands
 
-
 ## Markdown linting and schema
 
 A separate package or tool: define a schema for Markdown files (required sections and/or
 frontmatter) and a linter that validates whether a file qualifies. Workflows could build agents or
 prompts on it — review lenses, for example.
+
+## Browser use 
+
+self healing or self development workflow, when another agent can create cli to use specific app, and it it's just available for other agents, if it fails, then special developer can pick it up, investigate and self improve  
+
+
+## Ask question, human approval 
+especially for headless agents, there should be a way to ask questions 
+terminal based for now, but maybe later hooked to other tools (slack, telegram etc...)
+
+## Debugging and observability 
+
+Being able to see the agents tracing and inspecting thinking trace of each agent 
+This actually connects well with observability products, that show who called who and where time was spent in this workflow 
+ 
