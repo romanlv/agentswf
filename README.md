@@ -192,7 +192,8 @@ so write your home directory out:
 These show the shape of what you can build. To keep them short they are fragments: the `run()`
 of a workflow shaped like [the first one](#your-first-workflow), with the same imports. Each
 typechecks against the current API, and each points to a complete workflow in
-[`examples/`](examples/) that does the same thing in full.
+[`examples/`](examples/) that does the same thing in full. Every call they use is explained in
+[the workflow API](docs/workflow-api.md).
 
 ### Fan out reviewers, then check every finding
 
@@ -407,6 +408,8 @@ bun install && bun test   # no live agents, no cost
 bun run check             # lint, format, types and package boundaries
 ```
 
+- [`docs/workflow-api.md`](docs/workflow-api.md): every call a workflow can make, on one page
+- [`packages/lab`](packages/lab/README.md): scoring review workflows against cases with known answers
 - [`docs/status.md`](docs/status.md): what runs today and what comes next
 - [`docs/testing.md`](docs/testing.md): the test levels, from free to live, and what each costs
 - [`docs/foundation.md`](docs/foundation.md): the design argument behind the package boundaries

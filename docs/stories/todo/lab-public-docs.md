@@ -2,12 +2,15 @@
 title: Public docs for awf-lab's terms, layout and command line
 summary: A public page that defines awf-lab's vocabulary, says where each thing lives, and walks through evaluating, developing and viewing, written for any domain with reviews as the first example.
 type: story
-status: todo
+status: done
 discovered_in: "story 008, Terms and where things are"
 depends_on: ["008"]
 ---
 
 # Public docs for awf-lab's terms, layout and command line
+
+Done 2026-09-29: [`packages/lab/README.md`](../../../packages/lab/README.md) is the page, with
+every item below.
 
 Why it matters: people outside this repository, and the agents they run, will learn `awf-lab` from
 its words. Today those words are defined only in story 008, alongside the history of how they were
