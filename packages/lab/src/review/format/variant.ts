@@ -1,4 +1,4 @@
-import type { ExecutableWorkflow, JsonValue } from "@wf/contract/workflow";
+import type { ExecutableWorkflow, JsonValue } from "@agentswf/contract/workflow";
 import type { Judgement, ReviewFinding } from "./scoring";
 
 export const REVIEW_VARIANT_KIND = "awf.review-variant/1";

@@ -1,8 +1,8 @@
-import { acceptAny, type SemanticCheck } from "@wf/contract";
-import type { AttemptSource } from "@wf/contract/records";
-import type { JsonSchema } from "@wf/contract/schema";
-import type { ResultSubmitCode } from "@wf/contract/wire";
-import type { AbsoluteDeadline } from "@wf/contract/workflow";
+import { acceptAny, type SemanticCheck } from "@agentswf/contract";
+import type { AttemptSource } from "@agentswf/contract/records";
+import type { JsonSchema } from "@agentswf/contract/schema";
+import type { ResultSubmitCode } from "@agentswf/contract/wire";
+import type { AbsoluteDeadline } from "@agentswf/contract/workflow";
 import { evaluateResult } from "./result-validation";
 import { recordAttempt, writeAcceptedExclusive, writeCall } from "./run-dir";
 

@@ -9,12 +9,12 @@ import {
 
 describe("boundary path resolution", () => {
   test("distinguishes internal imports from relative, absolute and file-URL escapes", () => {
-    const packageDirectory = "/repo/packages/cli-agent";
+    const packageDirectory = "/repo/packages/wf";
     const source = join(packageDirectory, "src/cli.ts");
     const escaped = "/repo/packages/engine/src/run-dir";
 
     expect(escapedPathImport(packageDirectory, source, "./client")).toBeNull();
-    expect(escapedPathImport(packageDirectory, source, "@wf/contract")).toBeNull();
+    expect(escapedPathImport(packageDirectory, source, "@agentswf/contract")).toBeNull();
     expect(escapedPathImport(packageDirectory, source, "../../engine/src/run-dir")).toBe(escaped);
     expect(escapedPathImport(packageDirectory, source, escaped)).toBe(escaped);
     expect(escapedPathImport(packageDirectory, source, `file://${escaped}`)).toBe(escaped);
@@ -32,8 +32,8 @@ describe("boundary path resolution", () => {
 
   test("only the audited operator loader may import a user-selected workflow", () => {
     expect(allowsComputedWorkflowImport("packages/engine/src/workflow-loader.ts")).toBe(true);
-    expect(allowsComputedWorkflowImport("packages/autoresearch/src/review/lab/load.ts")).toBe(true);
-    expect(allowsComputedWorkflowImport("packages/autoresearch/src/review/lab/cli.ts")).toBe(false);
+    expect(allowsComputedWorkflowImport("packages/lab/src/review/lab/load.ts")).toBe(true);
+    expect(allowsComputedWorkflowImport("packages/lab/src/review/lab/cli.ts")).toBe(false);
     expect(allowsComputedWorkflowImport("packages/engine/src/operator-cli.ts")).toBe(false);
     expect(allowsComputedWorkflowImport("examples/minimum-review/review-loop.ts")).toBe(false);
   });

@@ -1,6 +1,6 @@
 # Examples
 
-Scenario workflows written against `@wf/contract/workflow`. The import boundary is enforced by
+Scenario workflows written against `@agentswf/contract/workflow`. The import boundary is enforced by
 `bun run scripts/check-boundaries.ts`: workflows never reach into the engine or a harness.
 
 ## Run the review workflow
@@ -33,7 +33,7 @@ the current working directory, put its path after `--`:
 bun awf run examples/minimum-review/review-loop.ts -- packages/engine/src
 ```
 
-When the `@wf/engine` package bin is installed, the shorter equivalent is:
+When the `@agentswf/engine` package bin is installed, the shorter equivalent is:
 
 ```sh
 awf run examples/minimum-review/review-loop.ts -- packages/engine/src

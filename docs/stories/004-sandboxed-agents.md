@@ -119,7 +119,7 @@ Out of scope:
 - `WorkflowContext` exposes directories (`agents`, `participants`) whose `open` takes a keyed spec
   and returns a ref. A sandbox directory follows the same pattern.
 - The agent's `wf` is a shell script that runs the host's bun (`process.execPath`, under `~`) on
-  the `@wf/cli-agent` source, against a per-agent unix socket. Launcher and socket share one
+  the `@agentswf/wf` source, against a per-agent unix socket. Launcher and socket share one
   directory under `/tmp` (`installAgentLauncher`, `CONTROL_PLANE_ROOT`). The prompt names the
   launcher. The wire is one JSON request and one reply per connection; the client half-closes.
 - The runner opens the result channel and the harness session concurrently (`openAgent` in
@@ -343,16 +343,16 @@ environment and its settings, and a new provider adds a key there.
 
 | Entry | Owns |
 | --- | --- |
-| `@wf/sandbox` | the seam's types, and path and gitdir resolution |
-| `@wf/sandbox/testing` | the conformance suite and its fake provider |
-| `@wf/sandbox/srt` | `createSrtProvider`: profiles, the pure check, the first-open probe |
-| `@wf/sandbox/docker` | `createDockerProvider`: the image, the proxy, the relay, the reaper, the box's Herdr |
+| `@agentswf/sandbox` | the seam's types, and path and gitdir resolution |
+| `@agentswf/sandbox/testing` | the conformance suite and its fake provider |
+| `@agentswf/sandbox/srt` | `createSrtProvider`: profiles, the pure check, the first-open probe |
+| `@agentswf/sandbox/docker` | `createDockerProvider`: the image, the proxy, the relay, the reaper, the box's Herdr |
 
 - **The package imports contract only.**
-- **harness imports only `@wf/sandbox`:** adapters launch through an `Occupant`, `runProcess` runs
+- **harness imports only `@agentswf/sandbox`:** adapters launch through an `Occupant`, `runProcess` runs
   a `SandboxedCommand`, `spec.ts` returns `HarnessSandboxNeeds`, and the Herdr host takes a
   `PaneTerminal`.
-- **engine imports `@wf/sandbox`** for resolution, the registry and admission. Only the
+- **engine imports `@agentswf/sandbox`** for resolution, the registry and admission. Only the
   composition root, `operator-runtime.ts`, imports a provider, to install it.
 - **A provider imports the seam, never another provider.**
 - `check-boundaries.ts` gains these rules.
@@ -596,7 +596,7 @@ unsandboxed pane runs exactly as today.
 - The provider writes the harness's `token` to a file of its own beside the sandbox's directory,
   `{directory}.secrets/{id}`: every agent in a sandbox reads that directory, and none reads the
   run root around it. The directory is `0700` and the file is created new, `0600`, following no
-  link (`writeSecrets` in `@wf/sandbox`). The prelude sources it and deletes it before confining
+  link (`writeSecrets` in `@agentswf/sandbox`). The prelude sources it and deletes it before confining
   its shell; `release` deletes one never read, and `close` the directory. No token crosses any
   argv (H5, H6).
 - Herdr reports no `agent_session` for an adopted agent whose home is not the default (H6). A
@@ -887,8 +887,8 @@ Work: `packages/sandbox` with `seam.ts` and `resolve.ts`; the contract types and
   `withholding`'s unset names are harmless on an exact `env`.
 - **Resolution reads, and runs nothing:** `realpath`, `~`, and a `.git` file's `gitdir:` and
   `commondir`. No `git` process.
-- **The conformance suite and the fake provider go in `@wf/sandbox/testing`**, not the main entry,
-  as `@wf/harness/testing` does: the main entry must not import `bun:test`. The suite is a
+- **The conformance suite and the fake provider go in `@agentswf/sandbox/testing`**, not the main entry,
+  as `@agentswf/harness/testing` does: the main entry must not import `bun:test`. The suite is a
   function a provider's test calls with a factory; it runs `sh` through `launch` and checks the
   invariants a fake can hold, and Tasks 2 and 3 call it with the real providers.
 
@@ -963,7 +963,7 @@ Done when:
 
 Outcome: srt sandboxes hold invariants 1–7 on this machine, private and shared.
 
-Work: `@wf/sandbox/srt`, `createSrtProvider`: the base and per-agent profiles, the pure check, the temp directory,
+Work: `@agentswf/sandbox/srt`, `createSrtProvider`: the base and per-agent profiles, the pure check, the temp directory,
 the first-open probe, and `launch`.
 
 Done when:
@@ -989,7 +989,7 @@ Done when:
 Outcome: docker sandboxes hold invariants 1–7, private and shared, and the default image runs all
 three harnesses headless.
 
-Work: `@wf/sandbox/docker`; the Dockerfile; the proxy; the relay's two halves;
+Work: `@agentswf/sandbox/docker`; the Dockerfile; the proxy; the relay's two halves;
 `createDockerProvider` with the network,
 box, mounts and gitdir rule, admission, `launch` and `reap`, `release` and `close`.
 
@@ -1144,7 +1144,7 @@ and whether the fake and the suite fit Tasks 1c, 2 and 3. Findings and resolutio
 5. The suite's runner did not bound `reap`: fixed, `REAP_GRACE_MS` is in the seam, `runProcess`
    uses it and the suite fails a reap that runs over it.
 6. Harness tests could not use the fake: fixed, harness and engine tests may import
-   `@wf/sandbox/testing`, and engine production code may not.
+   `@agentswf/sandbox/testing`, and engine production code may not.
 7. Who serializes `admit`, and how often `release` and `close` run: stated on
    `SandboxProvider.open`; the engine does.
 8. `ResolvedSandbox` no longer tied to `SandboxReach`: fixed, derived from it.
@@ -1298,7 +1298,7 @@ design, the pid-file groups, and the fit for docker and srt panes. Findings and 
    fixed, it checks the host reaches the domain first, is killed at the deadline, and only a pass
    is kept.
 5. A stale pid file could name a reused pid: its file goes at each reap; the window is the turn.
-6. The denied regions were listed twice: fixed. `@wf/sandbox/srt` exported its profile builders:
+6. The denied regions were listed twice: fixed. `@agentswf/sandbox/srt` exported its profile builders:
    fixed. `findSrt` says nothing when it finds no srt: kept; an unpinned spec falls back, a pinned
    one fails naming the missing provider.
 7. The engine test installs srt at load: kept, with a comment on why that is safe. The fake's
@@ -1420,7 +1420,7 @@ failed pane attempts.
 7. Smaller: the placement host's pane refusal duplicates the engine's (kept: the harness used alone
    would otherwise make a workspace to refuse in, as the 1b note now says); the story said the
    engine writes the secret (fixed); `close` left `bin/` (fixed); three `shellQuote`s (srt's and
-   the adapter's are now one, in `@wf/sandbox`, and tested; the engine's launcher keeps its own);
+   the adapter's are now one, in `@agentswf/sandbox`, and tested; the engine's launcher keeps its own);
    home session reads followed links (fixed, `ownFiles`).
 
 **Correctness and proof.** Findings and resolutions:
@@ -1673,7 +1673,7 @@ Both halves verified live: `sandbox-panes-srt` and `sandbox-panes-docker`.
   the command timeout and each step by 60 s. `herdr pane wait-output` and
   `report-agent-session` were not needed.
 - **The provider writes the pane's secret, not the engine**, beside the sandbox's directory rather
-  than in the agent's home, which its co-tenants can write. `writeSecrets` in `@wf/sandbox` holds
+  than in the agent's home, which its co-tenants can write. `writeSecrets` in `@agentswf/sandbox` holds
   the rules every provider needs: a private directory, a new file, no link followed. The prelude
   deletes the file once read, so the token outlives the pane's start by about a second.
 - **The confined shell runs without job control** (`zsh -f +m`): with it, a job the harness left

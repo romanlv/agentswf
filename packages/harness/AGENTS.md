@@ -1,4 +1,4 @@
-# @wf/harness
+# @agentswf/harness
 
 Drive one coding agent through a configured session adapter, prompt it, know when it settled, read
 its raw outcome and what it cost. Herdr currently provides pane sessions and a direct subprocess
@@ -6,7 +6,7 @@ provides headless sessions. A workflow chooses an agent's placement, `pane` or `
 provider serves each placement is operator configuration and not part of the workflow interface.
 
 This package knows nothing about workflows, run directories, or how a value gets reported. It
-must never import `@wf/engine` — the dependency runs the other way.
+must never import `@agentswf/engine` — the dependency runs the other way.
 
 | File | Holds |
 | --- | --- |

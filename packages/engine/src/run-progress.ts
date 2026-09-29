@@ -1,4 +1,4 @@
-import type { AgentKey, JsonValue, TurnOutcome } from "@wf/contract/workflow";
+import type { AgentKey, JsonValue, TurnOutcome } from "@agentswf/contract/workflow";
 
 /** One labelled `parallel` call. Its label need not be unique; its position is. */
 export type StageProgress = {

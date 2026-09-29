@@ -9,7 +9,7 @@ import {
 
 const RESOLVE_HINT =
   "a file outside awf finds the package through its repository's tsconfig.json: " +
-  '"compilerOptions": { "paths": { "@wf/autoresearch/review": ["{awf}/packages/autoresearch/src/review/index.ts"] } }';
+  '"compilerOptions": { "paths": { "@agentswf/lab/review": ["{awf}/packages/lab/src/review/index.ts"] } }';
 
 async function load(file: string): Promise<Record<string, unknown>> {
   let loaded: unknown;
@@ -21,9 +21,7 @@ async function load(file: string): Promise<Record<string, unknown>> {
     loaded = (await import(pathToFileURL(file).href)).default;
   } catch (error) {
     const text = String(error);
-    throw new Error(
-      `${file}: ${text}${text.includes("@wf/autoresearch") ? `\n${RESOLVE_HINT}` : ""}`,
-    );
+    throw new Error(`${file}: ${text}${text.includes("@agentswf/lab") ? `\n${RESOLVE_HINT}` : ""}`);
   }
   if (typeof loaded !== "object" || loaded === null) {
     throw new Error(`${file}: the default export is not a variant or scorer`);

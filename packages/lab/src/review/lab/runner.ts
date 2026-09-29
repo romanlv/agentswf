@@ -1,5 +1,5 @@
 import { join } from "node:path";
-import { OUTPUT_RECORD_VERSION, type OutputRecord } from "@wf/contract/records";
+import { OUTPUT_RECORD_VERSION, type OutputRecord } from "@agentswf/contract/records";
 import type { RunSummary } from "../format/scoring";
 
 export type RunRequest = {

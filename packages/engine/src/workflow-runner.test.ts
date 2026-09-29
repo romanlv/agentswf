@@ -3,7 +3,7 @@ import { getEventListeners } from "node:events";
 import { readdir } from "node:fs/promises";
 import { createConnection } from "node:net";
 import { join } from "node:path";
-import type { ResultSubmitResponse } from "@wf/contract/wire";
+import type { ResultSubmitResponse } from "@agentswf/contract/wire";
 import type {
   AgentPlacement,
   AgentStructuredTurnSpec,
@@ -15,9 +15,9 @@ import type {
   RuntimeTarget,
   WorkflowContext,
   WorkflowDefinition,
-} from "@wf/contract/workflow";
-import { DeadlineExceededError } from "@wf/contract/workflow";
-import { createSingleSessionHostFactory } from "@wf/harness";
+} from "@agentswf/contract/workflow";
+import { DeadlineExceededError } from "@agentswf/contract/workflow";
+import { createSingleSessionHostFactory } from "@agentswf/harness";
 import type {
   AgentRunHostFactory,
   AgentRuntimeConfig,
@@ -25,8 +25,8 @@ import type {
   HarnessOperationBinding,
   HarnessSession,
   HarnessTurn,
-} from "@wf/harness/adapter";
-import { createFakeAdapter } from "@wf/harness/testing";
+} from "@agentswf/harness/adapter";
+import { createFakeAdapter } from "@agentswf/harness/testing";
 import { CONTROL_PLANE_ROOT } from "./control-plane";
 import { createTempRunDirs, future, submit } from "./testing";
 import {

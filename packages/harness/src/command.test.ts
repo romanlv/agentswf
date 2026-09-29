@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { SandboxedCommand } from "@wf/sandbox";
+import type { SandboxedCommand } from "@agentswf/sandbox";
 import { type ProcessInput, runProcess, withholding } from "./command";
 
 test("child processes inherit no stale run binding", async () => {

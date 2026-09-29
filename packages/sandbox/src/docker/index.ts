@@ -4,7 +4,7 @@ import { createConnection } from "node:net";
 import { dirname, join } from "node:path";
 import { createInterface } from "node:readline";
 import { Readable } from "node:stream";
-import type { DockerEnvironment } from "@wf/contract/workflow";
+import type { DockerEnvironment } from "@agentswf/contract/workflow";
 import { protectedPaths } from "../git";
 import { KILL_GROUPS, RECORD_LEADER } from "../groups";
 import { onceUnlessFailed } from "../once";

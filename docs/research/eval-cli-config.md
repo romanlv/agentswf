@@ -148,7 +148,7 @@ a default judge, an incumbent and a budget, which is the promptfoo, Harbor and T
 | awf | must import it to read it | one generated schema, as for `set.json` | defaults can't express the incumbent or budget |
 
 Recommendation: `{name}.json` at the workspace root, with `$schema` pointing at a schema generated
-from the TS type, as `packages/autoresearch/schema/` already is for fixtures. Support exactly one
+from the TS type, as `packages/lab/schema/` already is for fixtures. Support exactly one
 format; promptfoo's nine extensions are a surface with no user. Keep `defineReviewVariant` and
 `defineReviewJudge` in TS: those files carry code, and that is Playwright's and Vitest's reason.
 If comments matter more than program edits, TOML is the other candidate: Bun imports it natively.

@@ -22,7 +22,7 @@ findings of them `new`.
 Notes:
 
 - The code is in the data repository's `judges/`, written to move: `matching.ts` (the questions
-  and the pure `settleMatches`, with tests) to `packages/autoresearch/src/review/judge/`,
+  and the pure `settleMatches`, with tests) to `packages/lab/src/review/judge/`,
   `voting.ts` in place of the panel's own voting (the panel is `voteOnRest` with nothing settled),
   and `match.workflow.ts` as the judge workflow beside `judge.workflow.ts`. `scripts/match.ts`
   re-settles stored answers at any cut; its logic belongs with the report.

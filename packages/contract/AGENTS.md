@@ -1,4 +1,4 @@
-# @wf/contract
+# @agentswf/contract
 
 **Pure: types and pure functions. No I/O, no `Bun.*`, no `node:` import.** That is a sharper
 rule than "zero dependencies" and it is mechanically checked — a `Bun.file` or a `node:fs`

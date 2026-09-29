@@ -26,9 +26,9 @@ what would have to happen first.
 | `packages/contract` | types, schema, record formats. **Pure — no I/O, no `Bun.*`, no `node:`** |
 | `packages/harness` | driving one coding agent: adapters, liveness, usage extraction |
 | `packages/engine` | the runtime: run-directory I/O, result slots, and the local control plane; `src/accounting` prices and sums finished runs |
-| `packages/cli-agent` | the in-session `wf` command; imports contract only and talks over wire |
+| `packages/wf` | the in-session `wf` command; imports contract only and talks over wire |
 | `packages/sandbox` | sandboxes a workflow opens: the provider seam, resolution, and the providers; imports contract only |
-| `packages/autoresearch` | evaluating workflows against cases with known answers: review fixtures, `collect`, `draft-key` and their agent votes; a consumer of the engine |
+| `packages/lab` | evaluating workflows against cases with known answers: review fixtures, `collect`, `draft-key` and their agent votes; a consumer of the engine |
 | `examples/` | scenario workflows, written against the author surface and pure schema authoring libraries |
 | `experiments/_archive/` | E1–E3, E5–E6. Frozen evidence. Do not refactor to taste |
 | `docs/status.md` | what runs today and what is next. Update it when a story or stage changes state |
@@ -40,9 +40,9 @@ Seven boundaries, enforced by `bun run scripts/check-boundaries.ts`:
 
 1. `contract` imports nothing, performs no I/O, and uses no runtime-specific API.
 2. `engine/src/accounting` imports contract only, performs no I/O, and uses no runtime-specific API.
-3. `cli-agent` imports contract only and performs no run-directory I/O.
-4. `sandbox` imports contract only. harness and engine import its seam, `@wf/sandbox`, and their tests `@wf/sandbox/testing`; only `engine/src/operator-runtime.ts` imports a provider, and no provider imports another. The same holds for decision providers in `engine/src/decisions/`: only `operator-runtime.ts` imports `openrouter`, and only tests import `fake`.
-5. `autoresearch` imports contract and the engine's public entry only, never a harness; its review format stays pure outside the files that do I/O.
+3. `wf` imports contract only and performs no run-directory I/O.
+4. `sandbox` imports contract only. harness and engine import its seam, `@agentswf/sandbox`, and their tests `@agentswf/sandbox/testing`; only `engine/src/operator-runtime.ts` imports a provider, and no provider imports another. The same holds for decision providers in `engine/src/decisions/`: only `operator-runtime.ts` imports `openrouter`, and only tests import `fake`.
+5. `lab` imports contract and the engine's public entry only, never a harness; its review format stays pure outside the files that do I/O.
 6. `examples/` imports the author surface and approved pure schema libraries — never the engine or a harness.
 7. A cross-package import must be a declared dependency, not just a hoisted symlink.
 

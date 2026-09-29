@@ -9,8 +9,8 @@ import type {
   SandboxRecord,
   SettledDecision,
   SettledOperation,
-} from "@wf/contract/records";
-import { type JsonSchema, parseJsonSchema } from "@wf/contract/schema";
+} from "@agentswf/contract/records";
+import { type JsonSchema, parseJsonSchema } from "@agentswf/contract/schema";
 import {
   type AbsoluteDeadline,
   type AgentExecution,
@@ -35,8 +35,8 @@ import {
   type TurnOutcome,
   type WorkflowContext,
   type WorkflowDefinition,
-} from "@wf/contract/workflow";
-import { type AgentSkills, findHarness, hostHome, skillsLayout } from "@wf/harness";
+} from "@agentswf/contract/workflow";
+import { type AgentSkills, findHarness, hostHome, skillsLayout } from "@agentswf/harness";
 import type {
   AgentRunHost,
   AgentRuntimeConfig,
@@ -45,8 +45,8 @@ import type {
   HarnessSession,
   HarnessTurn,
   HarnessTurnOutcome,
-} from "@wf/harness/adapter";
-import type { Occupant } from "@wf/sandbox";
+} from "@agentswf/harness/adapter";
+import type { Occupant } from "@agentswf/sandbox";
 import { PUBLISHED_PRICES } from "./accounting/prices";
 import { summarizeRun } from "./accounting/summary";
 import { buildAgentBundle, installAgentLauncher, installSandboxedDoor } from "./agent-launcher";

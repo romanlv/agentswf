@@ -2,16 +2,6 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { Fixture } from "../packages/autoresearch/src/review/format/format";
-import type { FindingLabel, Judgement } from "../packages/autoresearch/src/review/format/scoring";
-import {
-  EXAMPLE_FINDINGS,
-  EXAMPLE_KEY,
-  EXAMPLE_LABELS,
-} from "../packages/autoresearch/src/review/format/testing";
-import judgeWorkflow, {
-  panelJudge,
-} from "../packages/autoresearch/src/review/judge/judge.workflow";
 import { runWorkflow } from "../packages/engine/src";
 import { createTempRunDirs, future, submit } from "../packages/engine/src/testing";
 import type { AgentRuntimeConfig } from "../packages/harness/src/adapter";
@@ -20,6 +10,14 @@ import {
   createFakeAdapter,
   type FakeAdapterTurnContext,
 } from "../packages/harness/src/testing/fake";
+import type { Fixture } from "../packages/lab/src/review/format/format";
+import type { FindingLabel, Judgement } from "../packages/lab/src/review/format/scoring";
+import {
+  EXAMPLE_FINDINGS,
+  EXAMPLE_KEY,
+  EXAMPLE_LABELS,
+} from "../packages/lab/src/review/format/testing";
+import judgeWorkflow, { panelJudge } from "../packages/lab/src/review/judge/judge.workflow";
 
 const runDirs = createTempRunDirs();
 const scratch = mkdtempSync(join(tmpdir(), "awf-judge-test-"));

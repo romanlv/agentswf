@@ -1,4 +1,4 @@
-import { type AgentExecution, type AgentPlacement, placementOf } from "@wf/contract/workflow";
+import { type AgentExecution, type AgentPlacement, placementOf } from "@agentswf/contract/workflow";
 import type { AgentRunHost, AgentRunHostFactory, HarnessRunSnapshot } from "./adapter";
 import type { SessionAccounting } from "./usage/accounting";
 

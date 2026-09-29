@@ -1,5 +1,5 @@
 {
-  "name": "@wf/engine",
+  "name": "@agentswf/engine",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -12,9 +12,9 @@
     "./archive-compat": "./src/archive-compat.ts"
   },
   "dependencies": {
-    "@wf/cli-agent": "workspace:*",
-    "@wf/contract": "workspace:*",
-    "@wf/harness": "workspace:*",
-    "@wf/sandbox": "workspace:*"
+    "@agentswf/wf": "workspace:*",
+    "@agentswf/contract": "workspace:*",
+    "@agentswf/harness": "workspace:*",
+    "@agentswf/sandbox": "workspace:*"
   }
 }

@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { type PaneHerdr, type PaneTerminal, shellQuote } from "@wf/sandbox";
+import { type PaneHerdr, type PaneTerminal, shellQuote } from "@agentswf/sandbox";
 import type { AgentRunHostFactory, AgentSessionAdapter } from "../adapter";
 import { skillsLaunch } from "../capabilities/skills";
 import { type RunProcess, runProcess, withholding } from "../command";

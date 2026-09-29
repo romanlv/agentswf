@@ -1,5 +1,5 @@
 import { basename, join } from "node:path";
-import type { Billing } from "@wf/contract/records";
+import type { Billing } from "@agentswf/contract/records";
 import type { RunProcess } from "./command";
 import { jsonLines, type Row, record, reported, text } from "./json";
 import type { Harness } from "./types";

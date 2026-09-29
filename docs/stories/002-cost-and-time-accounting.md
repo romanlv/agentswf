@@ -195,7 +195,7 @@ directory.
 
 - `packages/contract/src/workflow/agents.ts`: `TurnUsage` and `TokenUsage` are reshaped (see
   Proposed design), and `TurnCost` is removed.
-- `packages/contract/src/wire.ts` and `packages/cli-agent/src/client.ts`: a `wf` call carries the
+- `packages/contract/src/wire.ts` and `packages/wf/src/client.ts`: a `wf` call carries the
   native session id, when the launcher's environment has one. This is additive.
 - `packages/engine/src/agent-launcher.ts`: the launcher passes on the session variable the harness
   names.
@@ -1333,11 +1333,11 @@ Verification: `bun test` 423 pass, 0 fail; `bun run check` clean.
 A review for duplication and slop, then two rounds of fixes and a second review. The sections
 above name things as they were built; these are the names now.
 
-- **Records.** `TurnUsage` split in two. `OperationRecord` (`@wf/contract/workflow`) is what a
-  workflow sees: times and sessions. `SettledOperation` (`@wf/contract/records`) adds billing,
+- **Records.** `TurnUsage` split in two. `OperationRecord` (`@agentswf/contract/workflow`) is what a
+  workflow sees: times and sessions. `SettledOperation` (`@agentswf/contract/records`) adds billing,
   spend and charged, and only the end-of-run settle makes one. `Billing`'s `api` is now `metered`,
   so one word means billed per token. `RunAccounting` and its figures moved to
-  `@wf/contract/records`. `output.json` has a declared type, `OutputRecord`, with `version: 1`;
+  `@agentswf/contract/records`. `output.json` has a declared type, `OutputRecord`, with `version: 1`;
   its top-level `startedAt` and `finishedAt` went, since `accounting` carries them. A charge in
   another currency counts the agent as not billed instead of vanishing.
 - **Harness.** Tokens come only from session files: `readUsage` became `readCharge`, and

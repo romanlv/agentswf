@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { Occupant, SandboxedCommand, SandboxProcess } from "@wf/sandbox";
+import type { Occupant, SandboxedCommand, SandboxProcess } from "@agentswf/sandbox";
 import type { HarnessActivation } from "../adapter";
 import type { ProcessInput, RunProcess } from "../command";
 import { createSingleSessionHostFactory } from "../single-session-host";

@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { createConnection } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { type ResultSubmitResponse, WIRE_VERSION } from "@wf/contract/wire";
+import { type ResultSubmitResponse, WIRE_VERSION } from "@agentswf/contract/wire";
 
 export function createTempRunDirs(): {
   tempRunDir(): string;
@@ -30,7 +30,7 @@ export function tempRunDir(): string {
   return path;
 }
 
-export { COUNT_SCHEMA } from "@wf/contract/testing";
+export { COUNT_SCHEMA } from "@agentswf/contract/testing";
 
 export function future(milliseconds = 60_000): { unixMilliseconds: number } {
   return { unixMilliseconds: Date.now() + milliseconds };

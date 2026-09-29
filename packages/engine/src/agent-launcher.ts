@@ -1,7 +1,7 @@
 import { chmod, mkdir, readFile, realpath, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { basename, dirname, join, resolve } from "node:path";
-import { type AgentDoor, shellQuote } from "@wf/sandbox";
+import { type AgentDoor, shellQuote } from "@agentswf/sandbox";
 
 /** bun loads the `.env` of the directory it starts in: an agent's, which is none of `wf`'s. */
 const NO_ENV = "--no-env-file";
@@ -112,11 +112,11 @@ function launcherScript(
 
 async function resolveAgentCommand(): Promise<string> {
   const require = createRequire(import.meta.url);
-  const manifestPath = require.resolve("@wf/cli-agent/package.json");
+  const manifestPath = require.resolve("@agentswf/wf/package.json");
   const manifest = JSON.parse(await readFile(manifestPath, "utf8")) as {
     bin?: string | Record<string, string>;
   };
   const relative = typeof manifest.bin === "string" ? manifest.bin : manifest.bin?.wf;
-  if (!relative) throw new Error("@wf/cli-agent does not publish the wf command");
+  if (!relative) throw new Error("@agentswf/wf does not publish the wf command");
   return resolve(dirname(manifestPath), relative);
 }

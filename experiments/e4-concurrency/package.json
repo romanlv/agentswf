@@ -1,11 +1,11 @@
 {
-  "name": "@wf/e4-concurrency",
+  "name": "@agentswf/e4-concurrency",
   "version": "0.0.0",
   "private": true,
   "type": "module",
   "dependencies": {
-    "@wf/contract": "workspace:*",
-    "@wf/engine": "workspace:*",
-    "@wf/harness": "workspace:*"
+    "@agentswf/contract": "workspace:*",
+    "@agentswf/engine": "workspace:*",
+    "@agentswf/harness": "workspace:*"
   }
 }

@@ -6,7 +6,7 @@ import {
   isAnswered,
   type OutputSchema,
   type WorkflowContext,
-} from "@wf/contract/workflow";
+} from "@agentswf/contract/workflow";
 import { restore } from "../fixtures/git";
 import type { GitLabDiscussion, GitLabMergeRequest, GitLabVersion } from "../fixtures/gitlab-types";
 import { type OrderedVersion, orderVersions } from "../fixtures/review-start";

@@ -1,4 +1,4 @@
-import type { TokenUsage } from "@wf/contract/records";
+import type { TokenUsage } from "@agentswf/contract/records";
 
 /** One request, as the harness logged it. `at` is what splits an agent's spend between operations. */
 export type UsageRecord = {

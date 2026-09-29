@@ -3,7 +3,7 @@ import {
   decodeResultSubmitResponse,
   type ResultSubmitRequest,
   type ResultSubmitResponse,
-} from "@wf/contract/wire";
+} from "@agentswf/contract/wire";
 
 const MAX_RESPONSE_BYTES = 256 * 1024;
 

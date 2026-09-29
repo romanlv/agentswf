@@ -6,7 +6,7 @@ import {
   type WorkflowDefinition,
   type WorkflowInvocation,
   type WorkflowMeta,
-} from "@wf/contract/workflow";
+} from "@agentswf/contract/workflow";
 import Type from "typebox";
 import { outputSchema } from "../output-schema";
 

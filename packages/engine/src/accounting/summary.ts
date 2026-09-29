@@ -6,7 +6,7 @@ import type {
   SettledDecision,
   SettledOperation,
   TokenUsage,
-} from "@wf/contract/records";
+} from "@agentswf/contract/records";
 import { costOf, type PriceTable } from "./prices";
 import { addTokens } from "./tokens";
 

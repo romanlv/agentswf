@@ -3,7 +3,7 @@ import {
   type ResultSubmitRequest,
   type ResultSubmitResponse,
   WIRE_VERSION,
-} from "@wf/contract/wire";
+} from "@agentswf/contract/wire";
 import { readBoundedStdin, readCliStdin, runCli } from "./cli";
 
 const ENDPOINT = "/private/control.sock";

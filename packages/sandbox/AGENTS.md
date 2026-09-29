@@ -1,16 +1,16 @@
-# @wf/sandbox
+# @agentswf/sandbox
 
 Running agents inside sandboxes a workflow opens (story 004). The seam is here, and so is every
 provider, so harness and engine hold no provider's code.
 
 | Entry | Owns |
 | --- | --- |
-| `@wf/sandbox` | the seam's types (`seam.ts`), and a spec's check and path and gitdir resolution (`resolve.ts`) |
-| `@wf/sandbox/srt` | `createSrtProvider` and `findSrt`: srt's profiles, the pure check, the first-open probe (`src/srt/`) |
-| `@wf/sandbox/docker` | `createDockerProvider` and `findDocker`: a box, its proxy and network, the door's relay, the reaper, the box's Herdr (`src/docker/`); the default image, the proxy and the relay's box half (`docker/`) |
-| `@wf/sandbox/testing` | the conformance suite every provider's test calls, and a fake provider for engine and adapter tests |
+| `@agentswf/sandbox` | the seam's types (`seam.ts`), and a spec's check and path and gitdir resolution (`resolve.ts`) |
+| `@agentswf/sandbox/srt` | `createSrtProvider` and `findSrt`: srt's profiles, the pure check, the first-open probe (`src/srt/`) |
+| `@agentswf/sandbox/docker` | `createDockerProvider` and `findDocker`: a box, its proxy and network, the door's relay, the reaper, the box's Herdr (`src/docker/`); the default image, the proxy and the relay's box half (`docker/`) |
+| `@agentswf/sandbox/testing` | the conformance suite every provider's test calls, and a fake provider for engine and adapter tests |
 
-- **It imports contract only.** harness and engine import `@wf/sandbox`; only the engine's
+- **It imports contract only.** harness and engine import `@agentswf/sandbox`; only the engine's
   `operator-runtime.ts` imports a provider. `scripts/check-boundaries.ts` holds these.
 - **A provider is a directory under `src/`** with an `index.ts`, and imports the seam by path,
   never another provider.

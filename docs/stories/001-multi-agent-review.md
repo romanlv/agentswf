@@ -118,7 +118,7 @@ looking for a sibling's socket can find it. The broader design is in
 - `packages/engine/src/agent-launcher.ts` — the per-agent `wf` launcher.
 - `packages/engine/src/workflow-runner.ts` — ownership of one run, and workflow execution.
 - `packages/engine/src/operator-cli.ts` — the trusted `awf run` entry point.
-- `packages/cli-agent/` — the in-session `wf result` client.
+- `packages/wf/` — the in-session `wf result` client.
 - `examples/minimum-review/workflow.ts` — the review workflow: lenses, lens-bound schemas,
   composition.
 - `examples/minimum-review/review-loop.ts` — reviewer configuration and the operator-runnable

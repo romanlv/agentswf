@@ -3,7 +3,7 @@ import { readdirSync } from "node:fs";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { ProcessInput, ProcessResult, RunProcess } from "@wf/harness";
+import type { ProcessInput, ProcessResult, RunProcess } from "@agentswf/harness";
 import {
   herdrSession,
   installDecisions,

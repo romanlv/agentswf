@@ -1,4 +1,4 @@
-import { type AbsoluteDeadline, DeadlineExceededError } from "@wf/contract/workflow";
+import { type AbsoluteDeadline, DeadlineExceededError } from "@agentswf/contract/workflow";
 
 export class WorkflowCancelledError extends Error {
   constructor(readonly reason: unknown) {

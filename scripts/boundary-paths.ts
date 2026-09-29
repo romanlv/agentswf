@@ -13,7 +13,7 @@ export const WORKSPACE_MANIFEST_GLOBS = [
 export function allowsComputedWorkflowImport(repositoryPath: string): boolean {
   return (
     repositoryPath === "packages/engine/src/workflow-loader.ts" ||
-    repositoryPath === "packages/autoresearch/src/review/lab/load.ts"
+    repositoryPath === "packages/lab/src/review/lab/load.ts"
   );
 }
 

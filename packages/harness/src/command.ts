@@ -1,4 +1,4 @@
-import { REAP_GRACE_MS, type SandboxedCommand } from "@wf/sandbox";
+import { REAP_GRACE_MS, type SandboxedCommand } from "@agentswf/sandbox";
 
 /** Per-stream capture limit; beyond it output is discarded rather than buffered. */
 const MAX_OUTPUT_BYTES = 1_048_576;

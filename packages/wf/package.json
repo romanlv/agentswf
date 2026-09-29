@@ -1,5 +1,5 @@
 {
-  "name": "@wf/cli-agent",
+  "name": "@agentswf/wf",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -7,6 +7,6 @@
     "wf": "./src/cli.ts"
   },
   "dependencies": {
-    "@wf/contract": "workspace:*"
+    "@agentswf/contract": "workspace:*"
   }
 }

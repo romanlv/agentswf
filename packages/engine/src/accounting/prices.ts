@@ -1,4 +1,4 @@
-import type { TokenUsage } from "@wf/contract/records";
+import type { TokenUsage } from "@agentswf/contract/records";
 
 /** USD per million tokens, for every class a request can be billed in. */
 export type ModelRate = {

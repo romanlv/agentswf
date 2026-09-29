@@ -1,4 +1,4 @@
-# @wf/autoresearch
+# @agentswf/lab
 
 Tools for evaluating workflows against cases with known answers, and later for improving them.
 It holds review fixtures (story 005) and their scoring (story 008), in `src/review/` by purpose:
@@ -11,7 +11,7 @@ numbers from records), and `lab/` (`awf-lab`, the command line that runs a varia
 per case through `awf run` and keeps the trials and scores in the workspace's results). Story 008
 has `awf-lab`'s terms and command line.
 
-It is a consumer of the engine (ADR 0002): it may import `@wf/contract` and the engine's public
+It is a consumer of the engine (ADR 0002): it may import `@agentswf/contract` and the engine's public
 entry, never a harness; `awf-lab` starts workflows with the checkout's own `awf run` and reads the
 record it prints. Every file in `src/review/` is pure except those the boundary checker names as
 doing I/O (`fixtures/git.ts`, `verify.ts`, `seal.ts`; `build/gitlab.ts`, `collect.ts`,
@@ -28,7 +28,7 @@ before it is written: the case formats in `format.ts`, the records `awf-lab` wri
 package's panel and controls import `format/{format,grading,lab,runtime,sanity,scoring,validate,variant}.ts`:
 editing one orphans every stored score, so new formats go in files of their own. The raw GitLab
 responses under `key/evidence/gitlab/` are kept as GitLab sent them, unvalidated. After changing
-a schema, regenerate `schema/` with `bun packages/autoresearch/src/write-schemas.ts`.
+a schema, regenerate `schema/` with `bun packages/lab/src/write-schemas.ts`.
 
 GitLab is reached only through `glab api`, read-only. Fixtures and their data live outside this
 repository, in the project's own autoresearch repository.

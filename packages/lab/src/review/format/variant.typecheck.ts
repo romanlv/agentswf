@@ -1,5 +1,5 @@
-import type { OutputRecord } from "@wf/contract/records";
-import { defineExecutableWorkflow } from "@wf/contract/workflow";
+import type { OutputRecord } from "@agentswf/contract/records";
+import { defineExecutableWorkflow } from "@agentswf/contract/workflow";
 import { JUDGEMENT_FORMAT, type Judgement, type RunSummary } from "./scoring";
 import { defineReviewJudge, defineReviewVariant } from "./variant";
 

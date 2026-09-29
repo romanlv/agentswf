@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { AgentPlacement } from "@wf/contract/workflow";
+import type { AgentPlacement } from "@agentswf/contract/workflow";
 import type { AgentRunHost, AgentRunHostFactory } from "./adapter";
 import { createPlacementHostFactory } from "./placement-host";
 import { createSingleSessionHostFactory } from "./single-session-host";

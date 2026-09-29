@@ -9,7 +9,7 @@ comes next is in [`status.md`](status.md). Decisions taken against this document
 
 > **Naming.** The project and the operator command are `awf` (`awf run`, `~/.awf/runs`). The
 > command an agent runs inside its session is `wf` (`wf result`), and it stays short because every
-> prompt carries it. The package scope `@wf/*` is still a placeholder; npm scope availability is
+> prompt carries it. The package scope `@agentswf/*` is still a placeholder; npm scope availability is
 > unchecked.
 
 ## 1. What this is
@@ -174,9 +174,9 @@ awf/
     contract/               # pure: types, schema, record formats, the author surface. no I/O
     harness/                # drive a coding agent. adapters, liveness, usage extraction
     engine/                 # the workflow runtime, run-directory I/O, and local control plane
-    cli-agent/              # the in-session `wf` binary; contract plus wire client only
+    wf/                     # the in-session `wf` binary; contract plus wire client only
     sandbox/                # sandboxes a workflow opens: the provider seam and the providers
-    autoresearch/           # evaluating workflows against known answers; a consumer of the engine
+    lab/                    # evaluating workflows against known answers; a consumer of the engine
 
   examples/                 # scenario workflows written against the author surface
   experiments/
@@ -185,7 +185,7 @@ awf/
   scripts/                  # check-boundaries.ts, and ad-hoc dev commands
 ```
 
-`packages/cli-agent` is the fourth package. It was created only when the versioned wire boundary
+`packages/wf` is the fourth package. It was created only when the versioned wire boundary
 and engine-owned local endpoint existed, as required below. `packages/sandbox` came with
 [[004-sandboxed-agents|story 004]], so that neither harness nor engine holds a provider's code.
 
@@ -198,16 +198,16 @@ sharper rule than "zero dependencies" and it is mechanically checkable. Formats 
 that reads and writes them does not.
 
 ```
-@wf/contract            core types
-@wf/contract/schema     validate, describe, formatErrors — pure
-@wf/contract/records    run-record formats (attempts, output.json, settled usage) and their version — not the file I/O
-@wf/contract/wire       control-plane messages, with runtime-decodable schemas
-@wf/contract/workflow   WorkflowContext, AgentRef, Messaging — what a workflow author imports
+@agentswf/contract            core types
+@agentswf/contract/schema     validate, describe, formatErrors — pure
+@agentswf/contract/records    run-record formats (attempts, output.json, settled usage) and their version — not the file I/O
+@agentswf/contract/wire       control-plane messages, with runtime-decodable schemas
+@agentswf/contract/workflow   WorkflowContext, AgentRef, Messaging — what a workflow author imports
 ```
 
 The JSON-schema subset, its validator, `describe()`, and the per-field error text (E5: 2.00 attempts
 against 2.90–4.95 for a bare refusal). The author-facing workflow types. The control-plane messages
-— and these need runtime-decodable schemas, not TypeScript types alone, because `cli-agent` is an
+— and these need runtime-decodable schemas, not TypeScript types alone, because `wf` is an
 untrusted process boundary and a version-skewed or malformed request has to be rejected predictably.
 
 **One production return channel, not three.** E2 measured all three and all three work, but the
@@ -269,13 +269,13 @@ the frozen experiments. That compatibility seam stays out of production run host
 fake host satisfy the run-host interface; provider variation is internal composition, not another
 choice exposed to workflows or the engine.
 
-**`cli-agent`** — the command the in-session agent is told to run, through a launcher the engine
+**`wf`** — the command the in-session agent is told to run, through a launcher the engine
 installs per agent. `wf result`, and later `wf peers` / `wf send`. It *compiles* against `contract`
 alone, and at runtime it talks to the engine over the local control plane described in section 7.
 It never links the engine and never touches the run directory itself.
 
 It was deliberately absent through Stage 0. Stage 2 created it together with
-`@wf/contract/wire` and the engine-owned endpoint, then removed the engine-linked binary. The
+`@agentswf/contract/wire` and the engine-owned endpoint, then removed the engine-linked binary. The
 package now has a real boundary to uphold: it submits over the local socket and cannot reach the
 run directory or engine implementation.
 
@@ -285,11 +285,11 @@ control-plane server**. Everything the interface map says the engine owns and th
 Also carries the operator CLI as a `bin` until that grows enough to move to `apps/`.
 
 **`sandbox`** — the sandboxes a workflow opens ([[004-sandboxed-agents|story 004]],
-[[permissions]]). `@wf/sandbox` is the seam and path resolution; `@wf/sandbox/srt` and
-`@wf/sandbox/docker` are the providers; `@wf/sandbox/testing` is the conformance suite and a fake.
+[[permissions]]). `@agentswf/sandbox` is the seam and path resolution; `@agentswf/sandbox/srt` and
+`@agentswf/sandbox/docker` are the providers; `@agentswf/sandbox/testing` is the conformance suite and a fake.
 It imports `contract` only. harness launches through the seam's types, the engine opens sandboxes
 through it, and only the composition root, `engine/src/operator-runtime.ts`, imports a provider.
-Tests in harness and engine may use `@wf/sandbox/testing`.
+Tests in harness and engine may use `@agentswf/sandbox/testing`.
 
 ### Dependency graph
 
@@ -297,8 +297,8 @@ Tests in harness and engine may use `@wf/sandbox/testing`.
 sandbox       → contract
 harness       → contract, sandbox
 engine        → contract, sandbox, harness    (a provider: operator-runtime.ts only)
-cli-agent     → contract
-autoresearch  → contract, engine
+wf            → contract
+lab           → contract, engine
 examples/     → contract/workflow
 scripts/*     → any
 ```
@@ -311,13 +311,13 @@ are checked by `scripts/check-boundaries.ts`, which `bun run check` runs:
    needs `Bun.*` or `node:fs`, it is in the wrong package.
 2. `engine/src/accounting` imports `contract` only, performs no I/O, and uses no runtime-specific
    API, so it can be lifted out whole (section 8).
-3. `cli-agent` imports `contract` only, and reaches the engine over the wire, never by linking.
-4. `sandbox` imports `contract` only. harness and engine import its seam, `@wf/sandbox`, and their
-   tests `@wf/sandbox/testing`; only `engine/src/operator-runtime.ts` imports a provider, and no
+3. `wf` imports `contract` only, and reaches the engine over the wire, never by linking.
+4. `sandbox` imports `contract` only. harness and engine import its seam, `@agentswf/sandbox`, and their
+   tests `@agentswf/sandbox/testing`; only `engine/src/operator-runtime.ts` imports a provider, and no
    provider imports another.
-5. `autoresearch` imports `contract` and the engine's public entry only, never a harness; its
+5. `lab` imports `contract` and the engine's public entry only, never a harness; its
    review format stays pure outside the files that do I/O.
-6. `examples/` and any future workflow import `@wf/contract/workflow` plus approved pure schema
+6. `examples/` and any future workflow import `@agentswf/contract/workflow` plus approved pure schema
    authoring libraries — never the engine or a harness.
 
 A seventh rule falls out of the same check: a cross-package import has to be a declared dependency
@@ -346,7 +346,7 @@ nowhere to go does.
 | workflows calling workflows | `engine` | `contract/workflow` already has `call` |
 | checkpoints and human approval | an `engine` admission barrier, not a signal | a signal suspends one branch; a checkpoint must stop dispatch |
 | evals | `*.eval.ts` + a reporter | regression checks, not a system |
-| autoresearch / self-improvement loop | `packages/autoresearch`, as a consumer of the engine — see below | the general tools here, a project's variants and fixtures in its own repository ([ADR 0003](adr/0003-autoresearch-tools-here-project-data-there.md)) |
+| autoresearch / self-improvement loop | `packages/lab`, as a consumer of the engine — see below | the general tools here, a project's variants and fixtures in its own repository ([ADR 0003](adr/0003-autoresearch-tools-here-project-data-there.md)) |
 | observability | shapes in `contract`, extraction in `harness` | see below |
 | context usage / "dump zone" detection | `harness`, beside liveness and usage | per-harness reading, same shape as usage |
 | fast typed decisions (System One models) | questions, answers and the record in `contract`; the provider seam and providers in `engine/src/decisions/` | a decision is not an agent: one stateless request, recorded and costed apart from agents ([story 006](stories/006-typed-decisions.md)) |
@@ -360,14 +360,14 @@ The feature spans every layer:
 
 - route, envelope and obligation **types** — needed by everything
 - `HarnessTurn.deliver`, presenting a message at the next safe model continuation — **harness**
-- `wf peers`, `wf send --expect-response` — **cli-agent**
+- `wf peers`, `wf send --expect-response` — **wf**
 - the obligation state machine: atomic send ordering, crossing sends satisfying earlier
   obligations, refusing `wf result` while a response is owed — **engine**
 
 The types go in `contract` and the enforcement in `engine`, the way openclaw names
 `gateway-protocol` separately from the gateway.
 
-**But a dependency rule is not a communication channel, and this plan was missing one.** `cli-agent`
+**But a dependency rule is not a communication channel, and this plan was missing one.** `wf`
 is a separate operating-system process. `wf send --expect-response` has to block until the engine
 says an obligation is satisfied; `wf result` has to be refused while a reply is owed; a crossing send
 has to be ordered atomically against another process's send. None of that can be done by two
@@ -379,8 +379,8 @@ current storage cannot substitute for a server: `writeAccepted` is an existence 
 write (`packages/engine/src/run-dir.ts:54-62`), so two delayed invocations can both pass it.
 
 So: **the engine owns a local control plane from Stage 2**, an authenticated local endpoint it
-serves and `cli-agent` calls. Wire messages go in `@wf/contract/wire`, the
-client is `cli-agent`'s internals, the state and transactions are the engine's. Remote execution
+serves and `wf` calls. Wire messages go in `@agentswf/contract/wire`, the
+client is `wf`'s internals, the state and transactions are the engine's. Remote execution
 later replaces the transport without having to invent the boundary — which is why "client/server
 split when remote execution arrives" was the wrong trigger.
 
@@ -474,7 +474,7 @@ design, models, harnesses, tools and skills for an optimum. Its core is comparis
 known answers, a scorer, and a comparison of variants with their spread. Whoever proposes the
 variant, a person with an idea or an agent in a loop, uses the same comparison
 ([ADR 0002](adr/0002-autoresearch-lives-here.md), amended 2026-09-26). Its general tools live in this
-repository, in `packages/autoresearch`, and a project's variants and fixtures in that project's own
+repository, in `packages/lab`, and a project's variants and fixtures in that project's own
 ([ADR 0002](adr/0002-autoresearch-lives-here.md),
 [ADR 0003](adr/0003-autoresearch-tools-here-project-data-there.md)). It is a *user* of the engine
 rather than a part of it: it has a different lifecycle and a different failure mode, and it reaches the engine
@@ -584,7 +584,7 @@ rate-card version**. Without them it will silently report one as the other.
 
 ## 9. Explicit workflow files, not a catalogue
 
-The scenarios in `examples/` compile against `@wf/contract/workflow`, may use a pure JSON Schema
+The scenarios in `examples/` compile against `@agentswf/contract/workflow`, may use a pure JSON Schema
 authoring library, and never import the engine or a harness. TypeBox is the first such authoring
 dependency: its inferred types and schema objects stay in the workflow package while contract owns
 the supported subset, prompting, and validation. `minimum-review/workflow.ts` is the reusable
@@ -706,7 +706,7 @@ Each stage is a gate phrased as something to prove. Which are open is in [`statu
   direct-process and pane adapters and the Herdr run host are tested without the engine. The gate
   is a small general-purpose command that drives one harness through `harness` alone.
 - **Stage 2 — minimum engine and the control plane.** `agents.open/run`, `parallel`, result slots,
-  `cli-agent`, the local endpoint and the workflow loader, proven against a fake and then live. An
+  `wf`, the local endpoint and the workflow loader, proven against a fake and then live. An
   ambiguous Herdr `idle` decides nothing author-visible and authorizes no continuation: it reads as
   `unanswered` and arms the one measured nudge. Proving native pane release, and the continuation
   that would depend on it, is deferred measurement, not a claim this stage makes.
@@ -721,7 +721,7 @@ and if it lands without moving a boundary, the split was right.
 ## 13. Open questions
 
 1. **Names.** Answered for the project and both commands: `awf`, and `wf` inside a session (see
-   the note at the top). The package scope `@wf/*` is still open.
+   the note at the top). The package scope `@agentswf/*` is still open.
 2. **Author surface as a subpath or a package?** Temporal makes it a package because the constraint
    is enforced by a sandbox. Here it is enforced by discipline, so a subpath is proposed — revisit
    if a workflow ever reaches past it.

@@ -1,5 +1,5 @@
 import { join } from "node:path";
-import type { Billing } from "@wf/contract/records";
+import type { Billing } from "@agentswf/contract/records";
 import type { RunProcess } from "../command";
 import { parseRow, record, text } from "../json";
 import { harnessState } from "../state";

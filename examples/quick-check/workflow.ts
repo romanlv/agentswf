@@ -5,7 +5,7 @@ import {
   type JsonValue,
   type TurnOutcome,
   type WorkflowInvocation,
-} from "@wf/contract/workflow";
+} from "@agentswf/contract/workflow";
 import Type from "typebox";
 import { outputSchema } from "../output-schema";
 

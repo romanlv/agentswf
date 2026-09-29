@@ -1,4 +1,4 @@
-import type { Question } from "@wf/contract/workflow";
+import type { Question } from "@agentswf/contract/workflow";
 import {
   type DecisionProvider,
   DecisionProviderError,

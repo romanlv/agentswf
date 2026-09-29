@@ -85,7 +85,7 @@ export type NativeOutcomeEvidence = {
 };
 
 const ROOT = join(import.meta.dir, "..");
-const CLI_SOURCE = join(ROOT, "packages/cli-agent/src/cli.ts");
+const CLI_SOURCE = join(ROOT, "packages/wf/src/cli.ts");
 const FIXTURE_SOURCE = join(ROOT, "examples/minimum-review/fixtures/review-target.ts");
 const HERDR_SESSION = "default";
 const METERED_CREDENTIAL_ENV = [

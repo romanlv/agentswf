@@ -23,24 +23,25 @@ const manifest = (name: string, ...dependencies: string[]) =>
 
 test("sandbox providers stay behind the seam and the composition root", async () => {
   await write({
-    "packages/harness/package.json": manifest("@wf/harness", "@wf/sandbox"),
-    "packages/harness/src/adapter.ts": 'import "@wf/sandbox";\nimport "@wf/sandbox/srt";\n',
-    "packages/engine/package.json": manifest("@wf/engine", "@wf/sandbox"),
-    "packages/engine/src/runner.ts": 'import "@wf/sandbox/docker";\n',
+    "packages/harness/package.json": manifest("@agentswf/harness", "@agentswf/sandbox"),
+    "packages/harness/src/adapter.ts":
+      'import "@agentswf/sandbox";\nimport "@agentswf/sandbox/srt";\n',
+    "packages/engine/package.json": manifest("@agentswf/engine", "@agentswf/sandbox"),
+    "packages/engine/src/runner.ts": 'import "@agentswf/sandbox/docker";\n',
     "packages/engine/src/operator-runtime.ts":
-      'import "@wf/sandbox/srt";\nimport "./decisions/openrouter";\nimport "./decisions/fake";\n',
-    "packages/engine/src/runner.test.ts": 'import "@wf/sandbox/testing";\n',
-    "packages/sandbox/package.json": manifest("@wf/sandbox", "@wf/harness"),
-    "packages/sandbox/src/seam.ts": 'import "@wf/harness";\n',
+      'import "@agentswf/sandbox/srt";\nimport "./decisions/openrouter";\nimport "./decisions/fake";\n',
+    "packages/engine/src/runner.test.ts": 'import "@agentswf/sandbox/testing";\n',
+    "packages/sandbox/package.json": manifest("@agentswf/sandbox", "@agentswf/harness"),
+    "packages/sandbox/src/seam.ts": 'import "@agentswf/harness";\n',
     "packages/sandbox/src/srt/index.ts": 'import "../seam";\nimport "../docker/index";\n',
-    "packages/sandbox/src/docker/index.ts": 'import "@wf/sandbox/srt";\n',
+    "packages/sandbox/src/docker/index.ts": 'import "@agentswf/sandbox/srt";\n',
     "packages/sandbox/src/testing/index.ts": 'import "../seam";\nimport "../srt/index";\n',
     "packages/sandbox/src/resolve.ts": 'import "./seam";\nimport "./docker";\n',
     "packages/sandbox/src/lima/provider.ts": 'import "../docker";\n',
     "packages/sandbox/src/srt/srt.test.ts": 'import "../testing";\nimport "../docker";\n',
     "packages/harness/src/adapter.test.ts":
-      'import "@wf/sandbox/testing";\nimport "@wf/sandbox/srt";\n',
-    "packages/engine/src/testing-in-production.ts": 'import "@wf/sandbox/testing";\n',
+      'import "@agentswf/sandbox/testing";\nimport "@agentswf/sandbox/srt";\n',
+    "packages/engine/src/testing-in-production.ts": 'import "@agentswf/sandbox/testing";\n',
     "packages/engine/src/decisions/directory.ts": 'import "./openrouter";\nimport "./fake";\n',
     "packages/engine/src/decisions/fake.test.ts": 'import "./fake";\nimport "./openrouter";\n',
     "packages/engine/src/decisions/openrouter.test.ts": 'import "./openrouter";\n',
@@ -51,15 +52,15 @@ test("sandbox providers stay behind the seam and the composition root", async ()
     "packages/engine/src/decisions/directory.ts: path import ./openrouter reaches what packages/engine/src may not",
     "packages/engine/src/decisions/fake.test.ts: path import ./openrouter reaches what packages/engine/src may not",
     "packages/engine/src/operator-runtime.ts: path import ./decisions/fake reaches what packages/engine/src may not",
-    "packages/engine/src/runner.ts: imports @wf/sandbox/docker — only operator-runtime.ts imports a sandbox provider",
-    "packages/engine/src/testing-in-production.ts: imports @wf/sandbox/testing — only operator-runtime.ts imports a sandbox provider",
-    "packages/harness/src/adapter.test.ts: imports @wf/sandbox/srt — harness knows the sandbox seam, never a provider",
-    "packages/harness/src/adapter.ts: imports @wf/sandbox/srt — harness knows the sandbox seam, never a provider",
-    "packages/sandbox/src/docker/index.ts: imports @wf/sandbox/srt — a provider imports the seam by path, not a sibling",
-    "packages/sandbox/src/docker/index.ts: imports @wf/sandbox/srt, which packages/sandbox may not depend on",
+    "packages/engine/src/runner.ts: imports @agentswf/sandbox/docker — only operator-runtime.ts imports a sandbox provider",
+    "packages/engine/src/testing-in-production.ts: imports @agentswf/sandbox/testing — only operator-runtime.ts imports a sandbox provider",
+    "packages/harness/src/adapter.test.ts: imports @agentswf/sandbox/srt — harness knows the sandbox seam, never a provider",
+    "packages/harness/src/adapter.ts: imports @agentswf/sandbox/srt — harness knows the sandbox seam, never a provider",
+    "packages/sandbox/src/docker/index.ts: imports @agentswf/sandbox/srt — a provider imports the seam by path, not a sibling",
+    "packages/sandbox/src/docker/index.ts: imports @agentswf/sandbox/srt, which packages/sandbox may not depend on",
     "packages/sandbox/src/lima/provider.ts: path import ../docker reaches what packages/sandbox/src/lima may not",
     "packages/sandbox/src/resolve.ts: path import ./docker reaches what packages/sandbox/src may not",
-    "packages/sandbox/src/seam.ts: imports @wf/harness — the sandbox package imports contract only",
+    "packages/sandbox/src/seam.ts: imports @agentswf/harness — the sandbox package imports contract only",
     "packages/sandbox/src/srt/index.ts: path import ../docker/index reaches what packages/sandbox/src/srt may not",
     "packages/sandbox/src/srt/srt.test.ts: path import ../docker reaches what packages/sandbox/src/srt may not",
     "packages/sandbox/src/testing/index.ts: path import ../srt/index reaches what packages/sandbox/src/testing may not",
@@ -67,9 +68,9 @@ test("sandbox providers stay behind the seam and the composition root", async ()
 });
 
 test("the review folders import down their order only", async () => {
-  const review = "packages/autoresearch/src/review";
+  const review = "packages/lab/src/review";
   await write({
-    "packages/autoresearch/package.json": manifest("@wf/autoresearch"),
+    "packages/lab/package.json": manifest("@agentswf/lab"),
     [`${review}/index.ts`]: 'import "./build/collect";\n',
     [`${review}/format/format.ts`]: 'import "../fixtures/set";\n',
     [`${review}/fixtures/set.ts`]: 'import "../format/format";\nimport "../build/collect";\n',

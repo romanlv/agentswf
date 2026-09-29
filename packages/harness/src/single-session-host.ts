@@ -3,7 +3,7 @@ import type {
   AgentStructuredTurnSpec,
   AgentTextTurnSpec,
   JsonValue,
-} from "@wf/contract/workflow";
+} from "@agentswf/contract/workflow";
 import type {
   AgentRunHost,
   AgentRunHostFactory,

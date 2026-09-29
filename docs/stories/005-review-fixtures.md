@@ -127,7 +127,7 @@ flowchart TD
 
 ## Code map
 
-- `packages/autoresearch/src/review/`, by purpose since story 008:
+- `packages/lab/src/review/`, by purpose since story 008:
   - `format/`, pure: `format.ts` (the TypeBox schemas, the single definition of every file;
     `schema/` is generated from it by `src/write-schemas.ts`), `validate.ts` (the checks, including
     a key against its fixture and a key against its votes), `grading.ts` (the rubric and the vote
@@ -141,7 +141,7 @@ flowchart TD
     then, bot text removed); I/O `gitlab.ts` (`glab api`, read-only), `collect.ts`, `draft-key.ts`
     (the drafter and the graders' vote), and `fixtures.workflow.ts`, which runs collect and
     draft-key over a list of MRs, then seals the set.
-- `packages/autoresearch/AGENTS.md`: the package's rules.
+- `packages/lab/AGENTS.md`: the package's rules.
 - `scripts/check-boundaries.ts`: rules for the new package; every file in `src/review/` is pure
   unless named as I/O, and each folder imports only those below it.
 - `examples/catalogue-review/schema.ts` and `examples/minimum-review/workflow.ts`: two review
@@ -158,7 +158,7 @@ flowchart TD
 project goes in that project's own repositories: its variants in its workflows repository, its
 fixture sets in its autoresearch repository.
 
-- **`packages/autoresearch`** (this repository): the fixture format and checker, `collect`,
+- **`packages/lab`** (this repository): the fixture format and checker, `collect`,
   `draft-key`, and later the scorer and runner. It's a package, not a folder, because a project's
   autoresearch repository has to import it to build and score its own fixtures. That's the trigger
   [ADR 0002](../adr/0002-autoresearch-lives-here.md) set for a package.
@@ -504,7 +504,7 @@ Rejected:
 
 For the record; the design above is the current state.
 
-- **Where it lives:** `packages/autoresearch` for the general tools; a project's variants in its
+- **Where it lives:** `packages/lab` for the general tools; a project's variants in its
   workflows repository and its sets in its own autoresearch repository ([ADR 0003](../adr/0003-autoresearch-tools-here-project-data-there.md)).
   No separate design doc: `format.ts` is the single definition and this story holds the reasoning.
 - **Grading:** the four severities and eight categories in [[#Grading|Grading]]. They're in the key

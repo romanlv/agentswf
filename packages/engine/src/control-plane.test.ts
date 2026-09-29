@@ -2,7 +2,7 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { stat } from "node:fs/promises";
 import { createConnection } from "node:net";
 import { dirname } from "node:path";
-import { type ResultSubmitResponse, WIRE_VERSION } from "@wf/contract/wire";
+import { type ResultSubmitResponse, WIRE_VERSION } from "@agentswf/contract/wire";
 import { CONTROL_PLANE_ROOT, startResultControlPlane } from "./control-plane";
 import type { ResultSlotRegistry } from "./result-slots";
 import { createResultSlotRegistry } from "./result-slots";

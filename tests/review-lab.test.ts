@@ -10,31 +10,22 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { digestFixture } from "../packages/autoresearch/src/review/fixtures/seal";
-import { type AnswerKey, KEY_FORMAT } from "../packages/autoresearch/src/review/format/format";
-import type {
-  ReportDocument,
-  RunDocument,
-  ShowDocument,
-} from "../packages/autoresearch/src/review/format/output";
-import {
-  checkWith,
-  type Score,
-  type Trial,
-} from "../packages/autoresearch/src/review/format/records";
-import { runLab } from "../packages/autoresearch/src/review/lab/cli";
-import {
-  AWF,
-  awfArgv,
-  type Runner,
-  type RunRequest,
-} from "../packages/autoresearch/src/review/lab/runner";
 import type { OutputRecord } from "../packages/contract/src/records";
 import { runOperatorCli } from "../packages/engine/src/operator-cli";
 import { createSingleSessionHostFactory } from "../packages/harness/src/single-session-host";
 import { createFakeAdapter } from "../packages/harness/src/testing/fake";
+import { digestFixture } from "../packages/lab/src/review/fixtures/seal";
+import { type AnswerKey, KEY_FORMAT } from "../packages/lab/src/review/format/format";
+import type {
+  ReportDocument,
+  RunDocument,
+  ShowDocument,
+} from "../packages/lab/src/review/format/output";
+import { checkWith, type Score, type Trial } from "../packages/lab/src/review/format/records";
+import { runLab } from "../packages/lab/src/review/lab/cli";
+import { AWF, awfArgv, type Runner, type RunRequest } from "../packages/lab/src/review/lab/runner";
 
-const REVIEW_INDEX = join(import.meta.dir, "../packages/autoresearch/src/review/index.ts");
+const REVIEW_INDEX = join(import.meta.dir, "../packages/lab/src/review/index.ts");
 const CANNED = join(import.meta.dir, "fixtures/lab/canned.workflow.ts");
 const EXACT = join(import.meta.dir, "fixtures/lab/exact-judge.workflow.ts");
 
@@ -166,7 +157,7 @@ async function workspace(): Promise<Workspace> {
   await Bun.write(join(root, "awf-lab.json"), JSON.stringify(CONFIG));
   await Bun.write(
     join(root, "tsconfig.json"),
-    JSON.stringify({ compilerOptions: { paths: { "@wf/autoresearch/review": [REVIEW_INDEX] } } }),
+    JSON.stringify({ compilerOptions: { paths: { "@agentswf/lab/review": [REVIEW_INDEX] } } }),
   );
   const answers = join(root, "answers.json");
   await Bun.write(answers, JSON.stringify({}));
@@ -181,7 +172,7 @@ async function workspace(): Promise<Workspace> {
       await Bun.write(
         file,
         body ??
-          `import { defineReviewVariant } from "@wf/autoresearch/review";
+          `import { defineReviewVariant } from "@agentswf/lab/review";
 import type canned from ${JSON.stringify(CANNED)};
 
 export default defineReviewVariant<typeof canned>({
@@ -198,7 +189,7 @@ export default defineReviewVariant<typeof canned>({
       const file = join(root, "scorers", `${name}.scorer.ts`);
       await Bun.write(
         file,
-        `import { defineReviewJudge } from "@wf/autoresearch/review";
+        `import { defineReviewJudge } from "@agentswf/lab/review";
 
 export default defineReviewJudge({
   workflow: new URL(${JSON.stringify(`file://${EXACT}`)}),
@@ -406,7 +397,7 @@ describe("awf-lab", () => {
 
   test("oracle and nop score 1 and 0 through the whole path, and the baseline wins nothing", async () => {
     const control = (workflow: string, argv: string) =>
-      `import { defineReviewVariant, ${workflow} } from "@wf/autoresearch/review";
+      `import { defineReviewVariant, ${workflow} } from "@agentswf/lab/review";
 
 export default defineReviewVariant({
   workflow: ${workflow},

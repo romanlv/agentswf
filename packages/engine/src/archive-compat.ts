@@ -1,5 +1,5 @@
-import { acceptAny, type SemanticCheck } from "@wf/contract";
-import type { AttemptSource } from "@wf/contract/records";
+import { acceptAny, type SemanticCheck } from "@agentswf/contract";
+import type { AttemptSource } from "@agentswf/contract/records";
 import { evaluateResult } from "./result-validation";
 import { readCall, recordAttempt, writeAcceptedExclusive } from "./run-dir";
 

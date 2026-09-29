@@ -4,7 +4,7 @@ import {
   score,
   type WorkflowInvocation,
   yesNo,
-} from "@wf/contract/workflow";
+} from "@agentswf/contract/workflow";
 
 /** Synthetic tickets, so a run sends nothing private. */
 const SAMPLE_TICKETS = [

@@ -7,7 +7,7 @@ import {
   type HarnessKind,
   type JsonValue,
   placementOf,
-} from "@wf/contract/workflow";
+} from "@agentswf/contract/workflow";
 import type {
   AgentSessionAdapter,
   HarnessActivation,

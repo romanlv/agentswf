@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { appendFileSync, cpSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { TokenUsage } from "@wf/contract/records";
+import type { TokenUsage } from "@agentswf/contract/records";
 import { createSessionAccounting } from "./accounting";
 import { claudeBilling, codexBilling, piBilling, readCodexBilling } from "./billing";
 import { readClaudeUsage as readClaude } from "./claude";

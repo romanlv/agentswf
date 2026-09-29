@@ -1,19 +1,19 @@
 import { afterAll, describe, expect, jest, test } from "bun:test";
-import type { TokenUsage } from "@wf/contract/records";
+import type { TokenUsage } from "@agentswf/contract/records";
 import type {
   JsonValue,
   OutputSchema,
   WorkflowContext,
   WorkflowDefinition,
-} from "@wf/contract/workflow";
-import { DeadlineExceededError } from "@wf/contract/workflow";
+} from "@agentswf/contract/workflow";
+import { DeadlineExceededError } from "@agentswf/contract/workflow";
 import {
   createSingleSessionHostFactory,
   type SessionAccounting,
   type UsageRecord,
-} from "@wf/harness";
-import type { AgentRuntimeConfig, AgentSessionAdapter } from "@wf/harness/adapter";
-import { createFakeAdapter, type FakeAdapterTurnContext } from "@wf/harness/testing";
+} from "@agentswf/harness";
+import type { AgentRuntimeConfig, AgentSessionAdapter } from "@agentswf/harness/adapter";
+import { createFakeAdapter, type FakeAdapterTurnContext } from "@agentswf/harness/testing";
 import { createRunLedger } from "./run-usage";
 import { createTempRunDirs, future, submit } from "./testing";
 import {

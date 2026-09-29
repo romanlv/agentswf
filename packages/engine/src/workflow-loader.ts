@@ -6,7 +6,7 @@ import {
   type ExecutableWorkflow,
   isJsonValue,
   type JsonValue,
-} from "@wf/contract/workflow";
+} from "@agentswf/contract/workflow";
 
 const WORKFLOW_EXTENSIONS = new Set([".ts", ".mts", ".js", ".mjs"]);
 

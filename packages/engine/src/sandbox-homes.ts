@@ -3,7 +3,7 @@ import { constants } from "node:fs";
 import { mkdir, open, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative } from "node:path";
 import { isDeepStrictEqual } from "node:util";
-import type { HarnessSandboxNeeds } from "@wf/sandbox";
+import type { HarnessSandboxNeeds } from "@agentswf/sandbox";
 
 /** A seeded home's credentials, and a way to hand a refreshed one back to the operator. */
 export type SeededHome = {

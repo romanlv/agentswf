@@ -212,15 +212,15 @@ The paths, by the term each holds:
 | case | `{datasets}/{dataset}/{case}/`: `fixture.json`, `request.md`, `snapshot.bundle` |
 | key | `{case}/key/key.json` with `evidence/` and `fixes.bundle`; the revision is inside |
 | variant | the files the config's `variants` globs match, `{name}.variant.ts`, each naming a workflow |
-| control | `packages/autoresearch/src/review/lab/{oracle,nop,comments}.workflow.ts`, named by variant files |
+| control | `packages/lab/src/review/lab/{oracle,nop,comments}.workflow.ts`, named by variant files |
 | scorer | the files the config's `scorers` globs match, `{name}.scorer.ts`; the package's `panel` is `lab/panel.scorer.ts` over `judge/judge.workflow.ts` |
 | trial | `{results}/{dataset}/{variant}@{major}.{minor}/{case}/{trial-id}/findings.json` (`awf.review-findings/2`) |
 | score | `score.{scorer}@{major}.{minor}.k{key-revision}.{n}.json` beside its trial (`awf.review-score/2`) |
 | partial score | `partial.{scorer}@{major}.{minor}.k{key-revision}.{n}.json` beside its trial (`awf.review-partial/2`) |
 | run | `{runs}/invocation-{id}/{run-id}/`: `output.json`, `calls/`, `decisions/` |
 | report | not stored; `report --json` prints `awf.lab-report/2` |
-| schemas | `packages/autoresearch/schema/*.schema.json`, generated from `format/`; `awf-lab schema` prints them |
-| code | `packages/autoresearch/src/review/`: `format/` the records, `fixtures/` reading sealed datasets, `build/` making them, `judge/` the panel, `metrics/`, `lab/` the command line |
+| schemas | `packages/lab/schema/*.schema.json`, generated from `format/`; `awf-lab schema` prints them |
+| code | `packages/lab/src/review/`: `format/` the records, `fixtures/` reading sealed datasets, `build/` making them, `judge/` the panel, `metrics/`, `lab/` the command line |
 
 Records written before Task 7 keep their formats (`/1`) and file names (`judged.*.json`); the
 store reads both. The data repository's dataset folder is `datasets/`, named by the `datasets`
@@ -459,7 +459,7 @@ cases scored in under ten minutes of wall time.
 
 ## Scope
 
-In scope: `outcome: "timed-out"` in `OutputRecord` v4; `packages/autoresearch/src/review`
+In scope: `outcome: "timed-out"` in `OutputRecord` v4; `packages/lab/src/review`
 organised by purpose; `ReviewFinding`, variant and scorer files, and the findings, labels, score,
 config and report formats with schemas; the panel and the label check; pure metrics; `awf-lab`
 `config`, `plan`, `run` and `report` (to be revised as `list`, `run`, `score`, `report`);
@@ -497,7 +497,7 @@ Out of scope:
 - `packages/contract/src/records.ts`: `outcome: "timed-out"`, `OUTPUT_RECORD_VERSION` 4.
 - `packages/engine/src/operator-cli.ts`: `runOutcome(error, deadline)` decides `cancelled`,
   `timed-out` or `failed`.
-- `packages/autoresearch/src/review/`, imports pointing down only (enforced by
+- `packages/lab/src/review/`, imports pointing down only (enforced by
   `scripts/check-boundaries.ts`):
   - `format/`: the formats and schemas. What scorers import: `scoring.ts` (the first record
     versions and the judgement), `variant.ts`, `lab.ts` (the first config and report, now unused),
@@ -562,7 +562,7 @@ Out of scope:
 
 ## Tasks at a glance
 
-- [x] 0. `packages/autoresearch` organised by purpose, behaviour unchanged
+- [x] 0. `packages/lab` organised by purpose, behaviour unchanged
 - [x] 1. A run that ran out of time says so in `output.json`
 - [x] 2. The formats, the label check and the pure metrics, proved with oracle and nop
 - [x] 3. The panel: two families, one call per case, checked, re-asked, a third vote
@@ -588,7 +588,7 @@ Tasks 0–6 went through the full rule; the notes say what review found. Command
 revised command line, which Task 7 built; the flags each task was built with are in
 [[#From the first command line]].
 
-### 0. `packages/autoresearch` organised by purpose
+### 0. `packages/lab` organised by purpose
 
 - [x] Plan, implement, review, resolve, verify
 

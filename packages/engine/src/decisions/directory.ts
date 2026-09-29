@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { DecisionArtifact, Money, SettledDecision } from "@wf/contract/records";
+import type { DecisionArtifact, Money, SettledDecision } from "@agentswf/contract/records";
 import {
   type AbsoluteDeadline,
   type Answers,
@@ -12,7 +12,7 @@ import {
   type JsonObject,
   type JsonValue,
   type Question,
-} from "@wf/contract/workflow";
+} from "@agentswf/contract/workflow";
 import { assertDeadline, assertDeadlineValue, earlierDeadline, scheduleAt } from "../deadlines";
 import {
   type DecisionInstallation,

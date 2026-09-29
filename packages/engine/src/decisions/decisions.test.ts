@@ -1,7 +1,7 @@
 import { afterAll, describe, expect, test } from "bun:test";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { SettledDecision, SettledOperation } from "@wf/contract/records";
+import type { SettledDecision, SettledOperation } from "@agentswf/contract/records";
 import {
   choice,
   DeadlineExceededError,
@@ -11,10 +11,10 @@ import {
   type WorkflowContext,
   type WorkflowDefinition,
   yesNo,
-} from "@wf/contract/workflow";
-import { createSingleSessionHostFactory } from "@wf/harness";
-import type { AgentRuntimeConfig } from "@wf/harness/adapter";
-import { createFakeAdapter } from "@wf/harness/testing";
+} from "@agentswf/contract/workflow";
+import { createSingleSessionHostFactory } from "@agentswf/harness";
+import type { AgentRuntimeConfig } from "@agentswf/harness/adapter";
+import { createFakeAdapter } from "@agentswf/harness/testing";
 import { describeAccounting } from "../accounting/format";
 import { PUBLISHED_PRICES } from "../accounting/prices";
 import { summarizeRun } from "../accounting/summary";

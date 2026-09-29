@@ -1,4 +1,4 @@
-// bun awf run packages/autoresearch/src/review/build/fixtures.workflow.ts -- \
+// bun awf run packages/lab/src/review/build/fixtures.workflow.ts -- \
 //   --project group/name --mrs 12,34 --clone ~/code/name --out ~/code/autoresearch/fixtures/draft
 //
 // Builds review fixtures (story 005). For each MR, code freezes it with `collect` unless its fixture
@@ -14,7 +14,7 @@ import {
   defineExecutableWorkflow,
   type ExecutionConfig,
   type WorkflowInvocation,
-} from "@wf/contract/workflow";
+} from "@agentswf/contract/workflow";
 import { inKey, sealSet } from "../fixtures/seal";
 import { fixtureId } from "../fixtures/set";
 import { verifyFixture } from "../fixtures/verify";

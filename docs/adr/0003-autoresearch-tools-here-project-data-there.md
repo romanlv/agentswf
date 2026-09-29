@@ -9,7 +9,7 @@ assumed the workflows being tuned live here; `foundation.md` §7 and §10's auto
 
 Autoresearch is split by what is general and what belongs to one project.
 
-- **`packages/autoresearch`, in this repository:** everything that works for any project. Today
+- **`packages/lab`, in this repository:** everything that works for any project. Today
   that is the review fixture format (`src/review/format/format.ts`, the single definition; `schema/` is
   generated from it), its checker, `collect` and `draft-key`. The scorer and the variant runner
   go here too.
@@ -17,7 +17,7 @@ Autoresearch is split by what is general and what belongs to one project.
   checklists).
 - **A project's own autoresearch repository:** its fixture sets under `fixtures/{set}/`, which
   fixtures each variant was tuned on, its scores, and any script that reads that project's own
-  notes into a fixture. It runs `packages/autoresearch`'s workflows and imports the package to
+  notes into a fixture. It runs `packages/lab`'s workflows and imports the package to
   build, check and score them.
 
 What does not change from ADR 0002: autoresearch is a consumer of the engine. The package imports

@@ -1,4 +1,4 @@
-import type { ModelSpend, TokenUsage } from "@wf/contract/records";
+import type { ModelSpend, TokenUsage } from "@agentswf/contract/records";
 
 /** The optional classes stay absent unless one side reports them. */
 export function addTokens(left: TokenUsage, right: TokenUsage): TokenUsage {

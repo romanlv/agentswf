@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { ModelSpend, SettledOperation, TokenUsage } from "@wf/contract/records";
+import type { ModelSpend, SettledOperation, TokenUsage } from "@agentswf/contract/records";
 import { describeAccounting } from "./format";
 import { costOf, type PriceTable, PUBLISHED_PRICES } from "./prices";
 import { summarizeRun } from "./summary";

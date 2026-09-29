@@ -8,21 +8,21 @@ import type {
   JsonValue,
   WorkflowContext,
   WorkflowDefinition,
-} from "@wf/contract/workflow";
-import { createHeadlessRunHostFactory } from "@wf/harness";
+} from "@agentswf/contract/workflow";
+import { createHeadlessRunHostFactory } from "@agentswf/harness";
 import type {
   AgentRunHostFactory,
   AgentRuntimeConfig,
   HarnessActivation,
-} from "@wf/harness/adapter";
-import type { SandboxProviders } from "@wf/sandbox";
+} from "@agentswf/harness/adapter";
+import type { SandboxProviders } from "@agentswf/sandbox";
 import {
   createFakeSandboxProvider,
   FAKE_OCCUPANT_ENV,
   FAKE_SANDBOX_ENV,
   type FakeSandboxEvent,
   type FakeSandboxOptions,
-} from "@wf/sandbox/testing";
+} from "@agentswf/sandbox/testing";
 import { installSandboxes } from "./operator-runtime";
 import { RunSandboxes } from "./sandboxes";
 import { createTempRunDirs, future } from "./testing";

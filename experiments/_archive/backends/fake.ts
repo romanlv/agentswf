@@ -3,5 +3,5 @@ export {
   createFakeSessionDriver as createFakeBackend,
   createManualClock,
   type FakeSessionDriver as FakeBackend,
-} from "@wf/harness/testing";
+} from "@agentswf/harness/testing";
 export * from "../fake-reporting";

@@ -3,7 +3,7 @@ import { constants } from "node:fs";
 import { mkdir, open, readdir, realpath, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
-import type { SrtEnvironment } from "@wf/contract/workflow";
+import type { SrtEnvironment } from "@agentswf/contract/workflow";
 import { protectedPaths } from "../git";
 import { LaunchedGroups } from "../groups";
 import { onceUnlessFailed } from "../once";

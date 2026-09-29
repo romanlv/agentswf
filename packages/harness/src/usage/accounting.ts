@@ -1,5 +1,5 @@
-import type { Billing } from "@wf/contract/records";
-import { type AgentExecution, placementOf } from "@wf/contract/workflow";
+import type { Billing } from "@agentswf/contract/records";
+import { type AgentExecution, placementOf } from "@agentswf/contract/workflow";
 import { type RunProcess, runProcess } from "../command";
 import { findHarness } from "../spec";
 import { STATUS_TIMEOUT_MS } from "./billing";

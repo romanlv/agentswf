@@ -260,7 +260,7 @@ describe("checkFixtureSet", () => {
 });
 
 describe("schema files", () => {
-  test("match format.ts; regenerate with bun packages/autoresearch/src/write-schemas.ts", async () => {
+  test("match format.ts; regenerate with bun packages/lab/src/write-schemas.ts", async () => {
     for (const name of Object.keys(SCHEMA_FILES) as (keyof typeof SCHEMA_FILES)[]) {
       const file = Bun.file(join(import.meta.dir, "..", "..", "..", "schema", name));
       expect(await file.json()).toEqual(JSON.parse(renderSchemaFile(name)));

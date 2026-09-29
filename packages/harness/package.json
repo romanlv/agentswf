@@ -1,5 +1,5 @@
 {
-  "name": "@wf/harness",
+  "name": "@agentswf/harness",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -11,7 +11,7 @@
     "./testing": "./src/testing/fake.ts"
   },
   "dependencies": {
-    "@wf/contract": "workspace:*",
-    "@wf/sandbox": "workspace:*"
+    "@agentswf/contract": "workspace:*",
+    "@agentswf/sandbox": "workspace:*"
   }
 }

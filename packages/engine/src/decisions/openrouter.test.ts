@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { choice, score, yesNo } from "@wf/contract/workflow";
+import { choice, score, yesNo } from "@agentswf/contract/workflow";
 import { answersOf } from "./directory";
 import { createOpenRouterProvider, OPENROUTER_DECISIONS } from "./openrouter";
 import { DecisionProviderError } from "./seam";

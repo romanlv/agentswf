@@ -1,5 +1,5 @@
 // The sanity bound below every reviewer (story 008): it finds nothing, and must score zero.
-import { defineExecutableWorkflow } from "@wf/contract/workflow";
+import { defineExecutableWorkflow } from "@agentswf/contract/workflow";
 import type { ReviewFinding } from "../format/scoring";
 
 const executable = defineExecutableWorkflow<Record<string, never>, ReviewFinding[]>({

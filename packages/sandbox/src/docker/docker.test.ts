@@ -14,7 +14,7 @@ import {
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { DockerEnvironment } from "@wf/contract/workflow";
+import type { DockerEnvironment } from "@agentswf/contract/workflow";
 import { RECORD_LEADER } from "../groups";
 import type { AgentContext, ResolvedSandbox, SandboxContext } from "../seam";
 import { createDockerProvider, type DockerClient, type DockerResult } from ".";

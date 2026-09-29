@@ -1,12 +1,12 @@
-import type { Billing, SettledOperation } from "@wf/contract/records";
+import type { Billing, SettledOperation } from "@agentswf/contract/records";
 import type {
   AbsoluteDeadline,
   AgentExecution,
   AgentKey,
   OperationRecord,
-} from "@wf/contract/workflow";
-import type { SessionAccounting, SessionRead, UsageRecord } from "@wf/harness";
-import type { HarnessTurnOutcome } from "@wf/harness/adapter";
+} from "@agentswf/contract/workflow";
+import type { SessionAccounting, SessionRead, UsageRecord } from "@agentswf/harness";
+import type { HarnessTurnOutcome } from "@agentswf/harness/adapter";
 import { spendOf } from "./accounting/tokens";
 import { deadlineWithin, runUntilStopped, waitForDeadline } from "./deadlines";
 

@@ -5,7 +5,7 @@ import {
   type SkillRef,
   type WorkflowContext,
   type WorkflowDefinition,
-} from "@wf/contract/workflow";
+} from "@agentswf/contract/workflow";
 import { type ReviewSubject, reviewPrompt, revisionPrompt } from "./prompts";
 import {
   REVIEW_VERDICT_SCHEMA,

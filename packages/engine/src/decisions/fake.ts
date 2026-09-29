@@ -1,4 +1,4 @@
-import type { Question } from "@wf/contract/workflow";
+import type { Question } from "@agentswf/contract/workflow";
 import type { DecisionProvider, ProviderAnswer, ProviderRequest, ProviderResponse } from "./seam";
 
 /** One scripted reply: a response, an error to throw, or a function of the request. */

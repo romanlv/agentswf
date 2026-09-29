@@ -1,5 +1,5 @@
 {
-  "name": "@wf/contract",
+  "name": "@agentswf/contract",
   "version": "0.0.0",
   "private": true,
   "type": "module",

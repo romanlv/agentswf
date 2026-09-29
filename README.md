@@ -25,7 +25,7 @@ bun test
 | [`docs/reference.md`](docs/reference.md) | the projects surveyed, and what is still unmined in them |
 | [`docs/findings/`](docs/findings/) | what seven experiments settled, and what is still live |
 | [`docs/design/`](docs/design/) | the interface design notes: messaging, composition, permissions |
-| `packages/` | `contract`, `harness`, `engine`, `cli-agent` |
+| `packages/` | `contract`, `harness`, `engine`, `wf` |
 | `examples/` | scenario workflows against the author surface |
 | `experiments/` | the archived experiments, and the one open measurement |
 

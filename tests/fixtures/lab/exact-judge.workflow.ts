@@ -6,12 +6,12 @@
 // noise; any other mode changes nothing but the judge's identity.
 import { join } from "node:path";
 import { defineExecutableWorkflow, type WorkflowInvocation } from "../../../packages/contract/src/workflow";
-import type { AnswerKey } from "../../../packages/autoresearch/src/review/format/format";
+import type { AnswerKey } from "../../../packages/lab/src/review/format/format";
 import type {
   FindingLabel,
   Judgement,
   ReviewFinding,
-} from "../../../packages/autoresearch/src/review/format/scoring";
+} from "../../../packages/lab/src/review/format/scoring";
 
 type Args = { fixture: string; findings: string; mode: string; settled?: string };
 

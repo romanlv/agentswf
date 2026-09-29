@@ -1,6 +1,6 @@
 import { realpath, stat } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
-import type { HarnessSandboxNeeds } from "@wf/sandbox";
+import type { HarnessSandboxNeeds } from "@agentswf/sandbox";
 import { harnessSpec } from "./spec";
 import { HOME_ENV, harnessState } from "./state";
 import type { Harness } from "./types";

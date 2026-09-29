@@ -1,12 +1,12 @@
 import { randomUUID } from "node:crypto";
 import { link, mkdir, open, unlink } from "node:fs/promises";
 import { join } from "node:path";
-import type { Attempt, CallSpec } from "@wf/contract/records";
+import type { Attempt, CallSpec } from "@agentswf/contract/records";
 import { appendLine, readLines } from "./jsonl";
 
 /**
  * The engine is the only writer of the run directory. The formats it writes live in
- * `@wf/contract/records`; this file is the I/O.
+ * `@agentswf/contract/records`; this file is the I/O.
  */
 
 export function callDir(runDir: string, callId: string): string {

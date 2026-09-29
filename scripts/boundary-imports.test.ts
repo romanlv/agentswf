@@ -5,27 +5,27 @@ describe("boundary import extraction", () => {
   test("finds static, side-effect, dynamic, and require specifiers", () => {
     const source =
       `
-      import value from "@wf/contract";
+      import value from "@agentswf/contract";
       import "./register";
       await import("../../engine/src/index");
-      require('@wf/harness');
+      require('@agentswf/harness');
       import(` +
-      "`@wf/engine`" +
+      "`@agentswf/engine`" +
       `);
     `;
 
     expect(extractImports(source).sort()).toEqual([
       "../../engine/src/index",
       "./register",
-      "@wf/contract",
-      "@wf/engine",
-      "@wf/harness",
+      "@agentswf/contract",
+      "@agentswf/engine",
+      "@agentswf/harness",
     ]);
   });
 
   test("identifies computed imports that cannot be checked statically", () => {
     // biome-ignore lint/suspicious/noTemplateCurlyInString: the source text of a template literal
-    expect(hasUnresolvedDynamicImport("import(`@wf/${name}`)")).toBe(true);
-    expect(hasUnresolvedDynamicImport('import("@wf/contract")')).toBe(false);
+    expect(hasUnresolvedDynamicImport("import(`@agentswf/${name}`)")).toBe(true);
+    expect(hasUnresolvedDynamicImport('import("@agentswf/contract")')).toBe(false);
   });
 });

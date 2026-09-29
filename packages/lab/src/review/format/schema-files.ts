@@ -13,7 +13,7 @@ import { WorkspaceConfigSchema } from "./workspace";
 
 const DRAFT = "https://json-schema.org/draft/2020-12/schema";
 
-/** The published JSON Schemas, by file name under `packages/autoresearch/schema/`. */
+/** The published JSON Schemas, by file name under `packages/lab/schema/`. */
 export const SCHEMA_FILES = {
   "review-fixture.schema.json": { title: "awf review fixture", schema: FixtureSchema },
   "review-key.schema.json": { title: "awf review answer key", schema: AnswerKeySchema },

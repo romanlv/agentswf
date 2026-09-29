@@ -1,4 +1,4 @@
-import type { JsonSchema } from "@wf/contract/schema";
+import type { JsonSchema } from "@agentswf/contract/schema";
 
 export type Harness = "claude" | "codex" | "pi" | "cursor";
 

@@ -1,4 +1,4 @@
-import type { AccountingFigures, DecisionFigures, RunAccounting } from "@wf/contract/records";
+import type { AccountingFigures, DecisionFigures, RunAccounting } from "@agentswf/contract/records";
 
 /**
  * The run in one line, its decisions in another when it asked any, then a line per stage. Gaps are

@@ -3,7 +3,7 @@ import { mkdtempSync } from "node:fs";
 import { mkdir, readdir, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { HarnessSandboxNeeds } from "@wf/sandbox";
+import type { HarnessSandboxNeeds } from "@agentswf/sandbox";
 import { seedHome } from "./sandbox-homes";
 
 const roots: string[] = [];

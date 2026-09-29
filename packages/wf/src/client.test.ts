@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { createConnection, createServer, type Socket } from "node:net";
-import { WIRE_VERSION } from "@wf/contract/wire";
+import { WIRE_VERSION } from "@agentswf/contract/wire";
 import { submitResult } from "./client";
 
 const REQUEST = {

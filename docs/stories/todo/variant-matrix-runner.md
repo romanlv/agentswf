@@ -74,6 +74,6 @@ Notes:
   parallel, every trial first and then every score, opt-in with a default of 1; running
   variants in parallel, and a default above 1, still wait on E4. Time measured under `--jobs` is
   not comparable with time measured one at a time.
-- Its home is `packages/autoresearch`, beside story 005's format. A project's own variants live in
+- Its home is `packages/lab`, beside story 005's format. A project's own variants live in
   its workflows repository and its fixture sets in its autoresearch repository, which imports the
   package.

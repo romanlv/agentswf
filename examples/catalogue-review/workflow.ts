@@ -7,7 +7,7 @@ import {
   type WorkflowDefinition,
   type WorkflowInvocation,
   type WorkflowMeta,
-} from "@wf/contract/workflow";
+} from "@agentswf/contract/workflow";
 import { matchesAny } from "./paths";
 import { presentCatalogueResult, reportCatalogueResult } from "./present";
 import { catalogueLensPrompt, type LensSource, verificationPrompt } from "./prompts";

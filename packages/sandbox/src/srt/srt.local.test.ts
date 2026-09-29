@@ -3,7 +3,7 @@ import { mkdtempSync, realpathSync } from "node:fs";
 import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
-import type { SrtEnvironment } from "@wf/contract/workflow";
+import type { SrtEnvironment } from "@agentswf/contract/workflow";
 import { resolveSandbox } from "../resolve";
 import type { AgentContext, Occupant, OpenedSandbox, SandboxProvider } from "../seam";
 import { runCommand, sandboxConformance } from "../testing/conformance";

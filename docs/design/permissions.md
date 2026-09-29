@@ -160,7 +160,7 @@ The seam is `packages/sandbox/src/seam.ts`, and the story's "The seam" gives eac
 7. **Nothing outlives `close`,** except the agents' homes, and under srt a process that started its
    own session (X21).
 
-**What checks them.** The conformance suite in `@wf/sandbox/testing` runs `sh` through a provider
+**What checks them.** The conformance suite in `@agentswf/sandbox/testing` runs `sh` through a provider
 and checks invariants 2, 3, 6 and 7. It checks 4 and 5 only for a provider that confines, which
 the fake does not, so against the fake they are skipped. Each provider's local test
 (`*.local.test.ts`) runs the suite against the real provider, and adds the network and the
@@ -223,7 +223,7 @@ is opened on purpose.
 
 **The control plane is the one door every provider opens.** The endpoint is a unix socket per
 agent under `/tmp`, not the run directory, because `sun_path` is 104 bytes on macOS. The launcher
-beside it runs the cli-agent, bundled into one file so it runs in any sandbox that has bun. srt
+beside it runs the `wf` command, bundled into one file so it runs in any sandbox that has bun. srt
 lists the agent's socket in its profile. A container cannot connect to a host socket (X6), so
 docker relays each connection over `docker exec -i`. A provider that cannot open the door cannot
 hold an agent, because an agent that cannot call `wf result` cannot answer.
@@ -366,10 +366,10 @@ existing paths read-only and moves one the agent creates into `quarantine/` at t
 | Package | Holds |
 | --- | --- |
 | `contract` | the author surface (`workflow/sandboxes.ts`, `AgentOpenSpec.sandbox`, `WorkflowContext.sandboxes`) and `OutputRecord.sandboxes`; later `Grant` and `CapabilityRef` |
-| `sandbox` | `@wf/sandbox`: the seam and resolution. `@wf/sandbox/srt`, `@wf/sandbox/docker`: the providers. `@wf/sandbox/testing`: the conformance suite and a fake. Imports contract only |
+| `sandbox` | `@agentswf/sandbox`: the seam and resolution. `@agentswf/sandbox/srt`, `@agentswf/sandbox/docker`: the providers. `@agentswf/sandbox/testing`: the conformance suite and a fake. Imports contract only |
 | `harness` | each harness's sandbox needs; `runProcess` running a sandboxed command; adapters launching through an occupant; the Herdr host's typed start; later, each adapter's grant translation |
 | `engine` | a run's sandboxes, homes and write-back, admission and close, the bundled launcher, the record. Only `operator-runtime.ts` imports a provider, to install it |
-| `cli-agent` | nothing: it is bundled, not changed |
+| `wf` | nothing: it is bundled, not changed |
 
 Providers know nothing about harnesses; harness knows the seam and no provider;
 `scripts/check-boundaries.ts` holds both. A provider's unit tests fix its profile or its `docker`

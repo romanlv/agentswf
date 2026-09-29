@@ -4,7 +4,7 @@ import {
   decodeResultSubmitRequest,
   type ResultSubmitResponse,
   WIRE_VERSION,
-} from "@wf/contract/wire";
+} from "@agentswf/contract/wire";
 import type { ResultSlotRegistry } from "./result-slots";
 
 /** `wf` accepts a 1 MiB value; escaped into the request's JSON it can double, plus the envelope. */

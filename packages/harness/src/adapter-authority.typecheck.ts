@@ -1,4 +1,4 @@
-import type { AgentStructuredTurnSpec, OutputSchema } from "@wf/contract/workflow";
+import type { AgentStructuredTurnSpec, OutputSchema } from "@agentswf/contract/workflow";
 import type {
   HarnessActivation,
   HarnessNudgeSpec,

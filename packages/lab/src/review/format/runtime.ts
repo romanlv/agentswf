@@ -1,4 +1,4 @@
-import type { ExecutionConfig } from "@wf/contract/workflow";
+import type { ExecutionConfig } from "@agentswf/contract/workflow";
 
 /**
  * A runtime as a command line names one, `harness/model`, run headless. Claude run headless is

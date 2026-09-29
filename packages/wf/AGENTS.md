@@ -1,6 +1,6 @@
-# @wf/cli-agent
+# @agentswf/wf
 
-The command an agent is told to run. It compiles against `@wf/contract` only and talks to the
+The command an agent is told to run. It compiles against `@agentswf/contract` only and talks to the
 engine through the local control plane. It never imports the engine or harness and never reads or
 writes a run directory.
 

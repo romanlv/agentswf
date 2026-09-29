@@ -4,14 +4,14 @@ import { statSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
 import { constants, homedir } from "node:os";
 import { join, resolve } from "node:path";
-import { OUTPUT_RECORD_VERSION, type OutputRecord } from "@wf/contract/records";
+import { OUTPUT_RECORD_VERSION, type OutputRecord } from "@agentswf/contract/records";
 import {
   type AbsoluteDeadline,
   DeadlineExceededError,
   type ExecutableWorkflow,
   type JsonObject,
   type JsonValue,
-} from "@wf/contract/workflow";
+} from "@agentswf/contract/workflow";
 import { describeAccounting } from "./accounting/format";
 import { installOperatorRuntime, type OperatorRuntimeInstallation } from "./operator-runtime";
 import { ANSI, PLAIN, progressEvents, renderProgress } from "./progress-view";

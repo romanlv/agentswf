@@ -1,4 +1,4 @@
-// awf run packages/autoresearch/src/review/judge/judge.workflow.ts --cwd {checkout} -- \
+// awf run packages/lab/src/review/judge/judge.workflow.ts --cwd {checkout} -- \
 //   [--panel codex/gpt-6-sol,claude/claude-sonnet-5] [--tiebreak codex/gpt-6-luna] \
 //   --fixture {fixture dir} --findings {findings.json}
 //
@@ -15,7 +15,7 @@ import {
   type OutputSchema,
   type WorkflowContext,
   type WorkflowInvocation,
-} from "@wf/contract/workflow";
+} from "@agentswf/contract/workflow";
 import Type from "typebox";
 import type { AnswerKey, Fixture } from "../format/format";
 import { runtimeName, runtimeOf } from "../format/runtime";

@@ -1,6 +1,6 @@
 import { isAbsolute } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { SkillSource } from "@wf/contract/workflow";
+import type { SkillSource } from "@agentswf/contract/workflow";
 
 /** The name becomes a directory; claude's rule, which every harness accepts. */
 const SKILL_NAME = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;

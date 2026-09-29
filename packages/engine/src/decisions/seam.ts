@@ -1,5 +1,5 @@
-import type { Money } from "@wf/contract/records";
-import type { JsonObject, JsonValue, Question } from "@wf/contract/workflow";
+import type { Money } from "@agentswf/contract/records";
+import type { JsonObject, JsonValue, Question } from "@agentswf/contract/workflow";
 
 /**
  * A question's distribution, as awf shapes it, before the picks are derived: a choice's by option

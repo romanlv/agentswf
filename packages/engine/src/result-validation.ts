@@ -1,6 +1,6 @@
-import { acceptAny, type SemanticCheck } from "@wf/contract";
-import type { CallSpec } from "@wf/contract/records";
-import { formatErrors, validate } from "@wf/contract/schema";
+import { acceptAny, type SemanticCheck } from "@agentswf/contract";
+import type { CallSpec } from "@agentswf/contract/records";
+import { formatErrors, validate } from "@agentswf/contract/schema";
 
 export type CandidateEvaluation =
   | { kind: "accepted"; value: unknown }

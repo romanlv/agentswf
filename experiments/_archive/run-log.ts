@@ -1,5 +1,5 @@
 import { join } from "node:path";
-import { appendLine, readLines } from "@wf/engine";
+import { appendLine, readLines } from "@agentswf/engine";
 
 /**
  * Two aggregate logs the experiments write beside a run: the per-trial record E2/E3/E5 report

@@ -16,7 +16,7 @@ A workflow asks a decision model several closed questions about one piece of sta
 probability for every allowed answer back in about 200 ms, for well under a cent:
 
 ```ts
-import { choice, score, yesNo } from "@wf/contract/workflow";
+import { choice, score, yesNo } from "@agentswf/contract/workflow";
 
 const { answers } = await workflow.decisions.decide({
   key: `triage:${ticket.id}`,
@@ -133,7 +133,7 @@ wrong. Four ways of typing a classifier's result exist in libraries today:
 What awf takes:
 
 - **Builders, from TypeSafe's SDK.** `choice`, `score` and `yesNo` are pure functions in
-  `@wf/contract/workflow`, and they return typed question values. Without them, an author writes
+  `@agentswf/contract/workflow`, and they return typed question values. Without them, an author writes
   the discriminant by hand, and a question built outside the call widens `type` to `string` and
   fails to compile unless it is annotated. With them, answers are typed without annotations:
   - a choice's answer is the union of its options;
@@ -178,7 +178,7 @@ In scope:
 - The engine-internal provider seam, a fake provider for the engine's tests, and an OpenRouter
   provider for Jev. The OpenRouter provider is installed when `OPENROUTER_API_KEY` is set, and the
   key is withheld from agents.
-- A first consumer: `matchFindings` in `packages/autoresearch` and the workflow that runs it.
+- A first consumer: `matchFindings` in `packages/lab` and the workflow that runs it.
 
 Out of scope:
 
@@ -217,7 +217,7 @@ Out of scope:
   lands in the same change as its implementation and a workflow that needs it. So the types and
   the engine are one task, and `match.workflow.ts` is this story's consumer.
 - Constraint: `contract` stays pure (boundary 1). The provider does I/O, so it lives in the engine.
-- Constraint: autoresearch imports only `@wf/contract` and `@wf/engine`, never a subpath
+- Constraint: autoresearch imports only `@agentswf/contract` and `@agentswf/engine`, never a subpath
   (boundary 5, `scripts/check-boundaries.ts`). It reaches decisions through `WorkflowContext`, and
   its tests stub `decisions.decide` by hand.
 - Constraint: data leaves the machine. OpenRouter lists the TypeSafe endpoint as `training: false,
@@ -302,13 +302,13 @@ Out of scope:
 - `packages/engine/src/operator-cli.ts`: passes the decisions to `startWorkflow`, and `recordOf`
   writes them into `output.json`.
 - `scripts/check-boundaries.ts`: a rule that only `operator-runtime.ts` imports
-  `./decisions/openrouter`. `providerImport` covers only `@wf/sandbox/*` today.
+  `./decisions/openrouter`. `providerImport` covers only `@agentswf/sandbox/*` today.
 - `packages/engine/AGENTS.md`: the decisions folder.
 - Checked, no change: `cli-agent` (agents can't call it), the `sandbox` package and `harness`.
 
 ### autoresearch
 
-- `packages/autoresearch/src/review/match.ts` (new): `matchFindings(workflow, key, findings,
+- `packages/lab/src/review/match.ts` (new): `matchFindings(workflow, key, findings,
   { model, threshold })`. `findings` is `{ id: string; text: string; path?: string; line?:
   number }[]`, since the `ReviewFinding` type story 005 describes doesn't exist in code yet. It
   asks one choice per finding (issues + `none`) and returns `{ finding, issue | "none",
@@ -319,7 +319,7 @@ Out of scope:
   - Two findings decided onto one issue are left for the scorer to label as duplicates.
 
   The call itself is a reusable function, `matchFinding(finding, key)`, built with the builders.
-- `packages/autoresearch/src/review/match.workflow.ts` (new): runs `matchFindings` over a fixture
+- `packages/lab/src/review/match.workflow.ts` (new): runs `matchFindings` over a fixture
   set and a findings file, and returns each match with its probabilities as its value, with a
   report of the decided share. It is the consumer ADR 0001 asks for, and Task 4 measures with it.
   - Its args are `{ set, findings }`. `set` is a fixture set's path. `findings` is a JSON file of
@@ -340,7 +340,7 @@ Out of scope:
 
 ## Proposed design
 
-**Author types and builders** (`@wf/contract/workflow`). They were checked under the repo's
+**Author types and builders** (`@agentswf/contract/workflow`). They were checked under the repo's
 strict `tsc`, including the compile errors, and follow the TypeSafe SDK's `ResultFor`.
 
 ```ts
@@ -419,11 +419,11 @@ interface DecisionProvider {
 // Rejects with DecisionProviderError { retryable } — 429, 5xx and 529 are retryable.
 ```
 
-**The record** (`DecisionRecord` in `@wf/contract/workflow`; `output.json` holds
-`SettledDecision`, which adds `charged` in `@wf/contract/records`):
+**The record** (`DecisionRecord` in `@agentswf/contract/workflow`; `output.json` holds
+`SettledDecision`, which adds `charged` in `@agentswf/contract/records`):
 
 ```ts
-type DecisionRecord = {                    // @wf/contract/workflow
+type DecisionRecord = {                    // @agentswf/contract/workflow
   callPath: string[];
   key: string;
   alias: string;                  // as the workflow asked
@@ -446,7 +446,7 @@ type DecisionRecord = {                    // @wf/contract/workflow
   artifact: string;
 };
 
-type SettledDecision = DecisionRecord & { charged?: Money };  // @wf/contract/records
+type SettledDecision = DecisionRecord & { charged?: Money };  // @agentswf/contract/records
 
 type DecisionArtifact = {                                      // decisions/{n}.json
   record: SettledDecision;

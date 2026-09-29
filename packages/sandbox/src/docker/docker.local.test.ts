@@ -3,7 +3,7 @@ import { mkdtempSync, realpathSync } from "node:fs";
 import { lstat, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
-import type { DockerEnvironment } from "@wf/contract/workflow";
+import type { DockerEnvironment } from "@agentswf/contract/workflow";
 import { resolveSandbox } from "../resolve";
 import type { Occupant, OpenedSandbox, SandboxProvider } from "../seam";
 import { runCommand, sandboxConformance } from "../testing/conformance";

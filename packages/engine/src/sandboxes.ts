@@ -3,14 +3,14 @@ import { mkdir, realpath } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join, relative } from "node:path";
 import { isDeepStrictEqual } from "node:util";
-import type { SandboxRecord } from "@wf/contract/records";
+import type { SandboxRecord } from "@agentswf/contract/records";
 import type {
   AbsoluteDeadline,
   AgentExecution,
   SandboxEnvironmentKey,
   SandboxRef,
-} from "@wf/contract/workflow";
-import { type AgentSkills, harnessState, sandboxNeeds, skillsLayout } from "@wf/harness";
+} from "@agentswf/contract/workflow";
+import { type AgentSkills, harnessState, sandboxNeeds, skillsLayout } from "@agentswf/harness";
 import {
   type AgentDoor,
   type HarnessSandboxNeeds,
@@ -21,7 +21,7 @@ import {
   resolveSandbox,
   type SandboxProviders,
   withinReach,
-} from "@wf/sandbox";
+} from "@agentswf/sandbox";
 import { CONTROL_PLANE_ROOT } from "./control-plane";
 import { type CredentialLocks, type SeededHome, seedHome } from "./sandbox-homes";
 import { placeSkills, type ResolvedSkill } from "./skills/run-skills";

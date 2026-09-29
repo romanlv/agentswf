@@ -1,5 +1,5 @@
 import { afterAll, describe, expect, test } from "bun:test";
-import type { SemanticCheck } from "@wf/contract";
+import type { SemanticCheck } from "@agentswf/contract";
 import {
   createResultSlotRegistry,
   type ResultSlotRegistryOptions,

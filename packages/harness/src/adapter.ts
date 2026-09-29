@@ -11,8 +11,8 @@ import type {
   NudgeOptions,
   RuntimeAliases,
   TurnId,
-} from "@wf/contract/workflow";
-import type { Occupant } from "@wf/sandbox";
+} from "@agentswf/contract/workflow";
+import type { Occupant } from "@agentswf/sandbox";
 import type { AgentSkills } from "./capabilities/skills";
 import type { SessionAccounting } from "./usage/accounting";
 

@@ -71,10 +71,10 @@ function rules(root: string): Rule[] {
       if (name === "testing") return [{ dir: `${SANDBOX_SOURCE}/testing`, paths: own("testing") }];
       const provider = {
         dir: `${SANDBOX_SOURCE}/${name}`,
-        allow: ["@wf/contract", "@wf/contract/*"],
+        allow: ["@agentswf/contract", "@agentswf/contract/*"],
         forbid: [
           {
-            pattern: /^@wf\/sandbox/,
+            pattern: /^@agentswf\/sandbox/,
             reason: "a provider imports the seam by path, not a sibling",
           },
         ],
@@ -96,7 +96,7 @@ function rules(root: string): Rule[] {
  * `src/review` is organised by purpose, and a folder imports only the folders named for it: the
  * formats know nothing of ours, and evaluating never depends on building fixtures from a forge.
  */
-const REVIEW = "packages/autoresearch/src/review";
+const REVIEW = "packages/lab/src/review";
 const REVIEW_LAYERS: Readonly<Record<string, readonly string[]>> = {
   format: [],
   fixtures: ["format"],
@@ -146,10 +146,10 @@ function reviewPlacementProblems(root: string): string[] {
 const DECISION_PROVIDER = /^packages\/engine\/src\/decisions\/openrouter(\.ts)?$/;
 const DECISION_FAKE = /^packages\/engine\/src\/decisions\/fake(\.ts)?$/;
 
-/** Any entry of `@wf/sandbox` but its main one, and `allowed`. */
+/** Any entry of `@agentswf/sandbox` but its main one, and `allowed`. */
 function providerImport(reason: string, allowed?: string): { pattern: RegExp; reason: string } {
   return {
-    pattern: new RegExp(`^@wf/sandbox/${allowed ? `(?!${allowed}$)` : ""}.`),
+    pattern: new RegExp(`^@agentswf/sandbox/${allowed ? `(?!${allowed}$)` : ""}.`),
     reason,
   };
 }
@@ -159,7 +159,7 @@ const RULES: Rule[] = [
   // Pricing and totals, positioned to be lifted out whole (foundation §8): records in, figures out.
   {
     dir: "packages/engine/src/accounting",
-    allow: ["@wf/contract", "@wf/contract/*"],
+    allow: ["@agentswf/contract", "@agentswf/contract/*"],
     pure: true,
   },
   // Adapters launch through the seam's types; which provider runs them is the operator's. Tests
@@ -167,13 +167,18 @@ const RULES: Rule[] = [
   {
     dir: "packages/harness",
     except: ["**/*.test.ts"],
-    allow: ["@wf/contract", "@wf/contract/*", "@wf/sandbox"],
+    allow: ["@agentswf/contract", "@agentswf/contract/*", "@agentswf/sandbox"],
     forbid: [providerImport("harness knows the sandbox seam, never a provider")],
   },
   {
     dir: "packages/harness",
     files: "**/*.test.ts",
-    allow: ["@wf/contract", "@wf/contract/*", "@wf/sandbox", "@wf/sandbox/testing"],
+    allow: [
+      "@agentswf/contract",
+      "@agentswf/contract/*",
+      "@agentswf/sandbox",
+      "@agentswf/sandbox/testing",
+    ],
     forbid: [providerImport("harness knows the sandbox seam, never a provider", "testing")],
   },
   // Only the composition root installs a provider; the rest of the engine sees the seam.
@@ -208,20 +213,20 @@ const RULES: Rule[] = [
   // The seam depends on nothing in harness: `runProcess` accepts its command, not the reverse.
   {
     dir: "packages/sandbox",
-    allow: ["@wf/contract", "@wf/contract/*"],
+    allow: ["@agentswf/contract", "@agentswf/contract/*"],
     forbid: [
       {
-        pattern: /^@wf\/(harness|engine|cli-agent)/,
+        pattern: /^@agentswf\/(harness|engine|wf)/,
         reason: "the sandbox package imports contract only",
       },
     ],
   },
   {
-    dir: "packages/cli-agent",
-    allow: ["@wf/contract", "@wf/contract/*"],
+    dir: "packages/wf",
+    allow: ["@agentswf/contract", "@agentswf/contract/*"],
     forbid: [
-      { pattern: /^@wf\/(engine|harness)/, reason: "cli-agent reaches the engine only over wire" },
-      { pattern: /^(?:node:)?fs(?:\/|$)/, reason: "cli-agent never performs run-directory I/O" },
+      { pattern: /^@agentswf\/(engine|harness)/, reason: "wf reaches the engine only over wire" },
+      { pattern: /^(?:node:)?fs(?:\/|$)/, reason: "wf never performs run-directory I/O" },
     ],
   },
   // "Approved pure schema authoring libraries" is not a list the checker can hold; what it can hold
@@ -229,12 +234,12 @@ const RULES: Rule[] = [
   // A consumer of the engine (ADR 0002): it runs workflows and reads their records, and never
   // reaches into the engine or a harness.
   {
-    dir: "packages/autoresearch",
-    allow: ["@wf/contract", "@wf/contract/*", "@wf/engine"],
+    dir: "packages/lab",
+    allow: ["@agentswf/contract", "@agentswf/contract/*", "@agentswf/engine"],
     forbid: [
       {
-        pattern: /^@wf\/(engine\/|harness)/,
-        reason: "autoresearch uses the engine's public entry only, and never a harness",
+        pattern: /^@agentswf\/(engine\/|harness)/,
+        reason: "lab uses the engine's public entry only, and never a harness",
       },
     ],
   },
@@ -263,10 +268,10 @@ const RULES: Rule[] = [
   },
   {
     dir: "examples",
-    allow: ["@wf/contract/workflow"],
+    allow: ["@agentswf/contract/workflow"],
     forbid: [
       {
-        pattern: /^@wf\/(engine|harness)/,
+        pattern: /^@agentswf\/(engine|harness)/,
         reason: "a workflow is written against the author surface, never the runtime",
       },
     ],
@@ -299,8 +304,8 @@ export async function boundaryProblems(root: string): Promise<string[]> {
       if (rule.pure && ANY_BUN.test(source)) {
         problems.push(`${where}: uses the Bun global; ${rule.dir} is pure`);
       }
-      if (rule.dir === "packages/cli-agent" && BUN_FILE_IO.test(source)) {
-        problems.push(`${where}: cli-agent never performs run-directory I/O`);
+      if (rule.dir === "packages/wf" && BUN_FILE_IO.test(source)) {
+        problems.push(`${where}: wf never performs run-directory I/O`);
       }
       if (hasUnresolvedDynamicImport(source) && !allowsComputedWorkflowImport(where)) {
         problems.push(`${where}: contains a computed import whose boundary cannot be verified`);
@@ -328,7 +333,7 @@ export async function boundaryProblems(root: string): Promise<string[]> {
           problems.push(`${where}: imports ${spec} — ${forbidden.reason}`);
           continue;
         }
-        if (spec === "bun" || !spec.startsWith("@wf/")) continue;
+        if (spec === "bun" || !spec.startsWith("@agentswf/")) continue;
         if (rule.allow && !rule.allow.some((a) => match(a, spec))) {
           problems.push(`${where}: imports ${spec}, which ${rule.dir} may not depend on`);
         }
@@ -378,7 +383,7 @@ export async function boundaryProblems(root: string): Promise<string[]> {
           }
           continue;
         }
-        if (!spec.startsWith("@wf/")) continue;
+        if (!spec.startsWith("@agentswf/")) continue;
         const owner = spec.split("/").slice(0, 2).join("/");
         if (owner === pkg.name || declared.has(owner)) continue;
         problems.push(

@@ -3,10 +3,10 @@ import { mkdtempSync, realpathSync } from "node:fs";
 import { chmod, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { JsonValue, WorkflowContext } from "@wf/contract/workflow";
-import { createHeadlessRunHostFactory } from "@wf/harness";
-import type { AgentRuntimeConfig } from "@wf/harness/adapter";
-import { createFakeSandboxProvider } from "@wf/sandbox/testing";
+import type { JsonValue, WorkflowContext } from "@agentswf/contract/workflow";
+import { createHeadlessRunHostFactory } from "@agentswf/harness";
+import type { AgentRuntimeConfig } from "@agentswf/harness/adapter";
+import { createFakeSandboxProvider } from "@agentswf/sandbox/testing";
 import { createTempRunDirs, future } from "../testing";
 import { runWorkflow, WorkflowRunError } from "../workflow-runner";
 

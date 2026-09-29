@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { SandboxEnvironmentKey } from "@wf/contract/workflow";
+import type { SandboxEnvironmentKey } from "@agentswf/contract/workflow";
 import {
   createHeadlessRunHostFactory,
   createHerdrRunHostFactory,
@@ -11,11 +11,11 @@ import {
   readCodexBilling,
   runProcess,
   withholding,
-} from "@wf/harness";
-import type { AgentRuntimeConfig } from "@wf/harness/adapter";
-import type { SandboxProviders } from "@wf/sandbox";
-import { createDockerProvider, findDocker } from "@wf/sandbox/docker";
-import { createSrtProvider, findSrt } from "@wf/sandbox/srt";
+} from "@agentswf/harness";
+import type { AgentRuntimeConfig } from "@agentswf/harness/adapter";
+import type { SandboxProviders } from "@agentswf/sandbox";
+import { createDockerProvider, findDocker } from "@agentswf/sandbox/docker";
+import { createSrtProvider, findSrt } from "@agentswf/sandbox/srt";
 import { createOpenRouterProvider } from "./decisions/openrouter";
 import type { DecisionInstallation } from "./decisions/seam";
 

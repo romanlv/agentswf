@@ -1,13 +1,13 @@
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { type AnswerKey, KEY_FORMAT } from "../packages/autoresearch/src/review/format/format";
-import type { Judgement, ReviewFinding } from "../packages/autoresearch/src/review/format/scoring";
-import { checkJudgement } from "../packages/autoresearch/src/review/judge/check";
-import { categoryOf } from "../packages/autoresearch/src/review/judge/panel";
-import { agreement } from "../packages/autoresearch/src/review/metrics/metrics";
 import type { OutputRecord } from "../packages/contract/src/records";
 import { runOperatorCli } from "../packages/engine/src/operator-cli";
+import { type AnswerKey, KEY_FORMAT } from "../packages/lab/src/review/format/format";
+import type { Judgement, ReviewFinding } from "../packages/lab/src/review/format/scoring";
+import { checkJudgement } from "../packages/lab/src/review/judge/check";
+import { categoryOf } from "../packages/lab/src/review/judge/panel";
+import { agreement } from "../packages/lab/src/review/metrics/metrics";
 
 /**
  * The panel judge live (story 008, Task 3), on cheap models: a synthetic fixture, a two-file
@@ -15,10 +15,7 @@ import { runOperatorCli } from "../packages/engine/src/operator-cli";
  * `checkJudgement` and hit both planted issues; how many labels match, the judges' κ and the cost
  * are printed, not asserted, since they are what the eval measures. About a minute.
  */
-const WORKFLOW = join(
-  import.meta.dir,
-  "../packages/autoresearch/src/review/judge/judge.workflow.ts",
-);
+const WORKFLOW = join(import.meta.dir, "../packages/lab/src/review/judge/judge.workflow.ts");
 const PANEL = "codex/gpt-6-luna,claude/claude-haiku-4-5";
 const TIEBREAK = "codex/gpt-6-luna";
 

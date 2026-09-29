@@ -15,7 +15,7 @@ bun test          # ~440 tests, under a minute
 bun run check     # Biome, tsc, the package boundaries
 ```
 
-No live agent runs. Harnesses are replaced by fakes: `@wf/harness/testing` has a fake adapter and a
+No live agent runs. Harnesses are replaced by fakes: `@agentswf/harness/testing` has a fake adapter and a
 fake Herdr CLI, and fake session files stand in for the harnesses' usage logs. The tests in `tests/`
 drive the real examples (`minimum-review`, `quick-check`, `catalogue-review`) and `awf run` itself
 through those fakes, so example workflows are covered here too.

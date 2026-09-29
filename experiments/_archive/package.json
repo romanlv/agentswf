@@ -4,8 +4,8 @@
   "private": true,
   "type": "module",
   "dependencies": {
-    "@wf/contract": "workspace:*",
-    "@wf/engine": "workspace:*",
-    "@wf/harness": "workspace:*"
+    "@agentswf/contract": "workspace:*",
+    "@agentswf/engine": "workspace:*",
+    "@agentswf/harness": "workspace:*"
   }
 }

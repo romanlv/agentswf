@@ -11,10 +11,10 @@
       },
     },
     "examples": {
-      "name": "@wf/examples",
+      "name": "@agentswf/examples",
       "version": "0.0.0",
       "dependencies": {
-        "@wf/contract": "workspace:*",
+        "@agentswf/contract": "workspace:*",
         "typebox": "^1.3.34",
       },
     },
@@ -22,68 +22,71 @@
       "name": "@wf/experiments-archive",
       "version": "0.0.0",
       "dependencies": {
-        "@wf/contract": "workspace:*",
-        "@wf/engine": "workspace:*",
-        "@wf/harness": "workspace:*",
+        "@agentswf/contract": "workspace:*",
+        "@agentswf/engine": "workspace:*",
+        "@agentswf/harness": "workspace:*",
       },
     },
     "experiments/e4-concurrency": {
-      "name": "@wf/e4-concurrency",
+      "name": "@agentswf/e4-concurrency",
       "version": "0.0.0",
       "dependencies": {
-        "@wf/contract": "workspace:*",
-        "@wf/engine": "workspace:*",
-        "@wf/harness": "workspace:*",
-      },
-    },
-    "packages/autoresearch": {
-      "name": "@wf/autoresearch",
-      "version": "0.0.0",
-      "dependencies": {
-        "@wf/contract": "workspace:*",
-        "typebox": "^1.3.34",
-      },
-    },
-    "packages/cli-agent": {
-      "name": "@wf/cli-agent",
-      "version": "0.0.0",
-      "bin": {
-        "wf": "./src/cli.ts",
-      },
-      "dependencies": {
-        "@wf/contract": "workspace:*",
+        "@agentswf/contract": "workspace:*",
+        "@agentswf/engine": "workspace:*",
+        "@agentswf/harness": "workspace:*",
       },
     },
     "packages/contract": {
-      "name": "@wf/contract",
+      "name": "@agentswf/contract",
       "version": "0.0.0",
     },
     "packages/engine": {
-      "name": "@wf/engine",
+      "name": "@agentswf/engine",
       "version": "0.0.0",
       "bin": {
         "awf": "./src/operator-cli.ts",
       },
       "dependencies": {
-        "@wf/cli-agent": "workspace:*",
-        "@wf/contract": "workspace:*",
-        "@wf/harness": "workspace:*",
-        "@wf/sandbox": "workspace:*",
+        "@agentswf/contract": "workspace:*",
+        "@agentswf/harness": "workspace:*",
+        "@agentswf/sandbox": "workspace:*",
+        "@agentswf/wf": "workspace:*",
       },
     },
     "packages/harness": {
-      "name": "@wf/harness",
+      "name": "@agentswf/harness",
       "version": "0.0.0",
       "dependencies": {
-        "@wf/contract": "workspace:*",
-        "@wf/sandbox": "workspace:*",
+        "@agentswf/contract": "workspace:*",
+        "@agentswf/sandbox": "workspace:*",
+      },
+    },
+    "packages/lab": {
+      "name": "@agentswf/lab",
+      "version": "0.0.0",
+      "bin": {
+        "awf-lab": "./src/review/lab/cli.ts",
+      },
+      "dependencies": {
+        "@agentswf/contract": "workspace:*",
+        "typebox": "^1.3.34",
       },
     },
     "packages/sandbox": {
-      "name": "@wf/sandbox",
+      "name": "@agentswf/sandbox",
       "version": "0.0.0",
       "dependencies": {
-        "@wf/contract": "workspace:*",
+        "@agentswf/contract": "workspace:*",
+      },
+    },
+    "packages/wf": {
+      "name": "@agentswf/wf",
+      "version": "0.0.0",
+      "bin": {
+        "wf": "./src/cli.ts",
+      },
+      "dependencies": {
+        "@agentswf/contract": "workspace:*",
       },
     },
   },
@@ -92,6 +95,22 @@
     "typescript": "^5.9.3",
   },
   "packages": {
+    "@agentswf/contract": ["@agentswf/contract@workspace:packages/contract"],
+
+    "@agentswf/e4-concurrency": ["@agentswf/e4-concurrency@workspace:experiments/e4-concurrency"],
+
+    "@agentswf/engine": ["@agentswf/engine@workspace:packages/engine"],
+
+    "@agentswf/examples": ["@agentswf/examples@workspace:examples"],
+
+    "@agentswf/harness": ["@agentswf/harness@workspace:packages/harness"],
+
+    "@agentswf/lab": ["@agentswf/lab@workspace:packages/lab"],
+
+    "@agentswf/sandbox": ["@agentswf/sandbox@workspace:packages/sandbox"],
+
+    "@agentswf/wf": ["@agentswf/wf@workspace:packages/wf"],
+
     "@biomejs/biome": ["@biomejs/biome@2.5.14", "", { "optionalDependencies": { "@biomejs/cli-darwin-arm64": "2.5.14", "@biomejs/cli-darwin-x64": "2.5.14", "@biomejs/cli-linux-arm64": "2.5.14", "@biomejs/cli-linux-arm64-musl": "2.5.14", "@biomejs/cli-linux-x64": "2.5.14", "@biomejs/cli-linux-x64-musl": "2.5.14", "@biomejs/cli-win32-arm64": "2.5.14", "@biomejs/cli-win32-x64": "2.5.14" }, "bin": { "biome": "bin/biome" } }, "sha512-0FabLIjd4M/dm8VFI86RMaLLdgepzbdfiAL2R8cr7V81OYYrP1w7Z73KfAwPK5h9SrEBXTzNG2y+mBwPo9xRnw=="],
 
     "@biomejs/cli-darwin-arm64": ["@biomejs/cli-darwin-arm64@2.5.14", "", { "os": "darwin", "cpu": "arm64" }, "sha512-UnzaXO65L4tsZimFITFP2M121GyhDcWFrT3pL5ZJ5U4XcS/0L5VHYytVohdCf/gnDUFHgl2I9xnt5bV/J1kxHQ=="],
@@ -114,23 +133,7 @@
 
     "@types/node": ["@types/node@26.4.0", "", { "dependencies": { "undici-types": "~8.3.0" } }, "sha512-faiGnoIrLH/V8cibOMEAZ8pMw6oXqSukl29ra4mN8GdaB2ZewzeaLj+INpV5N+Z1eKWzY+IzaIZH2EIR6YZRNQ=="],
 
-    "@wf/autoresearch": ["@wf/autoresearch@workspace:packages/autoresearch"],
-
-    "@wf/cli-agent": ["@wf/cli-agent@workspace:packages/cli-agent"],
-
-    "@wf/contract": ["@wf/contract@workspace:packages/contract"],
-
-    "@wf/e4-concurrency": ["@wf/e4-concurrency@workspace:experiments/e4-concurrency"],
-
-    "@wf/engine": ["@wf/engine@workspace:packages/engine"],
-
-    "@wf/examples": ["@wf/examples@workspace:examples"],
-
     "@wf/experiments-archive": ["@wf/experiments-archive@workspace:experiments/_archive"],
-
-    "@wf/harness": ["@wf/harness@workspace:packages/harness"],
-
-    "@wf/sandbox": ["@wf/sandbox@workspace:packages/sandbox"],
 
     "bun-types": ["bun-types@1.4.0", "", { "dependencies": { "@types/node": "*" } }, "sha512-iIKw23BspnQQYd3prITOBxeUsxBHnwzX6YJfGMuNOZzeNcMmVqzIIVGRm1l69ogaPQmb4wB6BN8mA5bE9YuC5Q=="],
 

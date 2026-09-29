@@ -328,7 +328,7 @@ identity, and the reuse decision. What a framework would add is a store, a matri
 and a few statistics. For us the store is files named by hash, and the loop is a few nested loops
 over `awf run`. A bootstrap interval is a few dozen lines. Any of the four also means a new
 runtime: a Python process or a large npm package. That runtime would be the first third-party
-dependency in `packages/autoresearch`, which today imports only contract and the engine's public
+dependency in `packages/lab`, which today imports only contract and the engine's public
 entry. It would also bring a second sandbox layer or a hosted store.
 
 So: **build the machinery, borrow the designs.** Keep the awf surface to four things:

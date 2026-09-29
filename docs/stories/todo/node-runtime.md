@@ -35,7 +35,7 @@ Measured on 2026-09-28, with Node 22.20 and Bun 1.4.0:
   | `harness/src/usage/*.ts`, `harness/src/sandbox-needs.ts` | `Bun.file` |
   | `sandbox/src/docker/index.ts` | `Bun.spawn`, `Bun.which`, `Bun.sleep` |
   | `sandbox/src/srt/index.ts`, `sandbox/src/groups.ts` | `Bun.spawn`, `Bun.spawnSync` |
-  | `cli-agent/src/cli.ts` | `Bun.stdin` |
+  | `wf/src/cli.ts` | `Bun.stdin` |
 
   `testing/` files use `bun:test` and more of the same; they would publish as Bun-only or move.
 

@@ -1,5 +1,5 @@
 {
-  "name": "@wf/autoresearch",
+  "name": "@agentswf/lab",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -10,7 +10,7 @@
     "./review": "./src/review/index.ts"
   },
   "dependencies": {
-    "@wf/contract": "workspace:*",
+    "@agentswf/contract": "workspace:*",
     "typebox": "^1.3.34"
   }
 }
