@@ -20,10 +20,10 @@ test("a workflow in a folder with no node_modules gets the engine's author surfa
   await writeFile(
     file,
     `import { defineExecutableWorkflow } from "agentswf/workflow";
-import { Type } from "typebox";
+import TypeDefault, { Type } from "typebox";
 import { Value } from "typebox/value";
 
-globalThis.surfaceProbe = { defineExecutableWorkflow, Type, Value };
+globalThis.surfaceProbe = { defineExecutableWorkflow, Type, TypeDefault, Value };
 
 export default defineExecutableWorkflow({
   definition: {
@@ -41,5 +41,6 @@ export default defineExecutableWorkflow({
   const surface = (globalThis as { surfaceProbe?: Record<string, unknown> }).surfaceProbe;
   expect(surface?.defineExecutableWorkflow).toBe(workflowSurface.defineExecutableWorkflow);
   expect(surface?.Type).toBe(typebox.Type);
+  expect(surface?.TypeDefault).toBe(typebox.default);
   expect(surface?.Value).toBe(typeboxValue.Value);
 });
