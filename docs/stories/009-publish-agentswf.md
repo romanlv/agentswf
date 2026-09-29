@@ -63,8 +63,9 @@ As of 2026-09-28, nothing is built.
   - the README marks the project an early preview.
 - **The operator's next steps:**
   - create the GitHub org `agentswf` and transfer the repository;
-  - reserve the look-alike names;
   - decide the two package names in Open questions 1.
+
+  Reserving the npm scopes and the look-alike names is task 6, done last.
 - **Still open:** the package names (1), and the second machine's OS (4).
 - **Next for the implementer:** task 1, the rename. No other branch or worktree is open (checked
   2026-09-28), so it can land once the sessions working on `main` are told.
@@ -313,6 +314,7 @@ Alternatives rejected:
 - [ ] 3. `claude.ts` is rewritten from scratch, and `awf` reports its version and refuses an old Bun
 - [ ] 4. The README marks an early preview and says how to install from a clone; MIT LICENSE
 - [ ] 5. v0.0.1 is tagged and running on the operator's second machine
+- [ ] 6. The npm scopes and the look-alike names are reserved
 
 ## Open questions
 
@@ -322,7 +324,7 @@ Alternatives rejected:
 - **Repository:** decided 2026-09-28, `agentswf/awf`. `romanlv/awf` is transferred to a new
   `agentswf` organisation. GitHub redirects the old URL, and the clone needs one
   `git remote set-url`.
-- **Look-alike names:** decided 2026-09-28, the operator reserves them.
+- **Look-alike names:** decided 2026-09-28, the operator reserves them, last (task 6).
   - The empty npm organisations `@agentwf` and `@agents-wf`.
   - The GitHub organisations `agentwf` and `agents-wf`.
   - The unscoped `agentswf` can't be reserved without publishing. See [[npm-launch]].
@@ -498,6 +500,35 @@ Done when:
   there with a live agent.
 - What it needed that the README didn't say is back in the README.
 - `docs/status.md` says v0.0.1 runs from a clone, and how to install it.
+
+### 6. The npm scopes and the look-alike names are reserved
+
+Outcome: no one else can publish under agents.wf's names, or under the ones a reader would
+mistake for them.
+
+Execution:
+
+- [ ] Plan: check each name is still free, as in Context.
+- [ ] Implement, by the operator:
+  - the npm organisations `@agentswf`, `@agents-wf` and `@agentwf`, empty;
+  - the GitHub organisations `agents-wf` and `agentwf`, empty, with a profile that points to
+    `agentswf`.
+- [ ] Review: each name answers as held (`registry.npmjs.org/-/org/{name}/package` returns `{}`,
+  `api.github.com/users/{name}` returns an organisation).
+- [ ] Resolve: a name taken in the meantime is recorded in [[npm-launch]], with what it means for
+  the launch.
+- [ ] Verify: satisfy every `Done when` item.
+
+Work:
+
+- Last, because nothing before it depends on these names. The GitHub org `agentswf` isn't here: it
+  comes first, since the repository moves into it before task 1.
+- The unscoped npm names `agentswf` and `agentwf` can only be held by publishing, so they wait for
+  [[npm-launch]].
+
+Done when:
+
+- All five names answer as held, and `docs/status.md` lists them.
 
 ## Verification
 
