@@ -10,7 +10,6 @@ export function claudeProjectsDirectory(home = harnessState().claude): string {
 }
 
 /**
- * Lifted from `braintrust/agent/loops/shared/usage/claude.ts`, whose figures have held up in use.
  * Claude Code writes one transcript per session and one more per subagent under a directory named
  * for the session, nested further for workflow agents, so the tree is walked: reading only the
  * session file undercounts a delegating agent by a third or more.
