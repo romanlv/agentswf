@@ -23,6 +23,7 @@ import {
   withinReach,
 } from "@agentswf/sandbox";
 import { CONTROL_PLANE_ROOT } from "./control-plane";
+import { messageOf } from "./errors";
 import { type CredentialLocks, type SeededHome, seedHome } from "./sandbox-homes";
 import { placeSkills, type ResolvedSkill } from "./skills/run-skills";
 
@@ -149,7 +150,7 @@ export class RunSandboxes {
       await seated?.then((agent) => agent.release()).catch(() => undefined);
       if (shared) return;
       await this.#close(sandbox).catch((error: unknown) =>
-        this.options.log(`sandbox ${key}: ${reasonOf(error)}`),
+        this.options.log(`sandbox ${key}: ${messageOf(error)}`),
       );
     };
     try {
@@ -375,7 +376,7 @@ export class RunSandboxes {
         release: () => {
           released ??= seeded
             .writeBack()
-            .catch((error) => this.options.log(`${who}: ${reasonOf(error)}`))
+            .catch((error) => this.options.log(`${who}: ${messageOf(error)}`))
             .then(() => occupant.release());
           return released;
         },
@@ -418,7 +419,7 @@ export class RunSandboxes {
           ...command,
           reap: () =>
             reap().catch((error: unknown) =>
-              this.options.log(`${who}: a turn's leftovers may still run: ${reasonOf(error)}`),
+              this.options.log(`${who}: a turn's leftovers may still run: ${messageOf(error)}`),
             ),
         };
       },
@@ -443,8 +444,4 @@ function assertWithin(
       `agent ${agent}: its gitdir ${missing} is outside sandbox ${sandbox.key}'s reach`,
     );
   }
-}
-
-function reasonOf(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }

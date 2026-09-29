@@ -5,6 +5,7 @@ import { dirname, isAbsolute, join, relative } from "node:path";
 import { isDeepStrictEqual } from "node:util";
 import { isRecord } from "@agentswf/contract";
 import type { HarnessSandboxNeeds } from "@agentswf/sandbox";
+import { messageOf } from "./errors";
 
 /** A seeded home's credentials, and a way to hand a refreshed one back to the operator. */
 export type SeededHome = {
@@ -114,12 +115,7 @@ export async function seedHome(
       }
       if (failures.length === 1) throw failures[0];
       if (failures.length > 1)
-        throw new AggregateError(
-          failures,
-          failures
-            .map((error) => (error instanceof Error ? error.message : String(error)))
-            .join("; "),
-        );
+        throw new AggregateError(failures, failures.map(messageOf).join("; "));
     },
   };
 }

@@ -87,3 +87,16 @@ export function assertDeadlineValue(deadline: AbsoluteDeadline): void {
     throw new Error("deadline.unixMilliseconds must be a non-negative safe integer");
   }
 }
+
+/** Waits `milliseconds`, or until `signal` aborts, whichever is first. */
+export function abortableSleep(milliseconds: number, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(done, milliseconds);
+    function done() {
+      clearTimeout(timer);
+      signal.removeEventListener("abort", done);
+      resolve();
+    }
+    signal.addEventListener("abort", done, { once: true });
+  });
+}

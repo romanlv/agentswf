@@ -48,9 +48,9 @@ describe("run progress", () => {
     expect(
       renderProgress(MID_RUN, { name: "review", startedAt: 0, now: 200_000, paint: PLAIN }),
     ).toEqual([
-      "review · 3m20s · 1 working",
-      "✗ Lenses 2/2 · 2m30s · 1 failed",
-      "    ✗ lens:infra  gpt-6-sol   2m29s  timed-out: operation deadline exceeded",
+      "review · 3m 20s · 1 working",
+      "✗ Lenses 2/2 · 2m 30s · 1 failed",
+      "    ✗ lens:infra  gpt-6-sol  2m 29s  timed-out: operation deadline exceeded",
       "⠋ Verify 1/4 · 2 queued",
       "    ✓ verifier:0  gpt-6-sol     40s",
       "    ⠋ verifier:1  gpt-6-sol     50s",
@@ -63,11 +63,11 @@ describe("run progress", () => {
     expect(first).toEqual([
       "[3:20] ▶ Lenses (2)",
       "[3:20] ▶ Verify (4)",
-      "[3:20] ✓ lens:authz · 2m00s",
-      "[3:20] ✗ lens:infra · 2m29s · timed-out: operation deadline exceeded",
+      "[3:20] ✓ lens:authz · 2m 00s",
+      "[3:20] ✗ lens:infra · 2m 29s · timed-out: operation deadline exceeded",
       "[3:20] ✓ verifier:0 · 40s",
       "[3:20] ▶ verifier:1 · gpt-6-sol",
-      "[3:20] ■ Lenses done 2/2 in 2m30s, 1 failed",
+      "[3:20] ■ Lenses done 2/2 in 2m 30s, 1 failed",
     ]);
     expect(progressEvents(MID_RUN, MID_RUN, view)).toEqual([]);
   });

@@ -8,7 +8,7 @@ import type {
 import type { SessionAccounting, SessionRead, UsageRecord } from "@agentswf/harness";
 import type { HarnessTurnOutcome } from "@agentswf/harness/adapter";
 import { spendOf } from "./accounting/tokens";
-import { deadlineWithin, runUntilStopped, waitForDeadline } from "./deadlines";
+import { abortableSleep, deadlineWithin, runUntilStopped, waitForDeadline } from "./deadlines";
 
 /**
  * How long a finished run waits for turns still ending after their answer. Closing the host kills
@@ -316,18 +316,6 @@ async function attempt<T>(call: () => Promise<T>): Promise<T | undefined> {
   } catch {
     return undefined;
   }
-}
-
-function abortableSleep(milliseconds: number, signal: AbortSignal): Promise<void> {
-  return new Promise((resolve) => {
-    const timer = setTimeout(done, milliseconds);
-    function done() {
-      clearTimeout(timer);
-      signal.removeEventListener("abort", done);
-      resolve();
-    }
-    signal.addEventListener("abort", done, { once: true });
-  });
 }
 
 function sum(values: readonly number[]): number {

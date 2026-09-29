@@ -1,5 +1,6 @@
 import { isRecord } from "@agentswf/contract";
 import type { Question } from "@agentswf/contract/workflow";
+import { messageOf } from "../errors";
 import {
   type DecisionProvider,
   DecisionProviderError,
@@ -157,8 +158,4 @@ function parse(text: string): unknown {
   } catch {
     return undefined;
   }
-}
-
-function messageOf(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }

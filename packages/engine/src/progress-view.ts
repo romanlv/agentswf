@@ -1,3 +1,4 @@
+import { duration } from "./accounting/format";
 import type { WorkflowRunSnapshot } from "./workflow-runner";
 
 type Agent = WorkflowRunSnapshot["agents"][number];
@@ -141,14 +142,6 @@ function spin(now: number): string {
 function oneLine(text: string): string {
   const line = text.replace(/\s+/g, " ").trim();
   return line.length > 80 ? `${line.slice(0, 79)}…` : line;
-}
-
-function duration(milliseconds: number): string {
-  const seconds = Math.max(0, Math.round(milliseconds / 1000));
-  if (seconds < 60) return `${seconds}s`;
-  const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes}m${String(seconds % 60).padStart(2, "0")}s`;
-  return `${Math.floor(minutes / 60)}h${String(minutes % 60).padStart(2, "0")}m`;
 }
 
 function clock(milliseconds: number): string {

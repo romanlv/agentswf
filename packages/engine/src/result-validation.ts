@@ -1,6 +1,7 @@
 import { acceptAny, type SemanticCheck } from "@agentswf/contract";
 import type { CallSpec } from "@agentswf/contract/records";
 import { formatErrors, validate } from "@agentswf/contract/schema";
+import { messageOf } from "./errors";
 
 export type CandidateEvaluation =
   | { kind: "accepted"; value: unknown }
@@ -16,7 +17,7 @@ export async function evaluateResult(
   try {
     value = JSON.parse(raw);
   } catch (error) {
-    const reason = error instanceof Error ? error.message : String(error);
+    const reason = messageOf(error);
     return {
       kind: "rejected",
       error: [

@@ -14,6 +14,7 @@ import {
 } from "@agentswf/contract/workflow";
 import manifest from "../package.json" with { type: "json" };
 import { describeAccounting } from "./accounting/format";
+import { messageOf } from "./errors";
 import { installOperatorRuntime, type OperatorRuntimeInstallation } from "./operator-runtime";
 import { ANSI, PLAIN, progressEvents, renderProgress } from "./progress-view";
 import { assertJsonValue, loadWorkflowFile } from "./workflow-loader";
@@ -95,7 +96,7 @@ export async function runOperatorCli(
   try {
     command = parseCommand(argv, environment.cwd ?? process.cwd(), environment.home ?? homedir());
   } catch (error) {
-    stderr(`awf: ${message(error)}\n\n${usage}`);
+    stderr(`awf: ${messageOf(error)}\n\n${usage}`);
     return 2;
   }
 
@@ -105,7 +106,7 @@ export async function runOperatorCli(
   try {
     loaded = await loadWorkflowFile(command.workflowFile, command.shellCwd);
   } catch (error) {
-    stderr(`awf: load: ${message(error)}`);
+    stderr(`awf: load: ${messageOf(error)}`);
     return 2;
   }
 
@@ -117,7 +118,7 @@ export async function runOperatorCli(
     });
     assertJsonValue(args, `${loaded.executable.definition.meta.name} arguments`);
   } catch (error) {
-    stderr(`awf: prepare: ${message(error)}`);
+    stderr(`awf: prepare: ${messageOf(error)}`);
     return 2;
   }
 
@@ -133,7 +134,7 @@ export async function runOperatorCli(
       { watchSandboxes: command.watch },
     );
   } catch (error) {
-    stderr(`awf: runtime: ${message(error)}`);
+    stderr(`awf: runtime: ${messageOf(error)}`);
     return 1;
   }
   if (environment.signal?.aborted) {
@@ -217,7 +218,7 @@ export async function runOperatorCli(
       try {
         await writeFile(join(record.artifacts, "output.json"), `${failedRecord}\n`);
       } catch (writeError) {
-        stderr(`awf: output.json: ${message(writeError)}`);
+        stderr(`awf: output.json: ${messageOf(writeError)}`);
       }
       for (const line of describeAccounting(error.accounting)) stderr(line);
     }
@@ -241,7 +242,7 @@ export async function runOperatorCli(
         : `awf: ${ended}; artifacts were not created at ${invocationRoot}: ${errorDetail(runError)}`,
     );
     if (cleanupError !== undefined)
-      stderr(`awf: runtime cleanup also failed: ${message(cleanupError)}`);
+      stderr(`awf: runtime cleanup also failed: ${messageOf(cleanupError)}`);
     // The record says the run did not succeed, so a caller that asked for it gets it either way.
     if (command.json && failedRecord !== undefined) stdout(failedRecord);
     if (cancellation) {
@@ -254,7 +255,7 @@ export async function runOperatorCli(
     // reading it without checking the exit code would take that for a clean one. The artifacts
     // are named instead, so the work is still reachable.
     stderr(
-      `awf: runtime cleanup failed; artifacts retained under ${invocationRoot}: ${message(cleanupError)}`,
+      `awf: runtime cleanup failed; artifacts retained under ${invocationRoot}: ${messageOf(cleanupError)}`,
     );
     return 1;
   }
@@ -447,7 +448,7 @@ function present(
       `Full result and agent records: ${artifacts}`,
     ].join("\n");
   } catch (error) {
-    stderr(`awf: present: ${message(error)}; printing the full result instead`);
+    stderr(`awf: present: ${messageOf(error)}; printing the full result instead`);
     return undefined;
   }
 }
@@ -467,7 +468,7 @@ async function writeReport(
     await writeFile(file, `${markdown.trimEnd()}\n`);
     return file;
   } catch (error) {
-    stderr(`awf: report: ${message(error)}; see output.json instead`);
+    stderr(`awf: report: ${messageOf(error)}; see output.json instead`);
     return undefined;
   }
 }
@@ -484,15 +485,11 @@ function parseDuration(value: string): number {
   return milliseconds;
 }
 
-function message(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
-
 function errorDetail(error: unknown): string {
   if (error instanceof WorkflowRunError) return errorDetail(error.cause);
   return error instanceof AggregateError
     ? error.errors.map(errorDetail).join("; ")
-    : message(error);
+    : messageOf(error);
 }
 
 function findCancellation(error: unknown): WorkflowCancelledError | undefined {

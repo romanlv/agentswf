@@ -111,8 +111,9 @@ function plural(amount: number, noun: string, show: (amount: number) => string =
   return `${show(amount)} ${noun}${amount === 1 ? "" : "s"}`;
 }
 
-function duration(milliseconds: number): string {
-  const seconds = Math.round(milliseconds / 1000);
+/** A span as a person reads it: `42s`, `3m 05s`, `1h 02m`. */
+export function duration(milliseconds: number): string {
+  const seconds = Math.max(0, Math.round(milliseconds / 1000));
   if (seconds < 60) return `${seconds}s`;
   const minutes = Math.floor(seconds / 60);
   if (minutes < 60) return `${minutes}m ${String(seconds % 60).padStart(2, "0")}s`;

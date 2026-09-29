@@ -13,7 +13,14 @@ import {
   type JsonValue,
   type Question,
 } from "@agentswf/contract/workflow";
-import { assertDeadline, assertDeadlineValue, earlierDeadline, scheduleAt } from "../deadlines";
+import {
+  abortableSleep,
+  assertDeadline,
+  assertDeadlineValue,
+  earlierDeadline,
+  scheduleAt,
+} from "../deadlines";
+import { messageOf } from "../errors";
 import {
   type DecisionInstallation,
   type DecisionProvider,
@@ -388,10 +395,6 @@ function sumMoney(charges: readonly Money[]): Money | undefined {
   return { amount: charges.reduce((sum, charge) => sum + charge.amount, 0), currency };
 }
 
-function messageOf(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
-
 function untilAborted<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
   if (signal.aborted) return Promise.reject(signal.reason);
   return new Promise<T>((resolve, reject) => {
@@ -407,17 +410,5 @@ function untilAborted<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
         reject(error);
       },
     );
-  });
-}
-
-function abortableSleep(milliseconds: number, signal: AbortSignal): Promise<void> {
-  return new Promise((resolve) => {
-    const timer = setTimeout(done, milliseconds);
-    function done() {
-      clearTimeout(timer);
-      signal.removeEventListener("abort", done);
-      resolve();
-    }
-    signal.addEventListener("abort", done, { once: true });
   });
 }

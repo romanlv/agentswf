@@ -18,6 +18,7 @@ import { createDockerProvider, findDocker } from "@agentswf/sandbox/docker";
 import { createSrtProvider, findSrt } from "@agentswf/sandbox/srt";
 import { createOpenRouterProvider } from "./decisions/openrouter";
 import type { DecisionInstallation } from "./decisions/seam";
+import { messageOf } from "./errors";
 
 export type OperatorRuntimeInstallation = {
   config: AgentRuntimeConfig;
@@ -104,7 +105,7 @@ export async function installSandboxes(
   const unavailable: Partial<Record<SandboxEnvironmentKey, string>> = {};
   const found = <T>(key: SandboxEnvironmentKey, finding: Promise<T | undefined>) =>
     finding.catch((error: unknown) => {
-      unavailable[key] = error instanceof Error ? error.message : String(error);
+      unavailable[key] = messageOf(error);
       return undefined;
     });
   const [srt, docker] = await Promise.all([

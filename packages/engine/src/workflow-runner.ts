@@ -68,6 +68,7 @@ import {
 } from "./deadlines";
 import { RunDecisions } from "./decisions/directory";
 import type { DecisionInstallation } from "./decisions/seam";
+import { messageOf } from "./errors";
 import {
   createResultSlotRegistry,
   type ResultSlotRegistry,
@@ -680,7 +681,7 @@ class WorkflowOwner {
           ({ channel, launcher } = await reachable);
         } catch (error) {
           // A session with no way to answer is no agent at all; neither half outlives the other.
-          await Promise.allSettled([session.close(reasonOf(error)), closeChannel()]);
+          await Promise.allSettled([session.close(messageOf(error)), closeChannel()]);
           throw error;
         }
         const writeBack = (await placed)?.writeBack;
@@ -841,7 +842,7 @@ class WorkflowOwner {
             afterOperation: () =>
               seated
                 .writeBack()
-                .catch((error) => this.options.onLog?.(`agent ${key}: ${reasonOf(error)}`)),
+                .catch((error) => this.options.onLog?.(`agent ${key}: ${messageOf(error)}`)),
           }
         : {}),
     });
@@ -976,7 +977,7 @@ class LogicalAgent implements AgentRef {
         progress.turnSettled(key, outcome.kind, "reason" in outcome ? outcome.reason : undefined);
         return settled;
       } catch (error) {
-        progress.turnSettled(key, "failed", reasonOf(error));
+        progress.turnSettled(key, "failed", messageOf(error));
         throw error;
       } finally {
         await this.options.afterOperation?.();
@@ -1107,7 +1108,7 @@ class LogicalAgent implements AgentRef {
         const expiry = first.error instanceof DeadlineExceededError;
         const native: HarnessTurnOutcome = {
           state: expiry ? "timed-out" : "failed",
-          detail: expiry ? "operation deadline exceeded" : reasonOf(first.error),
+          detail: expiry ? "operation deadline exceeded" : messageOf(first.error),
           resultEvidence: { kind: "unavailable" },
           chargesUsd: [],
         };
@@ -1158,7 +1159,7 @@ class LogicalAgent implements AgentRef {
         } catch (error) {
           native = {
             state: error instanceof DeadlineExceededError ? "timed-out" : "failed",
-            detail: reasonOf(error),
+            detail: messageOf(error),
             resultEvidence: { kind: "unavailable" },
             chargesUsd: [],
           };
@@ -1584,10 +1585,6 @@ function operationPrompt(
     "The JSON must match this schema:",
     JSON.stringify(schema),
   ].join("\n");
-}
-
-function reasonOf(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }
 
 function resolveExecution(
