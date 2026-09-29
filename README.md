@@ -29,9 +29,12 @@ claude, codex, pi or cursor.
 ```sh
 git clone git@github.com:agentswf/awf.git ~/.agentswf
 cd ~/.agentswf && bun install
-(cd packages/engine && bun link)   # puts awf on your PATH
+(cd packages/engine && bun link)   # puts awf in ~/.bun/bin
 awf --version
 ```
+
+`bun link` puts `awf` in Bun's own bin directory, `~/.bun/bin`, which Bun's installer adds to your
+PATH. If `awf` isn't found, add it yourself.
 
 To update: `cd ~/.agentswf && git pull && bun install`.
 
@@ -71,6 +74,10 @@ export default defineExecutableWorkflow({
 ```sh
 cd ~/workflows && awf run ./hello.ts
 ```
+
+It prints the run's result as JSON, with the agent's answer under `value`, and keeps the run's
+artifacts under `~/.awf/runs`; `--run-root` puts them elsewhere. `awf` with no arguments lists its
+options. A workflow file is trusted code: it runs with your filesystem and process authority.
 
 Use the harness you are logged in to. Headless claude is billed per token even on a subscription,
 so it runs only when the runtime also says `metered: true`.
