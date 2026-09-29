@@ -60,7 +60,7 @@ export type SingleReviewResult = {
 /** Claude, headless and so billed per token; a pane needs the operator's Herdr. */
 const DEFAULT_RUNTIME: ExecutionConfig = {
   harness: "claude",
-  model: "claude-sonnet-5",
+  model: "claude-sonnet-5-5",
   placement: "headless",
   metered: true,
 };

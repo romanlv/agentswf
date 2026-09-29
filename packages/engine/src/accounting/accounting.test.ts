@@ -96,6 +96,7 @@ describe("published prices", () => {
   test("prices every model an agent here is configured to run", () => {
     for (const model of [
       "claude-opus-5",
+      "claude-sonnet-5-5",
       "claude-sonnet-5",
       "claude-haiku-4-5",
       "gpt-5.6-sol",
@@ -109,6 +110,11 @@ describe("published prices", () => {
   test("prices the newest models as their own, not as an older sibling", () => {
     expect(PUBLISHED_PRICES.rate("claude-opus-5-5")).toMatchObject({ input: 4, cacheRead: 0.2 });
     expect(PUBLISHED_PRICES.rate("claude-opus-5-5[1m]")).toMatchObject({ input: 4 });
+    expect(PUBLISHED_PRICES.rate("claude-sonnet-5-5")).toMatchObject({
+      input: 2,
+      cacheRead: 0.2,
+      output: 10,
+    });
     expect(PUBLISHED_PRICES.rate("gpt-6-sol")).toMatchObject({
       input: 2,
       cacheRead: 0.2,
