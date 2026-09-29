@@ -591,11 +591,13 @@ session, not by subagents, and no live agent ran. `bun run check` is clean, and 
     engine's copy is at `packages/engine/node_modules/typebox`, which is the one it serves anyway.
     Checked in a scratch folder: `tsc` passes, and at run time both names resolve to the engine's
     files.
-  - **Deviation: the README was followed by the main session, not a subagent with no context.**
-    The steps were a fresh clone of this repository, `bun install`, and `bun link` into a scratch
-    `BUN_INSTALL`. Then `awf --version`, and `awf run` of an agentless workflow from a folder
-    outside the clone. The README's `hello.ts` typechecks there, but wasn't run, since it opens a
-    live agent.
+  - **The README was followed by a subagent that read nothing else** (2026-09-29). It made a fresh
+    clone of this repository, ran `bun install`, then `bun link` into a scratch `BUN_INSTALL`, and
+    `awf --version`. `hello.ts` and its `tsconfig.json` typechecked. `awf run` of an agentless copy
+    of `hello.ts` succeeded from a folder outside the clone. `hello.ts` itself wasn't run, since it
+    opens a live agent. Every step worked as written. Its gaps are fixed (ec65ad1): where `bun link`
+    puts `awf`, what a run prints and keeps, where the options are listed, and that a workflow is
+    trusted code.
 - **The operator's review repository** (3166650). Asked for alongside the story, it now imports
   `@agentswf/lab/review` and `agentswf/workflow` through `bun link`. That needed
   `@agentswf/lab/review/*`, a wildcard export of the lab's modules, since it uses two dozen of
