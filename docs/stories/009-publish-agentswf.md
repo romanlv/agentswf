@@ -438,8 +438,9 @@ Alternatives rejected:
     and the clone needs one `git remote set-url`.
   - The organisation carries the brand and the repository the command, as `earendil-works/pi` and
     `sst/opencode` do.
-  - GitHub's Agent Workflow Firewall also answers to "awf" in a search. The `agentswf` in the URL
-    tells them apart, and the README leads with agents.wf.
+  - GitHub's Agentic Workflows Firewall (`github/gh-aw-firewall`) installs a command named `awf`,
+    which clashes only on a machine that has both. Its repository isn't named `awf`, and a GitHub
+    search for "awf" (checked 2026-09-28) shows neither project, only unrelated ones.
 - **Timing:** when does the 81-file rename land? It affects the open review-scorer worktree, so
   agree the moment first.
 
