@@ -61,8 +61,8 @@ status is one of `todo`, `draft`, `ready`, `in-progress`, `blocked`, `awaiting-h
   findings and the scorer's labels as records, and reports recall by severity, precision, wrong
   claims, noise, cost and time; `output.json` gains `timed-out` first.
 - [`009` — Install agents.wf from npm on another machine](009-publish-agentswf.md) —
-  `draft` — One naming rule, a publishable package `agentswf` that installs and runs a workflow
-  in an empty directory, docs for a stranger, and 0.0.1 published and tried on a second machine.
+  `draft` — One naming rule, the workspace packages published in lockstep as `@agentswf/*` under
+  an `agentswf` that installs `awf`, docs for a stranger, and 0.0.1 tried on a second machine.
 
 This is the high-level index of numbered stories. Keep each entry to its title, status, and
 one-sentence summary; put code maps, research, design, tasks, and verification in the linked story.

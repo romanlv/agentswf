@@ -1,7 +1,7 @@
 ---
 id: "009"
 title: Install agents.wf from npm on another machine
-summary: One naming rule across the repository, an engine that provides the author surface to any workflow it loads, a packed `agentswf` that installs into an empty directory and runs a workflow there, docs a stranger can follow, and 0.0.1 published and tried on the operator's second machine.
+summary: One naming rule across the repository, an engine that provides the author surface to any workflow it loads, the workspace packages published in lockstep as `@agentswf/*` under an `agentswf` that installs the command, docs a stranger can follow, and 0.0.1 published and tried on the operator's second machine.
 type: story
 status: draft
 discovered_in: "ADR 0005, 2026-09-27"
@@ -15,83 +15,89 @@ depends_on: []
 On a machine that has never seen this repository, the operator runs:
 
 ```sh
-bun add -g agentswf             # awf and wf on PATH
+bun add -g agentswf             # awf on PATH
 mkdir ~/workflows && cd ~/workflows
 awf run ./review.ts             # review.ts imports agentswf/workflow; nothing installed here
 ```
 
 and the workflow runs its agents the same way it would from a clone. A folder that wants
-typechecking adds `agentswf` as a dev dependency, for its types. That is 0.0.1. It is for the
-operator's own machines, and the author surface stays open to change before 1.0
+typechecking adds `agentswf` as a dev dependency, for its types. Someone building on the engine
+instead of writing workflows installs the packages they need: `@agentswf/harness` to drive one
+coding agent, `@agentswf/sandbox` for the sandboxes, `@agentswf/engine` to run workflows from
+their own program.
+
+That is 0.0.1. It is for the operator's own machines, and nothing published is stable before 1.0
 ([[0005-published-as-agentswf]]).
 
 Getting there means four things that don't exist yet:
 
 - **One naming rule.** The repository is `awf`, its packages are `@wf/*`, the domain is agents.wf,
-  and the package on npm will be `agentswf`. A reader should be able to tell which name means what.
+  and the package on npm will be `agentswf`. A reader should be able to tell which name means
+  what, and every name has to be one nobody else holds on npm.
 - **A surface the engine provides.** Today a workflow outside the repository fails on its first
   import. It only works through a `bun link`.
-- **A package that installs.** Every workspace package is `private: true`, and nothing assembles
-  them into something npm can hold.
+- **Packages that install.** Every workspace package is `private: true`.
 - **Docs for someone who isn't us.** The README says "Nothing here is published". Nothing says
   what to install first or how to write a first workflow outside the repository.
 
-Why now: the operator wants the engine on a second machine for personal workflows, and each
-week the author surface grows makes every renamed import cost more.
+Why now: the operator wants the engine on a second machine for personal workflows. Also, each
+week the author surface grows makes every renamed import cost more, and existing workflows get
+upgraded along with the rename.
 
 ## How it works
 
 ```text
-repository (workspace)          scripts/pack.ts            npm              any machine
-──────────────────────          ───────────────            ───              ───────────
-packages/contract  ─┐           dist/agentswf/                              ~/.bun/bin/awf, wf
-packages/harness    │           ├ package.json  (made       agentswf@0.0.1       │
-packages/sandbox    ├─ copied ─►│  here: bins, exports,  ─►  ──────────────►     ▼
-packages/engine     │           │  engines, typebox)                        awf run ./review.ts
-packages/cli-agent ─┘           ├ bin/ awf, wf                                   │ loads review.ts;
-                                ├ node_modules/@agentswf/*                        │ its import of
-                                │   (the internals, laid                          │ agentswf/workflow
-                                │    out as in the clone)                         ▼ is the engine's own
-                                ├ LICENSE, README.md                        the engine's copy
+repository (workspace)               npm, one version for all            any machine
+──────────────────────               ────────────────────────            ───────────
+packages/contract   @agentswf/contract   ◄─┐                             bun add -g agentswf
+packages/sandbox    @agentswf/sandbox    ◄─┤                                  │
+packages/harness    @agentswf/harness    ◄─┤ dependencies,                    ▼
+packages/cli-agent  @agentswf/cli-agent  ◄─┤ exact versions             awf run ./review.ts
+packages/engine     @agentswf/engine     ◄─┤                                  │ loads review.ts;
+packages/agentswf   agentswf ──────────────┘                                  │ agentswf/workflow
+                    bin: awf                                                  │ and typebox are
+                    exports: ./workflow                                       ▼ the engine's own
+packages/autoresearch   stays private
 ```
 
-**The workspace stays as it is.** It keeps separate packages with their boundaries.
-`scripts/pack.ts` assembles the published package in `dist/agentswf/`, the way opencode's
-publish script does:
+**Each workspace package is published as it is, as pi publishes its packages.**
 
-- it writes a manifest built for publishing;
-- it copies the internals into the package's own `node_modules/@agentswf/*`, laid out exactly
-  as they are in the clone;
-- it copies the root `LICENSE` and `README.md` in.
-
-Inside the tarball, `require.resolve` and `import.meta.dir` find what they find in the clone. The
-internals are deliberately not listed as dependencies: `bun add` ignores `bundleDependencies`
-and would go looking for `@agentswf/contract` on the registry.
+- **One version for all.** Every package has the same version, and `bun pm pack` turns each
+  `workspace:*` into that exact version.
+- **What a user installs.** `agentswf` is a new, thin package: the `awf` command and the author
+  surface, depending on the engine.
+- **What someone building on it installs.** The package they need, and nothing that comes with
+  the command.
+- **Why nothing needs relocating.** Each package installs as a real dependency. So
+  `require.resolve("@agentswf/cli-agent/package.json")` and the docker directory next to the
+  sandbox's source find in `node_modules` what they find in the clone.
 
 **The engine provides the author surface.** Before `awf run` imports a workflow, it registers
-`agentswf/workflow` as a Bun virtual module whose exports are the engine's own copy. pi does
-the same for its extensions, with jiti aliases under Node and virtual modules in its Bun binary.
-This has three effects:
+`agentswf/workflow`, `typebox` and `typebox/value` as Bun virtual modules whose exports are the
+engine's own copies. pi does the same for its extensions, with jiti aliases under Node and
+virtual modules in its Bun binary. This has three effects:
 
 - a workflow in any folder runs, with no install there;
 - the surface it runs against is always the engine's version, never a stale copy in the folder;
-- `typebox`, which a workflow writes its schemas with, comes from the engine too, so the
-  schemas it validates against are the ones the engine checks results with.
+- the schemas a workflow writes with `typebox` are the ones the engine checks results with.
 
 The folder's own `agentswf` is only for the editor and `tsc`. It is declared the way pi tells
 extensions to declare their host: a peer or dev dependency, never something that gets loaded.
 
-What people will ask first: **why not a compiled binary, as opencode and codex ship?** It is
-possible. A `bun build --compile` binary loads a TypeScript workflow from disk and serves it the
-virtual module (tried 2026-09-28). But it needs three things 0.0.1 doesn't:
+What people will ask first:
 
-- the `wf` bundle built at pack time instead of at run time;
-- the docker files embedded (`with { type: "file" }`, as opencode embeds its web UI);
-- a package per platform, with a wrapper that finds the right one. opencode has 12 of these, codex 6.
-
-A Bun-only user already has Bun, so shipping the source costs them nothing.
-
-**Why Bun only?** The engine uses `Bun.spawn`, `Bun.serve` and `Bun.listen` throughout (ADR 0005).
+- **Why not a compiled binary, as opencode and codex ship?**
+  - It is possible. A `bun build --compile` binary loads a TypeScript workflow from disk and serves
+    it the virtual module (tried 2026-09-28).
+  - But it needs three things 0.0.1 doesn't:
+    - the `wf` bundle built at pack time instead of at run time;
+    - the docker files embedded (`with { type: "file" }`, as opencode embeds its web UI);
+    - a package per platform, with a wrapper that finds the right one. opencode has 12 of
+      these, codex 6.
+  - A Bun user already has Bun, so shipping the source costs them nothing.
+- **Why not Node?** Node can't run what is published as it is, and the engine calls Bun's own
+  API in 17 files. Supporting Node is a separate piece of work: see
+  [[node-runtime]] and Context.
 
 ## Scope
 
@@ -99,30 +105,40 @@ In scope:
 
 - **The naming rule.** Apply it to package names, the README, `foundation.md`'s naming note and
   ADR 0005.
-- **The author surface.** `awf run` provides `agentswf/workflow` to the workflows it loads.
-- **Packing.**
-  - `scripts/pack.ts`, which assembles `dist/agentswf/` and packs it.
-  - A pack check, which installs the tarball into an empty directory and runs from there.
+- **The author surface.** `awf run` provides `agentswf/workflow`, `typebox` and `typebox/value`
+  to the workflows it loads.
+- **Publishing the packages.**
+  - Every workspace package but `autoresearch`, published as `@agentswf/*`, plus the new
+    `agentswf`.
+  - Each package's `files` and exports trimmed to what it publishes.
+  - A pack check that installs the packed tarballs into an empty directory and runs from there.
 - **Docs.**
-  - The README becomes the package's front page.
+  - The README becomes `agentswf`'s front page.
   - A getting-started page covers prerequisites and a first workflow.
   - A LICENSE.
-- **Publishing and trying it.** Publish 0.0.1 by hand, tag `v0.0.1`, and install on the second machine.
+- **Publishing and trying it.** Publish 0.0.1 by hand, tag `v0.0.1`, and install on the second
+  machine.
 
 Out of scope:
 
-- **A Node.js build, compiled JavaScript, `.d.ts` output, or a compiled binary.** See How it
-  works. [[foundation]] §13 question 4 stays answered as Bun.
-- **Publishing `contract` or `harness` as packages of their own.** pi and opencode publish
-  several packages, because each is used on its own. Nothing here is yet.
+- **Running on Node.js.** [[node-runtime]] records what it takes, measured 2026-09-28; the
+  packages here are TypeScript source for Bun. The cheapest part of it is `@agentswf/contract`,
+  which is pure: it only needs compiled JavaScript and `.d.ts` beside its source for any Node tool
+  to read run records.
+- **A compiled binary.** See How it works.
 - **Rewriting git history or making the repository public.** [[scrub-private-references]] owns
-  that. This story covers only what the tarball ships, which npm makes public.
+  that.
+  - Of what the packages would ship, one line names private work, and task 3 removes it. The
+    search was of every published file but the tests, checked 2026-09-28; see Context.
+  - The rest of that todo is about docs, tests, experiments and history. None of them publishes.
 - **Renaming the command's own names.** `awf` and `wf`, `~/.awf/runs`, `AWF_*` variables and
   docker's `awf.*` labels all belong to the command under the rule below, and stay.
-- **Release automation, release notes and a changelog.** A CI workflow that publishes on a `v*`
-  tag through npm trusted publishing (OIDC) is how pi and codex release. npm can only trust a
-  publisher for a package that already exists, so the first publish is by hand anyway. Automation
-  comes with the second release.
+- **Release automation, release notes and a changelog.**
+  - A CI workflow that publishes on a `v*` tag through npm trusted publishing (OIDC) is how pi and
+    codex release.
+  - npm can only trust a publisher for a package that already exists, so the first publish is by
+    hand anyway.
+  - Automation comes with the second release.
 
 ## Context and evidence
 
@@ -132,41 +148,72 @@ Out of scope:
   - Authors import `agentswf/workflow`.
   - The commands stay `awf` and `wf`.
 
-  It kept the workspace packages as `@wf/*` to avoid churn. The operator has since asked for
-  names that match, so task 1 amends that one point.
+  It kept the workspace packages as private `@wf/*` names. The operator has since asked for names
+  that match, and for the packages to be published so others can build on them. Task 1 amends
+  both points.
+- **Fact: the scope names on npm, checked 2026-09-28 against `registry.npmjs.org/-/org/{name}/package`.**
+  That endpoint answers for users and organisations alike, since both are scopes.
+  - `@awf` exists, with no packages, so someone holds it.
+  - `@agentswf`, `@agents-wf` and `@agentwf` all answer "Scope not found".
+  - The unscoped `agentswf` and `agents-wf` are free.
+  - GitHub users or organisations named `agentswf`, `agents-wf` and `agentwf` do not exist.
 - **Fact: the internal `@wf/` names are widespread.** 81 TypeScript files import them, across
   `packages`, `examples` and `scripts`. 9 examples import `@wf/contract/workflow`.
 - **Fact: there is one external runtime dependency, `typebox`.** Everything else is `node:*` or
   `bun:*`.
 - **Fact: a workflow is loaded in the engine's process.** `loadWorkflowFile` in
   `packages/engine/src/workflow-loader.ts` does `await import(pathToFileURL(absolute).href)`.
-- **Fact: the engine locates things by repository layout.**
+- **Fact: both commands run only when started directly.** Both files end in
+  `if (import.meta.main)`: `packages/engine/src/operator-cli.ts:520` and
+  `packages/cli-agent/src/cli.ts:126`.
+  - So `agentswf`'s `bin/awf` can't just import the engine's file. It has to call a function the
+    engine exports.
+  - `wf` needs no command on PATH at all: `agent-launcher.ts` writes each agent its own `wf`
+    launcher.
+- **Fact: the engine locates things through package resolution.**
   - `resolveAgentCommand` in `packages/engine/src/agent-launcher.ts` uses
     `require.resolve("@wf/cli-agent/package.json")`.
   - `buildAgentBundle` in the same file runs `bun build` on that entry at run time.
   - `IMAGE_DIRECTORY` in `packages/sandbox/src/docker/index.ts` is `import.meta.dir/../../docker`.
 
-  A tarball that keeps the clone's layout leaves all three working. pi finds its own assets by
-  walking up from `import.meta.url` to the nearest `package.json`, overridable by `PI_PACKAGE_DIR`.
-- **Fact: both bins are ready to install.**
+  With each package installed as a real dependency, all three work as long as each package's
+  `files` keeps `src` and, for the sandbox, `docker`.
+- **Fact: some exports exist only for tests or the archive.**
+  - `./testing` in contract, harness, sandbox and engine. Used by tests in other packages.
+  - `./archive-compat` in engine. Used by `experiments/_archive`.
+- **Fact: the commands already refuse `.env`.**
   - Each has the shebang `#!/usr/bin/env -S bun --no-env-file` (f8d6071).
   - opencode's compiled binary sets `autoloadDotenv: false` for the same reason.
 - **Fact: `bun pm pack` fills in version specifiers.** Bun 1.4.0, tried 2026-09-28:
   - It rewrites `workspace:*` to the sibling's version and `catalog:` to the catalog's range.
-  - It puts `bundleDependencies` into the tarball's `node_modules`.
   - opencode relies on this and rewrites nothing by hand.
-- **Fact: `bun add` fails on bundled dependencies.**
-  - When a bundled package is also listed in `dependencies`, `bun add` of that tarball fails:
-    `GET https://registry.npmjs.org/@x%2flib - 404`. This happens both locally and with `-g`.
+- **Fact: `bun add` fails on bundled dependencies.** One package that bundles the others is ruled
+  out:
+  - A tarball listing a package in both `bundleDependencies` and `dependencies` fails under
+    `bun add`, locally and with `-g`: `GET https://registry.npmjs.org/@x%2flib - 404`.
   - `npm install` of the same tarball works.
-  - With the bundled name dropped from `dependencies`, `bun add` and `bun add -g` both keep the
-    nested `node_modules`. The bin runs and a subpath export imports.
 - **Fact: the engine can serve the surface as a virtual module.** Tried with Bun 1.4.0,
   2026-09-28:
   - `plugin({ setup(b) { b.module("agentswf/workflow", () => ({ exports, loader: "object" })) } })`
-    serves a workflow in a folder with no `node_modules`, both under `bun` and in a compiled binary.
+    serves a workflow in a folder with no `node_modules`, under `bun` and in a compiled binary.
   - `onResolve` with the same filter does not reach a bare import from outside the project.
-  - In the same run, a workflow's own `import "typebox"` failed: the engine has to serve it too.
+  - A workflow's own `import "typebox"` failed until the engine served it too.
+- **Fact: Node can't run what would be published.** Tried with Node 22.20, 2026-09-28:
+  - Node strips types from a `.ts` file it is given, so a user's workflow would run.
+  - Under `node_modules` it refuses with `ERR_UNSUPPORTED_NODE_MODULES_TYPE_STRIPPING`, so a
+    published package has to be JavaScript.
+  - `bun build --target=node` leaves `Bun.spawn` as it is, so the output fails under Node.
+  - The code that would ship makes about 37 calls into Bun's own API in 17 files, across engine,
+    harness, sandbox and cli-agent. [[node-runtime]] has the count and the work.
+- **Fact: one line that would ship names private work.** A search of every file the packages
+  would publish, tests and `autoresearch` excluded, 2026-09-28:
+  - Terms searched: the private workspace's name, home paths, the operator's names and emails,
+    `loops`, `gitlab` and `~/dev`.
+  - The one hit: `packages/harness/src/usage/claude.ts:13`, which names the private file it was
+    lifted from.
+  - "Jev" appears too, and is a public model on OpenRouter.
+  - The `repository` field will link the GitHub repository, which is private until
+    [[scrub-private-references]] is done.
 - **Fact: the reference projects agree on the basics.** Checked 2026-09-28:
   - **Versions:** all three keep every package at one version, set at release. codex keeps
     `0.0.0-dev` in source and stamps the version when it stages.
@@ -176,16 +223,15 @@ Out of scope:
   - **Smoke test:** pi installs its packed tarballs into a scratch consumer before release.
   - **Package name vs command:** opencode publishes `opencode-ai` for the command `opencode`, the
     same split as `agentswf` and `awf`.
-  - **Internal names:** opencode's private internals share the published packages' scope.
+  - **Packages:** pi publishes each workspace package under its scope (`@earendil-works/pi-ai`,
+    `pi-agent-core`, `pi-tui`, …), with lockstep versions, and its command's package depends on
+    them.
   - **License:** a single root `LICENSE`, MIT for pi and opencode, Apache-2.0 plus `NOTICE` for
     codex. opencode copies it into the package it publishes.
 - **Fact: nothing is licensed yet.** The repository has no LICENSE, and a package without one
   is "all rights reserved".
-- **Fact: the tarball would ship private references.** [[scrub-private-references]] lists
-  `packages/harness/src/usage/claude.ts` and two tests that name private work. The tests stay out
-  of the tarball, but the source comment would ship.
 - **Constraint: publishing is outward-facing.** The operator:
-  - claims `agentswf` on npm (this machine is not logged in);
+  - claims `agentswf` and the `agentswf` organisation on npm (this machine is not logged in);
   - approves the publish itself.
 - **Constraint: others work on this repository at the same time.**
   - `main` has concurrent sessions ([[story-worktrees]]).
@@ -213,26 +259,44 @@ Out of scope:
 
 ### Author surface
 
-- **Change:** `packages/engine/src/workflow-loader.ts`. Register the virtual module once, before
+- **Change:** `packages/engine/src/workflow-loader.ts`. Register the virtual modules once, before
   the first `import`.
 - **Tests:** a workflow in a temporary folder with no `node_modules` loads and gets the engine's
-  surface. Its tests sit next to `workflow-loader.ts`.
+  copies. Its tests sit next to `workflow-loader.ts`.
 - **Checked:** `isExecutableWorkflow` compares `kind` as a string, not by `instanceof`. So a
   workflow built against another copy of the surface still loads, and the virtual module is about
   one version, not about identity.
 
-### Package
+### Packages
 
-- **New:** `scripts/pack.ts`. It assembles `dist/agentswf/` and runs `bun pm pack` there.
+- **Each `packages/*/package.json` but `autoresearch`:**
+  - `private` dropped;
+  - `files`, `license` and `repository` (with `directory`) added;
+  - `engines.bun` added.
+
+  Its exports are trimmed to what it publishes (see open questions 3).
+- **New:** `packages/agentswf`, with:
+  - `package.json`;
+  - `bin/awf.ts`, which calls the engine's exported entry;
+  - `workflow.ts`, which re-exports `@agentswf/contract/workflow`;
+  - its README, which is the repository's README copied in at pack time.
+- **Changes in the engine and cli-agent:**
+  - `packages/engine/src/operator-cli.ts` exports the function its `import.meta.main` block
+    runs, so `bin/awf.ts` can call it.
+  - `cli-agent` needs no change: it is bundled into each agent's launcher, not run from PATH.
+- **New:** `scripts/release.ts`, which:
+  - sets one version in every published package;
+  - refuses a version `npm view` already shows;
+  - packs each package into `dist/`.
 - **New:** a pack check. It could be `scripts/pack-check.ts` or a `*.local.test.ts`. It installs
-  the tarball into an empty directory, then checks:
-  - it runs `awf` and `wf`;
+  the packed tarballs into an empty directory, then checks:
+  - `awf` runs;
   - a workflow in a folder without `agentswf` runs;
   - with `agentswf` added as a dev dependency, a workflow passes `tsc --noEmit`;
-  - the docker directory is present;
-  - no test file, `workspace:` or `catalog:` specifier, or private name is in the tarball.
-- **Likely unchanged:** `resolveAgentCommand`, `buildAgentBundle` and `IMAGE_DIRECTORY`. The
-  pack keeps the clone's layout, and the pack check proves it.
+  - the sandbox package holds its docker directory;
+  - no tarball holds a test file, a `workspace:` or `catalog:` specifier, or a private name.
+- **Likely unchanged:** `resolveAgentCommand`, `buildAgentBundle` and `IMAGE_DIRECTORY`. The pack
+  check proves it.
 - **`.gitignore`:** `dist/`.
 
 ### Docs
@@ -242,6 +306,7 @@ Out of scope:
   - prerequisites;
   - install;
   - a first workflow;
+  - which package to use for what;
   - where the design docs are.
 
   It replaces the line "Nothing here is published".
@@ -252,7 +317,7 @@ Out of scope:
   - the smallest workflow;
   - `awf run`, and where runs are kept;
   - that `awf` loads no `.env`, and how Jev still finds `OPENROUTER_API_KEY`.
-- **`LICENSE`** at the root. `scripts/pack.ts` copies it into the package.
+- **`LICENSE`** at the root, copied into each package at pack time.
 - **`docs/status.md`:** a line when 0.0.1 is out.
 
 ## Proposed design
@@ -261,12 +326,20 @@ Out of scope:
 
 - **agents.wf** is the project, in prose and on the README, and **`agentswf`** is its npm package
   and GitHub name.
+- **`@agentswf/*`** are its other packages, one per workspace package. The directory name is the
+  package name: `packages/harness` is `@agentswf/harness`.
 - **`awf`** is the operator's command and everything it owns at run time: `~/.awf/runs`, `AWF_*`,
   `awf.*` docker labels, `awf-*` containers.
 - **`wf`** is the agent's command.
-- **`@agentswf/*`** are the workspace packages. They stay private, and their names never reach a user.
 
-The rule goes into `foundation.md`'s naming note and into ADR 0005 as an amendment. Tools named
+Why `@agentswf`:
+
+- it is free on npm and GitHub, and it is the package's own name, so one claim covers both;
+- `@awf` is held by someone else;
+- `@agents-wf` matches the domain, but not the package, and a reader would have two spellings to
+  keep straight.
+
+The rule goes into `foundation.md`'s naming note, and into ADR 0005 as an amendment. Tools named
 after the command (`awf-lab`) follow the command.
 
 **The author surface.** `awf run` registers Bun virtual modules before it imports a workflow:
@@ -275,54 +348,50 @@ after the command (`awf-lab`) follow the command.
 - `typebox` and `typebox/value`, whose exports are the engine's own copy, as pi provides typebox
   to its extensions.
 
-Provided `typebox` pins one version for every workflow; that is the point, since a result schema
-and the engine's validation of it then agree. A workflow that imports any other package installs
-it in its own folder, as any TypeScript file would. Nothing else in the engine becomes importable
-by that route, and the list is part of the author surface: adding a name later is cheap, removing
-one breaks workflows.
+Provided `typebox` pins one version for every workflow. That is the point: a result schema and
+the engine's validation of it then agree. A workflow that imports any other package installs it
+in its own folder, as any TypeScript file would.
 
-There is no alias for the old `@wf/contract/workflow`: the operator upgrades their existing
+Nothing else in the engine becomes importable by that route. The list is part of the author
+surface: adding a name later is cheap, removing one breaks workflows.
+
+There is no alias for the old `@wf/contract/workflow`. The operator upgrades their existing
 workflows to `agentswf/workflow` along with the rename, which is why it lands before 0.0.1.
 
-**The package.** `scripts/pack.ts` writes `dist/agentswf/package.json`:
+**The packages.**
 
-```json
-{
-  "name": "agentswf",
-  "version": "0.0.1",
-  "type": "module",
-  "bin": { "awf": "bin/awf", "wf": "bin/wf" },
-  "exports": { "./workflow": "./node_modules/@agentswf/contract/src/workflow/index.ts" },
-  "engines": { "bun": ">=1.4.0" },
-  "dependencies": { "typebox": "^1.3.34" },
-  "license": "…",
-  "repository": { "type": "git", "url": "…" }
-}
-```
+| Package | Holds | Depends on |
+| --- | --- | --- |
+| `agentswf` | the `awf` command, `./workflow` | engine, contract |
+| `@agentswf/engine` | running workflows | contract, harness, sandbox, cli-agent |
+| `@agentswf/harness` | driving one coding agent | contract, sandbox |
+| `@agentswf/sandbox` | the sandbox seam and providers, with `docker/` | contract |
+| `@agentswf/cli-agent` | the `wf` source the engine bundles | contract |
+| `@agentswf/contract` | types, schema, records, wire | typebox |
 
-- **What gets copied:** the internals' `package.json`, `src` and `sandbox/docker/` go into
-  `node_modules/@agentswf/*`. Tests do not. The script rewrites each internal manifest's
-  `workspace:*` to a path the tarball holds.
-- **Bins:** `bin/awf` and `bin/wf` are the two entry files, or one-line re-exports of them, with
-  the existing shebang.
-- **Versions:** the workspace packages keep `0.0.0`, and the pack script takes the published
-  version from its argument, as codex's staging does. A version already on npm is refused before
-  packing.
+- **Versions:** the same for every package. `bun pm pack` writes each `workspace:*` as that exact
+  version, so an install never mixes two releases.
+  - The workspace keeps `0.0.0` in source, and `scripts/release.ts` stamps the version at release,
+    as codex's staging does.
+- **The boundaries become published facts.** A user of `@agentswf/harness` gets what boundary 4
+  allows it and nothing more. Boundary 7 already makes every cross-package import a declared
+  dependency, which is what an install needs.
+- **What each publishes:** `src` without tests, `README.md`, `LICENSE`, and for the sandbox
+  `docker/`.
+- **Promises:** none before 1.0, and each README says so.
 - **`engines.bun`:** npm and bun only warn on it. The shebang is what actually requires Bun.
-
-The first pack decides whether an `exports` target inside the package's own `node_modules`
-typechecks in a consumer's editor. If it doesn't, a thin `workflow.ts` at the package root
-re-exports it.
 
 Alternatives rejected:
 
 - **Keep `@wf/*` internally (ADR 0005 as written):** the operator wants one set of names, and the
   cost only grows.
-- **A static `packages/agentswf` manifest with `bundleDependencies`:** `bun add` tries to fetch
-  each bundled package from the registry and fails (see Context).
-- **Copying the internals' sources into the package and rewriting their imports:** the rewrite
-  touches every file and moves `import.meta.dir`. Copying them whole into `node_modules` keeps
-  both.
+- **`@awf/*`:** the scope is held.
+- **One `agentswf` with the rest bundled inside:**
+  - with `bundleDependencies`, `bun add` fails (see Context);
+  - with a pack script that copies the rest into the package's own `node_modules`, `bun add`
+    works, but nobody can build on a package they can't install.
+- **Copying the internals' sources into one package and rewriting their imports:** the rewrite
+  touches every file and moves `import.meta.dir`.
 - **The workflow folder's own `agentswf` at run time (`bunx awf`):**
   - the global command and the folder's copy can disagree;
   - a folder without an install can't run;
@@ -331,17 +400,17 @@ Alternatives rejected:
   pi's host-provided imports avoid all three.
 - **Use `package.json` `imports` (`#contract`) instead of a scope:** boundary 7 checks declared
   dependencies between workspace packages, and one package with import aliases would lose that.
-- **A scoped published package (`@agentswf/agentswf`, `@evolvedstack/…`):** ADR 0005 chose an
-  unscoped import line.
+- **Authors import `@agentswf/workflow`:** it is one more package to publish, and ADR 0005 chose
+  an unscoped import line that the operator's command package also answers to.
 - **A compiled binary with per-platform packages:** see How it works. It stays open for later.
-- **Publishing each internal package, as pi does:** nothing outside uses them on their own yet,
-  and each would become a published surface.
+- **A `wf` command on PATH:** each agent already gets its own launcher, and a global `wf` would be
+  one more name to collide.
 
 ## Tasks at a glance
 
 - [ ] 1. The repository follows one naming rule
-- [ ] 2. `awf run` provides `agentswf/workflow` to a workflow in any folder
-- [ ] 3. `agentswf` packs, installs into an empty directory, and runs a workflow there
+- [ ] 2. `awf run` provides `agentswf/workflow` and `typebox` to a workflow in any folder
+- [ ] 3. The packages pack, install into an empty directory, and run a workflow there
 - [ ] 4. The README, a getting-started page and a LICENSE let a stranger do the same
 - [ ] 5. 0.0.1 is published, tagged, and running on the operator's second machine
 
@@ -349,13 +418,11 @@ Alternatives rejected:
 
 ### 1. Names
 
-- **Internal scope:** `@agentswf/*`, or something shorter (`@awf/*`)? Private packages never
-  publish, so no scope needs claiming. But claiming the free npm org `agentswf` stops anyone else
-  from taking the scope, and leaves a later split open.
-  - Recommended: `@agentswf/*`, and claim the org.
+- **Scope:** `@agentswf` is recommended, on the evidence above. The operator confirms it and
+  claims the npm organisation, which is free for public packages.
 - **Repository:** rename `romanlv/awf` to `agentswf/agentswf` (with the GitHub org) or to
   `romanlv/agentswf`? GitHub redirects the old URL either way.
-  - It decides the `repository` field and the README's links.
+  - It decides the `repository` fields and the README's links.
 - **Timing:** when does the 81-file rename land? It affects the open review-scorer worktree, so
   agree the moment first.
 
@@ -365,11 +432,15 @@ Alternatives rejected:
   with the rename.
 - **`typebox`:** decided 2026-09-28, the engine provides `typebox` and `typebox/value`.
 
-### 3. Package
+### 3. Packages
 
-- **`autoresearch` and `awf-lab`:** do they ship in `agentswf`, or stay repository-only until
-  story 008 settles?
-  - Recommended: repository-only for 0.0.1.
+- **`./testing` exports:** do they publish?
+  - They let a builder test against fakes, such as a fake harness or the sandbox conformance
+    suite, which is useful to exactly the people publishing is for.
+  - Recommended: publish them, marked unstable. Drop `./archive-compat` from the published
+    engine, which only the archive uses.
+- **`autoresearch` and `awf-lab`:** do they stay private until story 008 settles?
+  - Recommended: yes.
 - **Bun version:** does `engines.bun` pin the minimum this repository tests on, or the one
   `sandbox/docker`'s `BUN_VERSION` uses (1.4.0)?
 
@@ -384,7 +455,7 @@ Alternatives rejected:
 ### 5. Publish
 
 - **Second machine:** what OS is it? On Linux, check `env -S`, and srt's bubblewrap requirement.
-- **Who publishes:** the operator runs `npm publish` on the packed tarball, or logs in so this
+- **Who publishes:** the operator runs `npm publish` on the packed tarballs, or logs in so this
   session can, with 2FA either way.
 
 ## Task execution rule
@@ -405,12 +476,14 @@ nothing else changes behaviour.
 
 Execution:
 
-- [ ] Plan: settle the internal scope and the repository name (open questions 1). Agree the
-  commit's timing with open branches. List every file the rename touches.
+- [ ] Plan:
+  - settle the scope and the repository name (open questions 1);
+  - agree the commit's timing with open branches;
+  - list every file the rename touches.
 - [ ] Implement:
   - the mechanical rename;
   - the `foundation.md` naming note, §6 and §13 question 1;
-  - ADR 0005 amended;
+  - ADR 0005 amended, for the names and for publishing each package;
   - `AGENTS.md`.
 - [ ] Review: have two read-only subagents review this task's actual diff and test output. One
   reviews architecture and scope, the other correctness and proof.
@@ -428,14 +501,15 @@ Done when:
 - `grep -r "@wf/"` finds nothing outside `experiments/_archive/` and git history.
 - `foundation.md`, ADR 0005 and `AGENTS.md` state the same rule.
 
-### 2. `awf run` provides `agentswf/workflow` to a workflow in any folder
+### 2. `awf run` provides `agentswf/workflow` and `typebox` to a workflow in any folder
 
 Outcome: a workflow outside the repository runs under the clone's `awf`, without `bun link`.
 
 Execution:
 
-- [ ] Plan: decide where the plugin is registered, once per process, before the first workflow
-  import, and check `typebox`'s subpaths the examples use are all served.
+- [ ] Plan:
+  - decide where the plugin is registered, once per process, before the first workflow import;
+  - check that every `typebox` subpath the examples use is served.
 - [ ] Implement: the virtual modules in `workflow-loader.ts`: `agentswf/workflow`, `typebox`,
   `typebox/value`.
 - [ ] Review: obtain architecture/scope and correctness/proof subagent reviews of the actual diff.
@@ -453,38 +527,41 @@ Done when:
   `agentswf/workflow` and `typebox`, and gets the engine's copies of both.
 - `bun run awf run {folder}/x.ts` from the clone reaches opening the workflow's first agent.
 
-### 3. `agentswf` packs, installs into an empty directory, and runs a workflow there
+### 3. The packages pack, install into an empty directory, and run a workflow there
 
-Outcome: a pack check proves an installed `agentswf` works without the repository.
+Outcome: a pack check proves the installed packages work without the repository.
 
 Execution:
 
-- [ ] Plan: settle open questions 3. Pack by hand once, install it, and record what the design
-  above got wrong.
+- [ ] Plan:
+  - settle open questions 3;
+  - pack by hand once, install it, and record what the design above got wrong.
 - [ ] Implement:
-  - `scripts/pack.ts`;
-  - the pack check;
-  - the private reference in `packages/harness/src/usage/claude.ts` removed.
+  - the manifests, and `packages/agentswf`;
+  - the exported entry in `operator-cli.ts`;
+  - `scripts/release.ts` and the pack check;
+  - the private line in `packages/harness/src/usage/claude.ts` removed.
 - [ ] Review: obtain architecture/scope and correctness/proof subagent reviews of the actual diff.
 - [ ] Resolve: disposition findings, and obtain targeted re-review after material design changes.
 - [ ] Verify: satisfy every `Done when` item.
 
 Work:
 
-- The pack check runs where `bun test` runs. If installing needs the network, for `typebox`, it
-  runs as a `*.local.test.ts` instead.
+- The pack check installs from the local tarballs, with `typebox` from the registry.
+- It runs as a `*.local.test.ts` if the network makes it unfit for `bun test`.
 
 Done when:
 
-- The tarball holds:
-  - no `*.test.ts`;
-  - no `workspace:` or `catalog:` specifier;
-  - no private name;
-  - `docker/Dockerfile`, `proxy.js` and `relay.js`.
+- No tarball holds:
+  - a `*.test.ts`;
+  - a `workspace:` or `catalog:` specifier;
+  - a private name.
+- `@agentswf/sandbox` holds `docker/Dockerfile`, `proxy.js` and `relay.js`.
 - Installed with `bun add -g` into an empty temporary `BUN_INSTALL`:
-  - `awf --help` and `wf --help` run;
+  - `awf --help` runs;
   - a workflow in a folder without `agentswf` loads, and `awf run` reaches opening its first agent.
 - With `agentswf` as a dev dependency, that workflow passes `tsc --noEmit`.
+- A scratch program that depends only on `@agentswf/harness` imports it.
 - From the clone: the existing tests pass, and `bun run eval` still passes its non-sandbox
   scenarios.
 
@@ -495,7 +572,10 @@ Outcome: someone with only the npm page can install agents.wf and run a first wo
 Execution:
 
 - [ ] Plan: settle open questions 4.
-- [ ] Implement: the README, `docs/getting-started.md` and `LICENSE`.
+- [ ] Implement:
+  - the README, and a short README for each `@agentswf/*` package;
+  - `docs/getting-started.md`;
+  - `LICENSE`.
 - [ ] Review: obtain architecture/scope and correctness/proof subagent reviews.
 - [ ] Resolve: disposition findings.
 - [ ] Verify: satisfy every `Done when` item.
@@ -508,7 +588,7 @@ Work:
 Done when:
 
 - A subagent with no repository context follows the README and getting-started page against the
-  packed tarball, and reaches `awf run`.
+  packed tarballs, and reaches `awf run`.
 - The README no longer says nothing is published.
 
 ### 5. 0.0.1 is published, tagged, and running on the operator's second machine
@@ -518,25 +598,28 @@ Outcome: `bun add -g agentswf` works anywhere, and the operator has used it for 
 Execution:
 
 - [ ] Plan:
-  - the operator has claimed `agentswf` on npm, and the GitHub org if chosen;
+  - the operator has claimed `agentswf` and the `agentswf` organisation on npm, and the GitHub
+    org if chosen;
   - confirm who publishes.
 - [ ] Implement:
-  - `scripts/pack.ts 0.0.1`;
+  - `scripts/release.ts 0.0.1`;
   - tag `v0.0.1` and push it;
-  - `npm publish` of the tarball, with the operator's approval.
-- [ ] Review: compare the published file list with the pack check's.
-- [ ] Resolve: if the published package is wrong, publish 0.0.2. npm doesn't allow a version to
-  be republished.
+  - `npm publish` of each tarball, with the operator's approval. Dependencies go first, and
+    `agentswf` last, as codex orders its publishing, so `agentswf@latest` never names a version
+    that isn't there yet.
+- [ ] Review: compare the published file lists with the pack check's.
+- [ ] Resolve: if a published package is wrong, publish 0.0.2 of all of them. npm doesn't allow a
+  version to be republished.
 - [ ] Verify: satisfy every `Done when` item.
 
 Work:
 
-- Once the package exists, configure npm trusted publishing for the repository. That makes the
+- Once the packages exist, configure npm trusted publishing for the repository. That makes the
   next release CI's job, in a story of its own.
 
 Done when:
 
-- `npm view agentswf` shows 0.0.1, with bins `awf` and `wf`.
+- `npm view agentswf` shows 0.0.1, with the bin `awf`. `npm view @agentswf/engine` shows 0.0.1.
 - On the second machine, `bun add -g agentswf` runs one of the operator's workflows with a live
   agent. What it needed that the docs didn't say goes back into task 4's pages.
 - `docs/status.md` says 0.0.1 is out and how it installs.
@@ -546,8 +629,8 @@ Done when:
 Automated:
 
 - [ ] The author-surface test: a workflow from a folder with no `node_modules` loads.
-- [ ] The pack check: pack, install into an empty `BUN_INSTALL`, bins run, a workflow loads and
-  typechecks.
+- [ ] The pack check: pack, install into an empty `BUN_INSTALL`, `awf` runs, a workflow loads and
+  typechecks, a single package installs on its own.
 - [ ] `bun test`
 - [ ] `bunx tsc --noEmit`
 - [ ] `bun run scripts/check-boundaries.ts`
@@ -555,7 +638,7 @@ Automated:
 Manual or live evaluation:
 
 - [ ] `bun run eval` from the clone after task 3: the repository layout still works.
-- [ ] One live workflow on the second machine from the published package (task 5).
+- [ ] One live workflow on the second machine from the published packages (task 5).
 
 ## Review record
 
@@ -566,8 +649,8 @@ Record reviews under the task they cover.
 The draft was compared with pi, opencode and codex, and Bun 1.4.0's packing was tried against a
 scratch workspace. Changes from the first draft:
 
-- **`bundleDependencies` in a static manifest is replaced by a pack script** that writes the
-  manifest itself. `bun add` fails on a bundled package that is also a dependency.
+- **`bundleDependencies` is ruled out:** `bun add` fails on a bundled package that is also a
+  dependency.
 - **The engine now provides the author surface as a virtual module.** A workflow folder no longer
   runs its own copy.
 - **"`--compile` supports neither" is corrected.** A compiled binary loads workflows from disk,
@@ -577,15 +660,23 @@ scratch workspace. Changes from the first draft:
 - **The operator decided, 2026-09-28:** there is no alias for `@wf/contract/workflow`, because
   existing workflows are upgraded with the rename. The engine provides `typebox` alongside
   `agentswf/workflow`.
+- **The operator's review, 2026-09-28:**
+  - **Scope:** it has to be one nobody else holds. The candidates were checked on npm and GitHub,
+    and `@agentswf` is proposed.
+  - **Publishing every package:** others should be able to build on them. One bundled package
+    became six published in lockstep, as pi publishes.
+  - **Node:** its cost was measured and moved to [[node-runtime]].
+  - **Private information:** the files that would ship were searched. One line names private
+    work.
 
 ## Readiness
 
 - [x] Outcome and boundaries are concrete.
-- [ ] Relevant implementation, callers, and tests are mapped. Self-location sites are known; the
-  pack check will show whether there are others.
+- [ ] Relevant implementation, callers, and tests are mapped. The pack check will show whether
+  anything else locates files by repository layout.
 - [x] Evidence and research support the proposed design.
 - [ ] Expensive interface, record-format, and stage-gate decisions are settled. `agentswf/workflow`
-  and how it resolves are settled; the internal scope and the license are not.
+  and how it resolves are settled; the scope, the published exports and the license are not.
 - [x] Tasks are ordered, coherent, and independently verifiable.
 - [ ] Open questions are resolved or explicitly moved out of scope.
 
