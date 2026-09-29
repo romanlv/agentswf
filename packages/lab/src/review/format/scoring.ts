@@ -16,7 +16,7 @@ export const FINDINGS_FORMAT = "awf.review-findings/1";
 export const JUDGEMENT_FORMAT = "awf.review-judgement/1";
 export const SCORE_FORMAT = "awf.review-score/1";
 
-export const RUN_OUTCOMES = ["succeeded", "failed", "cancelled", "timed-out"] as const;
+const RUN_OUTCOMES = ["succeeded", "failed", "cancelled", "timed-out"] as const;
 
 /** The common shape every variant's findings are read into, so different workflows compare. */
 export const ReviewFindingSchema = Type.Object(
@@ -80,7 +80,7 @@ const IdentitySchema = Type.Object(
 
 const FixtureRef = Type.Object({ id: Text, digest: Digest }, { additionalProperties: false });
 
-/** `scores/{set}/{variant-hash}/{fixture}/{id}/findings.json`: one review, written once. */
+/** A first-version `findings.json`: one review, written once; `readTrial` reads it. */
 export const FindingsRecordSchema = Type.Object(
   {
     format: Type.Literal(FINDINGS_FORMAT),
@@ -196,8 +196,8 @@ export const JudgementSchema = Type.Object(
 );
 
 /**
- * `judged.{judge-hash}.k{revision}.{n}.json` beside the findings, `n` counting judgings by that
- * judge on that key revision: one judging, written once.
+ * A first-version score, beside the findings, one per file: one judging, written once;
+ * `readScore` reads it.
  */
 export const ScoreRecordSchema = Type.Object(
   {

@@ -99,7 +99,7 @@ export async function trialsOf(results: string, dataset: string, variantKey: str
 
 /**
  * Everything on file for a dataset: each variant key's trials and each scorer key's scores, with
- * the versions and content hashes their records came from.
+ * the versions their records declare.
  */
 export async function inventory(results: string, dataset: string) {
   type Version = {

@@ -17,6 +17,7 @@ import {
   type WorkflowInvocation,
 } from "@agentswf/contract/workflow";
 import Type from "typebox";
+import { readCase } from "../fixtures/verify";
 import type { AnswerKey, Fixture } from "../format/format";
 import { runtimeName, runtimeOf } from "../format/runtime";
 import {
@@ -25,13 +26,7 @@ import {
   type Judgement,
   type ReviewFinding,
 } from "../format/scoring";
-import {
-  checkAnswerKey,
-  checkFixture,
-  checkJudgementShape,
-  checkReviewFindings,
-  describeProblems,
-} from "../format/validate";
+import { checkJudgementShape, checkReviewFindings, describeProblems } from "../format/validate";
 import { checkJudgement, type LabelOptions, labelProblems } from "./check";
 import { disputed, settle, type Vote } from "./panel";
 import { judgePrompt, NO_ANSWER, retryPrompt, tiebreakPrompt } from "./prompt";
@@ -68,7 +63,7 @@ const executable = defineExecutableWorkflow<Args, Judgement>({
       whenToUse: "Run by awf-lab to score a review run (story 008).",
     },
     async run(workflow, args) {
-      const input = await readCase(args);
+      const input = await readInput(args);
       if (input.findings.length === 0) {
         return { format: JUDGEMENT_FORMAT, labels: [], missed: "The review found nothing." };
       }
@@ -178,15 +173,12 @@ async function ask(
   return { ok: false, by: voter.by, detail };
 }
 
-async function readCase(args: Args): Promise<Case> {
-  const fixture = checkFixture(await Bun.file(join(args.fixture, "fixture.json")).json());
-  if (!fixture.ok) throw new Error(describeProblems("fixture.json", fixture.problems));
-  const key = checkAnswerKey(await Bun.file(join(args.fixture, "key", "key.json")).json());
-  if (!key.ok) throw new Error(describeProblems("key/key.json", key.problems));
+async function readInput(args: Args): Promise<Case> {
+  const { fixture, key } = await readCase(args.fixture);
   const findings = checkReviewFindings(await Bun.file(args.findings).json());
   if (!findings.ok) throw new Error(describeProblems(args.findings, findings.problems));
   const request = await Bun.file(join(args.fixture, "request.md")).text();
-  return { fixture: fixture.value, request, key: key.value, findings: findings.value };
+  return { fixture, request, key, findings: findings.value };
 }
 
 /** Two judges from different model families, so a majority isn't one model agreeing with itself. */

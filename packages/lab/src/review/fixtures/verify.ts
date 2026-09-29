@@ -1,13 +1,14 @@
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { AnswerKey } from "../format/format";
+import type { AnswerKey, Fixture } from "../format/format";
 import {
   type Checked,
   checkAnswerKey,
   checkCollectRecord,
   checkFixture,
   checkVotes,
+  describeProblems,
   keyProblems,
   type Problem,
   votesProblems,
@@ -18,6 +19,17 @@ import { orderVersions } from "./review-start";
 import { accountable } from "./threads";
 
 export const SNAPSHOT_REF = "refs/fixture/head";
+
+/** A case folder's fixture and answer key, each checked; a failure names the file. */
+export async function readCase(dir: string): Promise<{ fixture: Fixture; key: AnswerKey }> {
+  const fixtureFile = join(dir, "fixture.json");
+  const fixture = checkFixture(await Bun.file(fixtureFile).json());
+  if (!fixture.ok) throw new Error(describeProblems(fixtureFile, fixture.problems));
+  const keyFile = join(dir, "key", "key.json");
+  const key = checkAnswerKey(await Bun.file(keyFile).json());
+  if (!key.ok) throw new Error(describeProblems(keyFile, key.problems));
+  return { fixture: fixture.value, key: key.value };
+}
 
 /**
  * Restores a fixture's frozen code into `target` with its later pushes beside it as

@@ -67,7 +67,7 @@ const WEIGHTS: Record<Exclude<Severity, "nit">, number> = {
 const tallies = <K extends string>(keys: readonly K[]) =>
   Object.fromEntries(keys.map((k) => [k, { total: 0, hit: 0 }])) as Record<K, Tally>;
 
-export function emptyCounts(): Counts {
+function emptyCounts(): Counts {
   return {
     fixtures: 0,
     bySeverity: tallies(SEVERITIES),
@@ -91,7 +91,7 @@ function sourceKinds(issue: KnownIssue): Set<SourceKind> {
   );
 }
 
-export function wordsIn(text: string): number {
+function wordsIn(text: string): number {
   return text.split(/\s+/).filter(Boolean).length;
 }
 

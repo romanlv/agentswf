@@ -7,7 +7,7 @@ import {
   WorkspaceConfigSchema,
 } from "../format/workspace";
 
-export const CONFIG_FILE = "awf-lab.json";
+const CONFIG_FILE = "awf-lab.json";
 const PANEL_FILE = join(import.meta.dir, "panel.scorer.ts");
 
 /** The config with its paths resolved, and the variants and scorers it finds, by name. */

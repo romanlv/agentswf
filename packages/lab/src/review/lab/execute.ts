@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import { restore } from "../fixtures/git";
 import { digestFixture, digestOf } from "../fixtures/seal";
 import { canonicalJson, SET_FILE } from "../fixtures/set";
-import { SNAPSHOT_REF } from "../fixtures/verify";
+import { readCase, SNAPSHOT_REF } from "../fixtures/verify";
 import type { AnswerKey, Fixture } from "../format/format";
 import type { ComparedFinding } from "../format/output";
 import {
@@ -23,13 +23,7 @@ import {
   type ReviewFinding,
   type RunSummary,
 } from "../format/scoring";
-import {
-  checkAnswerKey,
-  checkFixture,
-  checkFixtureSet,
-  checkReviewFindings,
-  describeProblems,
-} from "../format/validate";
+import { checkFixtureSet, checkReviewFindings, describeProblems } from "../format/validate";
 import type { DefinedJudge, DefinedVariant } from "../format/variant";
 import { checkJudgement } from "../judge/check";
 import { categoryOf } from "../judge/panel";
@@ -60,7 +54,7 @@ import type { Workspace } from "./workspace";
 /**
  * A variant or scorer as a command names it: the name records keep, the label the command printed
  * it by (`{name}`, or `{name}@{version}` for a stored version), its version, the key its results
- * are kept by (`{name}@{major}.{minor}`), and the content hash of what it executes. `defined` is
+ * are kept by (`{name}@{major}.{minor}`), and where it came from. `defined` is
  * absent for a stored version the file no longer declares: its records can be read and scored,
  * never run.
  */
@@ -123,11 +117,7 @@ export async function readCases(
         `${id} changed since ${dataset} was sealed: ${digest}, sealed as ${entry.digest}`,
       );
     }
-    const fixture = checkFixture(await Bun.file(join(dir, "fixture.json")).json());
-    if (!fixture.ok) throw new Error(describeProblems(join(dir, "fixture.json"), fixture.problems));
-    const key = checkAnswerKey(await Bun.file(join(dir, "key", "key.json")).json());
-    if (!key.ok) throw new Error(describeProblems(join(dir, "key", "key.json"), key.problems));
-    infos.push({ id, dir, digest, fixture: fixture.value, key: key.value });
+    infos.push({ id, dir, digest, ...(await readCase(dir)) });
   }
   return infos;
 }
@@ -554,7 +544,7 @@ function comparison(
 }
 
 /** A line per finding scored, and how often a named one's new label sided with the rest-from score or its voters. */
-export function describeComparison(compared: readonly ComparedFinding[]): string[] {
+function describeComparison(compared: readonly ComparedFinding[]): string[] {
   const lines = compared.map((c) => {
     const votes =
       c.votes.length > 0 ? ` (${c.votes.map((v) => `${v.by} ${v.label}`).join(", ")})` : "";

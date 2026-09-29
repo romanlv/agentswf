@@ -9,7 +9,7 @@ export const PARTIAL_FORMAT = "awf.review-partial/1";
 const { format: _format, ...scoreFields } = ScoreRecordSchema.properties;
 
 /**
- * `partial.{judge-hash}.k{revision}.{n}.json` beside the findings: a judge's labels for some of a
+ * A first-version partial score, beside the findings: a judge's labels for some of a
  * review's findings, `asked`, with another judging's labels kept for the rest (`base`). Its
  * judgement is whole, the base's labels in place, and it passes the same check as any judging;
  * `plan` and `report` never read it, so it is never a score.

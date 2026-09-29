@@ -49,7 +49,7 @@ const TITLE_CHANGE_HTML = /changed title from <code[^>]*>([\s\S]*?)<\/code> to <
 const TITLE_CHANGE_MARKDOWN = /^changed title from \*\*([\s\S]*)\*\* to \*\*([\s\S]*)\*\*$/;
 
 /** The title before a "changed title" system note, from GitLab's HTML or its older markdown. */
-export function titleBefore(body: string): string | undefined {
+function titleBefore(body: string): string | undefined {
   const html = TITLE_CHANGE_HTML.exec(body);
   if (html) {
     return unescapeHtml(

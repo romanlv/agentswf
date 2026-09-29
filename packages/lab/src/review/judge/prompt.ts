@@ -21,7 +21,7 @@ function keyView(key: AnswerKey) {
   };
 }
 
-export const LABEL_RULES = `Give every finding exactly one label:
+const LABEL_RULES = `Give every finding exactly one label:
 
 - \`hit\`: it describes a known issue's mechanism. Name the issue in \`issue\`. Location is evidence, not a gate: a finding elsewhere that gives the mechanism is a hit, and one on the right lines that says something else is not. The right symptom with a false cause is not a hit: it is \`wrong\`, with \`symptomOf\` naming the issue, and a later finding with the real mechanism is the hit. Each issue is hit at most once: the first finding that gives its mechanism hits it; a later finding on the same issue is a \`duplicate\`.
 - \`new\`: a real problem in this code that the key does not have. Absence from the key is not evidence that it is false. Give its \`severity\` by the rubric below, its \`category\`, its \`scope\` (\`change\` if this MR caused it or made it worse, \`context\` if it was already there), and its \`mechanism\`: what goes wrong, when, and what it causes, never the fix.

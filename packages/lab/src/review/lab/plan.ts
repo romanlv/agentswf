@@ -40,7 +40,7 @@ export class PlanError extends Error {}
  * a duplicate of a picked finding may no longer repeat anything, so both are asked again, with
  * whatever depends on those in turn. The rest are settled.
  */
-export function askedWith(picked: readonly number[], rest: readonly FindingLabel[]): number[] {
+function askedWith(picked: readonly number[], rest: readonly FindingLabel[]): number[] {
   const asked = new Set(picked);
   const first = Math.min(...picked);
   for (const label of rest)

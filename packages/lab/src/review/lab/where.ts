@@ -59,7 +59,7 @@ const labelsOf = (score: Score | undefined) =>
   score?.result.status === "scored" ? score.result.judgement.labels : undefined;
 
 /** The findings a score's panel voters labelled differently. */
-export function splitFindings(score: Score | undefined): number[] {
+function splitFindings(score: Score | undefined): number[] {
   if (score?.result.status !== "scored") return [];
   const panel = (score.result.judgement.votes ?? []).filter((vote) => vote.role === "panel");
   if (panel.length < 2) return [];

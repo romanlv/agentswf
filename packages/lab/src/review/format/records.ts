@@ -11,8 +11,8 @@ import {
 } from "./scoring";
 import { type Checked, checkFindingsRecord, checkSchema, checkScoreRecord } from "./validate";
 
-// The records `awf-lab` writes, in its own terms: a trial, a score and a partial score. Apart from
-// `scoring.ts`, which every scorer imports, as `partial.ts` is. The first versions stay readable:
+// The records `awf-lab` writes, in its own terms: a trial, a score and a partial score. The first
+// versions, in `scoring.ts` and `partial.ts`, stay readable:
 // `readTrial`, `readScore` and `readPartial` take either and give the second.
 
 export const TRIAL_FORMAT = "awf.review-findings/2";
