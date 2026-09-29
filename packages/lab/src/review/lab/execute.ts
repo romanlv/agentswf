@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { restore } from "../fixtures/git";
-import { digestFixture } from "../fixtures/seal";
+import { digestFixture, digestOf } from "../fixtures/seal";
 import { canonicalJson, SET_FILE } from "../fixtures/set";
 import { SNAPSHOT_REF } from "../fixtures/verify";
 import type { AnswerKey, Fixture } from "../format/format";
@@ -35,7 +35,6 @@ import { checkJudgement } from "../judge/check";
 import { categoryOf } from "../judge/panel";
 import { agreement } from "../metrics/metrics";
 import { addresser } from "./address";
-import { digestOf } from "./identity";
 import { fill } from "./placeholders";
 import {
   type CaseState,

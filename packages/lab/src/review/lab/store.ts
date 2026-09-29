@@ -1,5 +1,6 @@
 import { existsSync, mkdirSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { digestOf } from "../fixtures/seal";
 import {
   type PartialScore,
   PartialScoreSchema,
@@ -11,7 +12,6 @@ import {
   type Trial,
 } from "../format/records";
 import { type Checked, checkSchema, describeProblems } from "../format/validate";
-import { digestOf } from "./identity";
 import type { ScoreOnFile, Stored } from "./plan";
 import { keyOf, parseKey } from "./version";
 

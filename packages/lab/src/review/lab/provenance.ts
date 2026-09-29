@@ -1,8 +1,6 @@
-import { createHash } from "node:crypto";
 import { realpathSync } from "node:fs";
 import { dirname, extname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { canonicalJson } from "../fixtures/set";
 
 const LOADERS: Record<string, "ts" | "tsx" | "js" | "jsx"> = {
   ".ts": "ts",
@@ -60,14 +58,4 @@ function repository(file: string, covered: readonly string[]) {
     return status !== null && status !== "";
   });
   return { commit: commit && /^[0-9a-f]{40}$/.test(commit) ? commit : null, dirty };
-}
-
-/** The seeded order's key for a case id. */
-export function rankOf(seed: string): (id: string) => string {
-  return (id) => createHash("sha256").update(`${seed}\n${id}`).digest("hex");
-}
-
-/** SHA-256 of a value as canonical JSON, as a key's digest is recorded. */
-export function digestOf(value: unknown): string {
-  return `sha256:${createHash("sha256").update(canonicalJson(value)).digest("hex")}`;
 }

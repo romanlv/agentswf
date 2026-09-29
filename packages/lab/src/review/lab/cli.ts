@@ -1,4 +1,5 @@
 #!/usr/bin/env -S bun --no-env-file
+import { createHash } from "node:crypto";
 import { existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { createInterface } from "node:readline/promises";
@@ -31,10 +32,10 @@ import {
   statesOf,
   stepAddress,
 } from "./execute";
-import { provenanceOf, rankOf } from "./identity";
 import { loadScorer, loadVariant } from "./load";
 import { fill } from "./placeholders";
 import { type Choice, currentTrial, PlanError, passingScore, type Stored } from "./plan";
+import { provenanceOf } from "./provenance";
 import {
   ANSI,
   buildReport,
@@ -362,6 +363,11 @@ async function subjectOf<D extends DefinedVariant | DefinedJudge>(
     commit: record.commit,
     dirty: record.dirty,
   };
+}
+
+/** The seeded order's key for a case id. */
+export function rankOf(seed: string): (id: string) => string {
+  return (id) => createHash("sha256").update(`${seed}\n${id}`).digest("hex");
 }
 
 /** The dataset, and its case ids in the seeded order, narrowed by `--cases`. */

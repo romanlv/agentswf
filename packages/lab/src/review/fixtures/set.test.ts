@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { AnswerKey, Fixture, KnownIssue } from "../format/format";
-import { canonicalJson, digestInput, leftOut, mergeExcluded } from "./set";
+import { canonicalJson, leftOut, mergeExcluded } from "./set";
 
 const fixture: Fixture = {
   format: "awf.review-fixture/1",
@@ -60,11 +60,12 @@ describe("leftOut", () => {
   });
 });
 
-describe("digest input", () => {
+describe("canonical JSON", () => {
   test("doesn't depend on the order keys were written in", () => {
     const shuffled = Object.fromEntries(Object.entries(fixture).reverse()) as Fixture;
-    expect(digestInput(shuffled, "# T\n")).toBe(digestInput(fixture, "# T\n"));
-    expect(digestInput(fixture, "# T\n")).not.toBe(digestInput(fixture, "# T \n"));
+    expect(canonicalJson({ fixture: shuffled, request: "# T\n" })).toBe(
+      canonicalJson({ fixture, request: "# T\n" }),
+    );
     expect(canonicalJson({ b: [{ d: 1, c: 2 }], a: null })).toBe('{"a":null,"b":[{"c":2,"d":1}]}');
   });
 });

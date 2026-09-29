@@ -257,7 +257,7 @@ const RULES: Rule[] = [
       "build/draft-key.ts",
       "lab/cli.ts",
       "lab/execute.ts",
-      "lab/identity.ts",
+      "lab/provenance.ts",
       "lab/load.ts",
       "lab/runner.ts",
       "lab/store.ts",

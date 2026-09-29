@@ -3,7 +3,7 @@ import { existsSync, readdirSync, renameSync } from "node:fs";
 import { basename, join } from "node:path";
 import { type AnswerKey, type FixtureSet, SET_FORMAT } from "../format/format";
 import { checkFixture, checkFixtureSet, describeProblems, type Problem } from "../format/validate";
-import { canonicalJson, digestInput, fixtureId, leftOut, mergeExcluded, SET_FILE } from "./set";
+import { canonicalJson, fixtureId, leftOut, mergeExcluded, SET_FILE } from "./set";
 import { at, readJson, verifyFixture } from "./verify";
 
 /** A problem only in the key: the fixture itself is sound, and redrafting the key can fix it. */
@@ -11,11 +11,23 @@ export function inKey(problem: Problem): boolean {
   return /^key\/(key\.json|evidence\/votes\.json)/.test(problem.path);
 }
 
-/** The digest a set pins a fixture by; `digestInput` says what it covers. */
+/** SHA-256 of a value as canonical JSON, as a fixture's, a key's and a score's digests are. */
+export function digestOf(value: unknown): string {
+  return `sha256:${createHash("sha256").update(canonicalJson(value)).digest("hex")}`;
+}
+
+/**
+ * The digest a set pins a fixture by, taken over all of `fixture.json` (the MR, its URL and state, and the
+ * frozen head) and the request exactly as the reviewer reads it. The frozen code is covered by its
+ * head, which pins the tree and its history and which the checker proves the bundle restores to,
+ * so rebundling the same commits keeps the digest. The key is not covered: it grows, and a score
+ * records its revision separately. This definition is part of `awf.fixture-set/1`; changing what
+ * it covers needs a new set format.
+ */
 export async function digestFixture(dir: string): Promise<string> {
   const fixture = await Bun.file(join(dir, "fixture.json")).json();
   const request = await Bun.file(join(dir, "request.md")).text();
-  return `sha256:${createHash("sha256").update(digestInput(fixture, request)).digest("hex")}`;
+  return digestOf({ fixture, request });
 }
 
 type Entry = FixtureSet["fixtures"][number];

@@ -23,18 +23,6 @@ export function leftOut(fixture: Fixture, key: AnswerKey | undefined): string | 
     : null;
 }
 
-/**
- * What a fixture's digest is taken over: all of `fixture.json` (the MR, its URL and state, and the
- * frozen head) and the request exactly as the reviewer reads it. The frozen code is covered by its
- * head, which pins the tree and its history and which the checker proves the bundle restores to,
- * so rebundling the same commits keeps the digest. The key is not covered: it grows, and a score
- * records its revision separately. This definition is part of `awf.fixture-set/1`; changing what
- * it covers needs a new set format.
- */
-export function digestInput(fixture: Fixture, request: string): string {
-  return canonicalJson({ fixture, request });
-}
-
 /** JSON with every object's keys sorted, so the same value always gives the same text. */
 export function canonicalJson(value: unknown): string {
   return JSON.stringify(value, (_, inner) =>
