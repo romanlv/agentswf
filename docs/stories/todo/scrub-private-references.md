@@ -19,7 +19,7 @@ Notes:
   - `docs/foundation.md` (sections 2, 7, 8 and 11);
   - `docs/design/README.md`, `docs/design/composition.md` and `docs/design/permissions.md`;
   - `docs/stories/002-cost-and-time-accounting.md` and `docs/stories/004-sandboxed-agents.md`;
-  - `packages/harness/src/usage/claude.ts`, `packages/harness/src/usage/usage.test.ts` and
+  - `packages/harness/src/usage/usage.test.ts` and
     `packages/engine/src/accounting/accounting.test.ts`: comments on where code was ported from,
     and a real home-directory path used as test data.
 - Git history holds all of the above and more. Decide whether to publish from a fresh history or

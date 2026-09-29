@@ -1,7 +1,7 @@
 ---
 id: "009"
 title: Run agents.wf on another machine from GitHub
-summary: One naming rule across the repository, an engine that provides the author surface to a workflow in any folder, `claude.ts` rewritten from scratch, a README that marks it an early preview and says how to install from a clone, and v0.0.1 tagged and running on the operator's second machine. npm waits for the launch.
+summary: One naming rule across the repository, an engine that provides the author surface to a workflow in any folder, `awf --version` and a Bun check, a README that marks it an early preview and says how to install from a clone, and v0.0.1 tagged and running on the operator's second machine. npm waits for the launch.
 type: story
 status: draft
 discovered_in: "ADR 0005, 2026-09-27"
@@ -28,7 +28,7 @@ That is 0.0.1: a tag on GitHub, for the operator's own machines. Nothing is publ
 is a launch, which happens once, when the repository and its docs are fit for strangers
 ([[npm-launch]]).
 
-Getting there means four things that don't exist yet:
+Getting there means three things that don't exist yet:
 
 - **One naming rule.** The repository is `awf`, its packages are `@wf/*`, the domain is agents.wf,
   and the npm names will be `agentswf` and `@agentswf/*`. A reader should be able to tell which
@@ -36,8 +36,6 @@ Getting there means four things that don't exist yet:
 - **A surface the engine provides.** Today a workflow outside the repository fails on its first
   import. It only works through `bun link` of `packages/contract` and a `link:` dependency in the
   workflow's folder.
-- **Code that is ours.** `packages/harness/src/usage/claude.ts` was lifted from the private work
-  agents.wf grew out of.
 - **An install anyone could follow.** Nothing says what to install first, or how to write a
   workflow outside the repository. The README only says "Nothing here is published".
 
@@ -59,7 +57,6 @@ As of 2026-09-28, nothing is built.
   - Bun only;
   - MIT;
   - no npm until the launch;
-  - `claude.ts` is rewritten from scratch;
   - the README marks the project an early preview.
 - **Next: the code changes, tasks 1 to 4, on `main`.** The operator decided on 2026-09-28 that
   this story is built on `main`, not in a worktree.
@@ -126,7 +123,6 @@ In scope:
   naming note and ADR 0005.
 - **The author surface.** `awf run` provides `agentswf/workflow`, `typebox` and `typebox/value`
   to the workflows it loads.
-- **`claude.ts` rewritten** from Claude Code's transcript format, not from the lifted file.
 - **What an install elsewhere needs.**
   - `awf --version`.
   - A check at start that refuses too old a Bun.
@@ -179,11 +175,11 @@ Out of scope:
   - A workflow's own `import "typebox"` failed until the engine served it too.
 - **Fact: `isExecutableWorkflow` compares `kind` as a string,** not by `instanceof`. So the
   virtual module is about one version, not about identity.
-- **Fact: `claude.ts` was lifted.** `packages/harness/src/usage/claude.ts` (111 lines) says it was
-  "lifted from" a file in the private workspace.
+- **Fact: `claude.ts` came from the operator's own private repository.** Its comment named that
+  repository's path, which reads like a company's name. It was dropped in 2fb1303, and the code
+  stays: it is the operator's own.
   - A search for "lifted from" and "ported from" in the packages' source finds no other file.
-  - [[scrub-private-references]] names two tests with ported comments. Those are test data and
-    comments, not code, and that todo owns them.
+  - [[scrub-private-references]] names two tests with ported comments, and owns them.
 - **Fact: `awf` has no `--version`.** `operator-cli.ts` prints only its usage line.
 - **Fact: the commands already refuse `.env`.** The shebang is
   `#!/usr/bin/env -S bun --no-env-file` (f8d6071).
@@ -220,15 +216,6 @@ Out of scope:
   the first `import`.
 - **Tests:** next to it. A workflow in a temporary folder with no `node_modules` imports
   `agentswf/workflow` and `typebox`, and gets the engine's copies.
-
-### `claude.ts`
-
-- **Rewrite:** `packages/harness/src/usage/claude.ts`, and whatever `readClaudeUsage` and
-  `claudeProjectsDirectory` callers need.
-- **Unchanged:** the harness's usage records (`./records`). They are ours, and the rewrite has to
-  produce them.
-- **Tests:** `packages/harness/src/usage/usage.test.ts` checks the result. Its real home-directory
-  path is [[scrub-private-references]]'s to replace.
 
 ### Install
 
@@ -289,17 +276,6 @@ later is cheap, removing one breaks workflows.
 There is no alias for the old `@wf/contract/workflow`, because the operator's workflows are
 upgraded with the rename.
 
-**`claude.ts`, rewritten.** The implementer writes it from what Claude Code writes under
-`~/.claude/projects`, observed in real transcripts. It must not start from the current file's
-code.
-
-- The subagent that writes it gets a description of the format and of the record it must
-  produce. It does not get the old file or the private one.
-- The existing tests then check the result.
-- Where the old code's behaviour was deliberate, such as walking the subagent tree because
-  reading only the session file undercounts a delegating agent, the description states the
-  behaviour, not the code.
-
 Alternatives rejected:
 
 - **Keep `@wf/*` internally (ADR 0005 as written):** the operator wants one set of names.
@@ -318,7 +294,7 @@ Alternatives rejected:
 
 - [ ] 1. The repository follows one naming rule
 - [ ] 2. `awf run` provides `agentswf/workflow` and `typebox` to a workflow in any folder
-- [ ] 3. `claude.ts` is rewritten from scratch, and `awf` reports its version and refuses an old Bun
+- [ ] 3. `awf` reports its version and refuses an old Bun
 - [ ] 4. The README marks an early preview and says how to install from a clone; MIT LICENSE
 - [ ] 5. v0.0.1 is tagged and running on the operator's second machine
 - [ ] 6. The npm scopes and the look-alike names are reserved
@@ -348,8 +324,8 @@ Alternatives rejected:
 
 ### 3. `claude.ts`
 
-- **Clean-room rewrite:** decided 2026-09-28, the file is rewritten from scratch. Nothing
-  consumes this repository, so its behaviour is free to change where the rewrite finds better.
+- **Where it came from:** decided 2026-09-28. The code is the operator's own, from their private
+  repository, and stays. Only the comment naming that repository's path went (2fb1303).
 
 ### 4. Second machine
 
@@ -423,38 +399,24 @@ Done when:
   `agentswf/workflow` and `typebox`, and gets the engine's copies of both.
 - `bun run awf run {folder}/x.ts` reaches opening the workflow's first agent.
 
-### 3. `claude.ts` is rewritten from scratch, and `awf` reports its version and refuses an old Bun
+### 3. `awf` reports its version and refuses an old Bun
 
-Outcome:
-
-- the code that reads Claude Code's usage is agents.wf's own;
-- `awf --version` answers;
-- an old Bun gets a message instead of a strange failure.
+Outcome: `awf --version` answers, and an old Bun gets a message instead of a strange failure.
 
 Execution:
 
-- [ ] Plan:
-  - write the description of Claude Code's transcript tree and of the record to produce, from
-    real transcripts;
-  - choose the minimum Bun.
-- [ ] Implement:
-  - `claude.ts`, by a subagent given only that description;
-  - `--version` and the Bun check in `operator-cli.ts`.
-- [ ] Review: obtain architecture/scope and correctness/proof subagent reviews. Both reviewers
-  compare the new `claude.ts` with the old one for copied code, not only for behaviour.
+- [ ] Plan: choose the minimum Bun, declared once.
+- [ ] Implement: `--version` and the Bun check in `operator-cli.ts`.
+- [ ] Review: obtain architecture/scope and correctness/proof subagent reviews of the actual diff.
 - [ ] Resolve: disposition findings.
 - [ ] Verify: satisfy every `Done when` item.
 
 Work:
 
-- The `claude.ts` rewrite and the version work are separate commits.
+- The version comes from the engine's `package.json`, and the commit from git when run in a clone.
 
 Done when:
 
-- The harness's usage tests pass against the new `claude.ts`, and no line or comment of the old
-  one survives.
-- On one of the operator's real sessions, a subagent-delegating one included, the new
-  `readClaudeUsage` gives the same totals as the old one, or a difference explained in the story.
 - `awf --version` prints the version and, from a clone, the commit.
 - With a Bun below the minimum, `awf` exits non-zero with a message naming both versions.
 
@@ -542,14 +504,12 @@ Done when:
 Automated:
 
 - [ ] The author-surface test: a workflow from a folder with no `node_modules` loads.
-- [ ] The harness's usage tests, against the rewritten `claude.ts`.
 - [ ] `bun test`
 - [ ] `bunx tsc --noEmit`
 - [ ] `bun run scripts/check-boundaries.ts`
 
 Manual or live evaluation:
 
-- [ ] The new `readClaudeUsage` against real sessions (task 3).
 - [ ] `bun run eval` after task 1: the rename changed nothing live.
 - [ ] One live workflow on the second machine, from `v0.0.1` (task 5).
 
@@ -577,10 +537,10 @@ Record reviews under the task they cover.
 - **Reviewed for developers, publicity and the brand.** Four things came out of it:
   - `awf --version`, a Bun check, and a first workflow without Herdr or a sandbox, all kept here;
   - package names, "charged", and the sandbox limits in the README, moved to [[npm-launch]];
-  - code lifted from private work;
+  - a comment naming a private path, which read as code lifted from someone else's work;
   - a public npm page linking to a private repository.
 - **The operator decided, on that review:**
-  - `claude.ts` is rewritten from scratch;
+  - `claude.ts` is the operator's own code, so only its comment changes (2fb1303);
   - nothing goes to npm before the launch;
   - the second machine installs from a clone;
   - the README says "early preview" instead of full docs.
