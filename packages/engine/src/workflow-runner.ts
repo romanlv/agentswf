@@ -1042,7 +1042,6 @@ class LogicalAgent implements AgentRef {
         .settle({ settledAt: operationDeadline.unixMilliseconds }, []);
       return {
         outcome: { kind: "timed-out", reason: "operation deadline exceeded", usage },
-        usage,
       };
     }
     const slot = await this.options.slots.open({
@@ -1078,7 +1077,7 @@ class LogicalAgent implements AgentRef {
         charges,
         later,
       );
-      return { outcome: reconcile<JsonValue>(native, settled, usage), usage };
+      return { outcome: reconcile<JsonValue>(native, settled, usage) };
     };
     let removeCanceller: (() => void) | undefined;
     try {

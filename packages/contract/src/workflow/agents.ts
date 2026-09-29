@@ -181,7 +181,10 @@ export type TurnOutcome<T extends JsonValue> = (
   | { kind: "timed-out"; reason: string }
   | { kind: "failed"; reason: string; retryable: boolean }
   | { kind: "cancelled"; reason: string }
-) & { usage: OperationRecord };
+) & {
+  /** Times and sessions across every delivery attempt made to settle this operation. */
+  usage: OperationRecord;
+};
 
 export function isAnswered<T extends JsonValue>(
   outcome: TurnOutcome<T>,
@@ -192,8 +195,6 @@ export function isAnswered<T extends JsonValue>(
 export type RunResult<T extends JsonValue> = {
   /** The nudge outcome when one ran; otherwise the initial outcome. */
   outcome: TurnOutcome<T>;
-  /** Times and sessions across every delivery attempt made to settle this operation. */
-  usage: OperationRecord;
 };
 
 export interface TurnRef<T extends JsonValue> {
