@@ -328,7 +328,7 @@ Out of scope:
 **The naming rule, one sentence per name:**
 
 - **agents.wf** is the project, in prose and on the README, and **`agentswf`** is its npm package
-  and GitHub name.
+  and GitHub organisation. The repository is `agentswf/awf`, named for the command.
 - **`@agentswf/*`** are its other packages, one per workspace package. The directory name is the
   package name: `packages/harness` is `@agentswf/harness`.
 - **`awf`** is the operator's command and everything it owns at run time: `~/.awf/runs`, `AWF_*`,
@@ -433,9 +433,13 @@ Alternatives rejected:
     GitHub organisations `agentwf` and `agents-wf`.
   - The unscoped `agentwf` is optional. npm treats an empty placeholder as squatting, so if it is
     taken, it holds a small package whose README and deprecation message point to `agentswf`.
-- **Repository:** rename `romanlv/awf` to `agentswf/agentswf` (with the GitHub org) or to
-  `romanlv/agentswf`? GitHub redirects the old URL either way.
-  - It decides the `repository` fields and the README's links.
+- **Repository:** decided 2026-09-28, `agentswf/awf`.
+  - `romanlv/awf` is transferred to a new `agentswf` organisation. GitHub redirects the old URL,
+    and the clone needs one `git remote set-url`.
+  - The organisation carries the brand and the repository the command, as `earendil-works/pi` and
+    `sst/opencode` do.
+  - GitHub's Agent Workflow Firewall also answers to "awf" in a search. The `agentswf` in the URL
+    tells them apart, and the README leads with agents.wf.
 - **Timing:** when does the 81-file rename land? It affects the open review-scorer worktree, so
   agree the moment first.
 
@@ -494,7 +498,7 @@ nothing else changes behaviour.
 Execution:
 
 - [ ] Plan:
-  - settle the scope and the repository name (open questions 1);
+  - the repository has moved to `agentswf/awf`, and the clone's remote points there;
   - agree the commit's timing with open branches;
   - list every file the rename touches.
 - [ ] Implement:
@@ -689,6 +693,7 @@ scratch workspace. Changes from the first draft:
     work.
 - **The operator decided, later on 2026-09-28:**
   - the scope is `@agentswf`;
+  - the repository is `agentswf/awf`;
   - the license is MIT;
   - the look-alike names are reserved before 0.0.1.
 
