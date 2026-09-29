@@ -3,7 +3,7 @@ id: "008"
 title: Score a review variant against a case's answer key
 summary: awf-lab runs a review variant and a scorer workflow per case, keeps each trial's findings and the scorer's labels as records, and derives recall by severity, precision, wrong claims, noise, cost and time from them; a run that ran out of time says so in output.json first.
 type: story
-status: awaiting-human-review
+status: done
 discovered_in: "review-recall-scorer and deadline-outcome todos, 2026-09-26"
 depends_on: ["005"]
 ---
@@ -1076,9 +1076,11 @@ Built as [[#The command line, revised]] says. The data repository's dataset fold
 - [x] Set the story status to `awaiting-human-review` and present the outcome, architecture
   decisions, task-level subagent findings and dispositions, exact verification results, deviations,
   and remaining risks.
-- [ ] Record the human's explicit approval or requested changes here.
-- [ ] If changes are requested, return to the affected task and repeat its review and verification.
-- [ ] Only after explicit approval, mark the story `done` and update `Stories at a glance`.
+- [x] Record the human's explicit approval or requested changes here.
+- [x] If changes are requested, return to the affected task and repeat its review and verification.
+- [x] Only after explicit approval, mark the story `done` and update `Stories at a glance`.
+
+Approved on 2026-09-29: "007 and 008 can be closed". Marked `done`.
 
 2026-09-27, requested in review: scoring must take minutes, not hours ([[#Scoring speed]]); a
 section on how it works; less bloat. Done: this rewrite and `--jobs`. Open: the scorer shapes in

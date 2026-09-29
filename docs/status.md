@@ -85,11 +85,11 @@ The gates are defined in [`foundation.md`](foundation.md) §12.
   back, recorded and costed apart from agents; `examples/triage` routes tickets with it
   ([findings](findings/system-one-models.md)). Matching review findings to a key with it moved to
   [`decision-matching`](stories/todo/decision-matching.md).
-- [007 — agent skills](stories/007-agent-skills.md): awaiting human review. A workflow names each agent's skills,
-  as a path or a public skill in a git repository, and the agent sees exactly those, on the host or
-  in a sandbox ([findings](findings/agent-skills.md)).
-- [008 — review scorer](stories/008-review-scorer.md): awaiting human review. `awf-lab` runs a review
-  variant and a scorer per case of a dataset through `awf run`, keeps each trial's findings and the
+- [007 — agent skills](stories/007-agent-skills.md): done, approved 2026-09-29. A workflow names
+  each agent's skills, as a path or a public skill in a git repository, and the agent sees exactly
+  those, on the host or in a sandbox ([findings](findings/agent-skills.md)).
+- [008 — review scorer](stories/008-review-scorer.md): done, approved 2026-09-29. `awf-lab` runs
+  a review variant and a scorer per case of a dataset through `awf run`, keeps each trial's findings and the
   scorer's labels as records by each file's declared version, `{name}@{major}.{minor}` of its
   semver, a patch keeping the results, and reports recall by severity,
   precision, wrong claims, noise, κ, and list-price cost and time, for any number of variants
@@ -99,7 +99,7 @@ The gates are defined in [`foundation.md`](foundation.md) §12.
   panel of two model families with a tiebreak. A trial on five cases put the lens catalogue well
   ahead of a single agent with or without a public review skill. A match-first scorer, measured in
   the data repository, is as accurate as the panel at a fifth of its time and list price; adopting
-  it is [`decision-matching`](stories/todo/decision-matching.md). Left: human review.
+  it is [`decision-matching`](stories/todo/decision-matching.md).
 - [009 — run agents.wf from GitHub](stories/009-publish-agentswf.md): in progress. One naming
   rule (`@agentswf/*`, `agentswf/workflow`, `awf`, `wf`); `awf run` serves `agentswf/workflow` and
   `typebox` to a workflow in any folder; `awf --version` and a Bun check; a README that installs
@@ -115,8 +115,7 @@ The inbox of possible stories is [`stories/todo/`](stories/todo/).
    were when review started. The fixtures to score against are built
    ([story 005](stories/005-review-fixtures.md)), and so are the sandboxes to isolate them in
    ([story 004](stories/004-sandboxed-agents.md)). In order:
-   [`eval-isolation`](stories/todo/eval-isolation.md) and
-   [story 008](stories/008-review-scorer.md), awaiting human review — then
+   [`eval-isolation`](stories/todo/eval-isolation.md), then
    [`variant-matrix-runner`](stories/todo/variant-matrix-runner.md), and last
    [`autoresearch-loop`](stories/todo/autoresearch-loop.md).
 

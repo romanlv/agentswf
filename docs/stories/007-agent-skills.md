@@ -3,7 +3,7 @@ id: "007"
 title: Give each agent the skills the workflow names
 summary: A workflow names each agent's skills, as a path or a public skill in a git repository; the engine pins and copies them, and the agent sees exactly those, on the host or in a sandbox, under claude, codex and pi.
 type: story
-status: awaiting-human-review
+status: done
 discovered_in: "ideas.md (unified skills; custom skills per agent), 2026-09-26"
 depends_on: ["004"]
 ---
@@ -319,14 +319,15 @@ Alternatives rejected:
 
 ## Open questions
 
-Each was settled on its proposed default to build the story; the first is the user's to confirm.
+Each was settled on its proposed default to build the story; the first was confirmed with the
+story's approval.
 
 ### 1. The surface, the record, and resolution in the engine
 
 - **Leaving `skills` out keeps the operator's skills on the host.** Built so: existing workflows
   run unchanged, `skills: []` opts out, and the record says `operator`. The alternative, always an
   exact set, is more reproducible and breaks agents that lean on an operator's skill without naming
-  it. Awaiting the user's confirmation.
+  it. Confirmed by the approval of 2026-09-29.
 - **Unpinned public skills are allowed**, resolved once per run per repository and ref, with the
   commit recorded. An autoresearch variant should pin; the variant runner can require it.
 - **The cache** is `$XDG_CACHE_HOME/awf/skills`, else `~/.cache/awf/skills`: a bare repository per
@@ -606,6 +607,8 @@ Deviations from the proposal, and why:
 - [x] Set the story status to `awaiting-human-review` and present the outcome, architecture
   decisions, task-level subagent findings and dispositions, exact verification results, deviations,
   and remaining risks.
-- [ ] Record the human's explicit approval or requested changes here.
-- [ ] If changes are requested, return to the affected task and repeat its review and verification.
-- [ ] Only after explicit approval, mark the story `done` and update `Stories at a glance`.
+- [x] Record the human's explicit approval or requested changes here.
+- [x] If changes are requested, return to the affected task and repeat its review and verification.
+- [x] Only after explicit approval, mark the story `done` and update `Stories at a glance`.
+
+Approved on 2026-09-29: "007 and 008 can be closed". Marked `done`.
