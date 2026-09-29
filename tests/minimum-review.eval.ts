@@ -109,7 +109,6 @@ export function liveRuntime(
       session: HERDR_SESSION,
       workspaceLabel: "awf minimum review live evaluation",
       commandTimeoutMs: 150_000,
-      settleTimeoutMs: LIVE_EVALUATION_BOUNDS.initialTurnMilliseconds,
       emptyEnvironment: METERED_CREDENTIAL_ENV,
       acceptWorkspaceTrust: true,
     },

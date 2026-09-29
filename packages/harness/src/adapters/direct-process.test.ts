@@ -4,16 +4,8 @@ import type { HarnessActivation } from "../adapter";
 import type { ProcessInput, RunProcess } from "../command";
 import { createSingleSessionHostFactory } from "../single-session-host";
 import { HARNESSES } from "../spec";
-import type { Step } from "../types";
-import {
-  createDirectProcessAdapter,
-  createHeadlessAdapter,
-  type DirectProcessConfig,
-} from "./direct-process";
+import { createHeadlessAdapter, type DirectProcessConfig } from "./direct-process";
 import { createPaneAdapter } from "./herdr";
-
-const CALL = { runDir: "/runs/r", callId: "c1" };
-const STEP: Step = { prompt: "count the e's", harness: "claude", backend: "headless" };
 
 function stub(stdouts: string[]): {
   run: RunProcess;
@@ -32,94 +24,6 @@ function stub(stdouts: string[]): {
 
 const claudeOut = (result: string, sessionId = "sess-1") =>
   JSON.stringify({ session_id: sessionId, result });
-
-describe("createDirectProcessAdapter", () => {
-  test("the call reaches the agent through the subprocess environment", async () => {
-    const { run, calls } = stub([claudeOut("done")]);
-    const session = await createDirectProcessAdapter(
-      { turnTimeoutMs: 1_000, binDir: "/wf/bin" },
-      run,
-    ).open(STEP, CALL);
-
-    await session.prompt("go");
-
-    expect(calls[0]?.env?.WF_RUN).toBe("/runs/r");
-    expect(calls[0]?.env?.WF_CALL).toBe("c1");
-    expect(calls[0]?.env?.PATH?.startsWith("/wf/bin:")).toBe(true);
-  });
-
-  test("the transcript is what the agent said, not the harness envelope", async () => {
-    const { run } = stub([claudeOut("the count is 3")]);
-    const session = await createDirectProcessAdapter({ turnTimeoutMs: 1_000 }, run).open(
-      STEP,
-      CALL,
-    );
-
-    await session.prompt("go");
-
-    expect(await session.transcript()).toBe("the count is 3");
-  });
-
-  test("a second prompt resumes the first turn's session and carries its charge", async () => {
-    const { run, calls } = stub([
-      claudeOut("done"),
-      JSON.stringify({
-        session_id: "sess-1",
-        result: "ok",
-        total_cost_usd: 0.042,
-        usage: { input_tokens: 2, output_tokens: 7 },
-      }),
-    ]);
-    const session = await createDirectProcessAdapter({ turnTimeoutMs: 1_000 }, run).open(
-      STEP,
-      CALL,
-    );
-
-    await session.prompt("go");
-    const second = await session.prompt("again");
-
-    expect(calls[0]?.argv).not.toContain("--resume");
-    expect(calls[1]?.argv[calls[1].argv.indexOf("--resume") + 1]).toBe("sess-1");
-    expect(second.usage).toEqual({ costUsd: 0.042 });
-    expect(await session.transcript()).toBe("doneok");
-  });
-
-  test("a nonzero exit is unknown, not a completed turn", async () => {
-    const run: RunProcess = async () => ({
-      stdout: "",
-      stderr: "credit balance too low",
-      exitCode: 1,
-      timedOut: false,
-    });
-    const session = await createDirectProcessAdapter({ turnTimeoutMs: 1_000 }, run).open(
-      STEP,
-      CALL,
-    );
-
-    expect(await session.prompt("go")).toMatchObject({
-      state: "unknown",
-      detail: expect.stringContaining("credit balance too low"),
-    });
-  });
-
-  test("a timeout is reported as such rather than as an empty answer", async () => {
-    const run: RunProcess = async () => ({
-      stdout: "",
-      stderr: "",
-      exitCode: 137,
-      timedOut: true,
-    });
-    const session = await createDirectProcessAdapter({ turnTimeoutMs: 1_000 }, run).open(
-      STEP,
-      CALL,
-    );
-
-    expect(await session.prompt("go")).toMatchObject({
-      state: "unknown",
-      detail: "timed out after 1000ms",
-    });
-  });
-});
 
 describe("createHeadlessAdapter", () => {
   const activation: HarnessActivation = {
@@ -145,7 +49,7 @@ describe("createHeadlessAdapter", () => {
     run: RunProcess,
     config: Partial<DirectProcessConfig> = {},
     request: typeof activation = activation,
-  ) => createHeadlessAdapter({ turnTimeoutMs: 10_000, ...config }, run).activate(request);
+  ) => createHeadlessAdapter(config, run).activate(request);
 
   test("a nudge resumes the native session in a fresh process environment", async () => {
     const { run, calls } = stub([claudeOut("first"), claudeOut("second")]);
@@ -272,7 +176,6 @@ describe("createHeadlessAdapter", () => {
     test("an adapter that cannot give skills refuses the agent", async () => {
       const adapter = createPaneAdapter({
         commandTimeoutMs: 1_000,
-        settleTimeoutMs: 1_000,
       } as never);
       await expect(
         adapter.activate({
@@ -372,7 +275,7 @@ describe("createHeadlessAdapter", () => {
       ).rejects.toThrow("cursor cannot run in a sandbox");
       await expect(
         createPaneAdapter(
-          { session: "s", workspaceLabel: "w", commandTimeoutMs: 1_000, settleTimeoutMs: 1_000 },
+          { session: "s", workspaceLabel: "w", commandTimeoutMs: 1_000 },
           run,
         ).activate({
           ...activation,
@@ -582,9 +485,11 @@ describe("createHeadlessAdapter", () => {
   test("an answered turn is left to finish, and the next operation waits for it and resumes", async () => {
     const { calls, finishers, run, codex } = finishingCodex();
     // The production path: the engine reaches the adapter through the single-session host.
-    const host = await createSingleSessionHostFactory(
-      createHeadlessAdapter({ turnTimeoutMs: 10_000 }, run),
-    ).openRun({ runId: "run-1", cwd: "/repo", deadline: activation.deadline });
+    const host = await createSingleSessionHostFactory(createHeadlessAdapter({}, run)).openRun({
+      runId: "run-1",
+      cwd: "/repo",
+      deadline: activation.deadline,
+    });
     const session = await host.openAgent(codex);
     const first = await session.start(turnSpec, firstBinding);
 
@@ -654,9 +559,11 @@ describe("createHeadlessAdapter", () => {
 
   test("the host shows a follow-up working while it waits, and a closed agent missing", async () => {
     const { finishers, run, codex } = finishingCodex();
-    const host = await createSingleSessionHostFactory(
-      createHeadlessAdapter({ turnTimeoutMs: 10_000 }, run),
-    ).openRun({ runId: "run-1", cwd: "/repo", deadline: activation.deadline });
+    const host = await createSingleSessionHostFactory(createHeadlessAdapter({}, run)).openRun({
+      runId: "run-1",
+      cwd: "/repo",
+      deadline: activation.deadline,
+    });
     const session = await host.openAgent(codex);
     const first = await session.start(turnSpec, firstBinding);
     await first.release("result slot settled", activation.deadline, { answered: true });
@@ -717,19 +624,19 @@ describe("createHeadlessAdapter", () => {
     expect(calls).toHaveLength(1);
   });
 
-  test("distinguishes the adapter's native timeout from the operation deadline", async () => {
+  test("a process stopped at the deadline is timed out, not an empty answer", async () => {
     const run: RunProcess = async () => ({
       stdout: "",
       stderr: "",
       exitCode: 137,
       timedOut: true,
     });
-    const session = await headless(run, { turnTimeoutMs: 250 });
+    const session = await headless(run);
     const turn = await session.start(turnSpec, firstBinding);
 
     await expect(turn.settled).resolves.toMatchObject({
       state: "timed-out",
-      detail: "native turn timed out after 250ms",
+      detail: "timed out at operation deadline",
     });
   });
 

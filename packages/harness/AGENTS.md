@@ -22,15 +22,13 @@ must never import `@agentswf/engine` — the dependency runs the other way.
 | `session-core.ts` | shared `AgentSessionAdapter` lifecycle, status, and cleanup |
 | `single-session-host.ts` | one adapter behind the run-host seam: per-agent sessions and snapshots |
 | `placement-host.ts` | one run host over a pane host and a headless one, routing each agent and its accounting by placement |
-| `legacy-driver.ts` | the `AgentSessionDriver` shape the frozen experiments open, over an adapter |
 | `adapters/herdr.ts` | the Herdr run host (one workspace, a tab per agent), the isolated-pane adapter (exercised by tests only), and the command runner every Herdr path uses |
 | `adapters/herdr-protocol.ts` | reading Herdr answers, building its argv, and the outcomes every pane path shares |
 | `adapters/herdr-startup.ts` | answering the blocks an agent raises before it will accept a prompt |
-| `adapters/herdr-legacy.ts` | the per-call pane driver the frozen experiments still open |
 | `adapters/direct-process.ts` | the headless run host: one subprocess per headless operation |
 | `adapter.ts` | the engine-facing adapter seam |
-| `types.ts` | legacy driver shapes retained only for frozen experiments |
-| `testing/fake.ts` | scriptable engine-facing adapter plus the frozen driver compatibility fake |
+| `types.ts` | `Harness` and `SettledState` |
+| `testing/fake.ts` | scriptable engine-facing adapter and a manual clock |
 | `testing/herdr-cli.ts` | a Herdr 0.8.2 model: pane width, per-process environment, startup blocks, input readiness |
 
 Before editing:
@@ -51,9 +49,6 @@ Before editing:
 - **A session adapter is not a provider.** Herdr, a future tmux integration, and direct subprocess
   execution are replaceable session adapters selected by operator configuration. Each serves one
   placement and refuses an agent asking for the other, so a direct caller of the headless adapter
-  sets `placement: "headless"`, and `metered: true` for claude. `BackendKind` in
-  `types.ts` exists only for the frozen experiments.
+  sets `placement: "headless"`, and `metered: true` for claude.
 - **The engine uses only the run host.** It opens sessions through `AgentRunHostFactory`, never an
-  adapter directly. `AgentSessionDriver`, `CallIdentity`, and the old
-  factory names exist solely so frozen experiments remain runnable; do not build new behavior on
-  them.
+  adapter directly.

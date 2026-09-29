@@ -81,7 +81,6 @@ export function createSessionAdapter(options: {
   givesSkills?: true;
   finishGraceMs?: number;
   activate(request: HarnessActivation): Promise<ActivatedSessionBackend>;
-  observeSessionRef?: (sessionRef: string) => void;
   now?: () => number;
 }): AgentSessionAdapter {
   const now = options.now ?? Date.now;
@@ -108,12 +107,7 @@ export function createSessionAdapter(options: {
         await native.close("activation deadline exceeded");
         throw new DeadlineExceededError(request.deadline);
       }
-      return createSession(
-        native,
-        now,
-        options.observeSessionRef,
-        options.finishGraceMs ?? DEFAULT_FINISH_GRACE_MS,
-      );
+      return createSession(native, now, options.finishGraceMs ?? DEFAULT_FINISH_GRACE_MS);
     },
   };
 }
@@ -121,7 +115,6 @@ export function createSessionAdapter(options: {
 function createSession(
   native: ActivatedSessionBackend,
   now: () => number,
-  observeSessionRef: ((sessionRef: string) => void) | undefined,
   finishGraceMs: number,
 ): HarnessSession {
   let closed = false;
@@ -216,7 +209,6 @@ function createSession(
         if (outcome.sessionRef) {
           seen.add(outcome.sessionRef);
           sessionRef = outcome.sessionRef;
-          observeSessionRef?.(sessionRef);
         }
         const reported = withoutSessionRef(outcome);
         if (!quarantined && generation === turns) {

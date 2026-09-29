@@ -695,7 +695,7 @@ Each stage is a gate phrased as something to prove. Which are open is in [`statu
   [ADR 0001](adr/0001-unbuilt-interface-leaves-the-surface.md).
 - **Stage 0 — skeleton and move.** poc1's tests pass unchanged in the new layout, and the boundaries
   hold. What the move decided that this plan had left open, and still stands:
-  - `CallIdentity` survives only in the frozen experiments' compatibility surface. Result
+  - `CallIdentity` is gone, with the experiments' session driver (2026-09-29). Result
     authority rides on a socket per agent, because a bearer token has to be delivered and no
     harness will promise to deliver one.
   - The record format carries `callId`, `question` and `schema`; `Attempt.source` is a string,

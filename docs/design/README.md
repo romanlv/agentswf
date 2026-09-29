@@ -123,12 +123,10 @@ state with an actual reported result.
 
 ### Session adapters, not a Herdr dependency
 
-`pane | headless` is legacy vocabulary. It named behavior a workflow could depend on — `pane`
-retains an interactive terminal session, `headless` drives the harness as a direct process — and
-[`foundation.md`](../foundation.md) §6 has since taken it off every surface, because exposing it let
-two logical peers in one run take different lifecycle and observability models. `BackendKind`
-survives in `packages/harness/src/types.ts` only so the frozen experiments remain runnable. Nothing
-live reads it, and nothing new should.
+`pane | headless` is an agent's `placement`, which a workflow chooses per agent (story 002): `pane`
+keeps an interactive terminal session, `headless` runs the harness as a process per turn. It is the
+only provider detail a workflow sees. Which terminal host serves a pane, and how, stays behind the
+run host.
 
 Herdr is the first and default terminal host because the experiments exercised its lifecycle and
 liveness behavior. It is not an engine dependency or a workflow capability. Operator configuration
@@ -147,8 +145,7 @@ which one opens the run.
 
 The engine reaches sessions only through the run host; `single-session-host.ts` places one
 `AgentSessionAdapter` behind that seam, and `session-core.ts` holds the session lifecycle shared
-behind the adapter. The `AgentSessionDriver` shapes survive so the archived experiments
-remain runnable, and nowhere else. The shared harness table supplies provider-neutral interactive
+behind the adapter. The shared harness table supplies provider-neutral interactive
 commands. Herdr's agent-kind mapping stays in the Herdr implementation, where a tmux or raw-PTY
 implementation does not need to know it.
 

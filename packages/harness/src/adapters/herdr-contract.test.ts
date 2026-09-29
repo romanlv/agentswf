@@ -14,8 +14,6 @@ const CONFIG: HerdrConfig = {
   session: "wf-lab",
   workspaceLabel: "contract",
   commandTimeoutMs: 5_000,
-  settleTimeoutMs: 5_000,
-  binDir: "/wf/bin",
   emptyEnvironment: ["ANTHROPIC_API_KEY", "OPENAI_API_KEY"],
   acceptWorkspaceTrust: true,
   startRetryMs: 0,

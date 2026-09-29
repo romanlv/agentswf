@@ -80,7 +80,7 @@ function run<Result extends JsonValue>(
   const fake = createFakeSandboxProvider();
   const runtime: AgentRuntimeConfig = {
     aliases: {},
-    host: createHeadlessRunHostFactory({ turnTimeoutMs: 20_000 }),
+    host: createHeadlessRunHostFactory({}),
   };
   return runWorkflow({ meta: { name: "skills", description: "test" }, run: body }, null, {
     runRoot,

@@ -1,11 +1,7 @@
 export type { DirectProcessConfig } from "./adapters/direct-process";
-export {
-  createDirectProcessAdapter,
-  createHeadlessRunHostFactory,
-} from "./adapters/direct-process";
+export { createHeadlessRunHostFactory } from "./adapters/direct-process";
 export type { HerdrConfig } from "./adapters/herdr";
 export { createHerdrRunHostFactory } from "./adapters/herdr";
-export { createHerdrAdapter } from "./adapters/herdr-legacy";
 export * from "./capabilities/skills";
 export * from "./command";
 export { createPlacementHostFactory } from "./placement-host";

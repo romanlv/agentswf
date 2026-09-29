@@ -36,9 +36,6 @@ export type HerdrConfig = {
   session: string;
   workspaceLabel: string;
   commandTimeoutMs: number;
-  settleTimeoutMs: number;
-  /** Prepended to PATH for the frozen legacy driver, whose `wf` is still found by name. */
-  binDir?: string;
   /** Names forced to an empty value in every workspace. Values never cross the Herdr argv. */
   emptyEnvironment?: readonly string[];
   /** `agent start` refuses a pane that has not reached its shell prompt, so it is retried. */
@@ -446,7 +443,7 @@ export function createPaneAdapter(
               );
             }
             if (remaining() <= 0) return localOutcome("timed-out", "operation deadline exceeded");
-            const waitMs = Math.max(1, Math.min(config.settleTimeoutMs, remaining()));
+            const waitMs = Math.max(1, remaining());
             const sent = await herdr(
               ["agent", "prompt", name, prompt, "--wait", "--timeout", String(waitMs)],
               waitMs + HERDR_REPORT_GRACE_MS,
@@ -836,7 +833,7 @@ export function createHerdrRunHostFactory(
                 if (remainingMs <= 0) {
                   return localOutcome("timed-out", "operation deadline exceeded");
                 }
-                const waitMs = Math.max(1, Math.min(config.settleTimeoutMs, remainingMs));
+                const waitMs = Math.max(1, remainingMs);
                 const sent = await herdr(
                   [
                     "agent",

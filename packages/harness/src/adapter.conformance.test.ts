@@ -17,7 +17,7 @@ function headless(): AgentSessionAdapter {
     exitCode: 0,
     timedOut: false,
   });
-  return createHeadlessAdapter({ turnTimeoutMs: 10_000 }, run);
+  return createHeadlessAdapter({}, run);
 }
 
 function pane(): AgentSessionAdapter {
@@ -42,7 +42,6 @@ function pane(): AgentSessionAdapter {
       session: "test",
       workspaceLabel: "conformance",
       commandTimeoutMs: 1_000,
-      settleTimeoutMs: 1_000,
       startRetryMs: 0,
     },
     run,

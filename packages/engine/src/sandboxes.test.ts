@@ -88,7 +88,7 @@ function setup(options: FakeSandboxOptions = {}, host?: AgentRunHostFactory) {
   const providers: SandboxProviders = { installed: { srt: fake.provider }, default: "srt" };
   const runtime: AgentRuntimeConfig = {
     aliases: {},
-    host: host ?? createHeadlessRunHostFactory({ turnTimeoutMs: 20_000 }),
+    host: host ?? createHeadlessRunHostFactory({}),
   };
   const logs: string[] = [];
   const run = <Result extends JsonValue>(body: (context: WorkflowContext) => Promise<Result>) =>
@@ -533,7 +533,7 @@ describe.skipIf(!installed.installed.srt)("a sandboxed agent under srt", () => {
           runRoot: runDirs.tempRunDir(),
           runtime: {
             aliases: {},
-            host: createHeadlessRunHostFactory({ turnTimeoutMs: 60_000 }),
+            host: createHeadlessRunHostFactory({}),
           },
           deadline: future(),
           cwd: work,

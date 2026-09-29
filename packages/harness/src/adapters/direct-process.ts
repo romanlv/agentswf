@@ -2,68 +2,39 @@ import { randomUUID } from "node:crypto";
 import type { AgentRunHostFactory, AgentSessionAdapter } from "../adapter";
 import { skillsLaunch } from "../capabilities/skills";
 import { type RunProcess, runProcess } from "../command";
-import { createLegacyDriver } from "../legacy-driver";
 import { sandboxable, sandboxedArgs } from "../sandbox-needs";
 import { createSessionAdapter, localOutcome } from "../session-core";
 import { createSingleSessionHostFactory } from "../single-session-host";
 import { HARNESS_NAMES, harnessSpec, knownHarness } from "../spec";
-import type { AgentSessionDriver, CallIdentity } from "../types";
 import { createSessionAccounting } from "../usage/accounting";
 
 export type DirectProcessConfig = {
-  turnTimeoutMs: number;
-  /** Prepended to PATH for the frozen legacy driver, whose `wf` is still found by name. */
-  binDir?: string;
   newSessionId?: () => string;
   /** How long a follow-up waits for the previous, answered turn to end before stopping it. */
   finishGraceMs?: number;
 };
 
+/**
+ * One subprocess per turn, stopped at the operation's deadline. The first turn starts a session;
+ * a follow-up resumes it, which only works for a harness whose spec knows how — see `spec.ts`.
+ * Nothing about the operation is in its environment: the agent is told the launcher's path in its
+ * prompt.
+ */
 export function createHeadlessAdapter(
-  config: DirectProcessConfig,
+  config: DirectProcessConfig = {},
   run: RunProcess = runProcess,
 ): AgentSessionAdapter {
-  // Nothing about the operation: the agent is told the launcher's path in its prompt.
-  return createHeadlessAdapterCore(config, run, () => ({}));
-}
-
-/** The production headless host: a subprocess per turn, billed with the credentials `run` gives. */
-export function createHeadlessRunHostFactory(
-  config: DirectProcessConfig,
-  run: RunProcess = runProcess,
-): AgentRunHostFactory {
-  return createSingleSessionHostFactory(
-    createHeadlessAdapter(config, run),
-    createSessionAccounting(run),
-  );
-}
-
-function createHeadlessAdapterCore(
-  config: DirectProcessConfig,
-  run: RunProcess,
-  environment: () => Record<string, string>,
-  legacy = false,
-): AgentSessionAdapter & { legacySessionRef(): string | undefined } {
   const newSessionId = config.newSessionId ?? randomUUID;
-  let legacySessionRef: string | undefined;
-  const adapter = createSessionAdapter({
+  return createSessionAdapter({
     harnesses: HARNESS_NAMES,
     ...(config.finishGraceMs === undefined ? {} : { finishGraceMs: config.finishGraceMs }),
-    // The frozen legacy driver predates placement and never names it.
-    ...(legacy
-      ? {}
-      : {
-          placement: "headless" as const,
-          launchesInSandbox: true as const,
-          givesSkills: true as const,
-        }),
-    observeSessionRef: (sessionRef) => {
-      legacySessionRef = sessionRef;
-    },
+    placement: "headless",
+    launchesInSandbox: true,
+    givesSkills: true,
     async activate(request) {
       const harness = knownHarness(request.execution.harness);
       const spec = harnessSpec(harness);
-      if (spec.meteredHeadless && !legacy && request.execution.metered !== true) {
+      if (spec.meteredHeadless && request.execution.metered !== true) {
         throw new Error(
           `headless ${harness} is billed per token even on a subscription login; set metered: true to run it`,
         );
@@ -78,7 +49,7 @@ function createHeadlessAdapterCore(
       return {
         identity,
         // Each turn is a process of its own, and the next one resumes the session this one leaves.
-        finishesAnswered: !legacy,
+        finishesAnswered: true,
         async execute(operation) {
           if (closed) throw new Error("headless session is closed");
           const remaining = operation.deadline.unixMilliseconds - Date.now();
@@ -115,13 +86,12 @@ function createHeadlessAdapterCore(
             : spec.headlessTurn(prompt, context);
           const controller = new AbortController();
           active = controller;
-          const nativeTimeoutMs = Math.max(1, Math.min(config.turnTimeoutMs, remaining));
           const command = {
             argv: plan.argv,
             cwd: request.cwd,
-            env: { ...environment(), ...skills?.env },
+            env: { ...skills?.env },
             ...(plan.stdin === undefined ? {} : { stdin: plan.stdin }),
-            timeoutMs: nativeTimeoutMs,
+            timeoutMs: Math.max(1, remaining),
             signal: controller.signal,
           };
           // Every turn, a resumed one too, runs inside when the agent has a place there.
@@ -161,11 +131,7 @@ function createHeadlessAdapterCore(
           if (result.timedOut) {
             return {
               state: "timed-out" as const,
-              detail: legacy
-                ? `timed out after ${config.turnTimeoutMs}ms`
-                : nativeTimeoutMs === config.turnTimeoutMs && config.turnTimeoutMs < remaining
-                  ? `native turn timed out after ${config.turnTimeoutMs}ms`
-                  : "timed out at operation deadline",
+              detail: "timed out at operation deadline",
               ...common,
             };
           }
@@ -192,27 +158,15 @@ function createHeadlessAdapterCore(
       };
     },
   });
-  return Object.assign(adapter, { legacySessionRef: () => legacySessionRef });
 }
 
-/**
- * One subprocess per turn. The first turn starts a session; a nudge resumes it, which only
- * works for a harness whose spec knows how — see `spec.ts`.
- */
-export function createDirectProcessAdapter(
-  config: DirectProcessConfig,
+/** The production headless host: a subprocess per turn, billed with the credentials `run` gives. */
+export function createHeadlessRunHostFactory(
+  config: DirectProcessConfig = {},
   run: RunProcess = runProcess,
-): AgentSessionDriver {
-  return createLegacyDriver({
-    kind: "headless",
-    timeoutMs: config.turnTimeoutMs,
-    adapter(call: CallIdentity) {
-      const environment = (): Record<string, string> => ({
-        WF_RUN: call.runDir,
-        WF_CALL: call.callId,
-        ...(config.binDir ? { PATH: `${config.binDir}:${process.env.PATH ?? ""}` } : {}),
-      });
-      return createHeadlessAdapterCore(config, run, environment, true);
-    },
-  });
+): AgentRunHostFactory {
+  return createSingleSessionHostFactory(
+    createHeadlessAdapter(config, run),
+    createSessionAccounting(run),
+  );
 }

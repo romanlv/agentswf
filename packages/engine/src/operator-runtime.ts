@@ -53,7 +53,6 @@ export async function installOperatorRuntime(
         session,
         workspaceLabel: "awf run",
         commandTimeoutMs: Math.min(timeoutMilliseconds, 150_000),
-        settleTimeoutMs: timeoutMilliseconds,
         emptyEnvironment: WITHHELD_ENVIRONMENT,
         acceptWorkspaceTrust: true,
         watchSandboxes,
@@ -68,7 +67,7 @@ export async function installOperatorRuntime(
       ...(accounting ? { accounting } : {}),
       openRun: async (spec) => panes(await herdrSession(run, environment)).openRun(spec),
     },
-    headless: createHeadlessRunHostFactory({ turnTimeoutMs: timeoutMilliseconds }, unmetered),
+    headless: createHeadlessRunHostFactory({}, unmetered),
   });
   return {
     config: {

@@ -89,7 +89,7 @@ export function hasHerdrErrorCode(error: string, code: string): boolean {
   return new RegExp(`"code"\\s*:\\s*"${code}"`).test(error) || error.trim() === code;
 }
 
-const RESERVED_WORKSPACE_ENVIRONMENT = new Set(["PATH", "WF_RUN", "WF_CALL"]);
+const RESERVED_WORKSPACE_ENVIRONMENT = new Set(["PATH"]);
 
 export function emptyEnvironmentArgs(names: readonly string[] | undefined): string[] {
   const args: string[] = [];
