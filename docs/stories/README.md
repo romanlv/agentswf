@@ -60,9 +60,9 @@ status is one of `todo`, `draft`, `ready`, `in-progress`, `blocked`, `awaiting-h
   `awaiting-human-review` — `awf-lab` runs a review variant and a scorer per case, keeps each trial's
   findings and the scorer's labels as records, and reports recall by severity, precision, wrong
   claims, noise, cost and time; `output.json` gains `timed-out` first.
-- [`009` — Install agents.wf from npm on another machine](009-publish-agentswf.md) —
-  `draft` — One naming rule, the workspace packages published in lockstep as `@agentswf/*` under
-  an `agentswf` that installs `awf`, docs for a stranger, and 0.0.1 tried on a second machine.
+- [`009` — Run agents.wf on another machine from GitHub](009-publish-agentswf.md) —
+  `draft` — One naming rule, an engine that serves the author surface to any folder, `claude.ts`
+  rewritten, and v0.0.1 installed from a clone on a second machine; npm waits for the launch.
 
 This is the high-level index of numbered stories. Keep each entry to its title, status, and
 one-sentence summary; put code maps, research, design, tasks, and verification in the linked story.
