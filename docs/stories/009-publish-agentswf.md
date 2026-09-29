@@ -61,14 +61,19 @@ As of 2026-09-28, nothing is built.
   - no npm until the launch;
   - `claude.ts` is rewritten from scratch;
   - the README marks the project an early preview.
-- **The operator's next steps:**
-  - create the GitHub org `agentswf` and transfer the repository;
-  - decide the two package names in Open questions 1.
-
-  Reserving the npm scopes and the look-alike names is task 6, done last.
+- **Next: the code changes, tasks 1 to 4, on `main`.** The operator decided on 2026-09-28 that
+  this story is built on `main`, not in a worktree.
+  - Each task lands as its own commits, pushed as it goes.
+  - The rename is one commit with nothing else in it, because other sessions work on `main` too.
+  - Nothing in tasks 1 to 4 waits for the repository to move. No manifest carries a `repository`
+    field before [[npm-launch]], and the README's clone URL can name `agentswf/awf` ahead of the
+    transfer, since GitHub redirects.
+- **Before task 1:** the operator decides the two package names in Open questions 1, since the
+  directories move once.
+- **Alongside, by the operator:** create the GitHub org `agentswf` and transfer the repository.
+  Task 5 needs it done, since the second machine clones from there.
+- **Last:** task 6, reserving the npm scopes and the look-alike names.
 - **Still open:** the package names (1), and the second machine's OS (4).
-- **Next for the implementer:** task 1, the rename. No other branch or worktree is open (checked
-  2026-09-28), so it can land once the sessions working on `main` are told.
 
 ## How it works
 
@@ -186,9 +191,13 @@ Out of scope:
   `#!/usr/bin/env -S bun --no-env-file` (f8d6071).
 - **Fact: pane agents need Herdr; host agents don't.** A host agent is a subprocess per turn
   (`operator-runtime.ts`). So a first workflow with host agents needs neither Herdr nor a sandbox.
-- **Constraint: others work on `main` at the same time** ([[story-worktrees]]). Story 008's branch
-  merged in e09cb69, and no other worktree or unmerged branch exists (checked 2026-09-28). The
-  rename lands as one mechanical commit, announced to whoever is working on `main`.
+- **Constraint: others work on `main` at the same time,** and this story is built there too, by
+  the operator's decision of 2026-09-28, instead of in a worktree ([[story-worktrees]]).
+  - Story 008's branch merged in e09cb69, and no other worktree or unmerged branch exists
+    (checked 2026-09-28).
+  - Each commit names only its own files, so another session's uncommitted work never rides
+    along.
+  - The rename lands as one mechanical commit, announced to whoever is working on `main`.
 - **Assumption, unverified: `env -S` works on the second machine.** It is fine on macOS and on
   GNU coreutils 8.30 or later.
 
@@ -367,7 +376,6 @@ design, and nothing else changes behaviour.
 Execution:
 
 - [ ] Plan:
-  - the repository has moved to `agentswf/awf`, and the clone's remote points there;
   - the two package names are settled (open questions 1);
   - list every file the rename touches.
 - [ ] Implement:
@@ -484,7 +492,9 @@ Outcome: the second machine runs the operator's workflows from a clone at `v0.0.
 
 Execution:
 
-- [ ] Plan: the second machine has git, Bun, an SSH key on GitHub, and an agent CLI logged in.
+- [ ] Plan:
+  - the repository has moved to `agentswf/awf`, and this clone's remote points there;
+  - the second machine has git, Bun, an SSH key on GitHub, and an agent CLI logged in.
 - [ ] Implement: set the engine's version to 0.0.1, tag `v0.0.1` and push the tag.
 - [ ] Review: the tag's tree passes `bun run check` and `bun test`.
 - [ ] Resolve: a fix is `v0.0.2`. A tag is never moved.
