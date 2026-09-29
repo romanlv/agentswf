@@ -1,6 +1,6 @@
 # Status
 
-Where awf stands, as of 2026-09-26. [`foundation.md`](foundation.md) is the argument and changes
+Where awf stands, as of 2026-09-29. [`foundation.md`](foundation.md) is the argument and changes
 slowly; this page is the state and changes with every story. When the two disagree about what
 exists, the code is right, then this page.
 
@@ -100,6 +100,11 @@ The gates are defined in [`foundation.md`](foundation.md) §12.
   ahead of a single agent with or without a public review skill. A match-first scorer, measured in
   the data repository, is as accurate as the panel at a fifth of its time and list price; adopting
   it is [`decision-matching`](stories/todo/decision-matching.md). Left: human review.
+- [009 — run agents.wf from GitHub](stories/009-publish-agentswf.md): in progress. One naming
+  rule (`@agentswf/*`, `agentswf/workflow`, `awf`, `wf`); `awf run` serves `agentswf/workflow` and
+  `typebox` to a workflow in any folder; `awf --version` and a Bun check; a README that installs
+  from a clone. Left: tag v0.0.1 and run it on the operator's second machine, and reserve the
+  names.
 
 The inbox of possible stories is [`stories/todo/`](stories/todo/).
 

@@ -1,6 +1,6 @@
 ---
 title: Make an agent's reasoning effort part of its runtime
-summary: awf has no effort setting, so every agent runs at whatever the operator's environment and harness config say, unrecorded and outside a variant's or judge's hash.
+summary: awf has no effort setting, so every agent runs at whatever the operator's environment and harness config say, unrecorded and outside a variant's or judge's version.
 type: story
 status: todo
 discovered_in: "story 008, match first"
@@ -14,7 +14,7 @@ awf neither sets nor records it. In story 008 every judge ran at an effort nobod
 claude inherited `CLAUDE_EFFORT=medium` from the Claude Code session that launched `awf-lab`, codex
 read `model_reasoning_effort = "medium"` from the operator's `~/.codex/config.toml`, and pi reads
 `defaultThinkingLevel` from `~/.pi/agent/settings.json`. Change any of them and a judge's labels and
-timings change under the same hash, which is exactly what `awf-lab`'s identity is meant to prevent.
+timings change under the same version, which is exactly what a version is meant to rule out.
 
 Notes:
 

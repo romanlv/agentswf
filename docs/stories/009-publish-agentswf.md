@@ -99,9 +99,10 @@ virtual modules in its Bun binary. This has three effects:
 - the surface it runs against is always the engine's version;
 - the schemas a workflow writes with `typebox` are the ones the engine checks results with.
 
-For types in an editor, a workflow folder links the clone's contract (`bun link` in
-`packages/contract`, then `bun link @agentswf/contract`) and maps `agentswf/workflow` to it in its
-`tsconfig.json` `paths`. At the launch, this becomes `bun add -d agentswf`.
+For types in an editor, a workflow folder's `tsconfig.json` maps `agentswf/workflow` and `typebox`
+into the clone with `paths`, as the README says. A repository that imports the lab, like the
+operator's review data, links it instead (`bun link @agentswf/lab`), since it uses the lab's modules,
+not only the author surface. At the launch, both become `bun add -d`.
 
 What people will ask first:
 

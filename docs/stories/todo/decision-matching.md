@@ -26,12 +26,11 @@ Notes:
   `voting.ts` in place of the panel's own voting (the panel is `voteOnRest` with nothing settled),
   and `match.workflow.ts` as the judge workflow beside `judge.workflow.ts`. `scripts/match.ts`
   re-settles stored answers at any cut; its logic belongs with the report.
-- Moving code the panel imports changes the panel's hash, so its stored judgings stop being
-  reused. Decide that once, when the default changes, not per edit. The data repository's judge
-  files import the package by a path into story 008's worktree, so they re-hash at the move too.
+- Moving code the panel imports changes what it measures only if the code does: bump the panel's
+  version when it does, so its stored judgings stop counting, and not otherwise.
 - Before `voting.ts` can be the panel's voting: share `Case`/`readCase` and the answer schema with
   `judge.workflow.ts`, one claimed-issues helper in `panel.ts` (it is inline in three places), and
-  keep `workflow.parallel` labelling. The panel's own prompt changes with it, and so its hash.
+  keep `workflow.parallel` labelling. The panel's own prompt changes with it, and so its version.
 - Decide the default's voters. The second is OpenAI's for now; claude opus 5.5 is
   [`judge-opus-voter`](judge-opus-voter.md). The sample is 22 judgings; two runs of one judge
   differ by 3 points on the comments.

@@ -25,7 +25,7 @@ awf-lab report {challenger} --baseline {baseline} [--cases {n}] [--trials 3]
   and `{case}/{trial}` beyond `/1` are refused until this lands. This adds several trials per case, the paired interval, early
   stopping and gating, without changing those commands.
 - Reuse is an explicit decision per fixture, printed with counts and estimated cost before any
-  spend (Harbor's `--diff`): variant hash or fixture digest changed, rerun; key revision or judge
+  spend (Harbor's `--diff`): variant version or fixture digest changed, rerun; key revision or judge
   version changed, rejudge; metric code changed, recompute; environment failure, rerun; else reuse.
 - Compare paired on fixture id and digest, which no framework ships: per-fixture improvements and
   regressions (Braintrust's view), plus the mean per-fixture difference with a bootstrap interval
@@ -53,8 +53,8 @@ Notes:
   `awf run`, as story 008 settles.
 - Holdout is per variant: each records what it was tuned on (`tunedOn`), and fixtures outside that
   are its holdout.
-- A variant is identified by a hash of its workflow, arguments and prompts, not a free name, and
-  every record keeps it with the fixture's digest (Harbor).
+- A variant is identified by its name and declared version, and every record keeps it with the
+  fixture's digest.
 - Every record says whether the reviewer failed or the environment broke; the two are counted apart.
 - Try a new variant on a small subset first, and run the full set only if it looks promising.
 - At least three repetitions per variant and fixture. Compare each variant with the current best

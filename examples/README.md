@@ -1,7 +1,9 @@
 # Examples
 
-Scenario workflows written against `@agentswf/contract/workflow`. The import boundary is enforced by
-`bun run scripts/check-boundaries.ts`: workflows never reach into the engine or a harness.
+Scenario workflows written against `@agentswf/contract/workflow`, the workspace name of what a
+workflow outside this repository imports as `agentswf/workflow`, so the repository's own typecheck
+resolves them. The import boundary is enforced by `bun run scripts/check-boundaries.ts`: workflows
+never reach into the engine or a harness.
 
 ## Run the review workflow
 
@@ -127,10 +129,13 @@ Each example that spans more than one file has a folder of its own, with its wor
   commands and reporting what each printed. It is the apparatus of `tests/sandbox-*.eval.ts`,
   which plant the canaries and pass the plan as one JSON argument, not something to run by hand.
   Its claude runs headless and so needs `CLAUDE_CODE_OAUTH_TOKEN`.
+- `skills-probe/` gives agents one of two probe skills and checks each found and ran its own. It
+  is the apparatus of `tests/skills.eval.ts`, not something to run by hand.
 - `output-schema/` is the TypeBox-to-output-schema helper the workflows share, with its type tests.
 
 Only `minimum-review/review-loop.ts`, `quick-check/workflow.ts`, `sandboxes/workflow.ts`,
-`sandbox-probe/workflow.ts`, `triage/workflow.ts` and `single-agent-review/workflow.ts` have the
+`sandbox-probe/workflow.ts`, `skills-probe/workflow.ts`, `triage/workflow.ts` and
+`single-agent-review/workflow.ts` have the
 executable default export required by `awf run`.
 A catalogue review's entry point lives beside the catalogue it reads, outside this package, because
 reading one is I/O and a workflow here is pure.

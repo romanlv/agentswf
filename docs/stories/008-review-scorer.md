@@ -123,10 +123,8 @@ Results belong to `{name}@{major}.{minor}`: a patch bump says the behaviour is t
 refactor, a comment or a path moved into a placeholder, so every earlier trial and score still
 counts; a minor or major bump starts with none. Major is for a change the numbers should be grouped
 apart by later: another approach, another result shape. Versioning is the researcher's call, as a
-library's is its developer's; nothing checks it. Each record also keeps the content hash of what
-ran (its file, its workflow, everything they import by relative path, its argv and timeout, no
-paths), so an edit without a bump can be found afterwards; the report says when a column's records
-came from more than one. `{name}@{version}` names an earlier version, a prefix is enough. The plan
+library's is its developer's; nothing checks it. Each record also keeps the file's commit and
+whether any file it runs was dirty, as provenance. `{name}@{version}` names an earlier version, a prefix is enough. The plan
 (`--dry-run` prints it) decides per case from the records: a trial when this version has none of
 this case's digest, a score when this scorer has no passing score on this key revision, otherwise
 reuse. So a second `run` spends nothing, a failed score is retried alone, and a new scorer scores
@@ -274,7 +272,7 @@ Five rules:
 
 | Command | Does | Was |
 | --- | --- | --- |
-| `list [datasets\|cases\|variants\|scorers]` | what the workspace sees: names, files, hashes, and stored versions with their trials and scores | `config` |
+| `list [datasets\|cases\|variants\|scorers]` | what the workspace sees: names, files, versions, and stored versions with their trials and scores | `config` |
 | `run {variant…}` | the missing trials for the selection, then their scores | `run` |
 | `score {variant…}` | scores stored trials, whole or only chosen findings; never runs the variant | `run --judge-only`, `run --only` |
 | `report {variant…}` | metrics side by side against `--baseline`; with two `--scorer`s, their agreement and the findings they differ on | `report`, the data repository's `scripts/judges.ts` |
@@ -290,7 +288,7 @@ two can't drift apart, and `run` already prints its plan before asking.
 
 A stored version is named `{name}@{version}`, and a prefix is enough, so a version can be compared
 with the one before it: `report one-agent-bare --baseline one-agent-bare@1.2`. `list variants`
-prints the stored versions, each with the hashes its records came from.
+prints the stored versions, each with its trials.
 
 ### Selection, the same on every command
 
@@ -534,8 +532,8 @@ Out of scope:
 - **A scorer is any workflow returning labels (`Judgement`).** Rejected: voter models as config
   fields, which would fix every scorer's shape to the panel's.
 - **Identity by a declared semver, results by `{major}.{minor}`.** A patch bump keeps the
-  results. The content hash, scheme `v1`, no paths, is kept in every record as provenance only.
-  Rejected, after the hash was the identity for Tasks 4–7: the hash, since moving the dataset
+  results. Records keep the commit and `dirty` as provenance; the content hash that was kept
+  beside the version went on 2026-09-29. Rejected, after the hash was the identity for Tasks 4–7: the hash, since moving the dataset
   folder into a placeholder orphaned two controls' scores while it still missed an engine change, a
   prompt read at run time and a model alias; a list of old hashes a file vouches for, which every
   harmless edit would have to extend; and an unchecked counter, which can't say how big a change
