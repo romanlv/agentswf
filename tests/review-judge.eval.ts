@@ -8,6 +8,7 @@ import type { Judgement, ReviewFinding } from "../packages/lab/src/review/format
 import { checkJudgement } from "../packages/lab/src/review/judge/check";
 import { categoryOf } from "../packages/lab/src/review/judge/panel";
 import { agreement } from "../packages/lab/src/review/metrics/metrics";
+import { assertLiveOptIn } from "./live";
 
 /**
  * The panel judge live (story 008, Task 3), on cheap models: a synthetic fixture, a two-file
@@ -239,10 +240,7 @@ async function evaluate(): Promise<{ failed: string[]; record?: OutputRecord }> 
 }
 
 if (import.meta.main) {
-  if (process.env.WF_LIVE_EVAL !== "1") {
-    console.error("WF_LIVE_EVAL=1 is required to start live agents");
-    process.exit(1);
-  }
+  assertLiveOptIn();
   const { failed, record } = await evaluate();
   for (const line of failed) console.error(line);
   console.log(

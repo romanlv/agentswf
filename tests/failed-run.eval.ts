@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { OutputRecord } from "../packages/contract/src/records";
 import { runOperatorCli } from "../packages/engine/src/operator-cli";
+import { assertLiveOptIn } from "./live";
 
 /**
  * Story 003 against a live harness: a run that crashes, and one cancelled mid-turn, each after one
@@ -74,10 +75,7 @@ function problems(observed: Observed): string[] {
 }
 
 if (import.meta.main) {
-  if (process.env.WF_LIVE_EVAL !== "1") {
-    console.error("WF_LIVE_EVAL=1 is required to start live agents");
-    process.exit(1);
-  }
+  assertLiveOptIn();
   process.on("SIGINT", () => operator.abort("SIGINT"));
   process.on("SIGTERM", () => operator.abort("SIGTERM"));
   const observed = [await scenario("crash")];

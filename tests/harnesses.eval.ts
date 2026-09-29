@@ -4,6 +4,7 @@ import { join } from "node:path";
 import type { QuickCheckResult } from "../examples/quick-check/workflow";
 import type { OutputRecord } from "../packages/contract/src/records";
 import { runOperatorCli } from "../packages/engine/src/operator-cli";
+import { assertLiveOptIn, interruption } from "./live";
 
 /**
  * Every harness awf runs, live, on its cheapest model: codex and pi headless, each answering a
@@ -41,10 +42,7 @@ export function problems(exitCode: number, record: OutputRecord | undefined): st
 }
 
 if (import.meta.main) {
-  if (process.env.WF_LIVE_EVAL !== "1") {
-    console.error("WF_LIVE_EVAL=1 is required to start live agents");
-    process.exit(1);
-  }
+  assertLiveOptIn();
   const workDir = await mkdtemp(join(tmpdir(), "awf-harnesses-"));
   const output: string[] = [];
   const exitCode = await runOperatorCli(
@@ -84,9 +82,3 @@ if (import.meta.main) {
 }
 
 /** Ctrl-C stops the run and its agents, as it does under `awf run`, instead of killing the process. */
-function interruption(): AbortSignal {
-  const controller = new AbortController();
-  process.on("SIGINT", () => controller.abort("SIGINT"));
-  process.on("SIGTERM", () => controller.abort("SIGTERM"));
-  return controller.signal;
-}

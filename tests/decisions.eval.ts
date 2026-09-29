@@ -4,6 +4,7 @@ import { join } from "node:path";
 import type { OutputRecord } from "../packages/contract/src/records";
 import { runOperatorCli } from "../packages/engine/src/operator-cli";
 import { openRouterKey } from "../packages/engine/src/operator-runtime";
+import { assertLiveOptIn } from "./live";
 
 /**
  * Story 006 against the live model: `examples/triage` through `awf run`, with Jev on OpenRouter as
@@ -48,10 +49,7 @@ async function evaluate(): Promise<{ failed: string[]; record?: OutputRecord }> 
 }
 
 if (import.meta.main) {
-  if (process.env.WF_LIVE_EVAL !== "1") {
-    console.error("WF_LIVE_EVAL=1 is required to call a live model");
-    process.exit(1);
-  }
+  assertLiveOptIn(process.env, "call a live model");
   const { failed, record } = await evaluate();
   if (!record && failed.length === 0) {
     console.error("OPENROUTER_API_KEY is not set, nor in .env: skipped");

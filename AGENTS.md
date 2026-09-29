@@ -62,7 +62,7 @@ bunx tsc --noEmit
 bun run scripts/check-boundaries.ts
 bun run check             # Biome lint and format check, tsc, and the boundaries
 bun run format            # Biome: format, organize imports, apply safe fixes
-bun run eval              # live agents on cheap models: ~7 min, about $0.70
+bun run eval              # live agents on cheap models; docs/testing.md has the cost
 ```
 
 `bun install` points `core.hooksPath` at `.githooks`, whose pre-commit runs Biome's safe fixes on the

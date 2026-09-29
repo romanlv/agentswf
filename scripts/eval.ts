@@ -2,7 +2,7 @@ import { basename, join } from "node:path";
 
 /**
  * Runs every live eval, one after another, and totals what they cost. Running this command is the
- * consent to spend, so it sets `WF_LIVE_EVAL=1` for them. Arguments narrow the set by name:
+ * consent to spend, so it sets `AWF_LIVE_EVAL=1` for them. Arguments narrow the set by name:
  * `bun run eval harnesses failed-run`. Everything goes to stdout: an eval's progress is on its stderr,
  * which a terminal may paint as errors. Ctrl-C reaches the running eval too, which stops its agents;
  * the runner waits for that and starts no other.
@@ -41,7 +41,7 @@ for (const file of files) {
   const started = Date.now();
   const child = Bun.spawn([process.execPath, file], {
     cwd: ROOT,
-    env: { ...process.env, WF_LIVE_EVAL: "1" },
+    env: { ...process.env, AWF_LIVE_EVAL: "1" },
     stdout: "pipe",
     stderr: "pipe",
   });

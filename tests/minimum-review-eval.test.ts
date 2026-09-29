@@ -4,11 +4,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { HarnessTurn } from "../packages/harness/src/adapter";
 import type { ProcessInput } from "../packages/harness/src/command";
+import { assertLiveOptIn } from "./live";
 import type { NativeOutcomeEvidence } from "./minimum-review.eval";
 import {
   agentVersionEvidence,
   assertCompletedReviews,
-  assertLiveOptIn,
   assertNativeEvidence,
   herdrBehaviourCheck,
   herdrVersionCheck,
@@ -78,9 +78,9 @@ describe("minimum review live evaluation plan", () => {
   });
 
   test("requires an exact opt-in value at the spending boundary", () => {
-    expect(() => assertLiveOptIn(undefined)).toThrow("WF_LIVE_EVAL=1");
-    expect(() => assertLiveOptIn("true")).toThrow("WF_LIVE_EVAL=1");
-    expect(() => assertLiveOptIn("1")).not.toThrow();
+    expect(() => assertLiveOptIn({})).toThrow("AWF_LIVE_EVAL=1");
+    expect(() => assertLiveOptIn({ AWF_LIVE_EVAL: "true" })).toThrow("AWF_LIVE_EVAL=1");
+    expect(() => assertLiveOptIn({ AWF_LIVE_EVAL: "1" })).not.toThrow();
   });
 
   test("records agent upgrades without blocking and keeps Herdr pinned", () => {
@@ -118,13 +118,13 @@ describe("minimum review live evaluation plan", () => {
   });
 
   test("the exported spending function refuses to begin without opt-in", async () => {
-    const previous = process.env.WF_LIVE_EVAL;
-    delete process.env.WF_LIVE_EVAL;
+    const previous = process.env.AWF_LIVE_EVAL;
+    delete process.env.AWF_LIVE_EVAL;
     try {
-      await expect(runLiveEvaluation()).rejects.toThrow("WF_LIVE_EVAL=1");
+      await expect(runLiveEvaluation()).rejects.toThrow("AWF_LIVE_EVAL=1");
     } finally {
-      if (previous === undefined) delete process.env.WF_LIVE_EVAL;
-      else process.env.WF_LIVE_EVAL = previous;
+      if (previous === undefined) delete process.env.AWF_LIVE_EVAL;
+      else process.env.AWF_LIVE_EVAL = previous;
     }
   });
 

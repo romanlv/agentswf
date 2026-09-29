@@ -29,16 +29,16 @@ the daemon does not answer within 5 s or the default image is not built.
 The fakes encode what the real CLIs do today. They go stale silently, which is what the live levels
 are for.
 
-### 2. Evals — every supported feature, live, about $0.60
+### 2. Evals — every supported feature, live, about $1.50
 
 ```sh
-bun run eval                        # all of them, one after another: ~7 min, about $0.70
+bun run eval                        # all of them, one after another: ~15 min, about $1.50
 bun run eval harnesses failed-run   # only the ones named
 ```
 
 `*.eval.ts` files under `tests/` start live agents, assert what they did, and print what they
 cost. `bun test` does not collect them. `bun run eval` is the consent to spend: it sets
-`WF_LIVE_EVAL=1`, which each eval requires, and ends with each eval's time and cost and the total.
+`AWF_LIVE_EVAL=1`, which each eval requires, and ends with each eval's time and cost and the total.
 Each runs on a cheap model — codex `gpt-6-luna`, claude `claude-haiku-4-5`, pi
 `openai-codex/gpt-5.6-terra` — because an eval checks the machinery, not
 the quality of the answer.
@@ -69,7 +69,7 @@ What they cover between them:
   each running fixed commands against canaries the host planted: files under `~`, in harness
   state and in the temp directories, a listener, a disallowed domain, a git hook, another
   sandbox's home. Checked from the agents' own transcripts, the listener and the working tree.
-  3 agents, ~2½ min, ~$0.30, of which claude's ~$0.07 is charged. codex runs on gpt-5.6-sol:
+  3 agents, ~2½ min, ~$0.30, of which claude's ~$0.07 is billed per token, estimated. codex runs on gpt-5.6-sol:
   luna declined the probe's commands. Neither is skipped: each fails, saying why, where its
   provider is not installed or docker's daemon does not answer within 30 s, so a sandbox
   regression cannot pass unseen. `sandbox-docker` builds the default image first when it is
@@ -99,8 +99,8 @@ What they cover between them:
   prelude that sets their environment and loads their secret. 3 agents, ~3 min, ~$0.32. Fails,
   saying why, where docker cannot run.
 
-The totals above are one measured run without docker; `sandbox-docker` and
-`sandbox-panes-docker` add ~6 min and ~$0.60.
+Added up, the figures above come to ~9 min and ~$0.90 without docker; `sandbox-docker` and
+`sandbox-panes-docker` add ~6 min and ~$0.60. All are list-price estimates.
 
 Not covered live, on purpose:
 
@@ -137,7 +137,7 @@ as story 002 did to check accounting against the session files.
 
 - **Every change:** level 1. The pre-commit hook runs Biome only; run the rest yourself.
 - **Before a story goes to human review, or after upgrading Herdr or a harness CLI:** `bun run
-  eval`, all of it — at about $0.60 there is no reason to pick. Record the date, outcome and cost in the
+  eval`, all of it — at about $1.50 there is no reason to pick. Record the date, outcome and cost in the
   story's Verification section.
 - **While working on one area:** the matching eval — `harnesses` for an adapter, liveness or usage
   reader; `minimum-review` for panes, the control plane or the result channel; `failed-run` for run
@@ -149,7 +149,7 @@ as story 002 did to check accounting against the session files.
 
 ## Adding an eval
 
-- Name it `*.eval.ts` under `tests/`, and refuse to start without `WF_LIVE_EVAL=1`. `bun run eval`
+- Name it `*.eval.ts` under `tests/`, and refuse to start without `AWF_LIVE_EVAL=1`. `bun run eval`
   picks it up.
 - Use the cheapest model that exercises the feature.
 - Go through `awf run` (`runOperatorCli`) where possible, so the operator runtime and the record
@@ -177,7 +177,7 @@ claude.ai.
   passed after Task 5's review fixes in 2m 40s, ~$0.29.
 - 2026-09-26, all evals after story 004's Task 5 and 6: 5 passed and `sandbox-docker` skipped (its
   daemon did not answer) in 6m 13s, ~$0.58. `sandbox-srt` was ~$0.20, of which claude's $0.15 was
-  charged: its charge varies run to run.
+  metered: it varies run to run.
 - 2026-09-26, docker once its daemon answered: `sandbox-docker` passed in 2m 39s, ~$0.29, and
   `sandbox-panes-docker` in 2m 56s, ~$0.32, each on its first run; after Task 5's review, 2m 48s
   (~$0.31) and 3m 07s (~$0.31). OrbStack stopped answering twice when several agents drove it at

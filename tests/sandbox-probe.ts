@@ -8,6 +8,7 @@ import type { SandboxEnvironmentKey } from "../packages/contract/src/workflow";
 import { runOperatorCli } from "../packages/engine/src/operator-cli";
 import { installSandboxes } from "../packages/engine/src/operator-runtime";
 import { findDocker, imageBuildCommand } from "../packages/sandbox/src/docker";
+import { assertLiveOptIn, interruption } from "./live";
 
 /**
  * The sandbox probe, run for real under one provider (story 004, Task 4): codex and claude share
@@ -350,10 +351,7 @@ export async function runProbe(
   environment: SandboxEnvironmentKey,
   panes: ("coder" | "tester")[] = [],
 ): Promise<void> {
-  if (process.env.WF_LIVE_EVAL !== "1") {
-    console.error("WF_LIVE_EVAL=1 is required to start live agents");
-    process.exit(1);
-  }
+  assertLiveOptIn();
   // Never skipped: a sandbox regression must not pass unseen as a provider missing.
   const unready = await unreadyReason(environment);
   if (unready) {
@@ -457,9 +455,3 @@ async function loadClaudeToken(): Promise<void> {
 }
 
 /** Ctrl-C stops the run and its agents, as it does under `awf run`, instead of killing the process. */
-function interruption(): AbortSignal {
-  const controller = new AbortController();
-  process.on("SIGINT", () => controller.abort("SIGINT"));
-  process.on("SIGTERM", () => controller.abort("SIGTERM"));
-  return controller.signal;
-}

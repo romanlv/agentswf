@@ -9,7 +9,7 @@ depends_on: []
 
 # Make live-evaluation disclosure explicit
 
-Why it matters: `WF_LIVE_EVAL=1` proves deliberate spending, but its current error only says that
+Why it matters: `AWF_LIVE_EVAL=1` proves deliberate spending, but its current error only says that
 live agents will start. It does not state which local content will leave the machine or identify the
 provider destinations. That ambiguity blocked Story 001's approved evaluation before any agent was
 launched.

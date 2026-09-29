@@ -34,6 +34,7 @@ import type {
 } from "../packages/harness/src/adapter";
 import { createHerdrRunHostFactory, HERDR_VERSION } from "../packages/harness/src/adapters/herdr";
 import { type RunProcess, runProcess } from "../packages/harness/src/command";
+import { assertLiveOptIn } from "./live";
 
 export const LIVE_EVALUATION_BOUNDS = {
   workflowMilliseconds: 10 * 60_000,
@@ -215,7 +216,7 @@ export class LiveEvaluationError extends Error {
 }
 
 export async function runLiveEvaluation(signal?: AbortSignal) {
-  assertLiveOptIn(process.env.WF_LIVE_EVAL);
+  assertLiveOptIn();
   const preflight = await evaluationPreflight();
   if (!preflight.ok) {
     throw new Error(
@@ -274,10 +275,6 @@ export async function runLiveEvaluation(signal?: AbortSignal) {
       accounting?.totals.estimate,
     );
   }
-}
-
-export function assertLiveOptIn(value: string | undefined): void {
-  if (value !== "1") throw new Error("WF_LIVE_EVAL=1 is required to start live agents");
 }
 
 export function assertCompletedReviews(reviews: ReviewOutcome[]): void {

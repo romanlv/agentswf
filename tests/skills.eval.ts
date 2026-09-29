@@ -11,6 +11,7 @@ import {
 } from "../examples/skills-probe/workflow";
 import type { OutputRecord } from "../packages/contract/src/records";
 import { runOperatorCli } from "../packages/engine/src/operator-cli";
+import { assertLiveOptIn, interruption } from "./live";
 
 /**
  * Agents given skills, and using them, live (story 007): codex, pi and a claude pane on the host,
@@ -156,10 +157,7 @@ async function findReceipts(root: string): Promise<Receipt[]> {
 }
 
 if (import.meta.main) {
-  if (process.env.WF_LIVE_EVAL !== "1") {
-    console.error("WF_LIVE_EVAL=1 is required to start live agents");
-    process.exit(1);
-  }
+  assertLiveOptIn();
   const workDir = await mkdtemp(join(tmpdir(), "awf-skills-"));
   const stampName = `awf-stamp-${randomBytes(3).toString("hex")}`;
   const sealName = `awf-seal-${randomBytes(3).toString("hex")}`;
@@ -218,11 +216,4 @@ if (import.meta.main) {
     ),
   );
   process.exit(failed.length === 0 ? 0 : 1);
-}
-
-function interruption(): AbortSignal {
-  const controller = new AbortController();
-  process.on("SIGINT", () => controller.abort("SIGINT"));
-  process.on("SIGTERM", () => controller.abort("SIGTERM"));
-  return controller.signal;
 }
