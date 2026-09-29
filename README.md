@@ -79,8 +79,9 @@ labelled stages it shows live in the terminal.
 - **Cost tracking.** Every run records time, tokens and a cost estimate for each agent, stage and
   model, read from the harnesses' own session files. It's printed at the end and kept with the
   run, failed runs included.
-- **Cheap decisions with Jev.** For routing, triage and gating, ask a small decision model closed
-  questions and get a probability for every answer in milliseconds, with no coding agent involved.
+- **Fast decisions with Jev.** For routing, triage and gating, ask [Jev](#fast-decisions-with-jev),
+  a decision model, closed questions and get a probability for every answer in about 200 ms, with
+  no coding agent involved. It needs an OpenRouter key.
 - **Deadlines and cleanup.** Every wait has a deadline, and every agent is cleaned up when the run
   ends, however it ends.
 - **Watch or run headless.** An agent runs in a terminal pane you can watch and type into
@@ -317,12 +318,18 @@ const agent = await workflow.agents.open({
 [`examples/sandboxes`](examples/sandboxes/) runs three agents in one container and a fourth in a
 private srt sandbox, and prints what each was allowed and refused.
 
-### Cheap decisions without an agent
+### Fast decisions with Jev
 
-Not every step needs a coding agent. `workflow.decisions` asks a small, fast model closed
-questions about some state and returns a probability for every answer, in a few hundred
-milliseconds, for a fraction of a cent. Use it to route, triage or gate, and hand only the
+Not every step needs a coding agent. [Jev](https://docs.typesafe.ai/concepts/system-one), from TypeSafe, is a
+*decision model*: instead of writing text, it answers closed questions about some state and
+returns a probability for every possible answer. A call comes back in about 200 ms, and you pay
+only for the state you send, once per call ($0.042 per million input tokens), so asking ten
+questions costs about the same as asking one. Use it to route, triage or gate, and hand only the
 uncertain cases to an agent or a person.
+
+`workflow.decisions` calls Jev through OpenRouter, so it needs an **`OPENROUTER_API_KEY`**, in the
+environment or in a `.env` in the directory you run `awf` from. The engine holds the key; no agent
+ever sees it.
 
 ```ts
 import { choice, yesNo } from "agentswf/workflow";
@@ -343,8 +350,9 @@ const { answers } = await workflow.decisions.decide({
 // answers.bug  → { type: "yes-no", yes: 0.91 }
 ```
 
-[`examples/triage`](examples/triage/) routes support tickets this way. It needs
-`OPENROUTER_API_KEY`.
+[`examples/triage`](examples/triage/) routes support tickets this way, and flags any answer below
+0.9 as unsure rather than taking it. How well Jev did on real review data is in
+[`docs/findings/system-one-models.md`](docs/findings/system-one-models.md).
 
 ## Runnable examples
 
