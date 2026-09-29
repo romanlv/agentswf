@@ -8,8 +8,8 @@ import {
 } from "../format/variant";
 
 const RESOLVE_HINT =
-  "a file outside awf finds the package through its repository's tsconfig.json: " +
-  '"compilerOptions": { "paths": { "@agentswf/lab/review": ["{awf}/packages/lab/src/review/index.ts"] } }';
+  "a file outside awf finds the package through a link: `bun link` in {awf}/packages/lab, " +
+  "then `bun link @agentswf/lab` in the file's repository";
 
 async function load(file: string): Promise<Record<string, unknown>> {
   let loaded: unknown;
