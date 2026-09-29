@@ -22,12 +22,12 @@ import type { AnswerKey, Fixture } from "../format/format";
 import { runtimeName, runtimeOf } from "../format/runtime";
 import {
   FindingLabelSchema,
-  JUDGEMENT_FORMAT,
-  type Judgement,
   type ReviewFinding,
+  SCORER_RESULT_FORMAT,
+  type ScorerResult,
 } from "../format/scoring";
-import { checkJudgementShape, checkReviewFindings, describeProblems } from "../format/validate";
-import { checkJudgement, type LabelOptions, labelProblems } from "./check";
+import { checkReviewFindings, checkScorerResultShape, describeProblems } from "../format/validate";
+import { checkScorerResult, type LabelOptions, labelProblems } from "./check";
 import { disputed, settle, type Vote } from "./panel";
 import { judgePrompt, NO_ANSWER, retryPrompt, tiebreakPrompt } from "./prompt";
 
@@ -39,7 +39,7 @@ type Args = {
   tiebreak: ExecutionConfig;
 };
 
-type Answer = { labels: Judgement["labels"]; missed: string };
+type Answer = { labels: ScorerResult["labels"]; missed: string };
 
 /** The engine's answer schema has no `pattern`; every answer is checked in full in code. */
 const ANSWER = JSON.parse(
@@ -54,7 +54,7 @@ const ANSWER = JSON.parse(
 
 type Case = { fixture: Fixture; request: string; key: AnswerKey; findings: ReviewFinding[] };
 
-const executable = defineExecutableWorkflow<Args, Judgement>({
+const executable = defineExecutableWorkflow<Args, ScorerResult>({
   definition: {
     meta: {
       name: "review-panel-judge",
@@ -65,7 +65,7 @@ const executable = defineExecutableWorkflow<Args, Judgement>({
     async run(workflow, args) {
       const input = await readInput(args);
       if (input.findings.length === 0) {
-        return { format: JUDGEMENT_FORMAT, labels: [], missed: "The review found nothing." };
+        return { format: SCORER_RESULT_FORMAT, labels: [], missed: "The review found nothing." };
       }
       const voters = args.panel.map((runtime, index) => ({
         by: `judge${index + 1}:${runtimeName(runtime)}`,
@@ -112,13 +112,13 @@ const executable = defineExecutableWorkflow<Args, Judgement>({
           third = { by: answered.by, role: "tiebreak", labels: answered.answer.labels };
         } else workflow.log(`${answered.by} gave no valid vote; the split findings stay unsettled`);
       }
-      const judgement: Judgement = {
-        format: JUDGEMENT_FORMAT,
+      const judgement: ScorerResult = {
+        format: SCORER_RESULT_FORMAT,
         labels: settle(panel[0], panel[1], third),
         missed: [a, b].map((vote) => `${vote.by}: ${vote.answer.missed}`).join("\n"),
         votes: [...panel, ...(third ? [third] : [])],
       };
-      const checked = checkJudgement(judgement, input.findings, input.key);
+      const checked = checkScorerResult(judgement, input.findings, input.key);
       if (!checked.ok) {
         throw new Error(describeProblems("the settled judgement", checked.problems));
       }
@@ -161,7 +161,7 @@ async function ask(
       prompt = NO_ANSWER;
       continue;
     }
-    const shaped = checkJudgementShape({ format: JUDGEMENT_FORMAT, ...outcome.value });
+    const shaped = checkScorerResultShape({ format: SCORER_RESULT_FORMAT, ...outcome.value });
     const problems = shaped.ok
       ? labelProblems(shaped.value.labels, input.findings, input.key, { ...options, voter: true })
       : shaped.problems;

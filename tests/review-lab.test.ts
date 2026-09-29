@@ -5,6 +5,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readdirSync,
+  realpathSync,
   renameSync,
   rmSync,
 } from "node:fs";
@@ -174,10 +175,11 @@ async function workspace(): Promise<Workspace> {
         file,
         body ??
           `import { defineReviewVariant } from "@agentswf/lab/review";
-import type canned from ${JSON.stringify(CANNED)};
+import canned from ${JSON.stringify(CANNED)};
 
-export default defineReviewVariant<typeof canned>({
-  workflow: new URL(${JSON.stringify(`file://${CANNED}`)}),
+export default defineReviewVariant({
+  workflow: canned,
+  file: new URL(${JSON.stringify(`file://${CANNED}`)}),
   argv: ["--answers", ${JSON.stringify(answers)}, "--head", "{head}", "--request", "{request}", "--range", "{base}...HEAD"],
   timeout: "1m",
   read: (result) => result.findings.map((f) => ({ path: f.file, line: f.line, text: f.claim })),
@@ -190,10 +192,12 @@ export default defineReviewVariant<typeof canned>({
       const file = join(root, "scorers", `${name}.scorer.ts`);
       await Bun.write(
         file,
-        `import { defineReviewJudge } from "@agentswf/lab/review";
+        `import { defineReviewScorer } from "@agentswf/lab/review";
+import exact from ${JSON.stringify(EXACT)};
 
-export default defineReviewJudge({
-  workflow: new URL(${JSON.stringify(`file://${EXACT}`)}),
+export default defineReviewScorer({
+  workflow: exact,
+  file: new URL(${JSON.stringify(`file://${EXACT}`)}),
   argv: ["--mode", ${JSON.stringify(mode)}],
   timeout: "1m",
 });
@@ -401,7 +405,7 @@ describe("awf-lab", () => {
       `import { defineReviewVariant, ${workflow} } from "@agentswf/lab/review";
 
 export default defineReviewVariant({
-  workflow: ${workflow},
+  ...${workflow},
   argv: ${argv},
   timeout: "1m",
   read: (findings) => findings as never,
@@ -530,6 +534,23 @@ export default defineReviewVariant({
       "--dry-run",
     ]);
     expect(failed.steps.map((s) => s.id)).toEqual(["app-1"]);
+  });
+
+  test("a variant whose file is not the workflow it imports is refused before anything runs", async () => {
+    await ws.variant(
+      "crossed",
+      (await ws.variant("canned").then((f) => Bun.file(f).text())).replace(
+        `file: new URL(${JSON.stringify(`file://${CANNED}`)})`,
+        `file: new URL(${JSON.stringify(`file://${EXACT}`)})`,
+      ),
+    );
+    const runs = inProcess();
+    const crossed = await lab(ws, ["run", "crossed"], runs.runner);
+    expect(crossed.exitCode).not.toBe(0);
+    expect(crossed.stderr).toContain(
+      `workflow is not the default export of file ${realpathSync(EXACT)}`,
+    );
+    expect(runs.calls).toHaveLength(0);
   });
 
   test("usage errors exit 2: an unknown placeholder, an unknown variant, a bad flag", async () => {

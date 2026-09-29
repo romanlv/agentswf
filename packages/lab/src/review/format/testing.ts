@@ -3,12 +3,12 @@ import {
   FINDINGS_FORMAT,
   type FindingLabel,
   type FindingsRecord,
-  JUDGEMENT_FORMAT,
-  type Judgement,
   type ReviewFinding,
   type RunSummary,
   SCORE_FORMAT,
+  SCORER_RESULT_FORMAT,
   type ScoreRecord,
+  type ScorerResult,
 } from "./scoring";
 
 /**
@@ -122,8 +122,8 @@ export const EXAMPLE_FINDINGS: ReviewFinding[] = EXAMPLE_LABELS.map((label) => (
   text: `finding ${label.finding} words`,
 }));
 
-export const EXAMPLE_JUDGEMENT: Judgement = {
-  format: JUDGEMENT_FORMAT,
+export const EXAMPLE_SCORER_RESULT: ScorerResult = {
+  format: SCORER_RESULT_FORMAT,
   labels: EXAMPLE_LABELS,
   missed: "K3, K4 and K7",
 };
@@ -162,5 +162,5 @@ export const EXAMPLE_SCORE_RECORD: ScoreRecord = {
   key: { revision: 1, procedure: "p1", digest: DIGEST },
   run: { ...EXAMPLE_RUN, id: "run-2", models: ["gpt-6-sol", "claude-sonnet-5"] },
   agreement: 1,
-  result: { status: "judged", judgement: EXAMPLE_JUDGEMENT },
+  result: { status: "judged", judgement: EXAMPLE_SCORER_RESULT },
 };

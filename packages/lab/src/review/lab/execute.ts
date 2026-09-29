@@ -19,13 +19,13 @@ import {
 } from "../format/records";
 import {
   type FindingLabel,
-  JUDGEMENT_FORMAT,
   type ReviewFinding,
   type RunSummary,
+  SCORER_RESULT_FORMAT,
 } from "../format/scoring";
 import { checkFixtureSet, checkReviewFindings, describeProblems } from "../format/validate";
-import type { DefinedJudge, DefinedVariant } from "../format/variant";
-import { checkJudgement } from "../judge/check";
+import type { DefinedScorer, DefinedVariant } from "../format/variant";
+import { checkScorerResult } from "../judge/check";
 import { categoryOf } from "../judge/panel";
 import { agreement } from "../metrics/metrics";
 import { addresser } from "./address";
@@ -161,8 +161,8 @@ export async function planRun(
     command: "run" | "score";
     dataset: string;
     variants: readonly { variant: Subject<DefinedVariant>; chosen: ReadonlyMap<string, Choice> }[];
-    scorer: Subject<DefinedJudge>;
-    restFrom?: Subject<DefinedJudge>;
+    scorer: Subject<DefinedScorer>;
+    restFrom?: Subject<DefinedScorer>;
     cases: readonly CaseInfo[];
   },
 ): Promise<Planned> {
@@ -315,7 +315,7 @@ async function runTrial(
     // The dataset's folder, so a control that reads the key names no absolute path in its argv.
     const folder = dirname(info.dir);
     const result = await lab.runner({
-      workflow: fileURLToPath(defined.workflow),
+      workflow: fileURLToPath(defined.file),
       cwd: code,
       timeout: defined.timeout,
       argv: fill(defined.argv, { base, head, request, dataset: folder }),
@@ -360,12 +360,12 @@ type Scored = Pick<Score, "run" | "agreement" | "result">;
 
 /**
  * Runs a scorer on a trial in a fresh checkout and checks what it returned: a judgement that
- * passes `checkJudgement`, and with `settled`, a partial labelling handed to the scorer as
+ * passes `checkScorerResult`, and with `settled`, a partial labelling handed to the scorer as
  * `--settled {file}`, those labels back unchanged.
  */
 async function runScorer(
   lab: Lab,
-  scorer: Subject<DefinedJudge>,
+  scorer: Subject<DefinedScorer>,
   info: CaseInfo,
   trial: Trial,
   settled?: readonly FindingLabel[],
@@ -387,7 +387,7 @@ async function runScorer(
       argv.push("--settled", file);
     }
     const result = await lab.runner({
-      workflow: fileURLToPath(defined.workflow),
+      workflow: fileURLToPath(defined.file),
       cwd: code,
       timeout: defined.timeout,
       argv,
@@ -404,7 +404,7 @@ async function runScorer(
         },
       };
     }
-    const checked = checkJudgement(result.record.value, trial.findings, info.key);
+    const checked = checkScorerResult(result.record.value, trial.findings, info.key);
     const changed = checked.ok
       ? (settled ?? []).filter(
           (label) => canonicalJson(checked.value.labels[label.finding]) !== canonicalJson(label),
@@ -440,7 +440,7 @@ async function runScorer(
 function scoreOf(
   lab: Lab,
   dataset: string,
-  scorer: Subject<DefinedJudge>,
+  scorer: Subject<DefinedScorer>,
   info: CaseInfo,
   trial: Trial,
 ) {
@@ -459,7 +459,7 @@ function scoreOf(
 async function scoreTrial(
   lab: Lab,
   dataset: string,
-  scorer: Subject<DefinedJudge>,
+  scorer: Subject<DefinedScorer>,
   info: CaseInfo,
   trial: Trial,
 ): Promise<Score> {
@@ -472,7 +472,7 @@ async function scoreTrial(
       ...made,
       result: {
         status: "scored",
-        judgement: { format: JUDGEMENT_FORMAT, labels: [], missed: nothing },
+        judgement: { format: SCORER_RESULT_FORMAT, labels: [], missed: nothing },
       },
     };
     writeScore(dir, score);
@@ -490,7 +490,7 @@ async function scoreTrial(
 async function scoreChosen(
   lab: Lab,
   dataset: string,
-  scorer: Subject<DefinedJudge>,
+  scorer: Subject<DefinedScorer>,
   info: CaseInfo,
   trial: Trial,
   chosen: { picked: readonly number[]; asked: readonly number[]; restFrom: ScoreOnFile },
@@ -588,7 +588,7 @@ export async function executePlan(
   lab: Lab,
   options: {
     dataset: string;
-    scorer: Subject<DefinedJudge>;
+    scorer: Subject<DefinedScorer>;
     cases: readonly CaseInfo[];
     planned: Planned;
     budget?: number;

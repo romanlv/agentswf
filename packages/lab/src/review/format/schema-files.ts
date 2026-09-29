@@ -8,7 +8,7 @@ import {
 import { ListSchema, ReportSchema, RunSchema, SchemasSchema, ShowSchema } from "./output";
 import { PartialRecordSchema } from "./partial";
 import { PartialScoreSchema, ScoreSchema, TrialSchema } from "./records";
-import { FindingsRecordSchema, JudgementSchema, ScoreRecordSchema } from "./scoring";
+import { FindingsRecordSchema, ScoreRecordSchema, ScorerResultSchema } from "./scoring";
 import { WorkspaceConfigSchema } from "./workspace";
 
 const DRAFT = "https://json-schema.org/draft/2020-12/schema";
@@ -25,7 +25,7 @@ export const SCHEMA_FILES = {
     title: "awf-lab trial, first version",
     schema: FindingsRecordSchema,
   },
-  "review-judgement.schema.json": { title: "awf review judgement", schema: JudgementSchema },
+  "review-judgement.schema.json": { title: "awf review judgement", schema: ScorerResultSchema },
   "review-score.schema.json": { title: "awf-lab score", schema: ScoreSchema },
   "review-score.v1.schema.json": {
     title: "awf-lab score, first version",

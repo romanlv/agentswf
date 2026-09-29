@@ -9,13 +9,13 @@ import { defineExecutableWorkflow, type WorkflowInvocation } from "../../../pack
 import type { AnswerKey } from "../../../packages/lab/src/review/format/format";
 import type {
   FindingLabel,
-  Judgement,
+  ScorerResult,
   ReviewFinding,
 } from "../../../packages/lab/src/review/format/scoring";
 
 type Args = { fixture: string; findings: string; mode: string; settled?: string };
 
-const executable = defineExecutableWorkflow<Args, Judgement>({
+const executable = defineExecutableWorkflow<Args, ScorerResult>({
   definition: {
     meta: { name: "exact-judge", description: "Label findings by exact text." },
     async run(_workflow, args) {

@@ -71,8 +71,11 @@ awf-lab run {variant}: every trial, then every score, --jobs steps at a time
 hand it a case and how to read its result:
 
 ```ts
-export default defineReviewVariant<typeof singleAgentReview>({
-  workflow: new URL("{awf}/examples/single-agent-review/workflow.ts", import.meta.url),
+import singleAgentReview from "@agentswf/examples/single-agent-review/workflow.ts";
+
+export default defineReviewVariant({
+  workflow: singleAgentReview,
+  file: new URL(import.meta.resolve("@agentswf/examples/single-agent-review/workflow.ts")),
   argv: ["--range", "{base}...HEAD", "--request", "{request}"],
   timeout: "30m",
   read: (result) =>
@@ -83,11 +86,12 @@ export default defineReviewVariant<typeof singleAgentReview>({
 `awf-lab` fills `{base}`, `{head}` and `{request}` from the snapshot, and `{dataset}` with the
 dataset's folder, which only a control that reads the key needs. It runs `awf run` in the
 restored checkout, and turns the result into `ReviewFinding[]` (`{ path?, line?, text,
-severity? }`) with `read`, which `tsc` checks against the workflow's result type. A run that
+severity? }`) with `read`, which `tsc` checks against the type of `workflow`. `file` is what
+`awf run` loads, and `awf-lab` refuses a file whose default export is not `workflow`. A run that
 fails or times out is kept as a failed trial with no findings; it counts as finding nothing.
 
 **A scorer** is a workflow too, named by a scorer file (`{name}.scorer.ts`, made with
-`defineReviewJudge`). It gets `--fixture {dir}` (the case's request and key) and `--findings
+`defineReviewScorer`, whose `workflow` must return a `ScorerResult`). It gets `--fixture {dir}` (the case's request and key) and `--findings
 {file}`, works in a fresh checkout of the frozen code, and returns labels, one per finding
 (format `awf.review-judgement/1`):
 
@@ -234,7 +238,7 @@ The public docs are
 | `--json` output and the workspace config | a format version; an old key fails with a message naming the new one | the same |
 | directories and record file names in the data repository | a one-off move, and a store that reads the old names for one version; paths are in no hash | the same |
 | field names in new records (`judge` to `scorer`, `review` to `trial`, `fixture` to `case`) | a new format version beside the old; the reader takes both | the same |
-| names in files a scorer imports (`defineReviewJudge`, `Judgement`, `judge/`) | nothing since versions: the hashes move, the results stay with the version | with [`decision-matching`](todo/decision-matching.md) |
+| names in files a scorer imports (`defineReviewJudge`, `Judgement`) | nothing since versions: the hashes move, the results stay with the version | done after Task 7: `defineReviewScorer`, `ScorerResult`; `judge/` stays, as the panel is a judge |
 | sealed case files (`awf.review-fixture/1`, `awf.fixture-set/1`) | never renamed: the case digest covers `fixture.json`, so a new digest orphans every trial of that case | new datasets may use new names; the old ones are read as they are |
 
 `defineReviewVariant` isn't renamed: "variant" stays.
@@ -529,7 +533,7 @@ Out of scope:
   list of every variant (each would edit it), path flags on every call.
 - **Placeholders in argv, a typed `read` out.** Rejected: fixed variant flags (every real workflow
   would need a wrapper) and a required result shape (it would change workflows for scoring).
-- **A scorer is any workflow returning labels (`Judgement`).** Rejected: voter models as config
+- **A scorer is any workflow returning labels (`ScorerResult`).** Rejected: voter models as config
   fields, which would fix every scorer's shape to the panel's.
 - **Identity by a declared semver, results by `{major}.{minor}`.** A patch bump keeps the
   results. Records keep the commit and `dirty` as provenance; the content hash that was kept
@@ -691,8 +695,8 @@ The code catches up with this story: [[#Terms and where things are]] and
 
 Not in it:
 
-- the names a scorer imports (`defineReviewJudge`, `Judgement`, `judge/`), which orphan every
-  stored score and change with [`decision-matching`](todo/decision-matching.md);
+- the names a scorer imports (`defineReviewJudge`, `Judgement`), renamed after it:
+  `defineReviewScorer` and `ScorerResult`. `judge/` stays, since the panel is a judge;
 - the sealed case files, never rewritten;
 - `--trials` and `{case}/{trial}` beyond one trial, which come with
   [`variant-matrix-runner`](todo/variant-matrix-runner.md);
@@ -1049,6 +1053,19 @@ Built as [[#The command line, revised]] says. The data repository's dataset fold
   declared version and nothing else. Records no longer write `hash`, and still read one in those
   written before. `list`, `report`, `show` and `--json` drop it and the "several hashes" note. The
   commit and `dirty` stay, as provenance.
+
+- **A variant or scorer names its workflow twice, and the two are checked** (2026-09-29, from a
+  review of the author surface). It gave a URL and, optionally, the workflow's type as a type
+  argument. Nothing tied them, and a file without the argument checked `read` against
+  `JsonValue`, or a scorer against nothing. Now it imports the workflow and passes it as
+  `workflow`, the type inferred from the value, beside `file`, the URL `awf run` loads.
+  `awf-lab` imports `file` and refuses the variant unless its default export is that same object,
+  so the two can't drift. A name in place of the file would need a catalogue, which section 9 of
+  the foundation leaves unbuilt. The lab's own workflows are `{ workflow, file }` pairs to spread
+  in: `{ ...ORACLE_WORKFLOW, argv, timeout }`. The same change renamed `defineReviewJudge` to
+  `defineReviewScorer` and `Judgement` to `ScorerResult`. The format string
+  `awf.review-judgement/1` and the record's `judgement` field stay as stored. Versions, not files,
+  are identity, so no stored result moved.
 
 ## Human review
 

@@ -36,9 +36,9 @@ async function importGraph(roots: readonly string[]): Promise<Set<string>> {
  * runs differs from it — the file, its workflow, and every file either imports by a relative path.
  * Provenance only: the version the file declares is its identity.
  */
-export async function provenanceOf(file: string, run: { workflow: URL }) {
+export async function provenanceOf(file: string, run: { file: URL }) {
   const root = realpathSync(file);
-  const workflow = realpathSync(fileURLToPath(run.workflow));
+  const workflow = realpathSync(fileURLToPath(run.file));
   return repository(root, [...(await importGraph([root, workflow]))]);
 }
 

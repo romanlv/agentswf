@@ -95,7 +95,7 @@ function wordsIn(text: string): number {
   return text.split(/\s+/).filter(Boolean).length;
 }
 
-/** One fixture's counts. The labels must have passed `checkJudgement` against these findings and key. */
+/** One fixture's counts. The labels must have passed `checkScorerResult` against these findings and key. */
 export function count(judged: Judged, filter: Filter = {}): Counts {
   if (filter.categories?.length === 0) throw new Error("a category filter names at least one");
   const counts = emptyCounts();

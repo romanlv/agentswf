@@ -1,6 +1,6 @@
 import type { AnswerKey } from "../format/format";
-import type { FindingLabel, Judgement, ReviewFinding } from "../format/scoring";
-import { type Checked, checkJudgementShape, type Problem } from "../format/validate";
+import type { FindingLabel, ReviewFinding, ScorerResult } from "../format/scoring";
+import { type Checked, checkScorerResultShape, type Problem } from "../format/validate";
 
 /**
  * A judgement is checked against the findings it labels and the key it labels them by, whichever
@@ -8,12 +8,12 @@ import { type Checked, checkJudgementShape, type Problem } from "../format/valid
  * failing judgement as a failed judging, never as labels. Each vote is held to the same rules, a
  * tiebreak's over the findings it was asked about.
  */
-export function checkJudgement(
+export function checkScorerResult(
   value: unknown,
   findings: readonly ReviewFinding[],
   key: AnswerKey,
-): Checked<Judgement> {
-  const shaped = checkJudgementShape(value);
+): Checked<ScorerResult> {
+  const shaped = checkScorerResultShape(value);
   if (!shaped.ok) return shaped;
   const { labels, votes = [] } = shaped.value;
   const problems = labelProblems(labels, findings, key);

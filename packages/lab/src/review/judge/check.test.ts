@@ -1,29 +1,29 @@
 import { describe, expect, test } from "bun:test";
-import { oracleFindings, oracleJudgement } from "../format/sanity";
-import type { FindingLabel, Judgement } from "../format/scoring";
-import { EXAMPLE_FINDINGS, EXAMPLE_JUDGEMENT, EXAMPLE_KEY } from "../format/testing";
-import { checkJudgement } from "./check";
+import { oracleFindings, oracleScorerResult } from "../format/sanity";
+import type { FindingLabel, ScorerResult } from "../format/scoring";
+import { EXAMPLE_FINDINGS, EXAMPLE_KEY, EXAMPLE_SCORER_RESULT } from "../format/testing";
+import { checkScorerResult } from "./check";
 
 /** The example judgement with label `index` replaced. */
-function withLabel(index: number, label: FindingLabel): Judgement {
+function withLabel(index: number, label: FindingLabel): ScorerResult {
   return {
-    ...EXAMPLE_JUDGEMENT,
-    labels: EXAMPLE_JUDGEMENT.labels.map((l, i) => (i === index ? label : l)),
+    ...EXAMPLE_SCORER_RESULT,
+    labels: EXAMPLE_SCORER_RESULT.labels.map((l, i) => (i === index ? label : l)),
   };
 }
 
 function problems(judgement: unknown): string[] {
-  const checked = checkJudgement(judgement, EXAMPLE_FINDINGS, EXAMPLE_KEY);
+  const checked = checkScorerResult(judgement, EXAMPLE_FINDINGS, EXAMPLE_KEY);
   return checked.ok ? [] : checked.problems.map((p) => `${p.path}: ${p.message}`);
 }
 
 const read = [{ path: "src/app.ts", start: 1, end: 2 }];
 
-describe("checkJudgement", () => {
+describe("checkScorerResult", () => {
   test("passes a judgement that keeps every rule, and the oracle's", () => {
-    expect(problems(EXAMPLE_JUDGEMENT)).toEqual([]);
-    const oracle = checkJudgement(
-      oracleJudgement(EXAMPLE_KEY),
+    expect(problems(EXAMPLE_SCORER_RESULT)).toEqual([]);
+    const oracle = checkScorerResult(
+      oracleScorerResult(EXAMPLE_KEY),
       oracleFindings(EXAMPLE_KEY),
       EXAMPLE_KEY,
     );
@@ -31,16 +31,18 @@ describe("checkJudgement", () => {
   });
 
   test("rejects a judgement of another shape", () => {
-    expect(problems({ ...EXAMPLE_JUDGEMENT, format: "awf.review-judgement/2" })).not.toEqual([]);
+    expect(problems({ ...EXAMPLE_SCORER_RESULT, format: "awf.review-judgement/2" })).not.toEqual(
+      [],
+    );
     expect(
       problems(withLabel(0, { finding: 0, label: "hit", why: "w", read } as never)),
     ).not.toEqual([]);
   });
 
   test("every finding is labelled once", () => {
-    expect(problems({ ...EXAMPLE_JUDGEMENT, labels: EXAMPLE_JUDGEMENT.labels.slice(1) })).toContain(
-      "/labels: 10 labels for 11 findings; label every finding once",
-    );
+    expect(
+      problems({ ...EXAMPLE_SCORER_RESULT, labels: EXAMPLE_SCORER_RESULT.labels.slice(1) }),
+    ).toContain("/labels: 10 labels for 11 findings; label every finding once");
   });
 
   test("the labels go in order", () => {
@@ -117,24 +119,24 @@ describe("the rules added for key growth and the panel", () => {
   });
 
   test("each vote keeps the rules: a panel vote over every finding, a tiebreak over its own", () => {
-    const tiebreak = [EXAMPLE_JUDGEMENT.labels[2]!, EXAMPLE_JUDGEMENT.labels[5]!];
-    const judgement: Judgement = {
-      ...EXAMPLE_JUDGEMENT,
+    const tiebreak = [EXAMPLE_SCORER_RESULT.labels[2]!, EXAMPLE_SCORER_RESULT.labels[5]!];
+    const judgement: ScorerResult = {
+      ...EXAMPLE_SCORER_RESULT,
       votes: [
-        { by: "a", role: "panel", labels: EXAMPLE_JUDGEMENT.labels },
-        { by: "b", role: "panel", labels: EXAMPLE_JUDGEMENT.labels },
+        { by: "a", role: "panel", labels: EXAMPLE_SCORER_RESULT.labels },
+        { by: "b", role: "panel", labels: EXAMPLE_SCORER_RESULT.labels },
         { by: "t", role: "tiebreak", labels: tiebreak },
       ],
     };
     expect(problems(judgement)).toEqual([]);
-    const short: Judgement = {
+    const short: ScorerResult = {
       ...judgement,
-      votes: [{ by: "a", role: "panel", labels: EXAMPLE_JUDGEMENT.labels.slice(0, 3) }],
+      votes: [{ by: "a", role: "panel", labels: EXAMPLE_SCORER_RESULT.labels.slice(0, 3) }],
     };
     expect(problems(short)).toEqual([
       "/votes/0/labels: 3 labels for 11 findings; label every finding once",
     ]);
-    const backwards: Judgement = {
+    const backwards: ScorerResult = {
       ...judgement,
       votes: [{ by: "t", role: "tiebreak", labels: tiebreak.toReversed() }],
     };
@@ -155,9 +157,11 @@ describe("the rules added for key growth and the panel", () => {
 
 test("a voter's bare unsettled fails; only the settled labels may say the judges split", () => {
   const bare: FindingLabel = { finding: 7, label: "unsettled", why: "hard", read: [] };
-  const labels = EXAMPLE_JUDGEMENT.labels.map((l, i) => (i === 7 ? bare : l));
-  expect(problems({ ...EXAMPLE_JUDGEMENT, labels })).toEqual([]);
-  expect(problems({ ...EXAMPLE_JUDGEMENT, votes: [{ by: "a", role: "panel", labels }] })).toEqual([
+  const labels = EXAMPLE_SCORER_RESULT.labels.map((l, i) => (i === 7 ? bare : l));
+  expect(problems({ ...EXAMPLE_SCORER_RESULT, labels })).toEqual([]);
+  expect(
+    problems({ ...EXAMPLE_SCORER_RESULT, votes: [{ by: "a", role: "panel", labels }] }),
+  ).toEqual([
     "/votes/0/labels/7: an unsettled finding names the unconfirmed claim it repeats, in excluded",
   ]);
 });

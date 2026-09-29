@@ -1,7 +1,7 @@
 import type { OutputRecord } from "@agentswf/contract/records";
 import { defineExecutableWorkflow } from "@agentswf/contract/workflow";
-import { JUDGEMENT_FORMAT, type Judgement, type RunSummary } from "./scoring";
-import { defineReviewJudge, defineReviewVariant } from "./variant";
+import { type RunSummary, SCORER_RESULT_FORMAT, type ScorerResult } from "./scoring";
+import { defineReviewScorer, defineReviewVariant } from "./variant";
 
 type Finding = { file: string; line?: number; claim: string; refuted: boolean };
 
@@ -13,18 +13,20 @@ const review = defineExecutableWorkflow<{ range: string }, { findings: Finding[]
   prepare: () => ({ range: "HEAD" }),
 });
 
-const judge = defineExecutableWorkflow<{ fixture: string }, Judgement>({
+const judge = defineExecutableWorkflow<{ fixture: string }, ScorerResult>({
   definition: {
     meta: { name: "judge", description: "A judge." },
-    run: async () => ({ format: JUDGEMENT_FORMAT, labels: [], missed: "" }),
+    run: async () => ({ format: SCORER_RESULT_FORMAT, labels: [], missed: "" }),
   },
   prepare: () => ({ fixture: "f" }),
 });
 
-const workflow = new URL("./review.ts", import.meta.url);
+const file = new URL("./review.ts", import.meta.url);
 
-defineReviewVariant<typeof review>({
-  workflow,
+// The workflow's type comes from the value: no type argument to forget.
+defineReviewVariant({
+  workflow: review,
+  file,
   argv: ["--range", "{base}...HEAD"],
   timeout: "30m",
   read: (result) =>
@@ -33,26 +35,37 @@ defineReviewVariant<typeof review>({
       .map((f) => ({ path: f.file, line: f.line, text: f.claim })),
 });
 
-defineReviewVariant<typeof review>({
-  workflow,
+defineReviewVariant({
+  workflow: review,
+  file,
   argv: [],
   timeout: "30m",
   // @ts-expect-error `issues` is not in the workflow's result: its shape changed under the variant.
   read: (result) => result.issues.map((f: Finding) => ({ text: f.claim })),
 });
 
-defineReviewVariant<typeof review>({
-  workflow,
+defineReviewVariant({
+  workflow: review,
+  file,
   argv: [],
   timeout: "30m",
   // @ts-expect-error a finding needs `text`; `claim` is the workflow's word, not ours.
   read: (result) => result.findings.map((f) => ({ claim: f.claim })),
 });
 
-defineReviewJudge<typeof judge>({ workflow, argv: [], timeout: "20m" });
+defineReviewVariant({
+  // @ts-expect-error a URL alone is not a workflow: the variant must name the value too.
+  workflow: file,
+  file,
+  argv: [],
+  timeout: "30m",
+  read: () => [],
+});
 
-// @ts-expect-error a review workflow does not return a Judgement.
-defineReviewJudge<typeof review>({ workflow, argv: [], timeout: "20m" });
+defineReviewScorer({ workflow: judge, file, argv: [], timeout: "20m" });
+
+// @ts-expect-error a review workflow does not return a ScorerResult.
+defineReviewScorer({ workflow: review, file, argv: [], timeout: "20m" });
 
 // A run's outcome, as a score keeps it, is exactly the one `output.json` records.
 type Same<A, B> =

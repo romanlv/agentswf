@@ -4,10 +4,10 @@ import {
   FINDINGS_FORMAT,
   type FindingsRecord,
   FindingsRecordSchema,
-  JudgementSchema,
   SCORE_FORMAT,
   type ScoreRecord,
   ScoreRecordSchema,
+  ScorerResultSchema,
 } from "./scoring";
 import { type Checked, checkFindingsRecord, checkSchema, checkScoreRecord } from "./validate";
 
@@ -63,7 +63,7 @@ export const TrialSchema = Type.Object(
 
 const ScoreResult = Type.Union([
   Type.Object(
-    { status: Type.Literal("scored"), judgement: JudgementSchema },
+    { status: Type.Literal("scored"), judgement: ScorerResultSchema },
     { additionalProperties: false },
   ),
   Type.Object(

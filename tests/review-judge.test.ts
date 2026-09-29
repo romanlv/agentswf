@@ -11,7 +11,7 @@ import {
   type FakeAdapterTurnContext,
 } from "../packages/harness/src/testing/fake";
 import type { Fixture } from "../packages/lab/src/review/format/format";
-import type { FindingLabel, Judgement } from "../packages/lab/src/review/format/scoring";
+import type { FindingLabel, ScorerResult } from "../packages/lab/src/review/format/scoring";
 import {
   EXAMPLE_FINDINGS,
   EXAMPLE_KEY,
@@ -234,7 +234,7 @@ describe("the panel judge", () => {
       format: "awf.review-judgement/1",
       labels: [],
       missed: "The review found nothing.",
-    } satisfies Judgement);
+    } satisfies ScorerResult);
     expect(adapter.turns).toHaveLength(0);
   });
 

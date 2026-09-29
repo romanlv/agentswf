@@ -1,5 +1,5 @@
 import type { AnswerKey } from "./format";
-import { JUDGEMENT_FORMAT, type Judgement, type ReviewFinding } from "./scoring";
+import { type ReviewFinding, SCORER_RESULT_FORMAT, type ScorerResult } from "./scoring";
 
 /**
  * The sanity bounds every scorer and judge is checked on. The oracle finds exactly the key's
@@ -18,9 +18,9 @@ export function oracleFindings(key: AnswerKey): ReviewFinding[] {
 }
 
 /** What a perfect judge makes of `oracleFindings`: each finding hits its own issue. */
-export function oracleJudgement(key: AnswerKey): Judgement {
+export function oracleScorerResult(key: AnswerKey): ScorerResult {
   return {
-    format: JUDGEMENT_FORMAT,
+    format: SCORER_RESULT_FORMAT,
     labels: key.issues.map((issue, finding) => ({
       finding,
       label: "hit" as const,
@@ -34,7 +34,11 @@ export function oracleJudgement(key: AnswerKey): Judgement {
 
 export const NOP_FINDINGS: readonly ReviewFinding[] = [];
 
-export const NOP_JUDGEMENT: Judgement = { format: JUDGEMENT_FORMAT, labels: [], missed: "" };
+export const NOP_SCORER_RESULT: ScorerResult = {
+  format: SCORER_RESULT_FORMAT,
+  labels: [],
+  missed: "",
+};
 
 /** A review note as the fixture's GitLab evidence keeps it, as far as a comment input needs. */
 export type Note = {

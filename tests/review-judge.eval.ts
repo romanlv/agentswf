@@ -4,8 +4,8 @@ import { join } from "node:path";
 import type { OutputRecord } from "../packages/contract/src/records";
 import { runOperatorCli } from "../packages/engine/src/operator-cli";
 import { type AnswerKey, KEY_FORMAT } from "../packages/lab/src/review/format/format";
-import type { Judgement, ReviewFinding } from "../packages/lab/src/review/format/scoring";
-import { checkJudgement } from "../packages/lab/src/review/judge/check";
+import type { ReviewFinding, ScorerResult } from "../packages/lab/src/review/format/scoring";
+import { checkScorerResult } from "../packages/lab/src/review/judge/check";
 import { categoryOf } from "../packages/lab/src/review/judge/panel";
 import { agreement } from "../packages/lab/src/review/metrics/metrics";
 import { assertLiveOptIn } from "./live";
@@ -13,7 +13,7 @@ import { assertLiveOptIn } from "./live";
 /**
  * The panel judge live (story 008, Task 3), on cheap models: a synthetic fixture, a two-file
  * change with two planted issues, and six findings with known labels. The judgement must pass
- * `checkJudgement` and hit both planted issues; how many labels match, the judges' κ and the cost
+ * `checkScorerResult` and hit both planted issues; how many labels match, the judges' κ and the cost
  * are printed, not asserted, since they are what the eval measures. About a minute.
  */
 const WORKFLOW = join(import.meta.dir, "../packages/lab/src/review/judge/judge.workflow.ts");
@@ -217,8 +217,8 @@ async function evaluate(): Promise<{ failed: string[]; record?: OutputRecord }> 
         ...(record ? { record } : {}),
       };
     }
-    const judgement = record.value as Judgement;
-    const checked = checkJudgement(judgement, FINDINGS, KEY);
+    const judgement = record.value as ScorerResult;
+    const checked = checkScorerResult(judgement, FINDINGS, KEY);
     const got = judgement.labels.map(categoryOf);
     const matched = got.filter((category, index) => category === EXPECTED[index]).length;
     const [a, b] = judgement.votes ?? [];

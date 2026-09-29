@@ -15,7 +15,7 @@ import {
 } from "../format/output";
 import type { PartialScore, Score } from "../format/records";
 import { formatOf, renderSchemaFile, SCHEMA_FILES, type SchemaName } from "../format/schema-files";
-import type { DefinedJudge, DefinedVariant } from "../format/variant";
+import type { DefinedScorer, DefinedVariant } from "../format/variant";
 import { type Address, formatAddress, parseAddress } from "./address";
 import {
   type CaseInfo,
@@ -281,7 +281,7 @@ type Inventory = Awaited<ReturnType<typeof inventory>>;
  * `{name}@{version}` is a stored version, a prefix such as `1` or `1.2` being enough: the file's
  * when it still declares it, otherwise known only by its records.
  */
-async function subjectOf<D extends DefinedVariant | DefinedJudge>(
+async function subjectOf<D extends DefinedVariant | DefinedScorer>(
   workspace: Workspace,
   kind: "variant" | "scorer",
   text: string,
@@ -462,7 +462,7 @@ type Context = {
   dataset: string;
   cwd: string;
   variant: (text: string) => Promise<Subject<DefinedVariant>>;
-  scorer: (text: string) => Promise<Subject<DefinedJudge>>;
+  scorer: (text: string) => Promise<Subject<DefinedScorer>>;
   /** How text for a person is styled, and how wide its lines may run. */
   view: { paint: Paint; width?: number };
 };
@@ -1055,7 +1055,7 @@ export async function runLab(
       dataset,
       cwd,
       variant: (text) => subjectOf<DefinedVariant>(workspace, "variant", text, cwd, inventoryOnce),
-      scorer: (text) => subjectOf<DefinedJudge>(workspace, "scorer", text, cwd, inventoryOnce),
+      scorer: (text) => subjectOf<DefinedScorer>(workspace, "scorer", text, cwd, inventoryOnce),
       view:
         !environment.stdout && process.stdout.isTTY
           ? { paint: process.env.NO_COLOR ? PLAIN : ANSI, width: process.stdout.columns }

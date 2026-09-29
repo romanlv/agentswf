@@ -89,7 +89,7 @@ What they cover between them:
   subscriptions; srt must be installed.
 - `review-judge` — the panel judge (story 008) through `awf run`, on a synthetic fixture: a
   two-file change with two planted issues, a hand-written key, and six findings with known labels.
-  The judgement must pass `checkJudgement` and hit both planted issues; how many of the six labels
+  The judgement must pass `checkScorerResult` and hit both planted issues; how many of the six labels
   match, the panel's κ and the tiebreak are printed, since they are what it measures. codex luna
   and claude haiku judge, luna breaks ties. 3 agents, ~1–1½ min, ~$0.09 at list prices, and
   $0.07–0.14 of claude's own reported cost; awf assumes headless claude is billed per token

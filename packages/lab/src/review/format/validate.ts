@@ -18,13 +18,13 @@ import { majority, settleSeverity } from "./grading";
 import {
   type FindingsRecord,
   FindingsRecordSchema,
-  type Judgement,
-  JudgementSchema,
   LABEL_SCHEMAS,
   type ReviewFinding,
   ReviewFindingSchema,
   type ScoreRecord,
   ScoreRecordSchema,
+  type ScorerResult,
+  ScorerResultSchema,
 } from "./scoring";
 
 export type Problem = { path: string; message: string };
@@ -90,12 +90,12 @@ export function checkReviewFindings(value: unknown): Checked<ReviewFinding[]> {
 }
 
 /**
- * A judgement's shape only; `checkJudgement` in `judge/` checks it against its findings and key. A
+ * A judgement's shape only; `checkScorerResult` in `judge/` checks it against its findings and key. A
  * label that names a known label is checked as that one, so an agent handed its problems back reads
  * one list, not every other label's.
  */
-export function checkJudgementShape(value: unknown): Checked<Judgement> {
-  const checked = checkSchema(JudgementSchema, value);
+export function checkScorerResultShape(value: unknown): Checked<ScorerResult> {
+  const checked = checkSchema(ScorerResultSchema, value);
   if (checked.ok || !isRecord(value)) return checked;
   const problems: Problem[] = [];
   const lists: { path: string; labels: unknown }[] = [{ path: "/labels", labels: value.labels }];
@@ -110,7 +110,7 @@ export function checkJudgementShape(value: unknown): Checked<Judgement> {
       ? { votes: votes.map((vote: unknown) => (isRecord(vote) ? { ...vote, labels: [] } : vote)) }
       : {}),
   };
-  const outer = checkSchema(JudgementSchema, bare);
+  const outer = checkSchema(ScorerResultSchema, bare);
   if (!outer.ok) problems.push(...outer.problems);
   for (const { path, labels } of lists) {
     if (!Array.isArray(labels)) continue;

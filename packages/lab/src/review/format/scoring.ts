@@ -13,7 +13,7 @@ const Index = Type.Integer({ minimum: 0 });
 const Digest = Type.String({ pattern: "^sha256:[0-9a-f]{64}$" });
 
 export const FINDINGS_FORMAT = "awf.review-findings/1";
-export const JUDGEMENT_FORMAT = "awf.review-judgement/1";
+export const SCORER_RESULT_FORMAT = "awf.review-judgement/1";
 export const SCORE_FORMAT = "awf.review-score/1";
 
 const RUN_OUTCOMES = ["succeeded", "failed", "cancelled", "timed-out"] as const;
@@ -168,9 +168,9 @@ export const FindingLabelSchema = Type.Union([
 
 const LabelsSchema = Type.Array(FindingLabelSchema);
 
-export const JudgementSchema = Type.Object(
+export const ScorerResultSchema = Type.Object(
   {
-    format: Type.Literal(JUDGEMENT_FORMAT),
+    format: Type.Literal(SCORER_RESULT_FORMAT),
     labels: Type.Array(FindingLabelSchema, { description: "One per finding, in order." }),
     missed: Type.String({ description: "What the review missed, and why: feedback." }),
     votes: Type.Optional(
@@ -228,7 +228,7 @@ export const ScoreRecordSchema = Type.Object(
     ),
     result: Type.Union([
       Type.Object(
-        { status: Type.Literal("judged"), judgement: JudgementSchema },
+        { status: Type.Literal("judged"), judgement: ScorerResultSchema },
         { additionalProperties: false },
       ),
       Type.Object(
@@ -249,5 +249,5 @@ export type RunSummary = Type.Static<typeof RunSchema>;
 export type FindingsRecord = Type.Static<typeof FindingsRecordSchema>;
 export type FindingLabel = Type.Static<typeof FindingLabelSchema>;
 export type Label = FindingLabel["label"];
-export type Judgement = Type.Static<typeof JudgementSchema>;
+export type ScorerResult = Type.Static<typeof ScorerResultSchema>;
 export type ScoreRecord = Type.Static<typeof ScoreRecordSchema>;

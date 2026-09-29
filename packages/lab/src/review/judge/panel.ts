@@ -1,6 +1,6 @@
-import type { FindingLabel, Judgement } from "../format/scoring";
+import type { FindingLabel, ScorerResult } from "../format/scoring";
 
-export type Vote = Judgement extends { votes?: (infer V)[] } ? V : never;
+export type Vote = ScorerResult extends { votes?: (infer V)[] } ? V : never;
 
 /** What two labels must share to agree: the label, and for a hit the issue. */
 export function categoryOf(label: FindingLabel): string {

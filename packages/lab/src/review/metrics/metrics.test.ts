@@ -1,5 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { NOP_FINDINGS, NOP_JUDGEMENT, oracleFindings, oracleJudgement } from "../format/sanity";
+import {
+  NOP_FINDINGS,
+  NOP_SCORER_RESULT,
+  oracleFindings,
+  oracleScorerResult,
+} from "../format/sanity";
 import type { FindingLabel } from "../format/scoring";
 import {
   EXAMPLE_FINDINGS,
@@ -19,13 +24,13 @@ const example: Judged = {
 const oracle: Judged = {
   fixture: "app-1",
   findings: oracleFindings(EXAMPLE_KEY),
-  labels: oracleJudgement(EXAMPLE_KEY).labels,
+  labels: oracleScorerResult(EXAMPLE_KEY).labels,
   key: EXAMPLE_KEY,
 };
 const nop: Judged = {
   fixture: "app-1",
   findings: NOP_FINDINGS,
-  labels: NOP_JUDGEMENT.labels,
+  labels: NOP_SCORER_RESULT.labels,
   key: EXAMPLE_KEY,
 };
 
