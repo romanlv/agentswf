@@ -226,6 +226,13 @@ const reader = await workflow.agents.open({
   enforces them its own way.
 - **`srt`** is Anthropic's sandbox-runtime on your machine, with your toolchain. **`docker`** is a
   container running as your user.
+- **Agents that share a sandbox share its reach and files; what that means depends on the
+  provider.** Under `docker` a sandbox is one container, and every agent in it runs inside that
+  container, so each sees what the others leave anywhere in it. `srt` has no box to share: each
+  agent's processes are wrapped by `srt` on their own, under one policy derived from the sandbox.
+  They meet only in the host paths it makes writable and in the sandbox's temp directory. Either
+  way, each agent has its own home, and can reach its own harness's model API. An inline spec is a
+  separate container (docker) or a separate policy (srt).
 - **git works.** A writable worktree can commit, but its hooks and config can't be changed from
   inside.
 - A sandbox closes when the run does, after every agent in it.
