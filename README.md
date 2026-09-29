@@ -1,48 +1,115 @@
-# agents.wf
+# agentswf
 
-An engine for **workflows made of coding agents**. A workflow is ordinary TypeScript: it opens
-agents, gives them work, waits for structured answers, and composes the results. The agents are
-real terminal coding agents — claude, codex, pi, cursor — driven through one run host the operator
-chooses. Herdr is the current host; it is not part of the workflow interface.
+**Write workflows for coding agents in TypeScript.** Hand work to claude, codex, pi or cursor,
+run them side by side, have one check another, loop until a reviewer is happy, and get typed
+answers back. `awf` runs the workflow and handles the parts that make agent scripts fragile:
+agents that never answer, answer in prose, hang, or quietly run up a bill.
 
-The distinguishing constraint is that the workers are non-deterministic processes that bill
-money and sometimes fail to answer. That is not a normal task queue, and it drives the design.
+```ts
+// Inside a workflow: open an agent, give it work, get a typed answer back.
+const reviewer = await workflow.agents.open({ key: "reviewer", runtime: { harness: "codex", model: "gpt-6-luna" } });
+const { outcome } = await reviewer.run({ prompt: "Review `git diff main`.", schema: FINDINGS });
+if (isAnswered(outcome)) console.log(outcome.value.findings); // validated against FINDINGS, or a reason why not
+```
 
-**agents.wf is an early preview.** Its interfaces will change, and nothing is on npm yet: you
-install it from a clone.
+> **Runs on your Claude subscription.** Claude Code agents in a pane use the Claude plan you
+> already have: no API key, no credits to buy. (Headless claude is the exception; see
+> [Things to know](#things-to-know).)
 
-## Names
+> **Early preview.** Interfaces will change, and nothing is on npm yet: you install from a clone.
 
-- **agents.wf** is the project. `agentswf` is its GitHub organisation, and will be its npm
-  package.
-- **`awf`** is the command you run, agents.wf's initials. What it keeps is named after it:
-  `~/.awf/runs`, the `AWF_*` variables.
-- **`wf`**, short for workflow, is the command an agent runs inside its session.
-- **`agentswf/workflow`** is what a workflow imports.
-- **`@agentswf/*`** are the packages in this repository, each named for its directory.
+## Why
 
-## Install
+If you use coding agents seriously, you already run workflows by hand. One agent implements and
+another reviews, and you paste the findings back. Five agents review the same change, and you
+cross-check what they found. Scripting that is easy right up until an agent goes quiet, answers
+in the wrong shape, or a run costs ten times what you expected and you can't tell why.
 
-You need [Bun](https://bun.sh) 1.4 or later, git, and at least one agent CLI you are logged in to:
+agentswf keeps the workflow in code you own, and moves the unreliable parts into the engine.
+
+## How it works
+
+```
+ your workflow.ts                 awf run                         agents
+ ────────────────                 ───────                         ──────
+ agents.open(...)       ──▶  starts claude / codex / pi   ──▶  pane in Herdr, or headless
+ agent.run({ prompt,    ──▶  sends the prompt, plus how   ──▶  works in your repo as usual,
+             schema })        to answer                        then runs `wf result '{...}'`
+ await outcome          ◀──  validates against the schema ◀──  over a socket just for that agent
+ parallel / loops / ifs      deadlines, nudges, cleanup,
+ return result               usage and cost for the record
+```
+
+A workflow is a TypeScript module with a default export. `awf run ./workflow.ts` loads it, runs
+it, prints its result and keeps everything under `~/.awf/runs`. Control flow is yours: `for`,
+`if`, `Promise.all`, whatever. The engine gives you agents, sandboxes, and `parallel` with
+labelled stages it shows live in the terminal.
+
+**A few words used below:**
+
+- **Harness:** the agent CLI that does the work: `claude`, `codex`, `pi` or `cursor`. A runtime
+  is a harness plus a model.
+- **Placement:** where the agent runs. A **pane** is a terminal tab in
+  [Herdr](https://herdr.dev), a terminal multiplexer for agents, where you can watch it and type
+  to it; panes are the default. **Headless** runs the CLI as a subprocess, with no terminal.
+- **Sandbox:** a boundary around agents, from docker or **srt** (Anthropic's sandbox-runtime),
+  that limits what they can write and reach.
+- **Jev:** a small decision model on OpenRouter that answers closed questions with probabilities.
+
+## What you get
+
+- **Workflows saved as code.** A workflow is a TypeScript file: versioned, diffable, reviewable
+  and re-runnable, instead of a procedure you repeat by hand in a chat.
+- **Your existing agents and logins.** agentswf drives the agent CLIs you already use, logged in
+  the way you already log in. Claude Code in a pane runs on your Claude subscription, as it does
+  when you use it yourself: no API key and no credits to buy. The same goes for codex on a
+  ChatGPT plan.
+- **Mix harnesses and models.** Each agent picks its own harness and model, so a codex reviewer can
+  check a claude implementer, or a cheap model can triage before an expensive one works.
+- **Typed answers, checked.** Every turn can carry a schema. The agent answers by running
+  `wf result` with JSON, which is validated before your code sees it, and TypeScript knows its
+  shape. A turn ends `answered`, or `unanswered`, `blocked`, `timed-out`, `failed` or `cancelled`
+  with a reason. It never ends with a silently missing answer or half-parsed prose, and an agent
+  that goes quiet gets one nudge.
+- **Long-lived sessions.** Talk to the same agent again and it continues its own session, keeping
+  its context, and each turn can ask for a different kind of answer: a plan, then a patch
+  summary, then a yes or no.
+- **Sandboxes.** Put agents in a docker or srt sandbox, shared or private, that decides what they
+  can write and which domains they can reach. Give each one exactly the skills you name.
+- **Cost tracking.** Every run records time, tokens and a cost estimate for each agent, stage and
+  model, read from the harnesses' own session files. It's printed at the end and kept with the
+  run, failed runs included.
+- **Cheap decisions with Jev.** For routing, triage and gating, ask a small decision model closed
+  questions and get a probability for every answer in milliseconds, with no coding agent involved.
+- **Deadlines and cleanup.** Every wait has a deadline, and every agent is cleaned up when the run
+  ends, however it ends.
+- **Watch or run headless.** An agent runs in a terminal pane you can watch and type into
+  (through [Herdr](https://herdr.dev)), or headless as a subprocess.
+
+## Quick start
+
+### Install
+
+You need [Bun](https://bun.sh) 1.4 or later, git, and at least one agent CLI you're logged in to:
 claude, codex, pi or cursor.
 
 ```sh
-git clone git@github.com:agentswf/awf.git ~/.agentswf
+git clone https://github.com/romanlv/agentswf.git ~/.agentswf
 cd ~/.agentswf && bun install
 (cd packages/engine && bun link)   # puts awf in ~/.bun/bin
 awf --version
 ```
 
-`bun link` puts `awf` in Bun's own bin directory, `~/.bun/bin`, which Bun's installer adds to your
-PATH. If `awf` isn't found, add it yourself.
+`bun link` puts `awf` in `~/.bun/bin`, which Bun's installer adds to your PATH. To update:
+`cd ~/.agentswf && git pull && bun install`.
 
-To update: `cd ~/.agentswf && git pull && bun install`.
+A workflow can live in any folder and needs nothing installed there: `awf` serves it
+`agentswf/workflow` and `typebox` from its own copies. `awf` alone prints its usage.
 
-## A first workflow
+### Your first workflow
 
-A workflow can live in any folder, and needs nothing installed there: `awf` gives it
-`agentswf/workflow` and `typebox` from its own copies. This one asks one agent a question with a
-known answer. It runs headless, so it needs neither Herdr nor a sandbox.
+The smallest workflow: one headless agent, one typed answer. It needs neither Herdr nor a sandbox,
+only a codex login. Swap in any harness and model your account has.
 
 ```ts
 // ~/workflows/hello.ts
@@ -75,15 +142,30 @@ export default defineExecutableWorkflow({
 cd ~/workflows && awf run ./hello.ts
 ```
 
-It prints the run's result as JSON, with the agent's answer under `value`, and keeps the run's
-artifacts under `~/.awf/runs`; `--run-root` puts them elsewhere. `awf` with no arguments lists its
-options. A workflow file is trusted code: it runs with your filesystem and process authority.
+It prints the result as JSON, with the agent's answer, `{ "answer": 391 }`, under `value`, and a
+line on time, tokens and estimated cost. The run's full record, including `output.json`, stays
+under `~/.awf/runs` (`--run-root` moves it).
 
-Use the harness you are logged in to. Headless claude is billed per token even on a subscription,
-so it runs only when the runtime also says `metered: true`.
+### Things to know
 
-For types in an editor, give the folder a `tsconfig.json` that points into the clone. Paths in it
-can't start with `~`, so write your home directory out:
+- **Pane agents** (the default placement) need [Herdr](https://herdr.dev). Headless agents don't.
+- **cursor runs only in a pane;** claude and codex run either way, and pi runs headless.
+- **Claude on a subscription works in panes only.** Headless claude (`claude -p`) is billed per
+  token as API usage even when you're logged in with a subscription, so awf refuses it unless the
+  runtime also says `metered: true`. To stay on your plan, run claude agents in panes, the
+  default. Headless codex and pi need no such flag.
+- **Sandboxes** need `srt`, Anthropic's sandbox-runtime (with bubblewrap on Linux), or docker.
+- **A workflow file is trusted code.** It runs with your filesystem and process permissions.
+  Sandbox the agents, not the workflow.
+- **`awf` loads no `.env`,** because one can hold a token that changes how every agent logs in.
+  Only `OPENROUTER_API_KEY`, for decisions, is read from the environment or a `.env` in the
+  current directory.
+
+<details>
+<summary>Editor types for a workflow outside this repository</summary>
+
+Give the folder a `tsconfig.json` that points into the clone. Paths in it can't start with `~`,
+so write your home directory out:
 
 ```json
 {
@@ -102,38 +184,226 @@ can't start with `~`, so write your home directory out:
 }
 ```
 
-The `examples/` folder has larger workflows: reviews by several agents, typed decisions and
-sandboxes.
+</details>
 
-## Then
+## Examples
 
-- **Pane agents** keep a terminal session between turns, and need [Herdr](https://herdr.dev).
-- **Sandboxes** need `srt`, Anthropic's sandbox-runtime (with bubblewrap on Linux), or docker.
-- **`awf` loads no `.env`,** because one can hold a token that changes how every agent logs in.
-  Typed decisions by Jev, through OpenRouter, still find `OPENROUTER_API_KEY`: from the
-  environment, or from `.env` in the directory you run `awf` from, where only that name is read.
+These show the shape of what you can build. To keep them short they are fragments: the `run()`
+of a workflow shaped like [the first one](#your-first-workflow), with the same imports. Each
+typechecks against the current API, and each points to a complete workflow in
+[`examples/`](examples/) that does the same thing in full.
 
-## Where things are
+### Fan out reviewers, then check every finding
 
-Start with **[`docs/foundation.md`](docs/foundation.md)** for the vision and the argument, and
-**[`docs/status.md`](docs/status.md)** for what runs today and what comes next.
+Three reviewers read the same diff at once, each looking for one kind of problem (a *lens*).
+Then a fresh agent from a different model family tries to refute each finding, and only the
+ones that survive are kept.
+Agents that disagree for a living cut the noise a single reviewer produces.
 
-```sh
-bun install
-bun test
+```ts
+const STRICT = { additionalProperties: false } as const;
+const FINDINGS = Type.Object({
+  findings: Type.Array(Type.Object({ file: Type.String(), problem: Type.String() }, STRICT)),
+}, STRICT);
+const VERDICT = Type.Object({ real: Type.Boolean(), reason: Type.String() }, STRICT);
+type Findings = Type.Static<typeof FINDINGS>;
+type Verdict = Type.Static<typeof VERDICT>;
+
+const REVIEWER = { harness: "codex", model: "gpt-6-luna", placement: "headless" } as const;
+const CHECKER = { harness: "claude", model: "claude-sonnet-5-5" } as const; // a pane in Herdr
+
+async run(workflow) {
+  const found = await workflow.parallel(["correctness", "security", "tests"], async (lens) => {
+    const reviewer = await workflow.agents.open({ key: `review:${lens}`, runtime: REVIEWER });
+    const { outcome } = await reviewer.run<Findings>({
+      prompt: `Review \`git diff origin/main...HEAD\` for ${lens} problems only. Change nothing.`,
+      schema: FINDINGS,
+    });
+    return isAnswered(outcome) ? outcome.value.findings : [];
+  }, { label: "Review" });
+
+  const checked = await workflow.parallel(found.flat(), async (finding, i) => {
+    const checker = await workflow.agents.open({ key: `check:${i}`, runtime: CHECKER });
+    const { outcome } = await checker.run<Verdict>({
+      prompt: `A reviewer claims: ${finding.problem} (in ${finding.file}). Try to prove it wrong.`,
+      schema: VERDICT,
+    });
+    return { ...finding, verdict: isAnswered(outcome) ? outcome.value : null };
+  }, { label: "Check", concurrency: 4 });
+
+  return { findings: checked.filter((f) => f.verdict?.real) };
+}
 ```
 
-| Where | What |
-| --- | --- |
-| [`docs/foundation.md`](docs/foundation.md) | the vision, the shape of this repository, and the argument for it |
-| [`docs/status.md`](docs/status.md) | what runs today, open stages and stories, what is next |
-| [`docs/stories/`](docs/stories/) | deliverables, each planned and reviewed task by task |
-| [`docs/adr/`](docs/adr/) | decisions taken against the foundation since |
-| [`docs/reference.md`](docs/reference.md) | the projects surveyed, and what is still unmined in them |
-| [`docs/findings/`](docs/findings/) | what seven experiments settled, and what is still live |
-| [`docs/design/`](docs/design/) | the interface design notes: messaging, composition, permissions |
-| `packages/` | `contract`, `harness`, `engine`, `wf`, `sandbox`, `lab` |
-| `examples/` | scenario workflows against the author surface |
-| `experiments/` | the archived experiments, and the one open measurement |
+The full version is [`examples/catalogue-review`](examples/catalogue-review/). It reads its lenses
+from a catalogue, skips a lens when the diff doesn't touch its paths, and writes a `report.md` to
+hand back to whoever wrote the change. It has run live with 21 agents on one merge request.
 
-agents.wf is MIT licensed: see [`LICENSE`](LICENSE).
+### Build, review, repeat
+
+One agent implements and another reviews, until the reviewer approves or three rounds pass. Each
+`run()` on the same agent continues its session, so the builder remembers what it did last round.
+Both run in panes, so you can watch them work and step in.
+
+```ts
+const STRICT = { additionalProperties: false } as const;
+const DONE = Type.Object({ summary: Type.String() }, STRICT);
+const REVIEW = Type.Object({ approved: Type.Boolean(), mustFix: Type.Array(Type.String()) }, STRICT);
+type Done = Type.Static<typeof DONE>;
+type Review = Type.Static<typeof REVIEW>;
+
+// prepare turns the words after `--` into the task: prepare: (inv) => ({ task: inv.argv.join(" ") })
+async run(workflow, { task }) {
+  const builder = await workflow.agents.open({
+    key: "builder",
+    runtime: { harness: "claude", model: "claude-sonnet-5-5" },
+  });
+  const reviewer = await workflow.agents.open({
+    key: "reviewer",
+    runtime: { harness: "codex", model: "gpt-6-luna" },
+    instructions: "You review uncommitted changes. You never edit files.",
+  });
+
+  let request = `Implement this, then summarise what you changed:\n\n${task}`;
+  for (let round = 1; round <= 3; round++) {
+    const built = await builder.run<Done>({ prompt: request, schema: DONE, label: `build ${round}` });
+    if (!isAnswered(built.outcome)) return { approved: false, note: built.outcome.reason };
+
+    const review = await reviewer.run<Review>({
+      prompt: `The builder says: ${built.outcome.value.summary}\nReview \`git diff\`.`,
+      schema: REVIEW,
+      label: `review ${round}`,
+    });
+    if (!isAnswered(review.outcome)) return { approved: false, note: review.outcome.reason };
+    if (review.outcome.value.approved) return { approved: true, note: `approved in round ${round}` };
+
+    request = `The reviewer asks for these fixes:\n- ${review.outcome.value.mustFix.join("\n- ")}`;
+  }
+  return { approved: false, note: "not approved after three rounds" };
+}
+```
+
+```sh
+awf run ./build-and-review.ts -- "Add a --dry-run flag to the deploy script"
+```
+
+[`examples/feature-delivery`](examples/feature-delivery/) is the bigger design: plan, implement,
+review and revise. It typechecks but hasn't run yet.
+
+### Put agents in a sandbox, with exactly the skills they need
+
+A sandbox says what its agents can write and which domains they can reach. Agents can share
+one, or each get their own. Skills are copied in per agent, so an agent has the ones you name
+and nothing else from your setup.
+
+```ts
+const box = await workflow.sandboxes.open({
+  key: "work",
+  write: ["."],                     // the working directory, and nothing else
+  network: ["registry.npmjs.org"],  // plus the model's own API
+  docker: {},                       // or srt: {}, Anthropic's sandbox-runtime
+});
+const agent = await workflow.agents.open({
+  key: "upgrader",
+  runtime: { harness: "codex", model: "gpt-6-luna", placement: "headless" },
+  sandbox: box,
+  skills: [
+    { path: new URL("./skills/upgrade-deps", import.meta.url) }, // one beside the workflow
+    { repo: "owner/repo", skill: "code-review", ref: "v1.2.0" }, // a public one, pinned
+  ],
+});
+```
+
+[`examples/sandboxes`](examples/sandboxes/) runs three agents in one container and a fourth in a
+private srt sandbox, and prints what each was allowed and refused.
+
+### Cheap decisions without an agent
+
+Not every step needs a coding agent. `workflow.decisions` asks a small, fast model closed
+questions about some state and returns a probability for every answer, in a few hundred
+milliseconds, for a fraction of a cent. Use it to route, triage or gate, and hand only the
+uncertain cases to an agent or a person.
+
+```ts
+import { choice, yesNo } from "agentswf/workflow";
+
+const { answers } = await workflow.decisions.decide({
+  key: "triage:42",
+  model: "jev",
+  state: { ticket },
+  questions: {
+    team: choice("Which team owns `ticket`?", {
+      payments: "Checkout, billing and refunds",
+      accounts: "Sign-in, sign-up and permissions",
+    }),
+    bug: yesNo("Does `ticket` report something broken?"),
+  },
+});
+// answers.team → { type: "choice", choice: "payments", probabilities: { payments: 0.97, accounts: 0.03 } }
+// answers.bug  → { type: "yes-no", yes: 0.91 }
+```
+
+[`examples/triage`](examples/triage/) routes support tickets this way. It needs
+`OPENROUTER_API_KEY`.
+
+## Runnable examples
+
+| Workflow | What it shows | Run it |
+| --- | --- | --- |
+| [`quick-check`](examples/quick-check/) | one known-answer question per harness: the cheap smoke test | `awf run examples/quick-check/workflow.ts -- codex pi` |
+| [`minimum-review`](examples/minimum-review/) | two reviewers in parallel, one lens each | `awf run examples/minimum-review/review-loop.ts -- src` |
+| [`single-agent-review`](examples/single-agent-review/) | one reviewer, with or without a public review skill | `awf run examples/single-agent-review/workflow.ts -- --range main...HEAD` |
+| [`catalogue-review`](examples/catalogue-review/) | many lenses, a verifier per finding, a Markdown report | an entry point beside your lens catalogue |
+| [`sandboxes`](examples/sandboxes/) | a shared docker sandbox and a private srt one | `awf run --cwd "$(mktemp -d)" examples/sandboxes/workflow.ts` |
+| [`triage`](examples/triage/) | typed decisions with probabilities | `awf run examples/triage/workflow.ts` |
+| [`feature-delivery`](examples/feature-delivery/) | plan, implement, review, revise | a design that typechecks; it hasn't run yet |
+
+[`examples/README.md`](examples/README.md) has the details of each. The rest of the folder is test
+apparatus and a shared helper.
+
+## Written by agents, read by people
+
+Most workflows will be written by a coding agent, not typed by hand. The surface is built for
+that. It is small and fully typed, so an agent can write a workflow and the typechecker catches
+its mistakes before anything runs. And it reads plainly: agents, prompts, schemas and ordinary
+`for` and `if`, so you can review what the agent wrote in a minute and see what it will spend.
+
+## Where this is going
+
+1. **A runner you trust with real work.** The workflows you keep re-running by hand become files
+   you write once.
+2. **Runs you can compare.** Because every run is recorded the same way, two versions of a
+   workflow can be compared on quality, time and cost.
+3. **Runs that improve runs.** Try variants of a workflow (prompts, models, harnesses, how many
+   verifiers) against cases with known answers, and keep the ones that are better, faster or
+   cheaper. The first piece exists: `awf-lab` scores code-review workflows against old merge
+   requests whose real problems are known.
+
+## Not yet
+
+Deliberately left out until something real needs them: agents messaging each other mid-turn,
+calling one workflow from another, human checkpoints, and resuming a crashed run. Some of these
+have types in the API already, and calling them fails with a clear "unavailable" error.
+[`docs/status.md`](docs/status.md) has what runs today and what's next.
+
+## Names
+
+The project is **agentswf**. **`awf`** is the command you run, and what it owns keeps that
+name (`~/.awf/runs`, `AWF_*`). **`wf`** is the command an agent runs inside its session to answer.
+A workflow imports **`agentswf/workflow`**. The packages here are **`@agentswf/*`**.
+
+## Contributing and design docs
+
+```sh
+bun install && bun test   # no live agents, no cost
+bun run check             # lint, format, types and package boundaries
+```
+
+- [`docs/status.md`](docs/status.md): what runs today and what comes next
+- [`docs/testing.md`](docs/testing.md): the test levels, from free to live, and what each costs
+- [`docs/foundation.md`](docs/foundation.md): the design argument behind the package boundaries
+- [`docs/adr/`](docs/adr/): decisions taken since, and [`docs/findings/`](docs/findings/): what the
+  measurements settled
+- [`AGENTS.md`](AGENTS.md): working in this repository with a coding agent
+
+agentswf is MIT licensed: see [`LICENSE`](LICENSE).
