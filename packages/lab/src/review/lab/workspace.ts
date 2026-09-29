@@ -1,7 +1,6 @@
 import { existsSync, realpathSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
-import { checkWith } from "../format/records";
-import { describeProblems } from "../format/validate";
+import { checkSchema, describeProblems } from "../format/validate";
 import {
   RENAMED_CONFIG_KEYS,
   type WorkspaceConfig,
@@ -52,7 +51,7 @@ export async function openWorkspace(file: string): Promise<Workspace> {
       `${file}: ${renamed.map((key) => `"${key}" is now "${RENAMED_CONFIG_KEYS[key]}"`).join(", ")}`,
     );
   }
-  const checked = checkWith(WorkspaceConfigSchema, raw);
+  const checked = checkSchema(WorkspaceConfigSchema, raw);
   if (!checked.ok) throw new Error(describeProblems(file, checked.problems));
   const config = checked.value;
   const root = dirname(file);

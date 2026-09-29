@@ -1,5 +1,4 @@
 import Type from "typebox";
-import { Check, Errors } from "typebox/value";
 import { PARTIAL_FORMAT, type PartialRecord, PartialRecordSchema } from "./partial";
 import {
   FINDINGS_FORMAT,
@@ -10,7 +9,7 @@ import {
   type ScoreRecord,
   ScoreRecordSchema,
 } from "./scoring";
-import { type Checked, checkFindingsRecord, checkScoreRecord, type Problem } from "./validate";
+import { type Checked, checkFindingsRecord, checkSchema, checkScoreRecord } from "./validate";
 
 // The records `awf-lab` writes, in its own terms: a trial, a score and a partial score. Apart from
 // `scoring.ts`, which every scorer imports, as `partial.ts` is. The first versions stay readable:
@@ -119,24 +118,6 @@ export type Trial = Type.Static<typeof TrialSchema>;
 export type Score = Type.Static<typeof ScoreSchema>;
 export type PartialScore = Type.Static<typeof PartialScoreSchema>;
 
-/** Checks a value against a schema, each problem once. */
-export function checkWith<S extends Type.TSchema>(
-  schema: S,
-  value: unknown,
-): Checked<Type.Static<S>> {
-  if (Check(schema, value)) return { ok: true, value };
-  const seen = new Set<string>();
-  const problems: Problem[] = [];
-  for (const error of Errors(schema, value)) {
-    const problem = { path: error.instancePath || "/", message: error.message };
-    const key = `${problem.path} ${problem.message}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    problems.push(problem);
-  }
-  return { ok: false, problems };
-}
-
 const formatOf = (value: unknown) =>
   typeof value === "object" && value !== null ? (value as { format?: unknown }).format : undefined;
 
@@ -186,7 +167,7 @@ export function readTrial(value: unknown): Checked<Trial> {
   if (formatOf(value) === FINDINGS_FORMAT) return then(checkFindingsRecord(value), trialFromV1);
   if (formatOf(value) !== TRIAL_FORMAT)
     return unknownFormat(value, [TRIAL_FORMAT, FINDINGS_FORMAT]);
-  const checked = checkWith(TrialSchema, value);
+  const checked = checkSchema(TrialSchema, value);
   if (!checked.ok) return checked;
   // The first version's rules, checked on its own fields.
   const { format: _format, dataset, case: kase, ...rest } = checked.value;
@@ -197,15 +178,15 @@ export function readTrial(value: unknown): Checked<Trial> {
 export function readScore(value: unknown): Checked<Score> {
   if (formatOf(value) === SCORE_FORMAT) return then(checkScoreRecord(value), scoreFromV1);
   if (formatOf(value) !== SCORED_FORMAT) return unknownFormat(value, [SCORED_FORMAT, SCORE_FORMAT]);
-  return checkWith(ScoreSchema, value);
+  return checkSchema(ScoreSchema, value);
 }
 
 export function readPartial(value: unknown): Checked<PartialScore> {
   if (formatOf(value) === PARTIAL_FORMAT) {
-    return then(checkWith(PartialRecordSchema, value), partialFromV1);
+    return then(checkSchema(PartialRecordSchema, value), partialFromV1);
   }
   if (formatOf(value) !== PARTIAL_SCORE_FORMAT) {
     return unknownFormat(value, [PARTIAL_SCORE_FORMAT, PARTIAL_FORMAT]);
   }
-  return checkWith(PartialScoreSchema, value);
+  return checkSchema(PartialScoreSchema, value);
 }

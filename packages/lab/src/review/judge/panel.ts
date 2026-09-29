@@ -14,15 +14,6 @@ export function disputed(a: readonly FindingLabel[], b: readonly FindingLabel[])
   );
 }
 
-/** A full labelling: `base` with a tiebreak's labels in place at the findings it answered. */
-export function withTiebreak(
-  base: readonly FindingLabel[],
-  tiebreak: readonly FindingLabel[],
-): FindingLabel[] {
-  const answered = new Map(tiebreak.map((label) => [label.finding, label]));
-  return base.map((label, index) => answered.get(index) ?? label);
-}
-
 /**
  * The panel's labels: where its two voters agree, theirs; where they don't, the tiebreak's side,
  * and where it sides with neither or gave no valid vote, `unsettled`, counted apart.

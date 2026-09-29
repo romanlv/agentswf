@@ -1,7 +1,5 @@
 import Type from "typebox";
-import { Check, Errors } from "typebox/value";
 import { ScoreRecordSchema } from "./scoring";
-import type { Checked, Problem } from "./validate";
 
 // Apart from `scoring.ts` and `validate.ts`, which every judge imports. It shares the score
 // record's fields, so a change to those changes this format too: bump both.
@@ -51,17 +49,3 @@ export const PartialRecordSchema = Type.Object(
 );
 
 export type PartialRecord = Type.Static<typeof PartialRecordSchema>;
-
-export function checkPartialRecord(value: unknown): Checked<PartialRecord> {
-  if (Check(PartialRecordSchema, value)) return { ok: true, value };
-  const problems: Problem[] = [];
-  const seen = new Set<string>();
-  for (const error of Errors(PartialRecordSchema, value)) {
-    const problem = { path: error.instancePath || "/", message: error.message };
-    const key = `${problem.path} ${problem.message}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    problems.push(problem);
-  }
-  return { ok: false, problems };
-}

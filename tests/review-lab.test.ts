@@ -21,7 +21,8 @@ import type {
   RunDocument,
   ShowDocument,
 } from "../packages/lab/src/review/format/output";
-import { checkWith, type Score, type Trial } from "../packages/lab/src/review/format/records";
+import type { Score, Trial } from "../packages/lab/src/review/format/records";
+import { checkSchema } from "../packages/lab/src/review/format/validate";
 import { runLab } from "../packages/lab/src/review/lab/cli";
 import { AWF, awfArgv, type Runner, type RunRequest } from "../packages/lab/src/review/lab/runner";
 
@@ -272,7 +273,7 @@ async function json<T>(ws: Workspace, argv: string[], runner?: Runner): Promise<
   const document = JSON.parse(stdout);
   const printed = await lab(ws, ["schema", document.format]);
   expect(printed.exitCode).toBe(0);
-  const checked = checkWith(JSON.parse(printed.stdout), document);
+  const checked = checkSchema(JSON.parse(printed.stdout), document);
   if (!checked.ok) throw new Error(`${document.format}: ${JSON.stringify(checked.problems)}`);
   return document as T;
 }

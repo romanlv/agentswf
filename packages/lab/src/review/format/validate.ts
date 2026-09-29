@@ -14,7 +14,6 @@ import {
   VotesSchema,
 } from "./format";
 import { majority, settleSeverity } from "./grading";
-import { type LabConfig, LabConfigSchema, type LabReport, LabReportSchema } from "./lab";
 import {
   type FindingsRecord,
   FindingsRecordSchema,
@@ -31,7 +30,11 @@ export type Problem = { path: string; message: string };
 
 export type Checked<T> = { ok: true; value: T } | { ok: false; problems: Problem[] };
 
-function checkSchema<S extends Type.TSchema>(schema: S, value: unknown): Checked<Type.Static<S>> {
+/** Checks a value against a schema, each problem once. */
+export function checkSchema<S extends Type.TSchema>(
+  schema: S,
+  value: unknown,
+): Checked<Type.Static<S>> {
   if (Check(schema, value)) return { ok: true, value };
   const seen = new Set<string>();
   const problems: Problem[] = [];
@@ -74,14 +77,6 @@ export function checkFindingsRecord(value: unknown): Checked<FindingsRecord> {
     };
   }
   return checked;
-}
-
-export function checkLabConfig(value: unknown): Checked<LabConfig> {
-  return checkSchema(LabConfigSchema, value);
-}
-
-export function checkLabReport(value: unknown): Checked<LabReport> {
-  return checkSchema(LabReportSchema, value);
 }
 
 export function checkScoreRecord(value: unknown): Checked<ScoreRecord> {

@@ -1,7 +1,6 @@
 import { existsSync, mkdirSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
-  checkWith,
   type PartialScore,
   PartialScoreSchema,
   readPartial,
@@ -11,7 +10,7 @@ import {
   ScoreSchema,
   type Trial,
 } from "../format/records";
-import { type Checked, describeProblems } from "../format/validate";
+import { type Checked, checkSchema, describeProblems } from "../format/validate";
 import { digestOf } from "./identity";
 import type { ScoreOnFile, Stored } from "./plan";
 import { keyOf, parseKey } from "./version";
@@ -194,14 +193,14 @@ export function writeTrial(results: string, trial: Trial): string {
 
 /** Writes a score beside its trial, numbered after the scorer's earlier ones on that key. */
 export function writeScore(dir: string, score: Score): string {
-  const checked = checkWith(ScoreSchema, score);
+  const checked = checkSchema(ScoreSchema, score);
   if (!checked.ok) throw new Error(describeProblems("score", checked.problems));
   return writeNumbered(dir, "score", `${keyOf(score.scorer)}.k${score.key.revision}.`, score);
 }
 
 /** Writes a partial score beside its trial, numbered as a score is. */
 export function writePartial(dir: string, partial: PartialScore): string {
-  const checked = checkWith(PartialScoreSchema, partial);
+  const checked = checkSchema(PartialScoreSchema, partial);
   if (!checked.ok) throw new Error(describeProblems("partial", checked.problems));
   return writeNumbered(
     dir,
