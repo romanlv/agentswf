@@ -19,6 +19,13 @@ interface.
 Anything not yet built is deliberate. Check `docs/foundation.md` §10 before adding it; it says
 what would have to happen first.
 
+## Names
+
+The project is agents.wf; its packages are `@agentswf/*`, each named for its directory, and a
+workflow imports `agentswf/workflow`. The commands are `awf` for the operator and `wf` for an
+agent, and what `awf` owns at run time keeps its name (`~/.awf/runs`, `AWF_*`, `awf-lab`). The
+rule is in `docs/foundation.md`'s naming note and ADR 0005.
+
 ## Where things go
 
 | Package | Owns |

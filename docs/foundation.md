@@ -7,10 +7,13 @@ This is the argument, and it changes slowly. What exists right now, which stage 
 comes next is in [`status.md`](status.md). Decisions taken against this document since are in
 [`adr/`](adr/README.md). The migration narrative this document once carried is in git.
 
-> **Naming.** The project and the operator command are `awf` (`awf run`, `~/.awf/runs`). The
-> command an agent runs inside its session is `wf` (`wf result`), and it stays short because every
-> prompt carries it. The package scope `@agentswf/*` is still a placeholder; npm scope availability is
-> unchecked.
+> **Naming** ([ADR 0005](adr/0005-published-as-agentswf.md)). The project is **agents.wf**. Its
+> GitHub organisation, and at the launch its npm package, is `agentswf`, and the repository is
+> `agentswf/awf`. The workspace packages are `@agentswf/*`, each named for its directory:
+> `packages/harness` is `@agentswf/harness`. A workflow imports the author surface as
+> `agentswf/workflow`. The operator's command is `awf`, and everything it owns at run time keeps
+> that name: `~/.awf/runs`, `AWF_*`, docker's `awf.*` labels, and `awf-lab`. The command an agent
+> runs inside its session is `wf` (`wf result`), short because every prompt carries it.
 
 ## 1. What this is
 
@@ -720,8 +723,8 @@ and if it lands without moving a boundary, the split was right.
 
 ## 13. Open questions
 
-1. **Names.** Answered for the project and both commands: `awf`, and `wf` inside a session (see
-   the note at the top). The package scope `@agentswf/*` is still open.
+1. **Names.** Answered: see the note at the top, and
+   [ADR 0005](adr/0005-published-as-agentswf.md).
 2. **Author surface as a subpath or a package?** Temporal makes it a package because the constraint
    is enforced by a sandbox. Here it is enforced by discipline, so a subpath is proposed — revisit
    if a workflow ever reaches past it.
