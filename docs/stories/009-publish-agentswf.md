@@ -47,17 +47,16 @@ upgraded along with the rename.
 ## How it works
 
 ```text
-repository (workspace)               npm, one version for all            any machine
-──────────────────────               ────────────────────────            ───────────
-packages/contract   @agentswf/contract   ◄─┐                             bun add -g agentswf
-packages/sandbox    @agentswf/sandbox    ◄─┤                                  │
-packages/harness    @agentswf/harness    ◄─┤ dependencies,                    ▼
-packages/cli-agent  @agentswf/cli-agent  ◄─┤ exact versions             awf run ./review.ts
-packages/engine     @agentswf/engine     ◄─┤                                  │ loads review.ts;
-packages/agentswf   agentswf ──────────────┘                                  │ agentswf/workflow
-                    bin: awf                                                  │ and typebox are
-                    exports: ./workflow                                       ▼ the engine's own
-packages/autoresearch   stays private
+repository (workspace)                 npm, one version for all          any machine
+──────────────────────                 ────────────────────────          ───────────
+packages/contract      @agentswf/contract      ◄─┐                       bun add -g agentswf
+packages/sandbox       @agentswf/sandbox       ◄─┤                            │
+packages/harness       @agentswf/harness       ◄─┤ dependencies,              ▼
+packages/cli-agent     @agentswf/cli-agent     ◄─┤ exact versions        awf run ./review.ts
+packages/engine        @agentswf/engine        ◄─┤                            │ loads review.ts;
+packages/autoresearch  @agentswf/autoresearch    │ (bin: awf-lab)             │ agentswf/workflow
+packages/agentswf      agentswf ─────────────────┘                            │ and typebox are
+                       bin: awf, exports: ./workflow                          ▼ the engine's own
 ```
 
 **Each workspace package is published as it is, as pi publishes its packages.**
@@ -108,8 +107,7 @@ In scope:
 - **The author surface.** `awf run` provides `agentswf/workflow`, `typebox` and `typebox/value`
   to the workflows it loads.
 - **Publishing the packages.**
-  - Every workspace package but `autoresearch`, published as `@agentswf/*`, plus the new
-    `agentswf`.
+  - Every workspace package, published as `@agentswf/*`, plus the new `agentswf`.
   - Each package's `files` and exports trimmed to what it publishes.
   - A pack check that installs the packed tarballs into an empty directory and runs from there.
 - **Docs.**
@@ -178,6 +176,10 @@ Out of scope:
 
   With each package installed as a real dependency, all three work as long as each package's
   `files` keeps `src` and, for the sandbox, `docker`.
+- **Fact: autoresearch is meant to be imported from elsewhere.** ADR 0003: a project's own
+  autoresearch repository "runs `packages/autoresearch`'s workflows and imports the package to
+  build, check and score them". Its fixtures and scores stay in that repository, and none are in
+  this one.
 - **Fact: some exports exist only for tests or the archive.**
   - `./testing` in contract, harness, sandbox and engine. Used by tests in other packages.
   - `./archive-compat` in engine. Used by `experiments/_archive`.
@@ -206,7 +208,8 @@ Out of scope:
   - The code that would ship makes about 37 calls into Bun's own API in 17 files, across engine,
     harness, sandbox and cli-agent. [[node-runtime]] has the count and the work.
 - **Fact: one line that would ship names private work.** A search of every file the packages
-  would publish, tests and `autoresearch` excluded, 2026-09-28:
+  would publish, tests excluded, 2026-09-28. `autoresearch` was searched too, and names only
+  GitLab as a source it reads:
   - Terms searched: the private workspace's name, home paths, the operator's names and emails,
     `loops`, `gitlab` and `~/dev`.
   - The one hit: `packages/harness/src/usage/claude.ts:13`, which names the private file it was
@@ -269,7 +272,7 @@ Out of scope:
 
 ### Packages
 
-- **Each `packages/*/package.json` but `autoresearch`:**
+- **Each `packages/*/package.json`:**
   - `private` dropped;
   - `files`, `license` and `repository` (with `directory`) added;
   - `engines.bun` added.
@@ -368,6 +371,7 @@ workflows to `agentswf/workflow` along with the rename, which is why it lands be
 | `@agentswf/sandbox` | the sandbox seam and providers, with `docker/` | contract |
 | `@agentswf/cli-agent` | the `wf` source the engine bundles | contract |
 | `@agentswf/contract` | types, schema, records, wire | typebox |
+| `@agentswf/autoresearch` | review fixtures, `collect`, `draft-key`, and the `awf-lab` command | contract |
 
 - **Versions:** the same for every package. `bun pm pack` writes each `workspace:*` as that exact
   version, so an install never mixes two releases.
@@ -439,8 +443,13 @@ Alternatives rejected:
     suite, which is useful to exactly the people publishing is for.
   - Recommended: publish them, marked unstable. Drop `./archive-compat` from the published
     engine, which only the archive uses.
-- **`autoresearch` and `awf-lab`:** do they stay private until story 008 settles?
-  - Recommended: yes.
+- **`autoresearch`:** decided 2026-09-28, it publishes as `@agentswf/autoresearch`, `awf-lab`
+  included.
+  - ADR 0003 has a project's own autoresearch repository import this package to build, check and
+    score its fixtures, which on another machine needs it published.
+  - Its formats are young (story 008 awaits review), but nothing is promised before 1.0.
+  - `awf-lab` comes with `bun add -g @agentswf/autoresearch`, not with `agentswf`: someone who only
+    runs workflows never needs it.
 - **Bun version:** does `engines.bun` pin the minimum this repository tests on, or the one
   `sandbox/docker`'s `BUN_VERSION` uses (1.4.0)?
 
@@ -664,7 +673,8 @@ scratch workspace. Changes from the first draft:
   - **Scope:** it has to be one nobody else holds. The candidates were checked on npm and GitHub,
     and `@agentswf` is proposed.
   - **Publishing every package:** others should be able to build on them. One bundled package
-    became six published in lockstep, as pi publishes.
+    became seven published in lockstep, as pi publishes. `autoresearch` is included, since ADR
+    0003's data repositories import it.
   - **Node:** its cost was measured and moved to [[node-runtime]].
   - **Private information:** the files that would ship were searched. One line names private
     work.
