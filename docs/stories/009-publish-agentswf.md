@@ -44,6 +44,30 @@ Why now: the operator wants the engine on a second machine for personal workflow
 week the author surface grows makes every renamed import cost more, and existing workflows get
 upgraded along with the rename.
 
+## Where it stands
+
+As of 2026-09-28, nothing is built. What is settled, and what the operator does next, is below.
+
+- **Settled:**
+  - the names: agents.wf, `agentswf`, `@agentswf/*`, `agentswf/workflow`, `awf`, `wf`, and
+    `agentswf/awf`;
+  - every workspace package publishes, at one version;
+  - the engine provides `agentswf/workflow` and `typebox`;
+  - Bun only, and the license is MIT.
+- **The operator's next steps:**
+  - create the GitHub org `agentswf` and transfer the repository;
+  - claim `agentswf` and `@agentswf` on npm;
+  - reserve the look-alike names.
+- **Still open,** in Open questions:
+  - publish quietly or launch (6);
+  - clearance for the code lifted from private work (6);
+  - the published package names (3);
+  - the word "charged" (6);
+  - the `./testing` exports (3);
+  - the second machine's OS (5).
+- **Next for the implementer:** task 1, the rename. No other branch or worktree is open (checked
+  2026-09-28), so it can land once the sessions working on `main` are told.
+
 ## How it works
 
 ```text
@@ -238,10 +262,10 @@ Out of scope:
   - approves the publish itself.
 - **Constraint: others work on this repository at the same time.**
   - `main` has concurrent sessions ([[story-worktrees]]).
-  - The review-scorer worktree is open.
+  - Story 008's review-scorer branch merged in e09cb69. No other worktree or unmerged branch
+    exists (checked 2026-09-28).
 
-  A rename of 81 files lands as one mechanical commit, at a moment agreed with whoever has a
-  branch open.
+  A rename of 81 files lands as one mechanical commit, announced to whoever is working on `main`.
 - **Assumption, unverified: `env -S` works on the second machine.** It is fine on macOS and on
   GNU coreutils 8.30 or later.
 
@@ -441,8 +465,8 @@ Alternatives rejected:
   - GitHub's Agentic Workflows Firewall (`github/gh-aw-firewall`) installs a command named `awf`,
     which clashes only on a machine that has both. Its repository isn't named `awf`, and a GitHub
     search for "awf" (checked 2026-09-28) shows neither project, only unrelated ones.
-- **Timing:** when does the 81-file rename land? It affects the open review-scorer worktree, so
-  agree the moment first.
+- **Timing:** the rename can land as soon as the repository has moved. No branch is open to rebase
+  through it.
 
 ### 2. Author surface
 
@@ -452,6 +476,16 @@ Alternatives rejected:
 
 ### 3. Packages
 
+- **Published package names:** a published name is permanent, and renaming one later means
+  deprecating it and moving every user. So each name should say what the package is to someone
+  who hasn't read `foundation.md`.
+  - `harness`, `sandbox` and `engine` read well.
+  - `cli-agent` is internal jargon for the package that is the `wf` command.
+  - `autoresearch` ships a command called `awf-lab`, under a different name.
+  - `contract` is accurate, since it is the contract between a workflow and the engine, but it
+    needs its README to say so.
+  - Recommended: `@agentswf/wf` for cli-agent and `@agentswf/lab` for autoresearch, each directory
+    renamed to match, in task 1's commit. Keep `contract`.
 - **`./testing` exports:** do they publish?
   - They let a builder test against fakes, such as a fake harness or the sandbox conformance
     suite, which is useful to exactly the people publishing is for.
@@ -479,6 +513,36 @@ Alternatives rejected:
 - **Second machine:** what OS is it? On Linux, check `env -S`, and srt's bubblewrap requirement.
 - **Who publishes:** the operator runs `npm publish` on the packed tarballs, or logs in so this
   session can, with 2FA either way.
+
+### 6. Publishing and launching
+
+- **Publish quietly, or launch?** An npm package is public the moment it is published, whatever
+  the story says it is for.
+  - With the repository private, a `repository` link on the npm page is a 404, and so is every
+    README link into `docs/`.
+  - A launch is announcing it, with the repository public and its docs and history cleaned. It
+    happens once, and a half-documented 0.0.1 would spend it.
+  - Recommended: 0.0.1 publishes quietly.
+    - Its manifests carry `homepage: https://agents.wf` and no `repository`.
+    - Its README stands on its own and says the project is early.
+    - agents.wf at least points somewhere, such as the npm page.
+    - The launch is its own story, after [[scrub-private-references]]: repository public, README
+      and docs written for strangers, and `repository` added.
+- **Code lifted from private work:** `packages/harness/src/usage/claude.ts` (111 lines) says it
+  was "lifted from" a file in the private workspace. Removing the comment hides where it came from
+  but doesn't change it.
+  - Before any public release, the operator either confirms the right to publish it under MIT, or
+    has it rewritten from Claude Code's transcript format alone.
+  - A search for "lifted from" and "ported from" in what ships finds only this file.
+  - [[scrub-private-references]] names two tests with ported comments too. They don't ship, but
+    will be public with the repository.
+- **"charged":** for a metered run, `awf run` prints a cost as "charged", and `output.json` has a
+  `charged` field.
+  - For a headless claude, "metered" is a rule the harness applies, not a bill anyone saw. A
+    stranger on a subscription who reads "$0.09 charged" may think they paid it.
+  - The field is part of a record format, so renaming it costs a record version. It is cheapest
+    before anything outside reads it.
+  - Recommended: a todo to rename it before the launch. It doesn't block 0.0.1.
 
 ## Task execution rule
 
@@ -561,6 +625,12 @@ Execution:
 - [ ] Implement:
   - the manifests, and `packages/agentswf`;
   - the exported entry in `operator-cli.ts`;
+  - `awf --version`, which bug reports need, and which a workflow folder compares its dev
+    dependency against;
+  - a check at start that refuses a Bun older than `engines.bun`, with a message, since
+    `engines` only warns;
+  - `os: ["darwin", "linux"]` in every manifest, so Windows fails at install instead of at the
+    first unix socket;
   - `scripts/release.ts` and the pack check;
   - the private line in `packages/harness/src/usage/claude.ts` removed.
 - [ ] Review: obtain architecture/scope and correctness/proof subagent reviews of the actual diff.
@@ -595,7 +665,11 @@ Execution:
 
 - [ ] Plan: settle open questions 4.
 - [ ] Implement:
-  - the README, and a short README for each `@agentswf/*` package;
+  - the README, and a short README for each `@agentswf/*` package, each opening with the same
+    one-line tagline;
+  - `description`, `keywords` and `homepage` in every manifest;
+  - a section on what the sandboxes do and don't hold, from [[sandbox-host-protection]], before
+    anyone reads it as a promise;
   - `docs/getting-started.md`;
   - `LICENSE`.
 - [ ] Review: obtain architecture/scope and correctness/proof subagent reviews.
@@ -606,6 +680,13 @@ Work:
 
 - The first workflow on the page is one the pack check runs, so the docs can't drift from what
   works.
+- The first workflow uses host agents only, which run as a subprocess per turn, with no Herdr pane
+  and no sandbox. Each of those is a step after it. The plan checks that it runs with Herdr
+  uninstalled.
+- The README explains the names once:
+  - agents.wf is the project;
+  - `awf` is its command, the initials;
+  - `wf`, short for workflow, is what an agent types.
 
 Done when:
 
@@ -697,6 +778,32 @@ scratch workspace. Changes from the first draft:
   - the repository is `agentswf/awf`;
   - the license is MIT;
   - the look-alike names are reserved before 0.0.1.
+
+### Review for developers, publicity and the brand, 2026-09-28
+
+- **Developers:**
+  - Missing, and added to task 3:
+    - `awf --version`;
+    - a Bun version check;
+    - an `os` field.
+  - Added to task 4: a first workflow that needs neither Herdr nor a sandbox.
+  - Raised as a question: the published names `cli-agent` and `autoresearch` (open questions 3).
+  - Not added: `awf init`. It is surface, and a copy-paste folder in the docs does the same job
+    until people ask.
+- **Publicity:**
+  - A public npm package pointing at a private repository reads as abandoned or careless (open
+    questions 6).
+  - The sandboxes have known gaps ([[sandbox-host-protection]]). A tool that runs coding agents
+    has to say what its sandbox holds before someone else finds out.
+  - Two things could embarrass it in public: code lifted from private work, and "charged" (both
+    open questions 6).
+- **The brand:**
+  - Every name derives from agents.wf. The README says how once, and every package's README and
+    `description` open with the same tagline, so the npm pages build one name.
+  - `homepage` is agents.wf on every package, and `keywords` put it in npm searches for coding
+    agents and workflows.
+  - Handles elsewhere (X, Bluesky, Discord) are the operator's to reserve alongside the npm and
+    GitHub names, if wanted.
 
 ## Readiness
 
