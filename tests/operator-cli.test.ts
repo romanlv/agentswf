@@ -280,6 +280,14 @@ describe("awf run", () => {
     const malformed = join(root, "malformed.ts");
     await Bun.write(malformed, "export default { meta: { name: 'not enough' } };\n");
     const nonJsonArguments = join(root, "invalid-arguments.js");
+    const notSpec = join(root, "not-spec.json");
+    await Bun.write(notSpec, "[]");
+    const withCwd = join(root, "with-cwd.json");
+    await Bun.write(withCwd, JSON.stringify({ cwd: "/", srt: {} }));
+    const withKey = join(root, "with-key.json");
+    await Bun.write(withKey, JSON.stringify({ key: "box", srt: {} }));
+    const spec = join(root, "spec.json");
+    await Bun.write(spec, JSON.stringify({ srt: {} }));
     await Bun.write(nonJsonArguments, executableModule("return new Date();", "return null;"));
     const cases = [
       {
@@ -294,6 +302,26 @@ describe("awf run", () => {
       {
         argv: ["run", "--cwd", "no-such-directory", "examples/minimum-review/review-loop.ts"],
         text: "--cwd: not a directory",
+      },
+      {
+        argv: ["run", "--sandbox", "no-such.json", "examples/minimum-review/review-loop.ts"],
+        text: "--sandbox: ENOENT",
+      },
+      {
+        argv: ["run", "--sandbox", notSpec, "examples/minimum-review/review-loop.ts"],
+        text: "must hold a JSON object",
+      },
+      {
+        argv: ["run", "--sandbox", withCwd, "examples/minimum-review/review-loop.ts"],
+        text: "the run's sandbox names no cwd; it works in --cwd",
+      },
+      {
+        argv: ["run", "--sandbox", withKey, "examples/minimum-review/review-loop.ts"],
+        text: "the run's sandbox names no key",
+      },
+      {
+        argv: ["run", "--sandbox", spec, "--sandbox", "x", "x.ts"],
+        text: "--sandbox given twice",
       },
       {
         argv: ["run", "examples/minimum-review/review-loop.ts", "--lenses", "authz"],
@@ -524,6 +552,27 @@ describe("awf run", () => {
     expect(exitCode).toBe(0);
     expect(JSON.parse(output.join("")).value).toBe(target);
     expect(existsSync(join(shell, "runs"))).toBe(true);
+  });
+
+  test("--sandbox that can't open fails the run before the workflow starts, leaving no record", async () => {
+    const shell = runDirs.tempRunDir();
+    await Bun.write(join(shell, "box.json"), JSON.stringify({ srt: {} }));
+    await Bun.write(
+      join(shell, "opens.js"),
+      executableModule("return null;", 'await Bun.write("ran", ""); return 1;'),
+    );
+    const errors: string[] = [];
+
+    // No provider is installed, so the run's srt sandbox can't open.
+    const exitCode = await runOperatorCli(
+      ["run", "--run-root", "runs", "--sandbox", "box.json", "opens.js"],
+      { cwd: shell, stderr: (text) => errors.push(text), installRuntime: emptyRuntime },
+    );
+
+    expect(exitCode).not.toBe(0);
+    expect(errors.join("")).toContain("the run's sandbox did not open");
+    expect(existsSync(join(shell, "ran"))).toBe(false);
+    expect([...new Bun.Glob("runs/**/output.json").scanSync({ cwd: shell })]).toEqual([]);
   });
 
   test("on a terminal, progress is one block redrawn under the log, and the terminal is restored", async () => {

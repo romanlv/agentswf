@@ -63,6 +63,10 @@ status is one of `todo`, `draft`, `ready`, `in-progress`, `blocked`, `awaiting-h
 - [`009` — Run agents.wf on another machine from GitHub](009-publish-agentswf.md) —
   `in-progress` — One naming rule, an engine that serves the author surface to any folder,
   `awf --version`, and v0.0.1 installed from a clone on a second machine; npm waits for the launch.
+- [`010` — Count a review trial only when its reviewer could not see the answer](010-eval-isolation.md) —
+  `done` — every trial's agents run in one sandbox awf-lab gives the run (`awf run
+  --sandbox`), holding the checkout and the request; the reviewer's repository is laid out as its
+  clone was.
 
 This is the high-level index of numbered stories. Keep each entry to its title, status, and
 one-sentence summary; put code maps, research, design, tasks, and verification in the linked story.

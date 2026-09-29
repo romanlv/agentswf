@@ -236,6 +236,10 @@ const reader = await workflow.agents.open({
 - **git works.** A writable worktree can commit, but its hooks and config can't be changed from
   inside.
 - A sandbox closes when the run does, after every agent in it.
+- **The operator can sandbox the whole run instead:** `awf run --sandbox box.json`, with a spec
+  such as `{ "read": ["/data/request.md"], "srt": {} }`, puts every agent in one sandbox working in
+  `--cwd`, whether or not the workflow asked. A workflow that opens a sandbox of its own, or gives
+  an agent one, is refused. `awf-lab` runs every trial this way.
 
 ## Decisions
 

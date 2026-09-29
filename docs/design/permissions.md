@@ -43,7 +43,11 @@ granted everything so they could measure result delivery instead of permission p
 **The workflow restricts itself.** A sandbox makes agents safe from their inputs: a replayed
 reviewer cannot read the answer key, and a coder cannot leak a token to a domain it read about. It
 does not make a stranger's workflow safe to run: the workflow is trusted code, and the operator
-sets no ceiling on what it asks for. A ceiling can return later, per provider (open question 7).
+sets no ceiling on what it asks for. One exception is built: `awf run --sandbox` gives the whole
+run one sandbox of the operator's, every agent runs in it, and a workflow that opens its own is
+refused. It exists so that an evaluation can hold every variant to one reach without trusting any
+of them to ask for it ([[010-eval-isolation|story 010]]). A ceiling a workflow's own sandboxes fit
+under can return later, per provider (open question 7).
 
 **A sandbox is three things:**
 
@@ -396,8 +400,10 @@ Then, in order of need:
 
 ## Deliberately not built
 
-- **An operator ceiling and floor.** A sandbox is the workflow restricting itself. When a
-  stranger's workflow runs here, a ceiling returns, per provider (open question 7).
+- **An operator ceiling and floor over a workflow's own sandboxes.** A sandbox is the workflow
+  restricting itself. `awf run --sandbox` replaces them rather than bounding them: one sandbox for
+  the run, and none of the workflow's. When a stranger's workflow runs here, a ceiling it can work
+  under returns, per provider (open question 7).
 - **Passing named environment variables into a sandbox.** A sandbox's environment variables are
   exactly what the provider sets: the home variables, `PATH`, the harness's token and what the
   adapter adds. A variable a workflow names is a credential more often than not, and would need
@@ -448,7 +454,7 @@ door, credentials, the default provider and where the providers live. Of the res
    files, claude's are argument-scoped. Two adapters before the translation is called a contract.
 5. **Sandboxed is not disposable.** The worktree, a shared git object store and a shared package
    cache all outlive the agent, and a worktree's store holds later commits. A private store per
-   agent is the cheap win; the history-free fixture repository is [[eval-isolation]]'s.
+   agent is the cheap win; the history-free fixture repository is [[010-eval-isolation|story 010]]'s.
 6. **No shell, no return channel.** `wf result` is a shell command. E2 measured a delimited-line
    channel at full delivery, so a no-shell agent is buildable, but it is a different channel.
 7. **A ceiling, and one per provider?** A container and a host sandbox share the host

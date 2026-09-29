@@ -1,7 +1,6 @@
-import { copyFileSync, mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { copyFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { restore } from "../fixtures/git";
+import { restore, scratchDir } from "../fixtures/git";
 import { digestFixture, digestOf } from "../fixtures/seal";
 import { canonicalJson, SET_FILE } from "../fixtures/set";
 import { readCase, SNAPSHOT_REF } from "../fixtures/verify";
@@ -133,6 +132,7 @@ export async function statesOf(
       case: info.id,
       digest: info.digest,
       keyRevision: info.key.revision,
+      sandbox: workspace.sandbox,
       stored: await storedTrials(workspace.results, dataset, variantKey, info.id),
     });
   }
@@ -285,6 +285,7 @@ async function checkout(lab: Lab, info: CaseInfo, target: string): Promise<numbe
     ref: SNAPSHOT_REF,
     clone: lab.workspace.clone,
     target,
+    base: info.fixture.snapshot.base,
   });
   if (head !== info.fixture.snapshot.head) {
     throw new Error(`${info.id} restores to ${head}, not ${info.fixture.snapshot.head}`);
@@ -302,7 +303,7 @@ async function runTrial(
   const { defined, file } = variant;
   if (!defined || !file)
     throw new Error(`${variant.label} is a stored version; only its file can run`);
-  const scratch = mkdtempSync(join(tmpdir(), "awf-lab-trial-"));
+  const scratch = scratchDir("awf-lab-trial-");
   try {
     const code = join(scratch, "checkout");
     const restoreMs = await checkout(lab, info, code);
@@ -312,12 +313,17 @@ async function runTrial(
     const { base, head } = info.fixture.snapshot;
     // The dataset's folder, so a control that reads the key names no absolute path in its argv.
     const folder = dirname(info.dir);
+    // Every agent the variant opens works in the checkout, reads the request, and reaches nothing
+    // else; the variant can't widen it.
+    const sandbox = join(scratch, "sandbox.json");
+    writeFileSync(sandbox, JSON.stringify({ read: [request], ...lab.workspace.sandbox }));
     const result = await lab.runner({
       workflow: file,
       cwd: code,
       timeout: defined.timeout,
       argv: fill(defined.argv, { base, head, request, dataset: folder }),
       runRoot: lab.workspace.runs,
+      sandbox,
     });
     const run = summaryOf(result);
     let findings: ReviewFinding[] = [];
@@ -343,6 +349,7 @@ async function runTrial(
       dataset,
       case: { id: info.id, digest: info.digest },
       restoreMs,
+      sandbox: lab.workspace.sandbox,
       run,
       ...(failure ? { failure } : {}),
       findings,
@@ -371,7 +378,7 @@ async function runScorer(
   const { defined, file } = scorer;
   if (!defined || !file)
     throw new Error(`${scorer.label} is a stored version; only its file can run`);
-  const scratch = mkdtempSync(join(tmpdir(), "awf-lab-score-"));
+  const scratch = scratchDir("awf-lab-score-");
   try {
     const code = join(scratch, "checkout");
     await checkout(lab, info, code);

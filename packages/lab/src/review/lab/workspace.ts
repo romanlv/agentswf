@@ -18,6 +18,8 @@ export type Workspace = {
   datasets: string;
   results: string;
   runs: string;
+  /** The provider of every trial's sandbox, as a sandbox spec names it. */
+  sandbox: NonNullable<WorkspaceConfig["sandbox"]>;
   variants: Map<string, string>;
   scorers: Map<string, string>;
 };
@@ -65,6 +67,7 @@ export async function openWorkspace(file: string): Promise<Workspace> {
     datasets: resolve(root, config.datasets),
     results: resolve(root, config.results),
     runs: resolve(root, config.runs),
+    sandbox: config.sandbox ?? { srt: {} },
     variants: await discover(root, config.variants, ".variant.ts"),
     scorers,
   };

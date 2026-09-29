@@ -4,6 +4,25 @@ import Type from "typebox";
 
 const Text = Type.String({ minLength: 1 });
 
+/** The provider of every trial's sandbox, as a sandbox spec names it. */
+export const SandboxSettingSchema = Type.Union([
+  Type.Object(
+    { srt: Type.Object({}, { additionalProperties: false }) },
+    { additionalProperties: false },
+  ),
+  Type.Object(
+    {
+      docker: Type.Object(
+        { image: Type.Optional(Type.String({ minLength: 1 })) },
+        { additionalProperties: false },
+      ),
+    },
+    { additionalProperties: false },
+  ),
+]);
+
+export type SandboxSetting = Type.Static<typeof SandboxSettingSchema>;
+
 export const WorkspaceConfigSchema = Type.Object(
   {
     $schema: Type.Optional(Type.String()),
@@ -51,6 +70,11 @@ export const WorkspaceConfigSchema = Type.Object(
         { additionalProperties: false },
       ),
     ),
+    sandbox: Type.Optional({
+      ...SandboxSettingSchema,
+      description:
+        'The provider of the sandbox every trial\'s agents run in, which holds the checkout and the request and nothing else: { "srt": {} }, the default, or { "docker": { "image"?: … } }.',
+    }),
     seed: Type.Optional(
       Type.String({ minLength: 1, description: "Orders cases for --cases {n}; awf-lab." }),
     ),

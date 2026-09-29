@@ -1,21 +1,10 @@
 import { afterAll, beforeEach, describe, expect, test } from "bun:test";
-import {
-  copyFileSync,
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  readdirSync,
-  renameSync,
-  rmSync,
-} from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { copyFileSync, existsSync, mkdirSync, renameSync, rmSync } from "node:fs";
+import { dirname, join } from "node:path";
 import type { OutputRecord } from "../packages/contract/src/records";
 import { runOperatorCli } from "../packages/engine/src/operator-cli";
 import { createSingleSessionHostFactory } from "../packages/harness/src/single-session-host";
 import { createFakeAdapter } from "../packages/harness/src/testing/fake";
-import { digestFixture } from "../packages/lab/src/review/fixtures/seal";
-import { type AnswerKey, KEY_FORMAT } from "../packages/lab/src/review/format/format";
 import type {
   ReportDocument,
   RunDocument,
@@ -25,10 +14,16 @@ import type { Score, Trial } from "../packages/lab/src/review/format/records";
 import { checkSchema } from "../packages/lab/src/review/format/validate";
 import { runLab } from "../packages/lab/src/review/lab/cli";
 import { AWF, awfArgv, type Runner, type RunRequest } from "../packages/lab/src/review/lab/runner";
+import { createFakeSandboxProvider } from "../packages/sandbox/src/testing/fake";
+import {
+  CANNED,
+  CONFIG,
+  git,
+  mechanism,
+  workspace as newWorkspace,
+  type Workspace,
+} from "./lab-workspace";
 
-const REVIEW_INDEX = join(import.meta.dir, "../packages/lab/src/review/index.ts");
-const CANNED = join(import.meta.dir, "fixtures/lab/canned.workflow.ts");
-const EXACT = join(import.meta.dir, "fixtures/lab/exact-judge.workflow.ts");
 const TRIAL = "trial";
 const SCORE = "score";
 /** What a run was: `awf run` runs the variant or scorer file itself. */
@@ -38,178 +33,6 @@ const roots: string[] = [];
 afterAll(() => {
   for (const root of roots) rmSync(root, { recursive: true, force: true });
 });
-
-function git(cwd: string, ...args: string[]): string {
-  const run = Bun.spawnSync(["git", ...args], { cwd, stdout: "pipe", stderr: "pipe" });
-  if (run.exitCode !== 0) throw new Error(`git ${args.join(" ")}: ${run.stderr.toString()}`);
-  return run.stdout.toString().trim();
-}
-
-const mechanism = (caseId: string, n: number) => `${caseId} issue ${n}: what goes wrong`;
-
-function keyOf(caseId: string): AnswerKey {
-  const issue = (n: number, severity: "must-fix" | "should-fix") => ({
-    id: `K${n}`,
-    mechanism: mechanism(caseId, n),
-    visibleIn: "diff" as const,
-    severity,
-    category: "correctness" as const,
-    scope: "change" as const,
-    locations: [{ path: "src/app.ts", start: 1, end: 1 }],
-    confirmation: { basis: "verified" as const, how: "traced" },
-    sources: [{ commit: "c".repeat(40) }],
-  });
-  return {
-    format: KEY_FORMAT,
-    fixture: caseId,
-    revision: 1,
-    draftedBy: "hand",
-    procedure: "hand",
-    issues: [issue(1, "must-fix"), issue(2, "should-fix")],
-    refuted: [],
-    excluded: [],
-  };
-}
-
-type Workspace = {
-  root: string;
-  heads: Record<string, string>;
-  answers: string;
-  variant: (name: string, body?: string) => Promise<string>;
-  scorer: (name: string, mode: string) => Promise<string>;
-};
-
-const CONFIG = {
-  clone: "project",
-  datasets: "datasets",
-  dataset: "first",
-  results: "results",
-  runs: "runs",
-  variants: ["ideas/*.variant.ts"],
-  scorers: ["scorers/*.scorer.ts"],
-  scorer: "exact",
-};
-
-/**
- * A workspace with a sealed dataset of two cases cut from one project, a config, and a
- * tsconfig.json that finds the package, as a real one outside awf must.
- */
-async function workspace(): Promise<Workspace> {
-  const root = mkdtempSync(join(tmpdir(), "awf-lab-test-"));
-  roots.push(root);
-  const project = join(root, "project");
-  mkdirSync(join(project, "src"), { recursive: true });
-  git(project, "init", "--quiet", "--initial-branch", "main");
-  git(project, "config", "user.email", "t@example.com");
-  git(project, "config", "user.name", "t");
-  await Bun.write(join(project, "src/app.ts"), "export const a = 1;\n");
-  git(project, "add", ".");
-  git(project, "commit", "--quiet", "-m", "base");
-  const base = git(project, "rev-parse", "HEAD");
-  const dataset = join(root, "datasets", "first");
-  const heads: Record<string, string> = {};
-  const entries = [];
-  for (const [n, id] of ["app-1", "app-2"].entries()) {
-    git(project, "checkout", "--quiet", "-b", id, base);
-    await Bun.write(join(project, "src/app.ts"), `export const a = ${n + 2};\n`);
-    git(project, "commit", "--quiet", "-am", id);
-    const head = git(project, "rev-parse", "HEAD");
-    heads[id] = head;
-    const dir = join(dataset, id);
-    mkdirSync(join(dir, "key"), { recursive: true });
-    git(project, "update-ref", "refs/fixture/head", head);
-    git(
-      project,
-      "bundle",
-      "create",
-      "--quiet",
-      join(dir, "snapshot.bundle"),
-      "refs/fixture/head",
-      `^${base}`,
-    );
-    await Bun.write(
-      join(dir, "fixture.json"),
-      JSON.stringify({
-        format: "awf.review-fixture/1",
-        id,
-        source: {
-          forge: "gitlab",
-          project: "group/app",
-          number: n + 1,
-          url: `https://gitlab.example/group/app/-/merge_requests/${n + 1}`,
-          state: "merged",
-        },
-        snapshot: { version: 1, base, head, at: "2026-06-01T00:00:00Z" },
-        request: { asOf: "2026-06-01T00:00:00Z", removed: [] },
-      }),
-    );
-    await Bun.write(join(dir, "request.md"), `# Change ${id}\n\nIt changes a.\n`);
-    await Bun.write(join(dir, "key", "key.json"), JSON.stringify(keyOf(id)));
-    entries.push({ id, at: "2026-06-01T00:00:00Z", digest: await digestFixture(dir) });
-  }
-  git(project, "checkout", "--quiet", "main");
-  await Bun.write(
-    join(dataset, "set.json"),
-    JSON.stringify({
-      format: "awf.fixture-set/1",
-      name: "first",
-      builtAt: "2026-06-02T00:00:00Z",
-      builder: "test",
-      fixtures: entries,
-      excluded: [],
-    }),
-  );
-  await Bun.write(join(root, "awf-lab.json"), JSON.stringify(CONFIG));
-  await Bun.write(
-    join(root, "tsconfig.json"),
-    JSON.stringify({ compilerOptions: { paths: { "@agentswf/lab/review": [REVIEW_INDEX] } } }),
-  );
-  const answers = join(root, "answers.json");
-  await Bun.write(answers, JSON.stringify({}));
-  mkdirSync(join(root, "ideas"));
-  mkdirSync(join(root, "scorers"));
-  const ws: Workspace = {
-    root,
-    heads,
-    answers,
-    async variant(name, body) {
-      const file = join(root, "ideas", `${name}.variant.ts`);
-      await Bun.write(
-        file,
-        body ??
-          `import { defineReviewVariant } from "@agentswf/lab/review";
-import canned from ${JSON.stringify(CANNED)};
-
-export default defineReviewVariant({
-  workflow: canned,
-  argv: ["--answers", ${JSON.stringify(answers)}, "--head", "{head}", "--request", "{request}", "--range", "{base}...HEAD"],
-  timeout: "1m",
-  read: (result) => result.findings.map((f) => ({ path: f.file, line: f.line, text: f.claim })),
-});
-`,
-      );
-      return file;
-    },
-    async scorer(name, mode) {
-      const file = join(root, "scorers", `${name}.scorer.ts`);
-      await Bun.write(
-        file,
-        `import { defineReviewScorer } from "@agentswf/lab/review";
-import exact from ${JSON.stringify(EXACT)};
-
-export default defineReviewScorer({
-  workflow: exact,
-  argv: ["--mode", ${JSON.stringify(mode)}],
-  timeout: "1m",
-});
-`,
-      );
-      return file;
-    },
-  };
-  await ws.scorer("exact", "plain");
-  return ws;
-}
 
 async function answer(ws: Workspace, byCase: Record<string, unknown>) {
   const byHead = Object.fromEntries(
@@ -241,6 +64,14 @@ function inProcess(options: { spend?: number } = {}) {
         config: {
           aliases: {},
           host: createSingleSessionHostFactory(createFakeAdapter({ script: () => ({}) })),
+        },
+        // What a trial's `--sandbox` opens; the variants here open no agents to put in it.
+        sandboxes: {
+          installed: {
+            srt: createFakeSandboxProvider().provider,
+            docker: createFakeSandboxProvider().provider,
+          },
+          default: "srt",
         },
         cleanup: async () => undefined,
       }),
@@ -292,7 +123,8 @@ const recordsIn = (ws: Workspace, pattern: string) => [
 describe("awf-lab", () => {
   let ws: Workspace;
   beforeEach(async () => {
-    ws = await workspace();
+    ws = await newWorkspace();
+    roots.push(ws.root);
   });
 
   test("run then report gives the numbers, and a second run runs nothing", async () => {
@@ -537,6 +369,77 @@ export default defineReviewVariant({
     expect(failed.steps.map((s) => s.id)).toEqual(["app-1"]);
   });
 
+  test("every trial's agents run in the workspace's sandbox, holding the request; a scorer's don't", async () => {
+    await ws.variant("canned");
+    await answer(ws, { "app-1": [finding(mechanism("app-1", 1))], "app-2": [] });
+    const runs = inProcess();
+    const given: { step: string; request?: string; spec?: unknown }[] = [];
+    const recording: Runner = async (request) => {
+      given.push({
+        step: stepOf(request),
+        ...(request.sandbox
+          ? {
+              request: join(dirname(request.cwd), "request.md"),
+              spec: await Bun.file(request.sandbox).json(),
+            }
+          : {}),
+      });
+      return runs.runner(request);
+    };
+    expect((await lab(ws, ["run", "canned", "--cases", "app-1"], recording)).exitCode).toBe(0);
+    const [trial, score] = given;
+    expect(trial!.spec).toEqual({ read: [trial!.request], srt: {} });
+    expect(score).toEqual({ step: SCORE });
+
+    const config = join(ws.root, "awf-lab.json");
+    const docker = {
+      ...(await Bun.file(config).json()),
+      sandbox: { docker: { image: "awf-review" } },
+    };
+    await Bun.write(config, JSON.stringify(docker));
+    given.length = 0;
+    expect((await lab(ws, ["run", "canned", "--cases", "app-2"], recording)).exitCode).toBe(0);
+    expect(given[0]!.spec).toEqual({ read: [given[0]!.request], docker: { image: "awf-review" } });
+  });
+
+  test("a trial counts only in the workspace's sandbox: another provider's is run again", async () => {
+    await ws.variant("canned");
+    await answer(ws, { "app-1": [finding(mechanism("app-1", 1))], "app-2": [] });
+    expect(
+      (await lab(ws, ["run", "canned", "--cases", "app-1"], inProcess().runner)).exitCode,
+    ).toBe(0);
+    const config = join(ws.root, "awf-lab.json");
+    const srt = await Bun.file(config).json();
+    await Bun.write(config, JSON.stringify({ ...srt, sandbox: { docker: {} } }));
+    const missing = (await report(ws, "canned", "--cases", "app-1")).columns[0]!.missing;
+    expect(missing).toEqual([
+      { id: "app-1", why: "no trial in this workspace's sandbox; awf-lab run runs it again" },
+    ]);
+    expect((await lab(ws, ["show", "canned", "app-1"])).stdout).toContain("trial     none counted");
+    const scored = await lab(ws, ["score", "canned", "--cases", "app-1", "--dry-run"]);
+    expect(scored.stdout).toMatch(/app-1 +skip: no trial in this workspace's sandbox/);
+    const underDocker = inProcess();
+    expect((await lab(ws, ["run", "canned"], underDocker.runner)).exitCode).toBe(0);
+    // app-2's trial found nothing, so there is nothing to score.
+    expect(underDocker.calls.map(stepOf)).toEqual([TRIAL, TRIAL, SCORE]);
+    // Back to srt, app-1's first trial counts again, scored; app-2 has only docker's.
+    await Bun.write(config, JSON.stringify(srt));
+    const backToSrt = inProcess();
+    expect((await lab(ws, ["run", "canned"], backToSrt.runner)).exitCode).toBe(0);
+    expect(backToSrt.calls.map(stepOf)).toEqual([TRIAL]);
+  });
+
+  test("a clone that names no default branch fails before anything runs", async () => {
+    await ws.variant("canned");
+    await answer(ws, { "app-1": [], "app-2": [] });
+    git(join(ws.root, "project"), "symbolic-ref", "--delete", "refs/remotes/origin/HEAD");
+    const runs = inProcess();
+    const result = await lab(ws, ["run", "canned", "--dry-run"], runs.runner);
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("has no origin/HEAD");
+    expect(runs.calls).toHaveLength(0);
+  });
+
   test("a file whose default export is a workflow but not a variant is refused before anything runs", async () => {
     await ws.variant("bare", `export { default } from ${JSON.stringify(CANNED)};\n`);
     const runs = inProcess();
@@ -690,7 +593,8 @@ export default defineReviewVariant({
     expect((await lab(ws, ["run", "canned"], inProcess().runner)).exitCode).toBe(0);
     const alone = (await report(ws, "canned")).columns[0]!;
 
-    const other = await workspace();
+    const other = await newWorkspace();
+    roots.push(other.root);
     await other.variant("canned");
     await answer(other, findings);
     const runs = inProcess();
@@ -1105,7 +1009,7 @@ export default defineReviewVariant({
     expect((await lab(ws, ["show", "canned"])).exitCode).toBe(2);
   });
 
-  test("records in the first formats, from before versions, read as they did", async () => {
+  test("records in the first formats, from before versions, still read, and are run again", async () => {
     await ws.variant("canned");
     await answer(ws, {
       "app-1": [finding(mechanism("app-1", 1)), finding("vague")],
@@ -1119,6 +1023,7 @@ export default defineReviewVariant({
         format: _f,
         dataset,
         case: kase,
+        sandbox: _sandbox,
         ...rest
       }: Trial = await Bun.file(join(dir, file)).json();
       const { version: _v, ...variant } = rest.variant;
@@ -1159,24 +1064,21 @@ export default defineReviewVariant({
         }),
       );
     }
-    expect(await report(ws, "canned")).toEqual(before);
+    // Read, and never counted: they ran before trials had a sandbox.
+    const missing = (await report(ws, "canned")).columns[0]!.missing;
+    expect(missing.toSorted((a, b) => a.id.localeCompare(b.id))).toEqual([
+      { id: "app-1", why: "no trial in this workspace's sandbox; awf-lab run runs it again" },
+      { id: "app-2", why: "no trial in this workspace's sandbox; awf-lab run runs it again" },
+    ]);
     const again = inProcess();
     expect((await lab(ws, ["run", "canned"], again.runner)).exitCode).toBe(0);
-    expect(again.calls).toHaveLength(0);
-    // A new version's score is written beside the old one, in the second format.
-    await ws.scorer("exact", "strict");
-    await Bun.write(
-      join(ws.root, "scorers/exact.scorer.ts"),
-      withVersion(await fileOf(ws, "scorers/exact.scorer.ts"), "1.1.0"),
-    );
-    expect(
-      (await lab(ws, ["score", "canned", "--cases", "app-2"], inProcess().runner)).exitCode,
-    ).toBe(0);
-    const trialDir = readdirSync(join(dir, "canned@1.0", "app-2"))[0]!;
-    expect(readdirSync(join(dir, "canned@1.0", "app-2", trialDir)).sort()).toEqual([
-      "findings.json",
-      "score.exact@1.0.k1.1.json",
-      "score.exact@1.1.k1.1.json",
-    ]);
+    expect(again.calls.map(stepOf)).toEqual([TRIAL, TRIAL, SCORE, SCORE]);
+    const numbers = (document: typeof before) =>
+      document.columns[0]!.cases.map(({ id, precision, weightedRecall }) => ({
+        id,
+        precision,
+        weightedRecall,
+      }));
+    expect(numbers(await report(ws, "canned"))).toEqual(numbers(before));
   });
 });

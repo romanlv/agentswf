@@ -143,7 +143,7 @@ export function renderShow(doc: ShowDocument): string {
       (issue) => `  ${issue.id.padEnd(4)} ${issue.severity.padEnd(11)} ${issue.mechanism}`,
     ),
   ];
-  if (!doc.trial) lines.push("trial     none on file");
+  if (!doc.trial) lines.push("trial     none counted");
   else {
     const { run } = doc.trial;
     lines.push(

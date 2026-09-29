@@ -10,6 +10,7 @@ import {
   ScorerResultSchema,
 } from "./scoring";
 import { type Checked, checkFindingsRecord, checkSchema, checkScoreRecord } from "./validate";
+import { SandboxSettingSchema } from "./workspace";
 
 // The records `awf-lab` writes, in its own terms: a trial, a score and a partial score. The first
 // versions, in `scoring.ts` and `partial.ts`, stay readable:
@@ -50,6 +51,11 @@ export const TrialSchema = Type.Object(
     dataset: Text,
     case: trial.fixture,
     restoreMs: trial.restoreMs,
+    sandbox: Type.Optional({
+      ...SandboxSettingSchema,
+      description:
+        "The sandbox setting awf-lab gave the run, from awf-lab.json, which every agent ran in; a trial counts only while it is the workspace's. Absent: the run had none.",
+    }),
     run: trial.run,
     failure: trial.failure,
     findings: trial.findings,
@@ -206,7 +212,7 @@ export function readTrial(value: unknown, filed: string): Checked<Trial> {
   const checked = checkSchema(TrialSchema, value);
   if (!checked.ok) return checked;
   // The first version's rules, checked on its own fields.
-  const { format: _format, dataset, case: kase, ...rest } = checked.value;
+  const { format: _format, dataset, case: kase, sandbox: _sandbox, ...rest } = checked.value;
   const v1 = checkFindingsRecord({ format: FINDINGS_FORMAT, ...rest, set: dataset, fixture: kase });
   return v1.ok ? checked : v1;
 }

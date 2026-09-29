@@ -9,6 +9,7 @@ import type {
   WorkflowContext,
   WorkflowDefinition,
 } from "@agentswf/contract/workflow";
+import { DeadlineExceededError } from "@agentswf/contract/workflow";
 import { createHeadlessRunHostFactory } from "@agentswf/harness";
 import type {
   AgentRunHostFactory,
@@ -26,7 +27,12 @@ import {
 import { installSandboxes } from "./operator-runtime";
 import { RunSandboxes } from "./sandboxes";
 import { createTempRunDirs, future } from "./testing";
-import { runWorkflow, startWorkflow, WorkflowRunError } from "./workflow-runner";
+import {
+  runWorkflow,
+  startWorkflow,
+  WorkflowCancelledError,
+  WorkflowRunError,
+} from "./workflow-runner";
 
 // A codex that answers through the launcher its prompt names, as a real one would, and keeps what
 // it was started with in its home. Asked to wait, it waits; asked to peek, it tries to read a file.
@@ -83,7 +89,12 @@ afterAll(async () => {
 
 const headless = { harness: "codex", model: "gpt-test", placement: "headless" } as const;
 
-function setup(options: FakeSandboxOptions = {}, host?: AgentRunHostFactory) {
+function setup(
+  options: FakeSandboxOptions = {},
+  host?: AgentRunHostFactory,
+  /** The operator's sandbox for the whole run, as `awf run --sandbox` gives it. */
+  runSpec?: unknown,
+) {
   const fake = createFakeSandboxProvider(options);
   const providers: SandboxProviders = { installed: { srt: fake.provider }, default: "srt" };
   const runtime: AgentRuntimeConfig = {
@@ -97,7 +108,7 @@ function setup(options: FakeSandboxOptions = {}, host?: AgentRunHostFactory) {
       runtime,
       deadline: future(),
       cwd: work,
-      sandboxes: { providers },
+      sandboxes: { providers, ...(runSpec === undefined ? {} : { run: runSpec }) },
       onLog: (message) => logs.push(message),
     });
   return { events: fake.events, run, providers, runtime, logs };
@@ -516,6 +527,102 @@ function open(
 // should. Skipped without srt. Installed at load, before `beforeAll` moves `CODEX_HOME`, so its
 // pure check guards the operator's real harness state; the test's is under a denied temp anyway.
 const installed = await installSandboxes(process.env);
+
+describe("the operator's sandbox for the whole run", () => {
+  test("every agent runs in it, at the run's cwd, without the workflow asking", async () => {
+    const { events, run } = setup({}, undefined, { read: [join(work, "src")] });
+    const result = await run(async (context) => {
+      const answers: string[] = [];
+      for (const key of ["reviewer", "verifier"]) {
+        const agent = await context.agents.open({ key, runtime: headless });
+        answers.push((await agent.run({ prompt: "go", nudge: false })).outcome.kind);
+      }
+      return answers;
+    });
+    expect(result.value).toEqual(["answered", "answered"]);
+    expect(result.sandboxes).toHaveLength(1);
+    expect(result.sandboxes![0]).toMatchObject({
+      key: "run",
+      spec: { cwd: work, read: [join(work, "src")], write: [], network: [] },
+      agents: [{ agent: "reviewer" }, { agent: "verifier" }],
+    });
+    expect(kinds(events, "run").filter((kind) => kind === "open")).toHaveLength(1);
+    expect(kinds(events, "run").at(-1)).toBe("close");
+  });
+
+  test.each<[string, (context: WorkflowContext) => Promise<unknown>]>([
+    ["a sandbox of its own", (c) => c.sandboxes.open({ key: "wide", read: [root] })],
+    ["an agent's inline sandbox", (c) => open(c, { sandbox: { read: [root] } })],
+  ])("refuses the workflow %s", async (_name, body) => {
+    const { events, run } = setup({}, undefined, {});
+    const failure = await run(body as never).catch((error: unknown) => error);
+    expect(String((failure as Error).message)).toContain("a workflow cannot open its own");
+    expect(kinds(events)).not.toContain("admit");
+  });
+
+  test("a spec that can't open fails the run before the workflow starts", async () => {
+    const { events, run } = setup({}, undefined, { read: ["nowhere"] });
+    let started = false;
+    const failure = await run(async () => {
+      started = true;
+      return null;
+    }).catch((error: unknown) => error);
+    // Not a WorkflowRunError: the run never started, so it leaves no record.
+    expect(failure).not.toBeInstanceOf(WorkflowRunError);
+    expect(String((failure as Error).message)).toContain("the run's sandbox did not open");
+    expect(String((failure as Error).message)).toContain("does not exist");
+    expect(started).toBe(false);
+    expect(kinds(events)).not.toContain("open");
+  });
+
+  test.each([
+    ["cancelled", WorkflowCancelledError],
+    ["timed out", DeadlineExceededError],
+  ] as const)("a run stopped while it opens is %s, not failed", async (how, stopped) => {
+    const { provider } = createFakeSandboxProvider();
+    const opening = Promise.withResolvers<void>();
+    // Slow, as a docker pull is; the seam passes no signal, so the run waits for it to end.
+    const finish = Promise.withResolvers<never>();
+    const slow = {
+      ...provider,
+      open: () => {
+        opening.resolve();
+        return finish.promise;
+      },
+    };
+    const controller = new AbortController();
+    const failure = runWorkflow(
+      workflowOf(async () => null),
+      null,
+      {
+        runRoot: runDirs.tempRunDir(),
+        runtime: { aliases: {}, host: createHeadlessRunHostFactory({}) },
+        deadline: how === "timed out" ? future(50) : future(),
+        cwd: work,
+        signal: controller.signal,
+        sandboxes: { providers: { installed: { srt: slow }, default: "srt" }, run: {} },
+      },
+    ).catch((error: unknown) => error);
+    await opening.promise;
+    if (how === "cancelled") controller.abort();
+    else await Bun.sleep(80);
+    finish.reject(new Error("pull ended"));
+    expect(await failure).toBeInstanceOf(stopped);
+  });
+
+  test("agents opened at once share it, opened once", async () => {
+    const { events, run } = setup({}, undefined, {});
+    const result = await run(async (context) => {
+      const agents = await Promise.all(
+        ["a", "b", "c"].map((key) => context.agents.open({ key, runtime: headless })),
+      );
+      return agents.length;
+    });
+    expect(result.value).toBe(3);
+    expect(kinds(events, "run").filter((kind) => kind === "open")).toHaveLength(1);
+    expect(result.sandboxes!.map((sandbox) => sandbox.agents.length)).toEqual([3]);
+  });
+});
 
 describe.skipIf(!installed.installed.srt)("a sandboxed agent under srt", () => {
   test("answers through its door from inside, and cannot read ~", async () => {

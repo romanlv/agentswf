@@ -70,6 +70,41 @@
       },
       "additionalProperties": false
     },
+    "sandbox": {
+      "anyOf": [
+        {
+          "type": "object",
+          "required": ["srt"],
+          "properties": {
+            "srt": {
+              "type": "object",
+              "properties": {},
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": ["docker"],
+          "properties": {
+            "docker": {
+              "type": "object",
+              "properties": {
+                "image": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
+        }
+      ],
+      "description": "The provider of the sandbox every trial's agents run in, which holds the checkout and the request and nothing else: { \"srt\": {} }, the default, or { \"docker\": { \"image\"?: … } }.",
+      "~optional": true
+    },
     "seed": {
       "type": "string",
       "minLength": 1,

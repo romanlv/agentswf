@@ -83,7 +83,12 @@ import {
   type RunLedger,
 } from "./run-usage";
 import { type CredentialLocks, seedHome } from "./sandbox-homes";
-import { RunSandboxes, type RunSandboxOptions, type SeatedAgent } from "./sandboxes";
+import {
+  RUN_SANDBOX_ONLY,
+  RunSandboxes,
+  type RunSandboxOptions,
+  type SeatedAgent,
+} from "./sandboxes";
 import { placeSkills, RunSkills, readSkillSources } from "./skills/run-skills";
 
 export { WorkflowCancelledError } from "./deadlines";
@@ -258,6 +263,19 @@ export async function startWorkflow<Args extends JsonValue, Result extends JsonV
     deadline: options.deadline,
     log: (message) => options.onLog?.(message),
   });
+  if (sandboxes.hasRunSandbox) {
+    try {
+      await runUntilStopped(() => sandboxes.openRunSandbox(), options.signal, options.deadline);
+    } catch (error) {
+      await sandboxes.close().catch(() => undefined);
+      await host.close("the run's sandbox did not open").catch(() => undefined);
+      await control.close();
+      if (error instanceof WorkflowCancelledError || error instanceof DeadlineExceededError) {
+        throw error;
+      }
+      throw new Error(`the run's sandbox did not open: ${messageOf(error)}`);
+    }
+  }
   const decisions = new RunDecisions({
     ...(options.decisions ? { installation: options.decisions } : {}),
     runDir,
@@ -557,6 +575,9 @@ class WorkflowOwner {
   private openAgent(spec: AgentOpenSpec): Promise<AgentRef> {
     if (this.#closed) throw new Error("workflow context is closed");
     scopes.getStore()?.assertAccepting();
+    const inRunSandbox = this.options.sandboxes.hasRunSandbox;
+    if (inRunSandbox && spec.sandbox !== undefined)
+      throw new Error(`agent ${spec.key}: ${RUN_SANDBOX_ONLY}`);
     const existing = this.#agents.get(spec.key);
     const execution = existing
       ? constrainExistingExecution(spec.runtime, existing.identity.execution)
@@ -619,7 +640,7 @@ class WorkflowOwner {
       }),
     };
     const { state, channel } =
-      spec.sandbox === undefined
+      spec.sandbox === undefined && !inRunSandbox
         ? this.openHostAgent(opening, identity.cwd, accounted)
         : this.openSandboxedAgent(opening, identity.cwd, accounted);
     const ownedState = this.track(state);

@@ -28,7 +28,7 @@ Why now: we record what a run costs (story 002), but not whether the review was 
 planned pieces read this format, so it comes first:
 
 - the scorer ([story 008](008-review-scorer.md));
-- the sandboxing that hides the answers from the reviewer ([`eval-isolation`](todo/eval-isolation.md));
+- the sandboxing that hides the answers from the reviewer ([story 010](010-eval-isolation.md));
 - the runner that tries review variants across many fixtures
   ([`variant-matrix-runner`](todo/variant-matrix-runner.md)).
 

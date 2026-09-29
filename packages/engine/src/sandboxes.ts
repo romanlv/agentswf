@@ -40,7 +40,16 @@ export type RunSandboxOptions = {
    * agent's harness is found on and claude's token. Defaults to the engine's.
    */
   environment?: Readonly<Record<string, string | undefined>>;
+  /**
+   * The operator's sandbox for the whole run (`awf run --sandbox`): every agent runs in it, at the
+   * run's working directory, and the workflow opens none of its own. Unresolved, as a file gave it.
+   */
+  run?: unknown;
 };
+
+/** Why a workflow's own sandbox is refused in a run the operator gave one. */
+export const RUN_SANDBOX_ONLY =
+  "every agent in this run runs in the sandbox awf run --sandbox gave it; a workflow cannot open its own";
 
 /** Where one agent will run in a sandbox, settled before anything is opened for it. */
 export type Seat = {
@@ -97,6 +106,8 @@ export class RunSandboxes {
   readonly #providers: SandboxProviders;
   readonly #environment: Readonly<Record<string, string | undefined>>;
   #runRoot: Promise<string> | undefined;
+  /** The operator's sandbox, opened once before the workflow runs. */
+  #runSandbox: Promise<RunSandbox> | undefined;
   #closed = false;
 
   constructor(
@@ -115,8 +126,14 @@ export class RunSandboxes {
     this.#environment = options.sandboxes?.environment ?? process.env;
   }
 
+  /** Whether the operator gave the run a sandbox, which every agent runs in. */
+  get hasRunSandbox(): boolean {
+    return this.options.sandboxes?.run !== undefined;
+  }
+
   /** `workflow.sandboxes.open`. */
   async open(spec: unknown): Promise<SandboxRef> {
+    if (this.hasRunSandbox) throw new Error(RUN_SANDBOX_ONLY);
     const key = (spec as { key?: unknown } | null)?.key;
     if (typeof key !== "string" || key === "") throw new Error("a sandbox needs a key");
     if (key.startsWith("agent:")) {
@@ -140,7 +157,7 @@ export class RunSandboxes {
     execution: AgentExecution;
     skills?: readonly ResolvedSkill[];
   }): Promise<Seat> {
-    const shared = this.#shared(agent.sandbox);
+    const shared = this.hasRunSandbox ? await this.#joinRunSandbox() : this.#shared(agent.sandbox);
     const pane = agent.execution.placement !== "headless";
     const key = `agent:${agent.key}`;
     const sandbox =
@@ -262,6 +279,22 @@ export class RunSandboxes {
         agents: agents.map(({ agent, home }) => ({ callPath: [], agent, home })),
       };
     });
+  }
+
+  /**
+   * Opens the operator's sandbox before the workflow runs, so one that can't open fails the run
+   * before it starts rather than as the workflow's failure.
+   */
+  async openRunSandbox(): Promise<void> {
+    await this.#joinRunSandbox();
+  }
+
+  #joinRunSandbox(): Promise<RunSandbox> {
+    // Opened once: a spec that fails to open fails every agent the same way, and is not retried.
+    this.#runSandbox ??= this.#register("run", () =>
+      this.#open("run", this.options.sandboxes?.run, true),
+    );
+    return this.#runSandbox;
   }
 
   #isRef(sandbox: unknown): boolean {

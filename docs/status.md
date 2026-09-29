@@ -105,6 +105,11 @@ The gates are defined in [`foundation.md`](foundation.md) §12.
   `typebox` to a workflow in any folder; `awf --version` and a Bun check; a README that installs
   from a clone. Left: tag v0.0.1 and run it on the operator's second machine, and reserve the
   names.
+- [010 — eval isolation](stories/010-eval-isolation.md): done. `awf run --sandbox {file}`
+  puts every agent of a run in one operator sandbox and refuses a workflow's own; `awf-lab` runs
+  every trial in one, from `awf-lab.json`'s `sandbox` (srt by default), holding the checkout and
+  the request. The case is restored as the reviewer's clone was. Design:
+  [`design/evaluation.md`](design/evaluation.md).
 
 The inbox of possible stories is [`stories/todo/`](stories/todo/).
 
@@ -114,8 +119,8 @@ The inbox of possible stories is [`stories/todo/`](stories/todo/).
    ([ADR 0002](adr/0002-autoresearch-lives-here.md)), scored against old MRs replayed as they
    were when review started. The fixtures to score against are built
    ([story 005](stories/005-review-fixtures.md)), and so are the sandboxes to isolate them in
-   ([story 004](stories/004-sandboxed-agents.md)). In order:
-   [`eval-isolation`](stories/todo/eval-isolation.md), then
+   ([story 004](stories/004-sandboxed-agents.md)), and every trial runs in one
+   ([story 010](stories/010-eval-isolation.md)). In order:
    [`variant-matrix-runner`](stories/todo/variant-matrix-runner.md), and last
    [`autoresearch-loop`](stories/todo/autoresearch-loop.md).
 

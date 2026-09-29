@@ -222,7 +222,7 @@ Out of scope:
   its tests stub `decisions.decide` by hand.
 - Constraint: data leaves the machine. OpenRouter lists the TypeSafe endpoint as `training: false,
   retainsPrompts: false` (research §6). The record names the provider on every call, so
-  [[eval-isolation]] can see it.
+  [[010-eval-isolation|story 010]] can see it.
 - Assumption: other System One models will keep the "a state, many typed questions,
   probabilities back" shape. OpenRouter's Decisions API is a generic surface named for decisions
   rather than for Jev, which suggests it will, but nothing has confirmed it.

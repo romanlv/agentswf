@@ -11,6 +11,8 @@ export type RunRequest = {
   /** The workflow's own arguments, after `--`. */
   argv: readonly string[];
   runRoot: string;
+  /** A sandbox spec file every agent of the run is put in: `awf run --sandbox`. */
+  sandbox?: string;
 };
 
 export type RunResult = { exitCode: number; record?: OutputRecord; stderr: string; ms: number };
@@ -39,6 +41,7 @@ export function awfArgv(request: RunRequest): string[] {
     request.runRoot,
     "--cwd",
     request.cwd,
+    ...(request.sandbox ? ["--sandbox", request.sandbox] : []),
     request.workflow,
     "--",
     ...request.argv,

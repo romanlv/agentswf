@@ -1,6 +1,6 @@
 #!/usr/bin/env -S bun --no-env-file
 import { randomUUID } from "node:crypto";
-import { existsSync, realpathSync, statSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
 import { constants, homedir } from "node:os";
 import { join, resolve } from "node:path";
@@ -32,7 +32,8 @@ const DEFAULT_TIMEOUT_MILLISECONDS = 30 * 60_000;
 const usage = [
   "usage: awf run [options] <workflow-file> [options] [-- workflow arguments...]",
   "       awf --version",
-  "options: --timeout <duration>, --run-root <directory>, --cwd <directory>, --json, --no-watch",
+  "options: --timeout <duration>, --run-root <directory>, --cwd <directory>, --sandbox <file>,",
+  "         --json, --no-watch",
   "",
   "The deadline defaults to 30m. Run artifacts go to ~/.awf/runs unless --run-root says otherwise.",
   "A workflow that knows how to present its result prints that; --json prints the full result instead.",
@@ -41,6 +42,9 @@ const usage = [
   "output.json too, with what it spent and why it ended; --json prints it. A second Ctrl-C stops",
   "awf at once, without it.",
   "--cwd sets the directory the workflow and its agents work in; it defaults to the current one.",
+  "--sandbox puts every agent of the run in one sandbox, working in --cwd; the file is a JSON spec",
+  'such as {"read": ["/data/request.md"], "srt": {}}, whose relative paths are from --cwd. A',
+  "workflow that opens a sandbox of its own is refused.",
   "A sandbox with its own Herdr, as a docker box has, gets a tab in the run's workspace showing its",
   "panes; --no-watch leaves it out, and awf still prints the command that shows them.",
   "",
@@ -178,6 +182,7 @@ export async function runOperatorCli(
         sandboxes: {
           providers: installed.sandboxes ?? { installed: {} },
           runRoot: command.runRoot,
+          ...(command.sandbox === undefined ? {} : { run: command.sandbox }),
         },
         ...(installed.decisions ? { decisions: installed.decisions } : {}),
         deadline,
@@ -346,6 +351,8 @@ type RunCommand = {
   json: boolean;
   /** Whether each sandbox with its own Herdr gets a tab attached to it in the run's workspace. */
   watch: boolean;
+  /** The sandbox every agent runs in, as `--sandbox`'s file gave it. */
+  sandbox?: unknown;
 };
 
 /** Why this Bun can't run awf, against the engine's `engines.bun`; undefined when it can. */
@@ -382,6 +389,7 @@ function parseCommand(argv: readonly string[], cwd: string, home: string): RunCo
   let json = false;
   let watch = true;
   let workCwd = cwd;
+  let sandbox: unknown;
   let workflowFile: string | undefined;
   // awf's own options may come before or after the workflow file; only `--` ends them.
   let index = 1;
@@ -413,6 +421,10 @@ function parseCommand(argv: readonly string[], cwd: string, home: string): RunCo
       if (!statSync(workCwd, { throwIfNoEntry: false })?.isDirectory()) {
         throw new Error(`--cwd: not a directory: ${workCwd}`);
       }
+    } else if (option === "--sandbox") {
+      if (!value) throw new Error("--sandbox needs a JSON file");
+      if (sandbox !== undefined) throw new Error("--sandbox given twice");
+      sandbox = readSandboxSpec(resolve(cwd, value));
     } else {
       throw new Error(`unknown option: ${option}; put workflow arguments after --`);
     }
@@ -429,8 +441,32 @@ function parseCommand(argv: readonly string[], cwd: string, home: string): RunCo
     runRoot,
     json,
     watch,
+    ...(sandbox === undefined ? {} : { sandbox }),
   };
 }
+
+/** `--sandbox`'s file: an inline sandbox spec, whose working directory is the run's. */
+function readSandboxSpec(file: string): object {
+  let spec: unknown;
+  try {
+    spec = JSON.parse(readFileSync(file, "utf8"));
+  } catch (error) {
+    throw new Error(`--sandbox: ${messageOf(error)}`);
+  }
+  if (typeof spec !== "object" || spec === null || Array.isArray(spec)) {
+    throw new Error(`--sandbox: ${file} must hold a JSON object, a sandbox spec`);
+  }
+  for (const [field, why] of Object.entries(NOT_IN_A_RUN_SANDBOX)) {
+    if (field in spec) throw new Error(`--sandbox: the run's sandbox names no ${field}; ${why}`);
+  }
+  return spec;
+}
+
+const NOT_IN_A_RUN_SANDBOX = {
+  cwd: "it works in --cwd",
+  key: "the run's record keys it run",
+  provider: 'its provider is its setting, such as "srt": {}',
+};
 
 function present(
   executable: ExecutableWorkflow<JsonValue, JsonValue>,

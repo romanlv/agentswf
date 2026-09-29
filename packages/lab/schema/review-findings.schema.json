@@ -73,6 +73,41 @@
       "type": "integer",
       "minimum": 0
     },
+    "sandbox": {
+      "anyOf": [
+        {
+          "type": "object",
+          "required": ["srt"],
+          "properties": {
+            "srt": {
+              "type": "object",
+              "properties": {},
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": ["docker"],
+          "properties": {
+            "docker": {
+              "type": "object",
+              "properties": {
+                "image": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
+        }
+      ],
+      "description": "The sandbox setting awf-lab gave the run, from awf-lab.json, which every agent ran in; a trial counts only while it is the workspace's. Absent: the run had none.",
+      "~optional": true
+    },
     "run": {
       "type": "object",
       "required": ["outcome", "models", "ms", "billing", "complete"],

@@ -1,5 +1,6 @@
 import type { PartialScore, Score, Trial } from "../format/records";
 import type { FindingLabel } from "../format/scoring";
+import type { SandboxSetting } from "../format/workspace";
 import { keyOf } from "./version";
 
 /** A score as the store read it, with the digest of its record as stored, which names it. */
@@ -13,6 +14,8 @@ export type CaseState = {
   case: string;
   digest: string;
   keyRevision: number;
+  /** The sandbox a trial must have run in to count: the workspace's. */
+  sandbox: SandboxSetting;
   stored: readonly Stored[];
 };
 
@@ -61,15 +64,38 @@ const newestFirst = <T extends { at: string }>(a: T, b: T) =>
   a.at < b.at ? 1 : a.at > b.at ? -1 : 0;
 
 /**
- * The trial a case's numbers come from: the latest one on this case's digest whose run started. A
- * run that never started (awf refused it, or no login) says nothing about the variant, so it is
- * run again rather than reused as a zero. One trial per case until variant-matrix-runner: this is
- * trial 1.
+ * The trial a case's numbers come from: the latest one on this case's digest whose run started, in
+ * the workspace's sandbox. A run that never started (awf refused it, or no login) says nothing about
+ * the variant, so it is run again rather than reused as a zero. A trial in no sandbox could have
+ * read the key, and one in another provider's measured something else: both are run again. One
+ * trial per case until variant-matrix-runner: this is trial 1.
  */
 export function currentTrial(state: CaseState): Stored | undefined {
-  return state.stored
-    .filter((s) => s.trial.case.digest === state.digest && s.trial.run.id !== undefined)
+  return started(state)
+    .filter((s) => sameSetting(s.trial.sandbox, state.sandbox))
     .toSorted((a, b) => newestFirst(a.trial, b.trial))[0];
+}
+
+/** Why a case has no current trial: each that started ran in another sandbox, or else `none`. */
+export function whyNoTrial(state: CaseState, none: string): string {
+  return started(state).length > 0
+    ? "no trial in this workspace's sandbox; awf-lab run runs it again"
+    : none;
+}
+
+const SCORE_NEEDS_A_TRIAL = "no trial on file; score never runs the variant";
+
+const started = (state: CaseState) =>
+  state.stored.filter((s) => s.trial.case.digest === state.digest && s.trial.run.id !== undefined);
+
+/** Whether two settings, as JSON, say the same thing, whatever order their keys are in. */
+function sameSetting(a: unknown, b: unknown): boolean {
+  if (typeof a !== "object" || typeof b !== "object" || a === null || b === null) return a === b;
+  const keys = Object.keys(a);
+  return (
+    keys.length === Object.keys(b).length &&
+    keys.every((key) => sameSetting(a[key as keyof typeof a], b[key as keyof typeof b]))
+  );
 }
 
 /** A score that passed its check, by this scorer on the key as it is now; the latest. */
@@ -117,7 +143,7 @@ export function planCases(
       return options.command === "score"
         ? {
             case: state.case,
-            trial: { do: "skip", why: "no trial on file; score never runs the variant" },
+            trial: { do: "skip", why: whyNoTrial(state, SCORE_NEEDS_A_TRIAL) },
             score: { do: "skip", why: "nothing to score" },
           }
         : { case: state.case, trial: { do: "run" }, score: { do: "run" } };
@@ -145,7 +171,7 @@ function planPartial(
   scorerKey: string,
   restFromKey: string | undefined,
 ): Step {
-  if (!stored) throw new PlanError(`${state.case}: no trial on file; score never runs the variant`);
+  if (!stored) throw new PlanError(`${state.case}: ${whyNoTrial(state, SCORE_NEEDS_A_TRIAL)}`);
   if (restFromKey === undefined) throw new PlanError("chosen findings need a --rest-from scorer");
   const restFrom = passingScore(stored, restFromKey, state.keyRevision);
   if (restFrom?.result.status !== "scored") {

@@ -240,6 +240,46 @@ describe("collect", () => {
     expectSealed(target);
   });
 
+  test("with its base, lays the repository out as the reviewer's clone was", async () => {
+    const m2 = git(remote, ["rev-parse", "HEAD"]);
+    git(remote, ["checkout", "--quiet", "-b", "feature"]);
+    const head = commit(remote, "app.ts", "one\ntwo\nthree\n", "add three");
+    git(remote, ["checkout", "--quiet", "main"]);
+    // Main moves on before the push review starts on, so its base is no ancestor of head.
+    const m3 = commit(remote, "other.ts", "x\n", "m3");
+    git(clone, ["pull", "--quiet"]);
+    commit(remote, "later.ts", "l\n", "after review started");
+    git(clone, ["pull", "--quiet"]);
+
+    const result = await run({
+      versions: [version(11, head, m3, "2026-01-01T09:00:00Z")],
+      discussions: [comment("2026-01-01T15:00:00Z", head)],
+    });
+    expect(result.status).toBe("collected");
+    const target = join(root, "laid-out");
+    await restore({
+      bundle: join(out, "shop-7", "snapshot.bundle"),
+      ref: "refs/fixture/head",
+      clone,
+      target,
+      base: m3,
+    });
+    expect(git(target, ["branch", "--all", "--format=%(refname)"]).split("\n")).toEqual([
+      "refs/heads/main",
+      "refs/heads/review",
+      "refs/remotes/origin/HEAD",
+      "refs/remotes/origin/main",
+    ]);
+    expect(git(target, ["rev-parse", "origin/main", "main"])).toBe(`${m3}\n${m3}`);
+    expect(git(target, ["branch", "--show-current"])).toBe("review");
+    expect(git(target, ["status", "--porcelain"])).toBe("");
+    expect(git(target, ["diff", "--name-only", "origin/main...HEAD"])).toBe("app.ts");
+    expect(git(target, ["merge-base", "--is-ancestor", m2, "HEAD"])).toBe("");
+    expect(git(target, ["log", "--format=%s", "--all"])).not.toContain("after review started");
+    expect(git(target, ["remote"])).toBe("");
+    expect(git(target, ["fsck", "--unreachable", "--no-reflogs"])).toBe("");
+  });
+
   test("bundles a head that is already on main", async () => {
     const m2 = git(remote, ["rev-parse", "HEAD"]);
     const head = commit(remote, "app.ts", "one\ntwo\nthree\n", "add three");

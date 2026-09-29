@@ -2,6 +2,7 @@ import { type AnswerKey, SEVERITIES } from "../format/format";
 import { REPORT_FORMAT, type ReportColumn, type ReportDocument } from "../format/output";
 import type { Score, Trial } from "../format/records";
 import type { FindingLabel } from "../format/scoring";
+import type { SandboxSetting } from "../format/workspace";
 import { categoryOf } from "../judge/panel";
 import {
   agreement,
@@ -14,7 +15,7 @@ import {
   sum,
 } from "../metrics/metrics";
 import { addresser, parseAddress } from "./address";
-import { currentTrial, passingScore, type Stored } from "./plan";
+import { currentTrial, passingScore, type Stored, whyNoTrial } from "./plan";
 import { keyOf } from "./version";
 
 /** One selected case as the store has it for a variant, with the key as it is now. */
@@ -29,6 +30,8 @@ export type Row = {
 
 export type ReportSubject = {
   name: string;
+  /** The sandbox its trials must have run in to count: the workspace's. */
+  sandbox: SandboxSetting;
   /** As the command named it: `{name}`, or `{name}@{version}` for a stored version. */
   label: string;
   version: string;
@@ -78,14 +81,16 @@ function countedRows(subject: ReportSubject, scorerKey: string, filter: Filter) 
   const counted: Counted[] = [];
   const missing: { case: string; why: string }[] = [];
   for (const row of subject.rows) {
-    const stored = currentTrial({
+    const state = {
       case: row.case,
       digest: row.digest,
       keyRevision: row.key.revision,
+      sandbox: subject.sandbox,
       stored: row.stored,
-    });
+    };
+    const stored = currentTrial(state);
     if (!stored) {
-      missing.push({ case: row.case, why: "no trial" });
+      missing.push({ case: row.case, why: whyNoTrial(state, "no trial") });
       continue;
     }
     const score = passingScore(stored, scorerKey, row.key.revision);

@@ -4,7 +4,7 @@ summary: A person with an idea runs it against what they have — a subset first
 type: story
 status: todo
 discovered_in: "autoresearch planning, 2026-09-23"
-depends_on: ["003", "eval-isolation", "008"]
+depends_on: ["003", "008", "010"]
 ---
 
 # Compare a review variant with the incumbent

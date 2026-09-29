@@ -54,7 +54,7 @@ const lead = await workflow.agents.open({ key: "lead", runtime: claude, placemen
 
 Why now: an autoresearch loop replays merged MRs and scores how many known defects a review
 variant finds. Today an agent can read review ledgers that hold the answers, past transcripts of
-the same review, and GitLab. [[eval-isolation]] needs this story before
+the same review, and GitLab. [[010-eval-isolation|Story 010]] needs this story before
 any score means anything.
 
 ## Three abstractions
@@ -193,7 +193,8 @@ these changes on 2026-09-24 and 2026-09-25; Task 6 updates `permissions.md`.
    reader is `sandbox: {}`.
 3. **No operator ceiling.** A sandbox is the workflow restricting itself: it makes agents safe from
    their inputs, not a stranger's workflow safe to run. A ceiling can return later, per provider
-   (`permissions.md` open question 7).
+   (`permissions.md` open question 7). For a whole run, story 010 added one: `awf run --sandbox`
+   puts every agent in the operator's sandbox and refuses a workflow's own.
 4. **Agents in one sandbox trust each other.**
 5. **No `residual` type.** A provider's known leftovers go in `findings/`; none is measured.
 

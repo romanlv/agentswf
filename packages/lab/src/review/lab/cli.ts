@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { createInterface } from "node:readline/promises";
+import { defaultBranch } from "../fixtures/git";
 import { SET_FILE } from "../fixtures/set";
 import { CATEGORIES, type Category, SEVERITIES } from "../format/format";
 import {
@@ -669,6 +670,8 @@ async function runOrScore(
   ].join(", ");
   const plan = [heading, ...describePlan(planned)].join("\n");
   const documentContext = { dataset, scorer, ...(restFrom ? { restFrom } : {}) };
+  // Every restore lays the case out after it, so a clone without one fails here, not per case.
+  defaultBranch(workspace.clone);
   if (options.dryRun) {
     out.stdout(
       options.json
@@ -757,6 +760,7 @@ async function report(context: Context, names: readonly string[]): Promise<strin
     const states = await statesOf(workspace, dataset, variant.key, chosen);
     subjects.push({
       name: variant.name,
+      sandbox: workspace.sandbox,
       label: variant.label,
       version: variant.version,
       key: variant.key,

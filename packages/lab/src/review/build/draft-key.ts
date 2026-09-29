@@ -1,5 +1,4 @@
-import { copyFileSync, mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { copyFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import {
   type ExecutionConfig,
@@ -7,7 +6,7 @@ import {
   type OutputSchema,
   type WorkflowContext,
 } from "@agentswf/contract/workflow";
-import { restore } from "../fixtures/git";
+import { restore, scratchDir } from "../fixtures/git";
 import type { GitLabDiscussion, GitLabMergeRequest, GitLabVersion } from "../fixtures/gitlab-types";
 import { type OrderedVersion, orderVersions } from "../fixtures/review-start";
 import { threads } from "../fixtures/threads";
@@ -117,8 +116,8 @@ export async function draftKey(
   },
 ): Promise<Drafted> {
   const { dir, clone, drafter } = options;
-  const workspace = mkdtempSync(join(tmpdir(), "awf-draft-key-"));
-  const ballot = mkdtempSync(join(tmpdir(), "awf-vote-"));
+  const workspace = scratchDir("awf-draft-key-");
+  const ballot = scratchDir("awf-vote-");
   try {
     const fixture: Fixture = await Bun.file(join(dir, "fixture.json")).json();
     const gitlab = join(dir, "key", "evidence", "gitlab");
@@ -176,6 +175,7 @@ export async function draftKey(
         ref: SNAPSHOT_REF,
         clone,
         target: join(ballot, "repo"),
+        base: fixture.snapshot.base,
       });
       copyFileSync(join(dir, "request.md"), join(ballot, "request.md"));
       const votes = await vote(workflow, draft, fixture, options.graders, ballot);

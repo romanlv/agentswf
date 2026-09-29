@@ -34,7 +34,7 @@ awf-lab run {variant}
   case: frozen code + request.md                               key.json
      │                                                             │
   1. restore the frozen code into a temp checkout                  │
-  2. awf run {the variant's workflow} ─▶ read() ─▶ findings.json   │    ← a trial
+  2. awf run --sandbox {spec} {variant} ─▶ findings.json           │    ← a trial
   3. awf run {scorer} in a fresh checkout ◀── findings + key ──────┘
   4. awf-lab checks the labels ─▶ score.….json                          ← a score
 awf-lab report: metrics from the stored trials and scores; spends nothing
@@ -42,6 +42,11 @@ awf-lab report: metrics from the stored trials and scores; spends nothing
 
 - **Every run is an ordinary `awf run`.** A variant is just a workflow, and so is a scorer. The
   lab starts both through `awf run` and reads the record it prints. It never links the engine.
+- **A trial can't see the answer.** Every agent a variant opens runs in one sandbox the lab gives
+  the run (`awf run --sandbox`). It works in the checkout, reads the request, writes nothing, and
+  reaches only its model's API: not `~`, where the dataset and its keys live, not other trials,
+  not GitLab. A variant says nothing about sandboxes, and one that opens its own is refused. A
+  scorer reads the key by design and runs without one.
 - **Records are written once and never overwritten.** Running again only does what's missing: a
   trial for a case this version hasn't tried, and a score where no passing score exists for the
   current key. A second `run` of the same thing costs nothing.
@@ -191,9 +196,18 @@ usually lives in its own repository, not this one.
   "variants": ["variants/*.variant.ts"],
   "scorers": ["scorers/*.scorer.ts"],
   "scorer": "panel",
-  "budget": { "usd": 20 }
+  "budget": { "usd": 20 },
+  "sandbox": { "srt": {} }
 }
 ```
+
+`sandbox` names the provider of every trial's sandbox: `{ "srt": {} }`, the default, or
+`{ "docker": { "image": "…" } }`. What goes in it is fixed: the checkout and the request. It's the
+workspace's, not a flag, because it is part of what a trial measures: each trial records the
+sandbox it ran in, and only trials in the workspace's current one count, so changing it, or a trial
+from before trials had one, runs again. A sandbox that can't open (srt missing, docker down, no such
+image) stops the run before it starts, and `run` tries that trial again next time. A claude agent
+in a sandbox needs `CLAUDE_CODE_OAUTH_TOKEN` (from `claude setup-token`) in awf-lab's environment.
 
 `clone` is a checkout of the reviewed project; each case's frozen code is restored against it.
 `panel` is always available as a scorer. Everything else is where things live:

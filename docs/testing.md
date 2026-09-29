@@ -29,10 +29,10 @@ the daemon does not answer within 5 s or the default image is not built.
 The fakes encode what the real CLIs do today. They go stale silently, which is what the live levels
 are for.
 
-### 2. Evals — every supported feature, live, about $1.50
+### 2. Evals — every supported feature, live, about $1.80
 
 ```sh
-bun run eval                        # all of them, one after another: ~15 min, about $1.50
+bun run eval                        # all of them, one after another: ~17 min, about $1.80
 bun run eval harnesses failed-run   # only the ones named
 ```
 
@@ -95,12 +95,23 @@ What they cover between them:
   $0.07–0.14 of claude's own reported cost; awf assumes headless claude is billed per token
   ([`billing-provenance`](stories/todo/billing-provenance.md)). Three runs,
   2026-09-27: 5/6 labels, κ 0.80.
+- `run-sandbox` and `run-sandbox-docker` — `awf run --sandbox` (story 010). awf-lab runs a probe
+  variant on a synthetic case, in the workspace's sandbox: two codex agents that name no sandbox,
+  a prober on gpt-5.6-sol running fixed commands and a reader on luna. Both must be in the run's one
+  sandbox. Read from codex's transcripts, not the agents' reports: the request and `git diff
+  origin/main...HEAD` must be readable, and the case's key, the clone, `~`, GitLab and writing the
+  checkout refused, the key's text in no transcript. Then under
+  a run sandbox: quick-check must run unchanged, the `sandboxes` example must be refused for opening
+  its own, and a spec that can't open must end the run before it starts, leaving no record.
+  `tests/run-sandbox.test.ts` checks these checks for free. 3 agents; srt ~1 min, ~$0.05–0.17;
+  docker ~1½ min, ~$0.12–0.16.
 - `sandbox-panes-docker` — the same, with the panes in the box's own Herdr, typed in behind a
   prelude that sets their environment and loads their secret. 3 agents, ~3 min, ~$0.32. Fails,
   saying why, where docker cannot run.
 
-Added up, the figures above come to ~9 min and ~$0.90 without docker; `sandbox-docker` and
-`sandbox-panes-docker` add ~6 min and ~$0.60. All are list-price estimates.
+Added up, the figures above come to ~10 min and ~$1.05 without docker; `sandbox-docker`,
+`sandbox-panes-docker` and `run-sandbox-docker` add ~7 min and ~$0.75. All are list-price
+estimates.
 
 Not covered live, on purpose:
 
@@ -137,14 +148,15 @@ as story 002 did to check accounting against the session files.
 
 - **Every change:** level 1. The pre-commit hook runs Biome only; run the rest yourself.
 - **Before a story goes to human review, or after upgrading Herdr or a harness CLI:** `bun run
-  eval`, all of it — at about $1.50 there is no reason to pick. Record the date, outcome and cost in the
+  eval`, all of it — at about $1.80 there is no reason to pick. Record the date, outcome and cost in the
   story's Verification section.
 - **While working on one area:** the matching eval — `harnesses` for an adapter, liveness or usage
   reader; `minimum-review` for panes, the control plane or the result channel; `failed-run` for run
   lifecycle, cancellation, accounting or `output.json`; `sandbox-srt` and `sandbox-docker` for
   `packages/sandbox`, a harness's sandbox needs, or the engine's sandboxes; `skills` for
   `engine/src/skills`, `harness/src/capabilities` or a harness's launch arguments; `sandbox-panes-srt` and
-  `sandbox-panes-docker` for a sandboxed pane, the Herdr host's typed start or a box's Herdr.
+  `sandbox-panes-docker` for a sandboxed pane, the Herdr host's typed start or a box's Herdr;
+  `run-sandbox` for `awf run --sandbox` or how awf-lab runs a trial.
 - **Level 4:** only when a story names it.
 
 ## Adding an eval

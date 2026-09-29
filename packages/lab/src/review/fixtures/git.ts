@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
 
@@ -154,24 +154,73 @@ export async function fetchBundle(
   git(repo, [...QUIET, "fetch", "--quiet", "--no-tags", bundle, refspec]);
 }
 
+/** The clone's default branch, as `origin/HEAD` names it: what a fresh clone checks out. */
+export function defaultBranch(clone: string): string {
+  const ref = Bun.spawnSync(["git", "symbolic-ref", "--short", "refs/remotes/origin/HEAD"], {
+    cwd: clone,
+    stdout: "pipe",
+    stderr: "ignore",
+  });
+  const name = ref.stdout.toString().trim();
+  // A branch renamed upstream leaves origin/HEAD naming one that no longer exists.
+  if (
+    ref.exitCode !== 0 ||
+    !name.startsWith("origin/") ||
+    !succeeds(clone, ["rev-parse", "--verify", "--quiet", name])
+  ) {
+    throw new Error(
+      `${clone} has no origin/HEAD to name its default branch; run git remote set-head origin --auto there`,
+    );
+  }
+  return name.slice("origin/".length);
+}
+
 /**
  * Restores `ref` from a snapshot bundle into a fresh repository at `target`, with a branch `review`
- * at the frozen head. It holds that head and its ancestors only: nothing newer, no remote, no other
- * branch, and no reflog, which would name the bundle's path and so the MR.
+ * at the frozen head. It holds that head and its ancestors only, and with `base`, base and its
+ * ancestors: nothing newer, no remote, and no reflog, which would name the bundle's path and so the
+ * MR. With `base`, it is laid out as the reviewer's clone was: the clone's default branch at
+ * `base`, locally and as `origin/{branch}` with `origin/HEAD`, so `origin/main...HEAD` is the
+ * change under review.
  */
 export async function restore(options: {
   bundle: string;
   ref: string;
   clone: string;
   target: string;
+  base?: string;
 }): Promise<string> {
-  const { bundle, ref, clone, target } = options;
+  const { bundle, ref, clone, target, base } = options;
   mkdirSync(target, { recursive: true });
   git(target, ["init", "--quiet"]);
   await fetchBundle(target, bundle, clone, `${ref}:refs/heads/review`);
+  if (base) {
+    const branch = defaultBranch(clone);
+    // A base main moved to after the MR branched is in neither the bundle nor head's history.
+    if (!succeeds(target, ["cat-file", "-e", `${base}^{commit}`])) {
+      try {
+        git(target, [...QUIET, "fetch", "--quiet", "--no-tags", clone, base]);
+      } catch (error) {
+        throw new Error(
+          `the clone lacks ${base}, the case's base; update its default branch and retry (${String(error)})`,
+        );
+      }
+    }
+    git(target, [...QUIET, "update-ref", `refs/heads/${branch}`, base]);
+    git(target, [...QUIET, "update-ref", `refs/remotes/origin/${branch}`, base]);
+    git(target, ["symbolic-ref", "refs/remotes/origin/HEAD", `refs/remotes/origin/${branch}`]);
+  }
   git(target, [...QUIET, "checkout", "--quiet", "review"]);
   for (const leftover of ["FETCH_HEAD", "logs"]) {
     rmSync(join(target, ".git", leftover), { recursive: true, force: true });
   }
   return git(target, ["rev-parse", "HEAD"]);
+}
+
+/**
+ * A temp directory by its real path, which is how sandboxes record paths and the only one docker
+ * mounts: `/var/folders/…` is `/private/var/folders/…` on macOS.
+ */
+export function scratchDir(prefix: string): string {
+  return realpathSync(mkdtempSync(join(tmpdir(), prefix)));
 }

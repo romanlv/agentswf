@@ -407,7 +407,7 @@ Done: Tasks 0–7, the first experiment, and the scorer comparison. Verification
 | The catalogue timed out on one case | 50 minutes, recorded as a failed trial; each single agent's one win is that case | kept as a result |
 | The per-finding scorer is slow on short reviews | single turns of 15 minutes on 2- and 8-finding reviews | stopped; see [[#Scoring speed]] |
 | Agents run at an effort nobody chose, in the operator's environment | claude took the launching session's `CLAUDE_EFFORT` and `CLAUDE_*`; codex and pi their configs' | todos [`runtime-effort`](todo/runtime-effort.md), [`inherited-agent-env`](todo/inherited-agent-env.md) |
-| Agents ran unsandboxed | variants could have read the keys, the clone and GitLab; a scan of all 298 transcripts of the first experiment found none that did | todo [`eval-isolation`](todo/eval-isolation.md); match first runs in srt |
+| Agents ran unsandboxed | variants could have read the keys, the clone and GitLab; a scan of all 298 transcripts of the first experiment found none that did | [story 010](010-eval-isolation.md); match first runs in srt |
 
 ## Scoring speed
 
