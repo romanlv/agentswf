@@ -35,7 +35,6 @@ export type ReportSubject = {
   /** Whose results these are: `{name}@{major}.{minor}`. */
   key: string;
   commit: string | null;
-  dirty: boolean;
   tunedOn?: { before?: string; fixtures?: string[] };
   rows: readonly Row[];
 };
@@ -132,7 +131,6 @@ function column(
     name: subject.label,
     version: subject.version,
     commit: subject.commit,
-    dirty: subject.dirty,
     scorer: scorer.name,
     cases: counted.map((c) => {
       const each = metrics(c.counts);
@@ -458,15 +456,6 @@ function tableOf(report: ReportDocument): { groups: Group[]; notes: Note[] } {
     if (c.tunedOn.length > 0)
       notes.push({ label: "tuned on", text: `${c.tunedOn.join(", ")} (counted, not holdout)` });
   }
-  // One line per commit: the variants are usually files of one repository.
-  const dirty = new Map<string, string[]>();
-  for (const c of new Map(columns.map((c) => [c.name, c])).values()) {
-    if (!c.dirty) continue;
-    const from = c.commit?.slice(0, 12) ?? "git";
-    dirty.set(from, [...(dirty.get(from) ?? []), c.name]);
-  }
-  for (const [from, names] of dirty)
-    notes.push({ label: "uncommitted", text: `${names.join(", ")}: files differ from ${from}` });
   const failed = [...new Set(columns.flatMap((c) => c.failedTrials))];
   if (failed.length > 0) notes.push({ label: "failed trial", text: failed.join(", ") });
   // One item per issue, naming the columns that missed it.

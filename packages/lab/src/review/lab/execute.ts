@@ -64,7 +64,6 @@ export type Subject<D> = {
   version: string;
   key: string;
   commit: string | null;
-  dirty: boolean;
   file?: string;
   defined?: D;
 };
@@ -269,7 +268,6 @@ const identityOf = (subject: Subject<unknown>): Identity => ({
   name: subject.name,
   version: subject.version,
   commit: subject.commit,
-  dirty: subject.dirty,
 });
 
 function trialId(now: Date): string {

@@ -15,7 +15,7 @@
     },
     "judge": {
       "type": "object",
-      "required": ["name", "commit", "dirty"],
+      "required": ["name", "commit"],
       "properties": {
         "name": {
           "type": "string",
@@ -44,7 +44,8 @@
           "description": "The file's repository at HEAD; null outside git."
         },
         "dirty": {
-          "type": "boolean"
+          "type": "boolean",
+          "description": "Written by earlier versions of awf-lab; never read."
         }
       },
       "additionalProperties": false

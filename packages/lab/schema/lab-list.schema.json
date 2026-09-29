@@ -115,7 +115,7 @@
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["name", "file", "version", "dirty", "stored"],
+        "required": ["name", "file", "version", "stored"],
         "properties": {
           "name": {
             "type": "string",
@@ -137,9 +137,6 @@
               }
             ],
             "description": "Null when the file fails to load."
-          },
-          "dirty": {
-            "type": "boolean"
           },
           "error": {
             "type": "string",
@@ -194,7 +191,7 @@
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["name", "file", "version", "dirty", "stored"],
+        "required": ["name", "file", "version", "stored"],
         "properties": {
           "name": {
             "type": "string",
@@ -216,9 +213,6 @@
               }
             ],
             "description": "Null when the file fails to load."
-          },
-          "dirty": {
-            "type": "boolean"
           },
           "error": {
             "type": "string",

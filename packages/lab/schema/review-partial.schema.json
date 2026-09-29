@@ -27,7 +27,7 @@
     },
     "scorer": {
       "type": "object",
-      "required": ["name", "version", "commit", "dirty"],
+      "required": ["name", "version", "commit"],
       "properties": {
         "name": {
           "type": "string",
@@ -51,7 +51,8 @@
           "description": "The file's repository at HEAD; null outside git."
         },
         "dirty": {
-          "type": "boolean"
+          "type": "boolean",
+          "description": "Written by earlier versions of awf-lab; never read."
         }
       },
       "additionalProperties": false
@@ -883,7 +884,7 @@
       "properties": {
         "scorer": {
           "type": "object",
-          "required": ["name", "version", "commit", "dirty"],
+          "required": ["name", "version", "commit"],
           "properties": {
             "name": {
               "type": "string",
@@ -907,7 +908,8 @@
               "description": "The file's repository at HEAD; null outside git."
             },
             "dirty": {
-              "type": "boolean"
+              "type": "boolean",
+              "description": "Written by earlier versions of awf-lab; never read."
             }
           },
           "additionalProperties": false

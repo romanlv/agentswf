@@ -316,14 +316,13 @@ async function subjectOf<D extends DefinedVariant | DefinedScorer>(
     const version = defined.version ?? DEFAULT_VERSION;
     const bad = checkVersion(version);
     if (bad) throw new UsageError(`${file}: ${bad}`);
-    const provenance = await provenanceOf(file, defined);
+    const { commit } = await provenanceOf(file);
     current = {
       name,
       label: prefix === undefined ? name : text,
       version,
       key: keyOf({ name, version }),
-      commit: provenance.commit,
-      dirty: provenance.dirty,
+      commit,
       file,
       defined,
     };
@@ -361,7 +360,6 @@ async function subjectOf<D extends DefinedVariant | DefinedScorer>(
     version: record.version,
     key,
     commit: record.commit,
-    dirty: record.dirty,
   };
 }
 
@@ -579,7 +577,6 @@ function runDocument(
     variants: planned.variants.map(({ variant }) => ({
       name: variant.label,
       version: variant.version,
-      dirty: variant.dirty,
     })),
     steps,
     estimate: estimateOfPlan(planned),
@@ -660,7 +657,7 @@ async function runOrScore(
     throw error;
   }
   const heading = [
-    variants.map((v) => `${v.label} ${v.version}${v.dirty ? " (dirty)" : ""}`).join(", "),
+    variants.map((v) => `${v.label} ${v.version}`).join(", "),
     `scorer ${scorer.label} ${scorer.version}`,
     ...(restFrom &&
     planned.variants.some((v) =>
@@ -764,7 +761,6 @@ async function report(context: Context, names: readonly string[]): Promise<strin
       version: variant.version,
       key: variant.key,
       commit: variant.commit,
-      dirty: variant.dirty,
       ...(variant.defined?.tunedOn ? { tunedOn: variant.defined.tunedOn } : {}),
       rows: chosen.map((info, index) => ({
         case: info.id,
@@ -927,14 +923,12 @@ async function list(
     for (const [name, file] of known) {
       let version: string | null = null;
       let key: string | undefined;
-      let dirty = false;
       let error: string | undefined;
       try {
         const subject =
           kind === "variants" ? await context.variant(name) : await context.scorer(name);
         version = subject.version;
         key = subject.key;
-        dirty = subject.dirty;
       } catch (e) {
         broken = true;
         error = (e as Error).message;
@@ -943,7 +937,6 @@ async function list(
         name,
         file,
         version,
-        dirty,
         ...(error ? { error } : {}),
         stored: [...versions]
           .filter(([k]) => parseKey(k)?.name === name)
@@ -986,7 +979,7 @@ async function list(
       const label = kind === "variants" ? "variant" : "scorer";
       lines.push(
         entry.version
-          ? `${label.padEnd(9)} ${entry.name.padEnd(24)} ${entry.version.padEnd(8)}${entry.dirty ? " dirty" : "      "}  ${entry.file}`
+          ? `${label.padEnd(9)} ${entry.name.padEnd(24)} ${entry.version.padEnd(8)}  ${entry.file}`
           : `${label.padEnd(9)} ${entry.name.padEnd(24)} fails to load: ${entry.error}`,
       );
       for (const version of entry.stored) {

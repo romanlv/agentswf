@@ -25,8 +25,8 @@ Every file it writes in a format of its own has a TypeBox schema in `format/` an
 before it is written: the case formats in `format.ts`, the records `awf-lab` writes in
 `records.ts`, its config in `workspace.ts`, and what each command prints with `--json` in
 `output.ts`. A variant or scorer is identified by the version its file declares, nothing else:
-an edit that changes what it measures bumps it, and the records keep only the commit and whether
-its files were dirty, as provenance. The raw GitLab
+an edit that changes what it measures bumps it, and the records keep only the file's commit, as
+provenance. The raw GitLab
 responses under `key/evidence/gitlab/` are kept as GitLab sent them, unvalidated. After changing
 a schema, regenerate `schema/` with `bun packages/lab/src/write-schemas.ts`.
 

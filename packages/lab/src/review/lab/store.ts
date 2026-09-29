@@ -109,7 +109,6 @@ export async function inventory(results: string, dataset: string) {
     /** The latest record's. */
     version: string;
     commit: string | null;
-    dirty: boolean;
   };
   const variants = new Map<string, Version & { trials: number }>();
   const scorers = new Map<string, Version & { scores: number }>();
@@ -119,7 +118,6 @@ export async function inventory(results: string, dataset: string) {
     at: "",
     version: "",
     commit: null,
-    dirty: false,
   });
   for (const key of folders(join(results, dataset)).filter((f) => parseKey(f))) {
     for (const caseId of folders(join(results, dataset, key))) {
@@ -132,7 +130,6 @@ export async function inventory(results: string, dataset: string) {
           v.at = stored.trial.at;
           v.version = stored.trial.variant.version;
           v.commit = stored.trial.variant.commit;
-          v.dirty = stored.trial.variant.dirty;
         }
         variants.set(key, v);
         for (const score of stored.scores) {
@@ -144,7 +141,6 @@ export async function inventory(results: string, dataset: string) {
             s.at = score.at;
             s.version = score.scorer.version;
             s.commit = score.scorer.commit;
-            s.dirty = score.scorer.dirty;
           }
           scorers.set(keyOf(score.scorer), s);
         }

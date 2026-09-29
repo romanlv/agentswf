@@ -112,7 +112,6 @@
           "name",
           "version",
           "commit",
-          "dirty",
           "scorer",
           "cases",
           "tunedOn",
@@ -158,9 +157,6 @@
               }
             ],
             "description": "The variant file's repository."
-          },
-          "dirty": {
-            "type": "boolean"
           },
           "scorer": {
             "type": "string",

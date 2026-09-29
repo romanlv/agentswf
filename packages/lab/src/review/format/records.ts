@@ -23,7 +23,7 @@ const Text = Type.String({ minLength: 1 });
 const trial = FindingsRecordSchema.properties;
 const score = ScoreRecordSchema.properties;
 
-/** A variant or scorer: its version is its identity; the commit and `dirty` are provenance. */
+/** A variant or scorer: its version is its identity; the commit is provenance. */
 const IdentitySchema = Type.Object(
   {
     name: Text,

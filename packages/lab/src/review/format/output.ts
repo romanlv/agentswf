@@ -54,7 +54,6 @@ const Known = Type.Object(
     version: Type.Union([Version, Type.Null()], {
       description: "Null when the file fails to load.",
     }),
-    dirty: Type.Boolean(),
     error: Type.Optional(Text),
     stored: Type.Array(Stored, {
       description: "Versions with records in the dataset, newest first.",
@@ -158,10 +157,7 @@ export const RunSchema = Type.Object(
     scorer: Ref,
     restFrom: Type.Optional(Ref),
     variants: Type.Array(
-      Type.Object(
-        { name: Text, version: Version, dirty: Type.Boolean() },
-        { additionalProperties: false },
-      ),
+      Type.Object({ name: Text, version: Version }, { additionalProperties: false }),
     ),
     steps: Type.Array(
       Type.Object(
@@ -222,7 +218,6 @@ const Column = Type.Object(
     name: Text,
     version: Version,
     commit: Type.Union([Text, Type.Null()], { description: "The variant file's repository." }),
-    dirty: Type.Boolean(),
     scorer: Text,
     cases: Type.Array(
       Type.Object(

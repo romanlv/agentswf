@@ -127,8 +127,7 @@ Results belong to `{name}@{major}.{minor}`: a patch bump says the behaviour is t
 refactor, a comment or a path moved into a placeholder, so every earlier trial and score still
 counts; a minor or major bump starts with none. Major is for a change the numbers should be grouped
 apart by later: another approach, another result shape. Versioning is the researcher's call, as a
-library's is its developer's; nothing checks it. Each record also keeps the file's commit and
-whether any file it runs was dirty, as provenance. `{name}@{version}` names an earlier version, a prefix is enough. The plan
+library's is its developer's; nothing checks it. Each record also keeps the file's commit, as provenance. `{name}@{version}` names an earlier version, a prefix is enough. The plan
 (`--dry-run` prints it) decides per case from the records: a trial when this version has none of
 this case's digest, a score when this scorer has no passing score on this key revision, otherwise
 reuse. So a second `run` spends nothing, a failed score is retried alone, and a new scorer scores
@@ -536,7 +535,7 @@ Out of scope:
 - **A scorer is any workflow returning labels (`ScorerResult`).** Rejected: voter models as config
   fields, which would fix every scorer's shape to the panel's.
 - **Identity by a declared semver, results by `{major}.{minor}`.** A patch bump keeps the
-  results. Records keep the commit and `dirty` as provenance; the content hash that was kept
+  results. Records keep the commit as provenance; the content hash that was kept
   beside the version went on 2026-09-29. Rejected, after the hash was the identity for Tasks 4–7: the hash, since moving the dataset
   folder into a placeholder orphaned two controls' scores while it still missed an engine change, a
   prompt read at run time and a model alias; a list of old hashes a file vouches for, which every
@@ -1052,7 +1051,12 @@ Built as [[#The command line, revised]] says. The data repository's dataset fold
 - **The content hash is gone** (2026-09-29, the operator's decision): a variant or scorer is its
   declared version and nothing else. Records no longer write `hash`, and still read one in those
   written before. `list`, `report`, `show` and `--json` drop it and the "several hashes" note. The
-  commit and `dirty` stay, as provenance.
+  commit stays, as provenance.
+
+- **`dirty` is gone too** (2026-09-29, the operator's decision): with the version as the identity,
+  whether a file differed from its commit decided nothing. Records no longer write it and still
+  read it in those written before; `list`, `run --json`, `report` and its "uncommitted" note drop
+  it, and provenance no longer walks the import graph.
 
 - **A variant or scorer names its workflow twice, and the two are checked** (2026-09-29, from a
   review of the author surface). It gave a URL and, optionally, the workflow's type as a type

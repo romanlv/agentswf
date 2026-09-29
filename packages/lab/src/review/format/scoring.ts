@@ -73,7 +73,9 @@ const IdentitySchema = Type.Object(
     commit: Type.Union([Type.String({ pattern: "^[0-9a-f]{40}$" }), Type.Null()], {
       description: "The file's repository at HEAD; null outside git.",
     }),
-    dirty: Type.Boolean(),
+    dirty: Type.Optional(
+      Type.Boolean({ description: "Written by earlier versions of awf-lab; never read." }),
+    ),
   },
   { additionalProperties: false },
 );
