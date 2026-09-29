@@ -68,12 +68,10 @@ As of 2026-09-28, nothing is built.
   - Nothing in tasks 1 to 4 waits for the repository to move. No manifest carries a `repository`
     field before [[npm-launch]], and the README's clone URL can name `agentswf/awf` ahead of the
     transfer, since GitHub redirects.
-- **Before task 1:** the operator decides the two package names in Open questions 1, since the
-  directories move once.
 - **Alongside, by the operator:** create the GitHub org `agentswf` and transfer the repository.
   Task 5 needs it done, since the second machine clones from there.
 - **Last:** task 6, reserving the npm scopes and the look-alike names.
-- **Still open:** the package names (1), and the second machine's OS (4).
+- **Still open:** the second machine's OS (4).
 
 ## How it works
 
@@ -340,8 +338,8 @@ Alternatives rejected:
 - **Two package names,** decided in the rename, since the directories move once:
   - `cli-agent` is internal jargon for the package that is the `wf` command.
   - `autoresearch` ships a command called `awf-lab`, under a different name.
-  - Recommended: `@agentswf/wf` in `packages/wf`, and `@agentswf/lab` in `packages/lab`. Keep
-    `contract`, `harness`, `sandbox` and `engine`.
+  - Decided 2026-09-28: `@agentswf/wf` in `packages/wf`, and `@agentswf/lab` in `packages/lab`.
+    `contract`, `harness`, `sandbox` and `engine` keep their names.
 
 ### 2. Author surface
 
@@ -376,7 +374,6 @@ design, and nothing else changes behaviour.
 Execution:
 
 - [ ] Plan:
-  - the two package names are settled (open questions 1);
   - list every file the rename touches.
 - [ ] Implement:
   - the mechanical rename;
@@ -596,8 +593,7 @@ Record reviews under the task they cover.
 - [x] Outcome and boundaries are concrete.
 - [x] Relevant implementation, callers, and tests are mapped.
 - [x] Evidence and research support the proposed design.
-- [ ] Expensive interface, record-format, and stage-gate decisions are settled. The two package
-  names are not.
+- [x] Expensive interface, record-format, and stage-gate decisions are settled.
 - [x] Tasks are ordered, coherent, and independently verifiable.
 - [ ] Open questions are resolved or explicitly moved out of scope. The second machine's OS.
 
