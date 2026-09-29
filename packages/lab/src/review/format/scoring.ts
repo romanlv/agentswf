@@ -56,11 +56,13 @@ const RunSchema = Type.Object(
 const IdentitySchema = Type.Object(
   {
     name: Text,
-    hash: Type.String({
-      pattern: "^v[0-9]+-[0-9a-f]{16,64}$",
-      description:
-        "What it executes, hashed under the named version of awf-lab's identity scheme: `v1-…`. Provenance only: results belong to the version.",
-    }),
+    hash: Type.Optional(
+      Type.String({
+        pattern: "^v[0-9]+-[0-9a-f]{16,64}$",
+        description:
+          "A content hash, in records written before 2026-09-28; never read. The version is the identity.",
+      }),
+    ),
     version: Type.Optional(
       Type.String({
         pattern: "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$",

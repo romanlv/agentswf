@@ -1047,6 +1047,11 @@ Built as [[#The command line, revised]] says. The data repository's dataset fold
   - `run` and `score` loaded the baseline even with no `--where lost` to read it.
   - The variant format didn't document `{dataset}` or the scorer's `--settled`.
 
+- **The content hash is gone** (2026-09-29, the operator's decision): a variant or scorer is its
+  declared version and nothing else. Records no longer write `hash`, and still read one in those
+  written before. `list`, `report`, `show` and `--json` drop it and the "several hashes" note. The
+  commit and `dirty` stay, as provenance.
+
 ## Human review
 
 - [x] Every task is complete and story-level verification passes.

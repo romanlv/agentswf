@@ -24,7 +24,7 @@
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["name", "version", "hash"],
+        "required": ["name", "version"],
         "properties": {
           "name": {
             "type": "string",
@@ -34,21 +34,17 @@
             "type": "string",
             "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$",
             "description": "The semver its file declares; results belong to its {major}.{minor}."
-          },
-          "hash": {
-            "type": "string",
-            "minLength": 1
           }
         },
         "additionalProperties": false,
-        "description": "A variant or scorer: its name, version, and the content hash of what it runs."
+        "description": "A variant or scorer: its name and version."
       },
       "minItems": 1,
       "maxItems": 2
     },
     "baseline": {
       "type": "object",
-      "required": ["name", "version", "hash"],
+      "required": ["name", "version"],
       "properties": {
         "name": {
           "type": "string",
@@ -58,14 +54,10 @@
           "type": "string",
           "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$",
           "description": "The semver its file declares; results belong to its {major}.{minor}."
-        },
-        "hash": {
-          "type": "string",
-          "minLength": 1
         }
       },
       "additionalProperties": false,
-      "description": "A variant or scorer: its name, version, and the content hash of what it runs."
+      "description": "A variant or scorer: its name and version."
     },
     "keyRevisions": {
       "type": "array",
@@ -119,8 +111,6 @@
         "required": [
           "name",
           "version",
-          "hash",
-          "hashes",
           "commit",
           "dirty",
           "scorer",
@@ -156,32 +146,6 @@
             "type": "string",
             "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$",
             "description": "The semver its file declares; results belong to its {major}.{minor}."
-          },
-          "hash": {
-            "type": "string",
-            "minLength": 1
-          },
-          "hashes": {
-            "type": "object",
-            "required": ["trials", "scores"],
-            "properties": {
-              "trials": {
-                "type": "array",
-                "items": {
-                  "type": "string",
-                  "minLength": 1
-                }
-              },
-              "scores": {
-                "type": "array",
-                "items": {
-                  "type": "string",
-                  "minLength": 1
-                }
-              }
-            },
-            "additionalProperties": false,
-            "description": "The content hashes the counted trials and their scores came from; several can mean an edit kept its version."
           },
           "commit": {
             "anyOf": [

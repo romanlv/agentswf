@@ -24,9 +24,9 @@ drafting a key and its graders' votes, and judging a review. No person is in the
 Every file it writes in a format of its own has a TypeBox schema in `format/` and is checked
 before it is written: the case formats in `format.ts`, the records `awf-lab` writes in
 `records.ts`, its config in `workspace.ts`, and what each command prints with `--json` in
-`output.ts`. A scorer's or variant's identity hash covers every file it imports, and the
-package's panel and controls import `format/{format,grading,lab,runtime,sanity,scoring,validate,variant}.ts`:
-editing one orphans every stored score, so new formats go in files of their own. The raw GitLab
+`output.ts`. A variant or scorer is identified by the version its file declares, nothing else:
+an edit that changes what it measures bumps it, and the records keep only the commit and whether
+its files were dirty, as provenance. The raw GitLab
 responses under `key/evidence/gitlab/` are kept as GitLab sent them, unvalidated. After changing
 a schema, regenerate `schema/` with `bun packages/lab/src/write-schemas.ts`.
 

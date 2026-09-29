@@ -27,7 +27,7 @@
     },
     "judge": {
       "type": "object",
-      "required": ["name", "hash", "commit", "dirty"],
+      "required": ["name", "commit", "dirty"],
       "properties": {
         "name": {
           "type": "string",
@@ -36,7 +36,7 @@
         "hash": {
           "type": "string",
           "pattern": "^v[0-9]+-[0-9a-f]{16,64}$",
-          "description": "What it executes, hashed under the named version of awf-lab's identity scheme: `v1-…`. Provenance only: results belong to the version."
+          "description": "A content hash, in records written before 2026-09-28; never read. The version is the identity."
         },
         "version": {
           "type": "string",
@@ -888,7 +888,7 @@
       "properties": {
         "judge": {
           "type": "object",
-          "required": ["name", "hash", "commit", "dirty"],
+          "required": ["name", "commit", "dirty"],
           "properties": {
             "name": {
               "type": "string",
@@ -897,7 +897,7 @@
             "hash": {
               "type": "string",
               "pattern": "^v[0-9]+-[0-9a-f]{16,64}$",
-              "description": "What it executes, hashed under the named version of awf-lab's identity scheme: `v1-…`. Provenance only: results belong to the version."
+              "description": "A content hash, in records written before 2026-09-28; never read. The version is the identity."
             },
             "version": {
               "type": "string",

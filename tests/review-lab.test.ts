@@ -759,25 +759,23 @@ export default defineReviewVariant({
     const shown = await lab(ws, ["list"]);
     expect(shown.exitCode).toBe(0);
     expect(shown.stdout).toMatch(/dataset +first +2 cases/);
-    expect(shown.stdout).toMatch(/variant +canned +1\.0\.0 +v1-[0-9a-f]{16}/);
+    expect(shown.stdout).toMatch(/variant +canned +1\.0\.0 +\//);
     expect(shown.stdout).toMatch(/canned@1\.0 +1 case, 1 trial \(current\)/);
-    expect(shown.stdout).toMatch(/scorer +exact +1\.0\.0 +v1-[0-9a-f]{16}/);
-    expect(shown.stdout).toMatch(/scorer +panel +\d+\.\d+\.\d+ +v1-[0-9a-f]{16}/);
-    // An edit that keeps the version shows as a second hash under it.
+    expect(shown.stdout).toMatch(/scorer +exact +1\.0\.0 +\//);
+    expect(shown.stdout).toMatch(/scorer +panel +\d+\.\d+\.\d+ /);
+    // An edit that keeps the version adds to that version's results; the version is the identity.
     await ws.variant("canned", `${await fileOf(ws, "ideas/canned.variant.ts")}// a change\n`);
     expect((await lab(ws, ["run", "canned"], inProcess().runner)).exitCode).toBe(0);
-    const listed = await json<{ variants: { stored: { ref: string; hashes: string[] }[] }[] }>(ws, [
+    const listed = await json<{ variants: { stored: Record<string, unknown>[] }[] }>(ws, [
       "list",
       "variants",
     ]);
     expect(listed.variants[0]!.stored).toHaveLength(1);
-    expect(listed.variants[0]!.stored[0]!.hashes).toHaveLength(2);
+    expect(listed.variants[0]!.stored[0]).not.toHaveProperty("hashes");
     expect((await lab(ws, ["list", "variants"])).stdout).toMatch(
-      /canned@1\.0 +2 cases, 2 trials, from 2 hashes \(current\)/,
+      /canned@1\.0 +2 cases, 2 trials \(current\)/,
     );
-    expect((await lab(ws, ["report", "canned"])).stdout).toMatch(
-      /several hashes +canned: its trials came from v1-[0-9a-f]{16}, v1-[0-9a-f]{16}/,
-    );
+    expect((await lab(ws, ["report", "canned"])).stdout).not.toContain("hash");
     const cases = await json<{ cases: { id: string }[] }>(ws, ["list", "cases", "--cases", "1"]);
     expect(cases.cases).toHaveLength(1);
     await json(ws, ["list"]);

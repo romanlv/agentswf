@@ -34,7 +34,6 @@ export type ReportSubject = {
   version: string;
   /** Whose results these are: `{name}@{major}.{minor}`. */
   key: string;
-  hash: string;
   commit: string | null;
   dirty: boolean;
   tunedOn?: { before?: string; fixtures?: string[] };
@@ -42,7 +41,7 @@ export type ReportSubject = {
 };
 
 /** A scorer as the report reads it: `key` finds its scores; the rest is printed. */
-type Ref = { name: string; version: string; hash: string; key: string };
+type Ref = { name: string; version: string; key: string };
 
 /** A case the variant was tuned on: from before its date, or named. */
 function tuned(subject: ReportSubject, row: Row): boolean {
@@ -129,15 +128,9 @@ function column(
     c.score.agreement === undefined ? [] : [c.score.agreement],
   );
   const cases = counted.map((c) => c.case);
-  const distinct = (hashes: string[]) => [...new Set(hashes)].sort();
   return {
     name: subject.label,
     version: subject.version,
-    hash: subject.hash,
-    hashes: {
-      trials: distinct(counted.map((c) => c.trial.variant.hash)),
-      scores: distinct(counted.map((c) => c.score.scorer.hash)),
-    },
     commit: subject.commit,
     dirty: subject.dirty,
     scorer: scorer.name,
@@ -240,10 +233,8 @@ export function buildReport(options: {
   const document: ReportDocument = {
     format: REPORT_FORMAT,
     dataset: options.dataset,
-    scorers: scorers.map(({ name, version, hash }) => ({ name, version, hash })),
-    ...(baseline
-      ? { baseline: { name: baseline.label, version: baseline.version, hash: baseline.hash } }
-      : {}),
+    scorers: scorers.map(({ name, version }) => ({ name, version })),
+    ...(baseline ? { baseline: { name: baseline.label, version: baseline.version } } : {}),
     keyRevisions,
     keyProcedures,
     ...(filter.categories ? { filter: { categories: [...filter.categories] } } : {}),
@@ -476,21 +467,6 @@ function tableOf(report: ReportDocument): { groups: Group[]; notes: Note[] } {
   }
   for (const [from, names] of dirty)
     notes.push({ label: "uncommitted", text: `${names.join(", ")}: files differ from ${from}` });
-  // Versions are the researcher's to keep; a column whose records came from several contents
-  // shows where an edit may have kept its version when it shouldn't have.
-  for (const c of columns) {
-    const by = report.scorers.length > 1 ? ` (${c.scorer})` : "";
-    for (const [what, hashes] of [
-      ["trials", c.hashes.trials],
-      ["scores", c.hashes.scores],
-    ] as const) {
-      if (hashes.length > 1)
-        notes.push({
-          label: "several hashes",
-          text: `${c.name}${by}: its ${what} came from ${hashes.join(", ")}`,
-        });
-    }
-  }
   const failed = [...new Set(columns.flatMap((c) => c.failedTrials))];
   if (failed.length > 0) notes.push({ label: "failed trial", text: failed.join(", ") });
   // One item per issue, naming the columns that missed it.

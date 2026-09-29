@@ -27,11 +27,8 @@ const Version = Type.String({
   description: "The semver its file declares; results belong to its {major}.{minor}.",
 });
 const Ref = Type.Object(
-  { name: Text, version: Version, hash: Text },
-  {
-    additionalProperties: false,
-    description: "A variant or scorer: its name, version, and the content hash of what it runs.",
-  },
+  { name: Text, version: Version },
+  { additionalProperties: false, description: "A variant or scorer: its name and version." },
 );
 const Run = FindingsRecordSchema.properties.run;
 
@@ -42,10 +39,6 @@ const Stored = Type.Object(
       description: "{name}@{major}.{minor}, as a command takes it.",
     }),
     versions: Type.Array(Version, { description: "The versions its records declare." }),
-    hashes: Type.Array(Text, {
-      description:
-        "The content hashes its records came from; several can mean an edit kept its version.",
-    }),
     current: Type.Boolean({ description: "The {major}.{minor} the file declares now." }),
     cases: Count,
     trials: Type.Optional(Count),
@@ -61,7 +54,6 @@ const Known = Type.Object(
     version: Type.Union([Version, Type.Null()], {
       description: "Null when the file fails to load.",
     }),
-    hash: Type.Union([Text, Type.Null()], { description: "Null when the file fails to load." }),
     dirty: Type.Boolean(),
     error: Type.Optional(Text),
     stored: Type.Array(Stored, {
@@ -167,7 +159,7 @@ export const RunSchema = Type.Object(
     restFrom: Type.Optional(Ref),
     variants: Type.Array(
       Type.Object(
-        { name: Text, version: Version, hash: Text, dirty: Type.Boolean() },
+        { name: Text, version: Version, dirty: Type.Boolean() },
         { additionalProperties: false },
       ),
     ),
@@ -229,15 +221,6 @@ const Column = Type.Object(
   {
     name: Text,
     version: Version,
-    hash: Text,
-    hashes: Type.Object(
-      { trials: Type.Array(Text), scores: Type.Array(Text) },
-      {
-        additionalProperties: false,
-        description:
-          "The content hashes the counted trials and their scores came from; several can mean an edit kept its version.",
-      },
-    ),
     commit: Type.Union([Text, Type.Null()], { description: "The variant file's repository." }),
     dirty: Type.Boolean(),
     scorer: Text,

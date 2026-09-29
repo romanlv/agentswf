@@ -20,7 +20,7 @@
     },
     "scorer": {
       "type": "object",
-      "required": ["name", "version", "hash"],
+      "required": ["name", "version"],
       "properties": {
         "name": {
           "type": "string",
@@ -30,18 +30,14 @@
           "type": "string",
           "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$",
           "description": "The semver its file declares; results belong to its {major}.{minor}."
-        },
-        "hash": {
-          "type": "string",
-          "minLength": 1
         }
       },
       "additionalProperties": false,
-      "description": "A variant or scorer: its name, version, and the content hash of what it runs."
+      "description": "A variant or scorer: its name and version."
     },
     "restFrom": {
       "type": "object",
-      "required": ["name", "version", "hash"],
+      "required": ["name", "version"],
       "properties": {
         "name": {
           "type": "string",
@@ -51,20 +47,16 @@
           "type": "string",
           "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$",
           "description": "The semver its file declares; results belong to its {major}.{minor}."
-        },
-        "hash": {
-          "type": "string",
-          "minLength": 1
         }
       },
       "additionalProperties": false,
-      "description": "A variant or scorer: its name, version, and the content hash of what it runs."
+      "description": "A variant or scorer: its name and version."
     },
     "variants": {
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["name", "version", "hash", "dirty"],
+        "required": ["name", "version", "dirty"],
         "properties": {
           "name": {
             "type": "string",
@@ -74,10 +66,6 @@
             "type": "string",
             "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$",
             "description": "The semver its file declares; results belong to its {major}.{minor}."
-          },
-          "hash": {
-            "type": "string",
-            "minLength": 1
           },
           "dirty": {
             "type": "boolean"
@@ -161,7 +149,7 @@
               },
               "restFrom": {
                 "type": "object",
-                "required": ["name", "version", "hash"],
+                "required": ["name", "version"],
                 "properties": {
                   "name": {
                     "type": "string",
@@ -171,14 +159,10 @@
                     "type": "string",
                     "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$",
                     "description": "The semver its file declares; results belong to its {major}.{minor}."
-                  },
-                  "hash": {
-                    "type": "string",
-                    "minLength": 1
                   }
                 },
                 "additionalProperties": false,
-                "description": "A variant or scorer: its name, version, and the content hash of what it runs."
+                "description": "A variant or scorer: its name and version."
               },
               "status": {
                 "enum": ["scored", "failed"],

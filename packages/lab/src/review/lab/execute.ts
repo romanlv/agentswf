@@ -70,7 +70,6 @@ export type Subject<D> = {
   label: string;
   version: string;
   key: string;
-  hash: string;
   commit: string | null;
   dirty: boolean;
   file?: string;
@@ -279,7 +278,6 @@ function describePartial(score: Extract<Step["score"], { do: "partial" | "reuse-
 
 const identityOf = (subject: Subject<unknown>): Identity => ({
   name: subject.name,
-  hash: subject.hash,
   version: subject.version,
   commit: subject.commit,
   dirty: subject.dirty,

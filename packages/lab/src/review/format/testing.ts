@@ -144,7 +144,7 @@ export const EXAMPLE_FINDINGS_RECORD: FindingsRecord = {
   format: FINDINGS_FORMAT,
   id: "20260927T010000-ab12",
   at: "2026-09-27T01:00:00Z",
-  variant: { name: "one-agent", hash: "v1-0123456789abcdef", commit: SHA, dirty: false },
+  variant: { name: "one-agent", version: "1.0.0", commit: SHA, dirty: false },
   set: "first",
   fixture: { id: "app-1", digest: DIGEST },
   restoreMs: 1_200,
@@ -155,7 +155,7 @@ export const EXAMPLE_FINDINGS_RECORD: FindingsRecord = {
 export const EXAMPLE_SCORE_RECORD: ScoreRecord = {
   format: SCORE_FORMAT,
   at: "2026-09-27T01:05:00Z",
-  judge: { name: "panel", hash: "v1-fedcba9876543210", commit: null, dirty: false },
+  judge: { name: "panel", version: "1.0.0", commit: null, dirty: false },
   set: "first",
   fixture: { id: "app-1", digest: DIGEST },
   review: EXAMPLE_FINDINGS_RECORD.id,

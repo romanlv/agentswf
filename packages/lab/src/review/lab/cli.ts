@@ -31,7 +31,7 @@ import {
   statesOf,
   stepAddress,
 } from "./execute";
-import { identityOf, rankOf } from "./identity";
+import { provenanceOf, rankOf } from "./identity";
 import { loadScorer, loadVariant } from "./load";
 import { fill } from "./placeholders";
 import { type Choice, currentTrial, PlanError, passingScore, type Stored } from "./plan";
@@ -315,15 +315,14 @@ async function subjectOf<D extends DefinedVariant | DefinedJudge>(
     const version = defined.version ?? DEFAULT_VERSION;
     const bad = checkVersion(version);
     if (bad) throw new UsageError(`${file}: ${bad}`);
-    const identity = await identityOf(file, defined);
+    const provenance = await provenanceOf(file, defined);
     current = {
       name,
       label: prefix === undefined ? name : text,
       version,
       key: keyOf({ name, version }),
-      hash: identity.hash,
-      commit: identity.commit,
-      dirty: identity.dirty,
+      commit: provenance.commit,
+      dirty: provenance.dirty,
       file,
       defined,
     };
@@ -360,7 +359,6 @@ async function subjectOf<D extends DefinedVariant | DefinedJudge>(
     label: text,
     version: record.version,
     key,
-    hash: record.hash,
     commit: record.commit,
     dirty: record.dirty,
   };
@@ -492,16 +490,11 @@ async function askOperator(plan: string, stderr: (text: string) => void): Promis
   }
 }
 
-const refOf = (subject: Subject<unknown>) => ({
-  name: subject.label,
-  version: subject.version,
-  hash: subject.hash,
-});
+const refOf = (subject: Subject<unknown>) => ({ name: subject.label, version: subject.version });
 /** A record's scorer as a document names it; one from before versions has its file name's. */
-const recordRef = (identity: { name: string; version?: string; hash: string }) => ({
+const recordRef = (identity: { name: string; version?: string }) => ({
   name: identity.name,
   version: identity.version ?? DEFAULT_VERSION,
-  hash: identity.hash,
 });
 
 /** The plan as `--json` prints it, and with `result`, what became of each step. */
@@ -584,7 +577,6 @@ function runDocument(
     variants: planned.variants.map(({ variant }) => ({
       name: variant.label,
       version: variant.version,
-      hash: variant.hash,
       dirty: variant.dirty,
     })),
     steps,
@@ -769,7 +761,6 @@ async function report(context: Context, names: readonly string[]): Promise<strin
       label: variant.label,
       version: variant.version,
       key: variant.key,
-      hash: variant.hash,
       commit: variant.commit,
       dirty: variant.dirty,
       ...(variant.defined?.tunedOn ? { tunedOn: variant.defined.tunedOn } : {}),
@@ -932,7 +923,6 @@ async function list(
     const versions = kind === "variants" ? stored.variants : stored.scorers;
     const entries: NonNullable<ListDocument["variants"]> = [];
     for (const [name, file] of known) {
-      let hash: string | null = null;
       let version: string | null = null;
       let key: string | undefined;
       let dirty = false;
@@ -940,7 +930,6 @@ async function list(
       try {
         const subject =
           kind === "variants" ? await context.variant(name) : await context.scorer(name);
-        hash = subject.hash;
         version = subject.version;
         key = subject.key;
         dirty = subject.dirty;
@@ -952,7 +941,6 @@ async function list(
         name,
         file,
         version,
-        hash,
         dirty,
         ...(error ? { error } : {}),
         stored: [...versions]
@@ -961,7 +949,6 @@ async function list(
           .map(([k, v]) => ({
             ref: k,
             versions: [...v.versions].sort(),
-            hashes: [...v.hashes].sort(),
             current: k === key,
             cases: v.cases.size,
             ...("trials" in v ? { trials: v.trials } : { scores: v.scores }),
@@ -996,8 +983,8 @@ async function list(
     for (const entry of document[kind] ?? []) {
       const label = kind === "variants" ? "variant" : "scorer";
       lines.push(
-        entry.hash
-          ? `${label.padEnd(9)} ${entry.name.padEnd(24)} ${entry.version!.padEnd(8)} ${entry.hash}${entry.dirty ? " dirty" : ""}  ${entry.file}`
+        entry.version
+          ? `${label.padEnd(9)} ${entry.name.padEnd(24)} ${entry.version.padEnd(8)}${entry.dirty ? " dirty" : "      "}  ${entry.file}`
           : `${label.padEnd(9)} ${entry.name.padEnd(24)} fails to load: ${entry.error}`,
       );
       for (const version of entry.stored) {
@@ -1005,9 +992,8 @@ async function list(
           version.trials !== undefined
             ? plural(version.trials, "trial")
             : plural(version.scores ?? 0, "score");
-        const hashes = version.hashes.length > 1 ? `, from ${version.hashes.length} hashes` : "";
         lines.push(
-          `          ${version.ref.padEnd(32)} ${plural(version.cases, "case")}, ${what}${hashes}${version.current ? " (current)" : ""}`,
+          `          ${version.ref.padEnd(32)} ${plural(version.cases, "case")}, ${what}${version.current ? " (current)" : ""}`,
         );
       }
     }

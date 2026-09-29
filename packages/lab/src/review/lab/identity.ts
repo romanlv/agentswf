@@ -3,19 +3,6 @@ import { realpathSync } from "node:fs";
 import { dirname, extname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { canonicalJson } from "../fixtures/set";
-import type { Identity } from "../format/scoring";
-
-/**
- * What the identity hash covers, version 1: the variant or scorer file's contents, its workflow's
- * contents, its argv and timeout, and the contents of every file either imports by a relative
- * path, followed recursively; packages imported by name, the package itself through a tsconfig
- * alias included, are recorded by name, not contents. No path is covered: an import's specifier is
- * in the importing file's contents, so the graph's shape is, but not where it sits. Provenance
- * only: results belong to the version the file declares, and records with several hashes under one
- * version show an edit that kept it. Not covered: a skill directory named only at run time, and the
- * engine itself, its model aliases included.
- */
-export const IDENTITY_SCHEME = "v1";
 
 const LOADERS: Record<string, "ts" | "tsx" | "js" | "jsx"> = {
   ".ts": "ts",
@@ -26,49 +13,35 @@ const LOADERS: Record<string, "ts" | "tsx" | "js" | "jsx"> = {
   ".jsx": "jsx",
 };
 
-/** Every file `roots` import by path, with its contents, and every package they import by name. */
-async function importGraph(roots: readonly string[]) {
-  const files = new Map<string, string>();
-  const packages = new Set<string>();
+/** `roots` and every file they import by path, followed recursively. */
+async function importGraph(roots: readonly string[]): Promise<Set<string>> {
+  const files = new Set<string>();
   const queue = [...roots];
   while (queue.length > 0) {
     const file = queue.shift()!;
     if (files.has(file)) continue;
+    files.add(file);
     const source = await Bun.file(file).text();
-    files.set(file, source);
     const loader = LOADERS[extname(file)];
     if (!loader) continue;
     for (const { path } of new Bun.Transpiler({ loader }).scanImports(source)) {
       if (path.startsWith(".") || path.startsWith("/")) {
         queue.push(Bun.resolveSync(path, dirname(file)));
-      } else packages.add(path);
+      }
     }
   }
-  return { files, packages };
+  return files;
 }
 
-export type Hashed = Omit<Identity, "name"> & { files: string[] };
-
-/** A variant's or scorer's identity: the hash, and whether the files it covers are committed. */
-export async function identityOf(
-  file: string,
-  run: { workflow: URL; argv: readonly string[]; timeout: string },
-): Promise<Hashed> {
+/**
+ * Where a variant or scorer came from: its file's repository at HEAD, and whether any file it
+ * runs differs from it — the file, its workflow, and every file either imports by a relative path.
+ * Provenance only: the version the file declares is its identity.
+ */
+export async function provenanceOf(file: string, run: { workflow: URL }) {
   const root = realpathSync(file);
   const workflow = realpathSync(fileURLToPath(run.workflow));
-  const { files, packages } = await importGraph([root, workflow]);
-  const digest = (source: string) => createHash("sha256").update(source).digest("hex");
-  const content = canonicalJson({
-    scheme: IDENTITY_SCHEME,
-    self: digest(files.get(root)!),
-    workflow: digest(files.get(workflow)!),
-    argv: run.argv,
-    timeout: run.timeout,
-    files: [...files.values()].map(digest).sort(),
-    packages: [...packages].sort(),
-  });
-  const hash = `${IDENTITY_SCHEME}-${digest(content).slice(0, 16)}`;
-  return { hash, ...repository(root, [...files.keys()]), files: [...files.keys()] };
+  return repository(root, [...(await importGraph([root, workflow]))]);
 }
 
 function git(cwd: string, args: string[]): string | null {
@@ -78,7 +51,7 @@ function git(cwd: string, args: string[]): string | null {
 
 /**
  * The file's repository at HEAD, and whether any covered file differs from it. Only the variant or
- * scorer file's repository has its commit kept; a workflow in another is covered by its contents.
+ * scorer file's repository has its commit kept; a workflow in another only counts toward dirty.
  */
 function repository(file: string, covered: readonly string[]) {
   const commit = git(dirname(file), ["rev-parse", "HEAD"]);

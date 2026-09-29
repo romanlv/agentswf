@@ -104,12 +104,10 @@ export async function trialsOf(results: string, dataset: string, variantKey: str
 export async function inventory(results: string, dataset: string) {
   type Version = {
     versions: Set<string>;
-    hashes: Set<string>;
     cases: Set<string>;
     at: string;
     /** The latest record's. */
     version: string;
-    hash: string;
     commit: string | null;
     dirty: boolean;
   };
@@ -117,11 +115,9 @@ export async function inventory(results: string, dataset: string) {
   const scorers = new Map<string, Version & { scores: number }>();
   const fresh = () => ({
     versions: new Set<string>(),
-    hashes: new Set<string>(),
     cases: new Set<string>(),
     at: "",
     version: "",
-    hash: "",
     commit: null,
     dirty: false,
   });
@@ -130,13 +126,11 @@ export async function inventory(results: string, dataset: string) {
       for (const stored of await storedTrials(results, dataset, key, caseId)) {
         const v = variants.get(key) ?? { ...fresh(), trials: 0 };
         v.versions.add(stored.trial.variant.version!);
-        v.hashes.add(stored.trial.variant.hash);
         v.cases.add(caseId);
         v.trials += 1;
         if (stored.trial.at > v.at) {
           v.at = stored.trial.at;
           v.version = stored.trial.variant.version!;
-          v.hash = stored.trial.variant.hash;
           v.commit = stored.trial.variant.commit;
           v.dirty = stored.trial.variant.dirty;
         }
@@ -144,13 +138,11 @@ export async function inventory(results: string, dataset: string) {
         for (const score of stored.scores) {
           const s = scorers.get(keyOf(score.scorer)) ?? { ...fresh(), scores: 0 };
           s.versions.add(score.scorer.version!);
-          s.hashes.add(score.scorer.hash);
           s.cases.add(caseId);
           s.scores += 1;
           if (score.at > s.at) {
             s.at = score.at;
             s.version = score.scorer.version!;
-            s.hash = score.scorer.hash;
             s.commit = score.scorer.commit;
             s.dirty = score.scorer.dirty;
           }

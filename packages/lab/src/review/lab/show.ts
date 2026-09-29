@@ -7,7 +7,7 @@ import type { Stored } from "./plan";
 import { duration } from "./report";
 import { DEFAULT_VERSION } from "./version";
 
-type Ref = { name: string; version: string; hash: string };
+type Ref = { name: string; version: string };
 
 /**
  * One case, trial or finding in full: the case and its key, the trial and its run, and each
@@ -109,7 +109,6 @@ export function buildShow(options: {
           restFrom: {
             name: score.restFrom.scorer.name,
             version: score.restFrom.scorer.version ?? DEFAULT_VERSION,
-            hash: score.restFrom.scorer.hash,
           },
         };
       }
@@ -137,7 +136,7 @@ const indent = (text: string, by = "    ") =>
 /** The document as a person reads it. */
 export function renderShow(doc: ShowDocument): string {
   const lines = [
-    `${doc.variant.name}:${doc.id}    dataset ${doc.dataset}, variant ${doc.variant.version} ${doc.variant.hash}`,
+    `${doc.variant.name}:${doc.id}    dataset ${doc.dataset}, variant ${doc.variant.version}`,
     `case      ${doc.case.id}  ${doc.case.title}`,
     `          ${doc.case.dir}`,
     `key       r${doc.case.key.revision} (${doc.case.key.procedure}), ${doc.case.key.issues.length} issues`,
