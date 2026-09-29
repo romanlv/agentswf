@@ -1,0 +1,160 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "awf-lab trial, first version",
+  "type": "object",
+  "required": ["format", "id", "at", "variant", "set", "fixture", "restoreMs", "run", "findings"],
+  "properties": {
+    "format": {
+      "type": "string",
+      "const": "awf.review-findings/1"
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^[0-9A-Za-z-]+$",
+      "description": "This review's own id, its folder's name; the run may never have started."
+    },
+    "at": {
+      "type": "string",
+      "minLength": 1,
+      "description": "ISO 8601"
+    },
+    "variant": {
+      "type": "object",
+      "required": ["name", "hash", "commit", "dirty"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "hash": {
+          "type": "string",
+          "pattern": "^v[0-9]+-[0-9a-f]{16,64}$",
+          "description": "What it executes, hashed under the named version of awf-lab's identity scheme: `v1-…`. Provenance only: results belong to the version."
+        },
+        "version": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$",
+          "description": "The semver its file declared. Absent in records written before versions: their folder or file name says it."
+        },
+        "commit": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^[0-9a-f]{40}$"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The file's repository at HEAD; null outside git."
+        },
+        "dirty": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
+    "set": {
+      "type": "string",
+      "minLength": 1
+    },
+    "fixture": {
+      "type": "object",
+      "required": ["id", "digest"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "digest": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        }
+      },
+      "additionalProperties": false
+    },
+    "restoreMs": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "run": {
+      "type": "object",
+      "required": ["outcome", "models", "ms", "billing", "complete"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Absent when the run never started."
+        },
+        "outcome": {
+          "enum": ["succeeded", "failed", "cancelled", "timed-out"]
+        },
+        "error": {
+          "type": "string"
+        },
+        "models": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "description": "Every model its agents and decisions used, so a family can be told apart."
+        },
+        "ms": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "estimate": {
+          "type": "number",
+          "minimum": 0,
+          "description": "USD at list price, agents and decisions."
+        },
+        "charged": {
+          "type": "number",
+          "minimum": 0
+        },
+        "billing": {
+          "enum": ["subscription", "metered", "unknown", "mixed"]
+        },
+        "complete": {
+          "type": "boolean",
+          "description": "Every agent's usage was known and priced."
+        }
+      },
+      "additionalProperties": false
+    },
+    "failure": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Why there are no findings to judge: the run did not succeed, or its variant's read failed."
+    },
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["text"],
+        "properties": {
+          "path": {
+            "type": "string",
+            "minLength": 1
+          },
+          "line": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "text": {
+            "type": "string",
+            "minLength": 1,
+            "description": "What a person reading the review would read; words are counted over it."
+          },
+          "severity": {
+            "type": "string",
+            "description": "The reviewer's own word for it."
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false,
+  "description": "A review run on one fixture and the findings its variant read from it, verbatim."
+}

@@ -1,0 +1,81 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "awf-lab workspace",
+  "type": "object",
+  "required": ["clone", "datasets", "dataset", "results", "runs", "variants", "scorers", "scorer"],
+  "properties": {
+    "$schema": {
+      "type": "string"
+    },
+    "clone": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The project's main-branch clone that case snapshots restore from."
+    },
+    "datasets": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The folder holding datasets."
+    },
+    "dataset": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The dataset a command uses unless --dataset names one."
+    },
+    "results": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Where trials and scores go: {results}/{dataset}/…"
+    },
+    "runs": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Where awf run keeps run directories; not committed, records never need them."
+    },
+    "variants": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "description": "Globs of *.variant.ts files; a variant is named by its file's stem."
+    },
+    "scorers": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "description": "Globs of *.scorer.ts files; `panel`, the package's own, is always there."
+    },
+    "scorer": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The scorer a command uses unless --scorer names one."
+    },
+    "baseline": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The variant a report compares against unless --baseline names one."
+    },
+    "budget": {
+      "type": "object",
+      "required": ["usd"],
+      "properties": {
+        "usd": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Priced at list prices, as a run's accounting estimates it."
+        }
+      },
+      "additionalProperties": false
+    },
+    "seed": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Orders cases for --cases {n}; awf-lab."
+    }
+  },
+  "additionalProperties": false,
+  "description": "An awf-lab workspace, in its second form."
+}

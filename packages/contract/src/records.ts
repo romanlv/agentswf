@@ -226,11 +226,11 @@ export type AgentSkillsRecord = {
   home?: string;
 };
 
-export const OUTPUT_RECORD_VERSION = 3 as const;
+export const OUTPUT_RECORD_VERSION = 4 as const;
 
 /**
  * A run, as the operator CLI keeps it in `output.json` and prints it with `--json`. A run that
- * failed or was cancelled keeps what it spent too; only a succeeded one has a value.
+ * failed, timed out or was cancelled keeps what it spent too; only a succeeded one has a value.
  */
 export type OutputRecord = {
   version: typeof OUTPUT_RECORD_VERSION;
@@ -257,8 +257,11 @@ export type OutputRecord = {
       report?: string;
     }
   | {
-      /** `cancelled` is the operator stopping the run; a deadline is `failed`. */
-      outcome: "failed" | "cancelled";
+      /**
+       * `cancelled` is the operator stopping the run, and wins over the others. `timed-out` is the
+       * run's own deadline ending it; a deadline the workflow set and let escape is `failed`.
+       */
+      outcome: "failed" | "cancelled" | "timed-out";
       error: string;
     }
 );

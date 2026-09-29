@@ -20,8 +20,9 @@ exists, the code is right, then this page.
 - Every wait has a deadline. The run's default is thirty minutes.
 - Every run reports its wall time, and for each agent, stage and model its times, tokens, billing
   and a cost estimate at dated list prices, read from the harnesses' own session files when the run
-  ends. `awf run` prints it and writes it to `output.json` (story 002), for a run that failed or
-  was cancelled too; `runWorkflow` then rejects with a `WorkflowRunError` carrying it (story 003).
+  ends. `awf run` prints it and writes it to `output.json` (story 002), for a run that failed, timed
+  out or was cancelled too; `runWorkflow` then rejects with a `WorkflowRunError` carrying it (story
+  003). A run its own deadline ended is `timed-out`, apart from `failed` (story 008).
 - Two workflows have run live:
   - `examples/minimum-review/review-loop.ts`, two reviewers in parallel (story 001);
   - catalogue review, 21 codex agents over lenses with a verifier per finding, from an entry point
@@ -87,6 +88,18 @@ The gates are defined in [`foundation.md`](foundation.md) §12.
 - [007 — agent skills](stories/007-agent-skills.md): awaiting human review. A workflow names each agent's skills,
   as a path or a public skill in a git repository, and the agent sees exactly those, on the host or
   in a sandbox ([findings](findings/agent-skills.md)).
+- [008 — review scorer](stories/008-review-scorer.md): awaiting human review. `awf-lab` runs a review
+  variant and a scorer per case of a dataset through `awf run`, keeps each trial's findings and the
+  scorer's labels as records by each file's declared version, `{name}@{major}.{minor}` of its
+  semver, a patch keeping the results, and reports recall by severity,
+  precision, wrong claims, noise, κ, and list-price cost and time, for any number of variants
+  against a baseline, or one variant under two scorers. Its commands are `list`, `run`, `score`,
+  `report`, `show` and `schema`, one selection grammar on each (`--cases`, `--only` by address,
+  `--where` by stored result), and `--json` with a schema on every one. The default scorer is a
+  panel of two model families with a tiebreak. A trial on five cases put the lens catalogue well
+  ahead of a single agent with or without a public review skill. A match-first scorer, measured in
+  the data repository, is as accurate as the panel at a fifth of its time and list price; adopting
+  it is [`decision-matching`](stories/todo/decision-matching.md). Left: human review.
 
 The inbox of possible stories is [`stories/todo/`](stories/todo/).
 
@@ -98,8 +111,7 @@ The inbox of possible stories is [`stories/todo/`](stories/todo/).
    ([story 005](stories/005-review-fixtures.md)), and so are the sandboxes to isolate them in
    ([story 004](stories/004-sandboxed-agents.md)). In order:
    [`eval-isolation`](stories/todo/eval-isolation.md) and
-   [`review-recall-scorer`](stories/todo/review-recall-scorer.md) — settle
-   [`deadline-outcome`](stories/todo/deadline-outcome.md) before it reads `output.json` — then
+   [story 008](stories/008-review-scorer.md), awaiting human review — then
    [`variant-matrix-runner`](stories/todo/variant-matrix-runner.md), and last
    [`autoresearch-loop`](stories/todo/autoresearch-loop.md).
 
@@ -110,7 +122,8 @@ The inbox of possible stories is [`stories/todo/`](stories/todo/).
 - An agent opened without a sandbox runs with the operator's authority, and a sandboxed one still
   spends the operator's login, which a refresh in its copy may rotate (X13). The harness-level
   permissions are designed, not built ([`design/permissions.md`](design/permissions.md)).
-- E4, concurrency, has never been measured.
+- E4, concurrency, has never been measured. `awf-lab run --jobs` runs steps in parallel on the
+  operator's say-so (story 008).
 - A headless turn killed mid-request, by its 30 s grace after answering or by a follow-up that
   stopped waiting, loses that request from its usage. At run end the runner waits up to 10 s for it
   instead.

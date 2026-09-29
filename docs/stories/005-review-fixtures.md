@@ -27,7 +27,7 @@ outside this repository, because a project's code and review comments are usuall
 Why now: we record what a run costs (story 002), but not whether the review was any good. Three
 planned pieces read this format, so it comes first:
 
-- the scorer ([`review-recall-scorer`](todo/review-recall-scorer.md));
+- the scorer ([story 008](008-review-scorer.md));
 - the sandboxing that hides the answers from the reviewer ([`eval-isolation`](todo/eval-isolation.md));
 - the runner that tries review variants across many fixtures
   ([`variant-matrix-runner`](todo/variant-matrix-runner.md)).
@@ -118,7 +118,7 @@ flowchart TD
    restores the fixture in a sandbox, runs the variant, and turns its output into a common list of
    findings.
 3. **Score.** A judge matches each finding to the key by what goes wrong, not by wording or line,
-   and labels it. The labels are defined in [`review-recall-scorer`](todo/review-recall-scorer.md).
+   and labels it. The labels are defined in [story 008](008-review-scorer.md).
 4. **Grow the key.** A finding that's real but not in the key is labelled `new`. An agent
    confirms it, and it joins the key with the run as its source. Older runs are then re-scored
    against the new revision, so a variant that finds what the old review missed isn't penalised.
@@ -127,20 +127,23 @@ flowchart TD
 
 ## Code map
 
-- `packages/autoresearch/src/review/`:
-  - pure: `format.ts` (the TypeBox schemas, the single definition of every file; `schema/` is
-    generated from it by `src/write-schemas.ts`), `validate.ts` (the checks, including a key
-    against its fixture and a key against its votes), `review-start.ts` (which push review started
-    on), `description.ts` (the description as it read then, bot text removed), `threads.ts` (the
-    comments as the drafter reads them), `grading.ts` (the rubric), `gitlab-types.ts`;
-  - I/O: `gitlab.ts` (`glab api`, read-only), `git.ts` (bundling, and the `restore`
-    eval-isolation will reuse), `collect.ts`, `draft-key.ts` (the drafter and the graders' vote),
-    `verify.ts` (checks a fixture folder end to end), `seal.ts` (writes and checks `set.json`), and
-    `fixtures.workflow.ts`, which runs collect and draft-key over a list of MRs, then seals the set;
-  - pure, for sets: `set.ts` (the digest's input, and which fixtures a set keeps).
+- `packages/autoresearch/src/review/`, by purpose since story 008:
+  - `format/`, pure: `format.ts` (the TypeBox schemas, the single definition of every file;
+    `schema/` is generated from it by `src/write-schemas.ts`), `validate.ts` (the checks, including
+    a key against its fixture and a key against its votes), `grading.ts` (the rubric and the vote
+    rules), `schema-files.ts`;
+  - `fixtures/`, reading and checking a fixture and a set: pure `set.ts` (the digest's input, and
+    which fixtures a set keeps), `review-start.ts` (which push review started on), `threads.ts`
+    (the comments as the drafter reads them), `gitlab-types.ts`; I/O `git.ts` (bundling, and the
+    `restore` eval-isolation will reuse), `verify.ts` (checks a fixture folder end to end),
+    `seal.ts` (writes and checks `set.json`);
+  - `build/`, making fixtures from a forge: pure `description.ts` (the description as it read
+    then, bot text removed); I/O `gitlab.ts` (`glab api`, read-only), `collect.ts`, `draft-key.ts`
+    (the drafter and the graders' vote), and `fixtures.workflow.ts`, which runs collect and
+    draft-key over a list of MRs, then seals the set.
 - `packages/autoresearch/AGENTS.md`: the package's rules.
 - `scripts/check-boundaries.ts`: rules for the new package; every file in `src/review/` is pure
-  unless named as I/O.
+  unless named as I/O, and each folder imports only those below it.
 - `examples/catalogue-review/schema.ts` and `examples/minimum-review/workflow.ts`: two review
   workflows with different finding shapes; the first variants to read into `ReviewFinding`.
 - `docs/foundation.md` §7, `AGENTS.md`, and

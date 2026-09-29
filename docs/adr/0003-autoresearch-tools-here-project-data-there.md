@@ -10,7 +10,7 @@ assumed the workflows being tuned live here; `foundation.md` §7 and §10's auto
 Autoresearch is split by what is general and what belongs to one project.
 
 - **`packages/autoresearch`, in this repository:** everything that works for any project. Today
-  that is the review fixture format (`src/review/format.ts`, the single definition; `schema/` is
+  that is the review fixture format (`src/review/format/format.ts`, the single definition; `schema/` is
   generated from it), its checker, `collect` and `draft-key`. The scorer and the variant runner
   go here too.
 - **A project's own workflows repository:** its variants (its review workflows, prompts and

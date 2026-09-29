@@ -46,7 +46,7 @@ precedence. A workflow that presents its own result prints that report on standa
 otherwise, or with `--json`, the command prints the result as JSON. Either way the JSON is kept as
 `output.json` beside the run's other artifacts, under `~/.awf/runs` unless `--run-root` says
 otherwise, and a workflow that writes a Markdown report has it saved there as `report.md`. A run
-that fails or is cancelled once it has started still writes `output.json`, with `outcome` saying
+that fails, times out or is cancelled once it has started still writes `output.json`, with `outcome` saying
 so, its `error`, and what its agents spent. A run directory without one is a run that never
 started, or whose process was killed. A workflow file is trusted
 executable code: loading it gives the file the same filesystem and process authority as the
@@ -117,6 +117,9 @@ Each example that spans more than one file has a folder of its own, with its wor
   the entry point. It prints a line per finding to act on, and writes `report.md` with the
   evidence, the verifier's reasons and what was refuted, to hand back to the implementer.
 - `feature-delivery/` is a typechecked design for planning, implementation, review, and revision.
+- `single-agent-review/` is one agent reviewing `--range` in one turn, with a pinned public
+  review skill (`--skill owner/repo/skill@ref`) or none: the baseline richer review workflows are
+  scored against with `awf-lab` (story 008).
 - `quick-check/` is the smoke test above.
 - `sandboxes/` is the sandbox tour above.
 - `triage/` is the decision model example above.
@@ -127,6 +130,7 @@ Each example that spans more than one file has a folder of its own, with its wor
 - `output-schema/` is the TypeBox-to-output-schema helper the workflows share, with its type tests.
 
 Only `minimum-review/review-loop.ts`, `quick-check/workflow.ts`, `sandboxes/workflow.ts`,
-`sandbox-probe/workflow.ts` and `triage/workflow.ts` have the executable default export required by `awf run`.
+`sandbox-probe/workflow.ts`, `triage/workflow.ts` and `single-agent-review/workflow.ts` have the
+executable default export required by `awf run`.
 A catalogue review's entry point lives beside the catalogue it reads, outside this package, because
 reading one is I/O and a workflow here is pure.

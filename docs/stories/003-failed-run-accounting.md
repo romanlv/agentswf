@@ -307,7 +307,7 @@ Live, on subscription sessions (2026-09-24; Herdr 0.8.2):
 
 Left open:
 
-- whether a deadline gets its own `outcome` rather than `failed` —
-  [`todo/deadline-outcome`](todo/deadline-outcome.md);
+- whether a deadline gets its own `outcome` rather than `failed` — settled by
+  [story 008](008-review-scorer.md): `timed-out`;
 - a Ctrl-C during the end-of-run read loses the spend —
   [`todo/interrupted-accounting-read`](todo/interrupted-accounting-read.md).

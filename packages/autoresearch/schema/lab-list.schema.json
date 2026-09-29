@@ -1,0 +1,315 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "awf-lab list",
+  "type": "object",
+  "required": ["format", "workspace"],
+  "properties": {
+    "format": {
+      "type": "string",
+      "const": "awf.lab-list/2"
+    },
+    "workspace": {
+      "type": "object",
+      "required": ["config", "clone", "datasets", "results", "runs", "dataset", "scorer"],
+      "properties": {
+        "config": {
+          "type": "string",
+          "minLength": 1
+        },
+        "clone": {
+          "type": "string",
+          "minLength": 1
+        },
+        "datasets": {
+          "type": "string",
+          "minLength": 1
+        },
+        "results": {
+          "type": "string",
+          "minLength": 1
+        },
+        "runs": {
+          "type": "string",
+          "minLength": 1
+        },
+        "dataset": {
+          "type": "string",
+          "minLength": 1
+        },
+        "scorer": {
+          "type": "string",
+          "minLength": 1
+        },
+        "baseline": {
+          "type": "string",
+          "minLength": 1
+        },
+        "budget": {
+          "type": "number",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false
+    },
+    "datasets": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "dir", "cases", "builtAt"],
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "dir": {
+            "type": "string",
+            "minLength": 1
+          },
+          "cases": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "builtAt": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "cases": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "keyRevision", "issues", "at"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "{variant}:{case}/{trial}#{finding}, the variant only where several are covered."
+          },
+          "keyRevision": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "issues": {
+            "type": "object",
+            "patternProperties": {
+              "^.*$": {
+                "type": "integer",
+                "minimum": 0
+              }
+            },
+            "description": "Key issues by severity."
+          },
+          "at": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "additionalProperties": false
+      },
+      "description": "The selected cases of the dataset, in the seeded order."
+    },
+    "variants": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "file", "version", "hash", "dirty", "stored"],
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "file": {
+            "type": "string",
+            "minLength": 1
+          },
+          "version": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$",
+                "description": "The semver its file declares; results belong to its {major}.{minor}."
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Null when the file fails to load."
+          },
+          "hash": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Null when the file fails to load."
+          },
+          "dirty": {
+            "type": "boolean"
+          },
+          "error": {
+            "type": "string",
+            "minLength": 1
+          },
+          "stored": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["ref", "versions", "hashes", "current", "cases"],
+              "properties": {
+                "ref": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "{name}@{major}.{minor}, as a command takes it."
+                },
+                "versions": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$",
+                    "description": "The semver its file declares; results belong to its {major}.{minor}."
+                  },
+                  "description": "The versions its records declare."
+                },
+                "hashes": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "description": "The content hashes its records came from; several can mean an edit kept its version."
+                },
+                "current": {
+                  "type": "boolean",
+                  "description": "The {major}.{minor} the file declares now."
+                },
+                "cases": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "trials": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "scores": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              },
+              "additionalProperties": false
+            },
+            "description": "Versions with records in the dataset, newest first."
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "scorers": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "file", "version", "hash", "dirty", "stored"],
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "file": {
+            "type": "string",
+            "minLength": 1
+          },
+          "version": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$",
+                "description": "The semver its file declares; results belong to its {major}.{minor}."
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Null when the file fails to load."
+          },
+          "hash": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Null when the file fails to load."
+          },
+          "dirty": {
+            "type": "boolean"
+          },
+          "error": {
+            "type": "string",
+            "minLength": 1
+          },
+          "stored": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["ref", "versions", "hashes", "current", "cases"],
+              "properties": {
+                "ref": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "{name}@{major}.{minor}, as a command takes it."
+                },
+                "versions": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$",
+                    "description": "The semver its file declares; results belong to its {major}.{minor}."
+                  },
+                  "description": "The versions its records declare."
+                },
+                "hashes": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "description": "The content hashes its records came from; several can mean an edit kept its version."
+                },
+                "current": {
+                  "type": "boolean",
+                  "description": "The {major}.{minor} the file declares now."
+                },
+                "cases": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "trials": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "scores": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              },
+              "additionalProperties": false
+            },
+            "description": "Versions with records in the dataset, newest first."
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false,
+  "description": "What awf-lab list prints with --json."
+}

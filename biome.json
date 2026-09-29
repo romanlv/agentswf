@@ -7,7 +7,14 @@
   },
   "files": {
     "ignoreUnknown": true,
-    "includes": ["**", "!experiments/_archive", "!docs", "!**/fixtures"]
+    "includes": [
+      "**",
+      "!experiments/_archive",
+      "!docs",
+      "!tests/fixtures",
+      "!examples/minimum-review/fixtures",
+      "!packages/harness/src/usage/fixtures"
+    ]
   },
   "formatter": {
     "enabled": true,

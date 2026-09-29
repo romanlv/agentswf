@@ -3,6 +3,7 @@
 **Decided:** 2026-09-23. **Replaces:** `foundation.md` §7's "Autoresearch is a separate
 repository", and the §10 trigger that tied the cross-repository pack test to it. **Amended by:**
 [ADR 0003](0003-autoresearch-tools-here-project-data-there.md), which settles the home.
+**Amended:** 2026-09-26, comparison first; see the last section.
 
 ## What was decided
 
@@ -39,3 +40,21 @@ consumer boundary above keeps what it was protecting.
   something outside this repository consumes `contract` or `harness`.
 - `experiments/_archive/`'s `trial.ts` and `runner.ts` are prior art for this repository's loop,
   not another repository's.
+
+## Amended 2026-09-26: comparison first, the loop on top
+
+Refining the scorer ([story 008](../stories/008-review-scorer.md)) made the order plain. The first
+use is a person asking "I have an idea for a review workflow: how does it compare with what we
+have?", not the loop. Answering it takes fixtures, a scorer and a comparison of variants. The loop
+adds only a proposer that is an agent.
+
+So the comparison is built as the product, and the loop is its second user:
+
+- Scores are stored by variant, a hash of its workflow, arguments and prompts, so a comparison
+  reuses the incumbent's scores and runs only the new variant.
+- The comparison reports each difference with its spread and calls one within the noise a tie,
+  for a person as for the loop.
+- A person's variant records what it was tuned on, like the loop's: looking at a fixture's
+  results and changing the idea counts.
+
+The package keeps its name. It covers the comparison, and the loop when it comes.

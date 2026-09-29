@@ -1,0 +1,301 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "awf-lab run and score",
+  "type": "object",
+  "required": ["format", "command", "dryRun", "dataset", "scorer", "variants", "steps", "estimate"],
+  "properties": {
+    "format": {
+      "type": "string",
+      "const": "awf.lab-run/2"
+    },
+    "command": {
+      "enum": ["run", "score"]
+    },
+    "dryRun": {
+      "type": "boolean"
+    },
+    "dataset": {
+      "type": "string",
+      "minLength": 1
+    },
+    "scorer": {
+      "type": "object",
+      "required": ["name", "version", "hash"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "version": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$",
+          "description": "The semver its file declares; results belong to its {major}.{minor}."
+        },
+        "hash": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "additionalProperties": false,
+      "description": "A variant or scorer: its name, version, and the content hash of what it runs."
+    },
+    "restFrom": {
+      "type": "object",
+      "required": ["name", "version", "hash"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "version": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$",
+          "description": "The semver its file declares; results belong to its {major}.{minor}."
+        },
+        "hash": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "additionalProperties": false,
+      "description": "A variant or scorer: its name, version, and the content hash of what it runs."
+    },
+    "variants": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "version", "hash", "dirty"],
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "version": {
+            "type": "string",
+            "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$",
+            "description": "The semver its file declares; results belong to its {major}.{minor}."
+          },
+          "hash": {
+            "type": "string",
+            "minLength": 1
+          },
+          "dirty": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "steps": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "variant", "case", "trial", "score"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "{variant}:{case}/{trial}#{finding}, the variant only where several are covered."
+          },
+          "variant": {
+            "type": "string",
+            "minLength": 1
+          },
+          "case": {
+            "type": "string",
+            "minLength": 1
+          },
+          "trial": {
+            "type": "object",
+            "required": ["do"],
+            "properties": {
+              "do": {
+                "enum": ["run", "reuse", "skip"]
+              },
+              "trial": {
+                "type": "string",
+                "minLength": 1,
+                "description": "The trial's id."
+              },
+              "why": {
+                "type": "string",
+                "minLength": 1
+              },
+              "outcome": {
+                "type": "string",
+                "description": "How the trial's run ended, once run."
+              },
+              "findings": {
+                "type": "integer",
+                "minimum": 0
+              }
+            },
+            "additionalProperties": false
+          },
+          "score": {
+            "type": "object",
+            "required": ["do"],
+            "properties": {
+              "do": {
+                "enum": ["run", "reuse", "record", "skip", "partial", "reuse-partial"]
+              },
+              "why": {
+                "type": "string",
+                "minLength": 1
+              },
+              "picked": {
+                "type": "array",
+                "items": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "description": "The findings chosen."
+              },
+              "asked": {
+                "type": "array",
+                "items": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "description": "The findings scored: the chosen, and those that depend on them."
+              },
+              "restFrom": {
+                "type": "object",
+                "required": ["name", "version", "hash"],
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "version": {
+                    "type": "string",
+                    "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$",
+                    "description": "The semver its file declares; results belong to its {major}.{minor}."
+                  },
+                  "hash": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "additionalProperties": false,
+                "description": "A variant or scorer: its name, version, and the content hash of what it runs."
+              },
+              "status": {
+                "enum": ["scored", "failed"],
+                "description": "Once run."
+              },
+              "reason": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "estimate": {
+      "type": "object",
+      "required": ["trials", "scores", "usd"],
+      "properties": {
+        "trials": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "scores": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "usd": {
+          "anyOf": [
+            {
+              "type": "number",
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "At list prices, from earlier runs; null with none to estimate from."
+        }
+      },
+      "additionalProperties": false
+    },
+    "outcome": {
+      "type": "object",
+      "required": ["exitCode", "listPrice", "stopped"],
+      "properties": {
+        "exitCode": {
+          "type": "integer"
+        },
+        "listPrice": {
+          "type": "number",
+          "minimum": 0,
+          "description": "USD at list prices, estimated: not a bill."
+        },
+        "stopped": {
+          "type": "boolean",
+          "description": "The budget stopped it."
+        }
+      },
+      "additionalProperties": false
+    },
+    "compared": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "named", "was", "votes", "now"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "{variant}:{case}/{trial}#{finding}, the variant only where several are covered."
+          },
+          "named": {
+            "type": "boolean",
+            "description": "False when asked only because its label depended on a named one."
+          },
+          "was": {
+            "type": "string",
+            "minLength": 1
+          },
+          "votes": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["by", "label"],
+              "properties": {
+                "by": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "label": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "now": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Null when the partial score failed."
+          }
+        },
+        "additionalProperties": false
+      },
+      "description": "Chosen findings: the rest-from label beside the new one."
+    }
+  },
+  "additionalProperties": false,
+  "description": "What awf-lab run and score print with --json: the plan, and with no --dry-run, what became of it."
+}

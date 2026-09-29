@@ -65,6 +65,7 @@ function rules(root: string): Rule[] {
     seam(target) || containsPath(`${SANDBOX_SOURCE}/${directory}`, target);
   return [
     ...RULES,
+    ...reviewRules(root),
     ...(existsSync(source) ? [{ dir: SANDBOX_SOURCE, files: "*.ts", paths: seam }] : []),
     ...directories.flatMap((name): Rule[] => {
       if (name === "testing") return [{ dir: `${SANDBOX_SOURCE}/testing`, paths: own("testing") }];
@@ -89,6 +90,57 @@ function rules(root: string): Rule[] {
       ];
     }),
   ];
+}
+
+/**
+ * `src/review` is organised by purpose, and a folder imports only the folders named for it: the
+ * formats know nothing of ours, and evaluating never depends on building fixtures from a forge.
+ */
+const REVIEW = "packages/autoresearch/src/review";
+const REVIEW_LAYERS: Readonly<Record<string, readonly string[]>> = {
+  format: [],
+  fixtures: ["format"],
+  build: ["format", "fixtures"],
+  judge: ["format", "fixtures"],
+  metrics: ["format", "fixtures"],
+  lab: ["format", "fixtures", "judge", "metrics"],
+};
+
+function reviewFolders(root: string): string[] {
+  const source = join(root, REVIEW);
+  return existsSync(source)
+    ? readdirSync(source, { withFileTypes: true })
+        .filter((entry) => entry.isDirectory())
+        .map((entry) => entry.name)
+    : [];
+}
+
+function reviewRules(root: string): Rule[] {
+  return reviewFolders(root)
+    .filter((name) => Object.hasOwn(REVIEW_LAYERS, name))
+    .map((name) => ({
+      dir: `${REVIEW}/${name}`,
+      paths: (target: string) =>
+        [name, ...REVIEW_LAYERS[name]!].some((layer) => containsPath(`${REVIEW}/${layer}`, target)),
+    }));
+}
+
+/** A folder the table leaves out, or a module beside the entry, would escape the order. */
+function reviewPlacementProblems(root: string): string[] {
+  const source = join(root, REVIEW);
+  if (!existsSync(source)) return [];
+  return readdirSync(source, { withFileTypes: true }).flatMap((entry) => {
+    if (entry.isDirectory()) {
+      return Object.hasOwn(REVIEW_LAYERS, entry.name)
+        ? []
+        : [
+            `${REVIEW}/${entry.name}: a folder the review layers don't place; add it to REVIEW_LAYERS`,
+          ];
+    }
+    return entry.name.endsWith(".ts") && entry.name !== "index.ts"
+      ? [`${REVIEW}/${entry.name}: only the entry sits beside the review folders; move it into one`]
+      : [];
+  });
 }
 
 const DECISION_PROVIDER = /^packages\/engine\/src\/decisions\/openrouter(\.ts)?$/;
@@ -188,17 +240,23 @@ const RULES: Rule[] = [
   },
   // The format and the decisions about it stay pure; only the files named here do I/O.
   {
-    dir: "packages/autoresearch/src/review",
-    files: "*.ts",
+    dir: REVIEW,
     except: [
-      "*.test.ts",
-      "*.workflow.ts",
-      "git.ts",
-      "gitlab.ts",
-      "collect.ts",
-      "verify.ts",
-      "seal.ts",
-      "draft-key.ts",
+      "**/*.test.ts",
+      "**/*.workflow.ts",
+      "fixtures/git.ts",
+      "fixtures/verify.ts",
+      "fixtures/seal.ts",
+      "build/gitlab.ts",
+      "build/collect.ts",
+      "build/draft-key.ts",
+      "lab/cli.ts",
+      "lab/execute.ts",
+      "lab/identity.ts",
+      "lab/load.ts",
+      "lab/runner.ts",
+      "lab/store.ts",
+      "lab/workspace.ts",
       "index.ts",
     ],
     pure: true,
@@ -222,7 +280,7 @@ const BUN_FILE_IO = /(^|[^\w.])Bun\s*\.\s*(file|write)\s*\(/;
 
 /** Every violation under `root`, a checkout laid out like this one. */
 export async function boundaryProblems(root: string): Promise<string[]> {
-  const problems: string[] = [];
+  const problems = reviewPlacementProblems(root);
 
   for (const rule of rules(root)) {
     const abs = join(root, rule.dir);

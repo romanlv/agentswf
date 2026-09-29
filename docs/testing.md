@@ -32,7 +32,7 @@ are for.
 ### 2. Evals — every supported feature, live, about $0.60
 
 ```sh
-bun run eval                        # all of them, one after another: ~6 min, about $0.60
+bun run eval                        # all of them, one after another: ~7 min, about $0.70
 bun run eval harnesses failed-run   # only the ones named
 ```
 
@@ -87,6 +87,14 @@ What they cover between them:
   the operator's skills; `output.json` must record each, the git-sourced probe with its commit.
   `tests/skills-eval.test.ts` checks these checks for free. 5 agents, ~40 s, ~$0.08, on
   subscriptions; srt must be installed.
+- `review-judge` — the panel judge (story 008) through `awf run`, on a synthetic fixture: a
+  two-file change with two planted issues, a hand-written key, and six findings with known labels.
+  The judgement must pass `checkJudgement` and hit both planted issues; how many of the six labels
+  match, the panel's κ and the tiebreak are printed, since they are what it measures. codex luna
+  and claude haiku judge, luna breaks ties. 3 agents, ~1–1½ min, ~$0.09 at list prices, and
+  $0.07–0.14 of claude's own reported cost; awf assumes headless claude is billed per token
+  ([`billing-provenance`](stories/todo/billing-provenance.md)). Three runs,
+  2026-09-27: 5/6 labels, κ 0.80.
 - `sandbox-panes-docker` — the same, with the panes in the box's own Herdr, typed in behind a
   prelude that sets their environment and loads their secret. 3 agents, ~3 min, ~$0.32. Fails,
   saying why, where docker cannot run.
@@ -97,7 +105,8 @@ The totals above are one measured run without docker; `sandbox-docker` and
 Not covered live, on purpose:
 
 - claude headless outside a sandbox: it is billed per token even on a subscription. The sandbox
-  evals run it, as a sandboxed claude has no other way to run headless.
+  evals run it, as a sandboxed claude has no other way to run headless. `review-judge` is the
+  exception: the panel runs its judges headless, so its eval does too.
 - Deadlines, nudges, parallel limits and cleanup: the offline suite drives them through fakes, and
   a live run adds only a slower clock.
 

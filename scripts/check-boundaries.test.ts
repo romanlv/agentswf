@@ -65,3 +65,31 @@ test("sandbox providers stay behind the seam and the composition root", async ()
     "packages/sandbox/src/testing/index.ts: path import ../srt/index reaches what packages/sandbox/src/testing may not",
   ]);
 });
+
+test("the review folders import down their order only", async () => {
+  const review = "packages/autoresearch/src/review";
+  await write({
+    "packages/autoresearch/package.json": manifest("@wf/autoresearch"),
+    [`${review}/index.ts`]: 'import "./build/collect";\n',
+    [`${review}/format/format.ts`]: 'import "../fixtures/set";\n',
+    [`${review}/fixtures/set.ts`]: 'import "../format/format";\nimport "../build/collect";\n',
+    [`${review}/build/collect.ts`]: 'import "../format/format";\nimport "../fixtures/set";\n',
+    [`${review}/lab/plan.ts`]: 'import "../metrics/metrics";\nimport "../build/collect";\n',
+    [`${review}/metrics/metrics.ts`]: 'import "../format/format";\n',
+    [`${review}/misc/helper.ts`]: 'import "../format/format";\n',
+    [`${review}/match.ts`]: 'import "./build/collect";\n',
+    [`${review}/build/draft-key.ts`]: 'import "./collect";\nimport "../fixtures/set";\n',
+    [`${review}/judge/check.ts`]: 'import "../build/collect";\n',
+    [`${review}/format/io.ts`]: 'import "node:fs";\n',
+  });
+  const found = (await boundaryProblems(root)).filter((problem) => problem.includes(review));
+  expect(found).toEqual([
+    `${review}/fixtures/set.ts: path import ../build/collect reaches what ${review}/fixtures may not`,
+    `${review}/format/format.ts: path import ../fixtures/set reaches what ${review}/format may not`,
+    `${review}/format/io.ts: imports node:fs — ${review} is pure: no runtime builtins`,
+    `${review}/judge/check.ts: path import ../build/collect reaches what ${review}/judge may not`,
+    `${review}/lab/plan.ts: path import ../build/collect reaches what ${review}/lab may not`,
+    `${review}/match.ts: only the entry sits beside the review folders; move it into one`,
+    `${review}/misc: a folder the review layers don't place; add it to REVIEW_LAYERS`,
+  ]);
+});

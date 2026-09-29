@@ -15,6 +15,8 @@ and building it earlier would optimise against a weak or leaky answer key.
 
 Notes:
 
+- It is the comparison in `variant-matrix-runner` with an agent as the proposer; it adds the
+  proposer, the log and the spend cap, and nothing else.
 - The proposer changes one variable at a time — the workflow's shape, a checklist, model per
   stage, prompt, verifier limit — and records why. The matrix scores it; it is kept only if it beats the
   incumbent beyond the spread.

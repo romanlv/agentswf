@@ -1,29 +1,46 @@
 ---
-title: Match review findings to an answer key with a decision model
-summary: `matchFindings` in autoresearch settles the confident matches of a run's findings to key issues with Jev, and a measurement on a variant's own findings says whether the scorer should use it.
+title: Make match first the review scorer's judge
+summary: Jev settles the findings an answer key already answers and agents with the code label the rest; measured on story 008's stored findings it matches the panel's accuracy in a fifth of the time and list price, and it lives in the data repository until it moves into the package.
 type: story
 status: todo
-discovered_in: "story 006, Tasks 3 and 4, moved out when it closed"
-depends_on: ["006"]
+discovered_in: "story 006, Tasks 3 and 4, moved out when it closed; measured in story 008"
+depends_on: ["008"]
 ---
 
-# Match review findings to an answer key with a decision model
+# Make match first the review scorer's judge
 
-Why it matters: the review scorer (story 008) matches every finding of every run to a key issue,
-and its agent judge reads all of a fixture's findings in one call. On review comments Jev settled
-72% of matches at 99% accuracy, for under $0.0001 each (findings S8), so a pre-match could leave
-the judge only the hard ones. Those comments are the ones the keys were drafted from, so the number
-that matters is on findings a review variant produced, and it is unmeasured.
+Why it matters: the panel, story 008's default judge, has every voter read the change, key and
+code for every finding, and takes about 5 minutes and $0.81 at list price a judging. Most findings
+need no code: the key already answers them. Story 008 measured it on the trial's stored findings
+([story 008](../008-review-scorer.md), "Match first"): Jev settles about half of
+all findings and two thirds of those the key answers, right 96–100% of the time; with sol in codex
+and terra in pi voting on the rest, the judge scores 86–90% on the comments over two runs (the
+panel 87%), 100% on the oracle and κ 0.84–0.87 with the panel, in about a minute and $0.15 a
+judging, five fixtures in 5 minutes. Holding the hit issues out of the key, it called 13–15 of 17
+findings of them `new`.
 
-Notes: story 006 designed both tasks; its code map, "Task details" 3 and 4, and open questions for
-Task 4 are the plan. `decide` and the `jev` alias are built, and `examples/triage` shows the call as
-a plain function.
+Notes:
 
-- `packages/autoresearch/src/review/match.ts`: `matchFinding(finding, key)` returns the call, one
-  choice over the key's issues (their `mechanism`) plus `none`. `matchFindings` splits the results
-  at a threshold (0.9 from S8): a decided match is taken, anything else and a decided `none` go to
-  the judge, and two findings on one issue are the scorer's to label as duplicates.
-- `match.workflow.ts`, run by path over a fixture set and a findings file. It checks the plumbing by
-  reproducing S8 on the private set's comments (about $0.01; the data goes only to Jev).
-- The measurement needs a review variant's findings, labelled. Where they come from, and whether an
-  LLM baseline may see the private set, are open.
+- The code is in the data repository's `judges/`, written to move: `matching.ts` (the questions
+  and the pure `settleMatches`, with tests) to `packages/autoresearch/src/review/judge/`,
+  `voting.ts` in place of the panel's own voting (the panel is `voteOnRest` with nothing settled),
+  and `match.workflow.ts` as the judge workflow beside `judge.workflow.ts`. `scripts/match.ts`
+  re-settles stored answers at any cut; its logic belongs with the report.
+- Moving code the panel imports changes the panel's hash, so its stored judgings stop being
+  reused. Decide that once, when the default changes, not per edit. The data repository's judge
+  files import the package by a path into story 008's worktree, so they re-hash at the move too.
+- Before `voting.ts` can be the panel's voting: share `Case`/`readCase` and the answer schema with
+  `judge.workflow.ts`, one claimed-issues helper in `panel.ts` (it is inline in three places), and
+  keep `workflow.parallel` labelling. The panel's own prompt changes with it, and so its hash.
+- Decide the default's voters. The second is OpenAI's for now; claude opus 5.5 is
+  [`judge-opus-voter`](judge-opus-voter.md). The sample is 22 judgings; two runs of one judge
+  differ by 3 points on the comments.
+- Decide whether `noise` and a repeat of a refuted claim, which Jev settles surely, still need a
+  code read. `labelProblems` requires `read` for both today, so they go to the agents.
+- Bring the per-turn bound (`--turn`: a timed-out turn asked again once in a fresh session) to
+  the panel too, or retire the panel.
+- The one wrong settled match was a finding with the right symptom and a false cause. Text can't
+  tell them apart; a check per hit that asked lost true hits and caught none.
+- Jev picks among what it is offered: with a finding's own issue out of the key, it matched a
+  neighbouring issue at p 0.97. A genuinely new problem that resembles a known one is settled as
+  a hit on it.

@@ -5,7 +5,13 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { constants, homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { OUTPUT_RECORD_VERSION, type OutputRecord } from "@wf/contract/records";
-import type { ExecutableWorkflow, JsonObject, JsonValue } from "@wf/contract/workflow";
+import {
+  type AbsoluteDeadline,
+  DeadlineExceededError,
+  type ExecutableWorkflow,
+  type JsonObject,
+  type JsonValue,
+} from "@wf/contract/workflow";
 import { describeAccounting } from "./accounting/format";
 import { installOperatorRuntime, type OperatorRuntimeInstallation } from "./operator-runtime";
 import { ANSI, PLAIN, progressEvents, renderProgress } from "./progress-view";
@@ -192,7 +198,7 @@ export async function runOperatorCli(
     if (error instanceof WorkflowRunError) {
       const record: OutputRecord = {
         ...recordOf(error),
-        outcome: findCancellation(error) ? "cancelled" : "failed",
+        outcome: runOutcome(error, deadline),
         error: errorDetail(error),
       };
       failedRecord = JSON.stringify(record, null, 2);
@@ -212,10 +218,15 @@ export async function runOperatorCli(
   }
   if (runError !== undefined) {
     const cancellation = findCancellation(runError);
+    const ended = {
+      cancelled: "run cancelled",
+      "timed-out": "run timed out",
+      failed: "run failed",
+    }[runOutcome(runError, deadline)];
     stderr(
       invocationRootCreated
-        ? `awf: ${cancellation ? "run cancelled" : "run failed"}; artifacts retained under ${invocationRoot}: ${errorDetail(runError)}`
-        : `awf: ${cancellation ? "run cancelled" : "run failed"}; artifacts were not created at ${invocationRoot}: ${errorDetail(runError)}`,
+        ? `awf: ${ended}; artifacts retained under ${invocationRoot}: ${errorDetail(runError)}`
+        : `awf: ${ended}; artifacts were not created at ${invocationRoot}: ${errorDetail(runError)}`,
     );
     if (cleanupError !== undefined)
       stderr(`awf: runtime cleanup also failed: ${message(cleanupError)}`);
@@ -455,6 +466,24 @@ function findCancellation(error: unknown): WorkflowCancelledError | undefined {
     if (cancellation) return cancellation;
   }
   return undefined;
+}
+
+/**
+ * How a run that did not succeed ended. The operator cancelling wins. It timed out when its own
+ * deadline ended it: the body's failure, or the first error of its aggregate, is a deadline error
+ * carrying the run's deadline. A deadline the workflow set and let escape is its own failure.
+ */
+export function runOutcome(
+  error: unknown,
+  deadline: AbsoluteDeadline,
+): Exclude<OutputRecord["outcome"], "succeeded"> {
+  if (findCancellation(error)) return "cancelled";
+  const cause = error instanceof WorkflowRunError ? error.cause : error;
+  const failure = cause instanceof AggregateError ? cause.errors[0] : cause;
+  return failure instanceof DeadlineExceededError &&
+    failure.deadline.unixMilliseconds === deadline.unixMilliseconds
+    ? "timed-out"
+    : "failed";
 }
 
 /** How soon a repeated signal is the copy `bun awf` forwards, not the operator pressing again. */

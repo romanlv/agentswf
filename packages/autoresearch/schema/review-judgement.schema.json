@@ -1,0 +1,674 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "awf review judgement",
+  "type": "object",
+  "required": ["format", "labels", "missed"],
+  "properties": {
+    "format": {
+      "type": "string",
+      "const": "awf.review-judgement/1"
+    },
+    "labels": {
+      "type": "array",
+      "items": {
+        "anyOf": [
+          {
+            "type": "object",
+            "required": ["finding", "label", "why", "read", "issue"],
+            "properties": {
+              "finding": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "label": {
+                "type": "string",
+                "const": "hit"
+              },
+              "why": {
+                "type": "string",
+                "minLength": 1
+              },
+              "read": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": ["path", "start", "end"],
+                  "properties": {
+                    "path": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "start": {
+                      "type": "integer",
+                      "minimum": 1
+                    },
+                    "end": {
+                      "type": "integer",
+                      "minimum": 1
+                    }
+                  },
+                  "additionalProperties": false,
+                  "description": "Lines the judge read in the frozen code."
+                }
+              },
+              "issue": {
+                "type": "string",
+                "pattern": "^K[0-9]+$"
+              }
+            },
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "required": [
+              "finding",
+              "label",
+              "why",
+              "read",
+              "severity",
+              "category",
+              "scope",
+              "mechanism"
+            ],
+            "properties": {
+              "finding": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "label": {
+                "type": "string",
+                "const": "new"
+              },
+              "why": {
+                "type": "string",
+                "minLength": 1
+              },
+              "read": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": ["path", "start", "end"],
+                  "properties": {
+                    "path": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "start": {
+                      "type": "integer",
+                      "minimum": 1
+                    },
+                    "end": {
+                      "type": "integer",
+                      "minimum": 1
+                    }
+                  },
+                  "additionalProperties": false,
+                  "description": "Lines the judge read in the frozen code."
+                }
+              },
+              "severity": {
+                "enum": ["must-fix", "should-fix", "could-fix", "nit"]
+              },
+              "category": {
+                "enum": [
+                  "correctness",
+                  "security",
+                  "performance",
+                  "tests",
+                  "design",
+                  "maintainability",
+                  "docs-style",
+                  "slop"
+                ]
+              },
+              "scope": {
+                "enum": ["change", "context"],
+                "description": "Whether the MR caused it or it was already there, as a key issue says."
+              },
+              "mechanism": {
+                "type": "string",
+                "minLength": 1,
+                "description": "As a key issue gives one."
+              }
+            },
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "required": ["finding", "label", "why", "read", "refutes"],
+            "properties": {
+              "finding": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "label": {
+                "type": "string",
+                "const": "wrong"
+              },
+              "why": {
+                "type": "string",
+                "minLength": 1
+              },
+              "read": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": ["path", "start", "end"],
+                  "properties": {
+                    "path": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "start": {
+                      "type": "integer",
+                      "minimum": 1
+                    },
+                    "end": {
+                      "type": "integer",
+                      "minimum": 1
+                    }
+                  },
+                  "additionalProperties": false,
+                  "description": "Lines the judge read in the frozen code."
+                }
+              },
+              "refutes": {
+                "type": "string",
+                "minLength": 1,
+                "description": "The code fact that shows it false."
+              },
+              "symptomOf": {
+                "type": "string",
+                "pattern": "^K[0-9]+$"
+              },
+              "repeats": {
+                "type": "string",
+                "pattern": "^R[0-9]+$"
+              }
+            },
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "required": ["finding", "label", "why", "read"],
+            "properties": {
+              "finding": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "label": {
+                "type": "string",
+                "const": "noise"
+              },
+              "why": {
+                "type": "string",
+                "minLength": 1
+              },
+              "read": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": ["path", "start", "end"],
+                  "properties": {
+                    "path": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "start": {
+                      "type": "integer",
+                      "minimum": 1
+                    },
+                    "end": {
+                      "type": "integer",
+                      "minimum": 1
+                    }
+                  },
+                  "additionalProperties": false,
+                  "description": "Lines the judge read in the frozen code."
+                }
+              }
+            },
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "required": ["finding", "label", "why", "read", "of"],
+            "properties": {
+              "finding": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "label": {
+                "type": "string",
+                "const": "duplicate"
+              },
+              "why": {
+                "type": "string",
+                "minLength": 1
+              },
+              "read": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": ["path", "start", "end"],
+                  "properties": {
+                    "path": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "start": {
+                      "type": "integer",
+                      "minimum": 1
+                    },
+                    "end": {
+                      "type": "integer",
+                      "minimum": 1
+                    }
+                  },
+                  "additionalProperties": false,
+                  "description": "Lines the judge read in the frozen code."
+                }
+              },
+              "of": {
+                "type": "integer",
+                "minimum": 0
+              }
+            },
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "required": ["finding", "label", "why", "read"],
+            "properties": {
+              "finding": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "label": {
+                "type": "string",
+                "const": "unsettled"
+              },
+              "why": {
+                "type": "string",
+                "minLength": 1
+              },
+              "read": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": ["path", "start", "end"],
+                  "properties": {
+                    "path": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "start": {
+                      "type": "integer",
+                      "minimum": 1
+                    },
+                    "end": {
+                      "type": "integer",
+                      "minimum": 1
+                    }
+                  },
+                  "additionalProperties": false,
+                  "description": "Lines the judge read in the frozen code."
+                }
+              },
+              "excluded": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "The `unconfirmed` exclusion it repeats, by position; absent when the judges did not agree."
+              }
+            },
+            "additionalProperties": false
+          }
+        ]
+      },
+      "description": "One per finding, in order."
+    },
+    "missed": {
+      "type": "string",
+      "description": "What the review missed, and why: feedback."
+    },
+    "votes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["by", "role", "labels"],
+        "properties": {
+          "by": {
+            "type": "string",
+            "minLength": 1
+          },
+          "role": {
+            "enum": ["panel", "tiebreak"],
+            "description": "A panel voter labels every finding; a tiebreak only those split on."
+          },
+          "labels": {
+            "type": "array",
+            "items": {
+              "anyOf": [
+                {
+                  "type": "object",
+                  "required": ["finding", "label", "why", "read", "issue"],
+                  "properties": {
+                    "finding": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "label": {
+                      "type": "string",
+                      "const": "hit"
+                    },
+                    "why": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "read": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": ["path", "start", "end"],
+                        "properties": {
+                          "path": {
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          "start": {
+                            "type": "integer",
+                            "minimum": 1
+                          },
+                          "end": {
+                            "type": "integer",
+                            "minimum": 1
+                          }
+                        },
+                        "additionalProperties": false,
+                        "description": "Lines the judge read in the frozen code."
+                      }
+                    },
+                    "issue": {
+                      "type": "string",
+                      "pattern": "^K[0-9]+$"
+                    }
+                  },
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "required": [
+                    "finding",
+                    "label",
+                    "why",
+                    "read",
+                    "severity",
+                    "category",
+                    "scope",
+                    "mechanism"
+                  ],
+                  "properties": {
+                    "finding": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "label": {
+                      "type": "string",
+                      "const": "new"
+                    },
+                    "why": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "read": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": ["path", "start", "end"],
+                        "properties": {
+                          "path": {
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          "start": {
+                            "type": "integer",
+                            "minimum": 1
+                          },
+                          "end": {
+                            "type": "integer",
+                            "minimum": 1
+                          }
+                        },
+                        "additionalProperties": false,
+                        "description": "Lines the judge read in the frozen code."
+                      }
+                    },
+                    "severity": {
+                      "enum": ["must-fix", "should-fix", "could-fix", "nit"]
+                    },
+                    "category": {
+                      "enum": [
+                        "correctness",
+                        "security",
+                        "performance",
+                        "tests",
+                        "design",
+                        "maintainability",
+                        "docs-style",
+                        "slop"
+                      ]
+                    },
+                    "scope": {
+                      "enum": ["change", "context"],
+                      "description": "Whether the MR caused it or it was already there, as a key issue says."
+                    },
+                    "mechanism": {
+                      "type": "string",
+                      "minLength": 1,
+                      "description": "As a key issue gives one."
+                    }
+                  },
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "required": ["finding", "label", "why", "read", "refutes"],
+                  "properties": {
+                    "finding": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "label": {
+                      "type": "string",
+                      "const": "wrong"
+                    },
+                    "why": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "read": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": ["path", "start", "end"],
+                        "properties": {
+                          "path": {
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          "start": {
+                            "type": "integer",
+                            "minimum": 1
+                          },
+                          "end": {
+                            "type": "integer",
+                            "minimum": 1
+                          }
+                        },
+                        "additionalProperties": false,
+                        "description": "Lines the judge read in the frozen code."
+                      }
+                    },
+                    "refutes": {
+                      "type": "string",
+                      "minLength": 1,
+                      "description": "The code fact that shows it false."
+                    },
+                    "symptomOf": {
+                      "type": "string",
+                      "pattern": "^K[0-9]+$"
+                    },
+                    "repeats": {
+                      "type": "string",
+                      "pattern": "^R[0-9]+$"
+                    }
+                  },
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "required": ["finding", "label", "why", "read"],
+                  "properties": {
+                    "finding": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "label": {
+                      "type": "string",
+                      "const": "noise"
+                    },
+                    "why": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "read": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": ["path", "start", "end"],
+                        "properties": {
+                          "path": {
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          "start": {
+                            "type": "integer",
+                            "minimum": 1
+                          },
+                          "end": {
+                            "type": "integer",
+                            "minimum": 1
+                          }
+                        },
+                        "additionalProperties": false,
+                        "description": "Lines the judge read in the frozen code."
+                      }
+                    }
+                  },
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "required": ["finding", "label", "why", "read", "of"],
+                  "properties": {
+                    "finding": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "label": {
+                      "type": "string",
+                      "const": "duplicate"
+                    },
+                    "why": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "read": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": ["path", "start", "end"],
+                        "properties": {
+                          "path": {
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          "start": {
+                            "type": "integer",
+                            "minimum": 1
+                          },
+                          "end": {
+                            "type": "integer",
+                            "minimum": 1
+                          }
+                        },
+                        "additionalProperties": false,
+                        "description": "Lines the judge read in the frozen code."
+                      }
+                    },
+                    "of": {
+                      "type": "integer",
+                      "minimum": 0
+                    }
+                  },
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "required": ["finding", "label", "why", "read"],
+                  "properties": {
+                    "finding": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "label": {
+                      "type": "string",
+                      "const": "unsettled"
+                    },
+                    "why": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "read": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": ["path", "start", "end"],
+                        "properties": {
+                          "path": {
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          "start": {
+                            "type": "integer",
+                            "minimum": 1
+                          },
+                          "end": {
+                            "type": "integer",
+                            "minimum": 1
+                          }
+                        },
+                        "additionalProperties": false,
+                        "description": "Lines the judge read in the frozen code."
+                      }
+                    },
+                    "excluded": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "description": "The `unconfirmed` exclusion it repeats, by position; absent when the judges did not agree."
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              ]
+            }
+          }
+        },
+        "additionalProperties": false
+      },
+      "description": "Each voter's answer, when there were several; panel voters first."
+    }
+  },
+  "additionalProperties": false,
+  "description": "What every judge returns, whatever it is inside."
+}

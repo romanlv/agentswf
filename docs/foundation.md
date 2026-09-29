@@ -470,7 +470,10 @@ Evals and autoresearch are two different things, and section 10's table used to 
 reporter, a summary. No package, no application.
 
 **Autoresearch** answers "which combination is better, faster or cheaper" — searching over workflow
-design, models, harnesses, tools and skills for an optimum. Its general tools live in this
+design, models, harnesses, tools and skills for an optimum. Its core is comparison: fixtures with
+known answers, a scorer, and a comparison of variants with their spread. Whoever proposes the
+variant, a person with an idea or an agent in a loop, uses the same comparison
+([ADR 0002](adr/0002-autoresearch-lives-here.md), amended 2026-09-26). Its general tools live in this
 repository, in `packages/autoresearch`, and a project's variants and fixtures in that project's own
 ([ADR 0002](adr/0002-autoresearch-lives-here.md),
 [ADR 0003](adr/0003-autoresearch-tools-here-project-data-there.md)). It is a *user* of the engine

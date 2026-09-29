@@ -1,0 +1,724 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "awf-lab report",
+  "type": "object",
+  "required": [
+    "format",
+    "dataset",
+    "scorers",
+    "keyRevisions",
+    "keyProcedures",
+    "budgetBasis",
+    "columns"
+  ],
+  "properties": {
+    "format": {
+      "type": "string",
+      "const": "awf.lab-report/3"
+    },
+    "dataset": {
+      "type": "string",
+      "minLength": 1
+    },
+    "scorers": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "version", "hash"],
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "version": {
+            "type": "string",
+            "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$",
+            "description": "The semver its file declares; results belong to its {major}.{minor}."
+          },
+          "hash": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "additionalProperties": false,
+        "description": "A variant or scorer: its name, version, and the content hash of what it runs."
+      },
+      "minItems": 1,
+      "maxItems": 2
+    },
+    "baseline": {
+      "type": "object",
+      "required": ["name", "version", "hash"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "version": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$",
+          "description": "The semver its file declares; results belong to its {major}.{minor}."
+        },
+        "hash": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "additionalProperties": false,
+      "description": "A variant or scorer: its name, version, and the content hash of what it runs."
+    },
+    "keyRevisions": {
+      "type": "array",
+      "items": {
+        "type": "integer",
+        "minimum": 1
+      },
+      "description": "The key revisions scored against: each case's current one."
+    },
+    "keyProcedures": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "description": "The procedures those keys were drafted under; numbers compare only within one."
+    },
+    "filter": {
+      "type": "object",
+      "required": ["categories"],
+      "properties": {
+        "categories": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "minItems": 1
+        }
+      },
+      "additionalProperties": false,
+      "description": "Only these categories were counted."
+    },
+    "where": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "description": "The --where predicates that chose the cases."
+    },
+    "budgetBasis": {
+      "type": "string",
+      "const": "list-price",
+      "description": "Costs are list-price estimates, also for runs on a subscription."
+    },
+    "columns": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "name",
+          "version",
+          "hash",
+          "hashes",
+          "commit",
+          "dirty",
+          "scorer",
+          "cases",
+          "tunedOn",
+          "missing",
+          "failedTrials",
+          "recall",
+          "weightedRecall",
+          "distinct",
+          "precision",
+          "wrong",
+          "noise",
+          "nits",
+          "words",
+          "labels",
+          "bySeverity",
+          "context",
+          "byCategory",
+          "bySource",
+          "missed",
+          "agreement",
+          "restoreMs",
+          "trial",
+          "score"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "version": {
+            "type": "string",
+            "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$",
+            "description": "The semver its file declares; results belong to its {major}.{minor}."
+          },
+          "hash": {
+            "type": "string",
+            "minLength": 1
+          },
+          "hashes": {
+            "type": "object",
+            "required": ["trials", "scores"],
+            "properties": {
+              "trials": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "scores": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            },
+            "additionalProperties": false,
+            "description": "The content hashes the counted trials and their scores came from; several can mean an edit kept its version."
+          },
+          "commit": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The variant file's repository."
+          },
+          "dirty": {
+            "type": "boolean"
+          },
+          "scorer": {
+            "type": "string",
+            "minLength": 1
+          },
+          "cases": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["id", "trial", "findings", "weightedRecall", "precision", "labels"],
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "{variant}:{case}/{trial}#{finding}, the variant only where several are covered."
+                },
+                "trial": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "The trial's id."
+                },
+                "findings": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "weightedRecall": {
+                  "anyOf": [
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "precision": {
+                  "anyOf": [
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "labels": {
+                  "type": "object",
+                  "patternProperties": {
+                    "^.*$": {
+                      "type": "integer",
+                      "minimum": 0
+                    }
+                  }
+                }
+              },
+              "additionalProperties": false
+            },
+            "description": "The cases counted: a trial and a passing score each."
+          },
+          "tunedOn": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "description": "{variant}:{case}/{trial}#{finding}, the variant only where several are covered."
+            },
+            "description": "Cases counted that the variant was tuned on, by its tunedOn: not holdout."
+          },
+          "missing": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["id", "why"],
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "{variant}:{case}/{trial}#{finding}, the variant only where several are covered."
+                },
+                "why": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "additionalProperties": false
+            },
+            "description": "Selected cases not counted, and why; never guessed."
+          },
+          "failedTrials": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "description": "{variant}:{case}/{trial}#{finding}, the variant only where several are covered."
+            },
+            "description": "Cases whose trial did not succeed."
+          },
+          "recall": {
+            "type": "object",
+            "required": ["must-fix", "should-fix", "could-fix", "nit"],
+            "properties": {
+              "must-fix": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "should-fix": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "could-fix": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "nit": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "additionalProperties": false
+          },
+          "weightedRecall": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "distinct": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "precision": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "wrong": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "noise": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "nits": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "words": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "labels": {
+            "type": "object",
+            "patternProperties": {
+              "^.*$": {
+                "type": "integer",
+                "minimum": 0
+              }
+            }
+          },
+          "bySeverity": {
+            "type": "object",
+            "patternProperties": {
+              "^.*$": {
+                "type": "object",
+                "required": ["total", "hit"],
+                "properties": {
+                  "total": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "hit": {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                },
+                "additionalProperties": false
+              }
+            },
+            "description": "Issues the change caused and those hit, by severity: recall's counts."
+          },
+          "context": {
+            "type": "object",
+            "required": ["total", "hit"],
+            "properties": {
+              "total": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "hit": {
+                "type": "integer",
+                "minimum": 0
+              }
+            },
+            "additionalProperties": false
+          },
+          "byCategory": {
+            "type": "object",
+            "patternProperties": {
+              "^.*$": {
+                "type": "object",
+                "required": ["total", "hit"],
+                "properties": {
+                  "total": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "hit": {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                },
+                "additionalProperties": false
+              }
+            }
+          },
+          "bySource": {
+            "type": "object",
+            "patternProperties": {
+              "^.*$": {
+                "type": "object",
+                "required": ["total", "hit"],
+                "properties": {
+                  "total": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "hit": {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                },
+                "additionalProperties": false
+              }
+            }
+          },
+          "missed": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["id", "issue", "mechanism"],
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "{variant}:{case}/{trial}#{finding}, the variant only where several are covered."
+                },
+                "issue": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "mechanism": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "additionalProperties": false
+            },
+            "description": "Every must-fix the change caused that no finding hit."
+          },
+          "agreement": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Mean κ between the scorer's two voters over the cases counted."
+          },
+          "restoreMs": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "trial": {
+            "type": "object",
+            "required": ["runs", "ms", "estimate", "complete"],
+            "properties": {
+              "runs": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "ms": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "estimate": {
+                "anyOf": [
+                  {
+                    "type": "number",
+                    "minimum": 0
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "complete": {
+                "type": "boolean"
+              }
+            },
+            "additionalProperties": false
+          },
+          "score": {
+            "type": "object",
+            "required": ["runs", "ms", "estimate", "complete"],
+            "properties": {
+              "runs": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "ms": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "estimate": {
+                "anyOf": [
+                  {
+                    "type": "number",
+                    "minimum": 0
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "complete": {
+                "type": "boolean"
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "additionalProperties": false
+      },
+      "minItems": 1,
+      "description": "A column per variant, or per variant and scorer with two scorers, over the cases every column counts."
+    },
+    "leftOut": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["variant", "scorer"],
+        "properties": {
+          "variant": {
+            "type": "string",
+            "minLength": 1
+          },
+          "scorer": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "additionalProperties": false
+      },
+      "description": "Columns that count no case, left out so the others still compare over cases in common."
+    },
+    "comparison": {
+      "type": "object",
+      "required": ["baseline", "cases", "against"],
+      "properties": {
+        "baseline": {
+          "type": "string",
+          "minLength": 1
+        },
+        "cases": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "description": "The case ids every column counts."
+        },
+        "against": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["variant", "won", "lost", "tied"],
+            "properties": {
+              "variant": {
+                "type": "string",
+                "minLength": 1
+              },
+              "won": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "{variant}:{case}/{trial}#{finding}, the variant only where several are covered."
+                }
+              },
+              "lost": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "{variant}:{case}/{trial}#{finding}, the variant only where several are covered."
+                }
+              },
+              "tied": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "{variant}:{case}/{trial}#{finding}, the variant only where several are covered."
+                }
+              }
+            },
+            "additionalProperties": false
+          },
+          "description": "Each variant against the baseline, by weighted recall then precision."
+        }
+      },
+      "additionalProperties": false
+    },
+    "agreement": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["variant", "findings", "kappa", "differ"],
+        "properties": {
+          "variant": {
+            "type": "string",
+            "minLength": 1
+          },
+          "findings": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "kappa": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "differ": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["id", "labels"],
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "{variant}:{case}/{trial}#{finding}, the variant only where several are covered."
+                },
+                "labels": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "minItems": 2,
+                  "maxItems": 2
+                }
+              },
+              "additionalProperties": false
+            },
+            "description": "Findings the two scorers label differently, in --scorer order."
+          }
+        },
+        "additionalProperties": false
+      },
+      "description": "With two scorers: how alike they label the same findings, per variant."
+    }
+  },
+  "additionalProperties": false,
+  "description": "What awf-lab report prints with --json."
+}

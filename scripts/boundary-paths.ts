@@ -6,9 +6,15 @@ export const WORKSPACE_MANIFEST_GLOBS = [
   "examples/package.json",
 ] as const;
 
-/** The trusted operator loader is the sole module whose dependency is selected by a user path. */
+/**
+ * The modules whose dependency is selected by a user path: the operator's workflow loader, and
+ * awf-lab's, which loads variant and judge files.
+ */
 export function allowsComputedWorkflowImport(repositoryPath: string): boolean {
-  return repositoryPath === "packages/engine/src/workflow-loader.ts";
+  return (
+    repositoryPath === "packages/engine/src/workflow-loader.ts" ||
+    repositoryPath === "packages/autoresearch/src/review/lab/load.ts"
+  );
 }
 
 export function escapedPathImport(

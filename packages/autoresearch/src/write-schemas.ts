@@ -1,6 +1,6 @@
 // bun packages/autoresearch/src/write-schemas.ts — regenerates schema/*.schema.json from format.ts.
 import { join } from "node:path";
-import { renderSchemaFile, SCHEMA_FILES } from "./review/schema-files";
+import { renderSchemaFile, SCHEMA_FILES } from "./review/format/schema-files";
 
 const SCHEMA_DIR = join(import.meta.dir, "..", "schema");
 

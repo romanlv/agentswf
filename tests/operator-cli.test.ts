@@ -3,9 +3,14 @@ import { existsSync, readdirSync, readFileSync, realpathSync } from "node:fs";
 import { join } from "node:path";
 import { RUNTIMES } from "../examples/quick-check/workflow";
 import { OUTPUT_RECORD_VERSION } from "../packages/contract/src/records";
+import { DeadlineExceededError } from "../packages/contract/src/workflow/timing";
+import { PUBLISHED_PRICES } from "../packages/engine/src/accounting/prices";
+import { summarizeRun } from "../packages/engine/src/accounting/summary";
+import { WorkflowCancelledError } from "../packages/engine/src/deadlines";
 import { createFakeDecisionProvider } from "../packages/engine/src/decisions/fake";
-import { runOperatorCli } from "../packages/engine/src/operator-cli";
+import { runOperatorCli, runOutcome } from "../packages/engine/src/operator-cli";
 import { createTempRunDirs, submit } from "../packages/engine/src/testing";
+import { WorkflowRunError } from "../packages/engine/src/workflow-runner";
 import type { AgentRuntimeConfig, AgentSessionAdapter } from "../packages/harness/src/adapter";
 import { createSingleSessionHostFactory } from "../packages/harness/src/single-session-host";
 import { createFakeAdapter } from "../packages/harness/src/testing/fake";
@@ -691,22 +696,112 @@ describe("awf run", () => {
     }
   });
 
-  test("a run past its deadline is recorded as failed, not cancelled", async () => {
-    const root = runDirs.tempRunDir();
-    const workflow = join(root, "waits.js");
-    await Bun.write(workflow, executableModule("return null;", "await new Promise(() => {});"));
-    const errors: string[] = [];
+  describe("a run its own deadline ended is timed-out; a deadline the workflow set is its failure", () => {
+    const never = "await new Promise(() => {});";
+    const endedBy = async (runBody: string, timeout: string, adapter?: AgentSessionAdapter) => {
+      const root = runDirs.tempRunDir();
+      const workflow = join(root, "waits.js");
+      await Bun.write(workflow, executableModule("return null;", runBody));
+      const errors: string[] = [];
+      const exitCode = await runOperatorCli(
+        ["run", "--timeout", timeout, "--run-root", runDirs.tempRunDir(), workflow],
+        {
+          cwd: ROOT,
+          stderr: (text) => errors.push(text),
+          installRuntime: adapter
+            ? async () => ({ config: runtime(adapter), cleanup: async () => undefined })
+            : emptyRuntime,
+        },
+      );
+      const saved = JSON.parse(
+        readFileSync(join(retainedRunDir(retainedRoot(errors.join("\n"))), "output.json"), "utf8"),
+      );
+      return { exitCode, saved, stderr: errors.join("\n") };
+    };
 
-    const exitCode = await runOperatorCli(
-      ["run", "--timeout", "100ms", "--run-root", runDirs.tempRunDir(), workflow],
-      { cwd: ROOT, stderr: (text) => errors.push(text), installRuntime: emptyRuntime },
-    );
+    test("the body waits past the run's deadline", async () => {
+      const ended = await endedBy(never, "500ms");
+      expect(ended.exitCode).toBe(1);
+      expect(ended.saved).toMatchObject({
+        version: OUTPUT_RECORD_VERSION,
+        outcome: "timed-out",
+        accounting: { totals: { agents: 0 } },
+      });
+      expect(ended.stderr).toContain("awf: run timed out;");
+    });
 
-    expect(exitCode).toBe(1);
-    const saved = JSON.parse(
-      readFileSync(join(retainedRunDir(retainedRoot(errors.join("\n"))), "output.json"), "utf8"),
-    );
-    expect(saved).toMatchObject({ outcome: "failed", accounting: { totals: { agents: 0 } } });
+    test("a stage with no deadline of its own outlives the run", async () => {
+      const ended = await endedBy(
+        `await workflow.parallel([1, 2], async () => { ${never} });`,
+        "500ms",
+      );
+      expect(ended.exitCode).toBe(1);
+      expect(ended.saved.outcome).toBe("timed-out");
+      expect(ended.stderr).toContain("awf: run timed out;");
+    });
+
+    test("a stage deadline the workflow set and let escape is failed", async () => {
+      const ended = await endedBy(
+        `await workflow.parallel([1], async () => { ${never} }, { deadline: { unixMilliseconds: Date.now() + 50 } });`,
+        "10s",
+      );
+      expect(ended.exitCode).toBe(1);
+      expect(ended.saved.outcome).toBe("failed");
+      expect(ended.stderr).toContain("awf: run failed;");
+    });
+
+    test("a turn that timed out, turned into the workflow's own error, is failed", async () => {
+      const adapter = createFakeAdapter({
+        harnesses: ["claude", "codex"],
+        script: () => ({
+          act: (context) =>
+            new Promise<void>((resolve) => {
+              if (context.signal.aborted) return resolve();
+              context.signal.addEventListener("abort", () => resolve(), { once: true });
+            }),
+        }),
+      });
+      const ended = await endedBy(
+        `const agent = await workflow.agents.open({ key: "a", runtime: "claude" });
+         const { outcome } = await agent.run({ prompt: "p", timeoutMs: 50, nudge: false });
+         throw new Error("the turn " + outcome.kind);`,
+        "10s",
+        adapter,
+      );
+      expect(ended.saved.outcome).toBe("failed");
+      expect(ended.saved.error).toContain("the turn timed-out");
+    });
+
+    // Whichever fires first ends the body: a signal once the deadline has also passed still leaves
+    // the cancellation as the body's failure. The aggregate case guards the precedence alone.
+    test("cancellation wins when the signal and the deadline both fired", () => {
+      const deadline = { unixMilliseconds: 1_000 };
+      const times = { startedAt: "2026-09-27T00:00:00Z", finishedAt: "2026-09-27T00:00:01Z" };
+      const run = {
+        runId: "r",
+        usage: [],
+        ...times,
+        accounting: summarizeRun([], PUBLISHED_PRICES, times, []),
+      };
+      const timedOut = new WorkflowRunError(new DeadlineExceededError(deadline), run);
+      expect(runOutcome(timedOut, deadline)).toBe("timed-out");
+      expect(runOutcome(timedOut, { unixMilliseconds: 2_000 })).toBe("failed");
+      const cancelled = new WorkflowRunError(new WorkflowCancelledError("SIGINT"), run);
+      expect(runOutcome(cancelled, deadline)).toBe("cancelled");
+      const both = new WorkflowRunError(
+        new AggregateError([
+          new DeadlineExceededError(deadline),
+          new WorkflowCancelledError("SIGINT"),
+        ]),
+        run,
+      );
+      expect(runOutcome(both, deadline)).toBe("cancelled");
+      const cleanupFailed = new WorkflowRunError(
+        new AggregateError([new DeadlineExceededError(deadline), new Error("cleanup")]),
+        run,
+      );
+      expect(runOutcome(cleanupFailed, deadline)).toBe("timed-out");
+    });
   });
 
   test("cancels active agents, cleans the runtime, and exits 130 on interruption", async () => {
@@ -854,7 +949,7 @@ function executableModule(prepareBody: string, runBody: string, members = ""): s
       kind: "awf.executable-workflow/v1",
       definition: {
         meta: { name: "fixture", description: "fixture workflow" },
-        async run() { ${runBody} },
+        async run(workflow, args) { ${runBody} },
       },
       prepare() { ${prepareBody} },
       ${members}

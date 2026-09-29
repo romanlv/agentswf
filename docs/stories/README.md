@@ -56,6 +56,10 @@ status is one of `todo`, `draft`, `ready`, `in-progress`, `blocked`, `awaiting-h
 - [`007` — Give each agent the skills the workflow names](007-agent-skills.md) —
   `awaiting-human-review` — A workflow names each agent's skills, as a path or a public skill in a git repository,
   and the agent sees exactly those, on the host or in a sandbox.
+- [`008` — Score a review variant against a case's answer key](008-review-scorer.md) —
+  `awaiting-human-review` — `awf-lab` runs a review variant and a scorer per case, keeps each trial's
+  findings and the scorer's labels as records, and reports recall by severity, precision, wrong
+  claims, noise, cost and time; `output.json` gains `timed-out` first.
 - [`009` — Install agents.wf from npm on another machine](009-publish-agentswf.md) —
   `draft` — One naming rule, a publishable package `agentswf` that installs and runs a workflow
   in an empty directory, docs for a stranger, and 0.0.1 published and tried on a second machine.
