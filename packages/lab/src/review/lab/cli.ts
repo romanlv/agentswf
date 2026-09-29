@@ -15,7 +15,7 @@ import {
 } from "../format/output";
 import type { PartialScore, Score } from "../format/records";
 import { formatOf, renderSchemaFile, SCHEMA_FILES, type SchemaName } from "../format/schema-files";
-import type { DefinedScorer, DefinedVariant } from "../format/variant";
+import type { ScorerSettings, VariantSettings } from "../format/variant";
 import { type Address, formatAddress, parseAddress } from "./address";
 import {
   type CaseInfo,
@@ -281,7 +281,7 @@ type Inventory = Awaited<ReturnType<typeof inventory>>;
  * `{name}@{version}` is a stored version, a prefix such as `1` or `1.2` being enough: the file's
  * when it still declares it, otherwise known only by its records.
  */
-async function subjectOf<D extends DefinedVariant | DefinedScorer>(
+async function subjectOf<D extends VariantSettings | ScorerSettings>(
   workspace: Workspace,
   kind: "variant" | "scorer",
   text: string,
@@ -459,15 +459,15 @@ type Context = {
   options: Options;
   dataset: string;
   cwd: string;
-  variant: (text: string) => Promise<Subject<DefinedVariant>>;
-  scorer: (text: string) => Promise<Subject<DefinedScorer>>;
+  variant: (text: string) => Promise<Subject<VariantSettings>>;
+  scorer: (text: string) => Promise<Subject<ScorerSettings>>;
   /** How text for a person is styled, and how wide its lines may run. */
   view: { paint: Paint; width?: number };
 };
 
 /** The command's variants, each once: two names for one version would count it twice. */
 async function variantsOf(context: Context, names: readonly string[]) {
-  const variants: Subject<DefinedVariant>[] = [];
+  const variants: Subject<VariantSettings>[] = [];
   for (const name of names) {
     const variant = await context.variant(name);
     const same = variants.find((v) => v.key === variant.key);
@@ -625,7 +625,7 @@ async function runOrScore(
   const baseline = baselineName ? await context.variant(baselineName) : undefined;
   const { ids } = await selectedCases(workspace, options);
   const cases = await readCases(workspace, dataset, ids);
-  const chosen: { variant: Subject<DefinedVariant>; chosen: Map<string, Choice> }[] = [];
+  const chosen: { variant: Subject<VariantSettings>; chosen: Map<string, Choice> }[] = [];
   for (const variant of variants) {
     // On score, the predicates read the scores kept for the rest; --scorer is the one being run.
     const reading = restFrom ?? scorer;
@@ -723,7 +723,7 @@ async function report(context: Context, names: readonly string[]): Promise<strin
   const variants = await variantsOf(context, names);
   const baselineName =
     scorers.length === 1 ? (options.baseline ?? workspace.config.baseline) : undefined;
-  let baseline: Subject<DefinedVariant> | undefined;
+  let baseline: Subject<VariantSettings> | undefined;
   if (baselineName) {
     const named = await context.variant(baselineName);
     baseline = variants.find((v) => v.key === named.key);
@@ -735,7 +735,7 @@ async function report(context: Context, names: readonly string[]): Promise<strin
   const { ids, entries } = await selectedCases(workspace, options);
   const cases = await readCases(workspace, dataset, ids);
   const reading = scorers[0]!;
-  const chosenBy = new Map<Subject<DefinedVariant>, Set<string>>();
+  const chosenBy = new Map<Subject<VariantSettings>, Set<string>>();
   for (const variant of variants) {
     if (variant === baseline && variants.length > 1) continue;
     const views = await viewsOf(context, variant, reading, cases, baseline);
@@ -1047,8 +1047,8 @@ export async function runLab(
       options,
       dataset,
       cwd,
-      variant: (text) => subjectOf<DefinedVariant>(workspace, "variant", text, cwd, inventoryOnce),
-      scorer: (text) => subjectOf<DefinedScorer>(workspace, "scorer", text, cwd, inventoryOnce),
+      variant: (text) => subjectOf<VariantSettings>(workspace, "variant", text, cwd, inventoryOnce),
+      scorer: (text) => subjectOf<ScorerSettings>(workspace, "scorer", text, cwd, inventoryOnce),
       view:
         !environment.stdout && process.stdout.isTTY
           ? { paint: process.env.NO_COLOR ? PLAIN : ANSI, width: process.stdout.columns }

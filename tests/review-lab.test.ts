@@ -5,7 +5,6 @@ import {
   mkdirSync,
   mkdtempSync,
   readdirSync,
-  realpathSync,
   renameSync,
   rmSync,
 } from "node:fs";
@@ -30,6 +29,10 @@ import { AWF, awfArgv, type Runner, type RunRequest } from "../packages/lab/src/
 const REVIEW_INDEX = join(import.meta.dir, "../packages/lab/src/review/index.ts");
 const CANNED = join(import.meta.dir, "fixtures/lab/canned.workflow.ts");
 const EXACT = join(import.meta.dir, "fixtures/lab/exact-judge.workflow.ts");
+const TRIAL = "trial";
+const SCORE = "score";
+/** What a run was: `awf run` runs the variant or scorer file itself. */
+const stepOf = (request: RunRequest) => (request.workflow.endsWith(".scorer.ts") ? SCORE : TRIAL);
 
 const roots: string[] = [];
 afterAll(() => {
@@ -179,7 +182,6 @@ import canned from ${JSON.stringify(CANNED)};
 
 export default defineReviewVariant({
   workflow: canned,
-  file: new URL(${JSON.stringify(`file://${CANNED}`)}),
   argv: ["--answers", ${JSON.stringify(answers)}, "--head", "{head}", "--request", "{request}", "--range", "{base}...HEAD"],
   timeout: "1m",
   read: (result) => result.findings.map((f) => ({ path: f.file, line: f.line, text: f.claim })),
@@ -197,7 +199,6 @@ import exact from ${JSON.stringify(EXACT)};
 
 export default defineReviewScorer({
   workflow: exact,
-  file: new URL(${JSON.stringify(`file://${EXACT}`)}),
   argv: ["--mode", ${JSON.stringify(mode)}],
   timeout: "1m",
 });
@@ -254,7 +255,7 @@ function inProcess(options: { spend?: number } = {}) {
       ...(record ? { record } : {}),
     };
   };
-  return { runner, calls, trials: () => calls.filter((c) => c.workflow === CANNED).length };
+  return { runner, calls, trials: () => calls.filter((c) => stepOf(c) === TRIAL).length };
 }
 
 async function lab(ws: Workspace, argv: string[], runner?: Runner, confirm = true) {
@@ -309,7 +310,7 @@ describe("awf-lab", () => {
     expect(first.stderr).toContain("app-1: trial succeeded, 3 findings");
     expect(first.exitCode).toBe(0);
     // Every trial, then every score, in the seeded order: a scorer never runs beside a trial.
-    expect(runs.calls.map((c) => c.workflow)).toEqual([CANNED, CANNED, EXACT, EXACT]);
+    expect(runs.calls.map(stepOf)).toEqual([TRIAL, TRIAL, SCORE, SCORE]);
     const trial = runs.calls[0]!;
     expect(trial.argv).toContain(`${git(join(ws.root, "project"), "rev-parse", "main")}...HEAD`);
     expect(trial.argv.join(" ")).not.toContain("{");
@@ -350,7 +351,7 @@ describe("awf-lab", () => {
     const rescore = inProcess();
     expect((await lab(ws, ["run", "canned"], rescore.runner)).exitCode).toBe(0);
     // app-2's trial found nothing, so its score is recorded without a scorer's run.
-    expect(rescore.calls.map((c) => c.workflow)).toEqual([EXACT]);
+    expect(rescore.calls.map(stepOf)).toEqual([SCORE]);
 
     const edited = await fileOf(ws, "ideas/canned.variant.ts");
     await ws.variant("canned", withVersion(`${edited}// a change\n`, "1.0.1"));
@@ -378,7 +379,7 @@ describe("awf-lab", () => {
     const run = await lab(ws, ["score", "canned", "--scorer", "again"], scored.runner);
     expect(run.exitCode).toBe(0);
     expect(scored.trials()).toBe(0);
-    expect(scored.calls.map((c) => c.workflow)).toEqual([EXACT]);
+    expect(scored.calls.map(stepOf)).toEqual([SCORE]);
     const plan = await lab(ws, ["score", "canned", "--scorer", "again", "--dry-run"]);
     expect(plan.stdout).toMatch(/app-2 +skip: no trial on file/);
     expect(plan.stdout).toMatch(/app-1 +reuse trial \S+; reuse score/);
@@ -391,12 +392,12 @@ describe("awf-lab", () => {
     const stopped = await lab(ws, ["run", "canned", "--budget", "1.5"], priced.runner);
     expect(stopped.exitCode).toBe(3);
     // No history: the first trial runs; the second is then estimated at $1, and $2 crosses $1.5.
-    expect(priced.calls.map((c) => c.workflow)).toEqual([CANNED]);
+    expect(priced.calls.map(stepOf)).toEqual([TRIAL]);
     expect(stopped.stderr).toContain("budget: stopped before the trial of");
 
     const resumed = inProcess({ spend: 1 });
     expect((await lab(ws, ["run", "canned", "--budget", "10"], resumed.runner)).exitCode).toBe(0);
-    expect(resumed.calls.map((c) => c.workflow)).toEqual([CANNED, EXACT, EXACT]);
+    expect(resumed.calls.map(stepOf)).toEqual([TRIAL, SCORE, SCORE]);
     expect((await report(ws, "canned")).columns[0]!.cases).toHaveLength(2);
   });
 
@@ -405,7 +406,7 @@ describe("awf-lab", () => {
       `import { defineReviewVariant, ${workflow} } from "@agentswf/lab/review";
 
 export default defineReviewVariant({
-  ...${workflow},
+  workflow: ${workflow},
   argv: ${argv},
   timeout: "1m",
   read: (findings) => findings as never,
@@ -490,15 +491,15 @@ export default defineReviewVariant({
     await answer(ws, { "app-1": [finding("a")], "app-2": [finding("b")] });
     const runs = inProcess();
     const both = await json<RunDocument>(ws, ["run", "canned", "other"], runs.runner);
-    expect(runs.calls.map((c) => c.workflow)).toEqual([
-      CANNED,
-      CANNED,
-      CANNED,
-      CANNED,
-      EXACT,
-      EXACT,
-      EXACT,
-      EXACT,
+    expect(runs.calls.map(stepOf)).toEqual([
+      TRIAL,
+      TRIAL,
+      TRIAL,
+      TRIAL,
+      SCORE,
+      SCORE,
+      SCORE,
+      SCORE,
     ]);
     // In the seeded order, app-2 first.
     expect(both.steps.map((s) => s.id)).toEqual([
@@ -536,20 +537,12 @@ export default defineReviewVariant({
     expect(failed.steps.map((s) => s.id)).toEqual(["app-1"]);
   });
 
-  test("a variant whose file is not the workflow it imports is refused before anything runs", async () => {
-    await ws.variant(
-      "crossed",
-      (await ws.variant("canned").then((f) => Bun.file(f).text())).replace(
-        `file: new URL(${JSON.stringify(`file://${CANNED}`)})`,
-        `file: new URL(${JSON.stringify(`file://${EXACT}`)})`,
-      ),
-    );
+  test("a file whose default export is a workflow but not a variant is refused before anything runs", async () => {
+    await ws.variant("bare", `export { default } from ${JSON.stringify(CANNED)};\n`);
     const runs = inProcess();
-    const crossed = await lab(ws, ["run", "crossed"], runs.runner);
-    expect(crossed.exitCode).not.toBe(0);
-    expect(crossed.stderr).toContain(
-      `workflow is not the default export of file ${realpathSync(EXACT)}`,
-    );
+    const bare = await lab(ws, ["run", "bare"], runs.runner);
+    expect(bare.exitCode).not.toBe(0);
+    expect(bare.stderr).toContain("the default export is not a variant or scorer");
     expect(runs.calls).toHaveLength(0);
   });
 
@@ -661,7 +654,7 @@ export default defineReviewVariant({
     });
     const retried = inProcess();
     expect((await lab(ws, ["run", "canned"], retried.runner)).exitCode).toBe(1);
-    expect(retried.calls.map((c) => c.workflow)).toEqual([EXACT]);
+    expect(retried.calls.map(stepOf)).toEqual([SCORE]);
     const shown = await json<ShowDocument>(ws, ["show", "canned", "app-1"]);
     expect(shown.scores[0]).toMatchObject({
       status: "failed",
@@ -681,7 +674,7 @@ export default defineReviewVariant({
     const one = inProcess({ spend: 1 });
     const stopped = await lab(ws, ["run", "canned", "--budget", "1.5"], one.runner);
     expect(stopped.exitCode).toBe(3);
-    expect(one.calls.map((c) => c.workflow)).toEqual([CANNED]);
+    expect(one.calls.map(stepOf)).toEqual([TRIAL]);
     expect(stopped.stderr).toContain("budget: stopped before scoring");
     const estimate = await json<RunDocument>(ws, ["run", "canned", "--dry-run"]);
     expect(estimate.estimate).toEqual({ trials: 0, scores: 1, usd: 1 });
@@ -714,7 +707,7 @@ export default defineReviewVariant({
     };
     expect((await lab(other, ["run", "canned", "--jobs", "2"], counted)).exitCode).toBe(0);
     expect(most).toBe(2);
-    expect(runs.calls.map((c) => c.workflow)).toEqual([CANNED, CANNED, EXACT, EXACT]);
+    expect(runs.calls.map(stepOf)).toEqual([TRIAL, TRIAL, SCORE, SCORE]);
     const together = (await report(other, "canned")).columns[0]!;
     expect(together.labels).toEqual(alone.labels);
     expect(together.bySeverity).toEqual(alone.bySeverity);
@@ -734,7 +727,7 @@ export default defineReviewVariant({
       ["score", "canned", "--budget", "1.5", "--jobs", "2"],
       parallel.runner,
     );
-    expect(parallel.calls.map((c) => c.workflow)).toEqual([EXACT]);
+    expect(parallel.calls.map(stepOf)).toEqual([SCORE]);
     expect(stopped.stderr).toContain("budget: stopped before scoring");
 
     // A running step that costs less than its estimate leaves room: the waiting one then starts.
@@ -744,7 +737,7 @@ export default defineReviewVariant({
       ["score", "canned", "--budget", "1.5", "--jobs", "2"],
       cheaper.runner,
     );
-    expect(cheaper.calls.map((c) => c.workflow)).toEqual([EXACT, EXACT]);
+    expect(cheaper.calls.map(stepOf)).toEqual([SCORE, SCORE]);
     expect(both.stderr).not.toContain("budget: stopped");
   });
 
@@ -836,7 +829,7 @@ export default defineReviewVariant({
     const rescored = inProcess();
     const scored = await lab(ws, ["score", old, "--scorer", "again"], rescored.runner);
     expect(scored.exitCode).toBe(0);
-    expect(rescored.calls.map((c) => c.workflow)).toEqual([EXACT, EXACT]);
+    expect(rescored.calls.map(stepOf)).toEqual([SCORE, SCORE]);
     expect((await lab(ws, ["report", "canned@9"])).stderr).toContain(
       "no stored version of canned matches 9",
     );
@@ -985,7 +978,7 @@ export default defineReviewVariant({
     );
     expect(run.exitCode).toBe(0);
     expect(chosen.trials()).toBe(0);
-    expect(chosen.calls.map((c) => c.workflow)).toEqual([EXACT]);
+    expect(chosen.calls.map(stepOf)).toEqual([SCORE]);
     expect(chosen.calls[0]!.argv).toContain("--settled");
     expect(run.stderr).toContain("app-1#1: was noise, now noise");
     expect(run.stderr).toContain("app-1#2: was hit:K2, now noise (asked again");

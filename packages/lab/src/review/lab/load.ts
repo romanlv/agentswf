@@ -1,10 +1,11 @@
 import { realpathSync } from "node:fs";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { pathToFileURL } from "node:url";
+import { EXECUTABLE_WORKFLOW_KIND } from "@agentswf/contract/workflow";
 import {
-  type DefinedScorer,
-  type DefinedVariant,
   REVIEW_SCORER_KIND,
   REVIEW_VARIANT_KIND,
+  type ScorerSettings,
+  type VariantSettings,
 } from "../format/variant";
 
 const RESOLVE_HINT =
@@ -23,56 +24,38 @@ async function load(file: string): Promise<Record<string, unknown>> {
     const text = String(error);
     throw new Error(`${file}: ${text}${text.includes("@agentswf/lab") ? `\n${RESOLVE_HINT}` : ""}`);
   }
-  if (typeof loaded !== "object" || loaded === null) {
+  const value = loaded as { kind?: unknown; review?: unknown } | null | undefined;
+  // What `awf run` will load: the variant or scorer file is its workflow.
+  if (value?.kind !== EXECUTABLE_WORKFLOW_KIND || typeof value.review !== "object") {
     throw new Error(`${file}: the default export is not a variant or scorer`);
   }
-  const value = loaded as Record<string, unknown>;
-  const argv = value.argv;
+  const review = value.review as Record<string, unknown> | null;
+  const argv = review?.argv;
   if (
-    typeof value.workflow !== "object" ||
-    value.workflow === null ||
-    !(value.file instanceof URL) ||
+    !review ||
     !Array.isArray(argv) ||
     !argv.every((argument) => typeof argument === "string") ||
-    typeof value.timeout !== "string"
+    typeof review.timeout !== "string"
   ) {
-    throw new Error(
-      `${file}: needs workflow (the imported workflow), file (its URL), argv (strings) and timeout`,
-    );
+    throw new Error(`${file}: needs workflow, argv (strings) and timeout`);
   }
-  await sameWorkflow(file, value.workflow, value.file);
-  return value;
+  return review;
 }
 
-/** The file `awf run` will load must be the one the types came from: the same module, so the same object. */
-async function sameWorkflow(file: string, workflow: object, url: URL): Promise<void> {
-  let path: string;
-  let exported: unknown;
-  try {
-    path = realpathSync(fileURLToPath(url));
-    exported = (await import(pathToFileURL(path).href)).default;
-  } catch (error) {
-    throw new Error(`${file}: file ${url.href}: ${String(error)}`);
-  }
-  if (exported !== workflow) {
-    throw new Error(`${file}: workflow is not the default export of file ${path}`);
-  }
-}
-
-/** A variant file's default export, as `defineReviewVariant` made it. */
-export async function loadVariant(file: string): Promise<DefinedVariant> {
+/** A variant file's settings, as `defineReviewVariant` made them. */
+export async function loadVariant(file: string): Promise<VariantSettings> {
   const value = await load(file);
   if (value.kind !== REVIEW_VARIANT_KIND || typeof value.read !== "function") {
     throw new Error(`${file}: the default export is not a defineReviewVariant(…)`);
   }
-  return value as unknown as DefinedVariant;
+  return value as unknown as VariantSettings;
 }
 
-/** A scorer file's default export, as `defineReviewScorer` made it. */
-export async function loadScorer(file: string): Promise<DefinedScorer> {
+/** A scorer file's settings, as `defineReviewScorer` made them. */
+export async function loadScorer(file: string): Promise<ScorerSettings> {
   const value = await load(file);
   if (value.kind !== REVIEW_SCORER_KIND) {
     throw new Error(`${file}: the default export is not a defineReviewScorer(…)`);
   }
-  return value as unknown as DefinedScorer;
+  return value as unknown as ScorerSettings;
 }

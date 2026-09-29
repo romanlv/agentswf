@@ -1,7 +1,6 @@
 import { copyFileSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
 import { restore } from "../fixtures/git";
 import { digestFixture, digestOf } from "../fixtures/seal";
 import { canonicalJson, SET_FILE } from "../fixtures/set";
@@ -24,7 +23,7 @@ import {
   SCORER_RESULT_FORMAT,
 } from "../format/scoring";
 import { checkFixtureSet, checkReviewFindings, describeProblems } from "../format/validate";
-import type { DefinedScorer, DefinedVariant } from "../format/variant";
+import type { ScorerSettings, VariantSettings } from "../format/variant";
 import { checkScorerResult } from "../judge/check";
 import { categoryOf } from "../judge/panel";
 import { agreement } from "../metrics/metrics";
@@ -142,7 +141,7 @@ export async function statesOf(
 
 /** One variant's steps, and what its earlier trials cost; the mean estimates the next. */
 export type VariantPlan = {
-  variant: Subject<DefinedVariant>;
+  variant: Subject<VariantSettings>;
   steps: Step[];
   trialHistory: (number | undefined)[];
 };
@@ -159,9 +158,9 @@ export async function planRun(
   options: {
     command: "run" | "score";
     dataset: string;
-    variants: readonly { variant: Subject<DefinedVariant>; chosen: ReadonlyMap<string, Choice> }[];
-    scorer: Subject<DefinedScorer>;
-    restFrom?: Subject<DefinedScorer>;
+    variants: readonly { variant: Subject<VariantSettings>; chosen: ReadonlyMap<string, Choice> }[];
+    scorer: Subject<ScorerSettings>;
+    restFrom?: Subject<ScorerSettings>;
     cases: readonly CaseInfo[];
   },
 ): Promise<Planned> {
@@ -297,11 +296,12 @@ async function checkout(lab: Lab, info: CaseInfo, target: string): Promise<numbe
 async function runTrial(
   lab: Lab,
   dataset: string,
-  variant: Subject<DefinedVariant>,
+  variant: Subject<VariantSettings>,
   info: CaseInfo,
 ): Promise<Trial> {
-  const defined = variant.defined;
-  if (!defined) throw new Error(`${variant.label} is a stored version; only its file can run`);
+  const { defined, file } = variant;
+  if (!defined || !file)
+    throw new Error(`${variant.label} is a stored version; only its file can run`);
   const scratch = mkdtempSync(join(tmpdir(), "awf-lab-trial-"));
   try {
     const code = join(scratch, "checkout");
@@ -313,7 +313,7 @@ async function runTrial(
     // The dataset's folder, so a control that reads the key names no absolute path in its argv.
     const folder = dirname(info.dir);
     const result = await lab.runner({
-      workflow: fileURLToPath(defined.file),
+      workflow: file,
       cwd: code,
       timeout: defined.timeout,
       argv: fill(defined.argv, { base, head, request, dataset: folder }),
@@ -363,13 +363,14 @@ type Scored = Pick<Score, "run" | "agreement" | "result">;
  */
 async function runScorer(
   lab: Lab,
-  scorer: Subject<DefinedScorer>,
+  scorer: Subject<ScorerSettings>,
   info: CaseInfo,
   trial: Trial,
   settled?: readonly FindingLabel[],
 ): Promise<Scored> {
-  const defined = scorer.defined;
-  if (!defined) throw new Error(`${scorer.label} is a stored version; only its file can run`);
+  const { defined, file } = scorer;
+  if (!defined || !file)
+    throw new Error(`${scorer.label} is a stored version; only its file can run`);
   const scratch = mkdtempSync(join(tmpdir(), "awf-lab-score-"));
   try {
     const code = join(scratch, "checkout");
@@ -385,7 +386,7 @@ async function runScorer(
       argv.push("--settled", file);
     }
     const result = await lab.runner({
-      workflow: fileURLToPath(defined.file),
+      workflow: file,
       cwd: code,
       timeout: defined.timeout,
       argv,
@@ -438,7 +439,7 @@ async function runScorer(
 function scoreOf(
   lab: Lab,
   dataset: string,
-  scorer: Subject<DefinedScorer>,
+  scorer: Subject<ScorerSettings>,
   info: CaseInfo,
   trial: Trial,
 ) {
@@ -457,7 +458,7 @@ function scoreOf(
 async function scoreTrial(
   lab: Lab,
   dataset: string,
-  scorer: Subject<DefinedScorer>,
+  scorer: Subject<ScorerSettings>,
   info: CaseInfo,
   trial: Trial,
 ): Promise<Score> {
@@ -488,7 +489,7 @@ async function scoreTrial(
 async function scoreChosen(
   lab: Lab,
   dataset: string,
-  scorer: Subject<DefinedScorer>,
+  scorer: Subject<ScorerSettings>,
   info: CaseInfo,
   trial: Trial,
   chosen: { picked: readonly number[]; asked: readonly number[]; restFrom: ScoreOnFile },
@@ -586,7 +587,7 @@ export async function executePlan(
   lab: Lab,
   options: {
     dataset: string;
-    scorer: Subject<DefinedScorer>;
+    scorer: Subject<ScorerSettings>;
     cases: readonly CaseInfo[];
     planned: Planned;
     budget?: number;

@@ -75,7 +75,6 @@ import singleAgentReview from "@agentswf/examples/single-agent-review/workflow.t
 
 export default defineReviewVariant({
   workflow: singleAgentReview,
-  file: new URL(import.meta.resolve("@agentswf/examples/single-agent-review/workflow.ts")),
   argv: ["--range", "{base}...HEAD", "--request", "{request}"],
   timeout: "30m",
   read: (result) =>
@@ -86,8 +85,8 @@ export default defineReviewVariant({
 `awf-lab` fills `{base}`, `{head}` and `{request}` from the snapshot, and `{dataset}` with the
 dataset's folder, which only a control that reads the key needs. It runs `awf run` in the
 restored checkout, and turns the result into `ReviewFinding[]` (`{ path?, line?, text,
-severity? }`) with `read`, which `tsc` checks against the type of `workflow`. `file` is what
-`awf run` loads, and `awf-lab` refuses a file whose default export is not `workflow`. A run that
+severity? }`) with `read`, which `tsc` checks against the type of `workflow`. The variant file's default export is the
+workflow itself, with the rest beside it, so `awf run` loads the variant file. A run that
 fails or times out is kept as a failed trial with no findings; it counts as finding nothing.
 
 **A scorer** is a workflow too, named by a scorer file (`{name}.scorer.ts`, made with
@@ -1058,18 +1057,18 @@ Built as [[#The command line, revised]] says. The data repository's dataset fold
   read it in those written before; `list`, `run --json`, `report` and its "uncommitted" note drop
   it, and provenance no longer walks the import graph.
 
-- **A variant or scorer names its workflow twice, and the two are checked** (2026-09-29, from a
-  review of the author surface). It gave a URL and, optionally, the workflow's type as a type
-  argument. Nothing tied them, and a file without the argument checked `read` against
-  `JsonValue`, or a scorer against nothing. Now it imports the workflow and passes it as
-  `workflow`, the type inferred from the value, beside `file`, the URL `awf run` loads.
-  `awf-lab` imports `file` and refuses the variant unless its default export is that same object,
-  so the two can't drift. A name in place of the file would need a catalogue, which section 9 of
-  the foundation leaves unbuilt. The lab's own workflows are `{ workflow, file }` pairs to spread
-  in: `{ ...ORACLE_WORKFLOW, argv, timeout }`. The same change renamed `defineReviewJudge` to
-  `defineReviewScorer` and `Judgement` to `ScorerResult`. The format string
-  `awf.review-judgement/1` and the record's `judgement` field stay as stored. Versions, not files,
-  are identity, so no stored result moved.
+- **A variant or scorer names its workflow once** (2026-09-29, from a review of the author
+  surface). It gave a URL and, optionally, the workflow's type as a type argument. Nothing tied
+  them, and a file without the argument checked `read` against `JsonValue`, or a scorer against
+  nothing. Now it imports the workflow and passes it as `workflow`, the type inferred from the
+  value, and `defineReviewVariant` returns that workflow with the rest under `review`: the variant
+  file is what `awf run` loads, so there is no second name to drift. A first cut passed the file
+  beside the value and checked the two were the same object; it said the same thing twice, and a
+  name in place of the file would need a catalogue, which section 9 of the foundation leaves
+  unbuilt. `ORACLE_WORKFLOW`, `NOP_WORKFLOW`, `COMMENTS_WORKFLOW` and `PANEL_JUDGE` are the
+  workflows themselves. The same change renamed `defineReviewJudge` to `defineReviewScorer` and
+  `Judgement` to `ScorerResult`. The format string `awf.review-judgement/1` and the record's
+  `judgement` field stay as stored. Versions, not files, are identity, so no stored result moved.
 
 ## Human review
 

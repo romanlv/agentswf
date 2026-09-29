@@ -21,12 +21,9 @@ const judge = defineExecutableWorkflow<{ fixture: string }, ScorerResult>({
   prepare: () => ({ fixture: "f" }),
 });
 
-const file = new URL("./review.ts", import.meta.url);
-
 // The workflow's type comes from the value: no type argument to forget.
 defineReviewVariant({
   workflow: review,
-  file,
   argv: ["--range", "{base}...HEAD"],
   timeout: "30m",
   read: (result) =>
@@ -37,7 +34,6 @@ defineReviewVariant({
 
 defineReviewVariant({
   workflow: review,
-  file,
   argv: [],
   timeout: "30m",
   // @ts-expect-error `issues` is not in the workflow's result: its shape changed under the variant.
@@ -46,7 +42,6 @@ defineReviewVariant({
 
 defineReviewVariant({
   workflow: review,
-  file,
   argv: [],
   timeout: "30m",
   // @ts-expect-error a finding needs `text`; `claim` is the workflow's word, not ours.
@@ -54,18 +49,26 @@ defineReviewVariant({
 });
 
 defineReviewVariant({
-  // @ts-expect-error a URL alone is not a workflow: the variant must name the value too.
-  workflow: file,
-  file,
+  // @ts-expect-error a path is not a workflow: the variant imports the value.
+  workflow: "./review.ts",
   argv: [],
   timeout: "30m",
   read: () => [],
 });
 
-defineReviewScorer({ workflow: judge, file, argv: [], timeout: "20m" });
+// The variant is its workflow, so `awf run` runs the variant file.
+const variant: typeof review = defineReviewVariant({
+  workflow: review,
+  argv: [],
+  timeout: "30m",
+  read: () => [],
+});
+void variant;
+
+defineReviewScorer({ workflow: judge, argv: [], timeout: "20m" });
 
 // @ts-expect-error a review workflow does not return a ScorerResult.
-defineReviewScorer({ workflow: review, file, argv: [], timeout: "20m" });
+defineReviewScorer({ workflow: review, argv: [], timeout: "20m" });
 
 // A run's outcome, as a score keeps it, is exactly the one `output.json` records.
 type Same<A, B> =

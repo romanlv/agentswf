@@ -18,18 +18,10 @@ export type ResultOf<W extends AnyWorkflow> =
   W extends ExecutableWorkflow<infer _, infer R> ? R : never;
 
 /**
- * A workflow and the file it is the default export of. `awf-lab` runs the file in a process of
- * its own, and refuses one whose default export is not `workflow`: the value gives `tsc` the
- * types, the file gives `awf run` something to load, and the check keeps the two the same.
+ * What `awf-lab` needs beside the workflow: the command line `awf run` gives it after `--`, how
+ * long it may take, and its version.
  */
-export type WorkflowFile<W extends AnyWorkflow = AnyWorkflow> = {
-  workflow: W;
-  /** As `new URL("./workflow.ts", import.meta.url)`. */
-  file: URL;
-};
-
-/** A workflow run as it is: the workflow, and the command line `awf run` gives it after `--`. */
-type Run<W extends AnyWorkflow> = WorkflowFile<W> & {
+type Settings = {
   /**
    * In a variant, `{base}`, `{head}`, `{request}` and `{dataset}` anywhere in a string become the
    * snapshot's base and head commits, the path of the request and the dataset's folder; `{{` and
@@ -47,7 +39,8 @@ type Run<W extends AnyWorkflow> = WorkflowFile<W> & {
 };
 
 /** One way of reviewing: a workflow, how to hand it a fixture, and how to read what it returns. */
-export type ReviewVariant<W extends AnyWorkflow = AnyWorkflow> = Run<W> & {
+export type ReviewVariant<W extends AnyWorkflow = AnyWorkflow> = Settings & {
+  workflow: W;
   read(result: ResultOf<W>): ReviewFinding[];
   /**
    * Every fixture that influenced it: written from, tuned on, or used to pick it over another
@@ -61,27 +54,34 @@ export type ReviewVariant<W extends AnyWorkflow = AnyWorkflow> = Run<W> & {
  * in a fresh checkout of the frozen code, and whose value is a `ScorerResult`. Scoring chosen
  * findings adds `--settled {file}`, labels to return unchanged; a scorer without it can't do that.
  */
-export type ReviewScorer<W extends ScorerWorkflow = ScorerWorkflow> = Run<W>;
+export type ReviewScorer<W extends ScorerWorkflow = ScorerWorkflow> = Settings & { workflow: W };
 
-export type DefinedVariant = ReviewVariant & { kind: typeof REVIEW_VARIANT_KIND };
-export type DefinedScorer = ReviewScorer & { kind: typeof REVIEW_SCORER_KIND };
+/** A variant as `awf-lab` reads it from the variant file: everything but the workflow. */
+export type VariantSettings = Omit<ReviewVariant, "workflow"> & {
+  kind: typeof REVIEW_VARIANT_KIND;
+};
+export type ScorerSettings = Settings & { kind: typeof REVIEW_SCORER_KIND };
 
 /**
- * A variant file's default export. `read` is checked against the workflow's result, so a workflow
- * whose result changes shape fails `tsc` on the variant file.
+ * A variant file's default export: the workflow itself, so `awf run` runs the variant file, with
+ * the rest under `review`. `read` is checked against the workflow's result, so a workflow whose
+ * result changes shape fails `tsc` on the variant file.
  */
-export function defineReviewVariant<W extends AnyWorkflow>(
-  variant: ReviewVariant<W>,
-): DefinedVariant {
-  return { ...variant, kind: REVIEW_VARIANT_KIND } as unknown as DefinedVariant;
+export function defineReviewVariant<W extends AnyWorkflow>({
+  workflow,
+  ...settings
+}: ReviewVariant<W>): W & { review: VariantSettings } {
+  const review = { ...settings, kind: REVIEW_VARIANT_KIND } as unknown as VariantSettings;
+  return { ...workflow, review };
 }
 
 /**
- * A scorer file's default export. A workflow whose result is not a `ScorerResult` fails `tsc`.
- * Whatever the types say, `awf-lab` checks every result it reads.
+ * A scorer file's default export, as `defineReviewVariant`'s. A workflow whose result is not a
+ * `ScorerResult` fails `tsc`. Whatever the types say, `awf-lab` checks every result it reads.
  */
-export function defineReviewScorer<W extends ScorerWorkflow>(
-  scorer: ReviewScorer<W>,
-): DefinedScorer {
-  return { ...scorer, kind: REVIEW_SCORER_KIND };
+export function defineReviewScorer<W extends ScorerWorkflow>({
+  workflow,
+  ...settings
+}: ReviewScorer<W>): W & { review: ScorerSettings } {
+  return { ...workflow, review: { ...settings, kind: REVIEW_SCORER_KIND } };
 }
