@@ -51,6 +51,7 @@
         "@agentswf/harness": "workspace:*",
         "@agentswf/sandbox": "workspace:*",
         "@agentswf/wf": "workspace:*",
+        "typebox": "^1.3.34",
       },
     },
     "packages/harness": {

@@ -1,12 +1,42 @@
 import { stat } from "node:fs/promises";
 import { extname, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
+import * as workflowSurface from "@agentswf/contract/workflow";
 import {
   EXECUTABLE_WORKFLOW_KIND,
   type ExecutableWorkflow,
   isJsonValue,
   type JsonValue,
 } from "@agentswf/contract/workflow";
+import { plugin } from "bun";
+import * as typebox from "typebox";
+import * as typeboxValue from "typebox/value";
+
+/**
+ * What a workflow in any folder imports without installing it, served from the engine's own
+ * copies, so its schemas are the ones results are checked with. Part of the author surface:
+ * adding a name is cheap, removing one breaks workflows.
+ */
+const AUTHOR_SURFACE: Record<string, Record<string, unknown>> = {
+  "agentswf/workflow": workflowSurface,
+  typebox,
+  "typebox/value": typeboxValue,
+};
+
+let surfaceServed = false;
+
+function serveAuthorSurface(): void {
+  if (surfaceServed) return;
+  surfaceServed = true;
+  plugin({
+    name: "agentswf author surface",
+    setup(build) {
+      for (const [name, exports] of Object.entries(AUTHOR_SURFACE)) {
+        build.module(name, () => ({ exports, loader: "object" }));
+      }
+    },
+  });
+}
 
 const WORKFLOW_EXTENSIONS = new Set([".ts", ".mts", ".js", ".mjs"]);
 
@@ -31,6 +61,7 @@ export async function loadWorkflowFile(file: string, cwd: string): Promise<Loade
   }
   if (!info.isFile()) throw new Error(`workflow path is not a file: ${absolute}`);
 
+  serveAuthorSurface();
   const namespace: unknown = await import(pathToFileURL(absolute).href);
   const exported = record(namespace)?.default;
   if (!isExecutableWorkflow(exported)) {
