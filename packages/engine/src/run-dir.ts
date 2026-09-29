@@ -9,7 +9,7 @@ import { appendLine, readLines } from "./jsonl";
  * `@agentswf/contract/records`; this file is the I/O.
  */
 
-export function callDir(runDir: string, callId: string): string {
+function callDir(runDir: string, callId: string): string {
   return join(runDir, "calls", callId);
 }
 
@@ -23,12 +23,6 @@ export async function writeCall(runDir: string, spec: CallSpec): Promise<void> {
   const dir = callDir(runDir, spec.callId);
   await mkdir(dir, { recursive: true });
   await Bun.write(join(dir, "call.json"), JSON.stringify(spec, null, 2));
-}
-
-export async function readCall(runDir: string, callId: string): Promise<CallSpec | null> {
-  const file = Bun.file(join(callDir(runDir, callId), "call.json"));
-  if (!(await file.exists())) return null;
-  return (await file.json()) as CallSpec;
 }
 
 export async function recordAttempt(

@@ -67,7 +67,7 @@ Notes:
   size as an axis: a single agent matches optimised multi-agent workflows in published results,
   and more context lowered review recall on SWE-PRBench ([`autoresearch-practices`](../../research/autoresearch-practices.md)).
 - Records are story 008's files, one per run and judging, with the report generated from them.
-  `experiments/_archive/trial.ts` and `runner.ts` are the prior art to lift.
+  The archived experiments' `trial.ts` and `runner.ts`, in git history, are the prior art to lift.
 - A failed or contaminated run is a record with its spend, not a gap —
   [story 003](../003-failed-run-accounting.md) is why this depends on it.
 - Concurrency (E4) has never been measured. `awf-lab run --jobs {n}` (story 008) runs steps in

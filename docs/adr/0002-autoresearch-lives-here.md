@@ -38,7 +38,7 @@ consumer boundary above keeps what it was protecting.
 
 - The pack-and-install test in §7 no longer gates the loop. It still applies the first time
   something outside this repository consumes `contract` or `harness`.
-- `experiments/_archive/`'s `trial.ts` and `runner.ts` are prior art for this repository's loop,
+- The archived experiments' `trial.ts` and `runner.ts`, now in git history, are prior art for this repository's loop,
   not another repository's.
 
 ## Amended 2026-09-26: comparison first, the loop on top

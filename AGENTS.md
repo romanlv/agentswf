@@ -37,7 +37,7 @@ rule is in `docs/foundation.md`'s naming note and ADR 0005.
 | `packages/sandbox` | sandboxes a workflow opens: the provider seam, resolution, and the providers; imports contract only |
 | `packages/lab` | evaluating workflows against cases with known answers: review fixtures, `collect`, `draft-key` and their agent votes; a consumer of the engine |
 | `examples/` | scenario workflows, written against the author surface and pure schema authoring libraries |
-| `experiments/_archive/` | E1–E3, E5–E6. Frozen evidence. Do not refactor to taste |
+| `experiments/_archive/` | E1–E3 and E5 raw results, the evidence behind `docs/findings/`. Never edited |
 | `docs/status.md` | what runs today and what is next. Update it when a story or stage changes state |
 | `docs/testing.md` | the test levels, from free to live, what each costs, and when to run it |
 | `docs/findings/` | what the measurements settled. Cite it; edit it only to record a new measurement |
@@ -66,7 +66,7 @@ bun run eval              # live agents on cheap models; docs/testing.md has the
 ```
 
 `bun install` points `core.hooksPath` at `.githooks`, whose pre-commit runs Biome's safe fixes on the
-staged files and stages the result; what it cannot fix blocks the commit. Biome skips `experiments/_archive`, `docs` and fixtures. A lint rule is suppressed only at its
+staged files and stages the result; what it cannot fix blocks the commit. Biome skips `docs` and fixtures. A lint rule is suppressed only at its
 site, with a `biome-ignore` comment saying why.
 
 `*.eval.ts` is anything that spends money on live agents. It is excluded from `bun test` and

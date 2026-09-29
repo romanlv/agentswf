@@ -14,8 +14,6 @@ the I/O is here and stays here.
 The installed `wf` command lives in `@agentswf/wf`, compiles against contract alone, and reaches
 this package over the per-agent Unix socket argued in
 [`docs/design/README.md`](../../docs/design/README.md#what-an-agent-inside-a-session-sees).
-`archive-compat.ts` preserves frozen E2/E5 imports; it is not an agent-facing command or a
-production result path.
 
 `result-validation.ts` never repairs a value. A near-miss is a rejection the agent corrects, not
 something the engine quietly fixes. `result-slots.ts` is package-internal; callers outside the

@@ -11,8 +11,7 @@
   },
   "exports": {
     ".": "./src/index.ts",
-    "./testing": "./src/testing.ts",
-    "./archive-compat": "./src/archive-compat.ts"
+    "./testing": "./src/testing.ts"
   },
   "dependencies": {
     "@agentswf/wf": "workspace:*",

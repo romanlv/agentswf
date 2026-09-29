@@ -150,7 +150,7 @@ means usage and pricing need a real home, not a `console.log`.
   it. The seam should not foreclose that last step, but it is neither a gate nor scheduled.
 - **No `telemetry` package yet.** Reasoning in section 7.
 - **No `workflows/` directory yet.** Reasoning in section 8.
-- Plain copy with a fresh initial commit; poc1 experiment scripts frozen in `experiments/_archive/`.
+- Plain copy with a fresh initial commit; poc1's experiment results kept in `experiments/_archive/`, its scripts in git history.
 
 ## 6. Proposal
 
@@ -183,7 +183,7 @@ awf/
 
   examples/                 # scenario workflows written against the author surface
   experiments/
-    _archive/               # e1 e2 e3 e5 e6 scripts + raw results, frozen but runnable
+    _archive/               # e1 e2 e3 e5 raw results; the scripts are in git history
     e4-concurrency/         # the one open measurement
   scripts/                  # check-boundaries.ts, and ad-hoc dev commands
 ```
@@ -217,7 +217,7 @@ untrusted process boundary and a version-skewed or malformed request has to be r
 accepted result now settles through the control plane, and write-a-file has the agent writing into
 the call directory itself (`return-method.ts:35-43`, read back at `97-103`) — which contradicts the
 engine being the only writer of the run record. `wf result < file` already covers the case
-write-a-file existed for. The other two stay in `experiments/_archive/` as E2 evidence.
+write-a-file existed for. The other two are E2 evidence, in git history with its scripts.
 
 Two things that were in earlier drafts of this plan have moved out. **Run-directory I/O** —
 `createRunDir`, `writeAccepted`, `recordAttempt` — is implementation and belongs to the engine,
@@ -267,8 +267,7 @@ requires agents in separate sandboxes: within one docker box, agents share a uid
 other's doors ([[permissions]]). Prompts that forbid delegation are spending guidance, not proof of
 confinement.
 
-Stage 0's concrete factory names still satisfy the smaller `AgentSessionDriver` interface used by
-the frozen experiments. That compatibility seam stays out of production run hosting. Herdr and a
+Herdr and a
 fake host satisfy the run-host interface; provider variation is internal composition, not another
 choice exposed to workflows or the engine.
 
@@ -524,8 +523,8 @@ JavaScript gets added only if a non-bun consumer becomes supported.
 
 **On `trial.ts` and `runner.ts`.** poc1's README files them under throwaway measurement scaffolding.
 They are not throwaway — a trial matrix over a variable space, jsonl results and report generation
-is a first sketch of the autoresearch loop. They stay in `experiments/_archive/` as working prior
-art to lift from, not as evidence to discard once read.
+is a first sketch of the autoresearch loop. `packages/lab` lifted what it needed; they are in git
+history with the other experiment scripts (`experiments/_archive/README.md` says where).
 
 ## 8. Telemetry and cost — a package, but not yet
 
@@ -701,10 +700,8 @@ Each stage is a gate phrased as something to prove. Which are open is in [`statu
     harness will promise to deliver one.
   - The record format carries `callId`, `question` and `schema`; `Attempt.source` is a string,
     because which channel carried a value is not something the format should enumerate.
-  - The shelved journal is in `experiments/_archive/`, frozen but runnable. Stage 4 takes it out.
+  - The shelved journal is in git history with the experiment scripts. Stage 4 takes it out.
   - `AgentBackend` is deleted; `harness/adapter.ts` is the one seam for that job.
-  - One shim is deliberate: `experiments/_archive/deps.ts`. The experiments are evidence, a package
-    move should not mean editing evidence, and the shim imports public entrypoints only.
 - **Stage 1 — prove the harness stands alone.** The adapter contract, the shared fake, the
   direct-process and pane adapters and the Herdr run host are tested without the engine. The gate
   is a small general-purpose command that drives one harness through `harness` alone.

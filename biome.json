@@ -9,7 +9,6 @@
     "ignoreUnknown": true,
     "includes": [
       "**",
-      "!experiments/_archive",
       "!docs",
       "!tests/fixtures",
       "!examples/minimum-review/fixtures",

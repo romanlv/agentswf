@@ -18,8 +18,8 @@ export type CallSpec = {
 };
 
 /**
- * Which channel carried a candidate value — `control-plane` in production. A string, because the
- * archived experiments name channels of their own and the format should not enumerate them.
+ * Which channel carried a candidate value — `control-plane` in production. A string, because
+ * attempts recorded by the archived experiments name channels of their own.
  */
 export type AttemptSource = string;
 

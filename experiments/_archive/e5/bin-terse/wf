@@ -1,3 +1,0 @@
-#!/bin/sh
-# The terse-error `wf` for E5's comparison arm. Same acceptance path, no per-field message.
-exec bun run "$(dirname "$0")/../terse-cli.ts" "$@"
