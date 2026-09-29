@@ -6,8 +6,6 @@
   "exports": {
     ".": "./src/index.ts",
     "./adapter": "./src/adapter.ts",
-    "./adapters/herdr": "./src/adapters/herdr.ts",
-    "./adapters/direct-process": "./src/adapters/direct-process.ts",
     "./testing": "./src/testing/fake.ts"
   },
   "dependencies": {

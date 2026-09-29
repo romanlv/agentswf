@@ -1,6 +1,7 @@
 import { readdir, readFile, realpath, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, resolve } from "node:path";
+import { isRecord } from "@agentswf/contract";
 import { SANDBOX_ENVIRONMENTS, type SandboxEnvironmentKey } from "@agentswf/contract/workflow";
 import type { Gitdir, ResolvedSandbox, SandboxProviders } from "./seam";
 
@@ -327,8 +328,4 @@ function list(value: unknown, field: string): unknown[] {
 
 function unique<T>(values: readonly T[]): T[] {
   return [...new Set(values)];
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

@@ -25,9 +25,8 @@ export type Step = {
 };
 
 /**
- * What a wait reports. `unknown` is kept distinct rather than folded into `done`, for the
- * reason `review-loop/liveness.ts` gives: a reading that proves nothing must not read as
- * a turn that completed.
+ * What a wait reports. `unknown` is kept distinct rather than folded into `done`: a reading
+ * that proves nothing must not read as a turn that completed.
  */
 export type SettledState = "idle" | "done" | "blocked" | "unknown";
 

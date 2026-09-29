@@ -265,7 +265,8 @@ function quote(value: string): string {
   return JSON.stringify(value);
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
+/** A JSON object: not null, not an array. */
+export function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 

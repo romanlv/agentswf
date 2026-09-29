@@ -231,15 +231,15 @@ const RULES: Rule[] = [
   },
   // "Approved pure schema authoring libraries" is not a list the checker can hold; what it can hold
   // is that nothing here reaches a runtime, which is what made them approvable.
-  // A consumer of the engine (ADR 0002): it runs workflows and reads their records, and never
-  // reaches into the engine or a harness.
+  // A consumer of the engine (ADR 0002): it runs workflows through `awf run` and reads their
+  // records, and never links the engine or a harness.
   {
     dir: "packages/lab",
-    allow: ["@agentswf/contract", "@agentswf/contract/*", "@agentswf/engine"],
+    allow: ["@agentswf/contract", "@agentswf/contract/*"],
     forbid: [
       {
-        pattern: /^@agentswf\/(engine\/|harness)/,
-        reason: "lab uses the engine's public entry only, and never a harness",
+        pattern: /^@agentswf\/(engine|harness)/,
+        reason: "lab runs workflows through `awf run`, and never links the engine or a harness",
       },
     ],
   },
@@ -342,7 +342,7 @@ export async function boundaryProblems(root: string): Promise<string[]> {
     if (covered === 0) problems.push(`${rule.dir}: the rule covers no files; is it stale?`);
   }
 
-  // Rule 4: a cross-package import has to be a declared dependency, not just a hoisted symlink.
+  // Rule 7: a cross-package import has to be a declared dependency, not just a hoisted symlink.
   const manifests: string[] = [];
   for (const pattern of WORKSPACE_MANIFEST_GLOBS) {
     for await (const manifest of new Glob(pattern).scan({ cwd: root, absolute: true })) {

@@ -1,3 +1,5 @@
+import { isRecord } from "./schema";
+
 /**
  * Version 2 dropped the per-operation bearer capability. An agent reaches the control plane over a
  * socket of its own, so the connection is the authority and nothing secret crosses the wire.
@@ -118,10 +120,6 @@ export function decodeResultSubmitResponse(value: unknown): WireDecodeResult<Res
 
 function invalid(error: string): WireDecodeResult<never> {
   return { ok: false, code: "invalid-request", error };
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function nonEmpty(value: unknown): value is string {

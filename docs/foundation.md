@@ -301,7 +301,7 @@ sandbox       → contract
 harness       → contract, sandbox
 engine        → contract, sandbox, harness    (a provider: operator-runtime.ts only)
 wf            → contract
-lab           → contract, engine
+lab           → contract            (runs `awf run`)
 examples/     → contract/workflow
 scripts/*     → any
 ```
@@ -318,8 +318,8 @@ are checked by `scripts/check-boundaries.ts`, which `bun run check` runs:
 4. `sandbox` imports `contract` only. harness and engine import its seam, `@agentswf/sandbox`, and their
    tests `@agentswf/sandbox/testing`; only `engine/src/operator-runtime.ts` imports a provider, and no
    provider imports another.
-5. `lab` imports `contract` and the engine's public entry only, never a harness; its
-   review format stays pure outside the files that do I/O.
+5. `lab` imports `contract` only, and runs workflows through `awf run`, never by linking the
+   engine or a harness; its review format stays pure outside the files that do I/O.
 6. `examples/` and any future workflow import `@agentswf/contract/workflow` plus approved pure schema
    authoring libraries — never the engine or a harness.
 
@@ -481,7 +481,7 @@ repository, in `packages/lab`, and a project's variants and fixtures in that pro
 ([ADR 0002](adr/0002-autoresearch-lives-here.md),
 [ADR 0003](adr/0003-autoresearch-tools-here-project-data-there.md)). It is a *user* of the engine
 rather than a part of it: it has a different lifecycle and a different failure mode, and it reaches the engine
-only through the same programmatic entry point and run record any outside caller would use.
+only through the same `awf run` and run record any outside caller would use.
 
 It is also the most demanding consumer on the list, which makes it the useful one to design
 against. Four things follow, all cheap now and expensive later.

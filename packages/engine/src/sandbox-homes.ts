@@ -3,6 +3,7 @@ import { constants } from "node:fs";
 import { mkdir, open, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative } from "node:path";
 import { isDeepStrictEqual } from "node:util";
+import { isRecord } from "@agentswf/contract";
 import type { HarnessSandboxNeeds } from "@agentswf/sandbox";
 
 /** A seeded home's credentials, and a way to hand a refreshed one back to the operator. */
@@ -171,7 +172,7 @@ function beyondRefresh(
 ): string | undefined {
   const here = at.join(".");
   if (before === undefined || after === undefined) return here;
-  if (!isObject(before) || !isObject(after)) {
+  if (!isRecord(before) || !isRecord(after)) {
     return isDeepStrictEqual(before, after) ? undefined : here;
   }
   const keys = new Set([...Object.keys(before), ...Object.keys(after)]);
@@ -193,10 +194,6 @@ function beyondRefresh(
     if (beyond !== undefined) return beyond;
   }
   return undefined;
-}
-
-function isObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function isScalar(value: unknown): boolean {

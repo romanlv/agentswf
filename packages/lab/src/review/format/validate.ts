@@ -1,3 +1,4 @@
+import { isRecord } from "@agentswf/contract";
 import Type from "typebox";
 import { Check, Errors } from "typebox/value";
 import {
@@ -138,10 +139,6 @@ export function checkJudgementShape(value: unknown): Checked<Judgement> {
     });
   }
   return { ok: false, problems };
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 export function checkFixtureSet(value: unknown): Checked<FixtureSet> {

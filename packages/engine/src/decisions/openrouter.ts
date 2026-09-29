@@ -1,3 +1,4 @@
+import { isRecord } from "@agentswf/contract";
 import type { Question } from "@agentswf/contract/workflow";
 import {
   type DecisionProvider,
@@ -90,7 +91,7 @@ function wireQuestion(question: Question): Record<string, unknown> {
  * reject.
  */
 export function fromWire(questions: Record<string, Question>, body: unknown): ProviderResponse {
-  if (!isObject(body) || typeof body.model !== "string" || !isObject(body.answers)) {
+  if (!isRecord(body) || typeof body.model !== "string" || !isRecord(body.answers)) {
     throw new DecisionProviderError("openrouter answered without a model or answers", {
       retryable: false,
       ...spendOf(body),
@@ -99,8 +100,8 @@ export function fromWire(questions: Record<string, Question>, body: unknown): Pr
   const answers: Record<string, ProviderAnswer> = {};
   for (const [id, question] of Object.entries(questions)) {
     const answer = Object.hasOwn(body.answers, id) ? body.answers[id] : undefined;
-    if (!isObject(answer)) continue;
-    const probabilities = isObject(answer.probabilities) ? answer.probabilities : {};
+    if (!isRecord(answer)) continue;
+    const probabilities = isRecord(answer.probabilities) ? answer.probabilities : {};
     if (answer.type === "noul") {
       answers[id] = { type: "yes-no", yes: answer.noul as number };
     } else if (answer.type === "choice") {
@@ -129,8 +130,8 @@ function levelsOf(question: Question, probabilities: Record<string, unknown>): n
 
 /** What a body says was spent, as far as it says: tokens only when both counts are reported. */
 function spendOf(body: unknown): Pick<ProviderResponse, "tokens" | "charged" | "requestId"> {
-  if (!isObject(body)) return {};
-  const usage = isObject(body.usage) ? body.usage : {};
+  if (!isRecord(body)) return {};
+  const usage = isRecord(body.usage) ? body.usage : {};
   const counted = typeof usage.input_tokens === "number" && typeof usage.output_tokens === "number";
   return {
     ...(counted
@@ -142,7 +143,7 @@ function spendOf(body: unknown): Pick<ProviderResponse, "tokens" | "charged" | "
 }
 
 function errorOf(body: unknown): { code: number; message: string } | undefined {
-  if (!isObject(body) || !isObject(body.error)) return undefined;
+  if (!isRecord(body) || !isRecord(body.error)) return undefined;
   const { code, message } = body.error;
   return {
     code: typeof code === "number" ? code : 500,
@@ -156,10 +157,6 @@ function parse(text: string): unknown {
   } catch {
     return undefined;
   }
-}
-
-function isObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function messageOf(error: unknown): string {
