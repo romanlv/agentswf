@@ -66,6 +66,11 @@
       "minLength": 1,
       "description": "The comparison report uses with a baseline unless --comparison names one; `default` if absent."
     },
+    "trials": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Trials a case unless --trials says otherwise; 1 if absent. Two or more let a comparison see how much one case varies."
+    },
     "baseline": {
       "type": "string",
       "minLength": 1,

@@ -2,7 +2,7 @@ import type { Score } from "../format/records";
 import { LABELS } from "../format/scoring";
 import { categoryOf } from "../judge/panel";
 import type { Address } from "./address";
-import type { Choice, Stored } from "./plan";
+import type { Choice, Chosen, Stored } from "./plan";
 
 /**
  * `--where`: selection by stored result, read from one scorer's records. `failed` and `lost` hold
@@ -42,16 +42,18 @@ export function describePredicate(predicate: Predicate): string {
 const aboutFindings = (p: Predicate) =>
   p.kind === "split" || p.kind === "label" || p.kind === "differs";
 
-/** One case of one variant, as the predicates read it. */
+/** One trial of one case of one variant, as the predicates read it. */
 export type CaseView = {
   case: string;
-  /** The variant's current trial. */
+  /** Which of the case's trials, from 1. */
+  n: number;
+  /** That trial, if it is on file. */
   trial?: Stored;
   /** The reading scorer's passing score of it. */
   score?: Score;
   /** Each `differs=` scorer's passing score of it, by name. */
   others: ReadonlyMap<string, Score | undefined>;
-  /** Whether the baseline did better on it, when a baseline was asked for. */
+  /** Whether the baseline did better on the case, when a baseline was asked for. */
   lost?: boolean;
 };
 
@@ -101,36 +103,44 @@ function caseHolds(predicate: Predicate, view: CaseView): boolean {
 }
 
 /**
- * What `--only` and `--where` choose of one variant's cases, all of them holding: a case whole, or
- * chosen findings of its trial. An address names a case (`{case}`, `{case}/1`) or a finding; one
- * with another variant's prefix is not this variant's. A case a predicate about findings leaves
- * nothing of is not chosen. Absent both, every case is chosen whole.
+ * What `--only` and `--where` choose of one variant's trials, all of them holding: a trial whole,
+ * or chosen findings of it. An address names a case (every trial of it), a trial (`{case}/2`), or
+ * a finding (`{case}/2#0`; with no trial, trial 1's); one with another variant's prefix is not
+ * this variant's. A trial a predicate about findings leaves nothing of is not chosen. Absent both,
+ * every trial is chosen whole.
  */
 export function choose(options: {
   variant: string;
   cases: readonly CaseView[];
   only?: readonly Address[];
   where: readonly Predicate[];
-}): Map<string, Choice> {
+}): Chosen {
   const only = options.only?.filter(
     (a) => a.variant === undefined || a.variant === options.variant,
   );
   const byFindings = options.where.filter(aboutFindings);
-  const chosen = new Map<string, Choice>();
+  const chosen = new Map<string, Map<number, Choice>>();
+  const pick = (view: CaseView, choice: Choice) => {
+    const trials = chosen.get(view.case) ?? new Map<number, Choice>();
+    trials.set(view.n, choice);
+    chosen.set(view.case, trials);
+  };
   for (const view of options.cases) {
-    const named = only?.filter((a) => a.case === view.case);
+    const named = only?.filter(
+      (a) => a.case === view.case && (a.trial ?? (a.finding === undefined ? view.n : 1)) === view.n,
+    );
     if (named && named.length === 0) continue;
     if (!options.where.every((p) => caseHolds(p, view))) continue;
     const whole = !named || named.some((a) => a.finding === undefined);
     if (whole && byFindings.length === 0) {
-      chosen.set(view.case, {});
+      pick(view, {});
       continue;
     }
     const candidates = whole
       ? (view.trial?.trial.findings.map((_, index) => index) ?? [])
       : [...new Set(named!.map((a) => a.finding!))].sort((a, b) => a - b);
     const findings = candidates.filter((f) => byFindings.every((p) => holds(p, view, f)));
-    if (findings.length > 0) chosen.set(view.case, { findings });
+    if (findings.length > 0) pick(view, { findings });
   }
   return chosen;
 }

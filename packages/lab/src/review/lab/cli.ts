@@ -35,13 +35,20 @@ import {
 } from "./execute";
 import { loadComparison, loadScorer, loadVariant } from "./load";
 import { fill } from "./placeholders";
-import { type Choice, currentTrial, PlanError, passingScore, type Stored } from "./plan";
+import {
+  type CaseState,
+  type Chosen,
+  currentTrial,
+  currentTrials,
+  PlanError,
+  passingScore,
+  type Stored,
+} from "./plan";
 import { provenanceOf } from "./provenance";
 import {
   ANSI,
   buildReport,
   caseMetrics,
-  compareCases,
   type Paint,
   PLAIN,
   plural,
@@ -90,7 +97,7 @@ selection, the same on every command:
   --cases {n}|{id},…        n cases of a seeded order, or cases by id or glob
   --only {address},…        {case}, {case}/{trial}, {case}#{finding}; {variant}: before any
   --where {predicate}       ${PREDICATES}; repeated, all hold
-  --trials {n}              trials per case; 1 until story 011 brings several
+  --trials {n}              trials a case; the config gives the default, else 1
   --scorer {name}           the scorer; the config gives the default; report and show take two
   --baseline {variant}      what report compares against, and --where lost reads
   --comparison {name}       what turns two variants' per-case numbers into a verdict: a
@@ -254,9 +261,6 @@ function parse(argv: readonly string[]): { command: string; names: string[]; opt
   if (Object.hasOwn(RENAMED_COMMANDS, command)) {
     throw new UsageError(`${command} is now ${RENAMED_COMMANDS[command]}`);
   }
-  if ((options.trials ?? 1) > 1) {
-    throw new UsageError("more than one trial per case comes with story 011, task 4");
-  }
   return { command, names, options };
 }
 
@@ -371,6 +375,11 @@ async function subjectOf<D extends VariantSettings | ScorerSettings>(
   };
 }
 
+/** Trials a case: `--trials`, else the config's, else 1. */
+function trialsAsked(workspace: Workspace, options: Options): number {
+  return options.trials ?? workspace.config.trials ?? 1;
+}
+
 /** The seeded order's key for a case id. */
 export function rankOf(seed: string): (id: string) => string {
   return (id) => createHash("sha256").update(`${seed}\n${id}`).digest("hex");
@@ -393,21 +402,31 @@ async function selectedCases(workspace: Workspace, options: Options) {
     if (!all.includes(address.case)) {
       throw new UsageError(`${formatAddress(address)}: ${address.case} is not in ${dataset}`);
     }
-    if ((address.trial ?? 1) > 1) {
+    const trials = trialsAsked(workspace, options);
+    if ((address.trial ?? 1) > trials) {
       throw new UsageError(
-        `${formatAddress(address)}: one trial per case until story 011, task 4, so only /1`,
+        `${formatAddress(address)}: ${plural(trials, "trial")} a case, so no trial ${address.trial}; --trials asks for more`,
+      );
+    }
+    if (trials > 1 && address.finding !== undefined && address.trial === undefined) {
+      throw new UsageError(
+        `${formatAddress(address)}: with ${trials} trials a case, a finding names its trial: {case}/{trial}#{finding}`,
       );
     }
   }
   return { dataset, ids, entries };
 }
 
-/** Each case as the predicates read it, for one variant: its trial and the reading scorer's score. */
+/**
+ * Each trial as the predicates read it, for one variant: trials 1 to `trials` of every case, each
+ * with the reading scorer's score.
+ */
 async function viewsOf(
   context: Context,
   variant: Subject<unknown>,
   reading: Subject<unknown>,
   cases: readonly CaseInfo[],
+  trials: number,
   baseline?: Subject<unknown>,
 ): Promise<CaseView[]> {
   const { workspace, dataset, options } = context;
@@ -421,44 +440,41 @@ async function viewsOf(
   if (lost && !baseline) throw new UsageError("--where lost needs a --baseline");
   const states = await statesOf(workspace, dataset, variant.key, cases);
   const theirs = lost ? await statesOf(workspace, dataset, baseline!.key, cases) : [];
-  return cases.map((info, index): CaseView => {
-    const stored = currentTrial(states[index]!);
-    const score = stored && passingScore(stored, reading.key, info.key.revision);
-    const view: CaseView = {
-      case: info.id,
-      ...(stored ? { trial: stored } : {}),
-      ...(score ? { score } : {}),
-      others: new Map(
-        [...others].map(([name, other]) => [
-          name,
-          stored && passingScore(stored, other.key, info.key.revision),
-        ]),
-      ),
-    };
+  const filter = options.categories ? { categories: options.categories } : {};
+  // A case's mean weighted recall over its first `trials` trials, each scored; null if any isn't.
+  const meanOf = (state: CaseState, info: CaseInfo) => {
+    const scored = currentTrials(state)
+      .slice(0, trials)
+      .map((stored) => {
+        const score = passingScore(stored, reading.key, info.key.revision);
+        return score && caseMetrics(stored.trial, score, info.key, filter);
+      });
+    if (scored.length < trials || scored.some((m) => !m)) return null;
+    return scored.reduce((sum, m) => sum + (m!.weightedRecall ?? 0), 0) / trials;
+  };
+  return cases.flatMap((info, index) => {
+    let lostCase: boolean | undefined;
     if (lost) {
-      const other = currentTrial(theirs[index]!);
-      const otherScore = other && passingScore(other, reading.key, info.key.revision);
-      view.lost =
-        stored !== undefined &&
-        score !== undefined &&
-        other !== undefined &&
-        otherScore !== undefined &&
-        compareCases(
-          caseMetrics(
-            stored.trial,
-            score,
-            info.key,
-            options.categories ? { categories: options.categories } : {},
-          ),
-          caseMetrics(
-            other.trial,
-            otherScore,
-            info.key,
-            options.categories ? { categories: options.categories } : {},
-          ),
-        ) < 0;
+      const [mine, other] = [meanOf(states[index]!, info), meanOf(theirs[index]!, info)];
+      lostCase = mine !== null && other !== null && mine < other;
     }
-    return view;
+    return Array.from({ length: trials }, (_, i): CaseView => {
+      const stored = currentTrial(states[index]!, i + 1);
+      const score = stored && passingScore(stored, reading.key, info.key.revision);
+      return {
+        case: info.id,
+        n: i + 1,
+        ...(stored ? { trial: stored } : {}),
+        ...(score ? { score } : {}),
+        others: new Map(
+          [...others].map(([name, other]) => [
+            name,
+            stored && passingScore(stored, other.key, info.key.revision),
+          ]),
+        ),
+        ...(lostCase === undefined ? {} : { lost: lostCase }),
+      };
+    });
   });
 }
 
@@ -524,7 +540,7 @@ function runDocument(
 ): RunDocument {
   const steps = planned.variants.flatMap(({ variant, steps }) =>
     steps.map((step) => {
-      const id = stepAddress(planned, variant.label, step.case);
+      const id = stepAddress(planned, variant.label, step);
       const made = result?.outcomes.trials.get(id);
       const error = result?.outcomes.errors.get(id);
       const trial: RunDocument["steps"][number]["trial"] =
@@ -633,11 +649,12 @@ async function runOrScore(
   const baseline = baselineName ? await context.variant(baselineName) : undefined;
   const { ids } = await selectedCases(workspace, options);
   const cases = await readCases(workspace, dataset, ids);
-  const chosen: { variant: Subject<VariantSettings>; chosen: Map<string, Choice> }[] = [];
+  const trials = trialsAsked(workspace, options);
+  const chosen: { variant: Subject<VariantSettings>; chosen: Chosen }[] = [];
   for (const variant of variants) {
     // On score, the predicates read the scores kept for the rest; --scorer is the one being run.
     const reading = restFrom ?? scorer;
-    const views = await viewsOf(context, variant, reading, cases, baseline);
+    const views = await viewsOf(context, variant, reading, cases, trials, baseline);
     const picked = choose({
       variant: variant.label,
       cases: views,
@@ -647,13 +664,18 @@ async function runOrScore(
     chosen.push({
       variant,
       chosen:
-        command === "run" ? new Map([...picked.keys()].map((id) => [id, {} as Choice])) : picked,
+        command === "run"
+          ? new Map(
+              [...picked].map(([id, each]) => [id, new Map([...each.keys()].map((n) => [n, {}]))]),
+            )
+          : picked,
     });
   }
   let planned: Planned;
   try {
     planned = await planRun(lab, {
       command,
+      trials,
       dataset,
       variants: chosen,
       scorer,
@@ -784,11 +806,12 @@ async function report(context: Context, names: readonly string[]): Promise<strin
         }
       : undefined;
   const cases = await readCases(workspace, dataset, ids);
+  const trials = trialsAsked(workspace, options);
   const reading = scorers[0]!;
   const chosenBy = new Map<Subject<VariantSettings>, Set<string>>();
   for (const variant of variants) {
     if (variant === baseline && variants.length > 1) continue;
-    const views = await viewsOf(context, variant, reading, cases, baseline);
+    const views = await viewsOf(context, variant, reading, cases, trials, baseline);
     const picked = choose({
       variant: variant.label,
       cases: views,
@@ -824,6 +847,7 @@ async function report(context: Context, names: readonly string[]): Promise<strin
   }
   const document = buildReport({
     dataset,
+    trials,
     subjects,
     scorers: scorers.map((s) => ({ ...refOf(s), key: s.key })),
     ...(baseline ? { baseline: baseline.label } : {}),
@@ -851,16 +875,17 @@ async function show(context: Context, names: readonly string[]): Promise<string>
   if (!entries.some((e) => e.id === address.case)) {
     throw new UsageError(`${address.case} is not in ${dataset}`);
   }
-  if ((address.trial ?? 1) > 1) {
-    throw new UsageError(`${names[1]}: one trial per case until story 011, task 4, so only /1`);
-  }
   const [info] = await readCases(workspace, dataset, [address.case]);
   const scorers = [];
   for (const name of options.scorers.length > 0 ? options.scorers : [workspace.config.scorer]) {
     scorers.push(await context.scorer(name));
   }
   const [state] = await statesOf(workspace, dataset, variant!.key, [info!]);
-  const stored: Stored | undefined = currentTrial(state!);
+  const n = address.trial ?? 1;
+  const stored: Stored | undefined = currentTrial(state!, n);
+  if (!stored && n > 1) {
+    throw new UsageError(`${names[1]}: ${currentTrials(state!).length} trials on file`);
+  }
   const count = stored?.trial.findings.length ?? 0;
   if (address.finding !== undefined && address.finding >= count) {
     throw new UsageError(`${names[1]}: the trial has ${count} findings`);
@@ -870,14 +895,22 @@ async function show(context: Context, names: readonly string[]): Promise<string>
   if (options.where.length > 0) {
     const baselineName = options.baseline ?? workspace.config.baseline;
     const baseline = baselineName ? await context.variant(baselineName) : undefined;
-    const views = await viewsOf(context, variant!, scorers[0]!, [info!], baseline);
+    const views = await viewsOf(
+      context,
+      variant!,
+      scorers[0]!,
+      [info!],
+      Math.max(n, trialsAsked(workspace, options)),
+      baseline,
+    );
     const picked = choose({
       variant: variant!.label,
       cases: views,
       only: [address],
       where: options.where,
     }).get(info!.id);
-    findings = picked ? (picked.findings ?? findings) : [];
+    const trial = picked?.get(n);
+    findings = trial ? (trial.findings ?? findings) : [];
   }
   const scores = [];
   for (const scorer of scorers) {

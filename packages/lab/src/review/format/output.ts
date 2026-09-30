@@ -283,7 +283,10 @@ const Column = Type.Object(
         },
         { additionalProperties: false },
       ),
-      { description: "The cases counted: a trial and a passing score each." },
+      {
+        description:
+          "The trials counted, each with a passing score: every trial asked for of each case counted, addressed {case}/{trial} past one a case.",
+      },
     ),
     tunedOn: Type.Array(Address, {
       description: "Cases counted that the variant was tuned on, by its tunedOn: not holdout.",
@@ -327,6 +330,10 @@ export const ReportSchema = Type.Object(
   {
     format: Type.Literal(REPORT_FORMAT),
     dataset: Text,
+    trials: Type.Integer({
+      minimum: 1,
+      description: "Trials a case: a case counts once that many are run and scored.",
+    }),
     scorers: Type.Array(Ref, { minItems: 1, maxItems: 2 }),
     baseline: Type.Optional(Ref),
     keyRevisions: Type.Array(Type.Integer({ minimum: 1 }), {

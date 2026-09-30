@@ -19,11 +19,16 @@ export type CaseState = {
   stored: readonly Stored[];
 };
 
-/** Which findings of a case's trial a command chose; none named means the whole case. */
+/** Which findings of a trial a command chose; none named means the whole trial. */
 export type Choice = { findings?: readonly number[] };
+
+/** A command's choice of one variant's trials: by case, then by trial number. */
+export type Chosen = ReadonlyMap<string, ReadonlyMap<number, Choice>>;
 
 export type Step = {
   case: string;
+  /** Which of the case's trials, from 1. */
+  n: number;
   trial: { do: "run" } | { do: "reuse"; trial: Trial } | { do: "skip"; why: string };
   score:
     | { do: "run" }
@@ -64,20 +69,33 @@ const newestFirst = <T extends { at: string }>(a: T, b: T) =>
   a.at < b.at ? 1 : a.at > b.at ? -1 : 0;
 
 /**
- * The trial a case's numbers come from: the latest one on this case's digest whose run started, in
- * the workspace's sandbox. A run that never started (awf refused it, or no login) says nothing about
- * the variant, so it is run again rather than reused as a zero. A trial in no sandbox could have
- * read the key, and one in another provider's measured something else: both are run again. One
- * trial per case until story 011, task 4: this is trial 1.
+ * The trials a case's numbers come from, oldest first, so trial n keeps its number as later ones
+ * are added: those on this case's digest whose run started, in the workspace's sandbox. A run that
+ * never started (awf refused it, or no login) says nothing about the variant, so it is run again
+ * rather than reused as a zero. A trial in no sandbox could have read the key, and one in another
+ * provider's measured something else: both are run again.
  */
-export function currentTrial(state: CaseState): Stored | undefined {
+export function currentTrials(state: CaseState): Stored[] {
   return started(state)
     .filter((s) => sameSetting(s.trial.sandbox, state.sandbox))
-    .toSorted((a, b) => newestFirst(a.trial, b.trial))[0];
+    .toSorted((a, b) => oldestFirst(a.trial, b.trial));
 }
 
-/** Why a case has no current trial: each that started ran in another sandbox, or else `none`. */
-export function whyNoTrial(state: CaseState, none: string): string {
+/** Trial n of a case, counting from 1, as `currentTrials` numbers them. */
+export function currentTrial(state: CaseState, n = 1): Stored | undefined {
+  return currentTrials(state)[n - 1];
+}
+
+const oldestFirst = (a: Trial, b: Trial) =>
+  a.at < b.at ? -1 : a.at > b.at ? 1 : a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+
+/**
+ * Why a case has no trial n: fewer than n on file, or each that started ran in another sandbox, or
+ * else `none`.
+ */
+export function whyNoTrial(state: CaseState, none: string, n = 1): string {
+  const have = currentTrials(state).length;
+  if (have > 0) return `${have} of ${n} trials on file`;
   return started(state).length > 0
     ? "no trial in this workspace's sandbox; awf-lab run runs it again"
     : none;
@@ -118,46 +136,59 @@ const nothingToScore = (trial: Trial) =>
   trial.failure ?? (trial.findings.length === 0 ? "the trial found nothing" : undefined);
 
 /**
- * Per case, `run`: a trial when the variant's version has none on the case's digest, a score when
- * this scorer has no passing score on the key's revision, otherwise reuse. `score` never makes a
- * trial; a case it chose findings of gets a partial score over `restFrom`'s passing score. A trial
- * whose run failed is a result and is reused; one whose run never started, and a failed score,
- * are run again. A trial with nothing to score gets a score without a scorer's run.
+ * Per chosen trial, `run`: a trial when the variant's version has fewer than n on the case's
+ * digest, a score when this scorer has no passing score on the key's revision, otherwise reuse.
+ * `score` never makes a trial; a trial it chose findings of gets a partial score over `restFrom`'s
+ * passing score. A trial whose run failed is a result and is reused; one whose run never started,
+ * and a failed score, are run again. A trial with nothing to score gets a score without a scorer's
+ * run.
  */
 export function planCases(
   states: readonly CaseState[],
   options: {
     command: "run" | "score";
     scorerKey: string;
-    chosen: ReadonlyMap<string, Choice>;
+    chosen: Chosen;
     restFromKey?: string;
   },
 ): Step[] {
-  return states.map((state): Step => {
-    const stored = currentTrial(state);
-    const findings = options.chosen.get(state.case)?.findings;
-    if (options.command === "score" && findings) {
-      return planPartial(state, stored, findings, options.scorerKey, options.restFromKey);
-    }
-    if (!stored) {
-      return options.command === "score"
-        ? {
-            case: state.case,
-            trial: { do: "skip", why: whyNoTrial(state, SCORE_NEEDS_A_TRIAL) },
-            score: { do: "skip", why: "nothing to score" },
-          }
-        : { case: state.case, trial: { do: "run" }, score: { do: "run" } };
-    }
-    const trial = { do: "reuse" as const, trial: stored.trial };
-    const passed = passingScore(stored, options.scorerKey, state.keyRevision);
-    if (passed) return { case: state.case, trial, score: { do: "reuse", score: passed } };
-    const empty = nothingToScore(stored.trial);
-    return {
-      case: state.case,
-      trial,
-      score: empty ? { do: "record", why: empty } : { do: "run" },
-    };
-  });
+  return states.flatMap((state) =>
+    [...(options.chosen.get(state.case) ?? new Map<number, Choice>())]
+      .toSorted(([a], [b]) => a - b)
+      .map(([n, choice]): Step => {
+        const stored = currentTrial(state, n);
+        if (options.command === "score" && choice.findings) {
+          return planPartial(
+            state,
+            n,
+            stored,
+            choice.findings,
+            options.scorerKey,
+            options.restFromKey,
+          );
+        }
+        if (!stored) {
+          return options.command === "score"
+            ? {
+                case: state.case,
+                n,
+                trial: { do: "skip", why: whyNoTrial(state, SCORE_NEEDS_A_TRIAL, n) },
+                score: { do: "skip", why: "nothing to score" },
+              }
+            : { case: state.case, n, trial: { do: "run" }, score: { do: "run" } };
+        }
+        const trial = { do: "reuse" as const, trial: stored.trial };
+        const passed = passingScore(stored, options.scorerKey, state.keyRevision);
+        if (passed) return { case: state.case, n, trial, score: { do: "reuse", score: passed } };
+        const empty = nothingToScore(stored.trial);
+        return {
+          case: state.case,
+          n,
+          trial,
+          score: empty ? { do: "record", why: empty } : { do: "run" },
+        };
+      }),
+  );
 }
 
 /**
@@ -166,24 +197,26 @@ export function planCases(
  */
 function planPartial(
   state: CaseState,
+  n: number,
   stored: Stored | undefined,
   picked: readonly number[],
   scorerKey: string,
   restFromKey: string | undefined,
 ): Step {
-  if (!stored) throw new PlanError(`${state.case}: ${whyNoTrial(state, SCORE_NEEDS_A_TRIAL)}`);
+  const at = n === 1 ? state.case : `${state.case}/${n}`;
+  if (!stored) throw new PlanError(`${at}: ${whyNoTrial(state, SCORE_NEEDS_A_TRIAL, n)}`);
   if (restFromKey === undefined) throw new PlanError("chosen findings need a --rest-from scorer");
   const restFrom = passingScore(stored, restFromKey, state.keyRevision);
   if (restFrom?.result.status !== "scored") {
     throw new PlanError(
-      `${state.case}: no passing score by the --rest-from scorer on key revision ${state.keyRevision}`,
+      `${at}: no passing score by the --rest-from scorer on key revision ${state.keyRevision}`,
     );
   }
   const count = stored.trial.findings.length;
   const past = picked.filter((index) => index >= count);
   if (past.length > 0) {
     throw new PlanError(
-      `${state.case}: trial ${stored.trial.id} has ${count} findings, so no #${past.join(", #")}`,
+      `${at}: trial ${stored.trial.id} has ${count} findings, so no #${past.join(", #")}`,
     );
   }
   const trial = { do: "reuse" as const, trial: stored.trial };
@@ -199,10 +232,11 @@ function planPartial(
     )
     .toSorted(newestFirst)[0];
   if (reused) {
-    return { case: state.case, trial, score: { do: "reuse-partial", record: reused, restFrom } };
+    return { case: state.case, n, trial, score: { do: "reuse-partial", record: reused, restFrom } };
   }
   return {
     case: state.case,
+    n,
     trial,
     score: { do: "partial", picked: [...picked].sort((a, b) => a - b), asked, restFrom },
   };

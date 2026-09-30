@@ -28,8 +28,8 @@ import {
   sum,
 } from "../metrics/metrics";
 import { namedMetrics, REVIEW_METRICS } from "../metrics/named";
-import { addresser, parseAddress } from "./address";
-import { currentTrial, passingScore, type Stored, whyNoTrial } from "./plan";
+import { addresser, formatAddress, parseAddress } from "./address";
+import { currentTrials, passingScore, type Stored, whyNoTrial } from "./plan";
 import { keyOf } from "./version";
 
 /** One selected case as the store has it for a variant, with the key as it is now. */
@@ -65,7 +65,8 @@ function tuned(subject: ReportSubject, row: Row): boolean {
   return fixtures.includes(row.case) || (before !== undefined && row.at < before);
 }
 
-type Counted = { case: string; trial: Trial; score: Score; counts: Counts };
+/** One counted trial: trial `n` of its case. */
+type Counted = { case: string; n: number; trial: Trial; score: Score; counts: Counts };
 
 /** One case's numbers from its trial and a score of it. */
 export function caseMetrics(trial: Trial, score: Score, key: AnswerKey, filter: Filter = {}) {
@@ -89,7 +90,7 @@ function caseScores(counted: readonly Counted[], only: ReadonlySet<string>): Cas
     .filter((c) => only.has(c.case))
     .map((c) => ({
       case: c.case,
-      trial: 1,
+      trial: c.n,
       outcome: c.trial.failure ? "variant-failed" : "scored",
       metrics: namedMetrics(metrics(c.counts), c.trial.run),
     }));
@@ -126,13 +127,12 @@ function verdictOf(rule: ReportComparison, input: ComparisonInput): Verdict {
  */
 export type ReportComparison = { name: string; comparison: Comparison; planned: number };
 
-/** How two results on one case compare, by weighted recall, as the package's comparison counts them: above 0, `a` did better. */
-export function compareCases(a: Metrics, b: Metrics): number {
-  return (a.weightedRecall ?? 0) - (b.weightedRecall ?? 0);
-}
-
-/** Each case's counted trial, or why it has none. */
-function countedRows(subject: ReportSubject, scorerKey: string, filter: Filter) {
+/**
+ * Each case's counted trials, the first `trials` of it, or why it has none: a case counts only
+ * whole, every trial asked for run and scored, so a comparison's looks never count a case twice
+ * as its trials arrive.
+ */
+function countedRows(subject: ReportSubject, scorerKey: string, filter: Filter, trials: number) {
   const counted: Counted[] = [];
   const missing: { case: string; why: string }[] = [];
   for (const row of subject.rows) {
@@ -143,36 +143,46 @@ function countedRows(subject: ReportSubject, scorerKey: string, filter: Filter) 
       sandbox: subject.sandbox,
       stored: row.stored,
     };
-    const stored = currentTrial(state);
-    if (!stored) {
-      missing.push({ case: row.case, why: whyNoTrial(state, "no trial") });
+    const stored = currentTrials(state).slice(0, trials);
+    if (stored.length < trials) {
+      missing.push({ case: row.case, why: whyNoTrial(state, "no trial", trials) });
       continue;
     }
-    const score = passingScore(stored, scorerKey, row.key.revision);
-    if (score?.result.status !== "scored") {
-      const failed = stored.scores.some(
-        (s) => keyOf(s.scorer) === scorerKey && s.key.revision === row.key.revision,
+    const whole: Counted[] = [];
+    let why: string | undefined;
+    for (const [i, each] of stored.entries()) {
+      const score = passingScore(each, scorerKey, row.key.revision);
+      if (score?.result.status !== "scored") {
+        const failed = each.scores.some(
+          (s) => keyOf(s.scorer) === scorerKey && s.key.revision === row.key.revision,
+        );
+        const which = trials > 1 ? `trial ${i + 1}: ` : "";
+        why = failed
+          ? `${which}its score failed, run again to retry`
+          : `${which}not scored on key r${row.key.revision}`;
+        break;
+      }
+      const counts = count(
+        {
+          fixture: trials > 1 ? formatAddress({ case: row.case, trial: i + 1 }) : row.case,
+          findings: each.trial.findings,
+          labels: score.result.judgement.labels,
+          key: row.key,
+        },
+        filter,
       );
-      missing.push({
-        case: row.case,
-        why: failed
-          ? "its score failed, run again to retry"
-          : `not scored on key r${row.key.revision}`,
-      });
-      continue;
+      whole.push({ case: row.case, n: i + 1, trial: each.trial, score, counts });
     }
-    const counts = count(
-      {
-        fixture: row.case,
-        findings: stored.trial.findings,
-        labels: score.result.judgement.labels,
-        key: row.key,
-      },
-      filter,
-    );
-    counted.push({ case: row.case, trial: stored.trial, score, counts });
+    if (why) missing.push({ case: row.case, why });
+    else counted.push(...whole);
   }
   return { counted, missing };
+}
+
+/** A case's mean of one number over its counted trials. */
+function meanOver(counted: readonly Counted[], caseId: string, of: (m: Metrics) => number) {
+  const mine = counted.filter((c) => c.case === caseId);
+  return mine.reduce((sum, c) => sum + of(metrics(c.counts)), 0) / mine.length;
 }
 
 function column(
@@ -180,7 +190,7 @@ function column(
   scorer: Ref,
   counted: readonly Counted[],
   missing: readonly { case: string; why: string }[],
-  id: (caseId: string) => string,
+  id: (caseId: string, n?: number) => string,
 ): ReportColumn {
   const m = metrics(sum(counted.map((c) => c.counts)));
   const kappas = counted.flatMap((c) =>
@@ -195,7 +205,7 @@ function column(
     cases: counted.map((c) => {
       const each = metrics(c.counts);
       return {
-        id: id(c.case),
+        id: id(c.case, c.n),
         trial: c.trial.id,
         findings: c.trial.findings.length,
         weightedRecall: each.weightedRecall,
@@ -207,7 +217,7 @@ function column(
       .filter((row) => cases.includes(row.case) && tuned(subject, row))
       .map((row) => id(row.case)),
     missing: missing.map((gap) => ({ id: id(gap.case), why: gap.why })),
-    failedTrials: counted.flatMap((c) => (c.trial.failure ? [id(c.case)] : [])),
+    failedTrials: counted.flatMap((c) => (c.trial.failure ? [id(c.case, c.n)] : [])),
     recall: m.recall,
     weightedRecall: m.weightedRecall,
     distinct: m.distinct,
@@ -247,6 +257,8 @@ const pooled = (caseId: string, labels: readonly FindingLabel[]) =>
  */
 export function buildReport(options: {
   dataset: string;
+  /** Trials a case: a case counts once each of them is run and scored. */
+  trials?: number;
   subjects: readonly ReportSubject[];
   scorers: readonly Ref[];
   baseline?: string;
@@ -257,12 +269,16 @@ export function buildReport(options: {
   filter?: Filter;
   where?: readonly string[];
 }): ReportDocument {
-  const { subjects, scorers, filter = {} } = options;
+  const { subjects, scorers, filter = {}, trials = 1 } = options;
   if (subjects.length < 1) throw new Error("report takes a variant");
   if (scorers.length < 1 || scorers.length > 2) throw new Error("report takes one or two scorers");
   const address = addresser(subjects.length > 1);
   const cells = subjects.flatMap((subject) =>
-    scorers.map((scorer) => ({ subject, scorer, ...countedRows(subject, scorer.key, filter) })),
+    scorers.map((scorer) => ({
+      subject,
+      scorer,
+      ...countedRows(subject, scorer.key, filter, trials),
+    })),
   );
   // A column that counts nothing, as a version with no trials yet, would leave no case in common:
   // it is left out and named, so the others still compare.
@@ -277,7 +293,11 @@ export function buildReport(options: {
   );
   const common = kept[0]!.subject.rows.map((row) => row.case).filter((c) => everywhere.has(c));
   const columns = kept.map((cell) => {
-    const id = (caseId: string) => address(cell.subject.label, { case: caseId });
+    const id = (caseId: string, n?: number) =>
+      address(cell.subject.label, {
+        case: caseId,
+        ...(trials > 1 && n !== undefined ? { trial: n } : {}),
+      });
     const within = cell.counted.filter((c) => everywhere.has(c.case));
     const left = cell.counted
       .filter((c) => !everywhere.has(c.case))
@@ -295,6 +315,7 @@ export function buildReport(options: {
   const document: ReportDocument = {
     format: REPORT_FORMAT,
     dataset: options.dataset,
+    trials,
     scorers: scorers.map(({ name, version }) => ({ name, version })),
     ...(baseline ? { baseline: { name: baseline.label, version: baseline.version } } : {}),
     keyRevisions,
@@ -316,7 +337,10 @@ export function buildReport(options: {
   const compared = subjects.filter((s) => kept.some((cell) => cell.subject === s));
   if (baseline && compared.includes(baseline) && scorers.length === 1 && compared.length > 1) {
     const cell = (subject: ReportSubject) => cells.find((c) => c.subject === subject)!;
-    const theirs = new Map(cell(baseline).counted.map((c) => [c.case, metrics(c.counts)]));
+    const recall = (m: Metrics) => m.weightedRecall ?? 0;
+    const theirs = new Map(
+      cell(baseline).counted.map((c) => [c.case, meanOver(cell(baseline).counted, c.case, recall)]),
+    );
     const rule = options.comparison;
     document.comparison = {
       baseline: baseline.label,
@@ -332,10 +356,11 @@ export function buildReport(options: {
             lost: [] as string[],
             tied: [] as string[],
           };
-          for (const c of cell(subject).counted) {
-            if (!everywhere.has(c.case)) continue;
-            const order = compareCases(metrics(c.counts), theirs.get(c.case)!);
-            const id = address(subject.label, { case: c.case });
+          const mine = cell(subject).counted;
+          for (const caseId of new Set(mine.map((c) => c.case))) {
+            if (!everywhere.has(caseId)) continue;
+            const order = meanOver(mine, caseId, recall) - theirs.get(caseId)!;
+            const id = address(subject.label, { case: caseId });
             (order > 0 ? result.won : order < 0 ? result.lost : result.tied).push(id);
           }
           if (!rule) return result;
@@ -368,17 +393,22 @@ export function buildReport(options: {
       const right: FindingLabel[] = [];
       const differ: { id: string; labels: string[] }[] = [];
       for (const x of a.counted) {
-        const y = b.counted.find((c) => c.case === x.case);
+        const y = b.counted.find((c) => c.case === x.case && c.n === x.n);
         if (!y || !everywhere.has(x.case)) continue;
         if (x.score.result.status !== "scored" || y.score.result.status !== "scored") continue;
         const [la, lb] = [x.score.result.judgement.labels, y.score.result.judgement.labels];
-        left.push(...pooled(x.case, la));
-        right.push(...pooled(x.case, lb));
+        const trial = formatAddress({ case: x.case, ...(trials > 1 ? { trial: x.n } : {}) });
+        left.push(...pooled(trial, la));
+        right.push(...pooled(trial, lb));
         la.forEach((label, finding) => {
           const other = lb[finding];
           if (other && categoryOf(label) !== categoryOf(other)) {
             differ.push({
-              id: address(subject.label, { case: x.case, finding }),
+              id: address(subject.label, {
+                case: x.case,
+                ...(trials > 1 ? { trial: x.n } : {}),
+                finding,
+              }),
               labels: [categoryOf(label), categoryOf(other)],
             });
           }
@@ -625,13 +655,16 @@ function comparedText(m: ComparedMetric): string {
 /** The title, and what the numbers are over. */
 function headerOf(report: ReportDocument): { title: string; over: string[] } {
   const names = [...new Set(report.columns.map((c) => c.name))];
-  const cases = report.comparison?.cases.length ?? report.columns[0]!.cases.length;
+  const cases =
+    report.comparison?.cases.length ??
+    new Set(report.columns[0]!.cases.map((c) => parseAddress(c.id)?.case ?? c.id)).size;
   const scorers = report.scorers.map((s) => `${s.name} ${s.version}`).join(" and ");
   return {
     title: names.join(" vs "),
     over: [
       `dataset ${report.dataset}`,
       plural(cases, "case"),
+      ...(report.trials > 1 ? [`${report.trials} trials a case`] : []),
       `key ${report.keyRevisions.map((r) => `r${r}`).join(",") || "–"}`,
       `scorer ${scorers}`,
       ...(report.comparison ? [`baseline ${report.comparison.baseline}`] : []),

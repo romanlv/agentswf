@@ -66,6 +66,13 @@ export const WorkspaceConfigSchema = Type.Object(
           "The comparison report uses with a baseline unless --comparison names one; `default` if absent.",
       }),
     ),
+    trials: Type.Optional(
+      Type.Integer({
+        minimum: 1,
+        description:
+          "Trials a case unless --trials says otherwise; 1 if absent. Two or more let a comparison see how much one case varies.",
+      }),
+    ),
     baseline: Type.Optional(
       Type.String({
         minLength: 1,

@@ -336,8 +336,14 @@ with the list.
 With a verdict, the text report shows its counts, by the comparison's primary. `--json`'s `won`,
 `lost` and `tied` stay review's, by weighted recall, which is what `--where lost` reads.
 
-For now, `report` counts one trial per case. Several trials per case, and a `run` that stops when
-the verdict says so, are story 011's next steps.
+**Several trials a case.** `--trials {n}`, or `"trials"` in the config, asks for n trials of each
+case: `run` adds the missing ones and reuses the rest, and `report` counts a case only once all n
+are run and scored, so a look never counts a case twice as its trials arrive. A case with fewer is
+listed as not counted, with how many it has. Trials are numbered by age, so trial 1 stays trial 1
+as more are added, and `--trials 1` reads the first alone. Two trials a case let a comparison see
+how much a case varies from trial to trial. On reviews, two a case need about a third fewer cases
+than one to see the same difference, and a third trial about a tenth fewer again. A `run` that stops when the verdict says so is story 011's
+next step.
 
 ## The workspace
 
@@ -358,6 +364,7 @@ usually lives in its own repository, not this one.
   "scorer": "panel",
   "comparisons": ["comparisons/*.compare.ts"],
   "comparison": "default",
+  "trials": 2,
   "budget": { "usd": 20 },
   "sandbox": { "srt": {} }
 }
@@ -438,14 +445,16 @@ would pass it (the config can set a default), and `--jobs {n}` runs n steps at a
 | `--dataset {name}` | the dataset; the config gives the default |
 | `--cases {n}` or `--cases {id},…` | n cases in a seeded order (the same n every time), or cases by id or glob |
 | `--only {address},…` | cases, trials or findings by address |
+| `--trials {n}` | trials a case; the config gives the default, else 1 |
 | `--where {predicate}` | by stored results; repeat it and all must hold |
 | `--scorer {name}` | the scorer; `report` and `show` take two, to compare them |
 | `--baseline {variant}` | what `report` compares against |
 | `--comparison {name}` | what gives `report`'s verdict against the baseline; the config gives the default, else `default` |
 
 **Addresses** are `{case}`, `{case}/{trial}`, `{case}#{finding}` and `{case}/{trial}#{finding}`,
-with `{variant}:` in front when several variants are in play. A trial is its 1-based position and a
-finding its index.
+with `{variant}:` in front when several variants are in play. A trial is its 1-based position, by
+age, among the case's trials, and a finding its index. Past one trial a case, a finding names its
+trial: `{case}/2#0`.
 
 **Predicates** for `--where`:
 
@@ -455,7 +464,7 @@ finding its index.
 | `split` | findings the scorer's voters labelled differently |
 | `label={label}` | findings with that label, such as `label=new` |
 | `differs={scorer}` | findings another scorer labels differently |
-| `lost` | cases where the baseline did better on weighted recall |
+| `lost` | cases where the baseline did better on weighted recall, averaged over the trials |
 
 On `score`, `--where` selects findings, and the labels for the rest come from `--rest-from
 {scorer}`. The result is a partial score, which is never counted.

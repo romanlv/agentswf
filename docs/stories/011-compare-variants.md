@@ -403,7 +403,8 @@ it by path; `report` on experiment 1's stored trials calls all three copies of t
 
 ### Task 4: several trials per case
 
-`--trials k` on `run`, `score`, `report` and `show`, and `trials` in `awf-lab.json`, default 2
+`--trials k` on `run`, `score`, `report` and `show`, and `trials` in `awf-lab.json`. The package's
+default stays 1, so records made before keep reporting; a workspace comparing variants sets 2
 (experiment 1: a second trial measures the within-case variance, a third buys about 10% more).
 
 - The refusals of more than one trial in `cli.ts` go; `{case}/{trial}` addresses take any trial.
@@ -419,8 +420,8 @@ it by path; `report` on experiment 1's stored trials calls all three copies of t
 
 Done when `bun test` shows: `run --trials 2` plans the second trial for each case and reuses the
 first; `report --trials 2` averages per case, and leaves a case with one trial out of the verdict;
-`show {case}/2` shows the second trial. `awf-lab report one-codex-r2 --baseline one-codex-r1
---trials 3` in the data repository reads experiment 1's three trials a case.
+`show {case}/2` shows the second trial. In the data repository, `report one-codex-r2 --baseline
+one-codex-r1 --trials 2` counts no case (each has one trial) and says so.
 
 ### Task 5: `run --baseline`: per-case scheduling and the comparison's stop
 

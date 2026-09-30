@@ -30,7 +30,7 @@ import { addresser } from "./address";
 import { fill } from "./placeholders";
 import {
   type CaseState,
-  type Choice,
+  type Chosen,
   estimateOf,
   planCases,
   type ScoreOnFile,
@@ -148,6 +148,8 @@ export type VariantPlan = {
 
 export type Planned = {
   command: "run" | "score";
+  /** Trials a case, as asked: past 1, a step's address names its trial. */
+  trials: number;
   variants: VariantPlan[];
   /** What the scorer's earlier scores cost. */
   scoreHistory: (number | undefined)[];
@@ -157,8 +159,9 @@ export async function planRun(
   lab: Lab,
   options: {
     command: "run" | "score";
+    trials: number;
     dataset: string;
-    variants: readonly { variant: Subject<VariantSettings>; chosen: ReadonlyMap<string, Choice> }[];
+    variants: readonly { variant: Subject<VariantSettings>; chosen: Chosen }[];
     scorer: Subject<ScorerSettings>;
     restFrom?: Subject<ScorerSettings>;
     cases: readonly CaseInfo[];
@@ -184,6 +187,7 @@ export async function planRun(
   const scores = await scoresBy(results, options.dataset, options.scorer.key);
   return {
     command: options.command,
+    trials: options.trials,
     variants,
     scoreHistory: scores.flatMap((s) => (s.run?.id === undefined ? [] : [s.run.estimate])),
   };
@@ -214,9 +218,21 @@ export function estimateOfPlan(planned: Planned): {
   return { trials, scores, usd: total };
 }
 
-/** A step's address in the plan: the variant's label only when the plan covers several. */
-export function stepAddress(planned: Planned, variant: string, caseId: string): string {
-  return addresser(planned.variants.length > 1)(variant, { case: caseId });
+/**
+ * A step's address in the plan: the variant's label only when the plan covers several, the trial
+ * only when it asks for more than one a case.
+ */
+export function stepAddress(
+  planned: Planned,
+  variant: string,
+  step: { case: string; n: number },
+  finding?: number,
+): string {
+  return addresser(planned.variants.length > 1)(variant, {
+    case: step.case,
+    ...(planned.trials > 1 ? { trial: step.n } : {}),
+    ...(finding === undefined ? {} : { finding }),
+  });
 }
 
 /** The plan as a person reads it before confirming. */
@@ -240,7 +256,7 @@ export function describePlan(planned: Planned): string[] {
               : step.score.do === "partial" || step.score.do === "reuse-partial"
                 ? describePartial(step.score)
                 : `skip: ${step.score.why}`;
-      lines.push(`${stepAddress(planned, variant.label, step.case).padEnd(24)} ${trial}; ${score}`);
+      lines.push(`${stepAddress(planned, variant.label, step).padEnd(24)} ${trial}; ${score}`);
     }
   }
   const { trials, scores, usd: total } = estimateOfPlan(planned);
@@ -676,7 +692,7 @@ export async function executePlan(
   };
   const infoOf = (id: string) => options.cases.find((c) => c.id === id)!;
   const steps = planned.variants.flatMap(({ variant, steps }) =>
-    steps.map((step) => ({ variant, step, id: stepAddress(planned, variant.label, step.case) })),
+    steps.map((step) => ({ variant, step, id: stepAddress(planned, variant.label, step) })),
   );
 
   await pool(
@@ -704,8 +720,7 @@ export async function executePlan(
 
   const toScore = steps.flatMap(({ variant, step, id }) => {
     const { score: next } = step;
-    const address = (finding: number) =>
-      addresser(planned.variants.length > 1)(variant.label, { case: step.case, finding });
+    const address = (finding: number) => stepAddress(planned, variant.label, step, finding);
     if (next.do === "reuse" || next.do === "skip") return [];
     if (next.do === "reuse-partial") {
       compared.push(...comparison(next.record, next.restFrom, address));

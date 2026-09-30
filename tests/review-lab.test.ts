@@ -403,6 +403,111 @@ export default ${body};
     );
   });
 
+  test("several trials a case: run adds the missing ones, report counts a case once all are scored", async () => {
+    await ws.variant("canned");
+    await answer(ws, { "app-1": [finding(mechanism("app-1", 1))], "app-2": [] });
+    expect((await lab(ws, ["run", "canned"], inProcess().runner)).exitCode).toBe(0);
+    // Trial 1 found app-1's must-fix; trial 2 finds nothing.
+    await answer(ws, { "app-1": [], "app-2": [] });
+
+    const plan = await lab(ws, ["run", "canned", "--trials", "2", "--dry-run"]);
+    expect(plan.stdout).toMatch(/app-1\/1 +reuse trial \S+; reuse score/);
+    expect(plan.stdout).toMatch(/app-1\/2 +trial; score/);
+    expect(plan.stdout).toContain("2 trials and 2 scores to run");
+
+    // Only app-1's second trial: app-2 has one of two, so it isn't counted yet.
+    const runs = inProcess();
+    expect(
+      (await lab(ws, ["run", "canned", "--trials", "2", "--only", "app-1"], runs.runner)).exitCode,
+    ).toBe(0);
+    expect(runs.trials()).toBe(1);
+    const partial = await report(ws, "canned", "--trials", "2");
+    expect(partial.trials).toBe(2);
+    expect(partial.columns[0]!.cases.map((c) => c.id)).toEqual(["app-1/1", "app-1/2"]);
+    expect(partial.columns[0]!.missing).toEqual([{ id: "app-2", why: "1 of 2 trials on file" }]);
+    // Pooled over both trials: the must-fix found once in two.
+    expect(partial.columns[0]!.bySeverity["must-fix"]).toEqual({ total: 2, hit: 1 });
+    expect((await lab(ws, ["report", "canned", "--trials", "2"])).stdout).toContain(
+      "2 trials a case",
+    );
+
+    // --trials 1 still reads trial 1 alone; the second trial is shown by its address.
+    expect((await report(ws, "canned")).columns[0]!.cases.map((c) => c.id)).toEqual([
+      "app-2",
+      "app-1",
+    ]);
+    const second = await json<ShowDocument>(ws, ["show", "canned", "app-1/2"]);
+    expect(second.id).toBe("app-1/2");
+    expect(second.findings).toEqual([]);
+    expect((await json<ShowDocument>(ws, ["show", "canned", "app-1/1"])).findings).toHaveLength(1);
+    expect((await lab(ws, ["show", "canned", "app-1/3"])).stderr).toContain("2 trials on file");
+
+    // The config's trials is the default; a run fills in app-2's second trial.
+    await Bun.write(join(ws.root, "awf-lab.json"), JSON.stringify({ ...CONFIG, trials: 2 }));
+    const rest = inProcess();
+    expect((await lab(ws, ["run", "canned"], rest.runner)).exitCode).toBe(0);
+    expect(rest.trials()).toBe(1);
+    const whole = await report(ws, "canned");
+    expect(whole.columns[0]!.missing).toEqual([]);
+    expect(whole.columns[0]!.cases.map((c) => c.id).toSorted()).toEqual([
+      "app-1/1",
+      "app-1/2",
+      "app-2/1",
+      "app-2/2",
+    ]);
+  });
+
+  test("with several trials, a comparison gets every trial of the cases both have whole", async () => {
+    const control = (workflow: string) =>
+      `import { defineReviewVariant, ${workflow} } from "@agentswf/lab/review";
+
+export default defineReviewVariant({ workflow: ${workflow}, argv: ${workflow === "NOP_WORKFLOW" ? "[]" : `["--set", "{dataset}", "--head", "{head}"]`}, timeout: "1m", read: (findings) => findings as never });
+`;
+    await ws.variant("oracle", control("ORACLE_WORKFLOW"));
+    await ws.variant("nop", control("NOP_WORKFLOW"));
+    expect(
+      (await lab(ws, ["run", "oracle", "nop", "--trials", "2"], inProcess().runner)).exitCode,
+    ).toBe(0);
+    // The oracle's app-1 gets a third trial that --trials 2 must not read.
+    expect(
+      (await lab(ws, ["run", "oracle", "--trials", "3", "--only", "app-1/3"], inProcess().runner))
+        .exitCode,
+    ).toBe(0);
+    await Bun.write(
+      join(ws.root, "comparisons/echo.compare.ts"),
+      `import { defineComparison } from "@agentswf/lab/compare";
+
+export default defineComparison({
+  version: "1.0.0",
+  compare: ({ baseline, challenger }) => ({
+    verdict: "undecided",
+    stop: false,
+    reason: [...baseline, ...challenger].map((s) => \`\${s.case}/\${s.trial}\`).sort().join(" "),
+    metrics: [],
+  }),
+});
+`,
+    );
+    const both = await report(
+      ws,
+      "oracle",
+      "--baseline",
+      "nop",
+      "--trials",
+      "2",
+      "--comparison",
+      "comparisons/echo.compare.ts",
+    );
+    expect(both.comparison!.against[0]!.verdict!.reason).toBe(
+      "app-1/1 app-1/1 app-1/2 app-1/2 app-2/1 app-2/1 app-2/2 app-2/2",
+    );
+    expect(both.comparison!.against[0]!.won.toSorted()).toEqual(["oracle:app-1", "oracle:app-2"]);
+    // With three trials a case only app-1 is whole for the oracle, and nop has none with three.
+    const three = await report(ws, "oracle", "--baseline", "nop", "--trials", "3");
+    expect(three.columns.map((c) => c.name)).toEqual(["oracle"]);
+    expect(three.leftOut).toEqual([{ variant: "nop", scorer: "exact" }]);
+  });
+
   test("a report of several variants lists the cases only some have, instead of counting them", async () => {
     await ws.variant("canned");
     await ws.variant(
@@ -598,8 +703,8 @@ export default ${body};
     expect((await lab(ws, ["run", "canned", "--cases", "0"])).exitCode).toBe(2);
     expect((await lab(ws, ["run", "canned", "--cases", "zz*"])).exitCode).toBe(2);
     expect((await lab(ws, ["report", "canned", "--frobnicate"])).exitCode).toBe(2);
-    expect((await lab(ws, ["run", "canned", "--trials", "3"])).stderr).toContain(
-      "more than one trial per case comes with story 011, task 4",
+    expect((await lab(ws, ["run", "canned", "--trials", "0"])).stderr).toContain(
+      "--trials is a whole number from 1",
     );
     expect((await lab(ws, ["run", "canned", "--where", "sideways"])).exitCode).toBe(2);
     expect((await lab(ws, ["run", "canned", "--where", "lost"])).stderr).toContain(
@@ -1126,8 +1231,11 @@ export default ${body};
     expect(missing.stderr).toMatch(/has 1 findings, so no #3/);
     expect((await lab(ws, ["score", "canned", "--only", "app-9#0"])).exitCode).toBe(2);
     expect((await lab(ws, ["score", "canned", "--only", "app-1/2"])).stderr).toContain(
-      "one trial per case until story 011, task 4",
+      "app-1/2: 1 trial a case, so no trial 2; --trials asks for more",
     );
+    expect(
+      (await lab(ws, ["score", "canned", "--only", "app-1#0", "--trials", "2"])).stderr,
+    ).toContain("a finding names its trial: {case}/{trial}#{finding}");
     expect((await lab(ws, ["score", "canned", "--only", "other:app-1"])).stderr).toContain(
       "other is not one of canned",
     );

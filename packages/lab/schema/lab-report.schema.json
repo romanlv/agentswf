@@ -5,6 +5,7 @@
   "required": [
     "format",
     "dataset",
+    "trials",
     "scorers",
     "keyRevisions",
     "keyProcedures",
@@ -19,6 +20,11 @@
     "dataset": {
       "type": "string",
       "minLength": 1
+    },
+    "trials": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Trials a case: a case counts once that many are run and scored."
     },
     "scorers": {
       "type": "array",
@@ -214,7 +220,7 @@
               },
               "additionalProperties": false
             },
-            "description": "The cases counted: a trial and a passing score each."
+            "description": "The trials counted, each with a passing score: every trial asked for of each case counted, addressed {case}/{trial} past one a case."
           },
           "tunedOn": {
             "type": "array",
