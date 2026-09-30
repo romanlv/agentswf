@@ -18,6 +18,7 @@ Raw notes on where awf could go. Not scope and not decisions: [`foundation.md`](
 - **Context usage.** Detect when an agent is in the dumb zone: what percentage of its context is
   used so far. (§7: `harness`, beside liveness and usage.)
 - Custom skills per agent: a path or a public skill, applied to this agent only, with or without the operator's — drafted as [story 007](../stories/007-agent-skills.md).
+- connecting to harness hooks in the code, and driving workflow with those signals, this should be integrated with event driven architecture
 
 ## Workflows
 
@@ -30,6 +31,12 @@ Raw notes on where awf could go. Not scope and not decisions: [`foundation.md`](
 - [x] Cost and timing — [story 002](../stories/002-cost-and-time-accounting.md).
 - [ ] Messaging as its own package? (§7 argues it cannot be one package.)
 - [x] [Jev](https://typesafe.ai/blog/introducing-system-one-models-and-jev), a model that classifies quickly and cheaply, as a step in a workflow — measured, and drafted as [story 006](../stories/006-typed-decisions.md).
+- [ ] initializer for new workflow, to setup tsconfig and empty workflow , it can also check what is currently available and add those harnesses as comments or new one
+
+## Subscription , proxy for other harnesses
+api to monitor usage, switch to different account/token
+wait for usage reset  
+provide cli commands to get stats from other harnesses
 
 ## Evaluation and self-improvement
 
@@ -79,6 +86,9 @@ A separate package or tool: define a schema for Markdown files (required section
 frontmatter) and a linter that validates whether a file qualifies. Workflows could build agents or
 prompts on it — review lenses, for example.
 
+- follow up story can be obsidian plugin that validates doc edits against defined schema and provides feedback
+- markdown template, schema itself can define how MD file is serialized to JSON so it can become an input for code and still editable by hands
+
 ## Browser use 
 
 self healing or self development workflow, when another agent can create cli to use specific app, and it it's just available for other agents, if it fails, then special developer can pick it up, investigate and self improve  
@@ -93,3 +103,12 @@ terminal based for now, but maybe later hooked to other tools (slack, telegram e
 Being able to see the agents tracing and inspecting thinking trace of each agent 
 This actually connects well with observability products, that show who called who and where time was spent in this workflow 
  
+
+## Use cases
+### plan becoming a workflow 
+
+doing all that research and investigation, and after that there is a todo plan, that in fact can become a workflow, and it can still be a markdown file, but file that can be linted and disected into json that feeds actual workflow 
+
+in general having good template for the work or ticket is golden, it is worth figuring it out and sharing with the world
+
+markdown linting is very useful here
