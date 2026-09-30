@@ -209,7 +209,7 @@ so one comparison works for any kind of case:
 vs one-codex-r1
   verdict          undecided              –
 
-undecided  one-codex-r2 by default 1.0.0: recall.weighted +0.079 [−0.046, +0.20] at 12 of 33 cases, next look at 16 (run more cases to decide)
+undecided  one-codex-r2 by default 1.1.0: recall.weighted +0.079 [−0.046, +0.20] at 12 of 33 cases, next look at 16 (run more cases to decide)
   recall.weighted (primary)  0.23 → 0.31, +0.08 [−0.05, +0.20] over 12 cases; won 4, tied 6, lost 2
   precision (guard)          0.97 → 0.98, +0.01 [−0.07, +0.08] over 10 cases; won 1, tied 8, lost 1
   wrong (guard)              0.03 → 0.02, 0.00 [−0.08, +0.07] over 10 cases; won 1, tied 8, lost 1
@@ -227,13 +227,14 @@ The package's own comparison, `default`, is `pairedComparison` with review's set
 import { pairedComparison } from "../../compare";
 
 export default pairedComparison({
-  version: "1.0.0",
+  version: "1.1.0",
   primary: "recall.weighted",                 // the metric that decides
   guards: [                                   // may not get worse by more than the margin
     { metric: "wrong", margin: 0.05 },
     { metric: "precision", margin: 0.05 },
   ],
   looks: [8, 16],                             // "better" only at these case counts, and the last
+  minGain: 0.05,                              // stop at a look once a gain of 0.05 is out of reach
   equivalence: 0.05,                          // tie-breakers only if recall is shown within ±0.05
   tiebreak: [                                 // then only by more than the margin
     { metric: "cost", margin: 0.05 },         // USD a case
@@ -257,6 +258,12 @@ How `pairedComparison` decides:
   advance (`looks`, and always the plan's end), past an O'Brien–Fleming bound. That way, checking
   as cases arrive can't manufacture a win. It also needs every guard's interval within its margin
   and at least 6 cases won (`minWon`).
+- **No gain worth having** stops at a look before the last, with `minGain`: a challenger not better
+  whose interval's upper end is below `minGain` is `undecided` with `stop`, since more cases could
+  at most show a gain too small to want. Only at looks, so peeking doesn't stop a real gain; it
+  never adds a false `better`. Without it, two equal variants run the whole plan. It also stops some
+  real losers before they show as `worse` (about a third at −0.10): a discard either way, with the
+  interval in the reason.
 - At the plan's end, the **tie-breakers** decide, in order. One whose whole interval is past its
   margin says `better` if the primary is shown no worse than −`equivalence` and the guards are
   within their margins, or `worse` if the primary is shown no better than +`equivalence`. A later
@@ -264,24 +271,30 @@ How `pairedComparison` decides:
   only while every earlier one is shown no better, so improving on any metric never costs a
   challenger its verdict.
 - Otherwise a primary shown within ±`equivalence` is a `tie`, even a little better.
-- `undecided` with `stop` means the plan ran out without an answer: too few cases are won, a gain
-  falls short of the bound, or no difference is shown but neither is one within ±`equivalence`.
+- `undecided` with `stop` means no gain of `minGain` is in reach, or the plan ran out without an
+  answer: too few cases are won, a gain falls short of the bound, or no difference is shown but
+  neither is one within ±`equivalence`.
   There's never a weighted sum of metrics.
 
 The rates for `default`, simulated on 33 cases with trial noise as measured on reviews (sd 0.19
 between cases, 0.13 between trials of one), checking after every case, 2,000 runs each:
 
-| True gain in weighted recall | Trials a case | better | worse | tie or undecided | cases, on average |
-| --- | --- | --- | --- | --- | --- |
-| none | 1 or 2 | 2.5% | 11% | 86% | 31 |
-| +0.10 on every case | 1 | 85% | 0.4% | 15% | 30 |
-| +0.10 on every case | 2 | 99% | 0.1% | 1% | 26 |
-| +0.10 on average, sd 0.10 by case | 2 | 92% | 0.5% | 7% | 29 |
-| +0.15 on every case | 1 | 99% | – | 1% | 25 |
+| True gain in weighted recall | Trials a case | better | worse | tie or undecided | stopped on `minGain` | cases, on average |
+| --- | --- | --- | --- | --- | --- | --- |
+| none | 1 | 2.0% | 7% | 91% | 15% | 28 |
+| none | 2 | 2.1% | 6% | 92% | 29% | 26 |
+| +0.05 on every case | 2 | 58% | 0.5% | 42% | 4% | 31 |
+| +0.10 on every case | 1 | 85% | 0.3% | 15% | 0.8% | 30 |
+| +0.10 on every case | 2 | 99% | 0.1% | 1% | 0.1% | 25 |
+| +0.10 on average, sd 0.10 by case | 2 | 93% | 0.2% | 7% | 0.6% | 29 |
+| +0.15 on every case | 1 | 99% | – | 1% | 0.1% | 24 |
 
 Between equals, 33 cases seldom show recall within ±0.05: with one trial a case nearly all end
-`undecided`, with two about a sixth end `tie`. The
-stop for worse is quick, not careful: about one comparison in nine between equals stops as
+`undecided`, with two about a tenth end `tie`. `minGain` stops about a quarter of them early, at a
+look, and costs a real gain of 0.10 almost nothing; without it (`default` 1.0.0) the same runs
+averaged 30–31 cases between equals, 11–13% of them stopped as `worse`, and a sixth tied with two
+trials. The
+stop for worse is quick, not careful: about one comparison in fifteen between equals stops as
 `worse`, the price of never waiting on a loser. A discarded idea costs less than a false win. Time
 measured under `--jobs` is not comparable with time measured alone, so compare variants run the
 same way.
@@ -382,6 +395,7 @@ baseline, 0.19 between cases and 0.13 between trials of one, that reads:
 ```text
 variance    sd 0.19 between cases, 0.13 between trials of one, over 12 cases
 resolution  12 cases × 2 trials: differences under ~0.15–0.20 are noise; all 33 resolve ~0.08–0.12
+tie         shown at best within ±0.10–0.15, ±0.06–0.08 with all 33: a narrower equivalence margin is seldom reached
 ```
 
 - **Headroom** warns at 95% of the maximum: no change could show.
@@ -389,6 +403,9 @@ resolution  12 cases × 2 trials: differences under ~0.15–0.20 are noise; all 
   the paired t test the comparison runs, as a range, since how much two variants differ case by case is unknown. It needs a case
   with two scored trials; with one trial a case, trial noise can't be told from case differences.
   `run --baseline` prints the baseline's headroom and resolution in its plan.
+- **Tie** is how close to 0 a tie can be shown at best: the interval's half-width between equal
+  variants. `default`'s ±0.05 is at or below it even at 33 cases, so between equals it seldom ends
+  `tie`: it ends `undecided`, or stops earlier on `minGain`.
 - **Failures** by kind: a variant that failed (a result), a run that never started or a trial in
   another sandbox (neither counted), a score that failed or is missing.
 - **Suspect** cases score 0 on every scored trial of every variant: an ambiguous case or a broken
@@ -405,7 +422,7 @@ stored records already decide. It prints the verdict last:
 ```text
 $ awf-lab run one-codex-r4 --baseline one-codex-r1 --cases 16 --trials 2
 …
-worse: one-codex-r4 against one-codex-r1 by default 1.0.0: recall.weighted … ; stopped with 8 cases not run
+worse: one-codex-r4 against one-codex-r1 by default 1.1.0: recall.weighted … ; stopped with 8 of 16 selected cases not needed
 ```
 
 - The plan, shown before it asks to go ahead or with `--dry-run`, is the most it can spend: every

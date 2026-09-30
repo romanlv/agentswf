@@ -550,6 +550,10 @@ const Range = Type.Union([Type.Tuple([Type.Number(), Type.Number()]), Type.Null(
   description:
     "The smallest difference detected at 80% power, paired, as a range over the unknown variance of the true per-case difference; null without the within-case variance.",
 });
+const Tie = Type.Union([Type.Tuple([Type.Number(), Type.Number()]), Type.Null()], {
+  description:
+    "How close to 0 a tie can be shown at best: the 95% interval's half-width between equal variants, over the same range; null as the range is.",
+});
 
 /** `awf-lab check`: whether a variant's cases can tell a change from noise, from stored records. */
 export const CheckSchema = Type.Object(
@@ -583,7 +587,11 @@ export const CheckSchema = Type.Object(
         cases: Count,
         trials: Type.Integer({ minimum: 1 }),
         range: Range,
-        dataset: Type.Object({ cases: Count, range: Range }, { additionalProperties: false }),
+        tie: Tie,
+        dataset: Type.Object(
+          { cases: Count, range: Range, tie: Tie },
+          { additionalProperties: false },
+        ),
       },
       { additionalProperties: false },
     ),

@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { resolution, varianceOf } from "./resolution";
+import { resolution, tieReach, varianceOf } from "./resolution";
 import type { CaseScore, MetricSpec } from "./types";
 
 const score: MetricSpec = { name: "score", direction: "higher", onVariantFailure: 0 };
@@ -23,6 +23,15 @@ test("experiment 1's measured variance resolves ~0.08–0.12 at 33 cases, ~0.19�
   // More trials only shrink the within-case part.
   expect(resolution(variance, 33, 3)![1]).toBeLessThan(high);
   expect(resolution(variance, 33, 3)![1]).toBeGreaterThan(0.09);
+});
+
+// Task 7's run: a tie within the default ±0.05 is out of reach even at the dataset's end.
+test("at experiment 1's variance a tie shows within ~±0.06–0.08 at best at 33 cases", () => {
+  const variance = { between: 0.19 ** 2, within: 0.13 ** 2 };
+  const [low, high] = tieReach(variance, 33, 2)!;
+  expect(low).toBeCloseTo(0.058, 3);
+  expect(high).toBeCloseTo(0.082, 3);
+  expect(tieReach({ between: null, within: 0.01 }, 33, 2)).toBeNull();
 });
 
 test("variance components: within pooled from repeated cases, between net of trial noise", () => {

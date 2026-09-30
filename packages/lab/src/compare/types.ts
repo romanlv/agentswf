@@ -41,8 +41,9 @@ export type ComparedMetric = {
 };
 
 /**
- * What a comparison says about a challenger. `stop` says whether more cases could change it:
- * `undecided` with `stop` means the plan ran out without an answer, as when too few cases are won.
+ * What a comparison says about a challenger. `stop` says whether a run should spend more on it:
+ * `undecided` with `stop` means the plan ran out without an answer, as when too few cases are won,
+ * or the rule stopped early because more cases could not give an answer worth having.
  */
 export type Verdict = {
   verdict: "better" | "worse" | "tie" | "undecided";

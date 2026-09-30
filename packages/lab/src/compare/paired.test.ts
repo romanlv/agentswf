@@ -329,6 +329,69 @@ describe("pairedComparison", () => {
     expect(verdict.reason).toStartWith("within ±0.3");
   });
 
+  test("minGain stops at a look before the last once a gain worth having is out of reach", () => {
+    const rule = pairedComparison({ version: "1.0.0", primary: "score", looks: [8], minGain: 0.1 });
+    const base = around(16, 0.5);
+    const at = (n: number, step: number) =>
+      rule.compare({
+        baseline: scores(base.slice(0, n)),
+        challenger: scores(base.slice(0, n).map(([x], i) => [x! + (i % 2 ? step : -step)])),
+        metrics: METRICS,
+        planned: 16,
+      });
+    expect(at(7, 0.02)).toMatchObject({ verdict: "undecided", stop: false });
+    const futile = at(8, 0.02);
+    expect(futile).toMatchObject({ verdict: "undecided", stop: true });
+    expect(futile.reason).toStartWith("stopped at look 1 of 2, no gain of 0.1 in reach: score 0 [");
+    // Wide enough that a gain of 0.1 may still show: it runs on.
+    expect(at(8, 0.3)).toMatchObject({ verdict: "undecided", stop: false });
+    // The plan's end is decided as without it.
+    expect(at(16, 0.02).reason).not.toContain("no gain");
+    const small = rule.compare({
+      baseline: scores(base.slice(0, 8)),
+      challenger: scores(base.slice(0, 8).map(([x], i) => [x! + 0.05 + (i % 2) * 0.01])),
+      metrics: METRICS,
+      planned: 16,
+    });
+    expect(small).toMatchObject({ verdict: "better", stop: true });
+    // Past the bound but short of minWon: it carries on, whatever minGain says.
+    const blocked = pairedComparison({
+      version: "1.0.0",
+      primary: "score",
+      looks: [8],
+      minGain: 0.5,
+      minWon: 9,
+    }).compare({
+      baseline: scores(base.slice(0, 8)),
+      challenger: scores(base.slice(0, 8).map(([x], i) => [x! + 0.05 + (i % 2) * 0.01])),
+      metrics: METRICS,
+      planned: 16,
+    });
+    expect(blocked).toMatchObject({ verdict: "undecided", stop: false });
+    expect(blocked.reason).toContain("past the bound, but only 8 cases won, 9 needed");
+  });
+
+  test("minGain reads a lower-is-better primary the right way round", () => {
+    const rule = pairedComparison({ version: "1.0.0", primary: "cost", looks: [8], minGain: 0.1 });
+    const base = around(8, 0.5);
+    const at = (step: number) =>
+      rule.compare({
+        baseline: scores(base, { cost: base.map(([x]) => x!) }),
+        challenger: scores(base, { cost: base.map(([x], i) => x! + (i % 2 ? step : -step)) }),
+        metrics: METRICS,
+        planned: 16,
+      });
+    expect(at(0.02)).toMatchObject({ verdict: "undecided", stop: true });
+    expect(at(0.02).reason).toContain("no gain of 0.1 in reach: cost 0 [");
+    const cheaper = rule.compare({
+      baseline: scores(base, { cost: base.map(([x]) => x!) }),
+      challenger: scores(base, { cost: base.map(([x], i) => x! - 0.3 - (i % 2) * 0.01) }),
+      metrics: METRICS,
+      planned: 16,
+    });
+    expect(cheaper).toMatchObject({ verdict: "better", stop: true });
+  });
+
   test("options that can't mean anything are refused when the rule is made", () => {
     expect(() => pairedComparison({ version: "1", primary: "score" })).toThrow("version 1 is not");
     expect(() =>
@@ -346,6 +409,9 @@ describe("pairedComparison", () => {
     );
     expect(() => pairedComparison({ version: "1.0.0", primary: "score", looks: [6.5] })).toThrow(
       "looks are case counts",
+    );
+    expect(() => pairedComparison({ version: "1.0.0", primary: "score", minGain: -1 })).toThrow(
+      "minGain's margin is -1",
     );
     expect(() => pairedComparison({ version: "1.0.0", primary: "score", minWon: -1 })).toThrow(
       "minWon is a count",
@@ -482,5 +548,41 @@ describe("pairedComparison", () => {
     expect(tally.better / runs).toBeLessThanOrEqual(0.03);
     // The price of stopping as soon as a loser shows: measured at 7–9% with 16 cases.
     expect(tally.worse / runs).toBeLessThanOrEqual(0.12);
+  });
+
+  test("minGain seldom stops a challenger that gains twice as much", () => {
+    const normal = gaussian(11);
+    const runs = 4000;
+    let futile = 0;
+    const rule = pairedComparison({
+      version: "1.0.0",
+      primary: "score",
+      looks: [8, 16],
+      minGain: 0.05,
+    });
+    for (let run = 0; run < runs; run++) {
+      const base: number[][] = [];
+      const challenger: number[][] = [];
+      for (let n = 1; n <= 16; n++) {
+        const level = normal() * 0.19;
+        base.push([level + normal() * 0.13, level + normal() * 0.13]);
+        challenger.push([level + 0.1 + normal() * 0.13, level + 0.1 + normal() * 0.13]);
+      }
+      for (const n of [8, 16]) {
+        const verdict = rule.compare({
+          baseline: scores(base.slice(0, n)),
+          challenger: scores(challenger.slice(0, n)),
+          metrics: METRICS,
+          planned: 33,
+        });
+        if (verdict.stop) {
+          if (verdict.reason.includes("no gain")) futile++;
+          break;
+        }
+      }
+    }
+    // Experiment 1's variances, two trials a case: measured at 0.3%; 4.5% at a true gain of 0.05, and
+    // 31% at none, which is the spend it saves.
+    expect(futile / runs).toBeLessThanOrEqual(0.01);
   });
 });

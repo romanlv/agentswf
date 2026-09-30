@@ -249,7 +249,7 @@ type ComparedMetric = {
 
 type Verdict = {
   verdict: "better" | "worse" | "tie" | "undecided";
-  stop: boolean;                 // undecided with stop: the plan ran out without an answer
+  stop: boolean;                 // undecided with stop: no answer, or none worth having, is in reach
   reason: string;
   metrics: ComparedMetric[];
 };
@@ -301,7 +301,7 @@ Alternatives rejected:
 
 ## Tasks at a glance
 
-Built in this order: 2 and 3 (slice 1), 4, 5, 1, 6, 7.
+Built in this order: 2 and 3 (slice 1), 4, 5, 1, 6, 7, 8.
 
 - [x] 1. Match first is the review scorer; the panel retires
 - [x] 2. `compare/` and `pairedComparison`, from per-case numbers (slice 1). Reporting between-
@@ -312,6 +312,7 @@ Built in this order: 2 and 3 (slice 1), 4, 5, 1, 6, 7.
 - [x] 5. `run --baseline`: per-case scheduling and the comparison's stop
 - [x] 6. `awf-lab check`: headroom, resolution, scorer self-agreement, failures, suspect cases
 - [x] 7. Live check on codex: a real challenger against the baseline
+- [x] 8. A futility stop, and `check` says what a tie can reach, from task 7's live check
 
 ## Decisions
 
@@ -375,8 +376,9 @@ Everything raised while planning this story, so none is lost. [011] is this stor
 | Suspect cases: 0 on every trial of every variant, flagged for audit | Anthropic, experiment 1 | [011] 6 |
 | Audit the always-zero cases of the first dataset (F, L, and nearly B) | experiment 1 | data repository, before task 7 |
 | Measure how often a noise label Jev settled alone is wrong (it costs precision, a guard) | decision 5, task 1 review | [later], `check --rescore` or an audit |
-| A futility stop (`minGain`): stop when a gain worth having is out of reach | task 7 | [[comparison-efficiency]] |
-| An equivalence margin the dataset can resolve; `check` says what a verdict can decide | task 7 | [[comparison-efficiency]] |
+| A futility stop (`minGain`): stop when a gain worth having is out of reach | task 7 | [011] 8 |
+| `check` says how close a tie can be shown | task 7 | [011] 8 |
+| An equivalence margin the dataset can resolve; "not better, but cheaper or faster" as the keep rule | task 7 | [[comparison-efficiency]] |
 | Run the baseline once on the whole dataset; `run --ahead n`; a cost estimate for a new variant | task 7 | [[comparison-efficiency]] |
 | Match first as the one review scorer, codex and pi voters; the panel retires | story 008, decision-matching, decision 4 | [011] 1 |
 | Jev's known failure: it matches a new problem to the nearest known issue (p 0.97 seen); right symptom, false cause passes | decision-matching | [011] 1, a note in the scorer's docs |
@@ -560,6 +562,46 @@ Cost: about $0.33 and $0.15 to run and score a trial, so about $15 for 16 cases 
 challenger, and up to $30 at 33 cases, at list price; the baseline's second trials add as much
 again where missing. Done when the run stops where the comparison says, and a fresh agent reading
 only the README and the run's output can say what was decided and why.
+
+### Task 8: a futility stop, and what a tie can reach
+
+From task 7's live check: between equals the comparison can't stop, and at ±0.05 a tie is out of
+reach. The two small fixes; the keep rule for equals stays in [[comparison-efficiency]].
+
+- `PairedOptions.minGain`: at a planned look before the last, a primary that is not better and
+  whose interval's upper end is below `minGain` stops: `undecided` with `stop`, reason "stopped, no
+  gain of {minGain} in reach". At looks only, not every case, so a real gain is not stopped by
+  peeking; a futility stop adds no false "better". `Verdict` is unchanged.
+- The default comparison sets `minGain: 0.05`, as version 1.1.0: task 7's run would have stopped
+  at its look at 8 cases (upper end +0.045).
+- `check`'s resolution line also says how close to 0 a tie can be shown at best, the interval's
+  half-width at the measured variance, so a margin out of reach is seen before spending.
+
+Done when `pairedComparison` tests show the stop at a look and not between looks, not at the last
+look, and not for a gain; a simulation with a true gain of twice `minGain` shows the stop rarely
+fires; and `check` shows the tie line.
+
+As built (2026-09-30):
+
+- As planned: `minGain` in `paired.ts`, `tieReach` beside `resolution` in `compare/resolution.ts`,
+  `tie` in `awf.lab-check/1` at both levels, `default` 1.1.0. `Verdict`'s shape is unchanged; its
+  doc says `undecided` with `stop` may now come before the plan's end.
+- Simulated on 33 cases at experiment 1's variance, 2,000 runs each, against 1.0.0: between equals
+  with two trials, 29% stop on `minGain` and the average run falls from 31 cases to 26; false
+  `better` 2.4% → 2.1%; `worse` 11% → 6%, and `tie` 18% → 10%, as some stop before the end. A true
+  gain of 0.10 is found as often (99%), stopping on `minGain` 0.1% of the time; of 0.05, 4%. The
+  README's table is the new run. The saving is smaller than task 7 suggested: its spread at 8 cases
+  was narrower than experiment 1's.
+- Review (one agent, both angles; nothing blocking):
+  - It stops some real losers as `undecided` before they show `worse`: 35% at a true −0.10.
+    Accepted: a discard either way, with the interval in the reason; in the README and the todo.
+  - `Verdict`'s doc said `undecided` with `stop` meant the plan ran out; fixed, and the sketch here.
+  - With `minGain` = `equivalence` = 0.05, a challenger shown equal at a look stops before the
+    tie-breakers run, so "equal but cheaper" is out of reach under `default`. Moot at today's
+    variance; recorded in [[comparison-efficiency]] for the keep rule.
+  - `tieReach`'s low end assumes some true per-case difference, so identical copies can tie a little
+    inside it; the README says "at or below". Tests added for a lower-is-better primary and for past
+    the bound but short of `minWon`. The todo's "at any case" and a stale README sample line fixed.
 
 ## Verification
 

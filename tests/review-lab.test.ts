@@ -265,7 +265,7 @@ export default defineReviewVariant({
       both.comparison!.against.map(({ verdict: _, ...a }) => ({ ...a, won: a.won.toSorted() })),
     ).toEqual([{ variant: "oracle", won: ["oracle:app-1", "oracle:app-2"], lost: [], tied: [] }]);
     // The dataset's two cases are too few for an interval, and all it has: undecided, and done.
-    expect(both.comparison!.rule).toEqual({ name: "default", version: "1.0.0" });
+    expect(both.comparison!.rule).toEqual({ name: "default", version: "1.1.0" });
     expect(both.comparison!.against[0]!.verdict).toMatchObject({
       verdict: "undecided",
       stop: true,
@@ -274,7 +274,7 @@ export default defineReviewVariant({
     const text = await lab(ws, ["report", "oracle", "--baseline", "nop"]);
     expect(text.stdout).toMatch(/verdict +undecided/);
     expect(text.stdout).not.toContain("cases won");
-    expect(text.stdout).toMatch(/undecided +oracle by default 1.0.0: 2 cases/);
+    expect(text.stdout).toMatch(/undecided +oracle by default 1.1.0: 2 cases/);
 
     // --where lost: the cases the baseline did better on; none for the oracle, both for nop.
     expect(
@@ -361,7 +361,7 @@ export default ${body};
       ["loose", null],
       ["sloppy", "1.0.0"],
       ["throws", "1.0.0"],
-      ["default", "1.0.0"],
+      ["default", "1.1.0"],
     ]);
 
     // A version that isn't semver, a verdict out of shape, and a throw each name the comparison.
@@ -648,7 +648,7 @@ export default defineComparison({
     expect(whole.exitCode).toBe(0);
     // A second trial of each variant on app-2, and both of each on app-1.
     expect(rest.trials()).toBe(6);
-    expect(whole.stdout).toMatch(/^undecided: canned against other by default 1\.0\.0: 2 cases/);
+    expect(whole.stdout).toMatch(/^undecided: canned against other by default 1\.1\.0: 2 cases/);
     const doc = await report(ws, "canned", "--baseline", "other", "--trials", "2");
     expect(doc.comparison!.against[0]!.verdict!.stop).toBe(true);
   });
@@ -707,7 +707,7 @@ export default defineComparison({
     const filled = await lab(ws, ["run", "canned", "--baseline", "other"], runs.runner);
     expect(filled.exitCode).toBe(0);
     expect(runs.trials()).toBe(2);
-    expect(filled.stdout).toMatch(/^undecided: canned against other by default 1\.0\.0: 2 cases/);
+    expect(filled.stdout).toMatch(/^undecided: canned against other by default 1\.1\.0: 2 cases/);
   });
 
   test("run --baseline refuses what it can't decide on, and stops at a case it can't make whole", async () => {
@@ -771,6 +771,8 @@ export default defineComparison({
     expect(checked.variance.trials).toBe(2);
     expect(checked.variance.within).toBeGreaterThan(0);
     expect(checked.resolution.range).not.toBeNull();
+    // A tie shows at best within the interval's half-width, less than what the plan resolves.
+    expect(checked.resolution.tie![1]).toBeLessThan(checked.resolution.range![1]);
     expect(checked.resolution.dataset.cases).toBe(2);
     expect(checked.suspect).toEqual(["app-2"]);
     expect(checked.failures).toEqual({
@@ -783,6 +785,9 @@ export default defineComparison({
     const text = await lab(ws, ["check", "canned", "--trials", "2"]);
     expect(text.stdout).toMatch(
       /variance {4}sd \S+ between cases, \S+ between trials of one, over 2 cases/,
+    );
+    expect(text.stdout).toMatch(
+      /tie {9}shown at best within ±\S+: a narrower equivalence margin is seldom reached/,
     );
     expect(text.stdout).toContain(
       "suspect     1 case score 0 on every trial of every variant: app-2",

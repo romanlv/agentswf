@@ -1,5 +1,5 @@
 import type { CaseScore } from "../../compare";
-import { resolution, varianceOf } from "../../compare/resolution";
+import { resolution, tieReach, varianceOf } from "../../compare/resolution";
 import type { AnswerKey } from "../format/format";
 import { CHECK_FORMAT, type CheckDocument } from "../format/output";
 import { namedMetrics, REVIEW_METRICS } from "../metrics/named";
@@ -120,9 +120,11 @@ export function buildCheck(options: {
       cases: rows.length,
       trials,
       range: resolution(variance, rows.length, trials),
+      tie: tieReach(variance, rows.length, trials),
       dataset: {
         cases: options.datasetCases,
         range: resolution(variance, options.datasetCases, trials),
+        tie: tieReach(variance, options.datasetCases, trials),
       },
     },
     failures,
@@ -158,6 +160,10 @@ export function checkLines(check: CheckDocument): string[] {
     const whole = range(r.dataset.range);
     lines.push(
       `resolution  ${plural(r.cases, "case")} × ${plural(r.trials, "trial")}: differences under ${here ?? "?"} are noise${r.dataset.cases !== r.cases ? `; all ${r.dataset.cases} resolve ${whole ?? "?"}` : ""}`,
+    );
+    const tie = (t: [number, number] | null) => (t ? `±${two(t[0])}–${two(t[1])}` : "?");
+    lines.push(
+      `tie         shown at best within ${tie(r.tie)}${r.dataset.cases !== r.cases ? `, ${tie(r.dataset.tie)} with all ${r.dataset.cases}` : ""}: a narrower equivalence margin is seldom reached`,
     );
   }
   return lines;

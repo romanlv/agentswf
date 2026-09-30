@@ -61,10 +61,31 @@ export function resolution(
   cases: number,
   trials: number,
 ): [number, number] | null {
+  return scaled(variance, cases, trials, (n) => tQuantile(0.975, n - 1) + tQuantile(0.8, n - 1));
+}
+
+/**
+ * How close to 0 a tie can be shown at best: the 95% interval's half-width when the two variants
+ * are equal, over the same range as `resolution`. An equivalence margin below it is seldom reached.
+ */
+export function tieReach(
+  variance: Pick<Variance, "between" | "within">,
+  cases: number,
+  trials: number,
+): [number, number] | null {
+  return scaled(variance, cases, trials, (n) => tQuantile(0.975, n - 1));
+}
+
+function scaled(
+  variance: Pick<Variance, "between" | "within">,
+  cases: number,
+  trials: number,
+  quantile: (cases: number) => number,
+): [number, number] | null {
   const { between, within } = variance;
   if (between === null || within === null || cases < 2) return null;
   const noise = (2 * within) / trials;
   const [low, high] = [Math.min(LEAST, between), Math.max(LEAST, between)];
-  const t = tQuantile(0.975, cases - 1) + tQuantile(0.8, cases - 1);
+  const t = quantile(cases);
   return [t * Math.sqrt((low + noise) / cases), t * Math.sqrt((high + noise) / cases)];
 }

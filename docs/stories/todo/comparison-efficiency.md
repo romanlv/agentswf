@@ -25,10 +25,11 @@ Why the current design can't conclude on equals:
 - Tie-breakers (cost, time) decide only after a tie on recall, so a slower equal (here +36 s a
   case, [+16, +55]) is never called worse on time.
 
-Notes, the design changes first:
+Notes, the design changes first. Story 011's task 8 built the futility stop (`minGain`, at looks,
+in the default comparison at 0.05) and `check`'s tie line; the rest is open.
 
-- **A futility stop.** `pairedComparison({ minGain })`: stop when the primary's upper bound is below
-  the smallest gain worth having, at any case or at looks. It would have stopped this run at the
+- **A futility stop (built in 011, task 8).** `pairedComparison({ minGain })`: stop when the primary's upper bound is below
+  the smallest gain worth having, at looks only, as built. It would have stopped this run at the
   look at 8 cases (upper bound +0.045 < +0.05), half the spend. Futility stops add no false wins
   (research §3). It fits the published `Verdict` as `undecided` with `stop: true` and a reason, or
   as a new verdict value, `not-better`, which is a published change to settle first.
@@ -36,7 +37,15 @@ Notes, the design changes first:
   resolution (about ±0.08 for 33 cases here), or let "no gain of `minGain` or more" at the plan's
   end be what opens the tie-breakers. Which is right for the loop, keep or discard, is the question
   to settle: a loop wants "not better, and cheaper or faster?" more than "equal".
-- **`check` says what a verdict can decide:** with the measured variance, how many cases a tie at
+- **Found in task 8's review, for the keep rule:** with `minGain` equal to `equivalence` (both
+  0.05 in the default), a challenger shown within ±0.05 at a look before the last also stops on
+  `minGain`, before the tie-breakers run at the plan's end: "equal on recall but cheaper" can't be
+  reached under the default. Moot at today's variance, where a tie is out of reach anyway. And a
+  real regression whose interval still reaches above 0 stops as `undecided`, not `worse`: at a true
+  −0.10, 35% of runs in simulation. Both are discards for a keep-or-discard loop; a loop that must
+  tell worse from not better reads the interval in the reason.
+- **`check` says what a verdict can decide** (the tie's reach built in 011, task 8; `minGain` not
+  yet, as `check` doesn't read the comparison's settings): with the measured variance, how many cases a tie at
   the comparison's margin needs, and whether `minGain` is resolvable at all, before any spend.
 - **Run the baseline once, whole.** Its trials were $10.57 of the $27.40. Two trials of every case
   once, and each challenger pays only its own; `check` then knows the variance up front. An

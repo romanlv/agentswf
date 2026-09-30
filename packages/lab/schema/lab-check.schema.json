@@ -123,7 +123,7 @@
     },
     "resolution": {
       "type": "object",
-      "required": ["cases", "trials", "range", "dataset"],
+      "required": ["cases", "trials", "range", "tie", "dataset"],
       "properties": {
         "cases": {
           "type": "integer",
@@ -154,9 +154,30 @@
           ],
           "description": "The smallest difference detected at 80% power, paired, as a range over the unknown variance of the true per-case difference; null without the within-case variance."
         },
+        "tie": {
+          "anyOf": [
+            {
+              "type": "array",
+              "additionalItems": false,
+              "items": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "number"
+                }
+              ],
+              "minItems": 2
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "How close to 0 a tie can be shown at best: the 95% interval's half-width between equal variants, over the same range; null as the range is."
+        },
         "dataset": {
           "type": "object",
-          "required": ["cases", "range"],
+          "required": ["cases", "range", "tie"],
           "properties": {
             "cases": {
               "type": "integer",
@@ -182,6 +203,27 @@
                 }
               ],
               "description": "The smallest difference detected at 80% power, paired, as a range over the unknown variance of the true per-case difference; null without the within-case variance."
+            },
+            "tie": {
+              "anyOf": [
+                {
+                  "type": "array",
+                  "additionalItems": false,
+                  "items": [
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "number"
+                    }
+                  ],
+                  "minItems": 2
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "How close to 0 a tie can be shown at best: the 95% interval's half-width between equal variants, over the same range; null as the range is."
             }
           },
           "additionalProperties": false

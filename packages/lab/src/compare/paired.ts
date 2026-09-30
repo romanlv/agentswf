@@ -109,6 +109,12 @@ export type PairedOptions = {
    * at exactly these counts. "Worse" may stop at any count from 5.
    */
   looks?: readonly number[];
+  /**
+   * The smallest gain on the primary worth having. At a planned look before the last, a challenger
+   * not better whose interval's upper end is below it stops, `undecided`: more cases could at most
+   * show a gain too small to want. Only at looks, so a real gain is not stopped by peeking.
+   */
+  minGain?: number;
   /** Two-sided, for every interval; "better" is claimed one-sided at half of what it leaves. */
   confidence?: number;
   /** Cases the challenger must win on the primary before "better": a floor under the interval. */
@@ -146,7 +152,8 @@ function gainInterval(m: ComparedMetric, spec: MetricSpec): [number, number] | u
  * The standard rule, for 5 to 40 costly cases with a few trials each: per-case means, paired;
  * "worse" as soon as the primary's interval is below 0 or a guard's is past its margin; "better"
  * only at a planned look, past the bound, with every guard shown within its margin; at the last
- * look, the tie-breakers, then a tie if the primary is shown equivalent. Never a weighted sum
+ * look, the tie-breakers, then a tie if the primary is shown equivalent. With `minGain`, a look
+ * before the last also stops a challenger that can no longer gain that much. Never a weighted sum
  * across metrics.
  */
 export function pairedComparison(options: PairedOptions): Comparison {
@@ -176,6 +183,7 @@ export function pairedComparison(options: PairedOptions): Comparison {
     ...guards,
     ...tiebreak,
     ...(equivalence === undefined ? [] : [{ metric: "equivalence", margin: equivalence }]),
+    ...(options.minGain === undefined ? [] : [{ metric: "minGain", margin: options.minGain }]),
   ]) {
     if (!(margin >= 0)) throw new Error(`${metric}'s margin is ${margin}; a margin is 0 or more`);
   }
@@ -291,6 +299,13 @@ export function pairedComparison(options: PairedOptions): Comparison {
             ? `not shown within margin: ${unproven.join(", ")}`
             : undefined;
       if (past && !blocked) return verdict("better", true, `better at ${at}: ${shown(primary)}`);
+      if (!last && !past && options.minGain !== undefined && primaryGain[1] < options.minGain) {
+        return verdict(
+          "undecided",
+          true,
+          `stopped at ${at}, no gain of ${options.minGain} in reach: ${shown(primary)}; ${counts}`,
+        );
+      }
       if (!last) {
         const why = past ? `past the bound, but ${blocked}` : `not past the bound at ${at}`;
         return verdict("undecided", false, `${shown(primary)} ${why}; ${pending}`);
