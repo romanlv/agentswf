@@ -3,7 +3,7 @@ id: "011"
 title: Say whether a workflow variant beats the incumbent, and how sure that is
 summary: The evaluating project defines its scorer, which turns a trial into named per-case metrics, and its comparison, which turns two variants' per-case metrics into a verdict; awf-lab runs several trials per case, calls both, and stops when the comparison says so. The lab ships a standard paired comparison and match first as the review scorer.
 type: story
-status: in-progress
+status: awaiting-human-review
 discovered_in: "variant-matrix-runner and decision-matching todos, 2026-09-29"
 depends_on: ["008", "010"]
 ---
@@ -311,7 +311,7 @@ Built in this order: 2 and 3 (slice 1), 4, 5, 1, 6, 7.
 - [x] 4. Several trials per case
 - [x] 5. `run --baseline`: per-case scheduling and the comparison's stop
 - [x] 6. `awf-lab check`: headroom, resolution, scorer self-agreement, failures, suspect cases
-- [ ] 7. Live check on codex: a real challenger against the baseline
+- [x] 7. Live check on codex: a real challenger against the baseline
 
 ## Decisions
 
@@ -564,12 +564,12 @@ Automated:
 
 - [x] `pairedComparison` against table values, and a simulated null in which the stop rule and the
   looks keep "better" near its nominal 2.5% (at most 3%).
-- [ ] A comparison file from a test workspace replaces the standard one in `run` and `report`.
-- [ ] `bun test`, `bunx tsc --noEmit`, `bun run scripts/check-boundaries.ts`
+- [x] A comparison file from a test workspace replaces the standard one in `run` and `report`.
+- [x] `bun test`, `bunx tsc --noEmit`, `bun run scripts/check-boundaries.ts`
 
 Live, on codex:
 
-- [ ] A challenger against the baseline over the first 8 cases, 2 trials each, then 16.
+- [x] A challenger against the baseline over the first 8 cases, 2 trials each, then 16.
 
 ## Implementation notes
 
@@ -778,3 +778,24 @@ Left for later slices: several trials per case (task 4), `run --baseline` and it
   and remaining risks.
 - [ ] Record the human's explicit approval or requested changes here.
 - [ ] Only after explicit approval, mark the story `done` and update `Stories at a glance`.
+
+### Task 7: the live check (2026-09-30)
+
+`awf-lab run one-codex-skill --baseline one-codex-r1 --scorer match-first --cases 16 --trials 2
+--jobs 4 --budget 30`, in the data repository, on codex. The challenger is the baseline with the
+public review skill story 008 tried on claude; the prediction was no gain, perhaps more time.
+
+- It ran case by case, reusing the baseline's stored first trials on 12 cases: 52 trials and 52
+  scorings in about 4 hours, $27.40 at list price, under the $30 cap. No step failed.
+- The verdict after every case was `undecided`. At the look at 8 cases, weighted recall was
+  −0.024 [−0.093, +0.045]; at 16, −0.0095 [−0.077, +0.058], not past the bound, next look at 33.
+  So the run ended at its `--cases 16` cap, not by a stop.
+- At 16 cases: weighted recall 0.26 → 0.25, won 3, tied 6, lost 7; precision 0.94 → 0.98 and wrong
+  0.06 → 0.02, both within their guards; cost +$0.06 a case, and time +36 s a case, whose interval
+  [+16, +55] excludes 0. Tie-breakers decide only at the plan's end, so that isn't a verdict yet.
+- As predicted: the skill brings no measurable gain in recall at this size, and costs time. To
+  decide, the run can be extended to all 33 cases with `--cases 33`, reusing all of this.
+- `check` beforehand said resolution unknown (one baseline trial a case); after the run both
+  variants have two trials on 16 cases.
+- What it showed about the lab: the stop never fired, which is right for a change this small; a
+  loop would need the whole dataset to call a tie or pay for it in cases.

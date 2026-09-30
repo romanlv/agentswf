@@ -117,7 +117,8 @@ The gates are defined in [`foundation.md`](foundation.md) §12.
   runs several trials a case, counted only whole; `run {challenger} --baseline {variant}` runs
   both case by case until the verdict says stop; `check` says whether a variant's cases can tell
   a change from noise; match first (`match-first`) is the review scorer and the panel retires.
-  Left: the live check on codex.
+  Awaiting human review. Its live check, a public review skill added to the codex baseline, was
+  undecided at 16 cases: recall −0.01 [−0.08, +0.06], 36 s a case slower.
 
 The inbox of possible stories is [`stories/todo/`](stories/todo/).
 
@@ -129,7 +130,7 @@ The inbox of possible stories is [`stories/todo/`](stories/todo/).
    ([story 005](stories/005-review-fixtures.md)), and so are the sandboxes to isolate them in
    ([story 004](stories/004-sandboxed-agents.md)), and every trial runs in one
    ([story 010](stories/010-eval-isolation.md)). In order:
-   [story 011](stories/011-compare-variants.md) (still to come: its live check on codex), then
+   [story 011](stories/011-compare-variants.md) (built; awaiting human review), then
    [`second-case-kind`](stories/todo/second-case-kind.md), so the loop is shown not to be
    review's alone, and last [`autoresearch-loop`](stories/todo/autoresearch-loop.md).
 
