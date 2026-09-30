@@ -458,7 +458,7 @@ script is `variance.ts` in the planning session's scratchpad; task 6's `check` r
 What exists, in the worktree `awf-compare-variants`:
 
 - `packages/lab/src/compare/` (`@agentswf/lab/compare`): `MetricSpec`, `CaseScore`,
-  `ComparedMetric`, `ComparisonInput` (`baseline`, `challenger`, `metrics`, `selected`), `Verdict`,
+  `ComparedMetric`, `ComparisonInput` (`baseline`, `challenger`, `metrics`, `planned`), `Verdict`,
   `Comparison`, `defineComparison`, `pairedComparison`, `perCase`,
   `compareMetric`; `stats.ts` has the t distribution and O'Brien–Fleming bounds by numerical
   integration, no dependency. Pure, imports nothing; the boundary checker holds it, and review
@@ -500,10 +500,10 @@ Where it departs from the proposed design, and why:
 Evidence:
 
 - `default` simulated on 33 cases with trial noise as measured (sd 0.19 between cases, 0.13
-  within), checking after every case, 1,500 runs each: no true difference, `better` 2.7–3.0% (2.5%
-  nominal; the t bound per look is an approximation), `worse` 12%, `tie` 85%, stopping after 30
-  cases on average; +0.10, `better` 99% after 25; +0.15, 100% after 18. The quick stop for worse
-  is the price of never waiting on a loser.
+  within), checking after every case, 2,000 runs each: no true difference, `better` 2.5%, `worse`
+  11%, the rest `undecided` or `tie`; +0.10 on every case, `better` 85% with one trial a case and
+  99% with two; +0.10 varying by case (sd 0.10), 92% with two; +0.15, 99% with one. The README
+  has the table. The quick stop for worse is the price of never waiting on a loser.
 - `report` on experiment 1 (the first 12 of 33 cases, `match-sol-pi`), identical variants: r2 vs
   r1 +0.08 [−0.05, +0.20], r3 vs r1 +0.03 [−0.07, +0.12], both `undecided` at 12 of 33, next look
   at 16. An 8-point gain between copies is noise at 12 cases, as experiment 1 predicted. (Before
@@ -515,7 +515,7 @@ its own on cost, and a misspelt metric, whose error it could act on without read
 tripped on, and what changed:
 
 - `defineComparison`'s input was undocumented, and `cases` read as a list of ids: it is a count.
-  Renamed `selected`; the README's example is now a working rule, run as written.
+  Renamed (now `planned`, see below); the README's example is a working rule, run as written.
 - "Cases won" and `--json`'s won/lost lists count by weighted recall whatever the comparison, so
   they contradicted a comparison with another primary. With a verdict, the text shows only the
   verdict's counts; the JSON lists stay review's, as `--where lost` reads them, and say so.
@@ -545,7 +545,15 @@ Reviewed by three fresh agents (statistics, wiring, docs and design), 2026-09-30
   refused now, with probes.
 - An unknown `--comparison` exited 1, not 2 as an unknown variant does.
 
-Left as they are: false "worse" is 12% between equals at 33 cases, by design; with many looks
+Round 2, a fresh agent again, confirmed each fix and found: at the plan's end a primary slightly
+better but within the equivalence skipped the tie-breakers, so better-and-cheaper lost to
+same-and-cheaper; tie-breakers weren't strictly in order; `tie` didn't mean equivalent; `list`
+failed silently on an unknown config comparison; a verdict's check passed an inverted interval and
+said "schema is false"; the rates table assumed two trials and one gain everywhere. All fixed: the
+last look tries the tie-breakers first, the first past its margin decides, `tie` needs the
+equivalence when one is set, and the table has one-trial and varying-gain rows.
+
+Left as they are: false "worse" is 11% between equals at 33 cases, by design; with many looks
 (eleven) false "better" is 2.8%, the t approximation per look, measured and stated; cost and time
 print as bare numbers in the report's notes, their units in the README.
 

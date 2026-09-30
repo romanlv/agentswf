@@ -105,9 +105,19 @@ function verdictOf(rule: ReportComparison, input: ComparisonInput): Verdict {
     throw new Error(`${named}: ${(error as Error).message}`);
   }
   const checked = checkSchema(VerdictSchema, verdict);
-  if (!checked.ok)
-    throw new Error(describeProblems(`${named} returned a verdict that`, checked.problems));
-  return checked.value;
+  const problems = checked.ok
+    ? checked.value.metrics.flatMap((m, i) =>
+        m.interval && m.interval[0] > m.interval[1]
+          ? [{ path: `/metrics/${i}/interval`, message: "its low end is above its high end" }]
+          : [],
+      )
+    : checked.problems
+        .filter((p) => p.message !== "must not have additional properties")
+        .map((p) =>
+          p.message === "schema is false" ? { ...p, message: "is not part of a verdict" } : p,
+        );
+  if (problems.length > 0) throw new Error(describeProblems(`${named}: its verdict`, problems));
+  return (checked as { value: Verdict }).value;
 }
 
 /**

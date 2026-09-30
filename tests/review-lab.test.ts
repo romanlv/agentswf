@@ -367,7 +367,7 @@ export default ${body};
     const failing = async (name: string) =>
       (await lab(ws, ["report", "oracle", "--baseline", "nop", "--comparison", name])).stderr;
     expect(await failing("loose")).toContain("version 1 is not {major}.{minor}.{patch}");
-    expect(await failing("sloppy")).toContain("comparison sloppy 1.0.0 returned a verdict that");
+    expect(await failing("sloppy")).toContain("comparison sloppy 1.0.0: its verdict is not valid");
     expect(await failing("throws")).toContain("comparison throws 1.0.0: no rule yet");
 
     // What can't be compared is a usage error; a selection by hand gives no verdict, and says why.
@@ -383,6 +383,15 @@ export default ${body};
     expect(
       (await lab(ws, ["report", "oracle", "--baseline", "nop", "--only", "app-1"])).stdout,
     ).toMatch(/no verdict +--only picks cases by hand/);
+
+    // A config naming a comparison that isn't there shows in list, which says why.
+    await Bun.write(
+      config,
+      JSON.stringify({ ...CONFIG, comparisons: ["comparisons/*.compare.ts"], comparison: "tpyo" }),
+    );
+    const typo = await lab(ws, ["list"]);
+    expect(typo.exitCode).toBe(1);
+    expect(typo.stdout).toContain("compare   tpyo: no comparison named tpyo; known: any-gain");
 
     // The package's own name is taken.
     await comparison(

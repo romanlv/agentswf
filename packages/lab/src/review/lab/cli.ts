@@ -1006,7 +1006,13 @@ async function list(
     }
     document[kind] = entries;
   }
-  if (!workspace.comparisons.has(workspace.config.comparison ?? "default")) broken = true;
+  // The config's comparison, resolved as report would, so a name that isn't there shows here first.
+  try {
+    resolveFile(workspace.comparisons, document.workspace.comparison, context.cwd, "comparison");
+  } catch (e) {
+    broken = true;
+    document.workspace.comparisonError = (e as Error).message;
+  }
   if (wanted.includes("comparisons")) {
     document.comparisons = [];
     for (const [name, file] of workspace.comparisons) {
@@ -1028,7 +1034,7 @@ async function list(
     `results   ${w.results}`,
     `runs      ${w.runs}`,
     `scorer    ${w.scorer}`,
-    `compare   ${w.comparison}`,
+    `compare   ${w.comparison}${w.comparisonError ? `: ${w.comparisonError}` : ""}`,
     ...(w.baseline ? [`baseline  ${w.baseline}`] : []),
     ...(w.budget !== undefined ? [`budget    $${w.budget}`] : []),
   ];

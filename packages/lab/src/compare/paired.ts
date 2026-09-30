@@ -9,6 +9,8 @@ import {
   type Verdict,
 } from "./types";
 
+const SEMVER = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
+
 /** Below this many paired cases no interval is given, only cases won, tied and lost. */
 const FEWEST = 5;
 /** A per-case difference this small is rounding, not a difference: trials summed in another order. */
@@ -92,7 +94,10 @@ export type PairedOptions = {
    * every guard within its margin.
    */
   tiebreak?: readonly { metric: string; margin: number }[];
-  /** How close to 0 the primary's interval must lie for the tie-breakers to decide. */
+  /**
+   * How close to 0 the primary's interval must lie for the tie-breakers to decide. Set, it is also
+   * what a tie means: at the plan's end, a primary neither better nor within it is `undecided`.
+   */
   equivalence?: number;
   /**
    * Case counts at which "better" may be claimed, against an O'Brien–Fleming bound; the plan's
@@ -148,7 +153,17 @@ export function pairedComparison(options: PairedOptions): Comparison {
   if (tiebreak.length > 0 && options.equivalence === undefined) {
     throw new Error("tie-breakers need an equivalence: how close to 0 the primary must be shown");
   }
-  const equivalence = options.equivalence ?? 0;
+  const equivalence = options.equivalence;
+  if (!SEMVER.test(options.version)) {
+    throw new Error(`version ${options.version} is not {major}.{minor}.{patch}`);
+  }
+  for (const { metric, margin } of [
+    ...guards,
+    ...tiebreak,
+    ...(equivalence === undefined ? [] : [{ metric: "equivalence", margin: equivalence }]),
+  ]) {
+    if (!(margin >= 0)) throw new Error(`${metric}'s margin is ${margin}; a margin is 0 or more`);
+  }
   return defineComparison({
     version: options.version,
     compare(input): Verdict {
@@ -164,7 +179,9 @@ export function pairedComparison(options: PairedOptions): Comparison {
       };
       const primarySpec = spec(options.primary);
       const roles = new Map<string, ComparedMetric["role"]>([[options.primary, "primary"]]);
-      for (const g of guards) roles.set(spec(g.metric).name, "guard");
+      for (const g of guards) {
+        if (!roles.has(spec(g.metric).name)) roles.set(g.metric, "guard");
+      }
       for (const t of tiebreak) {
         if (!roles.has(spec(t.metric).name)) roles.set(t.metric, "tiebreak");
       }
@@ -196,7 +213,7 @@ export function pairedComparison(options: PairedOptions): Comparison {
       const pending = `at ${done} of ${input.planned} cases${next ? `, next look at ${next}` : ""}`;
 
       if (n < FEWEST) {
-        const few = `${n} cases with ${options.primary}: too few for an interval; ${counts}`;
+        const few = `${n} ${n === 1 ? "case" : "cases"} with ${options.primary}: too few for an interval; ${counts}`;
         return last
           ? verdict("undecided", true, few)
           : verdict("undecided", false, `${few}; ${pending}`);
@@ -243,29 +260,49 @@ export function pairedComparison(options: PairedOptions): Comparison {
       const t =
         spread === 0 ? (mean(gains) > 0 ? Number.POSITIVE_INFINITY : 0) : mean(gains) / spread;
       const at = `look ${look + 1} of ${looks.length}`;
-      if (t >= critical) {
-        const blocked =
-          primary.won + primary.lost < minDiffering
-            ? `only ${primary.won + primary.lost} cases differ, ${minDiffering} needed`
-            : unproven.length > 0
-              ? `not shown within margin: ${unproven.join(", ")}`
-              : undefined;
-        if (!blocked) return verdict("better", true, `better at ${at}: ${shown(primary)}`);
-        return last
-          ? verdict("undecided", true, `${shown(primary)} past the bound, but ${blocked}`)
-          : verdict(
-              "undecided",
-              false,
-              `${shown(primary)} past the bound, but ${blocked}; ${pending}`,
-            );
-      }
+      const past = t >= critical;
+      const blocked = !past
+        ? undefined
+        : primary.won + primary.lost < minDiffering
+          ? `only ${primary.won + primary.lost} cases differ, ${minDiffering} needed`
+          : unproven.length > 0
+            ? `not shown within margin: ${unproven.join(", ")}`
+            : undefined;
+      if (past && !blocked) return verdict("better", true, `better at ${at}: ${shown(primary)}`);
       if (!last) {
-        return verdict(
-          "undecided",
-          false,
-          `${shown(primary)} not past the bound at ${at}; ${pending}`,
-        );
+        const why = past ? `past the bound, but ${blocked}` : `not past the bound at ${at}`;
+        return verdict("undecided", false, `${shown(primary)} ${why}; ${pending}`);
       }
+
+      // The plan has run. A primary shown within ±equivalence goes to the tie-breakers, in order:
+      // the first past its margin decides, either way.
+      const equivalent =
+        equivalence !== undefined &&
+        primaryGain[0] >= -equivalence &&
+        primaryGain[1] <= equivalence;
+      const notes: string[] = [];
+      if (equivalent) {
+        for (const { metric, margin } of tiebreak) {
+          const m = byName.get(metric)!;
+          const gain = gainInterval(m, spec(metric));
+          if (!gain) {
+            notes.push(`${metric} has ${m.cases} cases, too few to decide`);
+            continue;
+          }
+          const decided = `${options.primary} within ±${equivalence} (${shown(primary)}); decided by ${shown(m)}, past its margin of ${margin}`;
+          if (gain[1] < -margin) return verdict("worse", true, decided);
+          if (gain[0] > margin) {
+            if (unproven.length === 0) return verdict("better", true, decided);
+            return verdict(
+              "undecided",
+              true,
+              `${decided}, but not shown within margin: ${unproven.join(", ")}`,
+            );
+          }
+        }
+      }
+      if (past)
+        return verdict("undecided", true, `${shown(primary)} past the bound, but ${blocked}`);
       if (primaryGain[0] > 0) {
         return verdict(
           "undecided",
@@ -273,25 +310,14 @@ export function pairedComparison(options: PairedOptions): Comparison {
           `${shown(primary)}: a gain, but not past the bound that planned looks require`,
         );
       }
-      const equivalent = primaryGain[0] >= -equivalence && primaryGain[1] <= equivalence;
-      const skipped: string[] = [];
-      for (const { metric, margin } of tiebreak) {
-        const m = byName.get(metric)!;
-        const gain = gainInterval(m, spec(metric));
-        if (!equivalent || !gain) continue;
-        const decided = `no difference on ${options.primary} (${shown(primary)}); decided by ${shown(m)}, past its margin of ${margin}`;
-        if (gain[1] < -margin) return verdict("worse", true, decided);
-        if (gain[0] > margin) {
-          if (unproven.length === 0) return verdict("better", true, decided);
-          skipped.push(`${metric}, as ${unproven.join(", ")} not shown within margin`);
-        }
+      if (equivalence !== undefined && !equivalent) {
+        return verdict(
+          "undecided",
+          true,
+          `no difference shown, nor one within ±${equivalence}: ${shown(primary)}; ${counts}`,
+        );
       }
-      const why =
-        tiebreak.length > 0 && !equivalent
-          ? `; not shown within ±${equivalence}, so no tie-breaker`
-          : skipped.length > 0
-            ? `; not decided by ${skipped.join("; ")}`
-            : "";
+      const why = notes.length > 0 ? `; ${notes.join("; ")}` : "";
       return verdict("tie", true, `no difference shown: ${shown(primary)}; ${counts}${why}`);
     },
   });

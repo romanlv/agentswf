@@ -143,8 +143,77 @@ describe("pairedComparison", () => {
       scores(base, { cost: base.map(() => 1) }),
       scores(lower, { cost: base.map(() => 0.1) }),
     );
-    expect(verdict).toMatchObject({ verdict: "tie", stop: true });
-    expect(verdict.reason).toContain("not shown within ±0.1, so no tie-breaker");
+    expect(verdict).toMatchObject({ verdict: "undecided", stop: true });
+    expect(verdict.reason).toContain("no difference shown, nor one within ±0.1");
+  });
+
+  test("a primary slightly better, and within the equivalence, still goes to the tie-breakers", () => {
+    const rule = pairedComparison({
+      version: "1.0.0",
+      primary: "score",
+      looks: [5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+      equivalence: 0.3,
+      tiebreak: [{ metric: "cost", margin: 0.1 }],
+    });
+    // A gain past the plain interval, short of the bound that eleven looks set, within ±0.3.
+    const gains = Array.from({ length: 16 }, (_, i) => (i % 2 ? 0.3162 : -0.0838));
+    const cost = gains.map(() => 1);
+    const verdict = rule.compare({
+      baseline: scores(
+        gains.map(() => [0.5]),
+        { cost },
+      ),
+      challenger: scores(
+        gains.map((g) => [0.5 + g]),
+        { cost: cost.map(() => 0.5) },
+      ),
+      metrics: METRICS,
+      planned: 16,
+    });
+    expect(verdict.metrics[0]!.interval![0]).toBeGreaterThan(0);
+    expect(verdict).toMatchObject({ verdict: "better", stop: true });
+    expect(verdict.reason).toContain("decided by cost −0.50");
+  });
+
+  test("the first tie-breaker past its margin decides, either way", () => {
+    const rule = pairedComparison({
+      version: "1.0.0",
+      primary: "score",
+      guards: [{ metric: "errors", margin: 0.05 }],
+      equivalence: 0.1,
+      tiebreak: [
+        { metric: "cost", margin: 0.1 },
+        { metric: "errors", margin: 0.01 },
+      ],
+    });
+    const base = around(16, 0.5);
+    const same = base.map(([x], i) => [x! + (i % 2 ? 0.01 : -0.01)]);
+    const sparse = base.map((_, i) => (i < 3 ? 0 : null));
+    // Cheaper, but the guard has too few values to be shown within its margin.
+    const verdict = rule.compare({
+      baseline: scores(base, { cost: base.map(() => 1), errors: sparse }),
+      challenger: scores(same, { cost: base.map(() => 0.5), errors: sparse }),
+      metrics: METRICS,
+      planned: 16,
+    });
+    expect(verdict).toMatchObject({ verdict: "undecided", stop: true });
+    expect(verdict.reason).toContain(
+      "past its margin of 0.1, but not shown within margin: errors (3 cases)",
+    );
+  });
+
+  test("options that can't mean anything are refused when the rule is made", () => {
+    expect(() => pairedComparison({ version: "1", primary: "score" })).toThrow("version 1 is not");
+    expect(() =>
+      pairedComparison({
+        version: "1.0.0",
+        primary: "score",
+        guards: [{ metric: "errors", margin: -1 }],
+      }),
+    ).toThrow("errors's margin is -1");
+    expect(() =>
+      pairedComparison({ version: "1.0.0", primary: "score", equivalence: -0.1 }),
+    ).toThrow("equivalence's margin is -0.1");
   });
 
   test("a gain short of the bound at the last look is undecided, not no difference", () => {

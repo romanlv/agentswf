@@ -238,21 +238,26 @@ How `pairedComparison` decides:
   advance (`looks`, and always the plan's end), past an O'Brien–Fleming bound. That way, checking
   as cases arrive can't manufacture a win. It also needs every guard's interval within its margin
   and at least 6 cases that differ.
-- At the plan's end, a primary shown within ±`equivalence` goes to the **tie-breakers**, in order.
-  Each needs its whole interval past its margin. A tie-breaker can always say `worse`; `better`
-  also needs the guards within their margins. Otherwise it's a `tie`: no difference shown.
-- `undecided` with `stop` means the plan ran out without an answer, as when too few cases differ,
-  or a gain falls short of the bound. There's never a weighted sum of metrics.
+- At the plan's end, a primary shown within ±`equivalence` goes to the **tie-breakers**, in order,
+  even when it is a little better. The first whose whole interval is past its margin decides:
+  `worse` always, `better` only with the guards within their margins. Otherwise it's a `tie`.
+- `undecided` with `stop` means the plan ran out without an answer: too few cases differ, a gain
+  falls short of the bound, or no difference is shown but neither is one within ±`equivalence`.
+  There's never a weighted sum of metrics.
 
-The rates, simulated on 33 cases with trial noise as measured on reviews, checking after every case:
+The rates for `default`, simulated on 33 cases with trial noise as measured on reviews (sd 0.19
+between cases, 0.13 between trials of one), checking after every case, 2,000 runs each:
 
-| True difference in weighted recall | better | worse | tie | cases, on average |
-| --- | --- | --- | --- | --- |
-| none | 2.7–3.0% (2.5% nominal) | 12% | 85% | 30 |
-| +0.10 | 99% | 0.1% | 1% | 25 |
-| +0.15 | 100% | – | – | 18 |
+| True gain in weighted recall | Trials a case | better | worse | tie or undecided | cases, on average |
+| --- | --- | --- | --- | --- | --- |
+| none | 1 or 2 | 2.5% | 11% | 86% | 31 |
+| +0.10 on every case | 1 | 85% | 0.4% | 15% | 30 |
+| +0.10 on every case | 2 | 99% | 0.1% | 1% | 26 |
+| +0.10 on average, sd 0.10 by case | 2 | 92% | 0.5% | 7% | 29 |
+| +0.15 on every case | 1 | 99% | – | 1% | 25 |
 
-The stop for worse is quick, not careful: about one comparison in eight between equals stops as
+Between equals, 33 cases rarely show recall within ±0.05, so most end `undecided`, not `tie`. The
+stop for worse is quick, not careful: about one comparison in nine between equals stops as
 `worse`, the price of never waiting on a loser. A discarded idea costs less than a false win. Time
 measured under `--jobs` is not comparable with time measured alone, so compare variants run the
 same way.

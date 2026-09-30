@@ -108,6 +108,9 @@ export const ListSchema = Type.Object(
         dataset: Text,
         scorer: Text,
         comparison: Text,
+        comparisonError: Type.Optional(
+          Type.String({ minLength: 1, description: "Why the config's comparison can't be found." }),
+        ),
         baseline: Type.Optional(Text),
         budget: Type.Optional(Type.Number({ minimum: 0 })),
       },
