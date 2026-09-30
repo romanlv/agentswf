@@ -435,11 +435,15 @@ case, the comparison over the seeded prefix both have, as `report` does.
   dataset's size, so the looks don't move.
 - The baseline's stored trials are reused as always; a baseline already run on the first 12 cases
   costs only the challenger's trials there.
-- Under `--jobs`, cases run concurrently but a verdict counts only the seeded prefix, so a stop
-  can come after later cases began; they finish and are stored.
-- **Costly to change later, to settle before building:** the run's JSON gains the verdict as the
-  report carries it, which bumps its format. The alternative, `run` printing only and the loop
-  calling `report`, costs a second read of the records but publishes nothing.
+- As built: `--jobs` runs one case's steps at once, never two cases, so a stop never leaves later
+  cases half run (the draft ran cases concurrently).
+- As built, publishing nothing: `run` prints the verdict, and its `--json` stays the steps it ran;
+  the loop reads the verdict from `report --json`. The run's JSON gaining the verdict would bump
+  its format, so it waits until the loop needs it.
+- A case that can't be made whole (a failed score, a trial that couldn't run) stops the run with
+  exit 1: later cases would count towards no look. `--only`, `--where`, `--categories` and
+  `--cases` by id are refused, as `report` gives them no verdict; `--where lost` keeps its old
+  meaning.
 
 Done when `bun test` shows, with a fake variant and a scripted comparison: the run stops at the
 first `stop: true` without starting the next case; a comparison file from the workspace replaces

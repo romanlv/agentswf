@@ -482,6 +482,8 @@ export default ${body};
     const running = new Map<string, number>();
     let most = 0;
     let overlap = 0;
+    let scoring = 0;
+    let mostScoring = 0;
     const base = inProcess();
     const runner: Runner = async (request) => {
       const caseId = request.argv.includes(ws.heads["app-1"]!) ? "app-1" : "app-2";
@@ -493,9 +495,12 @@ export default ${body};
           [...running.values()].reduce((a, b) => a + b, 0),
         );
       }
+      if (stepOf(request) === SCORE) scoring += 1;
+      mostScoring = Math.max(mostScoring, scoring);
       await Bun.sleep(30);
       const result = await base.runner(request);
       if (stepOf(request) === TRIAL) running.set(caseId, running.get(caseId)! - 1);
+      if (stepOf(request) === SCORE) scoring -= 1;
       return result;
     };
     expect(
@@ -503,6 +508,8 @@ export default ${body};
     ).toBe(0);
     expect(overlap).toBe(1);
     expect(most).toBe(2);
+    // Scores of one case still run beside each other: app-1's three.
+    expect(mostScoring).toBe(3);
 
     // A case another column doesn't count is named once for this one, not once per trial.
     expect(
@@ -564,6 +571,113 @@ export default defineComparison({
     const three = await report(ws, "oracle", "--baseline", "nop", "--trials", "3");
     expect(three.columns.map((c) => c.name)).toEqual(["oracle"]);
     expect(three.leftOut).toEqual([{ variant: "nop", scorer: "exact" }]);
+  });
+
+  test("run --baseline runs both case by case and stops when the comparison says so", async () => {
+    await ws.variant("canned");
+    await ws.variant("other");
+    await answer(ws, { "app-1": [finding(mechanism("app-1", 1))], "app-2": [] });
+    // Stops at the first case both have whole: the seeded order's first, app-2.
+    await Bun.write(
+      join(ws.root, "comparisons/first.compare.ts"),
+      `import { defineComparison } from "@agentswf/lab/compare";
+
+export default defineComparison({
+  version: "1.0.0",
+  compare: ({ baseline, challenger, planned }) => {
+    const cases = new Set(challenger.map((s) => s.case));
+    const whole = cases.size >= 1 && baseline.length === challenger.length;
+    return { verdict: whole ? "worse" : "undecided", stop: whole, reason: \`\${cases.size} of \${planned}\`, metrics: [] };
+  },
+});
+`,
+    );
+    const against = [
+      "run",
+      "canned",
+      "--baseline",
+      "other",
+      "--comparison",
+      "comparisons/first.compare.ts",
+    ];
+
+    const plan = await lab(ws, [...against, "--dry-run"]);
+    expect(plan.exitCode).toBe(0);
+    expect(plan.stdout).toContain("canned 1.0.0 against other 1.0.0");
+    expect(plan.stdout).toContain("4 trials and 4 scores to run");
+    expect(plan.stdout).toContain("stopping when first 1.0.0 decides");
+
+    const runs = inProcess();
+    const first = await lab(ws, against, runs.runner);
+    expect(first.exitCode).toBe(0);
+    expect(runs.calls.map(stepOf)).toEqual([TRIAL, TRIAL]);
+    expect(first.stderr).toContain("app-2: worse, 1 of 2");
+    expect(first.stdout).toBe(
+      "worse: canned against other by first 1.0.0: 1 of 2; stopped with 1 case not run",
+    );
+    expect(recordsIn(ws, "*/app-1/*/findings.json")).toHaveLength(0);
+
+    // The records decide already: nothing runs.
+    const again = inProcess();
+    const second = await lab(ws, [...against, "--json"], again.runner);
+    expect(again.calls).toHaveLength(0);
+    expect(second.stderr).toContain("already decided by the records: worse, 1 of 2");
+    expect((JSON.parse(second.stdout) as RunDocument).steps).toEqual([]);
+
+    // The package's own comparison over both cases: the baseline's stored trials are reused.
+    const rest = inProcess();
+    const whole = await lab(
+      ws,
+      ["run", "canned", "--baseline", "other", "--trials", "2"],
+      rest.runner,
+    );
+    expect(whole.exitCode).toBe(0);
+    // A second trial of each variant on app-2, and both of each on app-1.
+    expect(rest.trials()).toBe(6);
+    expect(whole.stdout).toMatch(/^undecided: canned against other by default 1\.0\.0: 2 cases/);
+    const doc = await report(ws, "canned", "--baseline", "other", "--trials", "2");
+    expect(doc.comparison!.against[0]!.verdict!.stop).toBe(true);
+  });
+
+  test("run --baseline refuses what it can't decide on, and stops at a case it can't make whole", async () => {
+    await ws.variant("canned");
+    await ws.variant("other");
+    await answer(ws, { "app-1": [finding("x")], "app-2": [finding("y")] });
+    const usage = async (...argv: string[]) => {
+      const result = await lab(ws, ["run", ...argv, "--dry-run"]);
+      expect(result.exitCode).toBe(2);
+      return result.stderr;
+    };
+    expect(await usage("canned", "other", "--baseline", "other")).toContain(
+      "run --baseline takes one challenger",
+    );
+    expect(await usage("canned", "--baseline", "canned")).toContain("are the same version");
+    expect(await usage("canned", "--baseline", "other", "--only", "app-1")).toContain(
+      "--only picks cases by hand",
+    );
+    expect(await usage("canned", "--baseline", "other", "--cases", "app-1")).toContain(
+      "a verdict takes the first n of the seeded order",
+    );
+    // --where lost still only reads the baseline.
+    const lost = await lab(ws, [
+      "run",
+      "canned",
+      "--baseline",
+      "other",
+      "--where",
+      "lost",
+      "--dry-run",
+    ]);
+    expect(lost.exitCode).toBe(0);
+    expect(lost.stdout).not.toContain("against");
+
+    // A score that fails leaves app-2 not whole: later cases would count towards no look.
+    await ws.scorer("exact", "bad");
+    const runs = inProcess();
+    const failed = await lab(ws, ["run", "canned", "--baseline", "other"], runs.runner);
+    expect(failed.exitCode).toBe(1);
+    expect(failed.stderr).toContain("app-2 isn't whole, so no later case would count");
+    expect(recordsIn(ws, "*/app-1/*/findings.json")).toHaveLength(0);
   });
 
   test("a report of several variants lists the cases only some have, instead of counting them", async () => {

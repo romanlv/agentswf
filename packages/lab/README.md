@@ -343,8 +343,28 @@ listed as not counted, with how many it has; `--only {case}/{trial}` chooses a t
 or show, but `report` still counts its case whole or not at all. Trials are numbered by age, so trial 1 stays trial 1
 as more are added, and `--trials 1` reads the first alone. Two trials a case let a comparison see
 how much a case varies from trial to trial. On reviews, two a case need about a third fewer cases
-than one to see the same difference, and a third trial about a tenth fewer again. A `run` that stops when the verdict says so is story 011's
-next step.
+than one to see the same difference, and a third trial about a tenth fewer again.
+
+**Running until it's decided.** `run {challenger} --baseline {baseline}` runs both, case by case in
+the seeded order: each case's missing trials, then their scores, then the comparison over the cases
+both have whole. It stops as soon as the verdict says `stop`, and before spending anything if the
+stored records already decide. It prints the verdict last:
+
+```text
+$ awf-lab run one-codex-r4 --baseline one-codex-r1 --cases 16 --trials 2
+…
+worse: one-codex-r4 against one-codex-r1 by default 1.0.0: recall.weighted … ; stopped with 8 cases not run
+```
+
+- The plan it prints first is the most it can spend: every selected case. `--cases {n}` caps it;
+  the looks still count towards the whole dataset.
+- It takes one challenger and a selection a verdict can use (`--cases {n}` or none); `--only`,
+  `--where` and `--categories` are refused, as `report` gives them no verdict. `--where lost`
+  keeps its old meaning: the baseline is only read.
+- A case that can't be made whole, such as one whose score failed, stops it with exit 1: a later
+  case could count towards no look. Run it again once fixed; it resumes.
+- `--jobs {n}` runs one case's trials at once, never two cases, so a stop leaves no case half run.
+- `--json` prints the steps it ran, as a plain `run` does; the verdict is `report --json`'s.
 
 ## The workspace
 
@@ -422,6 +442,7 @@ awf-lab [--config {file}] {command} … [--json]
   list [datasets|cases|variants|scorers|comparisons]
                                               what the workspace sees, with stored versions
   run {variant…} [selection]                  the missing trials, then their scores
+  run {challenger} --baseline {variant}       both, case by case, until the comparison stops it
   score {variant…} [selection]                scores stored trials; never runs a variant
   report {variant…} [selection]               metrics side by side, and with --baseline a
                                               verdict for each; --md for Markdown

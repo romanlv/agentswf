@@ -18,6 +18,7 @@ import type { PartialScore, Score } from "../format/records";
 import { formatOf, renderSchemaFile, SCHEMA_FILES, type SchemaName } from "../format/schema-files";
 import type { ScorerSettings, VariantSettings } from "../format/variant";
 import { type Address, formatAddress, parseAddress } from "./address";
+import { reportSubject, runAgainst } from "./against";
 import {
   type CaseInfo,
   datasetCases,
@@ -83,6 +84,8 @@ const USAGE = `usage: awf-lab [--config {file}] {command} … [--json]
                             what the workspace sees: names, files, versions, stored versions
   run {variant…} [selection] [--dry-run] [--budget {usd}] [--jobs {n}] [--yes]
                             the missing trials of the selection, then their scores
+  run {challenger} --baseline {variant} [--cases {n}] [--trials {n}] [--comparison {name}] …
+                            both, case by case in the seeded order, until the comparison stops it
   score {variant…} [selection] [--rest-from {scorer}] [--dry-run] [--budget …] [--jobs …] [--yes]
                             scores stored trials, whole or chosen findings; never runs a variant
   report {variant…} [selection] [--baseline {variant}] [--comparison {name}] [--categories {a,b}] [--md]
@@ -628,6 +631,10 @@ async function runOrScore(
   const { workspace, options, dataset } = context;
   if (names.length === 0) throw new UsageError(`${command} takes a variant`);
   if (options.scorers.length > 1) throw new UsageError(`${command} takes one --scorer`);
+  // With --baseline, run compares as it goes; --where lost only reads the baseline, as before.
+  if (command === "run" && options.baseline && !options.where.some((p) => p.kind === "lost")) {
+    return await runBaseline(context, names, lab, environment, out);
+  }
   if (options.restFrom && command === "run") throw new UsageError("--rest-from goes with score");
   const variants = await variantsOf(context, names);
   if (command === "run") {
@@ -736,6 +743,131 @@ async function runOrScore(
   return result.exitCode;
 }
 
+/**
+ * `run {challenger} --baseline {baseline}`: both variants case by case in the seeded order, the
+ * comparison after each case, stopping when it says so. The plan printed first is the most it can
+ * spend: every selected case.
+ */
+async function runBaseline(
+  context: Context,
+  names: readonly string[],
+  lab: Lab,
+  environment: LabEnvironment,
+  out: { stdout: (text: string) => void; stderr: (text: string) => void },
+): Promise<number> {
+  const { workspace, options, dataset } = context;
+  if (names.length !== 1) throw new UsageError("run --baseline takes one challenger");
+  const why = whyNoVerdict(options);
+  if (why) {
+    throw new UsageError(
+      `run --baseline decides as it goes, over the first n of the seeded order: ${why}`,
+    );
+  }
+  const [challenger] = await variantsOf(context, names);
+  const baseline = await context.variant(options.baseline!);
+  if (baseline.key === challenger!.key) {
+    throw new UsageError(`${challenger!.label} and ${baseline.label} are the same version`);
+  }
+  for (const v of [challenger!, baseline]) {
+    if (!v.defined) throw new UsageError(`${v.label} is a stored version; only a file can run`);
+  }
+  const scorer = await context.scorer(options.scorers[0] ?? workspace.config.scorer);
+  if (!scorer.defined)
+    throw new UsageError(`${scorer.label} is a stored version; only a file can score`);
+  const { ids, entries } = await selectedCases(workspace, options);
+  const cases = await readCases(workspace, dataset, ids);
+  const trials = trialsAsked(workspace, options);
+  const comparison = {
+    ...(await comparisonOf(
+      context,
+      options.comparison ?? workspace.config.comparison ?? "default",
+    )),
+    planned: entries.length,
+  };
+  const all = new Map(
+    ids.map((id) => [id, new Map(Array.from({ length: trials }, (_, i) => [i + 1, {}]))]),
+  );
+  const upTo = await planRun(lab, {
+    command: "run",
+    trials,
+    dataset,
+    variants: [challenger!, baseline].map((variant) => ({ variant, chosen: all })),
+    scorer,
+    cases,
+  });
+  const rule = `${comparison.name} ${comparison.comparison.version}`;
+  const heading = [
+    `${challenger!.label} ${challenger!.version} against ${baseline.label} ${baseline.version}`,
+    `scorer ${scorer.label} ${scorer.version}`,
+    `comparison ${rule}`,
+    `dataset ${dataset}`,
+  ].join(", ");
+  const plan = [
+    heading,
+    ...describePlan(upTo),
+    `case by case, stopping when ${rule} decides: this is the most it runs`,
+  ].join("\n");
+  const documentContext = { dataset, scorer };
+  defaultBranch(workspace.clone);
+  if (options.dryRun) {
+    out.stdout(
+      options.json
+        ? JSON.stringify(runDocument(upTo, { ...documentContext, dryRun: true }), null, 2)
+        : plan,
+    );
+    return 0;
+  }
+  const confirm =
+    environment.confirm ??
+    (process.stdin.isTTY && !options.yes
+      ? (text: string) => askOperator(text, out.stderr)
+      : undefined);
+  if (confirm && !options.yes && !(await confirm(plan))) {
+    out.stderr("declined; nothing run");
+    return 4;
+  }
+  const budget = options.budget ?? workspace.config.budget?.usd;
+  const result = await runAgainst(lab, {
+    dataset,
+    trials,
+    challenger: challenger!,
+    baseline,
+    scorer,
+    cases,
+    entries,
+    comparison,
+    ...(budget === undefined ? {} : { budget }),
+    ...(options.jobs === undefined ? {} : { jobs: options.jobs }),
+  });
+  out.stderr(`$${result.listPrice.toFixed(2)} at list prices, estimated`);
+  const { verdict } = result;
+  const left = cases.length - result.walked;
+  const summary = verdict
+    ? `${verdict.verdict}${verdict.stop ? "" : ", so far"}: ${challenger!.label} against ${baseline.label} by ${rule}: ${verdict.reason}${verdict.stop && left > 0 ? `; stopped with ${plural(left, "case")} not run` : ""}`
+    : `no verdict: no case is whole for both yet`;
+  if (options.json) {
+    out.stderr(summary);
+    out.stdout(
+      JSON.stringify(
+        runDocument(
+          result.planned ?? { ...upTo, variants: upTo.variants.map((v) => ({ ...v, steps: [] })) },
+          { ...documentContext, dryRun: false },
+          {
+            exitCode: result.exitCode,
+            listPrice: result.listPrice,
+            stopped: result.exitCode === 3,
+            outcomes: result.outcomes,
+            compared: [],
+          },
+        ),
+        null,
+        2,
+      ),
+    );
+  } else out.stdout(summary);
+  return result.exitCode;
+}
+
 /** A comparison as a command names it: a workspace's name, or a file anywhere. */
 async function comparisonOf(context: Context, text: string) {
   const { name, file } = named(() =>
@@ -827,23 +959,7 @@ async function report(context: Context, names: readonly string[]): Promise<strin
   const subjects: ReportSubject[] = [];
   for (const variant of variants) {
     const chosen = cases.filter((info) => chosenBy.get(variant)!.has(info.id));
-    const states = await statesOf(workspace, dataset, variant.key, chosen);
-    subjects.push({
-      name: variant.name,
-      sandbox: workspace.sandbox,
-      label: variant.label,
-      version: variant.version,
-      key: variant.key,
-      commit: variant.commit,
-      ...(variant.defined?.tunedOn ? { tunedOn: variant.defined.tunedOn } : {}),
-      rows: chosen.map((info, index) => ({
-        case: info.id,
-        digest: info.digest,
-        key: info.key,
-        at: entries.find((e) => e.id === info.id)?.at ?? info.fixture.request.asOf,
-        stored: states[index]!.stored,
-      })),
-    });
+    subjects.push(await reportSubject(workspace, dataset, variant, chosen, entries));
   }
   const document = buildReport({
     dataset,
