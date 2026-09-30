@@ -303,7 +303,7 @@ Alternatives rejected:
 
 Built in this order: 2 and 3 (slice 1), 4, 5, 1, 6, 7.
 
-- [ ] 1. Match first is the review scorer; the panel retires
+- [x] 1. Match first is the review scorer; the panel retires
 - [x] 2. `compare/` and `pairedComparison`, from per-case numbers (slice 1). Reporting between-
   and within-case variance moved to task 6, which needs task 4's trials
 - [x] 3. `report` calls the comparison (slice 1). A scorer declaring its own metrics moved to
@@ -487,6 +487,9 @@ As built (2026-09-30), and where it differs:
 - Jev settles a sure noise unread; a voter's own answer must still read before it calls a finding
   noise (`labelProblems`' `read`), as its prompt asks. A sure noise that surely repeats an earlier
   finding is that finding's duplicate, so it counts once.
+- Live check, 2026-09-30: `match-first` re-scored experiment 1's 32 trials in the data repository
+  ($4.69 at list price, codex). Against `match-sol-pi` 3.0: 79 of 81 findings the same label (98%),
+  κ 1.00, 0.96 and 0.95 on the three copies of the baseline. Done.
 - The config's `scorer` is optional, `match-first` when absent. A config or `--scorer` naming
   `panel` gets "panel is retired", with what replaces it; stored `panel@1` scores still read.
 
