@@ -346,7 +346,8 @@ Settled with the user on 2026-09-30.
    so a variant is penalised for it only on evidence. `noise` is reported but decides nothing.
    Corrected in task 1's review: noise does count, in precision, which is a guard. The decision
    stands on another reason: whether a finding is vague is a matter of its text, which is what Jev
-   reads, while a claim is shown false only in the code. To confirm with the user.
+   reads, while a claim is shown false only in the code. Confirmed by the user on 2026-09-30:
+   keep it, and measure later how often a noise label Jev settled is wrong.
    So `settleMatches` settles a sure `noise`, and the judge's label check (`check.ts`) stops
    requiring lines read for `noise`; `wrong` and `new` still need them.
 
@@ -373,6 +374,7 @@ Everything raised while planning this story, so none is lost. [011] is this stor
 | Scorer self-agreement: re-score a sample with the same scorer | Anthropic `build-eval` | [011] 6 |
 | Suspect cases: 0 on every trial of every variant, flagged for audit | Anthropic, experiment 1 | [011] 6 |
 | Audit the always-zero cases of the first dataset (F, L, and nearly B) | experiment 1 | data repository, before task 7 |
+| Measure how often a noise label Jev settled alone is wrong (it costs precision, a guard) | decision 5, task 1 review | [later], `check --rescore` or an audit |
 | Match first as the one review scorer, codex and pi voters; the panel retires | story 008, decision-matching, decision 4 | [011] 1 |
 | Jev's known failure: it matches a new problem to the nearest known issue (p 0.97 seen); right symptom, false cause passes | decision-matching | [011] 1, a note in the scorer's docs |
 | `tunedOn` cases marked in the report | variant-matrix-runner | [011] 3 |
