@@ -238,9 +238,12 @@ How `pairedComparison` decides:
   advance (`looks`, and always the plan's end), past an O'Brien–Fleming bound. That way, checking
   as cases arrive can't manufacture a win. It also needs every guard's interval within its margin
   and at least 6 cases that differ.
-- At the plan's end, a primary shown within ±`equivalence` goes to the **tie-breakers**, in order,
-  even when it is a little better. The first whose whole interval is past its margin decides:
-  `worse` always, `better` only with the guards within their margins. Otherwise it's a `tie`.
+- At the plan's end, the **tie-breakers** decide, in order. One whose whole interval is past its
+  margin says `better` if the primary is shown no worse than −`equivalence` and the guards are
+  within their margins, or `worse` if the primary is shown no better than +`equivalence`. The next
+  is tried only when this one is shown equal within its margin; one that shows nothing either way
+  ends the chain.
+- Otherwise a primary shown within ±`equivalence` is a `tie`, even a little better.
 - `undecided` with `stop` means the plan ran out without an answer: too few cases differ, a gain
   falls short of the bound, or no difference is shown but neither is one within ±`equivalence`.
   There's never a weighted sum of metrics.
@@ -256,7 +259,8 @@ between cases, 0.13 between trials of one), checking after every case, 2,000 run
 | +0.10 on average, sd 0.10 by case | 2 | 92% | 0.5% | 7% | 29 |
 | +0.15 on every case | 1 | 99% | – | 1% | 25 |
 
-Between equals, 33 cases rarely show recall within ±0.05, so most end `undecided`, not `tie`. The
+Between equals, 33 cases seldom show recall within ±0.05: with one trial a case nearly all end
+`undecided`, with two about a sixth end `tie`. The
 stop for worse is quick, not careful: about one comparison in nine between equals stops as
 `worse`, the price of never waiting on a loser. A discarded idea costs less than a false win. Time
 measured under `--jobs` is not comparable with time measured alone, so compare variants run the
@@ -267,18 +271,19 @@ other settings, or anything made with `defineComparison`. Either takes a `versio
 the rule changes, since the report names it beside each verdict.
 
 ```ts
-// comparisons/strict.compare.ts: no more wrong claims than the baseline, and looks at 8 and 16
+// comparisons/strict.compare.ts: at most 2 points more wrong claims, and looks at 8 and 16
 import { pairedComparison } from "@agentswf/lab/compare";
 
 export default pairedComparison({
   version: "1.0.0",
   primary: "recall.weighted",
-  guards: [{ metric: "wrong", margin: 0 }],
+  guards: [{ metric: "wrong", margin: 0.02 }],
   looks: [8, 16],
 });
 ```
 
-A primary that is `null` on some cases, such as `recall.must-fix` on cases with no must-fix issue,
+A guard's margin of 0 asks for a whole interval at or above 0, which almost never happens once any
+case differs, so such a rule can seldom say `better`. A primary that is `null` on some cases, such as `recall.must-fix` on cases with no must-fix issue,
 counts only the cases that have it, and may never reach the 5 an interval needs.
 
 Or a rule entirely your own. `compare` gets both variants' trials, the metrics' definitions and the

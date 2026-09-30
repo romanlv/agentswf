@@ -94,6 +94,11 @@ const bounds = new Map<string, number>();
  * group-sequential software computes it (Armitage, McPherson and Rowe 1969).
  */
 export function obrienFleming(fractions: readonly number[], alpha: number): number {
+  if (!fractions.every((f, i) => f > (fractions[i - 1] ?? 0) && f <= 1) || fractions.at(-1) !== 1) {
+    throw new Error(
+      `information fractions rise within (0, 1] and end at 1: ${fractions.join(", ")}`,
+    );
+  }
   const key = `${fractions.join(",")}@${alpha}`;
   const known = bounds.get(key);
   if (known !== undefined) return known;

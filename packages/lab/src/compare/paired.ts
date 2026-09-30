@@ -88,10 +88,11 @@ export type PairedOptions = {
   /** Metrics that may not get worse by more than `margin`, shown with the interval. */
   guards?: readonly { metric: string; margin: number }[];
   /**
-   * Metrics that decide, in order, at the last look, when the primary is shown within
-   * ±`equivalence`: each only by more than its `margin`, shown with the interval, so two copies of
-   * one variant never differ by chance. A tie-breaker can always say worse; better also needs
-   * every guard within its margin.
+   * Metrics that decide, in order, at the last look: each only by more than its `margin`, shown
+   * with the interval, so two copies of one variant never differ by chance. Better also needs the
+   * primary shown no worse than −`equivalence` and every guard within its margin; worse needs the
+   * primary shown no better than +`equivalence`. The next is tried only when this one is shown
+   * equal within its margin.
    */
   tiebreak?: readonly { metric: string; margin: number }[];
   /**
@@ -142,7 +143,8 @@ function gainInterval(m: ComparedMetric, spec: MetricSpec): [number, number] | u
  * The standard rule, for 5 to 40 costly cases with a few trials each: per-case means, paired;
  * "worse" as soon as the primary's interval is below 0 or a guard's is past its margin; "better"
  * only at a planned look, past the bound, with every guard shown within its margin; at the last
- * look, a primary shown equivalent goes to the tie-breakers. Never a weighted sum across metrics.
+ * look, the tie-breakers, then a tie if the primary is shown equivalent. Never a weighted sum
+ * across metrics.
  */
 export function pairedComparison(options: PairedOptions): Comparison {
   const confidence = options.confidence ?? 0.95;
@@ -157,6 +159,14 @@ export function pairedComparison(options: PairedOptions): Comparison {
   if (!SEMVER.test(options.version)) {
     throw new Error(`version ${options.version} is not {major}.{minor}.{patch}`);
   }
+  const whole = (x: number | undefined, least: number) =>
+    x === undefined || (Number.isInteger(x) && x >= least);
+  if (!(options.looks ?? []).every((l) => whole(l, 1))) {
+    throw new Error(`looks are case counts, whole numbers from 1: ${options.looks}`);
+  }
+  if (!whole(options.minDiffering, 0)) {
+    throw new Error(`minDiffering is a count of cases: ${options.minDiffering}`);
+  }
   for (const { metric, margin } of [
     ...guards,
     ...tiebreak,
@@ -167,6 +177,9 @@ export function pairedComparison(options: PairedOptions): Comparison {
   return defineComparison({
     version: options.version,
     compare(input): Verdict {
+      if (!(Number.isInteger(input.planned) && input.planned >= 1)) {
+        throw new Error(`planned is a count of cases, from 1: ${input.planned}`);
+      }
       const specs = new Map(input.metrics.map((m) => [m.name, m]));
       const spec = (name: string) => {
         const found = specs.get(name);
@@ -274,24 +287,21 @@ export function pairedComparison(options: PairedOptions): Comparison {
         return verdict("undecided", false, `${shown(primary)} ${why}; ${pending}`);
       }
 
-      // The plan has run. A primary shown within ±equivalence goes to the tie-breakers, in order:
-      // the first past its margin decides, either way.
-      const equivalent =
-        equivalence !== undefined &&
-        primaryGain[0] >= -equivalence &&
-        primaryGain[1] <= equivalence;
+      // The plan has run. The tie-breakers go in order, each one-sided on the primary: a better
+      // needs it shown no worse than −equivalence, a worse no better than +equivalence, so a
+      // challenger that improves never loses its verdict. The next is tried only when this one is
+      // shown equal within its margin.
       const notes: string[] = [];
-      if (equivalent) {
+      if (equivalence !== undefined) {
         for (const { metric, margin } of tiebreak) {
           const m = byName.get(metric)!;
           const gain = gainInterval(m, spec(metric));
           if (!gain) {
             notes.push(`${metric} has ${m.cases} cases, too few to decide`);
-            continue;
+            break;
           }
-          const decided = `${options.primary} within ±${equivalence} (${shown(primary)}); decided by ${shown(m)}, past its margin of ${margin}`;
-          if (gain[1] < -margin) return verdict("worse", true, decided);
-          if (gain[0] > margin) {
+          const decided = `decided by ${shown(m)}, past its margin of ${margin}, with ${shown(primary)}`;
+          if (gain[0] > margin && primaryGain[0] >= -equivalence) {
             if (unproven.length === 0) return verdict("better", true, decided);
             return verdict(
               "undecided",
@@ -299,10 +309,27 @@ export function pairedComparison(options: PairedOptions): Comparison {
               `${decided}, but not shown within margin: ${unproven.join(", ")}`,
             );
           }
+          if (gain[1] < -margin && primaryGain[1] <= equivalence) {
+            return verdict("worse", true, decided);
+          }
+          if (gain[0] < -margin || gain[1] > margin) {
+            notes.push(
+              `${metric} ${gain[0] > margin || gain[1] < -margin ? "differs" : "not shown within its margin"}: ${shown(m)}`,
+            );
+            break;
+          }
         }
       }
+      const why = notes.length > 0 ? `; ${notes.join("; ")}` : "";
       if (past)
         return verdict("undecided", true, `${shown(primary)} past the bound, but ${blocked}`);
+      const equivalent =
+        equivalence !== undefined &&
+        primaryGain[0] >= -equivalence &&
+        primaryGain[1] <= equivalence;
+      if (equivalent) {
+        return verdict("tie", true, `within ±${equivalence}: ${shown(primary)}; ${counts}${why}`);
+      }
       if (primaryGain[0] > 0) {
         return verdict(
           "undecided",
@@ -310,15 +337,14 @@ export function pairedComparison(options: PairedOptions): Comparison {
           `${shown(primary)}: a gain, but not past the bound that planned looks require`,
         );
       }
-      if (equivalence !== undefined && !equivalent) {
+      if (equivalence !== undefined) {
         return verdict(
           "undecided",
           true,
-          `no difference shown, nor one within ±${equivalence}: ${shown(primary)}; ${counts}`,
+          `no difference shown, nor one within ±${equivalence}: ${shown(primary)}; ${counts}${why}`,
         );
       }
-      const why = notes.length > 0 ? `; ${notes.join("; ")}` : "";
-      return verdict("tie", true, `no difference shown: ${shown(primary)}; ${counts}${why}`);
+      return verdict("tie", true, `no difference shown: ${shown(primary)}; ${counts}`);
     },
   });
 }

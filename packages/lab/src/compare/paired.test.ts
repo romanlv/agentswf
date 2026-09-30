@@ -197,9 +197,80 @@ describe("pairedComparison", () => {
       planned: 16,
     });
     expect(verdict).toMatchObject({ verdict: "undecided", stop: true });
-    expect(verdict.reason).toContain(
-      "past its margin of 0.1, but not shown within margin: errors (3 cases)",
-    );
+    expect(verdict.reason).toStartWith("decided by cost −0.50");
+    expect(verdict.reason).toEndWith("but not shown within margin: errors (3 cases)");
+  });
+
+  test("improving the challenger never loses it a verdict, at the equivalence's edges too", () => {
+    const base = around(20, 0.5, 0.02);
+    const noise = base.map((_, i) => ((i * 7) % 5) * 0.01 - 0.02);
+    const rule = pairedComparison({
+      version: "1.0.0",
+      primary: "score",
+      looks: [8, 16],
+      equivalence: 0.05,
+      tiebreak: [{ metric: "cost", margin: 0.1 }],
+    });
+    const at = (shift: number, cost: number) =>
+      rule.compare({
+        baseline: scores(base, { cost: base.map(() => 1) }),
+        challenger: scores(
+          base.map(([x], i) => [x! + shift + noise[i]!]),
+          { cost: base.map(() => cost) },
+        ),
+        metrics: METRICS,
+        planned: 20,
+      }).verdict;
+    // Cheaper: better stays better as the primary rises through the band's upper edge.
+    for (const shift of [0, 0.02, 0.03, 0.04, 0.06]) expect(at(shift, 0.8)).toBe("better");
+    // Dearer: worse stays worse as the primary falls through its lower edge.
+    for (const shift of [0, -0.02, -0.03, -0.04]) expect(at(shift, 1.2)).toBe("worse");
+  });
+
+  test("a tie-breaker that shows nothing either way stops the chain, and says so", () => {
+    const rule = pairedComparison({
+      version: "1.0.0",
+      primary: "score",
+      equivalence: 0.1,
+      tiebreak: [
+        { metric: "cost", margin: 0.1 },
+        { metric: "errors", margin: 0.01 },
+      ],
+    });
+    const base = around(16, 0.5);
+    const same = base.map(([x], i) => [x! + (i % 2 ? 0.01 : -0.01)]);
+    const verdict = rule.compare({
+      baseline: scores(base, { cost: base.map(() => 1), errors: base.map(() => 0.5) }),
+      // Cost wanders both ways past its margin; errors are clearly lower, but come second.
+      challenger: scores(same, {
+        cost: base.map((_, i) => (i % 2 ? 1.5 : 0.7)),
+        errors: base.map(() => 0),
+      }),
+      metrics: METRICS,
+      planned: 16,
+    });
+    expect(verdict).toMatchObject({ verdict: "tie", stop: true });
+    expect(verdict.reason).toContain("cost not shown within its margin");
+  });
+
+  test("a primary shown within the equivalence is a tie, even a little better", () => {
+    const rule = pairedComparison({
+      version: "1.0.0",
+      primary: "score",
+      looks: [5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+      equivalence: 0.3,
+    });
+    // Past the plain interval, short of the bound that eleven looks set, within ±0.3.
+    const gains = Array.from({ length: 16 }, (_, i) => (i % 2 ? 0.3162 : -0.0838));
+    const verdict = rule.compare({
+      baseline: scores(gains.map(() => [0.5])),
+      challenger: scores(gains.map((g) => [0.5 + g])),
+      metrics: METRICS,
+      planned: 16,
+    });
+    expect(verdict.metrics[0]!.interval![0]).toBeGreaterThan(0);
+    expect(verdict).toMatchObject({ verdict: "tie", stop: true });
+    expect(verdict.reason).toStartWith("within ±0.3");
   });
 
   test("options that can't mean anything are refused when the rule is made", () => {
@@ -214,6 +285,18 @@ describe("pairedComparison", () => {
     expect(() =>
       pairedComparison({ version: "1.0.0", primary: "score", equivalence: -0.1 }),
     ).toThrow("equivalence's margin is -0.1");
+    expect(() => pairedComparison({ version: "1.0.0", primary: "score", looks: [0] })).toThrow(
+      "looks are case counts",
+    );
+    expect(() => pairedComparison({ version: "1.0.0", primary: "score", looks: [6.5] })).toThrow(
+      "looks are case counts",
+    );
+    expect(() =>
+      pairedComparison({ version: "1.0.0", primary: "score", minDiffering: -1 }),
+    ).toThrow("minDiffering is a count");
+    expect(() =>
+      standard.compare({ baseline: [], challenger: [], metrics: METRICS, planned: 0 }),
+    ).toThrow("planned is a count of cases");
   });
 
   test("a gain short of the bound at the last look is undecided, not no difference", () => {

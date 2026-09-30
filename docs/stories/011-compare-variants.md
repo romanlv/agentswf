@@ -95,8 +95,8 @@ cases ([[variant-comparison]]):
 - stop as soon as the primary metric's interval is wholly below zero: "stopped: looked worse";
 - "better" only at a planned look, against an O'Brien–Fleming bound, and only if every guard is
   within its margin; peeking after every case with a plain interval gives 25% false wins;
-- at the plan's end, a primary shown equivalent goes to the tie-breakers; never a weighted sum
-  across metrics.
+- at the plan's end, the tie-breakers in order, each one-sided on the primary's equivalence; then
+  a tie if the primary is shown within it; never a weighted sum across metrics.
 
 A project that wants something else, such as a point comparison while exploring, or a stricter rule
 for later loop rounds, writes its own `.compare.ts` with the same signature.
@@ -552,6 +552,16 @@ failed silently on an unknown config comparison; a verdict's check passed an inv
 said "schema is false"; the rates table assumed two trials and one gain everywhere. All fixed: the
 last look tries the tie-breakers first, the first past its margin decides, `tie` needs the
 equivalence when one is set, and the table has one-trial and varying-gain rows.
+
+Round 3 found the band's edges: a primary rising past +equivalence turned a cheaper challenger's
+`better` into `undecided`, and one falling past −equivalence turned a dearer one's `worse` into
+`undecided`; a tie-breaker that showed nothing either way was passed over, so a later one could
+decide; `looks: [0]` collapsed the bound to 0.5 and gave a false `better`; a primary within the
+band but a little better ended `undecided`. Now each tie-breaker is one-sided on the primary
+(better needs it no worse than −equivalence, worse no better than +equivalence, and a test shows
+the verdict holds as the primary moves through both edges), the next is tried only when this one
+is shown equal within its margin, `looks`, `minDiffering` and `planned` are checked, and a primary
+within the band is a `tie`.
 
 Left as they are: false "worse" is 11% between equals at 33 cases, by design; with many looks
 (eleven) false "better" is 2.8%, the t approximation per look, measured and stated; cost and time
