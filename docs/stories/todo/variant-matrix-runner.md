@@ -9,6 +9,8 @@ depends_on: ["003", "008", "010"]
 
 # Compare a review variant with the incumbent
 
+Planned in [story 011](../011-compare-variants.md), which joins this todo with its sibling; its "Ideas and where they go" says where each note below went. This file stays until story 011 is approved.
+
 Why it matters: this is the first use of everything before it. A person with an idea for a review
 workflow asks "how does this compare with what we have?" and gets an answer with a spread instead
 of one run's anecdote. The loop is the same comparison with an agent proposing

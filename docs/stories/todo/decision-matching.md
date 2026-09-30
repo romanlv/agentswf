@@ -9,6 +9,8 @@ depends_on: ["008"]
 
 # Make match first the review scorer's judge
 
+Planned in [story 011](../011-compare-variants.md), which joins this todo with its sibling; its "Ideas and where they go" says where each note below went. This file stays until story 011 is approved.
+
 Why it matters: the panel, story 008's default judge, has every voter read the change, key and
 code for every finding, and takes about 5 minutes and $0.81 at list price a judging. Most findings
 need no code: the key already answers them. Story 008 measured it on the trial's stored findings

@@ -40,3 +40,22 @@ Notes:
 - Evidence: [`autoresearch-practices`](../../research/autoresearch-practices.md).
 - An earlier, private experiment suggests where to start: routing budget moved recall more than
   prompt wording did.
+- From Anthropic's `hillclimb` and `cost-hillclimb` guides
+  ([research §8](../../research/variant-comparison.md#8.%20Anthropic's%20build-eval%20and%20hillclimb)),
+  improved where they are weak:
+  - One hypothesis per try, saved as a patch and kept or reverted whole. A scope file says what the
+    proposer may and may not change.
+  - The proposer predicts the effect and names the mechanism the records must show; it describes
+    a failure's behaviour and never copies case content into the variant.
+  - A proposal whose best case is under the comparison's resolution (story 011's `check`) is
+    refused before it spends.
+  - After two or three rounds without a verdict, one round sorts the tuning failures by root
+    cause; suspect cases go to an audit, not to the proposer.
+  - Unlike the guide, the holdout is not consulted every round, and the headline is the kept
+    variant confirmed on fresh trials, not the score of the round that selected it.
+  - Later: a model × effort staircase per stage, from `cost-hillclimb`.
+- The proposer's input, per research's "For awf" (e): per case and trial, the metrics, the outcome,
+  the feedback text and a pointer to the run; the comparison with its parent and the decision; the
+  history tree; the metric specs and the comparison in force; the spend left. Tuning cases only.
+- A thin agent skill that drives story 011's `check`, `run` and `report`, so a person or an agent
+  gets the checks without following a long guide.

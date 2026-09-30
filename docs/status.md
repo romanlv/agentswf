@@ -121,7 +121,9 @@ The inbox of possible stories is [`stories/todo/`](stories/todo/).
    ([story 005](stories/005-review-fixtures.md)), and so are the sandboxes to isolate them in
    ([story 004](stories/004-sandboxed-agents.md)), and every trial runs in one
    ([story 010](stories/010-eval-isolation.md)). In order:
-   [`variant-matrix-runner`](stories/todo/variant-matrix-runner.md), and last
+   [story 011](stories/011-compare-variants.md) (in progress, in thin slices: `report
+   --baseline` gives a verdict from a comparison the project can replace; still to come, several
+   trials per case, a `run` that stops on the verdict, and match first as the review scorer), and last
    [`autoresearch-loop`](stories/todo/autoresearch-loop.md).
 
 ## Known gaps

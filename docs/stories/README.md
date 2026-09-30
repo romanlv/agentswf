@@ -67,6 +67,9 @@ status is one of `todo`, `draft`, `ready`, `in-progress`, `blocked`, `awaiting-h
   `done` — every trial's agents run in one sandbox awf-lab gives the run (`awf run
   --sandbox`), holding the checkout and the request; the reviewer's repository is laid out as its
   clone was.
+- [`011` — Say whether a workflow variant beats the incumbent, and how sure that is](011-compare-variants.md) —
+  `in-progress` — the project defines its scorer and its comparison; awf-lab gives a verdict with
+  its uncertainty. Slice 1: `report --baseline` calls a replaceable comparison.
 
 This is the high-level index of numbered stories. Keep each entry to its title, status, and
 one-sentence summary; put code maps, research, design, tasks, and verification in the linked story.
