@@ -33,6 +33,11 @@ in the default comparison at 0.05) and `check`'s tie line; the rest is open.
   look at 8 cases (upper bound +0.045 < +0.05), half the spend. Futility stops add no false wins
   (research §3). It fits the published `Verdict` as `undecided` with `stop: true` and a reason, or
   as a new verdict value, `not-better`, which is a published change to settle first.
+- **The keep rule, settled by the user (2026-09-30):** the same quality, faster and cheaper, is
+  better. "The same quality" must be something the dataset can show: recall shown no worse than a
+  non-inferiority margin it resolves (from `check`'s tie line), guards within theirs. Open: whether
+  cheaper or faster alone is enough, as the tie-breakers decide today, or both are needed, as the
+  user put it.
 - **An equivalence margin the dataset can resolve.** Either set `equivalence` from `check`'s
   resolution (about ±0.08 for 33 cases here), or let "no gain of `minGain` or more" at the plan's
   end be what opens the tie-breakers. Which is right for the loop, keep or discard, is the question

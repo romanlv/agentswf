@@ -29,6 +29,12 @@ Notes:
   variant joins its `tunedOn` (story 005), as GEPA's validation set does. The holdout is checked
   rarely, for a final candidate: a holdout consulted every round overfits like any other test set
   (Dwork et al.).
+- The split, asked for by the user (2026-09-30): the holdout's cases are chosen before the first
+  proposal, never shown to the proposer, and `awf-lab` refuses a comparison on them outside the
+  final check. Size is the catch: at the first dataset's variance, 10 held-out cases × 2 trials
+  resolve only ~0.2, so the holdout catches a kept variant that collapses, not one that overfits by
+  a little. Growing the dataset comes first ([[key-growth-from-runs]]): about 40 tuning cases and 20
+  held out, not 33 split.
 - Each try is logged as parent, change, score difference, interval and decision, so the history is
   a tree that can be read back (autoresearch, OpenEvolve).
 - Shaped like Karpathy's `autoresearch`: one editable variant file, a human-written `program.md`
