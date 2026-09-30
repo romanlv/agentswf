@@ -53,38 +53,52 @@ export type Against = {
   jobs?: number;
 };
 
-/** Where a run against a baseline stands: the verdict over the cases both have whole, and why a case isn't. */
-async function standing(lab: Lab, options: Against, through: number) {
+/**
+ * Where a run against a baseline stands over the selected cases, as `report` would say: the verdict
+ * over the longest start of the seeded order both have whole, how long that start is, and why the
+ * first case past it isn't whole.
+ */
+async function standing(lab: Lab, options: Against) {
   const { workspace } = lab;
-  const cases = options.cases.slice(0, through);
-  const subjects = [];
+  const subjects: ReportSubject[] = [];
   for (const variant of [options.challenger, options.baseline]) {
-    subjects.push(await reportSubject(workspace, options.dataset, variant, cases, options.entries));
+    subjects.push(
+      await reportSubject(workspace, options.dataset, variant, options.cases, options.entries),
+    );
   }
-  const document = buildReport({
-    dataset: options.dataset,
-    trials: options.trials,
-    subjects,
-    scorers: [
-      { name: options.scorer.label, version: options.scorer.version, key: options.scorer.key },
-    ],
-    baseline: options.baseline.label,
-    comparison: options.comparison,
+  const build = (of: typeof subjects, comparison?: ReportComparison) =>
+    buildReport({
+      dataset: options.dataset,
+      trials: options.trials,
+      subjects: of,
+      scorers: [
+        { name: options.scorer.label, version: options.scorer.version, key: options.scorer.key },
+      ],
+      baseline: options.baseline.label,
+      ...(comparison ? { comparison } : {}),
+    });
+  const document = build(subjects, options.comparison);
+  const counted = new Set(document.comparison?.cases ?? []);
+  let whole = 0;
+  while (whole < options.cases.length && counted.has(options.cases[whole]!.id)) whole += 1;
+  const next = options.cases[whole]?.id;
+  // Each variant alone, so one that counts no case still says why.
+  const why = subjects.flatMap((subject) => {
+    const gap = build([subject]).columns[0]!.missing.find((g) => g.id === next);
+    return gap ? [`${subject.label}: ${gap.why}`] : [];
   });
-  const verdict = document.comparison?.against[0]?.verdict;
-  const missing = new Map(
-    document.columns.flatMap((column) => column.missing.map((gap) => [gap.id, gap.why] as const)),
-  );
-  return { verdict, whole: document.comparison?.cases.length ?? 0, missing };
+  return { verdict: document.comparison?.against[0]?.verdict, whole, next, why };
 }
 
 /**
  * Runs a challenger and its baseline case by case, in the dataset's seeded order: each case's
- * missing trials of both, then their scores, then the comparison over the cases both have whole.
- * It stops when the comparison says to stop, before spending anything if the stored records
- * already decide; when a case can't be made whole (a trial that couldn't run, a score that
- * failed), so later cases would count towards no look; or at the budget. `--jobs` runs one case's
- * steps at once, never two cases, so a stop never leaves later cases half run.
+ * missing trials of both, then their scores, then the comparison over the cases both have whole,
+ * as `report` gives it. Cases already whole are not walked again, so `run` and `report` agree on
+ * the verdict. It stops when the comparison says to stop, before spending anything if the stored
+ * records already decide; when a case can't be made whole (a trial that couldn't run, a score
+ * that failed), so later cases would count towards no look; or at the budget, shared by every
+ * case. `--jobs` runs one case's steps at once, never two cases, so a stop never leaves later
+ * cases half run.
  */
 export async function runAgainst(lab: Lab, options: Against) {
   const variants = [options.challenger, options.baseline];
@@ -93,72 +107,66 @@ export async function runAgainst(lab: Lab, options: Against) {
   let planned: Planned | undefined;
   let listPrice = 0;
   let exitCode: 0 | 1 | 3 = 0;
-  let ran = 0;
-  let walked = 0;
-  let { verdict } = await standing(lab, options, options.cases.length);
-  const log = (text: string) => lab.log(text);
-  if (verdict?.stop) {
-    log(`already decided by the records: ${verdict.verdict}, ${verdict.reason}`);
-  } else {
-    for (const [index, info] of options.cases.entries()) {
-      walked = index + 1;
-      const one = await planRun(lab, {
-        command: "run",
-        trials: options.trials,
-        dataset: options.dataset,
-        variants: variants.map((variant) => ({
-          variant,
-          chosen: new Map([
-            [info.id, new Map(Array.from({ length: options.trials }, (_, i) => [i + 1, {}]))],
-          ]),
-        })),
-        scorer: options.scorer,
-        cases: [info],
-      });
-      planned ??= one;
-      for (const plan of one.variants) steps.get(plan.variant.key)!.push(...plan.steps);
-      const spends = one.variants.some((v) =>
-        v.steps.some(
-          (s) => s.trial.do === "run" || s.score.do === "run" || s.score.do === "record",
-        ),
-      );
-      if (spends) {
-        ran += 1;
-        const result = await executePlan(lab, {
-          dataset: options.dataset,
-          scorer: options.scorer,
-          cases: [info],
-          planned: one,
-          ...(options.budget === undefined ? {} : { budget: options.budget - listPrice }),
-          ...(options.jobs === undefined ? {} : { jobs: options.jobs }),
-        });
-        listPrice += result.listPrice;
-        for (const kind of ["trials", "scores", "errors"] as const) {
-          for (const [id, value] of result.outcomes[kind]) {
-            (outcomes[kind] as Map<string, unknown>).set(id, value);
-          }
-        }
-        if (result.exitCode === 3) {
-          exitCode = 3;
-          break;
-        }
-        if (result.exitCode === 1) exitCode = 1;
+  let now = await standing(lab, options);
+  if (now.verdict?.stop) {
+    lab.log(`already decided by the records: ${now.verdict.verdict}, ${now.verdict.reason}`);
+  }
+  for (const info of options.cases.slice(now.whole)) {
+    if (now.verdict?.stop) break;
+    const one = await planRun(lab, {
+      command: "run",
+      trials: options.trials,
+      dataset: options.dataset,
+      variants: variants.map((variant) => ({
+        variant,
+        chosen: new Map([
+          [info.id, new Map(Array.from({ length: options.trials }, (_, i) => [i + 1, {}]))],
+        ]),
+      })),
+      scorer: options.scorer,
+      cases: [info],
+    });
+    planned ??= one;
+    for (const plan of one.variants) steps.get(plan.variant.key)!.push(...plan.steps);
+    const result = await executePlan(lab, {
+      dataset: options.dataset,
+      scorer: options.scorer,
+      cases: [info],
+      planned: one,
+      spent: listPrice,
+      ...(options.budget === undefined ? {} : { budget: options.budget }),
+      ...(options.jobs === undefined ? {} : { jobs: options.jobs }),
+    });
+    listPrice = result.listPrice;
+    for (const kind of ["trials", "scores", "errors"] as const) {
+      for (const [id, value] of result.outcomes[kind]) {
+        (outcomes[kind] as Map<string, unknown>).set(id, value);
       }
-      const now = await standing(lab, options, index + 1);
-      verdict = now.verdict;
-      if (now.whole < index + 1) {
-        const why = [...now.missing].map(([id, why]) => `${id} ${why}`).join("; ");
-        log(`${info.id} isn't whole, so no later case would count: ${why}`);
-        exitCode = 1;
-        break;
-      }
-      if (verdict) log(`${info.id}: ${verdict.verdict}, ${verdict.reason}`);
-      if (verdict?.stop) break;
     }
+    if (result.exitCode === 3) {
+      exitCode = 3;
+      break;
+    }
+    if (result.exitCode === 1) exitCode = 1;
+    const before = now.whole;
+    now = await standing(lab, options);
+    if (now.whole <= before) {
+      lab.log(`${info.id} isn't whole, so no later case would count: ${now.why.join("; ")}`);
+      exitCode = 1;
+      break;
+    }
+    if (now.verdict) lab.log(`${info.id}: ${now.verdict.verdict}, ${now.verdict.reason}`);
   }
   const merged: Planned | undefined = planned && {
     ...planned,
     variants: planned.variants.map((v) => ({ ...v, steps: steps.get(v.variant.key)! })),
   };
-  return { exitCode, listPrice, verdict, ran, walked, planned: merged, outcomes };
+  return {
+    exitCode,
+    listPrice,
+    verdict: now.verdict,
+    whole: now.whole,
+    planned: merged,
+    outcomes,
+  };
 }

@@ -107,7 +107,8 @@ selection, the same on every command:
                             *.compare.ts; the config gives the default, else the package's own
 
 A variant or scorer is a name, a file, or {name}@{version} for a stored version: 1.2, or 1.
---jobs runs that many steps at a time: every trial, then every score.
+--jobs runs that many steps at a time: every trial, then every score; with --baseline, one
+case's at a time.
 exit: 0 done, 1 a failure, 2 a usage error, 3 stopped by the budget, 4 the plan was declined`;
 
 class UsageError extends Error {}
@@ -312,6 +313,11 @@ async function subjectOf<D extends VariantSettings | ScorerSettings>(
   try {
     found = resolveFile(known, nameOrPath, cwd, kind);
   } catch (error) {
+    if (kind === "scorer" && nameOrPath === "panel" && prefix === undefined) {
+      throw new UsageError(
+        "panel is retired: match-first is the package's scorer, and a scorer of MATCH_JUDGE with --sure 1 votes on every finding as the panel did; earlier panel scores read as panel@1",
+      );
+    }
     if (prefix === undefined) throw new UsageError((error as Error).message);
     missing = error as Error;
   }
@@ -631,6 +637,7 @@ async function runOrScore(
   const { workspace, options, dataset } = context;
   if (names.length === 0) throw new UsageError(`${command} takes a variant`);
   if (options.scorers.length > 1) throw new UsageError(`${command} takes one --scorer`);
+  if (options.restFrom && command === "run") throw new UsageError("--rest-from goes with score");
   // With --baseline, run compares as it goes; --where lost only reads the baseline, as before.
   if (command === "run" && options.baseline && !options.where.some((p) => p.kind === "lost")) {
     return await runBaseline(context, names, lab, environment, out);
@@ -760,13 +767,15 @@ async function runBaseline(
   const why = whyNoVerdict(options);
   if (why) {
     throw new UsageError(
-      `run --baseline decides as it goes, over the first n of the seeded order: ${why}`,
+      `run --baseline decides as it goes, over the first n of the seeded order: ${why}; give --cases {n} or no selection`,
     );
   }
   const [challenger] = await variantsOf(context, names);
   const baseline = await context.variant(options.baseline!);
   if (baseline.key === challenger!.key) {
-    throw new UsageError(`${challenger!.label} and ${baseline.label} are the same version`);
+    throw new UsageError(
+      `${challenger!.label} and ${baseline.label} are the same version: a variant can't be its own baseline; bump its version, or name an earlier one as {name}@{version}`,
+    );
   }
   for (const v of [challenger!, baseline]) {
     if (!v.defined) throw new UsageError(`${v.label} is a stored version; only a file can run`);
@@ -841,9 +850,9 @@ async function runBaseline(
   });
   out.stderr(`$${result.listPrice.toFixed(2)} at list prices, estimated`);
   const { verdict } = result;
-  const left = cases.length - result.walked;
+  const left = cases.length - result.whole;
   const summary = verdict
-    ? `${verdict.verdict}${verdict.stop ? "" : ", so far"}: ${challenger!.label} against ${baseline.label} by ${rule}: ${verdict.reason}${verdict.stop && left > 0 ? `; stopped with ${plural(left, "case")} not run` : ""}`
+    ? `${verdict.verdict}${verdict.stop ? "" : ", so far"}: ${challenger!.label} against ${baseline.label} by ${rule}: ${verdict.reason}${verdict.stop && left > 0 ? `; stopped with ${left} of ${plural(cases.length, "selected case")} not needed` : ""}`
     : `no verdict: no case is whole for both yet`;
   if (options.json) {
     out.stderr(summary);

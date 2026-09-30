@@ -63,10 +63,8 @@ describe("checkScorerResult", () => {
     ).toEqual(["/labels/3: K1 is already hit by finding 0; this one is a duplicate"]);
   });
 
-  test("new, wrong and noise need the lines read", () => {
-    expect(problems(withLabel(5, { finding: 5, label: "noise", why: "w", read: [] }))).toEqual([
-      "/labels/5: a finding labelled noise needs the lines read in the code",
-    ]);
+  test("new and wrong need the lines read; noise, which decides nothing, doesn't", () => {
+    expect(problems(withLabel(5, { finding: 5, label: "noise", why: "w", read: [] }))).toEqual([]);
     expect(
       problems(withLabel(2, { finding: 2, label: "wrong", refutes: "r", why: "w", read: [] })),
     ).toEqual(["/labels/2: a finding labelled wrong needs the lines read in the code"]);

@@ -47,12 +47,15 @@ export const WorkspaceConfigSchema = Type.Object(
       description: "Globs of *.variant.ts files; a variant is named by its file's stem.",
     }),
     scorers: Type.Array(Text, {
-      description: "Globs of *.scorer.ts files; `panel`, the package's own, is always there.",
+      description: "Globs of *.scorer.ts files; `match-first`, the package's own, is always there.",
     }),
-    scorer: Type.String({
-      minLength: 1,
-      description: "The scorer a command uses unless --scorer names one.",
-    }),
+    scorer: Type.Optional(
+      Type.String({
+        minLength: 1,
+        description:
+          "The scorer a command uses unless --scorer names one; `match-first`, the package's own, if absent.",
+      }),
+    ),
     comparisons: Type.Optional(
       Type.Array(Text, {
         description:

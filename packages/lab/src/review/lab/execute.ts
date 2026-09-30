@@ -614,6 +614,8 @@ export async function executePlan(
     cases: readonly CaseInfo[];
     planned: Planned;
     budget?: number;
+    /** What earlier plans of the same run came to, counted against the budget. */
+    spent?: number;
     jobs?: number;
   },
 ): Promise<{
@@ -630,7 +632,7 @@ export async function executePlan(
     trial: new Map(planned.variants.map((v) => [v.variant.label, [...v.trialHistory]])),
     score: [...planned.scoreHistory],
   };
-  let listPrice = 0;
+  let listPrice = options.spent ?? 0;
   let reserved = 0;
   let running = 0;
   let failed = false;

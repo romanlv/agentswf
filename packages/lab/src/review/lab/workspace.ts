@@ -8,13 +8,14 @@ import {
 } from "../format/workspace";
 
 const CONFIG_FILE = "awf-lab.json";
-const PANEL_FILE = join(import.meta.dir, "panel.scorer.ts");
+const MATCH_FILE = join(import.meta.dir, "match-first.scorer.ts");
 const DEFAULT_COMPARISON_FILE = join(import.meta.dir, "default.compare.ts");
 
 /** The config with its paths resolved, and the variants and scorers it finds, by name. */
 export type Workspace = {
   file: string;
-  config: WorkspaceConfig;
+  /** With the scorer defaulted: the package's own, `match-first`. */
+  config: WorkspaceConfig & { scorer: string };
   clone: string;
   datasets: string;
   results: string;
@@ -60,8 +61,10 @@ export async function openWorkspace(file: string): Promise<Workspace> {
   const config = checked.value;
   const root = dirname(file);
   const scorers = await discover(root, config.scorers, ".scorer.ts");
-  if (scorers.has("panel")) throw new Error(`a scorer named panel shadows the package's own`);
-  scorers.set("panel", PANEL_FILE);
+  if (scorers.has("match-first")) {
+    throw new Error(`a scorer named match-first shadows the package's own`);
+  }
+  scorers.set("match-first", MATCH_FILE);
   const comparisons = await discover(root, config.comparisons ?? [], ".compare.ts");
   if (comparisons.has("default")) {
     throw new Error(`a comparison named default shadows the package's own`);
@@ -69,7 +72,7 @@ export async function openWorkspace(file: string): Promise<Workspace> {
   comparisons.set("default", DEFAULT_COMPARISON_FILE);
   return {
     file,
-    config,
+    config: { ...config, scorer: config.scorer ?? "match-first" },
     clone: resolve(root, config.clone),
     datasets: resolve(root, config.datasets),
     results: resolve(root, config.results),

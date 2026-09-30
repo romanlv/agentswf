@@ -3,6 +3,10 @@ import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runWorkflow } from "../packages/engine/src";
+import {
+  confidentResponse,
+  createFakeDecisionProvider,
+} from "../packages/engine/src/decisions/fake";
 import { createTempRunDirs, future, submit } from "../packages/engine/src/testing";
 import type { AgentRuntimeConfig } from "../packages/harness/src/adapter";
 import { createSingleSessionHostFactory } from "../packages/harness/src/single-session-host";
@@ -18,6 +22,7 @@ import {
   EXAMPLE_LABELS,
 } from "../packages/lab/src/review/format/testing";
 import judgeWorkflow, { panelJudge } from "../packages/lab/src/review/judge/judge.workflow";
+import matchWorkflow, { matchJudge } from "../packages/lab/src/review/judge/match.workflow";
 
 const runDirs = createTempRunDirs();
 const scratch = mkdtempSync(join(tmpdir(), "awf-judge-test-"));
@@ -58,7 +63,7 @@ type Script = Record<string, (Answer | "silent")[]>;
 
 function panel(script: Script) {
   const adapter = createFakeAdapter({
-    harnesses: ["claude", "codex"],
+    harnesses: ["claude", "codex", "pi"],
     script: (context: FakeAdapterTurnContext) => ({
       act: async () => {
         const who = context.activation.key.split(":")[0]!;
@@ -256,14 +261,133 @@ describe("the panel judge", () => {
         "f",
       ]),
     ).toMatchObject({
-      cwd: "/work",
       fixture: "/work/d",
       findings: "/work/f",
-      panel: [
+      voters: [
         { harness: "claude", model: "a", placement: "headless", metered: true },
         { harness: "codex", model: "b", placement: "headless" },
       ],
       tiebreak: { harness: "codex", model: "c" },
     });
+  });
+});
+
+/** Jev's answer per finding, by index: the known item it matches, at p; anything else unsure. */
+function jev(sure: Record<number, [string, number]>) {
+  return createFakeDecisionProvider([], async (request) => {
+    const index = Number(String((request.state as { finding: string }).finding).split(" ")[1]);
+    const response = confidentResponse(request);
+    const [name, p] = sure[index] ?? ["none", 0.5];
+    const known = Object.keys(
+      request.questions.known!.type === "choice" ? request.questions.known!.options : {},
+    );
+    response.answers.known = {
+      type: "choice",
+      probabilities: Object.fromEntries(
+        known.map((o) => [o, o === name ? p : (1 - p) / (known.length - 1)]),
+      ),
+    };
+    const earlier = Object.keys(
+      request.questions.earlier!.type === "choice" ? request.questions.earlier!.options : {},
+    );
+    response.answers.earlier = {
+      type: "choice",
+      probabilities: Object.fromEntries(earlier.map((o) => [o, o === "none" ? 1 : 0])),
+    };
+    return response;
+  });
+}
+
+async function match(script: Script, provider: ReturnType<typeof jev>, argv: string[] = []) {
+  const files = await fixtureWith(EXAMPLE_FINDINGS);
+  const { adapter, runtime } = panel(script);
+  const args = matchWorkflow.prepare({
+    argv: ["--sandbox", "none", ...argv, "--fixture", files.fixture, "--findings", files.findings],
+    cwd: scratch,
+  });
+  const run = runWorkflow(matchJudge, args, {
+    runRoot: runDirs.tempRunDir(),
+    runtime,
+    decisions: {
+      providers: { openrouter: provider },
+      aliases: { jev: { provider: "openrouter", model: "typesafe/jev-1.13" } },
+    },
+    deadline: future(),
+    cwd: scratch,
+  });
+  return { run, adapter };
+}
+
+/** The example's labels for the findings asked, as a voter answers them. */
+const only = (asked: readonly number[]): Answer => ({
+  labels: EXAMPLE_LABELS.filter((l) => asked.includes(l.finding)),
+  missed: "K3",
+});
+
+describe("match first", () => {
+  test("Jev settles sure matches, a sure noise among them; the voters label only the rest", async () => {
+    const provider = jev({ 0: ["K1", 0.97], 5: ["noise", 0.95], 7: ["X1", 0.95] });
+    const rest = [1, 2, 3, 4, 6, 8, 9, 10];
+    const { run, adapter } = await match({ judge1: [only(rest)], judge2: [only(rest)] }, provider);
+    const { value } = await run;
+    expect(provider.requests).toHaveLength(EXAMPLE_FINDINGS.length);
+    expect(value.labels[0]).toMatchObject({ label: "hit", issue: "K1", read: [] });
+    expect(value.labels[5]).toMatchObject({ label: "noise", read: [] });
+    expect(value.labels[7]).toMatchObject({ label: "unsettled", excluded: 1 });
+    for (const i of rest) expect(value.labels[i]).toEqual(EXAMPLE_LABELS[i]!);
+    expect(value.votes?.map((v) => v.by)).toEqual([
+      "judge1:codex/gpt-6-sol",
+      "judge2:pi/openai-codex/gpt-5.6-terra",
+    ]);
+    const asked = adapter.turns[0]!.prompt;
+    expect(asked).toContain(`Label only findings ${rest.join(", ")}`);
+    expect(asked).toContain("Known issues already hit: K1 by finding 0");
+  });
+
+  test("a sure refuted claim still goes to the voters, who must read the code", async () => {
+    const provider = jev({ 2: ["R1", 0.99] });
+    const all = EXAMPLE_LABELS.map((l) => l.finding);
+    const { run, adapter } = await match({ judge1: [only(all)], judge2: [only(all)] }, provider);
+    const { value } = await run;
+    expect(value.labels[2]).toEqual(EXAMPLE_LABELS[2]!);
+    expect(adapter.turns[0]!.prompt).not.toContain("Label only findings");
+  });
+
+  test("--sure 1 asks Jev nothing and the voters label every finding: the panel", async () => {
+    const provider = jev({ 0: ["K1", 1] });
+    const { run } = await match({ judge1: [agree], judge2: [agree] }, provider, ["--sure", "1"]);
+    const { value } = await run;
+    expect(provider.requests).toHaveLength(0);
+    expect(value.labels).toEqual(EXAMPLE_LABELS);
+  });
+
+  test("--rest none leaves what Jev doesn't settle unsettled, and asks no voter", async () => {
+    const provider = jev({ 0: ["K1", 0.97] });
+    const { run, adapter } = await match({}, provider, ["--rest", "none"]);
+    const { value } = await run;
+    expect(adapter.turns).toHaveLength(0);
+    expect(value.labels[0]).toMatchObject({ label: "hit", issue: "K1" });
+    expect(value.labels[1]).toMatchObject({ label: "unsettled" });
+  });
+
+  test("its arguments: defaults to codex voters in srt; checks the cut, the voters and the tiebreak", () => {
+    const prepare = (argv: string[]) =>
+      matchWorkflow.prepare({ argv: [...argv, "--fixture", "d", "--findings", "f"], cwd: "/work" });
+    expect(prepare([])).toMatchObject({
+      sure: 0.9,
+      sandbox: "srt",
+      turnMs: 360_000,
+      voters: [
+        { harness: "codex", model: "gpt-6-sol" },
+        { harness: "pi", model: "openai-codex/gpt-5.6-terra" },
+      ],
+      tiebreak: { harness: "codex", model: "gpt-6-luna" },
+    });
+    expect(() => prepare(["--sure", "0"])).toThrow("--sure is a probability");
+    expect(() => prepare(["--rest", "codex/a,codex/b,codex/c"])).toThrow("one or two voters");
+    expect(() => prepare(["--rest", "codex/a", "--tiebreak", "codex/b"])).toThrow(
+      "--tiebreak needs two voters",
+    );
+    expect(prepare(["--rest", "codex/a,codex/b"])).not.toHaveProperty("tiebreak");
   });
 });

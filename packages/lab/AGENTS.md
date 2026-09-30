@@ -6,7 +6,9 @@ It holds review fixtures (story 005) and their scoring (story 008), in `src/revi
 `seal.ts` writes `set.json`, each fixture pinned by a digest), `build/` (`collect`, code that
 freezes a GitLab MR as a fixture; `draft-key`, where an agent drafts the answer key and code
 checks it against the fixture; and `fixtures.workflow.ts`, which runs both and seals the set),
-`judge/` (the panel scorer's workflow and the check every judgement passes), `metrics/` (pure
+`judge/` (match first, the review scorer: `matching.ts` settles what Jev matches surely,
+`voting.ts` has voters label the rest, which with nothing settled is the retired panel,
+`judge.workflow.ts`; and the check every judgement passes), `metrics/` (pure
 numbers from records), and `lab/` (`awf-lab`, the command line that runs a variant and a scorer
 per case through `awf run` and keeps the trials and scores in the workspace's results). Story 008
 has `awf-lab`'s terms and command line.

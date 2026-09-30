@@ -30,6 +30,7 @@ export {
 export { checkScorerResult } from "./judge/check";
 
 export { default as PANEL_JUDGE } from "./judge/judge.workflow";
+export { default as MATCH_JUDGE } from "./judge/match.workflow";
 export { default as COMMENTS_WORKFLOW } from "./lab/comments.workflow";
 export { default as NOP_WORKFLOW } from "./lab/nop.workflow";
 export { default as ORACLE_WORKFLOW } from "./lab/oracle.workflow";

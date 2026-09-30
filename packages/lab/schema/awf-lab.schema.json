@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "awf-lab workspace",
   "type": "object",
-  "required": ["clone", "datasets", "dataset", "results", "runs", "variants", "scorers", "scorer"],
+  "required": ["clone", "datasets", "dataset", "results", "runs", "variants", "scorers"],
   "properties": {
     "$schema": {
       "type": "string"
@@ -46,12 +46,12 @@
         "type": "string",
         "minLength": 1
       },
-      "description": "Globs of *.scorer.ts files; `panel`, the package's own, is always there."
+      "description": "Globs of *.scorer.ts files; `match-first`, the package's own, is always there."
     },
     "scorer": {
       "type": "string",
       "minLength": 1,
-      "description": "The scorer a command uses unless --scorer names one."
+      "description": "The scorer a command uses unless --scorer names one; `match-first`, the package's own, if absent."
     },
     "comparisons": {
       "type": "array",

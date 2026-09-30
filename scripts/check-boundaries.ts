@@ -270,6 +270,7 @@ const RULES: Rule[] = [
       "build/gitlab.ts",
       "build/collect.ts",
       "build/draft-key.ts",
+      "judge/case.ts",
       "lab/cli.ts",
       "lab/execute.ts",
       "lab/provenance.ts",

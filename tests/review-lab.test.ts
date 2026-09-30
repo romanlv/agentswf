@@ -613,7 +613,7 @@ export default defineComparison({
     expect(runs.calls.map(stepOf)).toEqual([TRIAL, TRIAL]);
     expect(first.stderr).toContain("app-2: worse, 1 of 2");
     expect(first.stdout).toBe(
-      "worse: canned against other by first 1.0.0: 1 of 2; stopped with 1 case not run",
+      "worse: canned against other by first 1.0.0: 1 of 2; stopped with 1 of 2 selected cases not needed",
     );
     expect(recordsIn(ws, "*/app-1/*/findings.json")).toHaveLength(0);
 
@@ -637,6 +637,48 @@ export default defineComparison({
     expect(whole.stdout).toMatch(/^undecided: canned against other by default 1\.0\.0: 2 cases/);
     const doc = await report(ws, "canned", "--baseline", "other", "--trials", "2");
     expect(doc.comparison!.against[0]!.verdict!.stop).toBe(true);
+  });
+
+  test("run --baseline agrees with report on stored records, and its budget spans the cases", async () => {
+    await ws.variant("canned");
+    await ws.variant("other");
+    await answer(ws, { "app-1": [finding("x")], "app-2": [finding("y")] });
+    expect((await lab(ws, ["run", "canned", "other"], inProcess().runner)).exitCode).toBe(0);
+    // A rule that would stop at one case: with two stored, report's verdict is over two, and so is run's.
+    await Bun.write(
+      join(ws.root, "comparisons/look1.compare.ts"),
+      `import { defineComparison } from "@agentswf/lab/compare";
+
+export default defineComparison({
+  version: "1.0.0",
+  compare: ({ challenger }) => {
+    const n = new Set(challenger.map((s) => s.case)).size;
+    return { verdict: n === 1 ? "better" : "undecided", stop: n === 1, reason: \`\${n} cases\`, metrics: [] };
+  },
+});
+`,
+    );
+    const rule = ["--comparison", "comparisons/look1.compare.ts"];
+    const runs = inProcess();
+    const again = await lab(ws, ["run", "canned", "--baseline", "other", ...rule], runs.runner);
+    expect(runs.calls).toHaveLength(0);
+    expect(again.stdout).toBe("undecided, so far: canned against other by look1 1.0.0: 2 cases");
+    const reported = await report(ws, "canned", "--baseline", "other", ...rule);
+    expect(reported.comparison!.against[0]!.verdict).toMatchObject({ verdict: "undecided" });
+
+    // $1 a run: the first case's two trials and two scores come to $4; a trial is estimated at the
+    // mean of those on file, $0.33 with the earlier free ones, which doesn't fit under $4.20.
+    const priced = inProcess({ spend: 1 });
+    const budget = await lab(
+      ws,
+      ["run", "canned", "--baseline", "other", "--trials", "2", "--budget", "4.2"],
+      priced.runner,
+    );
+    expect(budget.exitCode).toBe(3);
+    expect(budget.stderr).toContain("$4.00 of $4.2 at list prices so far");
+    expect(
+      (await lab(ws, ["run", "canned", "--baseline", "other", "--rest-from", "exact"])).stderr,
+    ).toContain("--rest-from goes with score");
   });
 
   test("run --baseline refuses what it can't decide on, and stops at a case it can't make whole", async () => {
@@ -871,6 +913,9 @@ export default defineComparison({
     expect(nobody.stderr).not.toContain("usage:");
     expect((await lab(ws, ["run", "canned", "--dataset", "second"])).exitCode).toBe(2);
     expect((await lab(ws, ["run", "canned", "--scorer", "nobody"])).exitCode).toBe(2);
+    expect((await lab(ws, ["run", "canned", "--scorer", "panel"])).stderr).toContain(
+      "panel is retired: match-first is the package's scorer",
+    );
     expect((await lab(ws, ["report", "canned", "canned"])).exitCode).toBe(2);
     expect((await lab(ws, ["run", "canned", "--cases", "0"])).exitCode).toBe(2);
     expect((await lab(ws, ["run", "canned", "--cases", "zz*"])).exitCode).toBe(2);
@@ -1089,7 +1134,7 @@ export default defineComparison({
     expect(shown.stdout).toMatch(/variant +canned +1\.0\.0 +\//);
     expect(shown.stdout).toMatch(/canned@1\.0 +1 case, 1 trial \(current\)/);
     expect(shown.stdout).toMatch(/scorer +exact +1\.0\.0 +\//);
-    expect(shown.stdout).toMatch(/scorer +panel +\d+\.\d+\.\d+ /);
+    expect(shown.stdout).toMatch(/scorer +match-first +\d+\.\d+\.\d+ /);
     // An edit that keeps the version adds to that version's results; the version is the identity.
     await ws.variant("canned", `${await fileOf(ws, "ideas/canned.variant.ts")}// a change\n`);
     expect((await lab(ws, ["run", "canned"], inProcess().runner)).exitCode).toBe(0);
@@ -1369,6 +1414,14 @@ export default defineComparison({
     await ws.variant("canned");
     await answer(ws, { "app-1": [finding(mechanism("app-1", 1)), finding("vague")], "app-2": [] });
     expect((await lab(ws, ["run", "canned"], inProcess().runner)).exitCode).toBe(0);
+    // The retired panel's workflow takes no --settled.
+    await Bun.write(
+      join(ws.root, "scorers/panel.scorer.ts"),
+      `import { defineReviewScorer, PANEL_JUDGE } from "@agentswf/lab/review";
+
+export default defineReviewScorer({ workflow: PANEL_JUDGE, argv: [], timeout: "1m" });
+`,
+    );
     const run = await lab(
       ws,
       ["score", "canned", "--scorer", "panel", "--only", "app-1#1"],

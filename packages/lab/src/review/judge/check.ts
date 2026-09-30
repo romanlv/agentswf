@@ -40,7 +40,7 @@ export type LabelOptions = {
 
 /**
  * Every finding asked about labelled once, in order; ids that exist; no known issue claimed twice;
- * the code read before a finding is called new, wrong or noise; a duplicate of an earlier
+ * the code read before a finding is called new or wrong; a duplicate of an earlier
  * finding; an unsettled finding naming an `unconfirmed` exclusion, which a voter must name.
  */
 export function labelProblems(
@@ -76,10 +76,8 @@ export function labelProblems(
     for (const read of label.read) {
       if (read.end < read.start) add(index, `read ${read.path} ends before it starts`);
     }
-    if (
-      (label.label === "new" || label.label === "wrong" || label.label === "noise") &&
-      label.read.length === 0
-    ) {
+    // Noise decides nothing, so a sure match may settle it unread; wrong is a guard, and new counts.
+    if ((label.label === "new" || label.label === "wrong") && label.read.length === 0) {
       add(index, `a finding labelled ${label.label} needs the lines read in the code`);
     }
     switch (label.label) {

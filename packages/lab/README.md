@@ -111,10 +111,20 @@ The metrics:
 
 Counts are summed across cases before dividing.
 
-**The panel** is the default scorer. Two voters from different model families (codex `gpt-6-sol`
-and claude `claude-sonnet-5`) label every finding. Findings they label differently go to a third
-model (`gpt-6-luna`), which sees the review but not their votes. The κ between the two voters is
-kept with every score.
+**Match first** (`match-first`) is the default scorer. Jev, a decision model, reads each finding's text
+beside the key and settles the ones it matches surely (p ≥ 0.9): a known issue is a hit, or a
+duplicate of the finding that hit it first; a claim nobody could settle is `unsettled`; noise is
+noise. The rest go to two voters with the code, codex `gpt-6-sol` and pi `gpt-5.6-terra`, each in
+a private sandbox; findings they label differently go to a third, codex `gpt-6-luna`, which sees
+neither vote. A claim the key refutes is never settled by Jev alone: `wrong` counts against a
+variant, so only a voter who read the code gives it. The κ between the two voters is kept with
+every score. It needs `OPENROUTER_API_KEY` for Jev, and codex and pi logins.
+
+Measured in story 008, it was right on 86–90% of findings where the panel it replaced was on 87%,
+agreed with the panel at κ 0.84–0.87, and took a fifth of its time and list price. Jev's known failure: it can match a
+new problem to the nearest known issue, and pass the right symptom with a false cause.
+`--sure 1` settles nothing, so the voters label every finding: that is the retired panel, whose
+earlier scores still read as `panel@1`.
 
 ## Writing a variant
 
@@ -166,17 +176,23 @@ Nothing checks versions; bump when an edit changes what the variant measures.
 
 A scorer is also a workflow, named by `{name}.scorer.ts`. It's run in a fresh checkout of the
 frozen code with `--fixture {case dir} --findings {file}` after its `argv`, and returns a
-`ScorerResult` of one label per finding. The package's own panel is the whole example:
+`ScorerResult` of one label per finding. The package's own is the whole example, and a workspace's
+variation of it passes other flags (`MATCH_JUDGE` lists them: `--sure`, `--rest`, `--tiebreak`,
+`--sandbox`, `--turn`):
 
 ```ts
-// src/review/lab/panel.scorer.ts
+// src/review/lab/match-first.scorer.ts
 import { defineReviewScorer } from "../format/variant";
-import judge from "../judge/judge.workflow";
+import judge from "../judge/match.workflow";
 
-export default defineReviewScorer({ workflow: judge, argv: [], timeout: "20m" });
+export default defineReviewScorer({ workflow: judge, argv: [], timeout: "40m" });
+
+// scorers/match-strict.scorer.ts, in a workspace
+import { defineReviewScorer, MATCH_JUDGE } from "@agentswf/lab/review";
+export default defineReviewScorer({ workflow: MATCH_JUDGE, argv: ["--sure", "0.95"], timeout: "40m", version: "1.0.0" });
 ```
 
-A scorer can be agents (a judge) or plain code, such as a test run. `awf-lab report --scorer panel
+A scorer can be agents (a judge) or plain code, such as a test run. `awf-lab report --scorer match-first
 --scorer {yours}` shows how alike the two label the same findings.
 
 ## Deciding: better, worse or a tie
@@ -356,15 +372,18 @@ $ awf-lab run one-codex-r4 --baseline one-codex-r1 --cases 16 --trials 2
 worse: one-codex-r4 against one-codex-r1 by default 1.0.0: recall.weighted … ; stopped with 8 cases not run
 ```
 
-- The plan it prints first is the most it can spend: every selected case. `--cases {n}` caps it;
-  the looks still count towards the whole dataset.
+- The plan, shown before it asks to go ahead or with `--dry-run`, is the most it can spend: every
+  selected case. `--cases {n}` caps it; the looks still count towards the whole dataset.
+- Cases already whole for both are not run again, and the verdict is the one `report` gives on the
+  same records, so a loop can call `run` until `report` says `stop`.
 - It takes one challenger and a selection a verdict can use (`--cases {n}` or none); `--only`,
-  `--where` and `--categories` are refused, as `report` gives them no verdict. `--where lost`
-  keeps its old meaning: the baseline is only read.
+  `--where` and `--categories` are refused, as `report` gives them no verdict. `--where lost` is
+  not refused: it is a plain `run` of the cases the baseline won, with no verdict.
 - A case that can't be made whole, such as one whose score failed, stops it with exit 1: a later
   case could count towards no look. Run it again once fixed; it resumes.
 - `--jobs {n}` runs one case's trials at once, never two cases, so a stop leaves no case half run.
-- `--json` prints the steps it ran, as a plain `run` does; the verdict is `report --json`'s.
+- `--json` prints the steps it ran, as a plain `run` does. A program reads the verdict from
+  `report --json`, at `comparison.against[i].verdict`: `verdict`, `stop`, `reason`, `metrics`.
 
 ## The workspace
 
@@ -382,7 +401,7 @@ usually lives in its own repository, not this one.
   "runs": "runs",
   "variants": ["variants/*.variant.ts"],
   "scorers": ["scorers/*.scorer.ts"],
-  "scorer": "panel",
+  "scorer": "match-first",
   "comparisons": ["comparisons/*.compare.ts"],
   "comparison": "default",
   "trials": 2,
@@ -400,7 +419,7 @@ image) stops the run before it starts, and `run` tries that trial again next tim
 in a sandbox needs `CLAUDE_CODE_OAUTH_TOKEN` (from `claude setup-token`) in awf-lab's environment.
 
 `clone` is a checkout of the reviewed project; each case's frozen code is restored against it.
-`panel` is always available as a scorer. Everything else is where things live:
+`match-first` is always available as a scorer, and the default when the config names none. Everything else is where things live:
 
 | What | Where |
 | --- | --- |
@@ -511,13 +530,26 @@ awf-lab report single-agent --baseline catalogue --where lost --json
 awf-lab run single-agent --only app-1,app-2
 awf-lab report single-agent --baseline single-agent@1.0 --only app-1,app-2
 
-# Improve a scorer: score where the panel's voters split, compare the two, read one finding
+# Improve a scorer: score where match first's voters split, compare the two, read one finding
 awf-lab score catalogue --scorer strict --where split
-awf-lab report catalogue --scorer panel --scorer strict
-awf-lab show catalogue app-2#3 --scorer panel --scorer strict
+awf-lab report catalogue --scorer match-first --scorer strict
+awf-lab show catalogue app-2#3 --scorer match-first --scorer strict
 ```
 
-Before trusting a new scorer, run the controls: `oracle` must score 1.00 and `nop` 0.00.
+Before trusting a new scorer, run the controls: `oracle` must score 1.00 and `nop` 0.00. Each is a
+variant file of its own:
+
+```ts
+// variants/oracle.variant.ts: returns the key's own issues; nop.variant.ts is NOP_WORKFLOW, argv []
+import { defineReviewVariant, ORACLE_WORKFLOW } from "@agentswf/lab/review";
+
+export default defineReviewVariant({
+  workflow: ORACLE_WORKFLOW,
+  argv: ["--set", "{dataset}", "--head", "{head}"],
+  timeout: "1m",
+  read: (findings) => findings as never,
+});
+```
 
 ## Inside this package
 
@@ -526,7 +558,7 @@ Before trusting a new scorer, run the controls: `oracle` must score 1.00 and `no
 - `format/`: the record formats, as TypeBox schemas
 - `fixtures/`: reading sealed datasets
 - `build/`: making datasets (`collect`, `draft-key`)
-- `judge/`: the panel
+- `judge/`: match first, its voting, and the check every judgement passes
 - `metrics/`: the numbers
 - `lab/`: the command line
 

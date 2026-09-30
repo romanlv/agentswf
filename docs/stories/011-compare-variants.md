@@ -441,7 +441,11 @@ case, the comparison over the seeded prefix both have, as `report` does.
   the loop reads the verdict from `report --json`. The run's JSON gaining the verdict would bump
   its format, so it waits until the loop needs it.
 - A case that can't be made whole (a failed score, a trial that couldn't run) stops the run with
-  exit 1: later cases would count towards no look. `--only`, `--where`, `--categories` and
+  exit 1: later cases would count towards no look, and the log says why for each variant.
+- Review (2026-09-30): the first build re-walked cases already whole and could stop on a shorter
+  prefix's verdict, which `report` never gives, so a loop reading `report` would call `run` for
+  ever. Now `run` starts past the stored prefix, and its verdict is `report`'s on the same records.
+  The budget spans the cases (`executePlan` takes what earlier cases `spent`). `--only`, `--where`, `--categories` and
   `--cases` by id are refused, as `report` gives them no verdict; `--where lost` keeps its old
   meaning.
 
@@ -463,6 +467,22 @@ What moves, and its snags, are in the code map (`judge/`); decisions 3–5 say w
   `panel@1.0` scores stay readable in `report` and `show`.
 - A sure `noise` (p ≥ 0.9) is settled by Jev; `check.ts` stops requiring lines read for `noise`.
 - `scripts/match.ts` stays in the data repository until `check` wants it.
+
+As built (2026-09-30), and where it differs:
+
+- **Named `match-first`, not `match`.** The data repository has its own experimental `match`
+  scorer, with stored `match@1.0` to `match@4.0` scores: a built-in `match@1.0` would read another
+  scorer's records as its own. A built-in's name has to be one no workspace has used.
+- The shared reader, answer schema, claimed-issues helper and flag parser are in `judge/case.ts`,
+  not `panel.ts`: `panel.ts` stays pure, as `report` and `where` import it, and `case.ts` is added
+  to the files the boundary check lets do I/O.
+- `judge.workflow.ts` stays, as the panel form of match first: `voteOnRest` with nothing settled,
+  its old flags and defaults. The data repository's panel scorers import it; one code path votes.
+  `PANEL_JUDGE` stays exported beside the new `MATCH_JUDGE`.
+- `--sure 1` asks Jev nothing, so the panel needs no `OPENROUTER_API_KEY`. `--sandbox none` is
+  new; `srt` is the default, as `match-sol-pi` 3.0 ran.
+- The config's `scorer` is optional, `match-first` when absent. A config or `--scorer` naming
+  `panel` gets "panel is retired", with what replaces it; stored `panel@1` scores still read.
 
 Done when `bun test` covers settling (a sure noise settled, a sure refuted claim sent to the
 voters) and a stored `panel@1.0` score reads in `report`; and, live on codex, the built-in `match`
