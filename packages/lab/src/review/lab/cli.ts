@@ -890,7 +890,7 @@ async function runBaseline(
     (process.stdin.isTTY && !options.yes
       ? (text: string) => askOperator(text, out.stderr)
       : undefined);
-  if (confirm && !options.yes && !(await confirm(plan))) {
+  if (confirm && !options.yes && !decided?.stop && !(await confirm(plan))) {
     out.stderr("declined; nothing run");
     return 4;
   }
@@ -1132,6 +1132,7 @@ async function check(
 ): Promise<number> {
   const { workspace, options, dataset } = context;
   if (names.length !== 1) throw new UsageError("check takes one variant");
+  if (options.md) throw new UsageError("check prints text or --json, not --md");
   if (options.only || options.where.length > 0 || options.categories) {
     throw new UsageError("check reads whole cases: --cases, not --only, --where or --categories");
   }

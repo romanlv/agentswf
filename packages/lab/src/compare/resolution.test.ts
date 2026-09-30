@@ -10,14 +10,16 @@ const trial = (id: string, n: number, value: number | null): CaseScore => ({
   metrics: { score: value },
 });
 
-test("experiment 1's measured variance resolves what it reported: 0.08–0.11 at 33 cases, 0.16–0.23 at 8", () => {
+// Experiment 1 used z, 0.08–0.11 at 33 cases and 0.16–0.23 at 8; the paired t test the comparison
+// runs needs more at few cases, which a simulation of that test confirmed (80% power at the high end).
+test("experiment 1's measured variance resolves ~0.08–0.12 at 33 cases, ~0.19–0.27 at 8", () => {
   const variance = { between: 0.19 ** 2, within: 0.13 ** 2 };
   const [low, high] = resolution(variance, 33, 2)!;
-  expect(low).toBeCloseTo(0.08, 2);
-  expect(high).toBeCloseTo(0.112, 2);
+  expect(low).toBeCloseTo(0.083, 3);
+  expect(high).toBeCloseTo(0.116, 3);
   const [few, most] = resolution(variance, 8, 2)!;
-  expect(few).toBeCloseTo(0.163, 2);
-  expect(most).toBeCloseTo(0.228, 2);
+  expect(few).toBeCloseTo(0.189, 3);
+  expect(most).toBeCloseTo(0.265, 3);
   // More trials only shrink the within-case part.
   expect(resolution(variance, 33, 3)![1]).toBeLessThan(high);
   expect(resolution(variance, 33, 3)![1]).toBeGreaterThan(0.09);

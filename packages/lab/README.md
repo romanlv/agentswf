@@ -365,21 +365,28 @@ how much a case varies from trial to trial. On reviews, two a case need about a 
 than one to see the same difference, and a third trial about a tenth fewer again.
 
 **Before trusting a comparison: `check`.** It reads a variant's stored records and says whether
-its cases can tell a change from noise, spending nothing. With two trials a case, it reads:
+its cases can tell a change from noise, spending nothing:
 
 ```text
-$ awf-lab check one-codex-r1 --cases 12 --trials 2
+$ awf-lab check one-codex-r1 --scorer match-sol-pi --cases 12
 one-codex-r1 1.0.0, scorer match-sol-pi 3.0.0, dataset air-1
 headroom    recall.weighted 0.23 of 1: room to improve
-variance    sd 0.19 between cases, 0.13 between trials of one, over 12 cases
-resolution  12 cases × 2 trials: differences under ~0.13–0.19 are noise; all 33 resolve ~0.08–0.11
-failures    none
+resolution  unknown: no case has two scored trials, so trial noise can't be told from case differences; run --trials 2
+failures    12 with a trial in another sandbox, not counted: air-2119, air-2139, …
 suspect     2 cases score 0 on every trial of every variant: air-2154, air-2140; read them before counting
 ```
 
+With two scored trials a case it prints the variance too. At the sds experiment 1 measured on this
+baseline, 0.19 between cases and 0.13 between trials of one, that reads:
+
+```text
+variance    sd 0.19 between cases, 0.13 between trials of one, over 12 cases
+resolution  12 cases × 2 trials: differences under ~0.15–0.20 are noise; all 33 resolve ~0.08–0.12
+```
+
 - **Headroom** warns at 95% of the maximum: no change could show.
-- **Resolution** is the smallest difference the planned cases and trials detect, paired, at 80%
-  power, as a range, since how much two variants differ case by case is unknown. It needs a case
+- **Resolution** is the smallest difference the planned cases and trials detect at 80% power by
+  the paired t test the comparison runs, as a range, since how much two variants differ case by case is unknown. It needs a case
   with two scored trials; with one trial a case, trial noise can't be told from case differences.
   `run --baseline` prints the baseline's headroom and resolution in its plan.
 - **Failures** by kind: a variant that failed (a result), a run that never started or a trial in
@@ -388,7 +395,7 @@ suspect     2 cases score 0 on every trial of every variant: air-2154, air-2140;
   key. They are flagged, never dropped.
 - `--rescore {n}` runs the scorer again on n stored trials and compares the labels, κ with it: a
   scorer that disagrees with itself sets a floor under every comparison. It spends, asks first, and
-  keeps nothing.
+  keeps no score (a new score would become the counted one), only its runs' directories.
 
 **Running until it's decided.** `run {challenger} --baseline {baseline}` runs both, case by case in
 the seeded order: each case's missing trials, then their scores, then the comparison over the cases

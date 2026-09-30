@@ -144,7 +144,9 @@ export function checkLines(check: CheckDocument): string[] {
       ? "headroom    no scored trial yet"
       : `headroom    ${check.metric} ${two(headroom.mean)} of ${headroom.max}${headroom.warning ? ": at the ceiling, so no change could show" : ": room to improve"}`,
   ];
-  if (variance.within === null) {
+  if (r.cases < 2) {
+    lines.push("resolution  unknown: a comparison needs two cases at least");
+  } else if (variance.within === null) {
     lines.push(
       `resolution  unknown: no case has two scored trials, so trial noise can't be told from case differences; run --trials 2`,
     );
@@ -170,7 +172,7 @@ export function renderCheck(check: CheckDocument): string {
   if (check.rescore) {
     const { trials, findings, same, kappa, listPrice } = check.rescore;
     lines.push(
-      `scorer      re-scored ${plural(trials, "trial")}: the same label on ${same} of ${plural(findings, "finding")}${kappa === null ? "" : ` (κ ${two(kappa)})`}, $${two(listPrice)} at list prices; not kept`,
+      `scorer      re-scored ${plural(trials, "trial")}: the same label on ${same} of ${plural(findings, "finding")}${kappa === null ? "" : ` (κ ${two(kappa)})`}, $${two(listPrice)} at list prices; no score kept, only its run directories`,
     );
     for (const d of check.rescore.differ)
       lines.push(`              ${d.id}: ${d.labels.join(", then ")}`);

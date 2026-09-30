@@ -1,5 +1,5 @@
 import { perCase } from "./paired";
-import { mean } from "./stats";
+import { mean, tQuantile } from "./stats";
 import type { CaseScore, MetricSpec } from "./types";
 
 /** How one metric varies: between cases' means, and between trials of one case. */
@@ -48,15 +48,13 @@ export function varianceOf(scores: readonly CaseScore[], metric: MetricSpec): Va
   };
 }
 
-/** z at 97.5% plus z at 80%: a two-sided 5% test with 80% power. */
-const Z = 1.959964 + 0.841621;
 /** The smallest variance assumed for the true per-case difference between two variants. */
 const LEAST = 0.01;
 
 /**
- * The smallest difference `cases` cases of `trials` trials each detect, paired, at 80% power: a
- * range, as the variance of the true per-case difference between two variants is unknown, from
- * 0.01 to the between-case variance itself. Each variant's trials add `within / trials` to it.
+ * The smallest difference `cases` cases of `trials` trials each detect at 80% power by a paired t
+ * test at 5%, two-sided, as the comparison's interval is: a range, as the variance of the true
+ * per-case difference between two variants is unknown, from 0.01 to the between-case variance. Each variant's trials add `within / trials` to it.
  */
 export function resolution(
   variance: Pick<Variance, "between" | "within">,
@@ -67,5 +65,6 @@ export function resolution(
   if (between === null || within === null || cases < 2) return null;
   const noise = (2 * within) / trials;
   const [low, high] = [Math.min(LEAST, between), Math.max(LEAST, between)];
-  return [Z * Math.sqrt((low + noise) / cases), Z * Math.sqrt((high + noise) / cases)];
+  const t = tQuantile(0.975, cases - 1) + tQuantile(0.8, cases - 1);
+  return [t * Math.sqrt((low + noise) / cases), t * Math.sqrt((high + noise) / cases)];
 }

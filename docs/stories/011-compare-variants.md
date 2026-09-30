@@ -519,7 +519,10 @@ As built (2026-09-30):
 
 - The numbers are pure and generic, in `compare/resolution.ts` (`varianceOf`, `resolution`), not
   exported yet; `lab/check.ts` builds the document and text, and `awf.lab-check/1` is its `--json`.
-  `resolution` reproduces experiment 1: ~0.08–0.11 at 33 cases × 2 trials, ~0.16–0.23 at 8.
+  `resolution` uses the paired t test the comparison runs, not z as experiment 1 did: the review
+  simulated z's ranges and found 67% power at 8 cases, not 80%. At experiment 1's variances it
+  gives ~0.08–0.12 at 33 cases × 2 trials and ~0.19–0.27 at 8, where experiment 1 said 0.08–0.11
+  and 0.16–0.23: the first look catches less than it said.
 - Failure kinds are read from the records, so `CaseScore.outcome` is unchanged: nothing is
   published for them. A trial whose profile differs from the baseline's is not flagged yet.
 - `--rescore n` keeps nothing: a re-score written as a score would become the counted one. Its
@@ -539,6 +542,11 @@ In the data repository, on codex:
    down, run with `run {challenger} --baseline one-codex-r1 --cases 8 --trials 2`, then `--cases
    16`, then the whole dataset if still undecided.
 4. The verdict, stop and spend recorded under Implementation notes.
+
+Step 1, done 2026-09-30: `check` flags air-2154 and air-2140 (experiment 1's F and L). Neither key
+is broken. On air-2154 the baseline finds at most one thing, labelled new; the key's issues are
+subtle (two test gaps, a doc gap, a revert hazard). On air-2140 it finds the DST issue, K6, which
+is a nit and weighs 0 in weighted recall. Hard cases, not bad ones: they stay.
 
 Cost: about $0.33 and $0.15 to run and score a trial, so about $15 for 16 cases × 2 trials of the
 challenger, and up to $30 at 33 cases, at list price; the baseline's second trials add as much
