@@ -375,6 +375,9 @@ Everything raised while planning this story, so none is lost. [011] is this stor
 | Suspect cases: 0 on every trial of every variant, flagged for audit | Anthropic, experiment 1 | [011] 6 |
 | Audit the always-zero cases of the first dataset (F, L, and nearly B) | experiment 1 | data repository, before task 7 |
 | Measure how often a noise label Jev settled alone is wrong (it costs precision, a guard) | decision 5, task 1 review | [later], `check --rescore` or an audit |
+| A futility stop (`minGain`): stop when a gain worth having is out of reach | task 7 | [[comparison-efficiency]] |
+| An equivalence margin the dataset can resolve; `check` says what a verdict can decide | task 7 | [[comparison-efficiency]] |
+| Run the baseline once on the whole dataset; `run --ahead n`; a cost estimate for a new variant | task 7 | [[comparison-efficiency]] |
 | Match first as the one review scorer, codex and pi voters; the panel retires | story 008, decision-matching, decision 4 | [011] 1 |
 | Jev's known failure: it matches a new problem to the nearest known issue (p 0.97 seen); right symptom, false cause passes | decision-matching | [011] 1, a note in the scorer's docs |
 | `tunedOn` cases marked in the report | variant-matrix-runner | [011] 3 |
@@ -797,5 +800,6 @@ public review skill story 008 tried on claude; the prediction was no gain, perha
   decide, the run can be extended to all 33 cases with `--cases 33`, reusing all of this.
 - `check` beforehand said resolution unknown (one baseline trial a case); after the run both
   variants have two trials on 16 cases.
-- What it showed about the lab: the stop never fired, which is right for a change this small; a
-  loop would need the whole dataset to call a tie or pay for it in cases.
+- What it showed about the lab: the stop never fired, and between equals it can't: there is no
+  futility stop, and a tie at ±0.05 is out of the first dataset's reach even at 33 cases. A
+  futility stop would have ended this run at 8 cases. The fixes are in [[comparison-efficiency]].
