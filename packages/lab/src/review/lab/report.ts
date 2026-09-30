@@ -1,3 +1,4 @@
+import type { CaseScore, ComparedMetric, Comparison } from "../../compare";
 import { type AnswerKey, SEVERITIES } from "../format/format";
 import { REPORT_FORMAT, type ReportColumn, type ReportDocument } from "../format/output";
 import type { Score, Trial } from "../format/records";
@@ -14,6 +15,7 @@ import {
   spendOf,
   sum,
 } from "../metrics/metrics";
+import { namedMetrics, REVIEW_METRICS } from "../metrics/named";
 import { addresser, parseAddress } from "./address";
 import { currentTrial, passingScore, type Stored, whyNoTrial } from "./plan";
 import { keyOf } from "./version";
@@ -69,11 +71,21 @@ export function caseMetrics(trial: Trial, score: Score, key: AnswerKey, filter: 
   );
 }
 
-/** How two results on one case compare, by weighted recall, then precision: above 0, `a` did better. */
+/** A variant's counted trials as a comparison reads them: numbers by name, nothing of reviews. */
+function caseScores(counted: readonly Counted[], only: ReadonlySet<string>): CaseScore[] {
+  return counted
+    .filter((c) => only.has(c.case))
+    .map((c) => ({
+      case: c.case,
+      trial: 1,
+      outcome: "scored",
+      metrics: namedMetrics(metrics(c.counts), c.trial.run),
+    }));
+}
+
+/** How two results on one case compare, by weighted recall, as the package's comparison counts them: above 0, `a` did better. */
 export function compareCases(a: Metrics, b: Metrics): number {
-  return (
-    (a.weightedRecall ?? 0) - (b.weightedRecall ?? 0) || (a.precision ?? 0) - (b.precision ?? 0)
-  );
+  return (a.weightedRecall ?? 0) - (b.weightedRecall ?? 0);
 }
 
 /** Each case's counted trial, or why it has none. */
@@ -195,6 +207,8 @@ export function buildReport(options: {
   subjects: readonly ReportSubject[];
   scorers: readonly Ref[];
   baseline?: string;
+  /** What decides against the baseline, by name. */
+  comparison?: { name: string; comparison: Comparison };
   filter?: Filter;
   where?: readonly string[];
 }): ReportDocument {
@@ -258,8 +272,10 @@ export function buildReport(options: {
   if (baseline && compared.includes(baseline) && scorers.length === 1 && compared.length > 1) {
     const cell = (subject: ReportSubject) => cells.find((c) => c.subject === subject)!;
     const theirs = new Map(cell(baseline).counted.map((c) => [c.case, metrics(c.counts)]));
+    const rule = options.comparison;
     document.comparison = {
       baseline: baseline.label,
+      ...(rule ? { rule: { name: rule.name, version: rule.comparison.version } } : {}),
       cases: common,
       against: compared
         .filter((s) => s !== baseline)
@@ -276,7 +292,14 @@ export function buildReport(options: {
             const id = address(subject.label, { case: c.case });
             (order > 0 ? result.won : order < 0 ? result.lost : result.tied).push(id);
           }
-          return result;
+          if (!rule) return result;
+          const verdict = rule.comparison.compare({
+            baseline: caseScores(cell(baseline).counted, everywhere),
+            challenger: caseScores(cell(subject).counted, everywhere),
+            metrics: REVIEW_METRICS,
+            selected: subject.rows.length,
+          });
+          return { ...result, verdict };
         }),
     };
   }
@@ -440,9 +463,13 @@ function tableOf(report: ReportDocument): { groups: Group[]; notes: Note[] } {
           ? only.lost.length
           : null
         : (against.get(c.name)?.won.length ?? 0);
+    const verdictOf = (c: ReportColumn) => against.get(c.name)?.verdict?.verdict ?? "–";
     groups.push({
       title: `vs ${comparison.baseline}`,
-      metrics: [metric("cases won", (c) => String(won(c) ?? "–"), { by: won, higher: true })],
+      // With a verdict, its own counts, by its own primary, replace review's cases won.
+      metrics: comparison.rule
+        ? [metric("verdict", verdictOf)]
+        : [metric("cases won", (c) => String(won(c) ?? "–"), { by: won, higher: true })],
     });
   }
 
@@ -455,7 +482,18 @@ function tableOf(report: ReportDocument): { groups: Group[]; notes: Note[] } {
     });
   }
   for (const a of comparison?.against ?? []) {
-    if (a.tied.length > 0) notes.push({ label: "tied", text: a.tied.join(", ") });
+    if (a.tied.length > 0 && !a.verdict) notes.push({ label: "tied", text: a.tied.join(", ") });
+  }
+  for (const a of comparison?.against ?? []) {
+    if (!a.verdict || !comparison?.rule) continue;
+    const { name, version } = comparison.rule;
+    notes.push({
+      label: a.verdict.verdict,
+      text: `${a.variant} by ${name} ${version}: ${a.verdict.reason}${a.verdict.stop ? "" : " (run more cases to decide)"}`,
+      items: a.verdict.metrics
+        .filter((m) => m.role !== "reported")
+        .map((m) => ({ head: `${m.name} (${m.role})`, text: comparedText(m) })),
+    });
   }
   for (const c of columns) {
     if (c.tunedOn.length > 0)
@@ -513,6 +551,15 @@ function tableOf(report: ReportDocument): { groups: Group[]; notes: Note[] } {
     });
   }
   return { groups, notes };
+}
+
+const signed = (x: number, digits = 2) => `${x >= 0 ? "+" : "−"}${Math.abs(x).toFixed(digits)}`;
+
+/** One metric's comparison: both means, the difference and its interval, and the cases each way. */
+function comparedText(m: ComparedMetric): string {
+  if (m.cases === 0) return "no case has it for both";
+  const interval = m.interval ? ` [${signed(m.interval[0])}, ${signed(m.interval[1])}]` : "";
+  return `${decimal(m.baseline)} → ${decimal(m.challenger)}, ${signed(m.difference ?? 0)}${interval} over ${plural(m.cases, "case")}; won ${m.won}, tied ${m.tied}, lost ${m.lost}`;
 }
 
 /** The title, and what the numbers are over. */
@@ -593,7 +640,7 @@ export function renderReport(
   const noteLabel = Math.max(...notes.map((n) => n.label.length), 0) + 2;
   if (notes.length > 0) lines.push("");
   for (const note of notes) {
-    const tint = ["failed trial", "missed must-fix", "left out"].includes(note.label)
+    const tint = ["failed trial", "missed must-fix", "left out", "worse"].includes(note.label)
       ? paint.bad
       : paint.strong;
     const text = wrap(note.text, width - noteLabel, noteLabel);

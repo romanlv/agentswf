@@ -14,7 +14,7 @@
   "properties": {
     "format": {
       "type": "string",
-      "const": "awf.lab-report/3"
+      "const": "awf.lab-report/4"
     },
     "dataset": {
       "type": "string",
@@ -574,6 +574,24 @@
           "type": "string",
           "minLength": 1
         },
+        "rule": {
+          "type": "object",
+          "required": ["name", "version"],
+          "properties": {
+            "name": {
+              "type": "string",
+              "minLength": 1
+            },
+            "version": {
+              "type": "string",
+              "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$",
+              "description": "The semver its file declares; results belong to its {major}.{minor}."
+            }
+          },
+          "additionalProperties": false,
+          "description": "The comparison that gave each verdict: its name and version.",
+          "~optional": true
+        },
         "cases": {
           "type": "array",
           "items": {
@@ -615,11 +633,118 @@
                   "minLength": 1,
                   "description": "{variant}:{case}/{trial}#{finding}, the variant only where several are covered."
                 }
+              },
+              "verdict": {
+                "type": "object",
+                "required": ["verdict", "stop", "reason", "metrics"],
+                "properties": {
+                  "verdict": {
+                    "enum": ["better", "worse", "tie", "undecided"]
+                  },
+                  "stop": {
+                    "type": "boolean",
+                    "description": "Whether a run should spend no more on this pair."
+                  },
+                  "reason": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "metrics": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "required": [
+                        "name",
+                        "role",
+                        "cases",
+                        "baseline",
+                        "challenger",
+                        "difference",
+                        "won",
+                        "tied",
+                        "lost"
+                      ],
+                      "properties": {
+                        "name": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "role": {
+                          "enum": ["primary", "guard", "tiebreak", "reported"]
+                        },
+                        "cases": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "baseline": {
+                          "anyOf": [
+                            {
+                              "type": "number"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "challenger": {
+                          "anyOf": [
+                            {
+                              "type": "number"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "difference": {
+                          "anyOf": [
+                            {
+                              "type": "number"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "interval": {
+                          "type": "array",
+                          "additionalItems": false,
+                          "items": [
+                            {
+                              "type": "number"
+                            },
+                            {
+                              "type": "number"
+                            }
+                          ],
+                          "minItems": 2,
+                          "description": "The two-sided interval on the difference; absent below 5 cases."
+                        },
+                        "won": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "tied": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "lost": {
+                          "type": "integer",
+                          "minimum": 0
+                        }
+                      },
+                      "additionalProperties": false,
+                      "description": "One metric, challenger minus baseline, over the cases both have."
+                    }
+                  }
+                },
+                "additionalProperties": false,
+                "description": "What the comparison said, and why."
               }
             },
             "additionalProperties": false
           },
-          "description": "Each variant against the baseline, by weighted recall then precision."
+          "description": "Each variant against the baseline: cases won, lost and tied by weighted recall, whatever the comparison, as --where lost reads them; then the comparison's verdict."
         }
       },
       "additionalProperties": false

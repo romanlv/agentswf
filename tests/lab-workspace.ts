@@ -11,6 +11,7 @@ import { type AnswerKey, KEY_FORMAT } from "../packages/lab/src/review/format/fo
  */
 
 const REVIEW_INDEX = join(import.meta.dir, "../packages/lab/src/review/index.ts");
+const COMPARE_INDEX = join(import.meta.dir, "../packages/lab/src/compare/index.ts");
 export const CANNED = join(import.meta.dir, "fixtures/lab/canned.workflow.ts");
 const EXACT = join(import.meta.dir, "fixtures/lab/exact-judge.workflow.ts");
 
@@ -136,7 +137,11 @@ export async function workspace(): Promise<Workspace> {
   await Bun.write(join(root, "awf-lab.json"), JSON.stringify(CONFIG));
   await Bun.write(
     join(root, "tsconfig.json"),
-    JSON.stringify({ compilerOptions: { paths: { "@agentswf/lab/review": [REVIEW_INDEX] } } }),
+    JSON.stringify({
+      compilerOptions: {
+        paths: { "@agentswf/lab/review": [REVIEW_INDEX], "@agentswf/lab/compare": [COMPARE_INDEX] },
+      },
+    }),
   );
   const answers = join(root, "answers.json");
   await Bun.write(answers, JSON.stringify({}));

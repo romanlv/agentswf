@@ -9,6 +9,7 @@ import {
 
 const CONFIG_FILE = "awf-lab.json";
 const PANEL_FILE = join(import.meta.dir, "panel.scorer.ts");
+const DEFAULT_COMPARISON_FILE = join(import.meta.dir, "default.compare.ts");
 
 /** The config with its paths resolved, and the variants and scorers it finds, by name. */
 export type Workspace = {
@@ -22,6 +23,7 @@ export type Workspace = {
   sandbox: NonNullable<WorkspaceConfig["sandbox"]>;
   variants: Map<string, string>;
   scorers: Map<string, string>;
+  comparisons: Map<string, string>;
 };
 
 /** A config in the first form's keys: the operator's to fix, as a usage error is. */
@@ -60,6 +62,11 @@ export async function openWorkspace(file: string): Promise<Workspace> {
   const scorers = await discover(root, config.scorers, ".scorer.ts");
   if (scorers.has("panel")) throw new Error(`a scorer named panel shadows the package's own`);
   scorers.set("panel", PANEL_FILE);
+  const comparisons = await discover(root, config.comparisons ?? [], ".compare.ts");
+  if (comparisons.has("default")) {
+    throw new Error(`a comparison named default shadows the package's own`);
+  }
+  comparisons.set("default", DEFAULT_COMPARISON_FILE);
   return {
     file,
     config,
@@ -70,6 +77,7 @@ export async function openWorkspace(file: string): Promise<Workspace> {
     sandbox: config.sandbox ?? { srt: {} },
     variants: await discover(root, config.variants, ".variant.ts"),
     scorers,
+    comparisons,
   };
 }
 
@@ -95,12 +103,12 @@ export function resolveFile(
   known: ReadonlyMap<string, string>,
   nameOrPath: string,
   cwd: string,
-  kind: "variant" | "scorer",
+  kind: "variant" | "scorer" | "comparison",
 ): { name: string; file: string } {
   if (nameOrPath.includes("/") || nameOrPath.endsWith(".ts")) {
     const file = resolve(cwd, nameOrPath);
     if (!existsSync(file)) throw new Error(`no ${kind} file ${file}`);
-    const name = basename(file).replace(/\.(variant|scorer)\.ts$|\.ts$/, "");
+    const name = basename(file).replace(/\.(variant|scorer|compare)\.ts$|\.ts$/, "");
     // Results are kept by name and version, so two files under one name would mix theirs.
     const same = known.get(name);
     if (same && realpathSync(same) !== realpathSync(file)) {

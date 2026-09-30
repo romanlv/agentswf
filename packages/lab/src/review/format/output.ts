@@ -9,9 +9,9 @@ import { FindingLabelSchema, FindingsRecordSchema } from "./scoring";
  * that covers several variants, `{variant}:` before each.
  */
 
-export const LIST_FORMAT = "awf.lab-list/2";
+export const LIST_FORMAT = "awf.lab-list/3";
 export const RUN_FORMAT = "awf.lab-run/2";
-export const REPORT_FORMAT = "awf.lab-report/3";
+export const REPORT_FORMAT = "awf.lab-report/4";
 export const SHOW_FORMAT = "awf.lab-show/2";
 export const SCHEMAS_FORMAT = "awf.lab-schemas/1";
 
@@ -31,6 +31,39 @@ const Ref = Type.Object(
   { additionalProperties: false, description: "A variant or scorer: its name and version." },
 );
 const Run = FindingsRecordSchema.properties.run;
+
+const ComparedMetric = Type.Object(
+  {
+    name: Text,
+    role: Type.Enum(["primary", "guard", "tiebreak", "reported"]),
+    cases: Count,
+    baseline: Ratio,
+    challenger: Ratio,
+    difference: Ratio,
+    interval: Type.Optional(
+      Type.Tuple([Type.Number(), Type.Number()], {
+        description: "The two-sided interval on the difference; absent below 5 cases.",
+      }),
+    ),
+    won: Count,
+    tied: Count,
+    lost: Count,
+  },
+  {
+    additionalProperties: false,
+    description: "One metric, challenger minus baseline, over the cases both have.",
+  },
+);
+
+const Verdict = Type.Object(
+  {
+    verdict: Type.Enum(["better", "worse", "tie", "undecided"]),
+    stop: Type.Boolean({ description: "Whether a run should spend no more on this pair." }),
+    reason: Text,
+    metrics: Type.Array(ComparedMetric),
+  },
+  { additionalProperties: false, description: "What the comparison said, and why." },
+);
 
 const Stored = Type.Object(
   {
@@ -74,6 +107,7 @@ export const ListSchema = Type.Object(
         runs: Text,
         dataset: Text,
         scorer: Text,
+        comparison: Text,
         baseline: Type.Optional(Text),
         budget: Type.Optional(Type.Number({ minimum: 0 })),
       },
@@ -103,6 +137,21 @@ export const ListSchema = Type.Object(
     ),
     variants: Type.Optional(Type.Array(Known)),
     scorers: Type.Optional(Type.Array(Known)),
+    comparisons: Type.Optional(
+      Type.Array(
+        Type.Object(
+          {
+            name: Text,
+            file: Text,
+            version: Type.Union([Type.String(), Type.Null()], {
+              description: "Null when the file fails to load.",
+            }),
+            error: Type.Optional(Text),
+          },
+          { additionalProperties: false },
+        ),
+      ),
+    ),
   },
   { additionalProperties: false, description: "What awf-lab list prints with --json." },
 );
@@ -310,6 +359,10 @@ export const ReportSchema = Type.Object(
       Type.Object(
         {
           baseline: Text,
+          rule: Type.Optional({
+            ...Ref,
+            description: "The comparison that gave each verdict: its name and version.",
+          }),
           cases: Type.Array(Text, { description: "The case ids every column counts." }),
           against: Type.Array(
             Type.Object(
@@ -318,11 +371,13 @@ export const ReportSchema = Type.Object(
                 won: Type.Array(Address),
                 lost: Type.Array(Address),
                 tied: Type.Array(Address),
+                verdict: Type.Optional(Verdict),
               },
               { additionalProperties: false },
             ),
             {
-              description: "Each variant against the baseline, by weighted recall then precision.",
+              description:
+                "Each variant against the baseline: cases won, lost and tied by weighted recall, whatever the comparison, as --where lost reads them; then the comparison's verdict.",
             },
           ),
         },

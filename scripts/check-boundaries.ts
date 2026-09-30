@@ -97,6 +97,8 @@ function rules(root: string): Rule[] {
  * formats know nothing of ours, and evaluating never depends on building fixtures from a forge.
  */
 const REVIEW = "packages/lab/src/review";
+/** How two variants' numbers become a verdict: below every review folder, and knows none of them. */
+const COMPARE = "packages/lab/src/compare";
 const REVIEW_LAYERS: Readonly<Record<string, readonly string[]>> = {
   format: [],
   fixtures: ["format"],
@@ -121,6 +123,7 @@ function reviewRules(root: string): Rule[] {
     .map((name) => ({
       dir: `${REVIEW}/${name}`,
       paths: (target: string) =>
+        containsPath(COMPARE, target) ||
         [name, ...REVIEW_LAYERS[name]!].some((layer) => containsPath(`${REVIEW}/${layer}`, target)),
     }));
 }
@@ -243,6 +246,8 @@ const RULES: Rule[] = [
       },
     ],
   },
+  // Serves any kind of case: imports nothing, not even contract, and reaches no runtime.
+  { dir: "packages/lab/src/compare", except: ["**/*.test.ts"], allow: [], pure: true },
   // The format and the decisions about it stay pure; only the files named here do I/O.
   {
     dir: REVIEW,
@@ -265,6 +270,7 @@ const RULES: Rule[] = [
       "index.ts",
     ],
     pure: true,
+    paths: (target) => containsPath(REVIEW, target) || containsPath(COMPARE, target),
   },
   {
     dir: "examples",

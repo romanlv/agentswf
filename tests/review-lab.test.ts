@@ -106,6 +106,7 @@ async function lab(ws: Workspace, argv: string[], runner?: Runner, confirm = tru
 async function json<T>(ws: Workspace, argv: string[], runner?: Runner): Promise<T> {
   const { exitCode, stdout, stderr } = await lab(ws, [...argv, "--json"], runner);
   if (exitCode !== 0 && exitCode !== 1) throw new Error(stderr);
+  if (!stdout) throw new Error(`no output: ${stderr}`);
   const document = JSON.parse(stdout);
   const printed = await lab(ws, ["schema", document.format]);
   expect(printed.exitCode).toBe(0);
@@ -259,11 +260,52 @@ export default defineReviewVariant({
     expect(nop!.weightedRecall).toBe(0);
     expect(nop!.distinct).toBe(0);
     expect(both.baseline?.name).toBe("nop");
-    expect(both.comparison!.against.map((a) => ({ ...a, won: a.won.toSorted() }))).toEqual([
-      { variant: "oracle", won: ["oracle:app-1", "oracle:app-2"], lost: [], tied: [] },
-    ]);
+    expect(
+      both.comparison!.against.map(({ verdict: _, ...a }) => ({ ...a, won: a.won.toSorted() })),
+    ).toEqual([{ variant: "oracle", won: ["oracle:app-1", "oracle:app-2"], lost: [], tied: [] }]);
+    // Two cases are too few for an interval: the package's own comparison gives counts only.
+    expect(both.comparison!.rule).toEqual({ name: "default", version: "1.0.0" });
+    expect(both.comparison!.against[0]!.verdict).toMatchObject({
+      verdict: "undecided",
+      stop: false,
+      reason: "2 cases: too few for an interval; won 2, tied 0, lost 0",
+    });
     const text = await lab(ws, ["report", "oracle", "--baseline", "nop"]);
-    expect(text.stdout).toMatch(/cases won +2 +0/);
+    expect(text.stdout).toMatch(/verdict +undecided/);
+    expect(text.stdout).not.toContain("cases won");
+    expect(text.stdout).toMatch(/undecided +oracle by default 1.0.0: 2 cases/);
+
+    // A comparison of the project's own replaces the package's, by name or file.
+    await Bun.write(
+      join(ws.root, "ideas/any-gain.compare.ts"),
+      `import { defineComparison, perCase } from "@agentswf/lab/compare";
+
+export default defineComparison({
+  version: "0.1.0",
+  compare({ baseline, challenger, metrics }) {
+    const recall = metrics.find((m) => m.name === "recall.weighted")!;
+    const theirs = perCase(baseline, recall);
+    const gain = [...perCase(challenger, recall)].every(([id, v]) => v > (theirs.get(id) ?? 1));
+    return { verdict: gain ? "better" : "undecided", stop: gain, reason: "every case gained", metrics: [] };
+  },
+});
+`,
+    );
+    const own = await report(
+      ws,
+      "oracle",
+      "--baseline",
+      "nop",
+      "--comparison",
+      "ideas/any-gain.compare.ts",
+    );
+    expect(own.comparison!.rule).toEqual({ name: "any-gain", version: "0.1.0" });
+    expect(own.comparison!.against[0]!.verdict?.verdict).toBe("better");
+    const unknown = await lab(ws, ["report", "oracle", "--baseline", "nop", "--comparison", "x"]);
+    expect(unknown.stderr).toContain("no comparison named x; known: default");
+    // Cases picked by their results get no verdict.
+    const picked = await report(ws, "oracle", "--baseline", "nop", "--where", "failed");
+    expect(picked.comparison?.rule).toBeUndefined();
     // --where lost: the cases the baseline did better on; none for the oracle, both for nop.
     expect(
       (await report(ws, "oracle", "--baseline", "nop", "--where", "lost")).columns[0]!.cases,

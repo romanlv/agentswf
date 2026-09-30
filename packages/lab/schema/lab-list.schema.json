@@ -6,11 +6,20 @@
   "properties": {
     "format": {
       "type": "string",
-      "const": "awf.lab-list/2"
+      "const": "awf.lab-list/3"
     },
     "workspace": {
       "type": "object",
-      "required": ["config", "clone", "datasets", "results", "runs", "dataset", "scorer"],
+      "required": [
+        "config",
+        "clone",
+        "datasets",
+        "results",
+        "runs",
+        "dataset",
+        "scorer",
+        "comparison"
+      ],
       "properties": {
         "config": {
           "type": "string",
@@ -37,6 +46,10 @@
           "minLength": 1
         },
         "scorer": {
+          "type": "string",
+          "minLength": 1
+        },
+        "comparison": {
           "type": "string",
           "minLength": 1
         },
@@ -258,6 +271,39 @@
               "additionalProperties": false
             },
             "description": "Versions with records in the dataset, newest first."
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "comparisons": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "file", "version"],
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "file": {
+            "type": "string",
+            "minLength": 1
+          },
+          "version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Null when the file fails to load."
+          },
+          "error": {
+            "type": "string",
+            "minLength": 1
           }
         },
         "additionalProperties": false

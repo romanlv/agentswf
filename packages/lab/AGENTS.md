@@ -11,6 +11,12 @@ numbers from records), and `lab/` (`awf-lab`, the command line that runs a varia
 per case through `awf run` and keeps the trials and scores in the workspace's results). Story 008
 has `awf-lab`'s terms and command line.
 
+`src/compare/` (`@agentswf/lab/compare`, story 011) turns two variants' per-case numbers into a
+verdict: `pairedComparison` and the types a workspace's `*.compare.ts` uses. It knows nothing of
+reviews, imports nothing, and is pure; review folders may import it. `review/metrics/named.ts`
+gives a review's metrics their names, and `review/lab/default.compare.ts` is the built-in
+comparison.
+
 It is a consumer of the engine (ADR 0002): it may import `@agentswf/contract` and the engine's public
 entry, never a harness; `awf-lab` starts workflows with the checkout's own `awf run` and reads the
 record it prints. Every file in `src/review/` is pure except those the boundary checker names as

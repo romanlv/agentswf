@@ -53,6 +53,19 @@ export const WorkspaceConfigSchema = Type.Object(
       minLength: 1,
       description: "The scorer a command uses unless --scorer names one.",
     }),
+    comparisons: Type.Optional(
+      Type.Array(Text, {
+        description:
+          "Globs of *.compare.ts files; `default`, the package's standard review comparison, is always there.",
+      }),
+    ),
+    comparison: Type.Optional(
+      Type.String({
+        minLength: 1,
+        description:
+          "The comparison report uses with a baseline unless --comparison names one; `default` if absent.",
+      }),
+    ),
     baseline: Type.Optional(
       Type.String({
         minLength: 1,

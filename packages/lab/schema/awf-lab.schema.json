@@ -53,6 +53,19 @@
       "minLength": 1,
       "description": "The scorer a command uses unless --scorer names one."
     },
+    "comparisons": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "description": "Globs of *.compare.ts files; `default`, the package's standard review comparison, is always there."
+    },
+    "comparison": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The comparison report uses with a baseline unless --comparison names one; `default` if absent."
+    },
     "baseline": {
       "type": "string",
       "minLength": 1,

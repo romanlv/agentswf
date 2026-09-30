@@ -33,7 +33,7 @@ import {
   statesOf,
   stepAddress,
 } from "./execute";
-import { loadScorer, loadVariant } from "./load";
+import { loadComparison, loadScorer, loadVariant } from "./load";
 import { fill } from "./placeholders";
 import { type Choice, currentTrial, PlanError, passingScore, type Stored } from "./plan";
 import { provenanceOf } from "./provenance";
@@ -72,14 +72,15 @@ import {
 
 const USAGE = `usage: awf-lab [--config {file}] {command} … [--json]
 
-  list [datasets|cases|variants|scorers]
+  list [datasets|cases|variants|scorers|comparisons]
                             what the workspace sees: names, files, versions, stored versions
   run {variant…} [selection] [--dry-run] [--budget {usd}] [--jobs {n}] [--yes]
                             the missing trials of the selection, then their scores
   score {variant…} [selection] [--rest-from {scorer}] [--dry-run] [--budget …] [--jobs …] [--yes]
                             scores stored trials, whole or chosen findings; never runs a variant
-  report {variant…} [selection] [--baseline {variant}] [--categories {a,b}] [--md]
-                            metrics side by side; with two --scorer, how alike they label
+  report {variant…} [selection] [--baseline {variant}] [--comparison {name}] [--categories {a,b}] [--md]
+                            metrics side by side, and each variant's verdict against the baseline;
+                            with two --scorer, how alike they label
   show {variant} {address} [--scorer {name}]…
                             one case, trial or finding in full
   schema [{format}]         the JSON Schema of a record or of a command's --json
@@ -92,6 +93,8 @@ selection, the same on every command:
   --trials {n}              trials per case; 1 until variant-matrix-runner
   --scorer {name}           the scorer; the config gives the default; report and show take two
   --baseline {variant}      what report compares against, and --where lost reads
+  --comparison {name}       what turns two variants' per-case numbers into a verdict: a
+                            *.compare.ts; the config gives the default, else the package's own
 
 A variant or scorer is a name, a file, or {name}@{version} for a stored version: 1.2, or 1.
 --jobs runs that many steps at a time: every trial, then every score.
@@ -124,6 +127,7 @@ type Options = {
   scorers: string[];
   restFrom?: string;
   baseline?: string;
+  comparison?: string;
   budget?: number;
   jobs?: number;
   categories?: Category[];
@@ -198,6 +202,9 @@ function parse(argv: readonly string[]): { command: string; names: string[]; opt
         break;
       case "--baseline":
         options.baseline = value(arg);
+        break;
+      case "--comparison":
+        options.comparison = value(arg);
         break;
       case "--budget": {
         const text = value(arg);
@@ -707,6 +714,17 @@ async function runOrScore(
   return result.exitCode;
 }
 
+/** A comparison as a command names it: a workspace's name, or a file anywhere. */
+async function comparisonOf(context: Context, text: string) {
+  const { name, file } = resolveFile(
+    context.workspace.comparisons,
+    text,
+    context.cwd,
+    "comparison",
+  );
+  return { name, comparison: await loadComparison(file) };
+}
+
 async function report(context: Context, names: readonly string[]): Promise<string> {
   const { workspace, options, dataset } = context;
   if (names.length === 0) throw new UsageError("report takes a variant");
@@ -735,6 +753,15 @@ async function report(context: Context, names: readonly string[]): Promise<strin
       variants.push(named);
     }
   }
+  if (options.comparison && !baseline) throw new UsageError("--comparison needs a --baseline");
+  if (options.comparison && options.where.length > 0) {
+    throw new UsageError("--where picks cases by their results, so no verdict is given over them");
+  }
+  // Cases picked by their results would bias any verdict: a report --where gives none.
+  const comparison =
+    baseline && options.where.length === 0
+      ? await comparisonOf(context, options.comparison ?? workspace.config.comparison ?? "default")
+      : undefined;
   const { ids, entries } = await selectedCases(workspace, options);
   const cases = await readCases(workspace, dataset, ids);
   const reading = scorers[0]!;
@@ -780,6 +807,7 @@ async function report(context: Context, names: readonly string[]): Promise<strin
     subjects,
     scorers: scorers.map((s) => ({ ...refOf(s), key: s.key })),
     ...(baseline ? { baseline: baseline.label } : {}),
+    ...(comparison ? { comparison } : {}),
     ...(options.categories ? { filter: { categories: options.categories } } : {}),
     where: options.where.map(describePredicate),
   });
@@ -868,11 +896,11 @@ async function list(
   names: readonly string[],
 ): Promise<{ text: string; broken: boolean }> {
   const { workspace, options, dataset } = context;
-  const kinds = ["datasets", "cases", "variants", "scorers"] as const;
+  const kinds = ["datasets", "cases", "variants", "scorers", "comparisons"] as const;
   if (names.length > 1 || (names[0] && !(kinds as readonly string[]).includes(names[0]))) {
     throw new UsageError(`list takes one of ${kinds.join(", ")}, or nothing`);
   }
-  const wanted = names[0] ? [names[0]] : ["datasets", "variants", "scorers"];
+  const wanted = names[0] ? [names[0]] : ["datasets", "variants", "scorers", "comparisons"];
   const document: ListDocument = {
     format: LIST_FORMAT,
     workspace: {
@@ -883,6 +911,7 @@ async function list(
       runs: workspace.runs,
       dataset,
       scorer: workspace.config.scorer,
+      comparison: workspace.config.comparison ?? "default",
       ...(workspace.config.baseline ? { baseline: workspace.config.baseline } : {}),
       ...(workspace.config.budget ? { budget: workspace.config.budget.usd } : {}),
     },
@@ -956,6 +985,18 @@ async function list(
     }
     document[kind] = entries;
   }
+  if (wanted.includes("comparisons")) {
+    document.comparisons = [];
+    for (const [name, file] of workspace.comparisons) {
+      try {
+        const { version } = await loadComparison(file);
+        document.comparisons.push({ name, file, version });
+      } catch (e) {
+        broken = true;
+        document.comparisons.push({ name, file, version: null, error: (e as Error).message });
+      }
+    }
+  }
   if (options.json) return { text: JSON.stringify(document, null, 2), broken };
   const w = document.workspace;
   const lines = [
@@ -965,6 +1006,7 @@ async function list(
     `results   ${w.results}`,
     `runs      ${w.runs}`,
     `scorer    ${w.scorer}`,
+    `comparison ${w.comparison}`,
     ...(w.baseline ? [`baseline  ${w.baseline}`] : []),
     ...(w.budget !== undefined ? [`budget    $${w.budget}`] : []),
   ];
@@ -996,6 +1038,13 @@ async function list(
         );
       }
     }
+  }
+  for (const entry of document.comparisons ?? []) {
+    lines.push(
+      entry.version
+        ? `${"compare".padEnd(9)} ${entry.name.padEnd(24)} ${entry.version.padEnd(8)}  ${entry.file}`
+        : `${"compare".padEnd(9)} ${entry.name.padEnd(24)} fails to load: ${entry.error}`,
+    );
   }
   return { text: lines.join("\n"), broken };
 }
