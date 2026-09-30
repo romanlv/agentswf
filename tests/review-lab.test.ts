@@ -424,7 +424,9 @@ export default ${body};
     const partial = await report(ws, "canned", "--trials", "2");
     expect(partial.trials).toBe(2);
     expect(partial.columns[0]!.cases.map((c) => c.id)).toEqual(["app-1/1", "app-1/2"]);
-    expect(partial.columns[0]!.missing).toEqual([{ id: "app-2", why: "1 of 2 trials on file" }]);
+    expect(partial.columns[0]!.missing).toEqual([
+      { id: "app-2", why: "1 of 2 trials on file; awf-lab run runs the rest" },
+    ]);
     // Pooled over both trials: the must-fix found once in two.
     expect(partial.columns[0]!.bySeverity["must-fix"]).toEqual({ total: 2, hit: 1 });
     expect((await lab(ws, ["report", "canned", "--trials", "2"])).stdout).toContain(
@@ -440,6 +442,7 @@ export default ${body};
     expect(second.id).toBe("app-1/2");
     expect(second.findings).toEqual([]);
     expect((await json<ShowDocument>(ws, ["show", "canned", "app-1/1"])).findings).toHaveLength(1);
+    expect(second.trial!.id).toBe("app-1/2");
     expect((await lab(ws, ["show", "canned", "app-1/3"])).stderr).toContain("2 trials on file");
 
     // The config's trials is the default; a run fills in app-2's second trial.
@@ -449,11 +452,66 @@ export default ${body};
     expect(rest.trials()).toBe(1);
     const whole = await report(ws, "canned");
     expect(whole.columns[0]!.missing).toEqual([]);
+    expect((await lab(ws, ["report", "canned"])).stdout).toMatch(/app-1 K1 +in 1 of 2 trials: /);
     expect(whole.columns[0]!.cases.map((c) => c.id).toSorted()).toEqual([
       "app-1/1",
       "app-1/2",
       "app-2/1",
       "app-2/2",
+    ]);
+  });
+
+  test("trial n is run only after the trials before it, and never beside another of its case", async () => {
+    await ws.variant("canned");
+    await ws.variant("other");
+    await answer(ws, { "app-1": [finding("x")], "app-2": [] });
+    // Asking for trial 2 of a case with none runs trial 1 too, so the numbers hold.
+    const plan = await lab(ws, [
+      "run",
+      "canned",
+      "--trials",
+      "2",
+      "--only",
+      "app-1/2",
+      "--dry-run",
+    ]);
+    expect(plan.stdout).toMatch(/app-1\/1 +trial; score/);
+    expect(plan.stdout).toMatch(/app-1\/2 +trial; score/);
+
+    // With --jobs, one case's trials run one after another, while other cases' run beside them.
+    const running = new Map<string, number>();
+    let most = 0;
+    let overlap = 0;
+    const base = inProcess();
+    const runner: Runner = async (request) => {
+      const caseId = request.argv.includes(ws.heads["app-1"]!) ? "app-1" : "app-2";
+      if (stepOf(request) === TRIAL) {
+        running.set(caseId, (running.get(caseId) ?? 0) + 1);
+        overlap = Math.max(overlap, running.get(caseId)!);
+        most = Math.max(
+          most,
+          [...running.values()].reduce((a, b) => a + b, 0),
+        );
+      }
+      await Bun.sleep(30);
+      const result = await base.runner(request);
+      if (stepOf(request) === TRIAL) running.set(caseId, running.get(caseId)! - 1);
+      return result;
+    };
+    expect(
+      (await lab(ws, ["run", "canned", "--trials", "3", "--jobs", "4"], runner)).exitCode,
+    ).toBe(0);
+    expect(overlap).toBe(1);
+    expect(most).toBe(2);
+
+    // A case another column doesn't count is named once for this one, not once per trial.
+    expect(
+      (await lab(ws, ["run", "other", "--trials", "3", "--only", "app-1"], inProcess().runner))
+        .exitCode,
+    ).toBe(0);
+    const both = await report(ws, "canned", "--baseline", "other", "--trials", "3");
+    expect(both.columns[0]!.missing).toEqual([
+      { id: "canned:app-2", why: "another column doesn't count it" },
     ]);
   });
 

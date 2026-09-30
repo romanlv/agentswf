@@ -339,7 +339,8 @@ With a verdict, the text report shows its counts, by the comparison's primary. `
 **Several trials a case.** `--trials {n}`, or `"trials"` in the config, asks for n trials of each
 case: `run` adds the missing ones and reuses the rest, and `report` counts a case only once all n
 are run and scored, so a look never counts a case twice as its trials arrive. A case with fewer is
-listed as not counted, with how many it has. Trials are numbered by age, so trial 1 stays trial 1
+listed as not counted, with how many it has; `--only {case}/{trial}` chooses a trial to run, score
+or show, but `report` still counts its case whole or not at all. Trials are numbered by age, so trial 1 stays trial 1
 as more are added, and `--trials 1` reads the first alone. Two trials a case let a comparison see
 how much a case varies from trial to trial. On reviews, two a case need about a third fewer cases
 than one to see the same difference, and a third trial about a tenth fewer again. A `run` that stops when the verdict says so is story 011's

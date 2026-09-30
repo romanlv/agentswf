@@ -884,7 +884,7 @@ async function show(context: Context, names: readonly string[]): Promise<string>
   const n = address.trial ?? 1;
   const stored: Stored | undefined = currentTrial(state!, n);
   if (!stored && n > 1) {
-    throw new UsageError(`${names[1]}: ${currentTrials(state!).length} trials on file`);
+    throw new UsageError(`${names[1]}: ${plural(currentTrials(state!).length, "trial")} on file`);
   }
   const count = stored?.trial.findings.length ?? 0;
   if (address.finding !== undefined && address.finding >= count) {
@@ -941,6 +941,8 @@ async function show(context: Context, names: readonly string[]): Promise<string>
     trialRunDir: await runDirOf(workspace.runs, stored?.trial.run.id),
     scorers: scores,
     ...(findings ? { findings } : {}),
+    n,
+    numbered: address.trial !== undefined || trialsAsked(workspace, options) > 1,
   });
   return options.json ? JSON.stringify(document, null, 2) : renderShow(document);
 }

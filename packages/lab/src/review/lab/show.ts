@@ -24,14 +24,18 @@ export function buildShow(options: {
   trialRunDir: string | null;
   scorers: readonly { scorer: Ref; score?: Score | PartialScore; runDir: string | null }[];
   findings?: readonly number[];
+  /** Which of the case's trials, and whether addresses name it: past one trial a case they must. */
+  n?: number;
+  numbered?: boolean;
 }): ShowDocument {
-  const { info, trial } = options;
+  const { info, trial, n = 1 } = options;
+  const at = options.numbered ? { trial: n } : {};
   const issues = new Map(info.key.issues.map((issue) => [issue.id, issue]));
   const findings = (trial?.trial.findings ?? []).flatMap((finding, index) => {
     if (options.findings && !options.findings.includes(index)) return [];
     return [
       {
-        id: formatAddress({ case: info.id, finding: index }),
+        id: formatAddress({ case: info.id, ...at, finding: index }),
         text: finding.text,
         ...(finding.path ? { path: finding.path } : {}),
         ...(finding.line ? { line: finding.line } : {}),
@@ -83,7 +87,7 @@ export function buildShow(options: {
     },
     trial: trial
       ? {
-          id: formatAddress({ case: info.id, trial: 1 }),
+          id: formatAddress({ case: info.id, trial: n }),
           trial: trial.trial.id,
           at: trial.trial.at,
           run: trial.trial.run,

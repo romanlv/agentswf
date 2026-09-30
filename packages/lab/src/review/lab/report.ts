@@ -299,9 +299,9 @@ export function buildReport(options: {
         ...(trials > 1 && n !== undefined ? { trial: n } : {}),
       });
     const within = cell.counted.filter((c) => everywhere.has(c.case));
-    const left = cell.counted
-      .filter((c) => !everywhere.has(c.case))
-      .map((c) => ({ case: c.case, why: "another column doesn't count it" }));
+    const left = [...new Set(cell.counted.map((c) => c.case))]
+      .filter((c) => !everywhere.has(c))
+      .map((c) => ({ case: c, why: "another column doesn't count it" }));
     return column(cell.subject, cell.scorer, within, [...cell.missing, ...left], id);
   });
 
@@ -587,24 +587,32 @@ function tableOf(report: ReportDocument): { groups: Group[]; notes: Note[] } {
   }
   const failed = [...new Set(columns.flatMap((c) => c.failedTrials))];
   if (failed.length > 0) notes.push({ label: "failed trial", text: failed.join(", ") });
-  // One item per issue, naming the columns that missed it.
-  const missed = new Map<string, { mechanism: string; by: string[] }>();
+  // One item per issue, naming the columns that missed it, and past one trial a case, how often.
+  const missed = new Map<string, { mechanism: string; by: Map<string, number> }>();
   columns.forEach((c, i) => {
     for (const miss of c.missed) {
       const head = `${parseAddress(miss.id)?.case ?? miss.id} ${miss.issue}`;
-      const entry = missed.get(head) ?? { mechanism: miss.mechanism, by: [] };
+      const entry = missed.get(head) ?? { mechanism: miss.mechanism, by: new Map() };
       missed.set(head, entry);
-      if (!entry.by.includes(headings[i]!)) entry.by.push(headings[i]!);
+      entry.by.set(headings[i]!, (entry.by.get(headings[i]!) ?? 0) + 1);
     }
   });
   if (missed.size > 0) {
+    const often = (n: number) => (report.trials > 1 ? ` in ${n} of ${report.trials} trials` : "");
     notes.push({
       label: "missed must-fix",
       text: "",
-      items: [...missed].map(([head, { mechanism, by }]) => ({
-        head,
-        text: `${columns.length > 1 ? `${by.length === columns.length ? "all" : by.join(", ")}: ` : ""}${mechanism}`,
-      })),
+      items: [...missed].map(([head, { mechanism, by }]) => {
+        const counts = [...by.values()];
+        const same = by.size === columns.length && counts.every((n) => n === counts[0]);
+        const who =
+          columns.length === 1
+            ? often(counts[0]!).trim()
+            : same
+              ? `all${often(counts[0]!)}`
+              : [...by].map(([name, n]) => `${name}${often(n)}`).join(", ");
+        return { head, text: `${who ? `${who}: ` : ""}${mechanism}` };
+      }),
     });
   }
   // One line per reason. A case every column leaves out for the same reason is named once, bare.

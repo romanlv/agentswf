@@ -408,8 +408,9 @@ default stays 1, so records made before keep reporting; a workspace comparing va
 (experiment 1: a second trial measures the within-case variance, a third buys about 10% more).
 
 - The refusals of more than one trial in `cli.ts` go; `{case}/{trial}` addresses take any trial.
-- `currentTrial` in `plan.ts` becomes the newest k started trials in the workspace's setting, each
-  numbered by its place; `run` plans the missing ones, and its printed plan counts them.
+- `currentTrials` in `plan.ts` gives the started trials in the workspace's setting oldest first, so
+  trial n keeps its number as more are added; `--trials k` reads the first k, and `run` plans the
+  missing ones (trial n with every earlier one missing), and its printed plan counts them.
 - `report.ts`'s `caseScores` gives one `CaseScore` per trial, not `trial: 1`.
 - **A case is whole when all k of its trials have finished.** Otherwise a look is taken twice at one
   case count as trials arrive (round 4). The lab hands the comparison only whole cases, so

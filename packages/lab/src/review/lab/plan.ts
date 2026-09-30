@@ -90,15 +90,31 @@ const oldestFirst = (a: Trial, b: Trial) =>
   a.at < b.at ? -1 : a.at > b.at ? 1 : a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
 
 /**
- * Why a case has no trial n: fewer than n on file, or each that started ran in another sandbox, or
- * else `none`.
+ * Why a case has no trial n: fewer than n on file, some perhaps in another sandbox, or else `none`.
  */
 export function whyNoTrial(state: CaseState, none: string, n = 1): string {
   const have = currentTrials(state).length;
-  if (have > 0) return `${have} of ${n} trials on file`;
-  return started(state).length > 0
-    ? "no trial in this workspace's sandbox; awf-lab run runs it again"
-    : none;
+  const elsewhere = started(state).length - have;
+  const aside = elsewhere > 0 ? `, and ${elsewhere} in another sandbox, which doesn't count` : "";
+  if (have > 0) return `${have} of ${n} trials on file${aside}; awf-lab run runs the rest`;
+  return elsewhere > 0 ? "no trial in this workspace's sandbox; awf-lab run runs it again" : none;
+}
+
+/**
+ * The trials a command plans of one case. `run` of trial n runs every earlier one missing too:
+ * trials are numbered by age, so trial n can only be made after trials 1 to n − 1.
+ */
+function trialsOf(
+  state: CaseState,
+  chosen: ReadonlyMap<number, Choice> | undefined,
+  command: "run" | "score",
+): ReadonlyMap<number, Choice> {
+  if (!chosen || command === "score" || chosen.size === 0) return chosen ?? new Map();
+  const last = Math.max(...chosen.keys());
+  const have = currentTrials(state).length;
+  const all = new Map(chosen);
+  for (let n = have + 1; n < last; n++) if (!all.has(n)) all.set(n, {});
+  return all;
 }
 
 const SCORE_NEEDS_A_TRIAL = "no trial on file; score never runs the variant";
@@ -153,7 +169,7 @@ export function planCases(
   },
 ): Step[] {
   return states.flatMap((state) =>
-    [...(options.chosen.get(state.case) ?? new Map<number, Choice>())]
+    [...trialsOf(state, options.chosen.get(state.case), options.command)]
       .toSorted(([a], [b]) => a - b)
       .map(([n, choice]): Step => {
         const stored = currentTrial(state, n);

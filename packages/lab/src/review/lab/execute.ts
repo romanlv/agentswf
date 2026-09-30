@@ -683,10 +683,34 @@ export async function executePlan(
     }
     for (const wake of waiting.splice(0)) wake();
   };
-  const pool = async <T>(items: readonly T[], work: (item: T) => Promise<void>) => {
+  /**
+   * `jobs` items at a time, in order, but never two of one `key` at once: a case's trials are
+   * numbered by when they were made, so its trial n must be made before its trial n + 1.
+   */
+  const pool = async <T>(
+    items: readonly T[],
+    work: (item: T) => Promise<void>,
+    key: (item: T) => string = () => "",
+  ) => {
     const queue = [...items];
+    const busy = new Set<string>();
+    const freed: (() => void)[] = [];
     const worker = async () => {
-      while (!stopped && queue.length > 0) await work(queue.shift()!);
+      while (!stopped && queue.length > 0) {
+        const at = queue.findIndex((item) => !busy.has(key(item)));
+        if (at < 0) {
+          await new Promise<void>((wake) => freed.push(wake));
+          continue;
+        }
+        const [item] = queue.splice(at, 1) as [T];
+        busy.add(key(item));
+        try {
+          await work(item);
+        } finally {
+          busy.delete(key(item));
+          for (const wake of freed.splice(0)) wake();
+        }
+      }
     };
     await Promise.all(Array.from({ length: jobs }, worker));
   };
@@ -716,6 +740,7 @@ export async function executePlan(
         count("trial", variant.label, held, trial?.run);
       }
     },
+    ({ variant, step }) => `${variant.key}\n${step.case}`,
   );
 
   const toScore = steps.flatMap(({ variant, step, id }) => {
