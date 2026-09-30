@@ -1539,6 +1539,9 @@ export default defineReviewScorer({ workflow: exact, argv: ["--mode", "plain"], 
     expect((await lab(ws, ["report", "canned", "--scorer", "panel"])).stderr).toContain(
       "panel is retired",
     );
+    // A config still naming it blocks nothing that names another scorer.
+    await Bun.write(join(ws.root, "awf-lab.json"), JSON.stringify({ ...CONFIG, scorer: "panel" }));
+    expect((await lab(ws, ["score", "canned", "--scorer", "exact", "--dry-run"])).exitCode).toBe(0);
   });
 
   test("--only fails a partial score whose scorer changed a settled label", async () => {

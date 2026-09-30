@@ -666,8 +666,14 @@ async function runOrScore(
   const scorer = await context.scorer(options.scorers[0] ?? workspace.config.scorer);
   if (!scorer.defined)
     throw new UsageError(`${scorer.label} is a stored version; only a file can score`);
+  // The rest-from scorer is read only for chosen findings and by --where; otherwise the config's
+  // default scorer must not block scoring with another.
+  const readsRest =
+    options.restFrom !== undefined ||
+    options.where.length > 0 ||
+    (options.only ?? []).some((a) => a.finding !== undefined);
   const restFrom =
-    command === "score"
+    command === "score" && readsRest
       ? await context.scorer(options.restFrom ?? workspace.config.scorer)
       : undefined;
   // Only `--where lost` reads the baseline here, so one that fails to load blocks nothing else.
