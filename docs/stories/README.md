@@ -68,7 +68,7 @@ status is one of `todo`, `draft`, `ready`, `in-progress`, `blocked`, `awaiting-h
   --sandbox`), holding the checkout and the request; the reviewer's repository is laid out as its
   clone was.
 - [`011` — Say whether a workflow variant beats the incumbent, and how sure that is](011-compare-variants.md) —
-  `awaiting-human-review` — awf-lab says whether a variant beats the baseline, with its
+  `done` — awf-lab says whether a variant beats the baseline, with its
   uncertainty, by a comparison the project can replace; runs several trials a case, runs until the
   verdict stops it, checks a dataset's resolution, and scores with match first.
 - [`012` — Test a workflow's own logic next to it, with no agents](012-workflow-tests.md) —

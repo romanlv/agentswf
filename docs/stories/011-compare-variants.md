@@ -3,7 +3,7 @@ id: "011"
 title: Say whether a workflow variant beats the incumbent, and how sure that is
 summary: The evaluating project defines its scorer, which turns a trial into named per-case metrics, and its comparison, which turns two variants' per-case metrics into a verdict; awf-lab runs several trials per case, calls both, and stops when the comparison says so. The lab ships a standard paired comparison and match first as the review scorer.
 type: story
-status: awaiting-human-review
+status: done
 discovered_in: "variant-matrix-runner and decision-matching todos, 2026-09-29"
 depends_on: ["008", "010"]
 ---
@@ -175,20 +175,20 @@ Built in this order: 2 and 3 (slice 1), 4, 5, 1, 6, 7, 8.
 
 For the human review. The user's answers of 2026-09-30 are recorded.
 
-- **Task 1, still open:** the data repository's `awf-lab.json` names `"scorer": "panel"`, which is
-  retired, so `run` and `report` there need `--scorer match-first`. Switch it, or drop the key for
-  the default? That's a change in that repository, left to you.
+- **Task 1, done:** the data repository's `awf-lab.json` named the retired `panel`; it names
+  `match-first` since the approval (the file is untracked there, so nothing was committed).
 - **Task 1, answered, "measure it":** how often a noise label Jev settled alone is wrong. Moved to
   [[jev-noise-audit]].
-- **Task 7, still open:** extend the live run to all 33 cases? Under `default` 1.1.0 the stored
-  records already stop at the look at 8, so it would need the old settings.
+- **Task 7, still open:** extend the live run to all 33 cases (about $25)? The stored records reach
+  16 cases, past the look at 8 where 1.1.0 would have stopped; at 16 the upper end is +0.058, so
+  `run --cases 33` would carry on to the last look.
 - **Task 7, answered:** keep `variants/one-codex-skill.variant.ts`? Not yet; it stays uncommitted.
 - **Task 7, raised by the user and answered yes:** hold out cases the loop never tunes on. Moved to
   [[autoresearch-loop]], with why 33 cases are too few to split.
 - **Task 8, answered:** the keep rule for equals. The same quality, faster and cheaper, is better.
   Moved to [[comparison-efficiency]].
 - **Task 8, left to me:** the smallest recall gain worth having. See decision 6.
-- **The story, still open:** approve it, or ask for changes? Push main?
+- **The story, answered:** approved, 2026-09-30.
 
 ## Decisions
 
@@ -360,8 +360,9 @@ baseline plus a public review skill. The prediction was no gain, and perhaps mor
   tied 6, lost 7). Precision went 0.94 → 0.98 and wrong claims 0.06 → 0.02. Time was +36 s a case,
   [+16, +55].
 - As predicted: no gain in recall, and more time. The stop never fired: there was no futility stop,
-  and a tie at ±0.05 is out of reach. Task 8 followed. Under `default` 1.1.0 this run stops at 8
-  cases.
+  and a tie at ±0.05 is out of reach. Task 8 followed. Under `default` 1.1.0, `report --cases 8`
+  on these records says "stopped at look 1 of 3, no gain of 0.05 in reach", so a fresh run would
+  have stopped there; at 16 cases it is still `undecided`, next look at 33.
 
 ### Task 8: the simulation (2026-09-30)
 
@@ -377,5 +378,5 @@ baseline plus a public review skill. The prediction was no gain, and perhaps mor
 - [x] Every task is complete and story-level verification passes.
 - [x] The story is `awaiting-human-review`; the outcome, decisions, reviews and verification are
   above.
-- [ ] Record the human's explicit approval or requested changes here.
-- [ ] Only after explicit approval, mark the story `done` and update `Stories at a glance`.
+- [x] Approved by the user, 2026-09-30.
+- [x] Marked `done`, and `Stories at a glance` updated.

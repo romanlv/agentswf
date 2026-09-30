@@ -114,14 +114,14 @@ The gates are defined in [`foundation.md`](foundation.md) §12.
   every trial in one, from `awf-lab.json`'s `sandbox` (srt by default), holding the checkout and
   the request. The case is restored as the reviewer's clone was. Design:
   [`design/evaluation.md`](design/evaluation.md).
-- [011 — compare variants](stories/011-compare-variants.md): built, awaiting human review.
+- [011 — compare variants](stories/011-compare-variants.md): done, approved 2026-09-30.
   `awf-lab report --baseline` gives each challenger a verdict (better, worse, tie or undecided,
   whether to stop, and why) from a comparison the project can replace, `@agentswf/lab/compare`;
   the package's own is a paired t rule with planned looks, guards and tie-breakers. `--trials n`
   runs several trials a case, counted only whole; `run {challenger} --baseline {variant}` runs
   both case by case until the verdict says stop; `check` says whether a variant's cases can tell
   a change from noise; match first (`match-first`) is the review scorer and the panel retires.
-  Awaiting human review. Its live check, a public review skill added to the codex baseline, was
+  Its live check, a public review skill added to the codex baseline, was
   undecided at 16 cases: recall −0.01 [−0.08, +0.06], 36 s a case slower. A futility stop
   (`minGain`, 0.05 in `default` 1.1.0) now ends such a run at a look.
 - [012 — workflow tests](stories/012-workflow-tests.md): done, approved 2026-09-30. A workflow's
@@ -141,7 +141,7 @@ The inbox of possible stories is [`stories/todo/`](stories/todo/).
    ([story 005](stories/005-review-fixtures.md)), and so are the sandboxes to isolate them in
    ([story 004](stories/004-sandboxed-agents.md)), and every trial runs in one
    ([story 010](stories/010-eval-isolation.md)). In order:
-   [story 011](stories/011-compare-variants.md) (built; awaiting human review), then
+   [story 011](stories/011-compare-variants.md) (done), then
    [`second-case-kind`](stories/todo/second-case-kind.md), so the loop is shown not to be
    review's alone, and last [`autoresearch-loop`](stories/todo/autoresearch-loop.md).
 
