@@ -301,11 +301,13 @@ Alternatives rejected:
 
 ## Tasks at a glance
 
+Built in this order: 2 and 3 (slice 1), 4, 5, 1, 6, 7.
+
 - [ ] 1. Match first is the review scorer; the panel retires
-- [ ] 2. `compare/` and `pairedComparison`, from per-case numbers (slice 1: done but for between-
-  and within-case variance, which comes with several trials)
-- [ ] 3. A scorer declares its metrics; `report` calls the comparison (slice 1: `report` calls it;
-  metrics are review's, see "Slice 1, as built")
+- [x] 2. `compare/` and `pairedComparison`, from per-case numbers (slice 1). Reporting between-
+  and within-case variance moved to task 6, which needs task 4's trials
+- [x] 3. `report` calls the comparison (slice 1). A scorer declaring its own metrics moved to
+  [[second-case-kind]]; until then a review's are `review/metrics/named.ts`
 - [ ] 4. Several trials per case
 - [ ] 5. `run --baseline`: per-case scheduling and the comparison's stop
 - [ ] 6. `awf-lab check`: headroom, resolution, scorer self-agreement, failures, suspect cases
@@ -390,14 +392,113 @@ Everything raised while planning this story, so none is lost. [011] is this stor
 
 Built as thin slices, each connected end to end and used by a fresh agent before the next
 (the user, 2026-09-30: "build something small end to end, review it, improve, see how it can be
-generalized"). Task details for 1 and 4–7 are written when their slice starts.
+generalized"). Each task below is one such slice.
 
 ### Slice 1: a verdict in `report --baseline`, from a comparison the project can replace
 
-Tasks 2 and 3 in part. Done: `bun test` shows `pairedComparison` against table values, a
+Tasks 2 and 3. Done: `bun test` shows `pairedComparison` against table values, a
 simulated null, and a synthetic kind of case with no review in it; `review-lab.test.ts` shows
 `report --baseline` carrying the built-in verdict, and a workspace's own `*.compare.ts` replacing
 it by path; `report` on experiment 1's stored trials calls all three copies of the baseline a tie.
+
+### Task 4: several trials per case
+
+`--trials k` on `run`, `score`, `report` and `show`, and `trials` in `awf-lab.json`, default 2
+(experiment 1: a second trial measures the within-case variance, a third buys about 10% more).
+
+- The refusals of more than one trial in `cli.ts` go; `{case}/{trial}` addresses take any trial.
+- `currentTrial` in `plan.ts` becomes the newest k started trials in the workspace's setting, each
+  numbered by its place; `run` plans the missing ones, and its printed plan counts them.
+- `report.ts`'s `caseScores` gives one `CaseScore` per trial, not `trial: 1`.
+- **A case is whole when all k of its trials have finished.** Otherwise a look is taken twice at one
+  case count as trials arrive (round 4). The lab hands the comparison only whole cases, so
+  `ComparisonInput` stays as approved; a case with fewer is reported as incomplete. This keeps
+  the published surface unchanged; the other way, `trialsPlanned` in the input, is a change to
+  approve.
+- `--jobs` still runs every trial, then every score.
+
+Done when `bun test` shows: `run --trials 2` plans the second trial for each case and reuses the
+first; `report --trials 2` averages per case, and leaves a case with one trial out of the verdict;
+`show {case}/2` shows the second trial. `awf-lab report one-codex-r2 --baseline one-codex-r1
+--trials 3` in the data repository reads experiment 1's three trials a case.
+
+### Task 5: `run --baseline`: per-case scheduling and the comparison's stop
+
+`awf-lab run {challenger} --baseline {baseline} [--cases n] [--trials k]` runs case by case in the
+seeded order: for each case, both variants' missing trials, then their scores; after each whole
+case, the comparison over the seeded prefix both have, as `report` does.
+
+- `stop: true` ends the run: steps in flight finish, no new one starts, and the run prints the
+  verdict, its reason, and what it didn't spend. `--cases n` caps the run; `planned` is still the
+  dataset's size, so the looks don't move.
+- The baseline's stored trials are reused as always; a baseline already run on the first 12 cases
+  costs only the challenger's trials there.
+- Under `--jobs`, cases run concurrently but a verdict counts only the seeded prefix, so a stop
+  can come after later cases began; they finish and are stored.
+- **Costly to change later, to settle before building:** the run's JSON gains the verdict as the
+  report carries it, which bumps its format. The alternative, `run` printing only and the loop
+  calling `report`, costs a second read of the records but publishes nothing.
+
+Done when `bun test` shows, with a fake variant and a scripted comparison: the run stops at the
+first `stop: true` without starting the next case; a comparison file from the workspace replaces
+the standard one; the baseline's stored trials are reused. And a fresh agent, given only the
+README, runs a challenger against a baseline in a test workspace without help.
+
+### Task 1: match first is the review scorer; the panel retires
+
+What moves, and its snags, are in the code map (`judge/`); decisions 3–5 say what it does.
+
+- `matching.ts`, `voting.ts`, `match.workflow.ts` and the matching test move from the data
+  repository's `scorers/` into `review/judge/`; one copy each of `Case`/`readCase`, the answer
+  schema and the claimed-issues helper, in `panel.ts`.
+- The panel's voting becomes `voting.ts`, keeping the per-turn bound (6 minutes), the fresh-session
+  retry and the `workflow.parallel` label.
+- `match` is built in and the workspace default; `panel.scorer.ts` leaves the built-ins; stored
+  `panel@1.0` scores stay readable in `report` and `show`.
+- A sure `noise` (p ≥ 0.9) is settled by Jev; `check.ts` stops requiring lines read for `noise`.
+- `scripts/match.ts` stays in the data repository until `check` wants it.
+
+Done when `bun test` covers settling (a sure noise settled, a sure refuted claim sent to the
+voters) and a stored `panel@1.0` score reads in `report`; and, live on codex, the built-in `match`
+re-scores experiment 1's 32 trials with the same label on at least 90% of findings as the data
+repository's `match-sol-pi` 3.0 (about $4.50 at list price).
+
+### Task 6: `awf-lab check`
+
+`awf-lab check {variant} [--cases n] [--trials k] [--rescore n]`, from stored records, as sketched
+under "How it works":
+
+- **Headroom**: the primary's mean against its maximum; a warning at 95% or more.
+- **Resolution**: between- and within-case variance of the primary, and the smallest difference
+  the planned cases and trials resolve, paired, at 80% power. Also printed by `run --baseline`
+  before it spends, and replacing experiment 1's `variance.ts`.
+- **Scorer self-agreement**: the same scorer on `--rescore n` stored trials again (default 0, so
+  `check` spends nothing unless asked, and prints its estimate first); agreement on labels and κ.
+- **Failures by kind**: environment, scorer and variant apart. `CaseScore.outcome` gains
+  `environment-failed` and `scorer-failed`; a comparison reads unknown outcomes as `missing`, so
+  that is additive. A trial whose profile differs from the baseline's is flagged.
+- **Suspect cases**: 0 on every trial of every variant stored; flagged, never dropped.
+
+Done when `bun test` shows each line on a test workspace with known variance, and `check
+one-codex-r1 --trials 3` in the data repository gives experiment 1's sd 0.19 and 0.13 and flags
+F and L.
+
+### Task 7: live check on codex
+
+In the data repository, on codex:
+
+1. Audit the always-zero cases (F, L, nearly B) first: a broken key or an ambiguous task is fixed
+   or dropped from the dataset, with a note there.
+2. `check one-codex-r1` before spending: headroom and resolution.
+3. A real challenger: one change to the baseline's workflow, with its expected effect written
+   down, run with `run {challenger} --baseline one-codex-r1 --cases 8 --trials 2`, then `--cases
+   16`, then the whole dataset if still undecided.
+4. The verdict, stop and spend recorded under Implementation notes.
+
+Cost: about $0.33 and $0.15 to run and score a trial, so about $15 for 16 cases × 2 trials of the
+challenger, and up to $30 at 33 cases, at list price; the baseline's second trials add as much
+again where missing. Done when the run stops where the comparison says, and a fresh agent reading
+only the README and the run's output can say what was decided and why.
 
 ## Verification
 
@@ -608,7 +709,7 @@ Left for later slices: several trials per case (task 4), `run --baseline` and it
 - [x] Evidence and research support the proposed design: research §1–8, experiment 1.
 - [x] Expensive interface, record-format, and stage-gate decisions are settled: "What this
   publishes", approved 2026-09-30.
-- [ ] Tasks are ordered, coherent, and independently verifiable: task details not yet written.
+- [x] Tasks are ordered, coherent, and independently verifiable: task details, 2026-09-30.
 - [x] Open questions are resolved or explicitly moved out of scope: decisions 1–5.
 
 ## Human review
