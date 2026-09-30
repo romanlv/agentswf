@@ -79,6 +79,9 @@ export function compareMetric(
       (sd(differences) / Math.sqrt(paired.length));
     compared.interval = [compared.difference! - half, compared.difference! + half];
   }
+  if (![compared.difference ?? 0, ...(compared.interval ?? [])].every(Number.isFinite)) {
+    throw new Error(`${metric.name}'s values are too large to compare`);
+  }
   return compared;
 }
 
@@ -108,8 +111,8 @@ export type PairedOptions = {
   looks?: readonly number[];
   /** Two-sided, for every interval; "better" is claimed one-sided at half of what it leaves. */
   confidence?: number;
-  /** Cases that must differ on the primary, either way, before "better". */
-  minDiffering?: number;
+  /** Cases the challenger must win on the primary before "better": a floor under the interval. */
+  minWon?: number;
   /** In semver; bump it whenever the settings change, as the report names it beside each verdict. */
   version: string;
 };
@@ -148,8 +151,10 @@ function gainInterval(m: ComparedMetric, spec: MetricSpec): [number, number] | u
  */
 export function pairedComparison(options: PairedOptions): Comparison {
   const confidence = options.confidence ?? 0.95;
-  if (!(confidence >= 0.8 && confidence < 1)) throw new Error("confidence is from 0.8 to below 1");
-  const minDiffering = options.minDiffering ?? 6;
+  if (!(confidence >= 0.8 && confidence <= 0.999)) {
+    throw new Error(`confidence is from 0.8 to 0.999: ${confidence}`);
+  }
+  const minWon = options.minWon ?? 6;
   const guards = options.guards ?? [];
   const tiebreak = options.tiebreak ?? [];
   if (tiebreak.length > 0 && options.equivalence === undefined) {
@@ -164,8 +169,8 @@ export function pairedComparison(options: PairedOptions): Comparison {
   if (!(options.looks ?? []).every((l) => whole(l, 1))) {
     throw new Error(`looks are case counts, whole numbers from 1: ${options.looks}`);
   }
-  if (!whole(options.minDiffering, 0)) {
-    throw new Error(`minDiffering is a count of cases: ${options.minDiffering}`);
+  if (!whole(options.minWon, 0)) {
+    throw new Error(`minWon is a count of cases: ${options.minWon}`);
   }
   for (const { metric, margin } of [
     ...guards,
@@ -214,7 +219,11 @@ export function pairedComparison(options: PairedOptions): Comparison {
 
       // Progress is the cases both variants have finished, whatever the primary's value on them.
       const finished = (scores: readonly CaseScore[]) =>
-        new Set(scores.filter((s) => s.outcome !== "missing").map((s) => s.case));
+        new Set(
+          scores
+            .filter((s) => s.outcome === "scored" || s.outcome === "variant-failed")
+            .map((s) => s.case),
+        );
       const theirs = finished(input.baseline);
       const done = [...finished(input.challenger)].filter((id) => theirs.has(id)).length;
       const last = done >= input.planned;
@@ -276,8 +285,8 @@ export function pairedComparison(options: PairedOptions): Comparison {
       const past = t >= critical;
       const blocked = !past
         ? undefined
-        : primary.won + primary.lost < minDiffering
-          ? `only ${primary.won + primary.lost} cases differ, ${minDiffering} needed`
+        : primary.won < minWon
+          ? `only ${primary.won} cases won, ${minWon} needed`
           : unproven.length > 0
             ? `not shown within margin: ${unproven.join(", ")}`
             : undefined;
@@ -288,12 +297,16 @@ export function pairedComparison(options: PairedOptions): Comparison {
       }
 
       // The plan has run. The tie-breakers go in order, each one-sided on the primary: a better
-      // needs it shown no worse than −equivalence, a worse no better than +equivalence, so a
-      // challenger that improves never loses its verdict. The next is tried only when this one is
-      // shown equal within its margin.
+      // needs it shown no worse than −equivalence, a worse no better than +equivalence. A later
+      // one may say better only while every earlier one is shown no worse than its margin, and
+      // worse only while every earlier one is shown no better, so a challenger that improves on any
+      // metric never loses its verdict.
       const notes: string[] = [];
       if (equivalence !== undefined) {
+        let mayBetter = primaryGain[0] >= -equivalence;
+        let mayWorse = primaryGain[1] <= equivalence;
         for (const { metric, margin } of tiebreak) {
+          if (!mayBetter && !mayWorse) break;
           const m = byName.get(metric)!;
           const gain = gainInterval(m, spec(metric));
           if (!gain) {
@@ -301,7 +314,7 @@ export function pairedComparison(options: PairedOptions): Comparison {
             break;
           }
           const decided = `decided by ${shown(m)}, past its margin of ${margin}, with ${shown(primary)}`;
-          if (gain[0] > margin && primaryGain[0] >= -equivalence) {
+          if (mayBetter && gain[0] > margin) {
             if (unproven.length === 0) return verdict("better", true, decided);
             return verdict(
               "undecided",
@@ -309,15 +322,11 @@ export function pairedComparison(options: PairedOptions): Comparison {
               `${decided}, but not shown within margin: ${unproven.join(", ")}`,
             );
           }
-          if (gain[1] < -margin && primaryGain[1] <= equivalence) {
-            return verdict("worse", true, decided);
-          }
-          if (gain[0] < -margin || gain[1] > margin) {
-            notes.push(
-              `${metric} ${gain[0] > margin || gain[1] < -margin ? "differs" : "not shown within its margin"}: ${shown(m)}`,
-            );
-            break;
-          }
+          if (mayWorse && gain[1] < -margin) return verdict("worse", true, decided);
+          mayBetter &&= gain[0] >= -margin;
+          mayWorse &&= gain[1] <= margin;
+          if (!mayBetter || !mayWorse)
+            notes.push(`${metric} not shown within its margin: ${shown(m)}`);
         }
       }
       const why = notes.length > 0 ? `; ${notes.join("; ")}` : "";

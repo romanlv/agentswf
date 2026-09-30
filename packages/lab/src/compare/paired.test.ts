@@ -227,7 +227,7 @@ describe("pairedComparison", () => {
     for (const shift of [0, -0.02, -0.03, -0.04]) expect(at(shift, 1.2)).toBe("worse");
   });
 
-  test("a tie-breaker that shows nothing either way stops the chain, and says so", () => {
+  test("a tie-breaker that may differ either way beyond its margin stops the chain, and says so", () => {
     const rule = pairedComparison({
       version: "1.0.0",
       primary: "score",
@@ -251,6 +251,62 @@ describe("pairedComparison", () => {
     });
     expect(verdict).toMatchObject({ verdict: "tie", stop: true });
     expect(verdict.reason).toContain("cost not shown within its margin");
+  });
+
+  test("cheaper on an earlier tie-breaker never costs the verdict a later one gives", () => {
+    const METRICS2: MetricSpec[] = [
+      ...METRICS,
+      { name: "time", direction: "lower", onVariantFailure: "missing" },
+    ];
+    const rule = pairedComparison({
+      version: "1.0.0",
+      primary: "score",
+      equivalence: 0.05,
+      tiebreak: [
+        { metric: "cost", margin: 0.05 },
+        { metric: "time", margin: 30 },
+      ],
+    });
+    const base = around(16, 0.5);
+    const same = base.map(([x], i) => [x! + (i % 2 ? 0.01 : -0.01)]);
+    const withTime = (list: CaseScore[], time: number) =>
+      list.map((c, i) => ({ ...c, metrics: { ...c.metrics, time: time + (i % 3) } }));
+    const at = (saving: number) =>
+      rule.compare({
+        baseline: withTime(scores(base, { cost: base.map((_, i) => 1 + (i % 3) * 0.01) }), 120),
+        challenger: withTime(
+          scores(same, { cost: base.map((_, i) => 1 - saving + ((i + 1) % 3) * 0.01) }),
+          60,
+        ),
+        metrics: METRICS2,
+        planned: 16,
+      }).verdict;
+    // Faster by a minute; cost from the same to past its margin, through its edge.
+    for (const saving of [0, 0.02, 0.04, 0.05, 0.06, 0.1]) expect(at(saving)).toBe("better");
+  });
+
+  test("the floor counts cases won, so a challenger that improves never falls below it", () => {
+    const rule = pairedComparison({ version: "1.0.0", primary: "score" });
+    // Five clear wins and five ties on a coarse score, then the same a little lower everywhere.
+    const base = Array.from({ length: 10 }, () => [0.5]);
+    const ours = base.map((_, i) => [i < 5 ? 0.5 + 0.2 + (i % 2) * 0.05 : 0.5]);
+    const at = (shift: number) =>
+      rule.compare({
+        baseline: scores(base),
+        challenger: scores(ours.map(([x]) => [x! + shift])),
+        metrics: METRICS,
+        planned: 10,
+      });
+    expect(at(0).reason).toContain("only 5 cases won, 6 needed");
+    expect(at(-0.001).verdict).not.toBe("better");
+  });
+
+  test("an outcome the rule doesn't know counts as missing, not as a finished case", () => {
+    const base = scores(around(6, 0.5));
+    const ours = scores(around(6, 0.5)).map((s) =>
+      s.case === "c5" ? { ...s, outcome: "environment-failed" as never } : s,
+    );
+    expect(compare(base, ours, 6)).toMatchObject({ verdict: "undecided", stop: false });
   });
 
   test("a primary shown within the equivalence is a tie, even a little better", () => {
@@ -291,9 +347,9 @@ describe("pairedComparison", () => {
     expect(() => pairedComparison({ version: "1.0.0", primary: "score", looks: [6.5] })).toThrow(
       "looks are case counts",
     );
-    expect(() =>
-      pairedComparison({ version: "1.0.0", primary: "score", minDiffering: -1 }),
-    ).toThrow("minDiffering is a count");
+    expect(() => pairedComparison({ version: "1.0.0", primary: "score", minWon: -1 })).toThrow(
+      "minWon is a count",
+    );
     expect(() =>
       standard.compare({ baseline: [], challenger: [], metrics: METRICS, planned: 0 }),
     ).toThrow("planned is a count of cases");
@@ -304,7 +360,7 @@ describe("pairedComparison", () => {
       version: "1.0.0",
       primary: "score",
       looks: [5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
-      minDiffering: 0,
+      minWon: 0,
     });
     // Eight at +0.316 and eight at −0.084, t ≈ 2.25: past the plain 97.5% quantile (2.13), short
     // of the bound that eleven earlier looks set (2.33).

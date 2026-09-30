@@ -339,9 +339,15 @@ export function buildReport(options: {
             (order > 0 ? result.won : order < 0 ? result.lost : result.tied).push(id);
           }
           if (!rule) return result;
-          // The pair's own cases: another column's gaps must not hold this verdict back.
+          // The pair's own cases, the longest start of the seeded order both have: another
+          // column's gaps must not hold this verdict back, and cases run by hand out of order
+          // must not count towards a look.
           const ours = new Set(cell(subject).counted.map((c) => c.case));
-          const pair = new Set([...theirs.keys()].filter((id) => ours.has(id)));
+          const pair = new Set<string>();
+          for (const row of subject.rows) {
+            if (!ours.has(row.case) || !theirs.has(row.case)) break;
+            pair.add(row.case);
+          }
           const verdict = verdictOf(rule, {
             baseline: caseScores(cell(baseline).counted, pair),
             challenger: caseScores(cell(subject).counted, pair),

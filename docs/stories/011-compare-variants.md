@@ -271,7 +271,7 @@ slice 1 publishes, for the user's review:
 
 - `@agentswf/lab/compare`: the types above, `defineComparison`, `pairedComparison` and its
   `PairedOptions` (`primary`, `guards` and `tiebreak` as `{ metric, margin }`, `equivalence`,
-  `looks`, `confidence`, `minDiffering`, `version`, which is required), `perCase`,
+  `looks`, `confidence`, `minWon`, `version`, which is required), `perCase`,
   `compareMetric`, and `COMPARISON_KIND` (`awf.comparison/1`). A project's comparison files import
   them.
 - A comparison file: a default export of a `Comparison`, found by `awf-lab.json`'s `comparisons`
@@ -560,8 +560,24 @@ decide; `looks: [0]` collapsed the bound to 0.5 and gave a false `better`; a pri
 band but a little better ended `undecided`. Now each tie-breaker is one-sided on the primary
 (better needs it no worse than −equivalence, worse no better than +equivalence, and a test shows
 the verdict holds as the primary moves through both edges), the next is tried only when this one
-is shown equal within its margin, `looks`, `minDiffering` and `planned` are checked, and a primary
+is shown equal within its margin, `looks`, `minWon` and `planned` are checked, and a primary
 within the band is a `tie`.
+
+Round 4 ran randomised property checks (20,000 inputs each: monotonicity, reasons against
+verdicts, edges, false `better` under the null). It found the tie-breaker chain still not monotone
+in the tie-breakers themselves (a challenger $0.04 cheaper lost the `better` its minute saved),
+and the floor on cases that differ not monotone on coarse scores (worse on every case turned
+`undecided` into `better`). Now a later tie-breaker may say better only while every earlier one
+is shown no worse than its margin, and worse only while none is shown better; the floor counts
+cases won (`minWon`). Also: an unknown outcome counts as unfinished, as the type says; confidence
+is capped at 0.999; values too large to compare are an error; and `report` passes only the longest
+start of the seeded order both variants have, so cases run by hand out of order never count
+towards a look. Its scripts, rerun on the fix: no monotonicity violation in 20,000 inputs.
+
+For task 4, settled by round 4's reading: with several trials a case, a case must count as
+finished only when all its planned trials are, or a look is taken twice at one count as trials
+arrive. `ComparisonInput` will need the trials planned a case, or the runner must hand over only
+whole cases; decide it there, before `run --baseline` publishes the loop's input.
 
 Left as they are: false "worse" is 11% between equals at 33 cases, by design; with many looks
 (eleven) false "better" is 2.8%, the t approximation per look, measured and stated; cost and time

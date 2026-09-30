@@ -237,14 +237,15 @@ How `pairedComparison` decides:
 - **better** only at a **look**, a count of cases both variants have finished that is planned in
   advance (`looks`, and always the plan's end), past an O'Brien–Fleming bound. That way, checking
   as cases arrive can't manufacture a win. It also needs every guard's interval within its margin
-  and at least 6 cases that differ.
+  and at least 6 cases won (`minWon`).
 - At the plan's end, the **tie-breakers** decide, in order. One whose whole interval is past its
   margin says `better` if the primary is shown no worse than −`equivalence` and the guards are
-  within their margins, or `worse` if the primary is shown no better than +`equivalence`. The next
-  is tried only when this one is shown equal within its margin; one that shows nothing either way
-  ends the chain.
+  within their margins, or `worse` if the primary is shown no better than +`equivalence`. A later
+  one may say `better` only while every earlier one is shown no worse than its margin, and `worse`
+  only while every earlier one is shown no better, so improving on any metric never costs a
+  challenger its verdict.
 - Otherwise a primary shown within ±`equivalence` is a `tie`, even a little better.
-- `undecided` with `stop` means the plan ran out without an answer: too few cases differ, a gain
+- `undecided` with `stop` means the plan ran out without an answer: too few cases are won, a gain
   falls short of the bound, or no difference is shown but neither is one within ±`equivalence`.
   There's never a weighted sum of metrics.
 
@@ -282,7 +283,9 @@ export default pairedComparison({
 });
 ```
 
-A guard's margin of 0 asks for a whole interval at or above 0, which almost never happens once any
+A tie-breaker's margin of 0 makes it a test of its own, adding up to 2.5% of false `better`
+between equals; `default`'s margins make that about nothing. A guard's margin of 0 asks for a
+whole interval at or above 0, which almost never happens once any
 case differs, so such a rule can seldom say `better`. A primary that is `null` on some cases, such as `recall.must-fix` on cases with no must-fix issue,
 counts only the cases that have it, and may never reach the 5 an interval needs.
 
