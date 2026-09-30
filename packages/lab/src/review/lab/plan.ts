@@ -95,8 +95,11 @@ const oldestFirst = (a: Trial, b: Trial) =>
 export function whyNoTrial(state: CaseState, none: string, n = 1): string {
   const have = currentTrials(state).length;
   const elsewhere = started(state).length - have;
-  const aside = elsewhere > 0 ? `, and ${elsewhere} in another sandbox, which doesn't count` : "";
-  if (have > 0) return `${have} of ${n} trials on file${aside}; awf-lab run runs the rest`;
+  const where =
+    elsewhere > 0
+      ? `in this workspace's sandbox (${elsewhere} more in another, which don't count)`
+      : "on file";
+  if (have > 0) return `${have} of ${n} trials ${where}; awf-lab run runs the rest`;
   return elsewhere > 0 ? "no trial in this workspace's sandbox; awf-lab run runs it again" : none;
 }
 

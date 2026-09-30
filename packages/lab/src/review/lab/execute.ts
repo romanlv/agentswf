@@ -684,30 +684,30 @@ export async function executePlan(
     for (const wake of waiting.splice(0)) wake();
   };
   /**
-   * `jobs` items at a time, in order, but never two of one `key` at once: a case's trials are
+   * `jobs` items at a time, in order, and with `key`, never two of one key at once: a case's trials are
    * numbered by when they were made, so its trial n must be made before its trial n + 1.
    */
   const pool = async <T>(
     items: readonly T[],
     work: (item: T) => Promise<void>,
-    key: (item: T) => string = () => "",
+    key?: (item: T) => string,
   ) => {
     const queue = [...items];
     const busy = new Set<string>();
     const freed: (() => void)[] = [];
     const worker = async () => {
       while (!stopped && queue.length > 0) {
-        const at = queue.findIndex((item) => !busy.has(key(item)));
+        const at = key ? queue.findIndex((item) => !busy.has(key(item))) : 0;
         if (at < 0) {
           await new Promise<void>((wake) => freed.push(wake));
           continue;
         }
         const [item] = queue.splice(at, 1) as [T];
-        busy.add(key(item));
+        if (key) busy.add(key(item));
         try {
           await work(item);
         } finally {
-          busy.delete(key(item));
+          if (key) busy.delete(key(item));
           for (const wake of freed.splice(0)) wake();
         }
       }
