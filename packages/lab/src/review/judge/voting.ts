@@ -76,6 +76,7 @@ async function ask(
       const problems = labelProblems(outcome.value.labels, input.findings, input.key, {
         ...rules,
         voter: true,
+        read: true,
       });
       if (problems.length === 0) {
         return { ok: true, labels: outcome.value.labels, missed: outcome.value.missed };

@@ -6,6 +6,7 @@ import { runOperatorCli } from "../packages/engine/src/operator-cli";
 import { createSingleSessionHostFactory } from "../packages/harness/src/single-session-host";
 import { createFakeAdapter } from "../packages/harness/src/testing/fake";
 import type {
+  CheckDocument,
   ReportDocument,
   RunDocument,
   ShowDocument,
@@ -485,6 +486,10 @@ export default ${body};
     let scoring = 0;
     let mostScoring = 0;
     const base = inProcess();
+    // Each call waits, up to 2s, until as many run as could: steps start staggered by their restores.
+    const until = async (done: () => boolean) => {
+      for (let waited = 0; !done() && waited < 2000; waited += 10) await Bun.sleep(10);
+    };
     const runner: Runner = async (request) => {
       const caseId = request.argv.includes(ws.heads["app-1"]!) ? "app-1" : "app-2";
       if (stepOf(request) === TRIAL) {
@@ -497,7 +502,11 @@ export default ${body};
       }
       if (stepOf(request) === SCORE) scoring += 1;
       mostScoring = Math.max(mostScoring, scoring);
-      await Bun.sleep(30);
+      await until(() =>
+        stepOf(request) === TRIAL
+          ? [...running.values()].reduce((a, b) => a + b, 0) >= 2
+          : scoring >= 3,
+      );
       const result = await base.runner(request);
       if (stepOf(request) === TRIAL) running.set(caseId, running.get(caseId)! - 1);
       if (stepOf(request) === SCORE) scoring -= 1;
@@ -617,7 +626,12 @@ export default defineComparison({
     );
     expect(recordsIn(ws, "*/app-1/*/findings.json")).toHaveLength(0);
 
-    // The records decide already: nothing runs.
+    // The records decide already: nothing runs, nor is planned.
+    const decided = await lab(ws, [...against, "--dry-run"]);
+    expect(decided.stdout).toContain(
+      "already decided by the records: worse, 1 of 2; nothing to run",
+    );
+    expect(decided.stdout).not.toContain("trials and");
     const again = inProcess();
     const second = await lab(ws, [...against, "--json"], again.runner);
     expect(again.calls).toHaveLength(0);
@@ -681,6 +695,21 @@ export default defineComparison({
     ).toContain("--rest-from goes with score");
   });
 
+  test("run --baseline fills a gap in the stored cases, counting the ones after it", async () => {
+    await ws.variant("canned");
+    await ws.variant("other");
+    await answer(ws, { "app-1": [finding("x")], "app-2": [finding("y")] });
+    // The seeded order is app-2, app-1: only the second is stored.
+    expect(
+      (await lab(ws, ["run", "canned", "other", "--cases", "app-1"], inProcess().runner)).exitCode,
+    ).toBe(0);
+    const runs = inProcess();
+    const filled = await lab(ws, ["run", "canned", "--baseline", "other"], runs.runner);
+    expect(filled.exitCode).toBe(0);
+    expect(runs.trials()).toBe(2);
+    expect(filled.stdout).toMatch(/^undecided: canned against other by default 1\.0\.0: 2 cases/);
+  });
+
   test("run --baseline refuses what it can't decide on, and stops at a case it can't make whole", async () => {
     await ws.variant("canned");
     await ws.variant("other");
@@ -721,6 +750,61 @@ export default defineComparison({
     expect(failed.stderr).toContain("app-2 isn't whole, so no later case would count");
     expect(recordsIn(ws, "*/app-1/*/findings.json")).toHaveLength(0);
   });
+
+  test("check: headroom, variance, resolution, failures by kind and suspect cases, from records", async () => {
+    await ws.variant("canned");
+    await ws.variant("other");
+    // app-1's must-fix found on trial 1, missed on trial 2; app-2's issue never found by anyone.
+    await answer(ws, { "app-1": [finding(mechanism("app-1", 1))], "app-2": [finding("vague")] });
+    expect((await lab(ws, ["run", "canned", "other"], inProcess().runner)).exitCode).toBe(0);
+    const one = await lab(ws, ["check", "canned"]);
+    expect(one.exitCode).toBe(0);
+    expect(one.stdout).toContain("headroom    recall.weighted");
+    expect(one.stdout).toContain("resolution  unknown: no case has two scored trials");
+
+    await answer(ws, { "app-1": [], "app-2": [finding("vague")] });
+    expect((await lab(ws, ["run", "canned", "--trials", "2"], inProcess().runner)).exitCode).toBe(
+      0,
+    );
+    const checked = await json<CheckDocument>(ws, ["check", "canned", "--trials", "2"]);
+    expect(checked.variance.cases).toBe(2);
+    expect(checked.variance.trials).toBe(2);
+    expect(checked.variance.within).toBeGreaterThan(0);
+    expect(checked.resolution.range).not.toBeNull();
+    expect(checked.resolution.dataset.cases).toBe(2);
+    expect(checked.suspect).toEqual(["app-2"]);
+    expect(checked.failures).toEqual({
+      variant: [],
+      neverStarted: [],
+      otherSandbox: [],
+      scoreFailed: [],
+      notScored: [],
+    });
+    const text = await lab(ws, ["check", "canned", "--trials", "2"]);
+    expect(text.stdout).toMatch(
+      /variance {4}sd \S+ between cases, \S+ between trials of one, over 2 cases/,
+    );
+    expect(text.stdout).toContain(
+      "suspect     1 case score 0 on every trial of every variant: app-2",
+    );
+
+    // The scorer again on stored trials: the exact scorer agrees with itself, and nothing is kept.
+    const rescored = inProcess();
+    const again = await json<CheckDocument>(
+      ws,
+      ["check", "canned", "--rescore", "2"],
+      rescored.runner,
+    );
+    expect(rescored.calls.map(stepOf)).toEqual([SCORE, SCORE]);
+    expect(again.rescore).toMatchObject({ trials: 2, findings: 2, same: 2, differ: [] });
+    expect(recordsIn(ws, "canned@1.0/*/*/score.*.k1.2.json")).toHaveLength(0);
+
+    // run --baseline shows the baseline's headroom and resolution before it spends.
+    const plan = await lab(ws, ["run", "canned", "--baseline", "other", "--dry-run"]);
+    expect(plan.stdout).toContain("other: headroom recall.weighted");
+    expect((await lab(ws, ["check", "canned", "other"])).exitCode).toBe(2);
+    expect((await lab(ws, ["check", "canned", "--only", "app-1"])).exitCode).toBe(2);
+  }, 20_000);
 
   test("a report of several variants lists the cases only some have, instead of counting them", async () => {
     await ws.variant("canned");
@@ -1430,6 +1514,31 @@ export default defineReviewScorer({ workflow: PANEL_JUDGE, argv: [], timeout: "1
     expect(run.exitCode).toBe(1);
     expect(run.stderr).toContain("may not take --settled");
     expect(recordsIn(ws, "*/app-1/*/partial.*.json")).toHaveLength(0);
+  });
+
+  test("a retired scorer's stored scores still read by name and version, with its file gone", async () => {
+    await ws.variant("canned");
+    await answer(ws, { "app-1": [finding(mechanism("app-1", 1))], "app-2": [] });
+    const file = join(ws.root, "scorers/panel.scorer.ts");
+    await Bun.write(
+      file,
+      `import { defineReviewScorer } from "@agentswf/lab/review";
+import exact from ${JSON.stringify(join(import.meta.dir, "fixtures/lab/exact-judge.workflow.ts"))};
+
+export default defineReviewScorer({ workflow: exact, argv: ["--mode", "plain"], timeout: "1m" });
+`,
+    );
+    expect(
+      (await lab(ws, ["run", "canned", "--scorer", "panel"], inProcess().runner)).exitCode,
+    ).toBe(0);
+    rmSync(file);
+    const stored = await report(ws, "canned", "--scorer", "panel@1");
+    expect(stored.scorers).toEqual([{ name: "panel@1", version: "1.0.0" }]);
+    expect(stored.columns[0]!.weightedRecall).toBeGreaterThan(0);
+    expect((await lab(ws, ["show", "canned", "app-1", "--scorer", "panel@1"])).exitCode).toBe(0);
+    expect((await lab(ws, ["report", "canned", "--scorer", "panel"])).stderr).toContain(
+      "panel is retired",
+    );
   });
 
   test("--only fails a partial score whose scorer changed a settled label", async () => {

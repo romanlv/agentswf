@@ -308,9 +308,9 @@ Built in this order: 2 and 3 (slice 1), 4, 5, 1, 6, 7.
   and within-case variance moved to task 6, which needs task 4's trials
 - [x] 3. `report` calls the comparison (slice 1). A scorer declaring its own metrics moved to
   [[second-case-kind]]; until then a review's are `review/metrics/named.ts`
-- [ ] 4. Several trials per case
-- [ ] 5. `run --baseline`: per-case scheduling and the comparison's stop
-- [ ] 6. `awf-lab check`: headroom, resolution, scorer self-agreement, failures, suspect cases
+- [x] 4. Several trials per case
+- [x] 5. `run --baseline`: per-case scheduling and the comparison's stop
+- [x] 6. `awf-lab check`: headroom, resolution, scorer self-agreement, failures, suspect cases
 - [ ] 7. Live check on codex: a real challenger against the baseline
 
 ## Decisions
@@ -334,7 +334,7 @@ Settled with the user on 2026-09-30.
    voters label only the rest. Measured as accurate, at a fifth of the time and list price. So:
    - the panel's voting becomes match first's `voting.ts`: the panel is match first with nothing
      settled, and one code path votes, with the per-turn bound and the fresh-session retry;
-   - `match` is the built-in scorer and the workspace default; `panel.scorer.ts` is no longer
+   - `match-first` (named `match` when decided; see task 1's "As built") is the built-in scorer and the workspace default; `panel.scorer.ts` is no longer
      built in, and its stored scores stay readable as a stored version (`panel@1.0`), so earlier
      reports can still be shown;
    - a project that wants every finding voted on runs match first with `--sure 1`, which settles
@@ -344,6 +344,9 @@ Settled with the user on 2026-09-30.
    remark, or praise) at p ≥ 0.9, that is the label, with no voter turn. When it answers a refuted
    claim, the finding still goes to the voters, who must cite code they read: `wrong` is a guard,
    so a variant is penalised for it only on evidence. `noise` is reported but decides nothing.
+   Corrected in task 1's review: noise does count, in precision, which is a guard. The decision
+   stands on another reason: whether a finding is vague is a matter of its text, which is what Jev
+   reads, while a claim is shown false only in the code. To confirm with the user.
    So `settleMatches` settles a sure `noise`, and the judge's label check (`check.ts`) stops
    requiring lines read for `noise`; `wrong` and `new` still need them.
 
@@ -481,11 +484,14 @@ As built (2026-09-30), and where it differs:
   `PANEL_JUDGE` stays exported beside the new `MATCH_JUDGE`.
 - `--sure 1` asks Jev nothing, so the panel needs no `OPENROUTER_API_KEY`. `--sandbox none` is
   new; `srt` is the default, as `match-sol-pi` 3.0 ran.
+- Jev settles a sure noise unread; a voter's own answer must still read before it calls a finding
+  noise (`labelProblems`' `read`), as its prompt asks. A sure noise that surely repeats an earlier
+  finding is that finding's duplicate, so it counts once.
 - The config's `scorer` is optional, `match-first` when absent. A config or `--scorer` naming
   `panel` gets "panel is retired", with what replaces it; stored `panel@1` scores still read.
 
 Done when `bun test` covers settling (a sure noise settled, a sure refuted claim sent to the
-voters) and a stored `panel@1.0` score reads in `report`; and, live on codex, the built-in `match`
+voters) and a stored `panel@1.0` score reads in `report`; and, live on codex, the built-in `match-first`
 re-scores experiment 1's 32 trials with the same label on at least 90% of findings as the data
 repository's `match-sol-pi` 3.0 (about $4.50 at list price).
 
@@ -508,6 +514,19 @@ under "How it works":
 Done when `bun test` shows each line on a test workspace with known variance, and `check
 one-codex-r1 --trials 3` in the data repository gives experiment 1's sd 0.19 and 0.13 and flags
 F and L.
+
+As built (2026-09-30):
+
+- The numbers are pure and generic, in `compare/resolution.ts` (`varianceOf`, `resolution`), not
+  exported yet; `lab/check.ts` builds the document and text, and `awf.lab-check/1` is its `--json`.
+  `resolution` reproduces experiment 1: ~0.08–0.11 at 33 cases × 2 trials, ~0.16–0.23 at 8.
+- Failure kinds are read from the records, so `CaseScore.outcome` is unchanged: nothing is
+  published for them. A trial whose profile differs from the baseline's is not flagged yet.
+- `--rescore n` keeps nothing: a re-score written as a score would become the counted one. Its
+  labels are compared in memory, and it asks before spending.
+- In the data repository, experiment 1's baseline has one trial a case per variant (three copies
+  of the variant stood in for trials), so `check` there says the resolution is unknown until
+  `--trials 2`; it flags two cases that score 0 everywhere, experiment 1's F and L.
 
 ### Task 7: live check on codex
 

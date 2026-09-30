@@ -116,15 +116,18 @@ beside the key and settles the ones it matches surely (p ≥ 0.9): a known issue
 duplicate of the finding that hit it first; a claim nobody could settle is `unsettled`; noise is
 noise. The rest go to two voters with the code, codex `gpt-6-sol` and pi `gpt-5.6-terra`, each in
 a private sandbox; findings they label differently go to a third, codex `gpt-6-luna`, which sees
-neither vote. A claim the key refutes is never settled by Jev alone: `wrong` counts against a
-variant, so only a voter who read the code gives it. The κ between the two voters is kept with
+neither vote. A claim the key refutes is never settled by Jev alone: a claim is shown false only in the code, so
+only a voter who read it labels one `wrong`. Noise is settled by Jev, since whether a finding is
+vague is a matter of its text; it counts in precision, a guard, so a real problem Jev took for
+noise costs a variant precision. The κ between the two voters is kept with
 every score. It needs `OPENROUTER_API_KEY` for Jev, and codex and pi logins.
 
 Measured in story 008, it was right on 86–90% of findings where the panel it replaced was on 87%,
 agreed with the panel at κ 0.84–0.87, and took a fifth of its time and list price. Jev's known failure: it can match a
 new problem to the nearest known issue, and pass the right symptom with a false cause.
-`--sure 1` settles nothing, so the voters label every finding: that is the retired panel, whose
-earlier scores still read as `panel@1`.
+`--sure 1` settles nothing, so the voters label every finding, as the retired panel did (with its
+own voters, codex `gpt-6-sol` and claude `claude-sonnet-5`, in no sandbox); its earlier scores
+still read as `panel@1`.
 
 ## Writing a variant
 
@@ -361,6 +364,32 @@ as more are added, and `--trials 1` reads the first alone. Two trials a case let
 how much a case varies from trial to trial. On reviews, two a case need about a third fewer cases
 than one to see the same difference, and a third trial about a tenth fewer again.
 
+**Before trusting a comparison: `check`.** It reads a variant's stored records and says whether
+its cases can tell a change from noise, spending nothing. With two trials a case, it reads:
+
+```text
+$ awf-lab check one-codex-r1 --cases 12 --trials 2
+one-codex-r1 1.0.0, scorer match-sol-pi 3.0.0, dataset air-1
+headroom    recall.weighted 0.23 of 1: room to improve
+variance    sd 0.19 between cases, 0.13 between trials of one, over 12 cases
+resolution  12 cases × 2 trials: differences under ~0.13–0.19 are noise; all 33 resolve ~0.08–0.11
+failures    none
+suspect     2 cases score 0 on every trial of every variant: air-2154, air-2140; read them before counting
+```
+
+- **Headroom** warns at 95% of the maximum: no change could show.
+- **Resolution** is the smallest difference the planned cases and trials detect, paired, at 80%
+  power, as a range, since how much two variants differ case by case is unknown. It needs a case
+  with two scored trials; with one trial a case, trial noise can't be told from case differences.
+  `run --baseline` prints the baseline's headroom and resolution in its plan.
+- **Failures** by kind: a variant that failed (a result), a run that never started or a trial in
+  another sandbox (neither counted), a score that failed or is missing.
+- **Suspect** cases score 0 on every scored trial of every variant: an ambiguous case or a broken
+  key. They are flagged, never dropped.
+- `--rescore {n}` runs the scorer again on n stored trials and compares the labels, κ with it: a
+  scorer that disagrees with itself sets a floor under every comparison. It spends, asks first, and
+  keeps nothing.
+
 **Running until it's decided.** `run {challenger} --baseline {baseline}` runs both, case by case in
 the seeded order: each case's missing trials, then their scores, then the comparison over the cases
 both have whole. It stops as soon as the verdict says `stop`, and before spending anything if the
@@ -465,6 +494,7 @@ awf-lab [--config {file}] {command} … [--json]
   score {variant…} [selection]                scores stored trials; never runs a variant
   report {variant…} [selection]               metrics side by side, and with --baseline a
                                               verdict for each; --md for Markdown
+  check {variant} [selection] [--rescore {n}] whether its cases can tell a change from noise
   show {variant} {address}                    one case, trial or finding in full
   schema [{format}]                           the JSON Schema of a record or a --json output
 ```

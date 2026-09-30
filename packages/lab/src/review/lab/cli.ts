@@ -7,6 +7,7 @@ import { defaultBranch } from "../fixtures/git";
 import { SET_FILE } from "../fixtures/set";
 import { CATEGORIES, type Category, SEVERITIES } from "../format/format";
 import {
+  type CheckDocument,
   LIST_FORMAT,
   type ListDocument,
   RUN_FORMAT,
@@ -16,9 +17,13 @@ import {
 } from "../format/output";
 import type { PartialScore, Score } from "../format/records";
 import { formatOf, renderSchemaFile, SCHEMA_FILES, type SchemaName } from "../format/schema-files";
+import type { FindingLabel } from "../format/scoring";
 import type { ScorerSettings, VariantSettings } from "../format/variant";
+import { categoryOf } from "../judge/panel";
+import { agreement } from "../metrics/metrics";
 import { type Address, formatAddress, parseAddress } from "./address";
-import { reportSubject, runAgainst } from "./against";
+import { reportSubject, runAgainst, standing } from "./against";
+import { buildCheck, checkLines, renderCheck } from "./check";
 import {
   type CaseInfo,
   datasetCases,
@@ -31,6 +36,7 @@ import {
   planRun,
   readCases,
   type Subject,
+  scoreAgain,
   statesOf,
   stepAddress,
 } from "./execute";
@@ -41,6 +47,7 @@ import {
   type Chosen,
   currentTrial,
   currentTrials,
+  estimateOf,
   PlanError,
   passingScore,
   type Stored,
@@ -60,7 +67,7 @@ import {
 import { awfRunner, type Runner } from "./runner";
 import { selectCases } from "./selection";
 import { buildShow, renderShow } from "./show";
-import { inventory, runDirOf } from "./store";
+import { inventory, runDirOf, scoresBy } from "./store";
 import { checkVersion, covers, DEFAULT_VERSION, keyOf, parseKey, seriesOf } from "./version";
 import {
   type CaseView,
@@ -91,6 +98,9 @@ const USAGE = `usage: awf-lab [--config {file}] {command} … [--json]
   report {variant…} [selection] [--baseline {variant}] [--comparison {name}] [--categories {a,b}] [--md]
                             metrics side by side, and each variant's verdict against the baseline;
                             with two --scorer, how alike they label
+  check {variant} [--cases …] [--trials {n}] [--rescore {n}]
+                            whether its cases can tell a change from noise: headroom, variance,
+                            resolution, failures by kind, suspect cases; --rescore spends
   show {variant} {address} [--scorer {name}]…
                             one case, trial or finding in full
   schema [{format}]         the JSON Schema of a record or of a command's --json
@@ -139,6 +149,7 @@ type Options = {
   restFrom?: string;
   baseline?: string;
   comparison?: string;
+  rescore?: number;
   budget?: number;
   jobs?: number;
   categories?: Category[];
@@ -229,6 +240,9 @@ function parse(argv: readonly string[]): { command: string; names: string[]; opt
       case "--jobs":
         options.jobs = whole(arg, value(arg));
         break;
+      case "--rescore":
+        options.rescore = whole(arg, value(arg));
+        break;
       case "--categories": {
         const named = value(arg).split(",");
         const unknown = named.filter((c) => !(CATEGORIES as readonly string[]).includes(c));
@@ -315,7 +329,7 @@ async function subjectOf<D extends VariantSettings | ScorerSettings>(
   } catch (error) {
     if (kind === "scorer" && nameOrPath === "panel" && prefix === undefined) {
       throw new UsageError(
-        "panel is retired: match-first is the package's scorer, and a scorer of MATCH_JUDGE with --sure 1 votes on every finding as the panel did; earlier panel scores read as panel@1",
+        "panel is retired: match-first is the package's scorer; a scorer of MATCH_JUDGE with --sure 1 has its voters label every finding, as the panel did; earlier panel scores read as panel@1",
       );
     }
     if (prefix === undefined) throw new UsageError((error as Error).message);
@@ -796,11 +810,29 @@ async function runBaseline(
   const all = new Map(
     ids.map((id) => [id, new Map(Array.from({ length: trials }, (_, i) => [i + 1, {}]))]),
   );
+  const budget = options.budget ?? workspace.config.budget?.usd;
+  const against = {
+    dataset,
+    trials,
+    challenger: challenger!,
+    baseline,
+    scorer,
+    cases,
+    entries,
+    comparison,
+    ...(budget === undefined ? {} : { budget }),
+    ...(options.jobs === undefined ? {} : { jobs: options.jobs }),
+  };
+  // Records that already decide leave nothing to plan.
+  const { verdict: decided } = await standing(lab, against);
   const upTo = await planRun(lab, {
     command: "run",
     trials,
     dataset,
-    variants: [challenger!, baseline].map((variant) => ({ variant, chosen: all })),
+    variants: [challenger!, baseline].map((variant) => ({
+      variant,
+      chosen: decided?.stop ? new Map() : all,
+    })),
     scorer,
     cases,
   });
@@ -811,10 +843,31 @@ async function runBaseline(
     `comparison ${rule}`,
     `dataset ${dataset}`,
   ].join(", ");
+  // What the baseline's own records say the plan can resolve, before spending on it.
+  const baselineRows = (await statesOf(workspace, dataset, baseline.key, cases)).map(
+    (state, i) => ({
+      state,
+      key: cases[i]!.key,
+    }),
+  );
+  const diagnosis = buildCheck({
+    dataset,
+    variant: refOf(baseline),
+    scorer: { ...refOf(scorer), key: scorer.key },
+    trials,
+    datasetCases: entries.length,
+    rows: baselineRows,
+    everyone: [],
+  });
   const plan = [
     heading,
-    ...describePlan(upTo),
-    `case by case, stopping when ${rule} decides: this is the most it runs`,
+    ...checkLines(diagnosis).map((line) => `${baseline.label}: ${line.replace(/ +/, " ")}`),
+    ...(decided?.stop
+      ? [`already decided by the records: ${decided.verdict}, ${decided.reason}; nothing to run`]
+      : [
+          ...describePlan(upTo),
+          `case by case, stopping when ${rule} decides: this is the most it runs`,
+        ]),
   ].join("\n");
   const documentContext = { dataset, scorer };
   defaultBranch(workspace.clone);
@@ -835,19 +888,7 @@ async function runBaseline(
     out.stderr("declined; nothing run");
     return 4;
   }
-  const budget = options.budget ?? workspace.config.budget?.usd;
-  const result = await runAgainst(lab, {
-    dataset,
-    trials,
-    challenger: challenger!,
-    baseline,
-    scorer,
-    cases,
-    entries,
-    comparison,
-    ...(budget === undefined ? {} : { budget }),
-    ...(options.jobs === undefined ? {} : { jobs: options.jobs }),
-  });
+  const result = await runAgainst(lab, against);
   out.stderr(`$${result.listPrice.toFixed(2)} at list prices, estimated`);
   const { verdict } = result;
   const left = cases.length - result.whole;
@@ -1070,6 +1111,129 @@ async function show(context: Context, names: readonly string[]): Promise<string>
     numbered: address.trial !== undefined || trialsAsked(workspace, options) > 1,
   });
   return options.json ? JSON.stringify(document, null, 2) : renderShow(document);
+}
+
+/**
+ * `check {variant}`: whether its cases can tell a change from noise, from stored records; with
+ * `--rescore n`, the scorer run again on n stored trials, which spends and keeps nothing.
+ */
+async function check(
+  context: Context,
+  names: readonly string[],
+  lab: Lab,
+  environment: LabEnvironment,
+  out: { stdout: (text: string) => void; stderr: (text: string) => void },
+): Promise<number> {
+  const { workspace, options, dataset } = context;
+  if (names.length !== 1) throw new UsageError("check takes one variant");
+  if (options.only || options.where.length > 0 || options.categories) {
+    throw new UsageError("check reads whole cases: --cases, not --only, --where or --categories");
+  }
+  if (options.scorers.length > 1) throw new UsageError("check takes one --scorer");
+  const [variant] = await variantsOf(context, names);
+  const scorer = await context.scorer(options.scorers[0] ?? workspace.config.scorer);
+  const { ids, entries } = await selectedCases(workspace, options);
+  const cases = await readCases(workspace, dataset, ids);
+  const rowsOf = async (key: string) =>
+    (await statesOf(workspace, dataset, key, cases)).map((state, i) => ({
+      state,
+      key: cases[i]!.key,
+    }));
+  const rows = await rowsOf(variant!.key);
+  const everyone = [];
+  for (const key of (await inventory(workspace.results, dataset)).variants.keys()) {
+    everyone.push(key === variant!.key ? rows : await rowsOf(key));
+  }
+  let rescore: CheckDocument["rescore"];
+  if (options.rescore) {
+    if (!scorer.defined) {
+      throw new UsageError(`${scorer.label} is a stored version; only a file can score`);
+    }
+    // Trial 1 of each case in the seeded order, then trial 2 of each, and so on.
+    const scored = rows
+      .flatMap((row, index) =>
+        currentTrials(row.state).map((stored, i) => ({ row, index, n: i + 1, stored })),
+      )
+      .filter(({ row, stored }) => {
+        const score = passingScore(stored, scorer.key, row.key.revision);
+        return score?.result.status === "scored" && stored.trial.findings.length > 0;
+      })
+      .toSorted((a, b) => a.n - b.n || a.index - b.index)
+      .slice(0, options.rescore);
+    const history = (await scoresBy(workspace.results, dataset, scorer.key)).flatMap((s) =>
+      s.run?.id === undefined ? [] : [s.run.estimate],
+    );
+    const each = estimateOf(history);
+    const plan = `re-scores ${plural(scored.length, "trial")} with ${scorer.label} ${scorer.version}, keeping nothing; estimated ${each === null ? "unknown" : `$${(each * scored.length).toFixed(2)}`}`;
+    if (options.dryRun) {
+      out.stdout(plan);
+      return 0;
+    }
+    const confirm =
+      environment.confirm ??
+      (process.stdin.isTTY && !options.yes
+        ? (text: string) => askOperator(text, out.stderr)
+        : undefined);
+    if (confirm && !options.yes && !(await confirm(plan))) {
+      out.stderr("declined; nothing run");
+      return 4;
+    }
+    const before: FindingLabel[] = [];
+    const after: FindingLabel[] = [];
+    const differ: { id: string; labels: string[] }[] = [];
+    let listPrice = 0;
+    let findings = 0;
+    for (const { row, index, n, stored } of scored) {
+      const first = passingScore(stored, scorer.key, row.key.revision)!;
+      const again = await scoreAgain(lab, scorer, cases[index]!, stored.trial);
+      listPrice += again.run?.estimate ?? 0;
+      const at = formatAddress({ case: row.state.case, trial: n });
+      if (again.result.status !== "scored" || first.result.status !== "scored") {
+        out.stderr(`${at}: the scorer failed again, not compared`);
+        continue;
+      }
+      const [was, now] = [first.result.judgement.labels, again.result.judgement.labels];
+      findings += was.length;
+      const tag = (labels: readonly FindingLabel[]) =>
+        labels.map(
+          (l): FindingLabel => (l.label === "hit" ? { ...l, issue: `${at}/${l.issue}` } : l),
+        );
+      before.push(...tag(was));
+      after.push(...tag(now));
+      was.forEach((label, finding) => {
+        const other = now[finding];
+        if (other && categoryOf(label) !== categoryOf(other)) {
+          differ.push({
+            id: formatAddress({ case: row.state.case, trial: n, finding }),
+            labels: [categoryOf(label), categoryOf(other)],
+          });
+        }
+      });
+      out.stderr(
+        `${at}: re-scored, ${again.run ? `$${(again.run.estimate ?? 0).toFixed(2)}` : "no run"}`,
+      );
+    }
+    rescore = {
+      trials: scored.length,
+      findings,
+      same: findings - differ.length,
+      kappa: agreement(before, after),
+      differ,
+      listPrice,
+    };
+  }
+  const document = buildCheck({
+    dataset,
+    variant: refOf(variant!),
+    scorer: { ...refOf(scorer), key: scorer.key },
+    trials: trialsAsked(workspace, options),
+    datasetCases: entries.length,
+    rows,
+    everyone,
+    ...(rescore ? { rescore } : {}),
+  });
+  out.stdout(options.json ? JSON.stringify(document, null, 2) : renderCheck(document));
+  return 0;
 }
 
 async function list(
@@ -1310,6 +1474,8 @@ export async function runLab(
       case "show":
         stdout(await show(context, names));
         return 0;
+      case "check":
+        return await check(context, names, lab, environment, { stdout, stderr });
       default:
         throw new UsageError(`unknown command ${command}`);
     }

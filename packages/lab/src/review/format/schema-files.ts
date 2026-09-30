@@ -5,7 +5,14 @@ import {
   FixtureSetSchema,
   VotesSchema,
 } from "./format";
-import { ListSchema, ReportSchema, RunSchema, SchemasSchema, ShowSchema } from "./output";
+import {
+  CheckSchema,
+  ListSchema,
+  ReportSchema,
+  RunSchema,
+  SchemasSchema,
+  ShowSchema,
+} from "./output";
 import { PartialRecordSchema } from "./partial";
 import { PartialScoreSchema, ScoreSchema, TrialSchema } from "./records";
 import { FindingsRecordSchema, ScoreRecordSchema, ScorerResultSchema } from "./scoring";
@@ -41,6 +48,7 @@ export const SCHEMA_FILES = {
   "lab-run.schema.json": { title: "awf-lab run and score", schema: RunSchema },
   "lab-report.schema.json": { title: "awf-lab report", schema: ReportSchema },
   "lab-show.schema.json": { title: "awf-lab show", schema: ShowSchema },
+  "lab-check.schema.json": { title: "awf-lab check", schema: CheckSchema },
   "lab-schemas.schema.json": { title: "awf-lab schema", schema: SchemasSchema },
 } as const;
 

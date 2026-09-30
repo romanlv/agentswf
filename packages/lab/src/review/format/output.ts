@@ -14,6 +14,7 @@ export const RUN_FORMAT = "awf.lab-run/2";
 export const REPORT_FORMAT = "awf.lab-report/4";
 export const SHOW_FORMAT = "awf.lab-show/2";
 export const SCHEMAS_FORMAT = "awf.lab-schemas/1";
+export const CHECK_FORMAT = "awf.lab-check/1";
 
 const Text = Type.String({ minLength: 1 });
 const Count = Type.Integer({ minimum: 0 });
@@ -545,7 +546,89 @@ export const SchemasSchema = Type.Object(
 );
 
 export type ListDocument = Type.Static<typeof ListSchema>;
+const Range = Type.Union([Type.Tuple([Type.Number(), Type.Number()]), Type.Null()], {
+  description:
+    "The smallest difference detected at 80% power, paired, as a range over the unknown variance of the true per-case difference; null without the within-case variance.",
+});
+
+/** `awf-lab check`: whether a variant's cases can tell a change from noise, from stored records. */
+export const CheckSchema = Type.Object(
+  {
+    format: Type.Literal(CHECK_FORMAT),
+    dataset: Text,
+    variant: Ref,
+    scorer: Ref,
+    metric: Type.String({ description: "The number checked: weighted recall." }),
+    headroom: Type.Object(
+      {
+        mean: Ratio,
+        max: Type.Number(),
+        warning: Type.Boolean({
+          description: "At 95% of the maximum or more: no change could show.",
+        }),
+      },
+      { additionalProperties: false },
+    ),
+    variance: Type.Object(
+      {
+        cases: Count,
+        trials: Type.Number({ description: "Scored trials a case, on average." }),
+        between: Ratio,
+        within: Ratio,
+      },
+      { additionalProperties: false, description: "Variances, not sds." },
+    ),
+    resolution: Type.Object(
+      {
+        cases: Count,
+        trials: Type.Integer({ minimum: 1 }),
+        range: Range,
+        dataset: Type.Object({ cases: Count, range: Range }, { additionalProperties: false }),
+      },
+      { additionalProperties: false },
+    ),
+    failures: Type.Object(
+      {
+        variant: Type.Array(Address, { description: "Trials whose variant failed: results." }),
+        neverStarted: Type.Array(Address, {
+          description: "Cases with a run that never started, which doesn't count.",
+        }),
+        otherSandbox: Type.Array(Address, {
+          description: "Cases with a trial in another sandbox, which doesn't count.",
+        }),
+        scoreFailed: Type.Array(Address, { description: "Trials whose every score failed." }),
+        notScored: Type.Array(Address),
+      },
+      { additionalProperties: false },
+    ),
+    suspect: Type.Array(Address, {
+      description:
+        "Cases that score 0 on every scored trial of every variant, two at least: read them before counting.",
+    }),
+    rescore: Type.Optional(
+      Type.Object(
+        {
+          trials: Count,
+          findings: Count,
+          same: Count,
+          kappa: Ratio,
+          differ: Type.Array(
+            Type.Object({ id: Address, labels: Type.Array(Text) }, { additionalProperties: false }),
+          ),
+          listPrice: Type.Number(),
+        },
+        {
+          additionalProperties: false,
+          description: "The scorer run again on stored trials, labels compared; not kept.",
+        },
+      ),
+    ),
+  },
+  { additionalProperties: false },
+);
+
 export type RunDocument = Type.Static<typeof RunSchema>;
+export type CheckDocument = Type.Static<typeof CheckSchema>;
 export type ReportDocument = Type.Static<typeof ReportSchema>;
 export type ReportColumn = Type.Static<typeof Column>;
 export type ShowDocument = Type.Static<typeof ShowSchema>;

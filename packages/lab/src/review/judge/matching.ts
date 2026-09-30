@@ -55,10 +55,10 @@ const top = (dist: Record<string, number>) =>
 /**
  * A sure answer (p at or above `sure`) settles a finding: a known issue is a hit for the earliest
  * finding that surely gives it and a duplicate for a later one, unless it is contested; an
- * unsettled claim is `unsettled`; `noise` is noise, which decides nothing, so it needs no read; a
- * finding that surely matches nothing known is a duplicate of an earlier finding it surely
- * repeats. Everything else is left, a refuted claim too: `wrong` is a guard, so it is labelled
- * only by a voter who read the code. The earlier-finding question alone never overrides a known
+ * unsettled claim is `unsettled`; noise is noise, as whether a finding is vague is a matter of its
+ * text, which is what Jev reads; a finding that surely matches nothing known, or is surely noise,
+ * is a duplicate of an earlier finding it surely repeats. Everything else is left, a refuted claim
+ * too: a claim is shown false only in the code, so only a voter who read it labels one `wrong`. The earlier-finding question alone never overrides a known
  * item, which in round one called findings nearer an unsettled claim duplicates.
  */
 export function settleMatches(
@@ -98,16 +98,16 @@ export function settleMatches(
       );
     } else if (isSure && known[0].startsWith("X")) {
       settled.set(index, { ...base, label: "unsettled", excluded: Number(known[0].slice(1)) });
-    } else if (isSure && known[0] === "noise") {
-      settled.set(index, { ...base, label: "noise" });
     } else if (
       isSure &&
-      known[0] === "none" &&
+      (known[0] === "none" || known[0] === "noise") &&
       earlier &&
       earlier[0] !== "none" &&
       earlier[1] >= sure
     ) {
       settled.set(index, { ...base, label: "duplicate", of: Number(earlier[0].slice(1)) });
+    } else if (isSure && known[0] === "noise") {
+      settled.set(index, { ...base, label: "noise" });
     } else left.push({ finding: index, why });
   }
   return { settled, left, hitBy };

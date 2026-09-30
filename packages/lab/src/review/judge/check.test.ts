@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { oracleFindings, oracleScorerResult } from "../format/sanity";
 import type { FindingLabel, ScorerResult } from "../format/scoring";
 import { EXAMPLE_FINDINGS, EXAMPLE_KEY, EXAMPLE_SCORER_RESULT } from "../format/testing";
-import { checkScorerResult } from "./check";
+import { checkScorerResult, labelProblems } from "./check";
 
 /** The example judgement with label `index` replaced. */
 function withLabel(index: number, label: FindingLabel): ScorerResult {
@@ -63,8 +63,14 @@ describe("checkScorerResult", () => {
     ).toEqual(["/labels/3: K1 is already hit by finding 0; this one is a duplicate"]);
   });
 
-  test("new and wrong need the lines read; noise, which decides nothing, doesn't", () => {
-    expect(problems(withLabel(5, { finding: 5, label: "noise", why: "w", read: [] }))).toEqual([]);
+  test("new and wrong need the lines read; noise only in a voter's own answer", () => {
+    const unread = withLabel(5, { finding: 5, label: "noise", why: "w", read: [] });
+    expect(problems(unread)).toEqual([]);
+    expect(
+      labelProblems(unread.labels, EXAMPLE_FINDINGS, EXAMPLE_KEY, { read: true }).map(
+        (p) => `${p.path}: ${p.message}`,
+      ),
+    ).toEqual(["/labels/5: a finding labelled noise needs the lines read in the code"]);
     expect(
       problems(withLabel(2, { finding: 2, label: "wrong", refutes: "r", why: "w", read: [] })),
     ).toEqual(["/labels/2: a finding labelled wrong needs the lines read in the code"]);

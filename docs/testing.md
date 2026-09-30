@@ -87,7 +87,8 @@ What they cover between them:
   the operator's skills; `output.json` must record each, the git-sourced probe with its commit.
   `tests/skills-eval.test.ts` checks these checks for free. 5 agents, ~40 s, ~$0.08, on
   subscriptions; srt must be installed.
-- `review-judge` — the panel judge (story 008) through `awf run`, on a synthetic fixture: a
+- `review-judge` — the panel judge (story 008; since story 011 match first with nothing settled, which
+  `match-first` scorers can also run as `--sure 1`) through `awf run`, on a synthetic fixture: a
   two-file change with two planted issues, a hand-written key, and six findings with known labels.
   The judgement must pass `checkScorerResult` and hit both planted issues; how many of the six labels
   match, the panel's κ and the tiebreak are printed, since they are what it measures. codex luna

@@ -1,0 +1,309 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "awf-lab check",
+  "type": "object",
+  "required": [
+    "format",
+    "dataset",
+    "variant",
+    "scorer",
+    "metric",
+    "headroom",
+    "variance",
+    "resolution",
+    "failures",
+    "suspect"
+  ],
+  "properties": {
+    "format": {
+      "type": "string",
+      "const": "awf.lab-check/1"
+    },
+    "dataset": {
+      "type": "string",
+      "minLength": 1
+    },
+    "variant": {
+      "type": "object",
+      "required": ["name", "version"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "version": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$",
+          "description": "The semver its file declares; results belong to its {major}.{minor}."
+        }
+      },
+      "additionalProperties": false,
+      "description": "A variant or scorer: its name and version."
+    },
+    "scorer": {
+      "type": "object",
+      "required": ["name", "version"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "version": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$",
+          "description": "The semver its file declares; results belong to its {major}.{minor}."
+        }
+      },
+      "additionalProperties": false,
+      "description": "A variant or scorer: its name and version."
+    },
+    "metric": {
+      "type": "string",
+      "description": "The number checked: weighted recall."
+    },
+    "headroom": {
+      "type": "object",
+      "required": ["mean", "max", "warning"],
+      "properties": {
+        "mean": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "max": {
+          "type": "number"
+        },
+        "warning": {
+          "type": "boolean",
+          "description": "At 95% of the maximum or more: no change could show."
+        }
+      },
+      "additionalProperties": false
+    },
+    "variance": {
+      "type": "object",
+      "required": ["cases", "trials", "between", "within"],
+      "properties": {
+        "cases": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "trials": {
+          "type": "number",
+          "description": "Scored trials a case, on average."
+        },
+        "between": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "within": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "additionalProperties": false,
+      "description": "Variances, not sds."
+    },
+    "resolution": {
+      "type": "object",
+      "required": ["cases", "trials", "range", "dataset"],
+      "properties": {
+        "cases": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "trials": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "range": {
+          "anyOf": [
+            {
+              "type": "array",
+              "additionalItems": false,
+              "items": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "number"
+                }
+              ],
+              "minItems": 2
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The smallest difference detected at 80% power, paired, as a range over the unknown variance of the true per-case difference; null without the within-case variance."
+        },
+        "dataset": {
+          "type": "object",
+          "required": ["cases", "range"],
+          "properties": {
+            "cases": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "range": {
+              "anyOf": [
+                {
+                  "type": "array",
+                  "additionalItems": false,
+                  "items": [
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "number"
+                    }
+                  ],
+                  "minItems": 2
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The smallest difference detected at 80% power, paired, as a range over the unknown variance of the true per-case difference; null without the within-case variance."
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "failures": {
+      "type": "object",
+      "required": ["variant", "neverStarted", "otherSandbox", "scoreFailed", "notScored"],
+      "properties": {
+        "variant": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "description": "{variant}:{case}/{trial}#{finding}, the variant only where several are covered."
+          },
+          "description": "Trials whose variant failed: results."
+        },
+        "neverStarted": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "description": "{variant}:{case}/{trial}#{finding}, the variant only where several are covered."
+          },
+          "description": "Cases with a run that never started, which doesn't count."
+        },
+        "otherSandbox": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "description": "{variant}:{case}/{trial}#{finding}, the variant only where several are covered."
+          },
+          "description": "Cases with a trial in another sandbox, which doesn't count."
+        },
+        "scoreFailed": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "description": "{variant}:{case}/{trial}#{finding}, the variant only where several are covered."
+          },
+          "description": "Trials whose every score failed."
+        },
+        "notScored": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "description": "{variant}:{case}/{trial}#{finding}, the variant only where several are covered."
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "suspect": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "description": "{variant}:{case}/{trial}#{finding}, the variant only where several are covered."
+      },
+      "description": "Cases that score 0 on every scored trial of every variant, two at least: read them before counting."
+    },
+    "rescore": {
+      "type": "object",
+      "required": ["trials", "findings", "same", "kappa", "differ", "listPrice"],
+      "properties": {
+        "trials": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "findings": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "same": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "kappa": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "differ": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "labels"],
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1,
+                "description": "{variant}:{case}/{trial}#{finding}, the variant only where several are covered."
+              },
+              "labels": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "listPrice": {
+          "type": "number"
+        }
+      },
+      "additionalProperties": false,
+      "description": "The scorer run again on stored trials, labels compared; not kept."
+    }
+  },
+  "additionalProperties": false
+}

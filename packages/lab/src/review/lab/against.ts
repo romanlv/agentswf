@@ -58,7 +58,7 @@ export type Against = {
  * over the longest start of the seeded order both have whole, how long that start is, and why the
  * first case past it isn't whole.
  */
-async function standing(lab: Lab, options: Against) {
+export async function standing(lab: Lab, options: Against) {
   const { workspace } = lab;
   const subjects: ReportSubject[] = [];
   for (const variant of [options.challenger, options.baseline]) {
@@ -111,8 +111,9 @@ export async function runAgainst(lab: Lab, options: Against) {
   if (now.verdict?.stop) {
     lab.log(`already decided by the records: ${now.verdict.verdict}, ${now.verdict.reason}`);
   }
-  for (const info of options.cases.slice(now.whole)) {
-    if (now.verdict?.stop) break;
+  // The next case is always the first not whole: running one can make later stored ones count.
+  while (now.whole < options.cases.length && !now.verdict?.stop) {
+    const info = options.cases[now.whole]!;
     const one = await planRun(lab, {
       command: "run",
       trials: options.trials,

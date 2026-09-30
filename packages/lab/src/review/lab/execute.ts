@@ -458,6 +458,14 @@ async function runScorer(
   }
 }
 
+/** A scorer run again on a stored trial, its result checked and not kept: `check --rescore`. */
+export const scoreAgain = (
+  lab: Lab,
+  scorer: Subject<ScorerSettings>,
+  info: CaseInfo,
+  trial: Trial,
+): Promise<Scored> => runScorer(lab, scorer, info, trial);
+
 /** What every score of a trial records about it, whole or partial. */
 function scoreOf(
   lab: Lab,

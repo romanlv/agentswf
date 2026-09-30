@@ -36,6 +36,13 @@ test("a sure noise and an unsettled claim settle; a refuted claim is left for a 
   expect(settled.get(0)).toMatchObject({ label: "unsettled", excluded: 0 });
   expect(settled.get(2)).toMatchObject({ label: "noise", read: [] });
   expect(left.map((l) => l.finding)).toEqual([1, 3]);
+  // Noise that surely repeats an earlier finding is its duplicate, counted once.
+  const again = settleMatches(
+    [m({ noise: 0.95 }), m({ noise: 0.95 }, { F0: 0.96, none: 0.04 })],
+    key,
+    0.9,
+  );
+  expect(again.settled.get(1)).toMatchObject({ label: "duplicate", of: 0 });
 });
 
 test("the earlier-finding question settles only a finding that surely matches nothing known", () => {

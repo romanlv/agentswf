@@ -36,11 +36,13 @@ export type LabelOptions = {
   claimed?: ReadonlyMap<string, number>;
   /** One voter's labels: a bare `unsettled` is the panel's word for a split, not a voter's. */
   voter?: boolean;
+  /** A voter's own answer, which reads the code before it calls a finding noise, too. */
+  read?: boolean;
 };
 
 /**
  * Every finding asked about labelled once, in order; ids that exist; no known issue claimed twice;
- * the code read before a finding is called new or wrong; a duplicate of an earlier
+ * the code read before a finding is called new or wrong, and by a voter, noise; a duplicate of an earlier
  * finding; an unsettled finding naming an `unconfirmed` exclusion, which a voter must name.
  */
 export function labelProblems(
@@ -76,8 +78,11 @@ export function labelProblems(
     for (const read of label.read) {
       if (read.end < read.start) add(index, `read ${read.path} ends before it starts`);
     }
-    // Noise decides nothing, so a sure match may settle it unread; wrong is a guard, and new counts.
-    if ((label.label === "new" || label.label === "wrong") && label.read.length === 0) {
+    // Whether a finding is vague is a matter of its text, so Jev may settle noise unread; a voter,
+    // asked to read before it labels, still must.
+    const needsRead =
+      label.label === "new" || label.label === "wrong" || (label.label === "noise" && options.read);
+    if (needsRead && label.read.length === 0) {
       add(index, `a finding labelled ${label.label} needs the lines read in the code`);
     }
     switch (label.label) {
