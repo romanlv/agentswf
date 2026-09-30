@@ -1,7 +1,7 @@
 # Comparing two variants on a few costly cases
 
 Checked 2026-09-29 for [`variant-matrix-runner`](../stories/todo/variant-matrix-runner.md) and
-[`autoresearch-loop`](../stories/todo/autoresearch-loop.md). We read Miller's error-bars paper,
+[`autoresearch-loop`](../stories/todo/autoresearch-loop.md); taken into [[011-compare-variants]]. We read Miller's error-bars paper,
 Hesterberg on the bootstrap, Field & Welsh and Saravanan et al. on hierarchical resampling, Cameron
 & Miller on few clusters, Bowyer et al. on small LLM evals, and the papers on confidence sequences,
 e-values, mSPRT and group-sequential bounds. We read the source of Inspect AI's `EarlyStopping`,
@@ -17,7 +17,8 @@ The short version: with 5–40 cases, use a paired t interval on per-case differ
 means, with n−1 degrees of freedom. Don't use a percentile bootstrap. It undercovers below about 20
 cases, and resampling trials inside cases as well overcovers. Spend budget on cases before repeats.
 Peeking after every case with a fixed-n interval inflates false "better" claims about five times. Stopping
-early for "clearly worse" is free, so allow it at any case. Claim "better" only at a few planned
+early for "clearly worse" adds no false wins, so allow it at any case; its price is equal variants
+now and then dropped as worse. Claim "better" only at a few planned
 looks with O'Brien–Fleming bounds. Anytime-valid confidence sequences are correct, but at n ≤ 40
 they are two to seven times wider than a t interval. No framework accepts over several metrics with
 floors. The nearest is MLflow's `MetricThreshold`, which compares each metric with a baseline in a
@@ -143,7 +144,8 @@ and a range. It should also produce a failure kind and feedback text.
   use OBF, which spends almost nothing early. Planned looks cost little power: at a true mean of
   0.1 with sd 0.2, four Pocock looks rejected 0.90 and a single test at 40 rejected 0.93. OBF,
   with its fixed-n final bound, loses less.
-- **Stopping for futility is free.** FDA: "the addition of such nonbinding futility guidelines to a
+- **Stopping for futility adds no false wins.** It costs power instead: equal variants are now and
+  then stopped as worse (story 011 measured 12% at 33 cases). FDA: "the addition of such nonbinding futility guidelines to a
   fixed sample trial … does not increase the Type I error probability"
   ([Adaptive designs guidance](https://www.fda.gov/media/78495/download)). In our simulation, a
   "better" claim at 40 cases had a type I error of 0.0234. Stopping whenever the paired interval sat

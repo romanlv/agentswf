@@ -11,6 +11,8 @@ import {
 
 /** Below this many paired cases no interval is given, only cases won, tied and lost. */
 const FEWEST = 5;
+/** A per-case difference this small is rounding, not a difference: trials summed in another order. */
+const TOLERANCE = 1e-9;
 
 /** Each case's value of one metric: the mean of its trials that have one. */
 export function perCase(scores: readonly CaseScore[], metric: MetricSpec): Map<string, number> {
@@ -23,38 +25,51 @@ export function perCase(scores: readonly CaseScore[], metric: MetricSpec): Map<s
           ? metric.onVariantFailure
           : null;
     if (value === null || value === undefined) continue;
+    if (!Number.isFinite(value)) {
+      throw new Error(`${metric.name} is ${value} on ${score.case}, trial ${score.trial}`);
+    }
     values.set(score.case, [...(values.get(score.case) ?? []), value]);
   }
   return new Map([...values].map(([id, xs]) => [id, mean(xs)]));
 }
 
+/** Per-case differences, challenger minus baseline, over the cases both have, rounding taken out. */
+function differencesOf(
+  input: Pick<ComparisonInput, "baseline" | "challenger">,
+  metric: MetricSpec,
+) {
+  const theirs = perCase(input.baseline, metric);
+  const ours = perCase(input.challenger, metric);
+  const paired = [...ours.keys()].filter((id) => theirs.has(id));
+  const differences = paired.map((id) => {
+    const d = ours.get(id)! - theirs.get(id)!;
+    return Math.abs(d) <= TOLERANCE ? 0 : d;
+  });
+  return { theirs, ours, paired, differences };
+}
+
 /**
- * One metric compared over the cases both variants have: the challenger's difference, with a
- * paired t interval at `confidence`. `gain` is the difference turned so that above 0 is better.
+ * One metric compared over the cases both variants have: the challenger's mean difference, with a
+ * paired t interval at `confidence`, and the cases each way.
  */
 export function compareMetric(
   input: Pick<ComparisonInput, "baseline" | "challenger">,
   metric: MetricSpec,
-  role: ComparedMetric["role"],
+  role: ComparedMetric["role"] = "reported",
   confidence = 0.95,
-): ComparedMetric & { gain: number[] } {
-  const theirs = perCase(input.baseline, metric);
-  const ours = perCase(input.challenger, metric);
-  const paired = [...ours.keys()].filter((id) => theirs.has(id));
+): ComparedMetric {
+  const { theirs, ours, paired, differences } = differencesOf(input, metric);
   const sign = metric.direction === "higher" ? 1 : -1;
-  const differences = paired.map((id) => ours.get(id)! - theirs.get(id)!);
-  const gain = differences.map((d) => sign * d);
-  const compared: ComparedMetric & { gain: number[] } = {
+  const compared: ComparedMetric = {
     name: metric.name,
     role,
     cases: paired.length,
     baseline: paired.length ? mean(paired.map((id) => theirs.get(id)!)) : null,
     challenger: paired.length ? mean(paired.map((id) => ours.get(id)!)) : null,
     difference: paired.length ? mean(differences) : null,
-    won: gain.filter((g) => g > 0).length,
-    tied: gain.filter((g) => g === 0).length,
-    lost: gain.filter((g) => g < 0).length,
-    gain,
+    won: differences.filter((d) => sign * d > 0).length,
+    tied: differences.filter((d) => d === 0).length,
+    lost: differences.filter((d) => sign * d < 0).length,
   };
   if (paired.length >= FEWEST) {
     const half =
@@ -71,27 +86,47 @@ export type PairedOptions = {
   /** Metrics that may not get worse by more than `margin`, shown with the interval. */
   guards?: readonly { metric: string; margin: number }[];
   /**
-   * Metrics that decide, in order, when the primary shows no difference at the last look: only by
-   * more than `margin`, shown with the interval, so two copies of one variant never differ by chance.
+   * Metrics that decide, in order, at the last look, when the primary is shown within
+   * ±`equivalence`: each only by more than its `margin`, shown with the interval, so two copies of
+   * one variant never differ by chance. A tie-breaker can always say worse; better also needs
+   * every guard within its margin.
    */
   tiebreak?: readonly { metric: string; margin: number }[];
+  /** How close to 0 the primary's interval must lie for the tie-breakers to decide. */
+  equivalence?: number;
   /**
-   * Case counts at which "better" may be claimed, against an O'Brien–Fleming bound. Looks past the
-   * selection are dropped and the selection's size is always the last. "Worse" may stop any time.
+   * Case counts at which "better" may be claimed, against an O'Brien–Fleming bound; the plan's
+   * size is always the last. A look counts cases both variants have finished, so a run evaluates
+   * at exactly these counts. "Worse" may stop at any count from 5.
    */
   looks?: readonly number[];
   /** Two-sided, for every interval; "better" is claimed one-sided at half of what it leaves. */
   confidence?: number;
-  /** Cases that must differ on the primary before "better": a sign test's floor. */
+  /** Cases that must differ on the primary, either way, before "better". */
   minDiffering?: number;
-  version?: string;
+  /** In semver; bump it whenever the settings change, as the report names it beside each verdict. */
+  version: string;
 };
 
-const signed = (x: number) => `${x >= 0 ? "+" : "−"}${Math.abs(x).toFixed(2)}`;
-const shown = (m: ComparedMetric) =>
-  `${m.name} ${signed(m.difference ?? 0)}${m.interval ? ` [${signed(m.interval[0])}, ${signed(m.interval[1])}]` : ""}`;
+/** A number as a person reads it: two significant figures below 1, and no sign on 0. */
+function figure(x: number): string {
+  const size = Math.abs(x);
+  if (size === 0) return "0";
+  const text =
+    size >= 100
+      ? size.toFixed(0)
+      : size >= 10
+        ? size.toFixed(1)
+        : size >= 1
+          ? size.toFixed(2)
+          : size.toPrecision(2);
+  return `${x > 0 ? "+" : "−"}${text}`;
+}
 
-/** The good-direction interval: above 0 is better for the challenger. */
+const shown = (m: ComparedMetric) =>
+  `${m.name} ${figure(m.difference ?? 0)}${m.interval ? ` [${figure(m.interval[0])}, ${figure(m.interval[1])}]` : ""}`;
+
+/** The interval turned so that above 0 is better for the challenger. */
 function gainInterval(m: ComparedMetric, spec: MetricSpec): [number, number] | undefined {
   if (!m.interval) return undefined;
   const [low, high] = m.interval;
@@ -102,15 +137,20 @@ function gainInterval(m: ComparedMetric, spec: MetricSpec): [number, number] | u
  * The standard rule, for 5 to 40 costly cases with a few trials each: per-case means, paired;
  * "worse" as soon as the primary's interval is below 0 or a guard's is past its margin; "better"
  * only at a planned look, past the bound, with every guard shown within its margin; at the last
- * look, a tie goes to the tie-breakers. Never a weighted sum across metrics.
+ * look, a primary shown equivalent goes to the tie-breakers. Never a weighted sum across metrics.
  */
 export function pairedComparison(options: PairedOptions): Comparison {
   const confidence = options.confidence ?? 0.95;
+  if (!(confidence >= 0.8 && confidence < 1)) throw new Error("confidence is from 0.8 to below 1");
   const minDiffering = options.minDiffering ?? 6;
   const guards = options.guards ?? [];
   const tiebreak = options.tiebreak ?? [];
+  if (tiebreak.length > 0 && options.equivalence === undefined) {
+    throw new Error("tie-breakers need an equivalence: how close to 0 the primary must be shown");
+  }
+  const equivalence = options.equivalence ?? 0;
   return defineComparison({
-    version: options.version ?? "1.0.0",
+    version: options.version,
     compare(input): Verdict {
       const specs = new Map(input.metrics.map((m) => [m.name, m]));
       const spec = (name: string) => {
@@ -125,13 +165,13 @@ export function pairedComparison(options: PairedOptions): Comparison {
       const primarySpec = spec(options.primary);
       const roles = new Map<string, ComparedMetric["role"]>([[options.primary, "primary"]]);
       for (const g of guards) roles.set(spec(g.metric).name, "guard");
-      for (const t of tiebreak)
+      for (const t of tiebreak) {
         if (!roles.has(spec(t.metric).name)) roles.set(t.metric, "tiebreak");
-      const all = input.metrics.map((m) =>
+      }
+      const metrics = input.metrics.map((m) =>
         compareMetric(input, m, roles.get(m.name) ?? "reported", confidence),
       );
-      const byName = new Map(all.map((m) => [m.name, m]));
-      const metrics = all.map(({ gain: _, ...m }) => m);
+      const byName = new Map(metrics.map((m) => [m.name, m]));
       const primary = byName.get(options.primary)!;
       const n = primary.cases;
       const counts = `won ${primary.won}, tied ${primary.tied}, lost ${primary.lost}`;
@@ -142,11 +182,29 @@ export function pairedComparison(options: PairedOptions): Comparison {
         metrics,
       });
 
+      // Progress is the cases both variants have finished, whatever the primary's value on them.
+      const finished = (scores: readonly CaseScore[]) =>
+        new Set(scores.filter((s) => s.outcome !== "missing").map((s) => s.case));
+      const theirs = finished(input.baseline);
+      const done = [...finished(input.challenger)].filter((id) => theirs.has(id)).length;
+      const last = done >= input.planned;
+      const looks = [
+        ...new Set([...(options.looks ?? []).filter((l) => l < input.planned), input.planned]),
+      ].sort((a, b) => a - b);
+      const look = last ? looks.length - 1 : looks.indexOf(done);
+      const next = looks.find((l) => l > done);
+      const pending = `at ${done} of ${input.planned} cases${next ? `, next look at ${next}` : ""}`;
+
       if (n < FEWEST) {
-        return verdict("undecided", false, `${n} cases: too few for an interval; ${counts}`);
+        const few = `${n} cases with ${options.primary}: too few for an interval; ${counts}`;
+        return last
+          ? verdict("undecided", true, few)
+          : verdict("undecided", false, `${few}; ${pending}`);
       }
       const primaryGain = gainInterval(primary, primarySpec)!;
-      if (primaryGain[1] < 0) return verdict("worse", true, `looked worse: ${shown(primary)}`);
+      if (primaryGain[1] < 0) {
+        return verdict("worse", true, `stopped, looked worse: ${shown(primary)}`);
+      }
       const guardState = guards.map((g) => {
         const m = byName.get(g.metric)!;
         const gain = gainInterval(m, spec(g.metric));
@@ -162,73 +220,79 @@ export function pairedComparison(options: PairedOptions): Comparison {
         return verdict(
           "worse",
           true,
-          `${failed.m.name} worse by more than ${failed.margin}: ${shown(failed.m)}`,
+          `stopped, ${failed.m.name} worse by more than ${failed.margin}: ${shown(failed.m)}`,
         );
       }
-      const unproven = guardState.filter((g) => !g.within).map((g) => g.m.name);
+      const unproven = guardState
+        .filter((g) => !g.within)
+        .map((g) => (g.m.cases < FEWEST ? `${g.m.name} (${g.m.cases} cases)` : g.m.name));
+      if (look < 0) return verdict("undecided", false, `${shown(primary)} ${pending}`);
 
-      const looks = [
-        ...new Set([...(options.looks ?? []).filter((l) => l < input.selected), input.selected]),
-      ]
-        .filter((l) => l >= FEWEST)
-        .sort((a, b) => a - b);
-      const look = looks.indexOf(n);
-      const last = n >= input.selected;
-      const next = looks.find((l) => l > n);
-      if (look >= 0) {
-        const c = obrienFleming(
-          looks.map((l) => l / input.selected),
-          (1 - confidence) / 2,
-        );
-        const nominal = 1 - normalCdf(c / Math.sqrt(n / input.selected));
-        const critical = tQuantile(1 - nominal, n - 1);
-        const gain = primary.gain;
-        const spread = sd(gain) / Math.sqrt(n);
-        const t =
-          spread === 0 ? (mean(gain) > 0 ? Number.POSITIVE_INFINITY : 0) : mean(gain) / spread;
-        if (t >= critical) {
-          if (primary.won + primary.lost < minDiffering) {
-            if (last) {
-              return verdict(
-                "undecided",
-                true,
-                `${shown(primary)}, but only ${primary.won + primary.lost} cases differ; ${minDiffering} needed`,
-              );
-            }
-          } else if (unproven.length === 0) {
-            return verdict(
-              "better",
-              true,
-              `better at look ${look + 1} of ${looks.length}: ${shown(primary)}`,
-            );
-          } else if (last) {
-            return verdict(
+      const c = obrienFleming(
+        looks.map((l) => l / input.planned),
+        (1 - confidence) / 2,
+      );
+      const critical = tQuantile(
+        normalCdf(c / Math.sqrt(Math.min(1, done / input.planned))),
+        n - 1,
+      );
+      const gains = differencesOf(input, primarySpec).differences.map((d) =>
+        primarySpec.direction === "higher" ? d : -d,
+      );
+      const spread = sd(gains) / Math.sqrt(n);
+      const t =
+        spread === 0 ? (mean(gains) > 0 ? Number.POSITIVE_INFINITY : 0) : mean(gains) / spread;
+      const at = `look ${look + 1} of ${looks.length}`;
+      if (t >= critical) {
+        const blocked =
+          primary.won + primary.lost < minDiffering
+            ? `only ${primary.won + primary.lost} cases differ, ${minDiffering} needed`
+            : unproven.length > 0
+              ? `not shown within margin: ${unproven.join(", ")}`
+              : undefined;
+        if (!blocked) return verdict("better", true, `better at ${at}: ${shown(primary)}`);
+        return last
+          ? verdict("undecided", true, `${shown(primary)} past the bound, but ${blocked}`)
+          : verdict(
               "undecided",
-              true,
-              `${shown(primary)}, but not shown within margin: ${unproven.join(", ")}`,
+              false,
+              `${shown(primary)} past the bound, but ${blocked}; ${pending}`,
             );
-          }
-        } else if (last) {
-          for (const { metric, margin } of tiebreak) {
-            const m = byName.get(metric)!;
-            const gain = gainInterval(m, spec(metric));
-            if (!gain || unproven.length > 0) continue;
-            if (gain[0] > margin || gain[1] < -margin) {
-              return verdict(
-                gain[0] > margin ? "better" : "worse",
-                true,
-                `no difference shown on ${options.primary} (${shown(primary)}); decided by ${shown(m)}, past its margin of ${margin}`,
-              );
-            }
-          }
-          return verdict("tie", true, `no difference shown: ${shown(primary)}; ${counts}`);
+      }
+      if (!last) {
+        return verdict(
+          "undecided",
+          false,
+          `${shown(primary)} not past the bound at ${at}; ${pending}`,
+        );
+      }
+      if (primaryGain[0] > 0) {
+        return verdict(
+          "undecided",
+          true,
+          `${shown(primary)}: a gain, but not past the bound that planned looks require`,
+        );
+      }
+      const equivalent = primaryGain[0] >= -equivalence && primaryGain[1] <= equivalence;
+      const skipped: string[] = [];
+      for (const { metric, margin } of tiebreak) {
+        const m = byName.get(metric)!;
+        const gain = gainInterval(m, spec(metric));
+        if (!equivalent || !gain) continue;
+        const decided = `no difference on ${options.primary} (${shown(primary)}); decided by ${shown(m)}, past its margin of ${margin}`;
+        if (gain[1] < -margin) return verdict("worse", true, decided);
+        if (gain[0] > margin) {
+          if (unproven.length === 0) return verdict("better", true, decided);
+          skipped.push(`${metric}, as ${unproven.join(", ")} not shown within margin`);
         }
       }
-      return verdict(
-        "undecided",
-        false,
-        `${shown(primary)} at ${n} of ${input.selected} cases${next ? `; next look at ${next}` : ""}`,
-      );
+      const why =
+        tiebreak.length > 0 && !equivalent
+          ? `; not shown within ±${equivalence}, so no tie-breaker`
+          : skipped.length > 0
+            ? `; not decided by ${skipped.join("; ")}`
+            : "";
+      return verdict("tie", true, `no difference shown: ${shown(primary)}; ${counts}${why}`);
     },
   });
 }

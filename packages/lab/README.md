@@ -182,73 +182,102 @@ A scorer can be agents (a judge) or plain code, such as a test run. `awf-lab rep
 ## Deciding: better, worse or a tie
 
 With `--baseline`, `report` also gives each variant a **verdict** against the baseline: `better`,
-`worse`, `tie` or `undecided`, with the reason and whether to stop spending. A **comparison**
-decides it. It gets both variants' numbers case by case, never a finding or a key, so one
-comparison works for any kind of case:
+`worse`, `tie` or `undecided`, with the reason and whether more cases could change it (`stop`). A
+**comparison** decides it. It gets both variants' numbers case by case, never a finding or a key,
+so one comparison works for any kind of case:
 
 ```text
 vs one-codex-r1
-  verdict                tie              –
+  verdict          undecided              –
 
-tie  one-codex-r2 by default 1.0.0: no difference shown: recall.weighted +0.08 [−0.05, +0.20]; won 4, tied 6, lost 2
+undecided  one-codex-r2 by default 1.0.0: recall.weighted +0.079 [−0.046, +0.20] at 12 of 33 cases, next look at 16 (run more cases to decide)
   recall.weighted (primary)  0.23 → 0.31, +0.08 [−0.05, +0.20] over 12 cases; won 4, tied 6, lost 2
   precision (guard)          0.97 → 0.98, +0.01 [−0.07, +0.08] over 10 cases; won 1, tied 8, lost 1
-  wrong (guard)              0.03 → 0.02, −0.00 [−0.08, +0.07] over 10 cases; won 1, tied 8, lost 1
+  wrong (guard)              0.03 → 0.02, 0.00 [−0.08, +0.07] over 10 cases; won 1, tied 8, lost 1
   cost (tiebreak)            0.32 → 0.31, −0.01 [−0.06, +0.04] over 12 cases; won 7, tied 0, lost 5
+  time (tiebreak)            130.42 → 132.27, +1.85 [−16.13, +19.83] over 12 cases; won 6, tied 0, lost 6
 ```
 
-That is two copies of the same variant on 12 cases: an 8-point gain in recall is still inside the
-noise. The package's own comparison, `default`, is `pairedComparison` with review's settings:
+That is two copies of the same variant on the first 12 of a dataset's 33 cases. An 8-point gain in
+recall is inside the noise, and 12 isn't a planned look. Each line compares per-case means over the
+cases both variants have a value for, so its means can differ from the table's pooled ones above.
+The package's own comparison, `default`, is `pairedComparison` with review's settings:
 
 ```ts
 // src/review/lab/default.compare.ts
 import { pairedComparison } from "../../compare";
 
 export default pairedComparison({
+  version: "1.0.0",
   primary: "recall.weighted",                 // the metric that decides
   guards: [                                   // may not get worse by more than the margin
     { metric: "wrong", margin: 0.05 },
     { metric: "precision", margin: 0.05 },
   ],
-  tiebreak: [                                 // decide a tie, only by more than the margin
-    { metric: "cost", margin: 0.05 },
-    { metric: "time", margin: 30 },
+  looks: [8, 16],                             // "better" only at these case counts, and the last
+  equivalence: 0.05,                          // tie-breakers only if recall is shown within ±0.05
+  tiebreak: [                                 // then only by more than the margin
+    { metric: "cost", margin: 0.05 },         // USD a case
+    { metric: "time", margin: 30 },           // seconds a case
   ],
 });
 ```
 
 How `pairedComparison` decides:
 
+- **Cases** come in the dataset's seeded order, and the **plan** is all of them. A verdict is given
+  only over the first n of that order: `--cases {n}`, or no selection. `--only`, `--cases` by id,
+  `--where` and `--categories` get no verdict, and the report says why: cases picked by hand or by
+  their results would bias it.
 - Each variant's trials are averaged per case. Each metric's difference is taken per case, over the
   cases both variants have, with a paired t interval (95%). Below 5 cases there's no interval, only
-  cases won, tied and lost, and never a verdict.
+  cases won, tied and lost, and the verdict is always `undecided`.
 - **worse** as soon as the primary's interval is wholly below 0, or a guard's is wholly past its
   margin. It can stop at any case count.
-- **better** only at a **look**: a case count planned in advance, `looks: [8, 16]`, and always the
-  selection's size, against an O'Brien–Fleming bound. That way, checking as cases arrive can't
-  manufacture a win. It also needs every guard's interval within its margin and at least 6 cases
-  that differ.
-- At the last look, "no difference shown" goes to the **tie-breakers** in order. Each needs its
-  whole interval past its margin. Otherwise it's a `tie`.
-- There's never a weighted sum of metrics.
+- **better** only at a **look**, a count of cases both variants have finished that is planned in
+  advance (`looks`, and always the plan's end), past an O'Brien–Fleming bound. That way, checking
+  as cases arrive can't manufacture a win. It also needs every guard's interval within its margin
+  and at least 6 cases that differ.
+- At the plan's end, a primary shown within ±`equivalence` goes to the **tie-breakers**, in order.
+  Each needs its whole interval past its margin. A tie-breaker can always say `worse`; `better`
+  also needs the guards within their margins. Otherwise it's a `tie`: no difference shown.
+- `undecided` with `stop` means the plan ran out without an answer, as when too few cases differ,
+  or a gain falls short of the bound. There's never a weighted sum of metrics.
 
-On a simulated null (no real difference, trial noise as measured on reviews), it called 2.4% of
-comparisons `better` and 8.5% `worse`. The stop for worse is quick, not careful: a discarded idea
-costs less than a false win.
+The rates, simulated on 33 cases with trial noise as measured on reviews, checking after every case:
+
+| True difference in weighted recall | better | worse | tie | cases, on average |
+| --- | --- | --- | --- | --- |
+| none | 2.7–3.0% (2.5% nominal) | 12% | 85% | 30 |
+| +0.10 | 99% | 0.1% | 1% | 25 |
+| +0.15 | 100% | – | – | 18 |
+
+The stop for worse is quick, not careful: about one comparison in eight between equals stops as
+`worse`, the price of never waiting on a loser. A discarded idea costs less than a false win. Time
+measured under `--jobs` is not comparable with time measured alone, so compare variants run the
+same way.
 
 **Your own comparison** is a `*.compare.ts` whose default export is `pairedComparison({ … })` with
-other settings, or anything made with `defineComparison`:
+other settings, or anything made with `defineComparison`. Either takes a `version`: bump it when
+the rule changes, since the report names it beside each verdict.
 
 ```ts
-// comparisons/strict.compare.ts
+// comparisons/strict.compare.ts: no more wrong claims than the baseline, and looks at 8 and 16
 import { pairedComparison } from "@agentswf/lab/compare";
 
-// Only cases with a must-fix issue count here: on a small dataset that may be too few for an interval.
-export default pairedComparison({ primary: "recall.must-fix", looks: [8, 16], version: "1.0.0" });
+export default pairedComparison({
+  version: "1.0.0",
+  primary: "recall.weighted",
+  guards: [{ metric: "wrong", margin: 0 }],
+  looks: [8, 16],
+});
 ```
 
-Or a rule entirely your own. `compare` gets both variants' trials, the metrics' definitions and
-the selection's size, and returns the verdict:
+A primary that is `null` on some cases, such as `recall.must-fix` on cases with no must-fix issue,
+counts only the cases that have it, and may never reach the 5 an interval needs.
+
+Or a rule entirely your own. `compare` gets both variants' trials, the metrics' definitions and the
+plan's size, and returns the verdict:
 
 ```ts
 // comparisons/cheaper.compare.ts: better when cheaper on at least 9 cases
@@ -257,15 +286,15 @@ import { defineComparison, perCase } from "@agentswf/lab/compare";
 export default defineComparison({
   version: "1.0.0",
   // baseline, challenger: one { case, trial, outcome, metrics: { [name]: number | null } } per trial
-  // metrics: each metric's { name, direction, onVariantFailure }; selected: a count of cases
-  compare({ baseline, challenger, metrics, selected }) {
+  // metrics: each metric's { name, direction, onVariantFailure }; planned: a count of cases
+  compare({ baseline, challenger, metrics, planned }) {
     const cost = metrics.find((m) => m.name === "cost")!;
     const theirs = perCase(baseline, cost); // case → mean over its trials
     const ours = [...perCase(challenger, cost)].filter(([id]) => theirs.has(id));
     const cheaper = ours.filter(([id, usd]) => usd < theirs.get(id)!).length;
     return {
       verdict: cheaper >= 9 ? "better" : "undecided",
-      stop: cheaper >= 9 || ours.length === selected,
+      stop: cheaper >= 9 || ours.length === planned,
       reason: `cheaper on ${cheaper} of ${ours.length} cases`,
       metrics: [], // or compareMetric(…) per metric, for report to print
     };
@@ -273,28 +302,29 @@ export default defineComparison({
 });
 ```
 
-`compare` takes a `ComparisonInput` and returns a `Verdict`; both types, and the `CaseScore` and
-`MetricSpec` they're built from, are exported from `@agentswf/lab/compare` with the fields
-documented on each.
+`compare` takes a `ComparisonInput` and returns a `Verdict`; both types, and the `CaseScore`,
+`MetricSpec` and `ComparedMetric` they're built from, are exported from `@agentswf/lab/compare`
+with the fields documented on each. `report` checks the verdict it gets back and names the
+comparison when it's out of shape or throws.
 
 List it in `awf-lab.json` under `"comparisons": ["comparisons/*.compare.ts"]`, then pick it with
 `"comparison": "strict"` or `--comparison strict`. A path works too:
-`--comparison comparisons/strict.compare.ts`. `awf-lab list comparisons` shows what the workspace
-sees. `perCase` and `compareMetric` from `@agentswf/lab/compare` are the building blocks
-`pairedComparison` uses.
+`--comparison comparisons/strict.compare.ts`. `default` is the package's, and no workspace file may
+take the name. `awf-lab list comparisons` shows what the workspace sees. `perCase` and
+`compareMetric` from `@agentswf/lab/compare` are the building blocks `pairedComparison` uses.
 
 **The numbers a review gives**, by name: `recall.weighted`, `recall.must-fix`,
-`recall.should-fix`, `precision`, `wrong`, `noise` (each 0 to 1, per trial; `null` where it
-doesn't apply, such as must-fix recall on a case with none), and `cost` (USD at list price) and
-`time` (seconds) of the trial. A comparison naming another fails with the list.
+`recall.should-fix`, `recall.could-fix`, `precision`, `wrong`, `noise` (each 0 to 1, per trial;
+`null` where it doesn't apply, such as must-fix recall on a case with none), and `cost` (USD at
+list price, `null` when an agent wasn't priced) and `time` (seconds) of the trial. A trial whose
+variant failed scores 0 recall and leaves the rest out. A comparison naming another metric fails
+with the list.
 
-With `--where`, `report` gives no verdict: cases picked by their results would bias it. With a
-verdict, the text report shows its counts, by the comparison's primary; `--json`'s `won`, `lost`
-and `tied` stay review's, by weighted recall, which is what `--where lost` reads.
+With a verdict, the text report shows its counts, by the comparison's primary. `--json`'s `won`,
+`lost` and `tied` stay review's, by weighted recall, which is what `--where lost` reads.
 
-For now, `report` counts one trial per case, and its verdict is over the stored cases it's given.
-Several trials per case, and a `run` that stops when the verdict says so, are story 011's next
-steps.
+For now, `report` counts one trial per case. Several trials per case, and a `run` that stops when
+the verdict says so, are story 011's next steps.
 
 ## The workspace
 

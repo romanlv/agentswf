@@ -1,10 +1,10 @@
 ---
 title: Let an agent propose review variants and keep the better ones
-summary: Close the loop — an agent changes one variable, the matrix runs it, and the change is kept only if the score improves within budget.
+summary: Close the loop — an agent changes one variable, awf-lab runs it against the incumbent, and the change is kept only if the comparison's verdict is better, within budget.
 type: story
 status: todo
 discovered_in: "autoresearch planning, 2026-09-23"
-depends_on: ["variant-matrix-runner"]
+depends_on: ["011", "second-case-kind"]
 ---
 
 # Let an agent propose review variants and keep the better ones
@@ -15,8 +15,10 @@ and building it earlier would optimise against a weak or leaky answer key.
 
 Notes:
 
-- It is the comparison in `variant-matrix-runner` with an agent as the proposer; it adds the
-  proposer, the log and the spend cap, and nothing else.
+- It is story 011's `run --baseline` with an agent as the proposer; it adds the proposer, the log
+  and the spend cap, and nothing else. It keeps a variant when the comparison's `Verdict` is
+  `better`, stops spending on it when `stop` is set, logs `reason`, and hands `metrics` to the
+  proposer ([[011-compare-variants]]).
 - The proposer changes one variable at a time — the workflow's shape, a checklist, model per
   stage, prompt, verifier limit — and records why. The matrix scores it; it is kept only if it beats the
   incumbent beyond the spread.

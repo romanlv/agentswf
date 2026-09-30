@@ -21,7 +21,7 @@ The project doing the evaluation owns two things, and awf-lab owns the running:
 
 | | Who writes it | What it gets | What it returns | Review's, shipped by the lab |
 | --- | --- | --- | --- | --- |
-| **scorer** | the project, or reuses one | one trial and its case | named numbers for that trial, each with a direction | match first, with `reviewMetrics` |
+| **scorer** | the project, or reuses one | one trial and its case | named numbers for that trial, each with a direction | today the panel; match first after task 1. A review's numbers are named in `review/metrics/named.ts` |
 | **comparison** | the project, or reuses one | both variants' numbers, case by case | better, worse, tie or undecided, whether to stop, and why | `pairedComparison({ … })` |
 | **running** | awf-lab | — | trials, scores, the report, the stop | — |
 
@@ -36,52 +36,47 @@ scoring, and match first scores at a fifth of the panel's time and list price
 
 ## How it works
 
-In the data repository, the project's files:
+In the data repository, the project picks a scorer and a comparison, or writes its own. The
+comparison as built in slice 1 (the package's own, `default`):
 
 ```ts
-// scorers/match.scorer.ts: how a trial becomes numbers
-import { defineReviewScorer, matchJudge, reviewMetrics } from "@agentswf/lab/review";
-
-export default defineReviewScorer({
-  workflow: matchJudge,              // labels each finding against the key
-  argv: ["--rest", "codex/gpt-6-sol,pi/openai-codex/gpt-5.6-terra"],
-  timeout: "10m",
-  version: "1.0.0",
-  metrics: reviewMetrics,            // labels ─▶ { "recall.weighted": 0.5, "wrong": 0, … } per trial
-});
-```
-
-```ts
-// comparisons/default.compare.ts: how two variants' numbers become a verdict
-import { pairedComparison } from "@agentswf/lab/compare";
+// packages/lab/src/review/lab/default.compare.ts: how two variants' numbers become a verdict
+import { pairedComparison } from "../../compare";
 
 export default pairedComparison({
+  version: "1.0.0",
   primary: "recall.weighted",
   guards: [                                       // may not get worse by more than the margin
     { metric: "wrong", margin: 0.05 },
     { metric: "precision", margin: 0.05 },
   ],
-  tiebreak: ["cost", "time"],
-  looks: [8, 16, 33],                             // "better" is claimed only at these case counts
+  looks: [8, 16],                                 // "better" only at these case counts, and the end
+  equivalence: 0.05,                              // tie-breakers only if recall is shown within ±0.05
+  tiebreak: [                                     // and then only by more than a margin
+    { metric: "cost", margin: 0.05 },
+    { metric: "time", margin: 30 },
+  ],
 });
 ```
 
-`awf-lab.json` names the defaults: `"scorer": "match"`, `"comparison": "default"`.
+A workspace's own is a `*.compare.ts` found by `awf-lab.json`'s `comparisons` globs and picked by
+`"comparison"` or `--comparison`. The scorer stays as story 008 made it; match first becomes the
+built-in and default in task 1 (decision 4).
 
 ```text
-awf-lab run {challenger} --baseline {baseline} --cases 8 --trials 2
+awf-lab run {challenger} --baseline {baseline} --cases 8 --trials 2          (task 5)
   per case, in the dataset's seeded order:
     trials still missing, for both variants ─▶ awf run each
     scorer ─▶ per trial { "recall.weighted": 0.5, "wrong": 0, … }   + cost and time, added by awf-lab
-    comparison(baseline's cases so far, challenger's, the metrics' specs)
+    comparison(baseline's trials so far, challenger's, the metrics' specs, the plan's size)
        ─▶ { verdict: "undecided", stop: false, … }      carry on
        ─▶ { verdict: "worse",     stop: true,  … }      stop: spend no more
-awf-lab report {challenger} --baseline {baseline}
-    the same comparison over stored records, and its table
+awf-lab report {challenger} --baseline {baseline}                             (slice 1)
+    the same comparison over stored records, and its verdict
 ```
 
-**The scorer's numbers.** A metric is a name, a direction (higher or lower is better), a range, and
-what a failed trial scores. A number is per trial, and `null` where it doesn't apply, such as
+**The scorer's numbers.** A metric is a name, a direction (higher or lower is better), and what a
+failed trial scores. A number is per trial, and `null` where it doesn't apply, such as
 must-fix recall on a case with no must-fix issue. Cost and time are added by awf-lab from the
 trial's record, so every comparison can use them. The numbers are computed from stored records, not
 stored: a new metric needs no rerun.
@@ -100,7 +95,8 @@ cases ([[variant-comparison]]):
 - stop as soon as the primary metric's interval is wholly below zero: "stopped: looked worse";
 - "better" only at a planned look, against an O'Brien–Fleming bound, and only if every guard is
   within its margin; peeking after every case with a plain interval gives 25% false wins;
-- a tie goes to the tie-breakers; never a weighted sum across metrics.
+- at the plan's end, a primary shown equivalent goes to the tie-breakers; never a weighted sum
+  across metrics.
 
 A project that wants something else, such as a point comparison while exploring, or a stricter rule
 for later loop rounds, writes its own `.compare.ts` with the same signature.
@@ -178,7 +174,8 @@ Out of scope:
 - Fact: every project surveyed has the project write the scorer; only GEPA and OpenEvolve take a
   pluggable keep-or-discard, and only GEPA's gets per-case scores of both (research §7).
 - Fact: at 5–40 cases the paired t interval holds its coverage and the bootstrap doesn't; futility
-  stops are free; checking every case with a fixed interval gives 25% false wins (research §1, §3).
+  stops add no false wins; checking every case with a fixed interval gives 25% false wins (research
+  §1, §3).
 - Fact: match first scores 86–90% against the panel's 87% on the comments, 100% on the oracle, κ
   0.84–0.87 with the panel, at $0.15 and a minute a scoring against $0.81 and five (story 008).
   Its voters are codex and pi; Jev needs `OPENROUTER_API_KEY`.
@@ -190,18 +187,20 @@ Out of scope:
 
 ## Code map
 
-- `packages/lab/src/compare/` (new, pure, imports nothing of `review/`): `Comparison`,
-  `MetricSpec`, `CaseScore`, `pairedComparison`, `tQuantile`.
-- `packages/lab/src/review/format/variant.ts`: `defineReviewScorer` takes `metrics`.
-- `packages/lab/src/review/metrics/metrics.ts`: `reviewMetrics` from today's `count()` and
-  `metrics()`, per trial instead of pooled.
-- `packages/lab/src/review/lab/cli.ts:250`, `:391`, `:805`: the refusals of more than one trial go.
+- `packages/lab/src/compare/` (slice 1, pure, imports nothing): the types, `pairedComparison`,
+  `perCase`, `compareMetric`; `stats.ts` for the t distribution and O'Brien–Fleming bounds.
+- `packages/lab/src/review/metrics/named.ts` (slice 1): `REVIEW_METRICS` and `namedMetrics`, per
+  trial from `count()` and `metrics()`. Metrics declared by the scorer wait for
+  [[second-case-kind]].
+- `packages/lab/src/review/lab/cli.ts`: the refusals of more than one trial ("story 011, task 4")
+  go.
 - `packages/lab/src/review/lab/plan.ts:66`: `currentTrial` becomes the newest k in the setting.
 - `packages/lab/src/review/lab/execute.ts`: per-case scheduling under `--baseline`, and `stop`.
-- `packages/lab/src/review/lab/report.ts:259`: `compareCases` and "cases won" give way to the
-  comparison's table; `format/output.ts:309` carries it.
-- `packages/lab/src/review/format/workspace.ts`: `comparison` and `comparisons` globs, and the
-  built-in `default`, as `match` is built in.
+- `packages/lab/src/review/lab/report.ts` (slice 1): calls the comparison per challenger over the
+  cases the pair shares, checks its verdict; `compareCases` stays, by weighted recall, for the
+  JSON's won/lost lists and `--where lost`. `format/output.ts` carries the verdict.
+- `packages/lab/src/review/format/workspace.ts` and `lab/workspace.ts` (slice 1): `comparison`
+  and `comparisons` globs, and the built-in `default`.
 - `packages/lab/src/review/judge/`: `matching.ts` and its test, `voting.ts`, `match.workflow.ts`
   from the data repository's `scorers/`, and a built-in `match` scorer; `Case`/`readCase` and the
   answer schema shared with `judge.workflow.ts`. What moving them involves:
@@ -222,56 +221,71 @@ Out of scope:
     the report, not in the scorer.
   - The panel's `judge.workflow.ts` voting is replaced by `voting.ts` (decision 4); `panel.scorer.ts`
     leaves the built-ins, and `panel@1.0` records stay readable.
-- `scripts/check-boundaries.ts`: `compare/` in the folder order.
+- `scripts/check-boundaries.ts` (slice 1): `compare/` imports nothing; `review/metrics` and
+  `review/lab` may import it, `review/format` may not.
 
 ## Proposed design
 
+As built in slice 1; the first draft's differences are listed under "Slice 1, as built".
+
 ```ts
-type MetricSpec = {
-  name: string;
-  direction: "higher" | "lower";
-  range: [number, number];
-  onVariantFailure: number | "missing";
-};
+type MetricSpec = { name: string; direction: "higher" | "lower"; onVariantFailure: number | "missing" };
 
 type CaseScore = {
   case: string;
   trial: number;
-  outcome: "scored" | "variant-failed" | "missing";
-  metrics: Record<string, number | null>;
+  outcome: "scored" | "variant-failed" | "missing";  // unknown ones are to be read as missing
+  metrics: Readonly<Record<string, number | null>>;
+};
+
+type ComparedMetric = {
+  name: string;
+  role: "primary" | "guard" | "tiebreak" | "reported";
+  cases: number;                 // both have a value; each case's value the mean of its trials
+  baseline: number | null; challenger: number | null; difference: number | null;
+  interval?: [number, number];   // paired t, two-sided; absent below 5 cases
+  won: number; tied: number; lost: number;
 };
 
 type Verdict = {
   verdict: "better" | "worse" | "tie" | "undecided";
-  stop: boolean;
+  stop: boolean;                 // undecided with stop: the plan ran out without an answer
   reason: string;
-  table: JsonObject;  // what report prints: per metric, the means, the difference, its interval, +/=/−
+  metrics: ComparedMetric[];
 };
 
-type Comparison = (input: {
-  baseline: CaseScore[];
-  challenger: CaseScore[];
-  metrics: MetricSpec[];
-  cases: number;      // how many the selection holds, so a rule can tell its looks
-}) => Verdict;
+type ComparisonInput = {
+  baseline: readonly CaseScore[]; challenger: readonly CaseScore[];
+  metrics: readonly MetricSpec[];
+  planned: number;               // the dataset's size: looks count towards it
+};
+
+type Comparison = { kind: "awf.comparison/1"; version: string; compare(input: ComparisonInput): Verdict };
 ```
 
-`CaseScore.outcome` gains `environment-failed` and `scorer-failed` in place of `missing` if `check`
-needs them apart (task 6); both are left out of the comparison and retried.
+`CaseScore.outcome` may gain `environment-failed` and `scorer-failed` if `check` needs them apart
+(task 6); a comparison reads any outcome it doesn't know as `missing`, so that isn't breaking.
 
-**What this publishes, and is costly to change later** (AGENTS.md: settle before building):
+**What this publishes, and is costly to change later** (AGENTS.md: settle before building). What
+slice 1 publishes, for the user's review:
 
-- `@agentswf/lab/compare`: `Comparison`, `MetricSpec`, `CaseScore`, `Verdict`, `pairedComparison`.
-  A project's comparison files import them.
+- `@agentswf/lab/compare`: the types above, `defineComparison`, `pairedComparison` and its
+  `PairedOptions` (`primary`, `guards` and `tiebreak` as `{ metric, margin }`, `equivalence`,
+  `looks`, `confidence`, `minDiffering`, `version`, which is required), `perCase`,
+  `compareMetric`, and `COMPARISON_KIND` (`awf.comparison/1`). A project's comparison files import
+  them.
 - A comparison file: a default export of a `Comparison`, found by `awf-lab.json`'s `comparisons`
-  globs, named by file, with a declared version like a variant's, so a report says which rule
-  decided.
-- `defineReviewScorer({ metrics })`, and the metric names `reviewMetrics` declares: comparison
-  files name them (`recall.weighted`, `recall.must-fix`, `recall.should-fix`, `precision`, `wrong`,
-  `noise`; `cost` and `time` from awf-lab).
-- `awf-lab.json`: `comparison`, `comparisons`, `trials`; the report's `--json` format moves to
-  `awf.lab-report/4`.
-- Not published: stored records keep their formats; the metric vector is never written.
+  globs, named by file, versioned in semver. `default` is the package's and reserved.
+- A review's metric names, which comparison files name: `recall.weighted`, `recall.must-fix`,
+  `recall.should-fix`, `recall.could-fix`, `precision`, `wrong`, `noise`, and `cost` (USD, `null`
+  when unpriced) and `time` (seconds) from awf-lab.
+- `awf-lab.json`: `comparison`, `comparisons`. `awf.lab-report/4`: per challenger its verdict, the
+  comparison's name and version, or why no verdict was given. `awf.lab-list/3`: the comparisons.
+- Changed meaning: `--where lost` and the report JSON's won/lost/tied count by weighted recall
+  alone, no longer then precision.
+- Not yet: `defineReviewScorer({ metrics })` ([[second-case-kind]]); `trials` in the config (task
+  4). Not published: stored records keep their formats; verdicts and metrics are computed from
+  them, never stored.
 
 Alternatives rejected:
 
@@ -306,7 +320,9 @@ Settled with the user on 2026-09-30.
    second real kind, triage tickets with known routes, which is the next story
    ([[second-case-kind]]).
 2. **Review's standard comparison:** primary weighted recall; guards wrong claims at +0.05 and
-   precision at −0.05; tie-breakers cost, then time.
+   precision at −0.05; tie-breakers cost, then time. Slice 1 added, for the user to confirm: a
+   tie-breaker decides only by more than a margin ($0.05, 30 s a case), and only when weighted
+   recall is shown within ±0.05; "better" is claimed at 8 and 16 cases and at the dataset's end.
 3. **Match first's voters are codex for now:** sol in codex and terra in pi, luna to break ties.
    Claude voters ([[judge-opus-voter]]) wait, as experiments run on codex.
 4. **One review scorer: match first. The panel retires.** The panel is story 008's scorer: two
@@ -336,7 +352,7 @@ Everything raised while planning this story, so none is lost. [011] is this stor
 | Idea | Source | Where |
 | --- | --- | --- |
 | The project defines its scorer and its comparison; awf-lab ships standard ones | the user, research §7 | [011] 2, 3 |
-| Paired t interval on per-case means; counts only below 5 cases; indicative below 10 | research §1 | [011] 2 |
+| Paired t interval on per-case means; counts only below 5 cases (built); marked indicative below 10 (not yet) | research §1 | [011] 2, 6 |
 | Trials averaged per case before pairing; never pooled across cases | research §1, Miller | [011] 2 |
 | Between- and within-case variance reported, to choose cases vs trials | research §2, experiment 1 | [011] 2, 6 |
 | Default `--trials 2`; more cases before more trials | research §2, experiment 1 | [011] 4 |
@@ -350,7 +366,7 @@ Everything raised while planning this story, so none is lost. [011] is this stor
 | Resolution: the smallest difference the plan can see, before spending | Anthropic, done paired | [011] 6 |
 | Scorer self-agreement: re-score a sample with the same scorer | Anthropic `build-eval` | [011] 6 |
 | Suspect cases: 0 on every trial of every variant, flagged for audit | Anthropic, experiment 1 | [011] 6 |
-| Audit the 3 always-zero cases of the first dataset (F, L, B) | experiment 1 | data repository, before task 7 |
+| Audit the always-zero cases of the first dataset (F, L, and nearly B) | experiment 1 | data repository, before task 7 |
 | Match first as the one review scorer, codex and pi voters; the panel retires | story 008, decision-matching, decision 4 | [011] 1 |
 | Jev's known failure: it matches a new problem to the nearest known issue (p 0.97 seen); right symptom, false cause passes | decision-matching | [011] 1, a note in the scorer's docs |
 | `tunedOn` cases marked in the report | variant-matrix-runner | [011] 3 |
@@ -386,8 +402,8 @@ it by path; `report` on experiment 1's stored trials calls all three copies of t
 
 Automated:
 
-- [ ] `pairedComparison` against hand-computed intervals, and a simulated null in which the stop
-  rule and the looks keep "better" at or under 5%.
+- [x] `pairedComparison` against table values, and a simulated null in which the stop rule and the
+  looks keep "better" near its nominal 2.5% (at most 3%).
 - [ ] A comparison file from a test workspace replaces the standard one in `run` and `report`.
 - [ ] `bun test`, `bunx tsc --noEmit`, `bun run scripts/check-boundaries.ts`
 
@@ -456,9 +472,19 @@ What exists, in the worktree `awf-compare-variants`:
 
 Where it departs from the proposed design, and why:
 
-- **Tie-breakers have margins**, `{ metric, margin }` like guards. Without one, `report` on two
-  copies of the baseline called one `worse` on cost (+$0.05 [+0.00, +0.09]). Review's margins:
-  $0.05 and 30 s a case.
+- **Tie-breakers have margins**, `{ metric, margin }` like guards, and decide only when the
+  primary is shown within ±`equivalence`. Without a margin, `report` on two copies of the baseline
+  called one `worse` on cost (+$0.05 [+0.00, +0.09]); without the equivalence, a cheaper variant
+  whose recall might be 0.25 lower would have been `better`. Review's: $0.05 and 30 s a case,
+  recall within ±0.05.
+- **The plan is the dataset**, `planned` in the input (the first draft's `cases`): looks count
+  cases both variants have finished, towards the dataset's size. Taking the reader's `--cases` as
+  the plan let every `report` call be an unplanned look. A verdict is given only over the first n
+  of the seeded order; `--only`, `--cases` by id, `--where` and `--categories` get none, and say
+  why.
+- **A comparison is an object**, `{ kind, version, compare }`, made by `defineComparison` or
+  `pairedComparison`, with `version` required, not a bare function: the report names the rule and
+  version that decided.
 - **`Verdict.metrics` is typed** (`ComparedMetric[]`: means, difference, interval, won, tied,
   lost, role), not a free `table`: `report` renders any comparison's the same way, and the loop
   reads it. A comparison of one's own may return `[]`.
@@ -467,20 +493,21 @@ Where it departs from the proposed design, and why:
   returns labels, and the numbers come from labels, so for reviews they belong to the case kind.
   Where a scorer declares metrics is decided with the second kind ([[second-case-kind]]): a code
   scorer for triage returns numbers directly.
-- **No `looks` in `default`**: the selection's size is the one look, which is right for `report`
-  over stored trials. `run --baseline` (task 5) is where planned looks earn their keep.
-- **"Cases won" counts by weighted recall alone**, as the default's primary does, so the row, the
-  tied note, `--where lost` and the verdict agree. It was weighted recall, then precision.
+- **`default` looks at 8 and 16 cases**, and at the dataset's end.
+- **"Cases won" counts by weighted recall alone**, for the JSON's lists and `--where lost`; with a
+  verdict, the text shows the verdict's counts instead. It was weighted recall, then precision.
 
 Evidence:
 
-- Simulated null, 16 cases × 2 trials, trial noise as measured (sd 0.19 between cases, 0.13
-  within), checking after every case with looks at 8 and 16, 3,000 runs: `better` 2.4%, `worse`
-  8.5%, `tie` 89%. With a true +0.15: `better` 99%. The quick stop for worse is the price of never
-  waiting on a loser.
-- `report` on experiment 1 (12 cases, `match-sol-pi`), identical variants: r2 vs r1 `tie`, +0.08
-  [−0.05, +0.20]; r3 vs r1 `tie`, +0.03 [−0.07, +0.12]; r3 vs r2 `tie`, −0.05 [−0.18, +0.07].
-  An 8-point gain between copies is noise at 12 cases, as experiment 1 predicted.
+- `default` simulated on 33 cases with trial noise as measured (sd 0.19 between cases, 0.13
+  within), checking after every case, 1,500 runs each: no true difference, `better` 2.7–3.0% (2.5%
+  nominal; the t bound per look is an approximation), `worse` 12%, `tie` 85%, stopping after 30
+  cases on average; +0.10, `better` 99% after 25; +0.15, 100% after 18. The quick stop for worse
+  is the price of never waiting on a loser.
+- `report` on experiment 1 (the first 12 of 33 cases, `match-sol-pi`), identical variants: r2 vs
+  r1 +0.08 [−0.05, +0.20], r3 vs r1 +0.03 [−0.07, +0.12], both `undecided` at 12 of 33, next look
+  at 16. An 8-point gain between copies is noise at 12 cases, as experiment 1 predicted. (Before
+  the review below, the report took 12 as the plan and called them ties.)
 
 A fresh agent (Sonnet, no context) used it from the README alone on experiment 1's data: the
 built-in verdict, a `pairedComparison` of its own on must-fix recall, a `defineComparison` rule of
@@ -496,6 +523,31 @@ tripped on, and what changed:
   each challenger's verdict uses its own selection's size.
 - Must-fix recall as a primary exists on only the cases with a must-fix issue (4 of 12 here), so it
   rarely reaches an interval; the README says so beside that example.
+
+Reviewed by three fresh agents (statistics, wiring, docs and design), 2026-09-30. Found and fixed:
+
+- A primary null on some cases, a missing score, or a third variant in the report left a verdict
+  undecided forever: progress now counts cases both variants finished, per pair.
+- At the last look, a gain past the plain interval but short of the sequential bound read "no
+  difference shown", or went to the tie-breakers: now `undecided`, stop, saying so.
+- Floating-point rounding (trials summed in another order) made "better" of identical data; NaN
+  made a clear loss a tie. Differences under 1e-9 are ties; a non-finite value is an error.
+- One unproven guard silently disabled every tie-breaker, even one showing the challenger worse:
+  a tie-breaker may now always say worse, and the reason names what it skipped.
+- The O'Brien–Fleming constant snapped to its 0.02 grid (K = 6: 2.06 against 2.0528): the grid now
+  hangs from the bound, matching a multivariate normal to 1e-4.
+- A failed trial counted as scored, so its cost and time decided tie-breaks; a cost with an
+  unpriced agent counted as complete. Now `variant-failed`, and such a cost is `null`.
+- A comparison's version and verdict were never checked, so a bad one printed a report that broke
+  its own schema, or crashed the text: both are checked, and errors name the comparison.
+- `compareMetric` leaked its internal `gain` into the report's JSON.
+- The boundary rule let `compare/` import `typebox`, and `review/format` import `compare/`: both
+  refused now, with probes.
+- An unknown `--comparison` exited 1, not 2 as an unknown variant does.
+
+Left as they are: false "worse" is 12% between equals at 33 cases, by design; with many looks
+(eleven) false "better" is 2.8%, the t approximation per look, measured and stated; cost and time
+print as bare numbers in the report's notes, their units in the README.
 
 How it generalises, and where it sits in the vision:
 

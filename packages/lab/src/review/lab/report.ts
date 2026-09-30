@@ -1,8 +1,20 @@
-import type { CaseScore, ComparedMetric, Comparison } from "../../compare";
+import type {
+  CaseScore,
+  ComparedMetric,
+  Comparison,
+  ComparisonInput,
+  Verdict,
+} from "../../compare";
 import { type AnswerKey, SEVERITIES } from "../format/format";
-import { REPORT_FORMAT, type ReportColumn, type ReportDocument } from "../format/output";
+import {
+  REPORT_FORMAT,
+  type ReportColumn,
+  type ReportDocument,
+  VerdictSchema,
+} from "../format/output";
 import type { Score, Trial } from "../format/records";
 import type { FindingLabel } from "../format/scoring";
+import { checkSchema, describeProblems } from "../format/validate";
 import type { SandboxSetting } from "../format/workspace";
 import { categoryOf } from "../judge/panel";
 import {
@@ -78,10 +90,31 @@ function caseScores(counted: readonly Counted[], only: ReadonlySet<string>): Cas
     .map((c) => ({
       case: c.case,
       trial: 1,
-      outcome: "scored",
+      outcome: c.trial.failure ? "variant-failed" : "scored",
       metrics: namedMetrics(metrics(c.counts), c.trial.run),
     }));
 }
+
+/** The comparison's verdict on one pair, checked, or an error naming the comparison. */
+function verdictOf(rule: ReportComparison, input: ComparisonInput): Verdict {
+  const named = `comparison ${rule.name} ${rule.comparison.version}`;
+  let verdict: unknown;
+  try {
+    verdict = rule.comparison.compare(input);
+  } catch (error) {
+    throw new Error(`${named}: ${(error as Error).message}`);
+  }
+  const checked = checkSchema(VerdictSchema, verdict);
+  if (!checked.ok)
+    throw new Error(describeProblems(`${named} returned a verdict that`, checked.problems));
+  return checked.value;
+}
+
+/**
+ * What decides against the baseline: a comparison, and how many cases the dataset's seeded order
+ * holds, which is what its looks count towards; or why this report gives no verdict.
+ */
+export type ReportComparison = { name: string; comparison: Comparison; planned: number };
 
 /** How two results on one case compare, by weighted recall, as the package's comparison counts them: above 0, `a` did better. */
 export function compareCases(a: Metrics, b: Metrics): number {
@@ -207,8 +240,10 @@ export function buildReport(options: {
   subjects: readonly ReportSubject[];
   scorers: readonly Ref[];
   baseline?: string;
-  /** What decides against the baseline, by name. */
-  comparison?: { name: string; comparison: Comparison };
+  /** What decides against the baseline. */
+  comparison?: ReportComparison;
+  /** Why a report with a baseline gives no verdict. */
+  noVerdict?: string;
   filter?: Filter;
   where?: readonly string[];
 }): ReportDocument {
@@ -276,6 +311,7 @@ export function buildReport(options: {
     document.comparison = {
       baseline: baseline.label,
       ...(rule ? { rule: { name: rule.name, version: rule.comparison.version } } : {}),
+      ...(!rule && options.noVerdict ? { noVerdict: options.noVerdict } : {}),
       cases: common,
       against: compared
         .filter((s) => s !== baseline)
@@ -293,11 +329,14 @@ export function buildReport(options: {
             (order > 0 ? result.won : order < 0 ? result.lost : result.tied).push(id);
           }
           if (!rule) return result;
-          const verdict = rule.comparison.compare({
-            baseline: caseScores(cell(baseline).counted, everywhere),
-            challenger: caseScores(cell(subject).counted, everywhere),
+          // The pair's own cases: another column's gaps must not hold this verdict back.
+          const ours = new Set(cell(subject).counted.map((c) => c.case));
+          const pair = new Set([...theirs.keys()].filter((id) => ours.has(id)));
+          const verdict = verdictOf(rule, {
+            baseline: caseScores(cell(baseline).counted, pair),
+            challenger: caseScores(cell(subject).counted, pair),
             metrics: REVIEW_METRICS,
-            selected: subject.rows.length,
+            planned: rule.planned,
           });
           return { ...result, verdict };
         }),
@@ -484,6 +523,7 @@ function tableOf(report: ReportDocument): { groups: Group[]; notes: Note[] } {
   for (const a of comparison?.against ?? []) {
     if (a.tied.length > 0 && !a.verdict) notes.push({ label: "tied", text: a.tied.join(", ") });
   }
+  if (comparison?.noVerdict) notes.push({ label: "no verdict", text: comparison.noVerdict });
   for (const a of comparison?.against ?? []) {
     if (!a.verdict || !comparison?.rule) continue;
     const { name, version } = comparison.rule;
@@ -553,7 +593,11 @@ function tableOf(report: ReportDocument): { groups: Group[]; notes: Note[] } {
   return { groups, notes };
 }
 
-const signed = (x: number, digits = 2) => `${x >= 0 ? "+" : "−"}${Math.abs(x).toFixed(digits)}`;
+/** A difference with its sign, and none when it rounds to 0. */
+function signed(x: number): string {
+  const text = Math.abs(x).toFixed(2);
+  return Number(text) === 0 ? text : `${x > 0 ? "+" : "−"}${text}`;
+}
 
 /** One metric's comparison: both means, the difference and its interval, and the cases each way. */
 function comparedText(m: ComparedMetric): string {

@@ -109,10 +109,13 @@ export function resolveFile(
     const file = resolve(cwd, nameOrPath);
     if (!existsSync(file)) throw new Error(`no ${kind} file ${file}`);
     const name = basename(file).replace(/\.(variant|scorer|compare)\.ts$|\.ts$/, "");
-    // Results are kept by name and version, so two files under one name would mix theirs.
+    // Results are kept by name and version, so two files under one name would mix theirs; a
+    // report names the comparison that decided by its name, so two would read alike.
     const same = known.get(name);
     if (same && realpathSync(same) !== realpathSync(file)) {
-      throw new Error(`${file} is named ${name}, as ${same} is; rename one, or their results mix`);
+      const harm =
+        kind === "comparison" ? "a report couldn't tell them apart" : "their results mix";
+      throw new Error(`${file} is named ${name}, as ${same} is; rename one, or ${harm}`);
     }
     return { name, file };
   }

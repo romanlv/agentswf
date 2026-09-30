@@ -55,7 +55,7 @@ const ComparedMetric = Type.Object(
   },
 );
 
-const Verdict = Type.Object(
+export const VerdictSchema = Type.Object(
   {
     verdict: Type.Enum(["better", "worse", "tie", "undecided"]),
     stop: Type.Boolean({ description: "Whether a run should spend no more on this pair." }),
@@ -363,6 +363,12 @@ export const ReportSchema = Type.Object(
             ...Ref,
             description: "The comparison that gave each verdict: its name and version.",
           }),
+          noVerdict: Type.Optional(
+            Type.String({
+              minLength: 1,
+              description: "Why this report gives no verdict, as when --where picked its cases.",
+            }),
+          ),
           cases: Type.Array(Text, { description: "The case ids every column counts." }),
           against: Type.Array(
             Type.Object(
@@ -371,7 +377,7 @@ export const ReportSchema = Type.Object(
                 won: Type.Array(Address),
                 lost: Type.Array(Address),
                 tied: Type.Array(Address),
-                verdict: Type.Optional(Verdict),
+                verdict: Type.Optional(VerdictSchema),
               },
               { additionalProperties: false },
             ),

@@ -263,55 +263,135 @@ export default defineReviewVariant({
     expect(
       both.comparison!.against.map(({ verdict: _, ...a }) => ({ ...a, won: a.won.toSorted() })),
     ).toEqual([{ variant: "oracle", won: ["oracle:app-1", "oracle:app-2"], lost: [], tied: [] }]);
-    // Two cases are too few for an interval: the package's own comparison gives counts only.
+    // The dataset's two cases are too few for an interval, and all it has: undecided, and done.
     expect(both.comparison!.rule).toEqual({ name: "default", version: "1.0.0" });
     expect(both.comparison!.against[0]!.verdict).toMatchObject({
       verdict: "undecided",
-      stop: false,
-      reason: "2 cases: too few for an interval; won 2, tied 0, lost 0",
+      stop: true,
+      reason: "2 cases with recall.weighted: too few for an interval; won 2, tied 0, lost 0",
     });
     const text = await lab(ws, ["report", "oracle", "--baseline", "nop"]);
     expect(text.stdout).toMatch(/verdict +undecided/);
     expect(text.stdout).not.toContain("cases won");
     expect(text.stdout).toMatch(/undecided +oracle by default 1.0.0: 2 cases/);
 
-    // A comparison of the project's own replaces the package's, by name or file.
-    await Bun.write(
-      join(ws.root, "ideas/any-gain.compare.ts"),
-      `import { defineComparison, perCase } from "@agentswf/lab/compare";
-
-export default defineComparison({
-  version: "0.1.0",
-  compare({ baseline, challenger, metrics }) {
-    const recall = metrics.find((m) => m.name === "recall.weighted")!;
-    const theirs = perCase(baseline, recall);
-    const gain = [...perCase(challenger, recall)].every(([id, v]) => v > (theirs.get(id) ?? 1));
-    return { verdict: gain ? "better" : "undecided", stop: gain, reason: "every case gained", metrics: [] };
-  },
-});
-`,
-    );
-    const own = await report(
-      ws,
-      "oracle",
-      "--baseline",
-      "nop",
-      "--comparison",
-      "ideas/any-gain.compare.ts",
-    );
-    expect(own.comparison!.rule).toEqual({ name: "any-gain", version: "0.1.0" });
-    expect(own.comparison!.against[0]!.verdict?.verdict).toBe("better");
-    const unknown = await lab(ws, ["report", "oracle", "--baseline", "nop", "--comparison", "x"]);
-    expect(unknown.stderr).toContain("no comparison named x; known: default");
-    // Cases picked by their results get no verdict.
-    const picked = await report(ws, "oracle", "--baseline", "nop", "--where", "failed");
-    expect(picked.comparison?.rule).toBeUndefined();
     // --where lost: the cases the baseline did better on; none for the oracle, both for nop.
     expect(
       (await report(ws, "oracle", "--baseline", "nop", "--where", "lost")).columns[0]!.cases,
     ).toEqual([]);
     const lost = await report(ws, "nop", "--baseline", "oracle", "--where", "lost");
     expect(lost.comparison!.against[0]!.lost.toSorted()).toEqual(["nop:app-1", "nop:app-2"]);
+  });
+
+  test("a comparison of the project's own replaces the package's, and is checked", async () => {
+    const control = (workflow: string) =>
+      `import { defineReviewVariant, ${workflow} } from "@agentswf/lab/review";
+
+export default defineReviewVariant({ workflow: ${workflow}, argv: ${workflow === "NOP_WORKFLOW" ? "[]" : `["--set", "{dataset}", "--head", "{head}"]`}, timeout: "1m", read: (findings) => findings as never });
+`;
+    await ws.variant("oracle", control("ORACLE_WORKFLOW"));
+    await ws.variant("nop", control("NOP_WORKFLOW"));
+    expect((await lab(ws, ["run", "oracle", "nop"], inProcess().runner)).exitCode).toBe(0);
+    const comparison = (name: string, body: string) =>
+      Bun.write(
+        join(ws.root, `comparisons/${name}.compare.ts`),
+        `import { defineComparison, perCase } from "@agentswf/lab/compare";
+
+export default ${body};
+`,
+      );
+    await comparison(
+      "any-gain",
+      `defineComparison({
+  version: "0.1.0",
+  compare({ baseline, challenger, metrics, planned }) {
+    const recall = metrics.find((m) => m.name === "recall.weighted")!;
+    const theirs = perCase(baseline, recall);
+    const gain = [...perCase(challenger, recall)].every(([id, v]) => v > (theirs.get(id) ?? 1));
+    return { verdict: gain ? "better" : "undecided", stop: gain, reason: \`every one of \${planned} gained\`, metrics: [] };
+  },
+})`,
+    );
+    await comparison(
+      "loose",
+      `defineComparison({ version: "1", compare: () => ({ verdict: "better", stop: true, reason: "x", metrics: [] }) })`,
+    );
+    await comparison(
+      "sloppy",
+      `defineComparison({ version: "1.0.0", compare: () => ({ verdict: "maybe", reason: "" }) as never })`,
+    );
+    await comparison(
+      "throws",
+      `defineComparison({ version: "1.0.0", compare: () => { throw new Error("no rule yet"); } })`,
+    );
+
+    // By path, before the workspace lists it; then by name, from the config's globs and default.
+    const byPath = await report(
+      ws,
+      "oracle",
+      "--baseline",
+      "nop",
+      "--comparison",
+      "comparisons/any-gain.compare.ts",
+    );
+    expect(byPath.comparison!.rule).toEqual({ name: "any-gain", version: "0.1.0" });
+    expect(byPath.comparison!.against[0]!.verdict).toMatchObject({
+      verdict: "better",
+      reason: "every one of 2 gained",
+    });
+    const config = join(ws.root, "awf-lab.json");
+    await Bun.write(
+      config,
+      JSON.stringify({
+        ...CONFIG,
+        comparisons: ["comparisons/*.compare.ts"],
+        comparison: "any-gain",
+      }),
+    );
+    expect((await report(ws, "oracle", "--baseline", "nop")).comparison!.rule!.name).toBe(
+      "any-gain",
+    );
+    const listed = await json<{ comparisons: { name: string; version: string | null }[] }>(ws, [
+      "list",
+      "comparisons",
+    ]);
+    expect(listed.comparisons.map((c) => [c.name, c.version])).toEqual([
+      ["any-gain", "0.1.0"],
+      ["loose", null],
+      ["sloppy", "1.0.0"],
+      ["throws", "1.0.0"],
+      ["default", "1.0.0"],
+    ]);
+
+    // A version that isn't semver, a verdict out of shape, and a throw each name the comparison.
+    const failing = async (name: string) =>
+      (await lab(ws, ["report", "oracle", "--baseline", "nop", "--comparison", name])).stderr;
+    expect(await failing("loose")).toContain("version 1 is not {major}.{minor}.{patch}");
+    expect(await failing("sloppy")).toContain("comparison sloppy 1.0.0 returned a verdict that");
+    expect(await failing("throws")).toContain("comparison throws 1.0.0: no rule yet");
+
+    // What can't be compared is a usage error; a selection by hand gives no verdict, and says why.
+    const usage = (argv: string[]) => lab(ws, ["report", "oracle", ...argv]);
+    expect((await usage(["--baseline", "nop", "--comparison", "x"])).exitCode).toBe(2);
+    expect((await usage(["--comparison", "default"])).exitCode).toBe(2);
+    expect(
+      (await usage(["--baseline", "nop", "--only", "app-1", "--comparison", "default"])).exitCode,
+    ).toBe(2);
+    const byHand = await report(ws, "oracle", "--baseline", "nop", "--only", "app-1");
+    expect(byHand.comparison!.rule).toBeUndefined();
+    expect(byHand.comparison!.noVerdict).toBe("--only picks cases by hand");
+    expect(
+      (await lab(ws, ["report", "oracle", "--baseline", "nop", "--only", "app-1"])).stdout,
+    ).toMatch(/no verdict +--only picks cases by hand/);
+
+    // The package's own name is taken.
+    await comparison(
+      "default",
+      `defineComparison({ version: "1.0.0", compare: () => ({ verdict: "tie", stop: true, reason: "x", metrics: [] }) })`,
+    );
+    expect((await lab(ws, ["list"])).stderr).toContain(
+      "a comparison named default shadows the package's own",
+    );
   });
 
   test("a report of several variants lists the cases only some have, instead of counting them", async () => {
@@ -510,7 +590,7 @@ export default defineComparison({
     expect((await lab(ws, ["run", "canned", "--cases", "zz*"])).exitCode).toBe(2);
     expect((await lab(ws, ["report", "canned", "--frobnicate"])).exitCode).toBe(2);
     expect((await lab(ws, ["run", "canned", "--trials", "3"])).stderr).toContain(
-      "more than one trial per case comes with variant-matrix-runner",
+      "more than one trial per case comes with story 011, task 4",
     );
     expect((await lab(ws, ["run", "canned", "--where", "sideways"])).exitCode).toBe(2);
     expect((await lab(ws, ["run", "canned", "--where", "lost"])).stderr).toContain(
@@ -1037,7 +1117,7 @@ export default defineComparison({
     expect(missing.stderr).toMatch(/has 1 findings, so no #3/);
     expect((await lab(ws, ["score", "canned", "--only", "app-9#0"])).exitCode).toBe(2);
     expect((await lab(ws, ["score", "canned", "--only", "app-1/2"])).stderr).toContain(
-      "one trial per case until variant-matrix-runner",
+      "one trial per case until story 011, task 4",
     );
     expect((await lab(ws, ["score", "canned", "--only", "other:app-1"])).stderr).toContain(
       "other is not one of canned",

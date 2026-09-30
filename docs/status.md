@@ -83,8 +83,8 @@ The gates are defined in [`foundation.md`](foundation.md) §12.
 - [006 — typed decisions](stories/006-typed-decisions.md): done. A workflow asks a System One
   model (Jev, on OpenRouter) closed questions about a state and gets a probability for every answer
   back, recorded and costed apart from agents; `examples/triage` routes tickets with it
-  ([findings](findings/system-one-models.md)). Matching review findings to a key with it moved to
-  [`decision-matching`](stories/todo/decision-matching.md).
+  ([findings](findings/system-one-models.md)). Matching review findings to a key with it is
+  [story 011](stories/011-compare-variants.md)'s task 1.
 - [007 — agent skills](stories/007-agent-skills.md): done, approved 2026-09-29. A workflow names
   each agent's skills, as a path or a public skill in a git repository, and the agent sees exactly
   those, on the host or in a sandbox ([findings](findings/agent-skills.md)).
@@ -99,7 +99,7 @@ The gates are defined in [`foundation.md`](foundation.md) §12.
   panel of two model families with a tiebreak. A trial on five cases put the lens catalogue well
   ahead of a single agent with or without a public review skill. A match-first scorer, measured in
   the data repository, is as accurate as the panel at a fifth of its time and list price; adopting
-  it is [`decision-matching`](stories/todo/decision-matching.md).
+  it is [story 011](stories/011-compare-variants.md)'s task 1.
 - [009 — run agents.wf from GitHub](stories/009-publish-agentswf.md): in progress. One naming
   rule (`@agentswf/*`, `agentswf/workflow`, `awf`, `wf`); `awf run` serves `agentswf/workflow` and
   `typebox` to a workflow in any folder; `awf --version` and a Bun check; a README that installs
@@ -110,6 +110,10 @@ The gates are defined in [`foundation.md`](foundation.md) §12.
   every trial in one, from `awf-lab.json`'s `sandbox` (srt by default), holding the checkout and
   the request. The case is restored as the reviewer's clone was. Design:
   [`design/evaluation.md`](design/evaluation.md).
+- [011 — compare variants](stories/011-compare-variants.md): in progress, in thin slices. Slice 1:
+  `awf-lab report --baseline` gives each challenger a verdict (better, worse, tie or undecided,
+  whether to stop, and why) from a comparison the project can replace, `@agentswf/lab/compare`;
+  the package's own is a paired t rule with planned looks, guards and tie-breakers.
 
 The inbox of possible stories is [`stories/todo/`](stories/todo/).
 
@@ -121,10 +125,10 @@ The inbox of possible stories is [`stories/todo/`](stories/todo/).
    ([story 005](stories/005-review-fixtures.md)), and so are the sandboxes to isolate them in
    ([story 004](stories/004-sandboxed-agents.md)), and every trial runs in one
    ([story 010](stories/010-eval-isolation.md)). In order:
-   [story 011](stories/011-compare-variants.md) (in progress, in thin slices: `report
-   --baseline` gives a verdict from a comparison the project can replace; still to come, several
-   trials per case, a `run` that stops on the verdict, and match first as the review scorer), and last
-   [`autoresearch-loop`](stories/todo/autoresearch-loop.md).
+   [story 011](stories/011-compare-variants.md) (still to come: several trials per case, a `run`
+   that stops on the verdict, `awf-lab check`, and match first as the review scorer), then
+   [`second-case-kind`](stories/todo/second-case-kind.md), so the loop is shown not to be
+   review's alone, and last [`autoresearch-loop`](stories/todo/autoresearch-loop.md).
 
 ## Known gaps
 

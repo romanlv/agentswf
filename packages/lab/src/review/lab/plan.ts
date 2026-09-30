@@ -68,7 +68,7 @@ const newestFirst = <T extends { at: string }>(a: T, b: T) =>
  * the workspace's sandbox. A run that never started (awf refused it, or no login) says nothing about
  * the variant, so it is run again rather than reused as a zero. A trial in no sandbox could have
  * read the key, and one in another provider's measured something else: both are run again. One
- * trial per case until variant-matrix-runner: this is trial 1.
+ * trial per case until story 011, task 4: this is trial 1.
  */
 export function currentTrial(state: CaseState): Stored | undefined {
   return started(state)

@@ -8,6 +8,7 @@ import {
   type ScorerSettings,
   type VariantSettings,
 } from "../format/variant";
+import { checkVersion } from "./version";
 
 const RESOLVE_HINT =
   "a file outside awf finds the package through a link: `bun link` in {awf}/packages/lab, " +
@@ -72,5 +73,7 @@ export async function loadComparison(file: string): Promise<Comparison> {
       `${file}: the default export is not a comparison; export pairedComparison({ … }) or defineComparison({ … }) from @agentswf/lab/compare`,
     );
   }
+  const bad = checkVersion(String(value.version));
+  if (bad) throw new Error(`${file}: ${bad}`);
   return value as Comparison;
 }

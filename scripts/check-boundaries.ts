@@ -99,6 +99,9 @@ function rules(root: string): Rule[] {
 const REVIEW = "packages/lab/src/review";
 /** How two variants' numbers become a verdict: below every review folder, and knows none of them. */
 const COMPARE = "packages/lab/src/compare";
+/** The review folders that turn records into numbers and verdicts; the formats stay ours alone. */
+const COMPARE_USERS = ["metrics", "lab"];
+const isTest = (target: string) => /\.test(\.ts)?$/.test(target);
 const REVIEW_LAYERS: Readonly<Record<string, readonly string[]>> = {
   format: [],
   fixtures: ["format"],
@@ -123,7 +126,7 @@ function reviewRules(root: string): Rule[] {
     .map((name) => ({
       dir: `${REVIEW}/${name}`,
       paths: (target: string) =>
-        containsPath(COMPARE, target) ||
+        (COMPARE_USERS.includes(name) && containsPath(COMPARE, target) && !isTest(target)) ||
         [name, ...REVIEW_LAYERS[name]!].some((layer) => containsPath(`${REVIEW}/${layer}`, target)),
     }));
 }
@@ -247,7 +250,14 @@ const RULES: Rule[] = [
     ],
   },
   // Serves any kind of case: imports nothing, not even contract, and reaches no runtime.
-  { dir: "packages/lab/src/compare", except: ["**/*.test.ts"], allow: [], pure: true },
+  {
+    dir: COMPARE,
+    except: ["**/*.test.ts"],
+    allow: [],
+    forbid: [{ pattern: /^[^./]/, reason: "compare imports nothing but itself" }],
+    pure: true,
+  },
+  { dir: COMPARE, files: "**/*.test.ts", allow: [] },
   // The format and the decisions about it stay pure; only the files named here do I/O.
   {
     dir: REVIEW,

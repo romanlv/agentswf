@@ -592,6 +592,11 @@
           "description": "The comparison that gave each verdict: its name and version.",
           "~optional": true
         },
+        "noVerdict": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Why this report gives no verdict, as when --where picked its cases."
+        },
         "cases": {
           "type": "array",
           "items": {

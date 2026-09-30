@@ -90,7 +90,7 @@ selection, the same on every command:
   --cases {n}|{id},…        n cases of a seeded order, or cases by id or glob
   --only {address},…        {case}, {case}/{trial}, {case}#{finding}; {variant}: before any
   --where {predicate}       ${PREDICATES}; repeated, all hold
-  --trials {n}              trials per case; 1 until variant-matrix-runner
+  --trials {n}              trials per case; 1 until story 011 brings several
   --scorer {name}           the scorer; the config gives the default; report and show take two
   --baseline {variant}      what report compares against, and --where lost reads
   --comparison {name}       what turns two variants' per-case numbers into a verdict: a
@@ -255,7 +255,7 @@ function parse(argv: readonly string[]): { command: string; names: string[]; opt
     throw new UsageError(`${command} is now ${RENAMED_COMMANDS[command]}`);
   }
   if ((options.trials ?? 1) > 1) {
-    throw new UsageError("more than one trial per case comes with variant-matrix-runner");
+    throw new UsageError("more than one trial per case comes with story 011, task 4");
   }
   return { command, names, options };
 }
@@ -395,7 +395,7 @@ async function selectedCases(workspace: Workspace, options: Options) {
     }
     if ((address.trial ?? 1) > 1) {
       throw new UsageError(
-        `${formatAddress(address)}: one trial per case until variant-matrix-runner, so only /1`,
+        `${formatAddress(address)}: one trial per case until story 011, task 4, so only /1`,
       );
     }
   }
@@ -716,13 +716,26 @@ async function runOrScore(
 
 /** A comparison as a command names it: a workspace's name, or a file anywhere. */
 async function comparisonOf(context: Context, text: string) {
-  const { name, file } = resolveFile(
-    context.workspace.comparisons,
-    text,
-    context.cwd,
-    "comparison",
+  const { name, file } = named(() =>
+    resolveFile(context.workspace.comparisons, text, context.cwd, "comparison"),
   );
   return { name, comparison: await loadComparison(file) };
+}
+
+/**
+ * Why a report over these cases can give no verdict, if it can't. A verdict counts towards looks
+ * at case counts of the dataset's seeded order, so only the first n of that order will do: cases
+ * picked by id, by address, or by their results would bias it, and a category filter changes
+ * what is compared.
+ */
+function whyNoVerdict(options: Options): string | undefined {
+  if (options.where.length > 0) return "--where picks cases by their results";
+  if (options.only) return "--only picks cases by hand";
+  if (options.cases !== undefined && !/^[0-9]+$/.test(options.cases)) {
+    return "--cases names cases; a verdict takes the first n of the seeded order, --cases {n}";
+  }
+  if (options.categories) return "--categories counts only some issues";
+  return undefined;
 }
 
 async function report(context: Context, names: readonly string[]): Promise<string> {
@@ -753,16 +766,23 @@ async function report(context: Context, names: readonly string[]): Promise<strin
       variants.push(named);
     }
   }
-  if (options.comparison && !baseline) throw new UsageError("--comparison needs a --baseline");
-  if (options.comparison && options.where.length > 0) {
-    throw new UsageError("--where picks cases by their results, so no verdict is given over them");
+  const noVerdict = whyNoVerdict(options);
+  if (options.comparison) {
+    if (scorers.length === 2) throw new UsageError("a verdict takes one --scorer");
+    if (!baseline) throw new UsageError("--comparison needs a --baseline");
+    if (noVerdict) throw new UsageError(`no verdict here: ${noVerdict}`);
   }
-  // Cases picked by their results would bias any verdict: a report --where gives none.
-  const comparison =
-    baseline && options.where.length === 0
-      ? await comparisonOf(context, options.comparison ?? workspace.config.comparison ?? "default")
-      : undefined;
   const { ids, entries } = await selectedCases(workspace, options);
+  const comparison =
+    baseline && !noVerdict
+      ? {
+          ...(await comparisonOf(
+            context,
+            options.comparison ?? workspace.config.comparison ?? "default",
+          )),
+          planned: entries.length,
+        }
+      : undefined;
   const cases = await readCases(workspace, dataset, ids);
   const reading = scorers[0]!;
   const chosenBy = new Map<Subject<VariantSettings>, Set<string>>();
@@ -808,6 +828,7 @@ async function report(context: Context, names: readonly string[]): Promise<strin
     scorers: scorers.map((s) => ({ ...refOf(s), key: s.key })),
     ...(baseline ? { baseline: baseline.label } : {}),
     ...(comparison ? { comparison } : {}),
+    ...(baseline && noVerdict ? { noVerdict } : {}),
     ...(options.categories ? { filter: { categories: options.categories } } : {}),
     where: options.where.map(describePredicate),
   });
@@ -831,7 +852,7 @@ async function show(context: Context, names: readonly string[]): Promise<string>
     throw new UsageError(`${address.case} is not in ${dataset}`);
   }
   if ((address.trial ?? 1) > 1) {
-    throw new UsageError(`${names[1]}: one trial per case until variant-matrix-runner, so only /1`);
+    throw new UsageError(`${names[1]}: one trial per case until story 011, task 4, so only /1`);
   }
   const [info] = await readCases(workspace, dataset, [address.case]);
   const scorers = [];
@@ -985,6 +1006,7 @@ async function list(
     }
     document[kind] = entries;
   }
+  if (!workspace.comparisons.has(workspace.config.comparison ?? "default")) broken = true;
   if (wanted.includes("comparisons")) {
     document.comparisons = [];
     for (const [name, file] of workspace.comparisons) {
@@ -1006,7 +1028,7 @@ async function list(
     `results   ${w.results}`,
     `runs      ${w.runs}`,
     `scorer    ${w.scorer}`,
-    `comparison ${w.comparison}`,
+    `compare   ${w.comparison}`,
     ...(w.baseline ? [`baseline  ${w.baseline}`] : []),
     ...(w.budget !== undefined ? [`budget    $${w.budget}`] : []),
   ];

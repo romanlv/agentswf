@@ -11,7 +11,8 @@ export type MetricSpec = {
 
 /**
  * One trial's numbers. `variant-failed` is a result, scored by each metric's `onVariantFailure`;
- * `missing` (never run, or its scorer failed) is left out.
+ * `missing` (never run, or its scorer failed) is left out. A comparison should treat any outcome
+ * it doesn't know as `missing`: failures may later be told apart by kind.
  */
 export type CaseScore = {
   case: string;
@@ -26,6 +27,7 @@ export type ComparedMetric = {
   name: string;
   /** Why the rule looked at it. */
   role: "primary" | "guard" | "tiebreak" | "reported";
+  /** Cases both variants have a value for; each case's value is the mean of its trials. */
   cases: number;
   baseline: number | null;
   challenger: number | null;
@@ -38,6 +40,10 @@ export type ComparedMetric = {
   lost: number;
 };
 
+/**
+ * What a comparison says about a challenger. `stop` says whether more cases could change it:
+ * `undecided` with `stop` means the plan ran out without an answer, as when too few cases differ.
+ */
 export type Verdict = {
   verdict: "better" | "worse" | "tie" | "undecided";
   /** Whether a run should spend no more on this pair. */
@@ -48,11 +54,15 @@ export type Verdict = {
 };
 
 export type ComparisonInput = {
+  /** Every trial so far, per variant, of the cases planned. */
   baseline: readonly CaseScore[];
   challenger: readonly CaseScore[];
   metrics: readonly MetricSpec[];
-  /** How many cases the selection holds, a count, so a rule can tell its last look. */
-  selected: number;
+  /**
+   * How many cases the plan runs in all, a count: the dataset's size, whose seeded order the
+   * cases come in. A rule's looks count towards it, and its last look is when all have run.
+   */
+  planned: number;
 };
 
 /** A comparison file's default export. */
@@ -67,8 +77,9 @@ export const COMPARISON_KIND = "awf.comparison/1";
 
 /** A comparison of your own: `compare` gets both variants' trials and returns the verdict. */
 export function defineComparison(options: {
-  version?: string;
+  /** In semver; bump it whenever the rule changes, as the report names it beside each verdict. */
+  version: string;
   compare(input: ComparisonInput): Verdict;
 }): Comparison {
-  return { kind: COMPARISON_KIND, version: options.version ?? "1.0.0", compare: options.compare };
+  return { kind: COMPARISON_KIND, version: options.version, compare: options.compare };
 }

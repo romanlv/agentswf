@@ -73,9 +73,11 @@ export function tCdf(t: number, df: number): number {
 
 /** The value below which Student's t with `df` degrees of freedom falls with probability `p`. */
 export function tQuantile(p: number, df: number): number {
-  let low = -1e3;
-  let high = 1e3;
-  for (let i = 0; i < 200 && high - low > 1e-10; i++) {
+  let low = -1;
+  let high = 1;
+  while (tCdf(low, df) > p) low *= 2;
+  while (tCdf(high, df) < p) high *= 2;
+  for (let i = 0; i < 200 && high - low > 1e-10 * Math.max(1, Math.abs(high)); i++) {
     const middle = (low + high) / 2;
     if (tCdf(middle, df) < p) low = middle;
     else high = middle;
@@ -97,10 +99,11 @@ export function obrienFleming(fractions: readonly number[], alpha: number): numb
   if (known !== undefined) return known;
   const step = 0.02;
   const crossing = (c: number) => {
-    // The density of S_k on a grid below c, having not crossed at any earlier look.
-    const low = -8;
+    // The density of S_k at cell midpoints below c, having not crossed at any earlier look. The
+    // cells hang from c, so the crossing probability moves smoothly with it and bisection can
+    // find c between grid points.
     const grid: number[] = [];
-    for (let s = low; s < c; s += step) grid.push(s);
+    for (let s = c - step / 2; s > -8; s -= step) grid.push(s);
     let density = grid.map((s) => normalDensity(s, fractions[0]!));
     for (let k = 1; k < fractions.length; k++) {
       const variance = fractions[k]! - fractions[k - 1]!;
