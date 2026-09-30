@@ -267,7 +267,7 @@ type Comparison = { kind: "awf.comparison/1"; version: string; compare(input: Co
 (task 6); a comparison reads any outcome it doesn't know as `missing`, so that isn't breaking.
 
 **What this publishes, and is costly to change later** (AGENTS.md: settle before building). What
-slice 1 publishes, for the user's review:
+slice 1 publishes, approved by the user on 2026-09-30:
 
 - `@agentswf/lab/compare`: the types above, `defineComparison`, `pairedComparison` and its
   `PairedOptions` (`primary`, `guards` and `tiebreak` as `{ metric, margin }`, `equivalence`,
@@ -323,6 +323,7 @@ Settled with the user on 2026-09-30.
    precision at −0.05; tie-breakers cost, then time. Slice 1 added, for the user to confirm: a
    tie-breaker decides only by more than a margin ($0.05, 30 s a case), and only when weighted
    recall is shown within ±0.05; "better" is claimed at 8 and 16 cases and at the dataset's end.
+   The user confirmed these on 2026-09-30.
 3. **Match first's voters are codex for now:** sol in codex and terra in pi, luna to break ties.
    Claude voters ([[judge-opus-voter]]) wait, as experiments run on codex.
 4. **One review scorer: match first. The panel retires.** The panel is story 008's scorer: two
@@ -605,8 +606,8 @@ Left for later slices: several trials per case (task 4), `run --baseline` and it
 - [x] Outcome and boundaries are concrete.
 - [x] Relevant implementation, callers, and tests are mapped.
 - [x] Evidence and research support the proposed design: research §1–8, experiment 1.
-- [ ] Expensive interface, record-format, and stage-gate decisions are settled: "What this
-  publishes" needs the user's review.
+- [x] Expensive interface, record-format, and stage-gate decisions are settled: "What this
+  publishes", approved 2026-09-30.
 - [ ] Tasks are ordered, coherent, and independently verifiable: task details not yet written.
 - [x] Open questions are resolved or explicitly moved out of scope: decisions 1–5.
 
