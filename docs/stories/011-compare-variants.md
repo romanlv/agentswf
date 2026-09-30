@@ -314,6 +314,41 @@ Built in this order: 2 and 3 (slice 1), 4, 5, 1, 6, 7, 8.
 - [x] 7. Live check on codex: a real challenger against the baseline
 - [x] 8. A futility stop, and `check` says what a tie can reach, from task 7's live check
 
+## Open questions
+
+For the human review, 2026-09-30. None blocks approval; each says what it decides.
+
+Task 1:
+
+- The data repository's `awf-lab.json` still names `"scorer": "panel"`, which is retired, so
+  `run` and `report` there fail until `--scorer match-first` is given. Switch it to `match-first`,
+  or drop the key for the default? A change in that repository, left to you, as another session has
+  work staged there.
+- When to measure how often a `noise` label Jev settled alone is wrong (decision 5)? It costs
+  precision, a guard. Listed as [later]; an audit with `check --rescore` is the cheap way.
+
+Task 7:
+
+- Extend the live run to all 33 cases (`--cases 33`, about $25 at list price, reusing the 16
+  done)? Under `default` 1.0.0 it ended `undecided`; under 1.1.0 the same records stop at the look
+  at 8, so extending now needs `--comparison` with the old settings, or is moot.
+- Keep `variants/one-codex-skill.variant.ts` in the data repository as a record of the run, or
+  delete it? Uncommitted there.
+
+Task 8:
+
+- The keep rule for equals: `minGain` equal to `equivalence` means a challenger equal on recall
+  stops before cost and time can decide, and some real losers stop `undecided`, not `worse`. Is
+  "not better, and cheaper or faster?" the rule the loop wants? Decides [[comparison-efficiency]]'s
+  design; nothing here changes until it is settled.
+- Is 0.05 the smallest gain in weighted recall worth having? It is `default`'s `minGain`, chosen to
+  equal the tie margin, not measured against what a gain is worth.
+
+The story:
+
+- Approve story 011, or ask for changes?
+- Push main? It is 22 commits ahead of origin, story 011's among them.
+
 ## Decisions
 
 Settled with the user on 2026-09-30.
