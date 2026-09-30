@@ -10,26 +10,23 @@ const ROOT = join(import.meta.dir, "..");
 const runDirs = createTempRunDirs();
 afterAll(() => runDirs.cleanup());
 
+// What triage does with its answers is tested beside it; this checks that `awf run` hands a
+// workflow the operator's decision models and prints what `present` makes of the result.
 describe("examples/triage", () => {
-  test("asks one decision per ticket, takes the confident answers and flags the rest", async () => {
-    const reply =
-      (yes: number, team: [number, number, number], urgency: [number, number, number]) =>
+  test("awf run asks the operator's decision model and prints what present makes of it", async () => {
+    const provider = createFakeDecisionProvider([
       async () => ({
         snapshot: "typesafe/jev-1.13-20260917",
         answers: {
           team: {
-            type: "choice" as const,
-            probabilities: { payments: team[0], accounts: team[1], frontend: team[2] },
+            type: "choice",
+            probabilities: { payments: 0.95, accounts: 0.03, frontend: 0.02 },
           },
-          bug: { type: "yes-no" as const, yes },
-          urgency: { type: "score" as const, probabilities: urgency },
+          bug: { type: "yes-no", yes: 0.97 },
+          urgency: { type: "score", probabilities: [0.1, 0.3, 0.6] },
         },
         tokens: { input: 400, output: 20 },
-      });
-    const provider = createFakeDecisionProvider([
-      reply(0.97, [0.95, 0.03, 0.02], [0.1, 0.3, 0.6]),
-      reply(0.05, [0, 0.02, 0.98], [0.92, 0.08, 0]),
-      reply(0.6, [0.4, 0.5, 0.1], [0.05, 0.9, 0.05]),
+      }),
     ]);
     const output: string[] = [];
     const exitCode = await runOperatorCli(
@@ -40,8 +37,6 @@ describe("examples/triage", () => {
         "examples/triage/workflow.ts",
         "--",
         "Checkout charges twice",
-        "Please add dark mode",
-        "Something about my account is off",
       ],
       {
         cwd: ROOT,
@@ -61,17 +56,9 @@ describe("examples/triage", () => {
       },
     );
     expect(exitCode).toBe(0);
-    expect(provider.requests.map((request) => request.state)).toEqual([
-      { ticket: "Checkout charges twice" },
-      { ticket: "Please add dark mode" },
-      { ticket: "Something about my account is off" },
-    ]);
-    expect(Object.keys(provider.requests[0]!.questions)).toEqual(["team", "bug", "urgency"]);
-    // A confident no is as good as a confident yes; only the middle is unsure.
-    expect(output.join("\n").split("\n").slice(0, 3)).toEqual([
+    expect(provider.requests.map((request) => request.model)).toEqual(["typesafe/jev-1.13"]);
+    expect(output.join("\n").split("\n")[0]).toBe(
       "payments bug     now       (unsure: urgency) Checkout charges twice",
-      "frontend request later     Please add dark mode",
-      "accounts bug     this week (unsure: team, bug) Something about my account is off",
-    ]);
+    );
   });
 });

@@ -40,7 +40,9 @@ import { type AgentSkills, findHarness, hostHome, skillsLayout } from "@agentswf
 import type {
   AgentRunHost,
   AgentRuntimeConfig,
+  AuthoredTurn,
   HarnessActivation,
+  HarnessAuthored,
   HarnessReleaseDisposition,
   HarnessSession,
   HarnessTurn,
@@ -1104,10 +1106,16 @@ class LogicalAgent implements AgentRef {
     try {
       scope?.assertActive();
       if (Date.now() >= operationDeadline.unixMilliseconds) return await finish("expired");
-      const turn: AgentTextTurnSpec = {
+      const authored: AuthoredTurn = {
+        prompt: spec.prompt,
+        ...(spec.label === undefined ? {} : { label: spec.label }),
+        ...(spec.schema === undefined ? {} : { schema: spec.schema }),
+      };
+      const turn: AgentTextTurnSpec & HarnessAuthored = {
         id: spec.id!,
         prompt: operationPrompt(spec.prompt, schema, this.options.launcher, operationId),
         deadline: operationDeadline,
+        authored,
       };
       const outputSchema = spec.schema;
       removeCanceller = scope?.add((reason) =>
@@ -1148,19 +1156,16 @@ class LogicalAgent implements AgentRef {
         nudge &&
         nudgeDeadline
       ) {
+        const nudgePrompt =
+          nudge.prompt ?? "You finished without reporting the requested result. Report it now.";
         try {
           const again = await this.attemptTurn(
             () =>
               held.turn!.nudge({
                 id: `${spec.id!}:nudge`,
-                prompt: operationPrompt(
-                  nudge.prompt ??
-                    "You finished without reporting the requested result. Report it now.",
-                  schema,
-                  this.options.launcher,
-                  operationId,
-                ),
+                prompt: operationPrompt(nudgePrompt, schema, this.options.launcher, operationId),
                 deadline: nudgeDeadline,
+                authored: { ...authored, prompt: nudgePrompt },
               }),
             nudgeDeadline,
             slot.settled,

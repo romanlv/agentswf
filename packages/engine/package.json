@@ -11,7 +11,8 @@
   },
   "exports": {
     ".": "./src/index.ts",
-    "./testing": "./src/testing.ts"
+    "./testing": "./src/testing.ts",
+    "./workflow-testing": "./src/workflow-testing/index.ts"
   },
   "dependencies": {
     "@agentswf/wf": "workspace:*",

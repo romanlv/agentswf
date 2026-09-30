@@ -1,5 +1,6 @@
 import { basename, join } from "node:path";
 import type { Billing } from "@agentswf/contract/records";
+import type { AgentPlacement } from "@agentswf/contract/workflow";
 import type { RunProcess } from "./command";
 import { jsonLines, type Row, record, reported, text } from "./json";
 import type { Harness } from "./types";
@@ -331,6 +332,15 @@ export function findHarness(harness: string): HarnessSpec | undefined {
 }
 
 export const HARNESS_NAMES = Object.keys(HARNESSES) as [Harness, ...Harness[]];
+
+/**
+ * The harnesses each placement's run host runs. A pane is claude or codex, the two whose startup
+ * screens are driven; a headless turn is any harness in the table.
+ */
+export const PLACEMENT_HARNESSES = {
+  pane: ["claude", "codex"],
+  headless: HARNESS_NAMES,
+} as const satisfies Record<AgentPlacement, readonly [Harness, ...Harness[]]>;
 
 export function knownHarness(value: string): Harness {
   if (findHarness(value)) return value as Harness;

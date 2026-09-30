@@ -20,6 +20,10 @@ workflow.sandboxes.open({ key, write?, read?, network?, srt? | docker? })       
 workflow.decisions.decide({ key, model: "jev", state, questions })              // → { answers } in ~200 ms
 
 workflow.log(message, fields?)   workflow.usage()   workflow.deadline   workflow.cwd   workflow.runId
+
+// In a test, from "agentswf/testing"; `awf test` runs it:
+testWorkflow(workflow, args, { agents?, decisions?, runtimes?, timeoutMs?, stallMs?, cwd? })  // → run
+answer(SCHEMA, value | (turn) => value)   answer("text")   reply.silent() | blocked() | failed() | timedOut() | hang()
 ```
 
 | Concept | In one line |
@@ -35,10 +39,11 @@ workflow.log(message, fields?)   workflow.usage()   workflow.deadline   workflow
 ## A workflow file
 
 ```ts
+// summarize.ts
 import { defineExecutableWorkflow, isAnswered } from "agentswf/workflow";
 import Type from "typebox";
 
-const SUMMARY = Type.Object({ summary: Type.String() }, { additionalProperties: false });
+export const SUMMARY = Type.Object({ summary: Type.String() }, { additionalProperties: false });
 
 export default defineExecutableWorkflow({
   definition: {
@@ -287,6 +292,231 @@ Costs aren't counted inside the run. After the run, `awf` prices every agent's t
 line per stage (stages come from key prefixes, as above). `output.json` keeps the tokens and the
 price table it used.
 
+## Testing a workflow
+
+A workflow's test sits beside it and runs it through the real engine. Each agent is replaced by a
+script: the answers you write for it, each typed by the schema its turn asks for. No agent
+starts, so a test takes milliseconds and costs nothing. It checks the workflow's own logic, its
+branches, loops and what it does with each outcome; how well real agents answer is what `awf-lab`
+measures.
+
+```ts
+// summarize.test.ts
+import { expect, test } from "bun:test";
+import { answer, reply, testWorkflow } from "agentswf/testing";
+import summarize, { SUMMARY } from "./summarize";
+
+test("returns the reader's summary", async () => {
+  const run = await testWorkflow(summarize, { file: "README.md" }, {
+    agents: { reader: answer(SUMMARY, { summary: "Two sentences." }) },
+  });
+  expect(run.value).toEqual({ summary: "Two sentences." });
+  expect(run.turnsOf("reader")[0].prompt).toContain("Read README.md");
+});
+
+test("a reader that never answers is nudged once, then the summary says why", async () => {
+  const run = await testWorkflow(summarize, { file: "README.md" }, {
+    agents: { reader: reply.silent() },
+  });
+  expect(run.value.summary).toStartWith("no answer:");
+  expect(run.turnsOf("reader").map((turn) => turn.nudge)).toEqual([false, true]);
+});
+```
+
+```sh
+awf test                               # every *.test.ts and *.spec.ts under here
+awf test summarize.test.ts -t nudged   # one file, the tests whose names match
+```
+
+`testWorkflow(workflow, args, options)` calls `run` with `args` as they are; `prepare` isn't
+called, so a test of it calls it itself. Its runtime aliases are `awf run`'s, `claude` and `codex`;
+`runtimes` adds others, or replaces one by name. `awf test` serves `agentswf/workflow`,
+`agentswf/testing` and `typebox` as `awf run` does, so the folder needs nothing installed. It
+takes paths, `-t`, `--watch` and `--timeout` for each test (5 s by default), and exits 0 when every
+test passed, 1 when one failed or none was found, 2 on a usage error. For editor types, the
+README's `tsconfig.json` maps `agentswf/testing` too.
+
+### Scripts
+
+`agents` maps an agent's key to its script. A key may be a pattern, where `*` matches anything:
+`"verifier:*"`. An exact key wins over a pattern; two patterns matching one key is a mistake the
+test reports.
+
+- **`answer(SCHEMA, value)`** answers a turn that asks for `SCHEMA`. The value is typed by the
+  schema, so a missing field, or a `kind` the schema's union doesn't list, doesn't compile.
+- **`answer(SCHEMA, (turn) => …)`** answers from the turn: `turn.n` (its number in that agent's
+  session), `turn.prompt`, `turn.agent`, `turn.cwd`. It may be `async`, and may return a reply.
+- **`answer("text")`**, with no schema, answers a turn that asks for text.
+- **`reply.silent()`, `blocked()`, `failed()`, `timedOut()`, `hang()`** end a turn without an
+  answer. `hang` holds the turn until the engine cancels it, as `parallel` does when another item
+  fails.
+
+A silent turn is nudged once, as a real one is. The nudge is met by the same entry, so `turnsOf`
+shows two records with the same `n`, the second with `nudge: true`; a function sees `turn.nudge`
+and can answer it.
+
+A script is one entry, which meets every turn that agent is asked, or a list, one entry per turn in
+order. A list is strict: a turn past its end, or an entry never reached, fails the test. A single
+entry may go unused, which makes it the right shape for a happy path shared by several tests:
+
+```ts
+// examples/feature-delivery/workflow.test.ts
+const args = {
+  ticket: "ABC-1",
+  runtimes: { planner: "claude", implementer: "codex", reviewer: "codex", additionalReviewers: [] },
+};
+const doc = "docs/ABC-1.md";
+const ready = (summary: string) => answer(VERDICT, { kind: "ready", summary });
+
+/** Every agent does its part at once: the doc is approved, then the code. */
+const happyPath: Record<string, Script> = {
+  planner: answer(WORK, { docPath: doc, summary: "plan", decisions: [] }),
+  reviewer: ready("ok"),
+  implementer: answer(WORK, { docPath: doc, summary: "built", decisions: ["LRU"] }),
+};
+```
+
+A test spreads it and overrides the agents its case is about with lists:
+
+```ts
+// examples/feature-delivery/workflow.test.ts
+const run = await testWorkflow(featureDelivery, args, {
+  agents: {
+    ...happyPath,
+    planner: [
+      answer(WORK, { docPath: doc, summary: "plan", decisions: [] }),
+      answer(WORK, { docPath: doc, summary: "plan v2", decisions: ["name the cache"] }),
+    ],
+    reviewer: [
+      answer(VERDICT, { kind: "changes-requested", feedback: ["name the cache"] }),
+      ready("doc ok"),
+      ready("code ok"),
+    ],
+  },
+});
+```
+
+A fan-out is scripted by pattern; `runtimes` adds the workflow's `cheap` and `judge`. Here `holds`
+is the test's own verifier answer, `answer(VERDICT_SCHEMA, { refuted: false, … })`, met by every verifier:
+
+```ts
+// examples/catalogue-review/workflow.test.ts
+const run = await testWorkflow(judged, judged.prepare({ argv: [], cwd: "/repo" }), {
+  runtimes: {
+    cheap: { harness: "codex", model: "cheap" },
+    judge: { harness: "codex", model: "judge" },
+  },
+  agents: {
+    "lens:database": answer(FINDINGS_SCHEMA, {
+      findings: [raw("observation", 1), raw("issue", 2)],
+    }),
+    "lens:deploys": answer(FINDINGS_SCHEMA, { findings: [raw("observation", 5)] }),
+    "verifier:*": holds,
+  },
+});
+```
+
+### Decisions
+
+`decisions` maps a decision's key, or a pattern, to its answers, one per question in the
+question's own terms: a choice's option or its probabilities, a score's level index or its
+probabilities, a yes-no's `true`, `false` or probability of yes. A returned `Error` fails the
+call, as a provider outage would.
+
+```ts
+// examples/triage/workflow.test.ts
+decisions: {
+  "triage:1": {
+    team: { payments: 0.95, accounts: 0.03, frontend: 0.02 },
+    bug: 0.97,
+    urgency: [0.1, 0.3, 0.6],
+  },
+  "triage:2": { team: "frontend", bug: 0.05, urgency: [0.92, 0.08, 0] },
+  "triage:3": {
+    team: { payments: 0.4, accounts: 0.5, frontend: 0.1 },
+    bug: 0.6,
+    urgency: [0.05, 0.9, 0.05],
+  },
+},
+```
+
+### What the run did
+
+- **`run.value`** is what the workflow returned. If it threw instead, reading `value` throws with
+  the workflow's error as the cause, so a test of a failure reads
+  `expect(() => run.value).toThrow("lens ids must be unique")`.
+- **`run.turnsOf(key)`** is one agent's turns in order, nudges included, each as the workflow
+  wrote it: `prompt`, `schema`, `label`, `n`, `nudge`, and its `outcome`. An agent never asked has
+  none: `expect(run.turnsOf("implementer")).toEqual([])`. **`run.turns`** has every agent's.
+- **`run.agentOf(key)`** is what an agent was opened with: `execution`, `instructions`,
+  `labels`, `skills`, and `sandbox`, absent for an agent on the host. **`run.agents`** lists them
+  all.
+- **`run.decisions`** and **`run.logs`** are each decision asked and each `workflow.log` line.
+
+An agent's `sandbox` is the sandbox as the run's record keeps it: its `key` (`agent:{key}` for an
+agent's own), its `provider`, its settings in `spec` (`read`, `write`, `network`, `cwd` and the
+provider's own, with paths absolute and links resolved), and `domains`, everything it can reach in
+the end, the harness's model included. So a test can check that each agent runs where it should,
+and can reach no more than it should:
+
+```ts
+// examples/sandboxes/workflow.test.ts
+const team = run.agentOf("ada").sandbox!;
+expect(team.spec).toMatchObject({ write: [team.spec.cwd], network: ["registry.npmjs.org"] });
+expect(team.domains).toContain("registry.npmjs.org");
+const auditor = run.agentOf("auditor").sandbox!;
+expect(auditor).toMatchObject({ key: "agent:auditor", provider: "srt" });
+expect(auditor.spec).toMatchObject({ read: [], write: [], network: [] });
+expect(auditor.domains).not.toContain("registry.npmjs.org");
+```
+
+The sandbox itself is a fake that confines nothing, so what a real provider enforces is for the
+sandbox evals (`bun run eval`) to show.
+
+Under `parallel`, what starts first is up to the scheduler, so read an agent's turns with
+`turnsOf` and an agent with `agentOf` rather than by index. To prove two agents work at once, let
+one's answer wait for the other's:
+
+```ts
+// examples/minimum-review/workflow.test.ts
+const { promise: maintained, resolve: maintainabilityAnswered } = Promise.withResolvers<void>();
+const run = await testWorkflow(minimumReview, args, {
+  agents: {
+    "reviewer:correctness": answer(reviewSchema("correctness"), async () => {
+      await maintained;
+      return { lens: "correctness", summary: "correctness review complete", findings: [nan] };
+    }),
+    "reviewer:maintainability": answer(reviewSchema("maintainability"), () => {
+      maintainabilityAnswered();
+      return {
+        lens: "maintainability",
+        summary: "maintainability review complete",
+        findings: [coupled],
+      };
+    }),
+  },
+});
+```
+
+Run one after the other, correctness would wait forever, and the test fails as stalled.
+
+### What fails the test, not the workflow
+
+- an agent or a decision with no script;
+- a turn past a list's end, or a list entry never reached;
+- an answer for a schema other than the turn's, or one the schema refuses;
+- a decision's answer its question can't take, or that is no distribution;
+- a script that throws;
+- a stall: nothing starting or ending for 2 s (`stallMs`), which names the turns in flight, so a
+  stuck test fails rather than hangs.
+
+Each message names the agent or decision and the turn, and usually the first line of the turn's
+prompt.
+
+Deadlines are real time. `reply.timedOut()` ends a turn as timed out at once; `testWorkflow`'s
+own `timeoutMs` sets the run's deadline, 30 minutes by default. Testing what a workflow does as
+time passes needs virtual time, which isn't built.
+
 ## Not built yet
 
 These calls are in the types and throw `unavailable` today: `agents.attach` and `agents.stop`,
@@ -300,5 +530,7 @@ workflow calling another). [`docs/status.md`](status.md) says what's next.
 - [`examples/minimum-review`](../examples/minimum-review): fan out, verify and loop.
 - [`examples/sandboxes`](../examples/sandboxes): shared and private sandboxes, skills.
 - [`examples/triage`](../examples/triage): decisions with thresholds.
+- [`examples/feature-delivery/workflow.test.ts`](../examples/feature-delivery/workflow.test.ts):
+  a workflow's tests, review loops and fan-out included.
 - [`packages/contract/src/workflow`](../packages/contract/src/workflow): the types themselves, with
   every field documented.

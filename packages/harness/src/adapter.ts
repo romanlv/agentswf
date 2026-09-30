@@ -9,6 +9,7 @@ import type {
   JsonObject,
   JsonValue,
   NudgeOptions,
+  OutputSchema,
   RuntimeAliases,
   TurnId,
 } from "@agentswf/contract/workflow";
@@ -31,7 +32,24 @@ export interface HarnessSessionStatus {
   detail?: string;
 }
 
-export interface HarnessNudgeSpec extends NudgeOptions {
+/**
+ * The turn as the workflow wrote it, beside the prompt the engine wraps for delivery. A production
+ * adapter delivers the wrapped prompt and never reads this; a host that answers as the agent, as a
+ * workflow's test does, reads it instead of parsing the wrapped prompt apart.
+ */
+export interface HarnessAuthored {
+  authored?: AuthoredTurn;
+}
+
+/** A turn as the workflow wrote it. A nudge has its own prompt and its turn's label and schema. */
+export type AuthoredTurn = {
+  prompt: string;
+  label?: string;
+  schema?: OutputSchema<JsonValue>;
+};
+
+/** `prompt` is the wrapped prompt the agent is sent. */
+export interface HarnessNudgeSpec extends NudgeOptions, HarnessAuthored {
   id: TurnId;
 }
 
@@ -97,9 +115,13 @@ export type HarnessReleaseOptions = {
 
 export interface HarnessSession {
   status(): Promise<HarnessSessionStatus>;
-  start(turn: AgentTextTurnSpec, binding: HarnessOperationBinding): Promise<HarnessTurn>;
+  /** `turn.prompt` is the wrapped prompt the agent is sent. */
+  start(
+    turn: AgentTextTurnSpec & HarnessAuthored,
+    binding: HarnessOperationBinding,
+  ): Promise<HarnessTurn>;
   start<T extends JsonValue>(
-    turn: AgentStructuredTurnSpec<T>,
+    turn: AgentStructuredTurnSpec<T> & HarnessAuthored,
     binding: HarnessOperationBinding,
   ): Promise<HarnessTurn>;
   compact(id: CompactionId, prompt: string, deadline: AbsoluteDeadline): Promise<HarnessTurn>;

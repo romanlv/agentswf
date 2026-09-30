@@ -190,8 +190,23 @@ const RULES: Rule[] = [
   // Only the composition root installs a provider; the rest of the engine sees the seam.
   {
     dir: "packages/engine",
-    except: ["src/operator-runtime.ts", "**/*.test.ts"],
+    except: ["src/operator-runtime.ts", "src/workflow-testing/**", "**/*.test.ts"],
     forbid: [providerImport("only operator-runtime.ts imports a sandbox provider")],
+  },
+  // A workflow's test runs on the second composition root (ADR 0006): it installs the fakes where
+  // operator-runtime.ts installs providers. It runs under any test runner, so never imports one.
+  {
+    dir: "packages/engine/src/workflow-testing",
+    except: ["**/*.test.ts"],
+    forbid: [
+      // `testing` itself would bring the conformance suite, which imports `bun:test`.
+      providerImport(
+        "a workflow's test installs the fake sandbox provider, by its own path, never a real one",
+        "testing/fake",
+      ),
+      { pattern: /^bun:test$/, reason: "a workflow's test helper imports no test runner" },
+    ],
+    paths: (target) => containsPath("packages/engine/src", target),
   },
   {
     dir: "packages/engine",
@@ -285,6 +300,7 @@ const RULES: Rule[] = [
   },
   {
     dir: "examples",
+    except: ["**/*.test.ts"],
     allow: ["@agentswf/contract/workflow"],
     forbid: [
       {
@@ -293,6 +309,19 @@ const RULES: Rule[] = [
       },
     ],
     pure: true,
+  },
+  // A workflow's test is written against the testing surface, as an author outside the repository
+  // writes one; it may read and write files, as its fakes do.
+  {
+    dir: "examples",
+    files: "**/*.test.ts",
+    allow: ["@agentswf/contract/workflow", "@agentswf/engine/workflow-testing"],
+    forbid: [
+      {
+        pattern: /^@agentswf\/(harness|engine(?!\/workflow-testing$))/,
+        reason: "a workflow's test uses the testing surface, never the engine or a harness",
+      },
+    ],
   },
 ];
 
@@ -340,14 +369,14 @@ export async function boundaryProblems(root: string): Promise<string[]> {
           continue;
         }
         if (spec.startsWith(".") || spec.startsWith("/") || spec.startsWith("file:")) continue;
-        if (spec === "bun:test") continue;
-        if (rule.pure && RUNTIME_BUILTIN.test(spec)) {
-          problems.push(`${where}: imports ${spec} — ${rule.dir} is pure: no runtime builtins`);
-          continue;
-        }
         const forbidden = rule.forbid?.find((f) => f.pattern.test(spec));
         if (forbidden) {
           problems.push(`${where}: imports ${spec} — ${forbidden.reason}`);
+          continue;
+        }
+        if (spec === "bun:test") continue;
+        if (rule.pure && RUNTIME_BUILTIN.test(spec)) {
+          problems.push(`${where}: imports ${spec} — ${rule.dir} is pure: no runtime builtins`);
           continue;
         }
         if (spec === "bun" || !spec.startsWith("@agentswf/")) continue;

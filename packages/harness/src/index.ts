@@ -5,6 +5,7 @@ export { createHerdrRunHostFactory } from "./adapters/herdr";
 export * from "./capabilities/skills";
 export * from "./command";
 export { createPlacementHostFactory } from "./placement-host";
+export { headlessRefusal } from "./refusals";
 export { hostHome, sandboxNeeds } from "./sandbox-needs";
 export { createSingleSessionHostFactory } from "./single-session-host";
 export * from "./spec";

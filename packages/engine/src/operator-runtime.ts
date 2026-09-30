@@ -19,6 +19,7 @@ import { createSrtProvider, findSrt } from "@agentswf/sandbox/srt";
 import { createOpenRouterProvider } from "./decisions/openrouter";
 import type { DecisionInstallation } from "./decisions/seam";
 import { messageOf } from "./errors";
+import { OPERATOR_ALIASES } from "./operator-aliases";
 
 export type OperatorRuntimeInstallation = {
   config: AgentRuntimeConfig;
@@ -71,16 +72,7 @@ export async function installOperatorRuntime(
   });
   return {
     config: {
-      aliases: {
-        claude: {
-          harness: "claude",
-          model: "sonnet",
-        },
-        codex: {
-          harness: "codex",
-          model: "gpt-5.6-sol",
-        },
-      },
+      aliases: OPERATOR_ALIASES,
       host,
     },
     sandboxes: await installSandboxes(environment),

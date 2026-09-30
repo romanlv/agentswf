@@ -74,6 +74,7 @@ describe("decisions.decide", () => {
       expected: expect.closeTo(1.6, 10),
     });
     expect(provider.requests[0]).toEqual({
+      key: "triage:1",
       model: "typesafe/jev-1.13",
       state: { ticket: "Checkout double-charges on retry" },
       questions: TRIAGE,
@@ -154,7 +155,12 @@ describe("decisions.decide", () => {
     expect(digestOf({ ...TRIAGE, team: reordered })).not.toBe(digestOf(TRIAGE));
   });
 
-  const answered = confidentResponse({ model: "m", state: "", questions: TRIAGE }).answers;
+  const answered = confidentResponse({
+    key: "k",
+    model: "m",
+    state: "",
+    questions: TRIAGE,
+  }).answers;
   test.each([
     [
       "a question left unanswered",
@@ -203,7 +209,7 @@ describe("decisions.decide", () => {
     "%s rejects, and is recorded as failed with what it spent",
     async (_name, answers, message) => {
       const provider = createFakeDecisionProvider([
-        { ...confidentResponse({ model: "m", state: "", questions: TRIAGE }), answers },
+        { ...confidentResponse({ key: "k", model: "m", state: "", questions: TRIAGE }), answers },
       ]);
       const failure = await run(provider, runDirs.tempRunDir(), async (context) => {
         await context.decisions.decide({

@@ -23,6 +23,10 @@ engine use the one-shot `runWorkflow` boundary in `workflow-runner.ts`.
 retries, artifacts and records; a provider (`seam.ts`) only sends one request and translates it.
 Only `operator-runtime.ts` installs a real provider; `fake.ts` is for tests.
 
+`src/workflow-testing/` is the second composition root (ADR 0006): `testWorkflow` runs a workflow
+through the real engine on a scripted host, the fake sandbox provider and a scripted decision
+provider. It ships as `@agentswf/engine/workflow-testing`, so it imports no test runner.
+
 The runner owns one run and then disappears. Its logical agents serialize native operations, and
 its parallel scopes own activation, turns, and nested scopes until settlement. If an engine deadline
 cannot prove a native turn quiesced, that logical agent is terminalized before its queue advances.

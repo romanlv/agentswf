@@ -13,3 +13,5 @@ One file per decision: what was decided, what it replaces, and what evidence mov
 - [0004](0004-skills-are-copied-per-agent.md) — skills are sources a workflow names, copied to
   each agent
 - [0005](0005-published-as-agentswf.md) — published as agents.wf, the package `agentswf`
+- [0006](0006-workflow-tests-run-on-a-second-composition-root.md) — a workflow's tests run on
+  a second composition root

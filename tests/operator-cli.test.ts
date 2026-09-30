@@ -18,6 +18,7 @@ import type { SessionAccounting } from "../packages/harness/src/usage/accounting
 import { createFakeSandboxProvider } from "../packages/sandbox/src/testing/fake";
 
 const ROOT = join(import.meta.dir, "..");
+const CLI = join(ROOT, "packages/engine/src/operator-cli.ts");
 const runDirs = createTempRunDirs();
 afterAll(() => runDirs.cleanup());
 
@@ -1080,3 +1081,136 @@ function spentFromFiles(): SessionAccounting {
     },
   };
 }
+
+describe("awf test", () => {
+  // A workflow and its tests in a folder outside the repository, with nothing installed there.
+  const folder = async () => {
+    const dir = runDirs.tempRunDir();
+    await Bun.write(
+      join(dir, "summarize.ts"),
+      `import { defineExecutableWorkflow, isAnswered } from "agentswf/workflow";
+import Type from "typebox";
+
+export const SUMMARY = Type.Object({ summary: Type.String() }, { additionalProperties: false });
+
+export default defineExecutableWorkflow<{ file: string }, string>({
+  definition: {
+    meta: { name: "summarize", description: "Summarize a file.", whenToUse: "In tests." },
+    async run(workflow, { file }) {
+      const agent = await workflow.agents.open({ key: "writer", runtime: "claude" });
+      const { outcome } = await agent.run({ prompt: \`Summarize \${file}.\`, schema: SUMMARY });
+      if (!isAnswered(outcome)) throw new Error(outcome.kind);
+      return outcome.value.summary;
+    },
+  },
+  prepare: ({ argv }) => ({ file: argv[0] ?? "README.md" }),
+});
+`,
+    );
+    await Bun.write(
+      join(dir, "summarize.test.ts"),
+      `import { expect, test } from "bun:test";
+import { answer, testWorkflow } from "agentswf/testing";
+import summarize, { SUMMARY } from "./summarize";
+
+test("returns the writer's summary", async () => {
+  const run = await testWorkflow(summarize, { file: "a.md" }, {
+    agents: { writer: answer(SUMMARY, { summary: "short" }) },
+  });
+  expect(run.value).toBe("short");
+});
+
+test("a summary that is not the writer's fails", async () => {
+  const run = await testWorkflow(summarize, { file: "a.md" }, {
+    agents: { writer: answer(SUMMARY, { summary: "long" }) },
+  });
+  expect(run.value).toBe("short");
+});
+`,
+    );
+    return dir;
+  };
+  const awfTest = async (cwd: string, ...argv: string[]) => {
+    const output: string[] = [];
+    const exitCode = await runOperatorCli(["test", ...argv], {
+      cwd,
+      stdout: (text) => output.push(text),
+      stderr: (text) => output.push(text),
+    });
+    return { exitCode, output: output.join("\n") };
+  };
+
+  test("runs a workflow's tests in any folder, failing as bun test fails, installing nothing", async () => {
+    const dir = await folder();
+    const all = await awfTest(dir);
+    expect(all.exitCode).toBe(1);
+    expect(all.output).toContain("1 pass");
+    expect(all.output).toContain("1 fail");
+    expect(all.output).toContain("(fail) a summary that is not the writer's fails");
+
+    const passing = await awfTest(dir, "-t", "returns", "--timeout", "10s");
+    expect(passing.exitCode).toBe(0);
+    expect(passing.output).toContain("1 pass");
+    expect(readdirSync(dir).toSorted()).toEqual(["summarize.test.ts", "summarize.ts"]);
+    expect(existsSync(join(dir, "node_modules"))).toBe(false);
+  });
+
+  test("a path is a file or directory, never a filter; one that doesn't exist is refused", async () => {
+    const dir = runDirs.tempRunDir();
+    for (const sub of ["a", "ab"]) {
+      await Bun.write(
+        join(dir, sub, "one.test.ts"),
+        `import { test } from "bun:test";\ntest("${sub}", () => {});\n`,
+      );
+    }
+    const onlyA = await awfTest(dir, "a");
+    expect(onlyA.exitCode).toBe(0);
+    expect(onlyA.output).toContain("Ran 1 test across 1 file");
+    const missing = await awfTest(dir, "b");
+    expect(missing.exitCode).toBe(2);
+    expect(missing.output).toContain("no such file or directory: b");
+  });
+
+  test("--help prints the usage", async () => {
+    const help = await awfTest(runDirs.tempRunDir(), "--help");
+    expect(help.exitCode).toBe(0);
+    expect(help.output).toStartWith("usage: awf test");
+  });
+
+  test("as a command, it exits with the tests' code and leaves their output to the terminal", async () => {
+    const dir = await folder();
+    const child = Bun.spawn([CLI, "test"], { cwd: dir, stdout: "pipe", stderr: "pipe" });
+    const [code, err] = await Promise.all([child.exited, new Response(child.stderr).text()]);
+    expect(code).toBe(1);
+    expect(err).toContain("1 fail");
+  });
+
+  test("a signal to awf alone stops the tests, and leaves no test process behind", async () => {
+    const dir = runDirs.tempRunDir();
+    await Bun.write(
+      join(dir, "slow.test.ts"),
+      `import { test } from "bun:test";\ntest("slow", async () => { await Bun.sleep(20_000); }, 30_000);\n`,
+    );
+    const awf = Bun.spawn([CLI, "test"], { cwd: dir, stdout: "ignore", stderr: "ignore" });
+    let tests: number | undefined;
+    for (let tries = 0; tests === undefined && tries < 100; tries += 1) {
+      await Bun.sleep(50);
+      const listed = Bun.spawnSync(["pgrep", "-P", String(awf.pid)])
+        .stdout.toString()
+        .trim();
+      if (listed) tests = Number(listed.split("\n")[0]);
+    }
+    expect(tests).toBeDefined();
+    awf.kill("SIGINT");
+    expect(await awf.exited).toBe(130);
+    expect(() => process.kill(tests!, 0)).toThrow();
+  });
+
+  test("passes on only its own flags", async () => {
+    const refused = await awfTest(runDirs.tempRunDir(), "--coverage");
+    expect(refused.exitCode).toBe(2);
+    expect(refused.output).toContain("unknown option: --coverage");
+    expect(refused.output).toContain("usage: awf test");
+    expect((await awfTest(runDirs.tempRunDir(), "-t")).output).toContain("-t needs a pattern");
+  });
+});

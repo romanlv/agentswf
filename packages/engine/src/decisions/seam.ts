@@ -11,6 +11,8 @@ export type ProviderAnswer =
   | { type: "yes-no"; yes: number };
 
 export type ProviderRequest = {
+  /** The call's key, as the workflow named it. */
+  key: string;
   model: string;
   state: string | JsonObject | JsonValue[];
   questions: Record<string, Question>;

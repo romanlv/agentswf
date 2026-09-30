@@ -27,6 +27,10 @@ exists, the code is right, then this page.
   - `examples/minimum-review/review-loop.ts`, two reviewers in parallel (story 001);
   - catalogue review, 21 codex agents over lenses with a verifier per finding, from an entry point
     outside this repository (see [`examples/README.md`](../examples/README.md)).
+- `awf test` runs a workflow's tests, in any folder, with nothing installed there (story 012):
+  `testWorkflow` from `agentswf/testing` runs the workflow through the real engine with each agent
+  and decision model scripted, typed by the schema each turn asks for. Seven examples have theirs
+  beside them.
 - `examples/quick-check` asks each named harness a known-answer question, with a follow-up in the
   same session for headless agents. It is the cheap smoke test for a harness and its accounting.
 - A workflow opens sandboxes and puts agents in them, shared or private, with
@@ -119,6 +123,12 @@ The gates are defined in [`foundation.md`](foundation.md) §12.
   a change from noise; match first (`match-first`) is the review scorer and the panel retires.
   Awaiting human review. Its live check, a public review skill added to the codex baseline, was
   undecided at 16 cases: recall −0.01 [−0.08, +0.06], 36 s a case slower.
+- [012 — workflow tests](stories/012-workflow-tests.md): done, approved 2026-09-30. A workflow's
+  test beside it scripts each agent's and decision's answers, typed by the turn's schema (`answer`,
+  `reply`), and runs the real engine against them: `testWorkflow` in
+  `@agentswf/engine/workflow-testing`, served to authors as `agentswf/testing`, on a second
+  composition root (ADR 0006); seven examples tested beside them; `awf test` runs them in any
+  folder.
 
 The inbox of possible stories is [`stories/todo/`](stories/todo/).
 

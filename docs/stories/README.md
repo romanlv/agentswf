@@ -72,7 +72,7 @@ status is one of `todo`, `draft`, `ready`, `in-progress`, `blocked`, `awaiting-h
   uncertainty, by a comparison the project can replace; runs several trials a case, runs until the
   verdict stops it, checks a dataset's resolution, and scores with match first.
 - [`012` — Test a workflow's own logic next to it, with no agents](012-workflow-tests.md) —
-  `draft` — an author scripts what each agent and decision model answers in `workflow.test.ts`
+  `done` — an author scripts what each agent and decision model answers in `workflow.test.ts`
   beside the workflow, typed by the schema each turn asks for, and checks what it did, through the
   real engine and for free.
 

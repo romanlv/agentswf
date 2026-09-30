@@ -160,7 +160,8 @@ function instructionFor(lens: ReviewLens): string {
   return `${lensInstruction} Perform the review yourself. Do not delegate, launch subagents, or create background agents.`;
 }
 
-function reviewSchema(lens: ReviewLens) {
+/** What each lens is asked for: a review that names that lens alone. */
+export function reviewSchema(lens: ReviewLens) {
   return outputSchema(
     Type.Object(
       {

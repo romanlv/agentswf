@@ -118,7 +118,8 @@ Each example that spans more than one file has a folder of its own, with its wor
   A lens with `paths` globs runs only when the diff touches a match, given the changed files by
   the entry point. It prints a line per finding to act on, and writes `report.md` with the
   evidence, the verifier's reasons and what was refuted, to hand back to the implementer.
-- `feature-delivery/` is a typechecked design for planning, implementation, review, and revision.
+- `feature-delivery/` plans, implements, reviews and revises a feature. Its logic is tested; it
+  has never run with live agents.
 - `single-agent-review/` is one agent reviewing `--range` in one turn, with a pinned public
   review skill (`--skill owner/repo/skill@ref`) or none: the baseline richer review workflows are
   scored against with `awf-lab` (story 008).
@@ -132,6 +133,12 @@ Each example that spans more than one file has a folder of its own, with its wor
 - `skills-probe/` gives agents one of two probe skills and checks each found and ran its own. It
   is the apparatus of `tests/skills.eval.ts`, not something to run by hand.
 - `output-schema/` is the TypeBox-to-output-schema helper the workflows share, with its type tests.
+
+Each workflow's logic is tested beside it, in `workflow.test.ts`: every agent's answers scripted,
+through the real engine, for free. `bun test examples` runs them all, or one folder's with its
+path, `bun test examples/feature-delivery`; outside this repository, `awf test` does the same.
+`quick-check` and `sandbox-probe` have none, as they exist to watch real agents.
+[The workflow API](../docs/workflow-api.md#testing-a-workflow) says how to write one.
 
 Only `minimum-review/review-loop.ts`, `quick-check/workflow.ts`, `sandboxes/workflow.ts`,
 `sandbox-probe/workflow.ts`, `skills-probe/workflow.ts`, `triage/workflow.ts` and

@@ -10,6 +10,7 @@ import type {
   AgentSessionAdapter,
   AgentState,
   HarnessAgentSnapshot,
+  HarnessAuthored,
   HarnessOperationBinding,
   HarnessSession,
   HarnessSessionStatus,
@@ -156,7 +157,7 @@ function observeSession(
       return status;
     },
     start: ((
-      turn: AgentTextTurnSpec | AgentStructuredTurnSpec<JsonValue>,
+      turn: (AgentTextTurnSpec | AgentStructuredTurnSpec<JsonValue>) & HarnessAuthored,
       binding: HarnessOperationBinding,
     ) =>
       begin(() =>

@@ -33,108 +33,9 @@ const minimumReview = createMinimumReview({
   maintainability: "maintainability",
 });
 
+// What the review does with its answers is tested beside it, in examples/minimum-review; these
+// check what the engine does for it.
 describe("minimum two-agent review", () => {
-  test("runs both lenses concurrently and composes accepted results in input order", async () => {
-    let started = 0;
-    let bothInFlight = false;
-    const acceptanceOrder: ReviewLens[] = [];
-    let release!: () => void;
-    const bothStarted = new Promise<void>((resolve) => {
-      release = resolve;
-    });
-    let releaseCorrectness!: () => void;
-    const maintainabilityAccepted = new Promise<void>((resolve) => {
-      releaseCorrectness = resolve;
-    });
-    const adapter = createFakeAdapter({
-      script: (context) => ({
-        act: async () => {
-          started += 1;
-          if (started === 2) {
-            bothInFlight = adapter.turns.length === 2;
-            release();
-          }
-          await bothStarted;
-          const lens = lensOf(context);
-          if (lens === "maintainability") {
-            await submit(context.binding!, accepted(lens, lens));
-            acceptanceOrder.push(lens);
-            releaseCorrectness();
-            return;
-          }
-          await maintainabilityAccepted;
-          await Bun.sleep(10);
-          await submit(context.binding!, accepted(lens, lens));
-          acceptanceOrder.push(lens);
-        },
-      }),
-    });
-
-    const result = await runWorkflow(minimumReview, args(), {
-      runRoot: tempRunDir(),
-      runtime: runtime(adapter),
-      deadline: future(),
-      cwd: "/repo",
-    });
-
-    expect(bothInFlight).toBe(true);
-    expect(acceptanceOrder).toEqual(["maintainability", "correctness"]);
-    expect(result.value.reviews).toEqual([
-      { kind: "completed", ...accepted("correctness", "correctness") },
-      { kind: "completed", ...accepted("maintainability", "maintainability") },
-    ]);
-    expect(result.value.blockingFindingCount).toBe(1);
-    expect(result.usage.map(({ agent }) => agent).sort()).toEqual([
-      "reviewer:correctness",
-      "reviewer:maintainability",
-    ]);
-    expect(new Set(result.usage.map(({ operationId }) => operationId)).size).toBe(2);
-    expect(adapter.activations.map((activation) => activation.key).sort()).toEqual([
-      "reviewer:correctness",
-      "reviewer:maintainability",
-    ]);
-    expect(
-      adapter.activations.every((activation) =>
-        activation.instructions?.includes("Do not delegate, launch subagents"),
-      ),
-    ).toBe(true);
-    expect(adapter.closed.sort()).toEqual(["reviewer:correctness", "reviewer:maintainability"]);
-  });
-
-  test("a silent lens is explicit and contributes no successful data", async () => {
-    const adapter = createFakeAdapter({
-      script: (context) =>
-        lensOf(context) === "maintainability"
-          ? {
-              act: async () => {
-                await submit(context.binding!, accepted("maintainability", "maintainability"));
-              },
-            }
-          : {},
-    });
-
-    const result = await runWorkflow(minimumReview, args(), {
-      runRoot: tempRunDir(),
-      runtime: runtime(adapter),
-      deadline: future(),
-      cwd: "/repo",
-    });
-
-    expect(result.value.reviews[0]).toMatchObject({
-      kind: "incomplete",
-      lens: "correctness",
-      outcome: "unanswered",
-    });
-    expect(result.value.reviews[1]).toMatchObject({
-      kind: "completed",
-      lens: "maintainability",
-    });
-    expect(result.value.blockingFindingCount).toBe(0);
-    expect(
-      adapter.turns.filter((turn) => lensOf(turn) === "correctness").map((turn) => turn.kind),
-    ).toEqual(["turn", "nudge"]);
-  });
-
   test("the initial turn has its own bound while nudge retains the workflow deadline", async () => {
     const firstTurnMs = 60_000;
     const workflowDeadline = future(10 * 60_000);
@@ -242,44 +143,6 @@ describe("minimum two-agent review", () => {
       outcome: "unanswered",
     });
     expect(result.value.blockingFindingCount).toBe(0);
-  });
-
-  test("each incomplete lens keeps its own outcome and reason", async () => {
-    for (const pair of [
-      ["timed-out", "blocked"],
-      ["failed", "cancelled"],
-    ] as const) {
-      const [first, second] = pair;
-      const adapter = createFakeAdapter({
-        script: (context) =>
-          lensOf(context) === "correctness"
-            ? { state: first, detail: `correctness went ${first}` }
-            : { state: second, detail: `maintainability went ${second}` },
-      });
-
-      const result = await runWorkflow(minimumReview, args(), {
-        runRoot: tempRunDir(),
-        runtime: runtime(adapter),
-        deadline: future(),
-        cwd: "/repo",
-      });
-
-      expect(result.value.reviews).toEqual([
-        {
-          kind: "incomplete",
-          lens: "correctness",
-          outcome: first,
-          reason: `correctness went ${first}`,
-        },
-        {
-          kind: "incomplete",
-          lens: "maintainability",
-          outcome: second,
-          reason: `maintainability went ${second}`,
-        },
-      ]);
-      expect(result.value.blockingFindingCount).toBe(0);
-    }
   });
 });
 

@@ -49,7 +49,7 @@ const PLAN = Type.Object({
 
 export type SkillsPlan = Type.Static<typeof PLAN>;
 
-const REPORT = outputSchema(
+export const REPORT = outputSchema(
   Type.Object(
     {
       stamp: Type.String({ description: "The build's release stamp, or empty." }),

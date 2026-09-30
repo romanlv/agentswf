@@ -291,17 +291,20 @@ Also carries the operator CLI as a `bin` until that grows enough to move to `app
 `@agentswf/sandbox/docker` are the providers; `@agentswf/sandbox/testing` is the conformance suite and a fake.
 It imports `contract` only. harness launches through the seam's types, the engine opens sandboxes
 through it, and only the composition root, `engine/src/operator-runtime.ts`, imports a provider.
-Tests in harness and engine may use `@agentswf/sandbox/testing`.
+Tests in harness and engine may use `@agentswf/sandbox/testing`; the second composition root,
+`engine/src/workflow-testing/`, which runs a workflow's tests on fakes, uses its fake alone,
+`@agentswf/sandbox/testing/fake` (ADR 0006).
 
 ### Dependency graph
 
 ```
 sandbox       → contract
 harness       → contract, sandbox
-engine        → contract, sandbox, harness    (a provider: operator-runtime.ts only)
+engine        → contract, sandbox, harness    (a provider: operator-runtime.ts only;
+                                               the fakes: workflow-testing/ and tests)
 wf            → contract
 lab           → contract            (runs `awf run`)
-examples/     → contract/workflow
+examples/     → contract/workflow   (their tests: engine/workflow-testing too)
 scripts/*     → any
 ```
 
@@ -316,11 +319,15 @@ are checked by `scripts/check-boundaries.ts`, which `bun run check` runs:
 3. `wf` imports `contract` only, and reaches the engine over the wire, never by linking.
 4. `sandbox` imports `contract` only. harness and engine import its seam, `@agentswf/sandbox`, and their
    tests `@agentswf/sandbox/testing`; only `engine/src/operator-runtime.ts` imports a provider, and no
-   provider imports another.
+   provider imports another. `engine/src/workflow-testing/`, the composition root a workflow's
+   tests run on, imports the fakes (`@agentswf/harness/testing`, `@agentswf/sandbox/testing/fake`)
+   and no test runner (ADR 0006).
 5. `lab` imports `contract` only, and runs workflows through `awf run`, never by linking the
    engine or a harness; its review format stays pure outside the files that do I/O.
 6. `examples/` and any future workflow import `@agentswf/contract/workflow` plus approved pure schema
-   authoring libraries — never the engine or a harness.
+   authoring libraries — never the engine or a harness. A workflow's test beside it imports the
+   testing surface, `@agentswf/engine/workflow-testing` (`agentswf/testing` outside the
+   repository), and may use runtime built-ins; never the rest of the engine or a harness.
 
 A seventh rule falls out of the same check: a cross-package import has to be a declared dependency
 in that package's `package.json`, not merely a symlink that happens to resolve.

@@ -60,6 +60,7 @@ function replying(status: number, body: unknown, seen: Request[] = []) {
 }
 
 const request = {
+  key: "triage",
   model: "typesafe/jev-1.13",
   state: { ticket: "blank checkout" },
   questions: QUESTIONS,

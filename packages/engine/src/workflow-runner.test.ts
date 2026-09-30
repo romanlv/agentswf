@@ -219,6 +219,86 @@ describe("runWorkflow", () => {
     expect(result.value).toEqual(["fulfilled", "Error: unknown runtime alias: no-such-alias"]);
   });
 
+  for (const nudgePrompt of ["Report the verdict now.", undefined]) {
+    test(`an adapter sees the turn as the workflow wrote it beside the wrapped prompt, and the nudge's ${nudgePrompt ? "own" : "default"} prompt`, async () => {
+      const adapter = createFakeAdapter({
+        script: (context) => ({
+          act: async () => {
+            if (context.kind === "nudge") await submit(context.binding!, { answer: "ready" });
+          },
+        }),
+      });
+      const workflow = workflowOf("authored", async (context) => {
+        const agent = await openReviewer(context);
+        const { outcome } = await agent.run({
+          prompt: "Review the change.",
+          label: "review",
+          schema: ANSWER_SCHEMA,
+          deadline: future(),
+          ...(nudgePrompt ? { nudge: { prompt: nudgePrompt } } : {}),
+        });
+        return outcome.kind;
+      });
+
+      const result = await runWorkflow(workflow, null, {
+        runRoot: tempRunDir(),
+        deadline: future(),
+        runtime: {
+          aliases: { review: { harness: "fake", model: "fake" } },
+          host: createSingleSessionHostFactory(adapter),
+        },
+      });
+
+      expect(result.value).toBe("answered");
+      const nudge =
+        nudgePrompt ?? "You finished without reporting the requested result. Report it now.";
+      expect(adapter.turns.map(({ kind, authored }) => ({ kind, authored }))).toEqual([
+        {
+          kind: "turn",
+          authored: { prompt: "Review the change.", label: "review", schema: ANSWER_SCHEMA },
+        },
+        { kind: "nudge", authored: { prompt: nudge, label: "review", schema: ANSWER_SCHEMA } },
+      ]);
+      // What the agent is sent is unchanged: the authored prompt, wrapped with how to answer.
+      for (const turn of adapter.turns) {
+        expect(turn.prompt.startsWith(`${turn.authored!.prompt}\n\nWhen the answer is ready`)).toBe(
+          true,
+        );
+        expect(turn.prompt).toContain(JSON.stringify(ANSWER_SCHEMA));
+        expect(turn.prompt).toContain(turn.binding!.operationId);
+      }
+    });
+  }
+
+  test("an adapter sees a text turn as the workflow wrote it, with no schema", async () => {
+    const adapter = createFakeAdapter({
+      script: (context) => ({
+        act: async () => {
+          await submit(context.binding!, "done");
+        },
+      }),
+    });
+    const workflow = workflowOf("authored-text", async (context) => {
+      const agent = await openReviewer(context);
+      const { outcome } = await agent.run({ prompt: "Summarize.", label: "summary" });
+      return outcome.kind;
+    });
+
+    const result = await runWorkflow(workflow, null, {
+      runRoot: tempRunDir(),
+      deadline: future(),
+      runtime: {
+        aliases: { review: { harness: "fake", model: "fake" } },
+        host: createSingleSessionHostFactory(adapter),
+      },
+    });
+
+    expect(result.value).toBe("answered");
+    expect(adapter.turns.map(({ kind, authored }) => ({ kind, authored }))).toEqual([
+      { kind: "turn", authored: { prompt: "Summarize.", label: "summary" } },
+    ]);
+  });
+
   test("a turn is released as answered only once its result is taken", async () => {
     const adapter = createFakeAdapter({
       script: (context) => ({

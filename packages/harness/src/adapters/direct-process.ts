@@ -2,10 +2,11 @@ import { randomUUID } from "node:crypto";
 import type { AgentRunHostFactory, AgentSessionAdapter } from "../adapter";
 import { skillsLaunch } from "../capabilities/skills";
 import { type RunProcess, runProcess } from "../command";
-import { sandboxable, sandboxedArgs } from "../sandbox-needs";
+import { headlessRefusal } from "../refusals";
+import { sandboxedArgs } from "../sandbox-needs";
 import { createSessionAdapter, localOutcome } from "../session-core";
 import { createSingleSessionHostFactory } from "../single-session-host";
-import { HARNESS_NAMES, harnessSpec, knownHarness } from "../spec";
+import { harnessSpec, knownHarness, PLACEMENT_HARNESSES } from "../spec";
 import { createSessionAccounting } from "../usage/accounting";
 
 export type DirectProcessConfig = {
@@ -26,21 +27,17 @@ export function createHeadlessAdapter(
 ): AgentSessionAdapter {
   const newSessionId = config.newSessionId ?? randomUUID;
   return createSessionAdapter({
-    harnesses: HARNESS_NAMES,
+    harnesses: PLACEMENT_HARNESSES.headless,
     ...(config.finishGraceMs === undefined ? {} : { finishGraceMs: config.finishGraceMs }),
     placement: "headless",
     launchesInSandbox: true,
     givesSkills: true,
     async activate(request) {
+      const refused = headlessRefusal(request);
+      if (refused) throw new Error(refused);
       const harness = knownHarness(request.execution.harness);
       const spec = harnessSpec(harness);
-      if (spec.meteredHeadless && request.execution.metered !== true) {
-        throw new Error(
-          `headless ${harness} is billed per token even on a subscription login; set metered: true to run it`,
-        );
-      }
       const { occupant } = request;
-      if (occupant && !sandboxable(harness)) throw new Error(`${harness} cannot run in a sandbox`);
       const identity = { sessionId: newSessionId(), cwd: request.cwd };
       let hasExecuted = false;
       let closed = false;

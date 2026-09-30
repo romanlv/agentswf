@@ -14,9 +14,11 @@ import {
 } from "@agentswf/contract/workflow";
 import manifest from "../package.json" with { type: "json" };
 import { describeAccounting } from "./accounting/format";
+import { parseDuration } from "./duration";
 import { messageOf } from "./errors";
 import { installOperatorRuntime, type OperatorRuntimeInstallation } from "./operator-runtime";
 import { ANSI, PLAIN, progressEvents, renderProgress } from "./progress-view";
+import { parseTestCommand, runWorkflowTests, type TestCommand, testUsage } from "./test-command";
 import { assertJsonValue, loadWorkflowFile } from "./workflow-loader";
 import {
   type SettledRun,
@@ -31,9 +33,10 @@ const DEFAULT_TIMEOUT_MILLISECONDS = 30 * 60_000;
 
 const usage = [
   "usage: awf run [options] <workflow-file> [options] [-- workflow arguments...]",
+  "       awf test [paths...] [-t <pattern>] [--watch] [--timeout <duration>]",
   "       awf --version",
-  "options: --timeout <duration>, --run-root <directory>, --cwd <directory>, --sandbox <file>,",
-  "         --json, --no-watch",
+  "run options: --timeout <duration>, --run-root <directory>, --cwd <directory>, --sandbox <file>,",
+  "             --json, --no-watch",
   "",
   "The deadline defaults to 30m. Run artifacts go to ~/.awf/runs unless --run-root says otherwise.",
   "A workflow that knows how to present its result prints that; --json prints the full result instead.",
@@ -95,6 +98,24 @@ export async function runOperatorCli(
   if (argv.length === 1 && argv[0] === "--version") {
     stdout(describeVersion());
     return 0;
+  }
+  if (argv[0] === "test") {
+    let tests: TestCommand | "help";
+    try {
+      tests = parseTestCommand(argv.slice(1), environment.cwd ?? process.cwd());
+    } catch (error) {
+      stderr(`awf: ${messageOf(error)}\n\n${testUsage}`);
+      return 2;
+    }
+    if (tests === "help") {
+      stdout(testUsage);
+      return 0;
+    }
+    const captured = environment.stdout || environment.stderr ? { stdout, stderr } : undefined;
+    return runWorkflowTests(tests, environment.cwd ?? process.cwd(), {
+      ...(environment.signal ? { signal: environment.signal } : {}),
+      ...(captured ? { output: captured } : {}),
+    });
   }
   let command: RunCommand;
   try {
@@ -507,18 +528,6 @@ async function writeReport(
     stderr(`awf: report: ${messageOf(error)}; see output.json instead`);
     return undefined;
   }
-}
-
-function parseDuration(value: string): number {
-  const matched = /^(\d+)(ms|s|m|h)$/.exec(value);
-  if (!matched) throw new Error(`invalid duration: ${value}`);
-  const amount = Number(matched[1]);
-  if (!Number.isSafeInteger(amount) || amount <= 0) throw new Error(`invalid duration: ${value}`);
-  const unit = matched[2];
-  const multiplier = unit === "ms" ? 1 : unit === "s" ? 1_000 : unit === "m" ? 60_000 : 3_600_000;
-  const milliseconds = amount * multiplier;
-  if (!Number.isSafeInteger(milliseconds)) throw new Error(`duration is too large: ${value}`);
-  return milliseconds;
 }
 
 function errorDetail(error: unknown): string {

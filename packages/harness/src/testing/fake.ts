@@ -1,5 +1,10 @@
-import type { AgentSessionAdapter, HarnessActivation, HarnessOperationBinding } from "../adapter";
-import { createSessionAdapter } from "../session-core";
+import type {
+  AgentSessionAdapter,
+  AuthoredTurn,
+  HarnessActivation,
+  HarnessOperationBinding,
+} from "../adapter";
+import { createSessionAdapter, type SessionAdapterOptions } from "../session-core";
 
 export type ManualClock = { now(): number; advance(ms: number): void };
 
@@ -18,6 +23,7 @@ export type FakeAdapterTurnContext = {
   id: string;
   prompt: string;
   kind: "turn" | "nudge" | "compact";
+  authored?: AuthoredTurn;
   binding?: HarnessOperationBinding;
   previousSessionRef?: string;
   turn: number;
@@ -40,18 +46,28 @@ export type FakeAgentSessionAdapter = AgentSessionAdapter & {
   closed: string[];
 };
 
-export function createFakeAdapter(options: {
-  script: (context: FakeAdapterTurnContext) => FakeAdapterTurn | Promise<FakeAdapterTurn>;
-  harnesses?: readonly [string, ...string[]];
-  clock?: ManualClock;
-}): FakeAgentSessionAdapter {
+/** `placement`, `launchesInSandbox` and `givesSkills` are passed on: it launches nothing itself. */
+export function createFakeAdapter(
+  options: {
+    script: (context: FakeAdapterTurnContext) => FakeAdapterTurn | Promise<FakeAdapterTurn>;
+    harnesses?: readonly [string, ...string[]];
+    clock?: ManualClock;
+    /** A reason to refuse this agent, as a real adapter refuses one it cannot run. */
+    refuse?: (activation: HarnessActivation) => string | undefined;
+  } & Pick<SessionAdapterOptions, "placement" | "launchesInSandbox" | "givesSkills">,
+): FakeAgentSessionAdapter {
   const activations: HarnessActivation[] = [];
   const turns: FakeAdapterTurnContext[] = [];
   const closed: string[] = [];
   const adapter = createSessionAdapter({
     harnesses: options.harnesses ?? ["fake"],
     ...(options.clock ? { now: options.clock.now } : {}),
+    ...(options.placement ? { placement: options.placement } : {}),
+    ...(options.launchesInSandbox ? { launchesInSandbox: options.launchesInSandbox } : {}),
+    ...(options.givesSkills ? { givesSkills: options.givesSkills } : {}),
     async activate(activation) {
+      const refused = options.refuse?.(activation);
+      if (refused) throw new Error(refused);
       activations.push(activation);
       let turn = 0;
       let isClosed = false;
@@ -76,6 +92,7 @@ export function createFakeAdapter(options: {
             id: operation.id,
             prompt: operation.prompt,
             kind: operation.kind,
+            ...(operation.authored ? { authored: operation.authored } : {}),
             ...(operation.binding ? { binding: operation.binding } : {}),
             ...(operation.previousSessionRef
               ? { previousSessionRef: operation.previousSessionRef }

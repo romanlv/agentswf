@@ -67,6 +67,61 @@ test("sandbox providers stay behind the seam and the composition root", async ()
   ]);
 });
 
+test("a workflow's test installs the fakes, never a provider, and imports no test runner", async () => {
+  const at = mkdtempSync(join(tmpdir(), "wf-boundaries-"));
+  try {
+    for (const [path, contents] of Object.entries({
+      "packages/engine/package.json": manifest("@agentswf/engine", "@agentswf/sandbox"),
+      "packages/engine/src/workflow-runner.ts": "",
+      "packages/engine/src/decisions/fake.ts": "",
+      "packages/engine/src/workflow-testing/index.ts":
+        'import "@agentswf/sandbox/testing/fake";\nimport "@agentswf/sandbox/testing";\nimport "../workflow-runner";\nimport "@agentswf/sandbox/srt";\nimport "bun:test";\nimport "../decisions/fake";\n',
+      "packages/engine/src/workflow-testing/index.test.ts": 'import "bun:test";\n',
+    })) {
+      await mkdir(dirname(join(at, path)), { recursive: true });
+      await writeFile(join(at, path), contents);
+    }
+    expect((await boundaryProblems(at)).filter((problem) => !problem.includes("stale"))).toEqual([
+      "packages/engine/src/workflow-testing/index.ts: imports @agentswf/sandbox/srt — a workflow's test installs the fake sandbox provider, by its own path, never a real one",
+      "packages/engine/src/workflow-testing/index.ts: imports @agentswf/sandbox/testing — a workflow's test installs the fake sandbox provider, by its own path, never a real one",
+      "packages/engine/src/workflow-testing/index.ts: imports bun:test — a workflow's test helper imports no test runner",
+      "packages/engine/src/workflow-testing/index.ts: path import ../decisions/fake reaches what packages/engine/src may not",
+    ]);
+  } finally {
+    await rm(at, { recursive: true, force: true });
+  }
+});
+
+test("an example's test uses the testing surface, never the engine's internals", async () => {
+  const at = mkdtempSync(join(tmpdir(), "wf-boundaries-"));
+  try {
+    for (const [path, contents] of Object.entries({
+      "examples/package.json": manifest(
+        "@agentswf/examples",
+        "@agentswf/contract",
+        "@agentswf/engine",
+      ),
+      "examples/review/workflow.ts":
+        'import "@agentswf/contract/workflow";\nimport "@agentswf/engine/workflow-testing";\n',
+      "examples/review/workflow.test.ts":
+        'import "bun:test";\nimport "node:fs";\nimport "@agentswf/engine/workflow-testing";\nimport "./workflow";\nimport "@agentswf/engine";\nimport "@agentswf/engine/testing";\nimport "@agentswf/harness";\nimport "../../packages/engine/src/workflow-runner";\n',
+    })) {
+      await mkdir(dirname(join(at, path)), { recursive: true });
+      await writeFile(join(at, path), contents);
+    }
+    expect((await boundaryProblems(at)).filter((problem) => !problem.includes("stale"))).toEqual([
+      "examples/review/workflow.test.ts: imports @agentswf/engine — a workflow's test uses the testing surface, never the engine or a harness",
+      "examples/review/workflow.test.ts: imports @agentswf/engine/testing — a workflow's test uses the testing surface, never the engine or a harness",
+      "examples/review/workflow.test.ts: imports @agentswf/harness — a workflow's test uses the testing surface, never the engine or a harness",
+      "examples/review/workflow.test.ts: imports @agentswf/harness, but @agentswf/examples does not declare @agentswf/harness",
+      "examples/review/workflow.test.ts: path import ../../packages/engine/src/workflow-runner escapes examples",
+      "examples/review/workflow.ts: imports @agentswf/engine/workflow-testing — a workflow is written against the author surface, never the runtime",
+    ]);
+  } finally {
+    await rm(at, { recursive: true, force: true });
+  }
+});
+
 test("the review folders import down their order only", async () => {
   const review = "packages/lab/src/review";
   await write({

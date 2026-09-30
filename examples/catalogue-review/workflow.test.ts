@@ -1,22 +1,9 @@
-import { afterAll, describe, expect, test } from "bun:test";
-import { matchesAny } from "../examples/catalogue-review/paths";
-import {
-  presentCatalogueResult,
-  reportCatalogueResult,
-} from "../examples/catalogue-review/present";
-import {
-  type CatalogueResult,
-  defineCatalogueReview,
-  type Lens,
-} from "../examples/catalogue-review/workflow";
-import { runWorkflow } from "../packages/engine/src";
-import { createTempRunDirs, future, submit } from "../packages/engine/src/testing";
-import type { AgentRuntimeConfig, AgentSessionAdapter } from "../packages/harness/src/adapter";
-import { createSingleSessionHostFactory } from "../packages/harness/src/single-session-host";
-import { createFakeAdapter } from "../packages/harness/src/testing/fake";
-
-const runDirs = createTempRunDirs();
-afterAll(() => runDirs.cleanup());
+import { describe, expect, test } from "bun:test";
+import { answer, reply, testWorkflow } from "@agentswf/engine/workflow-testing";
+import { matchesAny } from "./paths";
+import { presentCatalogueResult, reportCatalogueResult } from "./present";
+import { FINDINGS_SCHEMA, type RawFinding, VERDICT_SCHEMA } from "./schema";
+import { type CatalogueResult, defineCatalogueReview, type Lens } from "./workflow";
 
 const LENSES: Lens[] = [
   { id: "database", page: "rules.md#database", rules: "- Keep migrations idempotent." },
@@ -30,6 +17,17 @@ const executable = defineCatalogueReview({
 });
 
 const prepare = (...argv: string[]) => executable.prepare({ argv, cwd: "/repo" });
+
+const unguarded = {
+  source: "catalogue",
+  rule: "idempotent migrations",
+  severity: "issue",
+  file: "db/0001.sql",
+  line: 3,
+  claim: "CREATE TYPE is not guarded",
+  evidence: "no IF NOT EXISTS",
+} satisfies RawFinding;
+const holds = answer(VERDICT_SCHEMA, { refuted: false, reason: "it holds", attribution: "valid" });
 
 describe("catalogue review entry point", () => {
   test("with no arguments, reviews the branch against origin/main through every lens", () => {
@@ -79,31 +77,15 @@ describe("catalogue review entry point", () => {
     expect(matchesAny("a.spec.ts", ["?.spec.ts"])).toBe(true);
     expect(matchesAny("dbx/a.sql", ["db/**"])).toBe(false);
   });
+});
 
+describe("catalogue review run", () => {
   test("verifies the most severe findings first, observations included, on the verifier runtime, and a lens runs on its own runtime", async () => {
-    const raw = (severity: string, line: number) => ({
-      source: "catalogue",
-      rule: "idempotent migrations",
+    const raw = (severity: RawFinding["severity"], line: number): RawFinding => ({
+      ...unguarded,
       severity,
-      file: "db/0001.sql",
       line,
       claim: `${severity} claim`,
-      evidence: "seen",
-    });
-    const adapter = createFakeAdapter({
-      script: (context) => ({
-        act: async () => {
-          const lens = context.activation.labels?.lens;
-          await submit(
-            context.binding!,
-            lens === "database"
-              ? { findings: [raw("observation", 1), raw("issue", 2)] }
-              : lens === "deploys"
-                ? { findings: [raw("observation", 5)] }
-                : { refuted: false, reason: "holds", attribution: "valid" },
-          );
-        },
-      }),
     });
     const judged = defineCatalogueReview({
       name: "catalogue-review",
@@ -112,93 +94,121 @@ describe("catalogue review entry point", () => {
       verifierRuntime: "judge",
       maxVerifyPerLens: 1,
     });
-
-    const result = await runWorkflow(
-      judged.definition,
-      judged.prepare({ argv: [], cwd: "/repo" }),
-      {
-        runRoot: runDirs.tempRunDir(),
-        runtime: runtime(adapter),
-        deadline: future(),
-        cwd: "/repo",
+    const run = await testWorkflow(judged, judged.prepare({ argv: [], cwd: "/repo" }), {
+      runtimes: {
+        cheap: { harness: "codex", model: "cheap" },
+        judge: { harness: "codex", model: "judge" },
       },
-    );
+      agents: {
+        "lens:database": answer(FINDINGS_SCHEMA, {
+          findings: [raw("observation", 1), raw("issue", 2)],
+        }),
+        "lens:deploys": answer(FINDINGS_SCHEMA, { findings: [raw("observation", 5)] }),
+        "verifier:*": holds,
+      },
+    });
 
     expect(
-      result.value.findings.map((finding) => [
-        finding.lens,
-        finding.line,
-        finding.verification.kind,
-      ]),
+      run.value.findings.map((finding) => [finding.lens, finding.line, finding.verification.kind]),
     ).toEqual([
       ["database", 2, "confirmed"],
       ["deploys", 5, "confirmed"],
       ["database", 1, "not-checked"],
     ]);
-    const models = (key: string) =>
-      adapter.activations
-        .filter((activation) => activation.key.startsWith(key))
-        .map((activation) => activation.execution.model);
-    expect(models("lens:")).toEqual(["fake", "cheap"]);
-    expect(models("verifier:")).toEqual(["judge", "judge"]);
+    const alias = (key: string) => run.agentOf(key).execution.alias;
+    expect([alias("lens:database"), alias("lens:deploys")]).toEqual(["claude", "cheap"]);
+    expect([alias("verifier:0"), alias("verifier:1")]).toEqual(["judge", "judge"]);
+    expect(run.logs.map((log) => log.message)).toContain("database: 1 findings not verified");
   });
 
   test("lenses see their rules inline, and verifiers see the rules the finding cites", async () => {
-    const adapter = createFakeAdapter({
-      script: (context) => ({
-        act: async () => {
-          const labels = context.activation.labels ?? {};
-          const raw =
-            typeof labels.lens === "string"
-              ? {
-                  findings:
-                    labels.lens === "database"
-                      ? [
-                          {
-                            source: "catalogue",
-                            rule: "idempotent migrations",
-                            severity: "issue",
-                            file: "db/0001.sql",
-                            line: 3,
-                            claim: "CREATE TYPE is not guarded",
-                            evidence: "no IF NOT EXISTS",
-                          },
-                        ]
-                      : [],
-                }
-              : { refuted: false, reason: "the enum add is unguarded", attribution: "valid" };
-          await submit(context.binding!, raw);
-        },
-      }),
+    const run = await testWorkflow(executable, prepare(), {
+      agents: {
+        "lens:database": answer(FINDINGS_SCHEMA, { findings: [unguarded] }),
+        "lens:deploys": answer(FINDINGS_SCHEMA, { findings: [] }),
+        "verifier:*": answer(VERDICT_SCHEMA, {
+          refuted: false,
+          reason: "the enum add is unguarded",
+          attribution: "valid",
+        }),
+      },
     });
 
-    const result = await runWorkflow(executable.definition, prepare(), {
-      runRoot: runDirs.tempRunDir(),
-      runtime: runtime(adapter),
-      deadline: future(),
-      cwd: "/repo",
-    });
-
-    expect(result.value.failures).toEqual([]);
-    expect(result.value.findings).toEqual([
+    expect(run.value.failures).toEqual([]);
+    expect(run.value.findings).toEqual([
       expect.objectContaining({
         lens: "database",
         file: "db/0001.sql",
         verification: { kind: "confirmed", reason: "the enum add is unguarded" },
       }),
     ]);
-    const prompts = adapter.turns.map((turn) => turn.prompt);
-    expect(prompts.find((prompt) => prompt.includes("Keep migrations idempotent"))).toContain(
-      "git diff origin/main...HEAD",
+    expect(run.turnsOf("lens:database")[0]!.prompt).toContain("Keep migrations idempotent");
+    expect(run.turnsOf("lens:database")[0]!.prompt).toContain("git diff origin/main...HEAD");
+    expect(run.turnsOf("verifier:0")[0]!.prompt).toContain("Try to refute");
+    expect(run.turnsOf("verifier:0")[0]!.prompt).toContain("Keep migrations idempotent");
+    expect(run.agents.every((agent) => agent.instructions?.includes("Do not modify files"))).toBe(
+      true,
     );
-    expect(prompts.find((prompt) => prompt.includes("Try to refute"))).toContain(
-      "Keep migrations idempotent",
-    );
-    expect(
-      adapter.activations.every((activation) =>
-        activation.instructions?.includes("Do not modify files"),
-      ),
-    ).toBe(true);
+  });
+
+  test("a rule the verifier finds misattributed makes the finding general", async () => {
+    const run = await testWorkflow(executable, prepare("--lenses", "database"), {
+      agents: {
+        "lens:database": answer(FINDINGS_SCHEMA, { findings: [unguarded] }),
+        "verifier:0": answer(VERDICT_SCHEMA, {
+          refuted: false,
+          reason: "the rule is about data, not types",
+          attribution: "invalid",
+        }),
+      },
+    });
+    const [finding] = run.value.findings;
+    expect(finding).toMatchObject({
+      source: "general",
+      attributionFailure: "the rule is about data, not types",
+      verification: { kind: "confirmed" },
+    });
+    expect(finding).not.toHaveProperty("rule");
+  });
+
+  test("a catalogue finding that names no rule is general", async () => {
+    const { rule: _, ...ruleless } = unguarded;
+    const run = await testWorkflow(executable, prepare("--lenses", "database"), {
+      agents: {
+        "lens:database": answer(FINDINGS_SCHEMA, { findings: [ruleless] }),
+        "verifier:0": answer(VERDICT_SCHEMA, {
+          refuted: true,
+          reason: "guarded upstream",
+          attribution: "not-applicable",
+        }),
+      },
+    });
+    expect(run.value.findings[0]).toMatchObject({
+      source: "general",
+      verification: { kind: "refuted", reason: "guarded upstream" },
+    });
+  });
+
+  test("a lens or a verifier that fails is a failure in the result, and the rest go on", async () => {
+    const run = await testWorkflow(executable, prepare(), {
+      agents: {
+        "lens:database": answer(FINDINGS_SCHEMA, { findings: [unguarded] }),
+        "lens:deploys": reply.failed("harness crashed"),
+        "verifier:0": reply.timedOut("verifier timed out"),
+      },
+    });
+    expect(run.value.failures).toEqual([
+      { stage: "lens", subject: "deploys", reason: "harness crashed" },
+      { stage: "verify", subject: "database:db/0001.sql:3", reason: "verifier timed out" },
+    ]);
+    expect(run.value.findings).toEqual([
+      expect.objectContaining({ lens: "database", verification: { kind: "not-checked" } }),
+    ]);
+  });
+
+  test("two lenses with one id are refused", async () => {
+    const run = await testWorkflow(executable, { ...prepare(), lenses: [LENSES[0]!, LENSES[0]!] });
+    expect(() => run.value).toThrow("lens ids must be unique");
   });
 });
 
@@ -329,14 +339,3 @@ describe("catalogue review report", () => {
     expect(lines.filter((line) => line.startsWith("     word")).length).toBeGreaterThan(1);
   });
 });
-
-function runtime(adapter: AgentSessionAdapter): AgentRuntimeConfig {
-  return {
-    aliases: {
-      claude: { harness: "fake", model: "fake" },
-      judge: { harness: "fake", model: "judge" },
-      cheap: { harness: "fake", model: "cheap" },
-    },
-    host: createSingleSessionHostFactory(adapter),
-  };
-}

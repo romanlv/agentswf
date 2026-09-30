@@ -11,14 +11,21 @@ their claude share, $0.07–0.15 a run, is money.
 ### 1. Offline — every change, free
 
 ```sh
-bun test          # ~440 tests, under a minute
+bun test          # ~970 tests, about two minutes
 bun run check     # Biome, tsc, the package boundaries
 ```
 
 No live agent runs. Harnesses are replaced by fakes: `@agentswf/harness/testing` has a fake adapter and a
-fake Herdr CLI, and fake session files stand in for the harnesses' usage logs. The tests in `tests/`
-drive the real examples (`minimum-review`, `quick-check`, `catalogue-review`) and `awf run` itself
-through those fakes, so example workflows are covered here too.
+fake Herdr CLI, and fake session files stand in for the harnesses' usage logs.
+
+A workflow's own logic is tested beside it, in `workflow.test.ts`, against `agentswf/testing`: each
+agent scripted, the real engine between them, milliseconds a test ([the workflow
+API](workflow-api.md#testing-a-workflow) says how). Every example but `quick-check` and
+`sandbox-probe`, which exist to watch real agents, has one; `bun test examples` runs just those.
+Write one when a workflow gains a branch, a loop or a new outcome to handle, and change the
+workflow's tests with the workflow. The tests in `tests/` check what the engine and `awf run` do
+for a workflow, and `tests/workflow-api-samples.test.ts` runs the API page's samples with `awf
+test`.
 
 Each sandbox provider also has a local test, `packages/sandbox/src/srt/srt.local.test.ts` and
 `packages/sandbox/src/docker/docker.local.test.ts`. It runs the real provider with `sh` standing in

@@ -13,6 +13,7 @@ import {
   type JsonValue,
   type Question,
 } from "@agentswf/contract/workflow";
+import { canonical } from "../canonical-json";
 import {
   abortableSleep,
   assertDeadline,
@@ -175,7 +176,12 @@ export class RunDecisions {
       if (spent.charged) charged = [...charged, spent.charged];
       if (spent.requestId) requestId = spent.requestId;
     };
-    const request = { model: resolved.model, state: spec.state, questions: spec.questions };
+    const request = {
+      key: spec.key,
+      model: resolved.model,
+      state: spec.state,
+      questions: spec.questions,
+    };
     try {
       while (true) {
         attempts += 1;
@@ -372,16 +378,6 @@ export function digestOf(questions: Record<string, Question>): string {
   return createHash("sha256")
     .update(JSON.stringify(canonical(ordered as unknown as JsonValue)))
     .digest("hex");
-}
-
-function canonical(value: JsonValue): JsonValue {
-  if (Array.isArray(value)) return value.map(canonical);
-  if (value === null || typeof value !== "object") return value;
-  return Object.fromEntries(
-    Object.keys(value)
-      .sort()
-      .map((key) => [key, canonical(value[key]!)]),
-  );
 }
 
 function isProbability(value: unknown): value is number {

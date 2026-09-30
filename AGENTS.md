@@ -48,9 +48,9 @@ Seven boundaries, enforced by `bun run scripts/check-boundaries.ts`:
 1. `contract` imports nothing, performs no I/O, and uses no runtime-specific API.
 2. `engine/src/accounting` imports contract only, performs no I/O, and uses no runtime-specific API.
 3. `wf` imports contract only and performs no run-directory I/O.
-4. `sandbox` imports contract only. harness and engine import its seam, `@agentswf/sandbox`, and their tests `@agentswf/sandbox/testing`; only `engine/src/operator-runtime.ts` imports a provider, and no provider imports another. The same holds for decision providers in `engine/src/decisions/`: only `operator-runtime.ts` imports `openrouter`, and only tests import `fake`.
+4. `sandbox` imports contract only. harness and engine import its seam, `@agentswf/sandbox`, and their tests `@agentswf/sandbox/testing`; only `engine/src/operator-runtime.ts` imports a provider, and no provider imports another. The same holds for decision providers in `engine/src/decisions/`: only `operator-runtime.ts` imports `openrouter`, and only tests import `fake`. `engine/src/workflow-testing/`, the second composition root a workflow's tests run on, imports the fakes, `@agentswf/harness/testing` and `@agentswf/sandbox/testing/fake`, and never `bun:test` (ADR 0006).
 5. `lab` imports contract only, and runs workflows through `awf run`, never by linking the engine or a harness; its review format stays pure outside the files that do I/O.
-6. `examples/` imports the author surface and approved pure schema libraries — never the engine or a harness.
+6. `examples/` imports the author surface and approved pure schema libraries — never the engine or a harness. A workflow's test beside it, `*.test.ts`, imports the testing surface, `@agentswf/engine/workflow-testing`, and may use runtime built-ins; never the rest of the engine or a harness.
 7. A cross-package import must be a declared dependency, not just a hoisted symlink.
 
 ## Working here

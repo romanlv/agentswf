@@ -176,8 +176,10 @@ so write your home directory out:
     "module": "Preserve",
     "moduleResolution": "Bundler",
     "target": "ESNext",
+    "types": ["/Users/you/.agentswf/node_modules/@types/bun"],
     "paths": {
       "agentswf/workflow": ["/Users/you/.agentswf/packages/contract/src/workflow/index.ts"],
+      "agentswf/testing": ["/Users/you/.agentswf/packages/engine/src/workflow-testing/index.ts"],
       "typebox": ["/Users/you/.agentswf/packages/engine/node_modules/typebox"],
       "typebox/*": ["/Users/you/.agentswf/packages/engine/node_modules/typebox/*"]
     }

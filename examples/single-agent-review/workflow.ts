@@ -18,7 +18,7 @@ type PublicSkill = Extract<SkillSource, { repo: string }>;
 
 const SEVERITIES = ["must-fix", "should-fix", "could-fix", "nit"] as const;
 
-const FINDINGS_SCHEMA = outputSchema(
+export const FINDINGS_SCHEMA = outputSchema(
   Type.Object(
     {
       findings: Type.Array(

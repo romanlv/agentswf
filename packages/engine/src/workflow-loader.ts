@@ -25,7 +25,8 @@ const AUTHOR_SURFACE: Record<string, Record<string, unknown>> = {
 
 let surfaceServed = false;
 
-function serveAuthorSurface(): void {
+/** Serves the author surface to whatever this process imports next. */
+export function serveAuthorSurface(): void {
   if (surfaceServed) return;
   surfaceServed = true;
   plugin({

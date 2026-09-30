@@ -43,7 +43,7 @@ export type AgentReport = {
 
 export type SandboxesResult = { reports: AgentReport[] };
 
-const REPORT = outputSchema(
+export const REPORT = outputSchema(
   Type.Object(
     {
       results: Type.Array(

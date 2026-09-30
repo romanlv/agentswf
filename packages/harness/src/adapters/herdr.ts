@@ -12,7 +12,13 @@ import {
   type NativeTurnOutcome,
 } from "../session-core";
 import { createSingleSessionHostFactory } from "../single-session-host";
-import { HARNESS_NAMES, type HarnessSpec, harnessSpec, knownHarness } from "../spec";
+import {
+  HARNESS_NAMES,
+  type HarnessSpec,
+  harnessSpec,
+  knownHarness,
+  PLACEMENT_HARNESSES,
+} from "../spec";
 import { createSessionAccounting } from "../usage/accounting";
 import {
   abortableDelay,
@@ -701,7 +707,7 @@ export function createHerdrRunHostFactory(
       };
 
       const adapter = createSessionAdapter({
-        harnesses: ["claude", "codex"],
+        harnesses: PLACEMENT_HARNESSES.pane,
         placement: "pane",
         launchesInSandbox: true,
         givesSkills: true,

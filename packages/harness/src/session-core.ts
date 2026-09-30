@@ -10,7 +10,9 @@ import {
 } from "@agentswf/contract/workflow";
 import type {
   AgentSessionAdapter,
+  AuthoredTurn,
   HarnessActivation,
+  HarnessAuthored,
   HarnessNudgeSpec,
   HarnessOperationBinding,
   HarnessReleaseDisposition,
@@ -27,6 +29,8 @@ export type NativeTurnRequest = {
   binding?: HarnessOperationBinding;
   previousSessionRef?: string;
   kind: "turn" | "nudge" | "compact";
+  /** Only a backend that answers as the agent reads it; see `HarnessAuthored`. */
+  authored?: AuthoredTurn;
 };
 
 export type NativeTurnOutcome = HarnessTurnOutcome & { sessionRef?: string };
@@ -71,7 +75,7 @@ export type ActivatedSessionBackend = {
  */
 const DEFAULT_FINISH_GRACE_MS = 30_000;
 
-export function createSessionAdapter(options: {
+export type SessionAdapterOptions = {
   harnesses: readonly [HarnessKind, ...HarnessKind[]];
   /** The one placement this adapter provides; an agent asking for the other is refused. */
   placement?: AgentPlacement;
@@ -82,7 +86,9 @@ export function createSessionAdapter(options: {
   finishGraceMs?: number;
   activate(request: HarnessActivation): Promise<ActivatedSessionBackend>;
   now?: () => number;
-}): AgentSessionAdapter {
+};
+
+export function createSessionAdapter(options: SessionAdapterOptions): AgentSessionAdapter {
   const now = options.now ?? Date.now;
   return {
     harnesses: options.harnesses,
@@ -239,6 +245,7 @@ function createSession(
           deadline: spec.deadline,
           binding: request.binding,
           kind: "nudge",
+          ...(spec.authored ? { authored: spec.authored } : {}),
         });
       },
       async release(reason, deadline, options): Promise<HarnessReleaseDisposition> {
@@ -275,7 +282,7 @@ function createSession(
       return active || waiting > 0 ? { state: "working" } : lastStatus;
     },
     async start(
-      turn: AgentTextTurnSpec | AgentStructuredTurnSpec<JsonValue>,
+      turn: (AgentTextTurnSpec | AgentStructuredTurnSpec<JsonValue>) & HarnessAuthored,
       binding: HarnessOperationBinding,
     ) {
       return afterFinishing(turn.deadline, () =>
@@ -285,6 +292,7 @@ function createSession(
           deadline: turn.deadline,
           binding,
           kind: "turn",
+          ...(turn.authored ? { authored: turn.authored } : {}),
         }),
       );
     },
