@@ -1,4 +1,4 @@
-# Native compaction, C1–C9
+# Native compaction, C1–C10
 
 What each harness's own compaction does when awf drives it, measured 2026-10-01 for
 [story 015](../stories/015-native-compaction.md) on claude 2.1.286, codex-cli 0.159.3, pi 0.87.1,
@@ -13,9 +13,10 @@ scripts; the eval that holds the result is `tests/compaction.eval.ts`.
 | C4 | can codex compact headless, with a focus? | **yes, on its app-server**; the focus only as a message before it |
 | C5 | does a codex pane compact, with a focus? | **bare `/compact` only**; the focus as the message before it |
 | C6 | does pi compact headless, with a focus? | **yes, in rpc mode**; nothing younger than its last 20k tokens |
-| C7 | does cursor compact? | **no**: `/compress` and `/compact` go to the model |
+| C7 | does cursor compact? | **only in its TUI**: `/summarize`; headless, it goes to the model |
 | C8 | where is the summary? | **claude's transcript and stream; pi's answer; codex's is encrypted** |
 | C9 | does the focus reach the summary? | **yes on every harness that compacts** (eval, below) |
+| C10 | can a compacted session be forked? | **yes, natively, on claude, codex and pi** |
 
 ## C1, C2 — claude
 
@@ -68,9 +69,32 @@ scripts; the eval that holds the result is `tests/compaction.eval.ts`.
 
 ## C7 — cursor
 
-`cursor-agent -p --resume` with `/compress` or `/compact` answered as a model: "**Compressed
-context:** Shed colour is blue." No compaction primitive was found headless. Cursor is not a pane
-harness in awf.
+- Cursor's compaction is `/summarize`, `/compress` its alias
+  ([docs](https://cursor.com/docs/cli/reference/slash-commands)).
+- `cursor-agent -p --resume` with `/compress`, `/compact` or `/summarize` answered as a model:
+  "**Compressed context:** Shed colour is blue." Headless, there is none.
+- In a Herdr pane, `/summarize Keep the path length; drop the shed colour.` summarized: a boxed,
+  numbered summary on screen, ending with the path of the session's transcript for the agent to
+  consult. It kept the colour the text asked to drop, so the text after the command looks
+  ignored. The transcript holds no summary row. Afterwards the agent knew both facts.
+- Its trust screen (`⚠ Workspace Trust Required … [a] Trust this workspace`) swallowed the first two
+  prompts when they were sent at once; after a 6 s wait, nothing was lost. awf does not run cursor
+  in panes.
+
+## C10 — forking a compacted session
+
+Each harness's own fork, run on a session compacted with "keep the path length; drop the shed
+colour", then asked what it knows:
+
+| harness | fork | new session | answered |
+| --- | --- | --- | --- |
+| claude | `claude -p --resume {id} --fork-session` | new id | the path only |
+| codex | `codex exec fork {id}` | new thread | the path only |
+| pi | `pi --fork {id} --session-id {new}` | new id, `parentSession` set | both (its split-turn summary kept both) |
+
+So a compacted session can be the shared base for several agents without awf reading the context
+out: the summary is readable for claude and pi, but codex's is encrypted, and the fork carries it
+anyway. The original session is untouched by each fork.
 
 ## C9 — the eval
 

@@ -63,13 +63,20 @@ In scope:
 
 Out of scope:
 
-- Compaction for cursor. It has no native compaction headless (measured), and is not a pane
-  harness.
+- Compaction for cursor. Its compaction is `/summarize` (`/compress` is an alias), and it runs
+  only in its interactive TUI: headless, both reach the model as text (measured). In a pane it
+  summarized and went on, but awf does not run cursor in panes yet: that is
+  [`cursor-pane-agent`](todo/cursor-pane-agent.md).
 - Verified pane release and a concurrent identity observer: still
   [`herdr-pane-settlement`](todo/herdr-pane-settlement.md)'s. Continuation here never releases a
   pane between operations, so it needs neither.
 - Compaction the harness does on its own when its context fills. awf neither triggers nor reports
   it.
+- Forking a compacted agent, so several agents start from the same small base. Each harness that
+  compacts can fork its session natively, compaction included (measured): claude
+  `--resume {id} --fork-session`, codex `exec fork {id}`, pi `--fork {id}`. Its own todo,
+  [`fork-after-compaction`](todo/fork-after-compaction.md), since a fork is a published interface
+  foundation defers until E7's cost question is settled.
 
 ## Context and evidence
 
