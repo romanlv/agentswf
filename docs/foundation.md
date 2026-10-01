@@ -325,7 +325,9 @@ are checked by `scripts/check-boundaries.ts`, which `bun run check` runs:
 3. `wf` imports `contract` only, and reaches the engine over the wire, never by linking.
 4. `sandbox` imports `contract` only. harness and engine import its seam, `@agentswf/sandbox`, and their
    tests `@agentswf/sandbox/testing`; only `engine/src/operator-runtime.ts` imports a provider, and no
-   provider imports another. `engine/src/workflow-testing/`, the composition root a workflow's
+   provider imports another. The same holds for decision providers in `engine/src/decisions/`: only
+   `operator-runtime.ts` imports `openrouter`, and only tests import `fake`.
+   `engine/src/workflow-testing/`, the composition root a workflow's
    tests run on, imports the fakes (`@agentswf/harness/testing`, `@agentswf/sandbox/testing/fake`)
    and no test runner (ADR 0006).
 5. `lab` imports `contract` only, and runs workflows through `awf run`, never by linking the

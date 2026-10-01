@@ -342,8 +342,9 @@ behind, and nothing holds the agent. A sandboxed claude's are off by `permission
 "bypassPermissions"` in its home's `settings.json`, which only a sandboxed claude reads and which a
 repository's own settings cannot set (Claude Code 2.1.257 on). A repository's settings that name
 another mode turn the prompts back on, which stalls a turn rather than opening anything. Its auto
-mode is not used: its classifier would stand in for the sandbox it runs in, and haiku has none.
-The sandbox probe checks claude's transcript for the mode.
+mode is not used: its classifier would stand in for the sandbox it runs in, at a call on every
+shell command. A host claude on sonnet, as the evals run since 2026-10-01, does start in it
+([[agent-permission-mode]]). The sandbox probe checks claude's transcript for the mode.
 
 **Nobody asks a human.** There is no person at the pane, and a prompt is a stalled turn. Human
 approval is a checkpoint that stops dispatch, not a per-session permission field.

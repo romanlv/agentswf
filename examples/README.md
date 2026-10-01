@@ -41,10 +41,11 @@ When the `@agentswf/engine` package bin is installed, the shorter equivalent is:
 awf run examples/minimum-review/review-loop.ts -- packages/engine/src
 ```
 
-The command uses Herdr session `default` unless `AWF_HERDR_SESSION` selects another session. The
+The command opens its agents in the Herdr session of the pane it runs in, `default` outside Herdr,
+unless `AWF_HERDR_SESSION` selects another session. The
 runtime selects subscription-authenticated Claude and Codex models without exposing terminal
-placement in workflow aliases. Metered API-key variables are removed so they cannot silently take
-precedence. A workflow that presents its own result prints that report on standard output;
+placement in workflow aliases. A metered API-key variable set in the environment refuses the run,
+and none is passed to an agent, so they cannot silently take precedence. A workflow that presents its own result prints that report on standard output;
 otherwise, or with `--json`, the command prints the result as JSON. Either way the JSON is kept as
 `output.json` beside the run's other artifacts, under `~/.awf/runs` unless `--run-root` says
 otherwise, and a workflow that writes a Markdown report has it saved there as `report.md`. A run
@@ -85,8 +86,8 @@ The agent replies with the line it prints, and the run, in a new tab, sends it t
 owns it, whether it reports a bug, and how urgent it is, and gets a probability for every answer
 back in a few hundred milliseconds. An answer below 0.9 is flagged `unsure` rather than taken. It
 needs `OPENROUTER_API_KEY`, in the environment or in `.env`, which the engine holds and no agent is
-given, and it costs about $0.00002 a ticket. It opens no agent, but `awf run` still checks the
-Claude and Codex subscription logins at start, as for any workflow:
+given, and it costs about $0.00002 a ticket. It opens no agent, so `awf run` checks no
+subscription login, which it does for a harness only when its first agent opens:
 
 ```sh
 bun awf run examples/triage/workflow.ts
@@ -157,9 +158,9 @@ path, `bun test examples/feature-delivery`; outside this repository, `awf test` 
 `quick-check` and `sandbox-probe` have none, as they exist to watch real agents.
 [The workflow API](../docs/workflow-api.md#testing-a-workflow) says how to write one.
 
-Only `minimum-review/review-loop.ts`, `compaction/workflow.ts`, `quick-check/workflow.ts`, `sandboxes/workflow.ts`,
-`sandbox-probe/workflow.ts`, `skills-probe/workflow.ts`, `triage/workflow.ts` and
-`single-agent-review/workflow.ts` have the
+Only `minimum-review/review-loop.ts`, `calling-session/workflow.ts`, `compaction/workflow.ts`,
+`quick-check/workflow.ts`, `sandboxes/workflow.ts`, `sandbox-probe/workflow.ts`,
+`skills-probe/workflow.ts`, `triage/workflow.ts` and `single-agent-review/workflow.ts` have the
 executable default export required by `awf run`.
 A catalogue review's entry point lives beside the catalogue it reads, outside this package, because
 reading one is I/O and a workflow here is pure.

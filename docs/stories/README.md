@@ -76,7 +76,7 @@ status is one of `todo`, `draft`, `ready`, `in-progress`, `blocked`, `awaiting-h
   beside the workflow, typed by the schema each turn asks for, and checks what it did, through the
   real engine and for free.
 - [`013` — Let an agent propose review workflows and keep the better ones](013-autoresearch-loop.md) —
-  `draft` — `awf-lab loop` has a codex agent write one changed review workflow per try, runs it
+  `in-progress` — `awf-lab loop` has a codex agent write one changed review workflow per try, runs it
   contained against the incumbent, keeps it only on `better`, logs the tree, caps spend, and checks
   the final incumbent once on a holdout.
 - [`014` — Run a workflow from inside the session you are in](014-workflow-in-current-session.md) —

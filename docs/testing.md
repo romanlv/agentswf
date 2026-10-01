@@ -2,9 +2,9 @@
 
 How awf is checked, what each level costs, and when to run it. Costs are list-price estimates from
 the run's own accounting. Every live check here runs on subscription logins, and the estimate is
-what the same tokens would cost metered, a proxy for the quota used, with one exception:
-`sandbox-srt` and `sandbox-docker` run claude headless, which is billed per token even on a subscription (E3), so
-their claude share, $0.07–0.15 a run, is money.
+what the same tokens would cost metered, a proxy for the quota used, with one exception: claude
+headless, which `sandbox-srt`, `sandbox-docker`, `compaction` and `review-judge` run, is billed per
+token even on a subscription (E3), so its share of those evals is money.
 
 ## Levels
 
@@ -36,10 +36,10 @@ the daemon does not answer within 5 s or the default image is not built.
 The fakes encode what the real CLIs do today. They go stale silently, which is what the live levels
 are for.
 
-### 2. Evals — every supported feature, live, about $1.80
+### 2. Evals — every supported feature, live, minutes and dollars
 
 ```sh
-bun run eval                        # all of them, one after another: ~18 min, about $2.10
+bun run eval                        # all of them, four at a time; time and cost below
 bun run eval harnesses failed-run   # only the ones named
 ```
 
@@ -63,8 +63,8 @@ What they cover between them:
 - `compaction` — native compaction (story 015) on claude, codex and pi in panes and headless, and
   cursor headless: each compacts with a focus naming a codename it was never told, then must
   recall it and what it noted before. Cursor must refuse, saying why. `bun
-  tests/compaction.eval.ts pi pi-pane` runs only those. 7 agents, ~60 s, ~$0.52 at list prices,
-  $0.18 charged: the headless claude is metered.
+  tests/compaction.eval.ts pi pi-pane` runs only those. 7 agents, ~60 s, ~$0.63 at list prices,
+  the headless claude's share billed per token.
 - `calling-session` — `awf run --here` (story 014) from a claude, codex, pi and cursor session,
   each started in a Herdr tab and told to run the command; codex under its workspace-write sandbox
   with local sockets allowed. Each run, in a tab of its own, drives its session through three steps;
@@ -137,14 +137,15 @@ What they cover between them:
 
 The whole suite, four at a time, took 2m 36s and ~$1.87 at list prices on 2026-10-01, the
 compaction eval the dearest at ~$0.63: pi needs 20k tokens of history before it compacts, and the
-headless claude is metered. Run one by one it took about 17 min, most of it the sandbox probes
-listing their commands one by one.
+headless claude is metered. Run one by one, before the sandbox probes ran one script per agent,
+it took about 17 min.
 
 Not covered live, on purpose:
 
-- claude headless outside a sandbox: it is billed per token even on a subscription. The sandbox
-  evals run it, as a sandboxed claude has no other way to run headless. `review-judge` is the
-  exception: the panel runs its judges headless, so its eval does too.
+- claude headless outside a sandbox, beyond what a feature needs: it is billed per token even on a
+  subscription. The sandbox evals run it, as a sandboxed claude has no other way to run headless;
+  `compaction` runs it, as headless compaction is what it checks; and `review-judge` runs it, as
+  the panel runs its judges headless.
 - Deadlines, nudges, parallel limits and cleanup: the offline suite drives them through fakes, and
   a live run adds only a slower clock.
 
@@ -175,7 +176,7 @@ as story 002 did to check accounting against the session files.
 
 - **Every change:** level 1. The pre-commit hook runs Biome only; run the rest yourself.
 - **Before a story goes to human review, or after upgrading Herdr or a harness CLI:** `bun run
-  eval`, all of it — at about $1.80 there is no reason to pick. Record the date, outcome and cost in the
+  eval`, all of it — at the cost above there is no reason to pick. Record the date, outcome and cost in the
   story's Verification section.
 - **While working on one area:** the matching eval — `harnesses` for an adapter, liveness or usage
   reader; `minimum-review` for panes, the control plane or the result channel; `failed-run` for run

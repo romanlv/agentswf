@@ -411,7 +411,7 @@ When the session cannot be driven, the command says why and starts nothing: when
 Herdr pane, or when its sandbox cannot reach Herdr. Under codex's default sandbox, start codex with
 `-c sandbox_workspace_write.network_access=true`. Try it with
 [`examples/calling-session`](examples/calling-session/). The design is
-[ADR 0009](docs/adr/0009-the-calling-session-is-an-agent.md).
+[ADR 0010](docs/adr/0010-the-calling-session-is-an-agent.md).
 
 ## Runnable examples
 

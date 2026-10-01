@@ -24,8 +24,8 @@ anything that reopens or moves a session.
 Evidence: the two earlier run roots under `/var/folders/.../T/awf-minimum-review-Du89Pi` and
 `-msrKbu` were temporary and have since been purged. Story 001 re-measured on 2026-09-18 rather
 than citing them, and its Task 7 section is the current record. The stall those runs saw is real
-and reproduced: Herdr answered `agent_prompt_stalled` with `status is idle and state_change_seq
-remained <n>`, which is the same shape `msrKbu` showed.
+and reproduced: Herdr answered `agent_prompt_stalled` with
+`status is idle and state_change_seq remained <n>`, which is the same shape `msrKbu` showed.
 
 Story 001's Task 4 carries the upstream citations: Herdr's wait tracks lifecycle state rather than
 an individual turn, and lifecycle classification comes from screen manifests even where Claude and

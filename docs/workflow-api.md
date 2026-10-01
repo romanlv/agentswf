@@ -13,6 +13,8 @@ to, and [`examples/`](../examples) has complete workflows.
 ```ts
 workflow.agents.open({ key, runtime, instructions?, skills?, sandbox?, cwd? })  // → agent
 agent.run({ prompt, schema?, timeoutMs?, label?, nudge? })  // → { outcome }; the same agent keeps its session
+agent.compact({ prompt })                                    // → outcome; the harness's own compaction, with a focus
+workflow.agents.caller({ key })                              // → the session `awf run --here` was typed in, or null
 isAnswered(outcome)                                          // narrows to { kind: "answered", value }
 
 workflow.parallel(items, (item, i) => …, { concurrency?, label?, deadline? })  // → results in item order
@@ -22,8 +24,8 @@ workflow.decisions.decide({ key, model: "jev", state, questions })              
 workflow.log(message, fields?)   workflow.usage()   workflow.deadline   workflow.cwd   workflow.runId
 
 // In a test, from "agentswf/testing"; `awf test` runs it:
-testWorkflow(workflow, args, { agents?, decisions?, runtimes?, timeoutMs?, stallMs?, cwd? })  // → run
-answer(SCHEMA, value | (turn) => value)   answer("text")   reply.silent() | blocked() | failed() | timedOut() | hang()
+testWorkflow(workflow, args, { agents?, decisions?, runtimes?, caller?, timeoutMs?, stallMs?, cwd? })  // → run
+answer(SCHEMA, value | (turn) => value)   answer("text")   reply.silent() | blocked() | failed() | timedOut() | hang() | interrupted()
 ```
 
 | Concept | In one line |
@@ -96,7 +98,7 @@ const reviewer = await workflow.agents.open({
 | `instructions` | Standing instructions, given once when the agent opens. |
 | `skills` | Exactly the skills this agent gets: `{ path }` for a directory holding a `SKILL.md`, or `{ repo: "owner/repo", skill, ref? }`. Each agent gets its own copy. |
 | `sandbox` | A sandbox from `workflow.sandboxes.open`, or an inline spec for a private one. Leave it out to run unsandboxed. |
-| `cwd` | Where the agent works. Defaults to the workflow's directory. |
+| `cwd` | Where the agent works. Defaults to the workflow's working directory, `workflow.cwd`, which `awf run --cwd` sets. |
 
 A harness is the coding-agent CLI (`claude`, `codex`, `pi`, `cursor`). Your existing login for
 each one is used. claude, codex and pi run in a pane or headless; cursor runs headless only.
@@ -190,6 +192,29 @@ if (!isAnswered(compacted)) workflow.log("compaction didn't finish", { reason: c
 - **Bounds and ids** are `run`'s: it runs within the workflow's deadline unless `timeoutMs` or
   `deadline` bounds it sooner, and an `id`, generated when omitted, makes it idempotent. The same
   spec again under one id returns the same outcome; another spec under it rejects.
+
+### The calling session
+
+`awf run --here`, typed in a claude, codex, pi or cursor session in a Herdr pane, starts the run in
+a tab of its own, and the run can drive that session as an agent
+([ADR 0010](adr/0010-the-calling-session-is-an-agent.md)):
+
+```ts
+const author = await workflow.agents.caller({ key: "author" });
+if (!author) throw new Error("start this workflow with awf run --here from an agent");
+const { outcome } = await author.run({ prompt: "Pick a number and remember it.", schema: PICKED });
+```
+
+- **`null`** means the run has no calling session: refuse, or open an agent of your own instead.
+  The same key again returns the same agent; another key rejects.
+- **It is the operator's session**, so it is not opened: no `instructions`, and what it needs goes
+  in its prompts. `compact` fails, a turn that fails, is cancelled or times out leaves it usable,
+  the operator interrupting a turn settles it `cancelled`, and `execution.model` is `""`.
+- **When the run ends**, answered, failed, timed out or stopped, the session gets one message
+  saying how and where the run directory is. A run that is killed sends nothing.
+- **In a test**, `caller: { harness }` gives the run one, scripted under its key like any agent;
+  `reply.interrupted()` is the operator stopping a turn.
+  [`examples/calling-session`](../examples/calling-session) has both.
 
 ## `parallel`
 
@@ -550,7 +575,8 @@ time passes needs virtual time, which isn't built.
 
 ## Not built yet
 
-These calls are in the types and throw `unavailable` today: `agents.attach` and `agents.stop`,
+These calls are in the types and throw `unavailable` today: `agents.attach`, except for the calling
+session's key, and `agents.stop`,
 `agent.enqueue`, `steps` (durable steps and sleep), `signals` (waiting for
 outside input), `participants` and `messages` (agents talking to each other), and `call` (one
 workflow calling another). [`docs/status.md`](status.md) says what's next.
@@ -558,8 +584,12 @@ workflow calling another). [`docs/status.md`](status.md) says what's next.
 ## Where to go next
 
 - [`examples/quick-check`](../examples/quick-check): the smallest real workflow.
-- [`examples/minimum-review`](../examples/minimum-review): fan out, verify and loop.
-- [`examples/sandboxes`](../examples/sandboxes): shared and private sandboxes, skills.
+- [`examples/minimum-review`](../examples/minimum-review): one review round through two lenses.
+- [`examples/catalogue-review`](../examples/catalogue-review): fan out over lenses and verify each
+  finding.
+- [`examples/sandboxes`](../examples/sandboxes): shared and private sandboxes.
+- [`examples/calling-session`](../examples/calling-session): driving the session the run was
+  started from.
 - [`examples/triage`](../examples/triage): decisions with thresholds.
 - [`examples/feature-delivery/workflow.test.ts`](../examples/feature-delivery/workflow.test.ts):
   a workflow's tests, review loops and fan-out included.

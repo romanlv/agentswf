@@ -29,7 +29,7 @@ exists, the code is right, then this page.
     outside this repository (see [`examples/README.md`](../examples/README.md)).
 - `awf test` runs a workflow's tests, in any folder, with nothing installed there (story 012):
   `testWorkflow` from `agentswf/testing` runs the workflow through the real engine with each agent
-  and decision model scripted, typed by the schema each turn asks for. Seven examples have theirs
+  and decision model scripted, typed by the schema each turn asks for. Nine examples have theirs
   beside them.
 - `agent.compact({ prompt })` runs the harness's own compaction with the workflow's focus (story
   015, ADR 0007), within the workflow's deadline unless `timeoutMs` bounds it: claude, codex and pi
@@ -135,9 +135,9 @@ The gates are defined in [`foundation.md`](foundation.md) §12.
   test beside it scripts each agent's and decision's answers, typed by the turn's schema (`answer`,
   `reply`), and runs the real engine against them: `testWorkflow` in
   `@agentswf/engine/workflow-testing`, served to authors as `agentswf/testing`, on a second
-  composition root (ADR 0006); seven examples tested beside them; `awf test` runs them in any
+  composition root (ADR 0006); nine examples tested beside them; `awf test` runs them in any
   folder.
-- [013 — autoresearch loop](stories/013-autoresearch-loop.md): draft. The proposer writes
+- [013 — autoresearch loop](stories/013-autoresearch-loop.md): in progress. The proposer writes
   workflow code, so trials run whole in a container; air-1 is split 23 tuning / 10 holdout.
 - [014 — a workflow in the current session](stories/014-workflow-in-current-session.md): done,
   approved 2026-10-01. `awf run --here` takes the session it was typed in over as `agents.caller`
@@ -173,7 +173,8 @@ The inbox of possible stories is [`stories/todo/`](stories/todo/).
 
 - An agent opened without a sandbox runs with the operator's authority, and a sandboxed one still
   spends the operator's login, which a refresh in its copy may rotate (X13). The harness-level
-  permissions are designed, not built ([`design/permissions.md`](design/permissions.md)).
+  permissions are designed, not built, but for a sandboxed claude's prompts, which are off
+  ([`design/permissions.md`](design/permissions.md)).
 - E4, concurrency, has never been measured. `awf-lab run --jobs` runs steps in parallel on the
   operator's say-so (story 008).
 - A headless turn killed mid-request, by its 30 s grace after answering or by a follow-up that
