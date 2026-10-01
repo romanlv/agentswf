@@ -135,7 +135,7 @@ Alternatives rejected:
 - [x] 1. Design: ADR 0007, the contract docs, the design doc
 - [x] 2. A pane agent takes more than one operation ([ADR 0008](../adr/0008-a-pane-agent-continues-in-its-pane.md))
 - [x] 3. `AgentRef.compact` in the engine, and scripted compactions in tests
-- [ ] 4. Native compaction for each harness and placement
+- [x] 4. Native compaction for each harness and placement
 - [ ] 5. Live eval on every harness, findings, the ticket workflow
 
 ## Implementation notes
@@ -148,6 +148,13 @@ Alternatives rejected:
   and no result slot. The harness confirms it by setting `summary` on the outcome; `completed`
   without one settles `failed`. One past its deadline is released as answered, so it is left to
   finish: stopping it would close a pane. In tests, `Scripts` serves both lists, worded by noun.
+- Task 4: each harness's compaction is in `spec.ts` beside its other flags: `compactHeadless`
+  (a plan, and how its stdout says it compacted) and `compactPane` (what is typed, and the screen
+  that shows it ran). Headless claude uses `stream-json`, the one format that prints the boundary
+  and the summary, so a sandboxed claude needs no file read. Codex's app-server and pi's rpc mode
+  exit when stdin closes, so `runProcess` gained `holdStdinUntil`: stdin stays open until a line of
+  stdout answers. A pane's summary is read from claude's transcript in the operator's home; a
+  sandboxed pane's claude keeps its own home, which this host is not told, so its summary is `""`.
 
 ## Human review
 

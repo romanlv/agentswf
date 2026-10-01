@@ -1,11 +1,11 @@
 import { basename, join } from "node:path";
 import type { Billing } from "@agentswf/contract/records";
 import type { AgentPlacement } from "@agentswf/contract/workflow";
-import type { RunProcess } from "./command";
-import { jsonLines, type Row, record, reported, text } from "./json";
+import type { Holding, RunProcess } from "./command";
+import { jsonLines, parseRow, type Row, record, reported, text } from "./json";
 import type { Harness } from "./types";
 import { readClaudeBilling, readCodexBilling, readPiBilling } from "./usage/billing";
-import { claudeProjectsDirectory, readClaudeUsage } from "./usage/claude";
+import { claudeProjectsDirectory, readClaudeCompactSummary, readClaudeUsage } from "./usage/claude";
 import { codexSessionsDirectory, readCodexUsage } from "./usage/codex";
 import { ownFiles } from "./usage/files";
 import { readPiUsage } from "./usage/pi";
@@ -18,6 +18,13 @@ export type TurnPlan = {
   /** The session this turn runs under, when the plan chose it rather than the harness. */
   sessionId?: string;
 };
+
+/** A headless run of the harness's own compaction; see `HarnessSpec.compactHeadless`. */
+export type CompactionPlan = TurnPlan &
+  Holding & {
+    /** What its output says: the summary, `""` where the harness keeps it opaque, or why not. */
+    read(stdout: string): { summary: string } | { error: string };
+  };
 
 export type BillingContext = {
   model?: string;
@@ -83,6 +90,18 @@ export type HarnessSpec = {
   /** Whether this agent's tokens are charged, which is not always what its login says. */
   billing?(context: BillingContext): Promise<Billing>;
   /**
+   * Its own compaction of a headless session, with `focus` as what to keep and drop (ADR 0007).
+   * Absent where it has none: a compaction then fails before anything runs.
+   */
+  compactHeadless?(focus: string, sessionId: string, context: TurnContext): CompactionPlan;
+  /** Its own compaction in a pane: what is typed, in order, and the screen that shows it ran. */
+  compactPane?: {
+    prompts(focus: string): string[];
+    compacted(screen: string): boolean;
+  };
+  /** The summary of a session's last compaction, from the harness's own record, where it keeps one. */
+  readCompactSummary?(sessionId: string, cwd: string): Promise<string | undefined>;
+  /**
    * Its headless turns are billed per token even on a subscription login, so a headless agent is
    * `metered` whatever `billing` says, and runs only when its execution says `metered`.
    */
@@ -145,6 +164,43 @@ export const HARNESSES: Record<Harness, HarnessSpec> = {
     readSessionId: (stdout) => text(lastJson(stdout)?.session_id),
     readTranscript: (stdout) => text(lastJson(stdout)?.result) ?? stdout,
     readCharge: (stdout) => reported(lastJson(stdout)?.total_cost_usd),
+    // Only `stream-json` prints the compaction: its boundary, then the summary as a synthetic
+    // user row. `json` prints an empty result either way.
+    compactHeadless: (focus, sessionId, { model, launchArgs = [] }) => ({
+      argv: [
+        "claude",
+        "-p",
+        "--resume",
+        sessionId,
+        ...launchArgs,
+        "--output-format",
+        "stream-json",
+        "--verbose",
+        ...(model ? ["--model", model] : []),
+      ],
+      stdin: `/compact ${focus}`,
+      read: (stdout) => {
+        const rows = jsonLines(stdout);
+        const boundary = rows.findIndex(
+          (row) => row.type === "system" && row.subtype === "compact_boundary",
+        );
+        if (boundary < 0) {
+          const result = text(lastJson(stdout)?.result);
+          return {
+            error: `claude wrote no compaction${result ? `: ${result.slice(0, 300)}` : ""}`,
+          };
+        }
+        const summary = rows
+          .slice(boundary + 1)
+          .find((row) => row.type === "user" && row.isSynthetic === true);
+        return { summary: text(record(summary?.message)?.content) ?? "" };
+      },
+    }),
+    compactPane: {
+      prompts: (focus) => [`/compact ${focus}`],
+      compacted: (screen) => after(screen, "/compact").includes("Compacted"),
+    },
+    readCompactSummary: (sessionId, cwd) => readClaudeCompactSummary(sessionId, cwd),
     readSessionUsage: (sessions, cwd, home) =>
       readClaudeUsage(sessions, cwd, claudeProjectsDirectory(home)),
     homeSessions: async (home) =>
@@ -210,6 +266,76 @@ export const HARNESSES: Record<Harness, HarnessSpec> = {
         .filter((row) => text(record(row.item)?.type) === "agent_message")
         .map((row) => text(record(row.item)?.text) ?? "");
       return messages.join("\n") || stdout;
+    },
+    // `exec` sends `/compact` to the model as text; the app-server compacts, and exits once its
+    // stdin closes. It takes no focus, and an OpenAI login ignores `compact_prompt`, so the focus
+    // goes in as a user message first, which the compaction reads and keeps.
+    compactHeadless: (focus, sessionId, { model, launchArgs = [] }) => {
+      const request = (id: number, method: string, params: object) =>
+        JSON.stringify({ jsonrpc: "2.0", id, method, params });
+      const requests = [
+        request(1, "initialize", { clientInfo: { name: "awf", version: "0" } }),
+        JSON.stringify({ jsonrpc: "2.0", method: "initialized" }),
+        request(2, "thread/resume", {
+          threadId: sessionId,
+          excludeTurns: true,
+          ...(model ? { model } : {}),
+        }),
+        request(3, "thread/inject_items", {
+          threadId: sessionId,
+          items: [
+            {
+              type: "message",
+              role: "user",
+              content: [{ type: "input_text", text: codexCompactionFocus(focus) }],
+            },
+          ],
+        }),
+        request(4, "thread/compact/start", { threadId: sessionId }),
+      ];
+      const failedRequest = (row: Row) => row.error !== undefined && row.id !== 1;
+      return {
+        argv: [
+          "codex",
+          "app-server",
+          "--listen",
+          "stdio://",
+          "-c",
+          'sandbox_mode="danger-full-access"',
+          ...launchArgs,
+        ],
+        stdin: `${requests.join("\n")}\n`,
+        holdStdinUntil: (line) => {
+          const row = parseRow(line);
+          return row !== undefined && (row.method === "turn/completed" || failedRequest(row));
+        },
+        read: (stdout) => {
+          const rows = jsonLines(stdout);
+          const refused = rows.find(failedRequest);
+          if (refused) {
+            return {
+              error: `codex refused: ${text(record(refused.error)?.message) ?? "an error"}`,
+            };
+          }
+          const turn = record(
+            record(rows.find((row) => row.method === "turn/completed")?.params)?.turn,
+          );
+          const compacted = rows.some(
+            (row) =>
+              row.method === "item/completed" &&
+              text(record(record(row.params)?.item)?.type) === "contextCompaction",
+          );
+          if (turn?.status === "completed" && compacted) return { summary: "" };
+          return {
+            error: `codex did not compact${turn ? `: its turn ${text(turn.status) ?? "ended"}` : ""}`,
+          };
+        },
+      };
+    },
+    // `/compact` takes no text in codex's TUI: the text would go to the model.
+    compactPane: {
+      prompts: (focus) => [codexCompactionFocus(focus), "/compact"],
+      compacted: (screen) => after(screen, "/compact").includes("Context compacted"),
     },
     readSessionUsage: (sessions, _cwd, home) =>
       readCodexUsage(sessions, codexSessionsDirectory(home)),
@@ -278,6 +404,32 @@ export const HARNESSES: Record<Harness, HarnessSpec> = {
       const end = jsonLines(stdout).findLast((row) => row.type === "turn_end");
       return reported(record(record(record(end?.message)?.usage)?.cost)?.total);
     },
+    // `--print` sends `/compact` to the model as text; rpc mode compacts, and exits once its
+    // stdin closes.
+    compactHeadless: (focus, sessionId, { model, launchArgs = [] }) => {
+      const answer = (row: Row | undefined) =>
+        row?.type === "response" && row.command === "compact";
+      return {
+        argv: [
+          "pi",
+          "--mode",
+          "rpc",
+          "--session-id",
+          sessionId,
+          ...launchArgs,
+          ...(model ? ["--model", model] : []),
+        ],
+        stdin: `${JSON.stringify({ type: "compact", customInstructions: focus })}\n`,
+        holdStdinUntil: (line) => answer(parseRow(line)),
+        read: (stdout) => {
+          const response = jsonLines(stdout).find(answer);
+          if (response?.success === true) {
+            return { summary: text(record(response.data)?.summary) ?? "" };
+          }
+          return { error: `pi did not compact: ${text(response?.error) ?? "no answer"}` };
+        },
+      };
+    },
     readSessionUsage: (sessions, _cwd, home) => readPiUsage(sessions, home),
     homeSessions: async (home) => {
       const root = join(home, "sessions");
@@ -321,6 +473,17 @@ export const HARNESSES: Record<Harness, HarnessSpec> = {
     // No dollar figure anywhere: a cursor step is unpriceable, which E1 also found.
   },
 };
+
+/** Codex compacts with no focus of its own, so it reads one as the message just before. */
+function codexCompactionFocus(focus: string): string {
+  return `Your context is about to be compacted. For its summary: ${focus}\n\nReply only: ok`;
+}
+
+/** What `screen` shows after the last line holding `marker`, or nothing when none does. */
+function after(screen: string, marker: string): string {
+  const at = screen.lastIndexOf(marker);
+  return at < 0 ? "" : screen.slice(at + marker.length);
+}
 
 export function harnessSpec(harness: Harness): HarnessSpec {
   return HARNESSES[harness];

@@ -880,6 +880,110 @@ describe("createHerdrRunHostFactory", () => {
     await host.close();
   });
 
+  describe("compaction", () => {
+    /** Answers the screen read with `screen`; everything else as the stub does. */
+    const showing = (screen: string) => {
+      const base = hostStub();
+      const run: RunProcess = async (input) => {
+        if (verb(input) === "agent read" && input.argv.includes("recent-unwrapped")) {
+          base.calls.push(input);
+          return { stdout: screen, stderr: "", exitCode: 0, timedOut: false };
+        }
+        return base.run(input);
+      };
+      return { run, calls: base.calls };
+    };
+    const opened = async (run: RunProcess, harness: "claude" | "codex") => {
+      const host = await createHerdrRunHostFactory(CONFIG, run).openRun({
+        runId: "run-1",
+        cwd: "/repo",
+        deadline: deadline(),
+      });
+      const session = await host.openAgent({
+        key: "worker",
+        cwd: "/repo",
+        deadline: deadline(),
+        execution: { harness, model: "m" },
+      });
+      return { host, session };
+    };
+    const prompted = (calls: ProcessInput[]) =>
+      calls.filter((call) => verb(call) === "agent prompt").map((call) => call.argv[6]);
+
+    test("claude is typed /compact with the focus, and the screen confirms it", async () => {
+      const { run, calls } = showing(
+        "❯ /compact Keep the path.\n  ⎿  Compacted (ctrl+o to see full summary)\n❯ ",
+      );
+      const { host, session } = await opened(run, "claude");
+      await (
+        await session.start({ id: "one", prompt: "plan", deadline: deadline() }, binding("op-1"))
+      ).settled;
+      const compact = await session.compact("c-1", "Keep the path.", deadline());
+
+      await expect(compact.settled).resolves.toMatchObject({ state: "completed", summary: "" });
+      expect(prompted(calls)).toEqual(["plan", "/compact Keep the path."]);
+      expect(calls.filter((call) => verb(call) === "tab create")).toHaveLength(1);
+      await host.close();
+    });
+
+    test("codex is sent the focus, then a bare /compact once it settles", async () => {
+      const { run, calls } = showing("› /compact\n\n• Context compacted · 2s\n\n› ");
+      const { host, session } = await opened(run, "codex");
+      await (
+        await session.start({ id: "one", prompt: "plan", deadline: deadline() }, binding("op-1"))
+      ).settled;
+      const compact = await session.compact("c-1", "Keep the path.", deadline());
+
+      await expect(compact.settled).resolves.toMatchObject({ state: "completed", summary: "" });
+      const [, focus, command] = prompted(calls);
+      expect(focus).toContain("Keep the path.");
+      expect(command).toBe("/compact");
+      const order = calls.map(verb).filter((v) => v === "agent prompt" || v === "agent wait");
+      expect(order).toEqual([
+        "agent prompt",
+        "agent wait",
+        "agent prompt",
+        "agent wait",
+        "agent prompt",
+      ]);
+      await host.close();
+    });
+
+    test("a screen that shows no compaction after /compact fails it, and the agent goes on", async () => {
+      const { run, calls } = showing(
+        "❯ /compact Keep the path.\n  ⎿  Error: conversation too short\n",
+      );
+      const { host, session } = await opened(run, "claude");
+      await (
+        await session.start({ id: "one", prompt: "plan", deadline: deadline() }, binding("op-1"))
+      ).settled;
+      const compact = await session.compact("c-1", "Keep the path.", deadline());
+      await expect(compact.settled).resolves.toMatchObject({
+        state: "failed",
+        detail: expect.stringContaining("claude shows no compaction"),
+      });
+      const next = await session.start(
+        { id: "two", prompt: "build", deadline: deadline() },
+        binding("op-2"),
+      );
+      await expect(next.settled).resolves.toMatchObject({ state: "completed" });
+      expect(prompted(calls)).toEqual(["plan", "/compact Keep the path.", "build"]);
+      await host.close();
+    });
+
+    test("a compaction before the agent's first turn opens no tab", async () => {
+      const { run, calls } = showing("");
+      const { host, session } = await opened(run, "claude");
+      const compact = await session.compact("c-1", "Keep the path.", deadline());
+      await expect(compact.settled).resolves.toMatchObject({
+        state: "failed",
+        detail: "there is nothing to compact before the first turn",
+      });
+      expect(calls.filter((call) => verb(call) === "tab create")).toHaveLength(0);
+      await host.close();
+    });
+  });
+
   test("the agent's own tab carries the scrubbed environment, not just the workspace", async () => {
     const { run, calls } = hostStub();
     const host = await createHerdrRunHostFactory(

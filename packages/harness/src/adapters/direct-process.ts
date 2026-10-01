@@ -65,6 +65,14 @@ export function createHeadlessAdapter(
               `${harness} has no confirmed headless resume, so the operation could not continue`,
             );
           }
+          if (operation.kind === "compact") {
+            if (!spec.compactHeadless) {
+              return localOutcome("failed", `${harness} has no compaction of its own`);
+            }
+            if (!operation.previousSessionRef) {
+              return localOutcome("failed", "there is nothing to compact before the first turn");
+            }
+          }
           const prompt =
             !operation.previousSessionRef && request.instructions
               ? `${request.instructions}\n\n${operation.prompt}`
@@ -78,9 +86,15 @@ export function createHeadlessAdapter(
             sessionHint: identity.sessionId,
             ...(launchArgs.length > 0 ? { launchArgs } : {}),
           };
-          const plan = operation.previousSessionRef
-            ? spec.resumeTurn!(prompt, operation.previousSessionRef, context)
-            : spec.headlessTurn(prompt, context);
+          const compaction =
+            operation.kind === "compact"
+              ? spec.compactHeadless!(operation.prompt, operation.previousSessionRef!, context)
+              : undefined;
+          const plan =
+            compaction ??
+            (operation.previousSessionRef
+              ? spec.resumeTurn!(prompt, operation.previousSessionRef, context)
+              : spec.headlessTurn(prompt, context));
           const controller = new AbortController();
           active = controller;
           const command = {
@@ -91,8 +105,13 @@ export function createHeadlessAdapter(
             timeoutMs: Math.max(1, remaining),
             signal: controller.signal,
           };
+          const holding = compaction?.holdStdinUntil
+            ? { holdStdinUntil: compaction.holdStdinUntil }
+            : {};
           // Every turn, a resumed one too, runs inside when the agent has a place there.
-          const running = run(occupant ? occupant.launch(command) : command);
+          const running = run(
+            occupant ? { ...occupant.launch(command), ...holding } : { ...command, ...holding },
+          );
           activeCompletion = running.then(
             () => undefined,
             () => undefined,
@@ -138,6 +157,12 @@ export function createHeadlessAdapter(
               detail: `${plan.argv[0]} exited ${result.exitCode}: ${result.stderr.trim().slice(0, 400)}`,
               ...common,
             };
+          }
+          if (compaction) {
+            const read = compaction.read(result.stdout);
+            return "error" in read
+              ? { state: "failed" as const, detail: read.error, ...common }
+              : { state: "completed" as const, ...common, summary: read.summary };
           }
           return { state: "completed" as const, ...common };
         },

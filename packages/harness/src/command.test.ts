@@ -159,3 +159,30 @@ describe("a sandboxed command", () => {
     expect(reaped).toBe(true);
   });
 });
+
+describe("a child held on stdin", () => {
+  // Answers each line it reads, and exits only when stdin closes, as codex's app-server does.
+  const server = ["/bin/sh", "-c", 'while read -r line; do echo "got $line"; done; echo bye'];
+
+  test("is fed its stdin, held open until a line answers, then let exit", async () => {
+    const result = await runProcess({
+      argv: server,
+      stdin: "first\nsecond\n",
+      timeoutMs: 5_000,
+      holdStdinUntil: (line) => line === "got second",
+    });
+    expect(result).toMatchObject({ exitCode: 0, timedOut: false });
+    expect(result.stdout).toBe("got first\ngot second\nbye\n");
+  });
+
+  test("still ends at its timeout when no line answers", async () => {
+    const result = await runProcess({
+      argv: server,
+      stdin: "first\n",
+      timeoutMs: 300,
+      holdStdinUntil: (line) => line === "never",
+    });
+    expect(result).toMatchObject({ timedOut: true });
+    expect(result.stdout).toBe("got first\n");
+  });
+});

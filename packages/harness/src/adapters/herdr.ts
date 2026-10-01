@@ -773,6 +773,78 @@ export function createHerdrRunHostFactory(
               : undefined;
           };
 
+          /**
+           * The harness's own compaction, typed into the pane as `spec.compactPane` says, each
+           * prompt once the agent has settled. Neither Herdr's status nor any `wf result` says it
+           * ran, so the screen after it does; the summary is read from the harness's record, where
+           * this host can read it.
+           */
+          const compactInPane = async (
+            agentName: string,
+            operation: { prompt: string; deadline: { unixMilliseconds: number } },
+            signal: AbortSignal,
+          ): Promise<NativeTurnOutcome> => {
+            const compaction = spec.compactPane!;
+            const remaining = () => operation.deadline.unixMilliseconds - Date.now();
+            let agent: Record<string, unknown> | undefined;
+            for (const [index, text] of compaction.prompts(operation.prompt).entries()) {
+              if (index > 0) {
+                const idle = await settle(agentName, operation.deadline, signal);
+                if (idle) return idle;
+              }
+              const waitMs = remaining();
+              if (waitMs <= 0) return localOutcome("timed-out", "operation deadline exceeded");
+              const sent = await herdr(
+                ["agent", "prompt", agentName, text, "--wait", "--timeout", String(waitMs)],
+                waitMs + HERDR_REPORT_GRACE_MS,
+                signal,
+              );
+              if (!sent.ok) {
+                if (sent.cancelled || signal.aborted) {
+                  return localOutcome("cancelled", "pane operation cancelled");
+                }
+                // A stall says nothing about whether it ran; the screen will, once it settles.
+                if (!hasHerdrErrorCode(sent.error, "agent_prompt_stalled")) {
+                  return herdrFailure(sent, remaining());
+                }
+                const idle = await settle(agentName, operation.deadline, signal);
+                if (idle) return idle;
+              } else {
+                agent = record(sent.result.agent) ?? sent.result;
+              }
+            }
+            const read = await herdr(
+              ["agent", "read", agentName, "--source", "recent-unwrapped", "--lines", "200"],
+              Math.max(1, remaining()),
+              signal,
+            );
+            if (!read.ok) {
+              return read.cancelled || signal.aborted
+                ? localOutcome("cancelled", "pane operation cancelled")
+                : localOutcome("failed", `the pane could not be read: ${read.error}`);
+            }
+            const evidence = { kind: "transcript" as const, text: read.stdout };
+            if (!compaction.compacted(read.stdout)) {
+              return {
+                state: "failed",
+                detail: `${harness} shows no compaction: ${readable(read.stdout).trim().slice(-300)}`,
+                resultEvidence: evidence,
+                chargesUsd: [],
+              };
+            }
+            const sessionRef = agent ? readSessionRef(agent) : undefined;
+            const summary = sessionRef
+              ? await spec.readCompactSummary?.(sessionRef, request.cwd)
+              : undefined;
+            return {
+              state: "completed",
+              resultEvidence: evidence,
+              ...(sessionRef ? { sessionRef } : {}),
+              chargesUsd: [],
+              summary: summary ?? "",
+            };
+          };
+
           /** Ends the active wait on the agent, leaving the agent, and its pane, as they are. */
           const stopWaiting = async (): Promise<boolean> => {
             if (!activeController) return false;
@@ -798,6 +870,19 @@ export function createHerdrRunHostFactory(
               try {
                 const operationId =
                   operation.binding?.operationId ?? `internal:${request.key}:${operation.id}`;
+                if (operation.kind === "compact") {
+                  if (!spec.compactPane) {
+                    return localOutcome("failed", `${harness} has no compaction of its own`);
+                  }
+                  if (!current) {
+                    return localOutcome(
+                      "failed",
+                      hasExecuted
+                        ? "this agent's pane was closed, so its session cannot be compacted"
+                        : "there is nothing to compact before the first turn",
+                    );
+                  }
+                }
                 if (!current) {
                   // A pane is closed only when an operation was cancelled or failed to start, and
                   // its agent's session went with it.
@@ -879,6 +964,9 @@ export function createHerdrRunHostFactory(
 
                 const placement = current;
                 if (!placement) throw new Error("operation pane was not retained");
+                if (operation.kind === "compact") {
+                  return await compactInPane(placement.agentName, operation, controller.signal);
+                }
                 // Only once: a later prompt reaches an agent that has already read these, and
                 // sending them again reads as a new assignment rather than a reminder.
                 const prompt =

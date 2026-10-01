@@ -286,16 +286,183 @@ describe("createHeadlessAdapter", () => {
     });
   });
 
-  test("compaction resumes without result authority", async () => {
-    const { run, calls } = stub([claudeOut("first"), claudeOut("summary")]);
-    const session = await headless(run, { newSessionId: () => "chosen" });
-    const turn = await session.start(turnSpec, firstBinding);
-    await turn.settled;
-    const compact = await session.compact("compact-1", "summarize", activation.deadline);
-    await compact.settled;
+  describe("compaction", () => {
+    // What each harness printed when it compacted, live (story 015).
+    const claudeCompacted = (summary: string) =>
+      [
+        { type: "system", subtype: "init", session_id: "sess-1" },
+        { type: "system", subtype: "compact_boundary", compact_metadata: { trigger: "manual" } },
+        { type: "user", isSynthetic: true, message: { role: "user", content: summary } },
+        { type: "user", isReplay: true, message: { role: "user", content: "Compacted" } },
+        {
+          type: "result",
+          subtype: "success",
+          result: "",
+          session_id: "sess-1",
+          total_cost_usd: 0.02,
+        },
+      ]
+        .map((row) => JSON.stringify(row))
+        .join("\n");
+    const codexCompacted = [
+      { id: 1, result: {} },
+      { id: 2, result: { thread: { id: "thread-1" } } },
+      { id: 3, result: {} },
+      { id: 4, result: {} },
+      { method: "item/completed", params: { item: { type: "contextCompaction" } } },
+      { method: "turn/completed", params: { turn: { status: "completed" } } },
+    ]
+      .map((row) => JSON.stringify({ jsonrpc: "2.0", ...row }))
+      .join("\n");
+    const piCompacted = JSON.stringify({
+      type: "response",
+      command: "compact",
+      success: true,
+      data: { summary: "kept the path" },
+    });
+    const as = (harness: string, model: string): typeof activation => ({
+      ...activation,
+      execution: {
+        harness,
+        model,
+        placement: "headless",
+        ...(harness === "claude" ? { metered: true } : {}),
+      },
+    });
+    const firstTurn: Record<string, string> = {
+      claude: claudeOut("first"),
+      codex: JSON.stringify({ type: "thread.started", thread_id: "thread-1" }),
+      pi: JSON.stringify({ type: "session", id: "chosen" }),
+    };
 
-    expect(calls[1]?.env).toEqual({});
-    expect(calls[1]?.argv).toContain("--resume");
+    test("claude resumes with /compact and its focus, and answers with the summary it wrote", async () => {
+      const { run, calls } = stub([claudeOut("first"), claudeCompacted("the path is 14 m")]);
+      const session = await headless(run, { newSessionId: () => "chosen" });
+      await (await session.start(turnSpec, firstBinding)).settled;
+      const compact = await session.compact("c-1", "Keep the path.", activation.deadline);
+
+      await expect(compact.settled).resolves.toMatchObject({
+        state: "completed",
+        summary: "the path is 14 m",
+        chargesUsd: [0.02],
+      });
+      expect(calls[1]?.stdin).toBe("/compact Keep the path.");
+      expect(calls[1]?.argv).toEqual(expect.arrayContaining(["--resume", "sess-1", "stream-json"]));
+      // The workflow's instructions went with the first turn and are not repeated.
+      expect(calls[1]?.stdin).not.toContain(activation.instructions);
+    });
+
+    test("claude that wrote no compaction fails it", async () => {
+      const { run } = stub([claudeOut("first"), claudeOut("Unknown command")]);
+      const session = await headless(run);
+      await (await session.start(turnSpec, firstBinding)).settled;
+      const compact = await session.compact("c-1", "Keep the path.", activation.deadline);
+
+      await expect(compact.settled).resolves.toMatchObject({
+        state: "failed",
+        detail: "claude wrote no compaction: Unknown command",
+      });
+    });
+
+    test("codex compacts on its app-server, the focus injected first, with stdin held open", async () => {
+      const { run, calls } = stub([firstTurn.codex!, codexCompacted]);
+      const session = await headless(run, {}, as("codex", "gpt-6-luna"));
+      await (await session.start(turnSpec, firstBinding)).settled;
+      const compact = await session.compact("c-1", "Keep the path.", activation.deadline);
+
+      await expect(compact.settled).resolves.toMatchObject({ state: "completed", summary: "" });
+      const call = calls[1] as ProcessInput;
+      expect(call.argv.slice(0, 4)).toEqual(["codex", "app-server", "--listen", "stdio://"]);
+      const requests = call
+        .stdin!.trim()
+        .split("\n")
+        .map((line) => JSON.parse(line));
+      expect(requests.map((request) => request.method)).toEqual([
+        "initialize",
+        "initialized",
+        "thread/resume",
+        "thread/inject_items",
+        "thread/compact/start",
+      ]);
+      expect(requests[2].params).toMatchObject({ threadId: "thread-1", model: "gpt-6-luna" });
+      expect(JSON.stringify(requests[3].params)).toContain("Keep the path.");
+      expect(call.holdStdinUntil?.(JSON.stringify({ method: "turn/completed" }))).toBe(true);
+      expect(call.holdStdinUntil?.(JSON.stringify({ id: 4, error: { message: "no" } }))).toBe(true);
+      expect(call.holdStdinUntil?.(JSON.stringify({ method: "item/started" }))).toBe(false);
+    });
+
+    test("codex refusing the thread fails the compaction with its reason", async () => {
+      const refused = JSON.stringify({
+        jsonrpc: "2.0",
+        id: 2,
+        error: { message: "no such thread" },
+      });
+      const { run } = stub([firstTurn.codex!, refused]);
+      const session = await headless(run, {}, as("codex", "gpt-6-luna"));
+      await (await session.start(turnSpec, firstBinding)).settled;
+      const compact = await session.compact("c-1", "Keep the path.", activation.deadline);
+
+      await expect(compact.settled).resolves.toMatchObject({
+        state: "failed",
+        detail: "codex refused: no such thread",
+      });
+    });
+
+    test("pi compacts in rpc mode with the focus as its instructions, and answers its summary", async () => {
+      const { run, calls } = stub([firstTurn.pi!, piCompacted]);
+      const session = await headless(run, { newSessionId: () => "chosen" }, as("pi", "terra"));
+      await (await session.start(turnSpec, firstBinding)).settled;
+      const compact = await session.compact("c-1", "Keep the path.", activation.deadline);
+
+      await expect(compact.settled).resolves.toMatchObject({
+        state: "completed",
+        summary: "kept the path",
+      });
+      const call = calls[1] as ProcessInput;
+      expect(call.argv).toEqual(
+        expect.arrayContaining(["--mode", "rpc", "--session-id", "chosen"]),
+      );
+      expect(JSON.parse(call.stdin!)).toEqual({
+        type: "compact",
+        customInstructions: "Keep the path.",
+      });
+    });
+
+    test("pi with nothing to compact fails it, saying so", async () => {
+      const tooSmall = JSON.stringify({
+        type: "response",
+        command: "compact",
+        success: false,
+        error: "Nothing to compact (session too small)",
+      });
+      const { run } = stub([firstTurn.pi!, tooSmall]);
+      const session = await headless(run, {}, as("pi", "terra"));
+      await (await session.start(turnSpec, firstBinding)).settled;
+      const compact = await session.compact("c-1", "Keep the path.", activation.deadline);
+
+      await expect(compact.settled).resolves.toMatchObject({
+        state: "failed",
+        detail: "pi did not compact: Nothing to compact (session too small)",
+      });
+    });
+
+    test("cursor, which has no compaction, and a compaction before any turn run nothing", async () => {
+      const { run, calls } = stub([JSON.stringify({ session_id: "c1", result: "ok" })]);
+      const cursor = await headless(run, {}, as("cursor", "composer"));
+      await (await cursor.start(turnSpec, firstBinding)).settled;
+      await expect(
+        (await cursor.compact("c-1", "Keep it.", activation.deadline)).settled,
+      ).resolves.toMatchObject({ state: "failed", detail: "cursor has no compaction of its own" });
+
+      const fresh = await headless(run);
+      await expect(
+        (await fresh.compact("c-1", "Keep it.", activation.deadline)).settled,
+      ).resolves.toMatchObject({
+        state: "failed",
+        detail: "there is nothing to compact before the first turn",
+      });
+      expect(calls).toHaveLength(1);
+    });
   });
 
   test("the prompt rides on stdin, where no CLI reinterprets it", async () => {

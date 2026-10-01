@@ -25,7 +25,13 @@ export type ProcessInput = {
   stdin?: string;
   timeoutMs: number;
   signal?: AbortSignal;
-};
+} & Holding;
+
+/**
+ * For a child that serves requests on stdin and exits when it closes, as codex's app-server and
+ * pi's rpc mode do: stdin is held open until a line of stdout answers, then closed.
+ */
+export type Holding = { holdStdinUntil?: (line: string) => boolean };
 
 /**
  * A `SandboxedCommand` runs as its own process group with exactly its `env`, and ends with its
@@ -33,7 +39,9 @@ export type ProcessInput = {
  * fails is its provider's to report. Anything else runs as a child of this process, in its
  * environment.
  */
-export type RunProcess = (input: ProcessInput | SandboxedCommand) => Promise<ProcessResult>;
+export type RunProcess = (
+  input: ProcessInput | (SandboxedCommand & Holding),
+) => Promise<ProcessResult>;
 
 /** `run`, with each of `names` unset in every process it starts, whatever the caller passed. */
 export function withholding(run: RunProcess, names: readonly string[]): RunProcess {
@@ -46,7 +54,9 @@ export function withholding(run: RunProcess, names: readonly string[]): RunProce
   };
 }
 
-function isSandboxed(input: ProcessInput | SandboxedCommand): input is SandboxedCommand {
+function isSandboxed(
+  input: ProcessInput | (SandboxedCommand & Holding),
+): input is SandboxedCommand & Holding {
   return "group" in input && input.group === true;
 }
 
@@ -68,7 +78,8 @@ export const runProcess: RunProcess = async (input) => {
       cancelled: true,
     });
   }
-  let child: Bun.Subprocess<"ignore", "pipe", "pipe">;
+  const { holdStdinUntil } = input;
+  let child: Bun.Subprocess<"ignore" | "pipe" | Uint8Array, "pipe", "pipe">;
   try {
     child = Bun.spawn({
       cmd: [...argv],
@@ -77,7 +88,11 @@ export const runProcess: RunProcess = async (input) => {
       // `setsid`: the group is everything the command starts, which killing it alone would leave
       // running (story 004, X1).
       detached: sandboxed,
-      stdin: stdin === undefined ? "ignore" : new TextEncoder().encode(stdin),
+      stdin: holdStdinUntil
+        ? "pipe"
+        : stdin === undefined
+          ? "ignore"
+          : new TextEncoder().encode(stdin),
       stdout: "pipe",
       stderr: "pipe",
     });
@@ -106,9 +121,23 @@ export const runProcess: RunProcess = async (input) => {
     kill();
   }, timeoutMs);
 
+  let answered: ReturnType<typeof setTimeout> | undefined;
+  let onLine: ((line: string) => void) | undefined;
+  if (holdStdinUntil) {
+    const pipe = child.stdin as Bun.FileSink;
+    if (stdin !== undefined) pipe.write(stdin);
+    void pipe.flush();
+    onLine = (line) => {
+      if (answered || !holdStdinUntil(line)) return;
+      void pipe.end();
+      // Closing stdin is how it is told to exit; one that does not is stopped.
+      answered = setTimeout(kill, HELD_EXIT_GRACE_MS);
+    };
+  }
+
   let result: ProcessResult;
   try {
-    const out = capture(child.stdout);
+    const out = capture(child.stdout, onLine);
     const err = capture(child.stderr);
     const exitCode = await child.exited;
     if (sandboxed) {
@@ -124,10 +153,14 @@ export const runProcess: RunProcess = async (input) => {
     result = { stdout, stderr, exitCode, timedOut, ...(cancelled ? { cancelled: true } : {}) };
   } finally {
     clearTimeout(timer);
+    clearTimeout(answered);
     signal?.removeEventListener("abort", abort);
   }
   return reaped(result);
 };
+
+/** How long a held child has to exit once its stdin is closed. */
+const HELD_EXIT_GRACE_MS = 5_000;
 
 /** Awaits `reap` until it settles or its grace runs out, whichever is first. */
 async function reapWithin(reap: () => Promise<void>): Promise<void> {
@@ -153,18 +186,31 @@ function childEnvironment(
   return { ...process.env, ...env };
 }
 
-/** A stream read up to the capture cap; `stop` ends the read early, keeping what came. */
-function capture(stream: ReadableStream<Uint8Array>): {
+/**
+ * A stream read up to the capture cap; `stop` ends the read early, keeping what came. `onLine`
+ * sees each complete line as it arrives, beyond the cap too.
+ */
+function capture(
+  stream: ReadableStream<Uint8Array>,
+  onLine?: (line: string) => void,
+): {
   text: Promise<string>;
   stop(): Promise<void>;
 } {
   const reader = stream.getReader();
+  const decoder = new TextDecoder();
+  let partial = "";
   const text = (async () => {
     const chunks: Uint8Array[] = [];
     let captured = 0;
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
+      if (onLine) {
+        const lines = (partial + decoder.decode(value, { stream: true })).split("\n");
+        partial = lines.pop() ?? "";
+        for (const line of lines) onLine(line);
+      }
       if (captured >= MAX_OUTPUT_BYTES) continue;
       const kept = value.subarray(0, MAX_OUTPUT_BYTES - captured);
       chunks.push(kept);

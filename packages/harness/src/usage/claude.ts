@@ -92,6 +92,23 @@ function readRecord(row: Row): UsageRecord | undefined {
   };
 }
 
+/** The summary of the session's last compaction: the row claude marks `isCompactSummary`. */
+export async function readClaudeCompactSummary(
+  id: string,
+  cwd: string,
+  projects = claudeProjectsDirectory(),
+): Promise<string | undefined> {
+  if (!safeId(id)) return undefined;
+  const directory = await projectDirectory(projects, cwd, id);
+  if (directory === undefined) return undefined;
+  const rows = await jsonRows(join(directory, `${id}.jsonl`));
+  const summary = rows.findLast((row) => row.isCompactSummary === true);
+  const content = record(summary?.message)?.content;
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return undefined;
+  return content.map((part) => text(record(part)?.text) ?? "").join("");
+}
+
 /**
  * The directory is named for the session's cwd, but the encoding is the harness's to change, so
  * the derived name is only a fast guess; a miss finds the session by its id, which is unique.
