@@ -9,7 +9,7 @@ depends_on: ["008"]
 
 # Public docs for awf-lab's terms, layout and command line
 
-Done 2026-09-29: [`packages/lab/README.md`](../../../packages/lab/README.md) is the page, with
+Done 2026-09-29: [`packages/lab/docs/reference.md`](../../../packages/lab/docs/reference.md) is the page, with
 every item below.
 
 Why it matters: people outside this repository, and the agents they run, will learn `awf-lab` from

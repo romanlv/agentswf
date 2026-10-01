@@ -4,7 +4,7 @@ Where an evaluated workflow runs, who builds that place, and how we know nothing
 answer. **Decided 2026-09-29: option A**, built by [[010-eval-isolation|story 010]]. The options and
 the reasons are kept below.
 
-Terms are the lab's ([`packages/lab`](../../packages/lab/README.md#The%20words)): a **dataset** of
+Terms are the lab's ([`packages/lab`](../../packages/lab/docs/reference.md#The%20words)): a **dataset** of
 **cases**, each with a **key**; a **variant** is the workflow evaluated; a **trial** is one variant
 on one case; a **scorer** grades a trial against the key.
 
