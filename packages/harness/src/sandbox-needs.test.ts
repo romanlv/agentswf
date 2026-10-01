@@ -3,7 +3,7 @@ import { mkdtempSync, realpathSync } from "node:fs";
 import { chmod, mkdir, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { sandboxable, sandboxedArgs, sandboxNeeds } from "./sandbox-needs";
+import { hostHome, sandboxable, sandboxedArgs, sandboxNeeds } from "./sandbox-needs";
 import { HARNESSES } from "./spec";
 
 // A host laid out as this one is: claude a single binary, codex a release tree inside its state,
@@ -54,9 +54,11 @@ describe("sandboxNeeds", () => {
       hasCompletedOnboarding: true,
       projects: { "/repo": { hasTrustDialogAccepted: true } },
     });
-    expect(settings).toEqual({
-      path: join(agentHome, "settings.json"),
-      contents: '{"skipDangerousModePermissionPrompt":true}\n',
+    // In the sandbox's home only: a host claude reads the operator's own settings.
+    expect(settings?.path).toBe(join(agentHome, "settings.json"));
+    expect(JSON.parse(settings!.contents)).toEqual({
+      skipDangerousModePermissionPrompt: true,
+      permissions: { defaultMode: "bypassPermissions" },
     });
     expect({ ...needs, defaults: [] }).toEqual({
       env: { CLAUDE_CONFIG_DIR: agentHome },
@@ -207,6 +209,14 @@ describe("sandboxNeeds", () => {
         }
       }
     }
+  });
+});
+
+describe("hostHome", () => {
+  test("no host claude gets a home of its own, nor the settings a sandboxed one's has", () => {
+    expect(() => hostHome("claude", agentHome, environment)).toThrow(
+      "claude on the host keeps the operator's home",
+    );
   });
 });
 

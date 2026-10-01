@@ -338,7 +338,12 @@ that report would arrive after the network call.
 
 **Bypass only inside a sandbox.** Inside one, the provider answers every question a permission
 prompt would have asked, so the prompts can be off. Outside, the same flags are what E1 and E2 left
-behind, and nothing holds the agent.
+behind, and nothing holds the agent. A sandboxed claude's are off by `permissions.defaultMode:
+"bypassPermissions"` in its home's `settings.json`, which only a sandboxed claude reads and which a
+repository's own settings cannot set (Claude Code 2.1.257 on). A repository's settings that name
+another mode turn the prompts back on, which stalls a turn rather than opening anything. Its auto
+mode is not used: its classifier would stand in for the sandbox it runs in, and haiku has none.
+The sandbox probe checks claude's transcript for the mode.
 
 **Nobody asks a human.** There is no person at the pane, and a prompt is a stalled turn. Human
 approval is a checkpoint that stops dispatch, not a per-session permission field.

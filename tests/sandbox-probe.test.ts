@@ -74,7 +74,11 @@ function passing(): ProbeEvidence {
     exitCode: 0,
     record,
     planted,
-    transcripts: { coder: `${transcript}\nhome-token`, tester: transcript, reviewer: transcript },
+    transcripts: {
+      coder: `${transcript}\nhome-token`,
+      tester: `${transcript}\n${BYPASSED}`,
+      reviewer: transcript,
+    },
     before: { "allowed.txt": "a" },
     after: { "allowed.txt": "a", "shared-note.txt": "b" },
     hits: 0,
@@ -84,6 +88,9 @@ function passing(): ProbeEvidence {
   };
 }
 
+/** What claude's transcript records of a session started with its permission prompts off. */
+const BYPASSED = '{"type":"permission-mode","permissionMode":"bypassPermissions"}';
+
 describe("the sandbox probe's checks", () => {
   test("a run whose agents were refused everything they should be passes", () => {
     expect(problems(passing())).toEqual([]);
@@ -91,13 +98,27 @@ describe("the sandbox probe's checks", () => {
 
   test("an agent that did not run a command is caught by its transcript, not its word", () => {
     const evidence = passing();
-    evidence.transcripts.tester = transcript.replace("/tmp/awf-canary: Operation", "elsewhere");
+    evidence.transcripts.tester = `${transcript.replace("/tmp/awf-canary: Operation", "elsewhere")}\n${BYPASSED}`;
     expect(problems(evidence)).toEqual([
       "srt: tester: no refusal of /tmp/awf-canary in its transcript",
     ]);
   });
 
   test.each<[string, (evidence: ProbeEvidence) => void, string]>([
+    [
+      "claude asked for permissions",
+      (e) => {
+        e.transcripts.tester = transcript;
+      },
+      "srt: tester: claude did not run with its permission prompts off",
+    ],
+    [
+      "claude asked for permissions in a later turn",
+      (e) => {
+        e.transcripts.tester += '\n{"type":"permission-mode","permissionMode":"default"}';
+      },
+      "srt: tester: claude did not run with its permission prompts off",
+    ],
     [
       "a canary read",
       (e) => {

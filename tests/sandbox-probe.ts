@@ -101,6 +101,12 @@ export function problems(evidence: ProbeEvidence): string[] {
       say(`${agent}: no refusal of the git hook in its transcript`);
     }
   }
+  // The sandbox answers what claude's permission prompts would ask, so its home turns them off.
+  const claude = transcripts.tester ?? "";
+  const modes = new Set([...claude.matchAll(/"permissionMode":"(\w+)"/g)].map((match) => match[1]));
+  if (claude && (modes.size !== 1 || !modes.has("bypassPermissions"))) {
+    say("tester: claude did not run with its permission prompts off");
+  }
   const reviewer = reports.find((report) => report.agent === "reviewer");
   if (reviewer?.results?.some((result) => result.output.includes("wrote-note"))) {
     say("the private reviewer wrote the working directory");

@@ -58,6 +58,8 @@ const SANDBOXED: Record<SandboxedName, SandboxedHarness> = {
     // A pane's claude asks for onboarding, the folder's trust and the bypass before its first
     // prompt, and loses that prompt otherwise (H3, H6). Headless asks for none; one home's files
     // serve both placements, and a trusted folder's project settings stay inside the sandbox.
+    // Its permission prompts are off, as the sandbox answers what they would ask (permissions.md),
+    // in this home's user settings, which only a sandboxed claude reads.
     defaults: (cwd) => [
       {
         name: ".claude.json",
@@ -69,7 +71,10 @@ const SANDBOXED: Record<SandboxedName, SandboxedHarness> = {
       },
       {
         name: "settings.json",
-        contents: `${JSON.stringify({ skipDangerousModePermissionPrompt: true })}\n`,
+        contents: `${JSON.stringify({
+          skipDangerousModePermissionPrompt: true,
+          permissions: { defaultMode: "bypassPermissions" },
+        })}\n`,
       },
     ],
   },
@@ -147,6 +152,9 @@ export function hostHome(
   environment: Environment = process.env,
 ): Pick<HarnessSandboxNeeds, "env" | "seed" | "defaults"> {
   if (!sandboxable(harness)) throw new Error(`${harness} cannot have a home of its own`);
+  // Its login is in the keychain, and its home's settings turn off the prompts only a sandbox
+  // stands in for.
+  if (harness === "claude") throw new Error("claude on the host keeps the operator's home");
   return ownHome(harness as SandboxedName, home, environment);
 }
 
