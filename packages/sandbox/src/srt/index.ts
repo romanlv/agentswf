@@ -35,6 +35,9 @@ export type SrtOptions = SrtHost & {
   probe?: boolean;
 };
 
+/** How long `srt --version` may take before srt is taken to be missing. */
+const VERSION_MS = 10_000;
+
 /** The system's own directories, last on every agent's `PATH`; srt needs `bash` there (H6). */
 const SYSTEM_PATH = ["/usr/bin", "/bin", "/usr/sbin", "/sbin"];
 
@@ -287,7 +290,12 @@ export async function findSrt(
   const cli = await firstExecutable("srt", path);
   const node = await firstExecutable("node", path);
   if (!cli || !node) return undefined;
-  const version = Bun.spawnSync({ cmd: [node, cli, "--version"], stdout: "pipe", stderr: "pipe" });
+  const version = Bun.spawnSync({
+    cmd: [node, cli, "--version"],
+    stdout: "pipe",
+    stderr: "pipe",
+    timeout: VERSION_MS,
+  });
   const [major] = version.stdout.toString().trim().split(".").map(Number);
   if (version.exitCode !== 0 || major === undefined || !(major >= 1)) return undefined;
   const real = [

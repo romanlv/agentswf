@@ -271,7 +271,7 @@ function createSession(
           const left = { settled, stop: (why: string) => stop.call(native, why) };
           finishing = left;
           const limit = setTimeout(() => {
-            void left.stop("the answered turn did not end within its grace");
+            void left.stop("the answered turn did not end within its grace").catch(() => undefined);
           }, finishGraceMs);
           void settled.finally(() => {
             clearTimeout(limit);
@@ -368,7 +368,7 @@ async function releaseBefore(
   }
 }
 
-export function outcomeStatus(outcome: HarnessTurnOutcome): HarnessSessionStatus {
+function outcomeStatus(outcome: HarnessTurnOutcome): HarnessSessionStatus {
   switch (outcome.state) {
     case "completed":
       return { state: "idle" };
