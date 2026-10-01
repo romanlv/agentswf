@@ -32,7 +32,9 @@ import {
   readId,
   readPaneId,
   readSessionRef,
+  reportedAgent,
   safeAgentName,
+  settleAgent,
   settledOutcome,
 } from "./herdr-protocol";
 import { answerStartupBlocks } from "./herdr-startup";
@@ -746,34 +748,11 @@ export function createHerdrRunHostFactory(
             if (current?.paneId === paneId) current = undefined;
           };
 
-          /**
-           * Waits for the pane's agent to stop working, before it is prompted again. Undefined once
-           * it has; otherwise the outcome that ends the operation instead.
-           */
-          const settle = async (
+          const settle = (
             agentName: string,
             deadline: { unixMilliseconds: number },
             signal: AbortSignal,
-          ): Promise<NativeTurnOutcome | undefined> => {
-            const waitMs = deadline.unixMilliseconds - Date.now();
-            if (waitMs <= 0) return localOutcome("timed-out", "operation deadline exceeded");
-            const waited = await herdr(
-              ["agent", "wait", agentName, "--timeout", String(waitMs)],
-              waitMs + HERDR_REPORT_GRACE_MS,
-              signal,
-            );
-            if (!waited.ok) {
-              if (waited.cancelled || signal.aborted) {
-                return localOutcome("cancelled", "pane operation cancelled");
-              }
-              return herdrFailure(waited, deadline.unixMilliseconds - Date.now());
-            }
-            const agent = record(waited.result.agent) ?? waited.result;
-            const status = settledOutcome(agent);
-            return status.state === "blocked"
-              ? { ...status, resultEvidence: { kind: "unavailable" }, chargesUsd: [] }
-              : undefined;
-          };
+          ) => settleAgent(herdr, agentName, deadline.unixMilliseconds, signal);
 
           /**
            * The harness's own compaction, typed into the pane as `spec.compactPane` says, each
@@ -832,7 +811,7 @@ export function createHerdrRunHostFactory(
                 const idle = await settle(agentName, operation.deadline, signal);
                 if (idle) return idle;
               } else {
-                agent = record(sent.result.agent) ?? sent.result;
+                agent = reportedAgent(sent.result);
               }
             }
             let read = await readScreen();
@@ -899,7 +878,7 @@ export function createHerdrRunHostFactory(
               const agentName = current?.agentName;
               if (!agentName) return stopped;
               const got = await herdr(["agent", "get", agentName]);
-              const agent = got.ok ? (record(got.result.agent) ?? got.result) : undefined;
+              const agent = got.ok ? reportedAgent(got.result) : undefined;
               if (agent?.agent_status === "working") {
                 await herdr(["agent", "send-keys", agentName, "esc"]);
               }
@@ -1145,7 +1124,7 @@ function paneOutcome(
 ): NativeTurnOutcome {
   const rawTranscript = read.ok && read.stdout.trim() !== "" ? read.stdout : null;
   const transcript = rawTranscript ? (spec.readTranscript?.(rawTranscript) ?? rawTranscript) : null;
-  const agent = record(sent.result.agent) ?? sent.result;
+  const agent = reportedAgent(sent.result);
   const nativeSession =
     readSessionRef(agent) ?? (rawTranscript ? spec.readSessionId?.(rawTranscript) : undefined);
   return {

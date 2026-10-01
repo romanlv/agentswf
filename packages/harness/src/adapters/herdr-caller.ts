@@ -19,6 +19,8 @@ import {
   readId,
   readPaneId,
   readSessionRef,
+  reportedAgent,
+  settleAgent,
   settledOutcome,
 } from "./herdr-protocol";
 
@@ -28,11 +30,11 @@ import {
  */
 export type CallerPane = { paneId: string; harness: Harness; cwd: string };
 
-export type CallerSearch =
-  | { kind: "found"; pane: CallerPane }
-  | { kind: "refused"; reason: string };
+type CallerSearch = { kind: "found"; pane: CallerPane } | { kind: "refused"; reason: string };
 
 const SEARCH_POLL_MS = 1_000;
+/** Bounds the interrupt's calls, so a slow Herdr cannot outlast the engine's release grace. */
+const INTERRUPT_MS = 2_000;
 /** Lines of each pane read for the code: the agent's reply is the last thing on its screen. */
 const SEARCH_LINES = 200;
 /** Lines read after a turn: back to its prompt, when the turn printed less than this. */
@@ -156,8 +158,6 @@ export function createCallerHostFactory(
       let prompts = 0;
       /** When this host first prompted the session: where the run's share of its spend begins. */
       let firstPrompt: number | undefined;
-      /** Bounds the interrupt's calls, so a slow Herdr cannot outlast the engine's release grace. */
-      const INTERRUPT_MS = 2_000;
 
       const stopWaiting = async (): Promise<boolean> => {
         if (!activeController) return false;
@@ -173,31 +173,11 @@ export function createCallerHostFactory(
         const mine = outstanding;
         if (mine === undefined) return;
         const got = await herdr(["agent", "get", pane], INTERRUPT_MS);
-        const agent = got.ok ? (record(got.result.agent) ?? got.result) : undefined;
+        const agent = got.ok ? reportedAgent(got.result) : undefined;
         if (outstanding !== mine || agent?.agent_status !== "working") return;
         outstanding = undefined;
         await herdr(["agent", "send-keys", pane, "esc"], INTERRUPT_MS);
       };
-      const settle = async (deadline: number, signal: AbortSignal) => {
-        const waitMs = deadline - Date.now();
-        if (waitMs <= 0) return localOutcome("timed-out", "operation deadline exceeded");
-        const waited = await herdr(
-          ["agent", "wait", pane, "--timeout", String(waitMs)],
-          waitMs + HERDR_REPORT_GRACE_MS,
-          signal,
-        );
-        if (!waited.ok) {
-          if (waited.cancelled || signal.aborted) {
-            return localOutcome("cancelled", "pane operation cancelled");
-          }
-          return herdrFailure(waited, deadline - Date.now());
-        }
-        const status = settledOutcome(record(waited.result.agent) ?? waited.result);
-        return status.state === "blocked"
-          ? { ...status, resultEvidence: { kind: "unavailable" as const }, chargesUsd: [] }
-          : undefined;
-      };
-
       return {
         identity: { sessionId: randomUUID(), cwd: caller.cwd },
         // The session is the operator's: an answered turn ends on its own, and the next is
@@ -227,7 +207,7 @@ export function createCallerHostFactory(
           try {
             // Herdr's prompt wait does not track turns, so the session settles first (E8): the
             // turn that replied with the code, the operator's own, or the last operation's.
-            const busy = await settle(deadline, controller.signal);
+            const busy = await settleAgent(herdr, pane, deadline, controller.signal);
             if (busy) return busy;
             const waitMs = deadline - Date.now();
             if (waitMs <= 0) return localOutcome("timed-out", "operation deadline exceeded");
@@ -312,7 +292,7 @@ function callerOutcome(
   read: HerdrResult,
   operation: { binding?: { operationId: string } },
 ): NativeTurnOutcome {
-  const agent = record(sent.result.agent) ?? sent.result;
+  const agent = reportedAgent(sent.result);
   const screen = read.ok ? readable(read.stdout) : "";
   const settled = settledOutcome(agent);
   const operationId = operation.binding?.operationId;

@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { parseRow, record, text } from "../json";
-import { localOutcome } from "../session-core";
+import { localOutcome, type NativeTurnOutcome } from "../session-core";
 import type { SettledState } from "../types";
 
 export type HerdrResult =
@@ -29,6 +29,11 @@ export function readId(value: unknown, key: string): string | undefined {
 /** Herdr reports the harness's own session as `{ kind, value }`, not as a bare string. */
 export function readSessionRef(agent: Record<string, unknown>): string | undefined {
   return readId(agent.agent_session, "value");
+}
+
+/** The agent an `agent` call reports, nested under `agent` or as the result itself. */
+export function reportedAgent(result: Record<string, unknown>): Record<string, unknown> {
+  return record(result.agent) ?? result;
 }
 
 export function readPaneId(result: Record<string, unknown>): string | null {
@@ -138,6 +143,35 @@ export function herdrFailure(result: Extract<HerdrResult, { ok: false }>, remain
     return localOutcome("timed-out", "pane operation timed out");
   }
   return localOutcome("failed", result.error);
+}
+
+/**
+ * Waits for `target`'s agent to stop working, before it is prompted again. Undefined once it has;
+ * otherwise the outcome that ends the operation instead.
+ */
+export async function settleAgent(
+  herdr: HerdrCommand,
+  target: string,
+  deadline: number,
+  signal: AbortSignal,
+): Promise<NativeTurnOutcome | undefined> {
+  const waitMs = deadline - Date.now();
+  if (waitMs <= 0) return localOutcome("timed-out", "operation deadline exceeded");
+  const waited = await herdr(
+    ["agent", "wait", target, "--timeout", String(waitMs)],
+    waitMs + HERDR_REPORT_GRACE_MS,
+    signal,
+  );
+  if (!waited.ok) {
+    if (waited.cancelled || signal.aborted) {
+      return localOutcome("cancelled", "pane operation cancelled");
+    }
+    return herdrFailure(waited, deadline - Date.now());
+  }
+  const status = settledOutcome(reportedAgent(waited.result));
+  return status.state === "blocked"
+    ? { ...status, resultEvidence: { kind: "unavailable" }, chargesUsd: [] }
+    : undefined;
 }
 
 /**

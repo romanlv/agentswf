@@ -1,4 +1,3 @@
-import { record } from "../json";
 import {
   ANSI_SEQUENCE,
   abortableDelay,
@@ -6,6 +5,7 @@ import {
   type HerdrCommand,
   type HerdrResult,
   readable,
+  reportedAgent,
   settledState,
 } from "./herdr-protocol";
 
@@ -91,7 +91,7 @@ export async function answerStartupBlocks(
   if (!ready.ok) return ready;
   // Herdr answers this call for a blocked agent too. Reporting it started would put the prompt
   // into a pane that is still showing a question, where it is typed and discarded.
-  const waited = record(ready.result.agent) ?? ready.result;
+  const waited = reportedAgent(ready.result);
   if (settledState(waited) === "blocked") {
     return {
       ok: false,
