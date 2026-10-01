@@ -132,6 +132,9 @@ The gates are defined in [`foundation.md`](foundation.md) §12.
   folder.
 - [013 — autoresearch loop](stories/013-autoresearch-loop.md): draft. The proposer writes
   workflow code, so trials run whole in a container; air-1 is split 23 tuning / 10 holdout.
+- [014 — a workflow in the current session](stories/014-workflow-in-current-session.md): draft.
+  E8 drove a claude, codex, pi and cursor session it did not start through dependent steps;
+  the contract for the operator's session as an agent waits on an ADR.
 
 The inbox of possible stories is [`stories/todo/`](stories/todo/).
 

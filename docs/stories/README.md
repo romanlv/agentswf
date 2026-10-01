@@ -79,6 +79,10 @@ status is one of `todo`, `draft`, `ready`, `in-progress`, `blocked`, `awaiting-h
   `draft` — `awf-lab loop` has a codex agent write one changed review workflow per try, runs it
   contained against the incumbent, keeps it only on `better`, logs the tree, caps spend, and checks
   the final incumbent once on a holdout.
+- [`014` — Run a workflow from inside the session you are in](014-workflow-in-current-session.md) —
+  `draft` — The operator starts a workflow from a claude, codex, pi or cursor session in a Herdr
+  pane; the run starts outside the session's sandbox, drives that session as one of its agents, and
+  hands it back when it ends.
 
 This is the high-level index of numbered stories. Keep each entry to its title, status, and
 one-sentence summary; put code maps, research, design, tasks, and verification in the linked story.
