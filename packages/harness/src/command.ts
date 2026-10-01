@@ -142,8 +142,9 @@ export const runProcess: RunProcess = async (input) => {
     const out = capture(child.stdout, onLine);
     const err = capture(child.stderr);
     const exitCode = await child.exited;
-    // A held child that answered may leave a descendant holding its pipes, as a sandboxed one may.
-    if (sandboxed || answered) {
+    // A held child that answered may leave a descendant holding its pipes, as a sandboxed one may,
+    // and so may an unsandboxed one stopped, whose descendants its kill doesn't reach.
+    if (sandboxed || answered || cancelled || timedOut) {
       // What the command left running still holds its pipes open, so it goes before they are read.
       kill();
       const drained = await Promise.race([

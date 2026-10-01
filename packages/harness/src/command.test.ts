@@ -75,6 +75,25 @@ describe("a sandboxed command", () => {
     }
   });
 
+  test("an unsandboxed process stopped returns at once, though what it started holds its output", async () => {
+    const seconds = marker();
+    const controller = new AbortController();
+    const cancelling = runProcess({
+      argv: ["/bin/sh", "-c", `sleep ${seconds} & wait`],
+      timeoutMs: 30_000,
+      signal: controller.signal,
+    });
+    await Bun.sleep(200);
+    const started = Date.now();
+    controller.abort();
+    try {
+      expect((await cancelling).cancelled).toBe(true);
+      expect(Date.now() - started).toBeLessThan(2_000);
+    } finally {
+      Bun.spawnSync(["pkill", "-f", `sleep ${seconds}`]);
+    }
+  });
+
   test("gets exactly its env, and none of this process's", async () => {
     process.env.AWF_COMMAND_TEST_LEAK = "leaked";
     try {
