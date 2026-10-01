@@ -3,8 +3,9 @@ import { REAP_GRACE_MS, type SandboxedCommand } from "@agentswf/sandbox";
 /** Per-stream capture limit; beyond it output is discarded rather than buffered. */
 const MAX_OUTPUT_BYTES = 1_048_576;
 /**
- * How long a sandboxed command's output may keep coming once its group is dead: only a process
- * that left the group, as a daemon does, still holds the pipes, and waiting for it could be forever.
+ * How long a command's output may keep coming once it has exited: only a process it left running
+ * still holds the pipes, as a daemon or a backgrounded child does, and waiting for it could be
+ * forever.
  */
 const DRAIN_GRACE_MS = 1_000;
 
@@ -142,17 +143,15 @@ export const runProcess: RunProcess = async (input) => {
     const out = capture(child.stdout, onLine);
     const err = capture(child.stderr);
     const exitCode = await child.exited;
-    // A held child that answered may leave a descendant holding its pipes, as a sandboxed one may,
-    // and so may an unsandboxed one stopped, whose descendants its kill doesn't reach.
-    if (sandboxed || answered || cancelled || timedOut) {
-      // What the command left running still holds its pipes open, so it goes before they are read.
-      kill();
-      const drained = await Promise.race([
-        Promise.all([out.text, err.text]).then(() => true),
-        Bun.sleep(DRAIN_GRACE_MS).then(() => false),
-      ]);
-      if (!drained) await Promise.all([out.stop(), err.stop()]);
-    }
+    // What a sandboxed or ended command left running goes before its pipes are read. An
+    // unsandboxed one that exited on its own is left its descendants: they are not in a group of
+    // ours, though one may still hold its pipes.
+    if (sandboxed || answered || cancelled || timedOut) kill();
+    const drained = await Promise.race([
+      Promise.all([out.text, err.text]).then(() => true),
+      Bun.sleep(DRAIN_GRACE_MS).then(() => false),
+    ]);
+    if (!drained) await Promise.all([out.stop(), err.stop()]);
     const [stdout, stderr] = await Promise.all([out.text, err.text]);
     result = {
       stdout,

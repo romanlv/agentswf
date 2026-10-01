@@ -75,6 +75,21 @@ describe("a sandboxed command", () => {
     }
   });
 
+  test("an unsandboxed process that exits returns at once, though what it started holds its output", async () => {
+    const seconds = marker();
+    const started = Date.now();
+    try {
+      const result = await runProcess({
+        argv: ["/bin/sh", "-c", `sleep ${seconds} & echo hi`],
+        timeoutMs: 30_000,
+      });
+      expect(result).toMatchObject({ stdout: "hi\n", exitCode: 0, timedOut: false });
+      expect(Date.now() - started).toBeLessThan(3_000);
+    } finally {
+      Bun.spawnSync(["pkill", "-f", `sleep ${seconds}`]);
+    }
+  });
+
   test("an unsandboxed process stopped returns at once, though what it started holds its output", async () => {
     const seconds = marker();
     const controller = new AbortController();
