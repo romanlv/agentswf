@@ -122,27 +122,24 @@ export async function startResultControlPlane(options: {
         socket: {
           open(socket) {
             socket.data = emptyConnection();
+            // Absolute, not idle: the budget is the whole submission, and a trickle of bytes must
+            // not extend it indefinitely.
+            socket.data.lifetime = setTimeout(() => socket.terminate(), connectionLifetimeMs);
             if (activeConnections >= maxConnections) {
               // Answered rather than dropped: a silent close is indistinguishable from a crashed
-              // engine, and the agent would report a result it could have simply retried.
-              socket.data.handled = true;
-              queueResponse(
-                socket,
-                rejected(
-                  "internal-error",
-                  "the control plane is at its connection limit; submit the same result again",
-                ),
+              // engine, and the agent would report a result it could have simply retried. The
+              // answer waits for the request's end, as one sent before it meets a closed socket.
+              socket.data.refusal = rejected(
+                "internal-error",
+                "the control plane is at its connection limit; submit the same result again",
               );
               return;
             }
             socket.data.counted = true;
             activeConnections += 1;
-            // Absolute, not idle: the budget is the whole submission, and a trickle of bytes must
-            // not extend it indefinitely.
-            socket.data.lifetime = setTimeout(() => socket.terminate(), connectionLifetimeMs);
           },
           async data(socket, data) {
-            if (socket.data.handled) return;
+            if (socket.data.handled || socket.data.refusal) return;
             socket.data.bytes += data.byteLength;
             if (socket.data.bytes > maxRequestBytes) {
               socket.data.handled = true;
@@ -157,6 +154,10 @@ export async function startResultControlPlane(options: {
           end(socket) {
             if (socket.data.handled) return;
             socket.data.handled = true;
+            if (socket.data.refusal) {
+              queueResponse(socket, socket.data.refusal);
+              return;
+            }
             if (!accepting) {
               socket.terminate();
               return;
@@ -251,6 +252,7 @@ type ConnectionState = {
   chunks: Buffer[];
   bytes: number;
   handled: boolean;
+  refusal?: ResultSubmitResponse;
   outgoing?: Buffer;
   written: number;
   counted: boolean;

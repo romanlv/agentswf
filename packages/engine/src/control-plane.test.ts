@@ -143,7 +143,8 @@ describe("result control plane", () => {
   });
 
   test("bounds concurrent peers by an absolute connection lifetime", async () => {
-    const fixture = await setup(undefined, { maxConnections: 1, connectionLifetimeMs: 40 });
+    // Long enough for the last request to finish on a loaded machine, short enough to wait out.
+    const fixture = await setup(undefined, { maxConnections: 1, connectionLifetimeMs: 200 });
     const blocker = createConnection(fixture.channel.endpoint);
     await new Promise<void>((resolve, reject) => {
       blocker.once("connect", resolve);
@@ -155,7 +156,11 @@ describe("result control plane", () => {
     try {
       await expect(
         rawRequest(fixture.channel.endpoint, `${JSON.stringify(request("{}"))}\n`),
-      ).rejects.toThrow();
+      ).resolves.toMatchObject({
+        kind: "rejected",
+        code: "internal-error",
+        error: expect.stringContaining("connection limit"),
+      });
       await blockerClosed;
       await Bun.sleep(5);
       await expect(
