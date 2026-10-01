@@ -1183,7 +1183,7 @@ describe("awf run --here", () => {
     );
     expect(exitCode).toBe(1);
     expect(errors).toEqual([
-      "awf: --session: no agent pane showed awf-here-0123abcd; the calling session has to end its turn by replying with it",
+      "awf: --session: no agent pane showed awf-here-0123abcd in its last 200 lines; the calling session puts it there by replying with it",
     ]);
     expect(installed).toBe(false);
     expect(existsSync(runRoot) && readdirSync(runRoot)).toEqual([]);

@@ -105,7 +105,7 @@ export async function findCallerPane(
     if (Date.now() + pollMs >= options.by) {
       return {
         kind: "refused",
-        reason: `no agent pane showed ${code}; the calling session has to end its turn by replying with it`,
+        reason: `no agent pane showed ${code} in its last ${SEARCH_LINES} lines; the calling session puts it there by replying with it`,
       };
     }
     if (!(await abortableDelay(pollMs, options.signal))) {
@@ -388,7 +388,10 @@ export async function startInNewTab(
   if (!created.ok) return { ok: false, error: created.error };
   const tabId = readId(created.result.tab, "tab_id");
   const paneId = readPaneId(created.result);
-  if (!tabId || !paneId) return { ok: false, error: "tab create returned no tab or pane" };
+  if (!tabId || !paneId) {
+    if (tabId) await commands.herdr(["tab", "close", tabId]);
+    return { ok: false, error: "tab create returned no tab or pane" };
+  }
   const typed = await commands.typeCommand(
     paneId,
     tab.argv,

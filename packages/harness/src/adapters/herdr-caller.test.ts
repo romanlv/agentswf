@@ -8,6 +8,7 @@ import {
   findCallerPane,
   handBack,
   interruptedAfter,
+  startInNewTab,
 } from "./herdr-caller";
 
 const CONFIG: HerdrConfig = {
@@ -102,7 +103,7 @@ describe("findCallerPane", () => {
     expect(never).toEqual({
       kind: "refused",
       reason:
-        "no agent pane showed awf-here-other; the calling session has to end its turn by replying with it",
+        "no agent pane showed awf-here-other in its last 200 lines; the calling session puts it there by replying with it",
     });
   });
 });
@@ -312,6 +313,24 @@ describe("handBack", () => {
     expect(calls.map((call) => call.argv.slice(3))).toEqual([
       ["agent", "wait", "w1:p1", "--timeout", "100"],
       ["agent", "prompt", "w1:p1", "[awf] done"],
+    ]);
+  });
+});
+
+describe("startInNewTab", () => {
+  test("closes a tab that came back without a pane", async () => {
+    const { run, calls } = herdrWith([], (input) =>
+      verb(input) === "tab create" ? ok({ tab: { tab_id: "w1:t2" } }) : undefined,
+    );
+    const started = await startInNewTab(
+      CONFIG,
+      { workspace: "w1", cwd: "/repo", label: "awf run", argv: ["awf", "run"] },
+      run,
+    );
+    expect(started).toEqual({ ok: false, error: "tab create returned no tab or pane" });
+    expect(calls.map((call) => call.argv.slice(3, 6))).toEqual([
+      ["tab", "create", "--workspace"],
+      ["tab", "close", "w1:t2"],
     ]);
   });
 });
