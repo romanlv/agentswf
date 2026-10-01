@@ -9,6 +9,8 @@ depends_on: ["011", "second-case-kind"]
 
 # Let an agent propose review variants and keep the better ones
 
+Refined into [story 013](../013-autoresearch-loop.md); these notes stay as its source.
+
 Why it matters: this is the loop [ADR 0002](../../adr/0002-autoresearch-lives-here.md) and the
 foundation's vision name — runs that improve runs. It is the easy part once the matrix runner exists,
 and building it earlier would optimise against a weak or leaky answer key.

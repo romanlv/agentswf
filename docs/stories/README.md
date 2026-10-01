@@ -75,6 +75,10 @@ status is one of `todo`, `draft`, `ready`, `in-progress`, `blocked`, `awaiting-h
   `done` — an author scripts what each agent and decision model answers in `workflow.test.ts`
   beside the workflow, typed by the schema each turn asks for, and checks what it did, through the
   real engine and for free.
+- [`013` — Let an agent propose review workflows and keep the better ones](013-autoresearch-loop.md) —
+  `draft` — `awf-lab loop` has a codex agent write one changed review workflow per try, runs it
+  contained against the incumbent, keeps it only on `better`, logs the tree, caps spend, and checks
+  the final incumbent once on a holdout.
 
 This is the high-level index of numbered stories. Keep each entry to its title, status, and
 one-sentence summary; put code maps, research, design, tasks, and verification in the linked story.

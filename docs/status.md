@@ -130,6 +130,8 @@ The gates are defined in [`foundation.md`](foundation.md) §12.
   `@agentswf/engine/workflow-testing`, served to authors as `agentswf/testing`, on a second
   composition root (ADR 0006); seven examples tested beside them; `awf test` runs them in any
   folder.
+- [013 — autoresearch loop](stories/013-autoresearch-loop.md): draft. The proposer writes
+  workflow code, so trials run whole in a container; air-1 is split 23 tuning / 10 holdout.
 
 The inbox of possible stories is [`stories/todo/`](stories/todo/).
 
@@ -142,8 +144,8 @@ The inbox of possible stories is [`stories/todo/`](stories/todo/).
    ([story 004](stories/004-sandboxed-agents.md)), and every trial runs in one
    ([story 010](stories/010-eval-isolation.md)). In order:
    [story 011](stories/011-compare-variants.md) (done), then
-   [`second-case-kind`](stories/todo/second-case-kind.md), so the loop is shown not to be
-   review's alone, and last [`autoresearch-loop`](stories/todo/autoresearch-loop.md).
+   [story 013](stories/013-autoresearch-loop.md), the loop, taken before
+   [`second-case-kind`](stories/todo/second-case-kind.md) by the user's choice (2026-09-30).
 
 ## Known gaps
 
