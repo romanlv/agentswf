@@ -152,7 +152,7 @@ The gates are defined in [`foundation.md`](foundation.md) §12.
 - [016 — fork](stories/016-fork.md): draft, its ADR (0009) awaiting approval. A fork is a new
   agent on a copy of the session, made with no model call; claude's and pi's forks read the
   parent's cache, codex's pay it once ([findings](findings/fork-cache.md)).
-- [017 — pi in panes](stories/017-pi-pane-agent.md): awaiting human review. pi runs in a Herdr
+- [017 — pi in panes](stories/017-pi-pane-agent.md): done, approved 2026-10-01. pi runs in a Herdr
   pane, on the host and in srt and docker sandboxes, and compacts there with a focus.
 
 The inbox of possible stories is [`stories/todo/`](stories/todo/).

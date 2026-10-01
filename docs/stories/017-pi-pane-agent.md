@@ -215,4 +215,4 @@ Done when:
 ## Human review
 
 - [x] Every task is complete and story-level verification passes.
-- [x] Record the human's explicit approval or requested changes here.
+- [x] Record the human's explicit approval or requested changes here: approved 2026-10-01.

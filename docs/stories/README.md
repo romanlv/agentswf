@@ -90,7 +90,7 @@ status is one of `todo`, `draft`, `ready`, `in-progress`, `blocked`, `awaiting-h
   `draft` — `agent.fork({ key })` opens a new agent on a copy of the agent's session, whose first
   request reads the parent's context from the provider's cache on claude and pi.
 - [`017` — Run pi in a Herdr pane, as claude and codex run](017-pi-pane-agent.md) —
-  `awaiting-human-review` — a pi agent may take placement pane, on the host and in sandboxes, with
+  `done` — a pi agent may take placement pane, on the host and in sandboxes, with
   turns, continuation and compaction there.
 
 This is the high-level index of numbered stories. Keep each entry to its title, status, and
