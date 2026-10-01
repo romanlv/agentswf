@@ -17,3 +17,4 @@ One file per decision: what was decided, what it replaces, and what evidence mov
   a second composition root
 - [0007](0007-compaction-is-the-harness-own.md) — compaction is the harness's own, with the
   workflow's focus
+- [0008](0008-a-pane-agent-continues-in-its-pane.md) — a pane agent continues in its pane

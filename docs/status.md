@@ -152,8 +152,6 @@ The inbox of possible stories is [`stories/todo/`](stories/todo/).
 
 ## Known gaps
 
-- A pane agent takes one operation. Multi-turn pane work waits on verified pane release
-  ([`herdr-pane-settlement`](stories/todo/herdr-pane-settlement.md)).
 - An agent opened without a sandbox runs with the operator's authority, and a sandboxed one still
   spends the operator's login, which a refresh in its copy may rotate (X13). The harness-level
   permissions are designed, not built ([`design/permissions.md`](design/permissions.md)).

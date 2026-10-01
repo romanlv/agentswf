@@ -732,6 +732,8 @@ export function createHerdrRunHostFactory(
             | undefined;
           let closed = false;
           let hasExecuted = false;
+          /** The workflow's instructions go with the first prompt the pane's agent is sent. */
+          let instructed = false;
           let activeController: AbortController | undefined;
           let activeCompletion: Promise<void> | undefined;
 
@@ -742,8 +744,49 @@ export function createHerdrRunHostFactory(
             if (current?.paneId === paneId) current = undefined;
           };
 
+          /**
+           * Waits for the pane's agent to stop working, before it is prompted again. Undefined once
+           * it has; otherwise the outcome that ends the operation instead.
+           */
+          const settle = async (
+            agentName: string,
+            deadline: { unixMilliseconds: number },
+            signal: AbortSignal,
+          ): Promise<NativeTurnOutcome | undefined> => {
+            const waitMs = deadline.unixMilliseconds - Date.now();
+            if (waitMs <= 0) return localOutcome("timed-out", "operation deadline exceeded");
+            const waited = await herdr(
+              ["agent", "wait", agentName, "--timeout", String(waitMs)],
+              waitMs + HERDR_REPORT_GRACE_MS,
+              signal,
+            );
+            if (!waited.ok) {
+              if (waited.cancelled || signal.aborted) {
+                return localOutcome("cancelled", "pane operation cancelled");
+              }
+              return herdrFailure(waited, deadline.unixMilliseconds - Date.now());
+            }
+            const agent = record(waited.result.agent) ?? waited.result;
+            const status = settledOutcome(agent);
+            return status.state === "blocked"
+              ? { ...status, resultEvidence: { kind: "unavailable" }, chargesUsd: [] }
+              : undefined;
+          };
+
+          /** Ends the active wait on the agent, leaving the agent, and its pane, as they are. */
+          const stopWaiting = async (): Promise<boolean> => {
+            if (!activeController) return false;
+            activeController.abort();
+            await activeCompletion;
+            return true;
+          };
+
           const backend: ActivatedSessionBackend = {
             identity: { sessionId: randomUUID(), cwd: request.cwd },
+            // The pane's agent is the session: an answered turn is left to end in it, and the next
+            // operation is prompted into the same pane once it has.
+            finishesAnswered: true,
+            stopFinishing: stopWaiting,
             async execute(operation) {
               if (closed) throw new Error("Herdr run session is closed");
               const controller = new AbortController();
@@ -755,16 +798,13 @@ export function createHerdrRunHostFactory(
               try {
                 const operationId =
                   operation.binding?.operationId ?? `internal:${request.key}:${operation.id}`;
-                const sameOperation = current?.operationId === operationId;
-                if (!sameOperation) {
-                  await closeCurrentPane();
-                  // Herdr lifecycle state does not track a turn, so nothing this host observes
-                  // proves the previous pane released.
+                if (!current) {
+                  // A pane is closed only when an operation was cancelled or failed to start, and
+                  // its agent's session went with it.
                   if (hasExecuted) {
                     return localOutcome(
                       "failed",
-                      "this host runs one operation per agent: " +
-                        "native release cannot be proved for a later one",
+                      "this agent's pane was closed, so its session cannot be continued",
                     );
                   }
                   const skills = request.skills
@@ -825,16 +865,27 @@ export function createHerdrRunHostFactory(
                     );
                   }
                   hasExecuted = true;
+                } else {
+                  // Herdr's prompt wait does not track turns: prompted while the last turn is still
+                  // going, it could match that turn's end. So the agent settles first (E8).
+                  current.operationId = operationId;
+                  const idle = await settle(
+                    current.agentName,
+                    operation.deadline,
+                    controller.signal,
+                  );
+                  if (idle) return idle;
                 }
 
                 const placement = current;
                 if (!placement) throw new Error("operation pane was not retained");
-                // Only with the pane: a nudge reaches an agent that has already read these, and
+                // Only once: a later prompt reaches an agent that has already read these, and
                 // sending them again reads as a new assignment rather than a reminder.
                 const prompt =
-                  !sameOperation && request.instructions
+                  !instructed && request.instructions
                     ? `${request.instructions}\n\n${operation.prompt}`
                     : operation.prompt;
+                instructed = true;
                 const remainingMs = operation.deadline.unixMilliseconds - Date.now();
                 if (remainingMs <= 0) {
                   return localOutcome("timed-out", "operation deadline exceeded");

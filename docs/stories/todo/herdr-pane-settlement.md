@@ -15,9 +15,11 @@ completion. Story 001 removed the one cause it could identify and left the ambig
 standing, so the host's response to it is to spend the whole operation deadline waiting.
 
 What Story 001 settled, and what it left here: Task 4 removed every place an ambiguous Herdr
-observation decided something. `agent_prompt_stalled` no longer settles or resends, and lifecycle
-state authorizes no continuation — the production host simply refuses a second operation on an
-agent. This todo owns the measurement that would let the capability come back.
+observation decided something. `agent_prompt_stalled` no longer settles or resends. Story 015
+brought continuation back without release: a pane agent keeps its pane, and each later operation
+is prompted into it once the agent has settled
+([ADR 0008](../../adr/0008-a-pane-agent-continues-in-its-pane.md)). What is left here is for
+anything that reopens or moves a session.
 
 Evidence: the two earlier run roots under `/var/folders/.../T/awf-minimum-review-Du89Pi` and
 `-msrKbu` were temporary and have since been purged. Story 001 re-measured on 2026-09-18 rather
@@ -43,7 +45,8 @@ Three things Story 001 deliberately did not build, each because it is a measurem
   verified release rather than on `idle`. Note that on the accepted-result path the engine releases
   by cancelling, which aborts the prompt command before any identity is read — so an observer is
   the only way this evidence ever exists.
-- **Pane continuation itself**, which depends on both of the above.
+- **Continuation in a new pane**, which depends on both of the above. Continuation in the same
+  pane needs neither, and landed in story 015.
 
 `agent_prompt_stalled` and the exact short-timeout prompt-observation response remain nonterminal.
 Story 001 classifies only `agent_prompt_stalled`, because `timeout` is also what a pre-submission

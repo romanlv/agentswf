@@ -64,6 +64,11 @@ export type ActivatedSessionBackend = {
        * finishing must be stoppable, or a follow-up could wait on it forever.
        */
       readonly finishesAnswered: true;
+      /**
+       * Stops a turn left finishing without ending the session, where `cancel` would: a pane's
+       * agent lives on in its pane, and only the wait on it stops. Absent, `cancel` stops it.
+       */
+      stopFinishing?(reason: string): Promise<boolean>;
     }
 );
 
@@ -249,9 +254,12 @@ function createSession(
         });
       },
       async release(reason, deadline, options): Promise<HarnessReleaseDisposition> {
-        if (options?.answered && native.finishesAnswered && active) {
+        if (options?.answered && native.finishesAnswered) {
+          // Already ended: there is nothing to stop, and stopping a pane would close it.
+          if (!active) return { kind: "released", outcome: await settled };
           leftFinishing = true;
-          const left = { settled, stop: (why: string) => native.cancel(why) };
+          const stop = native.stopFinishing ?? native.cancel;
+          const left = { settled, stop: (why: string) => stop.call(native, why) };
           finishing = left;
           const limit = setTimeout(() => {
             void left.stop("the answered turn did not end within its grace");

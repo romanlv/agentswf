@@ -133,12 +133,17 @@ Alternatives rejected:
 ## Tasks at a glance
 
 - [x] 1. Design: ADR 0007, the contract docs, the design doc
-- [ ] 2. A pane agent takes more than one operation
+- [x] 2. A pane agent takes more than one operation ([ADR 0008](../adr/0008-a-pane-agent-continues-in-its-pane.md))
 - [ ] 3. `AgentRef.compact` in the engine, and scripted compactions in tests
 - [ ] 4. Native compaction for each harness and placement
 - [ ] 5. Live eval on every harness, findings, the ticket workflow
 
 ## Implementation notes
+
+- Task 2: the pane backend is `finishesAnswered`, with `stopFinishing` stopping only the host's
+  wait. A release of an answered turn that has already ended returns its outcome instead of
+  cancelling: cancelling a pane closes it. Each prompt after the first, nudges included, waits on
+  `herdr agent wait` first; a nudge's wait returns at once, since its turn has ended.
 
 ## Human review
 

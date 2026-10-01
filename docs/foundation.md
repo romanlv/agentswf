@@ -246,8 +246,10 @@ evidence stay symmetric. Swapping Herdr for another pane provider must not chang
 definitions or runtime aliases.
 
 One run host owns one terminal group and its final cleanup. Logical-agent handles own continuity;
-each distinct operation receives fresh result authority and an operation pane. An initial prompt
-and its one nudge are delivery attempts for the same operation, slot, schema, and pane.
+each distinct operation receives fresh result authority. A pane agent keeps one pane for all its
+operations, and each later one is prompted into it once the agent has settled
+([ADR 0008](adr/0008-a-pane-agent-continues-in-its-pane.md)). An initial prompt and its one nudge
+are delivery attempts for the same operation, slot, and schema.
 A later operation may resume native context only when the host has measured continuation support
 and terminal evidence; native session references never cross into workflow or engine-owned state
 as resume authority. They cross only as accounting evidence, so the engine can read what an agent
@@ -255,7 +257,8 @@ spent from the harness's own files, and nothing resumes from them
 ([story 002](stories/002-cost-and-time-accounting.md)).
 Durable result acceptance, client acknowledgement, and native release are distinct facts. An
 accepted result may determine the author-visible answer, but the next operation is not admitted
-until the prior pane is released or continuation is explicitly severed and failed closed.
+until the prior turn has ended or been stopped, or continuation is explicitly severed and failed
+closed.
 
 A socket per agent provides routing for cooperative-but-fallible agents. The engine installs a
 launcher that holds the socket and names its path in the prompt, so the connection says who is

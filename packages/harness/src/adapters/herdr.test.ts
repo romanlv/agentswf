@@ -754,7 +754,7 @@ describe("createHerdrRunHostFactory", () => {
     expect(calls.filter((call) => verb(call) === "workspace close")).toHaveLength(1);
   });
 
-  test("a nudge stays in its tab and a later operation is refused, not resumed", async () => {
+  test("a nudge and a later operation stay in the agent's tab, the later one once it settles", async () => {
     const { run, calls } = hostStub();
     const host = await createHerdrRunHostFactory(CONFIG, run).openRun({
       runId: "run-1",
@@ -765,6 +765,7 @@ describe("createHerdrRunHostFactory", () => {
       key: "reviewer",
       cwd: "/repo",
       deadline: deadline(),
+      instructions: "You review code.",
       execution: { harness: "codex", model: "gpt-5.6-sol" },
     });
     const first = await session.start(
@@ -778,14 +779,104 @@ describe("createHerdrRunHostFactory", () => {
       binding("op-2"),
     );
 
-    await expect(second.settled).resolves.toMatchObject({
-      state: "failed",
-      detail: expect.stringContaining("one operation per agent"),
-    });
-    expect(calls.filter((call) => verb(call) === "agent prompt")).toHaveLength(2);
+    await expect(second.settled).resolves.toMatchObject({ state: "completed" });
+    const prompts = calls.filter((call) => verb(call) === "agent prompt");
+    expect(prompts.map((call) => call.argv[6])).toEqual([
+      "You review code.\n\nreview",
+      "report",
+      "review again",
+    ]);
+    expect(new Set(prompts.map((call) => call.argv[5])).size).toBe(1);
+    // Every prompt after the first waits for the agent to settle.
+    const order = calls.map(verb).filter((v) => v === "agent prompt" || v === "agent wait");
+    expect(order).toEqual([
+      "agent prompt",
+      "agent wait",
+      "agent prompt",
+      "agent wait",
+      "agent prompt",
+    ]);
     expect(calls.filter((call) => verb(call) === "tab create")).toHaveLength(1);
     expect(calls.filter((call) => verb(call) === "agent start")).toHaveLength(1);
-    expect(calls.every((call) => !call.argv.includes("resume"))).toBe(true);
+    expect(calls.filter((call) => verb(call) === "tab close")).toHaveLength(0);
+    await host.close();
+  });
+
+  test("an answered turn is left to finish in its pane, and the next operation waits for it", async () => {
+    const base = hostStub();
+    let endFirst!: () => void;
+    const firstEnds = new Promise<void>((resolve) => {
+      endFirst = resolve;
+    });
+    let prompts = 0;
+    const run: RunProcess = async (input) => {
+      if (verb(input) === "agent prompt" && ++prompts === 1) {
+        base.calls.push(input);
+        await firstEnds;
+        return commandResult({ agent: { agent_status: "done" } });
+      }
+      return base.run(input);
+    };
+    const host = await createHerdrRunHostFactory(CONFIG, run).openRun({
+      runId: "run-1",
+      cwd: "/repo",
+      deadline: deadline(),
+    });
+    const session = await host.openAgent({
+      key: "reviewer",
+      cwd: "/repo",
+      deadline: deadline(),
+      execution: { harness: "claude", model: "opus" },
+    });
+    const first = await session.start(
+      { id: "one", prompt: "review", deadline: deadline() },
+      binding("op-1"),
+    );
+    await Bun.sleep(10);
+    await expect(first.release("answered", deadline(), { answered: true })).resolves.toEqual({
+      kind: "finishing",
+    });
+    const starting = session.start(
+      { id: "two", prompt: "again", deadline: deadline() },
+      binding("op-2"),
+    );
+    await Bun.sleep(10);
+    expect(prompts).toBe(1);
+    endFirst();
+    await expect(first.settled).resolves.toMatchObject({ state: "completed" });
+    await expect((await starting).settled).resolves.toMatchObject({ state: "completed" });
+    expect(prompts).toBe(2);
+    expect(base.calls.filter((call) => verb(call) === "tab close")).toHaveLength(0);
+    await host.close();
+  });
+
+  test("an agent still blocked when the next operation comes settles it blocked, unprompted", async () => {
+    const base = hostStub();
+    const run: RunProcess = async (input) =>
+      verb(input) === "agent wait"
+        ? commandResult({ agent: { agent_status: "blocked", agent_status_text: "approve?" } })
+        : base.run(input);
+    const host = await createHerdrRunHostFactory(CONFIG, run).openRun({
+      runId: "run-1",
+      cwd: "/repo",
+      deadline: deadline(),
+    });
+    const session = await host.openAgent({
+      key: "reviewer",
+      cwd: "/repo",
+      deadline: deadline(),
+      execution: { harness: "claude", model: "opus" },
+    });
+    await (
+      await session.start({ id: "one", prompt: "review", deadline: deadline() }, binding("op-1"))
+    ).settled;
+    const second = await session.start(
+      { id: "two", prompt: "again", deadline: deadline() },
+      binding("op-2"),
+    );
+
+    await expect(second.settled).resolves.toMatchObject({ state: "blocked" });
+    expect(base.calls.filter((call) => verb(call) === "agent prompt")).toHaveLength(1);
     await host.close();
   });
 
@@ -917,43 +1008,6 @@ describe("createHerdrRunHostFactory", () => {
     await host.close();
   });
 
-  test("every later operation on an agent is refused without opening a tab", async () => {
-    const { run, calls } = hostStub();
-    const host = await createHerdrRunHostFactory(CONFIG, run).openRun({
-      runId: "run-1",
-      cwd: "/repo",
-      deadline: deadline(),
-    });
-    const session = await host.openAgent({
-      key: "reviewer",
-      cwd: "/repo",
-      deadline: deadline(),
-      execution: { harness: "claude", model: "opus" },
-    });
-    await (
-      await session.start({ id: "one", prompt: "review", deadline: deadline() }, binding("op-1"))
-    ).settled;
-    const second = await session.start(
-      { id: "two", prompt: "again", deadline: deadline() },
-      binding("op-2"),
-    );
-
-    await expect(second.settled).resolves.toMatchObject({
-      state: "failed",
-      detail: expect.stringContaining("one operation per agent"),
-    });
-    const third = await session.start(
-      { id: "three", prompt: "again", deadline: deadline() },
-      binding("op-3"),
-    );
-    await expect(third.settled).resolves.toMatchObject({
-      state: "failed",
-      detail: expect.stringContaining("one operation per agent"),
-    });
-    expect(calls.filter((call) => verb(call) === "tab create")).toHaveLength(1);
-    await host.close();
-  });
-
   test("a blocked or unknown generation keeps its own state", async () => {
     for (const terminalState of ["blocked", "unknown"] as const) {
       const base = hostStub();
@@ -1035,7 +1089,7 @@ describe("createHerdrRunHostFactory", () => {
       const later = await session.start({ id, prompt: "again", deadline: deadline() }, binding(id));
       await expect(later.settled).resolves.toMatchObject({
         state: "failed",
-        detail: expect.stringContaining("one operation per agent"),
+        detail: expect.stringContaining("pane was closed"),
       });
     }
     expect(base.calls.filter((call) => verb(call) === "tab create")).toHaveLength(1);
@@ -1087,7 +1141,7 @@ describe("createHerdrRunHostFactory", () => {
     );
     await expect(later.settled).resolves.toMatchObject({
       state: "failed",
-      detail: expect.stringContaining("one operation per agent"),
+      detail: expect.stringContaining("pane was closed"),
     });
     expect(base.calls.filter((call) => verb(call) === "tab create")).toHaveLength(1);
     await host.close();
