@@ -21,6 +21,7 @@ import {
   type AgentRunTextSpec,
   type AgentStructuredTurnSpec,
   type AgentTextTurnSpec,
+  type CompactSpec,
   DeadlineExceededError,
   isJsonValue,
   type JsonObject,
@@ -907,6 +908,10 @@ class LogicalAgent implements AgentRef {
       result: Promise<RunResult<JsonValue>>;
     }
   >();
+  readonly #compactions = new Map<
+    string,
+    { spec: CompactSpec; result: Promise<TurnOutcome<string>> }
+  >();
   #tail: Promise<void> = Promise.resolve();
   #closed = false;
   #closePromise: Promise<void> | undefined;
@@ -1012,8 +1017,50 @@ class LogicalAgent implements AgentRef {
     return tracked as Promise<RunResult<string | T>>;
   }
 
-  compact(): Promise<never> {
-    return unavailable("AgentRef.compact");
+  compact(spec: CompactSpec): Promise<TurnOutcome<string>> {
+    if (this.#closed) return Promise.reject(new Error("logical agent is closed"));
+    const scope = scopes.getStore();
+    try {
+      scope?.assertAccepting();
+      assertDeadlineValue(spec.deadline);
+    } catch (error) {
+      return Promise.reject(error);
+    }
+    const completeSpec = structuredClone(spec);
+    const existing = this.#compactions.get(spec.id);
+    if (existing) {
+      if (!isDeepStrictEqual(existing.spec, completeSpec)) {
+        const rejected = Promise.reject<TurnOutcome<string>>(
+          new Error(`compaction id ${spec.id} was reused with a different specification`),
+        );
+        scope?.track(rejected);
+        return rejected;
+      }
+      scope?.track(existing.result);
+      return existing.result;
+    }
+    const result = this.queue(async () => {
+      if (this.#closed || this.options.isRunClosing()) {
+        throw new Error("logical agent is closed");
+      }
+      scope?.assertActive();
+      const { progress, key } = this.options;
+      progress.turnStarted(key);
+      try {
+        const outcome = await this.executeCompaction(completeSpec, scope);
+        progress.turnSettled(key, outcome.kind, "reason" in outcome ? outcome.reason : undefined);
+        return outcome;
+      } catch (error) {
+        progress.turnSettled(key, "failed", messageOf(error));
+        throw error;
+      } finally {
+        await this.options.afterOperation?.();
+      }
+    });
+    const tracked = this.options.track(result);
+    scope?.track(tracked);
+    this.#compactions.set(spec.id, { spec: completeSpec, result: tracked });
+    return tracked;
   }
 
   close(reason?: string): Promise<void> {
@@ -1202,6 +1249,86 @@ class LogicalAgent implements AgentRef {
     } catch (error) {
       await this.options.slots.close(operationId);
       throw error;
+    } finally {
+      removeCanceller?.();
+    }
+  }
+
+  /**
+   * The harness's own compaction, with the spec's prompt as its focus (ADR 0007). Nothing answers
+   * through a result slot: the harness confirms it compacted by setting `summary`. One past its
+   * deadline is left to end on its own rather than stopped, which would close a pane's agent.
+   */
+  private async executeCompaction(
+    spec: CompactSpec,
+    scope: ExecutionScope | undefined,
+  ): Promise<TurnOutcome<string>> {
+    const deadline = earlierDeadline(
+      spec.deadline,
+      scope ? earlierDeadline(scope.deadline, this.options.deadline) : this.options.deadline,
+    );
+    const entry = this.options.ledger.reserve(randomUUID());
+    const times: { deliveredAt?: number } = {};
+    const settle = (native: HarnessTurnOutcome | "expired"): TurnOutcome<string> => {
+      const usage = entry.settle(
+        {
+          ...times,
+          settledAt: Math.min(Date.now(), deadline.unixMilliseconds),
+        },
+        native === "expired" ? [] : native.chargesUsd,
+      );
+      if (native === "expired") {
+        return { kind: "timed-out", reason: "compaction deadline exceeded", usage };
+      }
+      if (native.state === "completed") {
+        return native.summary === undefined
+          ? {
+              kind: "failed",
+              reason: native.detail ?? "the harness did not confirm a compaction",
+              retryable: false,
+              usage,
+            }
+          : { kind: "answered", value: native.summary, usage };
+      }
+      return reconcile<string>(native, { kind: "closed" }, usage);
+    };
+    if (Date.now() >= deadline.unixMilliseconds) return settle("expired");
+    let turn: HarnessTurn;
+    const acquiring = Promise.resolve().then(() =>
+      this.options.session.compact(spec.id, spec.prompt, deadline),
+    );
+    try {
+      turn = await waitForDeadline(acquiring, deadline);
+    } catch (error) {
+      if (error instanceof DeadlineExceededError) {
+        // A compaction that starts after all is left to end on its own, as one past its deadline.
+        this.options.track(
+          acquiring.then(
+            (late) => releaseTurn(late, "compaction deadline exceeded", true),
+            () => undefined,
+          ),
+        );
+        return settle("expired");
+      }
+      return settle({
+        state: "failed",
+        detail: messageOf(error),
+        resultEvidence: { kind: "unavailable" },
+        chargesUsd: [],
+      });
+    }
+    times.deliveredAt = Date.now();
+    const removeCanceller = scope?.add((reason) => releaseTurn(turn, reason));
+    try {
+      let cancelTimer: (() => void) | undefined;
+      const native = await Promise.race([
+        turn.settled,
+        new Promise<"expired">((resolve) => {
+          cancelTimer = scheduleAt(deadline, () => resolve("expired"));
+        }),
+      ]).finally(() => cancelTimer?.());
+      if (native === "expired") await releaseTurn(turn, "compaction deadline exceeded", true);
+      return settle(native);
     } finally {
       removeCanceller?.();
     }

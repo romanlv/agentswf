@@ -75,6 +75,11 @@ export type HarnessTurnOutcome = {
   resultEvidence: HarnessResultEvidence;
   /** The dollars the harness printed for each native turn behind this outcome. */
   chargesUsd: readonly number[];
+  /**
+   * Set only on a compaction the harness confirmed: its summary as the harness wrote it, or `""`
+   * where it keeps it opaque, as codex does.
+   */
+  summary?: string;
 };
 
 export type HarnessReleaseDisposition =
@@ -107,7 +112,8 @@ export interface HarnessTurn {
 
 export type HarnessReleaseOptions = {
   /**
-   * The operation's result is in. A host whose next operation resumes this session may answer
+   * The operation's result is in, or nothing waits on it any more without ending the session, as
+   * for a compaction past its deadline. A host whose next operation resumes this session may answer
    * `finishing` instead of stopping the turn; one that ignores this stops it, which is safe.
    */
   answered?: boolean;

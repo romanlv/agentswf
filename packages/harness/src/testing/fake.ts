@@ -36,6 +36,8 @@ export type FakeAdapterTurn = {
   transcript?: string;
   sessionRef?: string;
   chargesUsd?: readonly number[];
+  /** A compaction's summary: set, the harness confirmed it compacted. */
+  summary?: string;
   durationMs?: number;
   act?: (context: FakeAdapterTurnContext) => void | Promise<void>;
 };
@@ -117,6 +119,9 @@ export function createFakeAdapter(
                 : ({ kind: "unavailable" } as const),
               ...(scripted.sessionRef ? { sessionRef: scripted.sessionRef } : {}),
               chargesUsd: scripted.chargesUsd ?? [],
+              ...(scripted.summary === undefined || controller.signal.aborted
+                ? {}
+                : { summary: scripted.summary }),
             };
           } finally {
             if (activeController === controller) activeController = undefined;

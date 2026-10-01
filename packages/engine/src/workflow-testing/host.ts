@@ -19,6 +19,17 @@ import type { Scripts, Step, Turn, TurnOutcome } from "./script";
 /** A turn as the workflow wrote it, and how it ended. */
 export type TurnRecord = Omit<Turn, "signal"> & { outcome: TurnOutcome };
 
+/** A compaction as the workflow asked for it, and how it ended. */
+export type CompactionRecord = {
+  agent: string;
+  /** 1-based among the agent's compactions. */
+  n: number;
+  id: string;
+  /** The spec's prompt: what the harness is to keep and drop. */
+  focus: string;
+  outcome: TurnOutcome;
+};
+
 /** An agent the workflow opened, as it opened it. */
 export type OpenedAgent = {
   key: string;
@@ -37,6 +48,7 @@ export type AgentSandbox = Pick<SandboxRecord, "key" | "provider" | "spec" | "do
 export type ScriptedHost = {
   factory: AgentRunHostFactory;
   turns: TurnRecord[];
+  compactions: CompactionRecord[];
   agents: OpenedAgent[];
   /** Turns started and not yet ended, for a stalled run's message. */
   inFlight(): TurnRecord[];
@@ -49,6 +61,8 @@ export type ScriptedHost = {
  */
 export function createScriptedHost(
   scripts: Scripts,
+  /** Unscripted, an agent's compactions all answer `""`. */
+  compactionScripts: Scripts,
   events: {
     /** A turn started or ended: the run is not stalled. */
     onActivity(): void;
@@ -57,6 +71,8 @@ export function createScriptedHost(
   },
 ): ScriptedHost {
   const turns: TurnRecord[] = [];
+  const compactions: CompactionRecord[] = [];
+  const compactionCounts = new Map<string, number>();
   const agents: OpenedAgent[] = [];
   const open = new Set<TurnRecord>();
   const counts = new Map<string, number>();
@@ -116,11 +132,70 @@ export function createScriptedHost(
     return ending.kind === "silent" ? {} : { state: ending.kind, detail: ending.reason };
   };
 
+  const compact = async (context: FakeAdapterTurnContext): Promise<FakeAdapterTurn> => {
+    const { activation } = context;
+    const n = (compactionCounts.get(activation.key) ?? 0) + 1;
+    compactionCounts.set(activation.key, n);
+    const record: CompactionRecord = {
+      agent: activation.key,
+      n,
+      id: context.id,
+      focus: context.prompt,
+      outcome: "hang",
+    };
+    compactions.push(record);
+    const done = (outcome: TurnOutcome) => {
+      record.outcome = outcome;
+      events.onActivity();
+    };
+    if (!compactionScripts.has(activation.key)) {
+      done("answered");
+      return { summary: "" };
+    }
+    const step = await Promise.race([
+      compactionScripts.step({
+        agent: activation.key,
+        n,
+        nudge: false,
+        prompt: context.prompt,
+        cwd: activation.cwd,
+        signal: context.signal,
+      }),
+      whenAborted(context.signal),
+    ]);
+    if (step === "cancelled") {
+      done("cancelled");
+      return {};
+    }
+    if (step.kind === "script-error") return failTest(step.message);
+    if (step.kind === "answer") {
+      if (typeof step.value !== "string") {
+        return failTest(
+          `agent "${activation.key}" compaction ${n}: its compaction script answers a summary, text, not ${JSON.stringify(step.value)}`,
+        );
+      }
+      done("answered");
+      return { summary: step.value };
+    }
+    const { ending } = step;
+    if (ending.kind === "hang") {
+      return {
+        act: async (turn) => {
+          await whenAborted(turn.signal);
+          done("hang");
+        },
+      };
+    }
+    done(ending.kind);
+    return ending.kind === "silent" ? {} : { state: ending.kind, detail: ending.reason };
+  };
+
   const script = async (context: FakeAdapterTurnContext): Promise<FakeAdapterTurn> => {
     events.onActivity();
+    if (context.kind === "compact") return compact(context);
     const { authored, activation } = context;
-    // The engine hands every turn and nudge what the workflow wrote, and compacts nothing yet.
-    if (!authored || context.kind === "compact") {
+    // The engine hands every turn and nudge what the workflow wrote.
+    if (!authored) {
       return failTest(
         `agent "${activation.key}" got a ${context.kind} without what the workflow wrote`,
       );
@@ -186,6 +261,7 @@ export function createScriptedHost(
       },
     },
     turns,
+    compactions,
     agents,
     inFlight: () => [...open],
   };

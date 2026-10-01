@@ -101,16 +101,24 @@ export class Scripts {
   readonly #scripts: Readonly<Record<string, Script>>;
   /** The furthest turn each agent reached, by the key or pattern that met it. */
   readonly #reached = new Map<string, { pattern: string; n: number }>();
+  /** What each entry answers. */
+  readonly #noun: "turn" | "compaction";
 
-  constructor(scripts: Readonly<Record<string, Script>> = {}) {
+  constructor(
+    scripts: Readonly<Record<string, Script>> = {},
+    of: { noun: "turn" | "compaction"; option: string } = { noun: "turn", option: "agents" },
+  ) {
+    this.#noun = of.noun;
     for (const [key, script] of Object.entries(scripts)) {
       if (isList(script) && script.length === 0) {
-        throw new TypeError(`agents["${key}"] is an empty list; a list has an entry per turn`);
+        throw new TypeError(
+          `${of.option}["${key}"] is an empty list; a list has an entry per ${of.noun}`,
+        );
       }
       for (const entry of isList(script) ? script : [script]) {
         if (!isEntry(entry)) {
           throw new TypeError(
-            `agents["${key}"] must be answer(…), reply.…() or a list of them, not ${JSON.stringify(entry)}`,
+            `${of.option}["${key}"] must be answer(…), reply.…() or a list of them, not ${JSON.stringify(entry)}`,
           );
         }
       }
@@ -118,15 +126,20 @@ export class Scripts {
     this.#scripts = scripts;
   }
 
+  /** Whether any script, by key or pattern, is for this agent. */
+  has(agent: string): boolean {
+    return !("why" in findByKey(this.#scripts, agent, "agent"));
+  }
+
   async step(turn: Turn): Promise<Step> {
     const found = findByKey(this.#scripts, turn.agent, "agent");
-    if ("why" in found) return scriptError(turn, found.why);
+    if ("why" in found) return this.error(turn, found.why);
     const { pattern, value: script } = found;
     const entry = isList(script) ? script[turn.n - 1] : script;
     if (!entry) {
-      return scriptError(
+      return this.error(
         turn,
-        `its script${named(pattern, turn.agent)} has ${count(script, "turn")}`,
+        `its ${this.#whose()}${named(pattern, turn.agent)} has ${count(script, this.#noun)}`,
       );
     }
     const reached = this.#reached.get(turn.agent);
@@ -134,7 +147,7 @@ export class Scripts {
     const meant = entry[ENTRY];
     if (meant.kind === "reply") return { kind: "reply", ending: meant.ending };
     if (!sameSchema(meant.schema, turn.schema)) {
-      return scriptError(
+      return this.error(
         turn,
         `it asks for ${describeSchema(turn.schema)}; its script answers ${describeSchema(meant.schema)}`,
       );
@@ -143,18 +156,26 @@ export class Scripts {
     try {
       out = await meant.respond(turn);
     } catch (error) {
-      return scriptError(turn, `its script threw: ${messageOf(error)}`);
+      return this.error(turn, `its script threw: ${messageOf(error)}`);
     }
-    if (out === undefined) return scriptError(turn, "its script returned nothing");
+    if (out === undefined) return this.error(turn, "its script returned nothing");
     if (isEntry(out)) {
       const given = out[ENTRY];
       if (given.kind === "reply") return { kind: "reply", ending: given.ending };
-      return scriptError(
-        turn,
-        "its script returned answer(…); a function returns the value itself",
-      );
+      return this.error(turn, "its script returned answer(…); a function returns the value itself");
     }
     return { kind: "answer", value: out };
+  }
+
+  #whose(): string {
+    return this.#noun === "turn" ? "script" : `${this.#noun} script`;
+  }
+
+  private error(turn: Turn, why: string): Step {
+    return {
+      kind: "script-error",
+      message: `agent "${turn.agent}" ${this.#noun} ${turn.n}${turn.nudge ? " (nudge)" : ""}: ${why}. It was asked: ${firstLine(turn.prompt)}`,
+    };
   }
 
   /** What a list scripted and no turn reached. */
@@ -164,7 +185,7 @@ export class Scripts {
       const script = this.#scripts[pattern]!;
       if (isList(script) && n < script.length) {
         problems.push(
-          `agent "${key}" was asked ${count(n, "turn")}; its script${named(pattern, key)} has ${script.length}`,
+          `agent "${key}" was asked ${count(n, this.#noun)}; its ${this.#whose()}${named(pattern, key)} has ${script.length}`,
         );
       }
     }
@@ -174,7 +195,7 @@ export class Scripts {
         const who = pattern.includes("*")
           ? `no agent matching "${pattern}" was asked`
           : `agent "${pattern}" was never asked`;
-        problems.push(`${who}; its script has ${count(script, "turn")}`);
+        problems.push(`${who}; its ${this.#whose()} has ${count(script, this.#noun)}`);
       }
     }
     return problems;
@@ -200,13 +221,6 @@ export function findByKey<T>(
         : scripted.length === 0
           ? `no ${what} is scripted`
           : `no script for it; scripted: ${scripted.map(quote).join(", ")}`,
-  };
-}
-
-function scriptError(turn: Turn, why: string): Step {
-  return {
-    kind: "script-error",
-    message: `agent "${turn.agent}" turn ${turn.n}${turn.nudge ? " (nudge)" : ""}: ${why}. It was asked: ${firstLine(turn.prompt)}`,
   };
 }
 

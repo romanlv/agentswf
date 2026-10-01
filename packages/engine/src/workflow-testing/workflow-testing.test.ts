@@ -703,3 +703,133 @@ describe("testWorkflow", () => {
     });
   });
 });
+
+/** Plans, compacts with a focus, then builds: one agent carried across a compaction. */
+const compacting = workflowOf<{ compactions: number }, JsonValue>(async (workflow, args) => {
+  const agent = await workflow.agents.open({ key: "builder", runtime: "claude" });
+  await agent.run({ prompt: "Plan a cache.", schema: PLAN });
+  const outcomes: JsonValue[] = [];
+  for (let n = 1; n <= args.compactions; n++) {
+    const outcome = await agent.compact({
+      id: `after-plan-${n}`,
+      prompt: `Keep the plan's decisions, round ${n}.`,
+      deadline: { unixMilliseconds: Date.now() + 60_000 },
+    });
+    outcomes.push(
+      outcome.kind === "answered"
+        ? { kind: outcome.kind, value: outcome.value }
+        : { kind: outcome.kind, reason: outcome.reason },
+    );
+  }
+  const built = await agent.run({ prompt: "Build it.", schema: STATUS });
+  return { compactions: outcomes, built: built.outcome.kind };
+});
+
+describe("testWorkflow compactions", () => {
+  test("an unscripted compaction answers an empty summary, apart from the agent's turns", async () => {
+    const run = await testWorkflow(
+      compacting,
+      { compactions: 1 },
+      {
+        agents: {
+          builder: [answer(PLAN, { steps: ["a"] }), answer(STATUS, { step: 0, state: "done" })],
+        },
+      },
+    );
+    expect(run.value).toEqual({
+      compactions: [{ kind: "answered", value: "" }],
+      built: "answered",
+    });
+    expect(run.turnsOf("builder").map((turn) => turn.n)).toEqual([1, 2]);
+    expect(run.compactionsOf("builder")).toEqual([
+      {
+        agent: "builder",
+        n: 1,
+        id: "after-plan-1",
+        focus: "Keep the plan's decisions, round 1.",
+        outcome: "answered",
+      },
+    ]);
+  });
+
+  test("a scripted compaction answers its summary, or ends as its reply says", async () => {
+    const run = await testWorkflow(
+      compacting,
+      { compactions: 3 },
+      {
+        agents: {
+          builder: [answer(PLAN, { steps: ["a"] }), answer(STATUS, { step: 0, state: "done" })],
+        },
+        compactions: {
+          builder: [answer("kept the plan"), reply.failed("nothing to compact"), reply.silent()],
+        },
+      },
+    );
+    expect(run.value).toEqual({
+      compactions: [
+        { kind: "answered", value: "kept the plan" },
+        { kind: "failed", reason: "nothing to compact" },
+        { kind: "failed", reason: "the harness did not confirm a compaction" },
+      ],
+      built: "answered",
+    });
+    expect(run.compactionsOf("builder").map((c) => c.outcome)).toEqual([
+      "answered",
+      "failed",
+      "silent",
+    ]);
+  });
+
+  test("a compaction that hangs past its deadline times out, and the agent goes on", async () => {
+    const hanging = workflowOf<null, JsonValue>(async (workflow) => {
+      const agent = await workflow.agents.open({ key: "builder", runtime: "claude" });
+      const compacted = await agent.compact({
+        id: "c",
+        prompt: "Keep everything.",
+        deadline: { unixMilliseconds: Date.now() + 50 },
+      });
+      const built = await agent.run({ prompt: "Build it.", schema: STATUS });
+      return { compacted: compacted.kind, built: built.outcome.kind };
+    });
+    const run = await testWorkflow(hanging, null, {
+      agents: { builder: answer(STATUS, { step: 0, state: "done" }) },
+      compactions: { builder: reply.hang() },
+    });
+    expect(run.value).toEqual({ compacted: "timed-out", built: "answered" });
+  });
+
+  test("a compaction id reused with another focus rejects; the same spec returns the same outcome", async () => {
+    const reused = workflowOf<null, JsonValue>(async (workflow) => {
+      const agent = await workflow.agents.open({ key: "builder", runtime: "claude" });
+      const deadline = { unixMilliseconds: Date.now() + 60_000 };
+      const first = agent.compact({ id: "c", prompt: "Keep A.", deadline });
+      const again = agent.compact({ id: "c", prompt: "Keep A.", deadline });
+      const other = agent.compact({ id: "c", prompt: "Keep B.", deadline }).then(
+        () => "accepted",
+        (error: Error) => error.message,
+      );
+      return { same: (await first) === (await again), other: await other };
+    });
+    const run = await testWorkflow(reused, null);
+    expect(run.value).toEqual({
+      same: true,
+      other: "compaction id c was reused with a different specification",
+    });
+    expect(run.compactionsOf("builder")).toHaveLength(1);
+  });
+
+  test("a compaction script left unfinished fails the test, named as a compaction", async () => {
+    await expect(
+      testWorkflow(
+        compacting,
+        { compactions: 1 },
+        {
+          agents: {
+            builder: [answer(PLAN, { steps: ["a"] }), answer(STATUS, { step: 0, state: "done" })],
+          },
+          compactions: { builder: [answer("one"), answer("two")] },
+        },
+      ),
+    ).rejects.toThrow(/agent "builder" was asked 1 compaction; its compaction script has 2/);
+  });
+});

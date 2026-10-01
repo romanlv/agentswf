@@ -164,6 +164,33 @@ for (let round = 1; round <= 3; round++) {
 }
 ```
 
+### Compacting: keep the agent, shrink its context
+
+`compact` runs the harness's own compaction, as an operator types `/compact` with a focus. The
+`prompt` is that focus: what to keep and what to drop. It runs after the agent's earlier turns,
+and the next `run` goes on in the compacted session.
+
+```ts
+const compacted = await builder.compact({
+  id: "after-plan",
+  prompt: "Keep the plan's decisions, the branch and the worktree. Drop file contents.",
+  deadline: { unixMilliseconds: Date.now() + 10 * 60_000 },
+});
+if (!isAnswered(compacted)) workflow.log("compaction didn't finish", { reason: compacted.reason });
+```
+
+- **`answered`** means the harness compacted. `value` is its summary where the harness shows it,
+  claude's and pi's, and `""` for codex, which keeps it encrypted.
+- **Any other outcome** leaves the context as it was, so going on is usually right. A pane
+  compaction past its deadline is left to finish rather than stopped, and the next turn waits for
+  it.
+- **Per harness**: claude, in a pane or headless, takes `/compact {prompt}`; codex takes the focus
+  as a message just before its compaction; pi passes it as its compaction's instructions, and only
+  summarizes what is older than its last 20k tokens, so a short session fails "nothing to
+  compact". Cursor has no compaction: `failed`, and nothing is sent.
+- **`id`** makes it idempotent: the same spec again returns the same outcome; another spec under
+  the same id rejects.
+
 ## `parallel`
 
 Runs one async function per item, with at most `concurrency` running at a time. Results come back
@@ -448,6 +475,10 @@ decisions: {
 - **`run.turnsOf(key)`** is one agent's turns in order, nudges included, each as the workflow
   wrote it: `prompt`, `schema`, `label`, `n`, `nudge`, and its `outcome`. An agent never asked has
   none: `expect(run.turnsOf("implementer")).toEqual([])`. **`run.turns`** has every agent's.
+- **`run.compactionsOf(key)`** is one agent's compactions in order, each with its `id`, `focus`
+  and `outcome`. They are not turns, and take no entry in the agent's script: each answers `""`
+  unless `compactions` scripts it, by key or pattern like `agents`, with `answer("a summary")` or a
+  `reply`, a list one entry per compaction.
 - **`run.agentOf(key)`** is what an agent was opened with: `execution`, `instructions`,
   `labels`, `skills`, and `sandbox`, absent for an agent on the host. **`run.agents`** lists them
   all.
@@ -520,7 +551,7 @@ time passes needs virtual time, which isn't built.
 ## Not built yet
 
 These calls are in the types and throw `unavailable` today: `agents.attach` and `agents.stop`,
-`agent.enqueue` and `agent.compact`, `steps` (durable steps and sleep), `signals` (waiting for
+`agent.enqueue`, `steps` (durable steps and sleep), `signals` (waiting for
 outside input), `participants` and `messages` (agents talking to each other), and `call` (one
 workflow calling another). [`docs/status.md`](status.md) says what's next.
 

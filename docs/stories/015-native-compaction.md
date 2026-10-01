@@ -134,7 +134,7 @@ Alternatives rejected:
 
 - [x] 1. Design: ADR 0007, the contract docs, the design doc
 - [x] 2. A pane agent takes more than one operation ([ADR 0008](../adr/0008-a-pane-agent-continues-in-its-pane.md))
-- [ ] 3. `AgentRef.compact` in the engine, and scripted compactions in tests
+- [x] 3. `AgentRef.compact` in the engine, and scripted compactions in tests
 - [ ] 4. Native compaction for each harness and placement
 - [ ] 5. Live eval on every harness, findings, the ticket workflow
 
@@ -144,6 +144,10 @@ Alternatives rejected:
   wait. A release of an answered turn that has already ended returns its outcome instead of
   cancelling: cancelling a pane closes it. Each prompt after the first, nudges included, waits on
   `herdr agent wait` first; a nudge's wait returns at once, since its turn has ended.
+- Task 3: a compaction is an operation of its own on the agent's queue, with its own usage record
+  and no result slot. The harness confirms it by setting `summary` on the outcome; `completed`
+  without one settles `failed`. One past its deadline is released as answered, so it is left to
+  finish: stopping it would close a pane. In tests, `Scripts` serves both lists, worded by noun.
 
 ## Human review
 

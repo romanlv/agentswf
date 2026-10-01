@@ -15,7 +15,13 @@ import { messageOf } from "../errors";
 import { OPERATOR_ALIASES } from "../operator-aliases";
 import { runWorkflow, WorkflowRunError } from "../workflow-runner";
 import { createScriptedDecisions, type DecisionRequest, type DecisionScript } from "./decisions";
-import { type AgentSandbox, createScriptedHost, type OpenedAgent, type TurnRecord } from "./host";
+import {
+  type AgentSandbox,
+  type CompactionRecord,
+  createScriptedHost,
+  type OpenedAgent,
+  type TurnRecord,
+} from "./host";
 import { type Script, Scripts } from "./script";
 
 export type { DecisionRequest, DecisionScript } from "./decisions";
@@ -24,6 +30,11 @@ export { answer, reply, type Script, type Turn } from "./script";
 export type TestOptions = {
   /** Each agent's script, by its key or a pattern such as `"review:*"`. */
   agents?: Readonly<Record<string, Script>>;
+  /**
+   * Each agent's compactions, apart from its turns: `answer("summary")` or a `reply`, a list one
+   * entry per compaction. An agent with none here has every compaction answer `""`.
+   */
+  compactions?: Readonly<Record<string, Script>>;
   /** Each decision's answers, by its key or a pattern. */
   decisions?: Readonly<Record<string, DecisionScript>>;
   /** Runtime aliases beside the ones `awf run` installs, `claude` and `codex`; the same name replaces one. */
@@ -48,6 +59,10 @@ export type TestRun<Result> = {
   turns: TurnRecord[];
   /** One agent's turns, in its session's order. */
   turnsOf(agent: string): TurnRecord[];
+  /** Every compaction, in the order they started; not among the turns. */
+  compactions: CompactionRecord[];
+  /** One agent's compactions, in order. */
+  compactionsOf(agent: string): CompactionRecord[];
   /** Every agent opened, in the order opened. */
   agents: OpenedAgent[];
   /** The agent opened under `key`; throws, naming the keys opened, when there is none. */
@@ -68,6 +83,10 @@ export async function testWorkflow<Args extends JsonValue, Result extends JsonVa
 ): Promise<TestRun<Result>> {
   const definition = isExecutable(workflow) ? workflow.definition : workflow;
   const scripts = new Scripts(options.agents);
+  const compactionScripts = new Scripts(options.compactions, {
+    noun: "compaction",
+    option: "compactions",
+  });
   const stopping = new AbortController();
   const problems: string[] = [];
   const stallMs = options.stallMs ?? 2_000;
@@ -92,7 +111,7 @@ export async function testWorkflow<Args extends JsonValue, Result extends JsonVa
     problems.push(message);
     stopping.abort(new Error(message));
   };
-  const host = createScriptedHost(scripts, events);
+  const host = createScriptedHost(scripts, compactionScripts, events);
   const decisions = createScriptedDecisions(options.decisions ?? {}, events);
   const temporary: string[] = [];
   const directory = () => {
@@ -136,7 +155,7 @@ export async function testWorkflow<Args extends JsonValue, Result extends JsonVa
     for (const path of temporary) rmSync(path, { recursive: true, force: true });
   }
   if (problems.length === 0) {
-    const leftovers = scripts.leftovers();
+    const leftovers = [...scripts.leftovers(), ...compactionScripts.leftovers()];
     // What the workflow threw may be why a list went unfinished.
     if (leftovers.length > 0 && "error" in settled) {
       leftovers.push(`the workflow threw: ${messageOf(settled.error)}`);
@@ -155,6 +174,8 @@ export async function testWorkflow<Args extends JsonValue, Result extends JsonVa
     },
     turns: host.turns,
     turnsOf: (agent) => host.turns.filter((turn) => turn.agent === agent),
+    compactions: host.compactions,
+    compactionsOf: (agent) => host.compactions.filter((compaction) => compaction.agent === agent),
     agents,
     agentOf(key) {
       const agent = agents.find((opened) => opened.key === key);
