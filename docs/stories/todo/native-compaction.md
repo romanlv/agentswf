@@ -55,6 +55,14 @@ that in a design note or ADR before any code.
 - Where each harness writes the summary, and whether a session's usage reading still adds up
   across a compaction.
 
+## Testing a workflow that compacts
+
+The workflow-testing host fails any compaction today
+(`packages/engine/src/workflow-testing/host.ts:122`). A workflow's test needs to see each
+compaction in `run.turnsOf` with its focus, and to script one that doesn't finish, so it can check
+what the workflow does then. Whether a compaction takes an entry in an agent's script list or is
+met on its own is part of the design.
+
 ## Depends on
 
 [`herdr-pane-settlement`](herdr-pane-settlement.md): compacting a pane agent and then giving it
