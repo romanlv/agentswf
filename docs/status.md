@@ -31,8 +31,9 @@ exists, the code is right, then this page.
   `testWorkflow` from `agentswf/testing` runs the workflow through the real engine with each agent
   and decision model scripted, typed by the schema each turn asks for. Seven examples have theirs
   beside them.
-- `agent.compact` runs the harness's own compaction with the workflow's focus (story 015, ADR
-  0007): claude, codex and pi in a pane or headless; cursor refuses.
+- `agent.compact({ prompt })` runs the harness's own compaction with the workflow's focus (story
+  015, ADR 0007), within the workflow's deadline unless `timeoutMs` bounds it: claude, codex and pi
+  in a pane or headless; cursor refuses.
   `examples/compaction` checks each live.
 - `awf run --here`, typed in a claude, codex, pi or cursor session in a Herdr pane, starts the run
   in a tab of its own, which drives that session as an agent through `agents.caller` and hands it
@@ -138,16 +139,16 @@ The gates are defined in [`foundation.md`](foundation.md) §12.
   folder.
 - [013 — autoresearch loop](stories/013-autoresearch-loop.md): draft. The proposer writes
   workflow code, so trials run whole in a container; air-1 is split 23 tuning / 10 holdout.
-- [014 — a workflow in the current session](stories/014-workflow-in-current-session.md): awaiting
-  human review. `awf run --here` takes the session it was typed in over as `agents.caller`
+- [014 — a workflow in the current session](stories/014-workflow-in-current-session.md): done,
+  approved 2026-10-01. `awf run --here` takes the session it was typed in over as `agents.caller`
   ([ADR 0010](adr/0010-the-calling-session-is-an-agent.md)); its eval passes on claude, codex, pi
   and cursor.
-
-- [015 — native compaction](stories/015-native-compaction.md): awaiting human review.
+- [015 — native compaction](stories/015-native-compaction.md): done, approved 2026-10-01.
   `agent.compact` runs each harness's own compaction with the workflow's focus, and a pane agent
   takes more than one operation, so one agent can carry a long task as an operator does with
   `/compact`. Measured on every harness
-  ([findings](findings/native-compaction.md)); its eval passes on all six runtimes.
+  ([findings](findings/native-compaction.md)); its eval passes on all seven runtimes, pi panes
+  included. `compact({ prompt })` takes `run`'s id and deadline defaults (ADR 0007, amended).
 - [016 — fork](stories/016-fork.md): draft, its ADR (0009) awaiting approval. A fork is a new
   agent on a copy of the session, made with no model call; claude's and pi's forks read the
   parent's cache, codex's pay it once ([findings](findings/fork-cache.md)).

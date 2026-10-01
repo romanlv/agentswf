@@ -3,7 +3,7 @@ id: "014"
 title: Run a workflow from inside the session you are in
 summary: "From a claude, codex, pi or cursor session in a Herdr pane, the operator starts a workflow with a command; the run starts outside the session's sandbox, takes the calling session over as one of its agents, opens any others it needs, and hands the session back when it ends."
 type: story
-status: awaiting-human-review
+status: done
 discovered_in: "conversation, 2026-09-30; experiments/e8-attach"
 depends_on: []
 ---
@@ -453,10 +453,13 @@ Manual or live evaluation:
 
 ## Human review
 
-- [ ] Every task is complete and story-level verification passes.
-- [ ] Set the story status to `awaiting-human-review` and present the outcome, architecture
+- [x] Every task is complete and story-level verification passes.
+- [x] Set the story status to `awaiting-human-review` and present the outcome, architecture
   decisions, task-level subagent findings and dispositions, exact verification results, deviations,
   and remaining risks.
-- [ ] Record the human's explicit approval or requested changes here.
-- [ ] If changes are requested, return to the affected task and repeat its review and verification.
-- [ ] Only after explicit approval, mark the story `done` and update `Stories at a glance`.
+- [x] Record the human's explicit approval or requested changes here: ADR 0010 approved
+  2026-10-01; the story approved the same day, when the operator asked for it to be cleaned up and
+  marked done. It merged to main after story 015, 017 and the fork ADR, so its ADR, first written as
+  0009, is 0010.
+- [x] If changes are requested, return to the affected task and repeat its review and verification.
+- [x] Only after explicit approval, mark the story `done` and update `Stories at a glance`.

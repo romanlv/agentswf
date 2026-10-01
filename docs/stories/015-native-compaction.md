@@ -3,7 +3,7 @@ id: "015"
 title: Compact an agent with its harness's own compact command
 summary: "agent.compact runs the harness's native compaction with the workflow's focus, so one agent can carry a long multi-stage task the way an operator does with /compact; a pane agent takes more than one operation to make that useful."
 type: story
-status: awaiting-human-review
+status: done
 discovered_in: "an implement-a-ticket workflow written against the author surface, 2026-10-01"
 depends_on: []
 ---
@@ -24,21 +24,18 @@ sessions, and its fixer never saw why the implementer chose what it did.
 
 ## How it works
 
-In a workflow (from the ticket workflow; `compact` needing an `id` and a deadline is what story
-016's first task removes):
+In a workflow (from the ticket workflow):
 
 ```ts
 const worker = await workflow.agents.open({ key: "worker", runtime: "claude" });
 
 const plan = await worker.run({ prompt: prompts.docReview(ticket), schema: DOC_REVIEW, timeoutMs });
 await worker.compact({
-  id: "after-doc-review",
   prompt: "Keep the ticket, the plan in its doc and the decisions; drop the doc review's back and forth.",
-  deadline,
 });
 
 const built = await worker.run({ prompt: prompts.implement(ticket, plan.value), schema: IMPLEMENTED, timeoutMs });
-await worker.compact({ id: "after-implement", prompt: "Keep what changed and why; drop the build logs.", deadline });
+await worker.compact({ prompt: "Keep what changed and why; drop the build logs." });
 ```
 
 What each call does underneath:
@@ -131,8 +128,8 @@ Measured 2026-10-01 against claude 2.1.286, codex-cli 0.159.3, pi 0.87.1, cursor
 
 ## Code map
 
-- `packages/contract/src/workflow/agents.ts` — `CompactSpec`, `AgentRef.compact`: the shape stays;
-  the docs change.
+- `packages/contract/src/workflow/agents.ts` — `CompactSpec`, `AgentRef.compact`: the shape stayed
+  through the tasks; the review made `id` and `deadline` optional, as `run`'s are.
 - `packages/harness/src/spec.ts` — each harness's compaction, beside its other flags.
 - `packages/harness/src/command.ts` — a process that holds stdin open until a line answers.
 - `packages/harness/src/adapters/direct-process.ts`, `adapters/herdr.ts` — compaction per
@@ -216,14 +213,20 @@ Live, 2026-10-01:
 - [x] `harnesses`: 3 agents, the claude pane answering its follow-up, 17 s, ~$0.07.
 - [x] `minimum-review`: both reviewers completed, the codex pane's turn left finishing, 25 s,
   ~$0.05.
-- [ ] `sandbox-panes-srt`: failed, its claude tester refusing the probe's prompt as an injection,
-  on its first and only turn, before any continuation: haiku's judgement, not a pane's. Not
-  re-run.
+- [x] `sandbox-panes-srt`: failed once, its claude tester refusing the probe's prompt as an
+  injection on its first turn: haiku's judgement, not a pane's. It passed in story 017's runs and
+  in the full `bun run eval` the same day.
 
 ## Human review
 
-- [ ] Every task is complete and story-level verification passes.
-- [ ] Set the story status to `awaiting-human-review` and present the outcome.
-- [ ] Record the human's explicit approval or requested changes here.
+- [x] Every task is complete and story-level verification passes.
+- [x] Set the story status to `awaiting-human-review` and present the outcome.
+- [x] `deadline: { unixMilliseconds: Date.now() + 5 * MINUTE },` is ugly and should be refactored.
+  Done: `compact({ prompt })` takes `run`'s defaults, a generated id and the workflow's deadline,
+  with `timeoutMs` to bound it ([ADR 0007](../adr/0007-compaction-is-the-harness-own.md),
+  amended). `examples/compaction` and `docs/workflow-api.md` use it.
+- [x] Record the human's explicit approval or requested changes here.
   - 2026-10-01: `compact`'s `id` and millisecond deadline read badly, and the ticket workflow is
-    hard to follow as a process. Both went to [`readable-workflows`](todo/readable-workflows.md).
+    hard to follow as a process. The first is fixed above; making workflows read as their process
+    stays in [`readable-workflows`](todo/readable-workflows.md).
+  - 2026-10-01: approved; the operator asked for the story to be cleaned up and marked done.

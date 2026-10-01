@@ -99,7 +99,7 @@ const reviewer = await workflow.agents.open({
 | `cwd` | Where the agent works. Defaults to the workflow's directory. |
 
 A harness is the coding-agent CLI (`claude`, `codex`, `pi`, `cursor`). Your existing login for
-each one is used. Cursor runs only in a pane, and pi runs headless.
+each one is used. claude, codex and pi run in a pane or headless; cursor runs headless only.
 
 ### Giving it work
 
@@ -183,7 +183,8 @@ if (!isAnswered(compacted)) workflow.log("compaction didn't finish", { reason: c
   compaction past its deadline is left to finish rather than stopped, and the next turn waits for
   it.
 - **Per harness**: claude, in a pane or headless, takes `/compact {prompt}`; codex takes the focus
-  as a message just before its compaction; pi passes it as its compaction's instructions, and only
+  as a message just before its compaction; pi passes it as its compaction's instructions
+  (`/compact {prompt}` in a pane), and only
   summarizes what is older than its last 20k tokens, so a short session fails "nothing to
   compact". Cursor has no compaction: `failed`, and nothing is sent.
 - **Bounds and ids** are `run`'s: it runs within the workflow's deadline unless `timeoutMs` or

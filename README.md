@@ -73,7 +73,8 @@ labelled stages it shows live in the terminal.
   that goes quiet gets one nudge.
 - **Long-lived sessions.** Talk to the same agent again and it continues its own session, keeping
   its context, and each turn can ask for a different kind of answer: a plan, then a patch
-  summary, then a yes or no.
+  summary, then a yes or no. When the context fills, `compact` runs the harness's own compaction
+  with your focus, as `/compact` does, and the agent goes on.
 - **Sandboxes.** Put agents in a docker or srt sandbox, shared or private, that decides what they
   can write and which domains they can reach. Give each one exactly the skills you name.
 - **Cost tracking.** Every run records time, tokens and a cost estimate for each agent, stage and
@@ -150,7 +151,7 @@ under `~/.awf/runs` (`--run-root` moves it).
 ### Things to know
 
 - **Pane agents** (the default placement) need [Herdr](https://herdr.dev). Headless agents don't.
-- **cursor runs only in a pane;** claude and codex run either way, and pi runs headless.
+- **claude, codex and pi run in a pane or headless; cursor runs headless only.**
 - **Claude on a subscription works in panes only.** Headless claude (`claude -p`) is billed per
   token as API usage even when you're logged in with a subscription, so awf refuses it unless the
   runtime also says `metered: true`. To stay on your plan, run claude agents in panes, the
@@ -291,6 +292,17 @@ async run(workflow, { task }) {
 awf run ./build-and-review.ts -- "Add a --dry-run flag to the deploy script"
 ```
 
+A builder that runs many rounds can shed old context between them with the harness's own
+compaction, keeping what you name:
+
+```ts
+await builder.compact({ prompt: "Keep the task and the reviewer's open points; drop the build logs." });
+```
+
+It runs after the builder's earlier turns and within the workflow's deadline (`timeoutMs` bounds
+it sooner). Claude, codex and pi compact, in a pane or headless; cursor refuses, and the context
+is left as it was.
+
 [`examples/feature-delivery`](examples/feature-delivery/) is the bigger design: plan, implement,
 review and revise. It typechecks but hasn't run yet.
 
@@ -411,6 +423,7 @@ Herdr pane, or when its sandbox cannot reach Herdr. Under codex's default sandbo
 | [`catalogue-review`](examples/catalogue-review/) | many lenses, a verifier per finding, a Markdown report | an entry point beside your lens catalogue |
 | [`sandboxes`](examples/sandboxes/) | a shared docker sandbox and a private srt one | `awf run --cwd "$(mktemp -d)" examples/sandboxes/workflow.ts` |
 | [`triage`](examples/triage/) | typed decisions with probabilities | `awf run examples/triage/workflow.ts` |
+| [`compaction`](examples/compaction/) | an agent compacted with a focus, then asked what it kept, per harness | `awf run examples/compaction/workflow.ts -- claude pi` |
 | [`calling-session`](examples/calling-session/) | a workflow driving the session it was started from | `awf run --here examples/calling-session/workflow.ts`, from an agent |
 | [`feature-delivery`](examples/feature-delivery/) | plan, implement, review, revise | a design that typechecks; it hasn't run yet |
 

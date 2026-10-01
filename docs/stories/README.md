@@ -80,11 +80,11 @@ status is one of `todo`, `draft`, `ready`, `in-progress`, `blocked`, `awaiting-h
   contained against the incumbent, keeps it only on `better`, logs the tree, caps spend, and checks
   the final incumbent once on a holdout.
 - [`014` — Run a workflow from inside the session you are in](014-workflow-in-current-session.md) —
-  `draft` — The operator starts a workflow from a claude, codex, pi or cursor session in a Herdr
+  `done` — The operator starts a workflow from a claude, codex, pi or cursor session in a Herdr
   pane; the run starts outside the session's sandbox, drives that session as one of its agents, and
   hands it back when it ends.
 - [`015` — Compact an agent with its harness's own compact command](015-native-compaction.md) —
-  `awaiting-human-review` — `agent.compact` runs the harness's native compaction with the workflow's focus,
+  `done` — `agent.compact` runs the harness's native compaction with the workflow's focus,
   and a pane agent takes more than one operation, so one agent can carry a long task.
 - [`016` — Fork an agent so new agents start from what it knows, from the cache](016-fork.md) —
   `draft` — `agent.fork({ key })` opens a new agent on a copy of the agent's session, whose first
