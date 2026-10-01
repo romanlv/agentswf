@@ -3,7 +3,7 @@ id: "017"
 title: Run pi in a Herdr pane, as claude and codex run
 summary: "A pi agent may take placement pane: it starts, takes turns, compacts with a focus and is read for usage in a Herdr pane, which pi needs no startup answers for."
 type: story
-status: awaiting-human-review
+status: done
 discovered_in: "story 016, the operator's review, 2026-10-01"
 depends_on: []
 ---
@@ -214,5 +214,5 @@ Done when:
 
 ## Human review
 
-- [ ] Every task is complete and story-level verification passes.
-- [ ] Record the human's explicit approval or requested changes here.
+- [x] Every task is complete and story-level verification passes.
+- [x] Record the human's explicit approval or requested changes here.
