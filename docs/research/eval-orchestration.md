@@ -1,7 +1,7 @@
 # How eval frameworks run a system, then judge it
 
 Checked 2026-09-26 for [story 008](../stories/008-review-scorer.md) and
-[`variant-matrix-runner`](../stories/todo/variant-matrix-runner.md). We read the docs and the source
+[`variant-matrix-runner`](../stories/011-compare-variants.md). We read the docs and the source
 of Inspect AI, Braintrust (SDK and autoevals), LangSmith, promptfoo, OpenAI Evals, Harbor and the
 SWE-bench harness, as of their main branches on that date, plus a few pages of Weave and
 lm-evaluation-harness. Benchmarks and their judges are in

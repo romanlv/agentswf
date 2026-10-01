@@ -64,7 +64,7 @@ answers.issue.choice;              // string: the options were only known at run
 - **Nothing but the engine sees the credential.** The engine reads `OPENROUTER_API_KEY` from the
   operator's environment and withholds it from every agent and sandbox.
 - **Autoresearch can match review findings to an answer key with it.** A confident match is taken
-  as it is, and anything else goes to the agent judge. Moved to [[decision-matching]] when the story
+  as it is, and anything else goes to the agent judge. Moved to [[011-compare-variants|decision-matching]] when the story
   closed: the surface it needs is built, and `examples/triage` is its consumer meanwhile.
 
 Why now: the review scorer ([[008-review-scorer]]) has to match every finding of every run of
@@ -503,8 +503,8 @@ Alternatives rejected:
 
 - [x] 1. `decide` end to end on a fake provider: the types, the engine, the record, the accounting
 - [x] 2. The OpenRouter provider, installed from the operator's environment, with its key withheld from agents
-- [ ] 3. `matchFindings` and its workflow in autoresearch — moved to [[decision-matching]]
-- [ ] 4. Measure matching on a variant's own findings — moved to [[decision-matching]]
+- [ ] 3. `matchFindings` and its workflow in autoresearch — moved to [[011-compare-variants|decision-matching]]
+- [ ] 4. Measure matching on a variant's own findings — moved to [[011-compare-variants|decision-matching]]
 
 ## Decisions
 
@@ -692,7 +692,7 @@ Automated:
 - [x] `decisions.typecheck.ts`: answers are typed from their questions.
 - [x] Engine tests on the fake provider (Task 1's list).
 - [x] OpenRouter mapping tests against recorded responses, and the withheld-key test.
-- [ ] `matchFindings` with a stub — moved to [[decision-matching]].
+- [ ] `matchFindings` with a stub — moved to [[011-compare-variants|decision-matching]].
 - [x] `bun test`
 - [x] `bunx tsc --noEmit`
 - [x] `bun run scripts/check-boundaries.ts`
@@ -700,8 +700,8 @@ Automated:
 Manual or live evaluation:
 
 - [x] `bun run eval decisions`: four live calls through `examples/triage`, under $0.001.
-- [ ] `match.workflow.ts` over the private set's comments — moved to [[decision-matching]].
-- [ ] Task 4's measurement — moved to [[decision-matching]].
+- [ ] `match.workflow.ts` over the private set's comments — moved to [[011-compare-variants|decision-matching]].
+- [ ] Task 4's measurement — moved to [[011-compare-variants|decision-matching]].
 
 ## Review record
 
@@ -881,7 +881,7 @@ Built in the worktree `../worktrees/awf-story-006-typed-decisions`, branch
 ## Human review
 
 - [x] Tasks 1 and 2 are complete, and story-level verification passes. Tasks 3 and 4 moved to
-  [[decision-matching]].
+  [[011-compare-variants|decision-matching]].
 - [x] Presented to the operator on 2026-09-26: the outcome, the decisions, both tasks' review
   findings and dispositions, and the live runs.
 - [x] Approved on 2026-09-26: "looks good, merge, update ticket to done". The operator had run

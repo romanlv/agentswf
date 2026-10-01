@@ -214,7 +214,8 @@ Follow-ups in [`todo/`](todo/):
 - [`herdr-layout-policy.md`](todo/herdr-layout-policy.md) — operator control over tabs and panes.
 - [`operator-run-observation.md`](todo/operator-run-observation.md) — operator progress and status.
 - [`live-eval-disclosure.md`](todo/live-eval-disclosure.md) — explicit live-evaluation disclosure.
-- [`schema-in-prompt.md`](todo/schema-in-prompt.md) — send the schema, not a rendering of it.
+- `schema-in-prompt.md` — send the schema, not a rendering of it; done in
+  [story 002](002-cost-and-time-accounting.md).
 
 ## Human review
 

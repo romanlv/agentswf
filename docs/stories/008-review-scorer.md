@@ -226,7 +226,7 @@ Records written before Task 7 keep their formats (`/1`) and file names (`judged.
 store reads both. The data repository's dataset folder is `datasets/`, named by the `datasets`
 key. The oracle and comments variants name it with `{dataset}`, so their hashes cover no path.
 The public docs are
-[`lab-public-docs`](todo/lab-public-docs.md).
+[`packages/lab/docs/reference.md`](../../packages/lab/docs/reference.md).
 
 ### What a rename costs
 
@@ -300,7 +300,7 @@ prints the stored versions, each with its trials.
 | `--cases {n}`, `--cases {id},…`, `--cases {glob}` | n cases, seeded from the whole dataset so the same n every time, or cases by id | Inspect `--limit`, `--sample-id`; promptfoo `--filter-sample` |
 | `--only {address},…` | cases, trials or findings, by address | Inspect `--sample-id`, one level deeper |
 | `--where {predicate}` | by stored result, for `--scorer`; repeated, all must hold | promptfoo's twelve `--filter-*` flags, as one |
-| `--trials {n}` | at least n trials per case; with [`variant-matrix-runner`](todo/variant-matrix-runner.md), which brings several trials | Braintrust `trialCount`, Inspect `--epochs` |
+| `--trials {n}` | at least n trials per case; with [`variant-matrix-runner`](011-compare-variants.md), which brings several trials | Braintrust `trialCount`, Inspect `--epochs` |
 | `--scorer {name}` | the scorer; the config gives the default; `report` and `show` take two | Inspect `score --scorer` |
 | `--baseline {variant}` | what `report` compares against, and `--where lost` reads; the config can give it | Braintrust's baseline experiment |
 
@@ -383,7 +383,7 @@ Done: Tasks 0–7, the first experiment, and the scorer comparison. Verification
 1. **Adopt the fast scorer.** Match first, with sol and terra in pi voting on the rest, scores
    as accurately as the panel in a fifth of the time and list price; five cases take 5 minutes
    ([[#Match first (2026-09-27)]]). It lives in the data repository; moving it into the package as
-   the default is [`decision-matching`](todo/decision-matching.md). The second voter is OpenAI's
+   the default is [`decision-matching`](011-compare-variants.md). The second voter is OpenAI's
    until opus 5.5 is tried ([`judge-opus-voter`](todo/judge-opus-voter.md)).
 2. **`new` is checked only by a small test.** Holding the hit issues out of the key, the fast
    scorer called 13–15 of 17 findings of them `new` ([[#Match first (2026-09-27)]]); nothing checks
@@ -391,7 +391,7 @@ Done: Tasks 0–7, the first experiment, and the scorer comparison. Verification
 3. **Task 7's leftovers:**
    - The review ran in the main session, not as two subagents, to save Claude usage.
    - The names a scorer imports change later, with `decision-matching`; the public docs are
-     [`lab-public-docs`](todo/lab-public-docs.md).
+     [`packages/lab/docs/reference.md`](../../packages/lab/docs/reference.md).
 4. **Human review** of this story.
 
 ### Issues we ran into
@@ -470,7 +470,7 @@ Out of scope:
 - Growing the key from runs: [`key-growth-from-runs`](todo/key-growth-from-runs.md). The records
   keep what it needs.
 - Several trials per case, the paired interval, early stopping and gating a merge:
-  [`variant-matrix-runner`](todo/variant-matrix-runner.md).
+  [`variant-matrix-runner`](011-compare-variants.md).
 - Isolating the variant from the answers: `eval-isolation`. Until then a variant could read the
   data repository, so scores are for building the scorer and early reads, not decisions.
 - Clean MRs and false-alarm rates.
@@ -659,7 +659,7 @@ re-scoring whole trials per try costs minutes and dollars. `awf-lab score {varia
   often a named finding sided with the base, with one of its voters, or with neither.
 - **A scorer must take `--settled`.** A run that fails before any agent is reported and not kept.
   The package panel doesn't take it yet: teaching it changes the panel's hash, and its stored
-  scores are every base; it comes with [`decision-matching`](todo/decision-matching.md). The data
+  scores are every base; it comes with [`decision-matching`](011-compare-variants.md). The data
   repository's match first takes it and sends the asked findings to its voters, no Jev.
 - **No scorer file or scorer hash changed:** the new code is in files no scorer imports.
 
@@ -697,7 +697,7 @@ Not in it:
   `defineReviewScorer` and `ScorerResult`. `judge/` stays, since the panel is a judge;
 - the sealed case files, never rewritten;
 - `--trials` and `{case}/{trial}` beyond one trial, which come with
-  [`variant-matrix-runner`](todo/variant-matrix-runner.md);
+  [`variant-matrix-runner`](011-compare-variants.md);
 - `view`.
 
 Done when:
@@ -981,7 +981,7 @@ a rule edit keeps its evidence. Left for the move into the package: the workflow
 package by a path into this worktree, so a package edit or the worktree's removal re-hashes every
 match scorer, and `voting.ts` still duplicates the panel's case reading and answer schema.
 
-Open: making match first the package's scorer ([`decision-matching`](todo/decision-matching.md));
+Open: making match first the package's scorer ([`decision-matching`](011-compare-variants.md));
 re-scoring chosen findings by rule, such as the voters' splits (`--where split`, built in Task 7);
 and whether `noise` and a
 repeat of a refuted claim, which Jev settles surely, should need no code read.
@@ -1093,5 +1093,5 @@ reviewed so it can be built on; todos recorded. Done: [[#Match first (2026-09-27
 2026-09-28, requested: terms taken from other eval tools, a section on where things are, a todo
 for public docs, and a command line that is simple for evaluating, developing and viewing, for
 agents and a viewer alike. Done in the docs: [[#Terms and where things are]],
-[[#The command line, revised]], [`lab-public-docs`](todo/lab-public-docs.md), and the story in those
+[[#The command line, revised]], [`packages/lab/docs/reference.md`](../../packages/lab/docs/reference.md), and the story in those
 terms and commands. The code followed in Task 7 ([[#Task 7: the terms and the command line (2026-09-28)]]).

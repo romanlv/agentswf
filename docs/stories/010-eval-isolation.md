@@ -18,7 +18,7 @@ frozen checkout, reads the request, writes nothing, and reaches only the models.
 nothing about it and cannot widen it. Isolation is a property of the setup, not something checked
 after each trial.
 
-It matters now because [`variant-matrix-runner`](todo/variant-matrix-runner.md) and the
+It matters now because [`variant-matrix-runner`](011-compare-variants.md) and the
 autoresearch loop compare variants by these scores, and story 008's first experiment ran every
 variant unsandboxed ([008, issues](008-review-scorer.md#Issues%20we%20ran%20into)).
 

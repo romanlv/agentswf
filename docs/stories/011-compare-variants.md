@@ -27,7 +27,7 @@ The project doing the evaluation owns two things, and awf-lab owns the running:
 
 GEPA's `should_accept` works the same way: it gets both candidates' per-case scores, so it can pair
 cases ([[variant-comparison#7. Who defines the scorer and the comparison|research §7]]). This story
-joins two todos, [[variant-matrix-runner]] and [[decision-matching]]: several trials per case
+joins two todos, `variant-matrix-runner` and `decision-matching`: several trials per case
 multiply scoring, and match first scores at a fifth of the panel's time and list price.
 
 ## How it works

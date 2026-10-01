@@ -18,7 +18,7 @@ times and accounting a successful result does, with the original error as its `c
 prints the accounting and writes `output.json` for that run, marked with how it ended.
 
 Why now: an autoresearch loop pays for the variants that fail as well as the ones that finish. The
-variant matrix ([`variant-matrix-runner`](todo/variant-matrix-runner.md)) records a failed run as a
+variant matrix ([`variant-matrix-runner`](011-compare-variants.md)) records a failed run as a
 row with its spend, not a gap. Today a variant that crashes after twenty agents looks free.
 
 ## Scope
