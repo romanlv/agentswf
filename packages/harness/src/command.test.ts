@@ -185,4 +185,15 @@ describe("a child held on stdin", () => {
     expect(result).toMatchObject({ timedOut: true });
     expect(result.stdout).toBe("got first\n");
   });
+  test("one that answers and will not exit is stopped, and still counts as answered", async () => {
+    const started = Date.now();
+    const result = await runProcess({
+      argv: ["/bin/sh", "-c", "read -r line; echo done; sleep 30"],
+      stdin: "go\n",
+      timeoutMs: 20_000,
+      holdStdinUntil: (line) => line === "done",
+    });
+    expect(result).toMatchObject({ answered: true, timedOut: false, stdout: "done\n" });
+    expect(Date.now() - started).toBeLessThan(10_000);
+  }, 15_000);
 });

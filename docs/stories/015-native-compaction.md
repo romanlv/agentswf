@@ -167,6 +167,15 @@ Alternatives rejected:
   `quick-check` now asks pane agents its follow-up too, and `minimum-review`'s eval records a turn
   left finishing once it ends.
 
+- Review (one subagent over the whole branch): four bugs, all fixed. A held child stopped after
+  its answer read as failed, so a compaction's output now decides it and the runner drains a
+  descendant's pipes; a pane turn left finishing never stopped spending, so past its grace the host
+  sends Escape when the agent is still working; a compaction past its deadline lost its later
+  usage, and one that started late could race the next turn for the session, so it is now waited
+  for within the cleanup grace, else the agent is closed as for a turn. Two small ones, also fixed:
+  claude's pane check now needs the whole `Compacted (ctrl+o…` line, and workflow tests refuse a
+  compaction before the first turn, and on cursor, as real hosts do.
+
 ## Verification
 
 Automated, 2026-10-01:

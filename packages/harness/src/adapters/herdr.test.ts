@@ -855,6 +855,54 @@ describe("createHerdrRunHostFactory", () => {
     await host.close();
   });
 
+  test("an answered agent still working when the next operation must start is interrupted, in its pane", async () => {
+    const base = hostStub();
+    let prompts = 0;
+    const run: RunProcess = async (input) => {
+      if (verb(input) === "agent prompt" && ++prompts === 1) {
+        base.calls.push(input);
+        await new Promise<void>((resolve) => {
+          if (input.signal?.aborted) resolve();
+          else input.signal?.addEventListener("abort", () => resolve(), { once: true });
+        });
+        return { stdout: "", stderr: "cancelled", exitCode: 130, timedOut: false, cancelled: true };
+      }
+      if (verb(input) === "agent get") {
+        base.calls.push(input);
+        return commandResult({ agent: { agent_status: "working" } });
+      }
+      return base.run(input);
+    };
+    const host = await createHerdrRunHostFactory(CONFIG, run).openRun({
+      runId: "run-1",
+      cwd: "/repo",
+      deadline: deadline(),
+    });
+    const session = await host.openAgent({
+      key: "reviewer",
+      cwd: "/repo",
+      deadline: deadline(),
+      execution: { harness: "claude", model: "opus" },
+    });
+    const first = await session.start(
+      { id: "one", prompt: "review", deadline: deadline() },
+      binding("op-1"),
+    );
+    await Bun.sleep(10);
+    await first.release("answered", deadline(), { answered: true });
+    // Half of this one's time goes to waiting for the first, then it is stopped.
+    const second = await session.start(
+      { id: "two", prompt: "again", deadline: { unixMilliseconds: Date.now() + 400 } },
+      binding("op-2"),
+    );
+    await expect(second.settled).resolves.toMatchObject({ state: "completed" });
+    const keys = base.calls.filter((call) => verb(call) === "agent send-keys");
+    expect(keys.map((call) => call.argv.at(-1))).toEqual(["esc"]);
+    expect(base.calls.filter((call) => verb(call) === "tab close")).toHaveLength(0);
+    expect(prompts).toBe(2);
+    await host.close();
+  });
+
   test("an agent still blocked when the next operation comes settles it blocked, unprompted", async () => {
     const base = hostStub();
     const run: RunProcess = async (input) =>

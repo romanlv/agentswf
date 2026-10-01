@@ -1,13 +1,19 @@
 import type { SandboxRecord } from "@agentswf/contract/records";
 import { WIRE_VERSION } from "@agentswf/contract/wire";
-import type { AgentExecution, AgentPlacement, JsonObject } from "@agentswf/contract/workflow";
+import {
+  type AgentExecution,
+  type AgentPlacement,
+  type JsonObject,
+  placementOf,
+} from "@agentswf/contract/workflow";
 import {
   createPlacementHostFactory,
   createSingleSessionHostFactory,
+  findHarness,
   headlessRefusal,
   PLACEMENT_HARNESSES,
 } from "@agentswf/harness";
-import type { AgentRunHostFactory } from "@agentswf/harness/adapter";
+import type { AgentRunHostFactory, HarnessActivation } from "@agentswf/harness/adapter";
 import {
   createFakeAdapter,
   type FakeAdapterTurn,
@@ -148,6 +154,12 @@ export function createScriptedHost(
       record.outcome = outcome;
       events.onActivity();
     };
+    // What every real host refuses, so a test cannot pass where a run would fail.
+    const refused = refusedCompaction(activation, (counts.get(activation.key) ?? 0) > 0);
+    if (refused) {
+      done("failed");
+      return { state: "failed", detail: refused };
+    }
     if (!compactionScripts.has(activation.key)) {
       done("answered");
       return { summary: "" };
@@ -272,4 +284,13 @@ function whenAborted(signal: AbortSignal): Promise<"cancelled"> {
     if (signal.aborted) resolve("cancelled");
     else signal.addEventListener("abort", () => resolve("cancelled"), { once: true });
   });
+}
+
+function refusedCompaction(activation: HarnessActivation, hasRun: boolean): string | undefined {
+  const spec = findHarness(activation.execution.harness);
+  const native =
+    placementOf(activation.execution) === "pane" ? spec?.compactPane : spec?.compactHeadless;
+  if (spec && !native) return `${activation.execution.harness} has no compaction of its own`;
+  if (!hasRun) return "there is nothing to compact before the first turn";
+  return undefined;
 }

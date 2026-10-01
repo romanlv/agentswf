@@ -141,6 +141,13 @@ export function createHeadlessAdapter(
             ...(nativeSession ? { sessionRef: nativeSession } : {}),
             chargesUsd: charge === undefined ? [] : [charge],
           };
+          // What the harness printed decides a compaction it answered, not how it was made to exit.
+          if (compaction && result.answered && !result.cancelled) {
+            const read = compaction.read(result.stdout);
+            if ("summary" in read) {
+              return { state: "completed" as const, ...common, summary: read.summary };
+            }
+          }
           if (result.cancelled) {
             return { state: "cancelled" as const, detail: "agent process cancelled", ...common };
           }

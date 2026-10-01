@@ -199,7 +199,9 @@ export const HARNESSES: Record<Harness, HarnessSpec> = {
     }),
     compactPane: {
       prompts: (focus) => [`/compact ${focus}`],
-      compacted: (screen) => after(screen, "/compact").includes("Compacted"),
+      // The whole line, which an echoed focus would not hold.
+      compacted: (screen) =>
+        after(screen, "/compact").includes("Compacted (ctrl+o to see full summary)"),
     },
     readCompactSummary: (sessionId, cwd) => readClaudeCompactSummary(sessionId, cwd),
     readSessionUsage: (sessions, cwd, home) =>

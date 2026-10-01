@@ -858,7 +858,21 @@ export function createHerdrRunHostFactory(
             // The pane's agent is the session: an answered turn is left to end in it, and the next
             // operation is prompted into the same pane once it has.
             finishesAnswered: true,
-            stopFinishing: stopWaiting,
+            // Still working past its grace, an answered agent is interrupted, as a headless one's
+            // process is stopped: it would otherwise spend, and change files, until the run ends.
+            // Escape stops a claude or codex turn and leaves the session; an idle agent is left
+            // alone, since a second Escape opens codex's history.
+            async stopFinishing() {
+              const stopped = await stopWaiting();
+              const agentName = current?.agentName;
+              if (!agentName) return stopped;
+              const got = await herdr(["agent", "get", agentName]);
+              const agent = got.ok ? (record(got.result.agent) ?? got.result) : undefined;
+              if (agent?.agent_status === "working") {
+                await herdr(["agent", "send-keys", agentName, "esc"]);
+              }
+              return stopped;
+            },
             async execute(operation) {
               if (closed) throw new Error("Herdr run session is closed");
               const controller = new AbortController();

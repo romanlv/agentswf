@@ -100,7 +100,7 @@ Out of scope:
   ([[workflow-in-sandbox]]). The engine's host is the operator's
   concern, and with the engine remote the control plane never crosses a network.
 - **More than one operation per pane agent.** Sandboxed panes inherit today's limit
-  ([[herdr-pane-settlement]]).
+  ([[herdr-pane-settlement]]). Lifted for every pane in [[015-native-compaction|story 015]].
 - **Closing a sandbox before the run ends.**
 - **`permissions.md`'s operator ceiling and floor, harness-level isolation, and `HeldGrant`**
   ([[#What this reverses]]).

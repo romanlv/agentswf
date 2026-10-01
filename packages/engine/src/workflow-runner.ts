@@ -1269,13 +1269,18 @@ class LogicalAgent implements AgentRef {
     );
     const entry = this.options.ledger.reserve(randomUUID());
     const times: { deliveredAt?: number } = {};
-    const settle = (native: HarnessTurnOutcome | "expired"): TurnOutcome<string> => {
+    const settle = (
+      native: HarnessTurnOutcome | "expired",
+      /** A compaction left to end on its own, whose charges come when it does. */
+      later?: Promise<HarnessTurnOutcome>,
+    ): TurnOutcome<string> => {
       const usage = entry.settle(
         {
           ...times,
           settledAt: Math.min(Date.now(), deadline.unixMilliseconds),
         },
         native === "expired" ? [] : native.chargesUsd,
+        later,
       );
       if (native === "expired") {
         return { kind: "timed-out", reason: "compaction deadline exceeded", usage };
@@ -1302,13 +1307,15 @@ class LogicalAgent implements AgentRef {
     } catch (error) {
       if (error instanceof DeadlineExceededError) {
         // A compaction that starts after all is left to end on its own, as one past its deadline.
-        this.options.track(
-          acquiring.then(
-            (late) => releaseTurn(late, "compaction deadline exceeded", true),
-            () => undefined,
-          ),
-        );
-        return settle("expired");
+        // The agent's next operation waits for it to start, or would race it for the session.
+        const late = await waitForDeadline(acquiring, {
+          unixMilliseconds: Date.now() + CLEANUP_GRACE_MILLISECONDS,
+        }).catch(() => undefined);
+        if (!late) {
+          this.abandonTurnAcquisition(acquiring, "compaction deadline exceeded before it started");
+          return settle("expired");
+        }
+        return settle("expired", (await this.leaveFinishing(late)).later);
       }
       return settle({
         state: "failed",
@@ -1327,11 +1334,19 @@ class LogicalAgent implements AgentRef {
           cancelTimer = scheduleAt(deadline, () => resolve("expired"));
         }),
       ]).finally(() => cancelTimer?.());
-      if (native === "expired") await releaseTurn(turn, "compaction deadline exceeded", true);
+      if (native === "expired") return settle(native, (await this.leaveFinishing(turn)).later);
       return settle(native);
     } finally {
       removeCanceller?.();
     }
+  }
+
+  /** Releases a compaction past its deadline to end on its own; its end, when the host left it. */
+  private async leaveFinishing(
+    turn: HarnessTurn,
+  ): Promise<{ later?: Promise<HarnessTurnOutcome> }> {
+    const disposition = await releaseTurn(turn, "compaction deadline exceeded", true);
+    return disposition?.kind === "finishing" ? { later: turn.settled } : {};
   }
 
   /**

@@ -14,6 +14,8 @@ export type ProcessResult = {
   exitCode: number;
   timedOut: boolean;
   cancelled?: boolean;
+  /** A held child's line answered, whatever its exit: a kill after that ended nothing it owed. */
+  answered?: boolean;
 };
 
 export type ProcessInput = {
@@ -140,7 +142,8 @@ export const runProcess: RunProcess = async (input) => {
     const out = capture(child.stdout, onLine);
     const err = capture(child.stderr);
     const exitCode = await child.exited;
-    if (sandboxed) {
+    // A held child that answered may leave a descendant holding its pipes, as a sandboxed one may.
+    if (sandboxed || answered) {
       // What the command left running still holds its pipes open, so it goes before they are read.
       kill();
       const drained = await Promise.race([
@@ -150,7 +153,14 @@ export const runProcess: RunProcess = async (input) => {
       if (!drained) await Promise.all([out.stop(), err.stop()]);
     }
     const [stdout, stderr] = await Promise.all([out.text, err.text]);
-    result = { stdout, stderr, exitCode, timedOut, ...(cancelled ? { cancelled: true } : {}) };
+    result = {
+      stdout,
+      stderr,
+      exitCode,
+      timedOut,
+      ...(cancelled ? { cancelled: true } : {}),
+      ...(answered ? { answered: true } : {}),
+    };
   } finally {
     clearTimeout(timer);
     clearTimeout(answered);

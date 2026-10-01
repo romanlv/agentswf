@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { answer, reply, testWorkflow } from "@agentswf/engine/workflow-testing";
+import { answer, testWorkflow } from "@agentswf/engine/workflow-testing";
 import Type from "typebox";
 import { compaction } from "./workflow";
 
@@ -51,13 +51,12 @@ describe("compaction", () => {
     expect(run.turnsOf("compact:claude")).toHaveLength(2);
   });
 
-  test("a compaction that fails is reported, and the agent is still asked", async () => {
+  test("cursor's compaction fails, is reported, and the agent is still asked", async () => {
     const run = await testWorkflow(
       compaction,
       { ...args, runtimes: ["cursor"] },
       {
         agents: { "compact:cursor": [answer(NOTED, { noted: true }), recalled] },
-        compactions: { "compact:cursor": reply.failed("cursor has no compaction of its own") },
       },
     );
     expect(run.value.checks).toEqual([
