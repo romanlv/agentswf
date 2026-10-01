@@ -21,7 +21,8 @@ scripts; the eval that holds the result is `tests/compaction.eval.ts`.
 ## C1, C2 — claude
 
 - `claude -p --resume {id}` with `/compact {focus}` on stdin compacts: `num_turns` 0, an empty
-  `result`, `total_cost_usd` the compaction's ($0.02–0.03 on haiku for a ~24k-token session).
+  `result`. The compaction itself cost $0.02–0.03 on haiku for a ~24k-token session; the
+  `total_cost_usd` it prints is the session's running total ([F9](fork-cache.md#f9--claudes-printed-cost)).
 - The transcript gains a `system` row `compact_boundary` (`trigger: manual`, `preTokens`,
   `postTokens`), the focus as the `/compact` command's `command-args`, and a `user` row with
   `isCompactSummary: true` holding the summary. `--output-format stream-json --verbose` prints the
@@ -94,7 +95,8 @@ colour", then asked what it knows:
 
 So a compacted session can be the shared base for several agents without awf reading the context
 out: the summary is readable for claude and pi, but codex's is encrypted, and the fork carries it
-anyway. The original session is untouched by each fork.
+anyway. The original session is untouched by each fork. What a fork costs against the prompt cache is
+[`fork-cache.md`](fork-cache.md).
 
 ## C9 — the eval
 

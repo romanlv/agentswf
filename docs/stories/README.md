@@ -86,6 +86,9 @@ status is one of `todo`, `draft`, `ready`, `in-progress`, `blocked`, `awaiting-h
 - [`015` — Compact an agent with its harness's own compact command](015-native-compaction.md) —
   `awaiting-human-review` — `agent.compact` runs the harness's native compaction with the workflow's focus,
   and a pane agent takes more than one operation, so one agent can carry a long task.
+- [`016` — Fork an agent so new agents start from what it knows, from the cache](016-fork.md) —
+  `draft` — `agent.fork({ key })` opens a new agent on a copy of the agent's session, whose first
+  request reads the parent's context from the provider's cache on claude and pi.
 
 This is the high-level index of numbered stories. Keep each entry to its title, status, and
 one-sentence summary; put code maps, research, design, tasks, and verification in the linked story.

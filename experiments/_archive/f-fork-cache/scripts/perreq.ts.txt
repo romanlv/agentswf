@@ -1,0 +1,36 @@
+import { readdirSync, readFileSync, statSync } from "node:fs";
+import { join } from "node:path";
+import { homedir } from "node:os";
+const rows = (f: string) => readFileSync(f, "utf8").split("\n").flatMap((l) => { try { return [JSON.parse(l)]; } catch { return []; } });
+const walk = (d: string): string[] => readdirSync(d).flatMap((n) => { const p = join(d, n); return statSync(p).isDirectory() ? walk(p) : [p]; });
+const results = (h: string) => readFileSync(`results-${h}-${process.argv[2] ?? "a"}.jsonl`, "utf8").trim().split("\n").map((l) => JSON.parse(l));
+// claude
+{
+  const files = walk(join(homedir(), ".claude/projects")).filter((f) => f.endsWith(".jsonl"));
+  for (const r of results("claude")) {
+    const f = files.find((x) => x.endsWith(`/${r.session}.jsonl`)); if (!f) continue;
+    const reqs = new Map<string, any>(); const order: string[] = [];
+    for (const row of rows(f)) { const u = row.message?.usage; if (!row.requestId || !u) continue; if (!reqs.has(row.requestId)) order.push(row.requestId); reqs.set(row.requestId, { ts: row.timestamp, sid: row.sessionId, in: u.input_tokens, cr: u.cache_read_input_tokens, cw: u.cache_creation_input_tokens, out: u.output_tokens }); }
+    console.log("claude", r.name, r.session.slice(0, 8), order.map((k) => { const x = reqs.get(k); return `${x.sid.slice(0, 4)}:${x.in}/${x.cr}/${x.cw}`; }).join(" "));
+  }
+}
+// codex
+{
+  const files = walk(join(homedir(), ".codex/sessions")).filter((f) => f.endsWith(".jsonl"));
+  for (const r of results("codex")) {
+    const f = files.find((x) => x.endsWith(`-${r.session}.jsonl`)); if (!f) continue;
+    const out: string[] = [];
+    for (const row of rows(f)) { const i = row.payload?.info?.last_token_usage; if (row.payload?.type === "token_count" && i) out.push(`${i.input_tokens - i.cached_input_tokens}/${i.cached_input_tokens}`); }
+    console.log("codex", r.name, r.session.slice(-8), out.join(" "));
+  }
+}
+// pi
+{
+  const files = walk(join(homedir(), ".pi/agent/sessions")).filter((f) => f.endsWith(".jsonl"));
+  for (const r of results("pi")) {
+    const f = files.find((x) => x.endsWith(`_${r.session}.jsonl`)); if (!f) continue;
+    const out: string[] = []; const head = rows(f)[0];
+    for (const row of rows(f)) { const u = row.message?.usage; if (row.type === "message" && row.message?.role === "assistant" && u) out.push(`${row.id.slice(0, 4)}:${u.input}/${u.cacheRead}`); }
+    console.log("pi", r.name, r.session.slice(0, 8), "parent=" + String(head.parentSession ?? "").slice(-20), out.join(" "));
+  }
+}

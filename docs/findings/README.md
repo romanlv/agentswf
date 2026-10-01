@@ -17,11 +17,12 @@ below is re-derivable from committed raw data, except where marked.
 | E4 | how many agents at once? | **not run** — see [`../../experiments/e4-concurrency/`](../../experiments/e4-concurrency/) |
 | E5 | does the schema error get it to self-correct? | **yes, 240/240 — and it should not have to** |
 | E6 | does the journal replay? | **yes, and it is not enough** |
-| E7 | does forking a prepared agent save anything? | **correctness yes, tokens almost never** |
+| E7 | does forking a prepared agent save anything? | **correctness yes, tokens almost never** — superseded by F1–F9 |
 | X1–X18 | what can srt and docker hold? | **both hold the seam; docker's door is a relay** — see [`sandbox-providers.md`](sandbox-providers.md) |
 | S1–S10 | what does a System One model (Jev) do on awf's questions? | **matches findings well; grades severity only after re-thresholding** — see [`system-one-models.md`](system-one-models.md) |
 | K1–K12 | can each harness be held to the skills a workflow names? | **yes, each by its own route; codex only through its home** — see [`agent-skills.md`](agent-skills.md) |
 | C1–C10 | does each harness compact natively, with a workflow's focus? | **claude, codex and pi do, each its own way, and fork the result; cursor only in its TUI** — see [`native-compaction.md`](native-compaction.md) |
+| F1–F9 | does a forked session read its parent's prompt cache? | **claude in every placement; pi when it keeps its parent's id; codex only ephemeral** — see [`fork-cache.md`](fork-cache.md) |
 
 E1's removed report read 24/24; that counted one prompt-size arm of the 48 rows in
 `e1/results/e1.jsonl`. [`../foundation.md`](../foundation.md) §4 carries the corrected number.
@@ -72,6 +73,11 @@ pane it inverts — six pane forks scored zero cache hits, so fourteen forks wri
 times where fourteen cold agents write it once, about 11x. A boolean fork capability cannot tell a
 cheap fork from an expensive one, and §6 has since removed `pane | headless` — the axis the
 economics split on — from every surface. Settle that before fork is ever exposed.
+
+Re-measured 2026-10-01 ([`fork-cache.md`](fork-cache.md)), the split is by provider, not by
+placement. Claude now resends a recorded system prompt, so its forks read the parent's cache in a
+pane, headless and across the two. A provider that routes its cache by session misses unless the
+fork keeps the parent's key: pi can, codex only for an ephemeral fork.
 
 **E7 is prose-only.** It was ad-hoc CLI probing, never committed: no scripts, no
 `experiments/_archive/e7/`, no raw rows. Its numbers cannot be re-derived from this repository —

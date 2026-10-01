@@ -144,6 +144,9 @@ The gates are defined in [`foundation.md`](foundation.md) §12.
   takes more than one operation, so one agent can carry a long task as an operator does with
   `/compact`. Measured on every harness
   ([findings](findings/native-compaction.md)); its eval passes on all six runtimes.
+- [016 — fork](stories/016-fork.md): draft, its ADR (0009) awaiting approval. A fork is a new
+  agent on a copy of the session, made with no model call; claude's and pi's forks read the
+  parent's cache, codex's pay it once ([findings](findings/fork-cache.md)).
 
 The inbox of possible stories is [`stories/todo/`](stories/todo/).
 

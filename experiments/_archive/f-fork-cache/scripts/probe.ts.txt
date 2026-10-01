@@ -1,0 +1,105 @@
+// Fork cache probe: parent reads a big doc; forks (plain and after compaction), resume, cold.
+import { mkdirSync, writeFileSync, appendFileSync } from "node:fs";
+import { join } from "node:path";
+import { randomUUID } from "node:crypto";
+import { harnessSpec, runProcess } from "/Users/roman/dev/awf/packages/harness/src/index.ts";
+
+const harness = process.argv[2] as "claude" | "codex" | "pi";
+const tag = process.argv[3] ?? "a";
+const MODEL = { claude: "claude-haiku-4-5", codex: "gpt-6-luna", pi: "openai-codex/gpt-5.6-terra" }[harness];
+const dir = join(import.meta.dir, `work-${harness}-${tag}`);
+mkdirSync(dir, { recursive: true });
+const log = join(import.meta.dir, `results-${harness}-${tag}.jsonl`);
+
+// ~25k tokens; each section has one code word.
+const words = "valve pump relay sensor gasket flange rotor stator bearing piston coil manifold".split(" ");
+let rng = 7; const rnd = () => (rng = (rng * 1103515245 + 12345) % 2147483648) / 2147483648;
+const pick = () => words[Math.floor(rnd() * words.length)];
+const codes: string[] = [];
+let doc = "# Plant maintenance manual\n\n";
+for (let s = 1; s <= 140; s++) {
+  const code = `${pick().toUpperCase()}-${Math.floor(rnd() * 9000 + 1000)}`;
+  codes.push(code);
+  doc += `## Section ${s}\n\n`;
+  for (let p = 0; p < 6; p++) doc += Array.from({ length: 22 }, pick).join(" ") + ".\n";
+  doc += `The inspection code for section ${s} is ${code}.\n\n`;
+}
+writeFileSync(join(dir, "manual.md"), doc);
+const q = (s: number) => `What is the inspection code for section ${s}? Answer with only the code.`;
+
+const spec = harnessSpec(harness);
+const ctx = (hint = randomUUID()) => ({ model: MODEL, sessionHint: hint });
+
+type Usage = { input: number; cacheRead: number; cacheWrite: number; output: number; cost?: number };
+function usageOf(stdout: string): Usage {
+  const rows = stdout.split("\n").flatMap((l) => { try { return [JSON.parse(l)]; } catch { return []; } });
+  if (harness === "claude") {
+    const r = rows.at(-1) ?? {};
+    const u = r.usage ?? {};
+    return { input: u.input_tokens ?? 0, cacheRead: u.cache_read_input_tokens ?? 0, cacheWrite: u.cache_creation_input_tokens ?? 0, output: u.output_tokens ?? 0, cost: r.total_cost_usd };
+  }
+  if (harness === "codex") {
+    const u: any = { input: 0, cacheRead: 0, cacheWrite: 0, output: 0 };
+    for (const r of rows) if (r.type === "turn.completed") {
+      u.cacheRead += r.usage?.cached_input_tokens ?? 0;
+      u.input += (r.usage?.input_tokens ?? 0) - (r.usage?.cached_input_tokens ?? 0);
+      u.output += r.usage?.output_tokens ?? 0;
+    }
+    return u;
+  }
+  const u: any = { input: 0, cacheRead: 0, cacheWrite: 0, output: 0, cost: 0, perRequest: [] };
+  for (const r of rows) if (r.type === "message_end" && r.message?.role === "assistant") {
+    const m = r.message.usage ?? {};
+    u.input += m.input ?? 0; u.cacheRead += m.cacheRead ?? 0; u.cacheWrite += m.cacheWrite ?? 0; u.output += m.output ?? 0; u.cost += m.cost?.total ?? 0;
+    u.perRequest.push([m.input, m.cacheRead]);
+  }
+  return u;
+}
+
+async function turn(name: string, argv: string[], stdin: string, extra: object = {}) {
+  const t0 = Date.now();
+  const r = await runProcess({ argv, cwd: dir, env: {}, stdin, timeoutMs: 600_000, ...extra } as any);
+  const usage = usageOf(r.stdout);
+  const session = spec.readSessionId?.(r.stdout);
+  const answer = (spec.readTranscript?.(r.stdout) ?? "").trim().slice(0, 120);
+  const row = { harness, name, session, ms: Date.now() - t0, exit: r.exitCode, ...usage, answer };
+  console.log(JSON.stringify(row));
+  appendFileSync(log, JSON.stringify(row) + "\n");
+  if (r.exitCode !== 0) console.error(name, r.stderr.slice(0, 500));
+  return { ...row, stdout: r.stdout };
+}
+
+function forkArgv(parent: string, newId: string): string[] {
+  if (harness === "claude") return ["claude", "-p", "--resume", parent, "--fork-session", "--output-format", "json", "--allowed-tools", "Bash Read", "--model", MODEL];
+  if (harness === "codex") return ["codex", "exec", "fork", parent, "--json", "--skip-git-repo-check", "-c", 'sandbox_mode="danger-full-access"', "--model", MODEL, "-"];
+  return ["pi", "--print", "--mode", "json", "--fork", parent, "--session-id", newId, "--model", MODEL];
+}
+const allow = (argv: string[]) => harness === "claude" ? argv.map((a) => (a === "Bash" ? "Bash Read" : a)) : argv;
+
+const read = `Read the whole file manual.md in the current directory (all of it, every section; use cat). Then answer: ${q(3)}`;
+// 1. parent
+const pId = randomUUID();
+const p = spec.headlessTurn(read, ctx(pId));
+const parent = await turn("parent", allow(p.argv), p.stdin!);
+const P = parent.session ?? pId;
+// 2. plain forks, back to back
+const f1 = await turn("fork1", forkArgv(P, randomUUID()), q(40));
+const f2 = await turn("fork2", forkArgv(P, randomUUID()), q(77));
+// 3. cold
+const cId = randomUUID();
+const c = spec.headlessTurn(`Read the whole file manual.md in the current directory (use cat). Then answer: ${q(40)}`, ctx(cId));
+await turn("cold", allow(c.argv), c.stdin!);
+// 4. resume
+const r = spec.resumeTurn!(q(101), P, ctx());
+await turn("resume", allow(r.argv), r.stdin!);
+// 5. compact
+const plan = spec.compactHeadless!("Keep every section's inspection code verbatim; drop the filler prose.", P, ctx());
+const comp = await turn("compact", plan.argv, plan.stdin!, plan.holdStdinUntil ? { holdStdinUntil: plan.holdStdinUntil } : {});
+console.log("compact read:", JSON.stringify(plan.read(comp.stdout)).slice(0, 300));
+// 6. forks after compaction
+await turn("cfork1", forkArgv(P, randomUUID()), q(40));
+await turn("cfork2", forkArgv(P, randomUUID()), q(120));
+// 7. resume after compaction
+const r2 = spec.resumeTurn!(q(130), P, ctx());
+await turn("cresume", allow(r2.argv), r2.stdin!);
+console.log("codes", JSON.stringify({ 3: codes[2], 40: codes[39], 77: codes[76], 101: codes[100], 120: codes[119], 130: codes[129] }));

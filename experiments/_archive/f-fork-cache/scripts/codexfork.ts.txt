@@ -1,0 +1,27 @@
+import { spawn } from "node:child_process";
+import { createInterface } from "node:readline";
+const [parent, mode, question, cwd] = process.argv.slice(2);
+const p = spawn("codex", ["app-server", "--listen", "stdio://", "-c", 'sandbox_mode="danger-full-access"'], { cwd, stdio: ["pipe", "pipe", "inherit"] });
+const send = (o: object) => p.stdin.write(JSON.stringify(o) + "\n");
+const rl = createInterface({ input: p.stdout });
+let thread = "";
+const usages: any[] = [];
+let answer = "";
+rl.on("line", (line) => {
+  let r: any; try { r = JSON.parse(line); } catch { return; }
+  if (r.id === 2) {
+    if (r.error) { console.log("fork error", JSON.stringify(r.error)); process.exit(1); }
+    thread = r.result.thread.id;
+    send({ jsonrpc: "2.0", id: 3, method: "turn/start", params: { threadId: thread, input: [{ type: "text", text: question }], model: "gpt-6-luna" } });
+  }
+  if (r.method === "thread/tokenUsage/updated" && r.params.threadId === thread && thread) usages.push(r.params.tokenUsage.last);
+  if (r.method === "item/completed" && r.params?.item?.type === "agentMessage") answer = r.params.item.text;
+  if (r.method === "turn/completed" && r.params.threadId === thread) {
+    console.log(JSON.stringify({ mode, thread, answer, requests: usages.map((u) => `${u.inputTokens - u.cachedInputTokens}/${u.cachedInputTokens}`) }));
+    p.stdin.end(); setTimeout(() => process.exit(0), 500);
+  }
+});
+send({ jsonrpc: "2.0", id: 1, method: "initialize", params: { clientInfo: { name: "awf", version: "0" } } });
+send({ jsonrpc: "2.0", method: "initialized" });
+send({ jsonrpc: "2.0", id: 2, method: "thread/fork", params: { threadId: parent, ephemeral: mode === "ephemeral", excludeTurns: true } });
+setTimeout(() => { console.log("timeout"); process.exit(2); }, 240000);

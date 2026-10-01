@@ -74,9 +74,8 @@ Out of scope:
   it.
 - Forking a compacted agent, so several agents start from the same small base. Each harness that
   compacts can fork its session natively, compaction included (measured): claude
-  `--resume {id} --fork-session`, codex `exec fork {id}`, pi `--fork {id}`. Its own todo,
-  [`fork-after-compaction`](todo/fork-after-compaction.md), since a fork is a published interface
-  foundation defers until E7's cost question is settled.
+  `--resume {id} --fork-session`, codex `exec fork {id}`, pi `--fork {id}`. That is
+  [story 016](016-fork.md), which measured what a fork costs against the prompt cache first.
 
 ## Context and evidence
 
@@ -207,3 +206,5 @@ Live, 2026-10-01:
 - [ ] Every task is complete and story-level verification passes.
 - [ ] Set the story status to `awaiting-human-review` and present the outcome.
 - [ ] Record the human's explicit approval or requested changes here.
+  - 2026-10-01: `compact`'s `id` and millisecond deadline read badly, and the ticket workflow is
+    hard to follow as a process. Both went to [`readable-workflows`](todo/readable-workflows.md).

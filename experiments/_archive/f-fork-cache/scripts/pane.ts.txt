@@ -1,0 +1,101 @@
+import { readdirSync, readFileSync, mkdirSync, copyFileSync, statSync } from "node:fs";
+import { join } from "node:path";
+import { homedir } from "node:os";
+import { randomUUID } from "node:crypto";
+const h = process.argv[2] as "claude" | "codex";
+const dir = join(import.meta.dir, `pane-${h}`);
+mkdirSync(dir, { recursive: true });
+copyFileSync(join(import.meta.dir, "work-claude-a/manual.md"), join(dir, "manual.md"));
+const empty = Object.keys(process.env).filter((k) => /^(CLAUDE|CODEX_)/.test(k)).flatMap((k) => ["--env", `${k}=`]);
+const sh = (argv: string[], stdin?: string) => {
+  const r = Bun.spawnSync(argv, { cwd: dir, stdin: stdin === undefined ? "ignore" : new TextEncoder().encode(stdin), env: { ...process.env } });
+  return { out: r.stdout.toString(), err: r.stderr.toString(), code: r.exitCode };
+};
+const j = (s: string) => { try { return JSON.parse(s); } catch { return undefined; } };
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+const MODEL = h === "claude" ? "claude-haiku-4-5" : "gpt-6-luna";
+const harnessArgs = (resume?: string) => h === "claude"
+  ? [...(resume ? ["--resume", resume] : []), "--model", MODEL, "--allowed-tools", "Bash Read"]
+  : [...(resume ? ["resume", resume] : []), "--model", MODEL, "--sandbox", "danger-full-access", "--ask-for-approval", "never"];
+
+async function paneAgent(name: string, resume?: string) {
+  const tab = sh(["herdr", "tab", "create", "--cwd", dir, "--label", name, ...empty]);
+  const t = j(tab.out); const pane = t?.result?.tab?.root_pane_id ?? t?.result?.pane?.pane_id ?? t?.result?.root_pane?.pane_id;
+  if (!pane) { console.log("tab", tab.out, tab.err); process.exit(1); }
+  const s = sh(["herdr", "agent", "start", name, "--kind", h, "--pane", pane, "--timeout", "40000", "--", ...harnessArgs(resume)]);
+  console.log("start", name, s.code, s.out.slice(0, 200), s.err.slice(0, 200));
+  // accept trust screens
+  for (let i = 0; i < 6; i++) {
+    const screen = sh(["herdr", "agent", "read", name]).out;
+    if (/trust|Trust/.test(screen)) { sh(["herdr", "agent", "send-keys", name, "Enter"]); await sleep(2500); continue; }
+    break;
+  }
+  return { name, pane };
+}
+const prompt = (name: string, text: string) => {
+  const r = sh(["herdr", "agent", "prompt", name, text, "--wait", "--timeout", "240000"]);
+  sh(["herdr", "agent", "wait", name, "--state", "idle", "--timeout", "240000"]);
+  return r;
+};
+const walk = (d: string): string[] => readdirSync(d).flatMap((n) => { const p = join(d, n); return statSync(p).isDirectory() ? walk(p) : [p]; });
+const rows = (f: string) => readFileSync(f, "utf8").split("\n").flatMap((l) => { const x = j(l); return x ? [x] : []; });
+function newest(): string {
+  if (h === "claude") {
+    const proj = join(homedir(), ".claude/projects", dir.replace(/[^A-Za-z0-9]/g, "-"));
+    const f = readdirSync(proj).filter((n) => n.endsWith(".jsonl")).map((n) => join(proj, n)).sort((a, b) => statSync(b).mtimeMs - statSync(a).mtimeMs)[0]!;
+    return f.split("/").at(-1)!.replace(".jsonl", "");
+  }
+  const f = walk(join(homedir(), ".codex/sessions")).filter((x) => x.endsWith(".jsonl") && readFileSync(x, "utf8").slice(0, 3000).includes(dir)).sort((a, b) => statSync(b).mtimeMs - statSync(a).mtimeMs)[0]!;
+  return /-([0-9a-f-]{36})\.jsonl$/.exec(f)![1]!;
+}
+function perRequest(id: string): string {
+  if (h === "claude") {
+    const proj = join(homedir(), ".claude/projects", dir.replace(/[^A-Za-z0-9]/g, "-"));
+    const seen = new Map<string, string>();
+    for (const r of rows(join(proj, `${id}.jsonl`))) { const u = r.message?.usage; if (r.requestId && u) seen.set(r.requestId, `${u.input_tokens}/${u.cache_read_input_tokens}/${u.cache_creation_input_tokens}`); }
+    return [...seen.values()].join(" ");
+  }
+  const f = walk(join(homedir(), ".codex/sessions")).find((x) => x.endsWith(`-${id}.jsonl`))!;
+  return rows(f).filter((r) => r.payload?.type === "token_count" && r.payload.info?.last_token_usage).map((r) => { const u = r.payload.info.last_token_usage; return `${u.input_tokens - u.cached_input_tokens}/${u.cached_input_tokens}`; }).join(" ");
+}
+function turnlessFork(parent: string): string {
+  if (h === "claude") {
+    const id = randomUUID();
+    const r = sh(["claude", "-p", "--resume", parent, "--fork-session", "--session-id", id, "--output-format", "json", "--model", MODEL], "/cost");
+    if (r.code !== 0) console.log("fork err", r.err.slice(0, 300));
+    return id;
+  }
+  const lines = [
+    { jsonrpc: "2.0", id: 1, method: "initialize", params: { clientInfo: { name: "awf", version: "0" } } },
+    { jsonrpc: "2.0", method: "initialized" },
+    { jsonrpc: "2.0", id: 2, method: "thread/fork", params: { threadId: parent, excludeTurns: true } },
+  ].map((x) => JSON.stringify(x)).join("\n") + "\n";
+  const r = Bun.spawnSync(["sh", "-c", "(cat; sleep 6) | codex app-server --listen stdio://"], { cwd: dir, stdin: new TextEncoder().encode(lines) });
+  const res = r.stdout.toString().split("\n").map(j).find((x) => x?.id === 2);
+  return res.result.thread.id;
+}
+function headless(id: string, q: string) {
+  const argv = h === "claude"
+    ? ["claude", "-p", "--resume", id, "--output-format", "json", "--allowed-tools", "Bash Read", "--model", MODEL]
+    : ["codex", "exec", "resume", id, "--json", "--skip-git-repo-check", "-c", 'sandbox_mode="danger-full-access"', "--model", MODEL, "-"];
+  return sh(argv, q).out.slice(-300);
+}
+const q = (s: number) => `What is the inspection code for section ${s}? Answer with only the code.`;
+const tag = randomUUID().slice(0, 4);
+const parent = await paneAgent(`fp-${h}-p-${tag}`);
+await sleep(3000);
+prompt(parent.name, `Read the whole file manual.md in the current directory (all of it, every section; use cat). Then answer: ${q(3)}`);
+await sleep(4000);
+const P = newest();
+console.log("parent", P, perRequest(P));
+const N1 = turnlessFork(P);
+const N2 = turnlessFork(P);
+console.log("forks", N1, N2);
+const child = await paneAgent(`fp-${h}-c-${tag}`, N1);
+await sleep(3000);
+prompt(child.name, q(40));
+await sleep(5000);
+console.log("pane child", N1, perRequest(N1));
+console.log("headless child out", headless(N2, q(77)).replace(/\n/g, " ").slice(-200));
+console.log("headless child", N2, perRequest(N2));
+console.log("parent after", perRequest(P));
