@@ -1199,7 +1199,7 @@ describe("awf run --here", () => {
       ["run", "--session", "awf-here-0123abcd", "--run-root", runRoot, WORKFLOW],
       {
         cwd: ROOT,
-        environment: inHerdr,
+        environment: { ...inHerdr, HERDR_TAB_ID: "w1:t2" },
         herdr: herdr.run,
         stderr: (text) => errors.push(text),
         installRuntime: emptyRuntime,
@@ -1209,6 +1209,8 @@ describe("awf run --here", () => {
     expect(errors).toEqual([
       `awf: --session: another run (process ${process.pid}) is already driving the session in w1:p1; one run drives a session at a time`,
     ]);
+    expect(herdr.calls).toContainEqual(["tab", "focus", "w1:t2"]);
+    expect(readdirSync(join(runRoot, "callers"))).toEqual(["w1_p1.pid"]);
 
     writeFileSync(join(runRoot, "callers", "w1_p1.pid"), "999999999");
     const second = await runOperatorCli(

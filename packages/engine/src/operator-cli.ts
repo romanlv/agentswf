@@ -2,6 +2,7 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import {
   existsSync,
+  linkSync,
   mkdirSync,
   readFileSync,
   realpathSync,
@@ -24,7 +25,6 @@ import {
   type CallerPane,
   focusTab,
   HARNESSES,
-  type HerdrConfig,
   handBack,
   herdrReachable,
   type RunProcess,
@@ -37,6 +37,7 @@ import { describeAccounting } from "./accounting/format";
 import { parseDuration } from "./duration";
 import { messageOf } from "./errors";
 import {
+  herdrConfig,
   herdrSession,
   installOperatorRuntime,
   type OperatorRuntimeInstallation,
@@ -161,8 +162,6 @@ export async function runOperatorCli(
 
   if (command.here) return startHere(argv, command, environment, stdout, stderr);
 
-  const startedAt = (environment.now ?? Date.now)();
-  const deadline = { unixMilliseconds: startedAt + command.timeoutMilliseconds };
   let loaded: Awaited<ReturnType<typeof loadWorkflowFile>>;
   try {
     loaded = await loadWorkflowFile(command.workflowFile, command.shellCwd);
@@ -202,6 +201,7 @@ export async function runOperatorCli(
     const claim = claimCaller(command.runRoot, found.caller.pane.paneId);
     if (typeof claim === "string") {
       stderr(`awf: --session: ${claim}`);
+      await showOwnTab(environment);
       return 1;
     }
     releaseCaller = claim;
@@ -211,6 +211,9 @@ export async function runOperatorCli(
       return interrupted(environment.signal, stderr);
     }
   }
+  // Timed from here: finding the calling session can take minutes the run itself never had.
+  const startedAt = (environment.now ?? Date.now)();
+  const deadline = { unixMilliseconds: startedAt + command.timeoutMilliseconds };
   // Once the run has taken the session over, however it ends, the session gets it back.
   const handOver = async (ended: string) => {
     if (!caller) return;
@@ -246,6 +249,7 @@ export async function runOperatorCli(
   let invocationRootCreated = false;
   let output: string | undefined;
   let runError: unknown;
+  let outcome: Exclude<OutputRecord["outcome"], "succeeded"> = "failed";
   let failedRecord: string | undefined;
   /** Where the run's record is, once it has one. */
   let artifactsOf: string | undefined;
@@ -312,10 +316,11 @@ export async function runOperatorCli(
       : (present(loaded.executable, result.value, artifacts, report, stderr) ?? json);
   } catch (error) {
     runError = error;
+    outcome = runOutcome(error, deadline);
     if (error instanceof WorkflowRunError) {
       const record: OutputRecord = {
         ...recordOf(error),
-        outcome: runOutcome(error, deadline),
+        outcome,
         error: errorDetail(error),
       };
       failedRecord = JSON.stringify(record, null, 2);
@@ -338,15 +343,11 @@ export async function runOperatorCli(
   await handOver(
     runError === undefined
       ? `succeeded${record}`
-      : `${{ cancelled: "was cancelled", "timed-out": "timed out", failed: "failed" }[runOutcome(runError, deadline)]}${record}: ${errorDetail(runError)}`,
+      : `${ENDINGS[outcome].told}${record}: ${errorDetail(runError)}`,
   );
   if (runError !== undefined) {
     const cancellation = findCancellation(runError);
-    const ended = {
-      cancelled: "run cancelled",
-      "timed-out": "run timed out",
-      failed: "run failed",
-    }[runOutcome(runError, deadline)];
+    const { ended } = ENDINGS[outcome];
     stderr(
       invocationRootCreated
         ? `awf: ${ended}; artifacts retained under ${invocationRoot}: ${errorDetail(runError)}`
@@ -571,10 +572,6 @@ function parseCommand(argv: readonly string[], cwd: string, home: string): RunCo
 const SESSION_CODE = /^awf-here-[0-9a-f]{8}$/;
 const CALLER_SEARCH_MS = 120_000;
 
-function herdrConfig(session: string): HerdrConfig {
-  return { session, workspaceLabel: "awf run", commandTimeoutMs: 10_000 };
-}
-
 /**
  * `awf run --here`, in an agent's shell: checks the session can be driven, then has Herdr start the
  * run in a new tab, outside this shell and any sandbox it is in, and prints the code the agent ends
@@ -682,20 +679,29 @@ function claimCaller(runRoot: string, paneId: string): (() => void) | string {
   const marks = join(runRoot, "callers");
   const mark = join(marks, `${paneId.replace(/[^A-Za-z0-9_-]/g, "_")}.pid`);
   mkdirSync(marks, { recursive: true });
-  for (let attempt = 0; attempt < 2; attempt += 1) {
-    try {
-      writeFileSync(mark, String(process.pid), { flag: "wx" });
-      return () => rmSync(mark, { force: true });
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "EEXIST") return messageOf(error);
-      const holder = Number(readFileSync(mark, "utf8"));
-      if (alive(holder)) {
-        return `another run (process ${holder}) is already driving the session in ${paneId}; one run drives a session at a time`;
+  // Linked into place whole, so a run reading the mark never sees it without its pid.
+  const pending = `${mark}.${process.pid}`;
+  try {
+    writeFileSync(pending, String(process.pid));
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      try {
+        linkSync(pending, mark);
+        return () => rmSync(mark, { force: true });
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "EEXIST") return messageOf(error);
+        const holder = Number(readFileSync(mark, "utf8"));
+        if (alive(holder)) {
+          return `another run (process ${holder}) is already driving the session in ${paneId}; one run drives a session at a time`;
+        }
+        rmSync(mark, { force: true });
       }
-      rmSync(mark, { force: true });
     }
+    return `could not mark the session in ${paneId} as driven`;
+  } catch (error) {
+    return messageOf(error);
+  } finally {
+    rmSync(pending, { force: true });
   }
-  return `could not mark the session in ${paneId} as driven`;
 }
 
 function alive(pid: number): boolean {
@@ -824,6 +830,16 @@ function findCancellation(error: unknown): WorkflowCancelledError | undefined {
   }
   return undefined;
 }
+
+/** Each outcome in words: as the calling session is told it, and as awf reports it. */
+const ENDINGS = {
+  cancelled: { told: "was cancelled", ended: "run cancelled" },
+  "timed-out": { told: "timed out", ended: "run timed out" },
+  failed: { told: "failed", ended: "run failed" },
+} as const satisfies Record<
+  Exclude<OutputRecord["outcome"], "succeeded">,
+  { told: string; ended: string }
+>;
 
 /**
  * How a run that did not succeed ended. The operator cancelling wins. It timed out when its own

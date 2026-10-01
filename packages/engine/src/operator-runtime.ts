@@ -7,6 +7,7 @@ import {
   createHeadlessRunHostFactory,
   createHerdrRunHostFactory,
   createPlacementHostFactory,
+  type HerdrConfig,
   harnessState,
   type RunProcess,
   readClaudeBilling,
@@ -52,15 +53,14 @@ export async function installOperatorRuntime(
   const { run = runProcess, environment = process.env, watchSandboxes = true, caller } = options;
   const unmetered = withholding(run, WITHHELD_ENVIRONMENT);
   refuseMeteredCredentials(environment);
-  const herdrConfig = (session: string) => ({
-    session,
-    workspaceLabel: "awf run",
+  const runConfig = (session: string): HerdrConfig => ({
+    ...herdrConfig(session),
     commandTimeoutMs: Math.min(timeoutMilliseconds, 150_000),
     emptyEnvironment: WITHHELD_ENVIRONMENT,
     acceptWorkspaceTrust: true,
     watchSandboxes,
   });
-  const panes = (session: string) => createHerdrRunHostFactory(herdrConfig(session), run);
+  const panes = (session: string) => createHerdrRunHostFactory(runConfig(session), run);
   const { accounting } = panes("default");
   const host = loginChecked(
     unmetered,
@@ -73,7 +73,7 @@ export async function installOperatorRuntime(
       },
       headless: createHeadlessRunHostFactory({}, unmetered),
       ...(caller
-        ? { caller: createCallerHostFactory(herdrConfig(caller.session), caller.pane, run) }
+        ? { caller: createCallerHostFactory(runConfig(caller.session), caller.pane, run) }
         : {}),
     }),
   );
@@ -88,6 +88,11 @@ export async function installOperatorRuntime(
     // socket, and the control plane removes both when the run closes.
     cleanup: async () => undefined,
   };
+}
+
+/** Herdr in session `session`, where awf's runs open their tabs. */
+export function herdrConfig(session: string): HerdrConfig {
+  return { session, workspaceLabel: "awf run", commandTimeoutMs: 10_000 };
 }
 
 /**
