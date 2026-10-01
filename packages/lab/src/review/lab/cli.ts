@@ -30,6 +30,7 @@ import {
   describePlan,
   estimateOfPlan,
   executePlan,
+  heldOutError,
   type Lab,
   type Outcomes,
   type Planned,
@@ -408,7 +409,10 @@ export function rankOf(seed: string): (id: string) => string {
   return (id) => createHash("sha256").update(`${seed}\n${id}`).digest("hex");
 }
 
-/** The dataset, and its case ids in the seeded order, narrowed by `--cases`. */
+/**
+ * The dataset's tuning cases, and their ids in the seeded order, narrowed by `--cases`. A held-out
+ * case is never selected, so `--cases {n}` counts tuning cases and a comparison plans for them.
+ */
 async function selectedCases(workspace: Workspace, options: Options) {
   const dataset = options.dataset ?? workspace.config.dataset;
   if (!existsSync(join(workspace.datasets, dataset, SET_FILE))) {
@@ -416,12 +420,18 @@ async function selectedCases(workspace: Workspace, options: Options) {
       `no dataset ${dataset}: ${join(workspace.datasets, dataset, SET_FILE)} is missing`,
     );
   }
-  const { entries } = await datasetCases(workspace, dataset);
+  const { entries, held } = await datasetCases(workspace, dataset);
   const all = entries.map((e) => e.id);
+  if (options.cases !== undefined && !/^[0-9]+$/.test(options.cases)) {
+    for (const id of options.cases.split(",").map((part) => part.trim())) {
+      if (held.has(id)) throw new UsageError(heldOutError(id));
+    }
+  }
   const ids = named(() =>
     selectCases(all, options.cases, rankOf(workspace.config.seed ?? "awf-lab")),
   );
   for (const address of options.only ?? []) {
+    if (held.has(address.case)) throw new UsageError(heldOutError(address.case));
     if (!all.includes(address.case)) {
       throw new UsageError(`${formatAddress(address)}: ${address.case} is not in ${dataset}`);
     }
@@ -1043,7 +1053,8 @@ async function show(context: Context, names: readonly string[]): Promise<string>
   if (address.variant && address.variant !== variant!.label) {
     throw new UsageError(`${names[1]} is ${address.variant}'s, not ${variant!.label}'s`);
   }
-  const { entries } = await datasetCases(workspace, dataset);
+  const { entries, held } = await datasetCases(workspace, dataset);
+  if (held.has(address.case)) throw new UsageError(heldOutError(address.case));
   if (!entries.some((e) => e.id === address.case)) {
     throw new UsageError(`${address.case} is not in ${dataset}`);
   }
@@ -1279,8 +1290,14 @@ async function list(
       : [];
     for (const name of dirs) {
       try {
-        const { dir, set } = await datasetCases(workspace, name);
-        document.datasets.push({ name, dir, cases: set.fixtures.length, builtAt: set.builtAt });
+        const { dir, set, entries, held } = await datasetCases(workspace, name);
+        document.datasets.push({
+          name,
+          dir,
+          cases: entries.length,
+          ...(held.size > 0 ? { heldOut: held.size } : {}),
+          builtAt: set.builtAt,
+        });
       } catch {
         broken = true;
       }
@@ -1370,7 +1387,10 @@ async function list(
     ...(w.budget !== undefined ? [`budget    $${w.budget}`] : []),
   ];
   for (const d of document.datasets ?? []) {
-    lines.push(`dataset   ${d.name.padEnd(24)} ${plural(d.cases, "case")}, built ${d.builtAt}`);
+    const held = d.heldOut ? `, ${d.heldOut} held out` : "";
+    lines.push(
+      `dataset   ${d.name.padEnd(24)} ${plural(d.cases, "case")}${held}, built ${d.builtAt}`,
+    );
   }
   for (const c of document.cases ?? []) {
     const issues = Object.entries(c.issues)

@@ -84,13 +84,30 @@ export type Lab = {
 };
 
 /** The dataset's case ids, from a `set.json` that passes its check. */
+/**
+ * A dataset's tuning cases, `entries`, and the ids `awf-lab.json` holds out of it, which only a
+ * loop's final check reads.
+ */
 export async function datasetCases(workspace: Workspace, dataset: string) {
   const dir = join(workspace.datasets, dataset);
   const file = join(dir, SET_FILE);
   const checked = checkFixtureSet(await Bun.file(file).json());
   if (!checked.ok) throw new Error(describeProblems(file, checked.problems));
-  return { dir, set: checked.value, entries: checked.value.fixtures };
+  const fixtures = checked.value.fixtures;
+  const held: ReadonlySet<string> = new Set(workspace.config.holdout?.[dataset]?.cases ?? []);
+  const missing = [...held].filter((id) => !fixtures.some((e) => e.id === id));
+  if (missing.length > 0) {
+    throw new Error(`awf-lab.json holds out cases not in ${dataset}: ${missing.join(", ")}`);
+  }
+  const entries = fixtures.filter((e) => !held.has(e.id));
+  if (entries.length === 0) {
+    throw new Error(`awf-lab.json holds out every case of ${dataset}, leaving none to tune on`);
+  }
+  return { dir, set: checked.value, entries, held };
 }
+
+export const heldOutError = (id: string) =>
+  `${id} is held out: only a loop's final check reads it (awf-lab.json, holdout)`;
 
 /**
  * The selected cases, each checked as far as scoring relies on it: its digest is the one the
@@ -101,11 +118,13 @@ export async function readCases(
   workspace: Workspace,
   dataset: string,
   ids: readonly string[],
+  options: { heldOut?: true } = {},
 ): Promise<CaseInfo[]> {
-  const { dir: datasetDir, entries } = await datasetCases(workspace, dataset);
+  const { dir: datasetDir, set, held } = await datasetCases(workspace, dataset);
   const infos: CaseInfo[] = [];
   for (const id of ids) {
-    const entry = entries.find((e) => e.id === id);
+    if (held.has(id) && !options.heldOut) throw new Error(heldOutError(id));
+    const entry = set.fixtures.find((e) => e.id === id);
     if (!entry) throw new Error(`${id} is not in ${dataset}`);
     const dir = join(datasetDir, id);
     const digest = await digestFixture(dir);

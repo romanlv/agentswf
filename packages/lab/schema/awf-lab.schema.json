@@ -127,6 +127,33 @@
       "type": "string",
       "minLength": 1,
       "description": "Orders cases for --cases {n}; awf-lab."
+    },
+    "holdout": {
+      "type": "object",
+      "patternProperties": {
+        "^.*$": {
+          "type": "object",
+          "required": ["cases", "chosen"],
+          "properties": {
+            "cases": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              },
+              "minItems": 1,
+              "uniqueItems": true
+            },
+            "chosen": {
+              "type": "string",
+              "format": "date",
+              "description": "When the cases were set aside: before the first proposal."
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "description": "By dataset, the cases set aside for a loop's final check: no command selects, shows or reports them, and no proposer sees them."
     }
   },
   "additionalProperties": false,

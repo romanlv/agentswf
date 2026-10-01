@@ -1243,6 +1243,58 @@ export default defineComparison({
     await json(ws, ["schema"]);
   });
 
+  test("a held-out case is never selected, shown or listed, and naming it is refused", async () => {
+    await ws.variant("canned");
+    await answer(ws, { "app-1": [finding("x")], "app-2": [] });
+    const config = { ...CONFIG, holdout: { first: { cases: ["app-1"], chosen: "2026-09-30" } } };
+    const configure = (holdout: unknown) =>
+      Bun.write(join(ws.root, "awf-lab.json"), JSON.stringify({ ...config, holdout }));
+    await configure(config.holdout);
+    const run = inProcess();
+    for (const argv of [
+      ["run", "canned", "--cases", "app-1"],
+      ["run", "canned", "--cases", "app-2, app-1"],
+      ["score", "canned", "--cases", "app-1"],
+      ["report", "canned", "--only", "app-1"],
+      ["report", "canned", "--only", "canned:app-1/1#0"],
+      ["show", "canned", "app-1"],
+    ]) {
+      const refused = await lab(ws, argv, run.runner);
+      expect(refused.exitCode).toBe(2);
+      expect(refused.stderr).toContain("app-1 is held out");
+    }
+    expect(run.calls).toHaveLength(0);
+    // A count of more than the tuning cases takes all of them, and no more.
+    expect((await lab(ws, ["run", "canned", "--cases", "2"], run.runner)).exitCode).toBe(0);
+    expect(recordsIn(ws, "canned@1.0/*/*/findings.json")).toEqual([
+      expect.stringMatching(/^canned@1\.0\/app-2\//),
+    ]);
+    const reported = await report(ws, "canned");
+    expect(JSON.stringify(reported)).not.toContain("app-1");
+    expect((await lab(ws, ["show", "canned", "app-2"])).exitCode).toBe(0);
+    const listed = await json<{ cases: { id: string }[] }>(ws, ["list", "cases"]);
+    expect(listed.cases.map((c) => c.id)).toEqual(["app-2"]);
+    const datasets = await json<{ datasets: Record<string, unknown>[] }>(ws, ["list", "datasets"]);
+    expect(datasets.datasets[0]).toMatchObject({ name: "first", cases: 1, heldOut: 1 });
+    expect((await lab(ws, ["list", "datasets"])).stdout).toMatch(/1 case, 1 held out/);
+    const globbed = await json<{ cases: { id: string }[] }>(ws, [
+      "list",
+      "cases",
+      "--cases",
+      "app-*",
+    ]);
+    expect(globbed.cases.map((c) => c.id)).toEqual(["app-2"]);
+    // A broken holdout fails every command on its dataset rather than tuning on the wrong cases.
+    await configure({ first: { cases: ["app-9"], chosen: "2026-09-30" } });
+    const unknown = await lab(ws, ["report", "canned"]);
+    expect(unknown.exitCode).toBe(1);
+    expect(unknown.stderr).toContain("holds out cases not in first: app-9");
+    await configure({ first: { cases: ["app-1", "app-2"], chosen: "2026-09-30" } });
+    const none = await lab(ws, ["report", "canned"]);
+    expect(none.exitCode).toBe(1);
+    expect(none.stderr).toContain("leaving none to tune on");
+  });
+
   test("a new version keeps the old one's records; name@version reads, reports and scores it, never runs it", async () => {
     await ws.variant("canned");
     await answer(ws, { "app-1": [finding(mechanism("app-1", 1))], "app-2": [finding("x")] });

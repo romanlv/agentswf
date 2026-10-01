@@ -101,6 +101,25 @@ export const WorkspaceConfigSchema = Type.Object(
     seed: Type.Optional(
       Type.String({ minLength: 1, description: "Orders cases for --cases {n}; awf-lab." }),
     ),
+    holdout: Type.Optional(
+      Type.Record(
+        Text,
+        Type.Object(
+          {
+            cases: Type.Array(Text, { minItems: 1, uniqueItems: true }),
+            chosen: Type.String({
+              format: "date",
+              description: "When the cases were set aside: before the first proposal.",
+            }),
+          },
+          { additionalProperties: false },
+        ),
+        {
+          description:
+            "By dataset, the cases set aside for a loop's final check: no command selects, shows or reports them, and no proposer sees them.",
+        },
+      ),
+    ),
   },
   { additionalProperties: false, description: "An awf-lab workspace, in its second form." },
 );

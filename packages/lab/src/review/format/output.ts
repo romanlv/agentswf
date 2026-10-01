@@ -120,7 +120,13 @@ export const ListSchema = Type.Object(
     datasets: Type.Optional(
       Type.Array(
         Type.Object(
-          { name: Text, dir: Text, cases: Count, builtAt: Text },
+          {
+            name: Text,
+            dir: Text,
+            cases: { ...Count, description: "Its tuning cases: those not held out." },
+            heldOut: Type.Optional(Count),
+            builtAt: Text,
+          },
           { additionalProperties: false },
         ),
       ),

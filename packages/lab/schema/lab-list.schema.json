@@ -85,6 +85,11 @@
           },
           "cases": {
             "type": "integer",
+            "minimum": 0,
+            "description": "Its tuning cases: those not held out."
+          },
+          "heldOut": {
+            "type": "integer",
             "minimum": 0
           },
           "builtAt": {

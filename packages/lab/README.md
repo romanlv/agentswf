@@ -459,9 +459,15 @@ usually lives in its own repository, not this one.
   "comparison": "default",
   "trials": 2,
   "budget": { "usd": 20 },
-  "sandbox": { "srt": {} }
+  "sandbox": { "srt": {} },
+  "holdout": { "first": { "cases": ["app-41", "app-57"], "chosen": "2026-09-30" } }
 }
 ```
+
+`holdout` sets cases of a dataset aside for a loop's final check, named by id so a grown dataset or
+a new seed never moves one across. No command selects, shows, lists or reports them, naming one is
+refused, and `--cases {n}` counts only the rest. Choose them before the first variant is tuned:
+cases looked at while tuning are no longer held out.
 
 `sandbox` names the provider of every trial's sandbox: `{ "srt": {} }`, the default, or
 `{ "docker": { "image": "…" } }`. What goes in it is fixed: the checkout and the request. It's the

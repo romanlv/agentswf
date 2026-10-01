@@ -3,7 +3,7 @@ id: "013"
 title: Let an agent propose review workflows and keep the better ones
 summary: "`awf-lab loop` has a codex agent write one changed review workflow per try from the tuning cases' feedback, runs it in a container against the incumbent with story 011's comparison, keeps it only on `better`, logs every try as a tree, stops at a spend cap, and checks the final incumbent once on a holdout fixed before the first proposal."
 type: story
-status: draft
+status: in-progress
 discovered_in: "docs/stories/todo/autoresearch-loop.md, 2026-09-30"
 depends_on: ["011"]
 ---
@@ -119,8 +119,8 @@ Out of scope:
 - Constraint: `lab` imports contract only and runs workflows through `awf run` (boundary 5).
 - Constraint: no person approves anything in the loop (memory: no human in autoresearch).
 - Constraint: experiments run codex, never claude.
-- Assumption: `awf run` and a headless codex agent run inside the default image with the awf
-  checkout mounted. Experiment E-a tests it.
+- Fact (E-a): `awf run` and a headless codex agent run inside the default image with the awf
+  checkout mounted; see Implementation notes.
 - Assumption: the `missed` text is specific enough to steer a proposer. Experiment E-b tests it.
 
 ## Code map
@@ -154,8 +154,10 @@ Out of scope:
 
 ### Records and config (the expensive part)
 
-- `awf-lab.json`: `"holdout": { "cases": ["{id}", …], "chosen": "2026-09-30" }`. Ids, not "the
-  last n": a grown dataset or a new seed must not move a case across the split.
+- `awf-lab.json`: `"holdout": { "{dataset}": { "cases": ["{id}", …], "chosen": "2026-09-30" } }`.
+  By dataset, since `--dataset` picks another. Ids, not "the last n": a grown dataset or a new seed
+  must not move a case across the split. A held-out id the dataset lacks fails every command on
+  that dataset until the config is fixed.
 - `awf-lab.json`: `"sandbox": { "container": { "image"?: string } }`, a third kind beside `srt` and
   `docker`. A trial's record says which it ran in, so contained and uncontained trials never pair.
 - A loop lives at `{results}/{dataset}/loops/{loop}/`:
@@ -206,7 +208,7 @@ Alternatives rejected:
 
 ## Tasks at a glance
 
-- [ ] 1. The holdout is named in `awf-lab.json` and refused outside the final check
+- [x] 1. The holdout is named in `awf-lab.json` and refused outside the final check
 - [ ] 2. A trial runs whole in a container, the key absent
 - [ ] 3. The proposer writes a checked candidate from a tuning-only bundle
 - [ ] 4. `awf-lab loop` keeps or discards, logs the tree and stops at the cap
@@ -245,11 +247,15 @@ Outcome: a case named in `holdout` cannot be run, scored, reported, shown or che
 
 Execution:
 
-- [ ] Plan
-- [ ] Implement
-- [ ] Review
-- [ ] Resolve
-- [ ] Verify
+- [x] Plan: the split lives in `datasetCases` (`review/lab/execute.ts`), the one reader of a
+  dataset: it returns the tuning cases as `entries` and the held-out ids as `held`, and fails a
+  holdout naming a case the dataset lacks or leaving none. `readCases` refuses a held-out id
+  unless asked with `{ heldOut: true }`, the door task 5 uses. `selectedCases` and `show` turn a
+  named held-out case into a usage error (exit 2).
+- [x] Implement
+- [x] Review
+- [x] Resolve
+- [x] Verify: `bun test tests/review-lab.test.ts packages/lab` 166 pass; `bun run check` clean.
 
 Work:
 
@@ -277,8 +283,15 @@ Execution:
 
 Work:
 
-- From E-a: the mounts, credentials, network through the provider's proxy, and how `output.json`
-  and the run directory return.
+- The engine checks a harness's subscription login when its first agent opens, not at start, so
+  a codex-only run needs no claude login.
+- `"sandbox": { "container": { "image"? } }`: `awf-lab` starts `docker run` on the default image
+  instead of `awf run --sandbox`, with `--cap-drop ALL`, `no-new-privileges` and the operator's
+  uid; mounts: awf's `packages/` and `node_modules` read-only (never the repository root), the
+  variant's directory read-only, the restored checkout, the request read-only, and a fresh home
+  per trial seeded with codex's `auth.json` only; the network through the docker provider's proxy,
+  allowing the model domains; `output.json` read from stdout as now.
+- The trial record names the container sandbox, so its trials pair only with each other.
 - A canary test: a workflow that tries to read the dataset and the host's agent sessions fails.
 
 Done when:
@@ -372,8 +385,19 @@ Manual or live evaluation:
 
 ### Task 1
 
-- Architecture and scope:
-- Correctness and proof:
+- Architecture and scope (read the diff and every case reader in `review/lab/`): no leak through
+  the existing commands. Important: the split was a convention in `selectedCases`, and
+  `datasetCases` and `readCases` stayed open to task 3's bundle and task 5's `--final`. Fixed:
+  `datasetCases` returns the tuning cases and the held-out ids, and `readCases` refuses a held-out
+  id unless asked with `{ heldOut: true }`. Minor: `list datasets` counted every case; it now
+  counts tuning cases and says how many are held out. The story's design showed the unkeyed shape;
+  fixed. `scoresBy` still reads held-out runs' estimates for cost history: harmless, noted.
+- Correctness and proof (edge cases in `--cases`, `--only`, `--dataset`, `run --baseline`'s
+  planned count, `check --rescore`): logic sound. A holdout of every case left nothing to tune on
+  silently; now refused. The test proved too little: it now covers `run`, `score`, `report` and
+  `show` refusals by id, comma list and trial address, nothing run after them, an unfiltered
+  `report` and `list cases` without the case, `list datasets`' counts, a positive `show`, and both
+  broken holdouts.
 
 ## Readiness
 
@@ -396,7 +420,23 @@ Manual or live evaluation:
 
 ### Experiments
 
-- E-a, a trial whole in the default image: running.
+- E-a, a trial whole in the default image (2026-09-30): it works with no engine change beyond
+  one. `awf-agent:8ea26352e621` (already built) ran `single-agent-review` on air-2092 with codex in
+  2:09, 4 must-fix findings, ~$0.32 list price, in line with the stored baseline (4–5 findings,
+  ~2 min, $0.30–0.38). Mounted: the awf checkout read-only, the restored checkout, the request, and
+  a fresh home holding only codex's `auth.json`. Inside, the dataset, the key, the host's
+  `~/.codex/sessions`, `/Users` and `/private/tmp` were absent. Overhead: ~1.5 s container start,
+  ~3 s restore. macOS-installed `node_modules` run on linux arm64 (no native modules). Spend
+  ~$0.33. What it found:
+  - The engine demands a claude login at start even for a codex-only run
+    (`assertSubscriptionAuthentication`, `engine/src/operator-runtime.ts`). Passing the claude token
+    in would hand it to generated code; task 2 checks each harness's login when its first agent
+    opens instead.
+  - Mounting the whole checkout exposes `.env` (the OpenRouter key, a claude token): mount the
+    packages, not the repository root.
+  - A reused home kept an earlier session: one fresh home per trial.
+  - The network is open: the provider's proxy and `{id}-net` network limit it to the model domains.
+  - `output.json` comes back on `--json`'s stdout, as `awf-lab` reads it today.
 - E-b, one proposer round by hand from the `missed` feedback, against `one-codex-r1` with
   `--budget 15`: running.
 
