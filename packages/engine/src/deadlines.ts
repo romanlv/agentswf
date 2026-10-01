@@ -91,6 +91,10 @@ export function assertDeadlineValue(deadline: AbsoluteDeadline): void {
 /** Waits `milliseconds`, or until `signal` aborts, whichever is first. */
 export function abortableSleep(milliseconds: number, signal: AbortSignal): Promise<void> {
   return new Promise((resolve) => {
+    if (signal.aborted) {
+      resolve();
+      return;
+    }
     const timer = setTimeout(done, milliseconds);
     function done() {
       clearTimeout(timer);
