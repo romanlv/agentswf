@@ -1,4 +1,7 @@
-import { describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { ProcessInput, ProcessResult, RunProcess } from "../command";
 import { createHerdrRunHostFactory, createPaneAdapter, type HerdrConfig } from "./herdr";
 
@@ -934,6 +937,27 @@ describe("createHerdrRunHostFactory", () => {
   });
 
   describe("compaction", () => {
+    // pi's summary is read from its own state: here a home of the test's, never the operator's.
+    let piHome: string;
+    const operatorPi = process.env.PI_CODING_AGENT_DIR;
+    beforeAll(() => {
+      piHome = mkdtempSync(join(tmpdir(), "pi-home-"));
+      mkdirSync(join(piHome, "sessions", "--repo--"), { recursive: true });
+      process.env.PI_CODING_AGENT_DIR = piHome;
+    });
+    /** pi's file for the session the stub names after the agent, holding one compaction. */
+    const piSession = (calls: ProcessInput[], summary: string) => {
+      const agent = calls.find((call) => verb(call) === "agent prompt")!.argv[5];
+      writeFileSync(
+        join(piHome, "sessions", "--repo--", `2026-10-01T00-00-00-000Z_session-${agent}.jsonl`),
+        `${JSON.stringify({ type: "compaction", id: "c", summary })}\n`,
+      );
+    };
+    afterAll(() => {
+      if (operatorPi === undefined) delete process.env.PI_CODING_AGENT_DIR;
+      else process.env.PI_CODING_AGENT_DIR = operatorPi;
+      rmSync(piHome, { recursive: true, force: true });
+    });
     /** Answers the screen read with `screen`; everything else as the stub does. */
     const showing = (screen: string) => {
       const base = hostStub();
@@ -946,7 +970,21 @@ describe("createHerdrRunHostFactory", () => {
       };
       return { run, calls: base.calls };
     };
-    const opened = async (run: RunProcess, harness: "claude" | "codex") => {
+    /** Answers each screen read with the next of `screens`, the last one from then on. */
+    const showingInTurn = (...screens: string[]) => {
+      const base = hostStub();
+      let reads = 0;
+      const run: RunProcess = async (input) => {
+        if (verb(input) === "agent read" && input.argv.includes("recent-unwrapped")) {
+          base.calls.push(input);
+          const stdout = screens[Math.min(reads++, screens.length - 1)]!;
+          return { stdout, stderr: "", exitCode: 0, timedOut: false };
+        }
+        return base.run(input);
+      };
+      return { run, calls: base.calls };
+    };
+    const opened = async (run: RunProcess, harness: "claude" | "codex" | "pi") => {
       const host = await createHerdrRunHostFactory(CONFIG, run).openRun({
         runId: "run-1",
         cwd: "/repo",
@@ -1024,6 +1062,105 @@ describe("createHerdrRunHostFactory", () => {
       );
       await expect(next.settled).resolves.toMatchObject({ state: "completed" });
       expect(prompted(calls)).toEqual(["plan", "/compact Keep the path.", "build"]);
+      await host.close();
+    });
+
+    test("pi is typed /compact with the focus, and a new compaction line confirms it", async () => {
+      // pi echoes no slash command, so only a line the screen did not hold before counts.
+      // Herdr sees pi idle while it compacts, so the screen is read again until it shows the end.
+      const { run, calls } = showingInTurn(
+        " plan\n VALVE-4944\n",
+        " plan\n VALVE-4944\n",
+        " plan\n VALVE-4944\n [compaction]\n Compacted from 30,993 tokens (ctrl+o to expand)\n",
+      );
+      const { host, session } = await opened(run, "pi");
+      await (
+        await session.start({ id: "one", prompt: "plan", deadline: deadline() }, binding("op-1"))
+      ).settled;
+      piSession(calls, "the path is 14 m");
+      const compact = await session.compact("c-1", "Keep the path.", deadline());
+
+      await expect(compact.settled).resolves.toMatchObject({
+        state: "completed",
+        summary: "the path is 14 m",
+      });
+      expect(prompted(calls)).toEqual(["plan", "/compact Keep the path."]);
+      expect(calls.filter((call) => call.argv.includes("recent-unwrapped"))).toHaveLength(3);
+      await host.close();
+    });
+
+    test("pi's second compaction, which redraws its chat, is told by its new line", async () => {
+      // A compaction clears pi's chat and redraws one line for the newest; the count stays one.
+      const { run } = showingInTurn(
+        " [compaction]\n Compacted from 30,993 tokens\n build\n ok\n",
+        " [compaction]\n Compacted from 41,207 tokens (ctrl+o to expand)\n",
+      );
+      const { host, session } = await opened(run, "pi");
+      await (
+        await session.start({ id: "one", prompt: "plan", deadline: deadline() }, binding("op-1"))
+      ).settled;
+      const compact = await session.compact("c-1", "Keep the path.", deadline());
+
+      await expect(compact.settled).resolves.toMatchObject({ state: "completed" });
+      await host.close();
+    });
+
+    test("pi's cancelled compaction ends the wait at once, as failed", async () => {
+      const { run } = showingInTurn(" ok\n", " ok\n Error: Compaction cancelled\n");
+      const { host, session } = await opened(run, "pi");
+      await (
+        await session.start({ id: "one", prompt: "plan", deadline: deadline() }, binding("op-1"))
+      ).settled;
+      const compact = await session.compact("c-1", "Keep the path.", deadline());
+
+      await expect(compact.settled).resolves.toMatchObject({ state: "failed" });
+      await host.close();
+    });
+
+    test("a focus over several lines is typed as one", async () => {
+      const { run, calls } = showingInTurn(" ok\n", " ok\n Compacted from 9,000 tokens\n");
+      const { host, session } = await opened(run, "pi");
+      await (
+        await session.start({ id: "one", prompt: "plan", deadline: deadline() }, binding("op-1"))
+      ).settled;
+      await (await session.compact("c-1", "Keep the path.\n\nDrop the rest.", deadline())).settled;
+
+      expect(prompted(calls)).toEqual(["plan", "/compact Keep the path. Drop the rest."]);
+      await host.close();
+    });
+
+    test("pi's compaction that never shows its end times out, and is interrupted", async () => {
+      const { run, calls } = showingInTurn(" plan\n VALVE-4944\n");
+      const { host, session } = await opened(run, "pi");
+      await (
+        await session.start({ id: "one", prompt: "plan", deadline: deadline() }, binding("op-1"))
+      ).settled;
+      const compact = await session.compact("c-1", "Keep the path.", {
+        unixMilliseconds: Date.now() + 1_500,
+      });
+
+      await expect(compact.settled).resolves.toMatchObject({ state: "timed-out" });
+      const keys = calls.filter((call) => verb(call) === "agent send-keys");
+      expect(keys.map((call) => call.argv.at(-1))).toContain("esc");
+      await host.close();
+    });
+
+    test("pi's earlier compaction on the screen does not confirm a failed one", async () => {
+      const earlier = " [compaction]\n Compacted from 30,993 tokens\n build\n ok\n";
+      const { run } = showingInTurn(
+        earlier,
+        `${earlier} Error: Compaction failed: Nothing to compact (session too small)\n`,
+      );
+      const { host, session } = await opened(run, "pi");
+      await (
+        await session.start({ id: "one", prompt: "plan", deadline: deadline() }, binding("op-1"))
+      ).settled;
+      const compact = await session.compact("c-1", "Keep the path.", deadline());
+
+      await expect(compact.settled).resolves.toMatchObject({
+        state: "failed",
+        detail: expect.stringContaining("pi shows no compaction"),
+      });
       await host.close();
     });
 

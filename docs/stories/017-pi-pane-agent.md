@@ -3,7 +3,7 @@ id: "017"
 title: Run pi in a Herdr pane, as claude and codex run
 summary: "A pi agent may take placement pane: it starts, takes turns, compacts with a focus and is read for usage in a Herdr pane, which pi needs no startup answers for."
 type: story
-status: draft
+status: awaiting-human-review
 discovered_in: "story 016, the operator's review, 2026-10-01"
 depends_on: []
 ---
@@ -29,18 +29,24 @@ two. E1 and E8 drove pi in panes.
  open "pi", pane ─────────► herdr agent start --kind pi ───────► ready at once, no startup block;
                             -- --model {model}                  Herdr names its session by path
  turn ────────────────────► agent prompt … --wait ─────────────► answers through `wf result`
- compact({ prompt }) ─────► "/compact {focus}" ────────────────► "[compaction] Compacted from N tokens";
-                            confirmed by the session file        a compaction entry in its file
+ compact({ prompt }) ─────► "/compact {focus}", then the ───────► chat cleared, one "Compacted from N
+                            screen read until it shows the       tokens" line redrawn; a compaction
+                            compaction or a refusal              entry in its session file
 ```
 
 - **Start.** Measured 2026-10-01 on pi 0.87.1 and Herdr 0.9.1. `herdr agent start --kind pi`
   came up ready with no trust or update screen, and Herdr reported the session as its file path.
   That is the ref pi's usage reader already takes (story 002).
-- **Compaction.** pi's TUI takes `/compact {instructions}`. The screen showed `Compacted from 30,993
-  tokens`, and the session file gained a compaction entry. Herdr's prompt wait answered
-  `agent_prompt_stalled` on the slash command, as the findings' operational traps say it does on
-  pi. A screen line can be an old compaction's, so the confirmation is a new compaction entry in
-  the session file, as headless pi confirms by its rpc answer.
+- **Compaction.** pi's TUI takes `/compact {instructions}`.
+  - **What pi shows:** it clears its chat and redraws one `Compacted from N tokens` line, and the
+    session file gains a compaction entry. pi refuses a second compaction straight after one, so
+    N never repeats. A refusal prints `Error: Compaction failed: …` or `… cancelled` instead.
+  - **What awf reads:** the compaction counts when that line differs from the one on screen
+    before. The summary comes from the session file.
+  - **Waiting for it:** Herdr's prompt wait answers `agent_prompt_stalled` on the slash command,
+    and Herdr reports pi idle while it compacts. So the host reads the screen every 500 ms until
+    the compaction or a refusal shows, within the deadline. It sends Escape if the wait ends
+    without either.
 - **The focus** goes to pi's history summary, as headless (C6). A turn split at the cut is
   summarized without it. In the probe the whole recent turn was split, so the summary kept the fact
   the focus dropped, which is pi's behaviour, not the pane's.
@@ -76,9 +82,9 @@ Out of scope:
 
 ## Code map
 
-- `packages/harness/src/spec.ts`: `PLACEMENT_HARNESSES.pane` gains pi. pi gets `compactPane`, with
-  a confirmation read from its file rather than the screen. That may need `compactPane` to take a
-  reader, since today it only reads the screen.
+- `packages/harness/src/spec.ts`: `PLACEMENT_HARNESSES.pane` gains pi. pi gets `compactPane`. Its
+  `compacted` is given the screen from before the prompts, and its new `ended` says when the
+  screen shows the compaction over. pi gets `readCompactSummary`.
 - `packages/harness/src/adapters/herdr.ts` and `herdr-startup.ts`: check that nothing assumes
   claude or codex beyond the startup blocks.
 - `packages/harness/src/refusals.ts`: the refusal "a pane runs claude and codex" changes.
@@ -89,14 +95,18 @@ Out of scope:
 
 ## Proposed design
 
-The smallest change: pi joins the pane list, and its pane compaction is confirmed from its session
-file. No published type changes, since placement is already per agent.
+The smallest change:
+- pi joins the pane list.
+- Its pane compaction is confirmed from the screen, read until it shows an end.
+- Its summary is read from its session file.
+
+No published type changes, since placement is already per agent.
 
 ## Tasks at a glance
 
-- [ ] 1. pi runs in a pane: start, turns, continuation, usage
-- [ ] 2. pi compacts in a pane with a focus
-- [ ] 3. Live: the harness and compaction evals with pi panes, and sandboxed panes
+- [x] 1. pi runs in a pane: start, turns, continuation, usage
+- [x] 2. pi compacts in a pane with a focus
+- [x] 3. Live: the harness and compaction evals with pi panes, and sandboxed panes
 
 ## Task execution rule
 
@@ -114,10 +124,19 @@ session. `tests/harnesses.eval.ts` passes a pi pane with a follow-up.
 
 ### 2. pi compacts in a pane
 
-Work: `compactPane` for pi, confirmed by a new compaction entry in its session file.
+Work: `compactPane` for pi, confirmed from its screen (see the implementation notes for why not its
+file).
 
-Done when: adapter tests cover a compaction confirmed by the file, one the file never shows, and
-an old screen line that must not count. `examples/compaction` passes on a pi pane.
+Done when:
+- Adapter tests cover:
+  - a compaction that shows only on a later read;
+  - a second compaction redrawn over the first;
+  - an earlier compaction's line that must not count;
+  - a cancelled compaction;
+  - one that never shows, which is interrupted;
+  - a focus over several lines;
+  - the summary read from a test's own pi home.
+- `examples/compaction` passes on a pi pane.
 
 ### 3. Live
 
@@ -130,8 +149,8 @@ Done when:
 
 ## Verification
 
-- [ ] `bun test`, `bunx tsc --noEmit`, `bun run check`
-- [ ] `tests/harnesses.eval.ts`, `tests/compaction.eval.ts`, the pane sandbox evals, on pi's
+- [x] `bun test`, `bunx tsc --noEmit`, `bun run check`
+- [x] `tests/harnesses.eval.ts`, `tests/compaction.eval.ts`, the pane sandbox evals, on pi's
   subscription model.
 
 ## Readiness
@@ -144,6 +163,54 @@ Done when:
 - [x] No open questions.
 
 ## Implementation notes
+
+- **pi needs no startup answers in a pane**, and Herdr names its session by path. The contract
+  test starts pi with no startup block. The scripted test host refused pi in a pane before; its
+  refusal test now uses cursor.
+- **Deviation: the screen confirms pi's compaction, not its session file.** A sandboxed pane's
+  session file lives in the agent's own home, which the pane host is not told. Claude's summary has
+  the same gap; a sandboxed pane's summary comes back `""`. The screen works in every placement.
+- **Counting `Compacted from` lines was wrong.** The first rule counted them before and after. The
+  correctness review read pi's source: a compaction clears the chat (`interactive-mode.js`) and a
+  full render clears the scrollback. So a second compaction in one pane leaves the count at one,
+  and the wait would have run to the deadline. A live probe showed it: `31,282` then `31,415`, one
+  line each time. The rule is now:
+  - the `Compacted from N tokens` line differs from the one before;
+  - a refusal adds a line, or becomes the last event on the screen.
+- **The first live run reported a real compaction as failed.** The screen was read before pi
+  finished: Herdr reports pi idle while it compacts, and the next prompt arrived 7 ms after the
+  compaction entry. Hence `ended` and the poll.
+- **The summary was `""` on a stalled prompt**, which returns no agent record. It now falls back to
+  the session the agent's turns named.
+- **The screen before the prompts is read only for a harness with `ended`**, so claude and codex
+  compactions make the same Herdr calls as before.
+- **The sandbox probe never gave its pane reviewer the Herdr check**, since pi had no pane. Its
+  commands now include it.
+- **Live, 2026-10-01:**
+  - `harnesses`: 4/4, ~$0.07.
+  - `compaction`: all seven runtimes in 60 s, ~$0.52 at list prices, $0.18 charged; then
+    `pi-pane` alone, after the review's changes, ~$0.21.
+  - `sandbox-panes-srt`: 3m 07s, ~$0.37.
+  - `sandbox-panes-docker`: 3m 20s, ~$0.41.
+
+  All passed, with each sandbox's three agents in panes.
+
+## Review record
+
+- **Architecture and scope.** Blocking: the line count, and a summary that might be an earlier
+  compaction's. The count is replaced as above. The summary is read only once the screen shows the
+  new compaction, which pi renders from the entry it has just written. Should-fixes:
+  - the sandboxed summary gap: recorded above, shared with claude;
+  - the extra read for claude and codex: removed;
+  - the story record: written.
+
+  Its question whether sandboxed pi reports through Herdr without its extension is answered by the
+  srt and docker evals: pi ran, answered and was read in both.
+- **Correctness and proof.** It read pi's source and found the redraw. It also found:
+  - `Error: Compaction cancelled` was never matched: now matched;
+  - a compaction left running past its wait: now interrupted with Escape;
+  - a focus with newlines: now flattened;
+  - tests that read the operator's `~/.pi`: now given a home of their own.
 
 ## Human review
 

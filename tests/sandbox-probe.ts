@@ -185,7 +185,7 @@ async function plant(
   repo: string,
   runs: string,
   port: number,
-  panes: ("coder" | "tester")[],
+  panes: ProbeName[],
 ): Promise<Omit<Planted, "listenerToken"> & { remove(): Promise<void> }> {
   const token = (kind: string) => `${kind}-${crypto.randomUUID()}`;
   const home = await realpath(homedir());
@@ -250,6 +250,7 @@ async function plant(
     tester: [...common, ...herdr("tester"), "cat shared-note.txt"],
     reviewer: [
       ...common,
+      ...herdr("reviewer"),
       "echo x > reviewer-note.txt && echo wrote-note",
       `cat ${runs}/*/*/sandboxes/*/homes/*/probe-canary`,
     ],
@@ -349,7 +350,7 @@ async function unreadyReason(environment: SandboxEnvironmentKey): Promise<string
  */
 export async function runProbe(
   environment: SandboxEnvironmentKey,
-  panes: ("coder" | "tester")[] = [],
+  panes: ProbeName[] = [],
 ): Promise<void> {
   assertLiveOptIn();
   // Never skipped: a sandbox regression must not pass unseen as a provider missing.

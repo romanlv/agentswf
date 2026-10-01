@@ -52,14 +52,14 @@ the quality of the answer.
 
 What they cover between them:
 
-- `harnesses` — quick-check across codex and pi headless and claude in a Herdr pane, through
-  `awf run`. Every answer must be right, each including a follow-up in the same session, and every
-  agent's spend known and billed to its subscription. 3 agents, ~20 s, $0.05–0.11.
-- `compaction` — native compaction (story 015) on claude and codex in panes and headless, pi
-  headless and cursor headless: each compacts with a focus naming a codename it was never told,
-  then must recall it and what it noted before. Cursor must refuse, saying why. `bun
-  tests/compaction.eval.ts pi codex` runs only those. 6 agents, ~50 s, ~$0.32 at list prices,
-  $0.15 charged: the headless claude is metered.
+- `harnesses` — quick-check across codex and pi headless and claude and pi in a Herdr pane,
+  through `awf run`. Every answer must be right, each including a follow-up in the same session,
+  and every agent's spend known and billed to its subscription. 4 agents, ~20 s, ~$0.07.
+- `compaction` — native compaction (story 015) on claude, codex and pi in panes and headless, and
+  cursor headless: each compacts with a focus naming a codename it was never told, then must
+  recall it and what it noted before. Cursor must refuse, saying why. `bun
+  tests/compaction.eval.ts pi pi-pane` runs only those. 7 agents, ~60 s, ~$0.52 at list prices,
+  $0.18 charged: the headless claude is metered.
 - `minimum-review` — two reviewers in parallel in one Herdr workspace, claude and codex both in
   panes, on a disposable copy of a fixture. Both must complete natively and in lens order, and the
   repository must be untouched. 2 agents, ~20 s, ~$0.04. `bun tests/minimum-review.eval.ts
@@ -85,10 +85,10 @@ What they cover between them:
   provider is not installed or docker's daemon does not answer within 30 s, so a sandbox
   regression cannot pass unseen. `sandbox-docker` builds the default image first when it is
   missing.
-- `sandbox-panes-srt` — the same probe with codex and claude in terminal panes of the run's Herdr,
-  typed in behind srt's confining prelude, and also refused the run's Herdr socket, leaving no
-  secret or process behind; processes are found by their environment, where a pane's carry the
-  run's path. 3 agents, ~3 min, ~$0.30; claude in a pane is on its subscription.
+- `sandbox-panes-srt` — the same probe with codex, claude and pi in terminal panes of the run's
+  Herdr, typed in behind srt's confining prelude, and also refused the run's Herdr socket, leaving
+  no secret or process behind; processes are found by their environment, where a pane's carry the
+  run's path. 3 agents, ~3 min, ~$0.37; claude in a pane is on its subscription.
 - `skills` — agents given one of two probe skills and using it (story 007): codex, pi and a
   claude pane on the host, and codex and pi sharing one srt sandbox with different probes. The
   prompt never mentions skills; it asks for a build's release stamp and audit seal, each claimed by
@@ -118,7 +118,7 @@ What they cover between them:
   `tests/run-sandbox.test.ts` checks these checks for free. 3 agents; srt ~1 min, ~$0.05–0.17;
   docker ~1½ min, ~$0.12–0.16.
 - `sandbox-panes-docker` — the same, with the panes in the box's own Herdr, typed in behind a
-  prelude that sets their environment and loads their secret. 3 agents, ~3 min, ~$0.32. Fails,
+  prelude that sets their environment and loads their secret. 3 agents, ~3½ min, ~$0.41. Fails,
   saying why, where docker cannot run.
 
 Added up, the figures above come to ~10 min and ~$1.05 without docker; `sandbox-docker`,

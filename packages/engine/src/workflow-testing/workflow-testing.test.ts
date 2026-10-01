@@ -504,10 +504,10 @@ describe("testWorkflow", () => {
 
   describe("the hosts refuse what the real ones refuse", () => {
     test("a harness no pane runs", async () => {
-      const run = await testWorkflow(solo({ runtime: { harness: "pi", model: "m" } }), null, {
+      const run = await testWorkflow(solo({ runtime: { harness: "cursor", model: "m" } }), null, {
         agents: { solo: answer("hi") },
       });
-      expect(() => run.value).toThrow("adapter does not support harness pi");
+      expect(() => run.value).toThrow("adapter does not support harness cursor");
     });
 
     test("cursor in a sandbox", async () => {

@@ -215,7 +215,9 @@ describe("awf run", () => {
       { cwd: ROOT, stderr: (text) => errors.push(text), installRuntime: emptyRuntime },
     );
     expect(exitCode).toBe(2);
-    expect(errors.join("\n")).toContain("unknown runtime cursor; expected codex, pi, claude");
+    expect(errors.join("\n")).toContain(
+      "unknown runtime cursor; expected codex, pi, pi-pane, claude",
+    );
   });
 
   test("a sandbox's own Herdr is watched unless --no-watch", async () => {

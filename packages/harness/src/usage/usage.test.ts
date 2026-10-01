@@ -7,7 +7,7 @@ import { createSessionAccounting } from "./accounting";
 import { claudeBilling, codexBilling, piBilling, readCodexBilling } from "./billing";
 import { readClaudeUsage as readClaude } from "./claude";
 import { readCodexUsage as readCodex } from "./codex";
-import { readPiUsage as readPi } from "./pi";
+import { readPiUsage as readPi, readPiCompactSummary } from "./pi";
 import type { SessionRead, UsageRecord } from "./records";
 
 /** Most tests are about the records; the open turn has tests of its own. */
@@ -477,6 +477,17 @@ describe("pi sessions", () => {
     const original = join(root, "sessions", PI_FILE);
     cpSync(original, join(root, "sessions/--repo--/2026-09-23T18-00-00-000Z_fork.jsonl"));
     expect(await readPiUsage([PI, "fork"], root)).toHaveLength(2);
+  });
+
+  test("the last compaction's summary, by the pane's path or the launcher's id", async () => {
+    const root = copy("pi");
+    const path = join(root, "sessions", PI_FILE);
+    expect(await readPiCompactSummary(path, root)).toBeUndefined();
+    for (const summary of ["first", "second"]) {
+      appendFileSync(path, `${JSON.stringify({ type: "compaction", id: summary, summary })}\n`);
+    }
+    expect(await readPiCompactSummary(path, root)).toBe("second");
+    expect(await readPiCompactSummary(PI, root)).toBe("second");
   });
 
   test("a path outside pi's sessions, a missing id, or a half-written line", async () => {

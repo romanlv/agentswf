@@ -7,13 +7,13 @@ import { runOperatorCli } from "../packages/engine/src/operator-cli";
 import { assertLiveOptIn, interruption } from "./live";
 
 /**
- * Every harness awf runs, live, on its cheapest model: codex and pi headless and claude in a Herdr
- * pane, each answering a follow-up in the same session. Each must answer right through
+ * Every harness awf runs, live, on its cheapest model: codex and pi headless, and claude and pi in
+ * a Herdr pane, each answering a follow-up in the same session. Each must answer right through
  * `wf result`, and each agent's spend must be read from its own session files on its subscription.
- * One run of three agents, about 20 s and $0.05 at list prices.
+ * One run of four agents, about 30 s and $0.07 at list prices.
  */
 const QUICK_CHECK = join(import.meta.dir, "../examples/quick-check/workflow.ts");
-const HARNESSES = ["codex", "pi", "claude"] as const;
+const HARNESSES = ["codex", "pi", "pi-pane", "claude"] as const;
 
 export function problems(exitCode: number, record: OutputRecord | undefined): string[] {
   if (exitCode !== 0 || record?.outcome !== "succeeded") {

@@ -344,6 +344,8 @@ const TYPED_START_WAIT_MS = 60_000;
 /** How long the login shell has to draw its first prompt before the prelude is typed anyway. */
 const TYPED_START_SETTLE_MS = 10_000;
 const TYPED_START_POLL_MS = 300;
+/** How often a pane whose harness looks idle while it compacts is read for the compaction's end. */
+const COMPACTION_POLL_MS = 500;
 
 export function createPaneAdapter(
   config: HerdrConfig,
@@ -781,11 +783,31 @@ export function createHerdrRunHostFactory(
            */
           const compactInPane = async (
             agentName: string,
-            operation: { prompt: string; deadline: { unixMilliseconds: number } },
+            operation: {
+              prompt: string;
+              deadline: { unixMilliseconds: number };
+              previousSessionRef?: string;
+            },
             signal: AbortSignal,
           ): Promise<NativeTurnOutcome> => {
             const compaction = spec.compactPane!;
             const remaining = () => operation.deadline.unixMilliseconds - Date.now();
+            const readScreen = () =>
+              herdr(
+                ["agent", "read", agentName, "--source", "recent-unwrapped", "--lines", "200"],
+                Math.max(1, remaining()),
+                signal,
+              );
+            let before = "";
+            if (compaction.ended) {
+              const read = await readScreen();
+              if (!read.ok) {
+                return read.cancelled || signal.aborted
+                  ? localOutcome("cancelled", "pane operation cancelled")
+                  : localOutcome("failed", `the pane could not be read: ${read.error}`);
+              }
+              before = read.stdout;
+            }
             let agent: Record<string, unknown> | undefined;
             for (const [index, text] of compaction.prompts(operation.prompt).entries()) {
               if (index > 0) {
@@ -813,18 +835,27 @@ export function createHerdrRunHostFactory(
                 agent = record(sent.result.agent) ?? sent.result;
               }
             }
-            const read = await herdr(
-              ["agent", "read", agentName, "--source", "recent-unwrapped", "--lines", "200"],
-              Math.max(1, remaining()),
-              signal,
-            );
+            let read = await readScreen();
+            while (read.ok && compaction.ended && !compaction.ended(read.stdout, before)) {
+              // Herdr sees the agent idle, so nothing else would stop a compaction left running.
+              const interrupt = () => herdr(["agent", "send-keys", agentName, "esc"]);
+              if (remaining() <= 0) {
+                await interrupt();
+                return localOutcome("timed-out", "operation deadline exceeded");
+              }
+              if (!(await abortableDelay(COMPACTION_POLL_MS, signal))) {
+                await interrupt();
+                return localOutcome("cancelled", "pane operation cancelled");
+              }
+              read = await readScreen();
+            }
             if (!read.ok) {
               return read.cancelled || signal.aborted
                 ? localOutcome("cancelled", "pane operation cancelled")
                 : localOutcome("failed", `the pane could not be read: ${read.error}`);
             }
             const evidence = { kind: "transcript" as const, text: read.stdout };
-            if (!compaction.compacted(read.stdout, operation.prompt)) {
+            if (!compaction.compacted(read.stdout, operation.prompt, before)) {
               return {
                 state: "failed",
                 detail: `${harness} shows no compaction: ${readable(read.stdout).trim().slice(-300)}`,
@@ -832,7 +863,8 @@ export function createHerdrRunHostFactory(
                 chargesUsd: [],
               };
             }
-            const sessionRef = agent ? readSessionRef(agent) : undefined;
+            // A stalled prompt returns no agent; the session is the one its turns already named.
+            const sessionRef = (agent && readSessionRef(agent)) || operation.previousSessionRef;
             const summary = sessionRef
               ? await spec.readCompactSummary?.(sessionRef, request.cwd)
               : undefined;
@@ -860,7 +892,7 @@ export function createHerdrRunHostFactory(
             finishesAnswered: true,
             // Still working past its grace, an answered agent is interrupted, as a headless one's
             // process is stopped: it would otherwise spend, and change files, until the run ends.
-            // Escape stops a claude or codex turn and leaves the session; an idle agent is left
+            // Escape stops a claude, codex or pi turn and leaves the session; an idle agent is left
             // alone, since a second Escape opens codex's history.
             async stopFinishing() {
               const stopped = await stopWaiting();

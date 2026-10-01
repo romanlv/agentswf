@@ -11,13 +11,13 @@ import { assertLiveOptIn, interruption } from "./live";
  * agent notes a colour, is compacted with a focus naming a codename it was never told, and is then
  * asked both. An answer means the harness compacted; the codename back means the focus reached it;
  * the colour back means the session went on. Cursor has no compaction and must say so, then go on.
- * One run of six agents, a pane claude and codex among them, about two minutes and $0.20 at list
- * prices, a metered headless claude included.
+ * One run of seven agents, a pane claude, codex and pi among them, about two minutes and $0.20
+ * at list prices, a metered headless claude included.
  */
 const COMPACTION = join(import.meta.dir, "../examples/compaction/workflow.ts");
 
 /** Where the harness shows its summary, it must carry the focus too. */
-const SHOWS_SUMMARY = new Set(["claude", "claude-headless", "pi"]);
+const SHOWS_SUMMARY = new Set(["claude", "claude-headless", "pi", "pi-pane"]);
 
 export function problems(exitCode: number, record: OutputRecord | undefined): string[] {
   if (exitCode !== 0 || record?.outcome !== "succeeded") {

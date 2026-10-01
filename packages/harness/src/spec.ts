@@ -8,7 +8,7 @@ import { readClaudeBilling, readCodexBilling, readPiBilling } from "./usage/bill
 import { claudeProjectsDirectory, readClaudeCompactSummary, readClaudeUsage } from "./usage/claude";
 import { codexSessionsDirectory, readCodexUsage } from "./usage/codex";
 import { ownFiles } from "./usage/files";
-import { readPiUsage } from "./usage/pi";
+import { readPiCompactSummary, readPiUsage } from "./usage/pi";
 import type { SessionRead } from "./usage/records";
 
 export type TurnPlan = {
@@ -97,11 +97,23 @@ export type HarnessSpec = {
   /** Its own compaction in a pane: what is typed, in order, and the screen that shows it ran. */
   compactPane?: {
     prompts(focus: string): string[];
-    /** Whether `screen` shows a compaction after what this one's prompts put there. */
-    compacted(screen: string, focus: string): boolean;
+    /**
+     * Whether `screen` shows a compaction after what this one's prompts put there. `before` is
+     * the screen as it was before them, read only for a harness with `ended`; `""` otherwise.
+     */
+    compacted(screen: string, focus: string, before: string): boolean;
+    /**
+     * Whether `screen` shows this compaction over, compacted or not. A harness that reports itself
+     * idle while it compacts, as pi does, is read until it does. Absent, the settled screen is
+     * final.
+     */
+    ended?(screen: string, before: string): boolean;
   };
-  /** The summary of a session's last compaction, from the harness's own record, where it keeps one. */
-  readCompactSummary?(sessionId: string, cwd: string): Promise<string | undefined>;
+  /**
+   * The summary of a session's last compaction, from the harness's own record, where it keeps one.
+   * `session` is the session as the pane's harness names it: an id, or for pi its file's path.
+   */
+  readCompactSummary?(session: string, cwd: string): Promise<string | undefined>;
   /**
    * Its headless turns are billed per token even on a subscription login, so a headless agent is
    * `metered` whatever `billing` says, and runs only when its execution says `metered`.
@@ -434,6 +446,17 @@ export const HARNESSES: Record<Harness, HarnessSpec> = {
         },
       };
     },
+    // pi echoes no slash command. A compaction clears its chat and redraws one `Compacted from N
+    // tokens` line, so a new one is that line changed; pi refuses to compact twice in a row, so N
+    // never repeats. A failure or a cancel prints an error instead, and Herdr sees pi idle while
+    // it compacts, so the screen is read until one of them shows. The line read before a new
+    // line is typed: pi's `/compact` takes the rest of its line as the focus.
+    compactPane: {
+      prompts: (focus) => [`/compact ${focus.replace(/\s+/g, " ").trim()}`],
+      compacted: (screen, _focus, before) => piCompacted(screen, before),
+      ended: (screen, before) => piCompacted(screen, before) || piRefused(screen, before),
+    },
+    readCompactSummary: (session) => readPiCompactSummary(session),
     readSessionUsage: (sessions, _cwd, home) => readPiUsage(sessions, home),
     homeSessions: async (home) => {
       const root = join(home, "sessions");
@@ -479,6 +502,32 @@ export const HARNESSES: Record<Harness, HarnessSpec> = {
 };
 
 const CODEX_FOCUS_END = "Reply only: ok";
+const PI_COMPACTED = /Compacted from [\d,]+ tokens/;
+const PI_REFUSED = /Error: Compaction (failed|cancelled)/;
+
+function lastMatch(screen: string, pattern: RegExp): string | undefined {
+  return screen.split("\n").findLast((line) => pattern.test(line));
+}
+
+function piCompacted(screen: string, before: string): boolean {
+  const now = lastMatch(screen, PI_COMPACTED);
+  return now !== undefined && now !== lastMatch(before, PI_COMPACTED);
+}
+
+/**
+ * A refusal is not redrawn away, so a new one adds a line. Or it is the screen's last word where
+ * it was not before, should the count lose a line off the top of the window.
+ */
+function piRefused(screen: string, before: string): boolean {
+  const refusals = (text: string) => text.split("\n").filter((line) => PI_REFUSED.test(line));
+  const lastEvent = (text: string) =>
+    text.split("\n").findLast((line) => PI_REFUSED.test(line) || PI_COMPACTED.test(line));
+  const last = lastEvent(screen);
+  return (
+    refusals(screen).length > refusals(before).length ||
+    (last !== undefined && PI_REFUSED.test(last) && last !== lastEvent(before))
+  );
+}
 
 /** Codex compacts with no focus of its own, so it reads one as the message just before. */
 function codexCompactionFocus(focus: string): string {
@@ -503,11 +552,12 @@ export function findHarness(harness: string): HarnessSpec | undefined {
 export const HARNESS_NAMES = Object.keys(HARNESSES) as [Harness, ...Harness[]];
 
 /**
- * The harnesses each placement's run host runs. A pane is claude or codex, the two whose startup
- * screens are driven; a headless turn is any harness in the table.
+ * The harnesses each placement's run host runs. A pane is claude, codex or pi: claude's and
+ * codex's startup screens are driven, and pi shows none (story 017). Cursor's are not yet. A
+ * headless turn is any harness in the table.
  */
 export const PLACEMENT_HARNESSES = {
-  pane: ["claude", "codex"],
+  pane: ["claude", "codex", "pi"],
   headless: HARNESS_NAMES,
 } as const satisfies Record<AgentPlacement, readonly [Harness, ...Harness[]]>;
 

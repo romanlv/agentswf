@@ -52,6 +52,17 @@ export async function readPiUsage(
   return { records: [...records.values()], open: false };
 }
 
+/** The summary of the session's last compaction: pi's `compaction` entry. */
+export async function readPiCompactSummary(
+  ref: string,
+  agentDirectory = harnessState().pi,
+): Promise<string | undefined> {
+  const file = await resolve(join(agentDirectory, "sessions"), ref);
+  if (!file) return undefined;
+  const compaction = (await jsonRows(file)).findLast((row) => row.type === "compaction");
+  return text(compaction?.summary);
+}
+
 async function resolve(root: string, ref: string): Promise<string | undefined> {
   if (isAbsolute(ref)) {
     const inside = relative(root, ref);

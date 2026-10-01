@@ -8,9 +8,9 @@ exists, the code is right, then this page.
 
 - `awf run {workflow.ts}` loads a trusted local workflow and runs it. Each agent's placement is set
   in the workflow: a pane agent gets a tab in the run's one Herdr workspace, and a headless agent
-  runs as a subprocess per turn that resumes one native session. claude and codex run in panes;
-  codex and pi run headless. A headless claude needs `metered: true`, as `claude -p` bills per
-  token even on a subscription login. A pane agent keeps its pane for all its turns (ADR 0008). Pane agents open in the Herdr session `awf run` is started
+  runs as a subprocess per turn that resumes one native session. claude, codex and pi run in
+  panes (pi since story 017); codex and pi run headless. A headless claude needs `metered: true`,
+  as `claude -p` bills per token even on a subscription login. A pane agent keeps its pane for all its turns (ADR 0008). Pane agents open in the Herdr session `awf run` is started
   from (`AWF_HERDR_SESSION` overrides it), and `--cwd` sets the directory the workflow works in.
 - While it runs, `awf run` shows each labelled `parallel` stage and its agents' turns: a block
   redrawn in place on a terminal, a line per change otherwise.
@@ -32,7 +32,7 @@ exists, the code is right, then this page.
   and decision model scripted, typed by the schema each turn asks for. Seven examples have theirs
   beside them.
 - `agent.compact` runs the harness's own compaction with the workflow's focus (story 015, ADR
-  0007): claude in a pane or headless, codex in a pane or headless, pi headless; cursor refuses.
+  0007): claude, codex and pi in a pane or headless; cursor refuses.
   `examples/compaction` checks each live.
 - `examples/quick-check` asks each named harness a known-answer question, with a follow-up in the
   same session. It is the cheap smoke test for a harness and its accounting.
@@ -43,10 +43,10 @@ exists, the code is right, then this page.
   models'. They get exactly the environment variables the provider sets, and each has a fresh
   harness home holding its credential and first-run answers, nothing else of the operator's.
   `output.json` lists each sandbox and its agents. The providers:
-  - **srt**, the default where installed: headless claude, codex and pi, and claude and codex in
-    panes of the run's Herdr, all verified live;
+  - **srt**, the default where installed: headless claude, codex and pi, and claude, codex and pi
+    in panes of the run's Herdr, all verified live;
   - **docker**: headless agents in a container, with a filtering proxy and a relay for `wf`, and
-    claude and codex in panes of the box's own Herdr, all verified live.
+    claude, codex and pi in panes of the box's own Herdr, all verified live.
 - A workflow names each agent's skills, `{ path }` or a public `{ repo, skill, ref? }`, and the
   agent has exactly those, on the host or in a sandbox, under claude, codex and pi (story 007).
   Each agent gets a checked copy; a public skill is pinned to a commit in a cache shared by runs.
@@ -147,8 +147,8 @@ The gates are defined in [`foundation.md`](foundation.md) §12.
 - [016 — fork](stories/016-fork.md): draft, its ADR (0009) awaiting approval. A fork is a new
   agent on a copy of the session, made with no model call; claude's and pi's forks read the
   parent's cache, codex's pay it once ([findings](findings/fork-cache.md)).
-- [017 — pi in panes](stories/017-pi-pane-agent.md): draft. pi starts in a Herdr pane with no
-  startup screen and compacts there (probed); awf's pane list had only claude and codex.
+- [017 — pi in panes](stories/017-pi-pane-agent.md): awaiting human review. pi runs in a Herdr
+  pane, on the host and in srt and docker sandboxes, and compacts there with a focus.
 
 The inbox of possible stories is [`stories/todo/`](stories/todo/).
 
@@ -174,7 +174,7 @@ The inbox of possible stories is [`stories/todo/`](stories/todo/).
 - A headless turn killed mid-request, by its 30 s grace after answering or by a follow-up that
   stopped waiting, loses that request from its usage. At run end the runner waits up to 10 s for it
   instead.
-- An agent its host cannot run (pi in a pane, claude headless without `metered`) is refused only
+- An agent its host cannot run (cursor in a pane, claude headless without `metered`) is refused only
   when it opens, possibly after other agents have spent. pi's billing is inferred from its
   `auth.json`. A headless claude has run live only in a sandbox, on a setup token.
 - A contained `awf-lab` trial ([story 013](stories/013-autoresearch-loop.md)) has an open network,

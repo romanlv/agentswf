@@ -41,9 +41,10 @@ const PLAN = Type.Object({
     { description: "Each agent's commands, run in order in the working directory." },
   ),
   panes: Type.Optional(
-    Type.Array(Type.Union([Type.Literal("coder"), Type.Literal("tester")]), {
-      description: "Agents to run in a terminal pane instead of headless; pi has no pane host.",
-    }),
+    Type.Array(
+      Type.Union([Type.Literal("coder"), Type.Literal("tester"), Type.Literal("reviewer")]),
+      { description: "Agents to run in a terminal pane instead of headless." },
+    ),
   ),
 });
 
@@ -101,7 +102,7 @@ const executable = defineExecutableWorkflow<ProbePlan, ProbeResult>({
       const reports: ProbeReport[] = [];
       // One after another: the tester reads what the coder wrote.
       for (const name of ["coder", "tester", "reviewer"] as const) {
-        const pane = plan.panes?.includes(name as "coder" | "tester") === true;
+        const pane = plan.panes?.includes(name) === true;
         const {
           placement: _placement,
           metered: _metered,

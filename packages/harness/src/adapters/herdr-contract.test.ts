@@ -25,7 +25,7 @@ const deadline = () => ({ unixMilliseconds: Date.now() + 60_000 });
 async function reviewOnce(
   herdr: ReturnType<typeof createFakeHerdr>,
   config: Partial<HerdrConfig> = {},
-  harness: "claude" | "codex" = "claude",
+  harness: "claude" | "codex" | "pi" = "claude",
 ) {
   const host = await createHerdrRunHostFactory({ ...CONFIG, ...config }, herdr.run).openRun({
     runId: "run-1",
@@ -63,6 +63,14 @@ describe("the run host against a Herdr that behaves like 0.8.2", () => {
       expect(agent.delivered).toHaveLength(1);
     },
   );
+
+  test("starts pi, which raises no startup block, and prompts it once it is ready", async () => {
+    const { agent, outcome } = await reviewOnce(createFakeHerdr({ startupBlocks: [] }), {}, "pi");
+
+    expect(outcome).toMatchObject({ state: "completed" });
+    expect(agent.kind).toBe("pi");
+    expect(agent.delivered).toHaveLength(1);
+  });
 
   test("empties the metered credentials in the agent's own pane, not just the workspace", async () => {
     // A tab launches its own process, so an environment set only on the workspace never reaches

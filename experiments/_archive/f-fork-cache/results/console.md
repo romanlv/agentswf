@@ -64,3 +64,11 @@ pi, `{"type":"get_state"}` on stdin of `pi --mode rpc --fork 07ab0440-… --sess
       pane child (pi --session {fork}) → MANIFOLD-6764; its own requests 12777/0, 1438/11776   (first request missed)
       headless child (pi --print --session {fork}) → 994/11776
       second pane child → 994/11776
+
+## Two compactions in one pi pane (story 017's review), 2026-10-01
+
+pi clears its chat after a compaction and redraws one `Compacted from` line, so the screen never
+holds two. `herdr agent read --source recent-unwrapped --lines 200 | grep "Compacted from|Compaction (failed|cancelled)"`:
+
+    after 1: Compacted from 31,282 tokens (ctrl+o to expand)
+    after 2: Compacted from 31,415 tokens (ctrl+o to expand)
