@@ -1,7 +1,7 @@
 ---
 id: "014"
 title: Run a workflow from inside the session you are in
-summary: "From a claude, codex, pi or cursor session in a Herdr pane, the operator starts a workflow with a command; the run starts outside the session's sandbox, takes that session over as one of its agents, opens any others it needs, and hands the session back when it ends."
+summary: "From a claude, codex, pi or cursor session in a Herdr pane, the operator starts a workflow with a command; the run starts outside the session's sandbox, takes the calling session over as one of its agents, opens any others it needs, and hands the session back when it ends."
 type: story
 status: draft
 discovered_in: "conversation, 2026-09-30; experiments/e8-attach"
@@ -13,11 +13,14 @@ depends_on: []
 ## Outcome
 
 The operator is working in an interactive agent session — claude, codex, pi or cursor — in a Herdr
-pane. They invoke a command there, `/awf-run review-loop.ts` or `!awf run --here review-loop.ts`,
-and a workflow starts. The session they are in becomes one of the workflow's agents. The workflow
-sends it turns and reads its answers through `wf result` like any other agent's. It also opens
-other agents the usual way, in their own panes or headless. When the workflow ends, the session is
-handed back to the operator with its context intact, plus a last message saying how the run ended.
+pane. They invoke a command there and a workflow starts: `!awf run --here review-loop.ts`, a
+generic `/awf-run review-loop.ts`, or a command made for one workflow, such as `/review-loop`,
+that already names the workflow and its arguments. The session they invoke it from, the calling
+session, becomes one of the workflow's agents. The workflow sends it turns and reads its answers
+through `wf result` like any other agent's. It also opens other agents the usual way, in their own
+panes or headless. When the workflow ends, the calling session is handed back to the operator with
+its context intact, plus a last message saying how the run ended. When the calling session cannot
+be driven, the command says why and what to do instead, and nothing starts.
 
 Why: a long, scripted procedure, such as review then fix then re-review then summarize, can then
 run on demand inside the session that already holds the context, instead of starting cold in a new
@@ -26,9 +29,9 @@ pane. The operator writes the procedure once as a workflow and calls it when the
 ## How it works
 
 ```text
- operator's pane (claude/codex/pi/cursor)              new Herdr tab, outside any sandbox
+ calling session (claude/codex/pi/cursor)              new Herdr tab, outside any sandbox
  ─────────────────────────────────────────              ──────────────────────────────────
- /awf-run review-loop.ts
+ /review-loop  or  /awf-run review-loop.ts
    └─ agent runs `awf run --here …` ──── herdr ────►  awf run review-loop.ts --session {code}
         prints: reply with {code}, end turn              │  progress view, as `awf run` today
  agent replies "{code}", turn ends                       ▼
@@ -59,9 +62,14 @@ pane. The operator writes the procedure once as a workflow and calls it when the
 
 In scope:
 
-- The in-session command, and a skill or slash-command file per harness that invokes it.
+- The in-session command, `awf run --here`.
+- A generic skill or slash-command file per harness that invokes it, and a command made for one
+  workflow with its workflow and arguments fixed.
+- A clear refusal, before anything starts, when the calling session cannot be driven: it is not in
+  a Herdr pane, its harness is not supported, its sandbox cannot reach Herdr, or no pane shows the
+  code. Each refusal says what to do instead.
 - A run started for a session: its own Herdr tab, the session found by code, a deadline as usual.
-- The current session as one agent of the workflow, under a key the workflow names, with its turns
+- The calling session as one agent of the workflow, under a key the workflow names, with its turns
   answered through `wf result`.
 - Interrupt and hand-back behaviour, and the final message.
 - Accounting for the session's turns within the run only.
@@ -71,10 +79,10 @@ Out of scope:
 
 - Sessions not in a Herdr pane, including the desktop apps, IDEs and plain terminals. Each needs
   another delivery channel: claude's Stop hook or messaging socket, pi's extension API, codex
-  hooks. They are a follow-up todo.
-- Driving a session the operator did not ask to attach, including another pane's session.
+  hooks. They are a follow-up todo; until then `--here` refuses there, as above.
+- Driving any session but the calling one, including another pane's session.
 - Resuming a workflow after the session restarts.
-- More than one run attached to a session at once.
+- More than one run driving a calling session at once.
 
 ## Context and evidence
 
@@ -94,10 +102,11 @@ Out of scope:
   through which to run an outside session". This story reverses that for the operator's own
   session and needs an ADR first.
 - Constraint: foundation says each operation receives "fresh result authority and an operation
-  pane", and the next operation waits until the previous pane is released. An attached session
+  pane", and the next operation waits until the previous pane is released. A calling session
   has one pane for the whole run that the engine must not release.
-- Constraint: `AgentDirectory.attach(key)` already means reattaching a logical agent, so the
-  command and the concept cannot be called "attach".
+- Decision (2026-10-01): the flag is `--here` and the concept is the calling session.
+  `AgentDirectory.attach(key)` already means finding an agent the run opened, and Herdr's `attach`
+  means the opposite direction, so neither is called "attach".
 - Assumption: the operator's own approval covers the in-session command. E8 was started by an
   agent, so Claude Code's auto-mode classifier refused it. When the operator invokes the command,
   that refusal should not apply, but the harness's own sandbox still does. This is unverified.
@@ -133,7 +142,7 @@ Out of scope:
 
 ### wf
 
-- Checked: `packages/wf/src/cli.ts` needs no change. The launcher supplies `--at`, and an attached
+- Checked: `packages/wf/src/cli.ts` needs no change. The launcher supplies `--at`, and a calling
   session runs it by path.
 
 ## Proposed design
@@ -144,7 +153,14 @@ interrupt are expensive to change later. The likely shape:
 - **Command.** `awf run --here {workflow} [args]` in the agent's shell. It creates the code and
   asks Herdr to run `awf run {workflow} --session {code}` in a new tab of the caller's workspace,
   found from Herdr's own reply, not the environment. It prints the code and the instruction to
-  reply with it. Skill and slash-command files per harness wrap it.
+  reply with it. Before asking Herdr for anything, it checks that it can drive the calling
+  session: a Herdr pane, a supported harness, Herdr reachable from its sandbox. Otherwise it
+  refuses with the reason and the fix; under codex the fix names
+  `sandbox_workspace_write.network_access`. The run refuses the same way when no pane, or more
+  than one, shows the code.
+- **Commands.** A generic skill or slash-command file per harness wraps `awf run --here`. A
+  command for one workflow is the same file with the workflow and its arguments fixed, so the
+  operator types `/review-loop` and nothing else.
 - **Workflow surface.** The session is an agent opened under a reserved key, the same way any
   agent is, so the workflow's code does not depend on where the session came from. A run with no
   session refuses to open it. The concrete type is task 1's decision.
@@ -168,9 +184,9 @@ Alternatives rejected:
 
 ## Tasks at a glance
 
-- [ ] 1. ADR and design: the operator's session as an agent, its contract surface and names
+- [ ] 1. ADR and design: the calling session as an agent, and its contract surface
 - [ ] 2. A Herdr backend that drives a found pane it does not own
-- [ ] 3. `awf run --here` and `--session`, with skill and command files
+- [ ] 3. `awf run --here` and `--session`, its refusals, and the command files
 - [ ] 4. Interrupt, hand-back, and accounting for the session's turns only
 - [ ] 5. Live evaluation on claude, codex, pi and cursor
 
@@ -181,9 +197,7 @@ Alternatives rejected:
 - What does the workflow call to get the session: a reserved key with `agents.open`, a new
   `agents.current()`, or a placement? It must stay one logical-agent interface (foundation, run
   host symmetry).
-- Name of the concept and command. "attach" collides with `AgentDirectory.attach`; this draft
-  uses `--here`.
-- Does a workflow declare that it needs the operator's session, so `awf run` without one refuses
+- Does a workflow declare that it needs a calling session, so `awf run` without one refuses
   before starting?
 - Does the session get the workflow's `instructions` as a first turn, or only turn prompts?
 
@@ -200,6 +214,8 @@ Alternatives rejected:
 
 - Codex needs `network_access` or an approved escalation to reach Herdr and the result socket:
   document it, check for it and say so, or both?
+- Does `awf` write the command file for one workflow, or do the docs show the few-line
+  template per harness?
 - Is the command an operator `awf` command or an agent `wf` command? It runs in an agent's shell
   but starts a run, which is operator authority (ADR 0005).
 
@@ -223,7 +239,7 @@ deliverable.
 
 ## Task details
 
-### 1. ADR and design: the operator's session as an agent
+### 1. ADR and design: the calling session as an agent
 
 Outcome: an accepted ADR and updated design docs say when a session the engine did not start may
 be driven as an agent, how a workflow names it, and how its turns settle.
@@ -274,23 +290,28 @@ Done when:
 ### 3. `awf run --here` and `--session`
 
 Outcome: the operator types one command in their session, and the run starts in its own tab and
-takes the session over.
+takes the calling session over, or the command refuses with the reason and the fix.
 
 Execution:
 
-- [ ] Plan: argument shape, the Herdr calls, what the command prints, the per-harness wrappers.
-- [ ] Implement: the two flags, the launcher by path, the skill and slash-command files.
+- [ ] Plan: argument shape, the Herdr calls, what the command prints, each refusal's message,
+  the per-harness wrappers.
+- [ ] Implement: the two flags, the checks and refusals, the launcher by path, the generic and
+  per-workflow command files.
 - [ ] Review: architecture and scope, correctness and proof.
 - [ ] Resolve: disposition every finding.
-- [ ] Verify: CLI tests; a run started with an unknown code refuses, cleanly.
+- [ ] Verify: CLI tests for each refusal before anything starts (not in Herdr, unsupported
+  harness, Herdr unreachable) and for a run whose code no pane shows.
 
 Work:
 
-- `operator-cli.ts`, a skill folder, slash-command files for claude, codex, pi and cursor.
+- `operator-cli.ts`, a skill folder, generic and per-workflow command files for claude, codex, pi
+  and cursor.
 
 Done when:
 
-- `awf run --here examples/quick-check/…` takes over the calling pane under the fake Herdr.
+- `awf run --here examples/quick-check/…` takes over the calling session under the fake Herdr,
+  and each refusal prints its reason and fix with no run directory left behind.
 
 ### 4. Interrupt, hand-back, accounting
 
