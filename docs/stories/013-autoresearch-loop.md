@@ -220,7 +220,7 @@ Alternatives rejected:
 - [x] 3. The proposer writes a checked candidate from a tuning-only bundle
 - [x] 4. `awf-lab loop` keeps or discards, logs the tree and stops at the cap
 - [x] 5. `loop --final` checks the incumbent on the holdout
-- [ ] 6. The first live loop on air-1
+- [x] 6. The first live loop on air-1
 
 ## Open questions
 
@@ -382,6 +382,9 @@ Done when:
 
 - The try's record, cost and verdict are in Implementation notes.
 
+Done 2026-10-01: try 1 discarded; see "The first live loop" under Implementation notes. Over the
+cap: about $29 against $25.
+
 ## Verification
 
 Automated:
@@ -541,6 +544,32 @@ The start's first run, 8 cases in the container, showed three problems, each fix
 - The scorer needs `OPENROUTER_API_KEY` for Jev; the run's shell lacked it. awf's `.env` has it.
 
 `air-single` moved to 1.1 for the effort, so its low-effort trials don't count.
+
+A fourth problem stopped the loop itself: the shell's 2-hour limit killed it at case 15 of try 1,
+and resuming would have deleted the try and proposed again, losing its trials. A try now writes
+`proposal.json` as soon as its proposer answers, and resumes with it; its candidate is named by
+its code, so the trials it has count again. What it ran before the cut is still missing from its
+spend.
+
+**Result.** `air-single` (1.1): weighted recall 0.25 over the 23 tuning cases, $0.28 a review; on
+the first 8, 0.22, level with `air-skill` on `gpt-6-sol` (0.20). Try 1's proposer spent one
+minute, 50 reasoning tokens and $0.05, and proposed a second turn of the same agent tracing each
+change to its callers, tests and dependencies (predicted +0.12). Over all 23 cases: +0.035
+[−0.01, +0.08], won 6, tied 16, lost 1, cost +$0.29 a review, 2.2× the time; `default` 1.1.0
+said undecided at the end of the plan, so the try was **discarded**. The look at 16 didn't stop
+it: +0.05 was still in reach. Spend about $29 against a $25 cap: the start's runs $5.0, try 1
+$24.3, the overrun from resuming with no cap that knew the spend before the cut. Report:
+`reports/2026-10-01-first-live-loop.md` in the data repository.
+
+What it says about the loop, for its next version:
+
+- A try is too dear to reject: cases run one at a time (about 6 minutes each), and an undecided
+  try runs the whole plan. Run the cases up to each look in parallel, and stop at the first look
+  unless the gain there is at least `minGain`.
+- The proposer is the cheapest step and thought least; give it high effort or a stronger model,
+  and the screen's lesson in the program (separate agents, one job each).
+- With 1 trial a case, `rules.json`'s resolution is unknown, so the proposer had no target size.
+- A try's spend should be read from its records, so a cut can't hide it from the cap.
 
 ## Human review
 
