@@ -1017,7 +1017,7 @@ describe("awf run", () => {
 
 describe("awf run --here", () => {
   const WORKFLOW = "examples/calling-session/workflow.ts";
-  const inHerdr = { HERDR_ENV: "1", HERDR_PANE_ID: "w1:p1", AWF_HERDR_SESSION: "default" };
+  const inHerdr = { HERDR_ENV: "1", HERDR_WORKSPACE_ID: "w1", AWF_HERDR_SESSION: "default" };
 
   /** A Herdr whose panes show what `screens` says, recording every call. */
   function fakeHerdr(screens: Record<string, { agent?: string; screen: string }> = {}) {
@@ -1120,6 +1120,8 @@ describe("awf run --here", () => {
     expect(herdr.calls).toContainEqual([
       "tab",
       "create",
+      "--workspace",
+      "w1",
       "--cwd",
       ROOT,
       "--label",

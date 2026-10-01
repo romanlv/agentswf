@@ -341,19 +341,20 @@ export function searchCaller(
 }
 
 /**
- * Opens a tab in the focused workspace, beside the operator's, and types `argv` into its login
- * shell. The command runs as a process Herdr started, not one of the calling session's, which is
+ * Opens a tab in `workspace`, beside the operator's, and types `argv` into its login shell. The command runs as a process Herdr started, not one of the calling session's, which is
  * what keeps a run out of that session's sandbox.
  */
 export async function startInNewTab(
   config: HerdrConfig,
-  tab: { cwd: string; label: string; argv: readonly string[] },
+  tab: { workspace: string; cwd: string; label: string; argv: readonly string[] },
   run: RunProcess = runProcess,
 ): Promise<{ ok: true; tabId: string; paneId: string } | { ok: false; error: string }> {
   const commands = createHerdrCommands(config, run);
   const created = await commands.herdr([
     "tab",
     "create",
+    "--workspace",
+    tab.workspace,
     "--cwd",
     tab.cwd,
     "--label",

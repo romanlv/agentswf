@@ -357,6 +357,50 @@ const { answers } = await workflow.decisions.decide({
 0.9 as unsure rather than taking it. How well Jev did on real review data is in
 [`docs/findings/system-one-models.md`](docs/findings/system-one-models.md).
 
+### Run a workflow in the session you are in
+
+A long procedure you run often, such as review, fix, re-review and summarize, can run inside the
+agent session that already holds the context, instead of starting cold. From claude, codex, pi or
+cursor in a Herdr pane, start it with `awf run --here`. The run opens its own tab, takes your
+session over as one of its agents, and hands it back with a last `[awf]` message when it ends.
+Other agents it opens run as usual.
+
+```ts
+const author = await workflow.agents.caller({ key: "author" });
+if (!author) throw new Error("start this workflow with awf run --here");
+const { outcome } = await author.run({ prompt: "Fix the findings in REVIEW.md.", schema: FIXED });
+```
+
+`agents.caller` returns `null` when the run was not started from a session. Its turns work like any
+agent's, except that the context is yours: `compact` is refused, a turn that fails, times out or
+is cancelled leaves the session as it was, and pressing Esc on a step settles that step
+`cancelled` instead of nudging you.
+
+There are three ways to start it:
+
+- **Type it yourself:** `!awf run --here review-loop.ts` in claude (`!` runs a shell command).
+- **A skill:** copy [`packages/engine/skills/awf-run`](packages/engine/skills/awf-run/) to
+  `~/.claude/skills/`, `~/.agents/skills/` (codex), `~/.pi/agent/skills/` or `~/.cursor/skills/`,
+  then invoke it the way your harness invokes a skill, as `/awf-run review-loop.ts` in claude.
+- **A command for one workflow:** the same skill with the workflow fixed, so `/review-loop` is
+  all you type. Copy `awf-run`, rename it, and change its command and `name`:
+
+  ```markdown
+  ---
+  name: review-loop
+  description: Review this branch in this session with the review-loop workflow. Use when the user types /review-loop.
+  ---
+
+  Run `awf run --here ~/workflows/review-loop.ts` in the shell, then follow the rest of awf-run's
+  instructions.
+  ```
+
+When the session cannot be driven, the command says why and starts nothing: when it is not in a
+Herdr pane, or when its sandbox cannot reach Herdr. Under codex's default sandbox, start codex with
+`-c sandbox_workspace_write.network_access=true`. Try it with
+[`examples/calling-session`](examples/calling-session/). The design is
+[ADR 0009](docs/adr/0009-the-calling-session-is-an-agent.md).
+
 ## Runnable examples
 
 | Workflow | What it shows | Run it |
@@ -367,6 +411,7 @@ const { answers } = await workflow.decisions.decide({
 | [`catalogue-review`](examples/catalogue-review/) | many lenses, a verifier per finding, a Markdown report | an entry point beside your lens catalogue |
 | [`sandboxes`](examples/sandboxes/) | a shared docker sandbox and a private srt one | `awf run --cwd "$(mktemp -d)" examples/sandboxes/workflow.ts` |
 | [`triage`](examples/triage/) | typed decisions with probabilities | `awf run examples/triage/workflow.ts` |
+| [`calling-session`](examples/calling-session/) | a workflow driving the session it was started from | `awf run --here examples/calling-session/workflow.ts`, from an agent |
 | [`feature-delivery`](examples/feature-delivery/) | plan, implement, review, revise | a design that typechecks; it hasn't run yet |
 
 [`examples/README.md`](examples/README.md) has the details of each. The rest of the folder is test

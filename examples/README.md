@@ -65,6 +65,20 @@ proving a harness, its result channel and the run's accounting for a few cents:
 bun awf run examples/quick-check/workflow.ts -- codex pi
 ```
 
+## Drive the session you are in
+
+`calling-session/` takes over the agent session it was started from (ADR 0009). It asks the session
+to pick a number, has a headless codex agent double it, then asks the session to recall the number
+and check the doubling. Run it from claude, codex, pi or cursor in a Herdr pane, as the agent's own
+shell command; `--no-helper` leaves the codex agent out:
+
+```sh
+awf run --here examples/calling-session/workflow.ts
+```
+
+The agent replies with the line it prints, and the run, in a new tab, sends it the steps. Run without
+`--here` it throws, saying so.
+
 ## Ask a decision model
 
 `triage/` routes support tickets with Jev, a decision model: one call per ticket asks which team

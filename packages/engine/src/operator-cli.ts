@@ -569,7 +569,8 @@ async function startHere(
     stderr(`awf: --here: ${why}. ${instead}`);
     return 1;
   };
-  if (env.HERDR_ENV !== "1" || !env.HERDR_PANE_ID) {
+  const workspace = env.HERDR_WORKSPACE_ID;
+  if (env.HERDR_ENV !== "1" || !workspace) {
     return refuse(
       "this session is not in a Herdr pane, so a run cannot drive it",
       "Start the agent in a Herdr pane, or run the workflow from a shell with awf run and no --here.",
@@ -599,6 +600,8 @@ async function startHere(
   const started = await startInNewTab(
     herdrConfig(session),
     {
+      // Under codex this can be another pane's workspace (E8); the run's tab still works from it.
+      workspace,
       cwd: command.shellCwd,
       label: `awf ${basename(file)}`,
       argv: [...self, "run", "--session", code, ...options, ...rest],
