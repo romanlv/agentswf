@@ -3,7 +3,7 @@ id: "014"
 title: Run a workflow from inside the session you are in
 summary: "From a claude, codex, pi or cursor session in a Herdr pane, the operator starts a workflow with a command; the run starts outside the session's sandbox, takes the calling session over as one of its agents, opens any others it needs, and hands the session back when it ends."
 type: story
-status: draft
+status: in-progress
 discovered_in: "conversation, 2026-09-30; experiments/e8-attach"
 depends_on: []
 ---
@@ -101,9 +101,9 @@ Out of scope:
   start an outside participant only: it never answers `result`, and "the engine has no operation
   through which to run an outside session". This story reverses that for the operator's own
   session and needs an ADR first.
-- Constraint: foundation says each operation receives "fresh result authority and an operation
-  pane", and the next operation waits until the previous pane is released. A calling session
-  has one pane for the whole run that the engine must not release.
+- Fact: a pane agent already keeps one pane for all its operations, each prompted once the agent
+  has settled ([ADR 0008](../adr/0008-a-pane-agent-continues-in-its-pane.md)), which is how a
+  calling session is driven. What differs is that the engine never closes it.
 - Decision (2026-10-01): the flag is `--here` and the concept is the calling session.
   `AgentDirectory.attach(key)` already means finding an agent the run opened, and Herdr's `attach`
   means the opposite direction, so neither is called "attach".
@@ -119,9 +119,9 @@ Out of scope:
 
 - Paths and symbols: `packages/contract/src/workflow/agents.ts` — `AgentDirectory`,
   `AgentOpenSpec`, `AgentPlacement`, `TurnOutcome`.
-- Relevance: the workflow needs a way to get the session it was started from as an `AgentRef`.
-  `placement` is `"pane" | "headless"` today. Whether this is a third placement, a new
-  `AgentDirectory` call, or a run-level participant is the main interface decision (task 1).
+- Relevance: `AgentDirectory` gains `caller({ key })` and `AgentExecution` gains `caller?: true`
+  (ADR 0010), landing with their implementation in task 2; `testWorkflow` gains a scripted
+  caller.
 
 ### harness
 
@@ -161,9 +161,9 @@ interrupt are expensive to change later. The likely shape:
 - **Commands.** A generic skill or slash-command file per harness wraps `awf run --here`. A
   command for one workflow is the same file with the workflow and its arguments fixed, so the
   operator types `/review-loop` and nothing else.
-- **Workflow surface.** The session is an agent opened under a reserved key, the same way any
-  agent is, so the workflow's code does not depend on where the session came from. A run with no
-  session refuses to open it. The concrete type is task 1's decision.
+- **Workflow surface.** `agents.caller({ key })` returns the session as an `AgentRef` under the
+  key the workflow names, or `null` when the run has none; the ADR lists where its behaviour
+  differs from an opened agent's.
 - **Backend.** A Herdr backend for one found pane. It delivers each operation with `agent prompt`,
   confirms delivery by the result or the transcript, never closes the pane, and settles a turn
   whose screen shows the harness's interrupt marker as `cancelled`, without a nudge.
@@ -194,12 +194,16 @@ Alternatives rejected:
 
 ### 1. ADR and design
 
-- What does the workflow call to get the session: a reserved key with `agents.open`, a new
-  `agents.current()`, or a placement? It must stay one logical-agent interface (foundation, run
-  host symmetry).
-- Does a workflow declare that it needs a calling session, so `awf run` without one refuses
-  before starting?
-- Does the session get the workflow's `instructions` as a first turn, or only turn prompts?
+Proposed in [ADR 0010](../adr/0010-the-calling-session-is-an-agent.md), awaiting approval:
+
+- The workflow calls `agents.caller({ key })`. It gets an ordinary `AgentRef` under a key it
+  names, or `null` when the run has none. A reserved key, a new placement and a runnable
+  participant were rejected.
+- A workflow declares nothing. `caller()` returning `null` is the check.
+- No instructions turn: the caller is not opened, so what it needs goes in its turn prompts.
+- Also settled there: `compact` on the caller fails, `agents.stop` hands it back early, an
+  operator interrupt settles `cancelled` and is never nudged, and `--here` is an `awf` command
+  (task 3's last question).
 
 ### 2. Backend
 
@@ -216,8 +220,8 @@ Alternatives rejected:
   document it, check for it and say so, or both?
 - Does `awf` write the command file for one workflow, or do the docs show the few-line
   template per harness?
-- Is the command an operator `awf` command or an agent `wf` command? It runs in an agent's shell
-  but starts a run, which is operator authority (ADR 0005).
+- ~~Is the command an operator `awf` command or an agent `wf` command?~~ `awf`: it starts a run,
+  which is operator authority (ADR 0010).
 
 ### 4. Accounting
 
@@ -246,13 +250,13 @@ be driven as an agent, how a workflow names it, and how its turns settle.
 
 Execution:
 
-- [ ] Plan: read foundation's run host and operation-pane rules, `composition.md`, ADR 0001 and
+- [x] Plan: read foundation's run host and operation-pane rules, `composition.md`, ADR 0001 and
   0005, and E8; list the contract options with what each costs to change later.
-- [ ] Implement: write the ADR; update `composition.md`, `docs/design/README.md` and foundation
+- [x] Implement: write the ADR; update `composition.md`, `docs/design/README.md` and foundation
   where they state the opposite; add the contract type only if the ADR settles it.
-- [ ] Review: architecture and scope, correctness and proof.
-- [ ] Resolve: disposition every finding.
-- [ ] Verify: the docs agree with each other and with E8; `bun run check` passes if contract
+- [x] Review: architecture and scope, correctness and proof.
+- [x] Resolve: disposition every finding.
+- [x] Verify: the docs agree with each other and with E8; `bun run check` passes if contract
   changed.
 
 Work:
@@ -375,8 +379,19 @@ Manual or live evaluation:
 
 ### Task 1
 
-- Architecture and scope:
-- Correctness and proof:
+- Architecture and scope: 11 findings, all accepted into ADR 0010. Cancel and timeout on a caller
+  turn send one interrupt and leave the agent usable; `caller` rejects outside the root scope;
+  the four behaviours that differ from an opened agent are listed, not denied; `caller?: true`
+  marks the record; stop's single hand-back; the scripted caller in `testWorkflow`; an agent can
+  start `--here` itself, accepted as a risk; the story's surface and code map follow the ADR;
+  composition says "not an outside participant"; the hand-back is not an operation; `attach` on
+  the caller's key.
+- Correctness and proof: 9 findings, all accepted. Herdr starting the run outside the sandbox is
+  marked unmeasured and needs Herdr reachable; the hand-back is promised only for ends the engine
+  survives; an interrupt counts only when its marker follows this turn's prompt, and is
+  conditional per harness; no stop-finishing Esc on the caller; a separate backend with no close;
+  `agents.stop` is unbuilt; pi billing and the codex session id come from the session, not
+  `execution.model` or Herdr's `agent_session`; the shell-timeout and cache claims are narrowed.
 
 ## Readiness
 

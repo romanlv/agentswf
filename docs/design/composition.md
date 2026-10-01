@@ -6,7 +6,9 @@ Composition covers two related cases:
 - a workflow exchanges messages with a session the engine did not start.
 
 An outside session is a messaging participant, not an agent. The engine cannot run it, compact it,
-or collect a result from it.
+or collect a result from it. The one exception is the session a run was started from with
+`awf run --here`, which the workflow drives as an agent through `agents.caller`
+([ADR 0010](../adr/0010-the-calling-session-is-an-agent.md)); it is never an outside participant.
 
 ## Calling a child workflow
 
@@ -238,6 +240,7 @@ Durable findings remain in files; messages carry only coordination.
 
 - detached child workflows or signal-delivered child results;
 - workflows presented as agents;
-- running or collecting results from an outside participant;
+- running or collecting results from an outside participant, other than the calling session
+  (ADR 0010);
 - sharing a runnable parent agent with a child workflow;
 - visible message ids or authority tokens in agent commands.

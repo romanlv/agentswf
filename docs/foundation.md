@@ -245,7 +245,10 @@ the provider for its placement, and inspection, authority, deadlines, cancellati
 evidence stay symmetric. Swapping Herdr for another pane provider must not change workflow
 definitions or runtime aliases.
 
-One run host owns one terminal group and its final cleanup. Logical-agent handles own continuity;
+One run host owns one terminal group and its final cleanup. The pane of the session a run was
+started from with `awf run --here` is driven through the same host but is not in that group: the
+host never starts, closes or cleans it up
+([ADR 0010](adr/0010-the-calling-session-is-an-agent.md)). Logical-agent handles own continuity;
 each distinct operation receives fresh result authority. A pane agent keeps one pane for all its
 operations, and each later one is prompted into it once the agent has settled
 ([ADR 0008](adr/0008-a-pane-agent-continues-in-its-pane.md)). An initial prompt and its one nudge

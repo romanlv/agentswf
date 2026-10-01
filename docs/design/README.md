@@ -31,7 +31,8 @@ const workflow: WorkflowDefinition<Args, Result> = {
 
 `WorkflowContext` provides:
 
-- `agents` — open, reattach to, or stop logical agents.
+- `agents` — open, reattach to, or stop logical agents, or take the session the run was started
+  from (`caller`, [ADR 0010](../adr/0010-the-calling-session-is-an-agent.md)).
 - `participants` — connect outside sessions or resolve participants visible in this scope.
 - `messages` — grant one-way or two-way messaging routes between participants.
 - `call` — run a child workflow in its own scope.

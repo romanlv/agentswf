@@ -135,9 +135,10 @@ The gates are defined in [`foundation.md`](foundation.md) §12.
   folder.
 - [013 — autoresearch loop](stories/013-autoresearch-loop.md): draft. The proposer writes
   workflow code, so trials run whole in a container; air-1 is split 23 tuning / 10 holdout.
-- [014 — a workflow in the current session](stories/014-workflow-in-current-session.md): draft.
-  E8 drove a claude, codex, pi and cursor session it did not start through dependent steps;
-  the contract for the operator's session as an agent waits on an ADR.
+- [014 — a workflow in the current session](stories/014-workflow-in-current-session.md): in
+  progress. E8 drove a claude, codex, pi and cursor session it did not start through dependent
+  steps; [ADR 0010](adr/0010-the-calling-session-is-an-agent.md), the calling session as an agent
+  through `agents.caller`, is proposed and awaits approval.
 
 - [015 — native compaction](stories/015-native-compaction.md): awaiting human review.
   `agent.compact` runs each harness's own compaction with the workflow's focus, and a pane agent
