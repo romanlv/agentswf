@@ -148,8 +148,14 @@ export function parseRecord(stdout: string): { record?: OutputRecord } {
 }
 
 const LOGIN_REFUSED = /subscription authentication is required/;
+// awf fails a run whose agent outlived the shutdown grace, though the workflow may have finished:
+// that is the host's doing, not the variant's, so the trial is run again, its spend still counted.
+const CLEANUP_LATE = /^agent cleanup exceeded \d+ms shutdown grace/;
 
-/** A run as a score keeps it. A run that never started is `failed` with what awf said. */
+/**
+ * A run as a score keeps it. A run that never started, or that awf failed only for an agent's slow
+ * shutdown, is `failed` with no id: it says nothing about the workflow, so it is run again.
+ */
 export function summaryOf(result: RunResult): RunSummary {
   const { record } = result;
   if (!record) {
@@ -188,7 +194,9 @@ export function summaryOf(result: RunResult): RunSummary {
     (!decisions || decisions.calls === 0 || decisions.estimate !== undefined);
   const charged = (totals.charged ?? 0) + (decisions?.charged ?? 0);
   return {
-    id: record.runId,
+    ...(record.outcome !== "succeeded" && CLEANUP_LATE.test(record.error ?? "")
+      ? {}
+      : { id: record.runId }),
     outcome: record.outcome,
     ...(record.outcome === "succeeded" ? {} : { error: record.error }),
     models: record.accounting.byModel.map((model) => model.model),

@@ -1034,7 +1034,7 @@ export default defineComparison({
     ]);
   });
 
-  test("a run refused for a login before any agent opened never started; any other failure is a result", async () => {
+  test("a run refused for a login before any agent opened, or failed for an agent's slow shutdown, never started; any other failure is a result", async () => {
     const record = (error: string, agents: number) =>
       ({
         runId: "r1",
@@ -1054,6 +1054,14 @@ export default defineComparison({
     ).toBeUndefined();
     expect(summaryOf({ exitCode: 1, stderr: "", ms: 5, record: record(refused, 1) }).id).toBe("r1");
     expect(summaryOf({ exitCode: 1, stderr: "", ms: 5, record: record("boom", 0) }).id).toBe("r1");
+    const late = summaryOf({
+      exitCode: 1,
+      stderr: "",
+      ms: 5,
+      record: record("agent cleanup exceeded 5000ms shutdown grace", 1),
+    });
+    expect(late.id).toBeUndefined();
+    expect(late.estimate).toBe(0);
   });
 
   test("loop: a proposer's candidate is kept when better, refused out of scope, and the cap ends it", async () => {

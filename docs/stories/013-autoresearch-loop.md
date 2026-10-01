@@ -512,7 +512,35 @@ first tuning cases in the data repository: `air-lenses` (three agents, one lens 
 weighted recall 0.41 against `air-skill`'s 0.20 over 8 cases, +0.24 [+0.09, +0.40], 7 won and
 none lost, no wrong claims, at 2.8× the cost; `default` 1.1.0 says undecided at look 8. The skill
 alone matched a bare agent. Report: `reports/2026-10-01-air-review-screen.md` in the data
-repository. Task 6, the first live loop try, waits on budget; it starts from `air-lenses`.
+repository.
+
+### The first live loop (task 6, 2026-10-01)
+
+Decided with the user: start from AIR's own review, not `air-lenses`, since a gain of about
++0.24 is known to exist there and the try tests whether the loop finds one itself; 1 trial a case;
+$25 in all, the start's own trials included. Every agent moved to codex `gpt-6.1-sol` (cached
+input $0.10, half of `gpt-6-sol`'s; about 16% off a review), which needed codex 0.159.3 in the
+agent image: 0.157.1 refuses the model on a ChatGPT login. The scorer stays on `gpt-6-sol`, so
+earlier scores still count.
+
+The start is a new variant, `air-single`: `air/workflow.ts`'s single shape with the other shapes
+cut out. Starting from the three-shape file would hand the proposer the lenses code to switch on.
+The program now names it and tells the proposer to import `agentswf/workflow`: the start imports
+`@agentswf/contract/workflow`, which the host needs and the scope check refuses.
+
+The start's first run, 8 cases in the container, showed three problems, each fixed before the loop:
+
+- The container's fresh home held codex's login and no config, so codex ran `gpt-6.1-sol` at its
+  own default effort, `low` (6-sol's is `medium`): 0 findings on 3 of 8 cases. A contained home now
+  carries the host's top-level `model_reasoning_effort`, so a contained trial matches a host one.
+  awf has no per-agent effort yet; that belongs in the runtime, a contract change for later.
+- One trial failed with `agent cleanup exceeded 5000ms shutdown grace`: the review had answered,
+  and awf failed the run as its codex agent shut down slowly. Counted as a review that found
+  nothing, it would bias any comparison, so the lab now treats it as a run that never started:
+  run again, its spend counted.
+- The scorer needs `OPENROUTER_API_KEY` for Jev; the run's shell lacked it. awf's `.env` has it.
+
+`air-single` moved to 1.1 for the effort, so its low-effort trials don't count.
 
 ## Human review
 

@@ -4,6 +4,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readdirSync,
+  readFileSync,
   renameSync,
   rmSync,
   writeFileSync,
@@ -403,6 +404,14 @@ async function runTrial(
   }
 }
 
+/** The top-level `model_reasoning_effort` of codex's config in `dir`, if it sets one. */
+export function hostReasoningEffort(dir: string): string | undefined {
+  const file = join(dir, "config.toml");
+  if (!existsSync(file)) return undefined;
+  const top = readFileSync(file, "utf8").split(/^\s*\[/m)[0] ?? "";
+  return top.match(/^\s*model_reasoning_effort\s*=\s*"([a-z]+)"/m)?.[1];
+}
+
 /**
  * A trial's run, isolated as the workspace says. In a sandbox, every agent the variant opens works
  * in the checkout, reads the request, and reaches nothing else; the variant can't widen it. In a
@@ -436,6 +445,12 @@ async function runIsolated(
   const home = join(scratch, "home");
   mkdirSync(join(home, ".codex"), { recursive: true });
   copyFileSync(auth, join(home, ".codex", "auth.json"));
+  // awf can't yet set an agent's reasoning effort, so codex reads it from its config; without the
+  // host's, a model's own default (low, for some) would make a contained trial unlike a host one.
+  const effort = hostReasoningEffort(dirname(auth));
+  if (effort) {
+    writeFileSync(join(home, ".codex", "config.toml"), `model_reasoning_effort = "${effort}"\n`);
+  }
   // A run root of its own, so the container sees no other run, moved into the runs folder after.
   mkdirSync(runs, { recursive: true });
   const runRoot = mkdtempSync(join(runs, ".contained-"));
