@@ -662,7 +662,8 @@ describe("runWorkflow", () => {
       ),
     ).toBe(true);
     expect(Date.now() - startedAt).toBeLessThan(6_000);
-    expect(closeStarted).toBe(1);
+    // The turn, held to the run's deadline, may time out and close its session before cleanup does.
+    expect(closeStarted).toBeGreaterThan(0);
   }, 6_500);
 
   test("the command the prompt shows, copied as it stands with the value filled in, answers", async () => {
@@ -898,6 +899,76 @@ describe("runWorkflow", () => {
 
     expect(result.value).toBe("timed-out");
     expect(result.usage[0]!.settledAt).toBe(new Date(nudgeDeadline.unixMilliseconds).toISOString());
+  });
+
+  test("an operation's own deadlines never outlast the run's", async () => {
+    const seen: { start?: number; nudge?: number } = {};
+    const inner = createSingleSessionHostFactory(createFakeAdapter({ script: () => ({}) }));
+    const host: AgentRunHostFactory = {
+      async openRun(spec) {
+        const run = await inner.openRun(spec);
+        return {
+          ...run,
+          async openAgent(request) {
+            const session = await run.openAgent(request);
+            const start = session.start.bind(session) as (
+              ...args: Parameters<HarnessSession["start"]>
+            ) => Promise<HarnessTurn>;
+            return {
+              ...session,
+              start: (async (...args: Parameters<HarnessSession["start"]>) => {
+                seen.start = args[0].deadline.unixMilliseconds;
+                const turn = await start(...args);
+                return {
+                  ...turn,
+                  nudge: (spec) => {
+                    seen.nudge = spec.deadline.unixMilliseconds;
+                    return turn.nudge(spec);
+                  },
+                } satisfies HarnessTurn;
+              }) as HarnessSession["start"],
+            };
+          },
+        };
+      },
+    };
+    const deadline = future(5_000);
+    const workflow = workflowOf("clamped-deadlines", async (context) => {
+      const agent = await openReviewer(context);
+      const late = future(60_000);
+      await agent.run({ prompt: "Review.", deadline: late, nudge: { deadline: late } });
+      return null;
+    });
+
+    await runWorkflow(workflow, null, {
+      runRoot: tempRunDir(),
+      deadline,
+      runtime: { aliases: { review: { harness: "fake", model: "fake" } }, host },
+    });
+
+    expect(seen).toEqual({ start: deadline.unixMilliseconds, nudge: deadline.unixMilliseconds });
+  });
+
+  test("a turn with an invalid deadline is refused before it is queued", async () => {
+    const adapter = createFakeAdapter({ script: () => ({}) });
+    const workflow = workflowOf("invalid-deadline", async (context) => {
+      const agent = await openReviewer(context);
+      const refused = agent.run({ prompt: "Review.", deadline: { unixMilliseconds: -1 } });
+      const both = agent.run({ prompt: "Review.", deadline: future(), timeoutMs: 1_000 });
+      return await outcomesOf([refused, both]);
+    });
+
+    const result = await runWorkflow(workflow, null, {
+      runRoot: tempRunDir(),
+      deadline: future(),
+      runtime: runtime(adapter),
+    });
+
+    expect(result.value).toEqual([
+      "deadline.unixMilliseconds must be a non-negative safe integer",
+      "an operation cannot specify both deadline and timeoutMs",
+    ]);
+    expect(adapter.turns).toEqual([]);
   });
 
   test("an operation that expires before dispatch settles at its deadline, undelivered", async () => {

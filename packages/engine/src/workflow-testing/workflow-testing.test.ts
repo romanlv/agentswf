@@ -835,7 +835,7 @@ describe("testWorkflow compactions", () => {
     });
     expect(run.value).toEqual({
       kinds: ["answered", "answered"],
-      both: "a turn cannot specify both deadline and timeoutMs",
+      both: "an operation cannot specify both deadline and timeoutMs",
     });
     const [first, second] = run.compactionsOf("builder");
     expect(first?.id).not.toEqual(second?.id);

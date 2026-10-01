@@ -150,7 +150,7 @@ export class WorkflowRunError extends Error implements SettledRun {
   readonly decisions?: SettledDecision[];
 
   constructor(cause: unknown, run: SettledRun) {
-    super(cause instanceof Error ? cause.message : String(cause), { cause });
+    super(messageOf(cause), { cause });
     this.name = "WorkflowRunError";
     this.runId = run.runId;
     this.usage = run.usage;
@@ -1126,11 +1126,7 @@ class LogicalAgent implements AgentRef {
     }
     let deadline: AbsoluteDeadline;
     try {
-      if (spec.deadline) assertDeadlineValue(spec.deadline);
-      deadline = earlierDeadline(
-        this.operationDeadline(spec, scope),
-        scope ? earlierDeadline(scope.deadline, this.options.deadline) : this.options.deadline,
-      );
+      deadline = this.operationDeadline(spec, scope);
     } catch (error) {
       const rejected = Promise.reject<TurnOutcome<string>>(error);
       scope?.track(rejected);
@@ -1160,18 +1156,23 @@ class LogicalAgent implements AgentRef {
     return tracked;
   }
 
-  /** `deadline` or `timeoutMs`, else the workflow scope's; never later than the scope's. */
+  /** `deadline` or `timeoutMs`, never later than the scope's or the run's; else the earlier of those. */
   private operationDeadline(
     spec: { deadline?: AbsoluteDeadline; timeoutMs?: number },
     scope: ExecutionScope | undefined,
   ): AbsoluteDeadline {
     if (spec.deadline && spec.timeoutMs !== undefined) {
-      throw new Error("a turn cannot specify both deadline and timeoutMs");
+      throw new Error("an operation cannot specify both deadline and timeoutMs");
     }
-    const inheritedDeadline = scope?.deadline ?? this.options.deadline;
-    return spec.timeoutMs === undefined
-      ? (spec.deadline ?? inheritedDeadline)
-      : deadlineWithin(spec.timeoutMs, inheritedDeadline);
+    const ceiling = this.deadlineCeiling(scope);
+    if (spec.timeoutMs !== undefined) return deadlineWithin(spec.timeoutMs, ceiling);
+    if (!spec.deadline) return ceiling;
+    assertDeadlineValue(spec.deadline);
+    return earlierDeadline(spec.deadline, ceiling);
+  }
+
+  private deadlineCeiling(scope: ExecutionScope | undefined): AbsoluteDeadline {
+    return scope ? earlierDeadline(scope.deadline, this.options.deadline) : this.options.deadline;
   }
 
   /**
@@ -1222,18 +1223,13 @@ class LogicalAgent implements AgentRef {
   private async executeOperation(
     spec: AgentRunTextSpec | AgentRunStructuredSpec<JsonValue>,
     scope: ExecutionScope | undefined,
-    deadline: AbsoluteDeadline,
+    operationDeadline: AbsoluteDeadline,
   ): Promise<RunResult<JsonValue>> {
     const nudge = spec.nudge === false ? undefined : (spec.nudge ?? this.defaultNudge());
-    assertDeadlineValue(deadline);
     scope?.assertActive();
     if (nudge?.deadline) assertDeadlineValue(nudge.deadline);
-    const operationDeadline = scope ? earlierDeadline(deadline, scope.deadline) : deadline;
-    const nudgeDeadline = nudge
-      ? scope
-        ? earlierDeadline(nudge.deadline ?? scope.deadline, scope.deadline)
-        : (nudge.deadline ?? this.options.deadline)
-      : undefined;
+    const ceiling = this.deadlineCeiling(scope);
+    const nudgeDeadline = nudge ? earlierDeadline(nudge.deadline ?? ceiling, ceiling) : undefined;
     const operationId = randomUUID();
     const schema = resultSchema(spec.schema);
     if (Date.now() >= operationDeadline.unixMilliseconds) {
