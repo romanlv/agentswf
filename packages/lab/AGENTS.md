@@ -23,8 +23,9 @@ It is a consumer of the engine (ADR 0002): it may import `@agentswf/contract` an
 entry, never a harness; `awf-lab` starts workflows with the checkout's own `awf run` and reads the
 record it prints. Every file in `src/review/` is pure except those the boundary checker names as
 doing I/O (`fixtures/git.ts`, `verify.ts`, `seal.ts`; `build/gitlab.ts`, `collect.ts`,
-`draft-key.ts`; `lab/cli.ts`, `execute.ts`, `provenance.ts`, `load.ts`, `runner.ts`, `store.ts`,
-`workspace.ts`; the workflows; the index). A folder imports only the folders below it: `format`
+`draft-key.ts`; `judge/case.ts`; `lab/cli.ts`, `execute.ts`, `provenance.ts`, `load.ts`,
+`runner.ts`, `store.ts`, `workspace.ts`; `lab/loop/bundle.ts`, `loop.ts`, `scope.ts`; the
+workflows; the index). A folder imports only the folders below it: `format`
 nothing of ours, `fixtures` `format`, `build`, `judge` and `metrics` those two, `lab` all but
 `build`; the boundary checker keeps the order. Agents are used only where a step needs judgement:
 drafting a key and its graders' votes, and judging a review. No person is in the loop.

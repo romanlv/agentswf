@@ -47,7 +47,7 @@ import {
   type ScoreOnFile,
   type Step,
 } from "./plan";
-import { duration, plural } from "./report";
+import { duration, plural, usd } from "./report";
 import { type Runner, type RunRequest, type RunResult, summaryOf } from "./runner";
 import {
   scoresBy,
@@ -94,7 +94,6 @@ export type Lab = {
   now?: () => Date;
 };
 
-/** The dataset's case ids, from a `set.json` that passes its check. */
 /**
  * A dataset's tuning cases, `entries`, and the ids `awf-lab.json` holds out of it, which only a
  * loop's final check reads.
@@ -222,9 +221,6 @@ export async function planRun(
     scoreHistory: scores.flatMap((s) => (s.run?.id === undefined ? [] : [s.run.estimate])),
   };
 }
-
-const usd = (value: number | null | undefined) =>
-  value === null || value === undefined ? "$?" : `$${value.toFixed(2)}`;
 
 /** How many trials and scores the plan runs, and their estimate: null when there is nothing to estimate from. */
 export function estimateOfPlan(planned: Planned): {

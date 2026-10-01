@@ -4,7 +4,7 @@ import { categoryOf } from "../judge/panel";
 import { formatAddress } from "./address";
 import type { CaseInfo } from "./execute";
 import type { Stored } from "./plan";
-import { duration } from "./report";
+import { duration, usd } from "./report";
 
 type Ref = { name: string; version: string };
 
@@ -127,8 +127,6 @@ export function buildShow(options: {
     findings,
   };
 }
-
-const usd = (value: number | undefined) => (value === undefined ? "$?" : `$${value.toFixed(2)}`);
 
 const indent = (text: string, by = "    ") =>
   text

@@ -5,7 +5,7 @@ import { CHECK_FORMAT, type CheckDocument } from "../format/output";
 import { namedMetrics, REVIEW_METRICS } from "../metrics/named";
 import { formatAddress } from "./address";
 import { type CaseState, currentTrials, passingScore, type Stored } from "./plan";
-import { caseMetrics } from "./report";
+import { caseMetrics, plural } from "./report";
 import { keyOf } from "./version";
 
 const PRIMARY = REVIEW_METRICS.find((m) => m.name === "recall.weighted")!;
@@ -136,7 +136,6 @@ export function buildCheck(options: {
 const two = (x: number) => x.toFixed(2);
 const sd = (v: number | null) => (v === null ? "–" : two(Math.sqrt(v)));
 const range = (r: [number, number] | null) => (r ? `~${two(r[0])}–${two(r[1])}` : null);
-const plural = (n: number, noun: string) => `${n} ${noun}${n === 1 ? "" : "s"}`;
 
 /** The headroom and resolution lines, which `run --baseline` also prints before it spends. */
 export function checkLines(check: CheckDocument): string[] {

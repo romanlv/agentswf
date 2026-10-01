@@ -427,7 +427,8 @@ export function buildReport(options: {
 
 const percent = (value: number | null) => (value === null ? "–" : `${Math.round(value * 100)}%`);
 const decimal = (value: number | null) => (value === null ? "–" : value.toFixed(2));
-const usd = (value: number | null) => (value === null ? "$?" : `$${value.toFixed(2)}`);
+export const usd = (value: number | null | undefined) =>
+  value === null || value === undefined ? "$?" : `$${value.toFixed(2)}`;
 
 export function duration(ms: number): string {
   const seconds = Math.round(ms / 1000);
