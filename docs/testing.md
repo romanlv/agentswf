@@ -45,7 +45,10 @@ bun run eval harnesses failed-run   # only the ones named
 
 `*.eval.ts` files under `tests/` start live agents, assert what they did, and print what they
 cost. `bun test` does not collect them. `bun run eval` is the consent to spend: it sets
-`AWF_LIVE_EVAL=1`, which each eval requires, and ends with each eval's time and cost and the total.
+`AWF_LIVE_EVAL=1`, which each eval requires, runs four evals at a time (`--jobs n` changes it),
+prints each one's output in one block when it ends, and ends with each eval's time and cost and
+the total. An eval checks that the pieces connect, not how well a model reasons: each gives its
+agents the smallest task that exercises its path, and checks the result in code.
 Each runs on a cheap model where a cheap one is dependable — codex `gpt-6-luna`, pi
 `openai-codex/gpt-5.6-terra` — because an eval checks the machinery, not the quality of the
 answer. Claude runs `claude-sonnet-5-5`: on haiku, about one eval in four failed on the model's
@@ -86,18 +89,20 @@ What they cover between them:
   `.env` itself (`bunfig.toml`). Copy `.env` into a worktree.
 - `sandbox-srt` and `sandbox-docker` — the sandbox probe (story 004): codex and claude headless
   sharing a sandbox that writes the working directory, pi in a private one that writes nothing,
-  each running fixed commands against canaries the host planted: files under `~`, in harness
-  state and in the temp directories, a listener, a disallowed domain, a git hook, another
-  sandbox's home. Checked from the agents' own transcripts, the listener and the working tree.
-  3 agents, ~2½ min, ~$0.30, of which claude's ~$0.07 is billed per token, estimated. codex runs on gpt-5.6-sol:
-  luna declined the probe's commands. Neither is skipped: each fails, saying why, where its
+  each running a script of fixed commands, which the host wrote, against canaries it planted:
+  files under `~`, in harness state and in the temp directories, a listener, a disallowed domain,
+  a git hook, another sandbox's home. One tool call runs it and the agent relays its output, which
+  the workflow splits back by command. Checked from the agents' own transcripts, the listener and
+  the working tree. The coder runs first, then the tester and reviewer together. 3 agents, ~40 s,
+  ~$0.10–0.16, claude's part billed per token, estimated. codex runs on gpt-5.6-sol: luna declined
+  the probe's commands when they were listed one by one. Neither is skipped: each fails, saying why, where its
   provider is not installed or docker's daemon does not answer within 30 s, so a sandbox
   regression cannot pass unseen. `sandbox-docker` builds the default image first when it is
   missing.
 - `sandbox-panes-srt` — the same probe with codex, claude and pi in terminal panes of the run's
   Herdr, typed in behind srt's confining prelude, and also refused the run's Herdr socket, leaving
   no secret or process behind; processes are found by their environment, where a pane's carry the
-  run's path. 3 agents, ~3 min, ~$0.37; claude in a pane is on its subscription.
+  run's path. 3 agents, ~50 s, ~$0.12; claude in a pane is on its subscription.
 - `skills` — agents given one of two probe skills and using it (story 007): codex, pi and a
   claude pane on the host, and codex and pi sharing one srt sandbox with different probes. The
   prompt never mentions skills; it asks for a build's release stamp and audit seal, each claimed by
@@ -127,12 +132,13 @@ What they cover between them:
   `tests/run-sandbox.test.ts` checks these checks for free. 3 agents; srt ~1 min, ~$0.05–0.17;
   docker ~1½ min, ~$0.12–0.16.
 - `sandbox-panes-docker` — the same, with the panes in the box's own Herdr, typed in behind a
-  prelude that sets their environment and loads their secret. 3 agents, ~3½ min, ~$0.41. Fails,
+  prelude that sets their environment and loads their secret. 3 agents, ~50 s, ~$0.16. Fails,
   saying why, where docker cannot run.
 
-Added up, the figures above come to ~10 min and ~$1.05 without docker; `sandbox-docker`,
-`sandbox-panes-docker` and `run-sandbox-docker` add ~7 min and ~$0.75. All are list-price
-estimates.
+The whole suite, four at a time, took 2m 36s and ~$1.87 at list prices on 2026-10-01, the
+compaction eval the dearest at ~$0.63: pi needs 20k tokens of history before it compacts, and the
+headless claude is metered. Run one by one it took about 17 min, most of it the sandbox probes
+listing their commands one by one.
 
 Not covered live, on purpose:
 

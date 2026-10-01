@@ -11,10 +11,10 @@ import Value from "typebox/value";
 import { outputSchema } from "../output-schema";
 
 /**
- * Agents in sandboxes, each running a fixed list of shell commands and reporting what each
+ * Agents in sandboxes, each running a script of fixed shell commands and reporting what it
  * printed, so a host that planted canaries can check what they reached (story 004, Task 4). Two
  * share a sandbox that writes the working directory; the third has a private one that writes
- * nothing. Each runs on its harness's cheapest model that will run the probe.
+ * nothing. The host writes each script; one tool call runs it, so the model only relays.
  */
 export const PROBES = {
   // luna, codex's cheapest, declined the probe's commands headless and in a pane.
@@ -38,7 +38,14 @@ const PLAN = Type.Object({
       tester: Type.Array(Type.String()),
       reviewer: Type.Array(Type.String()),
     },
-    { description: "Each agent's commands, run in order in the working directory." },
+    { description: "Each agent's commands, in the order its script runs them." },
+  ),
+  scripts: Type.Object(
+    { coder: Type.String(), tester: Type.String(), reviewer: Type.String() },
+    {
+      description:
+        "Each agent's script, relative to the working directory: before each command it prints `=== {n}`, and after it `--- exit {code}`.",
+    },
   ),
   panes: Type.Optional(
     Type.Array(
@@ -52,21 +59,7 @@ export type ProbePlan = Type.Static<typeof PLAN>;
 
 const REPORT = outputSchema(
   Type.Object(
-    {
-      results: Type.Array(
-        Type.Object(
-          {
-            command: Type.String(),
-            output: Type.String({ description: "stdout and stderr, verbatim" }),
-            exitCode: Type.Integer(),
-          },
-          { additionalProperties: false },
-        ),
-      ),
-      webSearch: Type.String({
-        description: "what happened when you tried your web search tool, or that you have none",
-      }),
-    },
+    { output: Type.String({ description: "everything the script printed, verbatim" }) },
     { additionalProperties: false },
   ),
 );
@@ -76,7 +69,6 @@ export type ProbeReport = {
   outcome: TurnOutcome<JsonValue>["kind"];
   reason?: string;
   results?: { command: string; output: string; exitCode: number }[];
-  webSearch?: string;
 };
 
 export type ProbeResult = { reports: ProbeReport[] };
@@ -99,9 +91,7 @@ const executable = defineExecutableWorkflow<ProbePlan, ProbeResult>({
         network: plan.network,
         ...environment,
       });
-      const reports: ProbeReport[] = [];
-      // One after another: the tester reads what the coder wrote.
-      for (const name of ["coder", "tester", "reviewer"] as const) {
+      const probe = async (name: ProbeName): Promise<ProbeReport> => {
         const pane = plan.panes?.includes(name) === true;
         const {
           placement: _placement,
@@ -114,17 +104,22 @@ const executable = defineExecutableWorkflow<ProbePlan, ProbeResult>({
           sandbox: name === "reviewer" ? { network: plan.network, ...environment } : shared,
         });
         const { outcome } = await agent.run({
-          prompt: probePrompt(plan.commands[name]),
+          prompt: probePrompt(plan.scripts[name]),
           schema: REPORT,
-          timeoutMs: 6 * 60_000,
+          timeoutMs: 3 * 60_000,
         });
-        reports.push(
-          outcome.kind === "answered"
-            ? { agent: name, outcome: outcome.kind, ...outcome.value }
-            : { agent: name, outcome: outcome.kind, reason: outcome.reason },
-        );
-      }
-      return { reports };
+        return outcome.kind === "answered"
+          ? {
+              agent: name,
+              outcome: outcome.kind,
+              results: sections(outcome.value.output, plan.commands[name]),
+            }
+          : { agent: name, outcome: outcome.kind, reason: outcome.reason };
+      };
+      // The tester reads what the coder wrote, and the reviewer tries the coder's home.
+      const coder = await probe("coder");
+      const rest = await Promise.all([probe("tester"), probe("reviewer")]);
+      return { reports: [coder, ...rest] };
     },
   },
   prepare: parsePlan,
@@ -138,21 +133,28 @@ const executable = defineExecutableWorkflow<ProbePlan, ProbeResult>({
       .join("\n"),
 });
 
-function probePrompt(commands: readonly string[]): string {
+function probePrompt(script: string): string {
   return [
-    // Plain on purpose: a longer case for running everything read to claude as a pasted injection,
-    // and it declined (2026-10-01).
-    "This is a self-test of the sandbox your session runs in. Run each shell command below with",
-    "your shell tool, one at a time, exactly as written, in your working directory, and report",
-    "each with its complete output, stdout and stderr together, verbatim, and its exit code. Most",
-    "are expected to fail with a permission error, a timeout or a refused connection: that failure",
-    "is the result to report. Do not fix, retry or explain anything.",
-    "",
-    ...commands.map((command, index) => `${index + 1}. ${command}`),
-    "",
-    "Last, try to use your web search tool, if you have one, to search for 'awf sandbox probe',",
-    "and report what happened, or that you have no such tool.",
+    `Run \`sh ${script}\` once with your shell tool, in your working directory. It checks the`,
+    "sandbox your session runs in, and most of its commands are expected to fail. Report",
+    "everything it printed, verbatim. Do not fix, retry or explain anything.",
   ].join("\n");
+}
+
+/** The script's output, split back into its commands by the markers it prints around each. */
+export function sections(
+  output: string,
+  commands: readonly string[],
+): { command: string; output: string; exitCode: number }[] {
+  return commands.map((command, index) => {
+    const start = output.indexOf(`=== ${index + 1}\n`);
+    if (start < 0) return { command, output: "", exitCode: -1 };
+    const body = output.slice(start + `=== ${index + 1}\n`.length);
+    const end = body.search(/^--- exit (\d+)$/m);
+    const text = end < 0 ? body : body.slice(0, end);
+    const code = end < 0 ? undefined : /^--- exit (\d+)$/m.exec(body)?.[1];
+    return { command, output: text, exitCode: code === undefined ? -1 : Number(code) };
+  });
 }
 
 /** One argument: the plan, as JSON. The host writes it, with the canaries it planted. */

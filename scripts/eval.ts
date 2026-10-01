@@ -1,11 +1,11 @@
 import { basename, join } from "node:path";
 
 /**
- * Runs every live eval, one after another, and totals what they cost. Running this command is the
- * consent to spend, so it sets `AWF_LIVE_EVAL=1` for them. Arguments narrow the set by name:
- * `bun run eval harnesses failed-run`. Everything goes to stdout: an eval's progress is on its stderr,
- * which a terminal may paint as errors. Ctrl-C reaches the running eval too, which stops its agents;
- * the runner waits for that and starts no other.
+ * Runs every live eval, `--jobs` at a time (4 by default), and totals what they cost. Running this
+ * command is the consent to spend, so it sets `AWF_LIVE_EVAL=1` for them. Arguments narrow the set
+ * by name: `bun run eval harnesses failed-run`. Each eval's output, its stderr progress included, is
+ * printed in one block when it ends, all to stdout. Ctrl-C reaches the running evals too, which
+ * stop their agents; the runner waits for them and starts no other.
  */
 const ROOT = join(import.meta.dir, "..");
 
@@ -18,7 +18,15 @@ type Outcome = {
 };
 
 const all = [...new Bun.Glob("tests/**/*.eval.ts").scanSync({ cwd: ROOT })].sort();
-const filters = process.argv.slice(2);
+const args = process.argv.slice(2);
+const jobsAt = args.indexOf("--jobs");
+const jobs = jobsAt < 0 ? 4 : Number(args[jobsAt + 1]);
+if (!Number.isInteger(jobs) || jobs < 1) {
+  console.error("--jobs takes a whole number of evals to run at once");
+  process.exit(2);
+}
+const filters =
+  jobsAt < 0 ? args : args.filter((_, index) => index !== jobsAt && index !== jobsAt + 1);
 const unmatched = filters.filter((filter) => !all.some((file) => nameOf(file) === filter));
 if (unmatched.length > 0) {
   console.error(`no eval named ${unmatched.join(", ")}; expected ${all.map(nameOf).join(", ")}`);
@@ -34,10 +42,17 @@ for (const signal of ["SIGINT", "SIGTERM"] as const) {
 }
 
 const outcomes: Outcome[] = [];
-for (const file of files) {
-  if (interrupted) break;
+const queue = [...files];
+async function worker(): Promise<void> {
+  for (let file = queue.shift(); file && !interrupted; file = queue.shift()) {
+    outcomes.push(await runEval(file));
+  }
+}
+await Promise.all(Array.from({ length: Math.min(jobs, files.length) }, worker));
+outcomes.sort((a, b) => a.name.localeCompare(b.name));
+
+async function runEval(file: string): Promise<Outcome> {
   const name = nameOf(file);
-  console.log(`\n── ${name}`);
   const started = Date.now();
   const child = Bun.spawn([process.execPath, file], {
     cwd: ROOT,
@@ -45,23 +60,26 @@ for (const file of files) {
     stdout: "pipe",
     stderr: "pipe",
   });
-  const [stdout, exitCode] = await Promise.all([
+  const [stdout, stderr, exitCode] = await Promise.all([
     new Response(child.stdout).text(),
+    new Response(child.stderr).text(),
     child.exited,
-    child.stderr.pipeTo(new WritableStream({ write: (chunk) => void process.stdout.write(chunk) })),
   ]);
   const summary = lastJsonObject(stdout);
   const estimate = summary?.estimateUsd;
-  outcomes.push({
+  const outcome: Outcome = {
     name,
     ok: exitCode === 0 && summary?.ok === true,
     // A pass that checked nothing is not shown as one.
     skipped: summary?.skipped === true,
     seconds: Math.round((Date.now() - started) / 1000),
     ...(typeof estimate === "number" ? { estimateUsd: estimate } : {}),
-  });
-  if (exitCode !== 0) console.log(stdout.trim());
-  else if (typeof summary?.artifacts === "string") console.log(`artifacts: ${summary.artifacts}`);
+  };
+  const block = [`\n── ${name}`, stderr.trimEnd()];
+  if (exitCode !== 0) block.push(stdout.trim());
+  else if (typeof summary?.artifacts === "string") block.push(`artifacts: ${summary.artifacts}`);
+  console.log(block.filter(Boolean).join("\n"));
+  return outcome;
 }
 
 console.log("");

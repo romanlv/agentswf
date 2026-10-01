@@ -261,14 +261,34 @@ async function plant(
       `cat ${runs}/*/*/sandboxes/*/homes/*/probe-canary`,
     ],
   };
+  // One script per agent, so one tool call runs its probe: the model only relays the output.
+  await mkdir(join(repo, ".probe"), { recursive: true });
+  const scripts = {} as Record<ProbeName, string>;
+  for (const agent of AGENTS) {
+    scripts[agent] = `.probe/${agent}.sh`;
+    await writeFile(join(repo, scripts[agent]), script(commands[agent]));
+  }
   return {
-    plan: { environment, network: [ALLOWED], commands, ...(panes.length > 0 ? { panes } : {}) },
+    plan: {
+      environment,
+      network: [ALLOWED],
+      commands,
+      scripts,
+      ...(panes.length > 0 ? { panes } : {}),
+    },
     canaries,
     homeToken,
     allowed,
     shared,
     remove,
   };
+}
+
+/** Runs each command in turn, its output between the markers `sections` splits on. */
+export function script(commands: readonly string[]): string {
+  return commands
+    .map((command, index) => `echo '=== ${index + 1}'\n{ ${command}\n} 2>&1\necho "--- exit $?"\n`)
+    .join("");
 }
 
 /** Every file under `root`, hashed, but the git objects and index a harness may refresh. */

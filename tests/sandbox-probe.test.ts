@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import type { ProbeReport } from "../examples/sandbox-probe/workflow";
+import { type ProbeReport, sections } from "../examples/sandbox-probe/workflow";
 import type { OutputRecord } from "../packages/contract/src/records";
-import { type ProbeEvidence, problems } from "./sandbox-probe";
+import { type ProbeEvidence, problems, script } from "./sandbox-probe";
 
 const canaries = [
   { path: "/Users/op/.awf-canary", token: "canary-home" },
@@ -12,6 +12,11 @@ const planted = {
     environment: "srt" as const,
     network: [],
     commands: { coder: [], tester: [], reviewer: [] },
+    scripts: {
+      coder: ".probe/coder.sh",
+      tester: ".probe/tester.sh",
+      reviewer: ".probe/reviewer.sh",
+    },
   },
   canaries,
   listenerToken: "listener-token",
@@ -30,7 +35,6 @@ function report(agent: ProbeReport["agent"], extra: { command: string; output: s
   return {
     agent,
     outcome: "answered" as const,
-    webSearch: "none",
     results: [
       { command: "cat allowed.txt", output: "allowed-token\n", exitCode: 0 },
       { command: "curl https://registry.npmjs.org/", output: "200", exitCode: 0 },
@@ -201,5 +205,24 @@ describe("the sandbox probe's checks", () => {
     for (const sandbox of evidence.record!.sandboxes!) sandbox.provider = "docker";
     expect(problems(evidence)).toEqual(["docker: no proxy logged its refusal"]);
     expect(problems({ ...evidence, proxyLogs: ["deny pypi.org:443"] })).toEqual([]);
+  });
+});
+
+describe("the probe's script", () => {
+  test("its output splits back into each command's output and exit code", () => {
+    const commands = ["echo one", "sh -c 'echo two >&2; exit 3'", "false && echo wrote"];
+    const ran = Bun.spawnSync(["sh", "-c", script(commands)]);
+    expect(sections(ran.stdout.toString(), commands)).toEqual([
+      { command: "echo one", output: "one\n", exitCode: 0 },
+      { command: "sh -c 'echo two >&2; exit 3'", output: "two\n", exitCode: 3 },
+      { command: "false && echo wrote", output: "", exitCode: 1 },
+    ]);
+  });
+
+  test("a command the output never reached reads as not run", () => {
+    expect(sections("=== 1\nok\n--- exit 0\n", ["echo ok", "echo later"])).toEqual([
+      { command: "echo ok", output: "ok\n", exitCode: 0 },
+      { command: "echo later", output: "", exitCode: -1 },
+    ]);
   });
 });
