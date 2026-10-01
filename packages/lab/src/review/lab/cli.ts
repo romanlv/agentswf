@@ -1,7 +1,7 @@
 #!/usr/bin/env -S bun --no-env-file
 import { createHash } from "node:crypto";
 import { existsSync, readdirSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { defaultBranch } from "../fixtures/git";
 import { SET_FILE } from "../fixtures/set";
@@ -42,6 +42,7 @@ import {
   stepAddress,
 } from "./execute";
 import { loadComparison, loadScorer, loadVariant } from "./load";
+import { loopDir, runLoop } from "./loop/loop";
 import { fill } from "./placeholders";
 import {
   type CaseState,
@@ -99,6 +100,11 @@ const USAGE = `usage: awf-lab [--config {file}] {command} … [--json]
   report {variant…} [selection] [--baseline {variant}] [--comparison {name}] [--categories {a,b}] [--md]
                             metrics side by side, and each variant's verdict against the baseline;
                             with two --scorer, how alike they label
+  loop {name} --baseline {variant} [--rounds {n}] [--proposer {harness/model}] [--trials {n}] [--jobs {n}]
+       [--program {file} --source {file} --budget {usd}]
+                            an agent proposes a changed workflow, it runs against the incumbent
+                            on the tuning cases and is kept only if better; the first run of a
+                            loop names its program, the baseline's workflow file and the cap
   check {variant} [--cases …] [--trials {n}] [--rescore {n}]
                             whether its cases can tell a change from noise: headroom, variance,
                             resolution, failures by kind, suspect cases; --rescore spends
@@ -152,6 +158,10 @@ type Options = {
   comparison?: string;
   rescore?: number;
   budget?: number;
+  program?: string;
+  source?: string;
+  rounds?: number;
+  proposer?: string;
   jobs?: number;
   categories?: Category[];
   dryRun: boolean;
@@ -240,6 +250,18 @@ function parse(argv: readonly string[]): { command: string; names: string[]; opt
       }
       case "--jobs":
         options.jobs = whole(arg, value(arg));
+        break;
+      case "--program":
+        options.program = value(arg);
+        break;
+      case "--source":
+        options.source = value(arg);
+        break;
+      case "--rounds":
+        options.rounds = whole(arg, value(arg));
+        break;
+      case "--proposer":
+        options.proposer = value(arg);
         break;
       case "--rescore":
         options.rescore = whole(arg, value(arg));
@@ -447,7 +469,7 @@ async function selectedCases(workspace: Workspace, options: Options) {
       );
     }
   }
-  return { dataset, ids, entries };
+  return { dataset, ids, entries, held };
 }
 
 /**
@@ -932,6 +954,110 @@ async function runBaseline(
     );
   } else out.stdout(summary);
   return result.exitCode;
+}
+
+/**
+ * `loop {name}`: the autoresearch loop over the tuning cases, from `--baseline`. Its first run names
+ * the program, the baseline's workflow file and the cap; later runs resume from the records.
+ */
+async function loop(
+  context: Context,
+  names: readonly string[],
+  lab: Lab,
+  out: { stdout: (text: string) => void; stderr: (text: string) => void },
+): Promise<number> {
+  const { workspace, options, dataset } = context;
+  if (names.length !== 1) throw new UsageError("loop takes a name");
+  const [name] = names as [string];
+  if (!/^[a-z0-9][a-z0-9-]*$/.test(name))
+    throw new UsageError(`${name}: a loop's name is a-z, 0-9 and -`);
+  if (options.cases !== undefined || options.only || options.where.length > 0) {
+    throw new UsageError("a loop tunes on every tuning case, in the seeded order");
+  }
+  if (!options.baseline) throw new UsageError("loop takes --baseline {variant}, its start");
+  const start = await context.variant(options.baseline);
+  if (!start.defined || !start.file)
+    throw new UsageError(`${start.label}: a loop starts from a file`);
+  const scorer = await context.scorer(options.scorers[0] ?? workspace.config.scorer);
+  if (!scorer.defined)
+    throw new UsageError(`${scorer.label} is a stored version; only a file can score`);
+  const { ids, entries, held } = await selectedCases(workspace, options);
+  const cases = await readCases(workspace, dataset, ids);
+  const trials = trialsAsked(workspace, options);
+  const comparison = {
+    ...(await comparisonOf(
+      context,
+      options.comparison ?? workspace.config.comparison ?? "default",
+    )),
+    planned: entries.length,
+  };
+  const created = existsSync(join(loopDir(lab, dataset, name), "loop.json"));
+  let create: { source: string; program: string; cap: number } | undefined;
+  if (!created) {
+    const { program, source, budget } = options;
+    if (!program || !source || budget === undefined) {
+      throw new UsageError(
+        `loop ${name} is new: give --program {file}, --source {file} and --budget {usd}`,
+      );
+    }
+    for (const file of [program, source]) {
+      if (!existsSync(resolve(context.cwd, file))) throw new UsageError(`no ${file}`);
+    }
+    create = {
+      source: resolve(context.cwd, source),
+      program: resolve(context.cwd, program),
+      cap: budget,
+    };
+  } else if (options.program || options.source || options.budget !== undefined) {
+    throw new UsageError(`loop ${name} exists: its program, start and cap are in its loop.json`);
+  }
+  const rows = (await statesOf(workspace, dataset, start.key, cases)).map((state, i) => ({
+    state,
+    key: cases[i]!.key,
+  }));
+  const diagnosis = buildCheck({
+    dataset,
+    variant: refOf(start),
+    scorer: { ...refOf(scorer), key: scorer.key },
+    trials,
+    datasetCases: entries.length,
+    rows,
+    everyone: [],
+  });
+  const outcome = await runLoop(
+    {
+      lab,
+      dataset,
+      cases,
+      entries,
+      holdout: [...held],
+      trials,
+      scorer,
+      comparison,
+      ...(options.jobs === undefined ? {} : { jobs: options.jobs }),
+      rules: {
+        comparison: `${comparison.name} ${comparison.comparison.version}`,
+        primary: "recall.weighted, by case, paired against the incumbent",
+        tuningCases: entries.length,
+        trials,
+        resolution: diagnosis.resolution,
+        models: ["codex/gpt-6-sol", "codex/gpt-6-luna"],
+      },
+    },
+    {
+      name,
+      rounds: options.rounds ?? 1,
+      start,
+      ...(create ? { create } : {}),
+      ...(options.proposer ? { proposer: options.proposer } : {}),
+    },
+  );
+  const kept = outcome.tries.filter((t) => t.decision === "kept").length;
+  const count = outcome.tries.length;
+  out.stdout(
+    `loop ${name}: ${outcome.why}; ${count} ${count === 1 ? "try" : "tries"}, ${kept} kept`,
+  );
+  return outcome.exitCode;
 }
 
 /** A comparison as a command names it: a workspace's name, or a file anywhere. */
@@ -1503,6 +1629,8 @@ export async function runLab(
         return 0;
       case "check":
         return await check(context, names, lab, environment, { stdout, stderr });
+      case "loop":
+        return await loop(context, names, lab, { stdout, stderr });
       default:
         throw new UsageError(`unknown command ${command}`);
     }

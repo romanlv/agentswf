@@ -14,6 +14,7 @@ import type {
 import type { Score, Trial } from "../packages/lab/src/review/format/records";
 import { checkSchema } from "../packages/lab/src/review/format/validate";
 import { runLab } from "../packages/lab/src/review/lab/cli";
+import { PROPOSER } from "../packages/lab/src/review/lab/loop/loop";
 import {
   AWF,
   awfArgv,
@@ -1053,6 +1054,159 @@ export default defineComparison({
     ).toBeUndefined();
     expect(summaryOf({ exitCode: 1, stderr: "", ms: 5, record: record(refused, 1) }).id).toBe("r1");
     expect(summaryOf({ exitCode: 1, stderr: "", ms: 5, record: record("boom", 0) }).id).toBe("r1");
+  });
+
+  test("loop: a proposer's candidate is kept when better, refused out of scope, and the cap ends it", async () => {
+    await ws.variant("canned");
+    await answer(ws, { "app-1": [finding(mechanism("app-1", 1))], "app-2": [] });
+    const contained = {
+      ...CONFIG,
+      sandbox: { container: { image: "awf-agent:test" } },
+      holdout: { first: { cases: ["app-1"], chosen: "2026-09-30" } },
+    };
+    await Bun.write(join(ws.root, "awf-lab.json"), JSON.stringify(contained));
+    await Bun.write(
+      join(ws.root, "comparisons/better.compare.ts"),
+      `import { defineComparison } from "@agentswf/lab/compare";
+
+export default defineComparison({
+  version: "1.0.0",
+  compare: ({ baseline, challenger }) => {
+    const whole = challenger.length >= 1 && baseline.length === challenger.length;
+    return { verdict: whole ? "better" : "undecided", stop: whole, reason: "scripted", metrics: [] };
+  },
+});
+`,
+    );
+    await Bun.write(join(ws.root, "program.md"), "# Find more\n");
+    const codexHome = join(ws.root, "codex-home");
+    await Bun.write(join(codexHome, "auth.json"), "{}");
+    const candidates = [
+      `import { defineExecutableWorkflow } from "agentswf/workflow";
+
+export default defineExecutableWorkflow({
+  definition: {
+    meta: { name: "candidate", description: "Finds nothing, on purpose." },
+    async run() {
+      return { range: "", title: "", findings: [] };
+    },
+  },
+  prepare: () => ({}),
+});
+`,
+      `import { readFileSync } from "node:fs";\nexport default readFileSync;\n`,
+      `import { defineExecutableWorkflow } from "agentswf/workflow";\n`,
+      "export default 1;\n",
+    ];
+    const hypothesis = {
+      change: "a second pass",
+      hypothesis: "it finds what one pass missed",
+      predicted: "+0.10",
+      mechanism: "more hits",
+    };
+    const runs = inProcess();
+    const proposed: RunRequest[] = [];
+    const runner: Runner = async (request) => {
+      if (request.workflow !== PROPOSER) return runs.runner(request);
+      proposed.push(request);
+      const feedback = await Bun.file(join(request.cwd, "bundle", "feedback.json")).text();
+      expect(feedback).toContain("app-2");
+      expect(feedback).not.toContain("app-1");
+      expect(await Bun.file(request.sandbox!).json()).toEqual({
+        srt: {},
+        write: [join(request.cwd, "candidate")],
+      });
+      await Bun.write(
+        join(request.cwd, "candidate", "workflow.ts"),
+        candidates[proposed.length - 1]!,
+      );
+      const record = {
+        runId: `proposer-${proposed.length}`,
+        outcome: "succeeded",
+        value: hypothesis,
+        accounting: {
+          wallMs: 1,
+          billing: "subscription",
+          byModel: [],
+          totals: { agents: 1, known: 1, priced: 1, estimate: 4 },
+        },
+      } as unknown as OutputRecord;
+      return { exitCode: 0, stderr: "", ms: 1, record };
+    };
+    const previous = process.env.CODEX_HOME;
+    process.env.CODEX_HOME = codexHome;
+    try {
+      const start = [
+        "loop",
+        "l1",
+        "--baseline",
+        "canned",
+        "--comparison",
+        "comparisons/better.compare.ts",
+      ];
+      const fresh = await lab(ws, [...start, "--rounds", "1"], runner);
+      expect(fresh.exitCode).toBe(2);
+      expect(fresh.stderr).toContain("give --program {file}, --source {file} and --budget {usd}");
+      const created = [...start, "--program", "program.md", "--source", CANNED, "--budget", "14"];
+      const empty = await lab(ws, [...created, "--rounds", "1"], runner);
+      expect(empty.exitCode).toBe(1);
+      expect(empty.stdout).toContain("no scored trial on a tuning case to learn from");
+      expect(proposed).toHaveLength(0);
+
+      expect((await lab(ws, ["run", "canned"], runner)).exitCode).toBe(0);
+      const two = await lab(ws, [...start, "--rounds", "2"], runner);
+      expect(two.exitCode).toBe(0);
+      expect(two.stdout).toBe("loop l1: 2 rounds run; 2 tries, 1 kept");
+      const dir = join(ws.root, "results", "first", "loops", "l1");
+      const loop = await Bun.file(join(dir, "loop.json")).json();
+      expect(loop).toMatchObject({
+        start: { variant: "canned@1.0" },
+        cap: { usd: 14 },
+        holdout: ["app-1"],
+      });
+      const first = await Bun.file(join(dir, "tries", "1", "try.json")).json();
+      // Read before matching: toMatchObject leaves its matchers in the object it was given.
+      const kept: string = first.candidate;
+      expect(first).toMatchObject({
+        n: 1,
+        parent: "canned@1.0",
+        candidate: expect.stringMatching(/^l1-1-[0-9a-f]{8}@1\.0$/),
+        decision: "kept",
+        hypothesis,
+        spend: { proposer: 4 },
+      });
+      expect(
+        recordsIn(ws, "*/app-2/*/findings.json").filter((r) => r.startsWith(`${kept}/`)),
+      ).toHaveLength(1);
+      const second = await Bun.file(join(dir, "tries", "2", "try.json")).json();
+      expect(second).toMatchObject({
+        parent: kept,
+        decision: "refused",
+        spend: { trials: 0 },
+      });
+      expect(second.why).toContain("imports node:fs");
+      expect(recordsIn(ws, "l1-2@1.0/*/*/findings.json")).toHaveLength(0);
+
+      // Resumed from its records, its program and cap fixed. A candidate that can't run fails its
+      // try and the loop goes on; $12 of $14 spent, the cap ends the fourth before it runs.
+      const changed = await lab(ws, [...created, "--rounds", "1"], runner);
+      expect(changed.exitCode).toBe(2);
+      const judged = await lab(ws, [...start, "--trials", "2", "--rounds", "1"], runner);
+      expect(judged.exitCode).toBe(1);
+      expect(judged.stderr).toContain("was started with another trials: 1, now 2");
+      const rest = await lab(ws, [...start, "--rounds", "5"], runner);
+      expect(rest.exitCode).toBe(3);
+      expect(rest.stdout).toStartWith("loop l1: the cap ended try 4:");
+      const broken = await Bun.file(join(dir, "tries", "3", "try.json")).json();
+      expect(broken).toMatchObject({ parent: kept, decision: "failed" });
+      expect(broken.why).toContain("couldn't be made whole");
+      const capped = await Bun.file(join(dir, "tries", "4", "try.json")).json();
+      expect(capped).toMatchObject({ decision: "unfinished", spend: { proposer: 4, trials: 0 } });
+      expect(proposed).toHaveLength(4);
+    } finally {
+      if (previous === undefined) delete process.env.CODEX_HOME;
+      else process.env.CODEX_HOME = previous;
+    }
   });
 
   test("a trial counts only in the workspace's sandbox: another provider's is run again", async () => {

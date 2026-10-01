@@ -144,7 +144,8 @@ Out of scope:
 - `src/review/format/records.ts` — the trial record's `sandbox`: records a container trial apart.
 - `src/review/format/variant.ts` — `defineReviewVariant`: the variant `awf-lab` writes around a
   candidate.
-- New: `src/review/loop/` — the bundle, `propose.workflow.ts`, the scope check, the log, `loop`.
+- New: `src/review/lab/loop/` — the bundle, `propose.workflow.ts`, the scope check, the records,
+  `runLoop`; inside `lab/`, whose CLI calls it and whose modules it builds on.
 
 ### packages/sandbox
 
@@ -177,7 +178,7 @@ Out of scope:
 
 ### The proposer
 
-`packages/lab/src/review/loop/propose.workflow.ts`, run by `awf run` with the bundle folder read
+`packages/lab/src/review/lab/loop/propose.workflow.ts`, run by `awf run` with the bundle folder read
 only and the candidate folder writable, one codex agent (`gpt-6-sol` by default, set by
 `--proposer`). Its prompt is short; `program.md` carries the steering. Its answer is
 `hypothesis.json`'s schema through `wf result`.
@@ -216,8 +217,8 @@ Alternatives rejected:
 
 - [x] 1. The holdout is named in `awf-lab.json` and refused outside the final check
 - [x] 2. A trial runs whole in a container, the key absent
-- [ ] 3. The proposer writes a checked candidate from a tuning-only bundle
-- [ ] 4. `awf-lab loop` keeps or discards, logs the tree and stops at the cap
+- [x] 3. The proposer writes a checked candidate from a tuning-only bundle
+- [x] 4. `awf-lab loop` keeps or discards, logs the tree and stops at the cap
 - [ ] 5. `loop --final` checks the incumbent on the holdout
 - [ ] 6. The first live loop on air-1
 
@@ -411,6 +412,27 @@ Manual or live evaluation:
   `show` refusals by id, comma list and trial address, nothing run after them, an unfiltered
   `report` and `list cases` without the case, `list datasets`' counts, a positive `show`, and both
   broken holdouts.
+
+### Tasks 3 and 4, reviewed together as one diff
+
+- Architecture and scope: the candidate is never imported on the host (its settings are the
+  start's, its file the workflow `awf run` runs in the container), and only `candidate/` is
+  mounted, never `bundle/`: sound. Important: the start's file could change under a resumed loop;
+  `loop.json` now holds its digest and a resume refuses a changed one. The scope check lacked the
+  story's no-paste guard on key text: added (40 characters of a tuning key's mechanism, any case);
+  the typecheck and the result-shape check are left to the candidate's first trial, which fails
+  cheaply and is recorded as `failed`. `unfinished` joins the decisions: the cap can end a try
+  before a verdict. Deferred: `list loops` and `show` of a loop's tree, and the allowed models
+  living in the CLI rather than the loop's records.
+- Correctness and proof: high: a try cut short and redone reused `{loop}-{n}@1.0`, so its earlier
+  code's trials could count for new code; a candidate is now named by its code,
+  `{loop}-{n}-{digest}@1.0`. An unpriced proposer counted as free; it now counts as the earlier
+  proposers' mean, logged. A resume trusted the command line; trials, scorer, comparison, proposer
+  and the start's digest must now match `loop.json`. The scope regexes matched prompt prose
+  ("check the process."); they now read code with strings and comments blanked. A failed try took
+  the first error of either variant; now the candidate's. Tests cover keep, refuse, failed,
+  unfinished at the cap, resume with fixed settings, the holdout's absence from the bundle, and
+  the scope rules; not the stall rule or a proposer that fails.
 
 ### Task 2
 
