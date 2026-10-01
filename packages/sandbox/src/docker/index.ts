@@ -31,6 +31,8 @@ const IMAGE_DIRECTORY = join(import.meta.dir, "..", "..", "docker");
 const COMMAND_MS = 60_000;
 /** How long a daemon may take to answer before the provider says it did not. */
 const DAEMON_MS = 5_000;
+/** How long killing a box's recorded groups, or removing their files, may take. */
+const CLEANUP_MS = 4_000;
 /** How long a box outlives its run's deadline, should the engine die before closing it. */
 const EXPIRY_GRACE_SECONDS = 600;
 
@@ -556,7 +558,7 @@ async function admitAgent(
         await relay.stop();
         await killIn(client, box, [pids]);
         if (unread.length > 0) {
-          await client.run(["exec", box, "rm", "-f", ...unread], { timeoutMs: 4_000 });
+          await client.run(["exec", box, "rm", "-f", ...unread], { timeoutMs: CLEANUP_MS });
         }
         await guard();
       })();
@@ -808,7 +810,7 @@ function dockerClient(
 function killIn(client: DockerClient, box: string, files: readonly string[], user?: string) {
   return client.run(
     ["exec", ...(user ? ["-u", user] : []), box, "sh", "-c", KILL_GROUPS, "sh", ...files],
-    { timeoutMs: 4_000 },
+    { timeoutMs: CLEANUP_MS },
   );
 }
 

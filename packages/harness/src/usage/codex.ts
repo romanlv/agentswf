@@ -21,12 +21,12 @@ export async function readCodexUsage(
   if (ids.length === 0) return undefined;
   // Newest first by path, so the day directories a subagent can be in are the leading ones.
   const all = (await entries(root, true))
-    .filter((name) => rolloutId(name) !== undefined)
+    .filter((name) => codexRolloutId(name) !== undefined)
     .sort()
     .reverse();
   const own = new Map<string, string>();
   for (const id of ids) {
-    const found = all.find((name) => rolloutId(name) === id);
+    const found = all.find((name) => codexRolloutId(name) === id);
     if (found) own.set(id, found);
   }
   if (own.size === 0) return undefined;
@@ -61,7 +61,8 @@ function turnOpen(rows: readonly Row[]): boolean {
   return record(last?.payload)?.type === "task_started";
 }
 
-function rolloutId(path: string): string | undefined {
+/** The session id a codex rollout's file name ends with, after its start time. */
+export function codexRolloutId(path: string): string | undefined {
   return /^rollout-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-(.+)\.jsonl$/.exec(basename(path))?.[1];
 }
 
@@ -79,7 +80,7 @@ async function spawnedBy(path: string, id: string): Promise<boolean> {
 }
 
 function rolloutRecords(rows: readonly Row[], file: string, delegated: boolean): UsageRecord[] {
-  const id = rolloutId(file)!;
+  const id = codexRolloutId(file)!;
   const meta = record(rows.find((row) => row.type === "session_meta")?.payload);
   const provider = text(meta?.model_provider) ?? "openai";
   // A session resumed on a newer CLI has token counts up to its first per-response row.

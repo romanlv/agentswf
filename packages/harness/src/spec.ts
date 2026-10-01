@@ -6,7 +6,7 @@ import { jsonLines, parseRow, type Row, record, reported, text } from "./json";
 import type { Harness } from "./types";
 import { readClaudeBilling, readCodexBilling, readPiBilling } from "./usage/billing";
 import { claudeProjectsDirectory, readClaudeCompactSummary, readClaudeUsage } from "./usage/claude";
-import { codexSessionsDirectory, readCodexUsage } from "./usage/codex";
+import { codexRolloutId, codexSessionsDirectory, readCodexUsage } from "./usage/codex";
 import { ownFiles } from "./usage/files";
 import { readPiCompactSummary, readPiUsage } from "./usage/pi";
 import type { SessionRead } from "./usage/records";
@@ -375,10 +375,7 @@ export const HARNESSES: Record<Harness, HarnessSpec> = {
       (await ownFiles(home, codexSessionsDirectory(home)))
         .map((name) => basename(name))
         .sort()
-        .flatMap(
-          (name) =>
-            /^rollout-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-(.+)\.jsonl$/.exec(name)?.[1] ?? [],
-        ),
+        .flatMap((name) => codexRolloutId(name) ?? []),
     // A ChatGPT login pays for OpenAI's models only; another provider bills on its own terms.
     billing: ({ provider, run }) =>
       provider && provider !== "openai" ? Promise.resolve("unknown") : readCodexBilling(run),

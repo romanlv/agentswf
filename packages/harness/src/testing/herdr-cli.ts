@@ -1,7 +1,8 @@
+import { HERDR_VERSION } from "../adapters/herdr";
 import type { ProcessInput, ProcessResult, RunProcess } from "../command";
 
 /**
- * A Herdr 0.8.2 CLI model for adapter tests.
+ * A Herdr CLI model for adapter tests.
  *
  * The hand-written stubs answer whatever the adapter asks, so they can only confirm its
  * expectations; four live defects passed straight through them. What is modelled here is what
@@ -143,7 +144,7 @@ export function createFakeHerdr(options: FakeHerdrOptions = {}): FakeHerdr {
     const argv = [...input.argv];
     if (argv[1] === "--version") {
       return {
-        stdout: `herdr ${options.version ?? "0.9.1"}\n`,
+        stdout: `${options.version === undefined ? HERDR_VERSION : `herdr ${options.version}`}\n`,
         stderr: "",
         exitCode: 0,
         timedOut: false,
