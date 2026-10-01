@@ -578,7 +578,7 @@ function herdrConfig(session: string): HerdrConfig {
 /**
  * `awf run --here`, in an agent's shell: checks the session can be driven, then has Herdr start the
  * run in a new tab, outside this shell and any sandbox it is in, and prints the code the agent ends
- * its turn with (ADR 0009). Nothing is started when a check fails.
+ * its turn with (ADR 0010). Nothing is started when a check fails.
  */
 async function startHere(
   argv: readonly string[],
@@ -675,7 +675,7 @@ function sandboxFix(env: Readonly<Record<string, string | undefined>>): string {
 
 /**
  * Marks `paneId` as driven by this process until the returned release, under the run root every
- * run of this operator shares: a second run started from a driven session is refused, as ADR 0009
+ * run of this operator shares: a second run started from a driven session is refused, as ADR 0010
  * allows one at a time. A mark whose process is gone is taken over. The reason when refused.
  */
 function claimCaller(runRoot: string, paneId: string): (() => void) | string {

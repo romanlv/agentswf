@@ -67,7 +67,7 @@ bun awf run examples/quick-check/workflow.ts -- codex pi
 
 ## Drive the session you are in
 
-`calling-session/` takes over the agent session it was started from (ADR 0009). It asks the session
+`calling-session/` takes over the agent session it was started from (ADR 0010). It asks the session
 to pick a number, has a headless codex agent double it, then asks the session to recall the number
 and check the doubling. Run it from claude, codex, pi or cursor in a Herdr pane, as the agent's own
 shell command; `--no-helper` leaves the codex agent out:

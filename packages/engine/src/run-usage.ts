@@ -244,7 +244,7 @@ async function settleUsage(
 /**
  * When an agent's records are the run's. A calling session's are from the run's first prompt to it
  * until the run's own work ended: before, its turns were the operator's, the one that replied with
- * the run's code included, and so are its turns after the hand-back (ADR 0009). That prompt is the
+ * the run's code included, and so are its turns after the hand-back (ADR 0010). That prompt is the
  * host's, not the operation's delivery, which comes before the host waits for the operator's turn.
  */
 function window(

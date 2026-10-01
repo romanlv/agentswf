@@ -442,7 +442,7 @@ class WorkflowOwner {
   #closing: Promise<unknown[]> | undefined;
   /** The bundled `wf`'s source, built once, at the first sandboxed agent. */
   #bundle: Promise<string> | undefined;
-  /** The calling session, once the workflow has asked for it (ADR 0009). */
+  /** The calling session, once the workflow has asked for it (ADR 0010). */
   #caller: { key: string; state: Promise<LogicalAgent> } | undefined;
 
   constructor(
@@ -686,7 +686,7 @@ class WorkflowOwner {
   /**
    * The session the run was started from, under the key the workflow names: `null` when there is
    * none. It is found, not opened: its harness, directory and skills are the operator's, and it
-   * answers through a launcher by path as any pane agent does (ADR 0009).
+   * answers through a launcher by path as any pane agent does (ADR 0010).
    */
   private caller(key: string): Promise<AgentRef | null> {
     if (this.#closed) throw new Error("workflow context is closed");
@@ -1203,7 +1203,7 @@ class LogicalAgent implements AgentRef {
   /**
    * The standard recovery, except for a calling session whose harness's interrupt cannot be told
    * from a turn that ended without answering: nudging it could be prompting an operator who just
-   * stopped it (ADR 0009).
+   * stopped it (ADR 0010).
    */
   private defaultNudge(): Exclude<AgentRunTextSpec["nudge"], false> {
     const { execution } = this.options;

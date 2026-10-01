@@ -210,7 +210,7 @@ Settled in [ADR 0010](../adr/0010-the-calling-session-is-an-agent.md), approved 
 - Interrupt markers: read for claude, codex and pi, as a line starting with the marker after the
   turn's own prompt (E8's follow-up); cursor's cannot be read, so its unanswered caller turns are
   not nudged by default.
-- Typing into the pane mid-step: still not measured; ADR 0009 lists it.
+- Typing into the pane mid-step: still not measured; ADR 0010 lists it.
 - The code scan: kept across all agent panes, once a second, since the caller's workspace is not
   known before the pane is (codex's environment can name another). It found the pane within a
   few seconds live.
@@ -228,7 +228,7 @@ Settled in [ADR 0010](../adr/0010-the-calling-session-is-an-agent.md), approved 
 
 - One window: from the host's first prompt to the session (not the operation's delivery, which
   comes before the host waits out the operator's turn) to the run's own end. The operator's turns
-  between steps still count; ADR 0009 says so.
+  between steps still count; ADR 0010 says so.
 
 ### 5. Live evaluation
 

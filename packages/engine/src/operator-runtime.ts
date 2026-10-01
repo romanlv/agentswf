@@ -37,7 +37,7 @@ export type OperatorRuntimeOptions = {
   environment?: Readonly<Record<string, string | undefined>>;
   /** A tab in the run's workspace for each sandbox's own Herdr. On unless false. */
   watchSandboxes?: boolean;
-  /** The session `awf run --here` was started from, found in the Herdr session named (ADR 0009). */
+  /** The session `awf run --here` was started from, found in the Herdr session named (ADR 0010). */
   caller?: { pane: CallerPane; session: string };
 };
 

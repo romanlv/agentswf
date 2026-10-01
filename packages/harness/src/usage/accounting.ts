@@ -62,7 +62,7 @@ export function createSessionAccounting(run: RunProcess = runProcess): SessionAc
       if (providers.size > 1) return "unknown";
       const [provider] = providers;
       // pi's provider falls back to the model's prefix, and a calling session's model is the
-      // operator's, which awf never learns (ADR 0009).
+      // operator's, which awf never learns (ADR 0010).
       if (execution.caller && !provider && execution.harness === "pi") return "unknown";
       return spec
         .billing({ model: execution.model, ...(provider ? { provider } : {}), run })

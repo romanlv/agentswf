@@ -36,7 +36,7 @@ exists, the code is right, then this page.
   `examples/compaction` checks each live.
 - `awf run --here`, typed in a claude, codex, pi or cursor session in a Herdr pane, starts the run
   in a tab of its own, which drives that session as an agent through `agents.caller` and hands it
-  back with a last message (story 014, ADR 0009). The `awf-run` skill wraps it.
+  back with a last message (story 014, ADR 0010). The `awf-run` skill wraps it.
 - `examples/quick-check` asks each named harness a known-answer question, with a follow-up in the
   same session. It is the cheap smoke test for a harness and its accounting.
 - A workflow opens sandboxes and puts agents in them, shared or private, with

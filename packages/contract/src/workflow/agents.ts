@@ -80,7 +80,7 @@ export type AgentExecution = ExecutionConfig & {
   alias?: RuntimeAliasName;
   /**
    * The session the run was started from with `awf run --here`, which the run found rather than
-   * opened (ADR 0009). Its `model` is `""`: the operator chose it, and spend records carry it.
+   * opened (ADR 0010). Its `model` is `""`: the operator chose it, and spend records carry it.
    */
   caller?: true;
 };
@@ -266,7 +266,7 @@ export interface AgentDirectory {
   stop(key: AgentKey, reason?: string): Promise<boolean>;
   /**
    * The session `awf run --here` was started from, as an agent under `spec.key`; `null` when the
-   * run has none (ADR 0009). The same key returns the same ref and another key rejects. It is the
+   * run has none (ADR 0010). The same key returns the same ref and another key rejects. It is the
    * operator's session, so it differs from an opened agent: `compact` fails; a turn that fails, is
    * cancelled or times out leaves it usable rather than closed; the operator interrupting a turn
    * settles it `cancelled`; where the harness's interrupt cannot be recognised, an unanswered turn

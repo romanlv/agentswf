@@ -15,7 +15,7 @@ function sideOf(execution: AgentExecution): Side {
  */
 export function createPlacementHostFactory(
   hosts: Readonly<Record<AgentPlacement, AgentRunHostFactory>> & {
-    /** The calling session's host, for the agent whose execution says `caller` (ADR 0009). */
+    /** The calling session's host, for the agent whose execution says `caller` (ADR 0010). */
     caller?: AgentRunHostFactory;
   },
 ): AgentRunHostFactory {

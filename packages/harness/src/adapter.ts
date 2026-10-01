@@ -136,7 +136,7 @@ export interface HarnessSession {
   sessions?(): readonly string[];
   /**
    * When the host first prompted the agent, for a host that waits on the agent after a turn starts:
-   * the calling session's, which may still be the operator's own turn until then (ADR 0009).
+   * the calling session's, which may still be the operator's own turn until then (ADR 0010).
    */
   promptedAt?(): number | undefined;
 }
@@ -215,7 +215,7 @@ export interface AgentRunHostFactory {
    */
   readonly accounting?: SessionAccounting;
   /**
-   * The session `awf run --here` was started from, when this host drives one (ADR 0009). An agent
+   * The session `awf run --here` was started from, when this host drives one (ADR 0010). An agent
    * whose execution says `caller` is that session, and a run whose host has none has no caller.
    */
   readonly caller?: { harness: HarnessKind; cwd: string };

@@ -75,7 +75,7 @@ export function createScriptedHost(
     /** The script could not meet a turn: the test fails. */
     onScriptError(message: string): void;
   },
-  /** The session the run is started from, as `awf run --here` finds one (ADR 0009). */
+  /** The session the run is started from, as `awf run --here` finds one (ADR 0010). */
   caller?: { harness: string; cwd: string },
 ): ScriptedHost {
   const turns: TurnRecord[] = [];

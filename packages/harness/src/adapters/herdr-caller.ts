@@ -23,7 +23,7 @@ import {
 } from "./herdr-protocol";
 
 /**
- * The session `awf run --here` was started from (ADR 0009): the one agent pane whose screen showed
+ * The session `awf run --here` was started from (ADR 0010): the one agent pane whose screen showed
  * the run's code, the harness Herdr detected in it, and the directory it works in.
  */
 export type CallerPane = { paneId: string; harness: Harness; cwd: string };
@@ -130,7 +130,7 @@ export function interruptedAfter(screen: string, operationId: string, marker: st
 /**
  * The run host for the calling session: every turn prompted into its pane once it has settled, as a
  * pane agent's is (ADR 0008), and none of the pane's lifecycle. The pane is never opened, closed or
- * compacted here, and the run's cleanup leaves it as it is (ADR 0009).
+ * compacted here, and the run's cleanup leaves it as it is (ADR 0010).
  */
 export function createCallerHostFactory(
   config: HerdrConfig,
@@ -338,7 +338,7 @@ const HAND_BACK_SETTLE_MS = 10_000;
 /**
  * The run's last message to the calling session: how it ended and where its record is. It is not an
  * operation, and nothing answers it; it is sent once the session settles, or queued after
- * `settleMs` (ADR 0009).
+ * `settleMs` (ADR 0010).
  */
 export async function handBack(
   config: HerdrConfig,
