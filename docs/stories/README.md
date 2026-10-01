@@ -83,6 +83,9 @@ status is one of `todo`, `draft`, `ready`, `in-progress`, `blocked`, `awaiting-h
   `draft` — The operator starts a workflow from a claude, codex, pi or cursor session in a Herdr
   pane; the run starts outside the session's sandbox, drives that session as one of its agents, and
   hands it back when it ends.
+- [`015` — Compact an agent with its harness's own compact command](015-native-compaction.md) —
+  `in-progress` — `agent.compact` runs the harness's native compaction with the workflow's focus,
+  and a pane agent takes more than one operation, so one agent can carry a long task.
 
 This is the high-level index of numbered stories. Keep each entry to its title, status, and
 one-sentence summary; put code maps, research, design, tasks, and verification in the linked story.

@@ -213,6 +213,7 @@ export interface TurnRef<T extends JsonValue> {
 
 export interface CompactSpec {
   id: CompactionId;
+  /** What the harness's own compaction keeps and drops, as an operator types after `/compact`. */
   prompt: string;
   deadline: AbsoluteDeadline;
 }
@@ -231,8 +232,9 @@ export interface AgentRef extends ParticipantRef {
   run(spec: AgentRunTextSpec): Promise<RunResult<string>>;
   run<T extends JsonValue>(spec: AgentRunStructuredSpec<T>): Promise<RunResult<T>>;
   /**
-   * Runs after earlier operations and is idempotent by compaction id. An answer is the summary
-   * retained as context; any other outcome leaves the prior context available.
+   * Runs the harness's own compaction after earlier operations, idempotent by compaction id. An
+   * answer means it compacted, and is its summary where the harness exposes one, else `""`; any
+   * other outcome leaves the prior context available.
    */
   compact(spec: CompactSpec): Promise<TurnOutcome<string>>;
 }

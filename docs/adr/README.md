@@ -15,3 +15,5 @@ One file per decision: what was decided, what it replaces, and what evidence mov
 - [0005](0005-published-as-agentswf.md) — published as agents.wf, the package `agentswf`
 - [0006](0006-workflow-tests-run-on-a-second-composition-root.md) — a workflow's tests run on
   a second composition root
+- [0007](0007-compaction-is-the-harness-own.md) — compaction is the harness's own, with the
+  workflow's focus

@@ -62,8 +62,8 @@ const reviewer = await context.agents.open({
   one standard missing-answer nudge runs unless `nudge: false` disables it.
 - `enqueue()` durably queues detached work and returns a `TurnRef` for later observation,
   cancellation, or an unanswered-result nudge. Detached turns require a caller-supplied id.
-- `compact()` asks the agent to summarize retained context. Only an `answered` outcome replaces
-  the previous context.
+- `compact()` runs the harness's own compaction, with the spec's prompt as its focus (ADR 0007).
+  An `answered` outcome means the context was replaced; any other leaves it as it was.
 
 The public call surface is:
 
@@ -161,8 +161,8 @@ At activation it receives, through harness-specific mechanisms:
 - the native tools and permissions granted by the harness adapter.
 
 For each operation it receives the turn prompt and, for structured work, the required JSON Schema.
-A nudge is another prompt in the same logical operation sequence. A compaction is also a prompt,
-but its accepted answer is retained as context rather than returned as ordinary workflow data.
+A nudge is another prompt in the same logical operation sequence. A compaction is the harness's
+own command, with the workflow's focus; the agent answers nothing for it.
 Allowed messaging routes and their purposes are included in its instructions or authenticated
 inbound messages.
 
