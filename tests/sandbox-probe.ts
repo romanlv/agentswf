@@ -284,10 +284,16 @@ async function plant(
   };
 }
 
-/** Runs each command in turn, its output between the markers `sections` splits on. */
+/**
+ * Runs each command in turn, its output between the markers `sections` splits on. The exit marker
+ * starts with a newline of its own, so it is on its own line after output that ends without one.
+ */
 export function script(commands: readonly string[]): string {
   return commands
-    .map((command, index) => `echo '=== ${index + 1}'\n{ ${command}\n} 2>&1\necho "--- exit $?"\n`)
+    .map(
+      (command, index) =>
+        `echo '=== ${index + 1}'\n{ ${command}\n} 2>&1\nprintf '\\n--- exit %s\\n' "$?"\n`,
+    )
     .join("");
 }
 

@@ -151,7 +151,8 @@ export function sections(
     if (start < 0) return { command, output: "", exitCode: -1 };
     const body = output.slice(start + `=== ${index + 1}\n`.length);
     const end = body.search(/^--- exit (\d+)$/m);
-    const text = end < 0 ? body : body.slice(0, end);
+    // Less the newline the script prints before the marker.
+    const text = end < 0 ? body : body.slice(0, end).replace(/\n$/, "");
     const code = end < 0 ? undefined : /^--- exit (\d+)$/m.exec(body)?.[1];
     return { command, output: text, exitCode: code === undefined ? -1 : Number(code) };
   });

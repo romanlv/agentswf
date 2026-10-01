@@ -210,17 +210,23 @@ describe("the sandbox probe's checks", () => {
 
 describe("the probe's script", () => {
   test("its output splits back into each command's output and exit code", () => {
-    const commands = ["echo one", "sh -c 'echo two >&2; exit 3'", "false && echo wrote"];
+    const commands = [
+      "echo one",
+      "printf 200",
+      "sh -c 'echo two >&2; exit 3'",
+      "false && echo wrote",
+    ];
     const ran = Bun.spawnSync(["sh", "-c", script(commands)]);
     expect(sections(ran.stdout.toString(), commands)).toEqual([
       { command: "echo one", output: "one\n", exitCode: 0 },
+      { command: "printf 200", output: "200", exitCode: 0 },
       { command: "sh -c 'echo two >&2; exit 3'", output: "two\n", exitCode: 3 },
       { command: "false && echo wrote", output: "", exitCode: 1 },
     ]);
   });
 
   test("a command the output never reached reads as not run", () => {
-    expect(sections("=== 1\nok\n--- exit 0\n", ["echo ok", "echo later"])).toEqual([
+    expect(sections("=== 1\nok\n\n--- exit 0\n", ["echo ok", "echo later"])).toEqual([
       { command: "echo ok", output: "ok\n", exitCode: 0 },
       { command: "echo later", output: "", exitCode: -1 },
     ]);
