@@ -30,6 +30,11 @@ implementation.
 
   A fork's key is taken when `fork` is called. One already open is the same fork only with the same
   parent and spec; anything else is a conflict, as `agents.open` treats one.
+- **A fork answers through its own channel.** A session reported for a fork is not counted as its
+  parent's, even if the fork reached the parent's socket with a command from its copied context.
+- **`compact` takes `run`'s defaults**, against ADR 0007's "`CompactSpec` keeps its shape". Its
+  `id` and `deadline` become optional, and it gains `timeoutMs`. The id only makes a repeated call
+  return the same outcome, and nothing else needed it.
 - **A fork is not an operation record.** It calls no model. Rows the fork's session copied from its
   parent stay the parent's, which the run-end read already gives them (F8).
 

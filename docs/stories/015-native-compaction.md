@@ -24,6 +24,25 @@ sessions, and its fixer never saw why the implementer chose what it did.
 
 ## How it works
 
+In a workflow (from the ticket workflow; `compact` needing an `id` and a deadline is what story
+016's first task removes):
+
+```ts
+const worker = await workflow.agents.open({ key: "worker", runtime: "claude" });
+
+const plan = await worker.run({ prompt: prompts.docReview(ticket), schema: DOC_REVIEW, timeoutMs });
+await worker.compact({
+  id: "after-doc-review",
+  prompt: "Keep the ticket, the plan in its doc and the decisions; drop the doc review's back and forth.",
+  deadline,
+});
+
+const built = await worker.run({ prompt: prompts.implement(ticket, plan.value), schema: IMPLEMENTED, timeoutMs });
+await worker.compact({ id: "after-implement", prompt: "Keep what changed and why; drop the build logs.", deadline });
+```
+
+What each call does underneath:
+
 ```text
  workflow                      engine                    harness (per harness and placement)
  ────────                      ──────                    ─────────────────────────────────

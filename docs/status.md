@@ -147,6 +147,8 @@ The gates are defined in [`foundation.md`](foundation.md) §12.
 - [016 — fork](stories/016-fork.md): draft, its ADR (0009) awaiting approval. A fork is a new
   agent on a copy of the session, made with no model call; claude's and pi's forks read the
   parent's cache, codex's pay it once ([findings](findings/fork-cache.md)).
+- [017 — pi in panes](stories/017-pi-pane-agent.md): draft. pi starts in a Herdr pane with no
+  startup screen and compacts there (probed); awf's pane list had only claude and codex.
 
 The inbox of possible stories is [`stories/todo/`](stories/todo/).
 

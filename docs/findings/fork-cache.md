@@ -91,6 +91,10 @@ superseded here.
   by id scans one directory below its sessions root, so a fork two levels down is found only by its
   path.
 - After compaction, a default fork sent 10,788 / 6,656. It was not tried keeping the id.
+- From a pi parent in a Herdr pane, compacted, three forks keeping its id: a pane fork missed
+  entirely (12,777 / 0), then a headless fork and a second pane fork read 11,776 of 12,770. The
+  provider's cache is best-effort, so one miss in six pi forks that kept the id is noise to watch,
+  not a rule.
 - Not measured: pi on an Anthropic model, where a default fork should hit as claude's does.
 
 ## F7 — a fork with no model call

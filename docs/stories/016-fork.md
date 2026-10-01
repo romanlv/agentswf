@@ -17,7 +17,7 @@ A workflow has one agent understand a task, then starts other agents from that u
 ```ts
 const worker = await workflow.agents.open({ key: "worker", runtime: "claude" });
 await worker.run({ prompt: "Read the ticket and its doc, and plan the change.", schema: PLAN });
-await worker.compact({ id: "planned", prompt: "Keep the plan and why; drop the exploration.", deadline });
+await worker.compact({ prompt: "Keep the plan and why; drop the exploration." });
 
 const [security, tests] = await Promise.all([
   worker.fork({ key: "security" }),
@@ -29,6 +29,27 @@ Each fork knows what the worker knew when it was forked, without re-reading the 
 first request reads that context from the provider's cache instead of paying for it again. That
 holds with or without compacting first. The worker goes on, and neither sees what the other does
 next.
+
+Questions from the review, 2026-10-01:
+
+- **Can a fork go from a pane to headless, and back?** Yes; a fork may name its own placement.
+  - **Claude:** a pane worker's headless fork read 60,377 tokens from the cache, the same as its
+    pane fork (F2). A headless worker forked into a pane is not measured yet; task 6 does.
+  - **Codex:** both directions work, but codex misses the cache in any placement.
+  - **pi:** forks into a pane once pi runs in one
+    ([story 017](017-pi-pane-agent.md)).
+- **What is `compact`'s `id` for?** Only idempotency: a second `compact` with the same id returns
+  the first one's outcome instead of compacting again, and a different spec under it is refused.
+  `run` generates its id when none is given and defaults its deadline to the workflow's. `compact`
+  required both, which is why the call read badly. Task 1 makes `compact` take `run`'s defaults:
+  `compact({ prompt })`, with `timeoutMs`, `deadline` and `id` optional.
+- **Is the context size exposed?** Not to a workflow. Each harness logs it:
+  - per request, as that request's input tokens;
+  - claude's `compact_boundary` also records the tokens before and after.
+
+  awf reads both only after the run, for spend. Showing it on an operation's outcome, a fork's and a
+  compaction's included, is [`context-size`](todo/context-size.md). ADR 0007 left the same question
+  open for compaction.
 
 Today the only way to hand context on is a prompt the workflow writes, or a fresh agent rebuilding
 it with its tools. The operator's ticket workflow opens reviewers cold beside an implementer that
@@ -219,6 +240,14 @@ export interface AgentRef {
   under the root, so the usage reader's root check holds, and two levels down, so pi's lookup by
   id never finds it. The parent's id is reused there, so the provider's cache key is the parent's.
   The fork's ref is its file's path, which `pi --session` takes and the reader resolves.
+- **A fork answers through its own channel.** Its copied context holds the parent's `wf` commands,
+  with the parent's launcher path and call ids. Every turn's prompt names the fork's own launcher,
+  so a fork that follows it answers correctly. One that reuses the parent's command reaches the
+  parent's socket. The control plane refuses that result, since the call is not that agent's. But
+  it first records the session that sent it as the parent's. That would make the parent claim the
+  fork's usage at run end. So a session the harness reports for a fork is dropped from its
+  parent's reported sessions. The engine compares those ids for equality only and never reads
+  them.
 - **A pane parent's fork** runs the same headless fork plan once the pane has settled, and only
   once the parent's session reads as closed where the harness's usage reader can tell (codex), so
   the copy holds the parent's last turn. The session is the one the pane's harness named to Herdr.
@@ -242,7 +271,7 @@ Alternatives rejected:
 
 ## Tasks at a glance
 
-- [ ] 1. Each turn of a headless claude or pi agent charges what that turn cost
+- [ ] 1. `compact` takes `run`'s defaults; each headless claude or pi turn charges what it cost
 - [ ] 2. A headless claude agent forks, end to end
 - [ ] 3. Forks in panes and across placements: claude and codex
 - [ ] 4. Headless codex and pi fork
@@ -290,12 +319,21 @@ Every task runs the same checklist:
 - [ ] Resolve.
 - [ ] Verify.
 
-### 1. Each turn of a headless claude or pi agent charges what that turn cost
+### 1. `compact` takes `run`'s defaults; each headless claude or pi turn charges what it cost
 
-Outcome: a headless claude agent's operations each charge what their own turns cost, not the
-session's total so far (F9). A pi agent's turn charges all its requests, not the last one's.
+Outcome:
+- `agent.compact({ prompt })` needs no id or deadline. As in `run`, the id is generated and the
+  deadline defaults to the workflow's, with `timeoutMs` and `deadline` to bound it.
+- A headless claude agent's operations each charge what their own turns cost, not the session's
+  total so far (F9).
+- A pi agent's turn charges all its requests, not the last one's.
 
 Work:
+
+- `CompactSpec`'s `id` and `deadline` become optional, and it gains `timeoutMs`. This widens a
+  published type and breaks no caller. It is recorded in ADR 0009, against ADR 0007's "keeps its
+  shape".
+- The examples and the ticket workflow drop their hand-built deadlines.
 
 - The headless backend keeps the session's last running total. A turn's charge is the new total
   less that one, and the first baseline is the session's last `cost-state` row.
@@ -332,6 +370,8 @@ Done when:
 
 - Engine tests cover:
   - the fork point: a turn enqueued before the fork is in it, one after is not;
+  - a fork's result through its own channel accepted; one sent through the parent's refused, and
+    its session not counted as the parent's;
   - idempotency and conflict by key, a fork racing an open of its key included;
   - a fork of a fork, and a fork refused before its own first turn;
   - usage attribution with copied rows, the zeroed row after compaction included (F8).
@@ -345,7 +385,9 @@ Outcome: a pane agent forks into a pane or a headless agent, and a headless agen
 
 Work:
 
-- `interactiveResume` for claude and codex; the Herdr adapter launches a continued agent with it.
+- `interactiveResume` for claude and codex, and for pi (`pi --session {fork file}`) once
+  [story 017](017-pi-pane-agent.md) runs pi in panes; the Herdr adapter launches a continued
+  agent with it.
 - `forkSession` for codex (app-server `thread/fork`).
 - A pane parent's fork, after it settles, on the session its harness named.
 
@@ -404,6 +446,9 @@ Work:
 
 - The parent reads a document, which is then removed, and learns one more fact after the fork. Each
   fork must answer from the document, and must not know the later fact.
+- Every fork's answer must arrive as an accepted result through its own channel, with a structured
+  schema, so a fork that reached for its parent's `wf` command fails the eval. The parent's next
+  answer must arrive through its own channel too.
 - The eval reads each fork's first request from its usage. Claude and pi must read most of the
   parent's prefix from the cache; codex's is recorded, not asserted. The questions are about text
   codex was actually shown.

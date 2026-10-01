@@ -50,3 +50,17 @@ pi, `{"type":"get_state"}` on stdin of `pi --mode rpc --fork 07ab0440-… --sess
 
     {"u":"800/30208","t":"MANIFOLD-6764"}
     {"u":"800/30208","t":"BEARING-5748"}
+
+## pi in a Herdr pane (story 017), 2026-10-01, openai-codex/gpt-5.6-terra
+
+    herdr agent start fp-pi-1 --kind pi -- --model … → ready at once, no startup block;
+      agent_session {"kind":"path","value":"~/.pi/agent/sessions/--…-pane-pi--/2026-10-01T19-00-18-287Z_01a0f8d6-beee-7329-8d70-4b8e8f82be9e.jsonl"}
+    turn: read manual.md, remember the shed (blue) and the path (14 m) → VALVE-4944; status line 11.4%/272k
+    "/compact Keep the path length; drop the shed colour." → herdr: agent_prompt_stalled (status done);
+      screen "[compaction] Compacted from 30,993 tokens"; session file gains a compaction entry (split-turn summary, no focus)
+    follow-up → "The shed is blue and the path is 14 metres long."; 4.7%/272k; same session path
+
+    forks of that pane session, each a turnless rpc fork keeping 01a0f8d6-… in ~/.pi/agent/sessions/awf-forks/{uuid}/:
+      pane child (pi --session {fork}) → MANIFOLD-6764; its own requests 12777/0, 1438/11776   (first request missed)
+      headless child (pi --print --session {fork}) → 994/11776
+      second pane child → 994/11776

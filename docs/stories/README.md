@@ -89,6 +89,8 @@ status is one of `todo`, `draft`, `ready`, `in-progress`, `blocked`, `awaiting-h
 - [`016` — Fork an agent so new agents start from what it knows, from the cache](016-fork.md) —
   `draft` — `agent.fork({ key })` opens a new agent on a copy of the agent's session, whose first
   request reads the parent's context from the provider's cache on claude and pi.
+- [`017` — Run pi in a Herdr pane, as claude and codex run](017-pi-pane-agent.md) — `draft` — a
+  pi agent may take placement pane, with turns, continuation and compaction there.
 
 This is the high-level index of numbered stories. Keep each entry to its title, status, and
 one-sentence summary; put code maps, research, design, tasks, and verification in the linked story.
