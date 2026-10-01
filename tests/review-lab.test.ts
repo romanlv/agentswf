@@ -1285,6 +1285,27 @@ export default defineExecutableWorkflow({
     expect(runs.calls).toHaveLength(0);
   });
 
+  test("loop refuses a flag it doesn't use, before it runs anything", async () => {
+    await ws.variant("canned");
+    const runs = inProcess();
+    const start = ["loop", "l1", "--baseline", "canned"];
+    const created = [...start, "--program", "program.md", "--source", CANNED, "--budget", "1"];
+    for (const [extra, message] of [
+      [["--dry-run"], "loop takes no --dry-run"],
+      [["--json", "--md"], "loop takes no --json, --md"],
+      [["--categories", "security"], "loop takes no --categories"],
+      [["--rest-from", "exact"], "loop takes no --rest-from"],
+      [["--rescore", "1"], "loop takes no --rescore"],
+      [["--scorer", "exact", "--scorer", "exact"], "loop takes one --scorer"],
+      [["--final", "--budget", "1", "--dry-run"], "loop takes no --dry-run"],
+    ] as const) {
+      const result = await lab(ws, [...created, ...extra], runs.runner);
+      expect(result.exitCode).toBe(2);
+      expect(result.stderr).toContain(message);
+    }
+    expect(runs.calls).toHaveLength(0);
+  });
+
   test("usage errors exit 2: an unknown placeholder, an unknown variant, a bad flag", async () => {
     await ws.variant(
       "typo",

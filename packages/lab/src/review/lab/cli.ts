@@ -273,14 +273,14 @@ function parse(argv: readonly string[]): { command: string; names: string[]; opt
         options.rescore = whole(arg, value(arg));
         break;
       case "--categories": {
-        const named = value(arg).split(",");
-        const unknown = named.filter((c) => !(CATEGORIES as readonly string[]).includes(c));
+        const categories = value(arg).split(",");
+        const unknown = categories.filter((c) => !(CATEGORIES as readonly string[]).includes(c));
         if (unknown.length > 0) {
           throw new UsageError(
             `unknown categories ${unknown.join(", ")}; ${CATEGORIES.join(", ")}`,
           );
         }
-        options.categories = named as Category[];
+        options.categories = categories as Category[];
         break;
       }
       case "--dry-run":
@@ -579,6 +579,35 @@ async function askOperator(plan: string, stderr: (text: string) => void): Promis
   }
 }
 
+/** Whether a plan that spends goes ahead: the operator is asked on a terminal, unless `--yes`. */
+async function goAhead(
+  plan: string,
+  options: Options,
+  environment: LabEnvironment,
+  stderr: (text: string) => void,
+): Promise<boolean> {
+  const confirm =
+    environment.confirm ??
+    (process.stdin.isTTY && !options.yes ? (text: string) => askOperator(text, stderr) : undefined);
+  if (confirm && !options.yes && !(await confirm(plan))) {
+    stderr("declined; nothing run");
+    return false;
+  }
+  return true;
+}
+
+/** The scorer a command runs: `--scorer`, else the config's. */
+async function scorerToRun(context: Context): Promise<Subject<ScorerSettings>> {
+  const scorer = await context.scorer(
+    context.options.scorers[0] ?? context.workspace.config.scorer,
+  );
+  if (!scorer.defined) throw new UsageError(storedScorer(scorer));
+  return scorer;
+}
+
+const storedScorer = (scorer: Subject<ScorerSettings>) =>
+  `${scorer.label} is a stored version; only a file can score`;
+
 const refOf = (subject: Subject<unknown>) => ({ name: subject.label, version: subject.version });
 const recordRef = ({ name, version }: { name: string; version: string }) => ({ name, version });
 
@@ -690,20 +719,17 @@ async function runOrScore(
   if (names.length === 0) throw new UsageError(`${command} takes a variant`);
   if (options.scorers.length > 1) throw new UsageError(`${command} takes one --scorer`);
   if (options.restFrom && command === "run") throw new UsageError("--rest-from goes with score");
-  // With --baseline, run compares as it goes; --where lost only reads the baseline, as before.
+  // With --baseline, run compares as it goes; --where lost only reads the baseline.
   if (command === "run" && options.baseline && !options.where.some((p) => p.kind === "lost")) {
     return await runBaseline(context, names, lab, environment, out);
   }
-  if (options.restFrom && command === "run") throw new UsageError("--rest-from goes with score");
   const variants = await variantsOf(context, names);
   if (command === "run") {
     for (const v of variants) {
       if (!v.defined) throw new UsageError(`${v.label} is a stored version; only a file can run`);
     }
   }
-  const scorer = await context.scorer(options.scorers[0] ?? workspace.config.scorer);
-  if (!scorer.defined)
-    throw new UsageError(`${scorer.label} is a stored version; only a file can score`);
+  const scorer = await scorerToRun(context);
   // The rest-from scorer is read only for chosen findings and by --where; otherwise the config's
   // default scorer must not block scoring with another.
   const readsRest =
@@ -781,15 +807,7 @@ async function runOrScore(
     );
     return 0;
   }
-  const confirm =
-    environment.confirm ??
-    (process.stdin.isTTY && !options.yes
-      ? (text: string) => askOperator(text, out.stderr)
-      : undefined);
-  if (confirm && !options.yes && !(await confirm(plan))) {
-    out.stderr("declined; nothing run");
-    return 4;
-  }
+  if (!(await goAhead(plan, options, environment, out.stderr))) return 4;
   const budget = options.budget ?? workspace.config.budget?.usd;
   const result = await executePlan(lab, {
     dataset,
@@ -838,19 +856,11 @@ async function runBaseline(
   for (const v of [challenger!, baseline]) {
     if (!v.defined) throw new UsageError(`${v.label} is a stored version; only a file can run`);
   }
-  const scorer = await context.scorer(options.scorers[0] ?? workspace.config.scorer);
-  if (!scorer.defined)
-    throw new UsageError(`${scorer.label} is a stored version; only a file can score`);
+  const scorer = await scorerToRun(context);
   const { ids, entries } = await selectedCases(workspace, options);
   const cases = await readCases(workspace, dataset, ids);
   const trials = trialsAsked(workspace, options);
-  const comparison = {
-    ...(await comparisonOf(
-      context,
-      options.comparison ?? workspace.config.comparison ?? "default",
-    )),
-    planned: entries.length,
-  };
+  const comparison = await comparisonFor(context, entries.length);
   const all = new Map(
     ids.map((id) => [id, new Map(Array.from({ length: trials }, (_, i) => [i + 1, {}]))]),
   );
@@ -923,15 +933,7 @@ async function runBaseline(
     );
     return 0;
   }
-  const confirm =
-    environment.confirm ??
-    (process.stdin.isTTY && !options.yes
-      ? (text: string) => askOperator(text, out.stderr)
-      : undefined);
-  if (confirm && !options.yes && !decided?.stop && !(await confirm(plan))) {
-    out.stderr("declined; nothing run");
-    return 4;
-  }
+  if (!decided?.stop && !(await goAhead(plan, options, environment, out.stderr))) return 4;
   const result = await runAgainst(lab, against);
   out.stderr(`$${result.listPrice.toFixed(2)} at list prices, estimated`);
   const { verdict } = result;
@@ -980,25 +982,29 @@ async function loop(
   if (options.cases !== undefined || options.only || options.where.length > 0) {
     throw new UsageError("a loop tunes on every tuning case, in the seeded order");
   }
+  const unused = (
+    [
+      ["--dry-run", options.dryRun],
+      ["--json", options.json],
+      ["--md", options.md],
+      ["--categories", options.categories],
+      ["--rest-from", options.restFrom],
+      ["--rescore", options.rescore],
+    ] as const
+  ).flatMap(([flag, given]) => (given ? [flag] : []));
+  if (unused.length > 0) throw new UsageError(`loop takes no ${unused.join(", ")}`);
+  if (options.scorers.length > 1) throw new UsageError("loop takes one --scorer");
   if (!options.baseline) throw new UsageError("loop takes --baseline {variant}, its start");
   const start = await context.variant(options.baseline);
   if (!start.defined || !start.file)
     throw new UsageError(`${start.label}: a loop starts from a file`);
-  const scorer = await context.scorer(options.scorers[0] ?? workspace.config.scorer);
-  if (!scorer.defined)
-    throw new UsageError(`${scorer.label} is a stored version; only a file can score`);
+  const scorer = await scorerToRun(context);
   const { ids, entries, held } = await selectedCases(workspace, options);
   const cases = await readCases(workspace, dataset, ids);
   const trials = trialsAsked(workspace, options);
-  const comparison = {
-    ...(await comparisonOf(
-      context,
-      options.comparison ?? workspace.config.comparison ?? "default",
-    )),
-    planned: entries.length,
-  };
+  const comparison = await comparisonFor(context, entries.length);
   if (options.final) {
-    if (options.rounds || options.program || options.source || options.proposer || options.dryRun) {
+    if (options.rounds || options.program || options.source || options.proposer) {
       throw new UsageError("--final takes --budget, and none of a loop's other flags");
     }
     if (options.budget === undefined) throw new UsageError("--final spends: give --budget {usd}");
@@ -1006,7 +1012,7 @@ async function loop(
     if (heldIds.size === 0) throw new UsageError(`${dataset} holds nothing out: no final check`);
     const rank = rankOf(workspace.config.seed ?? "awf-lab");
     const order = [...heldIds].toSorted((a, b) => (rank(a) < rank(b) ? -1 : 1));
-    const held = await readCases(workspace, dataset, order, { heldOut: true });
+    const heldCases = await readCases(workspace, dataset, order, { heldOut: true });
     const final = await runFinal(
       {
         lab,
@@ -1019,7 +1025,7 @@ async function loop(
         comparison,
         ...(options.jobs === undefined ? {} : { jobs: options.jobs }),
         rules: {},
-        held,
+        held: heldCases,
         heldEntries: set.fixtures.filter((e) => heldIds.has(e.id)),
       },
       { name, start, budget: options.budget },
@@ -1104,6 +1110,18 @@ async function comparisonOf(context: Context, text: string) {
   return { name, comparison: await loadComparison(file) };
 }
 
+/** The comparison a command decides by, `--comparison` else the config's, over `planned` cases. */
+async function comparisonFor(context: Context, planned: number) {
+  const { options, workspace } = context;
+  return {
+    ...(await comparisonOf(
+      context,
+      options.comparison ?? workspace.config.comparison ?? "default",
+    )),
+    planned,
+  };
+}
+
 /**
  * Why a report over these cases can give no verdict, if it can't. A verdict counts towards looks
  * at case counts of the dataset's seeded order, so only the first n of that order will do: cases
@@ -1141,11 +1159,11 @@ async function report(context: Context, names: readonly string[]): Promise<strin
     scorers.length === 1 ? (options.baseline ?? workspace.config.baseline) : undefined;
   let baseline: Subject<VariantSettings> | undefined;
   if (baselineName) {
-    const named = await context.variant(baselineName);
-    baseline = variants.find((v) => v.key === named.key);
+    const given = await context.variant(baselineName);
+    baseline = variants.find((v) => v.key === given.key);
     if (!baseline) {
-      baseline = named;
-      variants.push(named);
+      baseline = given;
+      variants.push(given);
     }
   }
   const noVerdict = whyNoVerdict(options);
@@ -1156,15 +1174,7 @@ async function report(context: Context, names: readonly string[]): Promise<strin
   }
   const { ids, entries } = await selectedCases(workspace, options);
   const comparison =
-    baseline && !noVerdict
-      ? {
-          ...(await comparisonOf(
-            context,
-            options.comparison ?? workspace.config.comparison ?? "default",
-          )),
-          planned: entries.length,
-        }
-      : undefined;
+    baseline && !noVerdict ? await comparisonFor(context, entries.length) : undefined;
   const cases = await readCases(workspace, dataset, ids);
   const trials = trialsAsked(workspace, options);
   const reading = scorers[0]!;
@@ -1326,9 +1336,7 @@ async function check(
   }
   let rescore: CheckDocument["rescore"];
   if (options.rescore) {
-    if (!scorer.defined) {
-      throw new UsageError(`${scorer.label} is a stored version; only a file can score`);
-    }
+    if (!scorer.defined) throw new UsageError(storedScorer(scorer));
     // Trial 1 of each case in the seeded order, then trial 2 of each, and so on.
     const scored = rows
       .flatMap((row, index) =>
@@ -1349,15 +1357,7 @@ async function check(
       out.stdout(plan);
       return 0;
     }
-    const confirm =
-      environment.confirm ??
-      (process.stdin.isTTY && !options.yes
-        ? (text: string) => askOperator(text, out.stderr)
-        : undefined);
-    if (confirm && !options.yes && !(await confirm(plan))) {
-      out.stderr("declined; nothing run");
-      return 4;
-    }
+    if (!(await goAhead(plan, options, environment, out.stderr))) return 4;
     const before: FindingLabel[] = [];
     const after: FindingLabel[] = [];
     const differ: { id: string; labels: string[] }[] = [];
