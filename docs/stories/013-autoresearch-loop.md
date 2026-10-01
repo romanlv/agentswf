@@ -504,6 +504,16 @@ Manual or live evaluation:
 - E-b, one proposer round by hand from the `missed` feedback, against `one-codex-r1` with
   `--budget 15`: running.
 
+### Screening AIR's own review (2026-10-01)
+
+The user named the real baseline: an agent with the reviewed repository's `air-code-review`
+skill, which every case's checkout already holds. Three hand-written shapes were screened on the
+first tuning cases in the data repository: `air-lenses` (three agents, one lens each) reached
+weighted recall 0.41 against `air-skill`'s 0.20 over 8 cases, +0.24 [+0.09, +0.40], 7 won and
+none lost, no wrong claims, at 2.8× the cost; `default` 1.1.0 says undecided at look 8. The skill
+alone matched a bare agent. Report: `reports/2026-10-01-air-review-screen.md` in the data
+repository. Task 6, the first live loop try, waits on budget; it starts from `air-lenses`.
+
 ## Human review
 
 - [ ] Every task is complete and story-level verification passes.
