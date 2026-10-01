@@ -38,6 +38,8 @@ const inheritedCall = {
   args: null,
 } satisfies WorkflowCallSpec<null, string>;
 const inheritedStep = { id: "step" } satisfies StepSpec;
+const inheritedCompact = { prompt: "Keep the plan." } satisfies CompactSpec;
+const boundedCompact = { prompt: "Keep the plan.", timeoutMs: 60_000 } satisfies CompactSpec;
 
 function terminalKind(outcome: TurnOutcome<string>): string {
   return outcome.kind === "timed-out" ? outcome.reason : outcome.kind;
@@ -50,9 +52,7 @@ function rejectedShapes(): void {
   agentRef.enqueue({ id: "review", prompt: "Review" });
   // @ts-expect-error A manual nudge cannot inherit an implicit infinite deadline.
   turnRef.nudge();
-  // @ts-expect-error Compaction is a bounded turn.
-  const missingCompactDeadline: CompactSpec = { id: "compact", prompt: "Summarize" };
-  void [unboundedNudge, missingCompactDeadline];
+  void unboundedNudge;
 }
 
 void [
@@ -65,6 +65,8 @@ void [
   inheritedSignal,
   inheritedCall,
   inheritedStep,
+  inheritedCompact,
+  boundedCompact,
   terminalKind,
   rejectedShapes,
 ];

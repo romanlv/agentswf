@@ -29,9 +29,9 @@ const outcome = await run.worker.compact({
 
 What to settle:
 
-- `CompactSpec` requires an `id` and an absolute deadline, where `run` generates its id and
-  defaults its deadline to the workflow scope. [Story 016](../016-fork.md)'s first task makes
-  `compact({ prompt })` take `run`'s defaults.
+- Done: `compact({ prompt })` takes `run`'s defaults, a generated id and the workflow's deadline,
+  with `timeoutMs` to bound it (ADR 0007, amended). The ticket workflow's helper above still builds
+  its own deadline.
 - Durations: `timeoutMs: 3 * 60 * MINUTE` beside `--timeout 10h` on the command line. A duration a
   person writes (`"3h"`) is a published type change to `run`, `enqueue` and `compact`.
 - The ticket workflow: stages as named steps, timeouts where they matter, and no `Run` bag passed

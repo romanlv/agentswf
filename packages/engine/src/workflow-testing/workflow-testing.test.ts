@@ -784,11 +784,7 @@ describe("testWorkflow compactions", () => {
     const hanging = workflowOf<null, JsonValue>(async (workflow) => {
       const agent = await workflow.agents.open({ key: "builder", runtime: "claude" });
       await agent.run({ prompt: "Plan it.", schema: STATUS });
-      const compacted = await agent.compact({
-        id: "c",
-        prompt: "Keep everything.",
-        deadline: { unixMilliseconds: Date.now() + 50 },
-      });
+      const compacted = await agent.compact({ prompt: "Keep everything.", timeoutMs: 50 });
       const built = await agent.run({ prompt: "Build it.", schema: STATUS });
       return { compacted: compacted.kind, built: built.outcome.kind };
     });
@@ -819,6 +815,32 @@ describe("testWorkflow compactions", () => {
     expect(run.compactionsOf("builder")).toHaveLength(1);
   });
 
+  test("a compaction without an id or a bound gets its own id and the workflow's deadline", async () => {
+    const defaults = workflowOf<null, JsonValue>(async (workflow) => {
+      const agent = await workflow.agents.open({ key: "builder", runtime: "claude" });
+      await agent.run({ prompt: "Plan it.", schema: STATUS });
+      const kinds = [];
+      for (let n = 0; n < 2; n++) kinds.push((await agent.compact({ prompt: "Keep it." })).kind);
+      const both = await agent
+        .compact({ prompt: "Keep it.", timeoutMs: 1_000, deadline: { unixMilliseconds: 1 } })
+        .then(
+          () => "accepted",
+          (error: Error) => error.message,
+        );
+      return { kinds, both };
+    });
+    const run = await testWorkflow(defaults, null, {
+      agents: { builder: answer(STATUS, { step: 0, state: "done" }) },
+      compactions: { builder: [answer("one"), answer("two")] },
+    });
+    expect(run.value).toEqual({
+      kinds: ["answered", "answered"],
+      both: "a turn cannot specify both deadline and timeoutMs",
+    });
+    const [first, second] = run.compactionsOf("builder");
+    expect(first?.id).not.toEqual(second?.id);
+  });
+
   test("a compaction script left unfinished fails the test, named as a compaction", async () => {
     await expect(
       testWorkflow(
@@ -835,15 +857,14 @@ describe("testWorkflow compactions", () => {
   });
   test("a compaction a real host would refuse is refused here too, whatever the script", async () => {
     const refusals = workflowOf<null, JsonValue>(async (workflow) => {
-      const deadline = { unixMilliseconds: Date.now() + 60_000 };
       const fresh = await workflow.agents.open({ key: "fresh", runtime: "claude" });
-      const early = await fresh.compact({ id: "c", prompt: "Keep it.", deadline });
+      const early = await fresh.compact({ prompt: "Keep it." });
       const cursor = await workflow.agents.open({
         key: "cursor",
         runtime: { harness: "cursor", model: "composer", placement: "headless" },
       });
       await cursor.run({ prompt: "Plan it.", schema: STATUS });
-      const none = await cursor.compact({ id: "c", prompt: "Keep it.", deadline });
+      const none = await cursor.compact({ prompt: "Keep it." });
       return [early, none].map((o) => (o.kind === "failed" ? o.reason : o.kind));
     });
     const run = await testWorkflow(refusals, null, {

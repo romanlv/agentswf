@@ -3,12 +3,18 @@
 **Decided:** 2026-10-01, in [[015-native-compaction|story 015]]. **Replaces:** the design's
 compaction as a prompt the agent answers, whose accepted answer became its context
 (`docs/design/README.md`, "What an agent inside a session sees").
+**Amended:** 2026-10-01, in the operator's review of story 015: `compact` takes `run`'s defaults.
 
 ## What was decided
 
 - **`CompactSpec.prompt` is a focus for the harness's own compaction.** It is what an operator
   types after `/compact`: what to keep, what to drop. The engine never asks the agent to write a
-  summary, and no `wf result` is involved. `CompactSpec` keeps its shape: `{ id, prompt, deadline }`.
+  summary, and no `wf result` is involved.
+- **`compact` takes `run`'s defaults** (amended). `CompactSpec` was `{ id, prompt, deadline }`,
+  all required, so every call built an id and an absolute millisecond deadline by hand. Now only
+  `prompt` is: the id is generated when omitted, and the deadline is the workflow scope's unless
+  `timeoutMs` or `deadline` bounds it sooner, as for `run`. The id only makes a repeated call
+  return the same outcome.
 - **Each harness takes the focus its own way.** Claude: `/compact {focus}`, in a pane or on a
   resumed headless session. Codex: the focus as a user message, then its native compaction
   (`/compact` in a pane; `thread/inject_items` and `thread/compact/start` on its app-server
@@ -19,7 +25,7 @@ compaction as a prompt the agent answers, whose accepted answer became its conte
   exposes one, and the empty string where it does not: codex on an OpenAI login keeps it
   encrypted. Every other outcome leaves the agent's context as it was.
 - **A compaction is an operation of its own.** It queues after the agent's earlier operations,
-  is idempotent by id, has its own deadline and usage record, and is never nudged.
+  is idempotent by id, has its own bound and usage record, and is never nudged.
 
 ## Why
 

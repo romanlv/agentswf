@@ -21,6 +21,7 @@ import {
   type AgentRunTextSpec,
   type AgentStructuredTurnSpec,
   type AgentTextTurnSpec,
+  type CompactionId,
   type CompactSpec,
   DeadlineExceededError,
   isJsonValue,
@@ -979,14 +980,7 @@ class LogicalAgent implements AgentRef {
     }
     let deadline: AbsoluteDeadline;
     try {
-      if (spec.deadline && spec.timeoutMs !== undefined) {
-        throw new Error("a turn cannot specify both deadline and timeoutMs");
-      }
-      const inheritedDeadline = scope?.deadline ?? this.options.deadline;
-      deadline =
-        spec.timeoutMs === undefined
-          ? (spec.deadline ?? inheritedDeadline)
-          : deadlineWithin(spec.timeoutMs, inheritedDeadline);
+      deadline = this.operationDeadline(spec, scope);
     } catch (error) {
       const rejected = Promise.reject<RunResult<string | T>>(error);
       scope?.track(rejected);
@@ -1022,22 +1016,34 @@ class LogicalAgent implements AgentRef {
     const scope = scopes.getStore();
     try {
       scope?.assertAccepting();
-      assertDeadlineValue(spec.deadline);
     } catch (error) {
       return Promise.reject(error);
     }
-    const completeSpec = structuredClone(spec);
-    const existing = this.#compactions.get(spec.id);
+    const id = spec.id ?? randomUUID();
+    const completeSpec = structuredClone({ ...spec, id });
+    const existing = this.#compactions.get(id);
     if (existing) {
       if (!isDeepStrictEqual(existing.spec, completeSpec)) {
         const rejected = Promise.reject<TurnOutcome<string>>(
-          new Error(`compaction id ${spec.id} was reused with a different specification`),
+          new Error(`compaction id ${id} was reused with a different specification`),
         );
         scope?.track(rejected);
         return rejected;
       }
       scope?.track(existing.result);
       return existing.result;
+    }
+    let deadline: AbsoluteDeadline;
+    try {
+      if (spec.deadline) assertDeadlineValue(spec.deadline);
+      deadline = earlierDeadline(
+        this.operationDeadline(spec, scope),
+        scope ? earlierDeadline(scope.deadline, this.options.deadline) : this.options.deadline,
+      );
+    } catch (error) {
+      const rejected = Promise.reject<TurnOutcome<string>>(error);
+      scope?.track(rejected);
+      return rejected;
     }
     const result = this.queue(async () => {
       if (this.#closed || this.options.isRunClosing()) {
@@ -1047,7 +1053,7 @@ class LogicalAgent implements AgentRef {
       const { progress, key } = this.options;
       progress.turnStarted(key);
       try {
-        const outcome = await this.executeCompaction(completeSpec, scope);
+        const outcome = await this.executeCompaction(id, spec.prompt, deadline, scope);
         progress.turnSettled(key, outcome.kind, "reason" in outcome ? outcome.reason : undefined);
         return outcome;
       } catch (error) {
@@ -1059,8 +1065,22 @@ class LogicalAgent implements AgentRef {
     });
     const tracked = this.options.track(result);
     scope?.track(tracked);
-    this.#compactions.set(spec.id, { spec: completeSpec, result: tracked });
+    this.#compactions.set(id, { spec: completeSpec, result: tracked });
     return tracked;
+  }
+
+  /** `deadline` or `timeoutMs`, else the workflow scope's; never later than the scope's. */
+  private operationDeadline(
+    spec: { deadline?: AbsoluteDeadline; timeoutMs?: number },
+    scope: ExecutionScope | undefined,
+  ): AbsoluteDeadline {
+    if (spec.deadline && spec.timeoutMs !== undefined) {
+      throw new Error("a turn cannot specify both deadline and timeoutMs");
+    }
+    const inheritedDeadline = scope?.deadline ?? this.options.deadline;
+    return spec.timeoutMs === undefined
+      ? (spec.deadline ?? inheritedDeadline)
+      : deadlineWithin(spec.timeoutMs, inheritedDeadline);
   }
 
   close(reason?: string): Promise<void> {
@@ -1260,13 +1280,11 @@ class LogicalAgent implements AgentRef {
    * deadline is left to end on its own rather than stopped, which would close a pane's agent.
    */
   private async executeCompaction(
-    spec: CompactSpec,
+    id: CompactionId,
+    prompt: string,
+    deadline: AbsoluteDeadline,
     scope: ExecutionScope | undefined,
   ): Promise<TurnOutcome<string>> {
-    const deadline = earlierDeadline(
-      spec.deadline,
-      scope ? earlierDeadline(scope.deadline, this.options.deadline) : this.options.deadline,
-    );
     const entry = this.options.ledger.reserve(randomUUID());
     const times: { deliveredAt?: number } = {};
     const settle = (
@@ -1300,7 +1318,7 @@ class LogicalAgent implements AgentRef {
     if (Date.now() >= deadline.unixMilliseconds) return settle("expired");
     let turn: HarnessTurn;
     const acquiring = Promise.resolve().then(() =>
-      this.options.session.compact(spec.id, spec.prompt, deadline),
+      this.options.session.compact(id, prompt, deadline),
     );
     try {
       turn = await waitForDeadline(acquiring, deadline);

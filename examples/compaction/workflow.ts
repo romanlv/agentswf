@@ -96,9 +96,8 @@ const executable = defineExecutableWorkflow<CompactionArgs, CompactionResult>({
           if (problem) return { runtime, compacted: "not run", problem };
 
           const compacted = await agent.compact({
-            id: "focus",
             prompt: `Record in the summary that the project codename is ${args.codename}, and keep the shed's colour.`,
-            deadline: { unixMilliseconds: Date.now() + 5 * MINUTE },
+            timeoutMs: 5 * MINUTE,
           });
           const { outcome } = await agent.run({
             prompt:

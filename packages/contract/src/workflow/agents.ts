@@ -212,10 +212,14 @@ export interface TurnRef<T extends JsonValue> {
 }
 
 export interface CompactSpec {
-  id: CompactionId;
+  /** Idempotency key scoped to this agent. Generated when omitted. */
+  id?: CompactionId;
   /** What the harness's own compaction keeps and drops, as an operator types after `/compact`. */
   prompt: string;
-  deadline: AbsoluteDeadline;
+  /** Defaults to the current workflow scope deadline. */
+  deadline?: AbsoluteDeadline;
+  /** Relative bound, capped by the current workflow scope deadline. */
+  timeoutMs?: number;
 }
 
 export interface AgentRef extends ParticipantRef {

@@ -172,9 +172,7 @@ and the next `run` goes on in the compacted session.
 
 ```ts
 const compacted = await builder.compact({
-  id: "after-plan",
   prompt: "Keep the plan's decisions, the branch and the worktree. Drop file contents.",
-  deadline: { unixMilliseconds: Date.now() + 10 * 60_000 },
 });
 if (!isAnswered(compacted)) workflow.log("compaction didn't finish", { reason: compacted.reason });
 ```
@@ -188,8 +186,9 @@ if (!isAnswered(compacted)) workflow.log("compaction didn't finish", { reason: c
   as a message just before its compaction; pi passes it as its compaction's instructions, and only
   summarizes what is older than its last 20k tokens, so a short session fails "nothing to
   compact". Cursor has no compaction: `failed`, and nothing is sent.
-- **`id`** makes it idempotent: the same spec again returns the same outcome; another spec under
-  the same id rejects.
+- **Bounds and ids** are `run`'s: it runs within the workflow's deadline unless `timeoutMs` or
+  `deadline` bounds it sooner, and an `id`, generated when omitted, makes it idempotent. The same
+  spec again under one id returns the same outcome; another spec under it rejects.
 
 ## `parallel`
 

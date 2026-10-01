@@ -41,8 +41,9 @@ Questions from the review, 2026-10-01:
 - **What is `compact`'s `id` for?** Only idempotency: a second `compact` with the same id returns
   the first one's outcome instead of compacting again, and a different spec under it is refused.
   `run` generates its id when none is given and defaults its deadline to the workflow's. `compact`
-  required both, which is why the call read badly. Task 1 makes `compact` take `run`'s defaults:
-  `compact({ prompt })`, with `timeoutMs`, `deadline` and `id` optional.
+  required both, which is why the call read badly. It now takes `run`'s defaults:
+  `compact({ prompt })`, with `timeoutMs`, `deadline` and `id` optional (ADR 0007, amended in the
+  review of story 015).
 - **Is the context size exposed?** Not to a workflow. Each harness logs it:
   - per request, as that request's input tokens;
   - claude's `compact_boundary` also records the tokens before and after.
@@ -271,7 +272,7 @@ Alternatives rejected:
 
 ## Tasks at a glance
 
-- [ ] 1. `compact` takes `run`'s defaults; each headless claude or pi turn charges what it cost
+- [ ] 1. Each headless claude or pi turn charges what it cost
 - [ ] 2. A headless claude agent forks, end to end
 - [ ] 3. Forks in panes and across placements: claude and codex
 - [ ] 4. Headless codex and pi fork
@@ -319,21 +320,17 @@ Every task runs the same checklist:
 - [ ] Resolve.
 - [ ] Verify.
 
-### 1. `compact` takes `run`'s defaults; each headless claude or pi turn charges what it cost
+### 1. Each headless claude or pi turn charges what it cost
+
+`compact` taking `run`'s defaults was planned here; the review of story 015 asked for it, and it
+shipped there (ADR 0007, amended).
 
 Outcome:
-- `agent.compact({ prompt })` needs no id or deadline. As in `run`, the id is generated and the
-  deadline defaults to the workflow's, with `timeoutMs` and `deadline` to bound it.
 - A headless claude agent's operations each charge what their own turns cost, not the session's
   total so far (F9).
 - A pi agent's turn charges all its requests, not the last one's.
 
 Work:
-
-- `CompactSpec`'s `id` and `deadline` become optional, and it gains `timeoutMs`. This widens a
-  published type and breaks no caller. It is recorded in ADR 0009, against ADR 0007's "keeps its
-  shape".
-- The examples and the ticket workflow drop their hand-built deadlines.
 
 - The headless backend keeps the session's last running total. A turn's charge is the new total
   less that one, and the first baseline is the session's last `cost-state` row.
