@@ -42,7 +42,7 @@ export const LIVE_EVALUATION_BOUNDS = {
   maximumNudgesPerReviewer: 1,
   reviewers: [
     // The cheapest model each subscription offers: the eval checks the machinery, not the review.
-    { lens: "correctness", harness: "claude", model: "claude-haiku-4-5" },
+    { lens: "correctness", harness: "claude", model: "claude-sonnet-5-5" },
     { lens: "maintainability", harness: "codex", model: "gpt-6-luna" },
   ],
   meteredFallback: false,
@@ -119,7 +119,7 @@ export function liveRuntime(
     aliases: {
       correctness: {
         harness: "claude",
-        model: "claude-haiku-4-5",
+        model: "claude-sonnet-5-5",
       },
       maintainability: {
         harness: "codex",

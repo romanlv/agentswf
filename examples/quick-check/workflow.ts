@@ -17,7 +17,7 @@ export const RUNTIMES = {
   codex: { harness: "codex", model: "gpt-6-luna", placement: "headless" },
   pi: { harness: "pi", model: "openai-codex/gpt-5.6-terra", placement: "headless" },
   "pi-pane": { harness: "pi", model: "openai-codex/gpt-5.6-terra" },
-  claude: { harness: "claude", model: "claude-haiku-4-5" },
+  claude: { harness: "claude", model: "claude-sonnet-5-5" },
 } as const satisfies Record<string, ExecutionConfig>;
 
 type RuntimeName = keyof typeof RUNTIMES;

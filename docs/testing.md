@@ -46,9 +46,11 @@ bun run eval harnesses failed-run   # only the ones named
 `*.eval.ts` files under `tests/` start live agents, assert what they did, and print what they
 cost. `bun test` does not collect them. `bun run eval` is the consent to spend: it sets
 `AWF_LIVE_EVAL=1`, which each eval requires, and ends with each eval's time and cost and the total.
-Each runs on a cheap model — codex `gpt-6-luna`, claude `claude-haiku-4-5`, pi
-`openai-codex/gpt-5.6-terra` — because an eval checks the machinery, not
-the quality of the answer.
+Each runs on a cheap model where a cheap one is dependable — codex `gpt-6-luna`, pi
+`openai-codex/gpt-5.6-terra` — because an eval checks the machinery, not the quality of the
+answer. Claude runs `claude-sonnet-5-5`: on haiku, about one eval in four failed on the model's
+own call rather than awf's (a sandbox probe refused as an injection, a `wf result` command
+printed instead of run, a skill listed but not used), 2026-10-01.
 
 What they cover between them:
 
@@ -110,7 +112,7 @@ What they cover between them:
   two-file change with two planted issues, a hand-written key, and six findings with known labels.
   The judgement must pass `checkScorerResult` and hit both planted issues; how many of the six labels
   match, the panel's κ and the tiebreak are printed, since they are what it measures. codex luna
-  and claude haiku judge, luna breaks ties. 3 agents, ~1–1½ min, ~$0.09 at list prices, and
+  and claude sonnet judge, luna breaks ties. 3 agents, ~1–1½ min, ~$0.09 at list prices, and
   $0.07–0.14 of claude's own reported cost; awf assumes headless claude is billed per token
   ([`billing-provenance`](stories/todo/billing-provenance.md)). Three runs,
   2026-09-27: 5/6 labels, κ 0.80.

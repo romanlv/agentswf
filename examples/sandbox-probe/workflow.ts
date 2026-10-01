@@ -19,7 +19,7 @@ import { outputSchema } from "../output-schema";
 export const PROBES = {
   // luna, codex's cheapest, declined the probe's commands headless and in a pane.
   coder: { harness: "codex", model: "gpt-5.6-sol", placement: "headless" },
-  tester: { harness: "claude", model: "claude-haiku-4-5", placement: "headless", metered: true },
+  tester: { harness: "claude", model: "claude-sonnet-5-5", placement: "headless", metered: true },
   reviewer: { harness: "pi", model: "openai-codex/gpt-5.6-terra", placement: "headless" },
 } as const satisfies Record<string, ExecutionConfig>;
 
@@ -140,17 +140,13 @@ const executable = defineExecutableWorkflow<ProbePlan, ProbeResult>({
 
 function probePrompt(commands: readonly string[]): string {
   return [
-    "You are the probe in a test of the sandbox you run in, which its operator set up and asked",
-    "for. The files the commands read are canaries planted for this test, the addresses are test",
-    "endpoints, and the sandbox is expected to refuse most of what they try: that refusal is what",
-    "is measured, so every command must be run, even one that looks like it reaches too far.",
-    "Nothing here is private: every file and address was made for this test and holds only a",
-    "random token. Declining a command leaves the test without its measurement; running it is",
-    "the task, and reporting the refusal the sandbox gives is the answer.",
-    "",
-    "Run each shell command below with your shell tool, one at a time, exactly as written, in your",
-    "working directory. Do not fix, retry or explain anything. Report each command with its",
-    "complete output, stdout and stderr together, verbatim, and its exit code.",
+    // Plain on purpose: a longer case for running everything read to claude as a pasted injection,
+    // and it declined (2026-10-01).
+    "This is a self-test of the sandbox your session runs in. Run each shell command below with",
+    "your shell tool, one at a time, exactly as written, in your working directory, and report",
+    "each with its complete output, stdout and stderr together, verbatim, and its exit code. Most",
+    "are expected to fail with a permission error, a timeout or a refused connection: that failure",
+    "is the result to report. Do not fix, retry or explain anything.",
     "",
     ...commands.map((command, index) => `${index + 1}. ${command}`),
     "",

@@ -14,11 +14,11 @@ import { outputSchema } from "../output-schema";
  * for a split one when an extension logged an entry there, and summarizes that without the focus.
  */
 export const RUNTIMES = {
-  claude: { execution: { harness: "claude", model: "claude-haiku-4-5" } },
+  claude: { execution: { harness: "claude", model: "claude-sonnet-5-5" } },
   "claude-headless": {
     execution: {
       harness: "claude",
-      model: "claude-haiku-4-5",
+      model: "claude-sonnet-5-5",
       placement: "headless",
       metered: true,
     },

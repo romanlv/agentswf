@@ -17,7 +17,7 @@ import { assertLiveOptIn } from "./live";
  * are printed, not asserted, since they are what the eval measures. About a minute.
  */
 const WORKFLOW = join(import.meta.dir, "../packages/lab/src/review/judge/judge.workflow.ts");
-const PANEL = "codex/gpt-6-luna,claude/claude-haiku-4-5";
+const PANEL = "codex/gpt-6-luna,claude/claude-sonnet-5-5";
 const TIEBREAK = "codex/gpt-6-luna";
 
 const BASE_UPLOAD = `export async function upload(

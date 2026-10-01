@@ -18,7 +18,7 @@ import { outputSchema } from "../output-schema";
  */
 const CODEX = { harness: "codex", model: "gpt-6-luna", placement: "headless" } as const;
 const PI = { harness: "pi", model: "openai-codex/gpt-5.6-terra", placement: "headless" } as const;
-const CLAUDE = { harness: "claude", model: "claude-haiku-4-5" } as const;
+const CLAUDE = { harness: "claude", model: "claude-sonnet-5-5" } as const;
 
 /** Which probe makes which value. */
 export const PROBE_FIELD = { a: "stamp", b: "seal" } as const;

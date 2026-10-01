@@ -23,7 +23,7 @@ const STEPS = join(import.meta.dir, "fixtures/caller-steps.ts");
 const CLI = join(import.meta.dir, "../packages/engine/src/operator-cli.ts");
 
 const SESSIONS = {
-  claude: harnessSpec("claude").interactive("claude-haiku-4-5").argv.slice(1),
+  claude: harnessSpec("claude").interactive("claude-sonnet-5-5").argv.slice(1),
   codex: [
     "--sandbox",
     "workspace-write",

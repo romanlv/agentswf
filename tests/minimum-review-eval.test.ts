@@ -63,7 +63,7 @@ describe("minimum review live evaluation plan", () => {
       workspaceTrust: "evaluator-created-disposable",
     });
     expect(runtime.aliases).toEqual({
-      correctness: { harness: "claude", model: "claude-haiku-4-5" },
+      correctness: { harness: "claude", model: "claude-sonnet-5-5" },
       maintainability: { harness: "codex", model: "gpt-6-luna" },
     });
     const host = await runtime.host.openRun({
