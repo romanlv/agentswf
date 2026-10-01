@@ -7,8 +7,8 @@ import { runOperatorCli } from "../packages/engine/src/operator-cli";
 import { assertLiveOptIn, interruption } from "./live";
 
 /**
- * Every harness awf runs, live, on its cheapest model: codex and pi headless, each answering a
- * follow-up in the same session, and claude in a Herdr pane. Each must answer right through
+ * Every harness awf runs, live, on its cheapest model: codex and pi headless and claude in a Herdr
+ * pane, each answering a follow-up in the same session. Each must answer right through
  * `wf result`, and each agent's spend must be read from its own session files on its subscription.
  * One run of three agents, about 20 s and $0.05 at list prices.
  */
@@ -23,7 +23,7 @@ export function problems(exitCode: number, record: OutputRecord | undefined): st
   const found: string[] = [];
   for (const harness of HARNESSES) {
     const check = checks.find((candidate) => candidate.runtime === harness);
-    const expectedAnswers = harness === "claude" ? 1 : 2;
+    const expectedAnswers = 2;
     const right = check?.answers.filter((answer) => answer.answer === answer.expected).length ?? 0;
     if (right !== expectedAnswers) {
       found.push(`${harness}: ${right} of ${expectedAnswers} answers right`);

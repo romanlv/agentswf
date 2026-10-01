@@ -123,6 +123,9 @@ Each example that spans more than one file has a folder of its own, with its wor
 - `single-agent-review/` is one agent reviewing `--range` in one turn, with a pinned public
   review skill (`--skill owner/repo/skill@ref`) or none: the baseline richer review workflows are
   scored against with `awf-lab` (story 008).
+- `compaction/` compacts one agent per harness and placement with a focus, then asks what it
+  kept: the apparatus of `tests/compaction.eval.ts` (story 015), runnable by hand with the
+  runtimes to check, `bun awf run examples/compaction/workflow.ts -- claude pi`.
 - `quick-check/` is the smoke test above.
 - `sandboxes/` is the sandbox tour above.
 - `triage/` is the decision model example above.
@@ -140,7 +143,7 @@ path, `bun test examples/feature-delivery`; outside this repository, `awf test` 
 `quick-check` and `sandbox-probe` have none, as they exist to watch real agents.
 [The workflow API](../docs/workflow-api.md#testing-a-workflow) says how to write one.
 
-Only `minimum-review/review-loop.ts`, `quick-check/workflow.ts`, `sandboxes/workflow.ts`,
+Only `minimum-review/review-loop.ts`, `compaction/workflow.ts`, `quick-check/workflow.ts`, `sandboxes/workflow.ts`,
 `sandbox-probe/workflow.ts`, `skills-probe/workflow.ts`, `triage/workflow.ts` and
 `single-agent-review/workflow.ts` have the
 executable default export required by `awf run`.

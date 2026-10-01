@@ -79,7 +79,8 @@ export type NativeOutcomeEvidence = {
   agent: string;
   harness: string;
   operation: "turn" | "nudge";
-  settlement: "native" | "released" | "quarantined";
+  /** `finishing`: answered and left to end on its own, as a continuing session's turn is. */
+  settlement: "native" | "released" | "finishing" | "quarantined";
   state: "completed" | "blocked" | "timed-out" | "failed" | "cancelled" | "quarantined";
   detail?: string;
   usageSamples: number;
@@ -341,7 +342,10 @@ export function assertNativeEvidence(outcomes: NativeOutcomeEvidence[]): void {
     outcomes.some(
       (outcome) =>
         outcome.state !== "completed" &&
-        !(outcome.state === "cancelled" && outcome.settlement === "released"),
+        !(
+          outcome.state === "cancelled" &&
+          (outcome.settlement === "released" || outcome.settlement === "finishing")
+        ),
     )
   ) {
     const observed = outcomes
@@ -449,6 +453,8 @@ export function observeTurn(
         const disposition = await turn.release(reason, deadline, options);
         if (disposition.kind === "released") {
           record(disposition.outcome, "released");
+        } else if (disposition.kind === "finishing") {
+          void turn.settled.then((outcome) => record(outcome, "finishing")).catch(() => undefined);
         } else if (disposition.kind === "quarantined" && !recorded) {
           recorded = true;
           evidence.push({

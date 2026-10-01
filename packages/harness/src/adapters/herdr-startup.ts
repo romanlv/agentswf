@@ -158,6 +158,14 @@ const STARTUP_BLOCKS: readonly StartupBlockSpec[] = [
     keys: ["enter"],
   },
   {
+    // codex-cli 0.159 renamed its trust block, and a digit only moves its cursor: the phrase holds
+    // the cursor on the option, so enter confirms that one.
+    id: "codex-folder-access",
+    kind: "codex",
+    phrases: ["Folder access", "Trust this folder?", "› 1. Trust and continue"],
+    keys: ["enter"],
+  },
+  {
     id: "codex-update",
     kind: "codex",
     phrases: ["Update available!", "2. Skip"],

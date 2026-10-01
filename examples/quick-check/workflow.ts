@@ -26,7 +26,7 @@ const ANSWER_SCHEMA = outputSchema(
 );
 /**
  * The follow-up names no number, so only an agent that kept the first question's context can get it
- * right. A pane agent takes one operation today, so only headless agents are asked it.
+ * right: a headless agent's resumed session, or a pane agent's same pane.
  */
 const QUESTIONS = [
   {
@@ -58,7 +58,7 @@ const executable = defineExecutableWorkflow<QuickCheckArgs, QuickCheckResult>({
       name: "quick-check",
       description: "Ask one agent per runtime questions with known answers.",
       whenToUse:
-        "Use to smoke-test a harness, its result channel, a headless agent's follow-up in the same session, and the run's accounting, for a few cents.",
+        "Use to smoke-test a harness, its result channel, a follow-up in the same session, and the run's accounting, for a few cents.",
     },
     async run(workflow, args) {
       const checks = await workflow.parallel(
@@ -66,9 +66,8 @@ const executable = defineExecutableWorkflow<QuickCheckArgs, QuickCheckResult>({
         async (runtime): Promise<QuickCheck> => {
           const execution: ExecutionConfig = RUNTIMES[runtime];
           const agent = await workflow.agents.open({ key: `check:${runtime}`, runtime: execution });
-          const questions = execution.placement === "headless" ? QUESTIONS : QUESTIONS.slice(0, 1);
           const answers: QuickAnswer[] = [];
-          for (const { prompt, expected } of questions) {
+          for (const { prompt, expected } of QUESTIONS) {
             const { outcome } = await agent.run({
               prompt,
               schema: ANSWER_SCHEMA,

@@ -21,6 +21,7 @@ below is re-derivable from committed raw data, except where marked.
 | X1–X18 | what can srt and docker hold? | **both hold the seam; docker's door is a relay** — see [`sandbox-providers.md`](sandbox-providers.md) |
 | S1–S10 | what does a System One model (Jev) do on awf's questions? | **matches findings well; grades severity only after re-thresholding** — see [`system-one-models.md`](system-one-models.md) |
 | K1–K12 | can each harness be held to the skills a workflow names? | **yes, each by its own route; codex only through its home** — see [`agent-skills.md`](agent-skills.md) |
+| C1–C9 | does each harness compact natively, with a workflow's focus? | **claude, codex and pi do, each its own way; cursor cannot** — see [`native-compaction.md`](native-compaction.md) |
 
 E1's removed report read 24/24; that counted one prompt-size arm of the 48 rows in
 `e1/results/e1.jsonl`. [`../foundation.md`](../foundation.md) §4 carries the corrected number.

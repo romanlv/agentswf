@@ -194,6 +194,11 @@ describe("createPaneAdapter", () => {
         ["down", "enter"],
       ],
       ["codex", "Do you trust the contents of this directory?\n1. Yes, continue", ["enter"]],
+      [
+        "codex",
+        "  Folder access\n  /private/tmp/x\n\n  Trust this folder? Codex can read, edit, and run files here\n\n› 1. Trust and continue\n  2. Back to Agent Command Center",
+        ["enter"],
+      ],
       // Herdr renders the block into the pane's width, which a narrow terminal makes short.
       [
         "claude",
@@ -927,7 +932,10 @@ describe("createHerdrRunHostFactory", () => {
     });
 
     test("codex is sent the focus, then a bare /compact once it settles", async () => {
-      const { run, calls } = showing("› /compact\n\n• Context compacted · 2s\n\n› ");
+      // A bare `/compact` is not echoed: the compaction shows after the focus message.
+      const { run, calls } = showing(
+        "› Your context is about to be compacted. For its summary: Keep the path.\n\n  Reply only: ok\n\n• ok\n\n• Context compacted · 2s\n\n› ",
+      );
       const { host, session } = await opened(run, "codex");
       await (
         await session.start({ id: "one", prompt: "plan", deadline: deadline() }, binding("op-1"))

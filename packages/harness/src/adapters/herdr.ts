@@ -824,7 +824,7 @@ export function createHerdrRunHostFactory(
                 : localOutcome("failed", `the pane could not be read: ${read.error}`);
             }
             const evidence = { kind: "transcript" as const, text: read.stdout };
-            if (!compaction.compacted(read.stdout)) {
+            if (!compaction.compacted(read.stdout, operation.prompt)) {
               return {
                 state: "failed",
                 detail: `${harness} shows no compaction: ${readable(read.stdout).trim().slice(-300)}`,

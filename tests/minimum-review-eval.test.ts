@@ -264,4 +264,36 @@ describe("minimum review live evaluation plan", () => {
       );
     }
   });
+  test("a turn left finishing is recorded once it ends", async () => {
+    let settle!: (outcome: Awaited<HarnessTurn["settled"]>) => void;
+    const settled = new Promise<Awaited<HarnessTurn["settled"]>>((resolve) => {
+      settle = resolve;
+    });
+    const turn: HarnessTurn = {
+      settled,
+      async deliver() {},
+      async nudge() {
+        return turn;
+      },
+      async release() {
+        return { kind: "finishing" };
+      },
+    };
+    const evidence: Parameters<typeof observeTurn>[4] = [];
+    const observed = observeTurn(turn, "turn", "reviewer:maintainability", "codex", evidence);
+    await observed.release(
+      "result accepted",
+      { unixMilliseconds: Date.now() + 1_000 },
+      {
+        answered: true,
+      },
+    );
+    expect(evidence).toEqual([]);
+    settle({ state: "completed", resultEvidence: { kind: "unavailable" }, chargesUsd: [] });
+    await settled;
+    await Promise.resolve();
+    expect(evidence).toEqual([
+      expect.objectContaining({ settlement: "finishing", state: "completed" }),
+    ]);
+  });
 });

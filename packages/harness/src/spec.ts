@@ -97,7 +97,8 @@ export type HarnessSpec = {
   /** Its own compaction in a pane: what is typed, in order, and the screen that shows it ran. */
   compactPane?: {
     prompts(focus: string): string[];
-    compacted(screen: string): boolean;
+    /** Whether `screen` shows a compaction after what this one's prompts put there. */
+    compacted(screen: string, focus: string): boolean;
   };
   /** The summary of a session's last compaction, from the harness's own record, where it keeps one. */
   readCompactSummary?(sessionId: string, cwd: string): Promise<string | undefined>;
@@ -332,10 +333,11 @@ export const HARNESSES: Record<Harness, HarnessSpec> = {
         },
       };
     },
-    // `/compact` takes no text in codex's TUI: the text would go to the model.
+    // `/compact` takes no text in codex's TUI: the text would go to the model. Nor is it echoed,
+    // so the focus message is what the compaction must show after.
     compactPane: {
       prompts: (focus) => [codexCompactionFocus(focus), "/compact"],
-      compacted: (screen) => after(screen, "/compact").includes("Context compacted"),
+      compacted: (screen) => after(screen, CODEX_FOCUS_END).includes("Context compacted"),
     },
     readSessionUsage: (sessions, _cwd, home) =>
       readCodexUsage(sessions, codexSessionsDirectory(home)),
@@ -474,9 +476,11 @@ export const HARNESSES: Record<Harness, HarnessSpec> = {
   },
 };
 
+const CODEX_FOCUS_END = "Reply only: ok";
+
 /** Codex compacts with no focus of its own, so it reads one as the message just before. */
 function codexCompactionFocus(focus: string): string {
-  return `Your context is about to be compacted. For its summary: ${focus}\n\nReply only: ok`;
+  return `Your context is about to be compacted. For its summary: ${focus}\n\n${CODEX_FOCUS_END}`;
 }
 
 /** What `screen` shows after the last line holding `marker`, or nothing when none does. */

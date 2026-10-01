@@ -39,7 +39,7 @@ are for.
 ### 2. Evals — every supported feature, live, about $1.80
 
 ```sh
-bun run eval                        # all of them, one after another: ~17 min, about $1.80
+bun run eval                        # all of them, one after another: ~18 min, about $2.10
 bun run eval harnesses failed-run   # only the ones named
 ```
 
@@ -53,9 +53,13 @@ the quality of the answer.
 What they cover between them:
 
 - `harnesses` — quick-check across codex and pi headless and claude in a Herdr pane, through
-  `awf run`. Every answer must be right, the headless ones including a follow-up in the same
-  session, and every agent's spend known and billed to its subscription. 3 agents, ~20 s,
-  $0.05–0.11.
+  `awf run`. Every answer must be right, each including a follow-up in the same session, and every
+  agent's spend known and billed to its subscription. 3 agents, ~20 s, $0.05–0.11.
+- `compaction` — native compaction (story 015) on claude and codex in panes and headless, pi
+  headless and cursor headless: each compacts with a focus naming a codename it was never told,
+  then must recall it and what it noted before. Cursor must refuse, saying why. `bun
+  tests/compaction.eval.ts pi codex` runs only those. 6 agents, ~50 s, ~$0.32 at list prices,
+  $0.15 charged: the headless claude is metered.
 - `minimum-review` — two reviewers in parallel in one Herdr workspace, claude and codex both in
   panes, on a disposable copy of a fixture. Both must complete natively and in lens order, and the
   repository must be untouched. 2 agents, ~20 s, ~$0.04. `bun tests/minimum-review.eval.ts

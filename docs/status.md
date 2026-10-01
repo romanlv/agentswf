@@ -1,6 +1,6 @@
 # Status
 
-Where awf stands, as of 2026-09-29. [`foundation.md`](foundation.md) is the argument and changes
+Where awf stands, as of 2026-10-01. [`foundation.md`](foundation.md) is the argument and changes
 slowly; this page is the state and changes with every story. When the two disagree about what
 exists, the code is right, then this page.
 
@@ -10,7 +10,7 @@ exists, the code is right, then this page.
   in the workflow: a pane agent gets a tab in the run's one Herdr workspace, and a headless agent
   runs as a subprocess per turn that resumes one native session. claude and codex run in panes;
   codex and pi run headless. A headless claude needs `metered: true`, as `claude -p` bills per
-  token even on a subscription login. Pane agents open in the Herdr session `awf run` is started
+  token even on a subscription login. A pane agent keeps its pane for all its turns (ADR 0008). Pane agents open in the Herdr session `awf run` is started
   from (`AWF_HERDR_SESSION` overrides it), and `--cwd` sets the directory the workflow works in.
 - While it runs, `awf run` shows each labelled `parallel` stage and its agents' turns: a block
   redrawn in place on a terminal, a line per change otherwise.
@@ -31,8 +31,11 @@ exists, the code is right, then this page.
   `testWorkflow` from `agentswf/testing` runs the workflow through the real engine with each agent
   and decision model scripted, typed by the schema each turn asks for. Seven examples have theirs
   beside them.
+- `agent.compact` runs the harness's own compaction with the workflow's focus (story 015, ADR
+  0007): claude in a pane or headless, codex in a pane or headless, pi headless; cursor refuses.
+  `examples/compaction` checks each live.
 - `examples/quick-check` asks each named harness a known-answer question, with a follow-up in the
-  same session for headless agents. It is the cheap smoke test for a harness and its accounting.
+  same session. It is the cheap smoke test for a harness and its accounting.
 - A workflow opens sandboxes and puts agents in them, shared or private, with
   `workflow.sandboxes.open` or `sandbox` on an agent (story 004). A sandbox's agents see the paths
   it names, their git directories and the provider's base (srt: the host system and toolchain
@@ -135,6 +138,12 @@ The gates are defined in [`foundation.md`](foundation.md) §12.
 - [014 — a workflow in the current session](stories/014-workflow-in-current-session.md): draft.
   E8 drove a claude, codex, pi and cursor session it did not start through dependent steps;
   the contract for the operator's session as an agent waits on an ADR.
+
+- [015 — native compaction](stories/015-native-compaction.md): awaiting human review.
+  `agent.compact` runs each harness's own compaction with the workflow's focus, and a pane agent
+  takes more than one operation, so one agent can carry a long task as an operator does with
+  `/compact`. Measured on every harness
+  ([findings](findings/native-compaction.md)); its eval passes on all six runtimes.
 
 The inbox of possible stories is [`stories/todo/`](stories/todo/).
 

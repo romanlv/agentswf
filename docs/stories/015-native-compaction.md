@@ -3,7 +3,7 @@ id: "015"
 title: Compact an agent with its harness's own compact command
 summary: "agent.compact runs the harness's native compaction with the workflow's focus, so one agent can carry a long multi-stage task the way an operator does with /compact; a pane agent takes more than one operation to make that useful."
 type: story
-status: in-progress
+status: awaiting-human-review
 discovered_in: "an implement-a-ticket workflow written against the author surface, 2026-10-01"
 depends_on: []
 ---
@@ -136,7 +136,7 @@ Alternatives rejected:
 - [x] 2. A pane agent takes more than one operation ([ADR 0008](../adr/0008-a-pane-agent-continues-in-its-pane.md))
 - [x] 3. `AgentRef.compact` in the engine, and scripted compactions in tests
 - [x] 4. Native compaction for each harness and placement
-- [ ] 5. Live eval on every harness, findings, the ticket workflow
+- [x] 5. Live eval on every harness, findings, the ticket workflow
 
 ## Implementation notes
 
@@ -155,6 +155,36 @@ Alternatives rejected:
   exit when stdin closes, so `runProcess` gained `holdStdinUntil`: stdin stays open until a line of
   stdout answers. A pane's summary is read from claude's transcript in the operator's home; a
   sandboxed pane's claude keeps its own home, which this host is not told, so its summary is `""`.
+
+- Task 5: `examples/compaction` and `tests/compaction.eval.ts`. The live runs found four things,
+  each fixed: codex-cli 0.159's folder trust screen is new, and a digit only moves its cursor, so
+  the block is matched with its cursor on the option and answered with enter; a bare `/compact`
+  is not echoed in codex's pane, so its check anchors on the focus message; on the operator's pi
+  an extension's entry before a turn makes pi split the turn before the cut and summarize it
+  without the focus, so the eval puts a short turn between the facts and the filler
+  ([findings](../findings/native-compaction.md#c6--pi)); and haiku printed `wf result` rather than
+  running it when told "do not write it anywhere", so the eval no longer says that.
+  `quick-check` now asks pane agents its follow-up too, and `minimum-review`'s eval records a turn
+  left finishing once it ends.
+
+## Verification
+
+Automated, 2026-10-01:
+
+- [x] `bun test`: 1010 pass, 0 fail.
+- [x] `bun run check`: Biome, `tsc`, boundaries.
+
+Live, 2026-10-01:
+
+- [x] `compaction`: all six runtimes in one run, 46 s, ~$0.32 at list prices, $0.15 charged. Every
+  harness that compacts answered, its summary holding the codename where it shows one, and every
+  agent recalled the codename and the colour; cursor refused and recalled the colour.
+- [x] `harnesses`: 3 agents, the claude pane answering its follow-up, 17 s, ~$0.07.
+- [x] `minimum-review`: both reviewers completed, the codex pane's turn left finishing, 25 s,
+  ~$0.05.
+- [ ] `sandbox-panes-srt`: failed, its claude tester refusing the probe's prompt as an injection,
+  on its first and only turn, before any continuation: haiku's judgement, not a pane's. Not
+  re-run.
 
 ## Human review
 
