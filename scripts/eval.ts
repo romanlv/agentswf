@@ -109,7 +109,7 @@ function usd(amount: number | undefined): string {
 /** An eval prints its summary last; the minimum-review one prints only that object. */
 function lastJsonObject(text: string): Record<string, unknown> | undefined {
   const start = text.lastIndexOf("\n{");
-  for (const from of [start + 1, 0]) {
+  for (const from of start < 0 ? [0] : [start + 1, 0]) {
     try {
       const value: unknown = JSON.parse(text.slice(from));
       if (value && typeof value === "object") return value as Record<string, unknown>;
