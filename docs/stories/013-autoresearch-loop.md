@@ -219,7 +219,7 @@ Alternatives rejected:
 - [x] 2. A trial runs whole in a container, the key absent
 - [x] 3. The proposer writes a checked candidate from a tuning-only bundle
 - [x] 4. `awf-lab loop` keeps or discards, logs the tree and stops at the cap
-- [ ] 5. `loop --final` checks the incumbent on the holdout
+- [x] 5. `loop --final` checks the incumbent on the holdout
 - [ ] 6. The first live loop on air-1
 
 ## Open questions
@@ -412,6 +412,16 @@ Manual or live evaluation:
   `show` refusals by id, comma list and trial address, nothing run after them, an unfiltered
   `report` and `list cases` without the case, `list datasets`' counts, a positive `show`, and both
   broken holdouts.
+
+### Task 5
+
+- One reviewer covered both architecture and correctness: the diff is small (a deviation from
+  two). `--final` is the only caller of `readCases(…, { heldOut: true })`; it compares the last
+  kept candidate with the start, planned over the holdout. Fixed: "fresh" was a comment, so the
+  check now counts the held-out trials already on file, records them as `reused` in
+  `finals/{k}.json` and says so; `--final` requires `--budget`, as it spends outside the loop's
+  cap; it refuses a loop's other flags. Left: two final checks at once could race for the same
+  number; nothing runs them that way.
 
 ### Tasks 3 and 4, reviewed together as one diff
 

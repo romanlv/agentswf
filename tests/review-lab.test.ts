@@ -1203,6 +1203,27 @@ export default defineExecutableWorkflow({
       const capped = await Bun.file(join(dir, "tries", "4", "try.json")).json();
       expect(capped).toMatchObject({ decision: "unfinished", spend: { proposer: 4, trials: 0 } });
       expect(proposed).toHaveLength(4);
+
+      // Only the final check reads the held-out case, and each check is kept.
+      expect(recordsIn(ws, "*/app-1/*/findings.json")).toEqual([]);
+      expect((await lab(ws, [...start, "--final"], runner)).stderr).toContain("give --budget");
+      const final = await lab(ws, [...start, "--final", "--budget", "5"], runner);
+      expect(final.exitCode).toBe(0);
+      expect(final.stdout).toBe(
+        `loop l1: final check 1: ${kept.split("@")[0]} against canned: better: scripted`,
+      );
+      expect(recordsIn(ws, "*/app-1/*/findings.json")).toHaveLength(2);
+      expect(await Bun.file(join(dir, "finals", "1.json")).json()).toMatchObject({
+        incumbent: kept,
+        start: "canned@1.0",
+        cases: ["app-1"],
+      });
+      const again = await lab(ws, [...start, "--final", "--budget", "5"], runner);
+      expect(again.stdout).toContain(
+        "final check 2 (checked 1 time before; 2 held-out trials were on file, not fresh)",
+      );
+      expect(recordsIn(ws, "*/app-1/*/findings.json")).toHaveLength(2);
+      expect(proposed).toHaveLength(4);
     } finally {
       if (previous === undefined) delete process.env.CODEX_HOME;
       else process.env.CODEX_HOME = previous;

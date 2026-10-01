@@ -8,6 +8,7 @@ import Type from "typebox";
 
 export const LOOP_FORMAT = "awf.lab-loop/1";
 export const TRY_FORMAT = "awf.lab-try/1";
+export const FINAL_FORMAT = "awf.lab-final/1";
 
 const Text = Type.String({ minLength: 1 });
 const Digest = Type.String({ pattern: "^sha256:[0-9a-f]{64}$" });
@@ -95,3 +96,28 @@ export const TrySchema = Type.Object(
 );
 
 export type Try = Type.Static<typeof TrySchema>;
+
+/**
+ * `finals/{k}.json`: a loop's kept incumbent against its start on the held-out cases, which only
+ * this reads. Each check is kept, so one consulted twice shows it.
+ */
+export const FinalSchema = Type.Object(
+  {
+    format: Type.Literal(FINAL_FORMAT),
+    k: Type.Integer({ minimum: 1 }),
+    at: Text,
+    incumbent: Text,
+    start: Text,
+    cases: Type.Array(Text),
+    verdict: Type.Optional(Type.Unknown({ description: "The comparison's verdict, whole." })),
+    why: Text,
+    reused: Type.Integer({
+      minimum: 0,
+      description: "Held-out trials of either already on file when it ran: not fresh.",
+    }),
+    spend: Usd,
+  },
+  { additionalProperties: false },
+);
+
+export type Final = Type.Static<typeof FinalSchema>;

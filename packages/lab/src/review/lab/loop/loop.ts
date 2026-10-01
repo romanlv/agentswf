@@ -12,12 +12,15 @@ import { digestOf } from "../../fixtures/seal";
 import { checkSchema, describeProblems } from "../../format/validate";
 import type { ScorerSettings, VariantSettings } from "../../format/variant";
 import { runAgainst } from "../against";
-import type { CaseInfo, Lab, Subject } from "../execute";
+import { type CaseInfo, type Lab, type Subject, statesOf } from "../execute";
+import { currentTrials } from "../plan";
 import type { ReportComparison } from "../report";
 import { summaryOf } from "../runner";
 import { keyOf } from "../version";
 import { writeBundle } from "./bundle";
 import {
+  FINAL_FORMAT,
+  type Final,
   type Hypothesis,
   HypothesisSchema,
   LOOP_FORMAT,
@@ -253,6 +256,90 @@ export async function runLoop(setting: LoopSetting, request: LoopRequest): Promi
     if (capped) return { exitCode: 3, why: `the cap ended try ${n}: ${record.why}`, tries };
   }
   return { exitCode: 0, why: `${request.rounds} rounds run`, tries };
+}
+
+/**
+ * The final check: the loop's last kept candidate against its start, on the held-out cases, which
+ * no try saw. Its trials there are the first either has, so they are fresh; a second check reuses
+ * them, and its record shows it was asked twice.
+ */
+export async function runFinal(
+  setting: LoopSetting & {
+    held: readonly CaseInfo[];
+    heldEntries: readonly { id: string; at: string }[];
+  },
+  request: { name: string; start: Subject<VariantSettings>; budget: number },
+): Promise<{ exitCode: 0 | 1 | 3; why: string }> {
+  const { lab, dataset } = setting;
+  const dir = loopDir(lab, dataset, request.name);
+  if (!existsSync(join(dir, "loop.json"))) throw new Error(`no loop ${request.name}`);
+  const loop = await startOrResume(
+    setting,
+    { name: request.name, rounds: 0, start: request.start },
+    dir,
+  );
+  if (request.start.key !== loop.start.variant) {
+    throw new Error(`loop ${loop.name} started from ${loop.start.variant}; name it as the start`);
+  }
+  const kept = readTries(dir)
+    .filter((t) => t.decision === "kept")
+    .at(-1);
+  if (!kept)
+    return { exitCode: 1, why: `loop ${loop.name} kept nothing: there is no incumbent to check` };
+  const file = join(dir, "tries", String(kept.n), "candidate", "workflow.ts");
+  const incumbent = candidateOf(
+    setting,
+    request.start,
+    kept.candidate.slice(0, kept.candidate.lastIndexOf("@")),
+    file,
+  );
+  // Trials either already has on a held-out case, from before the holdout or an earlier check.
+  let reused = 0;
+  for (const subject of [incumbent, request.start]) {
+    for (const state of await statesOf(lab.workspace, dataset, subject.key, setting.held)) {
+      reused += currentTrials(state).length;
+    }
+  }
+  const result = await runAgainst(lab, {
+    dataset,
+    trials: setting.trials,
+    challenger: incumbent,
+    baseline: request.start,
+    scorer: setting.scorer,
+    cases: setting.held,
+    entries: setting.heldEntries,
+    comparison: { ...setting.comparison, planned: setting.held.length },
+    budget: request.budget,
+    ...(setting.jobs === undefined ? {} : { jobs: setting.jobs }),
+  });
+  const finals = join(dir, "finals");
+  mkdirSync(finals, { recursive: true });
+  const k = readdirSync(finals).filter((f) => f.endsWith(".json")).length + 1;
+  const { verdict } = result;
+  const why = verdict
+    ? `${verdict.verdict}${verdict.stop ? "" : ", not stopped"}: ${verdict.reason}`
+    : "no held-out case was whole for both";
+  const record: Final = {
+    format: FINAL_FORMAT,
+    k,
+    at: (lab.now ?? (() => new Date()))().toISOString(),
+    incumbent: incumbent.key,
+    start: request.start.key,
+    cases: setting.held.map((c) => c.id),
+    ...(verdict ? { verdict } : {}),
+    why,
+    reused,
+    spend: result.listPrice,
+  };
+  writeFileSync(join(finals, `${k}.json`), `${JSON.stringify(record, null, 2)}\n`, { flag: "wx" });
+  const before = [
+    ...(k > 1 ? [`checked ${k - 1} time${k > 2 ? "s" : ""} before`] : []),
+    ...(reused > 0 ? [`${reused} held-out trials were on file, not fresh`] : []),
+  ];
+  return {
+    exitCode: result.exitCode,
+    why: `final check ${k}${before.length > 0 ? ` (${before.join("; ")})` : ""}: ${incumbent.label} against ${request.start.label}: ${why}`,
+  };
 }
 
 /**

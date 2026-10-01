@@ -42,7 +42,7 @@ import {
   stepAddress,
 } from "./execute";
 import { loadComparison, loadScorer, loadVariant } from "./load";
-import { loopDir, runLoop } from "./loop/loop";
+import { loopDir, runFinal, runLoop } from "./loop/loop";
 import { fill } from "./placeholders";
 import {
   type CaseState,
@@ -101,10 +101,11 @@ const USAGE = `usage: awf-lab [--config {file}] {command} … [--json]
                             metrics side by side, and each variant's verdict against the baseline;
                             with two --scorer, how alike they label
   loop {name} --baseline {variant} [--rounds {n}] [--proposer {harness/model}] [--trials {n}] [--jobs {n}]
-       [--program {file} --source {file} --budget {usd}]
+       [--program {file} --source {file} --budget {usd}] | --final [--budget {usd}]
                             an agent proposes a changed workflow, it runs against the incumbent
                             on the tuning cases and is kept only if better; the first run of a
-                            loop names its program, the baseline's workflow file and the cap
+                            loop names its program, the baseline's workflow file and the cap;
+                            --final checks the kept incumbent against the start on the holdout
   check {variant} [--cases …] [--trials {n}] [--rescore {n}]
                             whether its cases can tell a change from noise: headroom, variance,
                             resolution, failures by kind, suspect cases; --rescore spends
@@ -162,6 +163,7 @@ type Options = {
   source?: string;
   rounds?: number;
   proposer?: string;
+  final: boolean;
   jobs?: number;
   categories?: Category[];
   dryRun: boolean;
@@ -183,6 +185,7 @@ function parse(argv: readonly string[]): { command: string; names: string[]; opt
   const options: Options = {
     where: [],
     scorers: [],
+    final: false,
     dryRun: false,
     yes: false,
     json: false,
@@ -262,6 +265,9 @@ function parse(argv: readonly string[]): { command: string; names: string[]; opt
         break;
       case "--proposer":
         options.proposer = value(arg);
+        break;
+      case "--final":
+        options.final = true;
         break;
       case "--rescore":
         options.rescore = whole(arg, value(arg));
@@ -991,6 +997,36 @@ async function loop(
     )),
     planned: entries.length,
   };
+  if (options.final) {
+    if (options.rounds || options.program || options.source || options.proposer || options.dryRun) {
+      throw new UsageError("--final takes --budget, and none of a loop's other flags");
+    }
+    if (options.budget === undefined) throw new UsageError("--final spends: give --budget {usd}");
+    const { set, held: heldIds } = await datasetCases(workspace, dataset);
+    if (heldIds.size === 0) throw new UsageError(`${dataset} holds nothing out: no final check`);
+    const rank = rankOf(workspace.config.seed ?? "awf-lab");
+    const order = [...heldIds].toSorted((a, b) => (rank(a) < rank(b) ? -1 : 1));
+    const held = await readCases(workspace, dataset, order, { heldOut: true });
+    const final = await runFinal(
+      {
+        lab,
+        dataset,
+        cases,
+        entries,
+        holdout: [...heldIds],
+        trials,
+        scorer,
+        comparison,
+        ...(options.jobs === undefined ? {} : { jobs: options.jobs }),
+        rules: {},
+        held,
+        heldEntries: set.fixtures.filter((e) => heldIds.has(e.id)),
+      },
+      { name, start, budget: options.budget },
+    );
+    out.stdout(`loop ${name}: ${final.why}`);
+    return final.exitCode;
+  }
   const created = existsSync(join(loopDir(lab, dataset, name), "loop.json"));
   let create: { source: string; program: string; cap: number } | undefined;
   if (!created) {
