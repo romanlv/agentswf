@@ -302,6 +302,47 @@ describe("usage read when the run ends", () => {
     expect(result.usage[0]!.spend![0]!.tokens.output).toBe(23);
   });
 
+  test("a calling session's spend is only what it logged between the run's first prompt and its end", async () => {
+    const files = sessionFiles();
+    const adapter = createFakeAdapter({
+      script: (context) => ({
+        sessionRef: "s-caller",
+        act: async () => {
+          await Bun.sleep(5);
+          files.log("s-caller", 3);
+          await submit(context.binding!, { answer: "ok" });
+        },
+      }),
+    });
+    const accounting = files.accounting();
+    const runtime: AgentRuntimeConfig = {
+      aliases: ALIASES,
+      host: {
+        ...createSingleSessionHostFactory(adapter, accounting),
+        caller: { harness: "fake", cwd: "/repo" },
+      },
+    };
+    const result = await runWorkflow(
+      workflow(async (context) => {
+        // The operator's turn that replied with the run's code, before any step reached it.
+        files.log("s-caller", 20);
+        await Bun.sleep(5);
+        await (await context.agents.caller({ key: "author" }))!.run({
+          prompt: "Go.",
+          schema: ANSWER,
+        });
+        // The operator's turn after the hand-back.
+        files.log("s-caller", 900, new Date(Date.now() + 60_000).toISOString());
+        return null;
+      }),
+      null,
+      { runRoot: runDirs.tempRunDir(), deadline: future(), runtime },
+    );
+
+    expect(result.usage[0]!.execution).toEqual({ harness: "fake", model: "", caller: true });
+    expect(result.usage[0]!.spend![0]!.tokens.output).toBe(3);
+  });
+
   test("an answer that came before its turn was held still marks where its spend begins", async () => {
     const files = sessionFiles();
     const adapter = createFakeAdapter({

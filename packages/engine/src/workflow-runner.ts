@@ -714,6 +714,7 @@ class WorkflowOwner {
       sessions: () => [
         ...new Set([...sessions.launcher, ...(sessions.harness?.sessions?.() ?? [])]),
       ],
+      promptedAt: () => sessions.harness?.promptedAt?.(),
     };
     const ledger = this.options.ledger.agent(accounted);
     this.options.skills.record(key, "operator");

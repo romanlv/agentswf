@@ -1,7 +1,6 @@
 # 0010 — The calling session is an agent of the run it started
 
-**Proposed:** 2026-10-01, in [[014-workflow-in-current-session|story 014]]; awaiting the human's
-approval. **Replaces:** [`composition.md`](../design/composition.md)'s rule that a session the
+**Decided:** 2026-10-01, in [[014-workflow-in-current-session|story 014]]. **Replaces:** [`composition.md`](../design/composition.md)'s rule that a session the
 engine did not start is a messaging participant only, which never answers `result` and which the
 engine has no operation to run; for one session, the one the run was started from.
 
@@ -20,11 +19,12 @@ engine has no operation to run; for one session, the one the run was started fro
   - In a child workflow's scope (`workflow.call`, not built), `caller` rejects. Relaxing that
     later is cheap; a child that quietly got `null` and changed behaviour when it later got the ref
     would not be.
-- **Its ref has the `AgentRef` type, but four behaviours differ from an opened agent's.** They are
-  listed on `caller` in `agents.ts` when the type lands:
+- **Its ref has the `AgentRef` type, but five behaviours differ from an opened agent's.** They are
+  listed on `caller` in `agents.ts`:
   - `compact` settles `failed`, not retryable, because the context belongs to the operator.
-  - A turn that is cancelled or times out leaves the agent usable. The pane is never closed.
+  - A turn that fails, is cancelled or times out leaves the agent usable. The pane is never closed.
   - An operator's interrupt settles a turn `cancelled`.
+  - Where that interrupt cannot be recognised, an unanswered turn is not nudged by default.
   - `execution.model` is `""`.
 - **Its execution is what the run found, and the record says so.**
   - The execution has the harness Herdr detected in the pane, the default placement `pane`,
@@ -33,10 +33,14 @@ engine has no operation to run; for one session, the one the run was started fro
   - The operator chose the model, and awf cannot read it before the first turn. Spend records
     already carry the model from the harness's own files.
   - pi's billing, which falls back to `execution.model` for the provider, takes the provider from
-    the session's file instead. Task 4 settles this.
-  - The native session for accounting comes from the session's own environment, read by the
-    `--here` command (`CODEX_THREAD_ID`, `CLAUDE_CODE_SESSION_ID`). It never comes from Herdr's
-    `agent_session`, which E8 found wrong under codex.
+    the session's file instead, and is `unknown` when that names none.
+  - The native session for accounting comes from the session's own environment, which the `wf`
+    launcher reports with every answer (`CODEX_SESSION_ID`, `CLAUDE_CODE_SESSION_ID`,
+    `PI_SESSION_ID`), and from Herdr's `agent_session` except under codex, where E8 found it
+    names another pane's thread.
+  - Its spend is what its files log from the run's first prompt to it until the run's own work
+    ends, just before the hand-back. The turn that replied with the code is the operator's, and
+    so is anything the operator types between steps, which this window still counts.
 - **The engine drives it but never owns it.**
   - Every turn goes through the run host like any other agent's. It is delivered with Herdr's
     prompt once the session has settled (ADR 0008) and answered through `wf result` over the
@@ -54,14 +58,14 @@ engine has no operation to run; for one session, the one the run was started fro
     operator". A marker from an earlier turn, or from the host's own interrupt, does not count.
   - A cancelled turn is never nudged; the workflow decides what follows.
   - A turn that ends with no answer and no such marker is `unanswered`, as for any agent.
-  - Which harnesses' markers can be recognised is task 2's to measure; E8 saw codex's only. Where
-    the marker cannot be recognised, an interrupt reads as `unanswered`, and that harness's caller
+  - claude's, codex's and pi's markers are recognised; cursor's is not (E8's follow-up). Where the
+    marker cannot be recognised, an interrupt reads as `unanswered`, and that harness's caller
     turns are not nudged by default.
 - **A run the engine survives hands the session back.**
   - Whether the run is answered, failed, timed out or stopped by a signal, the engine sends one
     message once the session settles. It says how the run ended and where the run directory is.
-    The message is not an operation and has no record. A reply to it is the operator's turn, and
-    the run's spend window ends when it is delivered.
+    The message is not an operation and has no record. A reply to it is the operator's turn, after
+    the run's spend window.
   - If the session does not settle within a short grace, the message is sent anyway and queued;
     claude folds a queued prompt into the running turn (E8).
   - A run that is killed, crashes, or whose tab is closed sends nothing. The `--here` command's
@@ -126,9 +130,6 @@ the operator's session to what they can see happen: turns in their pane.
 
 ## Not decided
 
-- How a caller turn's spend is bounded within the run: one window from first delivery to
-  hand-back, or each operation's delivered and settled times. The session's files hold the
-  operator's own turns from before the run and during it. Task 4.
 - What an operator typing into the pane mid-turn does to settlement, and whether the run's
   interrupt then reaches the operator's turn. Not measured; ADR 0008 has the same gap.
 - Whether a child workflow can ever be given the caller; until then `caller` rejects there.

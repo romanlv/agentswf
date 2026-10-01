@@ -1,5 +1,12 @@
 import { afterAll, describe, expect, test } from "bun:test";
-import { existsSync, readdirSync, readFileSync, realpathSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  realpathSync,
+  writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
 import { RUNTIMES } from "../examples/quick-check/workflow";
 import { OUTPUT_RECORD_VERSION } from "../packages/contract/src/records";
@@ -1101,11 +1108,27 @@ describe("awf run --here", () => {
     ]);
   });
 
+  test("refuses a workflow that will not start, before any tab opens", async () => {
+    const herdr = fakeHerdr();
+    const errors: string[] = [];
+    const exitCode = await runOperatorCli(["run", "--here", WORKFLOW, "--", "bogus"], {
+      cwd: ROOT,
+      environment: inHerdr,
+      herdr: herdr.run,
+      stderr: (text) => errors.push(text),
+    });
+    expect(exitCode).toBe(1);
+    expect(errors).toEqual([
+      "awf: --here: the workflow cannot start: the only argument is --no-helper. Fix it, then run this again.",
+    ]);
+    expect(herdr.calls.some((call) => call[0] === "tab")).toBe(false);
+  });
+
   test("starts the run in a new tab with a code, and prints the line to end the turn with", async () => {
     const herdr = fakeHerdr();
     const output: string[] = [];
     const exitCode = await runOperatorCli(
-      ["run", "--here", "--timeout", "20m", WORKFLOW, "--", "--no-helper", "--here"],
+      ["run", "--here", "--timeout", "20m", WORKFLOW, "--", "--no-helper"],
       {
         cwd: ROOT,
         environment: inHerdr,
@@ -1128,12 +1151,12 @@ describe("awf run --here", () => {
       "awf workflow.ts",
       "--no-focus",
     ]);
-    // Only awf's own --here is dropped; the workflow's arguments pass as they were.
+    // Only awf's own --here is dropped; its other options and the workflow's arguments pass.
     expect(herdr.calls.find((call) => call[1] === "run")).toEqual([
       "pane",
       "run",
       "w1:p9",
-      ["awf", "run", "--session", code, "--timeout", "20m", WORKFLOW, "--", "--no-helper", "--here"]
+      ["awf", "run", "--session", code, "--timeout", "20m", WORKFLOW, "--", "--no-helper"]
         .map((arg) => `'${arg}'`)
         .join(" "),
     ]);
@@ -1164,6 +1187,43 @@ describe("awf run --here", () => {
     ]);
     expect(installed).toBe(false);
     expect(existsSync(runRoot) && readdirSync(runRoot)).toEqual([]);
+  });
+
+  test("a session another live run drives is refused; a mark its process left behind is not", async () => {
+    const herdr = fakeHerdr({ "w1:p1": { agent: "pi", screen: "awf-here-0123abcd" } });
+    const runRoot = runDirs.tempRunDir();
+    mkdirSync(join(runRoot, "callers"), { recursive: true });
+    writeFileSync(join(runRoot, "callers", "w1_p1.pid"), String(process.pid));
+    const errors: string[] = [];
+    const exitCode = await runOperatorCli(
+      ["run", "--session", "awf-here-0123abcd", "--run-root", runRoot, WORKFLOW],
+      {
+        cwd: ROOT,
+        environment: inHerdr,
+        herdr: herdr.run,
+        stderr: (text) => errors.push(text),
+        installRuntime: emptyRuntime,
+      },
+    );
+    expect(exitCode).toBe(1);
+    expect(errors).toEqual([
+      `awf: --session: another run (process ${process.pid}) is already driving the session in w1:p1; one run drives a session at a time`,
+    ]);
+
+    writeFileSync(join(runRoot, "callers", "w1_p1.pid"), "999999999");
+    const second = await runOperatorCli(
+      ["run", "--session", "awf-here-0123abcd", "--run-root", runRoot, WORKFLOW],
+      {
+        cwd: ROOT,
+        environment: inHerdr,
+        herdr: herdr.run,
+        stderr: () => undefined,
+        installRuntime: emptyRuntime,
+      },
+    );
+    // Past the mark, it fails only because the empty runtime has no calling session.
+    expect(second).toBe(1);
+    expect(existsSync(join(runRoot, "callers", "w1_p1.pid"))).toBe(false);
   });
 
   test("takes the pane showing its code over, and hands it back with how the run ended", async () => {
@@ -1227,7 +1287,7 @@ describe("awf run --here", () => {
     const handedBack = herdr.calls.find((call) => call[0] === "agent" && call[1] === "prompt");
     expect(handedBack?.[2]).toBe("w1:p1");
     expect(handedBack?.[3]).toMatch(
-      /^\[awf\] The workflow calling-session succeeded; its record is .*output\.json\. The run is over and this session is yours again; nothing here needs an answer\.$/,
+      /^\[awf\] The workflow calling-session succeeded; its record is .*output\.json\. The run is over and this session is yours; nothing here needs an answer\.$/,
     );
   });
 });

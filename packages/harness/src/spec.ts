@@ -110,8 +110,13 @@ export type HarnessSpec = {
     ended?(screen: string, before: string): boolean;
   };
   /**
+   * How to let its sandbox reach local sockets, which `awf run --here` and every `wf` call need,
+   * where its default sandbox does not (E8).
+   */
+  localSockets?: string;
+  /**
    * What its screen shows once the operator stops a turn, where that can be told apart (story 014,
-   * E9). Absent, an interrupted turn looks like one that ended without answering.
+   * E8's follow-up). Absent, an interrupted turn looks like one that ended without answering.
    */
   interrupted?: string;
   /**
@@ -236,6 +241,8 @@ export const HARNESSES: Record<Harness, HarnessSpec> = {
   codex: {
     sessionEnv: "CODEX_SESSION_ID",
     interrupted: "Conversation interrupted",
+    localSockets:
+      "codex's workspace-write sandbox blocks local sockets: start codex with -c sandbox_workspace_write.network_access=true, or approve running awf outside its sandbox",
     interactive: (model, launchArgs = []) => ({
       argv: [
         "codex",

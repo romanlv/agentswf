@@ -559,6 +559,12 @@ describe("a turn still being written", () => {
     }
   });
 
+  test("a pi calling session whose records name no provider is unknown, not pi's default", async () => {
+    const accounting = createSessionAccounting(unreachable);
+    const caller = { harness: "pi", model: "", caller: true as const };
+    expect(await accounting.billing(caller, [])).toBe("unknown");
+  });
+
   test("pi never waits: its process has ended by the time the run has", async () => {
     const root = copy("pi");
     appendFileSync(

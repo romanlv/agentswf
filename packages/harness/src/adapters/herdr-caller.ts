@@ -41,8 +41,8 @@ const TURN_LINES = 400;
 /**
  * Finds the one agent pane whose screen shows `code`, until `by`. Neither `$HERDR_PANE_ID` nor
  * Herdr's own session record finds it: under codex, every pane's tools run in one shared daemon
- * with whichever pane started it as their environment (E8). Two panes showing it is a refusal; so is
- * one whose harness the run cannot drive.
+ * with whichever pane started it as their environment (E8). Two panes showing it is a refusal; so
+ * is one whose harness the run cannot drive.
  */
 export async function findCallerPane(
   herdr: HerdrCommand,
@@ -115,13 +115,16 @@ export async function findCallerPane(
 }
 
 /**
- * Whether the operator stopped the turn whose prompt carried `operationId`: the harness's marker
- * appears after that prompt. When the prompt has scrolled out of what was read, all of it came
- * after. A marker from an earlier turn is before it, and the host's own interrupt is not asked about.
+ * Whether the operator stopped the turn whose prompt carried `operationId`: a line after that
+ * prompt starts with the harness's marker, past the glyph the harness puts before it. When the
+ * prompt has scrolled out of what was read, all of it came after. A marker from an earlier turn is
+ * before it; one quoted in the agent's own output does not start its line.
  */
 export function interruptedAfter(screen: string, operationId: string, marker: string): boolean {
   const at = screen.lastIndexOf(operationId);
-  return (at === -1 ? screen : screen.slice(at)).includes(marker);
+  return (at === -1 ? screen : screen.slice(at))
+    .split("\n")
+    .some((line) => line.replace(/^[^\p{L}\p{N}]+/u, "").startsWith(marker));
 }
 
 /**
@@ -145,8 +148,16 @@ export function createCallerHostFactory(
       let closed = false;
       let activeController: AbortController | undefined;
       let activeCompletion: Promise<void> | undefined;
-      /** The run's turn is in the pane, unanswered: the one turn the host may interrupt. */
-      let driving = false;
+      /**
+       * The prompt of the run's turn whose answer is still awaited, by number: the one turn the
+       * host may interrupt. Cleared as that turn ends, or is answered and left finishing.
+       */
+      let outstanding: number | undefined;
+      let prompts = 0;
+      /** When this host first prompted the session: where the run's share of its spend begins. */
+      let firstPrompt: number | undefined;
+      /** Bounds the interrupt's calls, so a slow Herdr cannot outlast the engine's release grace. */
+      const INTERRUPT_MS = 2_000;
 
       const stopWaiting = async (): Promise<boolean> => {
         if (!activeController) return false;
@@ -154,13 +165,18 @@ export function createCallerHostFactory(
         await activeCompletion;
         return true;
       };
-      /** Stops the run's own turn, once, and only while the pane is working on it. */
+      /**
+       * Stops the run's own turn, once, and only while the pane is working on it: a turn that ended
+       * while its status was read may already have given the pane back to the operator.
+       */
       const interrupt = async (): Promise<void> => {
-        if (!driving) return;
-        driving = false;
-        const got = await herdr(["agent", "get", pane]);
+        const mine = outstanding;
+        if (mine === undefined) return;
+        const got = await herdr(["agent", "get", pane], INTERRUPT_MS);
         const agent = got.ok ? (record(got.result.agent) ?? got.result) : undefined;
-        if (agent?.agent_status === "working") await herdr(["agent", "send-keys", pane, "esc"]);
+        if (outstanding !== mine || agent?.agent_status !== "working") return;
+        outstanding = undefined;
+        await herdr(["agent", "send-keys", pane, "esc"], INTERRUPT_MS);
       };
       const settle = async (deadline: number, signal: AbortSignal) => {
         const waitMs = deadline - Date.now();
@@ -190,8 +206,9 @@ export function createCallerHostFactory(
         finishesAnswered: true,
         stopFinishing: stopWaiting,
         leftFinishing() {
-          driving = false;
+          outstanding = undefined;
         },
+        promptedAt: () => firstPrompt,
         async execute(operation) {
           if (closed) throw new Error("the calling session's host is closed");
           if (operation.kind === "compact") {
@@ -214,7 +231,8 @@ export function createCallerHostFactory(
             if (busy) return busy;
             const waitMs = deadline - Date.now();
             if (waitMs <= 0) return localOutcome("timed-out", "operation deadline exceeded");
-            driving = true;
+            outstanding = ++prompts;
+            firstPrompt ??= Date.now();
             const sent = await herdr(
               ["agent", "prompt", pane, operation.prompt, "--wait", "--timeout", String(waitMs)],
               waitMs + HERDR_REPORT_GRACE_MS,
@@ -226,16 +244,20 @@ export function createCallerHostFactory(
               }
               if (hasHerdrErrorCode(sent.error, "agent_prompt_stalled")) {
                 // Submitted, so the turn may be running: wait for its answer, not for a resend.
-                return (await abortableDelay(Math.max(0, deadline - Date.now()), controller.signal))
-                  ? localOutcome(
-                      "timed-out",
-                      "operation deadline exceeded after a stalled prompt observation",
-                    )
-                  : localOutcome("cancelled", "pane operation cancelled");
+                if (
+                  !(await abortableDelay(Math.max(0, deadline - Date.now()), controller.signal))
+                ) {
+                  return localOutcome("cancelled", "pane operation cancelled");
+                }
+                await interrupt();
+                return localOutcome(
+                  "timed-out",
+                  "operation deadline exceeded after a stalled prompt observation",
+                );
               }
               return herdrFailure(sent, deadline - Date.now());
             }
-            driving = false;
+            outstanding = undefined;
             const read = await herdr(
               [
                 "agent",
@@ -254,6 +276,7 @@ export function createCallerHostFactory(
             }
             return callerOutcome(caller.harness, spec.interrupted, sent, read, operation);
           } finally {
+            outstanding = undefined;
             if (activeController === controller) activeController = undefined;
             finish();
           }
@@ -341,8 +364,9 @@ export function searchCaller(
 }
 
 /**
- * Opens a tab in `workspace`, beside the operator's, and types `argv` into its login shell. The command runs as a process Herdr started, not one of the calling session's, which is
- * what keeps a run out of that session's sandbox.
+ * Opens a tab in `workspace`, beside the operator's, and types `argv` into its login shell. The
+ * command runs as a process Herdr started, not one of the calling session's, which is what keeps a
+ * run out of that session's sandbox.
  */
 export async function startInNewTab(
   config: HerdrConfig,
@@ -385,4 +409,13 @@ export async function herdrReachable(
 ): Promise<string | undefined> {
   const listed = await createHerdrCommands(config, run).herdr(["pane", "list"]);
   return listed.ok ? undefined : listed.error;
+}
+
+/** Brings `tabId` forward in the operator's Herdr; best effort. */
+export async function focusTab(
+  config: HerdrConfig,
+  tabId: string,
+  run: RunProcess = runProcess,
+): Promise<void> {
+  await createHerdrCommands(config, run).herdr(["tab", "focus", tabId]);
 }

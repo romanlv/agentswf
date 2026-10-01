@@ -1,6 +1,14 @@
 #!/usr/bin/env -S bun --no-env-file
 import { randomBytes, randomUUID } from "node:crypto";
-import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
 import { constants, homedir } from "node:os";
 import { basename, join, resolve } from "node:path";
@@ -14,6 +22,8 @@ import {
 } from "@agentswf/contract/workflow";
 import {
   type CallerPane,
+  focusTab,
+  HARNESSES,
   type HerdrConfig,
   handBack,
   herdrReachable,
@@ -179,23 +189,37 @@ export async function runOperatorCli(
   if (environment.signal?.aborted) return interrupted(environment.signal, stderr);
 
   let caller: { pane: CallerPane; session: string } | undefined;
+  let releaseCaller: () => void = () => undefined;
   if (command.session !== undefined) {
     const found = await findCaller(command.session, environment);
     if (found.kind === "refused") {
       stderr(`awf: --session: ${found.reason}`);
+      // The session that started this waits on a run that will not come, and this tab opened
+      // unfocused: it is the one place that says why.
+      await showOwnTab(environment);
       return 1;
     }
+    const claim = claimCaller(command.runRoot, found.caller.pane.paneId);
+    if (typeof claim === "string") {
+      stderr(`awf: --session: ${claim}`);
+      return 1;
+    }
+    releaseCaller = claim;
     caller = found.caller;
-    if (environment.signal?.aborted) return interrupted(environment.signal, stderr);
+    if (environment.signal?.aborted) {
+      releaseCaller();
+      return interrupted(environment.signal, stderr);
+    }
   }
   // Once the run has taken the session over, however it ends, the session gets it back.
   const handOver = async (ended: string) => {
     if (!caller) return;
+    releaseCaller();
     const name = loaded.executable.definition.meta.name;
     const failed = await handBack(
       herdrConfig(caller.session),
       caller.pane.paneId,
-      `[awf] The workflow ${name} ${ended}. The run is over and this session is yours again; nothing here needs an answer.`,
+      `[awf] The workflow ${name} ${ended}. The run is over and this session is yours; nothing here needs an answer.`,
       environment.herdr,
     );
     if (failed) stderr(`awf: the calling session was not told the run ended: ${failed}`);
@@ -271,7 +295,6 @@ export async function runOperatorCli(
       progress.stop();
     }
     const artifacts = join(invocationRoot, result.runId);
-    artifactsOf = artifacts;
     const report = await writeReport(loaded.executable, result.value, artifacts, stderr);
     const record: OutputRecord = {
       ...recordOf(result),
@@ -281,6 +304,7 @@ export async function runOperatorCli(
     };
     const json = JSON.stringify(record, null, 2);
     await writeFile(join(artifacts, "output.json"), `${json}\n`);
+    artifactsOf = artifacts;
     // Beside the result rather than in it: stdout stays the workflow's report or the JSON.
     for (const line of describeAccounting(result.accounting)) stderr(line);
     output = command.json
@@ -295,9 +319,9 @@ export async function runOperatorCli(
         error: errorDetail(error),
       };
       failedRecord = JSON.stringify(record, null, 2);
-      artifactsOf = record.artifacts;
       try {
         await writeFile(join(record.artifacts, "output.json"), `${failedRecord}\n`);
+        artifactsOf = record.artifacts;
       } catch (writeError) {
         stderr(`awf: output.json: ${messageOf(writeError)}`);
       }
@@ -590,6 +614,17 @@ async function startHere(
   if (unreachable) {
     return refuse(`this session cannot reach Herdr: ${unreachable.trim()}`, sandboxFix(env));
   }
+  // In this shell, before any tab opens: a workflow that will not load fails here, where the agent
+  // reads it, and not in a tab nobody is looking at.
+  try {
+    const loaded = await loadWorkflowFile(command.workflowFile, command.shellCwd);
+    assertJsonValue(
+      loaded.executable.prepare({ argv: command.workflowArgs, cwd: command.cwd }),
+      `${loaded.executable.definition.meta.name} arguments`,
+    );
+  } catch (error) {
+    return refuse(`the workflow cannot start: ${messageOf(error)}`, "Fix it, then run this again.");
+  }
   const code = `awf-here-${randomBytes(4).toString("hex")}`;
   const end = argv.indexOf("--");
   const options = (end === -1 ? argv.slice(1) : argv.slice(1, end)).filter(
@@ -625,12 +660,60 @@ async function startHere(
   return 0;
 }
 
-/** What lets a sandboxed session reach Herdr's socket, which `--here` and every `wf` call need. */
+/**
+ * What lets a sandboxed session reach Herdr's socket, which `--here` and every `wf` call need: its
+ * harness's own advice, for the harness whose session variable this shell has.
+ */
 function sandboxFix(env: Readonly<Record<string, string | undefined>>): string {
-  if (env.CODEX_SESSION_ID || env.CODEX_THREAD_ID) {
-    return "codex's workspace-write sandbox blocks local sockets: start codex with -c sandbox_workspace_write.network_access=true, or approve running awf outside its sandbox.";
+  const harness = Object.values(HARNESSES).find(
+    (spec) => spec.sessionEnv && env[spec.sessionEnv] && spec.localSockets,
+  );
+  return harness?.localSockets
+    ? `${harness.localSockets}.`
+    : "If this session runs in a sandbox, let it reach Herdr's socket and local sockets, or run the workflow from a shell with awf run.";
+}
+
+/**
+ * Marks `paneId` as driven by this process until the returned release, under the run root every
+ * run of this operator shares: a second run started from a driven session is refused, as ADR 0009
+ * allows one at a time. A mark whose process is gone is taken over. The reason when refused.
+ */
+function claimCaller(runRoot: string, paneId: string): (() => void) | string {
+  const marks = join(runRoot, "callers");
+  const mark = join(marks, `${paneId.replace(/[^A-Za-z0-9_-]/g, "_")}.pid`);
+  mkdirSync(marks, { recursive: true });
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      writeFileSync(mark, String(process.pid), { flag: "wx" });
+      return () => rmSync(mark, { force: true });
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") return messageOf(error);
+      const holder = Number(readFileSync(mark, "utf8"));
+      if (alive(holder)) {
+        return `another run (process ${holder}) is already driving the session in ${paneId}; one run drives a session at a time`;
+      }
+      rmSync(mark, { force: true });
+    }
   }
-  return "If this session runs in a sandbox, let it reach Herdr's socket and local sockets, or run the workflow from a shell with awf run.";
+  return `could not mark the session in ${paneId} as driven`;
+}
+
+function alive(pid: number): boolean {
+  if (!Number.isSafeInteger(pid) || pid <= 0) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === "EPERM";
+  }
+}
+
+/** Brings the tab this process runs in forward, where Herdr says which one that is. */
+async function showOwnTab(environment: OperatorEnvironment): Promise<void> {
+  const env = environment.environment ?? process.env;
+  if (!env.HERDR_TAB_ID) return;
+  const session = await herdrSession(environment.herdr ?? runProcess, env).catch(() => undefined);
+  if (session) await focusTab(herdrConfig(session), env.HERDR_TAB_ID, environment.herdr);
 }
 
 /** The pane showing `code`, in the Herdr session awf runs in, for `--session`. */

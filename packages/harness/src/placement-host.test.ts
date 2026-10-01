@@ -82,6 +82,43 @@ describe("createPlacementHostFactory", () => {
     await expect(open(host, "d", "headless")).rejects.toThrow("run host is closed");
   });
 
+  test("the calling session goes to the caller's host, and a run without one refuses it", async () => {
+    const pane = side("pane");
+    const headless = side("headless");
+    const caller = side("pane");
+    const callerExecution = { harness: "fake", model: "", caller: true as const };
+    const placed = createPlacementHostFactory({
+      pane: pane.factory,
+      headless: headless.factory,
+      caller: { ...caller.factory, caller: { harness: "fake", cwd: "/repo" } },
+    });
+    expect(placed.caller).toEqual({ harness: "fake", cwd: "/repo" });
+    const host = await placed.openRun(spec);
+    await host.openAgent({
+      key: "author",
+      cwd: "/repo",
+      deadline: deadline(),
+      execution: callerExecution,
+    });
+    expect(caller.adapter.activations.map((activation) => activation.key)).toEqual(["author"]);
+    expect(pane.opened).toHaveLength(0);
+    expect(await placed.accounting?.billing(callerExecution, [])).toBe("subscription");
+    await host.close("done");
+    expect(caller.closed).toEqual(["done"]);
+
+    const without = createPlacementHostFactory({ pane: pane.factory, headless: headless.factory });
+    expect(without.caller).toBeUndefined();
+    const run = await without.openRun(spec);
+    await expect(
+      run.openAgent({
+        key: "author",
+        cwd: "/repo",
+        deadline: deadline(),
+        execution: callerExecution,
+      }),
+    ).rejects.toThrow("this run has no calling session");
+  });
+
   test("a run with only headless agents never opens the pane host", async () => {
     const pane = side("pane");
     const headless = side("headless");

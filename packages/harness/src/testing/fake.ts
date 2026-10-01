@@ -75,13 +75,16 @@ export function createFakeAdapter(
       let isClosed = false;
       let activeController: AbortController | undefined;
       let activeCompletion: Promise<void> | undefined;
+      let firstPrompt: number | undefined;
       return {
         identity: {
           sessionId: `fake-${activation.key}`,
           cwd: activation.cwd,
         },
+        promptedAt: () => firstPrompt,
         async execute(operation) {
           if (isClosed) throw new Error("fake session is closed");
+          firstPrompt ??= options.clock?.now() ?? Date.now();
           const controller = new AbortController();
           activeController = controller;
           let finish!: () => void;

@@ -3,7 +3,7 @@ id: "014"
 title: Run a workflow from inside the session you are in
 summary: "From a claude, codex, pi or cursor session in a Herdr pane, the operator starts a workflow with a command; the run starts outside the session's sandbox, takes the calling session over as one of its agents, opens any others it needs, and hands the session back when it ends."
 type: story
-status: in-progress
+status: awaiting-human-review
 discovered_in: "conversation, 2026-09-30; experiments/e8-attach"
 depends_on: []
 ---
@@ -184,17 +184,17 @@ Alternatives rejected:
 
 ## Tasks at a glance
 
-- [ ] 1. ADR and design: the calling session as an agent, and its contract surface
-- [ ] 2. A Herdr backend that drives a found pane it does not own
-- [ ] 3. `awf run --here` and `--session`, its refusals, and the command files
-- [ ] 4. Interrupt, hand-back, and accounting for the session's turns only
-- [ ] 5. Live evaluation on claude, codex, pi and cursor
+- [x] 1. ADR and design: the calling session as an agent, and its contract surface
+- [x] 2. A Herdr backend that drives a found pane it does not own
+- [x] 3. `awf run --here` and `--session`, its refusals, and the command files
+- [x] 4. Interrupt, hand-back, and accounting for the session's turns only
+- [x] 5. Live evaluation on claude, codex, pi and cursor
 
 ## Open questions
 
 ### 1. ADR and design
 
-Proposed in [ADR 0010](../adr/0010-the-calling-session-is-an-agent.md), awaiting approval:
+Settled in [ADR 0010](../adr/0010-the-calling-session-is-an-agent.md), approved 2026-10-01:
 
 - The workflow calls `agents.caller({ key })`. It gets an ordinary `AgentRef` under a key it
   names, or `null` when the run has none. A reserved key, a new placement and a runnable
@@ -207,30 +207,32 @@ Proposed in [ADR 0010](../adr/0010-the-calling-session-is-an-agent.md), awaiting
 
 ### 2. Backend
 
-- Interrupt markers differ per harness; codex prints "Conversation interrupted". Are they stable
-  enough to read, or should an unanswered turn on this backend always settle `unanswered` with no
-  nudge?
-- What happens to a turn when the operator types into the pane mid-step? Not measured in E8.
-- A ~20s code scan reading every agent pane each second: narrow it to the caller's workspace and
-  use `wait-output` instead of polling.
+- Interrupt markers: read for claude, codex and pi, as a line starting with the marker after the
+  turn's own prompt (E8's follow-up); cursor's cannot be read, so its unanswered caller turns are
+  not nudged by default.
+- Typing into the pane mid-step: still not measured; ADR 0009 lists it.
+- The code scan: kept across all agent panes, once a second, since the caller's workspace is not
+  known before the pane is (codex's environment can name another). It found the pane within a
+  few seconds live.
 
 ### 3. Command
 
-- Codex needs `network_access` or an approved escalation to reach Herdr and the result socket:
-  document it, check for it and say so, or both?
-- Does `awf` write the command file for one workflow, or do the docs show the few-line
-  template per harness?
+- Codex's `network_access`: both. `--here` checks Herdr is reachable and refuses with codex's own
+  advice (`HarnessSpec.localSockets`); the README says it too.
+- Command files: the docs show the template. One skill, `awf-run`, serves every harness that reads
+  skills; a per-workflow command is that skill renamed with the workflow fixed. `awf` writes none.
 - ~~Is the command an operator `awf` command or an agent `wf` command?~~ `awf`: it starts a run,
   which is operator authority (ADR 0010).
 
 ### 4. Accounting
 
-- The session's files hold turns from before the run. Bound the read by the run's first delivery
-  time, or by the turns the run delivered?
+- One window: from the host's first prompt to the session (not the operation's delivery, which
+  comes before the host waits out the operator's turn) to the run's own end. The operator's turns
+  between steps still count; ADR 0009 says so.
 
 ### 5. Live evaluation
 
-- None yet.
+- None open.
 
 ## Task execution rule
 
@@ -274,12 +276,12 @@ agent's, without ever closing or killing it.
 
 Execution:
 
-- [ ] Plan: inspect the pane adapter and its fake Herdr; settle the backend seam and its tests.
-- [ ] Implement: code lookup, delivery, settled-state wait, result confirmation, interrupt
+- [x] Plan: inspect the pane adapter and its fake Herdr; settle the backend seam and its tests.
+- [x] Implement: code lookup, delivery, settled-state wait, result confirmation, interrupt
   outcome, no close.
-- [ ] Review: architecture and scope, correctness and proof.
-- [ ] Resolve: disposition every finding.
-- [ ] Verify: focused tests against the fake Herdr, including zero, one and two panes showing the
+- [x] Review: architecture and scope, correctness and proof.
+- [x] Resolve: disposition every finding.
+- [x] Verify: focused tests against the fake Herdr, including zero, one and two panes showing the
   code, a turn pushed while busy, and an interrupt.
 
 Work:
@@ -298,13 +300,13 @@ takes the calling session over, or the command refuses with the reason and the f
 
 Execution:
 
-- [ ] Plan: argument shape, the Herdr calls, what the command prints, each refusal's message,
+- [x] Plan: argument shape, the Herdr calls, what the command prints, each refusal's message,
   the per-harness wrappers.
-- [ ] Implement: the two flags, the checks and refusals, the launcher by path, the generic and
+- [x] Implement: the two flags, the checks and refusals, the launcher by path, the generic and
   per-workflow command files.
-- [ ] Review: architecture and scope, correctness and proof.
-- [ ] Resolve: disposition every finding.
-- [ ] Verify: CLI tests for each refusal before anything starts (not in Herdr, unsupported
+- [x] Review: architecture and scope, correctness and proof.
+- [x] Resolve: disposition every finding.
+- [x] Verify: CLI tests for each refusal before anything starts (not in Herdr, unsupported
   harness, Herdr unreachable) and for a run whose code no pane shows.
 
 Work:
@@ -324,11 +326,11 @@ message, and spend counts only the run's turns.
 
 Execution:
 
-- [ ] Plan: settle the turn outcome on interrupt and the accounting window from task 1.
-- [ ] Implement: hand-back message on every run outcome, the bounded spend read.
-- [ ] Review: architecture and scope, correctness and proof.
-- [ ] Resolve: disposition every finding.
-- [ ] Verify: tests for answered, failed, timed-out and cancelled runs, and a session with turns
+- [x] Plan: settle the turn outcome on interrupt and the accounting window from task 1.
+- [x] Implement: hand-back message on every run outcome, the bounded spend read.
+- [x] Review: architecture and scope, correctness and proof.
+- [x] Resolve: disposition every finding.
+- [x] Verify: tests for answered, failed, timed-out and cancelled runs, and a session with turns
   before the run.
 
 Work:
@@ -346,11 +348,11 @@ Outcome: a cheap live check proves the whole path on each harness.
 
 Execution:
 
-- [ ] Plan: an eval workflow with dependent steps, a busy push and an interrupt; its cost.
-- [ ] Implement: the `*.eval.ts`.
-- [ ] Review: architecture and scope, correctness and proof.
-- [ ] Resolve: disposition every finding.
-- [ ] Verify: it passes on claude, codex, pi and cursor; record the cost in `docs/testing.md`.
+- [x] Plan: an eval workflow with dependent steps, a busy push and an interrupt; its cost.
+- [x] Implement: the `*.eval.ts`.
+- [x] Review: architecture and scope, correctness and proof.
+- [x] Resolve: disposition every finding.
+- [x] Verify: it passes on claude, codex, pi and cursor; record the cost in `docs/testing.md`.
 
 Work:
 
@@ -364,18 +366,44 @@ Done when:
 
 Automated:
 
-- [ ] Backend tests against the fake Herdr: code lookup, queued delivery, interrupt, no close.
-- [ ] A workflow test with the session as a scripted agent.
-- [ ] `bun test`
-- [ ] `bunx tsc --noEmit`
-- [ ] `bun run scripts/check-boundaries.ts`
+- [x] Backend tests against a stubbed Herdr: code lookup (none, one, two, unsupported), settle
+  before prompting, the operator's interrupt, the host's own interrupt only while its prompt is
+  outstanding, no close, no compaction.
+- [x] A workflow test with the session as a scripted agent.
+- [x] `bun test`
+- [x] `bunx tsc --noEmit`
+- [x] `bun run scripts/check-boundaries.ts`
 
 Manual or live evaluation:
 
-- [ ] The task 5 eval on claude, codex, pi and cursor; subscription sessions in panes, cheap
+- [x] The task 5 eval on claude, codex, pi and cursor; subscription sessions in panes, cheap
   models for codex, pi and cursor.
 
 ## Review record
+
+### Tasks 2–5 (one review of the whole change)
+
+- Architecture and scope, 12 findings:
+  - Accepted and fixed: one run per session enforced with a mark per pane under the run root;
+    the ADR's spend-window line; the contract doc and ADR now list five differences (failed
+    turns too, and the nudge default); unit tests for the caller window, pi caller billing and
+    placement routing; `findCallerPane` and `CallerSearch` unexported; codex's sandbox advice moved
+    to `HarnessSpec.localSockets`; the E9 citation; `TestOptions.caller.harness` typed; a long
+    comment wrapped; the hand-back's wording holds whether or not the workflow took the session;
+    `leftFinishing` says why it exists beside `stopFinishing`.
+  - Kept: the CLI's own short-timeout Herdr config beside the runtime's, which configures the
+    run's agents, not one-off commands.
+- Correctness and proof, 6 findings plus 2 hand-back gaps:
+  - Fixed: an Esc could reach the operator's turn after a failed or stalled prompt, so the
+    outstanding prompt is now numbered, cleared when its turn ends, and re-checked after the status
+    read; a stalled prompt that runs out its deadline is interrupted. The spend window opened at
+    delivery, before the host waited out the operator's turn, so it now starts at the host's first
+    prompt (`HarnessSession.promptedAt`). The interrupt's Herdr calls are bounded at 2 s, under the
+    release grace. A marker quoted mid-line no longer counts. `--here` loads and prepares the
+    workflow before any tab opens, and a refused `--session` brings its tab forward. The hand-back
+    names `output.json` only once it is written.
+  - Accepted: a second Ctrl-C stops awf at once, without the hand-back, as it skips the rest of
+    cleanup; an answered turn still finishing as the run ends counts only to the run's end.
 
 ### Task 1
 
@@ -395,14 +423,33 @@ Manual or live evaluation:
 
 ## Readiness
 
-- [ ] Outcome and boundaries are concrete.
-- [ ] Relevant implementation, callers, and tests are mapped.
+- [x] Outcome and boundaries are concrete.
+- [x] Relevant implementation, callers, and tests are mapped.
 - [x] Evidence and research support the proposed design.
-- [ ] Expensive interface, record-format, and stage-gate decisions are settled.
-- [ ] Tasks are ordered, coherent, and independently verifiable.
-- [ ] Open questions are resolved or explicitly moved out of scope.
+- [x] Expensive interface, record-format, and stage-gate decisions are settled.
+- [x] Tasks are ordered, coherent, and independently verifiable.
+- [x] Open questions are resolved or explicitly moved out of scope.
 
 ## Implementation notes
+
+- **Contract.** `AgentDirectory.caller({ key })` and `CallerSpec`; `AgentExecution.caller?: true`.
+  No record version change: the field is optional.
+- **Harness.** `adapters/herdr-caller.ts`: the code search over every agent pane, the caller host
+  (a session adapter with no close, no compaction, and an interrupt only for its own outstanding
+  prompt), `handBack`, `startInNewTab`, `herdrReachable`, `focusTab`. `HarnessSpec.interrupted` and
+  `localSockets`. The placement host routes `execution.caller` to a third side. Session core gained
+  `leftFinishing` and `promptedAt`.
+- **Engine.** `agents.caller` and `attach` for its key; the caller is never closed after a failed,
+  cancelled or timed-out turn; the default nudge is off where the interrupt cannot be read; the
+  spend window. The CLI's `--here` checks, loads the workflow, opens a tab in the caller's
+  workspace and prints the code; `--session` finds the pane, marks it driven, runs, and hands back.
+- **Testing surface.** `testWorkflow`'s `caller: { harness }` and `reply.interrupted()`.
+- **Assets.** `packages/engine/skills/awf-run/SKILL.md`; `examples/calling-session` with its test;
+  `tests/calling-session.eval.ts` with `tests/fixtures/caller-steps.ts`.
+- **Measured** (E8's follow-up in its README): each harness's interrupt marker, the prompt staying
+  on screen, codex's `CODEX_SESSION_ID`, and claude refusing a standalone `sleep`.
+- **Live, by hand:** pi and claude ran `examples/calling-session` end to end from a pane; codex in
+  its default sandbox was refused, naming `network_access`.
 
 ## Human review
 

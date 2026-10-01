@@ -34,6 +34,9 @@ exists, the code is right, then this page.
 - `agent.compact` runs the harness's own compaction with the workflow's focus (story 015, ADR
   0007): claude, codex and pi in a pane or headless; cursor refuses.
   `examples/compaction` checks each live.
+- `awf run --here`, typed in a claude, codex, pi or cursor session in a Herdr pane, starts the run
+  in a tab of its own, which drives that session as an agent through `agents.caller` and hands it
+  back with a last message (story 014, ADR 0009). The `awf-run` skill wraps it.
 - `examples/quick-check` asks each named harness a known-answer question, with a follow-up in the
   same session. It is the cheap smoke test for a harness and its accounting.
 - A workflow opens sandboxes and puts agents in them, shared or private, with
@@ -135,10 +138,10 @@ The gates are defined in [`foundation.md`](foundation.md) §12.
   folder.
 - [013 — autoresearch loop](stories/013-autoresearch-loop.md): draft. The proposer writes
   workflow code, so trials run whole in a container; air-1 is split 23 tuning / 10 holdout.
-- [014 — a workflow in the current session](stories/014-workflow-in-current-session.md): in
-  progress. E8 drove a claude, codex, pi and cursor session it did not start through dependent
-  steps; [ADR 0010](adr/0010-the-calling-session-is-an-agent.md), the calling session as an agent
-  through `agents.caller`, is proposed and awaits approval.
+- [014 — a workflow in the current session](stories/014-workflow-in-current-session.md): awaiting
+  human review. `awf run --here` takes the session it was typed in over as `agents.caller`
+  ([ADR 0010](adr/0010-the-calling-session-is-an-agent.md)); its eval passes on claude, codex, pi
+  and cursor.
 
 - [015 — native compaction](stories/015-native-compaction.md): awaiting human review.
   `agent.compact` runs each harness's own compaction with the workflow's focus, and a pane agent

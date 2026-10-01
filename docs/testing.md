@@ -60,6 +60,13 @@ What they cover between them:
   recall it and what it noted before. Cursor must refuse, saying why. `bun
   tests/compaction.eval.ts pi pi-pane` runs only those. 7 agents, ~60 s, ~$0.52 at list prices,
   $0.18 charged: the headless claude is metered.
+- `calling-session` — `awf run --here` (story 014) from a claude, codex, pi and cursor session,
+  each started in a Herdr tab and told to run the command; codex under its workspace-write sandbox
+  with local sockets allowed. Each run, in a tab of its own, drives its session through three steps;
+  the eval presses Esc a few seconds into the second, a long essay. The first number must come back
+  at the third, the interrupted step must be `cancelled` (`unanswered` for cursor, whose interrupt
+  cannot be read), and each session's spend known, cursor's apart. Must run inside Herdr; outside it
+  skips. 4 sessions, ~40 s, ~$0.05.
 - `minimum-review` — two reviewers in parallel in one Herdr workspace, claude and codex both in
   panes, on a disposable copy of a fixture. Both must complete natively and in lens order, and the
   repository must be untouched. 2 agents, ~20 s, ~$0.04. `bun tests/minimum-review.eval.ts
@@ -168,7 +175,8 @@ as story 002 did to check accounting against the session files.
   `packages/sandbox`, a harness's sandbox needs, or the engine's sandboxes; `skills` for
   `engine/src/skills`, `harness/src/capabilities` or a harness's launch arguments; `sandbox-panes-srt` and
   `sandbox-panes-docker` for a sandboxed pane, the Herdr host's typed start or a box's Herdr;
-  `run-sandbox` for `awf run --sandbox` or how awf-lab runs a trial.
+  `run-sandbox` for `awf run --sandbox` or how awf-lab runs a trial; `calling-session` for
+  `awf run --here`, `agents.caller` or the caller's Herdr backend.
 - **Level 4:** only when a story names it.
 
 ## Adding an eval

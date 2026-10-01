@@ -134,6 +134,11 @@ export interface HarnessSession {
   close(reason?: string): Promise<void>;
   /** Every native session id the adapter has seen for this agent, in the order first seen. */
   sessions?(): readonly string[];
+  /**
+   * When the host first prompted the agent, for a host that waits on the agent after a turn starts:
+   * the calling session's, which may still be the operator's own turn until then (ADR 0009).
+   */
+  promptedAt?(): number | undefined;
 }
 
 export interface HarnessActivation {

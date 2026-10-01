@@ -10,6 +10,7 @@ import {
   type RuntimeAliases,
   type WorkflowDefinition,
 } from "@agentswf/contract/workflow";
+import type { Harness } from "@agentswf/harness";
 import { createFakeSandboxProvider } from "@agentswf/sandbox/testing/fake";
 import { messageOf } from "../errors";
 import { OPERATOR_ALIASES } from "../operator-aliases";
@@ -50,7 +51,7 @@ export type TestOptions = {
    * `agents.caller` answers `null`. Its turns are answered from the script under the key the
    * workflow gives it.
    */
-  caller?: { harness: string };
+  caller?: { harness: Harness };
 };
 
 /** What the run did. Under `parallel`, what started first is scheduling: read by key. */

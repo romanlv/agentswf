@@ -113,6 +113,10 @@ describe("interruptedAfter", () => {
     expect(interruptedAfter(`old\n${marker}\nrun op-2\nworking`, "op-2", marker)).toBe(false);
     expect(interruptedAfter(`run op-2\nworking\n■ ${marker}`, "op-2", marker)).toBe(true);
   });
+  test("a marker the agent's output quotes mid-line is not the harness's", () => {
+    expect(interruptedAfter(`run op-2\n  interrupted: "${marker}",`, "op-2", marker)).toBe(false);
+    expect(interruptedAfter(`run op-2\n⎿  ${marker} - use /feedback`, "op-2", marker)).toBe(true);
+  });
   test("reads everything when the prompt has scrolled out", () => {
     expect(interruptedAfter(`long output\n■ ${marker}`, "op-2", marker)).toBe(true);
   });
@@ -260,6 +264,29 @@ describe("createCallerHostFactory", () => {
     expect(await turn.release("result slot settled", deadline(), { answered: true })).toEqual({
       kind: "finishing",
     });
+    await session.close("workflow complete");
+    expect(calls.filter((call) => verb(call) === "agent send-keys")).toHaveLength(0);
+  });
+
+  test("a prompt Herdr refused leaves nothing to interrupt, and nothing prompted", async () => {
+    const { session, calls } = await open(
+      { paneId: "w1:p1", harness: "claude", cwd: "/repo" },
+      (input) => {
+        if (verb(input) === "agent wait") return ok({ agent: { agent_status: "idle" } });
+        if (verb(input) === "agent get") return ok({ agent: { agent_status: "working" } });
+        if (verb(input) === "agent prompt") {
+          return { stdout: "", stderr: "pane gone", exitCode: 1, timedOut: false };
+        }
+        return undefined;
+      },
+    );
+    expect(session.promptedAt?.()).toBeUndefined();
+    const turn = await session.start(
+      { id: "t1", prompt: "Plan op-1.", deadline: deadline() },
+      binding,
+    );
+    expect((await turn.settled).state).toBe("failed");
+    expect(session.promptedAt?.()).toBeNumber();
     await session.close("workflow complete");
     expect(calls.filter((call) => verb(call) === "agent send-keys")).toHaveLength(0);
   });

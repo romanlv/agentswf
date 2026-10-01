@@ -4,9 +4,8 @@ export type { HerdrConfig } from "./adapters/herdr";
 export { createHerdrRunHostFactory } from "./adapters/herdr";
 export {
   type CallerPane,
-  type CallerSearch,
   createCallerHostFactory,
-  findCallerPane,
+  focusTab,
   handBack,
   herdrReachable,
   searchCaller,

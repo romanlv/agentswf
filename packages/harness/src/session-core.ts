@@ -52,6 +52,8 @@ type NativeSessionIdentity = {
 
 export type ActivatedSessionBackend = {
   readonly identity: NativeSessionIdentity;
+  /** When it first prompted the agent, where it waits before prompting; see `HarnessSession`. */
+  promptedAt?(): number | undefined;
   execute(request: NativeTurnRequest): Promise<NativeTurnOutcome>;
   close(reason?: string): Promise<void>;
 } & (
@@ -69,7 +71,11 @@ export type ActivatedSessionBackend = {
        * agent lives on in its pane, and only the wait on it stops. Absent, `cancel` stops it.
        */
       stopFinishing?(reason: string): Promise<boolean>;
-      /** The active turn was answered and is left to end on its own. */
+      /**
+       * The active turn was answered and is left to end on its own. A backend that may interrupt
+       * its own turn on `close` learns here that this one is no longer its own to stop, which
+       * `stopFinishing`, called only after the grace, would tell it too late.
+       */
       leftFinishing?(): void;
     }
 );
@@ -310,6 +316,7 @@ function createSession(
     compact: (id, prompt, deadline) =>
       afterFinishing(deadline, () => start({ id, prompt, deadline, kind: "compact" })),
     sessions: () => [...seen],
+    ...(native.promptedAt ? { promptedAt: () => native.promptedAt!() } : {}),
     async close(reason?: string) {
       if (closed) return;
       closeAttempt ??= native

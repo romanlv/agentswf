@@ -267,9 +267,10 @@ export interface AgentDirectory {
   /**
    * The session `awf run --here` was started from, as an agent under `spec.key`; `null` when the
    * run has none (ADR 0009). The same key returns the same ref and another key rejects. It is the
-   * operator's session, so it differs from an opened agent: `compact` fails, a cancelled or timed-out
-   * turn leaves it usable rather than closed, the operator interrupting a turn settles it `cancelled`,
-   * and its `execution.model` is `""`.
+   * operator's session, so it differs from an opened agent: `compact` fails; a turn that fails, is
+   * cancelled or times out leaves it usable rather than closed; the operator interrupting a turn
+   * settles it `cancelled`; where the harness's interrupt cannot be recognised, an unanswered turn
+   * is not nudged by default; and its `execution.model` is `""`.
    */
   caller(spec: CallerSpec): Promise<AgentRef | null>;
 }

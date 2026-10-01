@@ -32,6 +32,8 @@ export type AccountedAgent = {
   home?: string;
   /** Every native session id seen for the agent so far, from its `wf` calls and its adapter. */
   sessions(): readonly string[];
+  /** When its host first prompted it, where that waits on the agent first; see `window`. */
+  promptedAt?(): number | undefined;
 };
 
 /** One operation's place in the run, held from before its dispatch so records keep that order. */
@@ -201,8 +203,8 @@ async function settleUsage(
   if (options.signal.aborted) return unread(operations);
   const claimed = new Set<string>();
   const counted = new Map<AccountedAgent, UsageRecord[] | undefined>();
-  for (const { agent, own } of asked) {
-    const { from, until } = window(agent, own, options);
+  for (const { agent } of asked) {
+    const { from, until } = window(agent, options);
     counted.set(
       agent,
       reads.get(agent)?.records.filter((record) => {
@@ -242,21 +244,15 @@ async function settleUsage(
 /**
  * When an agent's records are the run's. A calling session's are from the run's first prompt to it
  * until the run's own work ended: before, its turns were the operator's, the one that replied with
- * the run's code included, and so are its turns after the hand-back (ADR 0009).
+ * the run's code included, and so are its turns after the hand-back (ADR 0009). That prompt is the
+ * host's, not the operation's delivery, which comes before the host waits for the operator's turn.
  */
 function window(
   agent: AccountedAgent,
-  own: readonly Settled[],
   options: { startedAt: number; endedAt: number },
 ): { from: number; until: number } {
   if (!agent.execution.caller) return { from: options.startedAt, until: Number.POSITIVE_INFINITY };
-  const delivered = own.flatMap(({ usage }) =>
-    usage.deliveredAt === undefined ? [] : [Date.parse(usage.deliveredAt)],
-  );
-  return {
-    from: delivered.length > 0 ? Math.min(...delivered) : Number.POSITIVE_INFINITY,
-    until: options.endedAt,
-  };
+  return { from: agent.promptedAt?.() ?? Number.POSITIVE_INFINITY, until: options.endedAt };
 }
 
 async function readUntilSettled(

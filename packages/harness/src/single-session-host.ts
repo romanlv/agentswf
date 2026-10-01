@@ -167,6 +167,7 @@ function observeSession(
       )) as HarnessSession["start"],
     compact: (id, prompt, deadline) => begin(() => session.compact(id, prompt, deadline)),
     ...(session.sessions ? { sessions: () => session.sessions!() } : {}),
+    ...(session.promptedAt ? { promptedAt: () => session.promptedAt!() } : {}),
     async close(reason) {
       await session.close(reason);
       record({ state: "missing" });

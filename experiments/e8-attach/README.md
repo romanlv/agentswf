@@ -55,3 +55,21 @@ Every harness answered all four steps correctly (`results/answers-*.txt`):
 
 Not measured: a step longer than a few minutes, an operator typing into the pane mid-step, pi and
 cursor under their own sandboxes, and the spend read for a session that existed before the run.
+
+## Follow-up for the implementation, 2026-10-01
+
+Measured while building [story 014](../../docs/stories/014-workflow-in-current-session.md), on
+the same versions with claude 2.1.287:
+
+- **Interrupt markers.** Esc during a turn leaves on screen: claude `Interrupted · What should
+  Claude do instead?`, codex `Conversation interrupted`, pi `Operation aborted`. Cursor stopped at
+  its command approval, which Herdr reports as `blocked`, and showed no marker of its own; it is
+  treated as one whose interrupt cannot be read.
+- **The prompt stays on screen.** A long multi-line prompt pushed with `herdr agent prompt` showed
+  its call id in `agent read --source recent-unwrapped` afterwards in all four, so a marker can be
+  placed after the turn's own prompt.
+- **Codex's session variables.** A codex tool shell has both `CODEX_SESSION_ID` and
+  `CODEX_THREAD_ID`, so the launcher's existing `CODEX_SESSION_ID` names the calling session.
+- **Claude refuses a standalone `sleep`.** Its Bash tool blocks one, so a long step to interrupt
+  has to be work, such as a long essay, not a wait.
+
