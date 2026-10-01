@@ -7,7 +7,7 @@ FROM oven/bun:${BUN_VERSION}-debian AS bun
 
 FROM node:22.20.0-bookworm-slim
 ARG CLAUDE_CODE_VERSION=2.1.283
-ARG CODEX_VERSION=0.157.1
+ARG CODEX_VERSION=0.159.3
 ARG PI_VERSION=0.87.1
 COPY --from=bun /usr/local/bin/bun /usr/local/bin/bun
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates git curl procps zsh \
