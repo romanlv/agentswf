@@ -876,3 +876,118 @@ describe("testWorkflow compactions", () => {
     ]);
   });
 });
+
+/** Each step of a short procedure in the calling session, and how each ended. */
+const steps = (prompts: string[], options: { timeoutMs?: number } = {}) =>
+  workflowOf<null, JsonValue>(async (workflow): Promise<JsonValue> => {
+    const caller = await workflow.agents.caller({ key: "author" });
+    if (!caller) return "no caller";
+    const ended: JsonValue[] = [];
+    for (const prompt of prompts) {
+      const { outcome } = await caller.run({
+        prompt,
+        ...(options.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs }),
+      });
+      ended.push(outcome.kind === "answered" ? outcome.value : outcome.kind);
+    }
+    return ended;
+  });
+
+describe("testWorkflow with a calling session", () => {
+  test("without one, agents.caller is null", async () => {
+    const run = await testWorkflow(steps(["Plan."]), null);
+    expect(run.value).toBe("no caller");
+    expect(run.agents).toEqual([]);
+  });
+
+  test("its turns run under the workflow's key, with the operator's harness and no model", async () => {
+    const run = await testWorkflow(steps(["Plan.", "Fix."]), null, {
+      caller: { harness: "pi" },
+      agents: { author: [answer("planned"), answer("fixed")] },
+    });
+    expect(run.value).toEqual(["planned", "fixed"]);
+    expect(run.agentOf("author").execution).toEqual({ harness: "pi", model: "", caller: true });
+    expect(run.turnsOf("author").map((turn) => turn.prompt)).toEqual(["Plan.", "Fix."]);
+  });
+
+  test("an interrupted turn is cancelled, not nudged, and the session takes the next", async () => {
+    const run = await testWorkflow(steps(["Plan.", "Fix."]), null, {
+      caller: { harness: "claude" },
+      agents: { author: [reply.interrupted(), answer("fixed")] },
+    });
+    expect(run.value).toEqual(["cancelled", "fixed"]);
+    expect(run.turnsOf("author").map((turn) => turn.nudge)).toEqual([false, false]);
+  });
+
+  test("a turn that times out leaves the session usable", async () => {
+    let first = true;
+    const run = await testWorkflow(steps(["Plan.", "Fix."], { timeoutMs: 200 }), null, {
+      caller: { harness: "codex" },
+      agents: {
+        author: answer(() => {
+          if (!first) return "fixed";
+          first = false;
+          return reply.hang();
+        }),
+      },
+    });
+    expect(run.value).toEqual(["timed-out", "fixed"]);
+  });
+
+  test("an unanswered turn is nudged where the harness shows an interrupt, and not where it can't", async () => {
+    const shows = await testWorkflow(steps(["Plan."]), null, {
+      caller: { harness: "claude" },
+      agents: { author: answer((turn) => (turn.nudge ? "planned" : reply.silent())) },
+    });
+    expect(shows.value).toEqual(["planned"]);
+    expect(shows.turnsOf("author").map((turn) => turn.nudge)).toEqual([false, true]);
+    const hides = await testWorkflow(steps(["Plan."]), null, {
+      caller: { harness: "cursor" },
+      agents: { author: reply.silent() },
+    });
+    expect(hides.value).toEqual(["unanswered"]);
+    expect(hides.turnsOf("author")).toHaveLength(1);
+  });
+
+  test("one key: the same returns the same ref, another rejects, and so do open and compact", async () => {
+    const run = await testWorkflow(
+      workflowOf<null, JsonValue>(async (workflow) => {
+        const caller = await workflow.agents.caller({ key: "author" });
+        const again = await workflow.agents.caller({ key: "author" });
+        const attached = await workflow.agents.attach("author");
+        const other = await workflow.agents
+          .caller({ key: "other" })
+          .catch((error) => error.message);
+        const opened = await workflow.agents
+          .open({ key: "author", runtime: "codex" })
+          .catch((error) => error.message);
+        await caller!.run({ prompt: "Plan." });
+        const compacted = await caller!.compact({
+          id: "c1",
+          prompt: "keep the plan",
+          deadline: { unixMilliseconds: Date.now() + 60_000 },
+        });
+        return {
+          same: caller === again && caller === attached,
+          other,
+          opened,
+          compacted: compacted.kind === "failed" ? compacted.reason : compacted.kind,
+        };
+      }),
+      null,
+      { caller: { harness: "claude" }, agents: { author: answer("planned") } },
+    );
+    expect(run.value).toEqual({
+      same: true,
+      other: "the calling session is already agent author; it cannot also be other",
+      opened: "agent author is the calling session; it is not opened",
+      compacted: "the calling session's context is the operator's, so a run does not compact it",
+    });
+  });
+
+  test("an agent the run opened cannot be scripted as interrupted", async () => {
+    await expect(
+      testWorkflow(solo(), null, { agents: { solo: reply.interrupted() } }),
+    ).rejects.toThrow('agent "solo" turn 1: only the calling session can be interrupted');
+  });
+});

@@ -75,6 +75,8 @@ export function createScriptedHost(
     /** The script could not meet a turn: the test fails. */
     onScriptError(message: string): void;
   },
+  /** The session the run is started from, as `awf run --here` finds one (ADR 0009). */
+  caller?: { harness: string; cwd: string },
 ): ScriptedHost {
   const turns: TurnRecord[] = [];
   const compactions: CompactionRecord[] = [];
@@ -133,6 +135,16 @@ export function createScriptedHost(
           end(record, "hang");
         },
       };
+    }
+    if (ending.kind === "interrupted") {
+      if (!context.activation.execution.caller) {
+        open.delete(record);
+        return failTest(
+          `agent "${record.agent}" turn ${record.n}: only the calling session can be interrupted by the operator`,
+        );
+      }
+      end(record, "interrupted");
+      return { state: "cancelled", detail: "interrupted by the operator" };
     }
     end(record, ending.kind);
     return ending.kind === "silent" ? {} : { state: ending.kind, detail: ending.reason };
@@ -198,6 +210,11 @@ export function createScriptedHost(
         },
       };
     }
+    if (ending.kind === "interrupted") {
+      return failTest(
+        `agent "${activation.key}" compaction ${n}: a compaction is not interrupted by the operator`,
+      );
+    }
     done(ending.kind);
     return ending.kind === "silent" ? {} : { state: ending.kind, detail: ending.reason };
   };
@@ -249,10 +266,25 @@ export function createScriptedHost(
         script,
       }),
     );
-  const placed = createPlacementHostFactory({ pane: side("pane"), headless: side("headless") });
+  const placed = createPlacementHostFactory({
+    pane: side("pane"),
+    headless: side("headless"),
+    ...(caller
+      ? {
+          caller: {
+            caller,
+            openRun: (spec) =>
+              createSingleSessionHostFactory(
+                createFakeAdapter({ harnesses: [caller.harness], placement: "pane", script }),
+              ).openRun(spec),
+          },
+        }
+      : {}),
+  });
 
   return {
     factory: {
+      ...(placed.caller ? { caller: placed.caller } : {}),
       async openRun(spec) {
         const run = await placed.openRun(spec);
         return {
@@ -287,6 +319,9 @@ function whenAborted(signal: AbortSignal): Promise<"cancelled"> {
 }
 
 function refusedCompaction(activation: HarnessActivation, hasRun: boolean): string | undefined {
+  if (activation.execution.caller) {
+    return "the calling session's context is the operator's, so a run does not compact it";
+  }
   const spec = findHarness(activation.execution.harness);
   const native =
     placementOf(activation.execution) === "pane" ? spec?.compactPane : spec?.compactHeadless;

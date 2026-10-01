@@ -110,6 +110,11 @@ export type HarnessSpec = {
     ended?(screen: string, before: string): boolean;
   };
   /**
+   * What its screen shows once the operator stops a turn, where that can be told apart (story 014,
+   * E9). Absent, an interrupted turn looks like one that ended without answering.
+   */
+  interrupted?: string;
+  /**
    * The summary of a session's last compaction, from the harness's own record, where it keeps one.
    * `session` is the session as the pane's harness names it: an id, or for pi its file's path.
    */
@@ -133,6 +138,7 @@ function lastJson(stdout: string): Row | undefined {
 export const HARNESSES: Record<Harness, HarnessSpec> = {
   claude: {
     sessionEnv: "CLAUDE_CODE_SESSION_ID",
+    interrupted: "Interrupted · What should Claude do instead?",
     // `Bash` has to be allowed or the agent cannot run `wf` at all, which would measure the
     // permission prompt rather than the return channel.
     interactive: (model, launchArgs = []) => ({
@@ -229,6 +235,7 @@ export const HARNESSES: Record<Harness, HarnessSpec> = {
 
   codex: {
     sessionEnv: "CODEX_SESSION_ID",
+    interrupted: "Conversation interrupted",
     interactive: (model, launchArgs = []) => ({
       argv: [
         "codex",
@@ -372,6 +379,7 @@ export const HARNESSES: Record<Harness, HarnessSpec> = {
 
   pi: {
     sessionEnv: "PI_SESSION_ID",
+    interrupted: "Operation aborted",
     interactive: (model, launchArgs = []) => ({
       argv: ["pi", ...(model ? ["--model", model] : []), ...launchArgs],
     }),

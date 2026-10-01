@@ -2,6 +2,8 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { SandboxEnvironmentKey } from "@agentswf/contract/workflow";
 import {
+  type CallerPane,
+  createCallerHostFactory,
   createHeadlessRunHostFactory,
   createHerdrRunHostFactory,
   createPlacementHostFactory,
@@ -35,6 +37,8 @@ export type OperatorRuntimeOptions = {
   environment?: Readonly<Record<string, string | undefined>>;
   /** A tab in the run's workspace for each sandbox's own Herdr. On unless false. */
   watchSandboxes?: boolean;
+  /** The session `awf run --here` was started from, found in the Herdr session named (ADR 0009). */
+  caller?: { pane: CallerPane; session: string };
 };
 
 /**
@@ -45,21 +49,18 @@ export async function installOperatorRuntime(
   timeoutMilliseconds: number,
   options: OperatorRuntimeOptions = {},
 ): Promise<OperatorRuntimeInstallation> {
-  const { run = runProcess, environment = process.env, watchSandboxes = true } = options;
+  const { run = runProcess, environment = process.env, watchSandboxes = true, caller } = options;
   const unmetered = withholding(run, WITHHELD_ENVIRONMENT);
   refuseMeteredCredentials(environment);
-  const panes = (session: string) =>
-    createHerdrRunHostFactory(
-      {
-        session,
-        workspaceLabel: "awf run",
-        commandTimeoutMs: Math.min(timeoutMilliseconds, 150_000),
-        emptyEnvironment: WITHHELD_ENVIRONMENT,
-        acceptWorkspaceTrust: true,
-        watchSandboxes,
-      },
-      run,
-    );
+  const herdrConfig = (session: string) => ({
+    session,
+    workspaceLabel: "awf run",
+    commandTimeoutMs: Math.min(timeoutMilliseconds, 150_000),
+    emptyEnvironment: WITHHELD_ENVIRONMENT,
+    acceptWorkspaceTrust: true,
+    watchSandboxes,
+  });
+  const panes = (session: string) => createHerdrRunHostFactory(herdrConfig(session), run);
   const { accounting } = panes("default");
   const host = loginChecked(
     unmetered,
@@ -71,6 +72,9 @@ export async function installOperatorRuntime(
         openRun: async (spec) => panes(await herdrSession(run, environment)).openRun(spec),
       },
       headless: createHeadlessRunHostFactory({}, unmetered),
+      ...(caller
+        ? { caller: createCallerHostFactory(herdrConfig(caller.session), caller.pane, run) }
+        : {}),
     }),
   );
   return {
@@ -236,7 +240,8 @@ function loginChecked(run: RunProcess, factory: AgentRunHostFactory): AgentRunHo
       return {
         ...host,
         async openAgent(request) {
-          await check(request.execution.harness);
+          // The calling session is logged in as the operator logged it in; awf did not start it.
+          if (!request.execution.caller) await check(request.execution.harness);
           return host.openAgent(request);
         },
         inspect: () => host.inspect(),

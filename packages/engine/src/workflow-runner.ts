@@ -442,6 +442,8 @@ class WorkflowOwner {
   #closing: Promise<unknown[]> | undefined;
   /** The bundled `wf`'s source, built once, at the first sandboxed agent. */
   #bundle: Promise<string> | undefined;
+  /** The calling session, once the workflow has asked for it (ADR 0009). */
+  #caller: { key: string; state: Promise<LogicalAgent> } | undefined;
 
   constructor(
     private readonly options: {
@@ -475,8 +477,23 @@ class WorkflowOwner {
             return Promise.reject(error);
           }
         },
-        attach: () => unavailable("agents.attach"),
+        attach: (key, runtime) => {
+          if (this.#caller?.key !== key) return unavailable("agents.attach");
+          if (runtime !== undefined) {
+            return Promise.reject(
+              new Error(`agent ${key} is the calling session, whose runtime is the operator's`),
+            );
+          }
+          return this.#caller.state;
+        },
         stop: () => unavailable("agents.stop"),
+        caller: (spec) => {
+          try {
+            return this.caller(spec.key);
+          } catch (error) {
+            return Promise.reject(error);
+          }
+        },
       },
       sandboxes: {
         open: (spec) => {
@@ -579,6 +596,9 @@ class WorkflowOwner {
   private openAgent(spec: AgentOpenSpec): Promise<AgentRef> {
     if (this.#closed) throw new Error("workflow context is closed");
     scopes.getStore()?.assertAccepting();
+    if (this.#caller?.key === spec.key) {
+      throw new Error(`agent ${spec.key} is the calling session; it is not opened`);
+    }
     const inRunSandbox = this.options.sandboxes.hasRunSandbox;
     if (inRunSandbox && spec.sandbox !== undefined)
       throw new Error(`agent ${spec.key}: ${RUN_SANDBOX_ONLY}`);
@@ -661,6 +681,76 @@ class WorkflowOwner {
     const activated = this.track(waitForDeadline(ownedState, effectiveDeadline));
     scope?.track(activated);
     return activated;
+  }
+
+  /**
+   * The session the run was started from, under the key the workflow names: `null` when there is
+   * none. It is found, not opened: its harness, directory and skills are the operator's, and it
+   * answers through a launcher by path as any pane agent does (ADR 0009).
+   */
+  private caller(key: string): Promise<AgentRef | null> {
+    if (this.#closed) throw new Error("workflow context is closed");
+    const scope = scopes.getStore();
+    scope?.assertAccepting();
+    const found = this.options.runtime.host.caller;
+    if (!found) return Promise.resolve(null);
+    if (this.#caller) {
+      if (this.#caller.key !== key) {
+        throw new Error(
+          `the calling session is already agent ${this.#caller.key}; it cannot also be ${key}`,
+        );
+      }
+      return this.#caller.state;
+    }
+    if (this.#agents.has(key))
+      throw new Error(`agent ${key} is already open; the caller needs a key of its own`);
+    const execution: AgentExecution = { harness: found.harness, model: "", caller: true };
+    this.options.progress.agentOpened(key, scope?.stage);
+    const sessions: AgentSessions = { launcher: new Set() };
+    const accounted: AccountedAgent = {
+      key,
+      execution,
+      cwd: found.cwd,
+      sessions: () => [
+        ...new Set([...sessions.launcher, ...(sessions.harness?.sessions?.() ?? [])]),
+      ],
+    };
+    const ledger = this.options.ledger.agent(accounted);
+    this.options.skills.record(key, "operator");
+    const opened = this.options.control.openChannel(key, (id) => sessions.launcher.add(id));
+    const state = opened.then(async (channel) => {
+      try {
+        const launcher = await installAgentLauncher(
+          dirname(channel.endpoint),
+          channel.endpoint,
+          findHarness(execution.harness)?.sessionEnv,
+        );
+        const session = await this.options.host.openAgent({
+          key,
+          deadline: this.options.deadline,
+          cwd: found.cwd,
+          execution,
+        });
+        sessions.harness = session;
+        return this.logicalAgent(key, execution, session, channel.endpoint, launcher, ledger);
+      } catch (error) {
+        await channel.close().catch(() => undefined);
+        throw error;
+      }
+    });
+    const owned = this.track(state);
+    this.#caller = { key, state: owned };
+    this.#agents.set(key, {
+      identity: { execution, cwd: found.cwd },
+      state: owned,
+      channel: opened.then(
+        (channel) => channel,
+        () => undefined,
+      ),
+    });
+    const ready = this.track(waitForDeadline(owned, scope?.deadline ?? this.options.deadline));
+    scope?.track(ready);
+    return ready;
   }
 
   /**
@@ -1083,6 +1173,15 @@ class LogicalAgent implements AgentRef {
       : deadlineWithin(spec.timeoutMs, inheritedDeadline);
   }
 
+  /**
+   * An operation that failed, was cancelled or timed out ends a session the run owns. The calling
+   * session is the operator's and goes on: its next turn waits for it to settle (ADR 0010).
+   */
+  private closeAfterFailure(reason: string): void {
+    if (this.options.execution.caller) return;
+    void this.close(reason).catch(() => undefined);
+  }
+
   close(reason?: string): Promise<void> {
     this.#closed = true;
     if (!this.#closePromise) {
@@ -1100,6 +1199,16 @@ class LogicalAgent implements AgentRef {
     return this.#closePromise;
   }
 
+  /**
+   * The standard recovery, except for a calling session whose harness's interrupt cannot be told
+   * from a turn that ended without answering: nudging it could be prompting an operator who just
+   * stopped it (ADR 0009).
+   */
+  private defaultNudge(): Exclude<AgentRunTextSpec["nudge"], false> {
+    const { execution } = this.options;
+    return execution.caller && !findHarness(execution.harness)?.interrupted ? undefined : {};
+  }
+
   private queue<T>(operation: () => Promise<T>): Promise<T> {
     const result = this.#tail.then(operation, operation);
     this.#tail = result.then(
@@ -1114,7 +1223,7 @@ class LogicalAgent implements AgentRef {
     scope: ExecutionScope | undefined,
     deadline: AbsoluteDeadline,
   ): Promise<RunResult<JsonValue>> {
-    const nudge = spec.nudge === false ? undefined : (spec.nudge ?? {});
+    const nudge = spec.nudge === false ? undefined : (spec.nudge ?? this.defaultNudge());
     assertDeadlineValue(deadline);
     scope?.assertActive();
     if (nudge?.deadline) assertDeadlineValue(nudge.deadline);
@@ -1207,7 +1316,7 @@ class LogicalAgent implements AgentRef {
           resultEvidence: { kind: "unavailable" },
           chargesUsd: [],
         };
-        void this.close(native.detail).catch(() => undefined);
+        this.closeAfterFailure(native.detail ?? "harness operation failed");
         return await finish(native);
       }
       if (first.kind === "abandoned") return await finish(first.native, first.settlement);
@@ -1263,7 +1372,7 @@ class LogicalAgent implements AgentRef {
             ? "operation deadline exceeded"
             : (native.detail ?? `native turn ${native.state}`);
         if (!releaseAttempted) await releaseTurn(held.turn!, reason);
-        void this.close(reason).catch(() => undefined);
+        this.closeAfterFailure(reason);
       }
       return await finish(native, settlement);
     } catch (error) {
@@ -1455,7 +1564,7 @@ class LogicalAgent implements AgentRef {
       () => undefined,
     );
     this.options.track(lateRelease);
-    void this.close(reason).catch(() => undefined);
+    this.closeAfterFailure(reason);
   }
 }
 

@@ -209,6 +209,11 @@ export interface AgentRunHostFactory {
    * because how an agent is launched decides who pays. Absent, nothing is read.
    */
   readonly accounting?: SessionAccounting;
+  /**
+   * The session `awf run --here` was started from, when this host drives one (ADR 0009). An agent
+   * whose execution says `caller` is that session, and a run whose host has none has no caller.
+   */
+  readonly caller?: { harness: HarnessKind; cwd: string };
 }
 
 /** Engine-owned configuration assembled once, outside workflow definitions. */

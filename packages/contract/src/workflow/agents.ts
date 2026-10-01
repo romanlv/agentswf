@@ -78,6 +78,11 @@ export type RuntimeSelection = RuntimeAliasName | ExecutionRequirements | Execut
 export type AgentExecution = ExecutionConfig & {
   /** Present when this execution was selected through an alias. */
   alias?: RuntimeAliasName;
+  /**
+   * The session the run was started from with `awf run --here`, which the run found rather than
+   * opened (ADR 0009). Its `model` is `""`: the operator chose it, and spend records carry it.
+   */
+  caller?: true;
 };
 
 export interface AgentOpenSpec {
@@ -243,6 +248,11 @@ export interface AgentRef extends ParticipantRef {
   compact(spec: CompactSpec): Promise<TurnOutcome<string>>;
 }
 
+export interface CallerSpec {
+  /** The key the calling session goes by in this run, as any agent's does. */
+  key: AgentKey;
+}
+
 export interface AgentDirectory {
   /**
    * Reattaches by logical key when every supplied field matches; omitted optional fields do not
@@ -254,4 +264,12 @@ export interface AgentDirectory {
   attach(key: AgentKey, runtime?: RuntimeSelection): Promise<AgentRef | null>;
   /** Returns false when the logical agent does not exist or is already stopped. */
   stop(key: AgentKey, reason?: string): Promise<boolean>;
+  /**
+   * The session `awf run --here` was started from, as an agent under `spec.key`; `null` when the
+   * run has none (ADR 0009). The same key returns the same ref and another key rejects. It is the
+   * operator's session, so it differs from an opened agent: `compact` fails, a cancelled or timed-out
+   * turn leaves it usable rather than closed, the operator interrupting a turn settles it `cancelled`,
+   * and its `execution.model` is `""`.
+   */
+  caller(spec: CallerSpec): Promise<AgentRef | null>;
 }

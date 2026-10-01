@@ -2,26 +2,39 @@ import { type AgentExecution, type AgentPlacement, placementOf } from "@agentswf
 import type { AgentRunHost, AgentRunHostFactory, HarnessRunSnapshot } from "./adapter";
 import type { SessionAccounting } from "./usage/accounting";
 
+type Side = AgentPlacement | "caller";
+
+function sideOf(execution: AgentExecution): Side {
+  return execution.caller ? "caller" : placementOf(execution);
+}
+
 /**
  * One run host over a pane host and a headless one. Each agent goes to the host its placement
  * names, and each side opens only when an agent first needs it, so a run that is all headless
  * never starts a terminal workspace. The engine still sees one host with one cleanup.
  */
 export function createPlacementHostFactory(
-  hosts: Readonly<Record<AgentPlacement, AgentRunHostFactory>>,
+  hosts: Readonly<Record<AgentPlacement, AgentRunHostFactory>> & {
+    /** The calling session's host, for the agent whose execution says `caller` (ADR 0009). */
+    caller?: AgentRunHostFactory;
+  },
 ): AgentRunHostFactory {
   const accounting = placedAccounting(hosts);
+  const caller = hosts.caller?.caller;
   return {
     ...(accounting ? { accounting } : {}),
+    ...(caller ? { caller } : {}),
     async openRun(spec) {
-      const opening = new Map<AgentPlacement, Promise<AgentRunHost>>();
+      const opening = new Map<Side, Promise<AgentRunHost>>();
       const opened: AgentRunHost[] = [];
       let state: "running" | "closing" | "closed" = "running";
       let closeAttempt: Promise<void> | undefined;
-      const side = (placement: AgentPlacement): Promise<AgentRunHost> => {
+      const side = (placement: Side): Promise<AgentRunHost> => {
         let host = opening.get(placement);
         if (!host) {
-          host = hosts[placement].openRun(spec);
+          const factory = hosts[placement];
+          if (!factory) return Promise.reject(new Error("this run has no calling session"));
+          host = factory.openRun(spec);
           opening.set(placement, host);
           void host.then(
             (ready) => opened.push(ready),
@@ -33,7 +46,7 @@ export function createPlacementHostFactory(
       const host: AgentRunHost = {
         async openAgent(request) {
           if (state !== "running") throw new Error("run host is closed");
-          return (await side(placementOf(request.execution))).openAgent(request);
+          return (await side(sideOf(request.execution))).openAgent(request);
         },
         inspect(): HarnessRunSnapshot {
           return { state, agents: opened.flatMap((side) => side.inspect().agents) };
@@ -78,11 +91,11 @@ export function createPlacementHostFactory(
  * sides build theirs with `createSessionAccounting`, so either one's pacing is the other's.
  */
 function placedAccounting(
-  hosts: Readonly<Record<AgentPlacement, AgentRunHostFactory>>,
+  hosts: Readonly<Record<AgentPlacement, AgentRunHostFactory>> & { caller?: AgentRunHostFactory },
 ): SessionAccounting | undefined {
   const paced = hosts.pane.accounting ?? hosts.headless.accounting;
   if (!paced) return undefined;
-  const of = (execution: AgentExecution) => hosts[placementOf(execution)].accounting;
+  const of = (execution: AgentExecution) => hosts[sideOf(execution)]?.accounting;
   return {
     pollMs: paced.pollMs,
     stalledMs: paced.stalledMs,

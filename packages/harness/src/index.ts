@@ -2,6 +2,16 @@ export type { DirectProcessConfig } from "./adapters/direct-process";
 export { createHeadlessRunHostFactory } from "./adapters/direct-process";
 export type { HerdrConfig } from "./adapters/herdr";
 export { createHerdrRunHostFactory } from "./adapters/herdr";
+export {
+  type CallerPane,
+  type CallerSearch,
+  createCallerHostFactory,
+  findCallerPane,
+  handBack,
+  herdrReachable,
+  searchCaller,
+  startInNewTab,
+} from "./adapters/herdr-caller";
 export * from "./capabilities/skills";
 export * from "./command";
 export { createPlacementHostFactory } from "./placement-host";

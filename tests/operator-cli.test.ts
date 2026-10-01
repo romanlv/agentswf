@@ -12,6 +12,7 @@ import { runOperatorCli, runOutcome } from "../packages/engine/src/operator-cli"
 import { createTempRunDirs, submit } from "../packages/engine/src/testing";
 import { WorkflowRunError } from "../packages/engine/src/workflow-runner";
 import type { AgentRuntimeConfig, AgentSessionAdapter } from "../packages/harness/src/adapter";
+import type { RunProcess } from "../packages/harness/src/command";
 import { createSingleSessionHostFactory } from "../packages/harness/src/single-session-host";
 import { createFakeAdapter } from "../packages/harness/src/testing/fake";
 import type { SessionAccounting } from "../packages/harness/src/usage/accounting";
@@ -1011,6 +1012,221 @@ describe("awf run", () => {
     expect(exitCode).toBe(1);
     expect(errors.join("\n")).toContain("artifacts were not created");
     expect(errors.join("\n")).not.toContain("artifacts retained");
+  });
+});
+
+describe("awf run --here", () => {
+  const WORKFLOW = "examples/calling-session/workflow.ts";
+  const inHerdr = { HERDR_ENV: "1", HERDR_PANE_ID: "w1:p1", AWF_HERDR_SESSION: "default" };
+
+  /** A Herdr whose panes show what `screens` says, recording every call. */
+  function fakeHerdr(screens: Record<string, { agent?: string; screen: string }> = {}) {
+    const calls: string[][] = [];
+    const run: RunProcess = async (input) => {
+      const args = input.argv.slice(3);
+      calls.push(args);
+      const ok = (result: unknown, stdout?: string) => ({
+        stdout: stdout ?? JSON.stringify({ result }),
+        stderr: "",
+        exitCode: 0,
+        timedOut: false,
+      });
+      const [noun, verb, target] = args;
+      if (noun === "pane" && verb === "list") {
+        return ok({
+          panes: Object.entries(screens).map(([pane_id, { agent }]) => ({
+            pane_id,
+            ...(agent ? { agent } : {}),
+            cwd: ROOT,
+          })),
+        });
+      }
+      if (noun === "pane" && verb === "read") return ok({}, screens[target!]?.screen ?? "$ ");
+      if (noun === "tab" && verb === "create") {
+        return ok({ tab: { tab_id: "w1:t9" }, root_pane: { pane_id: "w1:p9" } });
+      }
+      if (noun === "agent" && (verb === "wait" || verb === "prompt")) {
+        return ok({ agent: { agent_status: "idle" } });
+      }
+      return ok({});
+    };
+    return { run, calls };
+  }
+
+  test("refuses outside a Herdr pane, before asking Herdr anything", async () => {
+    const herdr = fakeHerdr();
+    const errors: string[] = [];
+    const exitCode = await runOperatorCli(["run", "--here", WORKFLOW], {
+      cwd: ROOT,
+      environment: {},
+      herdr: herdr.run,
+      stderr: (text) => errors.push(text),
+    });
+    expect(exitCode).toBe(1);
+    expect(errors).toEqual([
+      "awf: --here: this session is not in a Herdr pane, so a run cannot drive it. Start the agent in a Herdr pane, or run the workflow from a shell with awf run and no --here.",
+    ]);
+    expect(herdr.calls).toEqual([]);
+  });
+
+  test("under codex's sandbox, names the setting that lets it reach Herdr", async () => {
+    const errors: string[] = [];
+    const exitCode = await runOperatorCli(["run", "--here", WORKFLOW], {
+      cwd: ROOT,
+      environment: { ...inHerdr, CODEX_SESSION_ID: "t-1" },
+      herdr: async () => ({
+        stdout: "",
+        stderr: "Error: PermissionDenied",
+        exitCode: 1,
+        timedOut: false,
+      }),
+      stderr: (text) => errors.push(text),
+    });
+    expect(exitCode).toBe(1);
+    expect(errors.join("\n")).toContain("this session cannot reach Herdr: Error: PermissionDenied");
+    expect(errors.join("\n")).toContain("-c sandbox_workspace_write.network_access=true");
+  });
+
+  test("refuses a workflow file that is not there", async () => {
+    const errors: string[] = [];
+    const exitCode = await runOperatorCli(["run", "--here", "nowhere.ts"], {
+      cwd: ROOT,
+      environment: inHerdr,
+      herdr: fakeHerdr().run,
+      stderr: (text) => errors.push(text),
+    });
+    expect(exitCode).toBe(1);
+    expect(errors).toEqual([
+      `awf: --here: no workflow file at ${join(ROOT, "nowhere.ts")}. Name it by a path from this directory.`,
+    ]);
+  });
+
+  test("starts the run in a new tab with a code, and prints the line to end the turn with", async () => {
+    const herdr = fakeHerdr();
+    const output: string[] = [];
+    const exitCode = await runOperatorCli(
+      ["run", "--here", "--timeout", "20m", WORKFLOW, "--", "--no-helper", "--here"],
+      {
+        cwd: ROOT,
+        environment: inHerdr,
+        herdr: herdr.run,
+        self: ["awf"],
+        stdout: (text) => output.push(text),
+      },
+    );
+    expect(exitCode).toBe(0);
+    const code = output.join("\n").split("\n").at(-1)!;
+    expect(code).toMatch(/^awf-here-[0-9a-f]{8}$/);
+    expect(herdr.calls).toContainEqual([
+      "tab",
+      "create",
+      "--cwd",
+      ROOT,
+      "--label",
+      "awf workflow.ts",
+      "--no-focus",
+    ]);
+    // Only awf's own --here is dropped; the workflow's arguments pass as they were.
+    expect(herdr.calls.find((call) => call[1] === "run")).toEqual([
+      "pane",
+      "run",
+      "w1:p9",
+      ["awf", "run", "--session", code, "--timeout", "20m", WORKFLOW, "--", "--no-helper", "--here"]
+        .map((arg) => `'${arg}'`)
+        .join(" "),
+    ]);
+  });
+
+  test("a run whose code no pane shows refuses before it starts", async () => {
+    const herdr = fakeHerdr({ "w1:p1": { agent: "claude", screen: "something else" } });
+    const errors: string[] = [];
+    const runRoot = runDirs.tempRunDir();
+    let installed = false;
+    const exitCode = await runOperatorCli(
+      ["run", "--session", "awf-here-0123abcd", "--run-root", runRoot, WORKFLOW],
+      {
+        cwd: ROOT,
+        environment: inHerdr,
+        herdr: herdr.run,
+        callerSearchMs: 50,
+        stderr: (text) => errors.push(text),
+        installRuntime: async () => {
+          installed = true;
+          return emptyRuntime();
+        },
+      },
+    );
+    expect(exitCode).toBe(1);
+    expect(errors).toEqual([
+      "awf: --session: no agent pane showed awf-here-0123abcd; the calling session has to end its turn by replying with it",
+    ]);
+    expect(installed).toBe(false);
+    expect(existsSync(runRoot) && readdirSync(runRoot)).toEqual([]);
+  });
+
+  test("takes the pane showing its code over, and hands it back with how the run ended", async () => {
+    const herdr = fakeHerdr({
+      "w1:p1": { agent: "pi", screen: "awf-here-0123abcd" },
+      "w1:p2": { agent: "claude", screen: "elsewhere" },
+    });
+    const output: string[] = [];
+    const runRoot = runDirs.tempRunDir();
+    let asked: unknown;
+    const adapter = createFakeAdapter({
+      harnesses: ["pi"],
+      script: (context) => ({
+        act: async () => {
+          const picking = context.prompt.includes("Pick");
+          await submit(
+            context.binding!,
+            picking ? { number: 4827 } : { number: 4827, agrees: true },
+          );
+        },
+      }),
+    });
+    const exitCode = await runOperatorCli(
+      [
+        "run",
+        "--session",
+        "awf-here-0123abcd",
+        "--run-root",
+        runRoot,
+        WORKFLOW,
+        "--",
+        "--no-helper",
+      ],
+      {
+        cwd: ROOT,
+        environment: inHerdr,
+        herdr: herdr.run,
+        stdout: (text) => output.push(text),
+        stderr: () => undefined,
+        installRuntime: async (_timeout, options) => {
+          asked = options.caller;
+          return {
+            config: {
+              aliases: {},
+              host: {
+                caller: { harness: "pi", cwd: ROOT },
+                openRun: (spec) => createSingleSessionHostFactory(adapter).openRun(spec),
+              },
+            },
+            cleanup: async () => undefined,
+          };
+        },
+      },
+    );
+    expect(exitCode).toBe(0);
+    expect(asked).toEqual({
+      pane: { paneId: "w1:p1", harness: "pi", cwd: ROOT },
+      session: "default",
+    });
+    expect(output.join("\n")).toContain("pi: picked 4827, recalled 4827 (right)");
+    const handedBack = herdr.calls.find((call) => call[0] === "agent" && call[1] === "prompt");
+    expect(handedBack?.[2]).toBe("w1:p1");
+    expect(handedBack?.[3]).toMatch(
+      /^\[awf\] The workflow calling-session succeeded; its record is .*output\.json\. The run is over and this session is yours again; nothing here needs an answer\.$/,
+    );
   });
 });
 

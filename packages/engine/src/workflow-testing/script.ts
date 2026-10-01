@@ -31,7 +31,8 @@ export type Answer = {
 type Ending =
   | { kind: "silent" }
   | { kind: "blocked" | "failed" | "timed-out"; reason: string }
-  | { kind: "hang" };
+  | { kind: "hang" }
+  | { kind: "interrupted" };
 
 /** A turn ended without an answer. Made by `reply`. */
 export type Reply = { readonly [ENTRY]: { kind: "reply"; ending: Ending } };
@@ -82,6 +83,11 @@ export const reply = {
   timedOut: (reason = "turn timed out"): Reply => ending({ kind: "timed-out", reason }),
   /** Holds the turn until the engine cancels it. */
   hang: (): Reply => ending({ kind: "hang" }),
+  /**
+   * The operator stopped the turn in their pane, as only the calling session's can be: it settles
+   * `cancelled`, is never nudged, and the session takes the next turn.
+   */
+  interrupted: (): Reply => ending({ kind: "interrupted" }),
 };
 
 /** How a turn ended, as `run.turns` keeps it. */

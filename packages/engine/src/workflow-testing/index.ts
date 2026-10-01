@@ -45,6 +45,12 @@ export type TestOptions = {
   stallMs?: number;
   /** Where the agents work; by default a temporary directory, removed afterwards. */
   cwd?: string;
+  /**
+   * The session the run is started from, as `awf run --here` finds one, by its harness; absent,
+   * `agents.caller` answers `null`. Its turns are answered from the script under the key the
+   * workflow gives it.
+   */
+  caller?: { harness: string };
 };
 
 /** What the run did. Under `parallel`, what started first is scheduling: read by key. */
@@ -111,14 +117,20 @@ export async function testWorkflow<Args extends JsonValue, Result extends JsonVa
     problems.push(message);
     stopping.abort(new Error(message));
   };
-  const host = createScriptedHost(scripts, compactionScripts, events);
-  const decisions = createScriptedDecisions(options.decisions ?? {}, events);
   const temporary: string[] = [];
   const directory = () => {
     const path = mkdtempSync(join(tmpdir(), "awf-test-"));
     temporary.push(path);
     return path;
   };
+  const cwd = options.cwd ?? directory();
+  const host = createScriptedHost(
+    scripts,
+    compactionScripts,
+    events,
+    options.caller ? { harness: options.caller.harness, cwd } : undefined,
+  );
+  const decisions = createScriptedDecisions(options.decisions ?? {}, events);
   const logs: TestRun<Result>["logs"] = [];
   // Sandboxes are opened by a provider that confines nothing and hosts panes.
   const sandboxes = createFakeSandboxProvider({ panes: { prelude: "true", ready: "ready" } });
@@ -129,7 +141,7 @@ export async function testWorkflow<Args extends JsonValue, Result extends JsonVa
   try {
     const result = await runWorkflow(definition, args, {
       runRoot: directory(),
-      cwd: options.cwd ?? directory(),
+      cwd,
       deadline: { unixMilliseconds: Date.now() + (options.timeoutMs ?? 30 * 60_000) },
       signal: stopping.signal,
       runtime: { aliases: { ...OPERATOR_ALIASES, ...options.runtimes }, host: host.factory },

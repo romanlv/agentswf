@@ -69,6 +69,8 @@ export type ActivatedSessionBackend = {
        * agent lives on in its pane, and only the wait on it stops. Absent, `cancel` stops it.
        */
       stopFinishing?(reason: string): Promise<boolean>;
+      /** The active turn was answered and is left to end on its own. */
+      leftFinishing?(): void;
     }
 );
 
@@ -258,6 +260,7 @@ function createSession(
           // Already ended: there is nothing to stop, and stopping a pane would close it.
           if (!active) return { kind: "released", outcome: await settled };
           leftFinishing = true;
+          native.leftFinishing?.();
           const stop = native.stopFinishing ?? native.cancel;
           const left = { settled, stop: (why: string) => stop.call(native, why) };
           finishing = left;

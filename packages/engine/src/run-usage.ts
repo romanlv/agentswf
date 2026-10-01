@@ -142,7 +142,8 @@ export function createRunLedger({
     },
 
     async settle(signal) {
-      const deadline = Date.now() + ACCOUNTING_GRACE_MILLISECONDS;
+      const endedAt = Date.now();
+      const deadline = endedAt + ACCOUNTING_GRACE_MILLISECONDS;
       // The bound below answers without stopping the work; this stops it, so no status command
       // starts once the records are returned.
       const settling = new AbortController();
@@ -155,6 +156,7 @@ export function createRunLedger({
             );
             return await settleUsage(settled(), agents, accounting, {
               startedAt,
+              endedAt,
               deadline,
               signal: AbortSignal.any([signal, settling.signal]),
             });
@@ -181,7 +183,7 @@ async function settleUsage(
   operations: readonly Settled[],
   agents: readonly AccountedAgent[],
   accounting: SessionAccounting | undefined,
-  options: { startedAt: number; deadline: number; signal: AbortSignal },
+  options: { startedAt: number; endedAt: number; deadline: number; signal: AbortSignal },
 ): Promise<SettledOperation[]> {
   if (!accounting) return unread(operations);
   // An agent opened but never asked anything is not read, so it cannot claim another's requests.
@@ -199,13 +201,15 @@ async function settleUsage(
   if (options.signal.aborted) return unread(operations);
   const claimed = new Set<string>();
   const counted = new Map<AccountedAgent, UsageRecord[] | undefined>();
-  for (const { agent } of asked) {
+  for (const { agent, own } of asked) {
+    const { from, until } = window(agent, own, options);
     counted.set(
       agent,
       reads.get(agent)?.records.filter((record) => {
         const claim = `${agent.execution.harness}\u0000${record.key}`;
+        const at = Date.parse(record.at);
         // A resumed session carries requests from before the run, and two agents can name one.
-        if (claimed.has(claim) || !(Date.parse(record.at) >= options.startedAt)) return false;
+        if (claimed.has(claim) || !(at >= from && at <= until)) return false;
         claimed.add(claim);
         return true;
       }),
@@ -233,6 +237,26 @@ async function settleUsage(
       ...(charged === undefined ? {} : { charged: { amount: charged, currency: "USD" } }),
     };
   });
+}
+
+/**
+ * When an agent's records are the run's. A calling session's are from the run's first prompt to it
+ * until the run's own work ended: before, its turns were the operator's, the one that replied with
+ * the run's code included, and so are its turns after the hand-back (ADR 0009).
+ */
+function window(
+  agent: AccountedAgent,
+  own: readonly Settled[],
+  options: { startedAt: number; endedAt: number },
+): { from: number; until: number } {
+  if (!agent.execution.caller) return { from: options.startedAt, until: Number.POSITIVE_INFINITY };
+  const delivered = own.flatMap(({ usage }) =>
+    usage.deliveredAt === undefined ? [] : [Date.parse(usage.deliveredAt)],
+  );
+  return {
+    from: delivered.length > 0 ? Math.min(...delivered) : Number.POSITIVE_INFINITY,
+    until: options.endedAt,
+  };
 }
 
 async function readUntilSettled(
