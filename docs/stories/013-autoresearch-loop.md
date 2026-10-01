@@ -215,7 +215,7 @@ Alternatives rejected:
 ## Tasks at a glance
 
 - [x] 1. The holdout is named in `awf-lab.json` and refused outside the final check
-- [ ] 2. A trial runs whole in a container, the key absent
+- [x] 2. A trial runs whole in a container, the key absent
 - [ ] 3. The proposer writes a checked candidate from a tuning-only bundle
 - [ ] 4. `awf-lab loop` keeps or discards, logs the tree and stops at the cap
 - [ ] 5. `loop --final` checks the incumbent on the holdout
@@ -276,16 +276,23 @@ Done when:
 
 ### 2. A trial runs whole in a container, the key absent
 
-Outcome: with `"sandbox": { "container": {} }`, each trial's `awf run` runs inside the default
+Outcome: with `"sandbox": { "container": { "image" } }`, each trial's `awf run` runs inside the
 image, and its records come back out.
 
 Execution:
 
-- [ ] Plan
-- [ ] Implement
-- [ ] Review
-- [ ] Resolve
-- [ ] Verify
+- [x] Plan: from E-a, below.
+- [x] Implement
+- [x] Review
+- [x] Resolve
+- [x] Verify: `bun test` 986 pass; `bun run check` clean. Live, from the data repository with a
+  second config naming `{ "container": { "image": "awf-agent:8ea26352e621" } }` and results in a
+  scratch folder (2026-09-30):
+  - a canary variant with no agent, probing the dataset, results, runs, `awf-lab.json`, awf's
+    `.env`, `~/.codex/sessions`, `~/.codex/auth.json` and `~/.claude` by host path: none readable;
+    its home was the trial's fresh one;
+  - `one-codex-r1` on air-2119: succeeded, 3 findings, should-fix 1/2, precision 1.00, 4 min,
+    $0.25, scored $0.20; no container left behind.
 
 Work:
 
