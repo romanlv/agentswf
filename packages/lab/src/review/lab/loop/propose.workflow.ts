@@ -1,5 +1,5 @@
 // awf run packages/lab/src/review/lab/loop/propose.workflow.ts --cwd {try} --sandbox {spec} -- \
-//   [--runtime codex/gpt-6-sol]
+//   [--runtime codex/gpt-6.1-sol]
 //
 // The autoresearch loop's proposer (story 013): one agent reads `bundle/`, which awf-lab built
 // from the tuning cases only, writes one changed review workflow to `candidate/workflow.ts`, and
@@ -55,7 +55,7 @@ const executable = defineExecutableWorkflow<Args, Hypothesis>({
   },
   prepare: (invocation: WorkflowInvocation) => {
     const [flag, value, ...rest] = invocation.argv;
-    if (flag === undefined) return { runtime: "codex/gpt-6-sol" };
+    if (flag === undefined) return { runtime: "codex/gpt-6.1-sol" };
     if (flag !== "--runtime" || !value || rest.length > 0) {
       throw new Error("the proposer takes --runtime harness/model, or nothing");
     }

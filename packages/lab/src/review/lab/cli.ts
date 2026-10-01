@@ -1077,7 +1077,7 @@ async function loop(
         tuningCases: entries.length,
         trials,
         resolution: diagnosis.resolution,
-        models: ["codex/gpt-6-sol", "codex/gpt-6-luna"],
+        models: ["codex/gpt-6.1-sol", "codex/gpt-6-luna"],
       },
     },
     {

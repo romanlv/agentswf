@@ -430,7 +430,7 @@ async function startOrResume(
     },
     trials: setting.trials,
     cap: { usd: start.cap },
-    proposer: request.proposer ?? "codex/gpt-6-sol",
+    proposer: request.proposer ?? "codex/gpt-6.1-sol",
     program: digestOf(await Bun.file(start.program).text()),
     holdout: [...setting.holdout].sort(),
   };

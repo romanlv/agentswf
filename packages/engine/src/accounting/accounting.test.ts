@@ -120,6 +120,11 @@ describe("published prices", () => {
       cacheRead: 0.2,
       output: 10,
     });
+    expect(PUBLISHED_PRICES.rate("gpt-6.1-sol")).toMatchObject({
+      input: 2,
+      cacheRead: 0.1,
+      output: 10,
+    });
     expect(PUBLISHED_PRICES.rate("gpt-6-astra")).toMatchObject({
       input: 10,
       cacheRead: 1,
@@ -137,6 +142,7 @@ describe("published prices", () => {
       "claude-sonnet-5-1",
       "gpt-5.5-pro",
       "gpt-6-sol-mini",
+      "gpt-6.1-sol-mini",
       "__proto__",
     ]) {
       expect(PUBLISHED_PRICES.rate(model)).toBeUndefined();
