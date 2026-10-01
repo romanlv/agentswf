@@ -26,6 +26,9 @@ import {
   LOOP_FORMAT,
   type Loop,
   LoopSchema,
+  PROPOSAL_FORMAT,
+  type Proposal,
+  ProposalSchema,
   TRY_FORMAT,
   type Try,
   TrySchema,
@@ -115,9 +118,13 @@ export async function runLoop(setting: LoopSetting, request: LoopRequest): Promi
     const n = tries.length + 1;
     const tryDir = join(dir, "tries", String(n));
     const candidateDir = join(tryDir, "candidate");
-    // A try cut short before its record holds nothing decided: it starts again from nothing.
-    rmSync(tryDir, { recursive: true, force: true });
-    mkdirSync(candidateDir, { recursive: true });
+    // A try cut short after its proposal resumes with it: its candidate is named by its code, so
+    // the trials it has count again. Cut short before, it holds nothing decided and starts afresh.
+    const proposal = proposalIn(tryDir);
+    if (!proposal) {
+      rmSync(tryDir, { recursive: true, force: true });
+      mkdirSync(candidateDir, { recursive: true });
+    }
     const scored = await writeBundle(join(tryDir, "bundle"), {
       workspace: lab.workspace,
       dataset,
@@ -157,39 +164,52 @@ export async function runLoop(setting: LoopSetting, request: LoopRequest): Promi
       lab.log(`try ${n}: ${record.decision}: ${record.why}`);
       return record;
     };
-    lab.log(`try ${n}: proposing against ${incumbent.label}, $${left.toFixed(2)} left`);
-    const spec = join(tryDir, "sandbox.json");
-    writeFileSync(spec, JSON.stringify({ srt: {}, write: [candidateDir] }));
-    const proposed = await lab.runner({
-      workflow: PROPOSER,
-      cwd: tryDir,
-      timeout: "30m",
-      argv: ["--runtime", loop.proposer],
-      runRoot: lab.workspace.runs,
-      sandbox: spec,
-    });
-    const priced = summaryOf(proposed).estimate;
-    // Unpriced, it counts as the earlier proposers' mean, never as free.
-    const proposer =
-      priced ??
-      (proposers.length > 0 ? proposers.reduce((a, b) => a + b, 0) / proposers.length : 0);
-    if (priced === undefined)
-      lab.log(`try ${n}: the proposer's run is unpriced; counted as $${proposer.toFixed(2)}`);
-    if (priced !== undefined && priced > 0) proposers.push(priced);
-    const value = proposed.record?.outcome === "succeeded" ? proposed.record.value : undefined;
-    const checked = checkSchema(HypothesisSchema, value);
-    if (!checked.ok) {
-      decided({
-        decision: "failed",
-        why:
-          proposed.record?.outcome === "succeeded"
-            ? describeProblems("the proposer's answer", checked.problems)
-            : `the proposer's run ${proposed.record?.outcome ?? "never started"}: ${proposed.record?.error ?? proposed.stderr.trim().split("\n").at(-1) ?? ""}`,
-        spend: { proposer, trials: 0 },
+    let hypothesis: Hypothesis;
+    let proposer: number;
+    if (proposal) {
+      ({ hypothesis, spend: proposer } = proposal);
+      lab.log(
+        `try ${n}: resumed against ${incumbent.label}, $${left.toFixed(2)} left; what it ran before the cut is not in its spend`,
+      );
+    } else {
+      lab.log(`try ${n}: proposing against ${incumbent.label}, $${left.toFixed(2)} left`);
+      const spec = join(tryDir, "sandbox.json");
+      writeFileSync(spec, JSON.stringify({ srt: {}, write: [candidateDir] }));
+      const proposed = await lab.runner({
+        workflow: PROPOSER,
+        cwd: tryDir,
+        timeout: "30m",
+        argv: ["--runtime", loop.proposer],
+        runRoot: lab.workspace.runs,
+        sandbox: spec,
       });
-      continue;
+      const priced = summaryOf(proposed).estimate;
+      // Unpriced, it counts as the earlier proposers' mean, never as free.
+      proposer =
+        priced ??
+        (proposers.length > 0 ? proposers.reduce((a, b) => a + b, 0) / proposers.length : 0);
+      if (priced === undefined)
+        lab.log(`try ${n}: the proposer's run is unpriced; counted as $${proposer.toFixed(2)}`);
+      if (priced !== undefined && priced > 0) proposers.push(priced);
+      const value = proposed.record?.outcome === "succeeded" ? proposed.record.value : undefined;
+      const checked = checkSchema(HypothesisSchema, value);
+      if (!checked.ok) {
+        decided({
+          decision: "failed",
+          why:
+            proposed.record?.outcome === "succeeded"
+              ? describeProblems("the proposer's answer", checked.problems)
+              : `the proposer's run ${proposed.record?.outcome ?? "never started"}: ${proposed.record?.error ?? proposed.stderr.trim().split("\n").at(-1) ?? ""}`,
+          spend: { proposer, trials: 0 },
+        });
+        continue;
+      }
+      hypothesis = checked.value;
+      const written: Proposal = { format: PROPOSAL_FORMAT, hypothesis, spend: proposer };
+      writeFileSync(join(tryDir, "proposal.json"), `${JSON.stringify(written, null, 2)}\n`, {
+        flag: "wx",
+      });
     }
-    const hypothesis: Hypothesis = checked.value;
     const problems = outOfScope(candidateDir, tuningPaths, tuningText);
     if (problems.length > 0) {
       decided({
@@ -340,6 +360,15 @@ export async function runFinal(
     exitCode: result.exitCode,
     why: `final check ${k}${before.length > 0 ? ` (${before.join("; ")})` : ""}: ${incumbent.label} against ${request.start.label}: ${why}`,
   };
+}
+
+/** A cut try's proposal, when its proposer answered and its candidate is still there. */
+function proposalIn(tryDir: string): Proposal | undefined {
+  const file = join(tryDir, "proposal.json");
+  if (!existsSync(file) || !existsSync(join(tryDir, "candidate", "workflow.ts"))) return undefined;
+  const checked = checkSchema(ProposalSchema, JSON.parse(readFileSync(file, "utf8")));
+  if (!checked.ok) throw new Error(describeProblems(file, checked.problems));
+  return checked.value;
 }
 
 /**

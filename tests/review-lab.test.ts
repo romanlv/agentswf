@@ -1064,6 +1064,105 @@ export default defineComparison({
     expect(late.estimate).toBe(0);
   });
 
+  test("loop: a try cut short after its proposal resumes with it, not with a new one", async () => {
+    await ws.variant("canned");
+    await answer(ws, { "app-1": [finding(mechanism("app-1", 1))], "app-2": [] });
+    await Bun.write(
+      join(ws.root, "awf-lab.json"),
+      JSON.stringify({ ...CONFIG, sandbox: { container: { image: "awf-agent:test" } } }),
+    );
+    await Bun.write(
+      join(ws.root, "comparisons/better.compare.ts"),
+      `import { defineComparison } from "@agentswf/lab/compare";
+
+export default defineComparison({
+  version: "1.0.0",
+  compare: ({ baseline, challenger }) => {
+    const whole = challenger.length >= 2 && baseline.length === challenger.length;
+    return { verdict: whole ? "better" : "undecided", stop: whole, reason: "scripted", metrics: [] };
+  },
+});
+`,
+    );
+    await Bun.write(join(ws.root, "program.md"), "# Find more\n");
+    const codexHome = join(ws.root, "codex-home");
+    await Bun.write(join(codexHome, "auth.json"), "{}");
+    const hypothesis = { change: "c", hypothesis: "h", predicted: "p", mechanism: "m" };
+    const runs = inProcess();
+    let proposals = 0;
+    let candidateTrials = 0;
+    const runner: Runner = async (request) => {
+      if (request.workflow === PROPOSER) {
+        proposals += 1;
+        await Bun.write(
+          join(request.cwd, "candidate", "workflow.ts"),
+          `import { defineExecutableWorkflow } from "agentswf/workflow";
+
+export default defineExecutableWorkflow({
+  definition: {
+    meta: { name: "candidate", description: "Finds nothing." },
+    async run() {
+      return { range: "", title: "", findings: [] };
+    },
+  },
+  prepare: () => ({}),
+});
+`,
+        );
+        const record = {
+          runId: `proposer-${proposals}`,
+          outcome: "succeeded",
+          value: hypothesis,
+          accounting: {
+            wallMs: 1,
+            billing: "subscription",
+            byModel: [],
+            totals: { agents: 1, known: 1, priced: 1, estimate: 2 },
+          },
+        } as unknown as OutputRecord;
+        return { exitCode: 0, stderr: "", ms: 1, record };
+      }
+      if (request.workflow.includes("tries")) candidateTrials += 1;
+      return runs.runner(request);
+    };
+    const previous = process.env.CODEX_HOME;
+    process.env.CODEX_HOME = codexHome;
+    try {
+      expect((await lab(ws, ["run", "canned"], runner)).exitCode).toBe(0);
+      const start = [
+        "loop",
+        "l2",
+        "--baseline",
+        "canned",
+        "--comparison",
+        "comparisons/better.compare.ts",
+      ];
+      const created = [...start, "--program", "program.md", "--source", CANNED, "--budget", "10"];
+      expect((await lab(ws, created, runner)).exitCode).toBe(0);
+      // Killed before its record was written: its proposal, candidate and trials are on file.
+      const dir = join(ws.root, "results", "first", "loops", "l2", "tries", "1");
+      expect(await Bun.file(join(dir, "proposal.json")).json()).toMatchObject({
+        hypothesis,
+        spend: 2,
+      });
+      rmSync(join(dir, "try.json"));
+      const ran = candidateTrials;
+
+      const resumed = await lab(ws, start, runner);
+      expect(resumed.stdout).toBe("loop l2: 1 rounds run; 1 try, 1 kept");
+      expect(proposals).toBe(1);
+      expect(candidateTrials).toBe(ran);
+      expect(await Bun.file(join(dir, "try.json")).json()).toMatchObject({
+        decision: "kept",
+        hypothesis,
+        spend: { proposer: 2 },
+      });
+    } finally {
+      if (previous === undefined) delete process.env.CODEX_HOME;
+      else process.env.CODEX_HOME = previous;
+    }
+  });
+
   test("loop: a proposer's candidate is kept when better, refused out of scope, and the cap ends it", async () => {
     await ws.variant("canned");
     await answer(ws, { "app-1": [finding(mechanism("app-1", 1))], "app-2": [] });

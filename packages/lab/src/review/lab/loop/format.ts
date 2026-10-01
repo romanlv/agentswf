@@ -3,12 +3,14 @@ import Type from "typebox";
 /**
  * A loop's records under `{results}/{dataset}/loops/{name}/`: `loop.json`, written once when it
  * starts, and `tries/{n}/try.json`, one a try, written once when it is decided. The tree is read
- * back from each try's parent.
+ * back from each try's parent. `tries/{n}/proposal.json` keeps the proposer's answer as soon as it
+ * is in, so a try cut short resumes with its candidate and the trials it already has.
  */
 
 export const LOOP_FORMAT = "awf.lab-loop/1";
 export const TRY_FORMAT = "awf.lab-try/1";
 export const FINAL_FORMAT = "awf.lab-final/1";
+export const PROPOSAL_FORMAT = "awf.lab-proposal/1";
 
 const Text = Type.String({ minLength: 1 });
 const Digest = Type.String({ pattern: "^sha256:[0-9a-f]{64}$" });
@@ -32,6 +34,17 @@ export const HypothesisSchema = Type.Object(
 );
 
 export type Hypothesis = Type.Static<typeof HypothesisSchema>;
+
+export const ProposalSchema = Type.Object(
+  {
+    format: Type.Literal(PROPOSAL_FORMAT),
+    hypothesis: HypothesisSchema,
+    spend: Type.Number({ minimum: 0, description: "The proposer's run, as the try counts it." }),
+  },
+  { additionalProperties: false },
+);
+
+export type Proposal = Type.Static<typeof ProposalSchema>;
 
 export const LoopSchema = Type.Object(
   {
