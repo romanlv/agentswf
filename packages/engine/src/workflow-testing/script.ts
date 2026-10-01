@@ -265,7 +265,7 @@ export function firstLine(text: string): string {
  * Equal as JSON Schema: object keys and `required` in any order, so a schema built by another
  * call, with its properties in another order, matches.
  */
-export function sameSchema(a: OutputSchema | undefined, b: OutputSchema | undefined): boolean {
+function sameSchema(a: OutputSchema | undefined, b: OutputSchema | undefined): boolean {
   if (a === undefined || b === undefined) return a === b;
   return canonicalSchema(a) === canonicalSchema(b);
 }

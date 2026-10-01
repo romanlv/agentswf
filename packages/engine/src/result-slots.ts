@@ -3,6 +3,7 @@ import type { AttemptSource } from "@agentswf/contract/records";
 import type { JsonSchema } from "@agentswf/contract/schema";
 import type { ResultSubmitCode } from "@agentswf/contract/wire";
 import type { AbsoluteDeadline } from "@agentswf/contract/workflow";
+import { scheduleAt } from "./deadlines";
 import { evaluateResult } from "./result-validation";
 import { recordAttempt, writeAcceptedExclusive, writeCall } from "./run-dir";
 
@@ -272,25 +273,5 @@ function serialize<T>(slot: Slot, operation: () => Promise<T>): Promise<T> {
 }
 
 function scheduleExpiry(delayMilliseconds: number, expire: () => void): () => void {
-  const target = Date.now() + delayMilliseconds;
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  let cancelled = false;
-  const schedule = () => {
-    if (cancelled) return;
-    const remaining = target - Date.now();
-    if (remaining <= 0) {
-      expire();
-      return;
-    }
-    const delay = Math.min(remaining, 2_147_483_647);
-    timer = setTimeout(() => {
-      schedule();
-    }, delay);
-    timer.unref();
-  };
-  schedule();
-  return () => {
-    cancelled = true;
-    if (timer) clearTimeout(timer);
-  };
+  return scheduleAt({ unixMilliseconds: Date.now() + delayMilliseconds }, expire);
 }

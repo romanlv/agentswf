@@ -59,7 +59,7 @@ export function createOpenRouterProvider(options: {
   };
 }
 
-export function wireRequest(request: ProviderRequest): Record<string, unknown> {
+function wireRequest(request: ProviderRequest): Record<string, unknown> {
   return {
     model: request.model,
     state: request.state,
@@ -91,7 +91,7 @@ function wireQuestion(question: Question): Record<string, unknown> {
  * `confidence` cannot be (findings S10). What is missing is left missing, for the directory to
  * reject.
  */
-export function fromWire(questions: Record<string, Question>, body: unknown): ProviderResponse {
+function fromWire(questions: Record<string, Question>, body: unknown): ProviderResponse {
   if (!isRecord(body) || typeof body.model !== "string" || !isRecord(body.answers)) {
     throw new DecisionProviderError("openrouter answered without a model or answers", {
       retryable: false,

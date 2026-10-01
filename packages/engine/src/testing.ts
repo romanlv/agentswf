@@ -1,4 +1,3 @@
-import { onTestFinished } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { createConnection } from "node:net";
 import { tmpdir } from "node:os";
@@ -21,13 +20,6 @@ export function createTempRunDirs(): {
       paths.clear();
     },
   };
-}
-
-/** Compatibility helper for frozen tests; current suites should own a tracker per file. */
-export function tempRunDir(): string {
-  const path = mkdtempSync(join(tmpdir(), "wf-"));
-  onTestFinished(() => rmSync(path, { recursive: true, force: true }));
-  return path;
 }
 
 export { COUNT_SCHEMA } from "@agentswf/contract/testing";
