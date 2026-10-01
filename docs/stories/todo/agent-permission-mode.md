@@ -1,6 +1,6 @@
 ---
 title: Choose an agent's permission mode
-summary: awf fixes each harness's permission handling in code, so a host claude now runs in Claude Code's auto mode, a classifier call on every shell command, and no workflow or operator can choose otherwise.
+summary: awf fixes each harness's permission handling in code, so a host claude now runs in Claude Code's auto mode, a classifier call on every shell command and `wf result` too, and no workflow or operator can choose otherwise.
 type: story
 status: todo
 discovered_in: "eval timing, 2026-10-01; [[permissions]]"
@@ -37,6 +37,12 @@ Notes:
 - Inside a sandbox, keep the prompts off whatever the workflow says, or let a workflow turn them on.
   Today's setting is the home's settings, which a repository's own `.claude/settings.json` can
   turn back to another mode; a command-line flag would win over it.
+- Whatever the mode, `wf` is allowed by default: answering and messaging are the return channel,
+  run with the run's own authority, and never need an approval. A narrow allow rule for the
+  launcher's path, as `Bash({launcher} result *)`, survives auto mode where the blanket `Bash` rule
+  does not, so the answer skips the classifier. Unmeasured: whether the rule matches the heredoc
+  form `wf result {id} <<'WF_JSON'` the prompt asks for, and the launcher's path changes per run
+  (`/tmp/awf-{id}/{id}/wf`), so the rule is written per agent.
 - `output.json` should record each agent's mode as it ran: claude writes it into its transcript
   (`"permissionMode"`), and the sandbox probe already checks it there.
 - Measure first: one host claude turn of several shell commands in `auto` against `dontAsk` with
