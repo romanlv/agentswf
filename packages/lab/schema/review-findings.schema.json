@@ -103,6 +103,25 @@
             }
           },
           "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": ["container"],
+          "properties": {
+            "container": {
+              "type": "object",
+              "required": ["image"],
+              "properties": {
+                "image": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "An image holding bun, git and codex: the docker provider's default."
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
         }
       ],
       "description": "The sandbox setting awf-lab gave the run, from awf-lab.json, which every agent ran in; a trial counts only while it is the workspace's. Absent: the run had none.",

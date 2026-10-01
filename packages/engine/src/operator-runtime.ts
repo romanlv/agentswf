@@ -12,7 +12,7 @@ import {
   runProcess,
   withholding,
 } from "@agentswf/harness";
-import type { AgentRuntimeConfig } from "@agentswf/harness/adapter";
+import type { AgentRunHostFactory, AgentRuntimeConfig } from "@agentswf/harness/adapter";
 import type { SandboxProviders } from "@agentswf/sandbox";
 import { createDockerProvider, findDocker } from "@agentswf/sandbox/docker";
 import { createSrtProvider, findSrt } from "@agentswf/sandbox/srt";
@@ -47,7 +47,7 @@ export async function installOperatorRuntime(
 ): Promise<OperatorRuntimeInstallation> {
   const { run = runProcess, environment = process.env, watchSandboxes = true } = options;
   const unmetered = withholding(run, WITHHELD_ENVIRONMENT);
-  await assertSubscriptionAuthentication(unmetered, environment);
+  refuseMeteredCredentials(environment);
   const panes = (session: string) =>
     createHerdrRunHostFactory(
       {
@@ -61,15 +61,18 @@ export async function installOperatorRuntime(
       run,
     );
   const { accounting } = panes("default");
-  const host = createPlacementHostFactory({
-    // The session is looked up when the first pane agent opens, so an all-headless run never
-    // calls Herdr.
-    pane: {
-      ...(accounting ? { accounting } : {}),
-      openRun: async (spec) => panes(await herdrSession(run, environment)).openRun(spec),
-    },
-    headless: createHeadlessRunHostFactory({}, unmetered),
-  });
+  const host = loginChecked(
+    unmetered,
+    createPlacementHostFactory({
+      // The session is looked up when the first pane agent opens, so an all-headless run never
+      // calls Herdr.
+      pane: {
+        ...(accounting ? { accounting } : {}),
+        openRun: async (spec) => panes(await herdrSession(run, environment)).openRun(spec),
+      },
+      headless: createHeadlessRunHostFactory({}, unmetered),
+    }),
+  );
   return {
     config: {
       aliases: OPERATOR_ALIASES,
@@ -200,25 +203,64 @@ const METERED_CREDENTIAL_ENVIRONMENT = [
  */
 const WITHHELD_ENVIRONMENT = [...METERED_CREDENTIAL_ENVIRONMENT, "OPENROUTER_API_KEY"] as const;
 
-async function assertSubscriptionAuthentication(
-  run: RunProcess,
-  environment: Readonly<Record<string, string | undefined>>,
-): Promise<void> {
+function refuseMeteredCredentials(environment: Readonly<Record<string, string | undefined>>): void {
   const configured = METERED_CREDENTIAL_ENVIRONMENT.filter((name) => environment[name]?.trim());
   if (configured.length > 0) {
     throw new Error(
       `subscription runtime refused metered credential environment: ${configured.join(", ")}`,
     );
   }
-  const [claude, codex] = await Promise.all([readClaudeBilling(run), readCodexBilling(run)]);
-  if (claude !== "subscription") {
-    throw new Error(
-      `Claude subscription authentication is required (claude.ai login or \`claude setup-token\`); \`claude auth status\` reads as ${claude}`,
-    );
-  }
-  if (codex !== "subscription") {
-    throw new Error(
-      `Codex subscription authentication is required (ChatGPT login); \`codex login status\` reads as ${codex}`,
-    );
-  }
 }
+
+/**
+ * Each harness's subscription login is checked when its first agent opens, once a run: a run that
+ * opens only codex agents needs no claude login, which is what lets one run in a box holding
+ * codex's credential alone.
+ */
+function loginChecked(run: RunProcess, factory: AgentRunHostFactory): AgentRunHostFactory {
+  const checks = new Map<string, Promise<void>>();
+  const check = (harness: string): Promise<void> => {
+    const login = LOGINS[harness];
+    if (!login) return Promise.resolve();
+    let checking = checks.get(harness);
+    if (!checking) {
+      checking = login(run);
+      checks.set(harness, checking);
+    }
+    return checking;
+  };
+  return {
+    ...factory,
+    async openRun(spec) {
+      const host = await factory.openRun(spec);
+      return {
+        ...host,
+        async openAgent(request) {
+          await check(request.execution.harness);
+          return host.openAgent(request);
+        },
+        inspect: () => host.inspect(),
+        close: (reason) => host.close(reason),
+      };
+    },
+  };
+}
+
+const LOGINS: Readonly<Record<string, (run: RunProcess) => Promise<void>>> = {
+  async claude(run) {
+    const claude = await readClaudeBilling(run);
+    if (claude !== "subscription") {
+      throw new Error(
+        `Claude subscription authentication is required (claude.ai login or \`claude setup-token\`); \`claude auth status\` reads as ${claude}`,
+      );
+    }
+  },
+  async codex(run) {
+    const codex = await readCodexBilling(run);
+    if (codex !== "subscription") {
+      throw new Error(
+        `Codex subscription authentication is required (ChatGPT login); \`codex login status\` reads as ${codex}`,
+      );
+    }
+  },
+};

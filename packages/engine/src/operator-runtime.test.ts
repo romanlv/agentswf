@@ -217,28 +217,59 @@ describe("operator runtime", () => {
     expect(calls).toBe(0);
   });
 
-  test("requires persisted subscription authentication for both harnesses", async () => {
-    const refused = (claude: object, codex: string) => {
-      const run: RunProcess = async (input) =>
-        input.argv[0] === "claude"
+  test("checks a harness's subscription login when its first agent opens, and only then", async () => {
+    const opened = async (claude: object, codex: string, harness: string) => {
+      const calls: string[] = [];
+      const run: RunProcess = async (input) => {
+        calls.push(input.argv.join(" "));
+        return input.argv[0] === "claude"
           ? success(JSON.stringify({ loggedIn: true, ...claude }))
           : success(codex);
-      return installOperatorRuntime(60_000, { run, environment: {} });
+      };
+      const installed = await installOperatorRuntime(60_000, { run, environment: {} });
+      const deadline = { unixMilliseconds: Date.now() + 60_000 };
+      const host = await installed.config.host.openRun({ runId: "run-1", cwd: "/repo", deadline });
+      const open = () =>
+        host.openAgent({
+          key: harness,
+          cwd: "/repo",
+          deadline,
+          execution: { harness, model: "m", placement: "headless", metered: true },
+        });
+      const first = await open().then(
+        () => undefined,
+        (error: Error) => error.message,
+      );
+      const second = await open().then(
+        () => undefined,
+        (error: Error) => error.message,
+      );
+      await host.close().catch(() => undefined);
+      return { first, second, calls };
     };
     const claudeAi = { authMethod: "claude.ai", apiProvider: "firstParty" };
-    await expect(refused({ authMethod: "api_key" }, "Logged in using ChatGPT")).rejects.toThrow(
+    const chatgpt = "Logged in using ChatGPT";
+    expect((await opened({ authMethod: "api_key" }, chatgpt, "claude")).first).toBe(
       "Claude subscription authentication is required (claude.ai login or `claude setup-token`); `claude auth status` reads as metered",
     );
     // A claude.ai login routed through Bedrock bills the AWS account.
-    await expect(
-      refused({ authMethod: "third_party", apiProvider: "bedrock" }, "Logged in using ChatGPT"),
-    ).rejects.toThrow("Claude subscription authentication is required");
-    await expect(refused(claudeAi, "Not logged in")).rejects.toThrow(
+    expect(
+      (await opened({ authMethod: "third_party", apiProvider: "bedrock" }, chatgpt, "claude"))
+        .first,
+    ).toContain("Claude subscription authentication is required");
+    const loggedOut = await opened(claudeAi, "Not logged in", "codex");
+    expect(loggedOut.first).toBe(
       "Codex subscription authentication is required (ChatGPT login); `codex login status` reads as unknown",
     );
-    await expect(refused(claudeAi, "Logged in using an API key - sk-***")).rejects.toThrow(
-      "Codex subscription authentication is required",
-    );
+    expect(loggedOut.second).toBe(loggedOut.first);
+    expect(
+      (await opened(claudeAi, "Logged in using an API key - sk-***", "codex")).first,
+    ).toContain("Codex subscription authentication is required");
+    // A codex-only run asks codex once and never asks claude: claude's login can be absent.
+    const codexOnly = await opened({ authMethod: "api_key" }, chatgpt, "codex");
+    expect(codexOnly.first).toBeUndefined();
+    expect(codexOnly.calls.filter((c) => c.startsWith("claude"))).toEqual([]);
+    expect(codexOnly.calls.filter((c) => c === "codex login status")).toHaveLength(1);
   });
 
   test("the herdr session name comes from the injected environment", async () => {

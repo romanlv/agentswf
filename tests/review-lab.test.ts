@@ -1,6 +1,6 @@
 import { afterAll, beforeEach, describe, expect, test } from "bun:test";
-import { copyFileSync, existsSync, mkdirSync, renameSync, rmSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { copyFileSync, existsSync, mkdirSync, readdirSync, renameSync, rmSync } from "node:fs";
+import { basename, dirname, join } from "node:path";
 import type { OutputRecord } from "../packages/contract/src/records";
 import { runOperatorCli } from "../packages/engine/src/operator-cli";
 import { createSingleSessionHostFactory } from "../packages/harness/src/single-session-host";
@@ -14,7 +14,15 @@ import type {
 import type { Score, Trial } from "../packages/lab/src/review/format/records";
 import { checkSchema } from "../packages/lab/src/review/format/validate";
 import { runLab } from "../packages/lab/src/review/lab/cli";
-import { AWF, awfArgv, type Runner, type RunRequest } from "../packages/lab/src/review/lab/runner";
+import {
+  AWF,
+  awfArgv,
+  containedArgv,
+  type Runner,
+  type RunRequest,
+  summaryOf,
+} from "../packages/lab/src/review/lab/runner";
+import { runDirOf } from "../packages/lab/src/review/lab/store";
 import { createFakeSandboxProvider } from "../packages/sandbox/src/testing/fake";
 import {
   CANNED,
@@ -939,6 +947,112 @@ export default defineComparison({
     given.length = 0;
     expect((await lab(ws, ["run", "canned", "--cases", "app-2"], recording)).exitCode).toBe(0);
     expect(given[0]!.spec).toEqual({ read: [given[0]!.request], docker: { image: "awf-review" } });
+  });
+
+  test("a contained trial mounts awf, the variant's folder, the checkout and the request, never the data", async () => {
+    await ws.variant("canned");
+    await answer(ws, { "app-1": [finding(mechanism("app-1", 1))], "app-2": [] });
+    const config = join(ws.root, "awf-lab.json");
+    await Bun.write(
+      config,
+      JSON.stringify({ ...CONFIG, sandbox: { container: { image: "awf-agent:test" } } }),
+    );
+    const runs = inProcess();
+    const given: RunRequest[] = [];
+    const homes: string[] = [];
+    const recording: Runner = async (request) => {
+      given.push(request);
+      const home = request.contained?.home;
+      if (home) homes.push(await Bun.file(join(home, ".codex", "auth.json")).text());
+      // The in-process engine writes where the container would: the run root it was given.
+      return runs.runner(request);
+    };
+    // Never the operator's own login: a codex home of the test's.
+    const codexHome = join(ws.root, "codex-home");
+    const previous = process.env.CODEX_HOME;
+    process.env.CODEX_HOME = codexHome;
+    try {
+      const missing = await lab(ws, ["run", "canned", "--cases", "app-1"], recording);
+      expect(missing.exitCode).toBe(1);
+      expect(missing.stderr).toContain(`codex's login from ${join(codexHome, "auth.json")}`);
+      expect(given).toHaveLength(0);
+      await Bun.write(join(codexHome, "auth.json"), '{"test":true}');
+      expect((await lab(ws, ["run", "canned", "--cases", "app-1"], recording)).exitCode).toBe(0);
+    } finally {
+      if (previous === undefined) delete process.env.CODEX_HOME;
+      else process.env.CODEX_HOME = previous;
+    }
+    expect(homes).toEqual(['{"test":true}']);
+    const [trial, score] = given;
+    expect(trial!.sandbox).toBeUndefined();
+    const { image, read, write, home } = trial!.contained!;
+    expect(image).toBe("awf-agent:test");
+    expect(read).toContain(join(ws.root, "ideas"));
+    expect(read).toContain(join(dirname(trial!.cwd), "request.md"));
+    expect(write).toEqual([trial!.cwd, trial!.runRoot]);
+    expect(trial!.runRoot).toStartWith(join(ws.root, "runs", ".contained-"));
+    const mounted = [...read, ...write, home];
+    for (const kept of ["datasets", "results", "scorers", "awf-lab.json"]) {
+      expect(mounted.some((path) => path.startsWith(join(ws.root, kept)))).toBe(false);
+    }
+    expect(mounted).not.toContain(ws.root);
+    // A scorer reads the key, so it never runs contained.
+    expect(score!.contained).toBeUndefined();
+    // The run is moved out of its own root into the runs folder, where show finds it.
+    const [stored] = recordsIn(ws, "canned@1.0/app-1/*/findings.json");
+    const record = await Bun.file(join(ws.root, "results", "first", stored!)).json();
+    expect(await runDirOf(join(ws.root, "runs"), record.run.id)).not.toBeNull();
+    expect(readdirSync(join(ws.root, "runs")).some((e) => e.startsWith(".contained-"))).toBe(false);
+    expect(record.sandbox).toEqual({ container: { image: "awf-agent:test" } });
+
+    const argv = containedArgv({ ...trial!, contained: trial!.contained! }, "501:20");
+    expect(argv.slice(0, 2)).toEqual(["docker", "run"]);
+    for (const [flag, value] of [
+      ["--user", "501:20"],
+      ["--cap-drop", "ALL"],
+      ["--security-opt", "no-new-privileges"],
+      ["--name", basename(dirname(home))],
+    ]) {
+      expect(argv[argv.indexOf(flag!) + 1]).toBe(value!);
+    }
+    expect(argv).toContain("--rm");
+    expect(argv).toContain("--init");
+    const volumes = argv.flatMap((arg, i) => (argv[i - 1] === "-v" ? [arg] : []));
+    expect(volumes).toContain(`${home}:${home}:rw`);
+    expect(volumes).toContain(`${trial!.cwd}:${trial!.cwd}:rw`);
+    expect(volumes.filter((v) => v.endsWith(":rw"))).toHaveLength(3);
+    // awf's packages, never its root, which holds .env.
+    const awfRoot = join(AWF, "../../../..");
+    expect(volumes).toContain(`${join(awfRoot, "packages")}:${join(awfRoot, "packages")}:ro`);
+    expect(volumes.some((v) => v.startsWith(`${awfRoot}:`))).toBe(false);
+    expect(argv.slice(argv.indexOf("awf-agent:test"), argv.indexOf("awf-agent:test") + 4)).toEqual([
+      "awf-agent:test",
+      "bun",
+      "--no-env-file",
+      AWF,
+    ]);
+  });
+
+  test("a run refused for a login before any agent opened never started; any other failure is a result", async () => {
+    const record = (error: string, agents: number) =>
+      ({
+        runId: "r1",
+        outcome: "failed",
+        error,
+        accounting: {
+          wallMs: 5,
+          billing: "unknown",
+          byModel: [],
+          totals: { agents, known: agents, priced: agents, estimate: 0 },
+        },
+      }) as unknown as OutputRecord;
+    const refused =
+      "Codex subscription authentication is required (ChatGPT login); `codex login status` reads as unknown";
+    expect(
+      summaryOf({ exitCode: 1, stderr: "", ms: 5, record: record(refused, 0) }).id,
+    ).toBeUndefined();
+    expect(summaryOf({ exitCode: 1, stderr: "", ms: 5, record: record(refused, 1) }).id).toBe("r1");
+    expect(summaryOf({ exitCode: 1, stderr: "", ms: 5, record: record("boom", 0) }).id).toBe("r1");
   });
 
   test("a trial counts only in the workspace's sandbox: another provider's is run again", async () => {

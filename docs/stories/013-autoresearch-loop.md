@@ -69,6 +69,12 @@ exist. The loop is the first consumer that changes workflows instead of only mea
   mounted ([`evaluation.md`](../design/evaluation.md) option B, "the only option that survives
   autoresearch writing workflows"). The incumbent's trials run the same way, so the two are
   compared on the same footing.
+- **The network stays open** in a contained trial (user, 2026-09-30). A real reviewer has the
+  internet, so a closed one would measure a different job. The key is not in the container, and the
+  reviewed project's GitLab is private with no token inside, so the answer cannot be read back; what the network still allows is
+  generated code sending the copied codex credential out. Closing that, a proxy to the model
+  domains as the docker provider's, waits on [`workflow-in-sandbox`](todo/workflow-in-sandbox.md):
+  the engine, not the lab, owns the sandbox package (boundary 5).
 - **Keep or discard** is story 011's verdict, unchanged: `better` keeps, anything else with `stop`
   discards. The log keeps the reason.
 - **Spend** is summed from the loop's trial and score records' `run.estimate`, and each try's
@@ -398,6 +404,25 @@ Manual or live evaluation:
   `show` refusals by id, comma list and trial address, nothing run after them, an unfiltered
   `report` and `list cases` without the case, `list datasets`' counts, a positive `show`, and both
   broken holdouts.
+
+### Task 2
+
+- Architecture and scope (the diff, the docker provider, option B): `RunRequest.contained` on the
+  lab's runner is acceptable while the lab owns `docker run`; the clean seam is the engine's
+  (`workflow-in-sandbox`), which would also close the network. Network: open by the user's choice,
+  documented here, in status' known gaps and in the todo. `container` in the lab's sandbox setting
+  keeps pairing right; `image` is required, as the lab cannot find the provider's default.
+  Mounts: the variant's folder holds sibling variants, not secret; a folder holding the workspace's
+  data is now refused. `examples` stays mounted: data-repository variants import from it. The
+  copied `auth.json` can rotate apart from the host's: noted, as story 004's X13.
+- Correctness and proof: a login refused at the first agent became a stored failed trial, where
+  `plan.ts` promises "never started"; fixed in `summaryOf` (no agent opened and the login
+  refusal) with a test. A missing codex login was silent; it now fails before the run, tested,
+  and the test no longer copies the operator's own login. The container had no name: `--name`
+  (the trial's scratch folder) and `--init`. The run-folder move could mask the run's error; it no
+  longer throws. The uid no longer falls back to 1000. Not done: a kill path on a lab abort (awf's
+  `--timeout` runs inside; a stray container is found by name); the real-container canary is the
+  live check below.
 
 ## Readiness
 

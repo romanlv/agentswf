@@ -22,6 +22,11 @@ Notes:
   Only the invocation and `output.json` travel.
 - **The workflow file is trusted code today.** Running it inside the box also confines the
   workflow, not only the agents. That matters once workflows come from someone else.
+- **Story 013 needs it for its network.** `awf-lab` runs a loop's generated workflow whole in a
+  container (`"sandbox": { "container": … }`), with the network open by the user's choice: a
+  real reviewer has the internet. What stays open is the copied codex credential leaving the box.
+  `awf run --in docker:{image}` would let the engine put the docker provider's proxy in front of
+  it, which the lab cannot import, and replace the lab's own `docker run`.
 - **Open questions:**
   - Can story 004's providers nest inside such a box? For example, srt inside a Linux box needs
     bubblewrap.

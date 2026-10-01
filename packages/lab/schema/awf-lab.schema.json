@@ -118,9 +118,28 @@
             }
           },
           "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": ["container"],
+          "properties": {
+            "container": {
+              "type": "object",
+              "required": ["image"],
+              "properties": {
+                "image": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "An image holding bun, git and codex: the docker provider's default."
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
         }
       ],
-      "description": "The provider of the sandbox every trial's agents run in, which holds the checkout and the request and nothing else: { \"srt\": {} }, the default, or { \"docker\": { \"image\"?: … } }.",
+      "description": "The provider of the sandbox every trial's agents run in, which holds the checkout and the request and nothing else: { \"srt\": {} }, the default, { \"docker\": { \"image\"?: … } }, or { \"container\": { \"image\": … } }, which runs the workflow itself in the container too.",
       "~optional": true
     },
     "seed": {

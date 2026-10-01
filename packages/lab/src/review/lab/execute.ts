@@ -1,5 +1,15 @@
-import { copyFileSync, rmSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { homedir } from "node:os";
+import { dirname, isAbsolute, join, relative } from "node:path";
 import { restore, scratchDir } from "../fixtures/git";
 import { digestFixture, digestOf } from "../fixtures/seal";
 import { canonicalJson, SET_FILE } from "../fixtures/set";
@@ -37,7 +47,7 @@ import {
   type Step,
 } from "./plan";
 import { duration, plural } from "./report";
-import { type Runner, summaryOf } from "./runner";
+import { type Runner, type RunRequest, type RunResult, summaryOf } from "./runner";
 import {
   scoresBy,
   storedTrials,
@@ -348,17 +358,14 @@ async function runTrial(
     const { base, head } = info.fixture.snapshot;
     // The dataset's folder, so a control that reads the key names no absolute path in its argv.
     const folder = dirname(info.dir);
-    // Every agent the variant opens works in the checkout, reads the request, and reaches nothing
-    // else; the variant can't widen it.
-    const sandbox = join(scratch, "sandbox.json");
-    writeFileSync(sandbox, JSON.stringify({ read: [request], ...lab.workspace.sandbox }));
-    const result = await lab.runner({
+    const argv = fill(defined.argv, { base, head, request, dataset: folder });
+    const result = await runIsolated(lab, scratch, {
       workflow: file,
       cwd: code,
       timeout: defined.timeout,
-      argv: fill(defined.argv, { base, head, request, dataset: folder }),
+      argv,
       runRoot: lab.workspace.runs,
-      sandbox,
+      request,
     });
     const run = summaryOf(result);
     let findings: ReviewFinding[] = [];
@@ -394,6 +401,75 @@ async function runTrial(
   } finally {
     rmSync(scratch, { recursive: true, force: true });
   }
+}
+
+/**
+ * A trial's run, isolated as the workspace says. In a sandbox, every agent the variant opens works
+ * in the checkout, reads the request, and reaches nothing else; the variant can't widen it. In a
+ * container, so is the workflow's own code: the container holds awf, the variant's folder, the
+ * checkout, the request and a fresh home with codex's credential, and no dataset, result or run.
+ */
+async function runIsolated(
+  lab: Lab,
+  scratch: string,
+  request: Omit<RunRequest, "sandbox" | "contained"> & { request: string },
+): Promise<RunResult> {
+  const { request: requestFile, ...run } = request;
+  const setting = lab.workspace.sandbox;
+  if (!("container" in setting)) {
+    const sandbox = join(scratch, "sandbox.json");
+    writeFileSync(sandbox, JSON.stringify({ read: [requestFile], ...setting }));
+    return lab.runner({ ...run, sandbox });
+  }
+  const root = dirname(lab.workspace.file);
+  const folder = dirname(run.workflow);
+  const { datasets, results, runs } = lab.workspace;
+  if ([root, datasets, results, runs].some((data) => isWithin(data, folder))) {
+    throw new Error(
+      `${run.workflow}: a contained variant's folder may not hold the workspace's data`,
+    );
+  }
+  const auth = join(process.env.CODEX_HOME ?? join(homedir(), ".codex"), "auth.json");
+  if (!existsSync(auth)) {
+    throw new Error(`a contained trial takes codex's login from ${auth}, and there is none`);
+  }
+  const home = join(scratch, "home");
+  mkdirSync(join(home, ".codex"), { recursive: true });
+  copyFileSync(auth, join(home, ".codex", "auth.json"));
+  // A run root of its own, so the container sees no other run, moved into the runs folder after.
+  mkdirSync(runs, { recursive: true });
+  const runRoot = mkdtempSync(join(runs, ".contained-"));
+  try {
+    return await lab.runner({
+      ...run,
+      runRoot,
+      contained: {
+        image: setting.container.image,
+        read: [
+          folder,
+          requestFile,
+          ...["node_modules", "package.json", "tsconfig.json"]
+            .map((name) => join(root, name))
+            .filter((path) => existsSync(path)),
+        ],
+        write: [run.cwd, runRoot],
+        home,
+      },
+    });
+  } finally {
+    try {
+      for (const entry of readdirSync(runRoot)) renameSync(join(runRoot, entry), join(runs, entry));
+      rmSync(runRoot, { recursive: true, force: true });
+    } catch {
+      // Left where it is, still found by its id; the run's own error is the one to report.
+    }
+  }
+}
+
+/** Whether `path` is `dir` or inside it. */
+function isWithin(path: string, dir: string): boolean {
+  const from = relative(dir, path);
+  return from === "" || (!from.startsWith("..") && !isAbsolute(from));
 }
 
 type Scored = Pick<Score, "run" | "agreement" | "result">;

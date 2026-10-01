@@ -162,3 +162,6 @@ The inbox of possible stories is [`stories/todo/`](stories/todo/).
 - An agent its host cannot run (pi in a pane, claude headless without `metered`) is refused only
   when it opens, possibly after other agents have spent. pi's billing is inferred from its
   `auth.json`. A headless claude has run live only in a sandbox, on a setup token.
+- A contained `awf-lab` trial ([story 013](stories/013-autoresearch-loop.md)) has an open network,
+  as a real reviewer has: generated workflow code could send the copied codex credential out.
+  Closing it waits on [`workflow-in-sandbox`](stories/todo/workflow-in-sandbox.md).

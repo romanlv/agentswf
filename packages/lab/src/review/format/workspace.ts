@@ -4,7 +4,10 @@ import Type from "typebox";
 
 const Text = Type.String({ minLength: 1 });
 
-/** The provider of every trial's sandbox, as a sandbox spec names it. */
+/**
+ * The provider of every trial's sandbox, as a sandbox spec names it, or `container`: the whole run,
+ * the workflow's own code included, in a container of the image, for workflows nobody wrote.
+ */
 export const SandboxSettingSchema = Type.Union([
   Type.Object(
     { srt: Type.Object({}, { additionalProperties: false }) },
@@ -14,6 +17,20 @@ export const SandboxSettingSchema = Type.Union([
     {
       docker: Type.Object(
         { image: Type.Optional(Type.String({ minLength: 1 })) },
+        { additionalProperties: false },
+      ),
+    },
+    { additionalProperties: false },
+  ),
+  Type.Object(
+    {
+      container: Type.Object(
+        {
+          image: Type.String({
+            minLength: 1,
+            description: "An image holding bun, git and codex: the docker provider's default.",
+          }),
+        },
         { additionalProperties: false },
       ),
     },
@@ -96,7 +113,7 @@ export const WorkspaceConfigSchema = Type.Object(
     sandbox: Type.Optional({
       ...SandboxSettingSchema,
       description:
-        'The provider of the sandbox every trial\'s agents run in, which holds the checkout and the request and nothing else: { "srt": {} }, the default, or { "docker": { "image"?: … } }.',
+        'The provider of the sandbox every trial\'s agents run in, which holds the checkout and the request and nothing else: { "srt": {} }, the default, { "docker": { "image"?: … } }, or { "container": { "image": … } }, which runs the workflow itself in the container too.',
     }),
     seed: Type.Optional(
       Type.String({ minLength: 1, description: "Orders cases for --cases {n}; awf-lab." }),

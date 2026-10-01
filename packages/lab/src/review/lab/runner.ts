@@ -1,4 +1,4 @@
-import { join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { OUTPUT_RECORD_VERSION, type OutputRecord } from "@agentswf/contract/records";
 import type { RunSummary } from "../format/scoring";
 
@@ -13,6 +13,16 @@ export type RunRequest = {
   runRoot: string;
   /** A sandbox spec file every agent of the run is put in: `awf run --sandbox`. */
   sandbox?: string;
+  /** The whole run in a container instead, with only these paths mounted, each where it is. */
+  contained?: Contained;
+};
+
+export type Contained = {
+  image: string;
+  read: readonly string[];
+  write: readonly string[];
+  /** The run's home: a fresh one, holding the harness credential and nothing else. */
+  home: string;
 };
 
 export type RunResult = { exitCode: number; record?: OutputRecord; stderr: string; ms: number };
@@ -48,11 +58,69 @@ export function awfArgv(request: RunRequest): string[] {
   ];
 }
 
+/**
+ * `docker run` for a contained request: the operator's uid, no capabilities, and only the paths it
+ * names, each mounted where it is on the host so no argument needs rewriting. awf comes from this
+ * checkout's packages, never its root, which holds `.env`.
+ */
+export function containedArgv(
+  request: RunRequest & { contained: Contained },
+  uid: string,
+): string[] {
+  const { image, read, write, home } = request.contained;
+  const mount = (path: string, mode: "ro" | "rw") => ["-v", `${path}:${path}:${mode}`];
+  return [
+    "docker",
+    "run",
+    "--rm",
+    "--init",
+    "--name",
+    // The trial's scratch folder, `awf-lab-trial-…`: a stray container is found by it.
+    basename(dirname(home)),
+    "--user",
+    uid,
+    "--cap-drop",
+    "ALL",
+    "--security-opt",
+    "no-new-privileges",
+    "-e",
+    `HOME=${home}`,
+    ...mount(home, "rw"),
+    ...AWF_MOUNTS.flatMap((path) => mount(join(AWF_ROOT, path), "ro")),
+    ...read.flatMap((path) => mount(path, "ro")),
+    ...write.flatMap((path) => mount(path, "rw")),
+    "-w",
+    request.cwd,
+    image,
+    "bun",
+    "--no-env-file",
+    AWF,
+    ...awfArgv(request),
+  ];
+}
+
+const AWF_ROOT = join(AWF, "../../../..");
+const AWF_MOUNTS = [
+  "packages",
+  "examples",
+  "node_modules",
+  "package.json",
+  "tsconfig.json",
+  "bunfig.toml",
+];
+
 export function awfRunner(): Runner {
   return async (request) => {
     const started = Date.now();
+    if (request.contained && (!process.getuid || !process.getgid)) {
+      throw new Error("a contained run needs the operator's uid, and this platform has none");
+    }
+    const uid = `${process.getuid?.()}:${process.getgid?.()}`;
     // As `awf` runs itself: a .env where awf-lab started could change how every agent logs in.
-    const child = Bun.spawn([process.execPath, "--no-env-file", AWF, ...awfArgv(request)], {
+    const argv = request.contained
+      ? containedArgv({ ...request, contained: request.contained }, uid)
+      : [process.execPath, "--no-env-file", AWF, ...awfArgv(request)];
+    const child = Bun.spawn(argv, {
       stdout: "pipe",
       stderr: "pipe",
       stdin: "ignore",
@@ -79,6 +147,8 @@ export function parseRecord(stdout: string): { record?: OutputRecord } {
   }
 }
 
+const LOGIN_REFUSED = /subscription authentication is required/;
+
 /** A run as a score keeps it. A run that never started is `failed` with what awf said. */
 export function summaryOf(result: RunResult): RunSummary {
   const { record } = result;
@@ -95,6 +165,23 @@ export function summaryOf(result: RunResult): RunSummary {
     };
   }
   const { totals } = record.accounting;
+  // awf checks a harness's login as its first agent opens, inside the run: refused there, with no
+  // agent opened, the run says nothing about the workflow, as one awf refused at the start.
+  if (
+    record.outcome !== "succeeded" &&
+    totals.agents === 0 &&
+    LOGIN_REFUSED.test(record.error ?? "")
+  ) {
+    return {
+      outcome: "failed",
+      error: record.error ?? "no login",
+      models: [],
+      ms: record.accounting.wallMs,
+      estimate: 0,
+      billing: "unknown",
+      complete: true,
+    };
+  }
   const decisions = totals.decisions;
   const priced =
     (totals.agents === 0 || totals.estimate !== undefined) &&
