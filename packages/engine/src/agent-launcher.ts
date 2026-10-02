@@ -93,8 +93,10 @@ async function writeLauncher(
   await mkdir(directory, { recursive: true });
   await chmod(directory, 0o700);
   const path = join(directory, "wf");
-  await writeFile(path, launcherScript(command, endpoint, sessionEnv), { mode: 0o700 });
-  await chmod(path, 0o700);
+  // Not writable, so an agent that redirects into its own launcher fails rather than replacing its
+  // only way to answer. A `chmod` still gets past it; a sandbox denies the write outright.
+  await writeFile(path, launcherScript(command, endpoint, sessionEnv), { mode: 0o500 });
+  await chmod(path, 0o500);
   return path;
 }
 

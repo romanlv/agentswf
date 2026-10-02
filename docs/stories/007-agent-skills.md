@@ -488,7 +488,7 @@ Live, 2026-09-26, on subscriptions:
 - [x] `skills`: passed, 5 agents in ~15 s, ~$0.06. codex and pi on the host and sharing one srt
   sandbox each reported only their own probe's word and listed only their own probe; the claude pane
   listed its probe and claude's bundled skills, none of the operator's. The first run failed on
-  the claude pane only, which wrote its answer over its launcher (todo filed).
+  the claude pane only, which wrote its answer over its launcher (fixed since; see below).
 - [x] `harnesses` ~$0.06 and `failed-run` under a cent: passed.
 - [x] `minimum-review`: passed, ~$0.04. It first failed because this story's documents were being
   edited in the repository it fingerprints, then on its own preflight with a setup token exported.
@@ -588,8 +588,8 @@ Deviations from the proposal, and why:
   harness translation and the sandbox copy are one mechanism that no task proves alone. One
   review round of two reviewers covered it; its findings are above, each fixed and tested.
 - The `skills` eval's first run failed on the claude pane for a reason outside this story: Haiku
-  wrote its answer over its own launcher with `cat >`. Filed as
-  [`launcher-overwrite`](todo/launcher-overwrite.md).
+  wrote its answer over its own launcher with `cat >`. Since 2026-10-02 the launcher is written
+  read-only, so that redirect fails; a `chmod` first still gets past it outside a sandbox.
 - **The `skills` eval was made to test use, not sight**, at review. Its first form told the agent
   a skill held a word and took the agent's word for which skills it saw. Now the prompt never
   mentions skills: it asks for a build's release stamp and audit seal, and each probe's

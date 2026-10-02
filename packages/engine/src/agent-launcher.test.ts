@@ -169,6 +169,20 @@ describe("the launcher an agent is told to run", () => {
     }
   });
 
+  test("is not replaced by an agent that redirects into it", async () => {
+    const fixture = await twoAgents();
+    try {
+      const overwrite = Bun.spawn(["sh", "-c", 'echo answer > "$0"', fixture.alice.wf], {
+        stderr: "pipe",
+      });
+      expect(await overwrite.exited).not.toBe(0);
+      const answered = await run(fixture.alice.wf, ["result", "op-7", "{}"]);
+      expect(answered.stderr).toContain("no call named op-7 is open");
+    } finally {
+      await fixture.control.close();
+    }
+  });
+
   test("does not let one agent read the directory its sibling's socket is in", async () => {
     const fixture = await twoAgents();
     try {
