@@ -44,7 +44,7 @@ export type OperatorRuntimeOptions = {
 
 /**
  * One run host for every agent: a Herdr tab for a pane agent, a subprocess per turn for a
- * headless one. Metered credentials are cleared from both.
+ * headless one. `WITHHELD_ENVIRONMENT` is cleared from both.
  */
 export async function installOperatorRuntime(
   timeoutMilliseconds: number,
@@ -207,10 +207,32 @@ const METERED_CREDENTIAL_ENVIRONMENT = [
 ] as const;
 
 /**
- * Unset for every agent: the metered credentials, which also refuse the run, and the engine's own,
- * which a harness such as pi would otherwise bill against.
+ * What a Claude Code session sets for the commands it runs, `awf` among them. An agent that
+ * inherits it is told it runs inside that session; the findings tie inherited `CLAUDE_*` to a pane
+ * claude saving no transcript, and the messaging token would let it message the operator's session.
  */
-const WITHHELD_ENVIRONMENT = [...METERED_CREDENTIAL_ENVIRONMENT, "OPENROUTER_API_KEY"] as const;
+const CALLING_SESSION_ENVIRONMENT = [
+  "AI_AGENT",
+  "CLAUDECODE",
+  "CLAUDE_CODE_CHILD_SESSION",
+  "CLAUDE_CODE_ENTRYPOINT",
+  "CLAUDE_CODE_EXECPATH",
+  "CLAUDE_CODE_MESSAGING_SOCKET",
+  "CLAUDE_CODE_MESSAGING_TOKEN",
+  "CLAUDE_CODE_SESSION_ATTENDED",
+  "CLAUDE_CODE_SESSION_ID",
+  "CLAUDE_PID",
+] as const;
+
+/**
+ * Unset for every agent: the metered credentials, which also refuse the run, the engine's own,
+ * which a harness such as pi would otherwise bill against, and the calling session's markers.
+ */
+const WITHHELD_ENVIRONMENT = [
+  ...METERED_CREDENTIAL_ENVIRONMENT,
+  "OPENROUTER_API_KEY",
+  ...CALLING_SESSION_ENVIRONMENT,
+] as const;
 
 function refuseMeteredCredentials(environment: Readonly<Record<string, string | undefined>>): void {
   const configured = METERED_CREDENTIAL_ENVIRONMENT.filter((name) => environment[name]?.trim());

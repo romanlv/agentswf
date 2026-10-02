@@ -185,6 +185,48 @@ describe("operator runtime", () => {
     }
   });
 
+  test("no agent inherits the markers of a Claude Code session awf runs inside", async () => {
+    const calls: ProcessInput[] = [];
+    const installed = await installOperatorRuntime(60_000, {
+      run: subscriptionRunner(calls),
+      environment: {},
+    });
+    try {
+      const deadline = { unixMilliseconds: Date.now() + 60_000 };
+      const host = await installed.config.host.openRun({ runId: "run-1", cwd: "/repo", deadline });
+      const codex = await host.openAgent({
+        key: "headless",
+        cwd: "/repo",
+        deadline,
+        execution: { harness: "codex", model: "m", placement: "headless" },
+      });
+      const turn = await codex.start(
+        { id: "turn-1", prompt: "review", deadline },
+        { endpoint: "/private/engine.sock", operationId: "op-1" },
+      );
+      await turn.settled;
+      await host
+        .openAgent({
+          key: "pane",
+          cwd: "/repo",
+          deadline,
+          execution: { harness: "codex", model: "m" },
+        })
+        .catch(() => undefined);
+      await host.close();
+      const headless = calls.find((call) => call.argv[0] === "codex" && call.argv[1] === "exec");
+      const workspace = calls.find(
+        (call) => call.argv.slice(3, 5).join(" ") === "workspace create",
+      );
+      for (const name of ["CLAUDECODE", "CLAUDE_CODE_SESSION_ID", "CLAUDE_CODE_MESSAGING_TOKEN"]) {
+        expect(headless?.env).toHaveProperty(name, undefined);
+        expect(workspace?.argv).toContain(`${name}=`);
+      }
+    } finally {
+      await installed.cleanup();
+    }
+  });
+
   test("reads OPENROUTER_API_KEY from the environment, else that one name from .env", async () => {
     const directory = await mkdtemp(join(tmpdir(), "awf-dotenv-"));
     try {

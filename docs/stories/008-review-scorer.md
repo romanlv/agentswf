@@ -406,7 +406,7 @@ Done: Tasks 0–7, the first experiment, and the scorer comparison. Verification
 | Controls that read the key keep their findings across key revisions | after a key revision the oracle's and comments' findings would be scored against a key they weren't made from | edit their variant files after a key revision; the Task 5 script matches them by text |
 | The catalogue timed out on one case | 50 minutes, recorded as a failed trial; each single agent's one win is that case | kept as a result |
 | The per-finding scorer is slow on short reviews | single turns of 15 minutes on 2- and 8-finding reviews | stopped; see [[#Scoring speed]] |
-| Agents run at an effort nobody chose, in the operator's environment | claude took the launching session's `CLAUDE_EFFORT` and `CLAUDE_*`; codex and pi their configs' | todos [`runtime-effort`](todo/runtime-effort.md), [`inherited-agent-env`](todo/inherited-agent-env.md) |
+| Agents run at an effort nobody chose, in the operator's environment | claude took the launching session's `CLAUDE_EFFORT` and `CLAUDE_*`; codex and pi their configs' | todo [`runtime-effort`](todo/runtime-effort.md); since 2026-10-02 no agent inherits a Claude Code session's markers, `CLAUDE_EFFORT` aside |
 | Agents ran unsandboxed | variants could have read the keys, the clone and GitLab; a scan of all 298 transcripts of the first experiment found none that did | [story 010](010-eval-isolation.md); match first runs in srt |
 
 ## Scoring speed
@@ -945,7 +945,8 @@ middle three ran before the review fixes below, the last on the code as it stand
 
 The zero-token sonnet timeouts may be the environment: an unsandboxed agent inherits all of
 `awf`'s, and run from Claude Code that includes `CLAUDE_*`, which the findings say turns off
-transcript saving ([`inherited-agent-env`](todo/inherited-agent-env.md)). Effort was never chosen:
+transcript saving. Since 2026-10-02 every agent has those markers withheld; whether they caused
+these timeouts is unmeasured. Effort was never chosen:
 claude took `CLAUDE_EFFORT=medium` from the launching session, codex and pi their config files'
 medium, none of it in a scorer's hash ([`runtime-effort`](todo/runtime-effort.md)).
 
