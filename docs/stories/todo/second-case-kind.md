@@ -27,4 +27,5 @@ Notes:
   shape.
 - The records keep one format per kind; the metric vector and the comparison are already shared
   from story 011.
-- Proves the autoresearch loop is not review-specific before the loop is built.
+- Proves the autoresearch loop is not review-specific. The loop was built first, on reviews only
+  ([story 013](../013-autoresearch-loop.md); user, 2026-09-30: loop first).

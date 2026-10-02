@@ -1,13 +1,13 @@
 ---
-title: Stop a comparison as soon as a gain worth having is out of reach
-summary: Give the standard comparison a futility stop and an equivalence margin the dataset can resolve, have check say what a verdict can decide, and make run --baseline cheaper and faster, from what story 011's live check cost.
+title: Make a comparison decide what it can, sooner
+summary: Give the standard comparison, whose futility stop is built, an equivalence margin the dataset can resolve, have check say what a verdict can decide, and make run --baseline cheaper and faster, from what story 011's live check cost.
 type: story
 status: todo
 discovered_in: "story 011, task 7's live check, 2026-09-30"
 depends_on: ["011"]
 ---
 
-# Stop a comparison as soon as a gain worth having is out of reach
+# Make a comparison decide what it can, sooner
 
 Why it matters: story 011's live check compared the codex baseline with a public review skill
 added, over 16 cases × 2 trials: $27.40 at list price and about 4 hours, and it ended `undecided`
@@ -75,9 +75,7 @@ Checked against Anthropic's posts on evals and hill-climbing (2026-09-30):
   are the small-effect regime, where 33 cases cannot resolve a gain. The futility stop is what
   makes that regime cheap: the automated researchers "design fast, cheap experiments to test the
   hypothesis first", then commit to the full run.
-- **Not covered yet: a held-out confirmation.** A loop that keeps the best of many variants on the
-  same cases overfits them (the winner's curse), and the automated weak-to-strong researchers
-  cherry-picked seeds and exploited dataset structure until tested on held-out data
-  ([automated weak-to-strong researcher](https://alignment.anthropic.com/2026/automated-w2s-researcher/)).
-  Counting whole cases and the oldest k trials already stops re-running for a better seed; a
-  kept variant should also be confirmed on cases the loop never compared on.
+- A held-out confirmation, against the winner's curse
+  ([automated weak-to-strong researcher](https://alignment.anthropic.com/2026/automated-w2s-researcher/)),
+  is built in [story 013](../013-autoresearch-loop.md): `awf-lab loop --final` checks the kept
+  incumbent on a holdout the loop never compared on.

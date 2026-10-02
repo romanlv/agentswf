@@ -4,7 +4,7 @@ summary: Close the loop — an agent changes one variable, awf-lab runs it again
 type: story
 status: todo
 discovered_in: "autoresearch planning, 2026-09-23"
-depends_on: ["011", "second-case-kind"]
+depends_on: ["011"]
 ---
 
 # Let an agent propose review variants and keep the better ones
@@ -35,8 +35,9 @@ Notes:
   proposal, never shown to the proposer, and `awf-lab` refuses a comparison on them outside the
   final check. Size is the catch: at the first dataset's variance, 10 held-out cases × 2 trials
   resolve only ~0.2, so the holdout catches a kept variant that collapses, not one that overfits by
-  a little. Growing the dataset comes first ([[key-growth-from-runs]]): about 40 tuning cases and 20
-  held out, not 33 split.
+  a little. Growing the dataset to about 40 tuning cases and 20 held out
+  ([[key-growth-from-runs]]) was proposed first; at refinement the split was 23/10 now, growing later
+  (story 013).
 - Each try is logged as parent, change, score difference, interval and decision, so the history is
   a tree that can be read back (autoresearch, OpenEvolve).
 - Shaped like Karpathy's `autoresearch`: one editable variant file, a human-written `program.md`

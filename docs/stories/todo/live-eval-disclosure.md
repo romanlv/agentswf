@@ -9,16 +9,18 @@ depends_on: []
 
 # Make live-evaluation disclosure explicit
 
-Why it matters: `AWF_LIVE_EVAL=1` proves deliberate spending, but its current error only says that
-live agents will start. It does not state which local content will leave the machine or identify the
+Why it matters: `AWF_LIVE_EVAL=1` proves deliberate spending, but its error only says that live
+agents will start. It does not state which local content will leave the machine or identify the
 provider destinations. That ambiguity blocked Story 001's approved evaluation before any agent was
-launched.
+launched. `bun run eval` now sets `AWF_LIVE_EVAL=1` itself (`scripts/eval.ts`): running the command
+is the consent, and it names no payload or provider either.
 
-Known context: the current evaluation sends only the disposable contents copied from
-`examples/minimum-review/fixtures/review-target.ts` to subscription-authenticated Anthropic Claude
-and OpenAI Codex sessions. It rejects metered credentials, fingerprints the repository, retains private
-evidence, and does not retry. General workflows may select different targets and providers, so a
-hard-coded confirmation string is not a reusable interface.
+Known context: there are fourteen live evals (`tests/*.eval.ts`), across claude, codex, pi and
+cursor, sandboxes and the review judge. `minimum-review` sends only the disposable contents copied
+from `examples/minimum-review/fixtures/review-target.ts`; it rejects metered credentials,
+fingerprints the repository, retains private evidence, and does not retry. Other evals and general
+workflows select different targets and providers, so a hard-coded confirmation string is not a
+reusable interface.
 
 Refinement must decide where a workflow declares its external disclosure and how the operator
 renders and confirms it before runtime installation. The interface should describe payload scope
@@ -33,5 +35,3 @@ Open questions:
   configuration into workflow code?
 - Should acknowledgement bind to an exact target fingerprint so a changed payload requires new
   consent?
-
-This todo does not replace the explicit human approval required for Story 001's pending live run.

@@ -21,7 +21,7 @@ Notes:
   `executionTime`).
 - It needs a quiescence signal, and today's fake turns go over real I/O: the result socket
   (`node:net`) and whatever files a script writes.
-- The engine's timers aren't in one place: `deadlines.ts`, `result-slots.ts`, `run-usage.ts`, 15
+- The engine's timers aren't in one place: `deadlines.ts`, `result-slots.ts`, `run-usage.ts`, 19
   `Date.now()` calls in `workflow-runner.ts`, and `session-core`'s `finishGraceMs` in harness.
 - Author code reads the clock too. `{ unixMilliseconds }` is author-visible, and a workflow may
   compute a deadline from `Date.now()`, so an engine-only clock would disagree with the

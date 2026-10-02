@@ -26,3 +26,6 @@ Notes:
   `-c model_reasoning_effort=`, pi's flag), and `output.json` would record it per agent.
 - A sandboxed agent gets a fresh harness home, so it loses the operator's config setting too: today
   its effort is the harness default, silently different from the same agent on the host.
+- A stopgap, not this story: a contained `awf-lab` trial copies the host's codex
+  `model_reasoning_effort` into its codex config (`packages/lab/src/review/lab/execute.ts`), so a
+  contained codex trial runs at the host's effort. Nothing else does, and nothing records it.

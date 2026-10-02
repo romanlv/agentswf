@@ -399,7 +399,7 @@ Done: Tasks 0–7, the first experiment, and the scorer comparison. Verification
 | Issue | Effect | Status |
 | --- | --- | --- |
 | Scorers beside a large trial time out | 4 of 5 scoring timeouts ran beside the 21-agent catalogue or another scorer; each time the claude voter ran to the limit | `run` now runs every trial first, then every score; match first bounds each turn ([[#Match first (2026-09-27)]]) |
-| A run ends minutes after its deadline | a panel score ended 14 min late, a catalogue trial 5 | todo [`deadline-overrun`](todo/deadline-overrun.md) |
+| A run ends minutes after its deadline | a panel score ended 14 min late, a catalogue trial 5 | the Mac slept through both deadlines; todo [`run-through-sleep`](todo/run-through-sleep.md) |
 | "Metered" and "charged" read as a bill | headless claude is labelled metered by a harness rule, and its printed cost was reported as spend | todo [`billing-provenance`](todo/billing-provenance.md); costs here are list-price estimates |
 | Haiku can't vote | it wrote the `wf result` command out as text on every case; the cheap panel failed 14 of 14 | a finding; the default stays on smart models |
 | Editing a file a variant imports orphans its records | editing `format/sanity.ts` mid-experiment gave the oracle a new hash; moving the dataset path into `{dataset}` emptied both controls' reports | settled by versions: a patch bump keeps the results ([[#Task 7: the terms and the command line (2026-09-28)]]) |
@@ -941,7 +941,7 @@ middle three ran before the review fixes below, the last on the code as it stand
 | --- | --- |
 | Scorers beside a large trial or another scorer (4 of 5) | `--jobs` runs every trial first, then every score |
 | A voter that stops making progress, sonnet in all four panel timeouts, two with no tokens read | `--turn`: each turn bounded (6 minutes; the slowest agent in 96 took 3.6), a timed-out turn asked again once in a fresh session. None fired. The package panel has no per-turn bound yet |
-| A run ending minutes after its deadline | todo [`deadline-overrun`](todo/deadline-overrun.md) |
+| A run ending minutes after its deadline | the Mac slept through it; todo [`run-through-sleep`](todo/run-through-sleep.md) |
 
 The zero-token sonnet timeouts may be the environment: an unsandboxed agent inherits all of
 `awf`'s, and run from Claude Code that includes `CLAUDE_*`, which the findings say turns off

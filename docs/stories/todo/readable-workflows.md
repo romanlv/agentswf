@@ -1,6 +1,6 @@
 ---
 title: A workflow reads as its process, not as its plumbing
-summary: Compacting asks for an id and an absolute millisecond deadline, and the operator's ticket workflow spends its lines on timeouts and helpers; make the author surface let a workflow read as the steps a person would take.
+summary: The operator's ticket workflow spends its lines on timeouts, millisecond durations and helpers; make the author surface let a workflow read as the steps a person would take.
 type: story
 status: todo
 discovered_in: "story 015, the operator's review, 2026-10-01"
@@ -30,10 +30,11 @@ const outcome = await run.worker.compact({
 What to settle:
 
 - Done: `compact({ prompt })` takes `run`'s defaults, a generated id and the workflow's deadline,
-  with `timeoutMs` to bound it (ADR 0007, amended). The ticket workflow's helper above still builds
-  its own deadline.
+  with `timeoutMs` to bound it (ADR 0007, amended). The ticket workflow's helper now calls
+  `compact({ id, prompt, timeoutMs })`.
 - Durations: `timeoutMs: 3 * 60 * MINUTE` beside `--timeout 10h` on the command line. A duration a
   person writes (`"3h"`) is a published type change to `run`, `enqueue` and `compact`.
 - The ticket workflow: stages as named steps, timeouts where they matter, and no `Run` bag passed
   through helpers. Its tests (`workflow.test.ts`) say whether a rewrite kept its behaviour.
-- `agent.fork` ([story 016](../016-fork.md)) already takes no deadline or id.
+- `agent.fork`, as [story 016](../016-fork.md) designs it (a draft, not built), takes no deadline
+  or id.

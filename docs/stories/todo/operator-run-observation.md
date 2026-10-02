@@ -9,10 +9,11 @@ depends_on: []
 
 # Expose operator run progress
 
-Why it matters: `startWorkflow` exposes an inspectable and stoppable run handle, but `awf run`
-currently awaits the final result and emits no stable progress state. Herdr makes panes visible to a
-local operator, yet scripts and other host adapters cannot observe the same lifecycle through the
-operator interface.
+Why it matters: `startWorkflow` exposes an inspectable and stoppable run handle. `awf run` shows
+its progress live on standard error (`progress-view.ts`), redrawn in place on a terminal and a line
+per change otherwise, but as text for a person, not structured state, and there is no separately
+addressable status command. Scripts and other host adapters cannot observe the same lifecycle
+through the operator interface.
 
 Known context: the engine-owned `WorkflowRunSnapshot` is intentionally independent of Herdr. The
 operator command already owns signals, the workflow deadline, structured final output, and retained
@@ -31,6 +32,3 @@ Open questions:
   querying a running command a demonstrated requirement?
 - Which snapshot fields are durable operator semantics, and which remain best-effort diagnostics?
 - How should progress output coexist with machine-readable final JSON and shell interruption?
-
-This todo is outside Story 001 acceptance; the current workflow remains observable directly in its
-Herdr panes during the bounded proof.

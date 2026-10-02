@@ -22,7 +22,7 @@ Research, and the operator's decisions, all 2026-09-28:
   - `agentswf` is the package users install, with the `awf` command and `./workflow`.
   - `@agentswf/*` are the other packages, one per workspace package.
   - The repository is `agentswf/awf`.
-  - The license is MIT.
+  - The license is MIT; the repository's `LICENSE` holds it.
 - **Every workspace package publishes, as pi publishes its packages,** so others can build on
   them.
   - Every package has the same version, which the release stamps.
@@ -51,7 +51,7 @@ Research, and the operator's decisions, all 2026-09-28:
 
 - **Published names are permanent.** Settled in story 009's rename: `cli-agent` became
   `@agentswf/wf`, and `autoresearch` became `@agentswf/lab`.
-- **`./testing` exports:** publish them marked unstable, and drop `./archive-compat`?
+- **`./testing` exports:** publish them marked unstable?
 - **`@agentswf/lab/review/*`:** a wildcard export of every lab module, added in story 009 for the
   operator's review repository, which uses two dozen of them. Publish it marked unstable, or name
   the ones a project needs in `./review`?
@@ -66,7 +66,7 @@ Research, and the operator's decisions, all 2026-09-28:
   - `private` dropped;
   - `files`, `license`, `repository` (with `directory`), `homepage: https://agents.wf`,
     `description` and `keywords`;
-  - `engines.bun`, and `os: ["darwin", "linux"]`.
+  - `engines.bun` on every package (the engine's is set), and `os: ["darwin", "linux"]`.
 - **`packages/agentswf`.**
 - **`scripts/release.ts`:**
   - stamps one version;

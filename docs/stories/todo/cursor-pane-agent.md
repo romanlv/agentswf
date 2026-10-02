@@ -11,7 +11,7 @@ depends_on: []
 
 Why it matters: cursor's compaction, `/summarize` (alias `/compress`), exists only in its
 interactive TUI; headless it reaches the model as text. awf runs cursor headless only
-(`PLACEMENT_HARNESSES.pane` is claude and codex), so `agent.compact` on a cursor agent fails.
+(`PLACEMENT_HARNESSES.pane` is claude, codex and pi), so `agent.compact` on a cursor agent fails.
 
 What is measured ([`findings/native-compaction.md`](../../findings/native-compaction.md), C7):
 
