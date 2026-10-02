@@ -116,7 +116,11 @@ export async function runOperatorCli(
   environment: OperatorEnvironment = {},
 ): Promise<number> {
   const stdout = environment.stdout ?? ((text) => console.log(text));
-  const stderr = environment.stderr ?? ((text) => console.error(text));
+  const stderr =
+    environment.stderr ??
+    stderrLines((text) => void process.stderr.write(text), {
+      color: process.stderr.isTTY && !process.env.NO_COLOR,
+    });
   const terminal =
     environment.terminal ??
     (!environment.stderr && process.stderr.isTTY
@@ -432,6 +436,21 @@ function watchProgress(
       tick();
       terminal?.write("\x1b[?7h\x1b[?25h");
     },
+  };
+}
+
+/**
+ * Not `console.error`, which Bun paints red on a terminal: a workflow's log and the accounting
+ * are ordinary lines. Only awf's own problems, which it prefixes `awf: `, are red: their first line.
+ */
+export function stderrLines(
+  write: (text: string) => void,
+  options: { color: boolean },
+): (line: string) => void {
+  return (text) => {
+    if (!options.color || !text.startsWith("awf: ")) return write(`${text}\n`);
+    const end = text.indexOf("\n");
+    write(end < 0 ? `${ANSI.bad(text)}\n` : `${ANSI.bad(text.slice(0, end))}${text.slice(end)}\n`);
   };
 }
 
