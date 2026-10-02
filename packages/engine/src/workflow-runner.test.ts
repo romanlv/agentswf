@@ -571,7 +571,7 @@ describe("runWorkflow", () => {
     expect(await controlDirectoriesSince(before)).toEqual([]);
   });
 
-  test("the run deadline cancels and closes an active turn with a later operation deadline", async () => {
+  test("a run whose deadline passes fails, and closes a turn held to that deadline", async () => {
     let nativeCancelled = 0;
     const adapter = createFakeAdapter({
       script: () => ({
@@ -595,7 +595,8 @@ describe("runWorkflow", () => {
         runtime: "review",
       });
       await agent.run({ id: "wait", prompt: "Wait.", deadline: future(1_000) });
-      return null;
+      // The turn is held to the run's deadline, so it may time out first; only the run's ends this.
+      return await new Promise<null>(() => undefined);
     });
     const runRoot = tempRunDir();
     const before = await controlDirectories();
