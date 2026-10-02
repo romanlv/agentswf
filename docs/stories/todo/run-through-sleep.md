@@ -4,7 +4,7 @@ summary: Story 008's two runs that ended 5 and 14 minutes past their deadline we
 type: story
 status: todo
 discovered_in: "story 008, the trial; measured 2026-10-02"
-depends_on: []
+depends_on: ["operator-settings"]
 ---
 
 # A run the machine slept through
@@ -30,7 +30,8 @@ repository's `runs/`):
 
 Decide:
 
-- Whether `awf run` (or only `awf-lab`) holds the machine awake for a run, as `caffeinate -i` does on
-  macOS, or a long trial is the operator's to keep awake.
+- Holding the machine awake for a run, as `caffeinate -i` does on macOS: probably yes, by default,
+  with a setting to turn it off ([[operator-settings]]). Still to decide: `awf run` or only
+  `awf-lab`, and what it does where there is no `caffeinate`.
 - Whether a run records time it slept through, so a scorer can discount it or drop the trial: a
   wall-clock jump against a monotonic one at each phase is enough to see it.
