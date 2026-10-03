@@ -505,6 +505,35 @@ describe("pi sessions", () => {
     expect(await readPiUsage([PI, "fork"], root)).toHaveLength(2);
   });
 
+  test("a parent and two forks share its id: the id reads the parent, each fork's path only its own", async () => {
+    const root = copy("pi");
+    const original = join(root, "sessions", PI_FILE);
+    // Two levels below the root, where pi's lookup by id, one level deep, never reaches.
+    const forks = ["a", "b"].map((dir) => {
+      const directory = join(root, "sessions", "awf-forks", dir);
+      mkdirSync(directory, { recursive: true });
+      const file = join(directory, `2026-09-23T18-00-00-000Z_${PI}.jsonl`);
+      cpSync(original, file);
+      appendFileSync(
+        file,
+        `${JSON.stringify({
+          type: "message",
+          id: `own-${dir}`,
+          timestamp: "2026-09-23T18:00:01.000Z",
+          message: { role: "assistant", model: "m", usage: { input: 1, output: 1 } },
+        })}\n`,
+      );
+      return file;
+    });
+    mkdirSync(join(root, "sessions", "zz-project"));
+    expect(await readPiUsage([PI], root)).toHaveLength(2);
+    for (const [index, fork] of forks.entries()) {
+      const read = (await readPiUsage([fork], root))!;
+      expect(read).toHaveLength(3);
+      expect(read.at(-1)?.key).toBe(`own-${"ab"[index]}@2026-09-23T18:00:01.000Z`);
+    }
+  });
+
   test("the last compaction's summary, by the pane's path or the launcher's id", async () => {
     const root = copy("pi");
     const path = join(root, "sessions", PI_FILE);

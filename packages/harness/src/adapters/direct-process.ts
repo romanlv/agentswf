@@ -147,12 +147,15 @@ export function createHeadlessAdapter(
           // saw fails as an opaque exit instead of saying no session came back. A handed-over id is
           // dropped when the process failed on its own, which may be before it made a session:
           // resuming it would silently start a new one without the agent's instructions. A turn we
-          // stopped, as after its answer, did run.
+          // stopped, as after its answer, did run. A session the plan names, or the one resumed,
+          // wins over the one the output does: a pi fork, resumed by its file, prints its parent's
+          // id, which would point the next turn at the parent.
           const failedToRun = result.exitCode !== 0 && !result.cancelled && !result.timedOut;
-          const nativeSession =
-            spec.readSessionId?.(result.stdout) ??
-            (failedToRun ? undefined : plan.sessionId) ??
-            operation.previousSessionRef;
+          const nativeSession = failedToRun
+            ? (operation.previousSessionRef ?? spec.readSessionId?.(result.stdout))
+            : (plan.sessionId ??
+              spec.readSessionId?.(result.stdout) ??
+              operation.previousSessionRef);
           if (nativeSession) identity.sessionId = nativeSession;
           let charge = spec.readCharge?.(result.stdout);
           const total = spec.readCostTotal?.(result.stdout);
@@ -210,9 +213,11 @@ export function createHeadlessAdapter(
           ? {
               async fork(sessionRef: string, deadline: AbsoluteDeadline): Promise<NativeFork> {
                 if (closed) throw new Error("headless session is closed");
+                // Its session is in the sandbox's home, which a fork cannot reach yet.
+                if (occupant) throw new Error("a sandboxed agent cannot be forked yet");
                 const { env, context } = await launchContext();
                 if (closed) throw new Error("headless session is closed");
-                const plan = spec.forkSession!(sessionRef, newSessionId(), context);
+                const plan = await spec.forkSession!(sessionRef, newSessionId(), context);
                 const controller = new AbortController();
                 const command = forkCommand(plan, {
                   cwd: request.cwd,
@@ -221,10 +226,7 @@ export function createHeadlessAdapter(
                   signal: controller.signal,
                 });
                 active = controller;
-                const { holdStdinUntil, ...process } = command;
-                const running = run(
-                  occupant ? { ...occupant.launch(process), holdStdinUntil } : command,
-                );
+                const running = run(command);
                 activeCompletion = running.then(
                   () => undefined,
                   () => undefined,

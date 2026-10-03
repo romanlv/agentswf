@@ -1,4 +1,4 @@
-import { basename, join } from "node:path";
+import { basename, isAbsolute, join } from "node:path";
 import type { Billing } from "@agentswf/contract/records";
 import type { AgentPlacement } from "@agentswf/contract/workflow";
 import type { Holding, RunProcess } from "./command";
@@ -13,7 +13,7 @@ import {
   readCodexUsage,
 } from "./usage/codex";
 import { ownFiles } from "./usage/files";
-import { readPiCompactSummary, readPiUsage } from "./usage/pi";
+import { piForksDirectory, piSessionFile, readPiCompactSummary, readPiUsage } from "./usage/pi";
 import type { SessionRead } from "./usage/records";
 
 export type TurnPlan = {
@@ -128,7 +128,11 @@ export type HarnessSpec = {
    * Its own fork of `sessionId` into a new session, `newSessionId` where it takes one, with no
    * model call (F7), so the copy is fixed when it is made. Absent where it has none.
    */
-  forkSession?(sessionId: string, newSessionId: string, context: TurnContext): ForkPlan;
+  forkSession?(
+    sessionId: string,
+    newSessionId: string,
+    context: TurnContext,
+  ): ForkPlan | Promise<ForkPlan>;
   /**
    * Its pane shows a prompt of several lines Herdr pastes as pasted text, which its model will not
    * act on without the operator's own words (claude 2.1.288), so such a prompt is typed instead.
@@ -518,6 +522,9 @@ export const HARNESSES: Record<Harness, HarnessSpec> = {
     interactive: (model, launchArgs = []) => ({
       argv: ["pi", ...(model ? ["--model", model] : []), ...launchArgs],
     }),
+    interactiveResume: (session, model, launchArgs = []) => ({
+      argv: ["pi", ...piSession(session), ...(model ? ["--model", model] : []), ...launchArgs],
+    }),
     // pi is the one harness whose session id we choose: `--session-id` creates it on the first
     // turn and reuses it on the second, so no id has to be scraped back out of the output.
     headlessTurn: (prompt, { model, sessionHint, launchArgs = [] }) => ({
@@ -534,19 +541,54 @@ export const HARNESSES: Record<Harness, HarnessSpec> = {
       stdin: prompt,
       sessionId: sessionHint,
     }),
-    resumeTurn: (prompt, sessionId, { model, launchArgs = [] }) => ({
+    // A fork's session is its file's path: its id is its parent's (F6), which names the parent.
+    resumeTurn: (prompt, session, { model, launchArgs = [] }) => ({
       argv: [
         "pi",
         "--print",
         "--mode",
         "json",
-        "--session-id",
-        sessionId,
+        ...piSession(session),
         ...launchArgs,
         ...(model ? ["--model", model] : []),
       ],
       stdin: prompt,
+      sessionId: session,
     }),
+    // A turnless rpc fork into a directory of its own two levels below the sessions root, keeping
+    // its parent's id, which is its provider's cache key (F6, F7). pi's lookup by id never reaches
+    // it there, so it is named by its file.
+    forkSession: async (session, newSessionId, { model, launchArgs = [] }) => {
+      const parent = await piSessionFile(session);
+      if (!parent) throw new Error(`pi has no session ${session} to fork`);
+      const answered = (row: Row | undefined) =>
+        row?.type === "response" && row.command === "get_state";
+      return {
+        argv: [
+          "pi",
+          "--mode",
+          "rpc",
+          "--fork",
+          parent.file,
+          "--session-dir",
+          join(piForksDirectory(), newSessionId),
+          "--session-id",
+          parent.id,
+          ...launchArgs,
+          ...(model ? ["--model", model] : []),
+        ],
+        stdin: `${JSON.stringify({ type: "get_state" })}\n`,
+        holdStdinUntil: (line) => answered(parseRow(line)),
+        read: (stdout) => {
+          const response = jsonLines(stdout).find(answered);
+          const file = text(record(response?.data)?.sessionFile);
+          if (response?.success === true && file && file !== parent.file) {
+            return { sessionId: file };
+          }
+          return { error: `pi wrote no fork: ${text(response?.error) ?? "no answer"}` };
+        },
+      };
+    },
     readSessionId: (stdout) => {
       const session = jsonLines(stdout).find((row) => row.type === "session");
       return text(session?.id);
@@ -576,11 +618,11 @@ export const HARNESSES: Record<Harness, HarnessSpec> = {
           "pi",
           "--mode",
           "rpc",
-          "--session-id",
-          sessionId,
+          ...piSession(sessionId),
           ...launchArgs,
           ...(model ? ["--model", model] : []),
         ],
+        sessionId,
         stdin: `${JSON.stringify({ type: "compact", customInstructions: focus })}\n`,
         holdStdinUntil: (line) => answer(parseRow(line)),
         read: (stdout) => {
@@ -673,6 +715,11 @@ function piRefused(screen: string, before: string): boolean {
     refusals(screen).length > refusals(before).length ||
     (last !== undefined && PI_REFUSED.test(last) && last !== lastEvent(before))
   );
+}
+
+/** pi names a session by its id, or by its file where the id is a fork's parent's. */
+function piSession(session: string): string[] {
+  return isAbsolute(session) ? ["--session", session] : ["--session-id", session];
 }
 
 /** Codex compacts with no focus of its own, so it reads one as the message just before. */

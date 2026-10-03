@@ -63,6 +63,24 @@ export async function readPiCompactSummary(
   return text(compaction?.summary);
 }
 
+/**
+ * Where awf forks a pi session: two levels below its sessions root, out of reach of pi's lookup by
+ * id, which would otherwise find a fork for its parent, whose id it keeps.
+ */
+export function piForksDirectory(agentDirectory = harnessState().pi): string {
+  return join(agentDirectory, "sessions", "awf-forks");
+}
+
+/** A session's file and the id in its name, from its id or its file's path. */
+export async function piSessionFile(
+  ref: string,
+  agentDirectory = harnessState().pi,
+): Promise<{ file: string; id: string } | undefined> {
+  const file = await resolve(join(agentDirectory, "sessions"), ref);
+  const id = file && sessionId(file);
+  return file && id ? { file, id } : undefined;
+}
+
 async function resolve(root: string, ref: string): Promise<string | undefined> {
   if (isAbsolute(ref)) {
     const inside = relative(root, ref);

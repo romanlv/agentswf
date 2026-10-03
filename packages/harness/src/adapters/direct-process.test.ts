@@ -1,4 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { Occupant, SandboxedCommand, SandboxProcess } from "@agentswf/sandbox";
 import type { HarnessActivation } from "../adapter";
 import type { ProcessInput, RunProcess } from "../command";
@@ -561,6 +564,68 @@ describe("createHeadlessAdapter", () => {
       expect(call.holdStdinUntil?.(JSON.stringify({ id: 2, result: {} }))).toBe(true);
     });
 
+    test("pi forks turnless over rpc into a directory of its own, keeping its parent's id, and the fork resumes by its file", async () => {
+      const home = mkdtempSync(join(tmpdir(), "pi-fork-"));
+      const parent = join(home, "sessions", "--repo--", "2026-10-01T00-00-00-000Z_chosen.jsonl");
+      mkdirSync(join(home, "sessions", "--repo--"), { recursive: true });
+      writeFileSync(parent, `${JSON.stringify({ type: "session", id: "chosen" })}\n`);
+      const operator = process.env.PI_CODING_AGENT_DIR;
+      process.env.PI_CODING_AGENT_DIR = home;
+      try {
+        const forkFile = join(home, "sessions", "awf-forks", "fork-1", "2026_chosen.jsonl");
+        const pi = {
+          ...activation,
+          execution: { harness: "pi", model: "terra", placement: "headless" as const },
+        };
+        const { run, calls } = stub([
+          JSON.stringify({ type: "session", id: "chosen" }),
+          JSON.stringify({
+            type: "response",
+            command: "get_state",
+            success: true,
+            data: { sessionFile: forkFile, sessionId: "chosen" },
+          }),
+        ]);
+        const ids = ["chosen", "fork-1"];
+        const session = await headless(run, { newSessionId: () => ids.shift()! }, pi);
+        await (await session.start(turnSpec, firstBinding)).settled;
+        const fork = await session.fork!(activation.deadline);
+        expect(fork).toEqual({ harness: "pi", sessionRef: forkFile });
+        const call = calls[1] as ProcessInput;
+        expect(call.argv).toEqual(
+          expect.arrayContaining([
+            "--mode",
+            "rpc",
+            "--fork",
+            parent,
+            "--session-dir",
+            join(home, "sessions", "awf-forks", "fork-1"),
+            "--session-id",
+            "chosen",
+          ]),
+        );
+        expect(JSON.parse(call.stdin!)).toEqual({ type: "get_state" });
+
+        // The fork prints its parent's id, and is still resumed by its own file.
+        const continued = stub([
+          JSON.stringify({ type: "session", id: "chosen" }),
+          JSON.stringify({ type: "session", id: "chosen" }),
+        ]);
+        const child = await headless(continued.run, {}, { ...pi, continues: fork });
+        const first = await child.start(turnSpec, firstBinding);
+        await first.settled;
+        await (await first.nudge(nudgeSpec)).settled;
+        for (const turn of continued.calls) {
+          expect(turn.argv).toEqual(expect.arrayContaining(["--session", forkFile]));
+          expect(turn.argv).not.toContain("--session-id");
+        }
+      } finally {
+        if (operator === undefined) delete process.env.PI_CODING_AGENT_DIR;
+        else process.env.PI_CODING_AGENT_DIR = operator;
+        rmSync(home, { recursive: true, force: true });
+      }
+    });
+
     test("a fork that asked the model, or wrote no new session, fails", async () => {
       for (const [stdout, error] of [
         [forked("fork-1", 0.2, 1), "claude asked the model while forking"],
@@ -637,7 +702,7 @@ describe("createHeadlessAdapter", () => {
       expect(calls[1]?.stdin).toBe(`You write the tests.\n\n${turnSpec.prompt}`);
     });
 
-    test("a sandboxed agent forks inside, as its turns run", async () => {
+    test("a sandboxed agent is not forked yet: its session is in the sandbox's home", async () => {
       const occupant: Occupant = {
         launch: (root): SandboxedCommand => ({
           ...root,
@@ -653,9 +718,39 @@ describe("createHeadlessAdapter", () => {
         { ...activation, occupant },
       );
       await (await session.start(turnSpec, firstBinding)).settled;
-      await session.fork!(activation.deadline);
+      await expect(session.fork!(activation.deadline)).rejects.toThrow(
+        "a sandboxed agent cannot be forked yet",
+      );
+      expect(calls).toHaveLength(1);
+    });
 
-      expect(calls[1]?.argv[0]).toBe("inside");
+    test("a fork's resume that fails on its own keeps the fork, not the parent id it printed", async () => {
+      const calls: ProcessInput[] = [];
+      const run: RunProcess = async (input) => {
+        calls.push(input as ProcessInput);
+        return {
+          stdout: JSON.stringify({ type: "session", id: "parent" }),
+          stderr: "provider error",
+          exitCode: calls.length === 1 ? 1 : 0,
+          timedOut: false,
+        };
+      };
+      const session = await headless(
+        run,
+        {},
+        {
+          ...activation,
+          execution: { harness: "pi", model: "terra", placement: "headless" },
+          continues: { harness: "pi", sessionRef: "/pi/sessions/awf-forks/u/fork.jsonl" },
+        },
+      );
+      const first = await session.start(turnSpec, firstBinding);
+      await expect(first.settled).resolves.toMatchObject({ state: "failed" });
+      await (await first.nudge(nudgeSpec)).settled;
+      expect(calls[1]?.argv).toEqual(
+        expect.arrayContaining(["--session", "/pi/sessions/awf-forks/u/fork.jsonl"]),
+      );
+      expect(session.sessions?.()).toEqual(["/pi/sessions/awf-forks/u/fork.jsonl"]);
     });
 
     test("an agent is not forked before its first turn, and a harness with none has no fork", async () => {

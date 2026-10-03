@@ -912,7 +912,7 @@ export function createHerdrRunHostFactory(
               const skills = request.skills
                 ? await skillsLaunch(harness, request.skills)
                 : undefined;
-              const plan = spec.forkSession!(sessionRef, randomUUID(), {
+              const plan = await spec.forkSession!(sessionRef, randomUUID(), {
                 ...(request.execution.model ? { model: request.execution.model } : {}),
                 sessionHint: sessionRef,
                 ...(skills ? { launchArgs: skills.args } : {}),

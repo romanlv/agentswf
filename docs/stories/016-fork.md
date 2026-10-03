@@ -508,6 +508,29 @@ Manual or live evaluation:
 
 ## Implementation notes
 
+### Task 4, 2026-10-03: built and reviewed, its live run pending
+
+- pi's `forkSession`: a turnless rpc fork of the parent's file into
+  `sessions/awf-forks/{uuid}/`, keeping the parent's id, its provider's cache key (F6, F7). Its ref
+  is the new file's path, from `get_state`'s `sessionFile`. Finding the parent's file from an id
+  reads pi's sessions, so `forkSession` may answer a promise.
+- pi's resume, compaction and pane launch take `--session {path}` for a fork, whose id is its
+  parent's. A session the plan names, or on a failure the one resumed, wins over the id pi
+  prints, which for a fork is the parent's and would point the next turn at it.
+- pi's `interactiveResume` landed here, with the fork it continues (moved from task 3).
+- Codex's headless fork shipped with task 3, on the app-server fork and the `exec resume` it had.
+- A sandboxed headless agent refuses to fork in the harness too, until task 5: its session is in
+  the sandbox's home. Task 5 must not write a fork into the parent's home, whose `homeSessions`
+  are all read as the parent's.
+- The F7 probes' `get_state` row was archived truncated, without `sessionFile`, so the pi plan is
+  tested against the shape pi's rpc mode writes (`rpc-mode.js`), not a recording.
+- Review: one blocking finding, a failed fork resume could fall back to the parent's printed id;
+  fixed and tested. The live run must check: the fork's path from `get_state`; its first request
+  reads the cache; `pi:compact` compacts the same file; a pane parent forks from the path Herdr
+  names; the parent's id still resolves to its own file afterwards.
+- **Live run blocked**: pi's OpenAI Codex login expired (refresh token invalidated) on
+  2026-10-03; the operator must sign in again.
+
 ### Task 3, 2026-10-03
 
 - `interactiveResume` for claude and codex, derived from their `interactive` launch; codex's

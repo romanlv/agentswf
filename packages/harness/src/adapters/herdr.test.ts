@@ -1330,22 +1330,19 @@ describe("createHerdrRunHostFactory", () => {
       await host.close();
     });
 
-    test("a harness whose pane cannot resume a session refuses to continue a fork", async () => {
-      const { run } = forking();
-      const host = await createHerdrRunHostFactory(CONFIG, run).openRun({
-        runId: "run-1",
-        cwd: "/repo",
-        deadline: deadline(),
+    test("a pi pane continuing a fork launches on its file, whose id is its parent's", async () => {
+      const { run, calls } = forking();
+      const { host, session } = await opened(run, {
+        execution: { harness: "pi", model: "m" },
+        continues: { harness: "pi", sessionRef: "/pi/sessions/awf-forks/u/2026_parent.jsonl" },
       });
-      await expect(
-        host.openAgent({
-          key: "tests",
-          cwd: "/repo",
-          deadline: deadline(),
-          execution: { harness: "pi", model: "m" },
-          continues: { harness: "pi", sessionRef: "/sessions/fork.jsonl" },
-        }),
-      ).rejects.toThrow("pi panes cannot continue a forked session yet");
+      await (
+        await session.start({ id: "one", prompt: "test", deadline: deadline() }, binding("op-1"))
+      ).settled;
+      const started = calls.find((call) => verb(call) === "agent start")!;
+      expect(started.argv).toEqual(
+        expect.arrayContaining(["--session", "/pi/sessions/awf-forks/u/2026_parent.jsonl"]),
+      );
       await host.close();
     });
   });
