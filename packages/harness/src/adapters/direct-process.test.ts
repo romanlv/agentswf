@@ -529,6 +529,38 @@ describe("createHeadlessAdapter", () => {
       expect(calls[1]?.argv).toEqual(expect.arrayContaining(["--model", "opus"]));
     });
 
+    test("codex forks a thread on its app-server, stdin held until the fork is answered", async () => {
+      const codex = {
+        ...activation,
+        execution: { harness: "codex", model: "luna", placement: "headless" as const },
+      };
+      const answered = [
+        { id: 1, result: {} },
+        { id: 2, result: { thread: { id: "thread-2" } } },
+      ]
+        .map((row) => JSON.stringify({ jsonrpc: "2.0", ...row }))
+        .join("\n");
+      const { run, calls } = stub([
+        JSON.stringify({ type: "thread.started", thread_id: "thread-1" }),
+        answered,
+      ]);
+      const session = await headless(run, {}, codex);
+      await (await session.start(turnSpec, firstBinding)).settled;
+
+      await expect(session.fork!(activation.deadline)).resolves.toEqual({
+        harness: "codex",
+        sessionRef: "thread-2",
+      });
+      const call = calls[1] as ProcessInput;
+      expect(call.argv.slice(0, 2)).toEqual(["codex", "app-server"]);
+      const fork = call.stdin!.split("\n").map((line) => line && JSON.parse(line))[2];
+      expect(fork).toMatchObject({
+        method: "thread/fork",
+        params: { threadId: "thread-1", excludeTurns: true, model: "luna" },
+      });
+      expect(call.holdStdinUntil?.(JSON.stringify({ id: 2, result: {} }))).toBe(true);
+    });
+
     test("a fork that asked the model, or wrote no new session, fails", async () => {
       for (const [stdout, error] of [
         [forked("fork-1", 0.2, 1), "claude asked the model while forking"],

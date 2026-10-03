@@ -216,7 +216,8 @@ function createSession(
     assertIdle();
     assertDeadline(deadline, now);
     // A fork that has not run holds none of its instructions yet: they go with its first turn.
-    if (!hasRun || !sessionRef) throw new Error("an agent cannot be forked before its first turn");
+    if (!hasRun) throw new Error("an agent cannot be forked before its first turn");
+    if (!sessionRef) throw new Error("its harness never named its session, so it cannot be forked");
     active = true;
     try {
       return await native.fork!(sessionRef, deadline);
@@ -265,10 +266,11 @@ function createSession(
       )
       .then((outcome) => {
         // Whatever ended the turn, the native session it names is the one to continue.
+        // A turn that failed may not have reached the session it continues, a fork's included.
+        if (request.kind !== "compact" && outcome.state !== "failed") hasRun = true;
         if (outcome.sessionRef) {
           seen.add(outcome.sessionRef);
           sessionRef = outcome.sessionRef;
-          if (request.kind !== "compact") hasRun = true;
         }
         const reported = withoutSessionRef(outcome);
         if (!quarantined && generation === turns) {

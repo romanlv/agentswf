@@ -14,30 +14,33 @@ import { outputSchema } from "../output-schema";
  * into that placement instead of its worker's.
  */
 export const RUNTIMES = {
+  claude: { harness: "claude", model: "claude-sonnet-5-5" },
   "claude-headless": {
     harness: "claude",
     model: "claude-sonnet-5-5",
     placement: "headless",
     metered: true,
   },
+  codex: { harness: "codex", model: "gpt-6-luna" },
+  "codex-headless": { harness: "codex", model: "gpt-6-luna", placement: "headless" },
 } as const satisfies Record<string, ExecutionConfig>;
 
 type RuntimeName = keyof typeof RUNTIMES;
 
 export type ForkCase = { runtime: RuntimeName; compact: boolean; into?: AgentPlacement };
 
-export type ForkArgs = { cases: ForkCase[]; vault: string; gate: string };
+export type ForkArgs = { cases: ForkCase[]; codename: string; release: string };
 
 const NOTED = outputSchema(Type.Object({ noted: Type.Boolean() }, { additionalProperties: false }));
 const RECALLED = outputSchema(
-  Type.Object({ vault: Type.String(), gate: Type.String() }, { additionalProperties: false }),
+  Type.Object({ codename: Type.String(), release: Type.String() }, { additionalProperties: false }),
 );
 
-type Recalled = { vault: string; gate: string };
+type Recalled = { codename: string; release: string };
 
 export type ForkCheck = {
   name: string;
-  /** What the fork recalled: the vault code from its parent, and not the gate code told after. */
+  /** What the fork recalled: the codename from its parent, and not the release told after. */
   fork?: Recalled;
   /** What the worker recalled: both. */
   worker?: Recalled;
@@ -46,7 +49,7 @@ export type ForkCheck = {
 
 const MINUTE = 60_000;
 const RECALL =
-  "Without running any command or reading any file: what is the vault code, and what is the gate code? Answer unknown for what you do not know.";
+  "Without running any command or reading any file: what is this project's codename, and what is its next release? Answer unknown for what you do not know.";
 
 const executable = defineExecutableWorkflow<ForkArgs, ForkCheck[]>({
   definition: {
@@ -78,12 +81,12 @@ const executable = defineExecutableWorkflow<ForkArgs, ForkCheck[]>({
             return isAnswered(outcome) ? outcome.value : `${outcome.kind}: ${outcome.reason}`;
           };
           const problem = await note(
-            `Remember this for later: the vault code is ${args.vault}. Answer noted: true.`,
+            `For later: this project's codename is ${args.codename}. Answer noted: true.`,
           );
           if (problem) return { name, problem };
           if (item.compact) {
             const compacted = await worker.compact({
-              prompt: "Keep the vault code.",
+              prompt: "Keep the project's codename.",
               timeoutMs: 5 * MINUTE,
             });
             if (!isAnswered(compacted)) {
@@ -96,7 +99,7 @@ const executable = defineExecutableWorkflow<ForkArgs, ForkCheck[]>({
             ...(item.into ? { placement: item.into, metered: true } : {}),
           });
           const later = await note(
-            `Remember this too: the gate code is ${args.gate}. Answer noted: true.`,
+            `Also for later: its next release is ${args.release}. Answer noted: true.`,
           );
           if (later) return { name, problem: later };
           const [forked, worked] = await Promise.all([recall(fork), recall(worker)]);
@@ -120,7 +123,7 @@ const executable = defineExecutableWorkflow<ForkArgs, ForkCheck[]>({
       .map((check) =>
         check.problem
           ? `${check.name}: ${check.problem}`
-          : `${check.name}: the fork recalled ${check.fork?.vault} and ${check.fork?.gate}, the worker ${check.worker?.vault} and ${check.worker?.gate}`,
+          : `${check.name}: the fork recalled ${check.fork?.codename} and ${check.fork?.release}, the worker ${check.worker?.codename} and ${check.worker?.release}`,
       )
       .join("\n"),
 });
@@ -146,7 +149,7 @@ function parseArgs(invocation: WorkflowInvocation): ForkArgs {
   });
   if (new Set(cases.map(caseName)).size !== cases.length) throw new Error("name each case once");
   const code = () => `${Math.floor(1000 + Math.random() * 9000)}`;
-  return { cases, vault: `V-${code()}`, gate: `G-${code()}` };
+  return { cases, codename: `HERON-${code()}`, release: `R${code()}` };
 }
 
 export const fork = executable.definition;

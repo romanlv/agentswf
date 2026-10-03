@@ -5,11 +5,11 @@ import { fork } from "./workflow";
 
 const NOTED = Type.Object({ noted: Type.Boolean() }, { additionalProperties: false });
 const RECALLED = Type.Object(
-  { vault: Type.String(), gate: Type.String() },
+  { codename: Type.String(), release: Type.String() },
   { additionalProperties: false },
 );
 const noted = answer(NOTED, { noted: true });
-const args = { vault: "V-1234", gate: "G-5678" };
+const args = { codename: "V-1234", release: "G-5678" };
 
 describe("fork", () => {
   test("the fork knows what its worker knew when it forked, and the worker what it learned after", async () => {
@@ -21,17 +21,19 @@ describe("fork", () => {
           "worker:claude-headless:compact": [
             noted,
             noted,
-            answer(RECALLED, { vault: "V-1234", gate: "G-5678" }),
+            answer(RECALLED, { codename: "V-1234", release: "G-5678" }),
           ],
-          "fork:claude-headless:compact": [answer(RECALLED, { vault: "V-1234", gate: "unknown" })],
+          "fork:claude-headless:compact": [
+            answer(RECALLED, { codename: "V-1234", release: "unknown" }),
+          ],
         },
       },
     );
     expect(run.value).toEqual([
       {
         name: "claude-headless:compact",
-        fork: { vault: "V-1234", gate: "unknown" },
-        worker: { vault: "V-1234", gate: "G-5678" },
+        fork: { codename: "V-1234", release: "unknown" },
+        worker: { codename: "V-1234", release: "G-5678" },
       },
     ]);
     expect(run.compactionsOf("worker:claude-headless:compact")).toHaveLength(1);
@@ -41,12 +43,28 @@ describe("fork", () => {
     });
   });
 
-  test("a fork its host refuses fails the run, as an agent that will not open does", async () => {
+  test("a pane worker forks headless, and a headless one into a pane", async () => {
     const run = await testWorkflow(
       fork,
-      { ...args, cases: [{ runtime: "claude-headless", compact: false, into: "pane" }] },
-      { agents: { "worker:claude-headless>pane": [noted] } },
+      {
+        ...args,
+        cases: [
+          { runtime: "claude", compact: false, into: "headless" },
+          { runtime: "codex-headless", compact: false, into: "pane" },
+        ],
+      },
+      {
+        agents: {
+          "worker:*": [noted, noted, answer(RECALLED, { codename: "V-1234", release: "G-5678" })],
+          "fork:*": [answer(RECALLED, { codename: "V-1234", release: "unknown" })],
+        },
+      },
     );
-    expect(() => run.value).toThrow("pane agents cannot continue a forked session yet");
+    expect(run.value.map((check) => check.problem)).toEqual([undefined, undefined]);
+    expect(run.agentOf("fork:claude>headless").execution).toMatchObject({
+      placement: "headless",
+      metered: true,
+    });
+    expect(run.agentOf("fork:codex-headless>pane").execution).not.toHaveProperty("placement");
   });
 });

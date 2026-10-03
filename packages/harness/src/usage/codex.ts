@@ -1,5 +1,6 @@
+import { realpath } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
-import { count, type Row, record, text } from "../json";
+import { count, parseRow, type Row, record, text } from "../json";
 import { harnessState } from "../state";
 import { entries, jsonRows, safeId } from "./files";
 import type { SessionRead, UsageRecord } from "./records";
@@ -50,6 +51,54 @@ export async function readCodexUsage(
     }
   }
   return { records, open };
+}
+
+/**
+ * The session started in `cwd` since `since` whose rollout holds `marker`: a pane's codex, whose
+ * session Herdr does not name (E8), found by the operation id its prompt carries. Only the day
+ * directories since then are read. The earliest started wins, since a subagent starts after the
+ * session that delegates to it.
+ */
+export async function findCodexSession(
+  marker: string,
+  since: number,
+  cwd: string,
+  root = codexSessionsDirectory(),
+): Promise<string | undefined> {
+  // Codex records the directory it runs in as it resolves it.
+  const places = new Set([cwd, await realpath(cwd).catch(() => cwd)]);
+  let found: { id: string; started: number } | undefined;
+  for (const day of daysSince(since)) {
+    for (const name of await entries(join(root, day))) {
+      const id = codexRolloutId(name);
+      if (!id) continue;
+      let text: string;
+      try {
+        text = await Bun.file(join(root, day, name)).text();
+      } catch {
+        continue;
+      }
+      const meta = record(parseRow(text.slice(0, text.indexOf("\n")))?.payload);
+      const started = Date.parse(String(meta?.timestamp));
+      if (!(started >= since) || !places.has(String(meta?.cwd)) || !text.includes(marker)) {
+        continue;
+      }
+      if (!found || started < found.started) found = { id, started };
+    }
+  }
+  return found?.id;
+}
+
+/** Codex's day directories, `YYYY/MM/DD`, from `since` to now, in local time and in UTC. */
+function daysSince(since: number): string[] {
+  const days = new Set<string>();
+  const pad = (n: number) => String(n).padStart(2, "0");
+  for (let at = since - 86_400_000; at <= Date.now() + 86_400_000; at += 3_600_000) {
+    const date = new Date(at);
+    days.add(`${date.getFullYear()}/${pad(date.getMonth() + 1)}/${pad(date.getDate())}`);
+    days.add(`${date.getUTCFullYear()}/${pad(date.getUTCMonth() + 1)}/${pad(date.getUTCDate())}`);
+  }
+  return [...days];
 }
 
 /** The agent's own turn: a subagent it is still waiting on keeps that turn open too. */

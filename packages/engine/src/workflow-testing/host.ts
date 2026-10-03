@@ -267,20 +267,17 @@ export function createScriptedHost(
         placement,
         launchesInSandbox: true,
         givesSkills: true,
-        ...(placement === "headless" ? { refuse: headlessRefusal } : {}),
-        // As the headless host: it continues a forked session, and forks where the harness can.
-        ...(placement === "headless"
-          ? {
-              continues: true as const,
-              forks: (activation: HarnessActivation) =>
-                findHarness(activation.execution.harness)?.forkSession !== undefined,
-              onFork: ({ activation, sessionRef }: FakeFork) =>
-                forks.set(sessionRef, {
-                  key: activation.key,
-                  turns: counts.get(activation.key) ?? 0,
-                }),
-            }
-          : {}),
+        refuse: (activation: HarnessActivation) =>
+          placement === "headless" ? headlessRefusal(activation) : paneRefusal(activation),
+        // As the real hosts: each continues a forked session, and forks where the harness can.
+        continues: true as const,
+        forks: (activation: HarnessActivation) =>
+          findHarness(activation.execution.harness)?.forkSession !== undefined,
+        onFork: ({ activation, sessionRef }: FakeFork) =>
+          forks.set(sessionRef, {
+            key: activation.key,
+            turns: counts.get(activation.key) ?? 0,
+          }),
         script,
       }),
     );
@@ -330,6 +327,15 @@ export function createScriptedHost(
     agents,
     inFlight: () => [...open],
   };
+}
+
+/** What the pane host refuses before it opens a pane. */
+function paneRefusal(activation: HarnessActivation): string | undefined {
+  const { harness } = activation.execution;
+  if (activation.continues && !findHarness(harness)?.interactiveResume) {
+    return `${harness} panes cannot continue a forked session yet`;
+  }
+  return undefined;
 }
 
 function whenAborted(signal: AbortSignal): Promise<"cancelled"> {

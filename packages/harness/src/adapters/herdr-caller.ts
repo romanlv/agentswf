@@ -10,7 +10,6 @@ import { createSessionAccounting } from "../usage/accounting";
 import { createHerdrCommands, type HerdrConfig } from "./herdr";
 import {
   abortableDelay,
-  HERDR_REPORT_GRACE_MS,
   type HerdrCommand,
   type HerdrResult,
   hasHerdrErrorCode,
@@ -22,6 +21,7 @@ import {
   reportedAgent,
   settleAgent,
   settledOutcome,
+  submitPrompt,
 } from "./herdr-protocol";
 
 /**
@@ -213,9 +213,13 @@ export function createCallerHostFactory(
             if (waitMs <= 0) return localOutcome("timed-out", "operation deadline exceeded");
             outstanding = ++prompts;
             firstPrompt ??= Date.now();
-            const sent = await herdr(
-              ["agent", "prompt", pane, operation.prompt, "--wait", "--timeout", String(waitMs)],
-              waitMs + HERDR_REPORT_GRACE_MS,
+            const sent = await submitPrompt(
+              herdr,
+              pane,
+              pane,
+              operation.prompt,
+              spec.pastesQuoted === true,
+              waitMs,
               controller.signal,
             );
             if (!sent.ok) {

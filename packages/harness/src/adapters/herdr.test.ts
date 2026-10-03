@@ -3,6 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ProcessInput, ProcessResult, RunProcess } from "../command";
+import { HARNESSES } from "../spec";
 import { createHerdrRunHostFactory, createPaneAdapter, type HerdrConfig } from "./herdr";
 
 const CONFIG: HerdrConfig = {
@@ -1173,6 +1174,178 @@ describe("createHerdrRunHostFactory", () => {
         detail: "there is nothing to compact before the first turn",
       });
       expect(calls.filter((call) => verb(call) === "tab create")).toHaveLength(0);
+      await host.close();
+    });
+  });
+
+  describe("fork", () => {
+    /** The stub, with the harness's own fork answered as claude prints it for `/cost`. */
+    const forking = (options: { exposeSession?: boolean } = {}) => {
+      const base = hostStub(options);
+      const run: RunProcess = async (input) => {
+        if (input.argv[0] === "claude") {
+          base.calls.push(input);
+          return {
+            stdout: JSON.stringify({ session_id: "fork-1", num_turns: 0, total_cost_usd: 0.2 }),
+            stderr: "",
+            exitCode: 0,
+            timedOut: false,
+          };
+        }
+        return base.run(input);
+      };
+      return { run, calls: base.calls };
+    };
+    const opened = async (run: RunProcess, extra: Record<string, unknown> = {}) => {
+      const host = await createHerdrRunHostFactory(CONFIG, run).openRun({
+        runId: "run-1",
+        cwd: "/repo",
+        deadline: deadline(),
+      });
+      const session = await host.openAgent({
+        key: "worker",
+        cwd: "/repo",
+        deadline: deadline(),
+        execution: { harness: "claude", model: "m" },
+        ...extra,
+      });
+      return { host, session };
+    };
+
+    test("a pane parent is forked beside its pane, once its agent has settled, from the session the pane named", async () => {
+      const { run, calls } = forking();
+      const { host, session } = await opened(run);
+      await (
+        await session.start({ id: "one", prompt: "plan", deadline: deadline() }, binding("op-1"))
+      ).settled;
+      const fork = await session.fork!(deadline());
+
+      expect(fork).toEqual({ harness: "claude", sessionRef: "fork-1", costTotal: 0.2 });
+      const forked = calls.find((call) => call.argv[0] === "claude")!;
+      const named = calls.find((call) => verb(call) === "agent prompt")!.argv[5];
+      expect(forked.argv).toEqual(
+        expect.arrayContaining(["-p", "--resume", `session-${named}`, "--fork-session"]),
+      );
+      expect(forked.stdin).toBe("/cost");
+      const order = calls.map((call) => (call.argv[0] === "claude" ? "fork" : verb(call)));
+      expect(order.slice(order.lastIndexOf("agent wait"))).toEqual(["agent wait", "fork"]);
+      await host.close();
+    });
+
+    test("a pane parent whose session is still being written is forked once it is not", async () => {
+      const { run, calls } = forking();
+      let reads = 0;
+      const claude = HARNESSES.claude;
+      const original = claude.readSessionUsage;
+      claude.readSessionUsage = async () => ({ records: [], open: ++reads < 3 });
+      try {
+        const { host, session } = await opened(run);
+        await (
+          await session.start({ id: "one", prompt: "plan", deadline: deadline() }, binding("op-1"))
+        ).settled;
+        await session.fork!(deadline());
+        expect(reads).toBe(3);
+        expect(calls.filter((call) => call.argv[0] === "claude")).toHaveLength(1);
+        await host.close();
+      } finally {
+        claude.readSessionUsage = original;
+      }
+    });
+
+    test("a codex pane that names no session is found by its operation's id, and forked from it", async () => {
+      const base = hostStub({ exposeSession: false });
+      const run: RunProcess = async (input) => {
+        if (input.argv[0] === "codex") {
+          base.calls.push(input);
+          return {
+            stdout: JSON.stringify({ id: 2, result: { thread: { id: "thread-2" } } }),
+            stderr: "",
+            exitCode: 0,
+            timedOut: false,
+            answered: true,
+          };
+        }
+        return base.run(input);
+      };
+      const codex = HARNESSES.codex;
+      const original = codex.findSession;
+      const asked: string[] = [];
+      codex.findSession = async (marker) => {
+        asked.push(marker);
+        return "thread-1";
+      };
+      try {
+        const { host, session } = await opened(run, {
+          execution: { harness: "codex", model: "m" },
+        });
+        await (
+          await session.start({ id: "one", prompt: "plan", deadline: deadline() }, binding("op-1"))
+        ).settled;
+        await expect(session.fork!(deadline())).resolves.toEqual({
+          harness: "codex",
+          sessionRef: "thread-2",
+        });
+        expect(asked).toEqual(["op-1"]);
+        expect(base.calls.find((call) => call.argv[0] === "codex")!.stdin).toContain(
+          '"threadId":"thread-1"',
+        );
+        await host.close();
+      } finally {
+        codex.findSession = original;
+      }
+    });
+
+    test("a pane whose harness never named its session is not forked", async () => {
+      const { run, calls } = forking({ exposeSession: false });
+      const { host, session } = await opened(run);
+      await (
+        await session.start({ id: "one", prompt: "plan", deadline: deadline() }, binding("op-1"))
+      ).settled;
+      await expect(session.fork!(deadline())).rejects.toThrow(
+        "its harness never named its session, so it cannot be forked",
+      );
+      expect(calls.some((call) => call.argv[0] === "claude")).toBe(false);
+      await host.close();
+    });
+
+    test("a pane continuing a fork launches on it, and its first prompt carries its instructions", async () => {
+      const { run, calls } = forking();
+      const { host, session } = await opened(run, {
+        instructions: "You write the tests.",
+        continues: { harness: "claude", sessionRef: "fork-1" },
+      });
+      await (
+        await session.start({ id: "one", prompt: "test", deadline: deadline() }, binding("op-1"))
+      ).settled;
+
+      const started = calls.find((call) => verb(call) === "agent start")!;
+      expect(started.argv).toEqual(expect.arrayContaining(["--resume", "fork-1"]));
+      // Claude shows a prompt Herdr pastes as pasted text, which it will not act on: one of
+      // several lines is typed, and a line of the operator's own submits it.
+      const typed = calls.find((call) => call.argv.slice(3, 5).join(" ") === "pane send-text")!;
+      expect(typed.argv.at(-1)).toBe("You write the tests.\n\ntest\n\n");
+      expect(calls.find((call) => verb(call) === "agent prompt")!.argv[6]).toBe(
+        "Do what the text above asks.",
+      );
+      await host.close();
+    });
+
+    test("a harness whose pane cannot resume a session refuses to continue a fork", async () => {
+      const { run } = forking();
+      const host = await createHerdrRunHostFactory(CONFIG, run).openRun({
+        runId: "run-1",
+        cwd: "/repo",
+        deadline: deadline(),
+      });
+      await expect(
+        host.openAgent({
+          key: "tests",
+          cwd: "/repo",
+          deadline: deadline(),
+          execution: { harness: "pi", model: "m" },
+          continues: { harness: "pi", sessionRef: "/sessions/fork.jsonl" },
+        }),
+      ).rejects.toThrow("pi panes cannot continue a forked session yet");
       await host.close();
     });
   });

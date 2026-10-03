@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { type PaneHerdr, type PaneTerminal, shellQuote } from "@agentswf/sandbox";
-import type { AgentRunHostFactory, AgentSessionAdapter } from "../adapter";
+import type { AgentRunHostFactory, AgentSessionAdapter, NativeFork } from "../adapter";
 import { skillsLaunch } from "../capabilities/skills";
 import { type RunProcess, runProcess, withholding } from "../command";
 import { parseRow, record } from "../json";
@@ -20,6 +20,7 @@ import {
   PLACEMENT_HARNESSES,
 } from "../spec";
 import { createSessionAccounting } from "../usage/accounting";
+import { forkCommand, forkResult } from "./fork";
 import {
   abortableDelay,
   emptyEnvironmentArgs,
@@ -36,6 +37,7 @@ import {
   safeAgentName,
   settleAgent,
   settledOutcome,
+  submitPrompt,
 } from "./herdr-protocol";
 import { answerStartupBlocks } from "./herdr-startup";
 
@@ -61,6 +63,8 @@ export type HerdrConfig = {
 };
 
 const AGENT_START_WAIT_MS = 120_000;
+/** How often a pane parent's session is read, while its last turn is still being written. */
+const FORK_SETTLE_POLL_MS = 500;
 
 /**
  * The Herdr this adapter drives, as `herdr --version` answers: the run's, checked by the evals'
@@ -515,6 +519,8 @@ export function createHerdrRunHostFactory(
    */
   const paneEnvironment = emptyEnvironmentArgs(config.emptyEnvironment);
   const runCommands = createHerdrCommands(config, run);
+  /** A fork runs beside its pane, without the credentials a pane is kept from. */
+  const forkRun = withholding(run, config.emptyEnvironment ?? []);
 
   /**
    * This run's workspace in one Herdr, with a tab for each agent. A box's Herdr holds no host
@@ -715,9 +721,14 @@ export function createHerdrRunHostFactory(
         placement: "pane",
         launchesInSandbox: true,
         givesSkills: true,
+        continues: true,
         async activate(request) {
           const harness = knownHarness(request.execution.harness);
           const spec = harnessSpec(harness);
+          const { continues } = request;
+          if (continues && !spec.interactiveResume) {
+            throw new Error(`${harness} panes cannot continue a forked session yet`);
+          }
           // In a sandbox, the pane's terminal is the occupant's, in the run's Herdr or the box's.
           let terminal = request.occupant ? await request.occupant.pane?.() : undefined;
           if (request.occupant && !terminal) throw new Error("this sandbox hosts no panes");
@@ -736,6 +747,8 @@ export function createHerdrRunHostFactory(
             | undefined;
           let closed = false;
           let hasExecuted = false;
+          /** When its harness was launched: a session it names to nobody started since. */
+          let launchedAt = Date.now();
           /** The workflow's instructions go with the first prompt the pane's agent is sent. */
           let instructed = false;
           let activeController: AbortController | undefined;
@@ -864,8 +877,64 @@ export function createHerdrRunHostFactory(
             return true;
           };
 
+          /**
+           * The harness's own fork of the session the pane's harness named, run beside the pane
+           * once its agent has settled and, where the usage reader can tell, its session's last
+           * turn is written, so the copy holds it.
+           */
+          const forkPane = async (
+            sessionRef: string,
+            deadline: { unixMilliseconds: number },
+          ): Promise<NativeFork> => {
+            if (closed) throw new Error("Herdr run session is closed");
+            if (!current) {
+              throw new Error("this agent's pane was closed, so its session cannot be forked");
+            }
+            if (request.occupant) throw new Error("a sandboxed pane agent cannot be forked yet");
+            const controller = new AbortController();
+            activeController = controller;
+            let finish!: () => void;
+            activeCompletion = new Promise<void>((resolve) => {
+              finish = resolve;
+            });
+            try {
+              const busy = await settle(current.agentName, deadline, controller.signal);
+              if (busy) throw new Error(`the agent did not settle before its fork: ${busy.detail}`);
+              while (
+                (await spec.readSessionUsage?.([sessionRef], request.cwd, request.skills?.ownHome))
+                  ?.open === true &&
+                Date.now() < deadline.unixMilliseconds
+              ) {
+                if (!(await abortableDelay(FORK_SETTLE_POLL_MS, controller.signal))) {
+                  throw new Error("the fork was cancelled");
+                }
+              }
+              const skills = request.skills
+                ? await skillsLaunch(harness, request.skills)
+                : undefined;
+              const plan = spec.forkSession!(sessionRef, randomUUID(), {
+                ...(request.execution.model ? { model: request.execution.model } : {}),
+                sessionHint: sessionRef,
+                ...(skills ? { launchArgs: skills.args } : {}),
+              });
+              const result = await forkRun(
+                forkCommand(plan, {
+                  cwd: request.cwd,
+                  env: { ...skills?.env },
+                  deadline,
+                  signal: controller.signal,
+                }),
+              );
+              return forkResult(harness, plan, result, deadline);
+            } finally {
+              if (activeController === controller) activeController = undefined;
+              finish();
+            }
+          };
+
           const backend: ActivatedSessionBackend = {
-            identity: { sessionId: randomUUID(), cwd: request.cwd },
+            identity: { sessionId: continues?.sessionRef ?? randomUUID(), cwd: request.cwd },
+            ...(spec.forkSession ? { fork: forkPane } : {}),
             // The pane's agent is the session: an answered turn is left to end in it, and the next
             // operation is prompted into the same pane once it has.
             finishesAnswered: true,
@@ -935,15 +1004,23 @@ export function createHerdrRunHostFactory(
                     }
                     throw error;
                   }
+                  launchedAt = Date.now();
                   const agentName = safeAgentName(
                     `wf-${request.key}`,
                     `${runSpec.runId}:${request.key}:${operationId}`,
                   );
                   current = { operationId, paneId, agentName };
-                  const launch = spec.interactive(request.execution.model, [
+                  const launchArgs = [
                     ...(request.occupant ? sandboxedArgs(harness) : []),
                     ...(skills?.args ?? []),
-                  ]);
+                  ];
+                  const launch = continues
+                    ? spec.interactiveResume!(
+                        continues.sessionRef,
+                        request.execution.model,
+                        launchArgs,
+                      )
+                    : spec.interactive(request.execution.model, launchArgs);
                   if (terminal && typed) terminal = await request.occupant!.pane!();
                   typed = true;
                   const started = terminal
@@ -1004,17 +1081,13 @@ export function createHerdrRunHostFactory(
                   return localOutcome("timed-out", "operation deadline exceeded");
                 }
                 const waitMs = Math.max(1, remainingMs);
-                const sent = await herdr(
-                  [
-                    "agent",
-                    "prompt",
-                    placement.agentName,
-                    prompt,
-                    "--wait",
-                    "--timeout",
-                    String(waitMs),
-                  ],
-                  waitMs + HERDR_REPORT_GRACE_MS,
+                const sent = await submitPrompt(
+                  herdr,
+                  placement.agentName,
+                  placement.paneId,
+                  prompt,
+                  spec.pastesQuoted === true,
+                  waitMs,
                   controller.signal,
                 );
                 if (!sent.ok) {
@@ -1045,7 +1118,18 @@ export function createHerdrRunHostFactory(
                 if (!read.ok && read.cancelled) {
                   return localOutcome("cancelled", "pane operation cancelled");
                 }
-                return paneOutcome(spec, sent, read);
+                const outcome = paneOutcome(spec, sent, read);
+                if (outcome.sessionRef || !spec.findSession || !operation.binding) return outcome;
+                // A harness that names its session to nobody is found by this operation's id.
+                const found =
+                  operation.previousSessionRef ??
+                  (await spec.findSession(
+                    operation.binding.operationId,
+                    launchedAt,
+                    request.cwd,
+                    request.skills?.ownHome,
+                  ));
+                return found ? { ...outcome, sessionRef: found } : outcome;
               } finally {
                 if (activeController === controller) activeController = undefined;
                 finish();

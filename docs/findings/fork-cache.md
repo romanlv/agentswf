@@ -20,7 +20,7 @@ superseded here.
 | | question | verdict |
 |---|---|---|
 | F1 | does a headless claude fork read its parent's cache? | **yes**: 10 / 48,020 / 167, twice |
-| F2 | does a pane claude fork, and a fork changing placement? | **yes**: a pane parent's forks, 10 / 60,377 / 793 in a pane and 10 / 60,377 / 1,010 headless |
+| F2 | does a pane claude fork, and a fork changing placement? | **yes** from a pane parent: 10 / 60,377 / 793 in a pane and 10 / 60,377 / 1,010 headless; **in part** from a headless parent into a pane: 2 / 26,454 / 17,502 |
 | F3 | after compaction? | **the system prompt and tools, not the summary**: every child writes the summary once |
 | F4 | does a codex fork read its parent's cache? | **no**, in every placement; 7–17k of it, never the conversation |
 | F5 | can it? | **only an ephemeral fork**: 807 / 24,320; it is never saved |
@@ -39,8 +39,16 @@ superseded here.
   until the session is compacted (`--system-prompt-snapshot`, on by default). A fork copies the
   record, so its prefix is byte for byte the parent's. That held across placements. A parent
   started in a Herdr pane, forked with no model call (F7), then resumed in a new pane and headless,
-  read 60,377 from the cache both times. A headless parent forked into a pane was not tried. E7's
-  six pane forks with no cache hits may predate the record; that is inferred, not measured.
+  read 60,377 from the cache both times. E7's six pane forks with no cache hits may predate the
+  record; that is inferred, not measured.
+- A headless parent forked into a pane hits only in part. Measured through awf on 2026-10-03
+  (story 016, task 3; claude 2.1.288, `claude-sonnet-5-5`), each fork's first request:
+  - pane to pane: 42,699 read, 1,127 written;
+  - pane to headless: 42,682 read, 1,501 written;
+  - headless to pane: 26,454 read, 17,502 written.
+
+  The interactive launch's prefix differs from `-p`'s, so a pane fork of a headless parent writes
+  most of the parent's conversation once.
 - After `/compact`, two forks and the parent's own resume each read 17,815 (system prompt and
   tools) and wrote 7,317 (the summary and the question). The summaries and the recorded prompts
   were identical across the three. A cache entry is read only at a breakpoint an earlier request

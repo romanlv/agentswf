@@ -34,7 +34,8 @@ Questions from the review, 2026-10-01:
 
 - **Can a fork go from a pane to headless, and back?** Yes; a fork may name its own placement.
   - **Claude:** a pane worker's headless fork read 60,377 tokens from the cache, the same as its
-    pane fork (F2). A headless worker forked into a pane is not measured yet; task 6 does.
+    pane fork (F2). A headless worker forked into a pane reads only part of it: 26,454 read and
+    17,502 written (task 3).
   - **Codex:** both directions work, but codex misses the cache in any placement.
   - **pi:** forks into a pane once pi runs in one
     ([story 017](017-pi-pane-agent.md)).
@@ -274,7 +275,7 @@ Alternatives rejected:
 
 - [x] 1. Each headless claude or pi turn charges what it cost
 - [x] 2. A headless claude agent forks, end to end
-- [ ] 3. Forks in panes and across placements: claude and codex
+- [x] 3. Forks in panes and across placements: claude and codex
 - [ ] 4. Headless codex and pi fork
 - [ ] 5. A fork whose home differs from its parent's: sandboxes and codex's skills home
 - [ ] 6. A live eval of forks on every harness and placement, with and without compaction
@@ -506,6 +507,45 @@ Manual or live evaluation:
 - [x] Open questions are resolved or explicitly moved out of scope.
 
 ## Implementation notes
+
+### Task 3, 2026-10-03
+
+- `interactiveResume` for claude and codex, derived from their `interactive` launch; codex's
+  `forkSession` on its app-server (`thread/fork`, stdin held until answered), which also gives
+  headless codex its fork, continued by the `exec resume` it had. One `adapters/fork.ts` runs a
+  fork plan for both hosts.
+- A pane parent is forked beside its pane, without the credentials a pane is kept from, once its
+  agent has settled and, where the usage reader can tell (codex), its session's last turn is
+  written. A pane agent continues a fork by launching on it; a harness with no
+  `interactiveResume` refuses one.
+- **Deviation: a codex pane's session is found by its operation's id.** Live, Herdr named no
+  session for an awf-started codex pane, as E8 found under its shared daemon. So
+  `HarnessSpec.findSession` (codex) reads the rollouts started in the agent's directory since its
+  pane launched and takes the earliest that holds the operation id every prompt carries. It is the
+  harness reading its own files, and nothing native crosses the seam; the id the agent reports
+  through `wf` is still never used.
+- The session core tells "its harness never named its session" from "before its first turn", and
+  a failed turn no longer counts as the agent's own first: it may not have reached the session.
+- **pi's `interactiveResume` moves to task 4**, with the pi fork it would continue.
+- **Claude panes, fixed here at the operator's request.** Claude Code 2.1.288 shows a prompt of
+  more than about three lines that Herdr pastes as `<pasted_content>`, and sonnet will not act on
+  instructions with no words of the operator's outside the paste: every claude pane agent, the
+  compaction eval's too, ended unanswered. Measured live: one, two and three-line prompts ran, an
+  eight-line one was refused. Now a harness that `pastesQuoted` (claude) has a prompt of several
+  lines typed with `herdr pane send-text`, then a line of its own, "Do what the text above asks.",
+  submits it as one message. Checked live with 8 lines, 5.8 KB, a prompt starting with `/` and one
+  holding `@path`. It covers awf's panes and the calling session; `/compact` stays one line.
+- Live, `examples/fork` passed every case: claude, claude>headless, claude-headless>pane,
+  claude:compact, codex, codex>headless, codex-headless>pane, codex-headless:compact. Claude's
+  forks' first requests: pane to pane 42,699 read / 1,127 written, pane to headless 42,682 /
+  1,501, headless to pane 26,454 / 17,502 (recorded in F2), compacted 27,175 / 18,233.
+  `tests/compaction.eval.ts claude codex` passed after the prompt change.
+- Review (both lenses): nothing blocking. Fixed: the failed-turn rule above; the codex lookup
+  reads only day directories since the launch and matches the directory and start time, so an
+  operator's earlier session is never taken; `pastesQuoted` a flag with the line in Herdr's
+  protocol; tests for the open-session wait and the codex lookup. Accepted: a prompt that fails
+  after it was typed leaves its text in the box, and the pane is closed with the failed
+  operation; in the calling session it stays in the operator's box.
 
 ### Task 2, 2026-10-03
 

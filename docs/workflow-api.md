@@ -213,8 +213,8 @@ const [security, tests] = await Promise.all([
 - **A fork has its parent's** harness, model, working directory, sandbox and skills. It may name its
   own `placement` (with `metered`), `instructions`, which go with its first turn, and `labels`.
 - **It rejects**, as `agents.open` does, before the agent's own first turn, once the agent is
-  closed, and where the harness cannot fork. Today that is headless claude only; story 016 adds the
-  others.
+  closed, and where the harness cannot fork. Today claude and codex fork, in a pane or headless,
+  into either; pi, a sandboxed agent and cursor do not yet (story 016).
 - **The same key** with the same parent and spec returns the same agent; anything else under it
   rejects.
 - **A test** scripts a fork by its own key like any agent, and `agentOf(key).forkedFrom` names the

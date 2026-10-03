@@ -6,7 +6,7 @@ import type { TokenUsage } from "@agentswf/contract/records";
 import { createSessionAccounting } from "./accounting";
 import { claudeBilling, codexBilling, piBilling, readCodexBilling } from "./billing";
 import { readClaudeUsage as readClaude } from "./claude";
-import { readCodexUsage as readCodex } from "./codex";
+import { findCodexSession, readCodexUsage as readCodex } from "./codex";
 import { readPiUsage as readPi, readPiCompactSummary } from "./pi";
 import type { SessionRead, UsageRecord } from "./records";
 
@@ -448,6 +448,32 @@ describe("codex sessions", () => {
       await readCodexUsage(["01a0cf46-0000-0000-0000-000000000000"], sessions),
     ).toBeUndefined();
     expect(await readCodexUsage(["../22/rollout"], sessions)).toBeUndefined();
+  });
+});
+
+describe("a codex pane's session, which Herdr does not name", () => {
+  test("is the earliest started in its directory since its launch whose rollout holds its operation's id", async () => {
+    const root = mkdtempSync(join(tmpdir(), "codex-find-"));
+    const now = new Date();
+    const pad = (n: number) => String(n).padStart(2, "0");
+    const day = join(root, `${now.getFullYear()}`, pad(now.getMonth() + 1), pad(now.getDate()));
+    mkdirSync(day, { recursive: true });
+    const since = Date.now() - 60_000;
+    const rollout = (id: string, startedAt: number, cwd: string, text: string) =>
+      writeFileSync(
+        join(day, `rollout-2026-10-03T10-00-00-${id}.jsonl`),
+        `${JSON.stringify({ type: "session_meta", payload: { id, timestamp: new Date(startedAt).toISOString(), cwd } })}\n${text}\n`,
+      );
+    rollout("operator", since - 1_000, "/repo", "wf result op-1");
+    rollout("elsewhere", since + 1_000, "/other", "wf result op-1");
+    rollout("mine", since + 2_000, "/repo", "wf result op-1");
+    rollout("subagent", since + 3_000, "/repo", "from op-1");
+    try {
+      expect(await findCodexSession("op-1", since, "/repo", root)).toBe("mine");
+      expect(await findCodexSession("op-2", since, "/repo", root)).toBeUndefined();
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });
 

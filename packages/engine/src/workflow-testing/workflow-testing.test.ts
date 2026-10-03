@@ -1047,12 +1047,22 @@ describe("testWorkflow forks", () => {
     expect(run.value).toBe("agent worker has a harness home of its own, and cannot be forked yet");
   });
 
-  test("a fork into a pane is refused, as the pane host refuses one", async () => {
+  test("a headless agent forks into a pane, which continues its copy", async () => {
     const run = await testWorkflow(
       forking,
       { placement: "pane" },
-      { agents: { worker: [answer(PLAN, { steps: ["a"] })] } },
+      {
+        agents: {
+          worker: [answer(PLAN, { steps: ["a"] })],
+          tests: [answer(STATUS, { step: 0, state: "done" })],
+        },
+      },
     );
-    expect(run.value).toBe("pane agents cannot continue a forked session yet");
+    expect(run.value).toBe("answered");
+    expect(run.agentOf("tests").execution).toEqual({
+      harness: run.agentOf("worker").execution.harness,
+      model: run.agentOf("worker").execution.model,
+      alias: "claude",
+    });
   });
 });

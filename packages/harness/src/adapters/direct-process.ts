@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { type AbsoluteDeadline, DeadlineExceededError } from "@agentswf/contract/workflow";
+import type { AbsoluteDeadline } from "@agentswf/contract/workflow";
 import type { AgentRunHostFactory, AgentSessionAdapter, NativeFork } from "../adapter";
 import { skillsLaunch } from "../capabilities/skills";
 import { type RunProcess, runProcess } from "../command";
@@ -9,6 +9,7 @@ import { createSessionAdapter, localOutcome } from "../session-core";
 import { createSingleSessionHostFactory } from "../single-session-host";
 import { harnessSpec, knownHarness, PLACEMENT_HARNESSES } from "../spec";
 import { createSessionAccounting } from "../usage/accounting";
+import { forkCommand, forkResult } from "./fork";
 
 export type DirectProcessConfig = {
   newSessionId?: () => string;
@@ -209,22 +210,21 @@ export function createHeadlessAdapter(
           ? {
               async fork(sessionRef: string, deadline: AbsoluteDeadline): Promise<NativeFork> {
                 if (closed) throw new Error("headless session is closed");
-                const remaining = deadline.unixMilliseconds - Date.now();
-                if (remaining <= 0) throw new DeadlineExceededError(deadline);
                 const { env, context } = await launchContext();
                 if (closed) throw new Error("headless session is closed");
                 const plan = spec.forkSession!(sessionRef, newSessionId(), context);
                 const controller = new AbortController();
-                active = controller;
-                const command = {
-                  argv: plan.argv,
+                const command = forkCommand(plan, {
                   cwd: request.cwd,
                   env,
-                  ...(plan.stdin === undefined ? {} : { stdin: plan.stdin }),
-                  timeoutMs: Math.max(1, remaining),
+                  deadline,
                   signal: controller.signal,
-                };
-                const running = run(occupant ? occupant.launch(command) : command);
+                });
+                active = controller;
+                const { holdStdinUntil, ...process } = command;
+                const running = run(
+                  occupant ? { ...occupant.launch(process), holdStdinUntil } : command,
+                );
                 activeCompletion = running.then(
                   () => undefined,
                   () => undefined,
@@ -232,20 +232,7 @@ export function createHeadlessAdapter(
                 const result = await running.finally(() => {
                   if (active === controller) active = undefined;
                 });
-                if (result.cancelled) throw new Error("the fork was cancelled");
-                if (result.timedOut) throw new DeadlineExceededError(deadline);
-                if (result.exitCode !== 0) {
-                  throw new Error(
-                    `${plan.argv[0]} exited ${result.exitCode} forking: ${result.stderr.trim().slice(0, 400)}`,
-                  );
-                }
-                const read = plan.read(result.stdout);
-                if ("error" in read) throw new Error(read.error);
-                return {
-                  harness,
-                  sessionRef: read.sessionId,
-                  ...(read.costTotal === undefined ? {} : { costTotal: read.costTotal }),
-                };
+                return forkResult(harness, plan, result, deadline);
               },
             }
           : {}),

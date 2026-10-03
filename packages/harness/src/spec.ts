@@ -6,7 +6,12 @@ import { count, jsonLines, parseRow, type Row, record, reported, text } from "./
 import type { Harness } from "./types";
 import { readClaudeBilling, readCodexBilling, readPiBilling } from "./usage/billing";
 import { claudeProjectsDirectory, readClaudeCompactSummary, readClaudeUsage } from "./usage/claude";
-import { codexRolloutId, codexSessionsDirectory, readCodexUsage } from "./usage/codex";
+import {
+  codexRolloutId,
+  codexSessionsDirectory,
+  findCodexSession,
+  readCodexUsage,
+} from "./usage/codex";
 import { ownFiles } from "./usage/files";
 import { readPiCompactSummary, readPiUsage } from "./usage/pi";
 import type { SessionRead } from "./usage/records";
@@ -27,10 +32,11 @@ export type CompactionPlan = TurnPlan &
   };
 
 /** The harness's own fork of a session; see `HarnessSpec.forkSession`. */
-export type ForkPlan = TurnPlan & {
-  /** The new session, and the running total printed with it where there is one; or why not. */
-  read(stdout: string): { sessionId: string; costTotal?: number } | { error: string };
-};
+export type ForkPlan = TurnPlan &
+  Holding & {
+    /** The new session, and the running total printed with it where there is one; or why not. */
+    read(stdout: string): { sessionId: string; costTotal?: number } | { error: string };
+  };
 
 export type BillingContext = {
   model?: string;
@@ -59,6 +65,8 @@ export type HarnessSpec = {
    * arguments its launch adds last, where nothing follows to be swallowed.
    */
   interactive(model?: string, launchArgs?: readonly string[]): TurnPlan;
+  /** The same launch on a session that exists, such as a fork; absent where a pane cannot. */
+  interactiveResume?(sessionId: string, model?: string, launchArgs?: readonly string[]): TurnPlan;
   /** A one-shot, non-interactive run of `prompt`. */
   headlessTurn(prompt: string, context: TurnContext): TurnPlan;
   /**
@@ -94,6 +102,16 @@ export type HarnessSpec = {
     home?: string,
   ): Promise<SessionRead | undefined>;
   /**
+   * The session that logged `marker` since `since`, for a pane whose harness names its session to
+   * nobody: the operation's id, which every turn's prompt carries, finds it in the harness's files.
+   */
+  findSession?(
+    marker: string,
+    since: number,
+    cwd: string,
+    home?: string,
+  ): Promise<string | undefined>;
+  /**
    * Every session in a harness home the agent had alone, as `readSessionUsage` takes them: a
    * sandboxed agent's own home holds nothing else, and a pane's harness names its session to
    * nobody when it never calls `wf` (story 004, "Panes").
@@ -111,6 +129,11 @@ export type HarnessSpec = {
    * model call (F7), so the copy is fixed when it is made. Absent where it has none.
    */
   forkSession?(sessionId: string, newSessionId: string, context: TurnContext): ForkPlan;
+  /**
+   * Its pane shows a prompt of several lines Herdr pastes as pasted text, which its model will not
+   * act on without the operator's own words (claude 2.1.288), so such a prompt is typed instead.
+   */
+  pastesQuoted?: true;
   /** Its own compaction in a pane: what is typed, in order, and the screen that shows it ran. */
   compactPane?: {
     prompts(focus: string): string[];
@@ -148,6 +171,39 @@ export type HarnessSpec = {
   meteredHeadless?: true;
 };
 
+/** `Bash` has to be allowed or the agent cannot run `wf` at all. */
+function claudeInteractive(model?: string, launchArgs: readonly string[] = []): TurnPlan {
+  return {
+    argv: [
+      "claude",
+      "--allowed-tools",
+      "Bash",
+      ...(model ? ["--model", model] : []),
+      ...launchArgs,
+    ],
+  };
+}
+
+function codexInteractive(model?: string, launchArgs: readonly string[] = []): TurnPlan {
+  return {
+    argv: [
+      "codex",
+      "--sandbox",
+      "danger-full-access",
+      "--ask-for-approval",
+      "never",
+      ...(model ? ["--model", model] : []),
+      ...launchArgs,
+    ],
+  };
+}
+
+/** The same launch on a session that exists, its words after the command's name. */
+function resuming(plan: TurnPlan, ...words: string[]): TurnPlan {
+  const [command, ...rest] = plan.argv;
+  return { ...plan, argv: [command!, ...words, ...rest] };
+}
+
 function lastJson(stdout: string): Row | undefined {
   return jsonLines(stdout).at(-1);
 }
@@ -163,15 +219,9 @@ export const HARNESSES: Record<Harness, HarnessSpec> = {
     interrupted: "Interrupted · What should Claude do instead?",
     // `Bash` has to be allowed or the agent cannot run `wf` at all, which would measure the
     // permission prompt rather than the return channel.
-    interactive: (model, launchArgs = []) => ({
-      argv: [
-        "claude",
-        "--allowed-tools",
-        "Bash",
-        ...(model ? ["--model", model] : []),
-        ...launchArgs,
-      ],
-    }),
+    interactive: claudeInteractive,
+    interactiveResume: (sessionId, model, launchArgs) =>
+      resuming(claudeInteractive(model, launchArgs), "--resume", sessionId),
     // `--output-format json` is the only place the resumable session id is printed, and
     // without it there is no headless nudge.
     headlessTurn: (prompt, { model, launchArgs = [] }) => ({
@@ -266,6 +316,7 @@ export const HARNESSES: Record<Harness, HarnessSpec> = {
         return { sessionId: forked, ...(costTotal === undefined ? {} : { costTotal }) };
       },
     }),
+    pastesQuoted: true,
     compactPane: {
       prompts: (focus) => [`/compact ${focus}`],
       // The whole line, which an echoed focus would not hold.
@@ -289,17 +340,9 @@ export const HARNESSES: Record<Harness, HarnessSpec> = {
     interrupted: "Conversation interrupted",
     localSockets:
       "codex's workspace-write sandbox blocks local sockets: start codex with -c sandbox_workspace_write.network_access=true, or approve running awf outside its sandbox",
-    interactive: (model, launchArgs = []) => ({
-      argv: [
-        "codex",
-        "--sandbox",
-        "danger-full-access",
-        "--ask-for-approval",
-        "never",
-        ...(model ? ["--model", model] : []),
-        ...launchArgs,
-      ],
-    }),
+    interactive: codexInteractive,
+    interactiveResume: (sessionId, model, launchArgs) =>
+      resuming(codexInteractive(model, launchArgs), "resume", sessionId),
     // `exec resume` takes no `-s`, so the sandbox is set through `-c` on both turns rather
     // than through a flag that exists on only one of them.
     headlessTurn: (prompt, { model, launchArgs = [] }) => ({
@@ -341,6 +384,46 @@ export const HARNESSES: Record<Harness, HarnessSpec> = {
         .filter((row) => text(record(row.item)?.type) === "agent_message")
         .map((row) => text(record(row.item)?.text) ?? "");
       return messages.join("\n") || stdout;
+    },
+    // The app-server forks a thread with no turn, and exits once its stdin closes. The fork is
+    // persisted, so it misses its parent's cache once (F4, F5); it takes its own id, which the
+    // response names.
+    forkSession: (sessionId, _newSessionId, { model, launchArgs = [] }) => {
+      const answered = (row: Row | undefined) => row?.id === 2;
+      return {
+        argv: [
+          "codex",
+          "app-server",
+          "--listen",
+          "stdio://",
+          "-c",
+          'sandbox_mode="danger-full-access"',
+          ...launchArgs,
+        ],
+        stdin: `${[
+          JSON.stringify({
+            jsonrpc: "2.0",
+            id: 1,
+            method: "initialize",
+            params: { clientInfo: { name: "awf", version: "0" } },
+          }),
+          JSON.stringify({ jsonrpc: "2.0", method: "initialized" }),
+          JSON.stringify({
+            jsonrpc: "2.0",
+            id: 2,
+            method: "thread/fork",
+            params: { threadId: sessionId, excludeTurns: true, ...(model ? { model } : {}) },
+          }),
+        ].join("\n")}\n`,
+        holdStdinUntil: (line) => answered(parseRow(line)),
+        read: (stdout) => {
+          const response = jsonLines(stdout).find(answered);
+          const forked = text(record(record(response?.result)?.thread)?.id);
+          if (forked && forked !== sessionId) return { sessionId: forked };
+          const why = text(record(response?.error)?.message);
+          return { error: `codex wrote no fork${why ? `: ${why}` : ""}` };
+        },
+      };
     },
     // `exec` sends `/compact` to the model as text; the app-server compacts, and exits once its
     // stdin closes. It takes no focus, and an OpenAI login ignores `compact_prompt`, so the focus
@@ -415,6 +498,8 @@ export const HARNESSES: Record<Harness, HarnessSpec> = {
     },
     readSessionUsage: (sessions, _cwd, home) =>
       readCodexUsage(sessions, codexSessionsDirectory(home)),
+    findSession: (marker, since, cwd, home) =>
+      findCodexSession(marker, since, cwd, codexSessionsDirectory(home)),
     // By start time, which a rollout's name begins with: a root session starts before the
     // subagents it delegates to, and usage counts the first session it reads as the agent's own.
     homeSessions: async (home) =>
