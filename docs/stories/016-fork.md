@@ -3,7 +3,7 @@ id: "016"
 title: Fork an agent so new agents start from what it knows, from the cache
 summary: "agent.fork({ key }) opens a new agent on a copy of the agent's session, taken by the harness's own fork with no model call; claude and pi forks read the parent's context from the provider's cache, with or without compaction first."
 type: story
-status: draft
+status: ready
 discovered_in: "story 015, the operator's review, 2026-10-01"
 depends_on: []
 ---
@@ -284,22 +284,13 @@ returns to the surface.
 
 ## Open questions
 
-### 2. A headless claude agent forks
+None. Decided by the operator, 2026-10-03:
 
-- Approve ADR 0009. It publishes `AgentRef.fork` and `AgentForkSpec`, so it is settled before code.
-
-### 2, 6. Skills
-
-- A claude fork given skills gets a fresh copy in a directory of its own (ADR 0004). If the copy's
-  path reaches its prompt, the fork's prefix differs from its parent's and misses. The eval
-  measures it. If it misses, the fork reuses its parent's copy, which is the same skills at the
-  same point.
-
-### 5. A fork whose home differs
-
-- A parent in a private sandbox: its forks would share that sandbox. The alternative is refusing
-  them, since the sandbox was private. Proposed: share it, since the fork's working directory is
-  inside.
+- **ADR 0009** is approved, so `AgentRef.fork` and `AgentForkSpec` are settled before code.
+- **A parent in a private sandbox:** its forks share that sandbox, as forks on the host share the
+  machine.
+- **Skills:** a fork uses its parent's copy, not a fresh one (ADR 0004 would give it its own). Its
+  context is its parent's, skills included, so the prefix and the cache stay its parent's.
 
 ## Task execution rule
 
@@ -354,7 +345,8 @@ fork.
 
 Work:
 
-- `AgentForkSpec` and `AgentRef.fork`, once ADR 0009 is approved.
+- `AgentForkSpec` and `AgentRef.fork` (ADR 0009).
+- A fork uses its parent's skills copy; the engine copies none for it.
 - `HarnessSpec.forkSession` for claude, `HarnessSession.fork`, `HarnessActivation.continues`. A
   continued session's first turn resumes it and carries the fork's instructions, and its ref seeds
   the sessions the core has seen.
@@ -507,10 +499,10 @@ Manual or live evaluation:
 - [x] Outcome and boundaries are concrete.
 - [x] Relevant implementation, callers, and tests are mapped.
 - [x] Evidence and research support the proposed design.
-- [ ] Expensive interface, record-format, and stage-gate decisions are settled: ADR 0009 awaits
-  approval.
+- [x] Expensive interface, record-format, and stage-gate decisions are settled: ADR 0009, approved
+  2026-10-03.
 - [x] Tasks are ordered, coherent, and independently verifiable.
-- [ ] Open questions are resolved or explicitly moved out of scope.
+- [x] Open questions are resolved or explicitly moved out of scope.
 
 ## Implementation notes
 

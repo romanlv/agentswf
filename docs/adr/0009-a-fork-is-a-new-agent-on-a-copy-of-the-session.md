@@ -1,11 +1,11 @@
 # 0009 — A fork is a new agent on a copy of its parent's session
 
-**Proposed:** 2026-10-01, in [[016-fork|story 016]]; not decided until the operator approves it.
+**Decided:** 2026-10-03, in [[016-fork|story 016]], proposed there 2026-10-01.
 **Replaces:** `foundation.md` §7's and §10's "no fork in any interface until E7's cost split is
 settled", and ADR 0001's removal of `HarnessSpec.interactiveResume`, which comes back with an
 implementation.
 
-## What would be decided
+## What was decided
 
 - **`agent.fork({ key })` opens a new agent on a copy of this agent's session.** The copy is taken
   in this agent's queue, after its earlier operations, by the harness's own fork with no model
@@ -17,6 +17,11 @@ implementation.
   per model and the session belongs to the harness; the rest is what the session's context
   describes. It may differ in `placement` (with `metered`), `instructions`, which go with its first
   turn, and `labels`.
+  - A fork of a sandboxed agent shares its parent's sandbox, as forks on the host share the
+    machine, even when the sandbox is private.
+  - A fork uses its parent's copy of its skills, not a fresh one: its context is its parent's,
+    skills included. Where it needs a home of its own, the same skills come with it at the same
+    paths. This is the one exception to ADR 0004's copy per agent.
 - **awf forks the way that keeps the parent's cache, where the harness allows one.**
   - Claude forks natively and hits in every placement.
   - pi keeps its parent's session id, the key its provider caches by, in a session directory of the

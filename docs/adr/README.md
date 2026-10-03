@@ -19,6 +19,6 @@ One file per decision: what was decided, what it replaces, and what evidence mov
   workflow's focus
 - [0008](0008-a-pane-agent-continues-in-its-pane.md) — a pane agent continues in its pane
 - [0009](0009-a-fork-is-a-new-agent-on-a-copy-of-the-session.md) — a fork is a new agent on a
-  copy of its parent's session (proposed)
+  copy of its parent's session
 - [0010](0010-the-calling-session-is-an-agent.md) — the calling session is an agent of the run it
   started
