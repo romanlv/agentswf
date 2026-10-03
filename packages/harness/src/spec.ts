@@ -2,7 +2,7 @@ import { basename, join } from "node:path";
 import type { Billing } from "@agentswf/contract/records";
 import type { AgentPlacement } from "@agentswf/contract/workflow";
 import type { Holding, RunProcess } from "./command";
-import { jsonLines, parseRow, type Row, record, reported, text } from "./json";
+import { count, jsonLines, parseRow, type Row, record, reported, text } from "./json";
 import type { Harness } from "./types";
 import { readClaudeBilling, readCodexBilling, readPiBilling } from "./usage/billing";
 import { claudeProjectsDirectory, readClaudeCompactSummary, readClaudeUsage } from "./usage/claude";
@@ -25,6 +25,12 @@ export type CompactionPlan = TurnPlan &
     /** What its output says: the summary, `""` where the harness keeps it opaque, or why not. */
     read(stdout: string): { summary: string } | { error: string };
   };
+
+/** The harness's own fork of a session; see `HarnessSpec.forkSession`. */
+export type ForkPlan = TurnPlan & {
+  /** The new session, and the running total printed with it where there is one; or why not. */
+  read(stdout: string): { sessionId: string; costTotal?: number } | { error: string };
+};
 
 export type BillingContext = {
   model?: string;
@@ -100,6 +106,11 @@ export type HarnessSpec = {
    * Absent where it has none: a compaction then fails before anything runs.
    */
   compactHeadless?(focus: string, sessionId: string, context: TurnContext): CompactionPlan;
+  /**
+   * Its own fork of `sessionId` into a new session, `newSessionId` where it takes one, with no
+   * model call (F7), so the copy is fixed when it is made. Absent where it has none.
+   */
+  forkSession?(sessionId: string, newSessionId: string, context: TurnContext): ForkPlan;
   /** Its own compaction in a pane: what is typed, in order, and the screen that shows it ran. */
   compactPane?: {
     prompts(focus: string): string[];
@@ -224,6 +235,35 @@ export const HARNESSES: Record<Harness, HarnessSpec> = {
           .slice(boundary + 1)
           .find((row) => row.type === "user" && row.isSynthetic === true);
         return { summary: text(record(summary?.message)?.content) ?? "" };
+      },
+    }),
+    // `/cost` is a local command: the fork is written and its cost printed, and nothing is sent.
+    // A turn means the model was asked after all, and the copy holds more than it was given.
+    forkSession: (sessionId, newSessionId, { model, launchArgs = [] }) => ({
+      argv: [
+        "claude",
+        "-p",
+        "--resume",
+        sessionId,
+        "--fork-session",
+        "--session-id",
+        newSessionId,
+        ...launchArgs,
+        "--output-format",
+        "json",
+        ...(model ? ["--model", model] : []),
+      ],
+      stdin: "/cost",
+      sessionId: newSessionId,
+      read: (stdout) => {
+        const row = lastJson(stdout);
+        const forked = text(row?.session_id);
+        if (!forked || forked === sessionId) {
+          return { error: `claude wrote no fork${row ? "" : `: ${stdout.trim().slice(0, 300)}`}` };
+        }
+        if (count(row?.num_turns) > 0) return { error: "claude asked the model while forking" };
+        const costTotal = reported(row?.total_cost_usd);
+        return { sessionId: forked, ...(costTotal === undefined ? {} : { costTotal }) };
       },
     }),
     compactPane: {

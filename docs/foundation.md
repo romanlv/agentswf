@@ -78,7 +78,9 @@ before any of the code here existed. Their raw rows are in `experiments/_archive
   fourteen-way figure is fourteen times one sequential call, not a fan-out measurement**. Cost is
   still a first-class domain concern.
 - Branching a session (fork, `/fork`, `/clear`) re-pays the context almost everywhere. Continuing
-  it keeps the cache. Cold agents plus prefix caching beat forking in a pane by ~11x.
+  it keeps the cache. Cold agents plus prefix caching beat forking in a pane by ~11x. Measured again
+  in 2026-10 ([`fork-cache.md`](findings/fork-cache.md)), claude's forks and pi's keeping its
+  parent's id now read the cache in every placement; codex's still pay it once.
 - Schema constraints must be in the prompt, not just in the validator: 0/160 first-attempt validity
   without, 80/80 with — headless, one schema. Field-level error text costs 2.00 attempts against
   2.90–4.95 for a bare refusal, worst case 11. The runner has sent the schema itself since
@@ -357,7 +359,7 @@ nowhere to go does.
 
 | From `ideas.md` | Lands in | Decided now |
 | --- | --- | --- |
-| forking / compact without destroying the original | native primitive in `harness`; logical branch creation in `engine` | no fork in any interface until E7's cost split is settled — see [`findings/`](findings/README.md) |
+| forking / compact without destroying the original | native primitive in `harness`; logical branch creation in `engine` | fork measured and built: a new agent on a copy of the session ([ADR 0009](adr/0009-a-fork-is-a-new-agent-on-a-copy-of-the-session.md), [`fork-cache.md`](findings/fork-cache.md)) |
 | team of agents / messaging | cross-cutting all four, over a local control plane | the control plane exists from Stage 2, not "when remote execution arrives" |
 | unified `skill:name` / `tool:name` | request and report shapes in `contract`; resolution in `harness`; downgrade policy in `engine` | skills built as sources, not a grammar ([ADR 0004](adr/0004-skills-are-copied-per-agent.md)); tools still model request-vs-granted |
 | workflows calling workflows | `engine` | `contract/workflow` already has `call` |
@@ -646,7 +648,6 @@ named trigger fires.
 | per-adapter packages | `harness/src/adapters/` | an adapter needs its own dependencies |
 | `decisions` package | `engine/src/decisions/`, the author surface in `contract/workflow` | a decision provider needs its own dependency |
 | journal / resume | shelved, **and its public types removed** | after deciding effect boundaries, persistence and versioning (E6) |
-| fork | not built, **no capability flag** — [ADR 0001](adr/0001-unbuilt-interface-leaves-the-surface.md) | E7's cost split is settled |
 | model settings | not built, **public types removed** — ADR 0001 | an implementation and a workflow that needs it land together |
 | agent retention and crash recovery | not built, **public types removed** — ADR 0001 | pane release is measured (Story 001), then as for model settings |
 | remote execution | not built — [[workflow-in-sandbox]] | the engine runs where the agents are, so the local control plane never crosses a network |

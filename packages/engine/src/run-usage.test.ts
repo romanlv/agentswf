@@ -50,6 +50,19 @@ function sessionFiles() {
       logged.set(session, [...(logged.get(session) ?? []), record]);
       return record;
     },
+    /**
+     * A fork's session file: its parent's rows under their own keys, the last one zeroed, as
+     * claude copies them after a compaction (F8).
+     */
+    fork(from: string, to: string) {
+      const rows = logged.get(from) ?? [];
+      logged.set(
+        to,
+        rows.map((row, index) =>
+          index === rows.length - 1 ? { ...row, tokens: tokens(0) } : { ...row },
+        ),
+      );
+    },
     /** Sessions whose turn the fake still reports as being written. */
     open: new Set<string>(),
     accounting(overrides: Partial<SessionAccounting> = {}): SessionAccounting & { reads: number } {
@@ -80,6 +93,44 @@ function sessionFiles() {
 }
 
 describe("usage read when the run ends", () => {
+  test("a fork's copied rows stay its parent's, and the fork is charged only its own", async () => {
+    const files = sessionFiles();
+    const adapter = createFakeAdapter({
+      continues: true,
+      forks: () => true,
+      onFork: ({ activation, sessionRef }) =>
+        files.fork(activation.key === "worker" ? "s-worker" : "", sessionRef),
+      script: (context) => ({
+        ...(context.activation.key === "worker" ? { sessionRef: "s-worker" } : {}),
+        act: async () => {
+          const scale = context.activation.key === "worker" ? 1 : 2;
+          await Bun.sleep(5);
+          files.log(context.previousSessionRef ?? "s-worker", scale * 10);
+          await Bun.sleep(5);
+          files.log(context.previousSessionRef ?? "s-worker", scale * 100);
+          await submit(context.binding!, { answer: "ok" });
+        },
+      }),
+    });
+
+    const result = await run(adapter, files.accounting(), async (context) => {
+      const worker = await open(context, "worker");
+      await worker.run({ prompt: "Plan.", schema: ANSWER });
+      const tests = await worker.fork({ key: "tests" });
+      await tests.run({ prompt: "Test.", schema: ANSWER });
+      return null;
+    });
+
+    const outputs = (agent: string) =>
+      result.usage
+        .filter((usage) => usage.agent === agent)
+        .flatMap((usage) => usage.spend?.map((spend) => spend.tokens.output) ?? []);
+    // A request is claimed by the first agent read, in the order agents opened: a parent opens
+    // before its forks, so its rows in their copies are already its.
+    expect(outputs("worker")).toEqual([110]);
+    expect(outputs("tests")).toEqual([220]);
+  });
+
   test("an agent that timed out is charged with what it spent", async () => {
     const files = sessionFiles();
     const adapter = createFakeAdapter({

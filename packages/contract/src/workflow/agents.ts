@@ -227,6 +227,14 @@ export interface CompactSpec {
   timeoutMs?: number;
 }
 
+export interface AgentForkSpec extends PlacementChoice {
+  /** The new agent's key in this run. */
+  key: AgentKey;
+  /** Given with its first turn; it already knows what this agent was told. */
+  instructions?: string;
+  labels?: JsonObject;
+}
+
 export interface AgentRef extends ParticipantRef {
   readonly key: AgentKey;
   /** Fixed for this logical agent. */
@@ -246,6 +254,14 @@ export interface AgentRef extends ParticipantRef {
    * other outcome leaves the prior context available.
    */
   compact(spec: CompactSpec): Promise<TurnOutcome<string>>;
+  /**
+   * Opens a new agent on a copy of this agent's session, taken after its earlier operations: it
+   * starts knowing what this agent knew then, and from then on neither sees the other's turns. It
+   * has this agent's harness, model, working directory, sandbox and skills, and this agent's
+   * placement unless it names one. Rejects before this agent's first turn and where the harness
+   * cannot fork. The same key with the same parent and spec returns the same agent (ADR 0009).
+   */
+  fork(spec: AgentForkSpec): Promise<AgentRef>;
 }
 
 export interface CallerSpec {

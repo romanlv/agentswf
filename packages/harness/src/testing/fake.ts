@@ -1,8 +1,10 @@
+import { randomUUID } from "node:crypto";
 import type {
   AgentSessionAdapter,
   AuthoredTurn,
   HarnessActivation,
   HarnessOperationBinding,
+  NativeFork,
 } from "../adapter";
 import { createSessionAdapter, type SessionAdapterOptions } from "../session-core";
 
@@ -42,6 +44,9 @@ export type FakeAdapterTurn = {
   act?: (context: FakeAdapterTurnContext) => void | Promise<void>;
 };
 
+/** A fork the fake made: the agent it copied, the new session, and that agent's turns so far. */
+export type FakeFork = { activation: HarnessActivation; sessionRef: string; turns: number };
+
 export type FakeAgentSessionAdapter = AgentSessionAdapter & {
   activations: HarnessActivation[];
   turns: FakeAdapterTurnContext[];
@@ -56,7 +61,13 @@ export function createFakeAdapter(
     clock?: ManualClock;
     /** A reason to refuse this agent, as a real adapter refuses one it cannot run. */
     refuse?: (activation: HarnessActivation) => string | undefined;
-  } & Pick<SessionAdapterOptions, "placement" | "launchesInSandbox" | "givesSkills">,
+    /**
+     * Whether this agent forks, as its real host would; absent, none does. A forked session is
+     * continued wherever `continues` is passed on.
+     */
+    forks?: (activation: HarnessActivation) => boolean;
+    onFork?: (fork: FakeFork) => void;
+  } & Pick<SessionAdapterOptions, "placement" | "launchesInSandbox" | "givesSkills" | "continues">,
 ): FakeAgentSessionAdapter {
   const activations: HarnessActivation[] = [];
   const turns: FakeAdapterTurnContext[] = [];
@@ -67,6 +78,7 @@ export function createFakeAdapter(
     ...(options.placement ? { placement: options.placement } : {}),
     ...(options.launchesInSandbox ? { launchesInSandbox: options.launchesInSandbox } : {}),
     ...(options.givesSkills ? { givesSkills: options.givesSkills } : {}),
+    ...(options.continues ? { continues: options.continues } : {}),
     async activate(activation) {
       const refused = options.refuse?.(activation);
       if (refused) throw new Error(refused);
@@ -76,11 +88,23 @@ export function createFakeAdapter(
       let activeController: AbortController | undefined;
       let activeCompletion: Promise<void> | undefined;
       let firstPrompt: number | undefined;
+      const sessionId = activation.continues?.sessionRef ?? `fake-${activation.key}`;
+      const forks = options.forks?.(activation) ?? false;
       return {
-        identity: {
-          sessionId: `fake-${activation.key}`,
-          cwd: activation.cwd,
-        },
+        identity: { sessionId, cwd: activation.cwd },
+        ...(forks
+          ? {
+              async fork(sessionRef: string): Promise<NativeFork> {
+                if (isClosed) throw new Error("fake session is closed");
+                const fork = {
+                  harness: activation.execution.harness,
+                  sessionRef: `${sessionRef}/fork-${randomUUID()}`,
+                };
+                options.onFork?.({ activation, sessionRef: fork.sessionRef, turns: turn });
+                return fork;
+              },
+            }
+          : {}),
         promptedAt: () => firstPrompt,
         async execute(operation) {
           if (isClosed) throw new Error("fake session is closed");
@@ -120,7 +144,8 @@ export function createFakeAdapter(
               resultEvidence: scripted.transcript
                 ? ({ kind: "transcript", text: scripted.transcript } as const)
                 : ({ kind: "unavailable" } as const),
-              ...(scripted.sessionRef ? { sessionRef: scripted.sessionRef } : {}),
+              // Every turn names its session, as a real harness's output does.
+              sessionRef: scripted.sessionRef ?? sessionId,
               chargesUsd: scripted.chargesUsd ?? [],
               ...(scripted.summary === undefined || controller.signal.aborted
                 ? {}

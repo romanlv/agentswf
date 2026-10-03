@@ -991,3 +991,68 @@ describe("testWorkflow with a calling session", () => {
     ).rejects.toThrow('agent "solo" turn 1: only the calling session can be interrupted');
   });
 });
+
+/** Plans headless, then forks a tester that starts from the plan. */
+const forking = workflowOf<{ placement?: "pane" }, JsonValue>(async (workflow, args) => {
+  const worker = await workflow.agents.open({
+    key: "worker",
+    runtime: { alias: "claude", placement: "headless", metered: true },
+  });
+  await worker.run({ prompt: "Plan a cache.", schema: PLAN });
+  const tests = await worker
+    .fork({ key: "tests", instructions: "You write the tests.", ...args })
+    .catch((error: Error) => error.message);
+  if (typeof tests === "string") return tests;
+  const status = await tests.run({ prompt: "Test the plan.", schema: STATUS });
+  return status.outcome.kind;
+});
+
+describe("testWorkflow forks", () => {
+  test("a fork is scripted by its own key and recorded with the agent it copied", async () => {
+    const run = await testWorkflow(
+      forking,
+      {},
+      {
+        agents: {
+          worker: [answer(PLAN, { steps: ["a"] })],
+          tests: [answer(STATUS, { step: 0, state: "done" })],
+        },
+      },
+    );
+    expect(run.value).toBe("answered");
+    expect(run.agentOf("tests")).toMatchObject({
+      instructions: "You write the tests.",
+      execution: run.agentOf("worker").execution,
+      forkedFrom: { key: "worker", turns: 1 },
+    });
+    expect(run.agentOf("worker")).not.toHaveProperty("forkedFrom");
+  });
+
+  test("a sandboxed agent is not forked yet: its fork's session would land in its home", async () => {
+    const sandboxed = workflowOf<null, string>(async (workflow) => {
+      const worker = await workflow.agents.open({
+        key: "worker",
+        runtime: { alias: "codex", placement: "headless" },
+        sandbox: { srt: {} },
+      });
+      await worker.run({ prompt: "Plan a cache.", schema: PLAN });
+      return worker.fork({ key: "tests" }).then(
+        () => "forked",
+        (error: Error) => error.message,
+      );
+    });
+    const run = await testWorkflow(sandboxed, null, {
+      agents: { worker: [answer(PLAN, { steps: ["a"] })] },
+    });
+    expect(run.value).toBe("agent worker has a harness home of its own, and cannot be forked yet");
+  });
+
+  test("a fork into a pane is refused, as the pane host refuses one", async () => {
+    const run = await testWorkflow(
+      forking,
+      { placement: "pane" },
+      { agents: { worker: [answer(PLAN, { steps: ["a"] })] } },
+    );
+    expect(run.value).toBe("pane agents cannot continue a forked session yet");
+  });
+});

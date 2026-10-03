@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
-import type { AgentRunHostFactory, AgentSessionAdapter } from "../adapter";
+import { type AbsoluteDeadline, DeadlineExceededError } from "@agentswf/contract/workflow";
+import type { AgentRunHostFactory, AgentSessionAdapter, NativeFork } from "../adapter";
 import { skillsLaunch } from "../capabilities/skills";
 import { type RunProcess, runProcess } from "../command";
 import { headlessRefusal } from "../refusals";
@@ -32,16 +33,39 @@ export function createHeadlessAdapter(
     placement: "headless",
     launchesInSandbox: true,
     givesSkills: true,
+    continues: true,
     async activate(request) {
       const refused = headlessRefusal(request);
       if (refused) throw new Error(refused);
       const harness = knownHarness(request.execution.harness);
       const spec = harnessSpec(harness);
       const { occupant } = request;
-      const identity = { sessionId: newSessionId(), cwd: request.cwd };
+      const identity = {
+        sessionId: request.continues?.sessionRef ?? newSessionId(),
+        cwd: request.cwd,
+      };
       let hasExecuted = false;
-      /** The session's running total as the harness last printed it; a new session's is nothing. */
-      let costTotal = 0;
+      /**
+       * The session's running total as the harness last printed it: a new session's is nothing, a
+       * fork's is what was printed when it was made, its parent's. Unknown, the next total charges
+       * nothing rather than its parent's spend again.
+       */
+      let costTotal: number | undefined = request.continues ? request.continues.costTotal : 0;
+      /** The instructions go with the first turn, not a compaction, a forked session's too. */
+      let instructed = false;
+      /** Every turn, a resumed one too: none of them remembers the last one's arguments. */
+      const launchContext = async () => {
+        const skills = request.skills ? await skillsLaunch(harness, request.skills) : undefined;
+        const launchArgs = [...(occupant ? sandboxedArgs(harness) : []), ...(skills?.args ?? [])];
+        return {
+          env: { ...skills?.env },
+          context: {
+            ...(request.execution.model ? { model: request.execution.model } : {}),
+            sessionHint: identity.sessionId,
+            ...(launchArgs.length > 0 ? { launchArgs } : {}),
+          },
+        };
+      };
       let closed = false;
       let active: AbortController | undefined;
       let activeCompletion: Promise<void> | undefined;
@@ -76,18 +100,12 @@ export function createHeadlessAdapter(
             }
           }
           const prompt =
-            !operation.previousSessionRef && request.instructions
+            !instructed && operation.kind !== "compact" && request.instructions
               ? `${request.instructions}\n\n${operation.prompt}`
               : operation.prompt;
+          if (operation.kind !== "compact") instructed = true;
           hasExecuted = true;
-          // Every turn, a resumed one too: none of them remembers the last one's arguments.
-          const skills = request.skills ? await skillsLaunch(harness, request.skills) : undefined;
-          const launchArgs = [...(occupant ? sandboxedArgs(harness) : []), ...(skills?.args ?? [])];
-          const context = {
-            ...(request.execution.model ? { model: request.execution.model } : {}),
-            sessionHint: identity.sessionId,
-            ...(launchArgs.length > 0 ? { launchArgs } : {}),
-          };
+          const { env, context } = await launchContext();
           const compaction =
             operation.kind === "compact"
               ? spec.compactHeadless!(operation.prompt, operation.previousSessionRef!, context)
@@ -102,7 +120,7 @@ export function createHeadlessAdapter(
           const command = {
             argv: plan.argv,
             cwd: request.cwd,
-            env: { ...skills?.env },
+            env,
             ...(plan.stdin === undefined ? {} : { stdin: plan.stdin }),
             timeoutMs: Math.max(1, remaining),
             signal: controller.signal,
@@ -144,7 +162,8 @@ export function createHeadlessAdapter(
               nativeSession === operation.previousSessionRef || !operation.previousSessionRef
                 ? costTotal
                 : 0;
-            charge = total >= before ? roundUsd(total - before) : total;
+            charge =
+              before === undefined ? undefined : total >= before ? roundUsd(total - before) : total;
             costTotal = total;
           }
           const common = {
@@ -186,6 +205,50 @@ export function createHeadlessAdapter(
           }
           return { state: "completed" as const, ...common };
         },
+        ...(spec.forkSession
+          ? {
+              async fork(sessionRef: string, deadline: AbsoluteDeadline): Promise<NativeFork> {
+                if (closed) throw new Error("headless session is closed");
+                const remaining = deadline.unixMilliseconds - Date.now();
+                if (remaining <= 0) throw new DeadlineExceededError(deadline);
+                const { env, context } = await launchContext();
+                if (closed) throw new Error("headless session is closed");
+                const plan = spec.forkSession!(sessionRef, newSessionId(), context);
+                const controller = new AbortController();
+                active = controller;
+                const command = {
+                  argv: plan.argv,
+                  cwd: request.cwd,
+                  env,
+                  ...(plan.stdin === undefined ? {} : { stdin: plan.stdin }),
+                  timeoutMs: Math.max(1, remaining),
+                  signal: controller.signal,
+                };
+                const running = run(occupant ? occupant.launch(command) : command);
+                activeCompletion = running.then(
+                  () => undefined,
+                  () => undefined,
+                );
+                const result = await running.finally(() => {
+                  if (active === controller) active = undefined;
+                });
+                if (result.cancelled) throw new Error("the fork was cancelled");
+                if (result.timedOut) throw new DeadlineExceededError(deadline);
+                if (result.exitCode !== 0) {
+                  throw new Error(
+                    `${plan.argv[0]} exited ${result.exitCode} forking: ${result.stderr.trim().slice(0, 400)}`,
+                  );
+                }
+                const read = plan.read(result.stdout);
+                if ("error" in read) throw new Error(read.error);
+                return {
+                  harness,
+                  sessionRef: read.sessionId,
+                  ...(read.costTotal === undefined ? {} : { costTotal: read.costTotal }),
+                };
+              },
+            }
+          : {}),
         async close() {
           closed = true;
           active?.abort();

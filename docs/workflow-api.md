@@ -14,6 +14,7 @@ to, and [`examples/`](../examples) has complete workflows.
 workflow.agents.open({ key, runtime, instructions?, skills?, sandbox?, cwd? })  // → agent
 agent.run({ prompt, schema?, timeoutMs?, label?, nudge? })  // → { outcome }; the same agent keeps its session
 agent.compact({ prompt })                                    // → outcome; the harness's own compaction, with a focus
+agent.fork({ key, placement?, instructions? })               // → a new agent on a copy of this one's session
 workflow.agents.caller({ key })                              // → the session `awf run --here` was typed in, or null
 isAnswered(outcome)                                          // narrows to { kind: "answered", value }
 
@@ -192,6 +193,32 @@ if (!isAnswered(compacted)) workflow.log("compaction didn't finish", { reason: c
 - **Bounds and ids** are `run`'s: it runs within the workflow's deadline unless `timeoutMs` or
   `deadline` bounds it sooner, and an `id`, generated when omitted, makes it idempotent. The same
   spec again under one id returns the same outcome; another spec under it rejects.
+
+### Forking: new agents that start from what one knows
+
+`fork` opens a new agent on a copy of this agent's session, so it starts knowing what this agent
+knew, without being told again, and its first request reads that context from the provider's cache
+([ADR 0009](adr/0009-a-fork-is-a-new-agent-on-a-copy-of-the-session.md)).
+
+```ts
+await worker.run({ prompt: "Read the ticket and plan the change.", schema: PLAN });
+const [security, tests] = await Promise.all([
+  worker.fork({ key: "security", instructions: "Review the plan for security." }),
+  worker.fork({ key: "tests" }),
+]);
+```
+
+- **The copy is taken when `fork` is called**, after the agent's earlier operations: a `run` queued
+  after it is not in it. From then on neither agent sees the other's turns.
+- **A fork has its parent's** harness, model, working directory, sandbox and skills. It may name its
+  own `placement` (with `metered`), `instructions`, which go with its first turn, and `labels`.
+- **It rejects**, as `agents.open` does, before the agent's own first turn, once the agent is
+  closed, and where the harness cannot fork. Today that is headless claude only; story 016 adds the
+  others.
+- **The same key** with the same parent and spec returns the same agent; anything else under it
+  rejects.
+- **A test** scripts a fork by its own key like any agent, and `agentOf(key).forkedFrom` names the
+  agent it copied and how many of its turns came before.
 
 ### The calling session
 

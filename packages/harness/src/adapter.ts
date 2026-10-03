@@ -131,6 +131,12 @@ export interface HarnessSession {
     binding: HarnessOperationBinding,
   ): Promise<HarnessTurn>;
   compact(id: CompactionId, prompt: string, deadline: AbsoluteDeadline): Promise<HarnessTurn>;
+  /**
+   * A copy of this session, taken by the harness's own fork with no model call, once any turn left
+   * finishing has ended (ADR 0009). Absent where the host cannot fork; rejects before the agent's
+   * own first turn and where its harness cannot.
+   */
+  fork?(deadline: AbsoluteDeadline): Promise<NativeFork>;
   close(reason?: string): Promise<void>;
   /** Every native session id the adapter has seen for this agent, in the order first seen. */
   sessions?(): readonly string[];
@@ -140,6 +146,17 @@ export interface HarnessSession {
    */
   promptedAt?(): number | undefined;
 }
+
+/**
+ * A session the harness forked, for a new agent to continue. The engine hands it from the parent's
+ * `fork` to the child's activation and never reads it: everything native about a fork stays here.
+ */
+export type NativeFork = {
+  readonly harness: HarnessKind;
+  readonly sessionRef: string;
+  /** The running total the harness printed at the fork, where it prints one: the parent's. */
+  readonly costTotal?: number;
+};
 
 export interface HarnessActivation {
   key: AgentKey;
@@ -158,6 +175,11 @@ export interface HarnessActivation {
    * whatever it would on its own.
    */
   skills?: AgentSkills;
+  /**
+   * The forked session this agent continues instead of starting one. An adapter that cannot
+   * continue one, or one forked by another harness, refuses the agent.
+   */
+  continues?: NativeFork;
 }
 
 /** An opaque locator for a session the engine did not start; only the adapter interprets it. */

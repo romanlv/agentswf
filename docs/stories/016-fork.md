@@ -273,7 +273,7 @@ Alternatives rejected:
 ## Tasks at a glance
 
 - [x] 1. Each headless claude or pi turn charges what it cost
-- [ ] 2. A headless claude agent forks, end to end
+- [x] 2. A headless claude agent forks, end to end
 - [ ] 3. Forks in panes and across placements: claude and codex
 - [ ] 4. Headless codex and pi fork
 - [ ] 5. A fork whose home differs from its parent's: sandboxes and codex's skills home
@@ -506,6 +506,48 @@ Manual or live evaluation:
 - [x] Open questions are resolved or explicitly moved out of scope.
 
 ## Implementation notes
+
+### Task 2, 2026-10-03
+
+- Built as designed: `AgentForkSpec` and `AgentRef.fork` in contract; `NativeFork`,
+  `HarnessSession.fork`, `HarnessActivation.continues` and claude's `forkSession` in harness; in
+  the engine the key is reserved at call time, the native fork queues in the parent's operations
+  and the child opens after it, on its parent's copy of its skills. The progress log prints
+  `↳ {fork} forked from {parent}` once the copy is made.
+- `forkSession` takes the new session's id from the backend, as a headless turn takes its hint, so
+  claude writes the copy where awf chose.
+- **A fork that was not made frees its key.** A rejected native fork, as before the parent's first
+  turn, removes the reservation, so the same key may be forked once the parent has run. A child
+  that fails to open after its fork was made keeps its key, as an `agents.open` that failed does.
+- **The native fork is bounded by a minute of its own**, inside the workflow's deadline: it asks
+  no model, and an unbounded one would hold the parent's queue.
+- **A fork whose harness printed no total charges its first turn nothing** rather than its parent's
+  spend; later turns charge their difference as usual.
+- **The instructions go with the first turn, not a compaction**, a forked session's too.
+- **Refusals, in order:** the calling session; a parent with a harness home of its own (a sandbox,
+  a run sandbox, or codex given skills on the host), until task 5; a host with no fork (cursor,
+  panes, and headless codex and pi until tasks 3 and 4); the parent closed; and, in the harness,
+  before the parent's own first turn.
+- **Deviation, until task 3:** a fork into a pane is refused by the pane host after the native fork
+  ran, since the engine does not know what a host continues. The copy is a session file nothing
+  reads, in the parent's claude home.
+- `metered` is consent per agent: a fork naming a placement names its own `metered`; one naming
+  neither keeps its parent's.
+- The fake adapter forks where told to, names a session on every turn as a real harness does, and
+  continues a forked session; the workflow-testing host forks headless agents whose harness forks.
+- Live: `examples/fork` with `claude-headless claude-headless:compact` on sonnet 5.5, 28 s, about
+  $0.36 at list prices. Both forks recalled the parent's vault code and not the gate code told
+  after; both workers recalled both. Each fork's transcript holds its parent's rows, then its own
+  first request, with nothing between: the fork asked no model. The plain fork's first request read
+  26,445 tokens from the cache and wrote 979 (F1); the compacted one read 12,191 and wrote 16,120,
+  the summary (F3). Each fork charged only its own: $0.019 and $0.076, from its parent's total at
+  the fork. The review fixes after that run (the bound, the freed key, the unknown baseline) were
+  checked by tests only.
+- Reviews (architecture and scope; correctness and proof): nothing blocking. Fixed: the freed key,
+  the bound, the unknown baseline, instructions after a compaction, the close race, a test for the
+  home refusal, a sharper usage test, a progress line only once forked, `deadlines.typecheck.ts`.
+  Recorded: the pane deviation above. The "parent's channel" test proves what a fork can actually
+  reach, a call id from its copied context, which the control plane refuses.
 
 ### Task 1, 2026-10-03
 

@@ -166,6 +166,18 @@ function observeSession(
           : session.start(turn as AgentTextTurnSpec, binding),
       )) as HarnessSession["start"],
     compact: (id, prompt, deadline) => begin(() => session.compact(id, prompt, deadline)),
+    ...(session.fork
+      ? {
+          async fork(deadline) {
+            record({ state: "working" });
+            try {
+              return await session.fork!(deadline);
+            } finally {
+              await recordSession();
+            }
+          },
+        }
+      : {}),
     ...(session.sessions ? { sessions: () => session.sessions!() } : {}),
     ...(session.promptedAt ? { promptedAt: () => session.promptedAt!() } : {}),
     async close(reason) {

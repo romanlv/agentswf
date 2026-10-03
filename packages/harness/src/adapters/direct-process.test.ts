@@ -505,6 +505,153 @@ describe("createHeadlessAdapter", () => {
     expect((await turn.settled).chargesUsd).toEqual([0.042]);
   });
 
+  describe("fork", () => {
+    // What `claude -p --resume … --fork-session … ` printed for `/cost` (F7, F9).
+    const forked = (sessionId: string, total = 0.123, turns = 0) =>
+      JSON.stringify({
+        session_id: sessionId,
+        result: "",
+        num_turns: turns,
+        total_cost_usd: total,
+      });
+
+    test("claude forks with /cost into the id it is given, asking the model nothing", async () => {
+      const { run, calls } = stub([claudeOut("first"), forked("fork-1")]);
+      const session = await headless(run, { newSessionId: () => "fork-1" });
+      await (await session.start(turnSpec, firstBinding)).settled;
+      const fork = await session.fork!(activation.deadline);
+
+      expect(fork).toEqual({ harness: "claude", sessionRef: "fork-1", costTotal: 0.123 });
+      expect(calls[1]?.stdin).toBe("/cost");
+      expect(calls[1]?.argv).toEqual(
+        expect.arrayContaining(["--resume", "sess-1", "--fork-session", "--session-id", "fork-1"]),
+      );
+      expect(calls[1]?.argv).toEqual(expect.arrayContaining(["--model", "opus"]));
+    });
+
+    test("a fork that asked the model, or wrote no new session, fails", async () => {
+      for (const [stdout, error] of [
+        [forked("fork-1", 0.2, 1), "claude asked the model while forking"],
+        [forked("sess-1"), "claude wrote no fork"],
+      ] as const) {
+        const { run } = stub([claudeOut("first"), stdout]);
+        const session = await headless(run, { newSessionId: () => "fork-1" });
+        await (await session.start(turnSpec, firstBinding)).settled;
+        await expect(session.fork!(activation.deadline)).rejects.toThrow(error);
+      }
+    });
+
+    test("a continued fork resumes its copy with its own instructions, and charges from its parent's total", async () => {
+      const { run, calls } = stub([
+        JSON.stringify({ session_id: "fork-1", result: "ok", total_cost_usd: 0.13 }),
+      ]);
+      const session = await headless(
+        run,
+        {},
+        {
+          ...activation,
+          instructions: "You write the tests.",
+          continues: { harness: "claude", sessionRef: "fork-1", costTotal: 0.123 },
+        },
+      );
+      const turn = await session.start(turnSpec, firstBinding);
+
+      expect((await turn.settled).chargesUsd).toEqual([0.007]);
+      expect(calls[0]?.argv[calls[0].argv.indexOf("--resume") + 1]).toBe("fork-1");
+      expect(calls[0]?.stdin).toBe(`You write the tests.\n\n${turnSpec.prompt}`);
+      expect(session.sessions?.()).toEqual(["fork-1"]);
+    });
+
+    test("a fork that printed no total charges its first turn nothing, never its parent's spend", async () => {
+      const { run } = stub([
+        JSON.stringify({ session_id: "fork-1", result: "ok", total_cost_usd: 0.13 }),
+        JSON.stringify({ session_id: "fork-1", result: "ok", total_cost_usd: 0.15 }),
+      ]);
+      const session = await headless(
+        run,
+        {},
+        { ...activation, continues: { harness: "claude", sessionRef: "fork-1" } },
+      );
+      const first = await session.start(turnSpec, firstBinding);
+      expect((await first.settled).chargesUsd).toEqual([]);
+      const second = await session.start(
+        { ...turnSpec, id: "turn-2" },
+        { ...firstBinding, operationId: "op-2" },
+      );
+      expect((await second.settled).chargesUsd).toEqual([0.02]);
+    });
+
+    test("a fork compacted before its first turn still gives that turn its instructions", async () => {
+      const compacted = [
+        { type: "system", subtype: "compact_boundary" },
+        { type: "user", isSynthetic: true, message: { role: "user", content: "kept" } },
+        { type: "result", result: "", session_id: "fork-1" },
+      ]
+        .map((row) => JSON.stringify(row))
+        .join("\n");
+      const { run, calls } = stub([compacted, claudeOut("ok", "fork-1")]);
+      const session = await headless(
+        run,
+        {},
+        {
+          ...activation,
+          instructions: "You write the tests.",
+          continues: { harness: "claude", sessionRef: "fork-1" },
+        },
+      );
+      await (await session.compact("c-1", "Keep it.", activation.deadline)).settled;
+      await (await session.start(turnSpec, firstBinding)).settled;
+      expect(calls[0]?.stdin).toBe("/compact Keep it.");
+      expect(calls[1]?.stdin).toBe(`You write the tests.\n\n${turnSpec.prompt}`);
+    });
+
+    test("a sandboxed agent forks inside, as its turns run", async () => {
+      const occupant: Occupant = {
+        launch: (root): SandboxedCommand => ({
+          ...root,
+          argv: ["inside", ...root.argv],
+          group: true,
+        }),
+        async release() {},
+      };
+      const { run, calls } = stub([claudeOut("first"), forked("fork-1")]);
+      const session = await headless(
+        run,
+        { newSessionId: () => "fork-1" },
+        { ...activation, occupant },
+      );
+      await (await session.start(turnSpec, firstBinding)).settled;
+      await session.fork!(activation.deadline);
+
+      expect(calls[1]?.argv[0]).toBe("inside");
+    });
+
+    test("an agent is not forked before its first turn, and a harness with none has no fork", async () => {
+      const { run, calls } = stub([]);
+      const session = await headless(run);
+      await expect(session.fork!(activation.deadline)).rejects.toThrow(
+        "an agent cannot be forked before its first turn",
+      );
+      const cursor = await headless(
+        run,
+        {},
+        {
+          ...activation,
+          execution: { harness: "cursor", model: "composer", placement: "headless" },
+        },
+      );
+      expect(cursor.fork).toBeUndefined();
+      expect(calls).toHaveLength(0);
+    });
+
+    test("a fork of another harness's session is refused", async () => {
+      const { run } = stub([]);
+      await expect(
+        headless(run, {}, { ...activation, continues: { harness: "codex", sessionRef: "t-1" } }),
+      ).rejects.toThrow("agent reviewer runs claude, not the codex it would continue");
+    });
+  });
+
   describe("claude prints its session's running total, and each turn charges what it added (F9)", () => {
     const priced = (total: number | undefined, result = "ok") =>
       JSON.stringify({

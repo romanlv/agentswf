@@ -23,6 +23,8 @@ export type AgentProgress = {
   /** Index into `stages` of the stage that opened the agent. */
   stage?: number;
   turns: number;
+  /** The agent it was forked from. */
+  forkedFrom?: AgentKey;
   /** The latest turn. */
   turn?: TurnProgress;
 };
@@ -42,6 +44,17 @@ export class RunProgress {
     if (this.#agents.has(key)) return;
     const index = stage ? this.#stages.indexOf(stage) : -1;
     this.#agents.set(key, { turns: 0, ...(index >= 0 ? { stage: index } : {}) });
+  }
+
+  /** A fork that was not made, whose key is free again. */
+  agentDropped(key: AgentKey): void {
+    this.#agents.delete(key);
+  }
+
+  /** Once its parent's session was copied, not when it was asked for. */
+  agentForked(key: AgentKey, from: AgentKey): void {
+    const agent = this.#agents.get(key);
+    if (agent) agent.forkedFrom = from;
   }
 
   turnStarted(key: AgentKey): void {

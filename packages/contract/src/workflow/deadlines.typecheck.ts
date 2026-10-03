@@ -1,5 +1,6 @@
 import type {
   AbsoluteDeadline,
+  AgentForkSpec,
   AgentOpenSpec,
   AgentRef,
   AgentRunTextSpec,
@@ -40,6 +41,8 @@ const inheritedCall = {
 const inheritedStep = { id: "step" } satisfies StepSpec;
 const inheritedCompact = { prompt: "Keep the plan." } satisfies CompactSpec;
 const boundedCompact = { prompt: "Keep the plan.", timeoutMs: 60_000 } satisfies CompactSpec;
+// A fork is bounded by the workflow scope, as an agent's opening is.
+const inheritedFork = { key: "tests" } satisfies AgentForkSpec;
 
 function terminalKind(outcome: TurnOutcome<string>): string {
   return outcome.kind === "timed-out" ? outcome.reason : outcome.kind;
@@ -56,6 +59,7 @@ function rejectedShapes(): void {
 }
 
 void [
+  inheritedFork,
   turn,
   parallel,
   inheritedTurn,

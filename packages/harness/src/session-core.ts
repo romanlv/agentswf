@@ -20,6 +20,7 @@ import type {
   HarnessSessionStatus,
   HarnessTurn,
   HarnessTurnOutcome,
+  NativeFork,
 } from "./adapter";
 
 export type NativeTurnRequest = {
@@ -55,6 +56,8 @@ export type ActivatedSessionBackend = {
   /** When it first prompted the agent, where it waits before prompting; see `HarnessSession`. */
   promptedAt?(): number | undefined;
   execute(request: NativeTurnRequest): Promise<NativeTurnOutcome>;
+  /** The harness's own fork of `sessionRef`; absent where it has none. */
+  fork?(sessionRef: string, deadline: AbsoluteDeadline): Promise<NativeFork>;
   close(reason?: string): Promise<void>;
 } & (
   | { cancel?(reason?: string): Promise<boolean>; readonly finishesAnswered?: false }
@@ -96,6 +99,8 @@ export type SessionAdapterOptions = {
   launchesInSandbox?: true;
   /** It launches with `request.skills`; without this, an agent given skills is refused. */
   givesSkills?: true;
+  /** It continues a forked session; without this, an agent given one is refused. */
+  continues?: true;
   finishGraceMs?: number;
   activate(request: HarnessActivation): Promise<ActivatedSessionBackend>;
   now?: () => number;
@@ -121,12 +126,26 @@ export function createSessionAdapter(options: SessionAdapterOptions): AgentSessi
       if (request.skills && !options.givesSkills) {
         throw new Error(`${placement} agents cannot be given skills by this adapter`);
       }
+      const { continues } = request;
+      if (continues && !options.continues) {
+        throw new Error(`${placement} agents cannot continue a forked session yet`);
+      }
+      if (continues && continues.harness !== request.execution.harness) {
+        throw new Error(
+          `agent ${request.key} runs ${request.execution.harness}, not the ${continues.harness} it would continue`,
+        );
+      }
       const native = await options.activate(request);
       if (expired(request.deadline, now)) {
         await native.close("activation deadline exceeded");
         throw new DeadlineExceededError(request.deadline);
       }
-      return createSession(native, now, options.finishGraceMs ?? DEFAULT_FINISH_GRACE_MS);
+      return createSession(
+        native,
+        now,
+        options.finishGraceMs ?? DEFAULT_FINISH_GRACE_MS,
+        continues?.sessionRef,
+      );
     },
   };
 }
@@ -135,30 +154,34 @@ function createSession(
   native: ActivatedSessionBackend,
   now: () => number,
   finishGraceMs: number,
+  /** The forked session this agent continues, which its first turn resumes. */
+  continued?: string,
 ): HarnessSession {
   let closed = false;
   let active = false;
   let quarantined = false;
   let closeAttempt: Promise<void> | undefined;
   let lastStatus: HarnessSessionStatus = { state: "idle" };
-  let sessionRef: string | undefined;
+  let sessionRef = continued;
+  /** Its own turn has run, so its session holds what it was told; only then may it be forked. */
+  let hasRun = false;
   /** An answered turn left to end on its own; the next start waits for it. */
   let finishing: { settled: Promise<unknown>; stop(reason: string): Promise<boolean> } | undefined;
   /** Only the newest turn's end may set the session's status. */
   let turns = 0;
   /** Starts waiting for a finishing turn to end: the session is working on their behalf. */
   let waiting = 0;
-  const seen = new Set<string>();
+  const seen = new Set<string>(continued ? [continued] : []);
   const usedOperationIds = new Set<string>();
 
   /**
    * Waits out a turn left finishing, for half the new operation's time at most so it can still run
    * once the old turn is stopped, then opens the new one.
    */
-  const afterFinishing = async (
+  const afterFinishing = async <T>(
     deadline: AbsoluteDeadline,
-    open: () => HarnessTurn,
-  ): Promise<HarnessTurn> => {
+    open: () => T | Promise<T>,
+  ): Promise<T> => {
     const pending = finishing;
     if (!pending) return open();
     waiting += 1;
@@ -182,11 +205,28 @@ function createSession(
     return open();
   };
 
-  const start = (request: NativeTurnRequest): HarnessTurn => {
+  const assertIdle = () => {
     if (closed) throw new Error("harness session is closed");
     if (quarantined) throw new Error("harness session is quarantined");
     if (closeAttempt) throw new Error("harness session is closing");
     if (active) throw new Error("harness session already has an active operation");
+  };
+
+  const fork = async (deadline: AbsoluteDeadline): Promise<NativeFork> => {
+    assertIdle();
+    assertDeadline(deadline, now);
+    // A fork that has not run holds none of its instructions yet: they go with its first turn.
+    if (!hasRun || !sessionRef) throw new Error("an agent cannot be forked before its first turn");
+    active = true;
+    try {
+      return await native.fork!(sessionRef, deadline);
+    } finally {
+      active = false;
+    }
+  };
+
+  const start = (request: NativeTurnRequest): HarnessTurn => {
+    assertIdle();
     assertDeadline(request.deadline, now);
     if (request.binding && request.kind !== "nudge") {
       if (usedOperationIds.has(request.binding.operationId)) {
@@ -228,6 +268,7 @@ function createSession(
         if (outcome.sessionRef) {
           seen.add(outcome.sessionRef);
           sessionRef = outcome.sessionRef;
+          if (request.kind !== "compact") hasRun = true;
         }
         const reported = withoutSessionRef(outcome);
         if (!quarantined && generation === turns) {
@@ -315,6 +356,7 @@ function createSession(
     },
     compact: (id, prompt, deadline) =>
       afterFinishing(deadline, () => start({ id, prompt, deadline, kind: "compact" })),
+    ...(native.fork ? { fork: (deadline) => afterFinishing(deadline, () => fork(deadline)) } : {}),
     sessions: () => [...seen],
     ...(native.promptedAt ? { promptedAt: () => native.promptedAt!() } : {}),
     async close(reason?: string) {

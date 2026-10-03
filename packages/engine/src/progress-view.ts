@@ -84,6 +84,9 @@ export function progressEvents(
   });
   for (const agent of after.agents) {
     const earlier = before?.agents.find((a) => a.key === agent.key);
+    if (agent.forkedFrom !== undefined && earlier?.forkedFrom === undefined) {
+      events.push(`${at} ↳ ${agent.key} forked from ${agent.forkedFrom}`);
+    }
     const turn = agent.turn;
     if (!turn) continue;
     const fresh = earlier?.turns !== agent.turns;

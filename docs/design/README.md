@@ -65,6 +65,9 @@ const reviewer = await context.agents.open({
   cancellation, or an unanswered-result nudge. Detached turns require a caller-supplied id.
 - `compact()` runs the harness's own compaction, with the spec's prompt as its focus (ADR 0007).
   An `answered` outcome means the context was replaced; any other leaves it as it was.
+- `fork()` opens a new agent on a copy of the session, taken after the agent's earlier operations
+  by the harness's own fork with no model call (ADR 0009). It has its parent's harness, model,
+  working directory, sandbox and skills, and from then on neither sees the other's turns.
 
 The public call surface is:
 
@@ -72,7 +75,7 @@ The public call surface is:
 | --- | --- |
 | `AgentDirectory` | `open(spec)`, `attach(key, runtime?)`, `stop(key, reason?)` |
 | `ParticipantDirectory` | `connect(spec)`, `get(key)` |
-| `AgentRef` | `run(spec)`, `enqueue(spec)`, `compact(spec)` |
+| `AgentRef` | `run(spec)`, `enqueue(spec)`, `compact(spec)`, `fork(spec)` |
 | `TurnRef` | `result`, `nudge(options)`, `cancel(reason?)` |
 | `Messaging` | `allow(access)` |
 | `Steps` | `run(spec, operation)`, `sleep(spec)` |
@@ -105,7 +108,8 @@ The engine opens one run through `host.openRun()` and each logical agent through
 `openAgent()`, with the logical key, resolved execution, working directory, instructions, and
 labels. Behind the host, an adapter declares the harnesses it drives and the capabilities it can
 honestly report, and the host calls its `activate()`. The returned `HarnessSession` can report
-status, start turns, compact context, and close. A `HarnessTurn` exposes its eventual native
+status, start turns, compact context, fork, and close. A fork comes back as a `NativeFork`, which
+the engine passes unread to the child's activation as `continues`. A `HarnessTurn` exposes its eventual native
 outcome, continuation delivery, nudge, and release.
 
 | Object | Calls |
@@ -113,7 +117,7 @@ outcome, continuation delivery, nudge, and release.
 | `AgentRunHostFactory` | `openRun(spec)` |
 | `AgentRunHost` | `openAgent(request)`, `inspect()`, `close(reason?)` |
 | `AgentSessionAdapter` | `activate(request)` — called by the host, not the engine |
-| `HarnessSession` | `status()`, `start(turn, binding)`, `compact(id, prompt, deadline)`, `close(reason?)` |
+| `HarnessSession` | `status()`, `start(turn, binding)`, `compact(id, prompt, deadline)`, `fork?(deadline)`, `close(reason?)` |
 | `HarnessTurn` | `settled`, `deliver(prompt)`, `nudge(spec)`, `release(reason, deadline)` |
 | `OutsideSessionControl` | `status(session)`, `wake(session)` — optional, see below |
 

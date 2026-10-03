@@ -18,6 +18,7 @@ import {
   createFakeAdapter,
   type FakeAdapterTurn,
   type FakeAdapterTurnContext,
+  type FakeFork,
 } from "@agentswf/harness/testing";
 import { submitResult } from "@agentswf/wf/client";
 import type { Scripts, Step, Turn, TurnOutcome } from "./script";
@@ -46,6 +47,8 @@ export type OpenedAgent = {
   skills?: readonly string[];
   /** The sandbox it ran in; absent on the host. */
   sandbox?: AgentSandbox;
+  /** The agent it was forked from, and how many of that agent's turns its copy holds. */
+  forkedFrom?: { key: string; turns: number };
 };
 
 /** The sandbox an agent ran in, as the run's record keeps it. */
@@ -84,6 +87,8 @@ export function createScriptedHost(
   const agents: OpenedAgent[] = [];
   const open = new Set<TurnRecord>();
   const counts = new Map<string, number>();
+  /** Each fork's session, by the agent it copied and that agent's turns so far. */
+  const forks = new Map<string, { key: string; turns: number }>();
   const end = (record: TurnRecord, outcome: TurnOutcome) => {
     record.outcome = outcome;
     open.delete(record);
@@ -263,6 +268,19 @@ export function createScriptedHost(
         launchesInSandbox: true,
         givesSkills: true,
         ...(placement === "headless" ? { refuse: headlessRefusal } : {}),
+        // As the headless host: it continues a forked session, and forks where the harness can.
+        ...(placement === "headless"
+          ? {
+              continues: true as const,
+              forks: (activation: HarnessActivation) =>
+                findHarness(activation.execution.harness)?.forkSession !== undefined,
+              onFork: ({ activation, sessionRef }: FakeFork) =>
+                forks.set(sessionRef, {
+                  key: activation.key,
+                  turns: counts.get(activation.key) ?? 0,
+                }),
+            }
+          : {}),
         script,
       }),
     );
@@ -298,6 +316,9 @@ export function createScriptedHost(
               ...(request.instructions ? { instructions: request.instructions } : {}),
               ...(request.labels ? { labels: request.labels } : {}),
               ...(request.skills ? { skills: request.skills.names } : {}),
+              ...(request.continues && forks.has(request.continues.sessionRef)
+                ? { forkedFrom: forks.get(request.continues.sessionRef)! }
+                : {}),
             });
             return session;
           },
