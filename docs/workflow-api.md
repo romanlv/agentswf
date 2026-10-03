@@ -340,8 +340,8 @@ workflow.log("reviewed", { findings: 12 }); // a line in awf's live progress
 workflow.usage();                            // this scope's finished operations: times and sessions
 ```
 
-Costs aren't counted inside the run. After the run, `awf` prices every agent's tokens and prints a
-line per stage (stages come from key prefixes, as above). `output.json` keeps the tokens and the
+Costs aren't counted inside the run. After the run, `awf` prices every agent's tokens and prints the
+total, and a line per stage when there are several (stages come from key prefixes, as above). `output.json` keeps the tokens and the
 price table it used.
 
 ## Testing a workflow

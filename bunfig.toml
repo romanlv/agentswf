@@ -2,6 +2,10 @@
 # silently change how every agent the engine starts logs in.
 env = false
 
+[run]
+# `bun awf …` would otherwise echo the script's command above the run's own output.
+silent = true
+
 [test]
 # `bun test` collects `*.test.ts`. Anything that spends money on live agents is named
 # `*.eval.ts`, so it is excluded by that pattern rather than by a list someone has to maintain.

@@ -255,6 +255,7 @@ export async function runOperatorCli(
   let runError: unknown;
   let outcome: Exclude<OutputRecord["outcome"], "succeeded"> = "failed";
   let failedRecord: string | undefined;
+  let footer: string[] = [];
   /** Where the run's record is, once it has one. */
   let artifactsOf: string | undefined;
   const recordOf = (run: SettledRun) => ({
@@ -313,11 +314,15 @@ export async function runOperatorCli(
     const json = JSON.stringify(record, null, 2);
     await writeFile(join(artifacts, "output.json"), `${json}\n`);
     artifactsOf = artifacts;
-    // Beside the result rather than in it: stdout stays the workflow's report or the JSON.
-    for (const line of describeAccounting(result.accounting)) stderr(line);
-    output = command.json
-      ? json
-      : (present(loaded.executable, result.value, artifacts, report, stderr) ?? json);
+    // After the result and beside it rather than in it: stdout stays the workflow's report or the
+    // JSON.
+    footer = [
+      "",
+      ...describeAccounting(result.accounting),
+      ...(report ? [`Report: ${tilde(report)}`] : []),
+      `Records: ${tilde(artifacts)}`,
+    ];
+    output = command.json ? json : (present(loaded.executable, result.value, stderr) ?? json);
   } catch (error) {
     runError = error;
     outcome = runOutcome(error, deadline);
@@ -334,7 +339,7 @@ export async function runOperatorCli(
       } catch (writeError) {
         stderr(`awf: output.json: ${messageOf(writeError)}`);
       }
-      for (const line of describeAccounting(error.accounting)) stderr(line);
+      for (const line of ["", ...describeAccounting(error.accounting)]) stderr(line);
     }
   }
   let cleanupError: unknown;
@@ -367,6 +372,7 @@ export async function runOperatorCli(
     return 1;
   }
   if (cleanupError !== undefined) {
+    for (const line of footer) stderr(line);
     // Stdout stays empty: it is the result of a run whose teardown did not finish, and a caller
     // reading it without checking the exit code would take that for a clean one. The artifacts
     // are named instead, so the work is still reachable.
@@ -376,6 +382,7 @@ export async function runOperatorCli(
     return 1;
   }
   stdout(output as string);
+  for (const line of footer) stderr(line);
   return 0;
 }
 
@@ -400,7 +407,7 @@ function watchProgress(
     if (terminal && drawn > 0) terminal.write(`\x1b[${drawn}F\x1b[0J`);
     drawn = 0;
   };
-  const tick = () => {
+  const tick = (final = false) => {
     if (!handle) return;
     const snapshot = handle.inspect();
     if (terminal) {
@@ -410,8 +417,10 @@ function watchProgress(
         now: now(),
         paint: terminal.color ? ANSI : PLAIN,
       });
+      // The header's name and clock are the command's and the accounting's once the run is over.
+      if (final) lines.shift();
       clear();
-      terminal.write(`${lines.join("\n")}\n`);
+      if (lines.length > 0) terminal.write(`${lines.join("\n")}\n`);
       drawn = lines.length;
     } else {
       for (const line of progressEvents(last, snapshot, { startedAt, now: now() })) stderr(line);
@@ -420,7 +429,7 @@ function watchProgress(
   };
   // Lines too long for the terminal are clipped rather than wrapped, so the redraw stays exact.
   terminal?.write("\x1b[?25l\x1b[?7l");
-  const timer = setInterval(tick, terminal ? 100 : 1000);
+  const timer = setInterval(() => tick(), terminal ? 100 : 1000);
   return {
     watch(started: WorkflowRunHandle<JsonValue>) {
       handle = started;
@@ -433,7 +442,7 @@ function watchProgress(
     },
     stop() {
       clearInterval(timer);
-      tick();
+      tick(true);
       terminal?.write("\x1b[?7h\x1b[?25h");
     },
   };
@@ -794,22 +803,20 @@ const NOT_IN_A_RUN_SANDBOX = {
 function present(
   executable: ExecutableWorkflow<JsonValue, JsonValue>,
   value: JsonValue,
-  artifacts: string,
-  report: string | undefined,
   stderr: (text: string) => void,
 ): string | undefined {
   if (!executable.present) return undefined;
   try {
-    return [
-      executable.present(value).trimEnd(),
-      "",
-      ...(report ? [`Report: ${report}`] : []),
-      `Full result and agent records: ${artifacts}`,
-    ].join("\n");
+    return executable.present(value).trimEnd();
   } catch (error) {
     stderr(`awf: present: ${messageOf(error)}; printing the full result instead`);
     return undefined;
   }
+}
+
+function tilde(path: string): string {
+  const home = homedir();
+  return path.startsWith(`${home}/`) ? `~${path.slice(home.length)}` : path;
 }
 
 async function writeReport(

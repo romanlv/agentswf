@@ -600,7 +600,7 @@ describe("decision accounting", () => {
     expect(summary.byAgent).toEqual([]);
     expect(describeAccounting(summary)).toEqual([
       "0 agents · 5s · unpriced: other/model-v2",
-      "  3 decisions · 2.00M tokens · ~$0.04 at list prices 2026-09-26 · usage known 2/3 · priced 1/3",
+      "  3 decisions · 2.00M tokens · ~$0.04 at list prices · usage known 2/3 · priced 1/3",
       "  match  1 decision · 0s · ~$0.04",
       "  grade  2 decisions · 0s · usage known 1/2 · priced 0/2",
     ]);
@@ -624,7 +624,9 @@ describe("decision accounting", () => {
         },
       ],
     };
-    const summary = summarizeRun([agent], PUBLISHED_PRICES, TIMES, [
+    // A second stage, priced at nothing, so the stages are listed.
+    const idle: SettledOperation = { ...agent, agent: "lint:a", operationId: "op-2", spend: [] };
+    const summary = summarizeRun([agent, idle], PUBLISHED_PRICES, TIMES, [
       decision({ key: "review:match", settledAt: "2026-09-23T10:00:03.000Z" }),
     ]);
     const [stage] = summary.byStage;

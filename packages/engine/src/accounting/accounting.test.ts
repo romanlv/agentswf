@@ -223,7 +223,7 @@ describe("summarizeRun", () => {
     const unknown = summarizeRun([record("lens:b", undefined)], PUBLISHED_PRICES, TIMES, []);
     expect(unknown.totals).not.toHaveProperty("estimate");
     expect(describeAccounting(unknown)[0]).toBe(
-      "1 agent · 14m 05s · no usage known · subscription · usage known 0/1",
+      "1 agent · 14m 05s · no usage known · subscription",
     );
   });
 
@@ -311,7 +311,7 @@ describe("byModel", () => {
 });
 
 describe("describeAccounting", () => {
-  test("one line for the run and one per stage, naming every gap", () => {
+  test("one line for the run and one per stage when there are several, naming every gap", () => {
     const summary = summarizeRun(
       [
         record("lens:a", [spent("gpt-5.6-terra", { input: 400_000, cacheRead: 2_910_000 })]),
@@ -323,7 +323,7 @@ describe("describeAccounting", () => {
       [],
     );
     expect(describeAccounting(summary)).toEqual([
-      "3 agents · 14m 05s · 3.31M tokens (2.91M cached) · ~$1.38 at list prices 2026-09-26 · subscription · usage known 2/3 · fully priced 1/3 · unpriced: codex-auto-review",
+      "3 agents · 14m 05s · 3.31M tokens · ~$1.38 at list prices · subscription · usage known 2/3 · fully priced 1/3 · unpriced: codex-auto-review",
       "  lens      2 agents · 1m 00s · ~$1.38 · usage known 1/2",
       "  verifier  1 agent · 1m 00s · 1k tokens · fully priced 0/1",
     ]);
@@ -341,11 +341,11 @@ describe("describeAccounting gaps", () => {
     expect(summary.billing).toBe("subscription");
     expect(summary.totals.billed).toBe(1);
     expect(describeAccounting(summary)[0]).toBe(
-      "2 agents · 14m 05s · 0 tokens (0 cached) · ~$0.00 at list prices 2026-09-26 · subscription · billing known 1/2 · usage known 2/2",
+      "2 agents · 14m 05s · 0 tokens · ~$0.00 at list prices · subscription · billing known 1/2",
     );
   });
 
-  test("a real cost under a cent is not shown as nothing, and one token is one", () => {
+  test("a real cost under a cent is not shown as nothing, one token is one, and a lone stage is not repeated", () => {
     const summary = summarizeRun(
       [record("lens:a", [spent("gpt-5.6-luna", { input: 1 })])],
       PUBLISHED_PRICES,
@@ -353,8 +353,7 @@ describe("describeAccounting gaps", () => {
       [],
     );
     expect(describeAccounting(summary)).toEqual([
-      "1 agent · 14m 05s · 1 token (0 cached) · <$0.01 at list prices 2026-09-26 · subscription · usage known 1/1",
-      "  lens  1 agent · 1m 00s · <$0.01",
+      "1 agent · 14m 05s · 1 token · <$0.01 at list prices · subscription",
     ]);
   });
 });

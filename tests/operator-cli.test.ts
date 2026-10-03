@@ -7,6 +7,7 @@ import {
   realpathSync,
   writeFileSync,
 } from "node:fs";
+import { homedir } from "node:os";
 import { join } from "node:path";
 import { RUNTIMES } from "../examples/quick-check/workflow";
 import { OUTPUT_RECORD_VERSION } from "../packages/contract/src/records";
@@ -119,10 +120,11 @@ describe("awf run", () => {
       "[0:00] ✓ reviewer:correctness · 0s",
       "[0:00] ✓ reviewer:maintainability · 0s",
       "[0:00] ■ Minimum review done 2/2 in 0s",
+      "",
       expect.stringMatching(
-        /^2 agents · \d+s · 21k tokens \(18k cached\) · ~\$0\.03 at list prices 2026-09-26 · subscription · usage known 2\/2$/,
+        /^2 agents · \d+s · 21k tokens · ~\$0\.03 at list prices · subscription$/,
       ),
-      expect.stringMatching(/^ {2}reviewer {2}2 agents · \d+s · ~\$0\.03$/),
+      expect.stringMatching(/^Records: .+invocation-[^/]+\/[^/]+$/),
     ]);
     expect(cleaned).toBe(1);
     expect(adapter.turns).toHaveLength(2);
@@ -211,9 +213,9 @@ describe("awf run", () => {
       "codex: wrong (390), then right (400)",
       "pi: right (391), then right (400)",
     ]);
-    const accounting = errors.filter((line) => !line.startsWith("["));
-    expect(accounting[0]).toMatch(/^2 agents · .* · usage known 2\/2/);
-    expect(accounting[1]).toMatch(/^ {2}check {2}2 agents/);
+    const accounting = errors.filter((line) => line !== "" && !line.startsWith("["));
+    expect(accounting[0]).toMatch(/^2 agents · .* · subscription/);
+    expect(accounting[1]).toStartWith("Records: ");
   });
 
   test("quick-check refuses a runtime it does not know", async () => {
@@ -611,7 +613,9 @@ describe("awf run", () => {
     expect(errors.some((line) => line.startsWith("["))).toBe(false);
     expect(drawn[0]).toBe("\x1b[?25l\x1b[?7l");
     expect(drawn.at(-1)).toBe("\x1b[?7h\x1b[?25h");
-    expect(drawn.at(-2)).toMatch(/^fixture · \d+s\n$/);
+    expect(drawn.some((frame) => /^fixture · \d+s\n$/.test(frame))).toBe(true);
+    // Once the run is over, its name and clock are the command's and the accounting's.
+    expect(drawn.at(-2)).not.toContain("fixture");
   });
 
   test("prints what the workflow presents, or the JSON with --json, and keeps the JSON and report either way", async () => {
@@ -626,13 +630,16 @@ describe("awf run", () => {
         "present(result) { return `total ${result.total}`; }, report(result) { return `# ${result.total} found`; },",
       ),
     );
+    let errors: string[] = [];
     const invoke = async (...flags: string[]) => {
       const output: string[] = [];
+      errors = [];
       const exitCode = await runOperatorCli(
         ["run", "--run-root", runDirs.tempRunDir(), ...flags, workflow],
         {
           cwd: ROOT,
           stdout: (text) => output.push(text),
+          stderr: (text) => errors.push(text),
           installRuntime: emptyRuntime,
         },
       );
@@ -640,10 +647,9 @@ describe("awf run", () => {
       return output.join("\n");
     };
 
-    const presented = await invoke();
-    const [summary, , reportLine, artifactsLine] = presented.split("\n");
-    expect(summary).toBe("total 2");
-    const artifacts = artifactsLine!.replace("Full result and agent records: ", "");
+    expect(await invoke()).toBe("total 2");
+    const [reportLine, artifactsLine] = errors.slice(-2);
+    const artifacts = artifactsLine!.replace("Records: ", "").replace(/^~/, homedir());
     expect(reportLine).toBe(`Report: ${join(artifacts, "report.md")}`);
     expect(readFileSync(join(artifacts, "report.md"), "utf8")).toBe("# 2 found\n");
     expect(JSON.parse(readFileSync(join(artifacts, "output.json"), "utf8")).value).toEqual({
@@ -766,8 +772,8 @@ describe("awf run", () => {
 
       expect(exitCode).toBe(1);
       const reported = errors.join("\n");
-      expect(reported).toMatch(/^2 agents · .* · usage known 2\/2$/m);
-      expect(reported.indexOf("usage known")).toBeLessThan(reported.indexOf("run failed"));
+      expect(reported).toMatch(/^2 agents · .* · subscription$/m);
+      expect(reported.indexOf("2 agents")).toBeLessThan(reported.indexOf("run failed"));
       const saved = JSON.parse(
         readFileSync(join(retainedRunDir(retainedRoot(reported)), "output.json"), "utf8"),
       );

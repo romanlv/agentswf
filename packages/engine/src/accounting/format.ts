@@ -1,11 +1,13 @@
 import type { AccountingFigures, DecisionFigures, RunAccounting } from "@agentswf/contract/records";
+import { PUBLISHED_PRICES } from "./prices";
 
 /**
- * The run in one line, its decisions in another when it asked any, then a line per stage. Gaps are
- * named, never shown as zero.
+ * The run in one line, its decisions in another when it asked any, then a line per stage when there
+ * is more than one. Gaps are named, never shown as zero; what is complete is left to the record.
  */
 export function describeAccounting(accounting: RunAccounting): string[] {
   const { totals } = accounting;
+  const basis = shortBasis(accounting.basis);
   const unpriced =
     accounting.unpriced.length === 0 ? [] : [`unpriced: ${accounting.unpriced.join(", ")}`];
   // A run that opened no agent has no agent usage to be missing.
@@ -15,26 +17,25 @@ export function describeAccounting(accounting: RunAccounting): string[] {
       : [
           plural(totals.agents, "agent"),
           duration(accounting.wallMs),
-          totals.known === 0
-            ? "no usage known"
-            : `${plural(total(totals), "token", count)} (${count(totals.tokens.cacheRead)} cached)`,
-          ...(totals.estimate === undefined
-            ? []
-            : [`${estimate(totals.estimate)} at ${accounting.basis}`]),
+          totals.known === 0 ? "no usage known" : plural(total(totals), "token", count),
+          ...(totals.estimate === undefined ? [] : [`${estimate(totals.estimate)} at ${basis}`]),
           ...(totals.charged === undefined ? [] : [`${usd(totals.charged)} charged`]),
           accounting.billing,
           ...(totals.billed < totals.agents
             ? [`billing known ${totals.billed}/${totals.agents}`]
             : []),
-          `usage known ${totals.known}/${totals.agents}`,
+          ...(totals.known < totals.agents && totals.known > 0
+            ? [`usage known ${totals.known}/${totals.agents}`]
+            : []),
           ...gaps(totals),
           ...unpriced,
         ];
-  const width = Math.max(0, ...accounting.byStage.map(({ stage }) => stage.length));
+  const stages = accounting.byStage.length > 1 ? accounting.byStage : [];
+  const width = Math.max(0, ...stages.map(({ stage }) => stage.length));
   return [
     first.join(" · "),
-    ...(totals.decisions ? [describeDecisions(totals.decisions, accounting.basis)] : []),
-    ...accounting.byStage.map((stage) => {
+    ...(totals.decisions ? [describeDecisions(totals.decisions, basis)] : []),
+    ...stages.map((stage) => {
       const agents =
         stage.agents === 0
           ? []
@@ -71,6 +72,11 @@ export function describeAccounting(accounting: RunAccounting): string[] {
       ].join(" · ");
     }),
   ];
+}
+
+/** The published table by its kind alone, its date being in the record; any other table in full. */
+function shortBasis(basis: string): string {
+  return basis === PUBLISHED_PRICES.basis ? "list prices" : basis;
 }
 
 /** Decisions are not agents: their calls, tokens and cost stay on a line of their own. */
