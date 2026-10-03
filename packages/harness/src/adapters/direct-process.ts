@@ -40,6 +40,8 @@ export function createHeadlessAdapter(
       const { occupant } = request;
       const identity = { sessionId: newSessionId(), cwd: request.cwd };
       let hasExecuted = false;
+      /** The session's running total as the harness last printed it; a new session's is nothing. */
+      let costTotal = 0;
       let closed = false;
       let active: AbortController | undefined;
       let activeCompletion: Promise<void> | undefined;
@@ -133,7 +135,18 @@ export function createHeadlessAdapter(
             (failedToRun ? undefined : plan.sessionId) ??
             operation.previousSessionRef;
           if (nativeSession) identity.sessionId = nativeSession;
-          const charge = spec.readCharge?.(result.stdout);
+          let charge = spec.readCharge?.(result.stdout);
+          const total = spec.readCostTotal?.(result.stdout);
+          if (total !== undefined) {
+            // A resume that started a session of its own, or a total below the last, is no running
+            // sum of the session before: all of it is this turn's.
+            const before =
+              nativeSession === operation.previousSessionRef || !operation.previousSessionRef
+                ? costTotal
+                : 0;
+            charge = total >= before ? roundUsd(total - before) : total;
+            costTotal = total;
+          }
           const common = {
             resultEvidence: transcript
               ? ({ kind: "transcript", text: transcript } as const)
@@ -198,4 +211,9 @@ export function createHeadlessRunHostFactory(
     createHeadlessAdapter(config, run),
     createSessionAccounting(run),
   );
+}
+
+/** A difference of two printed totals, without the float noise subtraction leaves. */
+function roundUsd(usd: number): number {
+  return Math.round(usd * 1e9) / 1e9;
 }

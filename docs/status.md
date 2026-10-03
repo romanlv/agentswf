@@ -149,7 +149,8 @@ The gates are defined in [`foundation.md`](foundation.md) §12.
   `/compact`. Measured on every harness
   ([findings](findings/native-compaction.md)); its eval passes on all seven runtimes, pi panes
   included. `compact({ prompt })` takes `run`'s id and deadline defaults (ADR 0007, amended).
-- [016 — fork](stories/016-fork.md): ready, ADR 0009 approved 2026-10-03. A fork is a new
+- [016 — fork](stories/016-fork.md): in progress, ADR 0009 approved 2026-10-03; task 1 done, a
+  headless claude turn charges what it added to its session's total. A fork is a new
   agent on a copy of the session, made with no model call; claude's and pi's forks read the
   parent's cache, codex's pay it once ([findings](findings/fork-cache.md)).
 - [017 — pi in panes](stories/017-pi-pane-agent.md): done, approved 2026-10-01. pi runs in a Herdr

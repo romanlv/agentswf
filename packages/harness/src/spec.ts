@@ -66,10 +66,16 @@ export type HarnessSpec = {
   /** What the agent actually printed, unwrapped from any envelope the harness adds. */
   readTranscript?(stdout: string): string;
   /**
-   * The dollars the harness printed for the turn just run, where it prints any. Tokens are read
-   * from its session files instead, by `readSessionUsage`.
+   * The dollars the harness printed for the turn just run, where it prints any; `readCostTotal`
+   * instead where it prints the session's. Tokens are read from its session files, by
+   * `readSessionUsage`.
    */
   readCharge?(stdout: string): number | undefined;
+  /**
+   * The dollars the harness printed for its whole session so far, where it prints a running total
+   * rather than the turn's (F9). A turn charges what the total grew by.
+   */
+  readCostTotal?(stdout: string): number | undefined;
   /**
    * Every request logged in these sessions, read from the harness's own files, and whether a turn
    * is still being written. `undefined` when none of them could be found, which is unknown rather
@@ -187,7 +193,7 @@ export const HARNESSES: Record<Harness, HarnessSpec> = {
     }),
     readSessionId: (stdout) => text(lastJson(stdout)?.session_id),
     readTranscript: (stdout) => text(lastJson(stdout)?.result) ?? stdout,
-    readCharge: (stdout) => reported(lastJson(stdout)?.total_cost_usd),
+    readCostTotal: (stdout) => reported(lastJson(stdout)?.total_cost_usd),
     // Only `stream-json` prints the compaction: its boundary, then the summary as a synthetic
     // user row. `json` prints an empty result either way.
     compactHeadless: (focus, sessionId, { model, launchArgs = [] }) => ({
@@ -428,9 +434,12 @@ export const HARNESSES: Record<Harness, HarnessSpec> = {
       return said || stdout;
     },
     // pi's own list-price estimate, even on a subscription; a charge only when billed per token.
+    // pi ends a "turn" after each request, so a prompt's charge is every one of them.
     readCharge: (stdout) => {
-      const end = jsonLines(stdout).findLast((row) => row.type === "turn_end");
-      return reported(record(record(record(end?.message)?.usage)?.cost)?.total);
+      const costs = jsonLines(stdout)
+        .filter((row) => row.type === "turn_end")
+        .flatMap((row) => reported(record(record(record(row.message)?.usage)?.cost)?.total) ?? []);
+      return costs.length === 0 ? undefined : costs.reduce((sum, cost) => sum + cost, 0);
     },
     // `--print` sends `/compact` to the model as text; rpc mode compacts, and exits once its
     // stdin closes.

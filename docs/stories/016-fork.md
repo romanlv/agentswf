@@ -3,7 +3,7 @@ id: "016"
 title: Fork an agent so new agents start from what it knows, from the cache
 summary: "agent.fork({ key }) opens a new agent on a copy of the agent's session, taken by the harness's own fork with no model call; claude and pi forks read the parent's context from the provider's cache, with or without compaction first."
 type: story
-status: ready
+status: in-progress
 discovered_in: "story 015, the operator's review, 2026-10-01"
 depends_on: []
 ---
@@ -272,7 +272,7 @@ Alternatives rejected:
 
 ## Tasks at a glance
 
-- [ ] 1. Each headless claude or pi turn charges what it cost
+- [x] 1. Each headless claude or pi turn charges what it cost
 - [ ] 2. A headless claude agent forks, end to end
 - [ ] 3. Forks in panes and across placements: claude and codex
 - [ ] 4. Headless codex and pi fork
@@ -324,7 +324,8 @@ Outcome:
 Work:
 
 - The headless backend keeps the session's last running total. A turn's charge is the new total
-  less that one, and the first baseline is the session's last `cost-state` row.
+  less that one. A new session's first baseline is nothing; a fork's is the total its fork printed
+  (task 2).
 - pi's `readCharge` sums the turn's `turn_end` costs.
 
 Done when:
@@ -333,7 +334,7 @@ Done when:
   - two turns;
   - a nudge;
   - a compaction;
-  - a session resumed from before the run;
+  - a resume that started a session of its own, which charges all it printed;
   - a total that drops, which charges the new total rather than a negative.
 - A live headless claude run with two turns and a compaction charges each near its own tokens'
   list price.
@@ -505,6 +506,31 @@ Manual or live evaluation:
 - [x] Open questions are resolved or explicitly moved out of scope.
 
 ## Implementation notes
+
+### Task 1, 2026-10-03
+
+- Claude's printed total is read by a reader of its own, `HarnessSpec.readCostTotal`, so both
+  readers stay pure and the running total lives with the activation that owns the session.
+  `readCharge` keeps meaning the turn's, which pi and cursor print.
+- **The first baseline is not read from the session's `cost-state` rows.** No headless path resumes
+  a session its backend did not start: `session-core` learns its ref only from an outcome. The one
+  that will, a fork, prints its parent's total when it is made (F7, F9), so `NativeFork` carries it
+  and task 2 seeds the baseline from that. Nothing reads claude's transcript for cost.
+- A resume that comes back under another session id is a new session, charged all it printed.
+- A total below the last is charged whole, not as a negative.
+- Differences are rounded to a billionth of a dollar, to keep subtraction's float noise out of the
+  records.
+- pi prints a `turn_end` per model request and replays none on a resume (its json mode writes
+  only live events), so a prompt's charge is their sum.
+- Live: `tests/compaction.eval.ts claude-headless` on sonnet 5.5, a turn, a compaction and a recall.
+  Claude's running totals were 0.0730, 0.0933 and 0.1657. The three operations charged 0.0730,
+  0.0203 and 0.0724, which sum to the session's 0.1657; the old reading summed the totals to 0.332.
+  awf's own list-price estimate for the run was 0.145, about 12% under claude's, a gap that
+  predates this change.
+- Review (one agent, both lenses): nothing blocking. Fixed: a resume that started a new session,
+  the float noise, `readCharge`'s comment, and this baseline decision. Accepted: an outcome the
+  engine discards after it moved the total loses that cost, where the old reading re-charged it;
+  those paths close the session.
 
 ## Human review
 
