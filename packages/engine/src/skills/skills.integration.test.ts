@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdtempSync, realpathSync } from "node:fs";
-import { chmod, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { JsonValue, WorkflowContext } from "@agentswf/contract/workflow";
@@ -169,6 +169,69 @@ describe("agent skills", () => {
         home: found,
       },
     ]);
+  });
+
+  test("a host codex given skills forks into a home of its own, its parent's rollout copied in", async () => {
+    // This codex keeps rollouts and forks on its app-server, as the real one does.
+    const bin = join(root, "forking-bin");
+    await mkdir(bin, { recursive: true });
+    await writeFile(
+      join(bin, "codex"),
+      `#!/bin/sh
+day="$CODEX_HOME/sessions/2026/10/03"
+mkdir -p "$day"
+if [ "$1" = "app-server" ]; then
+  while IFS= read -r line; do
+    case "$line" in *'"id":2'*)
+      [ -f "$day/rollout-2026-10-03T00-00-00-thread-1.jsonl" ] || exit 1
+      echo '{"type":"session_meta","payload":{"id":"thread-2","forked_from_id":"thread-1"}}' > "$day/rollout-2026-10-03T00-00-01-thread-2.jsonl"
+      echo '{"id":2,"result":{"thread":{"id":"thread-2"}}}' ;;
+    esac
+  done
+  exit 0
+fi
+thread=thread-1
+[ "$2" = "resume" ] && thread=$3
+[ "$thread" = thread-1 ] && echo '{"type":"session_meta","payload":{"id":"thread-1"}}' >> "$day/rollout-2026-10-03T00-00-00-thread-1.jsonl"
+echo "$*" >> "$CODEX_HOME/argv.log"
+prompt=$(cat)
+line=$(printf '%s\\n' "$prompt" | grep " result .* <<'WF_JSON'$" | head -1)
+launcher=\${line%% result *}
+rest=\${line#* result }
+printf '"answered"' | "$launcher" result "\${rest%% *}" >/dev/null 2>&1
+printf '{"type":"thread.started","thread_id":"%s"}\\n' "$thread"
+`,
+    );
+    await chmod(join(bin, "codex"), 0o755);
+    const path = process.env.PATH;
+    process.env.PATH = `${bin}:${path}`;
+    try {
+      const alpha = await skill("alpha");
+      const result = await run(async (context) => {
+        const agent = await context.agents.open({
+          key: "coder",
+          runtime: codex,
+          skills: [{ path: alpha }],
+        });
+        await agent.run({ prompt: "go" });
+        const fork = await agent.fork({ key: "tester" });
+        return (await fork.run({ prompt: "go" })).outcome.kind;
+      });
+      expect(result.value).toBe("answered");
+      const [parent, child] = result.skills!.map((record) => record.home!);
+      expect(child).not.toBe(parent);
+      const rollouts = async (home: string) =>
+        (await readdir(join(home, "sessions", "2026", "10", "03"))).sort();
+      expect(await rollouts(parent!)).toEqual(["rollout-2026-10-03T00-00-00-thread-1.jsonl"]);
+      expect(await rollouts(child!)).toEqual([
+        "rollout-2026-10-03T00-00-00-thread-1.jsonl",
+        "rollout-2026-10-03T00-00-01-thread-2.jsonl",
+      ]);
+      expect(await readdir(join(child!, "skills"))).toContain("alpha");
+      expect(await readFile(join(child!, "argv.log"), "utf8")).toContain("exec resume thread-2");
+    } finally {
+      process.env.PATH = path;
+    }
   });
 
   test("a host pi loads exactly its skills, and one left out records the operator's", async () => {

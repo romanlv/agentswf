@@ -21,6 +21,7 @@ import type {
   HarnessTurn,
   HarnessTurnOutcome,
   NativeFork,
+  SessionCopy,
 } from "./adapter";
 
 export type NativeTurnRequest = {
@@ -56,8 +57,8 @@ export type ActivatedSessionBackend = {
   /** When it first prompted the agent, where it waits before prompting; see `HarnessSession`. */
   promptedAt?(): number | undefined;
   execute(request: NativeTurnRequest): Promise<NativeTurnOutcome>;
-  /** The harness's own fork of `sessionRef`; absent where it has none. */
-  fork?(sessionRef: string, deadline: AbsoluteDeadline): Promise<NativeFork>;
+  /** The harness's own fork of `sessionRef`, or its copy `into` another home; absent where none. */
+  fork?(sessionRef: string, deadline: AbsoluteDeadline, into?: SessionCopy): Promise<NativeFork>;
   close(reason?: string): Promise<void>;
 } & (
   | { cancel?(reason?: string): Promise<boolean>; readonly finishesAnswered?: false }
@@ -144,7 +145,8 @@ export function createSessionAdapter(options: SessionAdapterOptions): AgentSessi
         native,
         now,
         options.finishGraceMs ?? DEFAULT_FINISH_GRACE_MS,
-        continues?.sessionRef,
+        // The backend's: a copied fork is forked in its own home as it is activated.
+        continues ? native.identity.sessionId : undefined,
       );
     },
   };
@@ -212,7 +214,7 @@ function createSession(
     if (active) throw new Error("harness session already has an active operation");
   };
 
-  const fork = async (deadline: AbsoluteDeadline): Promise<NativeFork> => {
+  const fork = async (deadline: AbsoluteDeadline, into?: SessionCopy): Promise<NativeFork> => {
     assertIdle();
     assertDeadline(deadline, now);
     // A fork that has not run holds none of its instructions yet: they go with its first turn.
@@ -220,7 +222,7 @@ function createSession(
     if (!sessionRef) throw new Error("its harness never named its session, so it cannot be forked");
     active = true;
     try {
-      return await native.fork!(sessionRef, deadline);
+      return await native.fork!(sessionRef, deadline, into);
     } finally {
       active = false;
     }
@@ -358,7 +360,9 @@ function createSession(
     },
     compact: (id, prompt, deadline) =>
       afterFinishing(deadline, () => start({ id, prompt, deadline, kind: "compact" })),
-    ...(native.fork ? { fork: (deadline) => afterFinishing(deadline, () => fork(deadline)) } : {}),
+    ...(native.fork
+      ? { fork: (deadline, into) => afterFinishing(deadline, () => fork(deadline, into)) }
+      : {}),
     sessions: () => [...seen],
     ...(native.promptedAt ? { promptedAt: () => native.promptedAt!() } : {}),
     async close(reason?: string) {

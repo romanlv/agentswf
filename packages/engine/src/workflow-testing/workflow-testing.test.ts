@@ -1028,7 +1028,7 @@ describe("testWorkflow forks", () => {
     expect(run.agentOf("worker")).not.toHaveProperty("forkedFrom");
   });
 
-  test("a sandboxed agent is not forked yet: its fork's session would land in its home", async () => {
+  test("a sandboxed agent's fork runs in its sandbox, a private one too", async () => {
     const sandboxed = workflowOf<null, string>(async (workflow) => {
       const worker = await workflow.agents.open({
         key: "worker",
@@ -1036,15 +1036,18 @@ describe("testWorkflow forks", () => {
         sandbox: { srt: {} },
       });
       await worker.run({ prompt: "Plan a cache.", schema: PLAN });
-      return worker.fork({ key: "tests" }).then(
-        () => "forked",
-        (error: Error) => error.message,
-      );
+      const tests = await worker.fork({ key: "tests" });
+      return (await tests.run({ prompt: "Test the plan.", schema: STATUS })).outcome.kind;
     });
     const run = await testWorkflow(sandboxed, null, {
-      agents: { worker: [answer(PLAN, { steps: ["a"] })] },
+      agents: {
+        worker: [answer(PLAN, { steps: ["a"] })],
+        tests: [answer(STATUS, { step: 0, state: "done" })],
+      },
     });
-    expect(run.value).toBe("agent worker has a harness home of its own, and cannot be forked yet");
+    expect(run.value).toBe("answered");
+    expect(run.agentOf("tests").sandbox).toEqual(run.agentOf("worker").sandbox);
+    expect(run.agentOf("tests").forkedFrom).toEqual({ key: "worker", turns: 1 });
   });
 
   test("a headless agent forks into a pane, which continues its copy", async () => {

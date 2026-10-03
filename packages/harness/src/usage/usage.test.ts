@@ -5,7 +5,7 @@ import { join } from "node:path";
 import type { TokenUsage } from "@agentswf/contract/records";
 import { createSessionAccounting } from "./accounting";
 import { claudeBilling, codexBilling, piBilling, readCodexBilling } from "./billing";
-import { readClaudeUsage as readClaude } from "./claude";
+import { findClaudeSession, readClaudeUsage as readClaude } from "./claude";
 import { findCodexSession, readCodexUsage as readCodex } from "./codex";
 import { readPiUsage as readPi, readPiCompactSummary } from "./pi";
 import type { SessionRead, UsageRecord } from "./records";
@@ -448,6 +448,29 @@ describe("codex sessions", () => {
       await readCodexUsage(["01a0cf46-0000-0000-0000-000000000000"], sessions),
     ).toBeUndefined();
     expect(await readCodexUsage(["../22/rollout"], sessions)).toBeUndefined();
+  });
+});
+
+describe("a claude pane's session in a sandbox, which Herdr does not name", () => {
+  test("is the earliest started since its launch, in its directory, whose transcript holds its operation's id", async () => {
+    const home = mkdtempSync(join(tmpdir(), "claude-find-"));
+    const directory = join(home, "projects", "-repo");
+    mkdirSync(directory, { recursive: true });
+    const since = Date.now() - 60_000;
+    const transcript = (id: string, startedAt: number, text: string) =>
+      writeFileSync(
+        join(directory, `${id}.jsonl`),
+        `${JSON.stringify({ timestamp: new Date(startedAt).toISOString(), text })}\n`,
+      );
+    transcript("earlier", since - 1_000, "wf result op-1");
+    transcript("mine", since + 1_000, "wf result op-1");
+    transcript("other", since + 2_000, "wf result op-2");
+    try {
+      expect(await findClaudeSession("op-1", since, "/repo", home)).toBe("mine");
+      expect(await findClaudeSession("op-3", since, "/repo", home)).toBeUndefined();
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
   });
 });
 

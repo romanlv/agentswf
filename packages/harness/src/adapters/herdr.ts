@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { type PaneHerdr, type PaneTerminal, shellQuote } from "@agentswf/sandbox";
-import type { AgentRunHostFactory, AgentSessionAdapter, NativeFork } from "../adapter";
+import type { AgentRunHostFactory, AgentSessionAdapter, NativeFork, SessionCopy } from "../adapter";
 import { skillsLaunch } from "../capabilities/skills";
 import { type RunProcess, runProcess, withholding } from "../command";
 import { parseRow, record } from "../json";
@@ -19,8 +19,9 @@ import {
   knownHarness,
   PLACEMENT_HARNESSES,
 } from "../spec";
+import { harnessState } from "../state";
 import { createSessionAccounting } from "../usage/accounting";
-import { forkCommand, forkResult } from "./fork";
+import { copySession, FORK_ACTIVATION_MS, forkCommand, forkDeadline, forkResult } from "./fork";
 import {
   abortableDelay,
   emptyEnvironmentArgs,
@@ -729,6 +730,46 @@ export function createHerdrRunHostFactory(
           if (continues && !spec.interactiveResume) {
             throw new Error(`${harness} panes cannot continue a forked session yet`);
           }
+          /** The harness's own fork of `sessionRef`, run beside the pane or inside its sandbox. */
+          const runFork = async (
+            sessionRef: string,
+            deadline: { unixMilliseconds: number },
+            signal: AbortSignal,
+          ): Promise<NativeFork> => {
+            const skills = request.skills ? await skillsLaunch(harness, request.skills) : undefined;
+            const plan = await spec.forkSession!(sessionRef, randomUUID(), {
+              ...(request.execution.model ? { model: request.execution.model } : {}),
+              sessionHint: sessionRef,
+              ...(request.home ? { home: request.home } : {}),
+              launchArgs: [
+                ...(request.occupant ? sandboxedArgs(harness) : []),
+                ...(skills?.args ?? []),
+              ],
+            });
+            const command = forkCommand(plan, {
+              cwd: request.cwd,
+              env: { ...skills?.env },
+              deadline,
+              signal,
+            });
+            const { holdStdinUntil, ...process } = command;
+            const result = await (request.occupant
+              ? run({ ...request.occupant.launch(process), holdStdinUntil })
+              : forkRun(command));
+            return forkResult(harness, plan, result, deadline);
+          };
+          // A session copied into this agent's home is forked here, before its pane opens on it.
+          const continued =
+            continues?.copied && spec.forkSession
+              ? (
+                  await runFork(
+                    continues.sessionRef,
+                    forkDeadline(request.deadline),
+                    AbortSignal.timeout(FORK_ACTIVATION_MS),
+                  )
+                ).sessionRef
+              : continues?.sessionRef;
+          if (continues?.copied && !spec.forkSession) throw new Error(`${harness} cannot fork`);
           // In a sandbox, the pane's terminal is the occupant's, in the run's Herdr or the box's.
           let terminal = request.occupant ? await request.occupant.pane?.() : undefined;
           if (request.occupant && !terminal) throw new Error("this sandbox hosts no panes");
@@ -885,12 +926,15 @@ export function createHerdrRunHostFactory(
           const forkPane = async (
             sessionRef: string,
             deadline: { unixMilliseconds: number },
+            into?: SessionCopy,
           ): Promise<NativeFork> => {
             if (closed) throw new Error("Herdr run session is closed");
             if (!current) {
               throw new Error("this agent's pane was closed, so its session cannot be forked");
             }
-            if (request.occupant) throw new Error("a sandboxed pane agent cannot be forked yet");
+            if (request.occupant && !into) {
+              throw new Error("a sandboxed agent's session is forked by copy");
+            }
             const controller = new AbortController();
             activeController = controller;
             let finish!: () => void;
@@ -901,31 +945,25 @@ export function createHerdrRunHostFactory(
               const busy = await settle(current.agentName, deadline, controller.signal);
               if (busy) throw new Error(`the agent did not settle before its fork: ${busy.detail}`);
               while (
-                (await spec.readSessionUsage?.([sessionRef], request.cwd, request.skills?.ownHome))
-                  ?.open === true &&
+                (await spec.readSessionUsage?.([sessionRef], request.cwd, request.home))?.open ===
+                  true &&
                 Date.now() < deadline.unixMilliseconds
               ) {
                 if (!(await abortableDelay(FORK_SETTLE_POLL_MS, controller.signal))) {
                   throw new Error("the fork was cancelled");
                 }
               }
-              const skills = request.skills
-                ? await skillsLaunch(harness, request.skills)
-                : undefined;
-              const plan = await spec.forkSession!(sessionRef, randomUUID(), {
-                ...(request.execution.model ? { model: request.execution.model } : {}),
-                sessionHint: sessionRef,
-                ...(skills ? { launchArgs: skills.args } : {}),
-              });
-              const result = await forkRun(
-                forkCommand(plan, {
-                  cwd: request.cwd,
-                  env: { ...skills?.env },
-                  deadline,
-                  signal: controller.signal,
-                }),
-              );
-              return forkResult(harness, plan, result, deadline);
+              // A home of its own is carried whole; the new agent forks it in its own.
+              if (into) {
+                return await copySession(
+                  harness,
+                  request.home ?? harnessState()[harness],
+                  sessionRef,
+                  request.cwd,
+                  into,
+                );
+              }
+              return await runFork(sessionRef, deadline, controller.signal);
             } finally {
               if (activeController === controller) activeController = undefined;
               finish();
@@ -933,7 +971,7 @@ export function createHerdrRunHostFactory(
           };
 
           const backend: ActivatedSessionBackend = {
-            identity: { sessionId: continues?.sessionRef ?? randomUUID(), cwd: request.cwd },
+            identity: { sessionId: continued ?? randomUUID(), cwd: request.cwd },
             ...(spec.forkSession ? { fork: forkPane } : {}),
             // The pane's agent is the session: an answered turn is left to end in it, and the next
             // operation is prompted into the same pane once it has.
@@ -1014,12 +1052,8 @@ export function createHerdrRunHostFactory(
                     ...(request.occupant ? sandboxedArgs(harness) : []),
                     ...(skills?.args ?? []),
                   ];
-                  const launch = continues
-                    ? spec.interactiveResume!(
-                        continues.sessionRef,
-                        request.execution.model,
-                        launchArgs,
-                      )
+                  const launch = continued
+                    ? spec.interactiveResume!(continued, request.execution.model, launchArgs)
                     : spec.interactive(request.execution.model, launchArgs);
                   if (terminal && typed) terminal = await request.occupant!.pane!();
                   typed = true;
@@ -1127,7 +1161,7 @@ export function createHerdrRunHostFactory(
                     operation.binding.operationId,
                     launchedAt,
                     request.cwd,
-                    request.skills?.ownHome,
+                    request.home,
                   ));
                 return found ? { ...outcome, sessionRef: found } : outcome;
               } finally {

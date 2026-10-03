@@ -20,8 +20,9 @@ implementation.
   - A fork of a sandboxed agent shares its parent's sandbox, as forks on the host share the
     machine, even when the sandbox is private.
   - A fork uses its parent's copy of its skills, not a fresh one: its context is its parent's,
-    skills included. Where it needs a home of its own, the same skills come with it at the same
-    paths. This is the one exception to ADR 0004's copy per agent.
+    skills included. This is the one exception to ADR 0004's copy per agent. Where it needs a home
+    of its own, a sandbox's or codex's, the same skills come with it, copied into that home, since
+    one home's files are not another's (story 016, task 5).
 - **awf forks the way that keeps the parent's cache, where the harness allows one.**
   - Claude forks natively and hits in every placement.
   - pi keeps its parent's session id, the key its provider caches by, in a session directory of the

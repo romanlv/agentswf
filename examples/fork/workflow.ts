@@ -11,7 +11,7 @@ import { outputSchema } from "../output-schema";
 /**
  * Each harness and placement that forks (story 016). A runtime named with `:compact` compacts its
  * worker before the fork, and one named with `>pane` or `>headless` forks into that placement
- * instead of its worker's. pi summarizes only what is older than its last 20k tokens, so its worker
+ * instead of its worker's; with `+sandbox` its worker runs in a private sandbox, its fork too. pi summarizes only what is older than its last 20k tokens, so its worker
  * skims an inventory before compacting, as in `examples/compaction`.
  */
 export const RUNTIMES = {
@@ -40,7 +40,13 @@ export const RUNTIMES = {
 
 type RuntimeName = keyof typeof RUNTIMES;
 
-export type ForkCase = { runtime: RuntimeName; compact: boolean; into?: AgentPlacement };
+export type ForkCase = {
+  runtime: RuntimeName;
+  compact: boolean;
+  into?: AgentPlacement;
+  /** Its worker runs in a private sandbox, which its fork shares. */
+  sandbox?: true;
+};
 
 export type ForkArgs = { cases: ForkCase[]; codename: string; release: string };
 
@@ -64,7 +70,10 @@ const MINUTE = 60_000;
 const RECALL =
   "Without running any command or reading any file: what is this project's codename, and what is its next release? Answer unknown for what you do not know.";
 
-const executable = defineExecutableWorkflow<ForkArgs, ForkCheck[]>({
+/** The codename and release the agents were checked against, beside their checks. */
+export type ForkResult = { codename: string; release: string; checks: ForkCheck[] };
+
+const executable = defineExecutableWorkflow<ForkArgs, ForkResult>({
   definition: {
     meta: {
       name: "fork",
@@ -72,14 +81,17 @@ const executable = defineExecutableWorkflow<ForkArgs, ForkCheck[]>({
       whenToUse:
         "Use to check that a fork starts from its parent's context, compacted or not, and that neither sees the other's turns after it.",
     },
-    run: (workflow, args) =>
-      workflow.parallel(
+    run: async (workflow, args) => ({
+      codename: args.codename,
+      release: args.release,
+      checks: await workflow.parallel(
         args.cases,
         async (item): Promise<ForkCheck> => {
           const name = caseName(item);
           const worker = await workflow.agents.open({
             key: `worker:${name}`,
             runtime: RUNTIMES[item.runtime].execution,
+            ...(item.sandbox ? { sandbox: {} } : {}),
           });
           const note = async (prompt: string) => {
             const { outcome } = await worker.run({ prompt, schema: NOTED, timeoutMs: 4 * MINUTE });
@@ -134,9 +146,10 @@ const executable = defineExecutableWorkflow<ForkArgs, ForkCheck[]>({
         },
         { label: "Forks" },
       ),
+    }),
   },
   prepare: parseArgs,
-  present: (checks) =>
+  present: ({ checks }) =>
     checks
       .map((check) =>
         check.problem
@@ -156,22 +169,23 @@ function inventory(lines: number): string {
 }
 
 function caseName(item: ForkCase): string {
-  return `${item.runtime}${item.compact ? ":compact" : ""}${item.into ? `>${item.into}` : ""}`;
+  return `${item.runtime}${item.compact ? ":compact" : ""}${item.into ? `>${item.into}` : ""}${item.sandbox ? "+sandbox" : ""}`;
 }
 
 function parseArgs(invocation: WorkflowInvocation): ForkArgs {
   const names = invocation.argv.length === 0 ? Object.keys(RUNTIMES) : invocation.argv;
   const cases = names.map((name): ForkCase => {
-    const match = /^([^:>]+)(:compact)?(?:>(pane|headless))?$/.exec(name);
+    const match = /^([^:>+]+)(:compact)?(?:>(pane|headless))?(\+sandbox)?$/.exec(name);
     if (!match || !Object.hasOwn(RUNTIMES, match[1]!)) {
       throw new Error(
-        `unknown case ${name}; expected a runtime, ${Object.keys(RUNTIMES).join(", ")}, with :compact or >pane or >headless`,
+        `unknown case ${name}; expected a runtime, ${Object.keys(RUNTIMES).join(", ")}, with :compact, >pane or >headless, and +sandbox`,
       );
     }
     return {
       runtime: match[1] as RuntimeName,
       compact: match[2] !== undefined,
       ...(match[3] ? { into: match[3] as AgentPlacement } : {}),
+      ...(match[4] ? { sandbox: true as const } : {}),
     };
   });
   if (new Set(cases.map(caseName)).size !== cases.length) throw new Error("name each case once");

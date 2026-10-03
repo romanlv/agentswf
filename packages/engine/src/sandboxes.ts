@@ -24,7 +24,7 @@ import {
 } from "@agentswf/sandbox";
 import { CONTROL_PLANE_ROOT } from "./control-plane";
 import { messageOf } from "./errors";
-import { type CredentialLocks, type SeededHome, seedHome } from "./sandbox-homes";
+import { type CredentialLocks, placeCarried, type SeededHome, seedHome } from "./sandbox-homes";
 import { placeSkills, type ResolvedSkill } from "./skills/run-skills";
 
 /** The providers a run may open sandboxes with, and the directory holding every run. */
@@ -58,8 +58,11 @@ export type Seat = {
   home: string;
   /** Its skills, copied into its home as it is seeded; absent when the workflow named none. */
   skills?: AgentSkills;
-  /** Admits the agent through `door`, once its home is seeded; serialized per sandbox. */
-  admit(door: AgentDoor): Promise<SeatedAgent>;
+  /**
+   * Admits the agent through `door`, once its home is seeded, with `carry`'s files where a fork's
+   * session comes from another home; serialized per sandbox.
+   */
+  admit(door: AgentDoor, carry?: string): Promise<SeatedAgent>;
   /**
    * Undoes a seat whose agent never opened: its admission is released, and a private sandbox
    * closes, so nothing outlives the failure. Never rejects: a failure is logged.
@@ -156,8 +159,13 @@ export class RunSandboxes {
     cwd: string;
     execution: AgentExecution;
     skills?: readonly ResolvedSkill[];
+    /** A fork's parent, whose sandbox it shares, a private one too. */
+    joins?: string;
   }): Promise<Seat> {
-    const shared = this.hasRunSandbox ? await this.#joinRunSandbox() : this.#shared(agent.sandbox);
+    const shared = this.hasRunSandbox
+      ? await this.#joinRunSandbox()
+      : (this.#shared(agent.sandbox) ??
+        (agent.joins === undefined ? undefined : await this.#parents(agent.joins)));
     const pane = agent.execution.placement !== "headless";
     const key = `agent:${agent.key}`;
     const sandbox =
@@ -195,17 +203,27 @@ export class RunSandboxes {
           )
         : undefined;
       // Into the staged home, before it moves where the sandbox's agents can write.
-      const populate =
-        given && skills
-          ? (staged: string) => placeSkills(given, join(staged, relative(home, skills.directory)))
-          : undefined;
+      const populate = (carry?: string) => async (staged: string) => {
+        if (given && skills) {
+          await placeSkills(given, join(staged, relative(home, skills.directory)));
+        }
+        if (carry) await placeCarried(carry, staged);
+      };
       return {
         cwd,
         home,
         ...(skills ? { skills } : {}),
         abandon,
-        admit: (door) => {
-          seated = this.#admit(sandbox, agent.key, cwd, { home, staging }, needs, door, populate);
+        admit: (door, carry) => {
+          seated = this.#admit(
+            sandbox,
+            agent.key,
+            cwd,
+            { home, staging },
+            needs,
+            door,
+            populate(carry),
+          );
           return seated;
         },
       };
@@ -213,6 +231,15 @@ export class RunSandboxes {
       await abandon();
       throw error;
     }
+  }
+
+  /** A fork's parent's private sandbox, which must still be open: a fork never opens its own. */
+  async #parents(parent: string): Promise<RunSandbox> {
+    const sandbox = await this.#keys.get(`agent:${parent}`)?.catch(() => undefined);
+    if (!sandbox || sandbox.closing) {
+      throw new Error(`agent ${parent}'s sandbox is closed, so its fork has nowhere to run`);
+    }
+    return sandbox;
   }
 
   /**

@@ -136,7 +136,7 @@ export interface HarnessSession {
    * finishing has ended (ADR 0009). Absent where the host cannot fork; rejects before the agent's
    * own first turn and where its harness cannot.
    */
-  fork?(deadline: AbsoluteDeadline): Promise<NativeFork>;
+  fork?(deadline: AbsoluteDeadline, into?: SessionCopy): Promise<NativeFork>;
   close(reason?: string): Promise<void>;
   /** Every native session id the adapter has seen for this agent, in the order first seen. */
   sessions?(): readonly string[];
@@ -148,6 +148,13 @@ export interface HarnessSession {
 }
 
 /**
+ * Where a fork's session is carried when the new agent's harness home is not its parent's: the
+ * parent's session files are copied into `directory`, by their paths in its home, for the engine
+ * to place in the new one before it is admitted.
+ */
+export type SessionCopy = { directory: string };
+
+/**
  * A session the harness forked, for a new agent to continue. The engine hands it from the parent's
  * `fork` to the child's activation and never reads it: everything native about a fork stays here.
  */
@@ -156,6 +163,11 @@ export type NativeFork = {
   readonly sessionRef: string;
   /** The running total the harness printed at the fork, where it prints one: the parent's. */
   readonly costTotal?: number;
+  /**
+   * The parent's session was copied, not forked: into a home not its own, which the new agent's
+   * harness forks it in when it is activated, through its own place.
+   */
+  readonly copied?: true;
 };
 
 export interface HarnessActivation {
@@ -180,6 +192,11 @@ export interface HarnessActivation {
    * continue one, or one forked by another harness, refuses the agent.
    */
   continues?: NativeFork;
+  /**
+   * The harness home it runs with, where its sessions are: a sandbox's, or one of its own on the
+   * host. Absent, the operator's.
+   */
+  home?: string;
 }
 
 /** An opaque locator for a session the engine did not start; only the adapter interprets it. */

@@ -29,7 +29,7 @@ describe("fork", () => {
         },
       },
     );
-    expect(run.value).toEqual([
+    expect(run.value.checks).toEqual([
       {
         name: "claude-headless:compact",
         fork: { codename: "V-1234", release: "unknown" },
@@ -60,7 +60,7 @@ describe("fork", () => {
         },
       },
     );
-    expect(run.value.map((check) => check.problem)).toEqual([undefined, undefined]);
+    expect(run.value.checks.map((check) => check.problem)).toEqual([undefined, undefined]);
     expect(run.agentOf("fork:claude>headless").execution).toMatchObject({
       placement: "headless",
       metered: true,

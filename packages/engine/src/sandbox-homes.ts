@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { constants } from "node:fs";
-import { mkdir, open, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, open, readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative } from "node:path";
 import { isDeepStrictEqual } from "node:util";
 import { isRecord } from "@agentswf/contract";
@@ -194,4 +194,18 @@ function beyondRefresh(
 
 function isScalar(value: unknown): boolean {
   return value === undefined || value === null || ["string", "number"].includes(typeof value);
+}
+
+/**
+ * Places a fork's carried session files in a staged home, each at its path, and never over a file
+ * the home was seeded with: a session's files are only its own.
+ */
+export async function placeCarried(carry: string, staged: string): Promise<void> {
+  for (const entry of await readdir(carry, { recursive: true, withFileTypes: true })) {
+    if (!entry.isFile()) continue;
+    const from = join(entry.parentPath, entry.name);
+    const to = join(staged, relative(carry, from));
+    await mkdir(dirname(to), { recursive: true, mode: 0o700 });
+    await copyFile(from, to, constants.COPYFILE_EXCL);
+  }
 }

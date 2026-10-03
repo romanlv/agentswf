@@ -168,10 +168,10 @@ function observeSession(
     compact: (id, prompt, deadline) => begin(() => session.compact(id, prompt, deadline)),
     ...(session.fork
       ? {
-          async fork(deadline) {
+          async fork(deadline, into) {
             record({ state: "working" });
             try {
-              return await session.fork!(deadline);
+              return await session.fork!(deadline, into);
             } finally {
               await recordSession();
             }

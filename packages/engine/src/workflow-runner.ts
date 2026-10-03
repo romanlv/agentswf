@@ -1,6 +1,6 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { randomUUID } from "node:crypto";
-import { mkdir, realpath } from "node:fs/promises";
+import { mkdir, realpath, rm } from "node:fs/promises";
 import { dirname, join, relative } from "node:path";
 import { isDeepStrictEqual } from "node:util";
 import type {
@@ -51,6 +51,7 @@ import type {
   HarnessTurn,
   HarnessTurnOutcome,
   NativeFork,
+  SessionCopy,
 } from "@agentswf/harness/adapter";
 import type { Occupant } from "@agentswf/sandbox";
 import { PUBLISHED_PRICES } from "./accounting/prices";
@@ -88,7 +89,7 @@ import {
   createRunLedger,
   type RunLedger,
 } from "./run-usage";
-import { type CredentialLocks, seedHome } from "./sandbox-homes";
+import { type CredentialLocks, placeCarried, seedHome } from "./sandbox-homes";
 import {
   RUN_SANDBOX_ONLY,
   RunSandboxes,
@@ -464,7 +465,18 @@ type AgentOpening = {
   /** Its skills' sources, resolved when it opens; absent when it has the operator's. */
   skills?: SkillSource[];
   /** The host's activation for the agent, working in `cwd`, inside `occupant` if sandboxed. */
-  activation(cwd: string, occupant?: Occupant, skills?: AgentSkills): HarnessActivation;
+  activation(
+    cwd: string,
+    occupant?: Occupant,
+    skills?: AgentSkills,
+    /** Its harness home: a sandbox's, or its own on the host. */
+    home?: string,
+  ): HarnessActivation;
+  /**
+   * A fork whose parent has a harness home of its own: the parent's session, copied into `copy` by
+   * `forked`, is placed in this agent's home before it is admitted, in the parent's sandbox.
+   */
+  carried?: { parent: AgentKey; forked: Promise<unknown>; copy: string };
 };
 
 class WorkflowOwner {
@@ -683,7 +695,7 @@ class WorkflowOwner {
       sessions,
       ledger: this.options.ledger.agent(accounted),
       ...(identity.skills ? { skills: identity.skills } : {}),
-      activation: (cwd, occupant, skills) => ({
+      activation: (cwd, occupant, skills, home) => ({
         key: spec.key,
         deadline: effectiveDeadline,
         cwd,
@@ -692,6 +704,7 @@ class WorkflowOwner {
         ...(spec.labels === undefined ? {} : { labels: spec.labels }),
         ...(occupant ? { occupant } : {}),
         ...(skills ? { skills } : {}),
+        ...(home ? { home } : {}),
       }),
     };
     let skills: Promise<PlacedSkills | undefined> = Promise.resolve(undefined);
@@ -820,7 +833,11 @@ class WorkflowOwner {
     // An open socket authorizes an agent until something closes it, so every failure path does.
     const closeChannel = () => opened.then((channel) => channel.close()).catch(() => undefined);
     const state = placed
-      .then((skills) => this.options.host.openAgent(activation(cwd, undefined, skills?.given)))
+      .then((skills) =>
+        this.options.host.openAgent(
+          activation(cwd, undefined, skills?.given, skills?.given.ownHome),
+        ),
+      )
       .catch(async (error: unknown) => {
         await closeChannel();
         throw error;
@@ -860,6 +877,8 @@ class WorkflowOwner {
     execution: AgentExecution,
     cwd: string,
     sources: SkillSource[] | undefined,
+    /** A forked session's files, placed in the home it is given with its skills. */
+    carry?: string,
   ): Promise<PlacedSkills | undefined> {
     if (!sources) {
       this.options.skills.record(key, "operator");
@@ -887,7 +906,10 @@ class WorkflowOwner {
       hostHome(execution.harness, ownHome, this.options.environment),
       realCwd,
       this.options.locks,
-      (staged) => placeSkills(resolved, join(staged, relative(ownHome, given.directory))),
+      async (staged) => {
+        await placeSkills(resolved, join(staged, relative(ownHome, given.directory)));
+        if (carry) await placeCarried(carry, staged);
+      },
     );
     return { given, writeBack: () => seeded.writeBack() };
   }
@@ -898,12 +920,23 @@ class WorkflowOwner {
    * about where it runs is refused before a channel opens.
    */
   private openSandboxedAgent(
-    { spec, execution, deadline, sessions, ledger, activation, skills: sources }: AgentOpening,
+    {
+      spec,
+      execution,
+      deadline,
+      sessions,
+      ledger,
+      activation,
+      skills: sources,
+      carried,
+    }: AgentOpening,
     cwd: string,
     accounted: AccountedAgent,
   ): { state: Promise<LogicalAgent>; channel: Promise<ResultChannel> } {
     const scope = scopes.getStore();
     const opened = (async () => {
+      // A fork is seated once its parent's session is copied, in its parent's sandbox.
+      await carried?.forked;
       const skills = sources ? await this.options.skills.resolve(sources) : undefined;
       const seat = await this.options.sandboxes.seat({
         key: spec.key,
@@ -911,6 +944,7 @@ class WorkflowOwner {
         cwd,
         execution,
         ...(skills ? { skills } : {}),
+        ...(carried ? { joins: carried.parent } : {}),
       });
       // Once it has a place: an agent refused one was given nothing. In a sandbox, none named is
       // none had, as its fresh home holds none of the operator's.
@@ -932,7 +966,7 @@ class WorkflowOwner {
         // The last step before the agent holds anything inside; its bound may be gone by now.
         assertDeadline(deadline);
         scope?.assertActive();
-        const seated = await seat.admit(door);
+        const seated = await seat.admit(door, carried?.copy);
         return { seat, seated, channel, launcher: door.launcher };
       } catch (error) {
         // The channel first, as at run end; neither undoing masks why the agent did not open.
@@ -945,7 +979,7 @@ class WorkflowOwner {
       let session: HarnessSession;
       try {
         session = await this.options.host.openAgent(
-          activation(seat.cwd, seated.occupant, seat.skills),
+          activation(seat.cwd, seated.occupant, seat.skills, seat.home),
         );
       } catch (error) {
         await seated.release().catch(() => undefined);
@@ -1009,8 +1043,8 @@ class WorkflowOwner {
   private forkAgent(
     parentKey: string,
     spec: AgentForkSpec,
-    /** Queues the native fork; or why this agent's host cannot fork it. */
-    take: (() => Promise<NativeFork>) | string,
+    /** Queues the native fork, or its copy `into` another home; or why its host cannot fork. */
+    take: ((into?: SessionCopy) => Promise<NativeFork>) | string,
   ): Promise<AgentRef> {
     if (this.#closed) throw new Error("workflow context is closed");
     const scope = scopes.getStore();
@@ -1035,14 +1069,14 @@ class WorkflowOwner {
     const { opening } = parent;
     if (!opening)
       throw new Error(`agent ${parentKey} is the calling session, which a run does not fork`);
-    if (
-      parent.identity.sandbox !== undefined ||
-      this.options.sandboxes.hasRunSandbox ||
-      opening.accounted.home !== undefined
-    ) {
-      throw new Error(`agent ${parentKey} has a harness home of its own, and cannot be forked yet`);
-    }
     if (typeof take === "string") throw new Error(take);
+    const sandboxed = parent.identity.sandbox !== undefined || this.options.sandboxes.hasRunSandbox;
+    // A parent with a harness home of its own has its session copied out, and the fork made in the
+    // child's home: anything added to the parent's would be read as the parent's.
+    const copy =
+      sandboxed || opening.accounted.home !== undefined
+        ? join(this.options.runDir, "forks", randomUUID())
+        : undefined;
     const execution = forkExecution(parent.identity.execution, forkSpec);
     const identity: AgentIdentity = {
       execution,
@@ -1050,6 +1084,7 @@ class WorkflowOwner {
       ...(forkSpec.instructions === undefined ? {} : { instructions: forkSpec.instructions }),
       ...(forkSpec.labels === undefined ? {} : { labels: forkSpec.labels }),
       ...(parent.identity.skills ? { skills: parent.identity.skills } : {}),
+      ...(parent.identity.sandbox === undefined ? {} : { sandbox: parent.identity.sandbox }),
       forkedFrom: { parent: parentKey, spec: forkSpec },
     };
 
@@ -1065,36 +1100,36 @@ class WorkflowOwner {
     let continues: NativeFork | undefined;
     // The fork is asked for now, in the parent's queue; the child opens once it is made. One that
     // was not made leaves nothing behind: its key may be forked again, after the parent's turn.
-    const forked = take().catch((error: unknown) => {
-      if (this.#agents.get(spec.key)?.opening?.sessions === sessions) {
-        this.#agents.delete(spec.key);
-        this.options.progress.agentDropped(spec.key);
-      }
-      opening.sessions.forks.splice(opening.sessions.forks.indexOf(sessions), 1);
-      throw error;
-    });
-    // Its parent's copy of its skills, the same files at the same paths: its context is its
-    // parent's, skills included, and so is its cache.
-    const skills = forked.then(async (fork) => {
-      continues = fork;
-      this.options.progress.agentForked(spec.key, parentKey);
-      const sources = parent.identity.skills;
-      if (!sources) {
-        this.options.skills.record(spec.key, "operator");
-        return undefined;
-      }
-      this.options.skills.record(spec.key, await this.options.skills.resolve(sources));
-      const placed = await opening.skills;
-      return placed ? { given: placed.given } : undefined;
-    });
-    skills.catch(() => undefined);
+    const forked = take(copy === undefined ? undefined : { directory: copy })
+      .then((fork) => {
+        continues = fork;
+        this.options.progress.agentForked(spec.key, parentKey);
+        return fork;
+      })
+      .catch((error: unknown) => {
+        if (this.#agents.get(spec.key)?.opening?.sessions === sessions) {
+          this.#agents.delete(spec.key);
+          this.options.progress.agentDropped(spec.key);
+        }
+        opening.sessions.forks.splice(opening.sessions.forks.indexOf(sessions), 1);
+        throw error;
+      });
+    const sources = parent.identity.skills;
     const forkOpening: AgentOpening = {
-      spec: { key: spec.key, runtime: execution },
+      spec: {
+        key: spec.key,
+        runtime: execution,
+        ...(parent.identity.sandbox === undefined
+          ? {}
+          : { sandbox: parent.identity.sandbox as AgentOpenSpec["sandbox"] }),
+      },
       execution,
       deadline,
       sessions,
       ledger: this.options.ledger.agent(accounted),
-      activation: (cwd, occupant, given) => ({
+      ...(sources ? { skills: sources } : {}),
+      ...(sandboxed && copy ? { carried: { parent: parentKey, forked, copy } } : {}),
+      activation: (cwd, occupant, given, home) => ({
         key: spec.key,
         deadline,
         cwd,
@@ -1103,10 +1138,39 @@ class WorkflowOwner {
         ...(forkSpec.labels === undefined ? {} : { labels: forkSpec.labels }),
         ...(occupant ? { occupant } : {}),
         ...(given ? { skills: given } : {}),
+        ...(home ? { home } : {}),
         ...(continues ? { continues } : {}),
       }),
     };
-    const { state, channel } = this.openHostAgent(forkOpening, identity.cwd, accounted, skills);
+    let skills: Promise<PlacedSkills | undefined> = Promise.resolve(undefined);
+    let opened: { state: Promise<LogicalAgent>; channel: Promise<ResultChannel> };
+    if (sandboxed) {
+      forked.catch(() => undefined);
+      opened = this.openSandboxedAgent(forkOpening, identity.cwd, accounted);
+    } else {
+      // On the host, its parent's copy of its skills, the same files at the same paths: its
+      // context is its parent's, skills included, and so is its cache. A home of its own, codex's
+      // for skills, holds the same skills and the parent's session copied in.
+      skills = forked.then(async () => {
+        if (copy) return this.placeHostSkills(spec.key, execution, identity.cwd, sources, copy);
+        if (!sources) {
+          this.options.skills.record(spec.key, "operator");
+          return undefined;
+        }
+        this.options.skills.record(spec.key, await this.options.skills.resolve(sources));
+        const placed = await opening.skills;
+        return placed ? { given: placed.given } : undefined;
+      });
+      skills.catch(() => undefined);
+      opened = this.openHostAgent(forkOpening, identity.cwd, accounted, skills);
+    }
+    const { state, channel } = opened;
+    // Once the child's home holds it, or it never will, the copy has served.
+    if (copy) {
+      void state
+        .catch(() => undefined)
+        .finally(() => rm(copy, { recursive: true, force: true }).catch(() => undefined));
+    }
     const ownedState = this.track(state);
     this.#agents.set(spec.key, {
       identity,
@@ -1183,7 +1247,10 @@ class LogicalAgent implements AgentRef {
       /** After each operation settles, whatever its outcome. */
       afterOperation?(): Promise<void>;
       /** Opens `spec`'s agent on the native fork `take` queues in this agent's operations. */
-      fork(spec: AgentForkSpec, take: (() => Promise<NativeFork>) | string): Promise<AgentRef>;
+      fork(
+        spec: AgentForkSpec,
+        take: ((into?: SessionCopy) => Promise<NativeFork>) | string,
+      ): Promise<AgentRef>;
     },
   ) {}
 
@@ -1334,13 +1401,13 @@ class LogicalAgent implements AgentRef {
     }
     // The harness bounds its fork by this deadline and stops it there, so the session is idle again
     // when the fork rejects.
-    const take = () =>
+    const take = (into?: SessionCopy) =>
       this.queue(async () => {
         if (this.#closed || this.options.isRunClosing()) {
           throw new Error("logical agent is closed");
         }
         scope?.assertActive();
-        return fork(deadlineWithin(FORK_TIMEOUT_MS, deadline));
+        return fork(deadlineWithin(FORK_TIMEOUT_MS, deadline), into);
       });
     try {
       return this.options.fork(spec, take);

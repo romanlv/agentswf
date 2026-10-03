@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { AbsoluteDeadline } from "@agentswf/contract/workflow";
-import type { AgentRunHostFactory, AgentSessionAdapter, NativeFork } from "../adapter";
+import type { AgentRunHostFactory, AgentSessionAdapter, NativeFork, SessionCopy } from "../adapter";
 import { skillsLaunch } from "../capabilities/skills";
 import { type RunProcess, runProcess } from "../command";
 import { headlessRefusal } from "../refusals";
@@ -8,8 +8,9 @@ import { sandboxedArgs } from "../sandbox-needs";
 import { createSessionAdapter, localOutcome } from "../session-core";
 import { createSingleSessionHostFactory } from "../single-session-host";
 import { harnessSpec, knownHarness, PLACEMENT_HARNESSES } from "../spec";
+import { harnessState } from "../state";
 import { createSessionAccounting } from "../usage/accounting";
-import { forkCommand, forkResult } from "./fork";
+import { copySession, forkCommand, forkDeadline, forkResult } from "./fork";
 
 export type DirectProcessConfig = {
   newSessionId?: () => string;
@@ -64,12 +65,44 @@ export function createHeadlessAdapter(
             ...(request.execution.model ? { model: request.execution.model } : {}),
             sessionHint: identity.sessionId,
             ...(launchArgs.length > 0 ? { launchArgs } : {}),
+            ...(request.home ? { home: request.home } : {}),
           },
         };
       };
       let closed = false;
       let active: AbortController | undefined;
       let activeCompletion: Promise<void> | undefined;
+      /** The harness's own fork of `sessionRef`, run where this agent's turns run. */
+      const runFork = async (sessionRef: string, deadline: AbsoluteDeadline) => {
+        const { env, context } = await launchContext();
+        if (closed) throw new Error("headless session is closed");
+        const plan = await spec.forkSession!(sessionRef, newSessionId(), context);
+        const controller = new AbortController();
+        const command = forkCommand(plan, {
+          cwd: request.cwd,
+          env,
+          deadline,
+          signal: controller.signal,
+        });
+        active = controller;
+        const { holdStdinUntil, ...process } = command;
+        const running = run(occupant ? { ...occupant.launch(process), holdStdinUntil } : command);
+        activeCompletion = running.then(
+          () => undefined,
+          () => undefined,
+        );
+        const result = await running.finally(() => {
+          if (active === controller) active = undefined;
+        });
+        return forkResult(harness, plan, result, deadline);
+      };
+      // A session copied into this agent's home is forked here, before its first turn resumes it.
+      if (request.continues?.copied) {
+        if (!spec.forkSession) throw new Error(`${harness} cannot fork`);
+        const forked = await runFork(request.continues.sessionRef, forkDeadline(request.deadline));
+        identity.sessionId = forked.sessionRef;
+        costTotal = forked.costTotal;
+      }
       return {
         identity,
         // Each turn is a process of its own, and the next one resumes the session this one leaves.
@@ -211,30 +244,24 @@ export function createHeadlessAdapter(
         },
         ...(spec.forkSession
           ? {
-              async fork(sessionRef: string, deadline: AbsoluteDeadline): Promise<NativeFork> {
+              async fork(
+                sessionRef: string,
+                deadline: AbsoluteDeadline,
+                into?: SessionCopy,
+              ): Promise<NativeFork> {
                 if (closed) throw new Error("headless session is closed");
-                // Its session is in the sandbox's home, which a fork cannot reach yet.
-                if (occupant) throw new Error("a sandboxed agent cannot be forked yet");
-                const { env, context } = await launchContext();
-                if (closed) throw new Error("headless session is closed");
-                const plan = await spec.forkSession!(sessionRef, newSessionId(), context);
-                const controller = new AbortController();
-                const command = forkCommand(plan, {
-                  cwd: request.cwd,
-                  env,
-                  deadline,
-                  signal: controller.signal,
-                });
-                active = controller;
-                const running = run(command);
-                activeCompletion = running.then(
-                  () => undefined,
-                  () => undefined,
-                );
-                const result = await running.finally(() => {
-                  if (active === controller) active = undefined;
-                });
-                return forkResult(harness, plan, result, deadline);
+                // A home of its own is carried whole; the new agent forks it in its own.
+                if (into) {
+                  return copySession(
+                    harness,
+                    request.home ?? harnessState()[harness],
+                    sessionRef,
+                    request.cwd,
+                    into,
+                  );
+                }
+                if (occupant) throw new Error("a sandboxed agent's session is forked by copy");
+                return runFork(sessionRef, deadline);
               },
             }
           : {}),

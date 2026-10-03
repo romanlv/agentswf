@@ -1,10 +1,12 @@
 import { randomUUID } from "node:crypto";
+import { mkdir } from "node:fs/promises";
 import type {
   AgentSessionAdapter,
   AuthoredTurn,
   HarnessActivation,
   HarnessOperationBinding,
   NativeFork,
+  SessionCopy,
 } from "../adapter";
 import { createSessionAdapter, type SessionAdapterOptions } from "../session-core";
 
@@ -88,17 +90,23 @@ export function createFakeAdapter(
       let activeController: AbortController | undefined;
       let activeCompletion: Promise<void> | undefined;
       let firstPrompt: number | undefined;
-      const sessionId = activation.continues?.sessionRef ?? `fake-${activation.key}`;
+      // A copied session is forked in the new agent's home as it is activated.
+      const sessionId = activation.continues
+        ? `${activation.continues.sessionRef}${activation.continues.copied ? "/forked" : ""}`
+        : `fake-${activation.key}`;
       const forks = options.forks?.(activation) ?? false;
       return {
         identity: { sessionId, cwd: activation.cwd },
         ...(forks
           ? {
-              async fork(sessionRef: string): Promise<NativeFork> {
+              async fork(sessionRef: string, _deadline, into?: SessionCopy): Promise<NativeFork> {
                 if (isClosed) throw new Error("fake session is closed");
+                // A real harness copies its session's files there.
+                if (into) await mkdir(into.directory, { recursive: true });
                 const fork = {
                   harness: activation.execution.harness,
-                  sessionRef: `${sessionRef}/fork-${randomUUID()}`,
+                  sessionRef: `${sessionRef}/${into ? "copy" : "fork"}-${randomUUID()}`,
+                  ...(into ? { copied: true as const } : {}),
                 };
                 options.onFork?.({ activation, sessionRef: fork.sessionRef, turns: turn });
                 return fork;

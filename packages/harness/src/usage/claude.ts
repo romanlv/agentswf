@@ -1,5 +1,5 @@
-import { join } from "node:path";
-import { count, type Row, record, text } from "../json";
+import { join, relative } from "node:path";
+import { count, parseRow, type Row, record, text } from "../json";
 import { harnessState } from "../state";
 import { entries, isFile, jsonRows, safeId } from "./files";
 import type { SessionRead, UsageRecord } from "./records";
@@ -90,6 +90,60 @@ function readRecord(row: Row): UsageRecord | undefined {
       ...(details ? { reasoning: Math.min(output, count(details.thinking_tokens)) } : {}),
     },
   };
+}
+
+/**
+ * The files session `id` is made of, relative to `home`: its transcript and its subagents'. A
+ * resume finds them under the directory named for `cwd`, so they keep that name in any home.
+ */
+export async function claudeSessionFiles(
+  home: string,
+  id: string,
+  cwd: string,
+): Promise<string[] | undefined> {
+  if (!safeId(id)) return undefined;
+  const projects = claudeProjectsDirectory(home);
+  const directory = await projectDirectory(projects, cwd, id);
+  if (directory === undefined) return undefined;
+  const nested = (await entries(join(directory, id), true))
+    .filter((name) => name.endsWith(".jsonl"))
+    .map((name) => join(directory, id, name));
+  return [join(directory, `${id}.jsonl`), ...nested].map((file) => relative(home, file));
+}
+
+/**
+ * The session started since `since` whose transcript, in `cwd`'s directory, holds `marker`: a pane's
+ * claude in a sandbox, whose session Herdr does not name, found by the operation id its prompt
+ * carries. The earliest started wins.
+ */
+export async function findClaudeSession(
+  marker: string,
+  since: number,
+  cwd: string,
+  home?: string,
+): Promise<string | undefined> {
+  const projects = claudeProjectsDirectory(home);
+  const directory = join(projects, cwd.replace(/[^A-Za-z0-9]/g, "-"));
+  let found: { id: string; started: number } | undefined;
+  for (const name of await entries(directory)) {
+    if (!name.endsWith(".jsonl")) continue;
+    let content: string;
+    try {
+      content = await Bun.file(join(directory, name)).text();
+    } catch {
+      continue;
+    }
+    if (!content.includes(marker)) continue;
+    const started = Math.min(
+      ...content
+        .split("\n")
+        .flatMap((line) => text(parseRow(line)?.timestamp) ?? [])
+        .map((at) => Date.parse(at)),
+    );
+    if (!(started >= since)) continue;
+    if (!found || started < found.started) found = { id: name.slice(0, -6), started };
+  }
+  return found?.id;
 }
 
 /** The summary of the session's last compaction: the row claude marks `isCompactSummary`. */

@@ -277,7 +277,7 @@ Alternatives rejected:
 - [x] 2. A headless claude agent forks, end to end
 - [x] 3. Forks in panes and across placements: claude and codex
 - [ ] 4. Headless codex and pi fork
-- [ ] 5. A fork whose home differs from its parent's: sandboxes and codex's skills home
+- [x] 5. A fork whose home differs from its parent's: sandboxes and codex's skills home
 - [ ] 6. A live eval of forks on every harness and placement, with and without compaction
 
 Each slice from 2 on lands its seam with the code that uses it, as ADR 0001 asks of anything that
@@ -507,6 +507,41 @@ Manual or live evaluation:
 - [x] Open questions are resolved or explicitly moved out of scope.
 
 ## Implementation notes
+
+### Task 5, 2026-10-03
+
+- **The fork point is fixed by a copy.** When the parent has a harness home of its own (a
+  sandbox, the run's sandbox, or codex given skills on the host), the engine hands
+  `HarnessSession.fork` a `SessionCopy` directory in the run directory. In the parent's queue, after
+  any finishing turn, the harness copies the session's files there, as `HarnessSpec.sessionFiles`
+  names them by their paths in the home: claude's transcript and subagents', codex's rollout and
+  its `forked_from_id` chain, pi's file. It answers a `NativeFork` marked `copied`.
+- **The child is seated where its parent is**: in the parent's sandbox, its private one too
+  (`RunSandboxes.seat` `joins`, refused once that sandbox closed), or for codex on the host in a
+  home of its own with the same skills. The copy is placed in its staged home before it moves into
+  place, never over a seeded file, then removed.
+- **The fork is made in the child's home, through its own place**, as it is activated, bounded by
+  a minute of its own. So nothing is added to the parent's home, whose every session is read as the
+  parent's. The child's home holds the parent's session too, whose requests the parent, read
+  first, has claimed already.
+- `HarnessActivation.home` names the agent's harness home, and `TurnContext.home` gives it to a
+  plan: pi's fork finds its parent and writes its fork there. Docker mounts `homes/` at the same
+  path inside, so host paths hold in a box.
+- Copying out of a home a sandboxed agent can write: every directory on the path is checked for a
+  link, and each file is opened without following one and taken only as a regular file with one
+  link, so a link swapped in after the check, a FIFO or a hard link are refused.
+- **Skills deviation:** a fork in a home of its own gets its own copy of its parent's skills,
+  since one home's files are not another's; ADR 0009's note says so.
+- **A claude pane in a sandbox names no session to Herdr either**, live, so claude gained the
+  lookup codex has: the transcript in the agent's directory since its launch holding the
+  operation's id. Both read the agent's own home.
+- Live, under srt: claude-headless+sandbox, codex-headless+sandbox, codex+sandbox, claude+sandbox
+  and claude-headless>pane+sandbox all passed. The parent's home kept only its own session, the
+  fork's held the copy and its own; claude's headless fork read 16,097 from the cache and wrote
+  481. pi in a sandbox waits on pi's login with the rest of pi.
+- Review: nothing blocking. Fixed: pi's fork in another home, the copy race (no-follow open), the
+  overwrite, the activation fork's bound, the copy left behind, a closed parent sandbox, the
+  accounting comment.
 
 ### Task 4, 2026-10-03: built and reviewed, its live run pending
 

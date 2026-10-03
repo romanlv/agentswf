@@ -44,8 +44,10 @@ export function createSessionAccounting(run: RunProcess = runProcess): SessionAc
     statusMs: STATUS_TIMEOUT_MS,
     async read(execution, sessions, cwd, home) {
       const spec = findHarness(execution.harness);
-      // A sandboxed agent's home is its own: every session there is its, and only those, found
-      // without following a link, count; an id it reports could name one of the operator's.
+      // A sandboxed agent's home is its own: every session there is read as its, and only those,
+      // found without following a link, count; an id it reports could name one of the operator's.
+      // A fork's home also holds its parent's session, copied in, whose requests its parent, read
+      // first, has claimed already.
       const all = home ? ((await spec?.homeSessions?.(home)) ?? []) : sessions;
       if (all.length === 0) return undefined;
       const read = await spec?.readSessionUsage?.(all, cwd, home);

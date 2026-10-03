@@ -37,6 +37,26 @@ import {
 // A codex that answers through the launcher its prompt names, as a real one would, and keeps what
 // it was started with in its home. Asked to wait, it waits; asked to peek, it tries to read a file.
 const FAKE_CODEX = `#!/bin/sh
+day="$CODEX_HOME/sessions/2026/10/03"
+if [ "$1" = "app-server" ]; then
+  { printf 'argv:'; printf ' %s' "$@"; printf '\\n'; env; echo ---; } >> "$CODEX_HOME/turns.log"
+  while IFS= read -r line; do
+    case "$line" in *'"id":2'*)
+      parent=$(printf '%s' "$line" | sed -n 's/.*"threadId":"\\([^"]*\\)".*/\\1/p')
+      if [ -f "$day/rollout-2026-10-03T00-00-00-$parent.jsonl" ]; then
+        printf '{"type":"session_meta","payload":{"id":"thread-2","forked_from_id":"%s"}}\\n' "$parent" > "$day/rollout-2026-10-03T00-00-01-thread-2.jsonl"
+        echo '{"id":2,"result":{"thread":{"id":"thread-2"}}}'
+      else
+        echo '{"id":2,"error":{"message":"no such thread"}}'
+      fi ;;
+    esac
+  done
+  exit 0
+fi
+thread=thread-1
+[ "$2" = "resume" ] && thread=$3
+mkdir -p "$day"
+[ "$thread" = thread-1 ] && printf '{"type":"session_meta","payload":{"id":"thread-1"}}\\n' >> "$day/rollout-2026-10-03T00-00-00-thread-1.jsonl"
 prompt=$(cat)
 { printf 'argv:'; printf ' %s' "$@"; printf '\\n'; env; echo ---; } >> "$CODEX_HOME/turns.log"
 case "$prompt" in *wait*) sleep 30 ;; esac
@@ -47,7 +67,7 @@ line=$(printf '%s\\n' "$prompt" | grep " result .* <<'WF_JSON'$" | head -1)
 launcher=\${line%% result *}
 rest=\${line#* result }
 printf '"answered"' | "$launcher" result "\${rest%% *}" >/dev/null 2>&1
-echo '{"type":"thread.started","thread_id":"thread-1"}'
+printf '{"type":"thread.started","thread_id":"%s"}\\n' "$thread"
 echo '{"type":"item.completed","item":{"type":"agent_message","text":"done"}}'
 `;
 
@@ -212,6 +232,36 @@ describe("sandboxed agents", () => {
       expect(sequence.at(-1)).toBe("close");
       expect(sequence.lastIndexOf("release")).toBeGreaterThan(sequence.lastIndexOf("reap"));
     }
+  });
+
+  test("a fork of a sandboxed agent opens in its private sandbox, its parent's session copied into its own home and forked there", async () => {
+    const { run } = setup();
+    const result = await run(async (context) => {
+      const worker = await context.agents.open({ key: "worker", runtime: headless, sandbox: {} });
+      await worker.run({ prompt: "go", nudge: false });
+      const tests = await worker.fork({ key: "tests" });
+      const { outcome } = await tests.run({ prompt: "go", nudge: false });
+      return outcome.kind;
+    });
+    expect(result.value).toBe("answered");
+    const [own] = result.sandboxes!;
+    expect(own?.agents.map((agent) => agent.agent)).toEqual(["worker", "tests"]);
+    const [workerHome, testsHome] = own!.agents.map((agent) => agent.home);
+    const rollouts = async (home: string) =>
+      (await readdir(join(home!, "sessions", "2026", "10", "03"))).sort();
+    // Nothing was added to the parent's home, whose every session is read as its.
+    expect(await rollouts(workerHome!)).toEqual(["rollout-2026-10-03T00-00-00-thread-1.jsonl"]);
+    expect(await rollouts(testsHome!)).toEqual([
+      "rollout-2026-10-03T00-00-00-thread-1.jsonl",
+      "rollout-2026-10-03T00-00-01-thread-2.jsonl",
+    ]);
+    const turns = await turnsOf(testsHome!);
+    expect(turns.map((turn) => turn.argv.split(" ").slice(1, 3).join(" "))).toEqual([
+      "app-server --listen",
+      "exec resume",
+    ]);
+    expect(turns[0]!.env).toContain(`${FAKE_OCCUPANT_ENV}=${testsHome}`);
+    expect(turns[1]!.argv).toContain("exec resume thread-2");
   });
 
   test("a pane agent reaches its host with the sandbox's terminal", async () => {

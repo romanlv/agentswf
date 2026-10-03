@@ -5,15 +5,28 @@ import type { Holding, RunProcess } from "./command";
 import { count, jsonLines, parseRow, type Row, record, reported, text } from "./json";
 import type { Harness } from "./types";
 import { readClaudeBilling, readCodexBilling, readPiBilling } from "./usage/billing";
-import { claudeProjectsDirectory, readClaudeCompactSummary, readClaudeUsage } from "./usage/claude";
+import {
+  claudeProjectsDirectory,
+  claudeSessionFiles,
+  findClaudeSession,
+  readClaudeCompactSummary,
+  readClaudeUsage,
+} from "./usage/claude";
 import {
   codexRolloutId,
+  codexSessionFiles,
   codexSessionsDirectory,
   findCodexSession,
   readCodexUsage,
 } from "./usage/codex";
 import { ownFiles } from "./usage/files";
-import { piForksDirectory, piSessionFile, readPiCompactSummary, readPiUsage } from "./usage/pi";
+import {
+  piForksDirectory,
+  piSessionFile,
+  piSessionFiles,
+  readPiCompactSummary,
+  readPiUsage,
+} from "./usage/pi";
 import type { SessionRead } from "./usage/records";
 
 export type TurnPlan = {
@@ -55,6 +68,8 @@ export type TurnContext = {
   model?: string;
   sessionHint: string;
   launchArgs?: readonly string[];
+  /** The agent's harness home, a sandbox's or its own; absent, the operator's. */
+  home?: string;
 };
 
 export type HarnessSpec = {
@@ -101,6 +116,11 @@ export type HarnessSpec = {
     /** The agent's own harness home when it ran in a sandbox; the operator's otherwise. */
     home?: string,
   ): Promise<SessionRead | undefined>;
+  /**
+   * The files a session is made of, relative to `home`, to carry it into another: a fork's whose
+   * home is not its parent's. Undefined where the session cannot be found there.
+   */
+  sessionFiles?(home: string, session: string, cwd: string): Promise<string[] | undefined>;
   /**
    * The session that logged `marker` since `since`, for a pane whose harness names its session to
    * nobody: the operation's id, which every turn's prompt carries, finds it in the harness's files.
@@ -330,6 +350,8 @@ export const HARNESSES: Record<Harness, HarnessSpec> = {
     readCompactSummary: (sessionId, cwd) => readClaudeCompactSummary(sessionId, cwd),
     readSessionUsage: (sessions, cwd, home) =>
       readClaudeUsage(sessions, cwd, claudeProjectsDirectory(home)),
+    sessionFiles: (home, session, cwd) => claudeSessionFiles(home, session, cwd),
+    findSession: (marker, since, cwd, home) => findClaudeSession(marker, since, cwd, home),
     homeSessions: async (home) =>
       (await ownFiles(home, claudeProjectsDirectory(home)))
         .filter((name) => /^[^/]+\/[^/]+\.jsonl$/.test(name))
@@ -502,6 +524,7 @@ export const HARNESSES: Record<Harness, HarnessSpec> = {
     },
     readSessionUsage: (sessions, _cwd, home) =>
       readCodexUsage(sessions, codexSessionsDirectory(home)),
+    sessionFiles: (home, session) => codexSessionFiles(home, session),
     findSession: (marker, since, cwd, home) =>
       findCodexSession(marker, since, cwd, codexSessionsDirectory(home)),
     // By start time, which a rollout's name begins with: a root session starts before the
@@ -558,8 +581,8 @@ export const HARNESSES: Record<Harness, HarnessSpec> = {
     // A turnless rpc fork into a directory of its own two levels below the sessions root, keeping
     // its parent's id, which is its provider's cache key (F6, F7). pi's lookup by id never reaches
     // it there, so it is named by its file.
-    forkSession: async (session, newSessionId, { model, launchArgs = [] }) => {
-      const parent = await piSessionFile(session);
+    forkSession: async (session, newSessionId, { model, launchArgs = [], home }) => {
+      const parent = await piSessionFile(session, home);
       if (!parent) throw new Error(`pi has no session ${session} to fork`);
       const answered = (row: Row | undefined) =>
         row?.type === "response" && row.command === "get_state";
@@ -571,7 +594,7 @@ export const HARNESSES: Record<Harness, HarnessSpec> = {
           "--fork",
           parent.file,
           "--session-dir",
-          join(piForksDirectory(), newSessionId),
+          join(piForksDirectory(home), newSessionId),
           "--session-id",
           parent.id,
           ...launchArgs,
@@ -646,6 +669,7 @@ export const HARNESSES: Record<Harness, HarnessSpec> = {
     },
     readCompactSummary: (session) => readPiCompactSummary(session),
     readSessionUsage: (sessions, _cwd, home) => readPiUsage(sessions, home),
+    sessionFiles: (home, session) => piSessionFiles(home, session),
     homeSessions: async (home) => {
       const root = join(home, "sessions");
       return (await ownFiles(home, root))

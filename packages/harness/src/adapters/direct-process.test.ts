@@ -1,5 +1,13 @@
 import { describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  linkSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Occupant, SandboxedCommand, SandboxProcess } from "@agentswf/sandbox";
@@ -702,7 +710,7 @@ describe("createHeadlessAdapter", () => {
       expect(calls[1]?.stdin).toBe(`You write the tests.\n\n${turnSpec.prompt}`);
     });
 
-    test("a sandboxed agent is not forked yet: its session is in the sandbox's home", async () => {
+    test("a sandboxed agent's session is copied out of its home, never through a link, and forked inside the new agent's", async () => {
       const occupant: Occupant = {
         launch: (root): SandboxedCommand => ({
           ...root,
@@ -711,17 +719,72 @@ describe("createHeadlessAdapter", () => {
         }),
         async release() {},
       };
-      const { run, calls } = stub([claudeOut("first"), forked("fork-1")]);
-      const session = await headless(
-        run,
-        { newSessionId: () => "fork-1" },
-        { ...activation, occupant },
-      );
-      await (await session.start(turnSpec, firstBinding)).settled;
-      await expect(session.fork!(activation.deadline)).rejects.toThrow(
-        "a sandboxed agent cannot be forked yet",
-      );
-      expect(calls).toHaveLength(1);
+      const home = mkdtempSync(join(tmpdir(), "claude-home-"));
+      const into = mkdtempSync(join(tmpdir(), "fork-copy-"));
+      try {
+        const project = join(home, "projects", "-repo");
+        mkdirSync(join(project, "sess-1", "subagents"), { recursive: true });
+        writeFileSync(join(project, "sess-1.jsonl"), "{}\n");
+        writeFileSync(join(project, "sess-1", "subagents", "agent-a.jsonl"), "{}\n");
+        const { run, calls } = stub([
+          claudeOut("first"),
+          forked("fork-1"),
+          claudeOut("ok", "fork-1"),
+        ]);
+        const sandboxed = { ...activation, occupant, home };
+        const session = await headless(run, {}, sandboxed);
+        await (await session.start(turnSpec, firstBinding)).settled;
+        await expect(session.fork!(activation.deadline)).rejects.toThrow(
+          "a sandboxed agent's session is forked by copy",
+        );
+        const fork = await session.fork!(activation.deadline, { directory: into });
+        expect(fork).toEqual({ harness: "claude", sessionRef: "sess-1", copied: true });
+        expect(readFileSync(join(into, "projects", "-repo", "sess-1.jsonl"), "utf8")).toBe("{}\n");
+        expect(
+          readFileSync(
+            join(into, "projects", "-repo", "sess-1", "subagents", "agent-a.jsonl"),
+            "utf8",
+          ),
+        ).toBe("{}\n");
+        expect(calls).toHaveLength(1);
+
+        // The new agent forks the copy in its own home, inside, before its first turn.
+        const child = await headless(
+          run,
+          { newSessionId: () => "fork-1" },
+          {
+            ...sandboxed,
+            home: into,
+            continues: fork,
+          },
+        );
+        expect(calls[1]?.argv).toEqual(
+          expect.arrayContaining(["inside", "--resume", "sess-1", "--fork-session"]),
+        );
+        await (await child.start(turnSpec, firstBinding)).settled;
+        expect(calls[2]?.argv).toEqual(expect.arrayContaining(["--resume", "fork-1"]));
+
+        rmSync(join(project, "sess-1", "subagents", "agent-a.jsonl"));
+        symlinkSync("/etc/hosts", join(project, "sess-1", "subagents", "agent-a.jsonl"));
+        await expect(
+          session.fork!(activation.deadline, {
+            directory: mkdtempSync(join(tmpdir(), "fork-copy-")),
+          }),
+        ).rejects.toThrow("is a link");
+        rmSync(join(project, "sess-1", "subagents", "agent-a.jsonl"));
+        linkSync(
+          join(project, "sess-1.jsonl"),
+          join(project, "sess-1", "subagents", "agent-a.jsonl"),
+        );
+        await expect(
+          session.fork!(activation.deadline, {
+            directory: mkdtempSync(join(tmpdir(), "fork-copy-")),
+          }),
+        ).rejects.toThrow("is not a file of its own");
+      } finally {
+        rmSync(home, { recursive: true, force: true });
+        rmSync(into, { recursive: true, force: true });
+      }
     });
 
     test("a fork's resume that fails on its own keeps the fork, not the parent id it printed", async () => {

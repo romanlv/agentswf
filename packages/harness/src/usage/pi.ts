@@ -81,6 +81,12 @@ export async function piSessionFile(
   return file && id ? { file, id } : undefined;
 }
 
+/** The file a pi session is, relative to `home`, its agent directory. */
+export async function piSessionFiles(home: string, ref: string): Promise<string[] | undefined> {
+  const file = await resolve(join(home, "sessions"), ref);
+  return file ? [relative(home, file)] : undefined;
+}
+
 async function resolve(root: string, ref: string): Promise<string | undefined> {
   if (isAbsolute(ref)) {
     const inside = relative(root, ref);

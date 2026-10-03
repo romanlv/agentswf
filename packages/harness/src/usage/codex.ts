@@ -1,5 +1,5 @@
 import { realpath } from "node:fs/promises";
-import { basename, dirname, join } from "node:path";
+import { basename, dirname, join, relative } from "node:path";
 import { count, parseRow, type Row, record, text } from "../json";
 import { harnessState } from "../state";
 import { entries, jsonRows, safeId } from "./files";
@@ -99,6 +99,28 @@ function daysSince(since: number): string[] {
     days.add(`${date.getUTCFullYear()}/${pad(date.getUTCMonth() + 1)}/${pad(date.getUTCDate())}`);
   }
   return [...days];
+}
+
+/**
+ * The rollouts thread `id` is made of, relative to `home`: its own, and those of each thread it was
+ * forked from, which a fork refers to rather than copies (F8).
+ */
+export async function codexSessionFiles(home: string, id: string): Promise<string[] | undefined> {
+  const root = codexSessionsDirectory(home);
+  const all = (await entries(root, true)).filter((name) => codexRolloutId(name) !== undefined);
+  const files: string[] = [];
+  for (let thread: string | undefined = id; thread; ) {
+    const name = all.find((each) => codexRolloutId(each) === thread);
+    if (!name || files.includes(name)) break;
+    files.push(name);
+    let head = "";
+    try {
+      const content = await Bun.file(join(root, name)).text();
+      head = content.slice(0, content.indexOf("\n"));
+    } catch {}
+    thread = text(record(parseRow(head)?.payload)?.forked_from_id);
+  }
+  return files.length === 0 ? undefined : files.map((name) => relative(home, join(root, name)));
 }
 
 /** The agent's own turn: a subagent it is still waiting on keeps that turn open too. */
