@@ -65,6 +65,12 @@ What they cover between them:
   recall it and what it noted before. Cursor must refuse, saying why. `bun
   tests/compaction.eval.ts pi pi-pane` runs only those. 7 agents, ~60 s, ~$0.63 at list prices,
   the headless claude's share billed per token.
+- `fork` — forks (story 016) on claude, codex and pi, in panes and headless, across a placement
+  change and after a compaction: each worker notes a codename, is forked, then notes a release.
+  Each fork must answer the codename through its own channel and not know the release; a claude
+  or pi fork's first turn must read at least half its prompt from the cache. `bun tests/fork.eval.ts
+  codex claude>headless` runs only those cases. 24 agents, ~2 min; claude and codex's 20 cost ~$1.12
+  at list prices, the headless claude's share billed per token.
 - `calling-session` — `awf run --here` (story 014) from a claude, codex, pi and cursor session,
   each started in a Herdr tab and told to run the command; codex under its workspace-write sandbox
   with local sockets allowed. Each run, in a tab of its own, drives its session through three steps;

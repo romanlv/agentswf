@@ -508,6 +508,22 @@ Manual or live evaluation:
 
 ## Implementation notes
 
+### Task 6, 2026-10-03: built, pi's cases waiting on its login
+
+- `tests/fork.eval.ts` runs `examples/fork` on twelve cases: claude in a pane and headless, across
+  a placement change both ways, each with and without compaction where the story asks; codex in a
+  pane and headless, with and without; pi headless, with and without.
+- **The facts are in the parent's prompt, not a document it reads and loses.** A fork answers
+  without running anything, and nothing but its copied context holds the codename, which is what a
+  removed document was to prove.
+- **The cache is read per operation, not per request**: the run record keeps no request alone. A
+  claude or pi fork's first turn must read at least half its prompt from the cache. Codex's is
+  recorded, not asserted, and its share is high only because the turn's later requests hit codex's
+  own cache (F4).
+- Live, claude and codex: all ten passed, ~$1.12 at list prices. First-turn cache shares: claude
+  0.98 in a pane, headless and pane to headless, 0.80 headless to pane and pane compacted, 0.71
+  headless compacted; codex 0.55–0.92.
+
 ### Task 5, 2026-10-03
 
 - **The fork point is fixed by a copy.** When the parent has a harness home of its own (a
