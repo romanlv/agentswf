@@ -14,21 +14,22 @@ depends_on: []
 
 ## Outcome
 
-A workflow says how hard an agent thinks, as it says which model it is. It can switch either one
-later without losing the session: a reviewer opened at `high` is switched to `low` for a summary, or
-moved from a cheap model to a strong one once the work gets hard, as a person does with claude's
-`/effort` or codex's `/model`. Effort is part of the agent's execution, so `output.json` records it
-beside the model on every operation, and two runs that differ in effort can be told apart.
+A workflow says how hard an agent thinks, as it says which model the agent is. It can switch
+either later without losing the session, as a person does with claude's `/effort` or codex's
+`/model`. Examples: a reviewer opened at `high` is switched to `low` for its summary; a cheap model
+is swapped for a strong one once the work gets hard. `output.json` records the effort beside the
+model on every operation, so two runs that differ in effort can be told apart.
 
 An agent that names no effort runs at its harness's default, as it would without awf, and its
 record says awf set none. It no longer picks up the effort of the Claude Code session that launched
-it: `CLAUDE_EFFORT` stops leaking through.
+it.
 
 Why now: awf neither sets nor records effort, and effort changes an agent's time, cost and answers
 as much as its model does.
 
 - In story 008, every judge ran at an effort nobody chose:
-  - headless claude took `CLAUDE_EFFORT=medium` from the session that launched `awf-lab`;
+  - headless claude took `CLAUDE_EFFORT=medium` from the Claude Code session that launched
+    `awf-lab`;
   - codex read `model_reasoning_effort` from the operator's `~/.codex/config.toml`;
   - pi read `defaultThinkingLevel` from `~/.pi/agent/settings.json`.
 - The first live loop (data repository, `reports/2026-10-01-first-live-loop.md`) hit it twice:
@@ -43,97 +44,107 @@ workflow                          engine                          harness
 --------                          ------                          -------
 open({ runtime: {                 execution = { harness, model,   claude  --effort high
   alias: "codex",                   placement, effort: "high" }   codex   -c model_reasoning_effort="high"
-  effort: "high" } })        ──▶  checked against the harness's   pi      --thinking high
-                                  levels; refused if unknown      cursor  --model '{m}[effort=high]'
+  effort: "high" } })        ──▶  effort checked against the      pi      --thinking high
+                                  harness's levels                cursor  --model '{m}[effort=high]'
 
-agent.set({                       queued like a turn; the agent's headless: the next resume carries
-  effort: "low" })           ──▶  execution is "low" from here    the new flags. pane: the harness's
-                                  on, and each later operation    own command (/effort, /model),
-                                  records it                      confirmed on screen
+agent.set({                       queued like compact; from here  headless: the next resume carries
+  effort: "low" })           ──▶  on the agent's execution says   the new flags. pane: the harness's
+                                  "low", and so does each later   own command, confirmed on screen
+                                  operation's record
 ```
 
-- **At open.** An agent's effort is chosen with its runtime when it is opened. Absent, awf passes
-  nothing and the harness uses its default.
-- **`set`.** It switches the agent's model, effort or both from that point on. It is an
-  operation in the agent's queue, like `compact`: it runs after the turns enqueued before it, has an
-  id that makes a repeat harmless, and is recorded. It changes the session the agent already has,
-  so the context stays.
-- **No per-turn effort.** A one-off is `set`, the turn, then `set` back. There is one
-  mechanism to build and measure per harness, and the turn specs don't change.
+- **At open.** An agent's effort is chosen with its runtime when it is opened. If none is named,
+  awf passes no effort and the harness uses its default.
+- **`set`.** It switches the agent's model, effort or both for every operation after it. It goes
+  in the agent's queue like `compact`: it runs after the operations enqueued before it, its id
+  makes a repeat harmless, and it is recorded. It changes the session the agent already has, so the
+  context stays.
+- **No per-turn effort.** A one-off is `set`, the turn, then `set` back. That keeps one mechanism to
+  build and measure per harness, and the turn specs don't change.
 - **The levels are the harness's own words**, not an awf scale: claude's `max` and codex's `xhigh`
   are not the same thing. Each harness definition lists its levels, and an effort outside them is
-  refused before anything runs.
-- **Same harness only.** `set` changes model and effort, never the harness. Another harness
-  is a new agent.
-- **A harness that can't switch** in a pane or headless has `set` marked absent there, with
-  its reason (story 019's `defineHarness`). A `set` asking for it is refused with that
-  reason. The agent can still be opened at any effort.
-- **The record.** `AgentExecution` gains `effort`. Each operation's `execution` is the settings it
-  ran at, so a `set` shows as the point where they change. The agent's `byAgent[].execution`
-  is what it was opened at.
+  refused before anything runs. A model is not checked ahead: an unknown one fails its next turn,
+  as it does at open today.
+- **Same harness only.** `set` changes model and effort, never the harness, placement or sandbox.
+  Another harness means a new agent.
+- **A harness that can't switch**, in a pane or headless, has that switch absent with its reason
+  (story 019's `defineHarness`), and a `set` that needs it is refused with that reason. The agent
+  can still be opened at any of its levels.
+- **The record.** `AgentExecution` gains `effort`. Each operation's `execution` holds the settings
+  it ran at, so a `set` shows as the point where they change.
 
 The case people will ask about first: **what does switching the model cost?** The new model has no
-prompt cache for this session, so the next turn reads the whole context again at full price. The
-new model's context window may also be smaller than the session already is. awf doesn't refuse
-either; it refuses only what the harness itself refuses. The cost shows up in the next turn's spend,
-split by model as `byModel` already does.
+prompt cache for this session, so the next turn reads the whole context again at full price. Its
+context window may also be smaller than the session already is. awf refuses neither; it refuses only
+what the harness refuses. The cost shows in the next turn's spend, which `byModel` already splits
+by model.
 
 ## Scope
 
 In scope:
 
-- `effort` on the runtime an agent is opened with, and on a fork.
-- `AgentRef.set({ model?, effort? })`: switching the session's model and effort, headless and
-  in a pane, on claude, codex, pi and cursor where each can; refused with its reason where it can't.
+- `effort` on the runtime an agent is opened with, on an alias, and on a fork.
+- `AgentRef.set({ model?, effort? })`, headless and in a pane, on claude, codex, pi and cursor where
+  each can; refused with its reason where it can't.
 - Launching each harness at an effort, headless and in a pane, on the host and in a sandbox.
 - Recording effort on every operation and agent in `output.json`.
-- Not inheriting `CLAUDE_EFFORT` from a calling session.
-- The lab names effort for:
-  - its variants' agents;
-  - its judges (`--panel`);
-  - its proposer (`--proposer`).
-
-  Its contained-codex stopgap is removed.
+- Withholding `CLAUDE_EFFORT` from agents, like the other calling-session variables.
+- The lab names effort wherever it names a runtime (`harness/model:{effort}`), and its
+  contained-codex stopgap is removed.
+- [`workflow-api.md`](../workflow-api.md) and [`adding-a-harness.md`](../adding-a-harness.md)
+  describe effort and `set`.
 
 Out of scope:
 
-- Per-turn effort on `run` and `enqueue`. It can be added later as a shorthand for `set`
-  without breaking anything.
+- Per-turn effort on `run` and `enqueue`. It can be added later as a shorthand for `set` without
+  breaking anything.
 - Switching harness, placement, sandbox or skills mid-run.
-- Permission mode ([[agent-permission-mode]]). It is the next setting `set` would take, so its
-  todo should build on this.
+- Permission mode ([[agent-permission-mode]]). It is the next setting `set` would take, so its todo
+  should build on this.
 - Decision models (Jev): their effort is a provider parameter, not a harness's.
-- The caller session of `awf run --here` (ADR 0010): the operator chose its settings, and
-  `set` on it is refused.
+- The caller session of `awf run --here` (ADR 0010): the operator chose its settings. `set` on it is
+  refused, as `compact` fails on it.
 - An awf-wide effort scale, or choosing effort automatically.
 
 ## Context and evidence
 
-- Fact: the CLIs, 2026-10-04:
+- Fact: the CLIs' launch flags, read from each one's `--help` on 2026-10-04:
 
-  | Harness | Version | At launch |
+  | Harness | Version | Effort at launch |
   | --- | --- | --- |
   | claude | 2.1.289 | `--effort {low, medium, high, xhigh, max}` |
-  | codex | 0.160.0 | `-c model_reasoning_effort="{level}"` |
+  | codex | 0.160.0 | `-c model_reasoning_effort="{level}"`, a config override; the levels depend on the model |
   | pi | 0.87.1 | `--thinking {off, minimal, low, medium, high, xhigh, max}`, or `--model {m}:{level}` |
-  | cursor | 2026.10.01 | parameterised models only: `--model '{m}[effort=high]'` |
+  | cursor | 2026.10.01 | none; a parameterised model takes `--model '{m}[effort=high]'` |
 
-  - Mid-session in a TUI: claude has `/model` and `/effort`; codex picks model and effort under
-    `/model`. pi's and cursor's are unchecked.
-  - codex's own levels depend on the model.
-- Fact: a headless turn after the first is a new process resuming the session (`resumeTurn` in
-  `packages/harness/src/harnesses/*.ts`). A headless `set` is therefore flags on the next
-  resume, provided the harness honours them on a resume.
-- Fact: `OperationRecord.execution` is already "resolved execution for this operation"
+- Fact: a Claude Code session exports `CLAUDE_EFFORT` to the commands it runs (`medium` in the
+  session that drafted this story). `CLAUDE.callingSessionEnv` in
+  `packages/harness/src/harnesses/claude.ts` doesn't list it, so every claude agent awf starts from
+  such a session inherits it.
+- Fact: after the first turn, a headless turn is a new process resuming the session (`resumeTurn`
+  in `packages/harness/src/harnesses/*.ts`). A headless `set` is therefore flags on the next resume,
+  provided the harness honours them on a resume (see "To measure").
+- Fact: `OperationRecord.execution` is already the "resolved execution for this operation"
   (`packages/contract/src/workflow/agents.ts`). Settings that change during a run fit there without
   a new field.
-- Fact: `AgentRef.execution` is documented as "fixed for this logical agent". `set` changes
-  that promise.
-- Fact: the stopgap `hostReasoningEffort`, and the codex config it writes, is in
-  `packages/lab/src/review/lab/execute.ts`.
-- Constraint: `ExecutionConfig`, `ExecutionRequirements`, `AgentForkSpec`, `AgentRef` and the
-  record formats are published types (`AGENTS.md`, "The rule that matters"). This story settles them
-  before any code.
+- Fact: `AgentRef.execution` is documented as "fixed for this logical agent", and reopening an agent
+  compares the whole stored execution (`assertCompatibleAgent` in
+  `packages/engine/src/workflow-runner.ts`). `set` breaks both unless the agent's opened
+  settings are kept apart from its current ones.
+- Fact: `resolveAlias` in `workflow-runner.ts` copies only `harness` and `model` from an alias. The
+  agent's own fields, `placement` and `metered`, are added afterwards.
+- Fact: every runtime the lab names on a command line goes through `runtimeOf` in
+  `packages/lab/src/review/format/runtime.ts`. That covers the proposer, the panel and its
+  tie-break, match first, and `draft-key`.
+- Fact: a lab variant or scorer is identified by the semver its file declares. Its results belong to
+  `{name}@{major}.{minor}`, and whether a change is a new version is the researcher's call
+  (`packages/lab/src/review/lab/version.ts`). Nothing derives identity from runtimes.
+- Fact: the stopgap `hostReasoningEffort` and the codex config it writes are in
+  `packages/lab/src/review/lab/execute.ts`. Contained variants in the data repository that name no
+  effort rely on it.
+- Constraint: `RuntimeTarget`, `ExecutionRequirements`, `ExecutionConfig`, `AgentExecution`,
+  `AgentForkSpec`, `AgentRef` and the record formats are published types (`AGENTS.md`, "The rule
+  that matters"). This story settles them before any code.
 - Constraint: a capability is built or absent with a reason, and tsc enforces it (story 019).
 
 ## Code map
@@ -141,65 +152,78 @@ Out of scope:
 ### `packages/contract`
 
 - `src/workflow/agents.ts`:
-  - `RuntimeTarget`, `ExecutionRequirements` and `AgentForkSpec` gain `effort?: Effort`;
-    `ExecutionConfig` and `AgentExecution` gain it through `RuntimeTarget`;
-  - `SettingsSpec` and `AgentRef.set` are new;
-  - `AgentRef.execution` becomes the agent's current settings;
+  - `Effort` is new.
+  - `RuntimeTarget`, `ExecutionRequirements` and `AgentForkSpec` gain `effort?`, and
+    `ExecutionConfig` and `AgentExecution` gain it through `RuntimeTarget`.
+  - `SettingsSpec` and `AgentRef.set` are new.
+  - `AgentRef.execution` becomes the agent's current settings.
   - `OperationRecord` needs no new field.
-- `src/records.ts`: `RunAccounting.byAgent[].execution` carries effort with no change.
+- `src/records.ts`: `byAgent[].execution` carries effort with no change; it holds the opened
+  settings.
 
 ### `packages/harness`
 
 - `src/harnesses/define.ts`:
-  - `TurnContext` gains `effort`;
-  - `interactive` and `interactiveResume` take it;
-  - a required field lists the harness's effort levels;
-  - a new optional capability switches a pane's model and effort, shaped like `compactPane`: the
-    text to type and the screen that confirms it.
-- `src/harnesses/{claude,codex,pi,cursor}.ts`: each plan adds its flag at launch and on resume:
-  - codex: a `-c` placed before `exec`'s prompt;
-  - cursor: rewrites `--model`.
-- `src/adapters/direct-process.ts`: the next resume uses the agent's current settings.
-- `src/adapters/herdr.ts`: a `set` types the switch into the pane and waits for its screen.
+  - `TurnContext` gains `effort`.
+  - `interactive` and `interactiveResume` take it.
+  - A required `effort` field lists the harness's levels, or is `Absent` with a reason.
+  - A new optional `setPane` capability switches a pane's model and effort, shaped like
+    `compactPane`: the text to type, and the screen that confirms it.
+- `src/harnesses/{claude,codex,pi,cursor}.ts`: each launch and resume plan adds the harness's flag.
+  For cursor, the plan rewrites `--model` instead.
+- `src/adapter.ts`: `HarnessSession` gains `set?(settings, deadline)`, beside `compact`. Absent
+  means the host can't switch.
+- `src/adapters/direct-process.ts`: a `set` updates the settings that the next resume's plan is
+  built from.
+- `src/adapters/herdr.ts`:
+  - a `set` types the switch and waits for its screen;
+  - a pane relaunched on its session (`interactiveResume`) launches at the current settings.
 - `CLAUDE.callingSessionEnv`: add `CLAUDE_EFFORT`.
 
 ### `packages/engine`
 
 - `src/workflow-runner.ts`:
-  - alias resolution merges `effort` as an agent-owned field;
-  - reattach compares it;
-  - `set` is queued and recorded like `compact`, and checked against the harness's levels
-    and capabilities;
-  - later operations take the new settings.
+  - `resolveAlias` copies the alias's `effort`, and the agent's own replaces it;
+  - the agent's identity keeps its opened execution for reattach, apart from its current one;
+  - `set` is queued, made idempotent by id, and recorded the way `compact` is;
+  - its effort is checked against the harness's levels;
+  - later operations, forks included, take the new settings.
 - `src/operator-aliases.ts`: unchanged; the installed aliases name no effort.
-- `src/workflow-testing/`: a scripted agent records its settings, `set` included, so a
-  workflow's test can check them.
+- `src/workflow-testing/host.ts`, `script.ts`: the testing host implements `set` and records each
+  agent's settings, so a workflow's test can check them.
 
 ### `packages/lab`
 
-- `src/review/lab/execute.ts`: remove `hostReasoningEffort` and the config it writes.
-- `src/review/lab/cli.ts`: `--proposer` and `--panel` accept `harness/model:effort`, as pi's model
-  shorthand does.
-- `src/review/lab/loop/propose.workflow.ts` and `src/review/judge/judge.workflow.ts`: pass it to
-  `open`.
-- A scorer's or variant's identity includes its agents' efforts (open question 5).
+- `src/review/format/runtime.ts`: `runtimeOf` reads `harness/model:{effort}`, and `runtimeName`
+  prints it back.
+- `src/review/lab/execute.ts`: remove `hostReasoningEffort` and the config it writes, once the data
+  repository's contained variants name their effort.
+
+### Docs
+
+- `docs/workflow-api.md`: effort at open, and `set`.
+- `docs/adding-a-harness.md`: what a new harness must give for effort, and what to measure.
+- `docs/findings/agent-effort.md`: new, from task 1.
 
 ### Checked, no change
 
-- `src/accounting`: effort doesn't change pricing, tokens already split out `reasoning`, and
+- `engine/src/accounting`: effort doesn't change pricing. Tokens already split out `reasoning`, and
   `byModel` already splits an agent whose model changed.
 - `packages/wf`: an agent doesn't change its own settings; the workflow does.
+- `packages/sandbox`: the effort flag is an argument like any other. A sandbox's fresh harness home
+  means a sandboxed agent that names no effort gets the harness default, which is the decided
+  behaviour.
+- The lab's version rule: effort lives in a variant's workflow file, so changing it is a file
+  change, and the researcher bumps the version as for any change in behaviour.
 
 ## Proposed design
 
-### The contract change
+### The contract
 
-All of these types are published, so this section is what task 2 settles before any code.
-
-**At open:**
+These types are published; task 2 builds them as written here.
 
 ```ts
-/** A harness's own level name, such as claude's `max` or codex's `xhigh`; see `HarnessSpec.effort`. */
+/** A harness's own level name, such as claude's `max` or codex's `xhigh`; see its definition's `effort`. */
 export type Effort = string;
 
 export type RuntimeTarget = {
@@ -213,7 +237,7 @@ export type ExecutionRequirements = PlacementChoice & {
   alias: RuntimeAliasName;
   harness?: HarnessKind;
   model?: string;
-  /** Agent-owned, like `placement`: it replaces an alias's effort rather than having to match it. */
+  /** The agent's own, like `placement`: it replaces an alias's effort rather than having to match it. */
   effort?: Effort;
 };
 
@@ -221,33 +245,32 @@ export interface AgentForkSpec extends PlacementChoice {
   key: AgentKey;
   instructions?: string;
   labels?: JsonObject;
-  /** Absent, the fork takes its parent's current effort. */
+  /** Absent, the fork takes its parent's current effort, as it takes its current model. */
   effort?: Effort;
 }
-```
 
-**During the run:**
-
-```ts
 export interface SettingsSpec {
   /** Idempotency key scoped to this agent. Generated when omitted. */
   id?: string;
   /** Another model of the same harness. */
   model?: string;
   effort?: Effort;
+  /** Defaults to the current workflow scope deadline. */
   deadline?: AbsoluteDeadline;
+  /** Relative bound, capped by the current workflow scope deadline. */
   timeoutMs?: number;
 }
 
 export interface AgentRef extends ParticipantRef {
-  /** The agent's settings now: as opened, then as the last settled `set` left them. */
+  /** The agent's settings now: as opened, then as the last answered `set` left them. */
   readonly execution: AgentExecution;
   /**
    * Switches this session's model or effort after the earlier operations; the context is kept.
-   * Answered with the settings now in force. Refused where the harness can't switch, with why.
+   * Answered once the switch is confirmed; the outcome's `usage.execution` is the settings now in
+   * force. Refused where the harness can't switch, with why.
    */
-  set(spec: SettingsSpec): Promise<TurnOutcome<AgentExecution>>;
-  // ...enqueue, run, compact, fork, as today
+  set(spec: SettingsSpec): Promise<TurnOutcome<null>>;
+  // enqueue, run, compact and fork as today.
 }
 ```
 
@@ -259,78 +282,80 @@ const summary = await reviewer.run({ prompt: "Summarise." });                // 
 const recheck = await reviewer.run({ prompt: "Check the fixes." });          // still low
 ```
 
-**In the records:** nothing new is added. Each operation's `execution` holds the settings it ran
-at:
+In the records, each operation's `execution` holds the settings it ran at:
 
 ```json
 { "agent": "reviewer", "operationId": "…",
   "execution": { "harness": "codex", "model": "gpt-6.1-sol", "placement": "pane", "effort": "low" } }
 ```
 
-**Not changed:** the turn specs, `CompactSpec`, `wf`. `attach` takes a `RuntimeSelection`, so it
-gains `effort` as a constraint, compared with the agent as it was opened.
+Not changed: the turn specs, `CompactSpec`, `wf`. `attach` and a repeated `open` compare against the
+agent's settings as it was opened, so code that reopens an agent after a `set` with its original
+spec still gets it back.
 
 ### How it runs
 
-- **At open**, each harness's flag goes into its launch, in a pane and headless, on the host and in
-  a sandbox.
-- **Headless**, `set` runs no process. It settles once the new settings are valid, and the
-  next resume carries them.
-- **In a pane**, `set` types the harness's own command and settles when the screen confirms
-  it.
+- **At open**, the harness's flag goes into its launch, in a pane and headless, on the host and in a
+  sandbox.
+- **Headless**, `set` runs no process. It is answered once its effort is valid, and the next resume
+  carries the new flags.
+- **In a pane**, `set` types the harness's own command and is answered when the screen confirms it.
 
 Invariants:
 
-- An operation records the settings awf launched or switched it to. awf never records a setting it
-  did not set or confirm.
-- An effort or model the harness doesn't accept is refused before any process starts, quoting the
-  harness's levels.
-- A `set` the harness can't do is refused with the definition's absent reason. It never
-  silently leaves the old settings in force.
-- A pane `set` whose confirmation never shows settles `failed`, and the agent's settings are
-  unknown. It is closed, as a pane is after a failed turn, so nothing later runs at a setting nobody
-  can name.
+- An operation records only the settings awf launched it at or switched it to.
+- An effort the harness doesn't list is refused at `open`, `fork` or `set` before any process
+  starts, and the refusal quotes the harness's levels.
+- A `set` the harness can't do is refused with the definition's absent reason. It never silently
+  leaves the old settings in force.
+- A pane `set` whose confirmation never shows settles `failed`, and nobody knows the agent's
+  settings any more. The agent is closed, as after any failed turn, so nothing later runs at
+  settings nobody can name.
 
 Alternatives rejected:
 
-- **Effort on each turn (`run({ effort })`).** It was in the first draft. It is two mechanisms,
-  where a pane needs a switch and a switch back for every such turn, and it changes the turn specs.
-  `set` covers it with one.
-- **An awf scale (`low`/`medium`/`high`) mapped per harness.** Portable, but the levels don't line
-  up, and the record would say what was asked rather than what ran.
+- **Effort on each turn (`run({ effort })`).** This was in the first draft. It makes two
+  mechanisms, needs a switch and a switch back in a pane for every such turn, and changes the turn
+  specs. `set` covers it with one mechanism.
+- **An awf scale (`low`/`medium`/`high`) mapped per harness.** It would be portable, but the levels
+  don't line up, and the record would say what was asked rather than what ran.
 - **Effort inside the model string, as cursor and pi allow.** `byModel` would split one model in
   two.
-- **Effort only in launch arguments, like skills' `launchArgs`.** Nothing would record it, and
-  nothing could switch it.
+- **Effort as a raw launch argument, as skills' `launchArgs` are passed.** Nothing would record it,
+  and nothing could switch it.
+- **Answering `set` with the new settings (`TurnOutcome<AgentExecution>`).** `AgentExecution`
+  has optional fields, so it isn't a `JsonValue`. The outcome's `usage.execution` carries the new
+  settings anyway.
 
 ## Tasks at a glance
 
 - [ ] 1. Measure each harness: effort levels; effort and model at launch and on a resume; the pane
   commands and the screens that confirm them; precedence over config
-- [ ] 2. Settle and add `effort` and `set` to the contract and the records; refuse what a
-  harness doesn't accept
-- [ ] 3. Each harness launches at its agent's effort, headless and in a pane; `CLAUDE_EFFORT` not
-  inherited
-- [ ] 4. `set` switches model and effort mid-session, headless and in a pane, where the
-  harness can
-- [ ] 5. The lab names effort for variants, judges and the proposer; the stopgap is removed
+- [ ] 2. Add `effort` and `set` to the contract, the engine and the testing host; refuse what a
+  harness doesn't list
+- [ ] 3. Each harness launches at its agent's effort, headless and in a pane; `CLAUDE_EFFORT`
+  withheld
+- [ ] 4. `set` switches model and effort mid-session, headless and in a pane, where the harness can
+- [ ] 5. The lab names effort wherever it names a runtime; the stopgap is removed
 
 ## To measure
 
-What task 1 finds out by running each harness. These are not decisions; a capability that can't be
-shown is absent with its reason.
+What task 1 finds out by running each harness. These are not decisions. A switch that can't be
+shown working is absent with its reason.
 
 - Does each harness honour `--model` and its effort flag on a resumed headless turn, or does a
-  resume keep the session's first settings?
-- In a pane, which command switches model and effort, and what on screen confirms it? claude's
-  `/model` and `/effort` and codex's `/model` picker exist; pi's and cursor's are unchecked.
-- Cursor: is effort only for parameterised models? If so, a cursor agent on another model has
-  effort absent.
-- Precedence: does `--effort` beat `CLAUDE_EFFORT` and claude's settings? Does codex's `-c` beat a
-  profile?
-- Where each harness logs the model and effort it actually used, so task 3's live check can read
-  them back. codex's rollout logs `effort` in its `turn_context`; claude's and pi's session files
-  are unchecked.
+  resume keep the session's first settings? This decides whether a headless `set` is possible.
+- In a pane, which command switches model and effort, and what on screen confirms it?
+  - claude is reported to have `/model` and `/effort`;
+  - codex is reported to pick both under `/model`;
+  - pi's and cursor's are unknown.
+- Cursor: which models take `[effort=…]`, and what does a cursor agent on another model get?
+- Precedence: does claude's `--effort` beat `CLAUDE_EFFORT` and its settings file? Does codex's `-c`
+  beat a profile?
+- Codex's levels for the models awf runs, so its definition lists the right ones.
+- Where each harness logs the model and effort it actually used, so the live checks can read them
+  back. codex's rollout is reported to log `effort` in its `turn_context`; claude's and pi's session
+  files are unchecked.
 
 ## Open questions
 
@@ -339,13 +364,8 @@ Decisions for the operator, grouped by the task they block.
 ### 2. Contract
 
 - **Can an agent set its own effort over its alias's?** The proposal says yes, as it can its
-  placement. The same model at two efforts is the common case, and making it a constraint, like
-  `model`, means an alias for every model and effort pair.
-
-### 5. Lab
-
-- How does an existing scorer's or variant's identity change when effort joins it? Old records ran
-  at an unrecorded effort, so they should not match a new identity that names one.
+  placement. The same model at two efforts is the common case. Making effort a constraint, as
+  `model` is, would need an alias for every model and effort pair.
 
 ### Decided
 
@@ -353,8 +373,12 @@ Decisions for the operator, grouped by the task they block.
   absent. Installed aliases name no effort (operator, 2026-10-04).
 - **Switching mid-run is its own operation, not part of a prompt or a turn**, and it covers model as
   well as effort (operator, 2026-10-04).
-- **It is called `set`** (operator, 2026-10-04). Over `configure`, which reads like setup before
-  the agent starts; `switchTo`, odd for a later permission mode; and `use`, which says little.
+- **It is called `set`** (operator, 2026-10-04). It beat:
+  - `configure`, which reads like setup before the agent starts;
+  - `switchTo`, which reads oddly for a later permission mode;
+  - `use`, which says little.
+- **The lab's identities don't change:** a variant's effort is in its file, and the researcher
+  versions a change to it as any other (`version.ts`). Old results were never tied to an effort.
 
 ## Task execution rule
 
@@ -369,65 +393,69 @@ deliverable.
 
 ### 1. Measure each harness
 
-Outcome: the facts above are measured per harness, recorded in a finding, and every item under "To measure"
-has an answer.
+Outcome: every item under "To measure" is answered per harness in
+`docs/findings/agent-effort.md`, or marked unknown with why.
 
 Execution:
 
-- [ ] Plan: list each probe and its cheapest model; probes run on codex where the harness allows
-  it, and briefly on the others.
-- [ ] Implement: run the probes; record them in `docs/findings/agent-effort.md`.
-- [ ] Review: one subagent checks each claim against its probe's output.
-- [ ] Resolve: disposition every gap; a capability that can't be shown is absent.
-- [ ] Verify: every row of the table is measured or marked unknown.
+- [ ] Plan: list each probe and the cheapest model it can run on.
+- [ ] Implement: run the probes and record the commands, versions and output in the finding.
+- [ ] Review: one subagent checks each claim in the finding against its probe's output.
+- [ ] Resolve: disposition every gap; a switch that can't be shown working is absent.
+- [ ] Verify: every row of the finding's table is measured or marked unknown.
 
 Work:
 
 - For each harness:
-  - its levels for the models awf runs;
   - launch at a level, headless and in a pane, and read the level back from its logs;
   - resume headless at another level and another model;
   - switch model and effort in a pane, and capture the screen that confirms it;
-  - precedence over its config and environment.
+  - check precedence over its config and environment.
 
 Done when:
 
-- Every item under "To measure" has an answer or a reason it can't be had.
+- Every item under "To measure" has an answer, or a reason it can't be had.
+- Each harness's levels and switches are known well enough to write its definition.
 
-### 2. Settle the contract and the records
+### 2. Contract, engine and testing host
 
-Outcome: `effort` and `set` are in the published types and records, with their refusals,
-and documented.
+Outcome: `effort` and `set` are in the published types, run through the engine and the testing
+host, and are documented in `workflow-api.md`.
 
 Execution:
 
-- [ ] Plan: settle open questions 2 with the operator before editing types.
-- [ ] Implement: contract types; the engine's alias merge, reattach rule and level check; the
-  workflow-testing surface records it.
+- [ ] Plan: confirm the open question is settled; map the reattach change to opened and current
+  settings.
+- [ ] Implement:
+  - the contract as in "The contract";
+  - in the engine: alias merge, `set` queued like `compact`, level checks, the opened settings kept
+    for reattach;
+  - `set` on the testing host.
 - [ ] Review: architecture/scope and correctness/proof subagents on the diff.
 - [ ] Resolve: disposition findings.
-- [ ] Verify: `bun test`, `bunx tsc --noEmit`, boundaries.
-
-Work:
-
-- `effort` on the runtime, the fork spec and the execution record; `SettingsSpec` and
-  `AgentRef.set`, queued and recorded like `compact`. Unknown levels are refused at `open`
-  and at `set`.
+- [ ] Verify: focused workflow tests; `bun test`, `bunx tsc --noEmit`, boundaries.
 
 Done when:
 
-- A workflow test opens an agent at an effort, runs a turn, sets another effort and model,
-  and runs two more. The operations record each setting where it took effect, and an unknown level
-  is refused before any agent runs.
+- A workflow test opens an agent at an effort, runs a turn, sets another effort and model, and runs
+  two more. Each operation records the settings in force when it ran.
+- Reopening the agent with its original spec still returns it.
+- An unknown level, another harness, and `set` on the caller are each refused before any agent
+  runs.
 
 ### 3. Launch at the agent's effort
 
-Outcome: every harness starts at its agent's effort, headless and in a pane, sandboxed or not.
+Outcome: every harness starts at its agent's effort, headless and in a pane, on the host and in a
+sandbox.
 
 Execution:
 
-- [ ] Plan: per-harness flags from task 1's finding.
-- [ ] Implement: plans in each harness file; `CLAUDE_EFFORT` in `callingSessionEnv`.
+- [ ] Plan: per-harness flags and levels from task 1's finding.
+- [ ] Implement:
+  - each harness definition's `effort`;
+  - the launch and resume plans;
+  - `CLAUDE_EFFORT` in `callingSessionEnv`;
+  - `adding-a-harness.md`.
 - [ ] Review: two subagents.
 - [ ] Resolve: disposition findings.
 - [ ] Verify: plan tests per harness; a cheap live check per harness reads the effort back.
@@ -435,59 +463,75 @@ Execution:
 Done when:
 
 - A live run of each harness, headless and in a pane, logs the effort it was given.
+- A claude agent started from a Claude Code session no longer sees `CLAUDE_EFFORT`.
 
 ### 4. `set` switches the session
 
-Outcome: `set` switches model and effort in the agent's session, which keeps its context,
-headless and in a pane. A harness that can't is refused with its reason.
+Outcome: `set` switches model and effort in the agent's session, which keeps its context, headless
+and in a pane. A harness that can't is refused with its reason.
 
 Execution:
 
-- [ ] Plan: the pane switch capability's shape in `define.ts`, from task 1's screens.
-- [ ] Implement: headless settings carried to the next resume; the pane switch and its
-  confirmation; absent reasons.
+- [ ] Plan: the shape of `setPane` and `HarnessSession.set`, from task 1's screens.
+- [ ] Implement:
+  - headless: the settings carried to the next resume;
+  - pane: the switch and its confirmation, and a relaunch at the current settings;
+  - the absent reasons.
 - [ ] Review: two subagents.
 - [ ] Resolve: disposition findings.
-- [ ] Verify: adapter tests for a switch and a failed confirmation; a live pane check on claude and
-  codex.
+- [ ] Verify: adapter tests for a switch and for a confirmation that never shows; a live pane check
+  on claude and codex.
 
 Done when:
 
-- A live run switches effort and then model between turns, in a pane and headless, on each harness
-  that can. The harness's own log agrees with `output.json`, and the second turn still knows what
-  the first was told.
+- A live run switches effort, then model, between turns, in a pane and headless, on each harness
+  that can.
+- The harness's own log agrees with `output.json`.
+- The later turn still knows what the first was told.
 
 ### 5. The lab names effort
 
-Outcome: a variant's, judge's and proposer's effort is chosen and recorded, never inherited.
+Outcome: every runtime the lab names on a command line can carry an effort, and no lab agent runs at
+an effort copied from the operator's config.
 
 Execution:
 
-- [ ] Plan: settle open question 5; the `harness/model:effort` syntax.
-- [ ] Implement: CLI parsing, the proposer and judge workflows, identities; remove the stopgap.
+- [ ] Plan: the `harness/model:{effort}` syntax. The suffix after the last `:` is an effort only if
+  it is one of the harness's levels; otherwise it stays part of the model, as in a pi model
+  ending `:free`.
+- [ ] Implement:
+  - `runtimeOf` and `runtimeName`;
+  - the data repository's contained variants name their effort (an operating step);
+  - then remove `hostReasoningEffort`.
 - [ ] Review: two subagents.
 - [ ] Resolve: disposition findings.
 - [ ] Verify: lab tests; one contained codex trial at `high` logs `high`.
 
 Done when:
 
-- `awf-lab loop --proposer codex/{model}:high` runs its proposer at high, and its record says so.
+- `awf-lab loop --proposer codex/{model}:high` runs its proposer at `high`, and its record says
+  so.
+- A contained trial's effort comes from its variant, not from the host's codex config.
 
 ## Verification
 
 Automated:
 
-- [ ] Workflow tests: effort on open, alias and fork; `set` in order with turns, idempotent
-  by id; refusals for an unknown level, another harness, the caller, and an absent capability.
-- [ ] Harness plan tests: each harness's flag at launch and on resume.
+- [ ] Workflow tests:
+  - effort at open, through an alias, and on a fork;
+  - `set` runs in order with turns, and a repeated id is harmless;
+  - reattach after a `set`;
+  - refusals: an unknown level, another harness, the caller, and an absent switch.
+- [ ] Harness plan tests: each harness's flag at launch and on a resume.
+- [ ] Lab tests: `runtimeOf` with and without an effort, and a model containing `:`.
 - [ ] `bun test`
 - [ ] `bunx tsc --noEmit`
 - [ ] `bun run scripts/check-boundaries.ts`
 
 Manual or live evaluation:
 
-- [ ] Per harness, headless and in a pane: launch at a level, then `set` another effort and
-  model; the harness's own log agrees with `output.json`. Cheap models, a few cents a harness.
+- [ ] Per harness, headless and in a pane: launch at a level, then `set` another effort and model;
+  the harness's own log agrees with `output.json`. Cheap models, a few cents a harness.
 
 ## Review record
 
@@ -505,8 +549,10 @@ Manual or live evaluation:
 
 - [x] Outcome and boundaries are concrete.
 - [x] Relevant implementation, callers, and tests are mapped.
-- [ ] Evidence and research support the proposed design: task 1 measures it.
-- [ ] Expensive interface, record-format, and stage-gate decisions are settled: open questions 2.
+- [x] Evidence and research support the proposed design. The measurements still owed are task 1's,
+  and they decide only which switches are absent, not the design.
+- [ ] Expensive interface, record-format, and stage-gate decisions are settled: the contract is
+  written out; one question is open.
 - [x] Tasks are ordered, coherent, and independently verifiable.
 - [ ] Open questions are resolved or explicitly moved out of scope.
 
