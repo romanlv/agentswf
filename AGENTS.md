@@ -75,3 +75,7 @@ to run when, and what each costs.
 
 Comments are sparse: one only for non-obvious intent, a trade-off, or a constraint the code
 cannot express. Never restate the code or narrate a change.
+
+A commit is a logically complete piece of work: a task done, a fix, a doc revision the user has
+settled. While a doc or a change is still being worked on with the user, edit it in the working tree
+and leave it uncommitted; commit once the piece is done or the user asks.
