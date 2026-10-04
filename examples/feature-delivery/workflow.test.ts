@@ -9,10 +9,11 @@ const args = {
 };
 const doc = "docs/ABC-1.md";
 const ready = (summary: string) => answer(VERDICT, { kind: "ready", summary });
+const planned = { docPath: doc, summary: "plan", decisions: [] };
 
 /** Every agent does its part at once: the doc is approved, then the code. */
 const happyPath: Record<string, Script> = {
-  planner: answer(WORK, { docPath: doc, summary: "plan", decisions: [] }),
+  planner: answer(WORK, planned),
   reviewer: ready("ok"),
   implementer: answer(WORK, { docPath: doc, summary: "built", decisions: ["LRU"] }),
 };
@@ -23,7 +24,7 @@ describe("feature-delivery", () => {
       agents: {
         ...happyPath,
         planner: [
-          answer(WORK, { docPath: doc, summary: "plan", decisions: [] }),
+          answer(WORK, planned),
           answer(WORK, { docPath: doc, summary: "plan v2", decisions: ["name the cache"] }),
         ],
         reviewer: [
@@ -34,13 +35,10 @@ describe("feature-delivery", () => {
       },
     });
     expect(run.value).toEqual({
-      kind: "ready-for-user-review",
-      handoff: {
-        docPath: doc,
-        summary: "built",
-        decisions: ["LRU"],
-        review: { primary: "code ok", additional: [] },
-      },
+      docPath: doc,
+      summary: "built",
+      decisions: ["LRU"],
+      review: { primary: "code ok", additional: [] },
     });
     expect(run.turnsOf("planner")[1]!.prompt).toContain("- name the cache");
     expect(run.turnsOf("reviewer").map((turn) => turn.label)).toEqual([
@@ -62,7 +60,6 @@ describe("feature-delivery", () => {
   });
 
   test("a continue after the implementation stopped reuses the plan and redoes the rest", async () => {
-    const planned = { docPath: doc, summary: "plan", decisions: [] };
     const run = await testWorkflow(featureDelivery, args, {
       recorded: {
         "ticket-doc": planned,
@@ -73,10 +70,7 @@ describe("feature-delivery", () => {
         implementer: answer(WORK, { docPath: doc, summary: "built", decisions: ["LRU"] }),
       },
     });
-    expect(run.value).toMatchObject({
-      kind: "ready-for-user-review",
-      handoff: { summary: "built" },
-    });
+    expect(run.value).toMatchObject({ summary: "built" });
     // The plan and its review are the first attempt's; the planner is opened, never asked.
     expect(run.turnsOf("planner")).toEqual([]);
     expect(run.turnsOf("implementer")[0]!.prompt).toContain(`from ${doc}`);
@@ -90,7 +84,6 @@ describe("feature-delivery", () => {
   });
 
   test("a continue that runs only the additional reviews briefs the fresh agents it asks", async () => {
-    const planned = { docPath: doc, summary: "plan", decisions: [] };
     const built = { docPath: doc, summary: "built an LRU cache", decisions: ["LRU"] };
     const run = await testWorkflow(
       featureDelivery,
@@ -118,9 +111,7 @@ describe("feature-delivery", () => {
         },
       },
     );
-    expect(run.value).toMatchObject({
-      handoff: { summary: "escaped", review: { primary: "escape ok" } },
-    });
+    expect(run.value).toMatchObject({ summary: "escaped", review: { primary: "escape ok" } });
     expect(run.turnsOf("additional-reviewer:security")[0]!.prompt).toContain("ABC-1");
     expect(run.turnsOf("implementer")[0]!.prompt).toContain("your implementation of ABC-1");
     const [review] = run.turnsOf("reviewer");
@@ -184,14 +175,12 @@ describe("feature-delivery", () => {
     expect(run.stopped).toEqual({ stage: "doc-review", reason: "cannot open the doc" });
   });
 
-  test("the planner and the reviewer on one model stop before any stage", async () => {
+  test("the planner and the reviewer on one model are refused", async () => {
     const run = await testWorkflow(featureDelivery, {
       ...args,
       runtimes: { ...args.runtimes, planner: "codex" },
     });
-    expect(run.stopped).toEqual({
-      reason: "The planner and primary reviewer must use different models",
-    });
+    expect(() => run.value).toThrow("planner and primary reviewer must use different models");
     expect(run.turns).toEqual([]);
   });
 
@@ -200,7 +189,7 @@ describe("feature-delivery", () => {
       const run = await testWorkflow(featureDelivery, args, {
         agents: {
           planner: [
-            answer(WORK, { docPath: doc, summary: "plan", decisions: [] }),
+            answer(WORK, planned),
             answer(WORK, { docPath: "docs/other.md", summary: "moved", decisions: [] }),
           ],
           reviewer: answer(VERDICT, { kind: "changes-requested", feedback: ["tighten"] }),
@@ -254,15 +243,12 @@ describe("feature-delivery", () => {
         },
       });
       expect(run.value).toMatchObject({
-        kind: "ready-for-user-review",
-        handoff: {
-          summary: "escaped",
-          review: {
-            additional: [
-              { reviewer: "security", kind: "changes-addressed", feedback: ["escape the key"] },
-              { reviewer: "perf", kind: "ready", summary: "fast enough" },
-            ],
-          },
+        summary: "escaped",
+        review: {
+          additional: [
+            { reviewer: "security", kind: "changes-addressed", feedback: ["escape the key"] },
+            { reviewer: "perf", kind: "ready", summary: "fast enough" },
+          ],
         },
       });
       expect(run.turnsOf("implementer")[1]!.prompt).toContain("- security: escape the key");

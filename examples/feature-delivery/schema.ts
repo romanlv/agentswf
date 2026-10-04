@@ -63,4 +63,5 @@ export const REVIEW_VERDICT_SCHEMA = outputSchema(
 
 export type WorkUpdate = Type.Static<typeof WORK_UPDATE_SCHEMA>;
 export type ReviewVerdict = Type.Static<typeof REVIEW_VERDICT_SCHEMA>;
+export type Reviewed = Type.Static<typeof REVIEWED_SCHEMA>;
 export type CompletedAdditionalReview = Type.Static<typeof COMPLETED_ADDITIONAL_REVIEW>;
