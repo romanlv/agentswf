@@ -3,7 +3,7 @@ id: "019"
 title: Cursor as a full harness, and a harness definition that cannot be half-added
 summary: "Cursor runs in a pane, compacts, records its tokens, is given skills and runs in a sandbox, as claude, codex and pi do; each harness is one file whose every capability is either built or absent with a reason, which tsc checks."
 type: story
-status: in-progress
+status: awaiting-human-review
 discovered_in: "the operator's review after story 016, 2026-10-04"
 depends_on: []
 ---
@@ -61,11 +61,14 @@ skipped in each.
   setting moves (cursor-agent 2026.10.01). srt lets the agent write that directory, shared with the
   operator's own cursor and every sandboxed one, and read the `/tmp` link it names it through, which
   opens nothing else of `/tmp`. An agent could so block or see the locks and `agent persist`
-  bindings of chats whose ids it knows. Rejected: a `NODE_OPTIONS` preload rewriting the path to
+  bindings of chats whose ids it knows. A link it plants there is never written through: cursor
+  2026.10.01 writes that directory with `O_EXCL` (`wx`) and renames, and removes without following;
+  it does read through one, and parses what it reads as JSON. Rejected: a `NODE_OPTIONS` preload rewriting the path to
   the short directory, private but tied to cursor's minified internals; and cursor in docker only.
 - **Cursor's tokens are read from its turn's output**, which awf keeps beside the chat in
   `awf-usage.jsonl`, since cursor logs none. The session readers stay the one path usage comes in
-  by, and a fork's copy carries its parent's records, which the parent, read first, claims.
+  by. A fork's copy drops its parent's records, which are the parent's, and a turn that printed
+  none, cut off or failed, leaves a row that makes the chat's usage unknown rather than short.
 
 ## Measured (cursor-agent 2026.10.01, Herdr 0.9.1, `composer-2.5`)
 

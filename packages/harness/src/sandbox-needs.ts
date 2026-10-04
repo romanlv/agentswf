@@ -160,12 +160,13 @@ const SANDBOXED: Readonly<Record<Harness, SandboxedHarness | Absent>> = {
     seed: [],
     token: { env: "CURSOR_API_KEY", from: "a Cursor API key, from its dashboard" },
     domains: () => CURSOR,
-    // Its config and data directories hold its chats, its login and its trust; skills, rules, MCP
-    // servers and hooks it reads under `HOME/.cursor` whatever moves them, so `HOME` moves too.
+    // Its config directory holds its chats and settings; skills, rules, MCP servers and hooks it
+    // reads under `HOME/.cursor` whatever moves them, so `HOME` moves too.
     // Its key is kept in memory: it would otherwise try to save it to the keychain, and warn.
     env: (home) => ({ HOME: home, CURSOR_CONFIG_DIR: home, AGENT_CLI_CREDENTIAL_STORE: "memory" }),
-    // Its data directory holds its worker's socket, and where its path passes 84 characters, as a
-    // sandbox home's does, it falls back to the shared `/tmp/.cursor` (cursor-agent 2026.10.01).
+    // Its data directory holds its worker's socket, its transcripts and its trust, none of which
+    // outlives the agent: where its path passes 84 characters, as a sandbox home's does, the socket
+    // falls back to the shared `/tmp/.cursor` (cursor-agent 2026.10.01).
     shortDirectory: "CURSOR_DATA_DIR",
     // A resume takes a lock under `/tmp/cursor-agent-persist-{uid}`, which nothing moves, and makes
     // that directory first, which srt denies though it exists. The operator's own cursor and every

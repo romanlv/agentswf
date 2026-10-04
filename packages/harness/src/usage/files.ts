@@ -33,12 +33,13 @@ export async function entries(directory: string, recursive = false): Promise<str
 }
 
 /**
- * Whether `directory` and each directory above it below `home` is one, and not a link. `home` is
- * the engine's or the operator's own choosing, and may be a link.
+ * Whether `directory` and each directory above it up to `home` is one, and not a link: a sandboxed
+ * agent can write its home's parent, and so swap its home for a link. The operator's own home is
+ * taken by its real path before it is checked.
  */
 export async function ownDirectory(home: string, directory: string): Promise<boolean> {
   for (let path = directory; path.length >= home.length; path = dirname(path)) {
-    const found = await (path === home ? stat(path) : lstat(path)).catch(() => undefined);
+    const found = await lstat(path).catch(() => undefined);
     if (!found?.isDirectory()) return false;
     if (path === home) return true;
   }

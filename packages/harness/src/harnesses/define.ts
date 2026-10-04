@@ -207,6 +207,23 @@ export type Absences = { readonly [K in Capability]?: string };
 export type HarnessDefinition = Omit<HarnessSpec, "absent">;
 
 /**
+ * The capabilities `Spec` gives: present, required in its type, and never `undefined`. A spec typed
+ * `HarnessDefinition`, where every capability is optional, gives none.
+ */
+type Given<Spec> = {
+  [K in keyof Spec & Capability]-?: object extends Pick<Spec, K>
+    ? never
+    : undefined extends Spec[K]
+      ? never
+      : K;
+}[keyof Spec & Capability];
+
+declare const defined: unique symbol;
+
+/** A spec `defineHarness` made: the only kind `HARNESSES` holds. */
+export type DefinedHarness = HarnessSpec & { readonly [defined]: true };
+
+/**
  * A harness's spec, with why each capability it does not give is absent, and never both: a
  * capability added to `HarnessSpec` fails to compile until every harness takes a position. `spec`
  * is declared apart, `satisfies HarnessDefinition`: inline, its callbacks would stop tsc inferring
@@ -214,9 +231,9 @@ export type HarnessDefinition = Omit<HarnessSpec, "absent">;
  */
 export function defineHarness<Spec extends HarnessDefinition>(
   spec: Spec,
-  absent: { readonly [K in Exclude<Capability, keyof Spec>]: string } & {
-    readonly [K in keyof Spec & Capability]?: never;
+  absent: { readonly [K in Exclude<Capability, Given<Spec>>]: string } & {
+    readonly [K in Given<Spec>]?: never;
   },
-): HarnessSpec {
-  return { ...spec, absent };
+): DefinedHarness {
+  return { ...spec, absent } as HarnessSpec as DefinedHarness;
 }

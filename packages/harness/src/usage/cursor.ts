@@ -1,9 +1,9 @@
 import { constants } from "node:fs";
-import { open, rm } from "node:fs/promises";
+import { lstat, open, realpath, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { count, jsonLines, parseRow, record, text } from "../json";
 import { harnessState } from "../state";
-import { entries, isFile, jsonRows, ownDirectory, ownFiles, safeId } from "./files";
+import { entries, ownDirectory, ownFiles, safeId } from "./files";
 import type { SessionRead, UsageRecord } from "./records";
 
 /**
@@ -29,65 +29,98 @@ export async function cursorChatDirectory(
 }
 
 /**
+ * Chat `session`'s directory under `home`, the operator's by its real path where none is given,
+ * with nothing on the way a link: a sandboxed agent's home is its own to write, its home's place
+ * too.
+ */
+async function ownChat(
+  session: string,
+  given: string | undefined,
+): Promise<{ home: string; directory: string } | undefined> {
+  const home = given ?? (await realpath(harnessState().cursor).catch(() => undefined));
+  if (!home) return undefined;
+  const directory = await cursorChatDirectory(session, home);
+  return directory && (await ownDirectory(home, directory)) ? { home, directory } : undefined;
+}
+
+/** The file at `path` by a handle that follows no link, and whether it is still at `path`. */
+async function openOwn(path: string, flags: number) {
+  const handle = await open(path, flags | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+  const [opened, there] = await Promise.all([handle.stat(), lstat(path).catch(() => undefined)]);
+  // A directory on the way swapped for a link between the check and the open lands elsewhere.
+  if (opened.isFile() && there && opened.ino === there.ino && opened.dev === there.dev) {
+    return handle;
+  }
+  await handle.close();
+  return undefined;
+}
+
+/**
  * Keeps the usage a headless turn printed beside its chat. `inputTokens` is the uncached part:
- * a resume that read 37,004 cached tokens reported 109 input (fork-cache F11).
+ * a resume that read 37,004 cached tokens reported 109 input (fork-cache F11). A turn that printed
+ * none, cut off or failed, leaves a row saying so: what it spent is unknown, not nothing.
  */
 export async function keepCursorTurnUsage(
   stdout: string,
   session: string,
   model: string | undefined,
-  home = harnessState().cursor,
+  home?: string,
 ): Promise<void> {
+  const chat = await ownChat(session, home);
+  if (!chat) return;
   const result = jsonLines(stdout).findLast((row) => row.type === "result");
   const usage = record(result?.usage);
   const key = text(result?.request_id);
-  const directory = await cursorChatDirectory(session, home);
-  // A sandboxed agent's home is its own to write: nothing on the way may be a link.
-  if (!usage || !key || !directory || !(await ownDirectory(home, directory))) return;
-  const row = {
-    key,
-    at: new Date().toISOString(),
-    model: model ?? "unknown",
-    tokens: {
-      input: count(usage.inputTokens),
-      cacheRead: count(usage.cacheReadTokens),
-      cacheWrite: count(usage.cacheWriteTokens),
-      output: count(usage.outputTokens),
-    },
-  };
-  const handle = await open(
-    join(directory, USAGE_FILE),
-    constants.O_WRONLY |
-      constants.O_APPEND |
-      constants.O_CREAT |
-      constants.O_NOFOLLOW |
-      constants.O_NONBLOCK,
+  const at = new Date().toISOString();
+  const row =
+    usage && key
+      ? {
+          key,
+          at,
+          model: model ?? "unknown",
+          tokens: {
+            input: count(usage.inputTokens),
+            cacheRead: count(usage.cacheReadTokens),
+            cacheWrite: count(usage.cacheWriteTokens),
+            output: count(usage.outputTokens),
+          },
+        }
+      : { at, unknown: true };
+  const handle = await openOwn(
+    join(chat.directory, USAGE_FILE),
+    constants.O_WRONLY | constants.O_APPEND | constants.O_CREAT,
   );
+  if (!handle) return;
   try {
-    if ((await handle.stat()).isFile()) await handle.appendFile(`${JSON.stringify(row)}\n`);
+    await handle.appendFile(`${JSON.stringify(row)}\n`);
   } finally {
     await handle.close();
   }
 }
 
 /** Drops the usage a copied chat carried from its parent: those turns are the parent's. */
-export async function dropCursorUsage(session: string, home = harnessState().cursor) {
-  const directory = await cursorChatDirectory(session, home);
-  if (directory) await rm(join(directory, USAGE_FILE), { force: true });
+export async function dropCursorUsage(session: string, home?: string): Promise<void> {
+  const chat = await ownChat(session, home);
+  if (chat) await rm(join(chat.directory, USAGE_FILE), { force: true });
 }
 
 export async function readCursorUsage(
   sessions: readonly string[],
-  home = harnessState().cursor,
+  home?: string,
 ): Promise<SessionRead | undefined> {
   const records = new Map<string, UsageRecord>();
   let found = false;
   for (const session of sessions) {
-    const directory = await cursorChatDirectory(session, home);
+    const chat = await ownChat(session, home);
     // A pane's turns print nothing, so a chat with no usage kept is unknown, not free.
-    if (!directory || !(await isFile(join(directory, USAGE_FILE)))) continue;
+    const handle = chat
+      ? await openOwn(join(chat.directory, USAGE_FILE), constants.O_RDONLY).catch(() => undefined)
+      : undefined;
+    if (!handle) continue;
     found = true;
-    for (const row of await jsonRows(join(directory, USAGE_FILE))) {
+    const rows = jsonLines(await handle.readFile("utf8").finally(() => handle.close()));
+    if (rows.some((row) => row.unknown === true)) return undefined;
+    for (const row of rows) {
       const key = text(row.key);
       const at = text(row.at);
       const tokens = record(row.tokens);

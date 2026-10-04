@@ -3,7 +3,7 @@ import { STARTUP_BLOCKS } from "./adapters/herdr-startup";
 import { claude } from "./harnesses/claude";
 import { codex } from "./harnesses/codex";
 import { cursor } from "./harnesses/cursor";
-import type { Capability, HarnessSpec } from "./harnesses/define";
+import type { Capability, DefinedHarness, HarnessSpec } from "./harnesses/define";
 import { pi } from "./harnesses/pi";
 import { type Harness, isAbsent } from "./types";
 
@@ -12,6 +12,7 @@ export type {
   BillingContext,
   Capability,
   CompactionPlan,
+  DefinedHarness,
   ForkPlan,
   HarnessSpec,
   TurnContext,
@@ -24,7 +25,7 @@ export { defineHarness } from "./harnesses/define";
  * cannot see, is in `docs/adding-a-harness.md`. The flags are the ones E1 drove and E2 re-drove
  * live.
  */
-export const HARNESSES: Record<Harness, HarnessSpec> = { claude, codex, pi, cursor };
+export const HARNESSES: Record<Harness, DefinedHarness> = { claude, codex, pi, cursor };
 
 export function harnessSpec(harness: Harness): HarnessSpec {
   return HARNESSES[harness];
