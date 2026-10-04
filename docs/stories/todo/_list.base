@@ -5,6 +5,7 @@ views:
       and:
         - file.inFolder("stories/todo")
         - file.name != "README"
+        - '!file.name.startsWith("_")'
     order:
       - priority
       - epic

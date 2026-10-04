@@ -1,10 +1,10 @@
 ---
 title: A stopped headless turn leaves its commands running
-type: story
+type: bug
 status: todo
 priority: P1
 epic: long-runs
-discovered_in: "the run-through-sleep measurement, 2026-10-02"
+discovered_in: the run-through-sleep measurement, 2026-10-02
 depends_on: []
 ---
 
