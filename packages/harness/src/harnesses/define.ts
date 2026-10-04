@@ -152,6 +152,11 @@ export type HarnessSpec = {
    * act on without the operator's own words (claude 2.1.288), so such a prompt is typed instead.
    */
   pastesQuoted: boolean;
+  /**
+   * What its pane shows once it takes input, where Herdr can report it idle before then: a prompt
+   * typed sooner is lost (story 019).
+   */
+  paneReady?: string;
   /** Its own compaction in a pane: what is typed, in order, and the screen that shows it ran. */
   compactPane?: {
     prompts(focus: string): string[];

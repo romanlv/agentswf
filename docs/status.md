@@ -161,8 +161,10 @@ The gates are defined in [`foundation.md`](foundation.md) §12.
 - [019 — cursor as a full harness](stories/019-cursor-harness.md): in progress. Each harness is
   one file whose every capability is given or absent with a reason tsc checks
   ([adding a harness](adding-a-harness.md)). cursor runs in a pane, compacts there, forks into
-  either placement, and records its tokens headless, live on 2026-10-04; its sandbox and skills
-  are built and wait on a live run with `CURSOR_API_KEY`.
+  either placement, records its tokens headless, and runs in srt and docker sandboxes with
+  `CURSOR_API_KEY` and skills, live on 2026-10-04. srt reads macOS's `xcrun` cache, so git in a
+  sandbox takes 0.1 s rather than 1.2 s, and a sandboxed pane waits until its harness has drawn.
+  In review.
 
 The inbox of possible stories is [`stories/todo/`](stories/todo/).
 

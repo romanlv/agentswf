@@ -18,6 +18,7 @@ const PROBE_OF = {
   "host-claude": "a",
   "box-codex": "b",
   "box-pi": "a",
+  "box-cursor": "b",
 } as const;
 const builds = Object.fromEntries(Object.keys(PROBE_OF).map((name) => [name, `B-${name}`]));
 
@@ -48,7 +49,10 @@ function honest() {
         },
       ],
     })),
-    sandboxes: [{ agents: [{ agent: "box-codex" }, { agent: "box-pi" }] }],
+    sandboxes: [
+      { key: "box", agents: [{ agent: "box-codex" }, { agent: "box-pi" }] },
+      { key: "agent:box-cursor", agents: [{ agent: "box-cursor" }] },
+    ],
   } as unknown as OutputRecord;
   const receipts: Receipt[] = Object.entries(PROBE_OF).map(([agent, probe]) => ({
     path: `/r/agents/${agent}/skills/${probes[probe].name}/scripts/receipts`,

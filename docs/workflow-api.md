@@ -316,8 +316,13 @@ const reader = await workflow.agents.open({
   container, so each sees what the others leave anywhere in it. `srt` has no box to share: each
   agent's processes are wrapped by `srt` on their own, under one policy derived from the sandbox.
   They meet only in the host paths it makes writable and in the sandbox's temp directory. Either
-  way, each agent has its own home, and can reach its own harness's model API. An inline spec is a
-  separate container (docker) or a separate policy (srt).
+  way, each agent has its own home, and can reach its own harness's model API. Its co-tenants can
+  read that home, the skills in it included: a sandboxed cursor asked for what only another
+  agent's skill made searched for it and ran it (story 019). An inline spec is a separate
+  container (docker) or a separate policy (srt).
+- **A harness's login in a sandbox:** claude needs `CLAUDE_CODE_OAUTH_TOKEN` and cursor
+  `CURSOR_API_KEY` in your environment, as their logins live in the keychain; codex and pi copy
+  theirs in. cursor is given skills only in a sandbox.
 - **git works.** A writable worktree can commit, but its hooks and config can't be changed from
   inside.
 - A sandbox closes when the run does, after every agent in it.

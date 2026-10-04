@@ -28,6 +28,12 @@ export type SrtHost = {
   harnessState: readonly string[];
   /** What the project's tools under `~` need (X19): their `bin` directories and install trees. */
   toolchain: readonly string[];
+  /**
+   * macOS's `xcrun` cache, in the operator's temp directory, which `/usr/bin/git` reads on every
+   * call: without it each call starts `xcodebuild`, 1.2 s instead of 0.1 s (story 019). It holds
+   * tool paths only, and is read, never written.
+   */
+  xcrunCache?: string;
 };
 
 /** Regions no agent reads, besides `~`, before a sandbox re-allows its own paths inside them. */
@@ -67,6 +73,7 @@ export function baseProfile(
         ...gitdirs,
         context.directory,
         ...host.toolchain,
+        ...(host.xcrunCache ? [host.xcrunCache] : []),
       ]),
       allowWrite: unique([
         ...spec.write,
@@ -90,14 +97,25 @@ export function baseProfile(
  * One agent's profile: the base, its harness's model domains and install tree, its executable,
  * and its door: the launcher's directory readable and never writable, and its own socket alone.
  */
-export function agentProfile(base: SrtSettings, agent: AgentContext): SrtSettings {
+export function agentProfile(
+  base: SrtSettings,
+  agent: AgentContext,
+  /** The agent's short directory, which it alone reads, writes and binds sockets in. */
+  short?: string,
+): SrtSettings {
+  const writes = [...(short ? [short] : []), ...(agent.harness.sharedWrites ?? [])];
+  // A harness that names a shared directory through `/tmp`, as cursor does, follows that link,
+  // which srt denies with the rest of `/tmp`; the link alone opens nothing behind it (story 019).
+  const tmpLink = (agent.harness.sharedWrites ?? []).some((path) => contains("/private/tmp", path))
+    ? ["/tmp"]
+    : [];
   const launcherDirectory = dirname(agent.door.launcher);
   return {
     ...base,
     network: {
       ...base.network,
       allowedDomains: unique([...base.network.allowedDomains, ...agent.harness.domains]),
-      allowUnixSockets: [agent.door.endpoint],
+      allowUnixSockets: [agent.door.endpoint, ...(short ? [short] : [])],
     },
     filesystem: {
       ...base.filesystem,
@@ -107,7 +125,10 @@ export function agentProfile(base: SrtSettings, agent: AgentContext): SrtSetting
         agent.harness.executable,
         ...agent.door.reads,
         launcherDirectory,
+        ...writes,
+        ...tmpLink,
       ]),
+      allowWrite: unique([...base.filesystem.allowWrite, ...writes]),
       denyWrite: unique([...base.filesystem.denyWrite, launcherDirectory]),
     },
   };

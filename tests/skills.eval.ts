@@ -15,7 +15,7 @@ import { assertLiveOptIn, interruption } from "./live";
 
 /**
  * Agents given skills, and using them, live (story 007): codex, pi and a claude pane on the host,
- * and codex and pi sharing one srt sandbox with different probes. The prompt never mentions skills.
+ * and codex and pi sharing one srt sandbox with different probes, cursor in one of its own. The prompt never mentions skills.
  * It asks each agent for a build's release stamp and audit seal; probe A's description claims the
  * stamp, probe B's the seal, and only the script inside each can make its value, from a secret no
  * `SKILL.md` holds, keyed by a build id unique to the agent. So an agent answers only by finding
@@ -88,7 +88,8 @@ export function problems(
       found.push(`${name}: output.json records no commit for ${entry.name}`);
     }
   }
-  const boxed = record.sandboxes?.[0]?.agents.map((agent) => agent.agent).sort() ?? [];
+  const box = record.sandboxes?.find((sandbox) => sandbox.key === "box");
+  const boxed = box?.agents.map((agent) => agent.agent).sort() ?? [];
   if (boxed.join() !== "box-codex,box-pi") found.push(`sandbox holds ${boxed.join() || "nobody"}`);
   return found;
 }

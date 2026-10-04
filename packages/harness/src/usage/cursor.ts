@@ -1,7 +1,7 @@
 import { constants } from "node:fs";
 import { open, rm } from "node:fs/promises";
 import { join } from "node:path";
-import { count, jsonLines, record, text } from "../json";
+import { count, jsonLines, parseRow, record, text } from "../json";
 import { harnessState } from "../state";
 import { entries, isFile, jsonRows, ownDirectory, ownFiles, safeId } from "./files";
 import type { SessionRead, UsageRecord } from "./records";
@@ -118,6 +118,27 @@ export async function cursorHomeSessions(home: string): Promise<string[]> {
     if (chat && file === "meta.json") chats.add(chat);
   }
   return [...chats];
+}
+
+/**
+ * The chat a sandboxed pane's cursor began since `since`: its home holds its own chats alone, as
+ * Herdr names none there and cursor keeps the prompts that would name it encrypted. Earliest first,
+ * as a pane's first chat is its own.
+ */
+export async function findCursorChat(since: number, home: string): Promise<string | undefined> {
+  const begun: { chat: string; at: number }[] = [];
+  for (const name of await ownFiles(home, join(home, "chats"))) {
+    const [workspace, chat, file] = name.split("/");
+    if (!workspace || !chat || file !== "meta.json") continue;
+    const meta = parseRow(
+      await Bun.file(join(home, "chats", name))
+        .text()
+        .catch(() => ""),
+    );
+    const at = typeof meta?.createdAtMs === "number" ? meta.createdAtMs : undefined;
+    if (at !== undefined && at >= since) begun.push({ chat, at });
+  }
+  return begun.sort((left, right) => left.at - right.at)[0]?.chat;
 }
 
 /** A chat's own files relative to `home`, without the usage awf kept for it. */

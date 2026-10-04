@@ -13,6 +13,7 @@ import {
 } from "../session-core";
 import { createSingleSessionHostFactory } from "../single-session-host";
 import {
+  findHarness,
   HARNESS_NAMES,
   type HarnessSpec,
   harnessSpec,
@@ -331,6 +332,22 @@ export function createHerdrCommands(
       if (!answered.ok) return failed(answered.error, answered);
     } else if (!waited.ok) {
       return failed(`the agent never became idle: ${waited.error}`, waited);
+    }
+    const drawn = findHarness(kind)?.paneReady;
+    if (drawn) {
+      let shown = false;
+      for (const limit = step(); !shown && Date.now() < limit; ) {
+        shown = readable(await screen()).includes(drawn);
+        if (!shown && !(await abortableDelay(TYPED_START_POLL_MS, signal))) return cancelled();
+      }
+      if (!shown) {
+        return failed(
+          `${kind} never showed it was ready: ${readable(await screen()).slice(-300)}`,
+          {
+            timedOut: true,
+          },
+        );
+      }
     }
     return startedAfter(1);
   };

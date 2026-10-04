@@ -50,6 +50,19 @@ skipped in each.
   uses `CLAUDE_CODE_OAUTH_TOKEN` (operator, 2026-10-04).
 - **A sandboxed cursor keeps its web tools** (operator, 2026-10-04): no hidden `--exclude-tools`.
   Its sandbox's network is still the domains it names.
+- **A provider gives an agent a short directory of its own** when its harness asks
+  (`HarnessSandboxNeeds.shortDirectory`, operator, 2026-10-04): cursor's worker binds a socket under
+  its data directory, and where that path passes 84 characters, as every sandbox home's does, it
+  falls back to `/tmp/.cursor`, shared by every cursor on the host. srt makes
+  `/private/tmp/awf-{random}` (0700), which the agent alone reads, writes and binds in, and removes
+  it on release; docker makes one in the box.
+- **cursor's resume lock is shared** (`HarnessSandboxNeeds.sharedWrites`, operator, 2026-10-04).
+  Every `--resume` takes a lock under `/tmp/cursor-agent-persist-{uid}`, which no variable, flag or
+  setting moves (cursor-agent 2026.10.01). srt lets the agent write that directory, shared with the
+  operator's own cursor and every sandboxed one, and read the `/tmp` link it names it through, which
+  opens nothing else of `/tmp`. An agent could so block or see the locks and `agent persist`
+  bindings of chats whose ids it knows. Rejected: a `NODE_OPTIONS` preload rewriting the path to
+  the short directory, private but tied to cursor's minified internals; and cursor in docker only.
 - **Cursor's tokens are read from its turn's output**, which awf keeps beside the chat in
   `awf-usage.jsonl`, since cursor logs none. The session readers stay the one path usage comes in
   by, and a fork's copy carries its parent's records, which the parent, read first, claims.
@@ -67,6 +80,18 @@ skipped in each.
   included, so the screen is read for a new box, not for text after the focus.
 - **An interrupt.** Escape during a tool ended its line `Cancelled • 4.8s`; during a reply, the prompt
   went back into the input. Neither is a line of its own to tell an interrupted turn by.
+- **In a sandbox** (2026-10-04, `CURSOR_API_KEY`). Its own `HOME`, config directory and
+  in-memory credentials: with the key alone it runs, and without the memory store it tries the
+  keychain and warns. Docker ran it headless and in a pane, with a skill it found under
+  `HOME/.cursor/skills`, its usage read from its home, on `*.cursor.sh` alone. Under srt it needed
+  the short directory and the shared lock directory above.
+- **Why it seemed slow under srt, and was not cursor's doing.** Every `/usr/bin/git` is macOS's
+  `xcrun` stub, which reads its cache in the operator's temp directory, denied with the rest of
+  `/private/var/folders`: each call started `xcodebuild`, 1.2 s instead of 0.01 s. srt now reads
+  that one file, for every harness. And Herdr reports a pane idle about 3.5 s after the harness
+  starts, drawn or not; cursor drew 2.5 s later under srt and lost the prompt typed meanwhile. A
+  harness's `paneReady` names what its screen shows once it takes input, and a sandboxed pane waits
+  for it.
 - **The evals.** `harnesses` (cursor headless and in a pane), `compaction` (`cursor` compacts,
   `cursor-headless` refuses and goes on) and `fork` (four cursor cases) passed live on 2026-10-04.
 
@@ -79,11 +104,15 @@ skipped in each.
   login check.
 - [x] 3. Cursor in a pane: its startup block, interactive resume, interrupt, session lookup,
   `/summarize` with the focus as a message before it.
-- [ ] 4. Cursor's skills in a sandbox, under its own `HOME`'s `.cursor/skills`. Built; waits on a
-  live run. On the host it is refused: it reads skills under `HOME`, the operator's own there, and
-  a `HOME` of its own on the host would be git's and every tool's too, and loses its login.
-- [ ] 5. Cursor in a sandbox, srt and docker, with `CURSOR_API_KEY`; `cursor-agent` 2026.10.01 in
-  the image, by checksum. Built; waits on a live run for its domains (`*.cursor.sh` assumed) and
-  what it writes under `HOME`.
-- [ ] 6. Evals: cursor in `harnesses`, `compaction`, `fork` (its cache asserted), `skills`,
-  `sandbox-*` and `calling-session`'s usage; docs.
+- [x] 4. Cursor's skills in a sandbox, under its own `HOME`'s `.cursor/skills`. On the host it is
+  refused: it reads skills under `HOME`, the operator's own there, and a `HOME` of its own on the
+  host would be git's and every tool's too, and loses its login.
+- [x] 5. Cursor in a sandbox, srt and docker, with `CURSOR_API_KEY`; `cursor-agent` 2026.10.01 in
+  the image, by checksum; a short directory and shared writes in the sandbox seam; srt reads the
+  `xcrun` cache; a sandboxed pane waits for its harness's `paneReady`.
+- [x] 6. Evals: cursor in `harnesses`, `compaction`, `fork` (its cache asserted but in a pane) and
+  `skills` (in a sandbox of its own); docs. The sandboxed fork cases, `cursor-headless+sandbox`,
+  `cursor+sandbox` and `cursor-headless>pane+sandbox`, passed live from a working directory apart
+  from the run root, which `fork.eval.ts`'s own does not allow a sandbox. `sandbox-srt`,
+  `sandbox-panes-srt`, `sandbox-docker` and `sandbox-panes-docker` passed after the srt profile
+  changed. The sandbox probe evals do not include cursor.

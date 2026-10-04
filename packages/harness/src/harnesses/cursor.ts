@@ -5,6 +5,7 @@ import {
   cursorHomeSessions,
   cursorSessionFiles,
   dropCursorUsage,
+  findCursorChat,
   keepCursorTurnUsage,
   readCursorUsage,
 } from "../usage/cursor";
@@ -56,6 +57,9 @@ const CURSOR = {
   pastesQuoted: false,
   meteredHeadless: false,
   interactive: cursorInteractive,
+  // Herdr reports it idle about 3.5 s after it starts, drawn or not; under srt it drew 2.5 s later.
+  // Its status line names the mode `--force` sets.
+  paneReady: "Run Everything",
   interactiveResume: (sessionId, model, launchArgs) =>
     resuming(cursorInteractive(model, launchArgs), "--resume", sessionId),
   headlessTurn: (prompt, context) => cursorHeadless(prompt, [], context),
@@ -93,6 +97,8 @@ const CURSOR = {
   readSessionUsage: (sessions, _cwd, home) => readCursorUsage(sessions, home),
   sessionFiles: (home, session) => cursorSessionFiles(home, session),
   homeSessions: (home) => cursorHomeSessions(home),
+  findSession: async (_marker, since, _cwd, home) =>
+    home ? findCursorChat(since, home) : undefined,
 } satisfies HarnessDefinition;
 
 const TRANSCRIPT_LOCATION = "Transcript location:";
@@ -114,7 +120,6 @@ function cursorCompactionFocus(focus: string): string {
 export const cursor = defineHarness(CURSOR, {
   readCharge: "cursor prints no dollars, which E1 also found",
   readCostTotal: "cursor prints no dollars, which E1 also found",
-  findSession: "Herdr names a cursor pane's chat",
   billing:
     "nothing cursor reports tells usage within its plan from on-demand usage, which is billed per token",
   compactHeadless: "cursor compacts only in its TUI; headless, `/summarize` goes to the model (C7)",

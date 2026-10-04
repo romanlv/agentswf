@@ -10,7 +10,7 @@ import {
   type RuntimeAliases,
   type WorkflowDefinition,
 } from "@agentswf/contract/workflow";
-import type { Harness } from "@agentswf/harness";
+import { type Harness, sandboxTokens } from "@agentswf/harness";
 import { createFakeSandboxProvider } from "@agentswf/sandbox/testing/fake";
 import { messageOf } from "../errors";
 import { OPERATOR_ALIASES } from "../operator-aliases";
@@ -150,6 +150,11 @@ export async function testWorkflow<Args extends JsonValue, Result extends JsonVa
         providers: {
           installed: { srt: sandboxes.provider, docker: sandboxes.provider },
           default: "srt",
+        },
+        // A sandbox here launches nothing, so no harness's login is needed: a stand-in for each.
+        environment: {
+          ...process.env,
+          ...Object.fromEntries(sandboxTokens().map((name) => [name, "workflow-test"])),
         },
       },
       decisions: {

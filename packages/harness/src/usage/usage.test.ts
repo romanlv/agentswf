@@ -20,6 +20,7 @@ import {
   cursorHomeSessions,
   cursorSessionFiles,
   dropCursorUsage,
+  findCursorChat,
   keepCursorTurnUsage,
   readCursorUsage,
 } from "./cursor";
@@ -773,6 +774,22 @@ describe("cursor chats", () => {
     await dropCursorUsage("chat-1", home);
     // With none kept, as for a pane, its usage is unknown.
     expect(await readCursorUsage(["chat-1"], home)).toBeUndefined();
+  });
+
+  test("a sandboxed pane's chat is the earliest begun in its home since it launched", async () => {
+    const { home } = chatHome();
+    const begin = (chat: string, createdAtMs: number) => {
+      mkdirSync(join(home, "chats", "workspace", chat), { recursive: true });
+      writeFileSync(
+        join(home, "chats", "workspace", chat, "meta.json"),
+        JSON.stringify({ createdAtMs }),
+      );
+    };
+    writeFileSync(join(home, "chats", "workspace", "chat-1", "meta.json"), '{"createdAtMs":100}');
+    begin("chat-3", 300);
+    begin("chat-2", 200);
+    expect(await findCursorChat(150, home)).toBe("chat-2");
+    expect(await findCursorChat(400, home)).toBeUndefined();
   });
 
   test("nothing is written through a link an agent put in its home", async () => {

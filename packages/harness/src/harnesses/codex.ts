@@ -213,6 +213,7 @@ const CODEX = {
 } satisfies HarnessDefinition;
 
 export const codex = defineHarness(CODEX, {
+  paneReady: "Herdr's idle has followed its screen, in a sandbox too",
   keepTurnUsage: "codex logs each request in its rollouts",
   readCharge: "codex prints no dollars; its tokens are priced from its rollouts",
   readCostTotal: "codex prints no dollars; its tokens are priced from its rollouts",
