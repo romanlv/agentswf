@@ -149,7 +149,7 @@ describe("runs", () => {
     const { attempt } = await claimAttempt(created, fields, { pid: 1, probe: alive(1) });
     await endAttempt(attempt, { outcome: "completed" });
     await expect(claimAttempt(created, fields, { pid: 1, probe: alive(1) })).rejects.toThrow(
-      "AIRS-1515 completed; there is nothing to continue",
+      "AIRS-1515 completed; --from-stage redoes one of its stages",
     );
     expect(await readdir(join(created.dir, "attempts"))).toEqual(["1.json"]);
   });

@@ -16,6 +16,7 @@ import {
   type AttemptOutcome,
   OUTPUT_RECORD_VERSION,
   type OutputRecord,
+  type StageRecord,
 } from "@agentswf/contract/records";
 import {
   type AbsoluteDeadline,
@@ -60,12 +61,14 @@ import {
   type Run,
   RunRefused,
   readAttempts,
+  readStageRecords,
   runRootOf,
   runStatus,
   sandboxesOf,
   writeJson,
   writeWhole,
 } from "./runs";
+import { stageNameProblem } from "./stage-ledger";
 import { parseTestCommand, runWorkflowTests, type TestCommand, testUsage } from "./test-command";
 import { assertJsonValue, loadWorkflowFile } from "./workflow-loader";
 import {
@@ -75,6 +78,7 @@ import {
   WorkflowRunError,
   type WorkflowRunHandle,
   type WorkflowRunSnapshot,
+  WorkflowStopped,
 } from "./workflow-runner";
 
 const DEFAULT_TIMEOUT = "30m";
@@ -84,12 +88,15 @@ const usage = [
   "       awf run [options] <workflow-file> --continue <id>",
   "       awf test [paths...] [-t <pattern>] [--watch] [--timeout <duration>]",
   "       awf --version",
-  "run options: --id <id>, --continue <id>, --timeout <duration>, --run-root <directory>,",
-  "             --cwd <directory>, --sandbox <file>, --json, --no-watch, --here",
+  "run options: --id <id>, --continue <id>, --from-stage <stage>, --timeout <duration>,",
+  "             --run-root <directory>, --cwd <directory>, --sandbox <file>, --json, --no-watch,",
+  "             --here",
   "",
   "Each awf run is an attempt of a run: a new run, with --id's id or a generated one, or the run",
-  "--continue names, with the arguments, --cwd and --sandbox it was started with. A run is kept in",
-  ".awf/runs/<workflow>/<id> under --cwd unless --run-root names another folder for .awf/runs.",
+  "--continue names, with the arguments, --cwd and --sandbox it was started with. A continue reuses",
+  "the stages that succeeded, up to the first with no record or to --from-stage, and runs the rest.",
+  "A stop exits 3. A run is kept in .awf/runs/<workflow>/<id> under --cwd, unless --run-root names",
+  "another folder for .awf/runs.",
   "The deadline defaults to 30m, per attempt.",
   "A workflow that knows how to present its result prints that; --json prints the full result instead.",
   "Either way the full result is kept as output.json in the run's folder, beside report.md",
@@ -218,6 +225,7 @@ export async function runOperatorCli(
     return 2;
   }
   const { args } = prepared;
+  for (const line of prepared.recorded ?? []) stderr(line);
 
   // Loading the workflow imports operator-supplied code, and installing the runtime probes two
   // subscription logins. Both run before anything is listening to the signal, so a Ctrl-C in that
@@ -285,11 +293,18 @@ export async function runOperatorCli(
   }
   let attempt: Attempt;
   try {
-    const claimed = await claimAttempt(run, {
-      file: loaded.file,
-      ...(meta.version === undefined ? {} : { workflowVersion: meta.version }),
-      flags: { timeout: command.timeout },
-    });
+    const claimed = await claimAttempt(
+      run,
+      {
+        file: loaded.file,
+        ...(meta.version === undefined ? {} : { workflowVersion: meta.version }),
+        flags: {
+          timeout: command.timeout,
+          ...(command.fromStage === undefined ? {} : { fromStage: command.fromStage }),
+        },
+      },
+      { redo: command.fromStage !== undefined },
+    );
     attempt = claimed.attempt;
     for (const earlier of claimed.interrupted) {
       stderr(
@@ -307,7 +322,7 @@ export async function runOperatorCli(
   const n = attempt.record.n;
   const named = `${meta.name} ${id}${n > 1 ? ` · attempt ${n}` : ""}`;
   // Every way out from here writes the attempt's ending; one that never does is interrupted.
-  let ending: { outcome: AttemptOutcome; reason?: string } = {
+  let ending: { outcome: AttemptOutcome; reason?: string; stage?: string } = {
     outcome: "failed",
     reason: "awf stopped before the run ended",
   };
@@ -376,7 +391,13 @@ export async function runOperatorCli(
     try {
       const handle = await startWorkflow(loaded.executable.definition, args, {
         runRoot: run.root,
-        run: { dir: run.dir, id, attempt: n, label: workspaceLabel(meta.name, id, n) },
+        run: {
+          dir: run.dir,
+          id,
+          attempt: n,
+          label: workspaceLabel(meta.name, id, n),
+          ...(command.fromStage === undefined ? {} : { fromStage: command.fromStage }),
+        },
         runtime: installed.config,
         // Every run under the run root is out of each sandbox's reach, not only this one.
         sandboxes: {
@@ -424,6 +445,7 @@ export async function runOperatorCli(
         ...recordOf(error),
         outcome,
         error: errorDetail(error),
+        ...(stopAt(error) === undefined ? {} : { stage: stopAt(error) }),
       };
       failedRecord = JSON.stringify(record, null, 2);
       try {
@@ -437,8 +459,15 @@ export async function runOperatorCli(
   }
   // Written before cleanup and the hand-back: a session told the run is over may continue it at
   // once, and a second Ctrl-C during cleanup leaves the ending already written.
+  const stoppedAt = stopAt(runError);
   ending =
-    runError === undefined ? { outcome: "completed" } : { outcome, reason: errorDetail(runError) };
+    runError === undefined
+      ? { outcome: "completed" }
+      : {
+          outcome,
+          reason: errorDetail(runError),
+          ...(stoppedAt === undefined ? {} : { stage: stoppedAt }),
+        };
   await writeEnding();
   let cleanupError: unknown;
   try {
@@ -467,7 +496,7 @@ export async function runOperatorCli(
     if (cancellation) {
       return signalExitCode(cancellation.reason);
     }
-    return 1;
+    return outcome === "stopped" ? STOPPED_EXIT_CODE : 1;
   }
   if (cleanupError !== undefined) {
     for (const line of footer) stderr(line);
@@ -484,6 +513,46 @@ export async function runOperatorCli(
   return 0;
 }
 
+/**
+ * What a continue finds in `stages/`: each stage, the attempt that ran it, how long ago, and its
+ * summary. A `--from-stage` with no record is warned about here, before anything runs.
+ */
+function describeRecorded(
+  run: Run,
+  recorded: ReadonlyMap<string, StageRecord>,
+  fromStage?: string,
+  now = Date.now(),
+): string[] {
+  const records = [...recorded.values()].sort((a, b) => a.started.localeCompare(b.started));
+  const lines = records.map((record) => {
+    const version = record.workflowVersion === undefined ? "" : ` · v${record.workflowVersion}`;
+    const outcome = record.outcome === "succeeded" ? "" : ` · ${record.outcome}`;
+    const summary = record.summary === undefined ? "" : ` · ${record.summary}`;
+    return `  ${record.stage} · attempt ${record.attempt}${version} · ${ago(now - Date.parse(record.ended))}${outcome}${summary}`;
+  });
+  return [
+    ...(lines.length > 0 ? [`awf: ${run.record.id} has these stages recorded:`, ...lines] : []),
+    ...(fromStage !== undefined && !records.some((record) => record.stage === fromStage)
+      ? [`awf: nothing is recorded for ${fromStage}; the attempt stops if it never reaches it`]
+      : []),
+  ];
+}
+
+function ago(ms: number): string {
+  if (!Number.isFinite(ms)) return "at an unknown time";
+  const minutes = Math.max(0, Math.round(ms / 60_000));
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.round(minutes / 60);
+  return hours < 48 ? `${hours}h ago` : `${Math.round(hours / 24)}d ago`;
+}
+
+/** Why a completed run isn't continued, and how one of its stages is redone. */
+export function completedMessage(id: string, stages: readonly string[]): string {
+  return stages.length > 0
+    ? `${id} completed; to redo from a stage, --from-stage one of: ${stages.join(", ")}`
+    : `${id} completed; there is nothing to continue`;
+}
+
 /** A run's Herdr workspace, which names the attempt: a dead one's may still be open. */
 function workspaceLabel(workflow: string, id: string, attempt: number): string {
   return `awf ${workflow} ${id} #${attempt}`;
@@ -496,7 +565,7 @@ function workspaceLabel(workflow: string, id: string, attempt: number): string {
 async function prepareRun(
   command: RunCommand,
   loaded: Awaited<ReturnType<typeof loadWorkflowFile>>,
-): Promise<{ args: JsonValue; continued?: Run }> {
+): Promise<{ args: JsonValue; continued?: Run; recorded?: string[] }> {
   const { executable, file } = loaded;
   const { meta } = executable.definition;
   const prepare = (argv: readonly string[], cwd: string) => {
@@ -529,13 +598,16 @@ async function prepareRun(
   }
   const attempts = await readAttempts(run);
   const status = runStatus(attempts);
-  if (status === "completed") throw new RunRefused(`${id} completed; there is nothing to continue`);
+  const records = await readStageRecords(run.dir);
+  if (status === "completed" && command.fromStage === undefined) {
+    throw new RunRefused(completedMessage(id, [...records.keys()]));
+  }
   // The claim refuses it too; this says so before `--here` opens a tab, or `--session` waits.
   const last = attempts.at(-1);
   if (status === "running" && last) {
     throw new RunRefused(`attempt ${last.n} of ${id} is still running, as process ${last.pid}`);
   }
-  return { args, continued: run };
+  return { args, continued: run, recorded: describeRecorded(run, records, command.fromStage) };
 }
 
 /**
@@ -643,6 +715,8 @@ type RunCommand = {
   id?: string;
   /** The run `--continue` adds an attempt to. */
   continueId?: string;
+  /** The stage a continue starts at, reusing those before it. */
+  fromStage?: string;
   json: boolean;
   /** Whether each sandbox with its own Herdr gets a tab attached to it in the run's workspace. */
   watch: boolean;
@@ -687,6 +761,7 @@ function parseCommand(argv: readonly string[], cwd: string): RunCommand {
   let runRoot: string | undefined;
   let id: string | undefined;
   let continueId: string | undefined;
+  let fromStage: string | undefined;
   let cwdGiven = false;
   let json = false;
   let watch = true;
@@ -737,6 +812,11 @@ function parseCommand(argv: readonly string[], cwd: string): RunCommand {
       if (problem) throw new Error(`${option}: ${problem}`);
       if (option === "--id") id = value;
       else continueId = value;
+    } else if (option === "--from-stage") {
+      if (!value) throw new Error("--from-stage needs a stage's name");
+      const problem = stageNameProblem(value);
+      if (problem) throw new Error(`--from-stage: ${problem}`);
+      fromStage = value;
     } else if (option === "--session") {
       if (!value || !SESSION_CODE.test(value))
         throw new Error("--session needs the code --here printed");
@@ -755,6 +835,9 @@ function parseCommand(argv: readonly string[], cwd: string): RunCommand {
   if (id !== undefined && continueId !== undefined) {
     throw new Error("--id names a new run and --continue an existing one; give one");
   }
+  if (fromStage !== undefined && continueId === undefined) {
+    throw new Error("--from-stage goes with --continue: a new run has nothing to reuse");
+  }
   const workflowArgs = argv.slice(index + 1);
   return {
     shellCwd: cwd,
@@ -767,6 +850,7 @@ function parseCommand(argv: readonly string[], cwd: string): RunCommand {
     runRoot: runRoot ?? runRootOf(workCwd),
     ...(id === undefined ? {} : { id }),
     ...(continueId === undefined ? {} : { continueId }),
+    ...(fromStage === undefined ? {} : { fromStage }),
     json,
     watch,
     here,
@@ -1033,6 +1117,7 @@ function findCancellation(error: unknown): WorkflowCancelledError | undefined {
 
 /** Each outcome in words: as the calling session is told it, and as awf reports it. */
 const ENDINGS = {
+  stopped: { told: "stopped", ended: "run stopped" },
   cancelled: { told: "was cancelled", ended: "run cancelled" },
   "timed-out": { told: "timed out", ended: "run timed out" },
   failed: { told: "failed", ended: "run failed" },
@@ -1053,11 +1138,22 @@ export function runOutcome(
   if (findCancellation(error)) return "cancelled";
   const cause = error instanceof WorkflowRunError ? error.cause : error;
   const failure = cause instanceof AggregateError ? cause.errors[0] : cause;
+  if (failure instanceof WorkflowStopped) return "stopped";
   return failure instanceof DeadlineExceededError &&
     failure.deadline.unixMilliseconds === deadline.unixMilliseconds
     ? "timed-out"
     : "failed";
 }
+
+/** The stage a stop that ended a run stopped in, as `runOutcome` found the stop. */
+function stopAt(error: unknown): string | undefined {
+  const cause = error instanceof WorkflowRunError ? error.cause : error;
+  const failure = cause instanceof AggregateError ? cause.errors[0] : cause;
+  return failure instanceof WorkflowStopped ? failure.stage : undefined;
+}
+
+/** A stop's exit code, apart from a failure's: the run can go on with `--continue`. */
+const STOPPED_EXIT_CODE = 3;
 
 /** How soon a repeated signal is the copy `bun awf` forwards, not the operator pressing again. */
 const REPEAT_MS = 1_000;

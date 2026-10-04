@@ -258,7 +258,7 @@ export type RunRecord = {
 export const ATTEMPT_RECORD_VERSION = 1 as const;
 
 /** How an attempt ended. `interrupted` is never written: it is an attempt with no ending and no process. */
-export type AttemptOutcome = "completed" | "failed" | "timed-out" | "cancelled";
+export type AttemptOutcome = "completed" | "stopped" | "failed" | "timed-out" | "cancelled";
 
 /**
  * `attempts/{n}.json`: one `awf run` of a run. Written whole when the attempt claims its number, and
@@ -271,7 +271,7 @@ export type AttemptRecord = {
   file: string;
   /** The workflow's `meta.version`, when it gives one. */
   workflowVersion?: string;
-  flags: { timeout: string };
+  flags: { timeout: string; fromStage?: string };
   /** With `processStart`, what makes the attempt checkably live: a pid alone may be reused. */
   pid: number;
   /** As `ps -o lstart=` gives it, as an ISO time to the second. */
@@ -279,6 +279,8 @@ export type AttemptRecord = {
   started: string;
   ended?: string;
   outcome?: AttemptOutcome;
+  /** The stage the attempt ended in; absent when it ended between stages. */
+  stage?: string;
   /** Why it did not complete. */
   reason?: string;
 };
@@ -370,8 +372,11 @@ export type OutputRecord = {
       /**
        * `cancelled` is the operator stopping the run, and wins over the others. `timed-out` is the
        * run's own deadline ending it; a deadline the workflow set and let escape is `failed`.
+       * `stopped` is a stop: the workflow's, or a continue that can't go on as asked.
        */
-      outcome: "failed" | "cancelled" | "timed-out";
+      outcome: "stopped" | "failed" | "cancelled" | "timed-out";
       error: string;
+      /** The stage the run ended in; absent when it ended between stages. */
+      stage?: string;
     }
 );

@@ -16,7 +16,7 @@ export const FINDINGS_FORMAT = "awf.review-findings/1";
 export const SCORER_RESULT_FORMAT = "awf.review-judgement/1";
 export const SCORE_FORMAT = "awf.review-score/1";
 
-const RUN_OUTCOMES = ["succeeded", "failed", "cancelled", "timed-out"] as const;
+const RUN_OUTCOMES = ["succeeded", "stopped", "failed", "cancelled", "timed-out"] as const;
 
 /** The common shape every variant's findings are read into, so different workflows compare. */
 export const ReviewFindingSchema = Type.Object(

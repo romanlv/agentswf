@@ -1,11 +1,19 @@
 import { afterAll, expect, test } from "bun:test";
 import type { TurnRecord } from "@agentswf/contract/records";
 import { readStageRecords } from "./runs";
-import { StageLedger } from "./stage-ledger";
+import { type OpenStage, StageLedger } from "./stage-ledger";
+
 import { createTempRunDirs } from "./testing";
 
 const runDirs = createTempRunDirs();
 afterAll(() => runDirs.cleanup());
+
+/** Enters `name` to run it, as a stage with nothing recorded is. */
+async function run(ledger: StageLedger, name: string): Promise<OpenStage> {
+  const entered = await ledger.enter(name, () => undefined);
+  if (entered.kind !== "run") throw new Error(`${name} was reused`);
+  return entered.stage;
+}
 
 const turn = (stage: string | undefined, session: string): TurnRecord => ({
   version: 1,
@@ -26,8 +34,8 @@ test("a stage's sessions are the ones its own turns ran on", async () => {
   const runDir = runDirs.tempRunDir();
   const turns = [turn("doc-review", "s1"), turn(undefined, "s2"), turn("implement", "s3")];
   const ledger = new StageLedger({ runDir, attempt: 1, turns: () => turns });
-  await ledger.enter("doc-review").succeed(undefined);
-  await ledger.enter("implement").succeed(undefined);
+  await (await run(ledger, "doc-review")).succeed(undefined);
+  await (await run(ledger, "implement")).succeed(undefined);
   const records = await readStageRecords(runDir);
   expect(records.get("doc-review")?.sessions).toEqual([
     { agent: "worker", harness: "codex", session: "s1" },
@@ -40,7 +48,7 @@ test("a stage's sessions are the ones its own turns ran on", async () => {
 test("closing waits for a record already being written, and ends a stage once", async () => {
   const runDir = runDirs.tempRunDir();
   const ledger = new StageLedger({ runDir, attempt: 1, turns: () => [] });
-  const qa = ledger.enter("qa");
+  const qa = await run(ledger, "qa");
   void qa.fail("qa broke");
   await ledger.close();
   expect((await readStageRecords(runDir)).get("qa")).toMatchObject({
@@ -55,9 +63,9 @@ test("closing waits for a record already being written, and ends a stage once", 
 test("a sealed ledger fails the open stage with its reason when closed, and enters no other", async () => {
   const runDir = runDirs.tempRunDir();
   const ledger = new StageLedger({ runDir, attempt: 1, turns: () => [] });
-  ledger.enter("qa");
+  await run(ledger, "qa");
   ledger.seal("Deadline exceeded");
-  expect(() => ledger.enter("mr")).toThrow(
+  await expect(run(ledger, "mr")).rejects.toThrow(
     "stage mr was entered after the workflow ended: Deadline exceeded",
   );
   await ledger.close();
@@ -69,11 +77,11 @@ test("a sealed ledger fails the open stage with its reason when closed, and ente
 
 test("a misuse leaves no stage entered or open", async () => {
   const ledger = new StageLedger({ runDir: runDirs.tempRunDir(), attempt: 1, turns: () => [] });
-  expect(() => ledger.enter("Bad")).toThrow("a stage's name is lowercase");
-  const qa = ledger.enter("qa");
-  expect(() => ledger.enter("mr")).toThrow("while stage qa is open");
+  await expect(run(ledger, "Bad")).rejects.toThrow("is not a stage's name");
+  const qa = await run(ledger, "qa");
+  await expect(run(ledger, "mr")).rejects.toThrow("while stage qa is open");
   await qa.succeed(undefined);
-  expect(() => ledger.enter("qa")).toThrow("entered twice");
-  await ledger.enter("mr").succeed(undefined);
+  await expect(run(ledger, "qa")).rejects.toThrow("entered twice");
+  await (await run(ledger, "mr")).succeed(undefined);
   expect(ledger.entered).toEqual(["qa", "mr"]);
 });

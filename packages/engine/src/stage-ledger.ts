@@ -4,9 +4,18 @@ import {
   type TurnRecord,
 } from "@agentswf/contract/records";
 import type { JsonValue } from "@agentswf/contract/workflow";
-import { writeStageRecord } from "./runs";
+import { replaceStale, writeStageRecord } from "./runs";
+import { planStage } from "./stage-plan";
+import { WorkflowStopped } from "./stopped";
 
 const STAGE_NAME = /^[a-z][a-z0-9-]*$/;
+
+/** Why `name` can't name a stage, which is a file in the run's `stages/`; undefined when it can. */
+export function stageNameProblem(name: string): string | undefined {
+  return typeof name === "string" && STAGE_NAME.test(name)
+    ? undefined
+    : `${JSON.stringify(name)} is not a stage's name: lowercase letters, digits and '-', starting with a letter`;
+}
 
 /** A stage entered and not yet ended; it ends once, whichever end comes first. */
 export type OpenStage = {
@@ -15,17 +24,29 @@ export type OpenStage = {
   fail(reason: string): Promise<void>;
 };
 
+/** A stage entered: reused from its record without running, or run. */
+export type EnteredStage =
+  /** `release` once the value is handed back: until then the stage counts as open. */
+  | { kind: "reuse"; record: StageRecord; value: JsonValue | undefined; release(): void }
+  | { kind: "run"; stage: OpenStage };
+
 /**
  * One attempt's stages: which are entered, which one is open, and each one's record, written into
  * the run's `stages/` when it ends. A stage is a name entered at most once per attempt, one at a
- * time; the rest is the runner's.
+ * time. Until the attempt's start point each is reused or stops it, as the stage plan says; the
+ * rest is the runner's.
  */
 export class StageLedger {
   readonly #entered: string[] = [];
+  readonly #reused = new Set<string>();
+  /** Whether the attempt has reached its start point, after which every stage runs. */
+  #started = false;
   readonly #writes = new Set<Promise<void>>();
   #open: OpenStage | undefined;
   /** Set once the workflow's body has ended: what it left running enters no stage. */
   #sealed: string | undefined;
+  /** The stop that ended the attempt; caught, it is thrown again by any later stage. */
+  #stopped: WorkflowStopped | undefined;
 
   constructor(
     private readonly options: {
@@ -34,22 +55,87 @@ export class StageLedger {
       workflowVersion?: string;
       /** The attempt's turns as they settled, which name the stage each ran in. */
       turns: () => readonly TurnRecord[];
+      /** The run's stage records as the attempt began: what a continue may reuse. */
+      records?: ReadonlyMap<string, StageRecord>;
+      /** `--from-stage`: the stage the attempt starts at. */
+      fromStage?: string;
       now?: () => Date;
     },
   ) {}
+
+  /** A `--from-stage` the attempt never reached: a typo, or a branch not taken. */
+  get fromStageUnreached(): string | undefined {
+    return this.#started ? undefined : this.options.fromStage;
+  }
+
+  /** The stop that ended the attempt, even if the workflow caught it. */
+  get stopped(): WorkflowStopped | undefined {
+    return this.#stopped;
+  }
 
   /** The stages entered, in order. */
   get entered(): readonly string[] {
     return this.#entered;
   }
 
-  /** Opens `name`, or throws why it can't be: a bad name, a second entry, or another one open. */
-  enter(name: string): OpenStage {
-    if (typeof name !== "string" || !STAGE_NAME.test(name)) {
-      throw new Error(
-        `stage ${JSON.stringify(name)}: a stage's name is lowercase letters, digits and '-', starting with a letter`,
-      );
+  /**
+   * Enters `name`: reused when the plan says so, its value checked by `misfit`, or opened to run.
+   * Throws why it can't be: a bad name, a second entry, another one open, or a record that stops
+   * the attempt. Reaching the start point, it moves the records it outdates to `replaced/`.
+   */
+  async enter(
+    name: string,
+    misfit: (value: JsonValue | undefined) => string | undefined,
+  ): Promise<EnteredStage> {
+    if (this.#stopped) throw this.#stopped;
+    this.#check(name);
+    this.#entered.push(name);
+    const decision = planStage(
+      {
+        records: this.options.records ?? new Map(),
+        ...(this.options.fromStage === undefined ? {} : { fromStage: this.options.fromStage }),
+        ...(this.options.workflowVersion === undefined
+          ? {}
+          : { workflowVersion: this.options.workflowVersion }),
+        started: this.#started,
+        entered: this.#entered.slice(0, -1),
+      },
+      name,
+      misfit,
+    );
+    if (decision.kind === "stop") {
+      this.#stopped = new WorkflowStopped(decision.reason, name);
+      throw this.#stopped;
     }
+    if (decision.kind === "reuse") {
+      this.#reused.add(name);
+      // Open until handed back, so a stage entered beside it is refused as on a fresh attempt.
+      const held: OpenStage = {
+        name,
+        succeed: async () => undefined,
+        fail: async () => undefined,
+      };
+      this.#open = held;
+      return {
+        kind: "reuse",
+        record: decision.record,
+        value: decision.value,
+        release: () => {
+          if (this.#open === held) this.#open = undefined;
+        },
+      };
+    }
+    const stage = this.#opened(name);
+    if (decision.start) {
+      this.#started = true;
+      await replaceStale(this.options.runDir, name, this.#reused);
+    }
+    return { kind: "run", stage };
+  }
+
+  #check(name: string): void {
+    const problem = stageNameProblem(name);
+    if (problem) throw new Error(`stage ${problem}`);
     if (this.#sealed !== undefined) {
       throw new Error(`stage ${name} was entered after the workflow ended: ${this.#sealed}`);
     }
@@ -61,7 +147,9 @@ export class StageLedger {
     if (this.#entered.includes(name)) {
       throw new Error(`stage ${name} was entered twice; a loop goes inside one stage`);
     }
-    this.#entered.push(name);
+  }
+
+  #opened(name: string): OpenStage {
     const now = this.options.now ?? (() => new Date());
     const started = now();
     let ended: Promise<void> | undefined;

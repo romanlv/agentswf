@@ -15,7 +15,7 @@ import { appendLine } from "./jsonl";
 
 /**
  * Runs on disk: `{root}/{workflow}/{id}/`, holding `run.json`, `attempts/{n}.json`,
- * `stages/{stage}.json` and `turns.jsonl`. The only
+ * `stages/{stage}.json`, `replaced/{stage}.{attempt}.json` and `turns.jsonl`. The only
  * module that knows the layout. Only the live attempt writes, and the two claims, a run's folder
  * renamed into place and an attempt's file linked into place, are the only locks.
  */
@@ -254,7 +254,13 @@ export function isLive(attempt: AttemptRecord, probe: ProcessProbe = processStar
 export async function claimAttempt(
   run: Run,
   fields: Pick<AttemptRecord, "file" | "workflowVersion" | "flags">,
-  options: { now?: Date; pid?: number; probe?: ProcessProbe } = {},
+  options: {
+    now?: Date;
+    pid?: number;
+    probe?: ProcessProbe;
+    /** A run that completed is continued only to redo a stage of it. */
+    redo?: boolean;
+  } = {},
 ): Promise<{ attempt: Attempt; interrupted: AttemptRecord[] }> {
   const probe = options.probe ?? processStart;
   const pid = options.pid ?? process.pid;
@@ -288,9 +294,9 @@ export async function claimAttempt(
           `attempt ${live.n} of ${run.record.id} is still running, as process ${live.pid}`,
         );
       }
-      if (before.at(-1)?.outcome === "completed") {
+      if (before.at(-1)?.outcome === "completed" && !options.redo) {
         await unlink(file);
-        throw new RunRefused(`${run.record.id} completed; there is nothing to continue`);
+        throw new RunRefused(`${run.record.id} completed; --from-stage redoes one of its stages`);
       }
       const interrupted = before.filter((other) => other.ended === undefined);
       return { attempt: { run, file, record }, interrupted };
@@ -302,13 +308,14 @@ export async function claimAttempt(
 /** Writes the attempt's ending into its file, whole. */
 export async function endAttempt(
   attempt: Attempt,
-  ending: { outcome: AttemptOutcome; reason?: string },
+  ending: { outcome: AttemptOutcome; reason?: string; stage?: string },
   now: Date = new Date(),
 ): Promise<AttemptRecord> {
   const record: AttemptRecord = {
     ...attempt.record,
     ended: now.toISOString(),
     outcome: ending.outcome,
+    ...(ending.stage === undefined ? {} : { stage: ending.stage }),
     ...(ending.reason === undefined ? {} : { reason: ending.reason }),
   };
   await writeJson(attempt.file, record);
@@ -331,6 +338,34 @@ export async function readStageRecords(runDir: string): Promise<Map<string, Stag
     names.map((name) => readRecord<StageRecord>(join(dir, name), STAGE_RECORD_VERSION)),
   );
   return new Map(records.map((record) => [record.stage, record]));
+}
+
+/**
+ * At an attempt's start point: moves every record in `stages/` it hasn't reused to `replaced/`, as
+ * `{stage}.{attempt}.json`, the start stage's own first. Each is one rename, so a crash part way
+ * leaves the start stage without a record, and the next continue starts there and moves the rest.
+ */
+export async function replaceStale(
+  runDir: string,
+  start: string,
+  reused: ReadonlySet<string>,
+): Promise<string[]> {
+  const dir = join(runDir, "stages");
+  const recorded = (await entries(dir))
+    .filter((name) => name.endsWith(".json"))
+    .map((name) => name.slice(0, -".json".length));
+  const stale = [start, ...recorded.filter((name) => name !== start)].filter(
+    (name) => recorded.includes(name) && !reused.has(name),
+  );
+  if (stale.length === 0) return [];
+  const replaced = join(runDir, "replaced");
+  await mkdir(replaced, { recursive: true, mode: 0o700 });
+  for (const name of stale) {
+    const file = join(dir, `${name}.json`);
+    const record = await readRecord<StageRecord>(file, STAGE_RECORD_VERSION);
+    await rename(file, join(replaced, `${name}.${record.attempt}.json`));
+  }
+  return stale;
 }
 
 /** Appends a settled turn to the run's `turns.jsonl`, which only the live attempt writes. */

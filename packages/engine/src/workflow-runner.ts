@@ -97,7 +97,7 @@ import {
   type OperationTags,
   type RunLedger,
 } from "./run-usage";
-import { appendTurn, endTurnsLine } from "./runs";
+import { appendTurn, endTurnsLine, readStageRecords } from "./runs";
 import { type CredentialLocks, placeCarried, seedHome } from "./sandbox-homes";
 import {
   RUN_SANDBOX_ONLY,
@@ -107,8 +107,10 @@ import {
 } from "./sandboxes";
 import { placeSkills, RunSkills, readSkillSources } from "./skills/run-skills";
 import { StageLedger } from "./stage-ledger";
+import { WorkflowStopped } from "./stopped";
 
 export { WorkflowCancelledError } from "./deadlines";
+export { WorkflowStopped } from "./stopped";
 
 export type RunWorkflowOptions = {
   runRoot: string;
@@ -122,6 +124,8 @@ export type RunWorkflowOptions = {
     attempt: number;
     /** How the attempt is named to a person: its Herdr workspace's label. */
     label?: string;
+    /** `--from-stage`: the stage this attempt starts at, reusing those before it. */
+    fromStage?: string;
   };
   runtime: AgentRuntimeConfig;
   deadline: AbsoluteDeadline;
@@ -279,6 +283,8 @@ export async function startWorkflow<Args extends JsonValue, Result extends JsonV
     );
   }
   const runDir = options.run?.dir ?? (await createRunDir(options.runRoot, runId));
+  // Before anything opens: a record this awf can't read refuses the attempt.
+  const recorded = await readStageRecords(runDir);
   const slots = createResultSlotRegistry({ runDir });
   const control = await startResultControlPlane({ slots });
   const cwd = options.cwd ?? process.cwd();
@@ -333,6 +339,8 @@ export async function startWorkflow<Args extends JsonValue, Result extends JsonV
   const stages = new StageLedger({
     runDir,
     attempt,
+    records: recorded,
+    ...(options.run?.fromStage === undefined ? {} : { fromStage: options.run.fromStage }),
     ...(definition.meta.version === undefined ? {} : { workflowVersion: definition.meta.version }),
     turns: () => turns,
   });
@@ -410,6 +418,12 @@ export async function startWorkflow<Args extends JsonValue, Result extends JsonV
         options.deadline,
       );
       if (!isJsonValue(value)) throw new Error("workflow result must contain only JSON values");
+      if (stages.stopped) {
+        throw new Error(`stop was caught: ${stages.stopped.reason}`, { cause: stages.stopped });
+      }
+      if (stages.fromStageUnreached !== undefined) {
+        throw new WorkflowStopped(`never reached ${stages.fromStageUnreached}`);
+      }
     } catch (error) {
       failed = true;
       failure = error;
@@ -758,7 +772,19 @@ class WorkflowOwner {
     }
     const parent = scopes.getStore();
     parent?.assertAccepting();
-    const open = this.options.stages.enter(name);
+    const entered = await this.options.stages.enter(name, (recorded) => {
+      try {
+        stageValue(name, options, recorded);
+        return undefined;
+      } catch (error) {
+        return messageOf(error);
+      }
+    });
+    if (entered.kind === "reuse") {
+      entered.release();
+      return entered.value;
+    }
+    const open = entered.stage;
     const scope = new ExecutionScope(
       parent?.deadline ?? this.options.deadline,
       parent?.stage,

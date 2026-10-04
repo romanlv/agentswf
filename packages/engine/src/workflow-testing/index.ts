@@ -1,7 +1,11 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { SandboxRecord, StageRecord } from "@agentswf/contract/records";
+import {
+  type SandboxRecord,
+  STAGE_RECORD_VERSION,
+  type StageRecord,
+} from "@agentswf/contract/records";
 import {
   EXECUTABLE_WORKFLOW_KIND,
   type ExecutableWorkflow,
@@ -14,8 +18,13 @@ import type { Harness } from "@agentswf/harness";
 import { createFakeSandboxProvider } from "@agentswf/sandbox/testing/fake";
 import { messageOf } from "../errors";
 import { OPERATOR_ALIASES } from "../operator-aliases";
-import { readStageRecords } from "../runs";
-import { runWorkflow, type SettledRun, WorkflowRunError } from "../workflow-runner";
+import { readStageRecords, writeStageRecord } from "../runs";
+import {
+  runWorkflow,
+  type SettledRun,
+  WorkflowRunError,
+  WorkflowStopped,
+} from "../workflow-runner";
 import { createScriptedDecisions, type DecisionRequest, type DecisionScript } from "./decisions";
 import {
   type AgentSandbox,
@@ -53,6 +62,14 @@ export type TestOptions = {
    * workflow gives it.
    */
   caller?: { harness: Harness };
+  /**
+   * Stages an earlier attempt recorded, by name: each value, or `undefined` for a stage that
+   * returns nothing. Given, the run is that run's continue, reusing them without calling their
+   * work, as `awf run --continue` would.
+   */
+  recorded?: Readonly<Record<string, JsonValue | undefined>>;
+  /** The stage the continue starts at, as `--from-stage`; it needs `recorded`. */
+  fromStage?: string;
 };
 
 /** What the run did. Under `parallel`, what started first is scheduling: read by key. */
@@ -79,6 +96,8 @@ export type TestRun<Result> = {
   logs: { message: string; fields?: JsonObject }[];
   /** Each stage's record, as the run wrote it, in the order entered. */
   stages: StageRecord[];
+  /** How the attempt stopped, apart from a failure; absent when it didn't. */
+  stopped?: { reason: string; stage?: string };
 };
 
 /**
@@ -143,6 +162,12 @@ export async function testWorkflow<Args extends JsonValue, Result extends JsonVa
   let sandboxOf = new Map<string, AgentSandbox>();
   let stages: StageRecord[] = [];
   const runRoot = directory();
+  if (options.fromStage !== undefined && options.recorded === undefined) {
+    throw new Error("fromStage continues a run: give the stages it recorded as `recorded`");
+  }
+  const continued = options.recorded
+    ? await recordEarlierAttempt(join(runRoot, "test"), options.recorded)
+    : undefined;
   const recordedStages = async ({ runId, stages: entered = [] }: SettledRun) => {
     const records = await readStageRecords(join(runRoot, runId));
     return entered.flatMap((name) => records.get(name) ?? []);
@@ -151,6 +176,16 @@ export async function testWorkflow<Args extends JsonValue, Result extends JsonVa
   try {
     const result = await runWorkflow(definition, args, {
       runRoot,
+      ...(continued
+        ? {
+            run: {
+              dir: continued,
+              id: "test",
+              attempt: 2,
+              ...(options.fromStage === undefined ? {} : { fromStage: options.fromStage }),
+            },
+          }
+        : {}),
       cwd,
       deadline: { unixMilliseconds: Date.now() + (options.timeoutMs ?? 30 * 60_000) },
       signal: stopping.signal,
@@ -212,7 +247,37 @@ export async function testWorkflow<Args extends JsonValue, Result extends JsonVa
     decisions: decisions.asked,
     logs,
     stages,
+    ...("error" in settled && settled.error instanceof WorkflowStopped
+      ? {
+          stopped: {
+            reason: settled.error.reason,
+            ...(settled.error.stage === undefined ? {} : { stage: settled.error.stage }),
+          },
+        }
+      : {}),
   };
+}
+
+/** Writes `recorded` as attempt 1's succeeded stages, in order, into a run's folder. */
+async function recordEarlierAttempt(
+  dir: string,
+  recorded: Readonly<Record<string, JsonValue | undefined>>,
+): Promise<string> {
+  const at = Date.now() - Object.keys(recorded).length * 1_000;
+  for (const [index, [stage, value]] of Object.entries(recorded).entries()) {
+    const time = new Date(at + index * 1_000).toISOString();
+    await writeStageRecord(dir, {
+      version: STAGE_RECORD_VERSION,
+      stage,
+      attempt: 1,
+      outcome: "succeeded",
+      started: time,
+      ended: time,
+      sessions: [],
+      ...(value === undefined ? {} : { value }),
+    });
+  }
+  return dir;
 }
 
 function isExecutable<Args extends JsonValue, Result extends JsonValue>(

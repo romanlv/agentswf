@@ -1244,6 +1244,111 @@ describe("awf run's runs and attempts", () => {
   });
 });
 
+describe("awf run's stages", () => {
+  /** Two stages; qa fails while `fail` is in its working directory. */
+  const staged = executableModule(
+    "return null;",
+    `const { existsSync } = await import("node:fs");
+     await workflow.stage("implement", { result: { type: "string" }, summary: (b) => b }, async () => "feat/a");
+     await workflow.stage("qa", async () => {
+       if (existsSync(workflow.cwd + "/fail")) throw new Error("qa broke");
+     });
+     return workflow.attempt;`,
+  );
+  const awf = async (cwd: string, argv: string[]) => {
+    const output: string[] = [];
+    const errors: string[] = [];
+    const exitCode = await cli(["run", "--json", ...argv], {
+      cwd,
+      stdout: (text) => output.push(text),
+      stderr: (text) => errors.push(text),
+      installRuntime: emptyRuntime,
+    });
+    const text = output.join("\n");
+    return { exitCode, stderr: errors.join("\n"), ...(text ? { record: JSON.parse(text) } : {}) };
+  };
+  const project = async () => {
+    const cwd = runDirs.tempRunDir();
+    await Bun.write(join(cwd, "flow.js"), staged);
+    return cwd;
+  };
+  const runDir = (cwd: string) => join(cwd, ".awf", "runs", "fixture", "r1");
+
+  test("--from-stage needs --continue", async () => {
+    const cwd = await project();
+    const refused = await awf(cwd, ["--from-stage", "qa", "flow.js"]);
+    expect(refused.exitCode).toBe(2);
+    expect(refused.stderr).toContain(
+      "--from-stage goes with --continue: a new run has nothing to reuse",
+    );
+  });
+
+  test("a continue lists what is recorded, and a completed run is redone only from a stage", async () => {
+    const cwd = await project();
+    await Bun.write(join(cwd, "fail"), "");
+    expect((await awf(cwd, ["--id", "r1", "flow.js"])).exitCode).toBe(1);
+    rmSync(join(cwd, "fail"));
+    const continued = await awf(cwd, ["flow.js", "--continue", "r1"]);
+    expect(continued.exitCode).toBe(0);
+    expect(continued.record.value).toBe(2);
+    expect(continued.stderr).toMatch(
+      /awf: r1 has these stages recorded:\n {2}implement · attempt 1 · 0m ago · feat\/a\n {2}qa · attempt 1 · 0m ago · failed/,
+    );
+
+    const done = await awf(cwd, ["flow.js", "--continue", "r1"]);
+    expect(done.exitCode).toBe(2);
+    expect(done.stderr).toBe(
+      "awf: r1 completed; to redo from a stage, --from-stage one of: implement, qa",
+    );
+    const redone = await awf(cwd, ["flow.js", "--continue", "r1", "--from-stage", "qa"]);
+    expect(redone.exitCode).toBe(0);
+    expect(attemptOf(runDir(cwd), 3)).toMatchObject({
+      outcome: "completed",
+      flags: { fromStage: "qa" },
+    });
+    expect(readdirSync(join(runDir(cwd), "replaced")).toSorted()).toEqual([
+      "qa.1.json",
+      "qa.2.json",
+    ]);
+  });
+
+  test("a stop exits 3, recording the stage it stopped at", async () => {
+    const cwd = await project();
+    await awf(cwd, ["--id", "r1", "flow.js"]);
+    const stopped = await awf(cwd, ["flow.js", "--continue", "r1", "--from-stage", "qaa"]);
+    expect(stopped.exitCode).toBe(3);
+    expect(stopped.stderr).toContain(
+      "awf: nothing is recorded for qaa; the attempt stops if it never reaches it",
+    );
+    expect(stopped.stderr).toContain("awf: run stopped (fixture r1 · attempt 2)");
+    expect(stopped.record).toMatchObject({ outcome: "stopped", error: "never reached qaa" });
+    expect(attemptOf(runDir(cwd), 2)).toMatchObject({
+      outcome: "stopped",
+      reason: "never reached qaa",
+    });
+    expect(attemptOf(runDir(cwd), 2)).not.toHaveProperty("stage");
+
+    // A record that no longer fits stops at its stage.
+    const record = join(runDir(cwd), "stages", "implement.json");
+    writeFileSync(
+      record,
+      JSON.stringify({ ...JSON.parse(readFileSync(record, "utf8")), value: 7 }),
+    );
+    const misfit = await awf(cwd, ["flow.js", "--continue", "r1", "--from-stage", "qa"]);
+    expect(misfit.exitCode).toBe(3);
+    expect(misfit.record).toMatchObject({ outcome: "stopped", stage: "implement" });
+    expect(misfit.record.error).toStartWith("implement's record no longer fits:");
+    expect(attemptOf(runDir(cwd), 3)).toMatchObject({ outcome: "stopped", stage: "implement" });
+  });
+
+  test("--from-stage refuses a name that can't be a stage's", async () => {
+    const cwd = await project();
+    const refused = await awf(cwd, ["flow.js", "--continue", "r1", "--from-stage", "QA"]);
+    expect(refused.exitCode).toBe(2);
+    expect(refused.stderr).toContain('--from-stage: "QA" is not a stage\'s name');
+  });
+});
+
 describe("awf run --here", () => {
   const WORKFLOW = "examples/calling-session/workflow.ts";
   const inHerdr = { HERDR_ENV: "1", HERDR_WORKSPACE_ID: "w1", AWF_HERDR_SESSION: "default" };

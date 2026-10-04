@@ -229,7 +229,7 @@ Out of scope:
 - [x] 2. Runs and attempts: `runs.ts`, `run.json`, attempts, id and attempt claims, `--id`,
   `--continue`, labels.
 - [x] 3. Stages recorded: `workflow.stage`, the ledger, tagging, stage records, test support.
-- [ ] 4. Continue from a stage: the stage plan, `--from-stage`, removing stale records, schemas, test
+- [x] 4. Continue from a stage: the stage plan, `--from-stage`, removing stale records, schemas, test
   support.
 - [ ] 5. The author surface: `stop`, `id(args)` and `summary`, documented, with the boilerplate's
   `ask` and `md` over them.
@@ -400,13 +400,33 @@ Done when:
 - Stale records: reaching the start point moves every record not reused to `replaced/`, the start
   stage's first; an attempt that stops before its start point moves nothing; after a crash
   mid-stage or mid-move, a continue starts at that stage.
-- Stops: inside a stage the continue redoes it; between stages it checks again; the same stop
-  twice says to move the check.
 - A continue with no `--from-stage` from the first unrecorded stage, a `--from-stage` never
   reached, a completed run refused without `--from-stage`, and a stage renamed in the code.
 - `testWorkflow(…, { fromStage, recorded })` reuses recorded stages without calling their work.
   That is the live run's compaction-on-continue bug, as a test, and it catches a variable assigned
   inside a stage.
+
+Plan (2026-10-04):
+- **`stage-plan.ts`.** Pure: given the records, `--from-stage`, the version and whether the start
+  point was reached, it decides reuse, run (marking the start) or stop, with the design's
+  messages. A stop after `--from-stage` lists the recorded stages not yet reached, so a rename is
+  plain.
+- **The ledger.** `StageLedger.enter` asks the plan, checking a recorded value with the same
+  `stageValue` that checks a new one. At the start point, `runs.ts`'s `replaceStale` moves every
+  record not reused, the start stage's first, each by one rename.
+- **`WorkflowStopped`.** Engine-private, it ends an attempt `stopped`: a plan's stop, or a
+  `--from-stage` never reached. `AttemptOutcome` and `OutputRecord` gain `stopped` and the stage
+  it stopped at, its exit code is 3, and lab's outcomes gain it. `workflow.stop` publishes it in
+  task 5.
+- **CLI.**
+  - `--from-stage` requires `--continue`, and is recorded in the attempt's flags.
+  - A completed run continues only with `--from-stage`; the refusal lists its stages.
+  - A continue prints the recorded stages, with their attempt, age and summary, and warns about a
+    `--from-stage` with no record.
+- **`testWorkflow(…, { recorded, fromStage })`.** It writes `recorded` as attempt 1's records and
+  runs attempt 2.
+- **Moved to task 5:** the stop rows ("inside a stage the continue redoes it…", "the same stop
+  twice"), which need `workflow.stop`.
 
 ### 5. The author surface
 
@@ -415,7 +435,10 @@ Outcome: `stop`, `id(args)` and a stage's `summary` are published and documented
 awf's `stop`.
 
 Done when there are tests for `stop` inside a stage, between stages and before any, `id(args)`
-deriving the id and `--id` overriding it, and `bun run check` passes.
+deriving the id and `--id` overriding it, and `bun run check` passes. From task 4, the stop rows:
+inside a stage, the continue redoes it; between stages, it checks again; the same stop twice
+says to move the check. `docs/workflow-api.md` documents `testWorkflow`'s `recorded`,
+`fromStage` and `run.stopped`.
 
 ### 6. The view by stage
 
@@ -552,7 +575,47 @@ Accepted, not changed:
   doesn't check `version`.
 - **Untracked stages.** A `void workflow.stage(…)` isn't tracked by its parent scope.
 
-### Tasks 4–8
+### Task 4
+
+Two subagents, 2026-10-04. Resolved:
+- **A caught stop.** A stop the workflow catches went on, and a later stage became the start
+  point and moved the stopped stage's record. The ledger now latches the stop: every later stage
+  throws it again, and a body that returns after catching it fails "stop was caught: {reason}",
+  as the design says of `stop`.
+- **Two stages at once** passed on a continue when the first was reused. A reused stage counts as
+  open until its value is handed back.
+- **The recorded-stages list** was printed after the attempt claim, so a record awf couldn't read
+  left a claimed attempt with no ending. `prepareRun` describes the records before the claim.
+- **Messages.**
+  - The completed-run refusal names the stages: "to redo from a stage, --from-stage one of: …".
+  - A record that failed reads "{stage} did not succeed in attempt {n}".
+  - The not-reached list leaves out the `--from-stage` stage.
+  - The version stop names both versions.
+  - Each listed stage shows its version.
+  - `--from-stage` checks the stage's name.
+- **Versions under 1.0.** Under `0.x`, the minor must match too, as semver has it.
+- **`stage` on the attempt and in `output.json`** is documented as the stage the attempt ended in,
+  for every outcome. Only a stop fills it for now; task 7 fills it for a failure.
+- **`run.stopped`** tells a stop from a failure in `testWorkflow`.
+- **The stop rows** moved into task 5's "Done when", along with the testing surface's docs.
+- **Tests added:**
+  - a caught stop;
+  - parallel stages on a continue;
+  - the start stage's record moving first (a failed second move leaves the rest);
+  - a misfit stop's `stage` in `output.json` and the attempt;
+  - a bad `--from-stage` name;
+  - versions under 1.0;
+  - a record that did not succeed.
+
+Accepted, not changed:
+- **The open-then-move order.** The ledger opens the start stage before moving records, so a
+  stage entered beside it is refused during the moves. A failed move leaves the stage open,
+  failed by `close()`.
+- **`replaceStale`'s names and overwrites.** It names records by their file and reads each again
+  for its attempt. A rename onto an existing `replaced/` file overwrites it, which can't happen
+  while a stage runs once per attempt.
+
+### Tasks 5–8
 
 - Architecture and scope:
 - Correctness and proof:
