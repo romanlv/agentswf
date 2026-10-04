@@ -3,7 +3,7 @@ id: "020"
 title: An agent runs at the effort and model its workflow sets, and switches them mid-run
 summary: "A workflow opens an agent at a reasoning effort, as at a model, and can switch either later in the same session with `set`; each harness is launched or switched by its own flag or command, a harness that cannot is refused with its reason, and every operation records the settings it ran at."
 type: story
-status: draft
+status: ready
 priority: P0
 epic: agent-config
 discovered_in: "story 008, match first; the first live loop, 2026-10-01"
@@ -53,9 +53,9 @@ agent.set({                       queued like compact; from here  headless: the 
                                   operation's record
 ```
 
-- **At open.** An agent's effort is chosen with its runtime when it is opened, as its placement
-  is; an alias names none (Q1). If none is named, awf passes no effort and the harness uses its
-  default (Q2).
+- **At open.** An agent's effort is chosen with its runtime when it is opened. An alias may name
+  one as a default, and the workflow's own replaces it (Q1). If neither names one, awf passes no
+  effort and the harness uses its default (Q2).
 - **`set`** (Q3, Q4). It switches the agent's model, effort or both for every operation after it.
   It goes in the agent's queue like `compact`: it runs after the operations enqueued before it, its
   id makes a repeat harmless, and it is recorded. It changes the session the agent already has, so the
@@ -84,7 +84,7 @@ by model.
 
 In scope:
 
-- `effort` on the runtime an agent is opened with, with or without an alias, and on a fork.
+- `effort` on an alias, on the runtime an agent is opened with, and on a fork.
 - `AgentRef.set({ model?, effort? })`, headless and in a pane, on claude, codex, pi and cursor where
   each can; refused with its reason where it can't.
 - Launching each harness at an effort, headless and in a pane, on the host and in a sandbox.
@@ -154,9 +154,8 @@ Out of scope:
 
 - `src/workflow/agents.ts`:
   - `Effort` is new.
-  - `AgentChoice` is new: `PlacementChoice` and `effort?`. `ExecutionConfig`,
-    `ExecutionRequirements` and `AgentForkSpec` take it in place of `PlacementChoice`, so
-    `AgentExecution` gains `effort`. `RuntimeTarget` is unchanged (Q1).
+  - `RuntimeTarget`, `ExecutionRequirements` and `AgentForkSpec` gain `effort?`, and
+    `ExecutionConfig` and `AgentExecution` gain it through `RuntimeTarget` (Q1).
   - `SettingsSpec` and `AgentRef.set` are new.
   - `AgentRef.execution` becomes the agent's current settings.
   - `OperationRecord` needs no new field.
@@ -185,8 +184,7 @@ Out of scope:
 ### `packages/engine`
 
 - `src/workflow-runner.ts`:
-  - the agent's `effort` is added after `resolveAlias`, as `placement` is; `resolveAlias` is
-    unchanged (Q1);
+  - `resolveAlias` copies the alias's `effort`, and the workflow's replaces it (Q1);
   - the agent's identity keeps its opened execution for reattach, apart from its current one;
   - `set` is queued, made idempotent by id, and recorded the way `compact` is;
   - its effort is checked against the harness's levels;
@@ -227,27 +225,27 @@ These types are published; task 2 builds them as written here.
 /** A harness's own level name, such as claude's `max` or codex's `xhigh`; see its definition's `effort`. */
 export type Effort = string;
 
-/** The agent's own choices beside where it runs; an alias names none of them (Q1). */
-export type AgentChoice = PlacementChoice & {
+export type RuntimeTarget = {
+  harness: HarnessKind;
+  model: string;
   /** Absent, awf passes none and the harness uses its default (Q2). */
   effort?: Effort;
 };
 
-// RuntimeTarget, what an alias names, stays { harness, model }.
-export type ExecutionConfig = RuntimeTarget & AgentChoice;
-
-export type ExecutionRequirements = AgentChoice & {
+export type ExecutionRequirements = PlacementChoice & {
   alias: RuntimeAliasName;
   harness?: HarnessKind;
   model?: string;
+  /** Replaces the alias's effort rather than having to match it, unlike `model` (Q1). */
+  effort?: Effort;
 };
 
-export interface AgentForkSpec extends AgentChoice {
+export interface AgentForkSpec extends PlacementChoice {
   key: AgentKey;
   instructions?: string;
   labels?: JsonObject;
-  // effort, from AgentChoice: absent, the fork takes its parent's current effort, as it takes
-  // its current model.
+  /** Absent, the fork takes its parent's current effort, as it takes its current model. */
+  effort?: Effort;
 }
 
 export interface SettingsSpec {
@@ -362,34 +360,17 @@ shown working is absent with its reason.
 
 ## Open questions
 
-Decisions for the operator. Q1 is open; Q2–Q5 are decided and kept so their reasons stay with them.
-
-### Open
-
-- **Q1. Can an alias carry an effort, or is effort only the agent's own?** Blocks task 2.
-  - What an alias is today: a name for a harness and a model. `awf run` installs two,
-    `claude` (claude, `sonnet`) and `codex` (codex, `gpt-5.6-sol`). Operators can't define their
-    own; only a workflow's test can add some (`runtimes`).
-  - How the fields behave today when a workflow opens `runtime: { alias: "codex", … }`:
-    - `model` belongs to the alias. `{ alias: "codex", model: "o4" }` is refused, because the alias
-      says another model.
-    - `placement` belongs to the agent. The alias names none, and `{ alias: "codex", placement:
-      "headless" }` simply adds it.
-  - The question is which of the two effort is like.
-    - **(a) The agent's own, like `placement`** (recommended). Aliases never name an effort, and
-      a workflow writes `{ alias: "codex", effort: "high" }` to get codex's model at `high`. No
-      conflict can arise, since only one side ever names it. In the contract, `effort` sits beside
-      `placement`, not in `RuntimeTarget`, which stays harness and model.
-    - **(b) Part of the alias, like `model`.** An alias could say `deep = claude, opus, high`. A
-      workflow that wants another effort needs another alias, and `{ alias: "deep", effort: "low" }`
-      is either refused or overrides the alias, which needs a rule of its own.
-  - Why (a): Q2 already says the installed aliases name no effort, and nobody else can define an
-    alias. (b) would add a field to `RuntimeTarget` that no real alias uses. (a) can grow into (b)
-    later without breaking anything, if operators ever get aliases of their own.
-  - The contract below is written for (a).
+Decisions for the operator. None is open; each keeps its reasons.
 
 ### Decided
 
+- **Q1. Can an alias carry an effort?** Yes (operator, 2026-10-04): an alias names a harness, a
+  model and, optionally, an effort, so `deep` can be claude's `opus` at `high`.
+  - An alias's effort is a default. A workflow that also names one gets its own:
+    `{ alias: "deep", effort: "low" }` is opus at `low`.
+  - Why not refuse a different effort, as a different `model` is refused: `set` can change the
+    effort straight after `open`, so refusing it at `open` would protect nothing.
+  - Installed aliases name no effort (Q2).
 - **Q2. What does an agent that names no effort get?** awf passes none, and the harness uses its
   default; the record says `effort` absent. Installed aliases name no effort (operator,
   2026-10-04).
@@ -447,11 +428,11 @@ host, and are documented in `workflow-api.md`.
 
 Execution:
 
-- [ ] Plan: confirm Q1 is settled; map the reattach change to opened and current settings.
+- [ ] Plan: map the reattach change to opened and current settings.
 - [ ] Implement:
   - the contract as in "The contract";
-  - in the engine: effort added after the alias, `set` queued like `compact`, level checks, the
-    opened settings kept for reattach;
+  - in the engine: the alias's effort and the workflow's over it, `set` queued like `compact`, level
+    checks, the opened settings kept for reattach;
   - `set` on the testing host.
 - [ ] Review: architecture/scope and correctness/proof subagents on the diff.
 - [ ] Resolve: disposition findings.
@@ -540,7 +521,7 @@ Done when:
 Automated:
 
 - [ ] Workflow tests:
-  - effort at open, with an alias and without, and on a fork;
+  - effort at open, from an alias, over an alias's, and on a fork;
   - `set` runs in order with turns, and a repeated id is harmless;
   - reattach after a `set`;
   - refusals: an unknown level, another harness, the caller, and an absent switch.
@@ -573,10 +554,10 @@ Manual or live evaluation:
 - [x] Relevant implementation, callers, and tests are mapped.
 - [x] Evidence and research support the proposed design. The measurements still owed are task 1's,
   and they decide only which switches are absent, not the design.
-- [ ] Expensive interface, record-format, and stage-gate decisions are settled: the contract is
-  written out; Q1 is open.
+- [x] Expensive interface, record-format, and stage-gate decisions are settled: the contract is
+  written out, and Q1–Q5 are decided.
 - [x] Tasks are ordered, coherent, and independently verifiable.
-- [ ] Open questions are resolved or explicitly moved out of scope: Q1 is open.
+- [x] Open questions are resolved or explicitly moved out of scope.
 
 ## Implementation notes
 

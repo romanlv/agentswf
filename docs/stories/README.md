@@ -97,7 +97,7 @@ status is one of `todo`, `draft`, `ready`, `in-progress`, `blocked`, `awaiting-h
   runs in a sandbox; each harness is one file whose every capability is built or absent with a
   reason tsc checks.
 - [`020` — An agent runs at the effort and model its workflow sets, and switches them mid-run](020-agent-effort.md) —
-  `draft` — an agent opens at a reasoning effort, and `set` switches its model or effort in the
+  `ready` — an agent opens at a reasoning effort, and `set` switches its model or effort in the
   same session; each harness is launched or switched by its own flag or command, or refused with
   its reason, and every operation records its settings.
 
