@@ -228,7 +228,7 @@ Out of scope:
   "A run continues from its stages".
 - [x] 2. Runs and attempts: `runs.ts`, `run.json`, attempts, id and attempt claims, `--id`,
   `--continue`, labels.
-- [ ] 3. Stages recorded: `workflow.stage`, the ledger, tagging, stage records, test support.
+- [x] 3. Stages recorded: `workflow.stage`, the ledger, tagging, stage records, test support.
 - [ ] 4. Continue from a stage: the stage plan, `--from-stage`, removing stale records, schemas, test
   support.
 - [ ] 5. The author surface: `stop`, `id(args)` and `summary`, documented, with the boilerplate's
@@ -365,6 +365,31 @@ Done when runner tests cover:
 - a workflow without stages, unchanged;
 - a torn `turns.jsonl` line skipped, with a later attempt's lines after it (moved from task 2).
 
+Plan (2026-10-04):
+- **contract.**
+  - `StageRecord` and `TurnRecord` in `records.ts`.
+  - `OperationRecord` gains `stage` and `label`, and `DecisionRecord` gains `stage`.
+  - `WorkflowContext.stage` has two overloads, with `StageOptions` (`result`, `summary`).
+  - The harness's `AuthoredTurn` gains `stage`, so a host sees it.
+- **engine.**
+  - `stage-ledger.ts` owns the rules: a name, one stage open at a time, at most once each. It
+    writes each stage's record when the stage ends.
+  - The runner's `ExecutionScope` carries the workflow stage. A stage runs in a scope of its own,
+    which it cancels on failure.
+  - A stage's value goes through JSON and is then checked by its schema; a stage without `result`
+    returns nothing.
+  - The ledger tags each operation with its stage and its turn's label, and appends it to
+    `turns.jsonl` as it settles.
+  - A stage left open when the body ends is recorded `failed`.
+- **workflow-testing.** `run.stages`, and `stage` on each turn.
+- **Deviations.**
+  - A `stopped` stage comes with `stop`, in task 5. Until then, cancellation and a throw are
+    `failed`, with their reason.
+  - `stage` on compaction records is deferred: a compaction reaches the harness as positional
+    arguments, and no test needs it yet. Its operation record and `turns.jsonl` line carry the
+    stage.
+  - A stage inside a `call`'s child isn't checked: `call` is unavailable in the runner.
+
 ### 4. Continue from a stage
 
 Outcome: a continue follows the stage plan in [[runs-and-stages]], row by row.
@@ -495,7 +520,39 @@ Accepted, not changed:
   - `--here --continue` has no test of its own; it runs the same `prepareRun` the tests cover;
   - Linux `ps`.
 
-### Tasks 3–8
+### Task 3
+
+Two subagents, 2026-10-04. Resolved:
+- **Blocking: a torn `turns.jsonl` line swallowing the next attempt's first line.** Each attempt
+  ends a torn last line before it appends. The test now runs two real attempts with the torn
+  line between them.
+- **`TurnRecord`.** It has its own fields, no longer `OperationRecord`'s, and gains `outcome`,
+  reported through the ledger entry's new `ended`. A line has no cost, since spend is read from
+  sessions once the attempt ends; task 7 sums it from there.
+- **A stage's `sessions`.** They are the session each of its turns ran on, the last one its agent
+  had when the turn settled, not every session the agent had.
+- **Records written once, before the result.** The ledger is sealed when the body ends, so
+  nothing the body left running enters a stage. It is closed after the agents close: a stage
+  still open is failed, and every write in flight is awaited. A stage that throws cancels its
+  scope and waits a grace for its turns to settle before its record.
+- **The result schema** is parsed before the work runs, with the stage named.
+- **`run.stages`** follows the order of entry, now on `SettledRun.stages`.
+- **Tests added:**
+  - a stage's own cancellation, seen by the turn's signal before the run ends;
+  - a run stopped mid-stage;
+  - the deadline's reason and sessions;
+  - a compaction carrying its stage;
+  - two stages at once, recording only the first;
+  - ledger unit tests for the races.
+
+Accepted, not changed:
+- **Naming.** `ExecutionScope.stage`, a labelled `parallel`'s progress, sits beside
+  `workflowStage`. The view's rework in task 6 renames it.
+- **Cancellation reasons.** A cancelled turn's reason doesn't name the stage, and `readTurns`
+  doesn't check `version`.
+- **Untracked stages.** A `void workflow.stage(…)` isn't tracked by its parent scope.
+
+### Tasks 4–8
 
 - Architecture and scope:
 - Correctness and proof:

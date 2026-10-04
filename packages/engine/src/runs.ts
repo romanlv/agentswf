@@ -7,10 +7,15 @@ import {
   type AttemptRecord,
   RUN_RECORD_VERSION,
   type RunRecord,
+  STAGE_RECORD_VERSION,
+  type StageRecord,
+  type TurnRecord,
 } from "@agentswf/contract/records";
+import { appendLine } from "./jsonl";
 
 /**
- * Runs on disk: `{root}/{workflow}/{id}/`, holding `run.json` and `attempts/{n}.json`. The only
+ * Runs on disk: `{root}/{workflow}/{id}/`, holding `run.json`, `attempts/{n}.json`,
+ * `stages/{stage}.json` and `turns.jsonl`. The only
  * module that knows the layout. Only the live attempt writes, and the two claims, a run's folder
  * renamed into place and an attempt's file linked into place, are the only locks.
  */
@@ -309,6 +314,66 @@ export async function endAttempt(
   await writeJson(attempt.file, record);
   attempt.record = record;
   return record;
+}
+
+/** Writes a stage's record into the run's `stages/`, whole, replacing the one before. */
+export async function writeStageRecord(runDir: string, record: StageRecord): Promise<void> {
+  const dir = join(runDir, "stages");
+  await mkdir(dir, { recursive: true, mode: 0o700 });
+  await writeJson(join(dir, `${record.stage}.json`), record);
+}
+
+/** The run's current stage records, by stage. One that doesn't parse, or is newer, refuses. */
+export async function readStageRecords(runDir: string): Promise<Map<string, StageRecord>> {
+  const dir = join(runDir, "stages");
+  const names = (await entries(dir)).filter((name) => name.endsWith(".json"));
+  const records = await Promise.all(
+    names.map((name) => readRecord<StageRecord>(join(dir, name), STAGE_RECORD_VERSION)),
+  );
+  return new Map(records.map((record) => [record.stage, record]));
+}
+
+/** Appends a settled turn to the run's `turns.jsonl`, which only the live attempt writes. */
+export async function appendTurn(runDir: string, record: TurnRecord): Promise<void> {
+  await appendLine(join(runDir, "turns.jsonl"), JSON.stringify(record));
+}
+
+/** Ends a line a crash left torn, so the next turn appended starts a line of its own. */
+export async function endTurnsLine(runDir: string): Promise<void> {
+  const file = join(runDir, "turns.jsonl");
+  const handle = await open(file, "r").catch((error) => {
+    if (isCode(error, "ENOENT")) return undefined;
+    throw error;
+  });
+  if (!handle) return;
+  let torn: boolean;
+  try {
+    const { size } = await handle.stat();
+    const last = Buffer.alloc(1);
+    torn = size > 0 && (await handle.read(last, 0, 1, size - 1)).bytesRead === 1 && last[0] !== 10;
+  } finally {
+    await handle.close();
+  }
+  if (torn) await appendLine(file, "");
+}
+
+/**
+ * Every turn of the run, in the order they settled. A line that doesn't parse is skipped wherever
+ * it is: a crash can tear the last one, and the next attempt appends after it.
+ */
+export async function readTurns(runDir: string): Promise<TurnRecord[]> {
+  const text = await readFile(join(runDir, "turns.jsonl"), "utf8").catch((error) => {
+    if (isCode(error, "ENOENT")) return "";
+    throw error;
+  });
+  return text.split("\n").flatMap((line) => {
+    try {
+      const record = JSON.parse(line) as TurnRecord;
+      return typeof record === "object" && record !== null ? [record] : [];
+    } catch {
+      return [];
+    }
+  });
 }
 
 /**

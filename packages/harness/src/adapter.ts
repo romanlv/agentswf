@@ -45,6 +45,8 @@ export interface HarnessAuthored {
 export type AuthoredTurn = {
   prompt: string;
   label?: string;
+  /** The workflow stage it runs in. */
+  stage?: string;
   schema?: OutputSchema<JsonValue>;
 };
 

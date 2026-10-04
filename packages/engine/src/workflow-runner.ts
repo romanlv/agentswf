@@ -10,7 +10,13 @@ import type {
   SettledDecision,
   SettledOperation,
 } from "@agentswf/contract/records";
-import { type JsonSchema, parseJsonSchema } from "@agentswf/contract/schema";
+import { TURN_RECORD_VERSION, type TurnRecord } from "@agentswf/contract/records";
+import {
+  formatErrors,
+  type JsonSchema,
+  parseJsonSchema,
+  validate,
+} from "@agentswf/contract/schema";
 import {
   type AbsoluteDeadline,
   type AgentExecution,
@@ -35,6 +41,7 @@ import {
   type RunResult,
   type RuntimeSelection,
   type SkillSource,
+  type StageOptions,
   type TurnOutcome,
   type WorkflowContext,
   type WorkflowDefinition,
@@ -87,8 +94,10 @@ import {
   type AccountedAgent,
   type AgentLedger,
   createRunLedger,
+  type OperationTags,
   type RunLedger,
 } from "./run-usage";
+import { appendTurn, endTurnsLine } from "./runs";
 import { type CredentialLocks, placeCarried, seedHome } from "./sandbox-homes";
 import {
   RUN_SANDBOX_ONLY,
@@ -97,6 +106,7 @@ import {
   type SeatedAgent,
 } from "./sandboxes";
 import { placeSkills, RunSkills, readSkillSources } from "./skills/run-skills";
+import { StageLedger } from "./stage-ledger";
 
 export { WorkflowCancelledError } from "./deadlines";
 
@@ -129,6 +139,8 @@ export type RunWorkflowOptions = {
 /** What a run is known by once it has ended, whether or not it succeeded. */
 export type SettledRun = {
   runId: string;
+  /** The stages entered, in order; absent when none was. */
+  stages?: string[];
   /** Every operation's record, completed with the spend read when the run ended. */
   usage: SettledOperation[];
   /** ISO times the run started and its own work, cleanup included, ended. */
@@ -155,6 +167,7 @@ export type WorkflowRunResult<Result extends JsonValue> = SettledRun & { value: 
  */
 export class WorkflowRunError extends Error implements SettledRun {
   readonly runId: string;
+  readonly stages?: string[];
   readonly usage: SettledOperation[];
   readonly startedAt: string;
   readonly finishedAt: string;
@@ -167,6 +180,7 @@ export class WorkflowRunError extends Error implements SettledRun {
     super(messageOf(cause), { cause });
     this.name = "WorkflowRunError";
     this.runId = run.runId;
+    if (run.stages) this.stages = run.stages;
     this.usage = run.usage;
     this.startedAt = run.startedAt;
     this.finishedAt = run.finishedAt;
@@ -286,7 +300,42 @@ export async function startWorkflow<Args extends JsonValue, Result extends JsonV
     await control.close();
     throw error;
   }
-  const ledger = createRunLedger({ accounting: options.runtime.host.accounting, startedAt });
+  // Each turn as it settles, so an attempt that dies keeps the sessions and times of its turns.
+  const turns: TurnRecord[] = [];
+  const turnWrites: Promise<void>[] = [];
+  const ledger = createRunLedger({
+    accounting: options.runtime.host.accounting,
+    startedAt,
+    onSettled: (record, outcome) => {
+      const turn: TurnRecord = {
+        version: TURN_RECORD_VERSION,
+        attempt,
+        agent: record.agent,
+        operationId: record.operationId,
+        execution: record.execution,
+        ...(record.stage === undefined ? {} : { stage: record.stage }),
+        ...(record.label === undefined ? {} : { label: record.label }),
+        ...(record.deliveredAt === undefined ? {} : { deliveredAt: record.deliveredAt }),
+        ...(record.settledAt === undefined ? {} : { settledAt: record.settledAt }),
+        outcome,
+        sessions: record.sessions,
+      };
+      turns.push(turn);
+      turnWrites.push(
+        appendTurn(runDir, turn).catch((error) =>
+          options.onLog?.(`awf: a turn was not recorded in turns.jsonl: ${messageOf(error)}`),
+        ),
+      );
+    },
+  });
+  // A crash may have torn the last line an earlier attempt appended.
+  await endTurnsLine(runDir);
+  const stages = new StageLedger({
+    runDir,
+    attempt,
+    ...(definition.meta.version === undefined ? {} : { workflowVersion: definition.meta.version }),
+    turns: () => turns,
+  });
   const progress = new RunProgress();
   // Shared by sandboxed agents' homes and a host agent's own: they may copy one credential.
   const locks: CredentialLocks = new Map();
@@ -330,6 +379,7 @@ export async function startWorkflow<Args extends JsonValue, Result extends JsonV
     locks,
     environment,
     progress,
+    stages,
     runId,
     attempt,
     cwd,
@@ -365,6 +415,8 @@ export async function startWorkflow<Args extends JsonValue, Result extends JsonV
       failure = error;
     }
     bodyEnded = true;
+    // What the body left running enters no stage; one left open is failed once its turns settle.
+    stages.seal(failed ? messageOf(failure) : "the workflow returned before the stage ended");
     const cutReading = () => reading.abort();
     if (!signal.aborted) signal.addEventListener("abort", cutReading, { once: true });
 
@@ -395,6 +447,12 @@ export async function startWorkflow<Args extends JsonValue, Result extends JsonV
 
     // Before the wait for session files, which is bookkeeping rather than the run's own time.
     const finishedAt = new Date().toISOString();
+    await stages
+      .close()
+      .catch((error) =>
+        options.onLog?.(`awf: a stage record was not written: ${messageOf(error)}`),
+      );
+    await Promise.all(turnWrites);
     const usage = await ledger.settle(reading.signal);
     signal.removeEventListener("abort", cutReading);
     const times = { startedAt: new Date(startedAt).toISOString(), finishedAt };
@@ -403,6 +461,7 @@ export async function startWorkflow<Args extends JsonValue, Result extends JsonV
     const asked = decisions.records();
     const settled: SettledRun = {
       runId,
+      ...(stages.entered.length > 0 ? { stages: [...stages.entered] } : {}),
       usage,
       ...times,
       accounting: summarizeRun(usage, PUBLISHED_PRICES, times, asked),
@@ -532,6 +591,7 @@ class WorkflowOwner {
       locks: CredentialLocks;
       environment: Readonly<Record<string, string | undefined>>;
       decisions: RunDecisions;
+      stages: StageLedger;
       runId: string;
       attempt: number;
       cwd: string;
@@ -595,6 +655,7 @@ class WorkflowOwner {
             options.decisions.decide(spec, {
               deadline: scope?.deadline ?? options.deadline,
               ...(scope ? { add: (cancel) => scope.add(cancel) } : {}),
+              ...(scope?.workflowStage === undefined ? {} : { stage: scope.workflowStage }),
             }),
           );
           scope?.track(decided);
@@ -621,6 +682,8 @@ class WorkflowOwner {
           label === undefined ? undefined : options.progress.stage(label, items.length),
         );
       },
+      stage: ((name: string, ...rest: unknown[]) =>
+        this.runStage(name, rest)) as WorkflowContext["stage"],
       call: () => unavailable("call"),
       usage: () => options.ledger.records(),
       log: (message, fields) => options.onLog?.(message, fields),
@@ -672,6 +735,54 @@ class WorkflowOwner {
       }
     })();
     return this.#closing;
+  }
+
+  /**
+   * Runs one stage's work in a scope of its own, which cancels what is still open in it when the
+   * work fails, then writes the stage's record.
+   */
+  private async runStage(name: string, rest: unknown[]): Promise<JsonValue | undefined> {
+    const [options, work] = (rest.length === 1 ? [undefined, rest[0]] : rest) as [
+      StageOptions<JsonValue> | undefined,
+      unknown,
+    ];
+    if (this.#closed) throw new Error("workflow context is closed");
+    if (typeof work !== "function") throw new Error(`stage ${name} needs its work as a function`);
+    // Before anything is spent on it.
+    if (options) {
+      try {
+        parseJsonSchema(options.result);
+      } catch (error) {
+        throw new Error(`stage ${name}'s result: ${messageOf(error)}`);
+      }
+    }
+    const parent = scopes.getStore();
+    parent?.assertAccepting();
+    const open = this.options.stages.enter(name);
+    const scope = new ExecutionScope(
+      parent?.deadline ?? this.options.deadline,
+      parent?.stage,
+      name,
+    );
+    const removeFromParent = parent?.add(() => scope.cancel());
+    try {
+      const returned: unknown = await scopes.run(scope, () => work());
+      scope.seal();
+      await scope.settleOwned();
+      const value = stageValue(name, options, returned);
+      await open.succeed(value, summaryOf(name, options, value, this.options.onLog));
+      return value;
+    } catch (error) {
+      // Its turns settle once cancelled, so its record names the sessions they ran on.
+      await scope.cancel();
+      await waitForDeadline(scope.settleOwned(), {
+        unixMilliseconds: Date.now() + CLEANUP_GRACE_MILLISECONDS,
+      }).catch(() => undefined);
+      await open.fail(messageOf(error));
+      throw error;
+    } finally {
+      removeFromParent?.();
+    }
   }
 
   private openAgent(spec: AgentOpenSpec): Promise<AgentRef> {
@@ -1529,9 +1640,9 @@ class LogicalAgent implements AgentRef {
     const operationId = randomUUID();
     const schema = resultSchema(spec.schema);
     if (Date.now() >= operationDeadline.unixMilliseconds) {
-      const usage = this.options.ledger
-        .reserve(operationId)
-        .settle({ settledAt: operationDeadline.unixMilliseconds }, []);
+      const late = this.options.ledger.reserve(operationId, tagsOf(scope, spec.label));
+      const usage = late.settle({ settledAt: operationDeadline.unixMilliseconds }, []);
+      late.ended("timed-out");
       return {
         outcome: { kind: "timed-out", reason: "operation deadline exceeded", usage },
       };
@@ -1546,7 +1657,7 @@ class LogicalAgent implements AgentRef {
     const binding = { endpoint: this.options.endpoint, operationId };
     const charges: number[] = [];
     let later: Promise<HarnessTurnOutcome> | undefined;
-    const entry = this.options.ledger.reserve(operationId);
+    const entry = this.options.ledger.reserve(operationId, tagsOf(scope, spec.label));
     /** The native turn this operation currently answers for; a nudge replaces it. */
     const held: HeldTurn = {};
     const finish = async (
@@ -1569,7 +1680,9 @@ class LogicalAgent implements AgentRef {
         charges,
         later,
       );
-      return { outcome: reconcile<JsonValue>(native, settled, usage) };
+      const outcome = reconcile<JsonValue>(native, settled, usage);
+      entry.ended(outcome.kind);
+      return { outcome };
     };
     let removeCanceller: (() => void) | undefined;
     try {
@@ -1578,6 +1691,7 @@ class LogicalAgent implements AgentRef {
       const authored: AuthoredTurn = {
         prompt: spec.prompt,
         ...(spec.label === undefined ? {} : { label: spec.label }),
+        ...(scope?.workflowStage === undefined ? {} : { stage: scope.workflowStage }),
         ...(spec.schema === undefined ? {} : { schema: spec.schema }),
       };
       const turn: AgentTextTurnSpec & HarnessAuthored = {
@@ -1687,11 +1801,19 @@ class LogicalAgent implements AgentRef {
     deadline: AbsoluteDeadline,
     scope: ExecutionScope | undefined,
   ): Promise<TurnOutcome<string>> {
-    const entry = this.options.ledger.reserve(randomUUID());
+    const entry = this.options.ledger.reserve(randomUUID(), tagsOf(scope));
     const times: { deliveredAt?: number } = {};
     const settle = (
       native: HarnessTurnOutcome | "expired",
       /** A compaction left to end on its own, whose charges come when it does. */
+      later?: Promise<HarnessTurnOutcome>,
+    ): TurnOutcome<string> => {
+      const outcome = compactionOutcome(native, later);
+      entry.ended(outcome.kind);
+      return outcome;
+    };
+    const compactionOutcome = (
+      native: HarnessTurnOutcome | "expired",
       later?: Promise<HarnessTurnOutcome>,
     ): TurnOutcome<string> => {
       const usage = entry.settle(
@@ -1871,6 +1993,8 @@ class ExecutionScope {
   constructor(
     readonly deadline: AbsoluteDeadline,
     readonly stage?: StageProgress,
+    /** The workflow stage everything in this scope runs in. */
+    readonly workflowStage?: string,
   ) {}
 
   get cancelled(): boolean {
@@ -1956,7 +2080,7 @@ async function executeParallel<Item, Result>(
   stage?: StageProgress,
 ): Promise<Result[]> {
   // An unlabelled parallel inside a stage stays part of it.
-  const scope = new ExecutionScope(deadline, stage ?? parent?.stage);
+  const scope = new ExecutionScope(deadline, stage ?? parent?.stage, parent?.workflowStage);
   const removeFromParent = parent?.add(() => scope.cancel());
   const results = new Array<Result>(items.length);
   let next = 0;
@@ -2143,6 +2267,61 @@ function reconcile<T extends JsonValue>(
     case "cancelled":
       return { kind: "cancelled", reason: native.detail ?? "operation cancelled", usage };
   }
+}
+
+/** A stage's one line, which a summary that throws leaves out rather than failing the stage. */
+function summaryOf(
+  name: string,
+  options: StageOptions<JsonValue> | undefined,
+  value: JsonValue | undefined,
+  log: RunWorkflowOptions["onLog"],
+): string | undefined {
+  if (!options?.summary || value === undefined) return undefined;
+  try {
+    return String(options.summary(value));
+  } catch (error) {
+    log?.(`awf: stage ${name}'s summary failed: ${messageOf(error)}`);
+    return undefined;
+  }
+}
+
+function tagsOf(scope: ExecutionScope | undefined, label?: string): OperationTags {
+  return {
+    ...(scope?.workflowStage === undefined ? {} : { stage: scope.workflowStage }),
+    ...(label === undefined ? {} : { label }),
+  };
+}
+
+/**
+ * A stage's value as it is recorded and handed back: through JSON, as a continue reads it, and
+ * checked by its `result`. A stage without one returns nothing.
+ */
+function stageValue(
+  name: string,
+  options: StageOptions<JsonValue> | undefined,
+  value: unknown,
+): JsonValue | undefined {
+  if (!options) {
+    if (value === undefined) return undefined;
+    throw new Error(
+      `stage ${name} has no result schema, so it returns nothing, and it returned a value`,
+    );
+  }
+  let text: string | undefined;
+  try {
+    text = value === undefined ? undefined : JSON.stringify(value);
+  } catch (error) {
+    throw new Error(`stage ${name}'s value is not JSON: ${messageOf(error)}`);
+  }
+  if (text === undefined) {
+    throw new Error(`stage ${name} returned nothing; its result expects a value`);
+  }
+  const recorded = JSON.parse(text) as JsonValue;
+  const errors = validate(parseJsonSchema(options.result), recorded);
+  if (errors.length > 0) {
+    throw new Error(`stage ${name}'s value does not fit its result: ${formatErrors(errors)}`);
+  }
+  return recorded;
 }
 
 function resultSchema<T extends JsonValue>(schema: OutputSchema<T> | undefined): JsonSchema {

@@ -14,6 +14,8 @@ export type Turn = {
   /** Absent for a turn that asks for text. */
   schema?: OutputSchema;
   label?: string;
+  /** The workflow stage it runs in; absent between stages. */
+  stage?: string;
   cwd: string;
   /** Fires when the engine cancels the turn. */
   signal: AbortSignal;

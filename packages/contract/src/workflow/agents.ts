@@ -177,6 +177,10 @@ export type OperationRecord = {
   settledAt?: string;
   /** Every native session seen for this agent by the time this record was made. */
   sessions: NativeSessionRef[];
+  /** The workflow stage it ran in; absent between stages. */
+  stage?: string;
+  /** The turn's own label, as the workflow gave it. */
+  label?: string;
 };
 
 export type TurnOutcome<T extends JsonValue> = (

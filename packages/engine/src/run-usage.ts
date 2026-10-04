@@ -3,7 +3,9 @@ import type {
   AbsoluteDeadline,
   AgentExecution,
   AgentKey,
+  JsonValue,
   OperationRecord,
+  TurnOutcome,
 } from "@agentswf/contract/workflow";
 import type { SessionAccounting, SessionRead, UsageRecord } from "@agentswf/harness";
 import type { HarnessTurnOutcome } from "@agentswf/harness/adapter";
@@ -47,10 +49,15 @@ export type OperationEntry = {
     charges: readonly number[],
     finishing?: Promise<HarnessTurnOutcome>,
   ): OperationRecord;
+  /** How it ended, once settled: the record and this go to `onSettled`. */
+  ended(outcome: TurnOutcome<JsonValue>["kind"]): void;
 };
 
+/** Where an operation ran: its workflow stage, absent between stages, and its turn's label. */
+export type OperationTags = { stage?: string; label?: string };
+
 /** One agent's part of the run's ledger. */
-export type AgentLedger = { reserve(operationId: string): OperationEntry };
+export type AgentLedger = { reserve(operationId: string, tags?: OperationTags): OperationEntry };
 
 export type RunLedger = {
   /** Called in open order, so which agent keeps a request two of them report does not vary. */
@@ -78,9 +85,15 @@ type Settled = Operation & { usage: Omit<OperationRecord, "sessions"> };
 export function createRunLedger({
   accounting,
   startedAt,
+  onSettled,
 }: {
   accounting: SessionAccounting | undefined;
   startedAt: number;
+  /**
+   * Each operation's record as it settles, with how it ended, before what it spent is known. Its
+   * sessions are its agent's as of then: the last is the one it ran on.
+   */
+  onSettled?: (record: OperationRecord, outcome: TurnOutcome<JsonValue>["kind"]) => void;
 }): RunLedger {
   const agents: AccountedAgent[] = [];
   const operations: Operation[] = [];
@@ -100,7 +113,7 @@ export function createRunLedger({
     agent(agent) {
       agents.push(agent);
       return {
-        reserve(operationId) {
+        reserve(operationId, tags = {}) {
           const operation: Operation = { agent, costs: [] };
           operations.push(operation);
           return {
@@ -114,6 +127,8 @@ export function createRunLedger({
                   ? {}
                   : { deliveredAt: new Date(times.deliveredAt).toISOString() }),
                 settledAt: new Date(times.settledAt).toISOString(),
+                ...(tags.stage === undefined ? {} : { stage: tags.stage }),
+                ...(tags.label === undefined ? {} : { label: tags.label }),
               };
               operation.costs = [...charges];
               if (finishing) {
@@ -127,6 +142,9 @@ export function createRunLedger({
                 );
               }
               return withSessions(operation as Settled);
+            },
+            ended(outcome) {
+              if (operation.usage) onSettled?.(withSessions(operation as Settled), outcome);
             },
           };
         },

@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { SandboxRecord } from "@agentswf/contract/records";
+import type { SandboxRecord, StageRecord } from "@agentswf/contract/records";
 import {
   EXECUTABLE_WORKFLOW_KIND,
   type ExecutableWorkflow,
@@ -14,7 +14,8 @@ import type { Harness } from "@agentswf/harness";
 import { createFakeSandboxProvider } from "@agentswf/sandbox/testing/fake";
 import { messageOf } from "../errors";
 import { OPERATOR_ALIASES } from "../operator-aliases";
-import { runWorkflow, WorkflowRunError } from "../workflow-runner";
+import { readStageRecords } from "../runs";
+import { runWorkflow, type SettledRun, WorkflowRunError } from "../workflow-runner";
 import { createScriptedDecisions, type DecisionRequest, type DecisionScript } from "./decisions";
 import {
   type AgentSandbox,
@@ -76,6 +77,8 @@ export type TestRun<Result> = {
   agentOf(key: string): OpenedAgent;
   decisions: DecisionRequest[];
   logs: { message: string; fields?: JsonObject }[];
+  /** Each stage's record, as the run wrote it, in the order entered. */
+  stages: StageRecord[];
 };
 
 /**
@@ -138,10 +141,16 @@ export async function testWorkflow<Args extends JsonValue, Result extends JsonVa
 
   let settled: { value: Result } | { error: unknown };
   let sandboxOf = new Map<string, AgentSandbox>();
+  let stages: StageRecord[] = [];
+  const runRoot = directory();
+  const recordedStages = async ({ runId, stages: entered = [] }: SettledRun) => {
+    const records = await readStageRecords(join(runRoot, runId));
+    return entered.flatMap((name) => records.get(name) ?? []);
+  };
   events.onActivity();
   try {
     const result = await runWorkflow(definition, args, {
-      runRoot: directory(),
+      runRoot,
       cwd,
       deadline: { unixMilliseconds: Date.now() + (options.timeoutMs ?? 30 * 60_000) },
       signal: stopping.signal,
@@ -160,9 +169,13 @@ export async function testWorkflow<Args extends JsonValue, Result extends JsonVa
     });
     settled = { value: result.value };
     sandboxOf = sandboxesOf(result.sandboxes);
+    stages = await recordedStages(result);
   } catch (caught) {
     settled = { error: caught instanceof WorkflowRunError ? caught.cause : caught };
-    if (caught instanceof WorkflowRunError) sandboxOf = sandboxesOf(caught.sandboxes);
+    if (caught instanceof WorkflowRunError) {
+      sandboxOf = sandboxesOf(caught.sandboxes);
+      stages = await recordedStages(caught);
+    }
   } finally {
     clearTimeout(stall);
     for (const path of temporary) rmSync(path, { recursive: true, force: true });
@@ -198,6 +211,7 @@ export async function testWorkflow<Args extends JsonValue, Result extends JsonVa
     },
     decisions: decisions.asked,
     logs,
+    stages,
   };
 }
 

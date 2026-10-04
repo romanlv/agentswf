@@ -38,6 +38,8 @@ export type DecisionScope = {
   deadline: AbsoluteDeadline;
   /** Returns the removal. */
   add?(cancel: (reason: string) => Promise<unknown>): () => void;
+  /** The workflow stage it is asked in. */
+  stage?: string;
 };
 
 type PreparedCall = {
@@ -231,6 +233,7 @@ export class RunDecisions {
     const record: DecisionRecord = {
       callPath: [],
       key: spec.key,
+      ...(scope.stage === undefined ? {} : { stage: scope.stage }),
       alias: spec.model,
       provider: resolved.provider,
       model: resolved.model,
