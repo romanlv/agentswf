@@ -1,4 +1,5 @@
 import { constants } from "node:os";
+import type { StageRecord } from "@agentswf/contract/records";
 import {
   type AbsoluteDeadline,
   type AttemptOutcome,
@@ -30,8 +31,11 @@ export type AttemptEnd = {
   exitCode: number;
   /** What else failed beside a stop, which its reason leaves out. */
   alsoFailed?: string;
-  /** The `--from-stage` the attempt never reached, which no one command goes on from. */
-  unreached?: string;
+  /**
+   * Given when the attempt never reached its `--from-stage`, which no one command goes on from:
+   * the run's stages to choose from.
+   */
+  choose?: readonly StageRecord[];
 };
 
 /** What a started run came to: the result it returned, or what it threw. */
@@ -87,28 +91,29 @@ export function decideEnding(run: Finished, deadline: AbsoluteDeadline, goOn: Go
     ...(settled ? { settled } : {}),
     exitCode: cancellation ? signalExitCode(cancellation.reason) : OUTCOMES[kind].exitCode!,
     ...(beside ? { alsoFailed: beside } : {}),
-    ...(stop instanceof FromStageUnreached ? { unreached: stop.fromStage } : {}),
+    ...(stop instanceof FromStageUnreached ? { choose: stop.recorded } : {}),
   };
 }
 
 /**
- * The ending of an attempt whose run never started: it settled nothing, so what it cost is nothing
- * but the time from `run.startedAt` to `run.endedAt`.
+ * The ending of an attempt whose run never started, from what stopped it: it settled nothing, so
+ * what it cost is nothing but the time from `run.startedAt` to `run.endedAt`.
  */
 export function endedBeforeStart(
-  outcome: { kind: "failed"; reason: string } | { kind: "cancelled"; signal: AbortSignal },
+  error: unknown,
+  deadline: AbsoluteDeadline,
   run: { runId: string; startedAt: number; endedAt: number },
   goOn: GoOn,
-): AttemptEnd {
-  const cancelled = outcome.kind === "cancelled";
+): AttemptEnd & { ending: Exclude<Ending<JsonValue>, { kind: "completed" }> } {
+  const { kind, cancellation } = runOutcome(error, deadline);
   const times = {
     startedAt: new Date(run.startedAt).toISOString(),
     finishedAt: new Date(run.endedAt).toISOString(),
   };
   return {
     ending: {
-      kind: outcome.kind,
-      reason: cancelled ? "cancelled before it started" : outcome.reason,
+      kind,
+      reason: cancellation ? "cancelled before it started" : errorDetail(error),
       stages: [],
       continue: goOn(undefined, []),
     },
@@ -118,7 +123,7 @@ export function endedBeforeStart(
       ...times,
       accounting: summarizeRun([], PUBLISHED_PRICES, times, []),
     },
-    exitCode: cancelled ? signalExitCode(outcome.signal.reason) : OUTCOMES.failed.exitCode!,
+    exitCode: cancellation ? signalExitCode(cancellation.reason) : OUTCOMES[kind].exitCode!,
   };
 }
 

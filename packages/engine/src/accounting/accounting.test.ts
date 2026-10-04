@@ -341,10 +341,15 @@ describe("describeAccounting", () => {
       TIMES,
       [],
     );
-    expect(describeAttempts(sumAttempts([none, one]), 3, 1)).toBe(
+    expect(describeAttempts(sumAttempts([none, one]), 3, { interrupted: 1, ended: 0 })).toBe(
       "run: 3 attempts (1 interrupted, cost unknown), 28m 10s, ~$2.50",
     );
-    expect(describeAttempts(sumAttempts([none, none]), 2, 0)).toBe("run: 2 attempts, 28m 10s");
+    expect(describeAttempts(sumAttempts([none, one]), 4, { interrupted: 1, ended: 1 })).toBe(
+      "run: 4 attempts (1 interrupted, 1 ended without a cost record, cost unknown), 28m 10s, ~$2.50",
+    );
+    expect(describeAttempts(sumAttempts([none, none]), 2, { interrupted: 0, ended: 0 })).toBe(
+      "run: 2 attempts, 28m 10s",
+    );
   });
 });
 

@@ -28,17 +28,10 @@ import {
 import { ANSI, type Terminal, watchProgress } from "./progress-view";
 import { parseCommand, type RunCommand, usage } from "./run-command";
 import { claimNext, loadAndPrepare, type PreparedRun, workspaceLabel } from "./run-prepare";
-import {
-  type Attempt,
-  createRun,
-  discardRun,
-  type Run,
-  RunRefused,
-  readStageRecords,
-} from "./runs";
+import { type Attempt, createRun, discardRun, type Run, RunRefused } from "./runs";
 import { parseTestCommand, runWorkflowTests, type TestCommand, testUsage } from "./test-command";
 import type { LoadedWorkflow } from "./workflow-loader";
-import { startWorkflow } from "./workflow-runner";
+import { startWorkflow, WorkflowCancelledError, type WorkflowRunHandle } from "./workflow-runner";
 
 /** What the CLI reaches the machine through; each is the real one when absent. */
 export type OperatorEnvironment = {
@@ -221,20 +214,14 @@ async function runAttempt(
   const n = attempt.record.attempt;
   const goOn: GoOn = (stop, entered) => continueCommand(command, id, stop, entered);
   const records = { attempt, executable, workflow: { name: meta.name, file: loaded.file }, stderr };
-  const close = async (end: AttemptEnd, kept: Kept, cleanupAlso?: string) => {
-    const recorded = end.unreached
-      ? [...(await readStageRecords(run.dir).catch(() => new Map())).values()].sort((a, b) =>
-          a.started.localeCompare(b.started),
-        )
-      : undefined;
-    return printEnding(end, kept, {
+  const close = (end: AttemptEnd, kept: Kept, cleanupAlso?: string) =>
+    printEnding(end, kept, {
       executable,
       run: { id, dir: run.dir },
       n,
       earlier: prepared.continued?.attempts ?? [],
       json: command.json,
       fromStage: command.fromStage !== undefined,
-      ...(recorded ? { recorded } : {}),
       now: now(),
       shellCwd: command.shellCwd,
       home,
@@ -244,25 +231,29 @@ async function runAttempt(
       stderr,
       notice,
     });
-  };
   // Timed from here: finding the calling session can take minutes the run itself never had.
   const startedAt = now();
   // Every way out from here writes the attempt's ending, before the hand-back: a session told the
   // run is over may continue it at once. One that never does is interrupted. A new run that never
-  // started is not kept at all, so the same command starts it again.
-  const endUnstarted = async (outcome: Parameters<typeof endedBeforeStart>[0], said: string) => {
-    const end = endedBeforeStart(outcome, { runId: id, startedAt, endedAt: now() }, goOn);
-    if (!prepared.continued) {
-      await discardRun(run, attempt).catch(() => undefined);
+  // started is not kept at all, so the same command starts it again, unless another attempt has
+  // claimed it since: then its records are kept as a continued run's are.
+  const deadline = { unixMilliseconds: startedAt + command.timeoutMilliseconds };
+  const endUnstarted = async (error: unknown, cleanupAlso?: string) => {
+    const end = endedBeforeStart(error, deadline, { runId: id, startedAt, endedAt: now() }, goOn);
+    const cancelled = end.ending.kind === "cancelled";
+    if (!prepared.continued && (await discardRun(run, attempt).catch(() => false))) {
+      if (cleanupAlso) stderr(`awf: runtime cleanup also failed: ${cleanupAlso}`);
+      const said = cancelled
+        ? "run cancelled before it started"
+        : `${end.ending.reason}; the run did not start`;
       stderr(`awf: ${said}, and nothing of it is kept`);
-      await handOver(`did not start: ${outcome.kind === "failed" ? outcome.reason : "cancelled"}`);
+      await handOver(`did not start: ${cancelled ? "cancelled" : end.ending.reason}`);
       return end.exitCode;
     }
     const kept = await keepRecords(end, records);
     await handOver(toldOf(end, kept));
-    return close(end, kept);
+    return close(end, kept, cleanupAlso);
   };
-  const deadline = { unixMilliseconds: startedAt + command.timeoutMilliseconds };
   let installed: OperatorRuntimeInstallation;
   try {
     installed = await (environment.installRuntime ?? installOperatorRuntime)(
@@ -270,27 +261,27 @@ async function runAttempt(
       { watchSandboxes: command.watch, ...(calling ? { caller: calling.caller } : {}) },
     );
   } catch (error) {
-    const reason = `runtime: ${messageOf(error)}`;
-    return endUnstarted({ kind: "failed", reason }, `${reason}; the run did not start`);
+    return endUnstarted(new Error(`runtime: ${messageOf(error)}`));
   }
+  const cleanUp = () =>
+    installed.cleanup().then(
+      () => undefined,
+      (error: unknown) => messageOf(error),
+    );
   // Installing the runtime probes two subscription logins, with nothing listening to the signal
   // either.
   if (environment.signal?.aborted) {
-    await installed.cleanup().catch(() => undefined);
-    return endUnstarted(
-      { kind: "cancelled", signal: environment.signal },
-      "run cancelled before it started",
-    );
+    return endUnstarted(new WorkflowCancelledError(environment.signal.reason), await cleanUp());
   }
 
-  let finished: Finished;
   const progress = watchProgress(`${meta.name} ${id}${n > 1 ? ` · attempt ${n}` : ""}`, startedAt, {
     stderr,
     terminal,
     now,
   });
+  let handle: WorkflowRunHandle<JsonValue>;
   try {
-    const handle = await startWorkflow(executable.definition, prepared.args, {
+    handle = await startWorkflow(executable.definition, prepared.args, {
       runRoot: run.root,
       run: {
         dir: run.dir,
@@ -313,7 +304,13 @@ async function runAttempt(
       onLog: (logMessage, fields?: JsonObject) =>
         progress.log(fields ? `${logMessage} ${JSON.stringify(fields)}` : logMessage),
     });
-    progress.watch(handle);
+  } catch (error) {
+    progress.stop();
+    return endUnstarted(error, await cleanUp());
+  }
+  let finished: Finished;
+  progress.watch(handle);
+  try {
     finished = { result: await handle.result };
   } catch (error) {
     finished = { error };

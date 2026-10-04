@@ -91,7 +91,10 @@ export default defineExecutableWorkflow({
   can hand off what its stages found. `value` is the result, `undefined` unless the attempt
   completed. `ending` is how it ended: `completed` with its `value`, or `stopped`, `failed`,
   `timed-out` or `cancelled` with its `stage`, `reason` and the `continue` command; either way with
-  its `stages`, each with its `summary` and `value`. Returning `undefined` writes none.
+  its `stages`, each with its `summary` and `value`. Returning `undefined` writes none. A
+  `--from-stage` the attempt never reached has no one command that goes on: its `continue` ends
+  `--from-stage {stage}`, for whoever reads it to choose one of the run's stages, and isn't runnable
+  as is.
 
 The result, every agent's usage, and how the attempt ended are kept in `output.json` in the run's
 folder, `.awf/runs/{workflow}/{id}` under the working directory. Its `outcome` is `completed`, with

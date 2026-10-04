@@ -87,6 +87,16 @@ export class StageLedger {
     return this.#started ? undefined : this.options.fromStage;
   }
 
+  /**
+   * The run's stage records as the attempt began, in the order they started. Before the start
+   * point nothing runs, so for an attempt that never reached it they are still the run's.
+   */
+  get recorded(): StageRecord[] {
+    return [...(this.options.records?.values() ?? [])].sort((a, b) =>
+      a.started.localeCompare(b.started),
+    );
+  }
+
   /** The stop that ended the attempt, even if the workflow caught it. */
   get stopped(): WorkflowStopped | undefined {
     return this.#stopped;
@@ -110,8 +120,7 @@ export class StageLedger {
    * entered yet, in the order they first started.
    */
   progress(): { stages: StageProgress[]; upcoming: string[] } {
-    const upcoming = [...(this.options.records?.values() ?? [])]
-      .sort((a, b) => a.started.localeCompare(b.started))
+    const upcoming = this.recorded
       .map((record) => record.stage)
       .filter((stage) => !this.#stages.has(stage));
     const recorded = (stage: string) => this.options.records?.get(stage)?.ended;

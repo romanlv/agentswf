@@ -1127,6 +1127,48 @@ describe("awf run's runs and attempts", () => {
     expect(again.stderr).toContain("AIRS-1515 exists");
   });
 
+  test("an attempt whose host never opens ends before it started: a new run is not kept, a continued one ends at no cost", async () => {
+    const cwd = await project();
+    let cleaned = 0;
+    const noHost = (errors: string[]) => ({
+      cwd,
+      stderr: (text: string) => errors.push(text),
+      installRuntime: async () => ({
+        config: {
+          aliases: {},
+          host: {
+            async openRun(): Promise<never> {
+              throw new Error("no host");
+            },
+          },
+        },
+        cleanup: async () => {
+          cleaned += 1;
+        },
+      }),
+    });
+    const errors: string[] = [];
+    expect(await cli(["run", "--id", "r1", "flow.js"], noHost(errors))).toBe(1);
+    expect(errors.join("\n")).toContain(
+      "awf: no host; the run did not start, and nothing of it is kept",
+    );
+    expect(cleaned).toBe(1);
+    expect(existsSync(join(runs(cwd), "r1"))).toBe(false);
+    await Bun.write(join(cwd, "fail"), "");
+    expect((await awfRun(cwd, ["--id", "r1", "flow.js"])).exitCode).toBe(1);
+
+    const continued: string[] = [];
+    expect(await cli(["run", "flow.js", "--continue", "r1"], noHost(continued))).toBe(1);
+    expect(cleaned).toBe(2);
+    expect(attemptOf(join(runs(cwd), "r1"), 2)).toMatchObject({
+      outcome: "failed",
+      reason: "no host",
+      accounting: { totals: { agents: 0 } },
+    });
+    expect(continued.join("\n")).toContain("✗ failed: no host\n  fixture r1 · attempt 2 · ");
+    expect(existsSync(join(runs(cwd), "r1", "output.json"))).toBe(true);
+  });
+
   test("--continue adds an attempt with the run's own argv", async () => {
     const cwd = await project();
     await Bun.write(join(cwd, "fail"), "");
@@ -1268,16 +1310,18 @@ describe("awf run's runs and attempts", () => {
 
 describe("awf run's stages", () => {
   /** Two stages; qa fails while `fail` is in its working directory. */
-  const staged = executableModule(
-    "return null;",
-    `const { existsSync } = await import("node:fs");
+  const staged = (members = "") =>
+    executableModule(
+      "return null;",
+      `const { existsSync } = await import("node:fs");
      await workflow.stage("implement", { result: { type: "string" }, summary: (b) => b }, async () => "feat/a");
      await workflow.stage("qa", async () => {
        if (existsSync(workflow.cwd + "/fail")) throw new Error("qa broke");
      });
      return workflow.attempt;`,
-  );
-  const project = () => projectWith(staged);
+      members,
+    );
+  const project = () => projectWith(staged());
   const runDir = (cwd: string) => join(cwd, ".awf", "runs", "fixture", "r1");
 
   test("--from-stage needs --continue", async () => {
@@ -1318,7 +1362,11 @@ describe("awf run's stages", () => {
   });
 
   test("a --from-stage never reached stops: exit 3, and no stage recorded", async () => {
-    const cwd = await project();
+    const cwd = await projectWith(
+      staged(
+        `report(value, ending) { return ending.kind === "completed" ? undefined : ending.continue; },`,
+      ),
+    );
     await awfRun(cwd, ["--id", "r1", "flow.js"]);
     const stopped = await awfRun(cwd, ["flow.js", "--continue", "r1", "--from-stage", "qaa"]);
     expect(stopped.exitCode).toBe(3);
@@ -1328,7 +1376,11 @@ describe("awf run's stages", () => {
     expect(stopped.stderr).toContain("■ stopped: never reached qaa\n  fixture r1 · attempt 2 · ");
     // No one command goes on: a plain continue would reuse every stage, doing nothing.
     expect(stopped.stderr).toMatch(
-      /^ {2}go on {4}awf run flow\.js --continue r1 --from-stage one of:\n {13}implement {3}feat\/a {3}attempt 1 · just now\n {13}qa {19}attempt 1 · just now\n {2}records/m,
+      /^ {2}go on {4}awf run flow\.js --continue r1 --from-stage \{stage\}\n {11}\{stage\} one of:\n {13}implement {3}feat\/a {3}attempt 1 · just now\n {13}qa {19}attempt 1 · just now\n {2}report/m,
+    );
+    // The ending a workflow's report is given names the stage to choose too.
+    expect(readFileSync(join(runDir(cwd), "report.md"), "utf8")).toBe(
+      "awf run flow.js --continue r1 --from-stage {stage}\n",
     );
     expect(stopped.record).toMatchObject({ outcome: "stopped", reason: "never reached qaa" });
     expect(attemptOf(runDir(cwd), 2)).toMatchObject({
@@ -1558,7 +1610,7 @@ describe("awf run's stages", () => {
     expect(failed.record).not.toHaveProperty("stage");
   });
 
-  test("a later attempt totals the run, naming an interrupted attempt, and drops a stale report", async () => {
+  test("a later attempt totals the run, counting attempts whose cost is unknown, and drops a stale report", async () => {
     const cwd = runDirs.tempRunDir();
     const flow = (withReport: boolean) =>
       executableModule(
@@ -1576,11 +1628,16 @@ describe("awf run's stages", () => {
     await awfRun(cwd, ["flow.js", "--continue", "r1"]);
     // Attempt 2 as an interruption leaves it: no ending, no accounting.
     reopenAttempt(dir, 2, { pid: 999_999_999 });
+    // Attempt 1 as an older awf may have ended it: no accounting.
+    const { accounting: _accounting, ...first } = attemptOf(dir, 1);
+    writeFileSync(join(dir, "attempts", "1.json"), JSON.stringify(first));
     // Another file, as a fix is often tried: this one writes no report.
     await Bun.write(join(cwd, "fixed.js"), flow(false));
     const third = await awfRun(cwd, ["fixed.js", "--continue", "r1"]);
     expect(third.exitCode).toBe(0);
-    expect(third.stderr).toMatch(/ · run: 3 attempts \(1 interrupted, cost unknown\), \d+s$/m);
+    expect(third.stderr).toMatch(
+      / · run: 3 attempts \(1 interrupted, 1 ended without a cost record, cost unknown\), \d+s$/m,
+    );
     expect(existsSync(join(dir, "report.md"))).toBe(false);
   });
 

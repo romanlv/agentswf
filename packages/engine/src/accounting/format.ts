@@ -60,15 +60,20 @@ function describeTotals(accounting: AttemptAccounting): string {
 }
 
 /**
- * A run of several attempts, in brief: how many, those interrupted, which recorded no cost, how
- * long in all, and the estimate when any agent ran.
+ * A run of several attempts, in brief: how many, those whose cost is unknown, by why, how long in
+ * all, and the estimate when any agent ran. `unknown` counts the attempts with no cost recorded:
+ * interrupted, or ended without one, as an older record may be.
  */
 export function describeAttempts(
   sum: AttemptAccounting,
   attempts: number,
-  interrupted: number,
+  unknown: { interrupted: number; ended: number },
 ): string {
-  const gap = interrupted > 0 ? ` (${interrupted} interrupted, cost unknown)` : "";
+  const why = [
+    ...(unknown.interrupted > 0 ? [`${unknown.interrupted} interrupted`] : []),
+    ...(unknown.ended > 0 ? [`${unknown.ended} ended without a cost record`] : []),
+  ];
+  const gap = why.length > 0 ? ` (${why.join(", ")}, cost unknown)` : "";
   const priced =
     sum.totals.agents > 0 && sum.totals.estimate !== undefined
       ? [estimate(sum.totals.estimate)]

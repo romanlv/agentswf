@@ -1,3 +1,5 @@
+import type { StageRecord } from "@agentswf/contract/records";
+
 /**
  * Ends an attempt `stopped`, apart from `failed`: the workflow's `stop`, or a continue that can't
  * go on as asked. A continue picks it up from there.
@@ -17,7 +19,11 @@ export class WorkflowStopped extends Error {
 
 /** A `--from-stage` the attempt never reached: a typo, or a branch not taken. */
 export class FromStageUnreached extends WorkflowStopped {
-  constructor(readonly fromStage: string) {
+  constructor(
+    readonly fromStage: string,
+    /** The run's stage records, in the order they started: the stages to choose from. */
+    readonly recorded: readonly StageRecord[],
+  ) {
     super(`never reached ${fromStage}`);
   }
 }

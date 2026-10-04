@@ -274,6 +274,11 @@ export async function runWorkflow<Args extends JsonValue, Result extends JsonVal
   return (await startWorkflow(definition, args, options)).result;
 }
 
+/**
+ * Opens the run and starts the workflow's body. It throws only when the run never started: it was
+ * cancelled, or its records, host or sandbox did not open; from the body on, every failure is the
+ * handle's `result`'s.
+ */
 export async function startWorkflow<Args extends JsonValue, Result extends JsonValue>(
   definition: WorkflowDefinition<Args, Result>,
   args: Args,
@@ -412,7 +417,7 @@ export async function startWorkflow<Args extends JsonValue, Result extends JsonV
       const caught = stages.caught();
       if (caught) throw caught;
       if (stages.fromStageUnreached !== undefined) {
-        throw new FromStageUnreached(stages.fromStageUnreached);
+        throw new FromStageUnreached(stages.fromStageUnreached, stages.recorded);
       }
     } catch (error) {
       failed = true;

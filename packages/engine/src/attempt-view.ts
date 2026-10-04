@@ -33,8 +33,6 @@ export function printEnding(
     json: boolean;
     /** Whether the attempt redid from a stage, which no repeated stop then hints at. */
     fromStage: boolean;
-    /** Given when the attempt never reached its `--from-stage`: the run's stages to choose from. */
-    recorded?: readonly StageRecord[];
     now: number;
     shellCwd: string;
     home: string;
@@ -69,7 +67,7 @@ export function printEnding(
     stages: context.terminal === undefined,
     records: pathFrom(shellCwd, context.run.dir, { home: context.home }),
     ...(kept.report ? { report: pathFrom(shellCwd, kept.report, { home: context.home }) } : {}),
-    ...(context.recorded?.length ? { choose: listRecorded(context.recorded, context.now) } : {}),
+    ...(end.choose?.length ? { choose: listRecorded(end.choose, context.now) } : {}),
     paint: context.terminal?.color ? ANSI : PLAIN,
   });
   for (const line of ["", ...lines]) stderr(line);
@@ -87,8 +85,8 @@ export function toldOf(end: AttemptEnd, kept: Kept): string {
 
 /**
  * How an attempt ended, once, after its stages: the outcome, where and why; the run and what the
- * attempt cost, and for a later attempt the whole run, naming the interrupted attempts, whose cost
- * is unknown; then the command that goes on, or the stages to choose from, and where the records
+ * attempt cost, and for a later attempt the whole run, counting the attempts whose cost is
+ * unknown; then the command that goes on, or the stages to choose from, and where the records
  * are. `stages` lists what each stage cost, where no view beside them did.
  */
 function describeEnding(
@@ -102,7 +100,7 @@ function describeEnding(
     stages: boolean;
     records: string;
     report?: string;
-    /** The recorded stages, a line each, one of which the go-on needs. */
+    /** The recorded stages, a line each, one of which the go-on's `{stage}` needs. */
     choose?: readonly string[];
     paint: Paint;
   },
@@ -125,7 +123,7 @@ function describeEnding(
   // A reason's later lines, such as a schema's problems, sit under it, apart from the rows.
   const [first, ...more] = ending.reason.split("\n");
   const goOn = context.choose
-    ? [`${ending.continue} --from-stage one of:`, ...context.choose]
+    ? [ending.continue, `${STAGE} one of:`, ...context.choose]
     : [ending.continue];
   return [
     `${mark} ${word}${ending.stage === undefined ? "" : ` in ${ending.stage}`}: ${first}`,
@@ -151,11 +149,12 @@ function rows(goOn: readonly string[], context: { records: string; report?: stri
 function runTotal(n: number, current: RunAccounting, earlier: readonly AttemptRecord[]): string {
   const before = earlier.filter((record) => record.attempt < n);
   const recorded = [...before.flatMap((record) => record.accounting ?? []), current];
-  return describeAttempts(
-    sumAttempts(recorded),
-    n,
-    before.filter((record) => record.ended === undefined).length,
-  );
+  const unknown = before.filter((record) => record.accounting === undefined);
+  const interrupted = unknown.filter((record) => record.ended === undefined).length;
+  return describeAttempts(sumAttempts(recorded), n, {
+    interrupted,
+    ended: unknown.length - interrupted,
+  });
 }
 
 /** A completed attempt's value as the workflow presents it; undefined to print the JSON. */
@@ -228,7 +227,7 @@ function listRecorded(records: readonly StageRecord[], now: number): string[] {
  * The command that goes on from an attempt that didn't complete: the same file and run root, and
  * `--from-stage` when a plain continue would stop at the same record again, or would drop the redo
  * this attempt asked for and never reached. A `--from-stage` the body returned without reaching
- * has no one command: its stages are listed to choose from.
+ * has no one command: it names `{stage}`, for one of the run's stages, and isn't runnable as is.
  */
 export function continueCommand(
   command: RunCommand,
@@ -238,13 +237,13 @@ export function continueCommand(
 ): string {
   const { fromStage } = command;
   const redo =
-    stop?.redo && stop.stage !== undefined
-      ? stop.stage
-      : fromStage !== undefined &&
-          !(stop instanceof FromStageUnreached) &&
-          !entered.some(({ stage }) => stage === fromStage)
-        ? fromStage
-        : undefined;
+    stop instanceof FromStageUnreached
+      ? STAGE
+      : stop?.redo && stop.stage !== undefined
+        ? stop.stage
+        : fromStage !== undefined && !entered.some(({ stage }) => stage === fromStage)
+          ? fromStage
+          : undefined;
   return [
     "awf",
     "run",
@@ -255,9 +254,12 @@ export function continueCommand(
     id,
     ...(redo === undefined ? [] : ["--from-stage", redo]),
   ]
-    .map(shellWord)
+    .map((word) => (word === STAGE ? word : shellWord(word)))
     .join(" ");
 }
+
+/** The placeholder a go-on names when the operator chooses the stage. */
+const STAGE = "{stage}";
 
 function shellWord(word: string): string {
   return /^[\w@%+=:,./-]+$/.test(word) ? word : `'${word.replaceAll("'", `'\\''`)}'`;

@@ -183,12 +183,12 @@ describe("runs", () => {
     const created = await createRun(at, run());
     await expect(checkFree(at, "implement-ticket", "AIRS-1515")).rejects.toThrow("exists");
     await expect(checkFree(at, "implement-ticket", "airs-1515")).rejects.toThrow("exists");
-    await discardRun(created);
+    expect(await discardRun(created)).toBe(true);
     await checkFree(at, "implement-ticket", "AIRS-1515");
     // One with an attempt is kept.
     const again = await createRun(at, run());
     await claim(again, { pid: 1, probe: alive(1) });
-    await discardRun(again);
+    expect(await discardRun(again)).toBe(false);
     expect(await readdir(join(at, "implement-ticket"))).toEqual(["AIRS-1515"]);
   });
 

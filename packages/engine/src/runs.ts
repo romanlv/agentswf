@@ -155,13 +155,15 @@ export async function checkFree(root: string, workflow: string, id: string): Pro
 
 /**
  * Removes a run this process created and never ran, so it leaves nothing behind and the id is free
- * again: its first attempt was never claimed, or is `own`, which ended before it started.
+ * again: its first attempt was never claimed, or is `own`, which ended before it started. Whether
+ * it did: not while another attempt is there.
  */
-export async function discardRun(run: Run, own?: Attempt): Promise<void> {
+export async function discardRun(run: Run, own?: Attempt): Promise<boolean> {
   const dir = attemptsDir(run.dir);
   const others = (await entries(dir)).filter((name) => join(dir, name) !== own?.file);
-  if (others.length > 0) return;
+  if (others.length > 0) return false;
   await rm(run.dir, { recursive: true, force: true });
+  return true;
 }
 
 /** The run `id` of `workflow`, naming the workflow it is under when it is another's. */
