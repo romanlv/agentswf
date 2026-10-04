@@ -1,4 +1,6 @@
 import { afterAll, expect, test } from "bun:test";
+import { mkdir, rm, writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import type { TurnRecord } from "@agentswf/contract/records";
 import { readStageRecords } from "./runs";
 import { type OpenStage, StageLedger } from "./stage-ledger";
@@ -18,6 +20,7 @@ async function run(ledger: StageLedger, name: string): Promise<OpenStage> {
 const turn = (stage: string | undefined, session: string): TurnRecord => ({
   version: 1,
   attempt: 1,
+  kind: "turn",
   agent: "worker",
   operationId: session,
   execution: { harness: "codex", model: "m" },
@@ -72,7 +75,9 @@ test("a sealed ledger fails the open stage with its reason when closed, and ente
   expect([...(await readStageRecords(runDir)).values()]).toEqual([
     expect.objectContaining({ stage: "qa", outcome: "failed", reason: "Deadline exceeded" }),
   ]);
-  expect(ledger.entered).toEqual(["qa"]);
+  expect(ledger.summaries.map(({ stage, outcome }) => [stage, outcome])).toEqual([
+    ["qa", "failed"],
+  ]);
 });
 
 test("a misuse leaves no stage entered or open", async () => {
@@ -83,5 +88,67 @@ test("a misuse leaves no stage entered or open", async () => {
   await qa.succeed(undefined);
   await expect(run(ledger, "qa")).rejects.toThrow("entered twice");
   await (await run(ledger, "mr")).succeed(undefined);
-  expect(ledger.entered).toEqual(["qa", "mr"]);
+  expect(ledger.progress().stages.map(({ stage }) => stage)).toEqual(["qa", "mr"]);
+});
+
+test("a stage whose start point can't move the records it outdates is not entered, and leaves none open", async () => {
+  const runDir = runDirs.tempRunDir();
+  await mkdir(join(runDir, "stages"));
+  await writeFile(join(runDir, "stages", "old.json"), "torn");
+  const ledger = new StageLedger({ runDir, attempt: 2, turns: () => [] });
+  await expect(run(ledger, "qa")).rejects.toThrow("old.json could not be read");
+  await rm(join(runDir, "stages", "old.json"));
+  await (await run(ledger, "mr")).succeed(undefined);
+  await ledger.close();
+  expect([...(await readStageRecords(runDir)).keys()]).toEqual(["mr"]);
+  expect(ledger.progress().stages.map(({ stage }) => stage)).toEqual(["mr"]);
+});
+
+test("closing waits for every record without reporting again one its stage already threw", async () => {
+  const runDir = runDirs.tempRunDir();
+  const ledger = new StageLedger({ runDir, attempt: 1, turns: () => [] });
+  const qa = await run(ledger, "qa");
+  // A file where the folder goes: every record from now on fails to be written.
+  await writeFile(join(runDir, "stages"), "");
+  await expect(qa.succeed(undefined)).rejects.toThrow();
+  const mr = await run(ledger, "mr");
+  void mr.succeed(undefined).catch(() => undefined);
+  await ledger.close();
+  expect(ledger.summaries).toMatchObject([
+    { stage: "qa", outcome: "failed" },
+    { stage: "mr", outcome: "failed" },
+  ]);
+  // The stage still open when the attempt ends is closing's own to report.
+  const other = runDirs.tempRunDir();
+  const open = new StageLedger({ runDir: other, attempt: 1, turns: () => [] });
+  await run(open, "qa");
+  await writeFile(join(other, "stages"), "");
+  await expect(open.close()).rejects.toThrow();
+});
+
+test("a stage the plan stops as it is entered shows stopped, in the view as in the summaries", async () => {
+  const record = {
+    version: 1 as const,
+    stage: "qa",
+    attempt: 1,
+    outcome: "failed" as const,
+    started: "2026-10-04T10:00:00Z",
+    ended: "2026-10-04T10:01:00Z",
+    sessions: [],
+  };
+  const ledger = new StageLedger({
+    runDir: runDirs.tempRunDir(),
+    attempt: 2,
+    turns: () => [],
+    records: new Map([["qa", record]]),
+    fromStage: "mr",
+  });
+  await expect(run(ledger, "qa")).rejects.toThrow("qa did not succeed in attempt 1");
+  expect(ledger.summaries).toEqual([
+    { stage: "qa", source: "ran", outcome: "stopped", attempt: 2, spanMs: 0 },
+  ]);
+  expect(ledger.progress()).toEqual({
+    stages: [expect.objectContaining({ stage: "qa", outcome: "stopped" })],
+    upcoming: [],
+  });
 });

@@ -1,21 +1,13 @@
 import {
   STAGE_RECORD_VERSION,
+  type StageOutcome,
   type StageRecord,
   type TurnRecord,
 } from "@agentswf/contract/records";
 import type { JsonValue, StageSummary } from "@agentswf/contract/workflow";
-import { replaceStale, writeStageRecord } from "./runs";
+import { replaceStale, stageNameProblem, writeStageRecord } from "./runs";
 import { planStage } from "./stage-plan";
 import { primaryFailure, WorkflowStopped } from "./stopped";
-
-const STAGE_NAME = /^[a-z][a-z0-9-]*$/;
-
-/** Why `name` can't name a stage, which is a file in the run's `stages/`; undefined when it can. */
-export function stageNameProblem(name: string): string | undefined {
-  return typeof name === "string" && STAGE_NAME.test(name)
-    ? undefined
-    : `${JSON.stringify(name)} is not a stage's name: lowercase letters, digits and '-', starting with a letter`;
-}
 
 /** A stage entered and not yet ended; it ends once, whichever end comes first. */
 export type OpenStage = {
@@ -23,6 +15,16 @@ export type OpenStage = {
   succeed(value: JsonValue | undefined, summary?: string): Promise<void>;
   stop(reason: string): Promise<void>;
   fail(reason: string): Promise<void>;
+};
+
+/**
+ * A stage as this attempt entered it, for the view: its summary less its value, its outcome once
+ * it has one, and when it began and ended here. A reused stage begins and ends as it is entered.
+ */
+export type StageProgress = Omit<StageSummary, "value" | "outcome" | "spanMs"> & {
+  outcome?: StageOutcome;
+  startedAt: number;
+  endedAt?: number;
 };
 
 /** A stage entered: reused from its record without running, or run. */
@@ -38,9 +40,9 @@ export type EnteredStage =
  * rest is the runner's.
  */
 export class StageLedger {
-  readonly #entered: string[] = [];
+  /** Each stage entered, in order, as it stands. */
+  readonly #stages = new Map<string, StageProgress & { value?: JsonValue }>();
   readonly #reused = new Set<string>();
-  readonly #summaries = new Map<string, StageSummary>();
   /** Whether the attempt has reached its start point, after which every stage runs. */
   #started = false;
   readonly #writes = new Set<Promise<void>>();
@@ -68,11 +70,6 @@ export class StageLedger {
       /** `--from-stage`: the stage the attempt starts at. */
       fromStage?: string;
       now?: () => Date;
-      /** Each stage as it is entered and as it ends, as its record says: what the view shows. */
-      progress?: {
-        entered(name: string, source: "ran" | "reused", attempt?: number, summary?: string): void;
-        ended(name: string, outcome: StageRecord["outcome"], summary?: string): void;
-      };
     },
   ) {}
 
@@ -86,14 +83,32 @@ export class StageLedger {
     return this.#stopped;
   }
 
-  /** The stages entered, in order. */
-  get entered(): readonly string[] {
-    return this.#entered;
+  /**
+   * Each stage entered that has ended, in order: reused, run, or stopped by the plan as it was
+   * entered, which ran nothing and has no record.
+   */
+  get summaries(): StageSummary[] {
+    return [...this.#stages.values()].flatMap(
+      ({ outcome, startedAt, endedAt, ...stage }): StageSummary[] =>
+        outcome === undefined || endedAt === undefined
+          ? []
+          : [{ ...stage, outcome, spanMs: endedAt - startedAt }],
+    );
   }
 
-  /** Each stage entered that was reused or ended, in order: a plan's stop is neither. */
-  get summaries(): StageSummary[] {
-    return this.#entered.flatMap((stage) => this.#summaries.get(stage) ?? []);
+  /**
+   * Each stage entered, as the view shows it, and those the run recorded that this attempt hasn't
+   * entered yet, in the order they first started.
+   */
+  progress(): { stages: StageProgress[]; upcoming: string[] } {
+    const upcoming = [...(this.options.records?.values() ?? [])]
+      .sort((a, b) => a.started.localeCompare(b.started))
+      .map((record) => record.stage)
+      .filter((stage) => !this.#stages.has(stage));
+    return {
+      stages: [...this.#stages.values()].map(({ value: _value, ...stage }) => ({ ...stage })),
+      upcoming,
+    };
   }
 
   /**
@@ -130,7 +145,7 @@ export class StageLedger {
     if (this.#caught) throw this.#caught;
     if (this.#stopped) throw this.#stopped;
     this.#check(name);
-    this.#entered.push(name);
+    const at = this.#now().getTime();
     const decision = planStage(
       {
         records: this.options.records ?? new Map(),
@@ -139,35 +154,36 @@ export class StageLedger {
           ? {}
           : { workflowVersion: this.options.workflowVersion }),
         started: this.#started,
-        entered: this.#entered.slice(0, -1),
+        entered: [...this.#stages.keys()],
       },
       name,
       misfit,
     );
     if (decision.kind === "stop") {
       this.#stopped = new WorkflowStopped(decision.reason, name, true);
-      this.options.progress?.entered(name, "ran");
-      this.options.progress?.ended(name, "stopped");
+      this.#stages.set(name, {
+        stage: name,
+        source: "ran",
+        outcome: "stopped",
+        attempt: this.options.attempt,
+        startedAt: at,
+        endedAt: at,
+      });
       throw this.#stopped;
     }
     if (decision.kind === "reuse") {
       this.#reused.add(name);
       const { attempt, summary } = decision.record;
-      this.#summaries.set(name, {
+      this.#stages.set(name, {
         stage: name,
         source: "reused",
         outcome: "succeeded",
         attempt,
-        spanMs: 0,
+        startedAt: at,
+        endedAt: at,
         ...(summary === undefined ? {} : { summary }),
         ...(decision.value === undefined ? {} : { value: decision.value }),
       });
-      this.options.progress?.entered(
-        name,
-        "reused",
-        decision.record.attempt,
-        decision.record.summary,
-      );
       // Open until handed back, so a stage entered beside it is refused as on a fresh attempt.
       const held: OpenStage = {
         name,
@@ -185,12 +201,24 @@ export class StageLedger {
         },
       };
     }
-    const stage = this.#opened(name);
+    // Open while the records it outdates are moved, so no other stage enters beside it.
+    const stage = this.#opened(name, at);
     if (decision.start) {
+      try {
+        await replaceStale(this.options.runDir, name, this.#reused);
+      } catch (error) {
+        // Not entered after all: nothing ran, so nothing is recorded, and no stage is left open.
+        this.#stages.delete(name);
+        this.#open = undefined;
+        throw error;
+      }
       this.#started = true;
-      await replaceStale(this.options.runDir, name, this.#reused);
     }
     return { kind: "run", stage };
+  }
+
+  #now(): Date {
+    return this.options.now?.() ?? new Date();
   }
 
   #check(name: string): void {
@@ -204,28 +232,32 @@ export class StageLedger {
         `stage ${name} was entered while stage ${this.#open.name} is open; one stage runs at a time, and parallel work goes inside one`,
       );
     }
-    if (this.#entered.includes(name)) {
+    if (this.#stages.has(name)) {
       throw new Error(`stage ${name} was entered twice; a loop goes inside one stage`);
     }
   }
 
-  #opened(name: string): OpenStage {
-    const now = this.options.now ?? (() => new Date());
-    const started = now();
-    this.options.progress?.entered(name, "ran");
+  #opened(name: string, startedAt: number): OpenStage {
+    const entered: StageProgress & { value?: JsonValue } = {
+      stage: name,
+      source: "ran",
+      attempt: this.options.attempt,
+      startedAt,
+    };
+    this.#stages.set(name, entered);
     let ended: Promise<void> | undefined;
     // A record that fails to be written fails the stage with that error, whatever its work did.
     const end = (fields: Pick<StageRecord, "outcome" | "reason" | "summary" | "value">) => {
       if (ended) return ended;
       if (this.#open === stage) this.#open = undefined;
-      const at = now();
+      const at = this.#now();
       const record: StageRecord = {
         version: STAGE_RECORD_VERSION,
         stage: name,
         attempt: this.options.attempt,
         outcome: fields.outcome,
         ...(fields.reason === undefined ? {} : { reason: fields.reason }),
-        started: started.toISOString(),
+        started: new Date(startedAt).toISOString(),
         ended: at.toISOString(),
         ...(this.options.workflowVersion === undefined
           ? {}
@@ -234,21 +266,16 @@ export class StageLedger {
         ...(fields.summary === undefined ? {} : { summary: fields.summary }),
         ...(fields.value === undefined ? {} : { value: fields.value }),
       };
-      this.#summaries.set(name, {
-        stage: name,
-        source: "ran",
+      Object.assign(entered, {
         outcome: record.outcome,
-        attempt: record.attempt,
-        spanMs: at.getTime() - started.getTime(),
+        endedAt: at.getTime(),
         ...(record.summary === undefined ? {} : { summary: record.summary }),
         ...(record.value === undefined ? {} : { value: record.value }),
       });
       ended = writeStageRecord(this.options.runDir, record).then(
-        () => this.options.progress?.ended(name, record.outcome, record.summary),
+        () => undefined,
         (error: unknown) => {
-          const summary = this.#summaries.get(name);
-          if (summary) this.#summaries.set(name, { ...summary, outcome: "failed" });
-          this.options.progress?.ended(name, "failed");
+          entered.outcome = "failed";
           throw error;
         },
       );
@@ -283,8 +310,10 @@ export class StageLedger {
     this.seal("the attempt ended");
     const open = this.#open && !this.#reused.has(this.#open.name) ? this.#open.name : undefined;
     if (open !== undefined) this.#closedOpen = open;
-    await this.#open?.fail(this.#sealed ?? "the attempt ended");
-    await Promise.all(this.#writes);
+    const failing = this.#open?.fail(this.#sealed ?? "the attempt ended");
+    // Every other write's failure was its stage's, and reported there.
+    await Promise.allSettled(this.#writes);
+    await failing;
   }
 
   /** A stage's failure, as its work threw it: the attempt ends in that stage if it escapes. */

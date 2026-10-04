@@ -1,6 +1,7 @@
+import type { StageOutcome } from "@agentswf/contract/records";
 import { placementOf } from "@agentswf/contract/workflow";
 import { duration } from "./accounting/format";
-import type { StageProgress } from "./run-progress";
+import type { StageProgress } from "./stage-ledger";
 import type { WorkflowRunSnapshot } from "./workflow-runner";
 
 type Agent = WorkflowRunSnapshot["agents"][number];
@@ -37,7 +38,7 @@ export function renderProgress(
   const working = snapshot.agents.filter(isRunning).length;
   const current = snapshot.stages.findLast((stage) => stage.endedAt === undefined);
   const lines = [
-    `${view.name}${current ? ` · ${current.name}` : ""} ${paint.dim(`· ${duration(now - view.startedAt)}`)}${working ? paint.dim(` · ${working} working`) : ""}`,
+    `${view.name}${current ? ` · ${current.stage}` : ""} ${paint.dim(`· ${duration(now - view.startedAt)}`)}${working ? paint.dim(` · ${working} working`) : ""}`,
   ];
   lines.push(...stageLines(snapshot, now, paint));
   const width = Math.max(...snapshot.agents.map((agent) => agent.key.length), 0);
@@ -56,10 +57,11 @@ export function renderProgress(
   };
 
   // Under the current stage, the agents are listed there instead.
-  const inStage = (agent: Agent) => current !== undefined && agent.turn?.stage === current.name;
+  const inStage = (agent: Agent) => current !== undefined && agent.turn?.stage === current.stage;
   snapshot.groups.forEach((group, index) => {
-    const agents = snapshot.agents.filter((agent) => agent.group === index && !inStage(agent));
-    const failed = agents.filter(isFailed).length;
+    const members = snapshot.agents.filter((agent) => agent.group === index);
+    const agents = members.filter((agent) => !inStage(agent));
+    const failed = members.filter(isFailed).length;
     const failures = failed ? paint.bad(` · ${failed} failed`) : "";
     if (group.endedAt !== undefined) {
       const mark = failed ? paint.bad("✗") : paint.ok("✓");
@@ -89,26 +91,6 @@ export function progressEvents(
 ): string[] {
   const at = `[${clock(view.now - view.startedAt)}]`;
   const events: string[] = [];
-  const stageEnded = (stage: StageProgress) => {
-    if (stage.source === "reused" || stage.endedAt === undefined) return;
-    const mark = stage.outcome === "succeeded" ? "✓" : stage.outcome === "stopped" ? "■" : "✗";
-    events.push(
-      `${at} ${mark} stage ${stage.name} ${stage.outcome} in ${duration(stage.endedAt - stage.startedAt)}${stage.summary ? ` · ${oneLine(stage.summary)}` : ""}`,
-    );
-  };
-  // A known stage's end before a new one's start, as they happened.
-  after.stages.forEach((stage, index) => {
-    const earlier = before?.stages[index];
-    if (earlier && earlier.endedAt === undefined) stageEnded(stage);
-  });
-  after.stages.forEach((stage, index) => {
-    if (before?.stages[index]) return;
-    events.push(
-      stage.source === "reused"
-        ? `${at} ↺ stage ${stage.name} · attempt ${stage.attempt}${stage.summary ? ` · ${oneLine(stage.summary)}` : ""}`
-        : `${at} ▶ stage ${stage.name}`,
-    );
-  });
   after.groups.forEach((group, index) => {
     if (!before?.groups[index]) events.push(`${at} ▶ ${group.label} (${group.total})`);
   });
@@ -132,7 +114,8 @@ export function progressEvents(
       );
     }
   }
-  // After the agents, so a group's and a stage's end follow the turns that ended them.
+  // After the agents, so a group's and a stage's end follow the turns that ended them; and in the
+  // order entered, so one stage's end comes before the next one's start.
   after.groups.forEach((group, index) => {
     if (group.endedAt !== undefined && before?.groups[index]?.endedAt === undefined) {
       const failed = after.agents.filter((a) => a.group === index && isFailed(a)).length;
@@ -141,9 +124,20 @@ export function progressEvents(
       );
     }
   });
-  // A stage entered since the last snapshot that has ended already, after its turns.
   after.stages.forEach((stage, index) => {
-    if (!before?.stages[index]) stageEnded(stage);
+    const earlier = before?.stages[index];
+    if (stage.source === "reused") {
+      if (!earlier) {
+        events.push(`${at} ↺ stage ${stage.stage} · attempt ${stage.attempt}${summaryOf(stage)}`);
+      }
+      return;
+    }
+    if (!earlier) events.push(`${at} ▶ stage ${stage.stage}`);
+    if (stage.endedAt !== undefined && earlier?.endedAt === undefined) {
+      events.push(
+        `${at} ${stageMark(stage.outcome, PLAIN).mark} stage ${stage.stage} ${stage.outcome} in ${duration(stage.endedAt - stage.startedAt)}${summaryOf(stage)}`,
+      );
+    }
   });
   return events;
 }
@@ -158,46 +152,44 @@ function stageLines(snapshot: WorkflowRunSnapshot, now: number, paint: Paint): s
   const upcoming =
     snapshot.state === "closing" || snapshot.state === "closed" ? [] : snapshot.upcoming;
   const width = Math.max(
-    ...snapshot.stages.map((stage) => stage.name.length),
+    ...snapshot.stages.map((stage) => stage.stage.length),
     ...upcoming.map((name) => name.length),
     0,
   );
   const lines: string[] = [];
   for (const stage of snapshot.stages) {
-    const name = stage.name.padEnd(width);
-    const summary = stage.summary ? paint.dim(` · ${oneLine(stage.summary)}`) : "";
+    const name = stage.stage.padEnd(width);
     if (stage.source === "reused") {
-      lines.push(
-        paint.dim(
-          `↺ ${name}  attempt ${stage.attempt}${stage.summary ? ` · ${oneLine(stage.summary)}` : ""}`,
-        ),
-      );
+      lines.push(paint.dim(`↺ ${name}  attempt ${stage.attempt}${summaryOf(stage)}`));
       continue;
     }
     const took = duration((stage.endedAt ?? now) - stage.startedAt);
     if (stage.endedAt === undefined) {
       lines.push(`${paint.busy(spin(now))} ${name}  ${paint.dim(took)}`);
-      const agents = snapshot.agents.filter((agent) => agent.turn?.stage === stage.name);
+      const agents = snapshot.agents.filter((agent) => agent.turn?.stage === stage.stage);
       const keys = Math.max(...agents.map((agent) => agent.key.length), 0);
       lines.push(...agents.map((agent) => stageAgentLine(agent, keys, now, paint)));
       continue;
     }
-    const mark =
-      stage.outcome === "succeeded"
-        ? paint.ok("✓")
-        : stage.outcome === "stopped"
-          ? paint.busy("■")
-          : paint.bad("✗");
-    const outcome =
-      stage.outcome === "succeeded"
-        ? ""
-        : stage.outcome === "stopped"
-          ? paint.busy(` · ${stage.outcome}`)
-          : paint.bad(` · ${stage.outcome}`);
-    lines.push(`${mark} ${name}  ${paint.dim(took)}${outcome}${summary}`);
+    const { mark, note } = stageMark(stage.outcome, paint);
+    lines.push(`${mark} ${name}  ${paint.dim(took)}${note}${paint.dim(summaryOf(stage))}`);
   }
   lines.push(...upcoming.map((name) => paint.dim(`· ${name}`)));
   return lines;
+}
+
+/** A finished stage's mark, and its outcome when it didn't succeed. */
+function stageMark(
+  outcome: StageOutcome | undefined,
+  paint: Paint,
+): { mark: string; note: string } {
+  if (outcome === "succeeded") return { mark: paint.ok("✓"), note: "" };
+  const tone = outcome === "stopped" ? paint.busy : paint.bad;
+  return { mark: tone(outcome === "stopped" ? "■" : "✗"), note: tone(` · ${outcome}`) };
+}
+
+function summaryOf(stage: StageProgress): string {
+  return stage.summary ? ` · ${oneLine(stage.summary)}` : "";
 }
 
 /** An agent in the current stage: its placement, its turn's label and time; done, it waits. */
@@ -208,8 +200,9 @@ function stageAgentLine(agent: Agent, keys: number, now: number, paint: Paint): 
       ? [paint.dim("·"), paint.dim("waiting")]
       : agentState(agent, now, paint);
   const took = duration((turn.settledAt ?? now) - turn.startedAt);
-  const label = turn.label ? `  ${turn.label}` : "";
-  return `    ${mark} ${agent.key.padEnd(keys)}  ${paint.dim(`${agent.execution.model} · ${placementOf(agent.execution)}`)}${label}  ${took}${note ? `  ${note}` : ""}`;
+  const label = turn.label ?? turn.kind;
+  const labelled = label ? `  ${label}` : "";
+  return `    ${mark} ${agent.key.padEnd(keys)}  ${paint.dim(`${agent.execution.model} · ${placementOf(agent.execution)}`)}${labelled}  ${took}${note ? `  ${note}` : ""}`;
 }
 
 function agentState(agent: Agent, now: number, paint: Paint): [string, string] {

@@ -40,7 +40,7 @@ import {
   type Run,
   RunRefused,
   readTurns,
-  sandboxesOf,
+  sandboxesDirOf,
 } from "./runs";
 import type { WorkflowStopped } from "./stopped";
 import { parseTestCommand, runWorkflowTests, type TestCommand, testUsage } from "./test-command";
@@ -240,7 +240,7 @@ export async function runOperatorCli(
       sandboxes: {
         providers: installed.sandboxes ?? { installed: {} },
         runRoot: run.root,
-        directory: sandboxesOf(home, run),
+        sandboxesDir: sandboxesDirOf(home, run),
         ...(sandbox === undefined ? {} : { run: sandbox }),
       },
       ...(installed.decisions ? { decisions: installed.decisions } : {}),
@@ -385,7 +385,7 @@ async function claimNext(
         ...(command.fromStage === undefined ? {} : { fromStage: command.fromStage }),
       },
     },
-    { redo: command.fromStage !== undefined },
+    { fromStage: command.fromStage !== undefined },
   );
   const turns = claimed.interrupted.length > 0 ? await readTurns(run.dir).catch(() => []) : [];
   for (const earlier of claimed.interrupted) {

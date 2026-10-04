@@ -12,6 +12,7 @@ import {
   startInNewTab,
 } from "@agentswf/harness";
 import { messageOf } from "./errors";
+import { isCode } from "./files";
 import { herdrConfig, herdrSession } from "./operator-runtime";
 import type { RunCommand } from "./run-command";
 import { prepareRun } from "./run-continue";
@@ -172,7 +173,7 @@ function claimCaller(marks: string, paneId: string): (() => void) | string {
         linkSync(pending, mark);
         return () => rmSync(mark, { force: true });
       } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== "EEXIST") return messageOf(error);
+        if (!isCode(error, "EEXIST")) return messageOf(error);
         const holder = Number(readFileSync(mark, "utf8"));
         if (alive(holder)) {
           return `another run (process ${holder}) is already driving the session in ${paneId}; one run drives a session at a time`;
@@ -194,7 +195,7 @@ function alive(pid: number): boolean {
     process.kill(pid, 0);
     return true;
   } catch (error) {
-    return (error as NodeJS.ErrnoException).code === "EPERM";
+    return isCode(error, "EPERM");
   }
 }
 

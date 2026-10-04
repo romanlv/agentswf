@@ -11,7 +11,7 @@ import {
   recordCandidate,
   writeAcceptedExclusive,
   writeCall,
-} from "./run-dir";
+} from "./runs";
 import { COUNT_SCHEMA, createTempRunDirs } from "./testing";
 
 const runDirs = createTempRunDirs();

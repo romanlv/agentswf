@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
-import { lstat, mkdir, rename, rm, writeFile } from "node:fs/promises";
+import { mkdir, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
+import { exists } from "../files";
 import { parseSkillFile } from "./sources";
 import { MAX_BYTES, MAX_FILES } from "./tree";
 
@@ -301,11 +302,4 @@ async function git(
     throw new Error(`git ${args[0] === "-C" ? args[2] : args[0]} failed: ${result.err}`);
   }
   return result;
-}
-
-async function exists(path: string): Promise<boolean> {
-  return lstat(path).then(
-    () => true,
-    () => false,
-  );
 }

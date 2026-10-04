@@ -1,6 +1,5 @@
 import { rm } from "node:fs/promises";
 import { homedir } from "node:os";
-import { join } from "node:path";
 import {
   type AttemptAccounting,
   type AttemptRecord,
@@ -13,7 +12,8 @@ import { describeAccounting } from "./accounting/format";
 import { sumAttempts } from "./accounting/summary";
 import type { AttemptEnd } from "./attempt-ending";
 import { messageOf } from "./errors";
-import { type Attempt, endAttempt, writeJson, writeWhole } from "./runs";
+import { writeJson, writeWhole } from "./files";
+import { type Attempt, endAttempt, outputFile, reportFile } from "./runs";
 
 /** Where an attempt's records went, and its output record as `--json` prints it. */
 export type Kept = {
@@ -67,7 +67,7 @@ export async function keepRecords(
       ...ended,
     };
     kept.json = JSON.stringify(record, null, 2);
-    const output = join(dir, "output.json");
+    const output = outputFile(dir);
     try {
       await writeJson(output, record);
       kept.output = output;
@@ -110,7 +110,7 @@ async function writeReport(
   dir: string,
   stderr: (text: string) => void,
 ): Promise<string | undefined> {
-  const file = join(dir, "report.md");
+  const file = reportFile(dir);
   // An earlier attempt's report is gone with it: report.md is the last ended attempt's.
   const none = () => rm(file, { force: true }).then(() => undefined);
   if (!executable.report) return none();

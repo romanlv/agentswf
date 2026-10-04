@@ -5,6 +5,7 @@ import {
   type ResultSubmitResponse,
   WIRE_VERSION,
 } from "@agentswf/contract/wire";
+import { isCode } from "./files";
 import type { ResultSlotRegistry } from "./result-slots";
 
 /** `wf` accepts a 1 MiB value; escaped into the request's JSON it can double, plus the envelope. */
@@ -339,6 +340,5 @@ function flushResponse(socket: Bun.Socket<ConnectionState>): void {
 }
 
 function ignoreMissing(error: unknown): void {
-  if (error instanceof Error && "code" in error && error.code === "ENOENT") return;
-  throw error;
+  if (!isCode(error, "ENOENT")) throw error;
 }

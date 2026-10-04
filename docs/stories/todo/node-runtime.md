@@ -30,7 +30,7 @@ Measured on 2026-09-28, with Node 22.20 and Bun 1.4.0:
   | `engine/src/agent-launcher.ts` | `Bun.spawn` |
   | `engine/src/skills/fetch.ts` | `Bun.spawn`, `Bun.sleep` |
   | `engine/src/skills/sources.ts` | `Bun.YAML` |
-  | `engine/src/run-dir.ts`, `engine/src/jsonl.ts` | `Bun.file`, `Bun.write` |
+  | `engine/src/runs.ts` | `Bun.spawnSync` |
   | `harness/src/command.ts` | `Bun.spawn`, `Bun.Subprocess`, `Bun.sleep` |
   | `harness/src/usage/*.ts`, `harness/src/sandbox-needs.ts` | `Bun.file` |
   | `sandbox/src/docker/index.ts` | `Bun.spawn`, `Bun.which`, `Bun.sleep` |

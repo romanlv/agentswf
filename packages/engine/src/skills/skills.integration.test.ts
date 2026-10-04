@@ -7,6 +7,7 @@ import type { JsonValue, WorkflowContext } from "@agentswf/contract/workflow";
 import { createHeadlessRunHostFactory } from "@agentswf/harness";
 import type { AgentRuntimeConfig } from "@agentswf/harness/adapter";
 import { createFakeSandboxProvider } from "@agentswf/sandbox/testing";
+import { openRun } from "../runs";
 import { createTempRunDirs, future } from "../testing";
 import { runWorkflow, WorkflowRunError } from "../workflow-runner";
 
@@ -87,7 +88,10 @@ function run<Result extends JsonValue>(
     runtime,
     deadline: future(),
     cwd: work,
-    sandboxes: { providers: { installed: { srt: fake.provider }, default: "srt" } },
+    sandboxes: {
+      providers: { installed: { srt: fake.provider }, default: "srt" },
+      sandboxesDir: runDirs.tempRunDir(),
+    },
     skillCache: join(root, "cache"),
   });
 }
@@ -154,7 +158,8 @@ describe("agent skills", () => {
       return null;
     }, runRoot);
     const found = result.skills?.[0]?.home ?? "";
-    expect(found.startsWith(join(runRoot, result.runId, "agents"))).toBe(true);
+    const { dir } = await openRun(runRoot, "skills", result.runId);
+    expect(found.startsWith(join(dir, "agents"))).toBe(true);
     const log = await turns(join(found, "codex.log"));
     expect(log[0]).toContain("skill: alpha");
     expect(log[0]).not.toContain("operators-own");

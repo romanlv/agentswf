@@ -4,6 +4,7 @@ import { mkdir, readdir, readFile, rm, utimes, writeFile } from "node:fs/promise
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AttemptRecord } from "@agentswf/contract/records";
+import { writeJson } from "./files";
 import {
   checkContinue,
   checkFree,
@@ -16,9 +17,10 @@ import {
   type ProcessProbe,
   processStart,
   RunRefused,
+  readAccepted,
   readAttempts,
   runStatus,
-  writeJson,
+  writeAcceptedExclusive,
 } from "./runs";
 
 const root = () => join(mkdtempSync(join(tmpdir(), "awf-runs-")), ".awf", "runs");
@@ -149,7 +151,7 @@ describe("runs", () => {
     const { attempt } = await claimAttempt(created, fields, { pid: 1, probe: alive(1) });
     await endAttempt(attempt, { outcome: "completed" });
     await expect(claimAttempt(created, fields, { pid: 1, probe: alive(1) })).rejects.toThrow(
-      "AIRS-1515 completed; --from-stage redoes one of its stages",
+      "AIRS-1515 completed; there is nothing to continue",
     );
     expect(await readdir(join(created.dir, "attempts"))).toEqual(["1.json"]);
   });
@@ -299,5 +301,25 @@ describe("runs", () => {
       flags: fields.flags,
     });
     expect(written.ended).toBeUndefined();
+  });
+});
+
+describe("an operation's accepted result", () => {
+  test("the first accepted value wins and a later one does not replace it", async () => {
+    const runDir = mkdtempSync(join(tmpdir(), "awf-calls-"));
+    expect(await writeAcceptedExclusive(runDir, "c1", { n: 1 })).toBe(true);
+    expect(await writeAcceptedExclusive(runDir, "c1", { n: 2 })).toBe(false);
+    expect(await readAccepted(runDir, "c1")).toEqual({ value: { n: 1 } });
+  });
+
+  test("concurrent writers expose exactly one complete result", async () => {
+    const runDir = mkdtempSync(join(tmpdir(), "awf-calls-"));
+    const claims = await Promise.all(
+      Array.from({ length: 16 }, (_, n) => writeAcceptedExclusive(runDir, "c1", { n })),
+    );
+    expect(claims.filter(Boolean)).toHaveLength(1);
+    const accepted = await readAccepted(runDir, "c1");
+    expect(accepted).not.toBeNull();
+    expect(claims[Number((accepted!.value as { n: number }).n)]).toBe(true);
   });
 });

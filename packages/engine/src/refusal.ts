@@ -8,14 +8,15 @@ export function refusal(
   id: string,
   attempts: readonly AttemptRecord[],
   options: {
-    redo: boolean;
+    /** `--from-stage`, which a completed run takes. */
+    fromStage: boolean;
     stages: readonly string[];
     live: (attempt: AttemptRecord) => boolean;
   },
 ): string | undefined {
-  const live = attempts.find(options.live);
+  const live = attempts.find((attempt) => options.live(attempt));
   if (live) return `attempt ${live.n} of ${id} is still running, as process ${live.pid}`;
-  if (attempts.at(-1)?.outcome !== "completed" || options.redo) return undefined;
+  if (attempts.at(-1)?.outcome !== "completed" || options.fromStage) return undefined;
   return options.stages.length > 0
     ? `${id} completed; to redo from a stage, --from-stage one of: ${options.stages.join(", ")}`
     : `${id} completed; there is nothing to continue`;

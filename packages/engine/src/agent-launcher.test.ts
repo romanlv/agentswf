@@ -4,7 +4,7 @@ import { dirname } from "node:path";
 import { installAgentLauncher } from "./agent-launcher";
 import { startResultControlPlane } from "./control-plane";
 import { createResultSlotRegistry } from "./result-slots";
-import { readAccepted } from "./run-dir";
+import { readAccepted } from "./runs";
 import { COUNT_SCHEMA, createTempRunDirs } from "./testing";
 
 const runDirs = createTempRunDirs();

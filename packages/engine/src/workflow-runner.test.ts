@@ -28,6 +28,7 @@ import type {
 } from "@agentswf/harness/adapter";
 import { createFakeAdapter } from "@agentswf/harness/testing";
 import { CONTROL_PLANE_ROOT } from "./control-plane";
+import { openRun } from "./runs";
 import { createTempRunDirs, future, submit } from "./testing";
 import {
   runWorkflow,
@@ -2220,7 +2221,8 @@ describe("runWorkflow", () => {
     });
 
     expect(adapter.turns).toHaveLength(1);
-    expect(await readdir(join(runRoot, result.runId, "calls"))).toHaveLength(1);
+    const { dir } = await openRun(runRoot, workflow.meta.name, result.runId);
+    expect(await readdir(join(dir, "calls"))).toHaveLength(1);
   });
 
   test("adapter activation failure still closes earlier sessions and the endpoint", async () => {

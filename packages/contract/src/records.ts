@@ -3,7 +3,6 @@ import type {
   AgentExecution,
   AgentKey,
   HarnessKind,
-  NativeSessionRef,
   OperationRecord,
   SkillSource,
   TurnOutcome,
@@ -339,25 +338,29 @@ export type StageRecord = {
 
 export const TURN_RECORD_VERSION = 1 as const;
 
+/** What a line of `turns.jsonl` keeps of its operation's record. */
+export const TURN_OPERATION_FIELDS = [
+  "agent",
+  "operationId",
+  "execution",
+  "stage",
+  "label",
+  "deliveredAt",
+  "settledAt",
+  "sessions",
+] as const satisfies readonly (keyof OperationRecord)[];
+
 /**
- * A line of `turns.jsonl`: a turn or compaction as it settled, with the attempt it was in. What it
- * spent is read from its sessions once the attempt ends, so a line has none.
+ * A line of `turns.jsonl`: a turn, nudges included, or a compaction, as it settled, with the attempt
+ * it was in. Its `sessions` are its agent's as of then: the last is the one it ran on. What it spent
+ * is read from its sessions once the attempt ends, so a line has none.
  */
 export type TurnRecord = {
   version: typeof TURN_RECORD_VERSION;
   attempt: number;
-  agent: AgentKey;
-  operationId: string;
-  execution: AgentExecution;
-  /** Absent between stages. */
-  stage?: string;
-  label?: string;
-  deliveredAt?: string;
-  settledAt?: string;
+  kind: "turn" | "compact";
   outcome: TurnOutcome<JsonValue>["kind"];
-  /** Its agent's sessions as of then; the last is the one it ran on. */
-  sessions: NativeSessionRef[];
-};
+} & Pick<OperationRecord, (typeof TURN_OPERATION_FIELDS)[number]>;
 
 export const OUTPUT_RECORD_VERSION = 5 as const;
 

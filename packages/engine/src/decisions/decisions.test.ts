@@ -18,6 +18,7 @@ import { createFakeAdapter } from "@agentswf/harness/testing";
 import { describeAccounting } from "../accounting/format";
 import { PUBLISHED_PRICES } from "../accounting/prices";
 import { sumAttempts, summarizeRun } from "../accounting/summary";
+import { openRun } from "../runs";
 import { createTempRunDirs, future } from "../testing";
 import { runWorkflow, startWorkflow, WorkflowRunError } from "../workflow-runner";
 import { digestOf, RunDecisions } from "./directory";
@@ -103,7 +104,10 @@ describe("decisions.decide", () => {
     expect(record!.error).toBeUndefined();
 
     const artifact = JSON.parse(
-      await readFile(join(runRoot, result.runId, record!.artifact), "utf8"),
+      await readFile(
+        join((await openRun(runRoot, "decisions", result.runId)).dir, record!.artifact),
+        "utf8",
+      ),
     );
     expect(artifact).toEqual({
       record,

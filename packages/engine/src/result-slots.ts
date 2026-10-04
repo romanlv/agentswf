@@ -5,7 +5,7 @@ import type { ResultSubmitCode } from "@agentswf/contract/wire";
 import type { AbsoluteDeadline } from "@agentswf/contract/workflow";
 import { scheduleAt } from "./deadlines";
 import { evaluateResult } from "./result-validation";
-import { recordCandidate, writeAcceptedExclusive, writeCall } from "./run-dir";
+import { recordCandidate, writeAcceptedExclusive, writeCall } from "./runs";
 
 export type ResultRejectionCode = Exclude<
   ResultSubmitCode,

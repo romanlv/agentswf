@@ -71,7 +71,7 @@ export async function prepareRun(
   const records = await readStageRecords(run.dir);
   // The claim refuses it too; this says so before `--here` opens a tab, or `--session` waits.
   const refused = refusal(id, attempts, {
-    redo: command.fromStage !== undefined,
+    fromStage: command.fromStage !== undefined,
     stages: [...records.keys()],
     live: (attempt) => isLive(attempt),
   });

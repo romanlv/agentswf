@@ -251,7 +251,9 @@ Written twice, each time whole, and only by its own attempt:
 
 1. **At start**, without the ending. Creating it is the claim ([[#Why it is shaped like this]]).
 2. **At the end**, with `ended`, `outcome`, `stage` and `reason` (for any outcome but `completed`),
-   `stages`: each stage entered, `ran` or `reused`, with its outcome and summary, and `accounting`:
+   `stages`: each stage entered, `ran` or `reused`, with its outcome and summary (a stage the plan
+   stops as it is entered is there, `stopped`, as the view shows it, though it ran nothing and has
+   no record), and `accounting`:
    its totals and `byStage`, which a run's total sums. `output.json` holds only the last attempt's,
    and a turn's line has no spend to add up, so each attempt keeps its own.
 
@@ -293,10 +295,11 @@ Written twice, each time whole, and only by its own attempt:
 - `sessions`: the agents' native sessions the stage used, for [[stopped-run-recovery]] and for
   reading what happened.
 
-**`turns.jsonl`**: each turn, as it settles.
+**`turns.jsonl`**: each turn, nudges included, and each compaction, as it settles; `kind` tells
+them apart.
 
 ```json
-{"version":1,"attempt":2,"agent":"worker","operationId":"…","execution":{…},"stage":"qa","label":"preview","deliveredAt":"…","settledAt":"…","outcome":"answered","sessions":[{"harness":"claude","id":"5dbd8155-…"}]}
+{"version":1,"attempt":2,"kind":"turn","agent":"worker","operationId":"…","execution":{…},"stage":"qa","label":"preview","deliveredAt":"…","settledAt":"…","outcome":"answered","sessions":[{"harness":"claude","id":"5dbd8155-…"}]}
 ```
 
 - Appended by the live attempt, a line per turn or compaction. A crash keeps every turn that
@@ -595,7 +598,7 @@ Migrating old runs is decided when a format first changes.
   agent now works in several stages.
 - **The word "attempt".** The result-slot candidate `Attempt` in
   `packages/contract/src/records.ts`, whose doc already calls it a candidate, becomes `Candidate`,
-  before `AttemptRecord` is published, and the call's `attempts.jsonl` (`run-dir.ts`) becomes
+  before `AttemptRecord` is published, and the call's `attempts.jsonl` (now in `runs.ts`) becomes
   `candidates.jsonl`.
 - **lab.** `RUN_OUTCOMES` (`packages/lab/.../format/scoring.ts`) gains `stopped`, and keeps
   `succeeded` for a completed run, which its stored scores say; contained runs

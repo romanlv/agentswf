@@ -10,7 +10,11 @@ import type {
   SettledDecision,
   SettledOperation,
 } from "@agentswf/contract/records";
-import { TURN_RECORD_VERSION, type TurnRecord } from "@agentswf/contract/records";
+import {
+  TURN_OPERATION_FIELDS,
+  TURN_RECORD_VERSION,
+  type TurnRecord,
+} from "@agentswf/contract/records";
 import {
   formatErrors,
   type JsonSchema,
@@ -89,13 +93,7 @@ import {
   type ResultSlotRegistry,
   type ResultSlotSettlement,
 } from "./result-slots";
-import { createRunDir } from "./run-dir";
-import {
-  type AgentProgress,
-  type GroupProgress,
-  RunProgress,
-  type StageProgress,
-} from "./run-progress";
+import { type AgentProgress, type GroupProgress, RunProgress } from "./run-progress";
 import {
   type AccountedAgent,
   type AgentLedger,
@@ -103,7 +101,7 @@ import {
   type OperationTags,
   type RunLedger,
 } from "./run-usage";
-import { appendTurn, endTurnsLine, readStageRecords } from "./runs";
+import { appendTurn, createRun, endTurnsLine, readStageRecords } from "./runs";
 import { type CredentialLocks, placeCarried, seedHome } from "./sandbox-homes";
 import {
   RUN_SANDBOX_ONLY,
@@ -112,7 +110,7 @@ import {
   type SeatedAgent,
 } from "./sandboxes";
 import { placeSkills, RunSkills, readSkillSources } from "./skills/run-skills";
-import { StageLedger } from "./stage-ledger";
+import { StageLedger, type StageProgress } from "./stage-ledger";
 import { WorkflowStopped } from "./stopped";
 
 export { WorkflowCancelledError } from "./deadlines";
@@ -121,8 +119,8 @@ export { WorkflowStopped } from "./stopped";
 export type RunWorkflowOptions = {
   runRoot: string;
   /**
-   * The run this is an attempt of, whose folder the operator claimed under `runRoot`. Without it the
-   * run is a folder of its own, `{runRoot}/{uuid}`, with that id, as tests make one.
+   * The run this is an attempt of, whose folder the operator claimed under `runRoot`. Without it a
+   * new run is created there, with no attempt file, as tests make one.
    */
   run?: {
     dir: string;
@@ -287,21 +285,23 @@ export async function startWorkflow<Args extends JsonValue, Result extends JsonV
 ): Promise<WorkflowRunHandle<Result>> {
   assertDeadline(options.deadline);
   if (options.signal?.aborted) throw new WorkflowCancelledError(options.signal.reason);
-  const runId = options.run?.id ?? randomUUID();
   const attempt = options.run?.attempt ?? 1;
   const startedAt = Date.now();
-  // Inside the run root, which every sandbox is denied.
-  if (options.run && relative(options.runRoot, options.run.dir).startsWith("..")) {
-    throw new Error(
-      `the run's folder ${options.run.dir} is outside the run root ${options.runRoot}`,
-    );
-  }
-  const runDir = options.run?.dir ?? (await createRunDir(options.runRoot, runId));
+  const cwd = options.cwd ?? process.cwd();
+  const created = options.run
+    ? undefined
+    : await createRun(options.runRoot, {
+        workflow: definition.meta.name,
+        argv: [],
+        cwd,
+        sandbox: null,
+      });
+  const runDir = options.run?.dir ?? created!.dir;
+  const runId = options.run?.id ?? created!.record.id;
   // Before anything opens: a record this awf can't read refuses the attempt.
   const recorded = await readStageRecords(runDir);
   const slots = createResultSlotRegistry({ runDir });
   const control = await startResultControlPlane({ slots });
-  const cwd = options.cwd ?? process.cwd();
   let host: AgentRunHost;
   const openingHost = Promise.resolve().then(() =>
     options.runtime.host.openRun({
@@ -323,31 +323,22 @@ export async function startWorkflow<Args extends JsonValue, Result extends JsonV
   // Each turn as it settles, so an attempt that dies keeps the sessions and times of its turns.
   const turns: TurnRecord[] = [];
   const turnWrites: Promise<void>[] = [];
-  const ledger = createRunLedger({
-    accounting: options.runtime.host.accounting,
-    startedAt,
-    onSettled: (record, outcome) => {
-      const turn: TurnRecord = {
-        version: TURN_RECORD_VERSION,
-        attempt,
-        agent: record.agent,
-        operationId: record.operationId,
-        execution: record.execution,
-        ...(record.stage === undefined ? {} : { stage: record.stage }),
-        ...(record.label === undefined ? {} : { label: record.label }),
-        ...(record.deliveredAt === undefined ? {} : { deliveredAt: record.deliveredAt }),
-        ...(record.settledAt === undefined ? {} : { settledAt: record.settledAt }),
-        outcome,
-        sessions: record.sessions,
-      };
-      turns.push(turn);
-      turnWrites.push(
-        appendTurn(runDir, turn).catch((error) =>
-          options.onLog?.(`awf: a turn was not recorded in turns.jsonl: ${messageOf(error)}`),
-        ),
-      );
-    },
-  });
+  const ledger = createRunLedger({ accounting: options.runtime.host.accounting, startedAt });
+  const recordTurn: RecordTurn = (outcome, kind) => {
+    const turn: TurnRecord = {
+      version: TURN_RECORD_VERSION,
+      attempt,
+      kind,
+      outcome: outcome.kind,
+      ...pick(outcome.usage, TURN_OPERATION_FIELDS),
+    };
+    turns.push(turn);
+    turnWrites.push(
+      appendTurn(runDir, turn).catch((error) =>
+        options.onLog?.(`awf: a turn was not recorded in turns.jsonl: ${messageOf(error)}`),
+      ),
+    );
+  };
   // A crash may have torn the last line an earlier attempt appended.
   await endTurnsLine(runDir);
   const stages = new StageLedger({
@@ -357,24 +348,14 @@ export async function startWorkflow<Args extends JsonValue, Result extends JsonV
     ...(options.run?.fromStage === undefined ? {} : { fromStage: options.run.fromStage }),
     ...(definition.meta.version === undefined ? {} : { workflowVersion: definition.meta.version }),
     turns: () => turns,
-    progress: {
-      entered: (name, source, from, summary) => progress.stageEntered(name, source, from, summary),
-      ended: (name, outcome, summary) => progress.stageEnded(name, outcome, summary),
-    },
   });
   const progress = new RunProgress();
-  progress.recorded(
-    [...recorded.values()]
-      .sort((a, b) => a.started.localeCompare(b.started))
-      .map((record) => record.stage),
-  );
   // Shared by sandboxed agents' homes and a host agent's own: they may copy one credential.
   const locks: CredentialLocks = new Map();
   const environment = options.sandboxes?.environment ?? process.env;
   const sandboxes = new RunSandboxes({
     ...(options.sandboxes ? { sandboxes: options.sandboxes } : {}),
     locks,
-    runDir,
     runRoot: options.runRoot,
     cwd,
     deadline: options.deadline,
@@ -410,6 +391,7 @@ export async function startWorkflow<Args extends JsonValue, Result extends JsonV
     locks,
     environment,
     progress,
+    recordTurn,
     stages,
     runId,
     attempt,
@@ -533,8 +515,7 @@ export async function startWorkflow<Args extends JsonValue, Result extends JsonV
       return {
         state,
         groups: known.groups,
-        stages: known.stages,
-        upcoming: known.upcoming,
+        ...stages.progress(),
         agents: agents.map((agent) => ({ ...known.agents.get(agent.key), ...agent })),
       };
     },
@@ -642,6 +623,7 @@ class WorkflowOwner {
       control: ResultControlPlane;
       ledger: RunLedger;
       progress: RunProgress;
+      recordTurn: RecordTurn;
       onLog?: RunWorkflowOptions["onLog"];
     },
   ) {
@@ -695,7 +677,7 @@ class WorkflowOwner {
             options.decisions.decide(spec, {
               deadline: scope?.deadline ?? options.deadline,
               ...(scope ? { add: (cancel) => scope.add(cancel) } : {}),
-              ...(scope?.workflowStage === undefined ? {} : { stage: scope.workflowStage }),
+              ...(scope?.stage === undefined ? {} : { stage: scope.stage }),
             }),
           );
           scope?.track(decided);
@@ -724,7 +706,7 @@ class WorkflowOwner {
       },
       stop: (reason: string): never => {
         // The stage it is called in, by scope: not whichever one is open beside it.
-        throw this.options.stages.stop(String(reason), scopes.getStore()?.workflowStage);
+        throw this.options.stages.stop(String(reason), scopes.getStore()?.stage);
       },
       stage: ((name: string, ...rest: unknown[]) =>
         this.runStage(name, rest)) as WorkflowContext["stage"],
@@ -1229,6 +1211,7 @@ class WorkflowOwner {
       deadline: this.options.deadline,
       ledger,
       progress: this.options.progress,
+      recordTurn: this.options.recordTurn,
       track: (promise) => this.track(promise),
       isRunClosing: () => this.#closed,
       fork: (spec, take) => this.forkAgent(key, spec, take),
@@ -1451,6 +1434,7 @@ class LogicalAgent implements AgentRef {
       deadline: AbsoluteDeadline;
       ledger: AgentLedger;
       progress: RunProgress;
+      recordTurn: RecordTurn;
       track<T>(promise: Promise<T>): Promise<T>;
       isRunClosing(): boolean;
       /** After each operation settles, whatever its outcome. */
@@ -1518,15 +1502,14 @@ class LogicalAgent implements AgentRef {
         throw new Error("logical agent is closed");
       }
       scope?.assertActive();
-      const { progress, key } = this.options;
-      progress.turnStarted(key, tagsOf(scope, completeSpec.label));
+      const tags = tagsOf(scope, completeSpec.label);
+      this.options.progress.turnStarted(this.key, tags);
       try {
-        const settled = await this.executeOperation(completeSpec, scope, deadline);
-        const { outcome } = settled;
-        progress.turnSettled(key, outcome.kind, "reason" in outcome ? outcome.reason : undefined);
+        const settled = await this.executeOperation(completeSpec, scope, deadline, tags);
+        this.turnEnded(settled.outcome, "turn");
         return settled;
       } catch (error) {
-        progress.turnSettled(key, "failed", messageOf(error));
+        this.options.progress.turnSettled(this.key, "failed", messageOf(error));
         throw error;
       } finally {
         await this.options.afterOperation?.();
@@ -1573,14 +1556,14 @@ class LogicalAgent implements AgentRef {
         throw new Error("logical agent is closed");
       }
       scope?.assertActive();
-      const { progress, key } = this.options;
-      progress.turnStarted(key, tagsOf(scope, "compact"));
+      const tags = tagsOf(scope);
+      this.options.progress.turnStarted(this.key, tags, "compact");
       try {
-        const outcome = await this.executeCompaction(id, spec.prompt, deadline, scope);
-        progress.turnSettled(key, outcome.kind, "reason" in outcome ? outcome.reason : undefined);
+        const outcome = await this.executeCompaction(id, spec.prompt, deadline, scope, tags);
+        this.turnEnded(outcome, "compact");
         return outcome;
       } catch (error) {
-        progress.turnSettled(key, "failed", messageOf(error));
+        this.options.progress.turnSettled(this.key, "failed", messageOf(error));
         throw error;
       } finally {
         await this.options.afterOperation?.();
@@ -1590,6 +1573,13 @@ class LogicalAgent implements AgentRef {
     scope?.track(tracked);
     this.#compactions.set(id, { spec: completeSpec, result: tracked });
     return tracked;
+  }
+
+  /** A turn or compaction that settled, as the view shows it and `turns.jsonl` keeps it. */
+  private turnEnded(outcome: TurnOutcome<JsonValue>, kind: TurnRecord["kind"]): void {
+    const reason = "reason" in outcome ? outcome.reason : undefined;
+    this.options.progress.turnSettled(this.key, outcome.kind, reason);
+    this.options.recordTurn(outcome, kind);
   }
 
   fork(spec: AgentForkSpec): Promise<AgentRef> {
@@ -1693,6 +1683,7 @@ class LogicalAgent implements AgentRef {
     spec: AgentRunTextSpec | AgentRunStructuredSpec<JsonValue>,
     scope: ExecutionScope | undefined,
     operationDeadline: AbsoluteDeadline,
+    tags: OperationTags,
   ): Promise<RunResult<JsonValue>> {
     const nudge = spec.nudge === false ? undefined : (spec.nudge ?? this.defaultNudge());
     scope?.assertActive();
@@ -1702,9 +1693,8 @@ class LogicalAgent implements AgentRef {
     const operationId = randomUUID();
     const schema = resultSchema(spec.schema);
     if (Date.now() >= operationDeadline.unixMilliseconds) {
-      const late = this.options.ledger.reserve(operationId, tagsOf(scope, spec.label));
+      const late = this.options.ledger.reserve(operationId, tags);
       const usage = late.settle({ settledAt: operationDeadline.unixMilliseconds }, []);
-      late.ended("timed-out");
       return {
         outcome: { kind: "timed-out", reason: "operation deadline exceeded", usage },
       };
@@ -1719,7 +1709,7 @@ class LogicalAgent implements AgentRef {
     const binding = { endpoint: this.options.endpoint, operationId };
     const charges: number[] = [];
     let later: Promise<HarnessTurnOutcome> | undefined;
-    const entry = this.options.ledger.reserve(operationId, tagsOf(scope, spec.label));
+    const entry = this.options.ledger.reserve(operationId, tags);
     /** The native turn this operation currently answers for; a nudge replaces it. */
     const held: HeldTurn = {};
     const finish = async (
@@ -1742,9 +1732,7 @@ class LogicalAgent implements AgentRef {
         charges,
         later,
       );
-      const outcome = reconcile<JsonValue>(native, settled, usage);
-      entry.ended(outcome.kind);
-      return { outcome };
+      return { outcome: reconcile<JsonValue>(native, settled, usage) };
     };
     let removeCanceller: (() => void) | undefined;
     try {
@@ -1753,7 +1741,7 @@ class LogicalAgent implements AgentRef {
       const authored: AuthoredTurn = {
         prompt: spec.prompt,
         ...(spec.label === undefined ? {} : { label: spec.label }),
-        ...(scope?.workflowStage === undefined ? {} : { stage: scope.workflowStage }),
+        ...(tags.stage === undefined ? {} : { stage: tags.stage }),
         ...(spec.schema === undefined ? {} : { schema: spec.schema }),
       };
       const turn: AgentTextTurnSpec & HarnessAuthored = {
@@ -1862,20 +1850,13 @@ class LogicalAgent implements AgentRef {
     prompt: string,
     deadline: AbsoluteDeadline,
     scope: ExecutionScope | undefined,
+    tags: OperationTags,
   ): Promise<TurnOutcome<string>> {
-    const entry = this.options.ledger.reserve(randomUUID(), tagsOf(scope));
+    const entry = this.options.ledger.reserve(randomUUID(), tags);
     const times: { deliveredAt?: number } = {};
     const settle = (
       native: HarnessTurnOutcome | "expired",
       /** A compaction left to end on its own, whose charges come when it does. */
-      later?: Promise<HarnessTurnOutcome>,
-    ): TurnOutcome<string> => {
-      const outcome = compactionOutcome(native, later);
-      entry.ended(outcome.kind);
-      return outcome;
-    };
-    const compactionOutcome = (
-      native: HarnessTurnOutcome | "expired",
       later?: Promise<HarnessTurnOutcome>,
     ): TurnOutcome<string> => {
       const usage = entry.settle(
@@ -2057,7 +2038,7 @@ class ExecutionScope {
     /** The labelled `parallel` it runs in, for progress. */
     readonly group?: GroupProgress,
     /** The workflow stage everything in this scope runs in. */
-    readonly workflowStage?: string,
+    readonly stage?: string,
   ) {}
 
   get cancelled(): boolean {
@@ -2143,7 +2124,7 @@ async function executeParallel<Item, Result>(
   group?: GroupProgress,
 ): Promise<Result[]> {
   // An unlabelled parallel inside a labelled one stays part of it.
-  const scope = new ExecutionScope(deadline, group ?? parent?.group, parent?.workflowStage);
+  const scope = new ExecutionScope(deadline, group ?? parent?.group, parent?.stage);
   const removeFromParent = parent?.add(() => scope.cancel());
   const results = new Array<Result>(items.length);
   let next = 0;
@@ -2348,9 +2329,18 @@ function summaryOf(
   }
 }
 
+/** A settled turn or compaction, kept in the run's `turns.jsonl`. */
+type RecordTurn = (outcome: TurnOutcome<JsonValue>, kind: TurnRecord["kind"]) => void;
+
+function pick<T extends object, K extends keyof T>(value: T, keys: readonly K[]): Pick<T, K> {
+  return Object.fromEntries(
+    keys.flatMap((key) => (value[key] === undefined ? [] : [[key, value[key]]])),
+  ) as Pick<T, K>;
+}
+
 function tagsOf(scope: ExecutionScope | undefined, label?: string): OperationTags {
   return {
-    ...(scope?.workflowStage === undefined ? {} : { stage: scope.workflowStage }),
+    ...(scope?.stage === undefined ? {} : { stage: scope.stage }),
     ...(label === undefined ? {} : { label }),
   };
 }

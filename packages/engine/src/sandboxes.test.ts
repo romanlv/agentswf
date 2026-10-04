@@ -128,7 +128,11 @@ function setup(
       runtime,
       deadline: future(),
       cwd: work,
-      sandboxes: { providers, ...(runSpec === undefined ? {} : { run: runSpec }) },
+      sandboxes: {
+        providers,
+        sandboxesDir: runDirs.tempRunDir(),
+        ...(runSpec === undefined ? {} : { run: runSpec }),
+      },
       onLog: (message) => logs.push(message),
     });
   return { events: fake.events, run, providers, runtime, logs };
@@ -482,7 +486,7 @@ describe("sandboxed agents", () => {
         runtime,
         deadline: future(),
         cwd: work,
-        sandboxes: { providers },
+        sandboxes: { providers, sandboxesDir: runDirs.tempRunDir() },
       },
     );
     for (let tries = 0; tries < 100 && !kinds(events).includes("launch"); tries++) {
@@ -653,7 +657,11 @@ describe("the operator's sandbox for the whole run", () => {
         deadline: how === "timed out" ? future(50) : future(),
         cwd: work,
         signal: controller.signal,
-        sandboxes: { providers: { installed: { srt: slow }, default: "srt" }, run: {} },
+        sandboxes: {
+          providers: { installed: { srt: slow }, default: "srt" },
+          sandboxesDir: runDirs.tempRunDir(),
+          run: {},
+        },
       },
     ).catch((error: unknown) => error);
     await opening.promise;
@@ -697,7 +705,7 @@ describe.skipIf(!installed.installed.srt)("a sandboxed agent under srt", () => {
           },
           deadline: future(),
           cwd: work,
-          sandboxes: { providers: installed },
+          sandboxes: { providers: installed, sandboxesDir: runDirs.tempRunDir() },
         },
       );
       expect(result.value).toBe("answered");
@@ -732,8 +740,10 @@ describe("a run's sandboxes, opening as the run ends", () => {
       },
     };
     const sandboxes = new RunSandboxes({
-      sandboxes: { providers: { installed: { srt: provider }, default: "srt" } },
-      runDir: runDirs.tempRunDir(),
+      sandboxes: {
+        providers: { installed: { srt: provider }, default: "srt" },
+        sandboxesDir: runDirs.tempRunDir(),
+      },
       runRoot: runDirs.tempRunDir(),
       cwd: work,
       deadline: future(),

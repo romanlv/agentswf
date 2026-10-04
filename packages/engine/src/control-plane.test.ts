@@ -6,7 +6,7 @@ import { type ResultSubmitResponse, WIRE_VERSION } from "@agentswf/contract/wire
 import { CONTROL_PLANE_ROOT, startResultControlPlane } from "./control-plane";
 import type { ResultSlotRegistry } from "./result-slots";
 import { createResultSlotRegistry } from "./result-slots";
-import { readAccepted } from "./run-dir";
+import { readAccepted } from "./runs";
 import { COUNT_SCHEMA, createTempRunDirs, exchange } from "./testing";
 
 const runDirs = createTempRunDirs();

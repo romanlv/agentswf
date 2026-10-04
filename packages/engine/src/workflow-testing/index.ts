@@ -18,7 +18,7 @@ import type { Harness } from "@agentswf/harness";
 import { createFakeSandboxProvider } from "@agentswf/sandbox/testing/fake";
 import { messageOf } from "../errors";
 import { OPERATOR_ALIASES } from "../operator-aliases";
-import { readStageRecords, writeStageRecord } from "../runs";
+import { createRun, readStageRecords, writeStageRecord } from "../runs";
 import {
   runWorkflow,
   type SettledRun,
@@ -94,7 +94,10 @@ export type TestRun<Result> = {
   agentOf(key: string): OpenedAgent;
   decisions: DecisionRequest[];
   logs: { message: string; fields?: JsonObject }[];
-  /** Each stage's record, as the run wrote it, in the order entered. */
+  /**
+   * Each stage's record in the order entered, as the run wrote it to disk: sessions, times and
+   * reason included, which the run's own summaries leave out.
+   */
   stages: StageRecord[];
   /** How the attempt stopped, apart from a failure; absent when it didn't. */
   stopped?: { reason: string; stage?: string };
@@ -165,27 +168,32 @@ export async function testWorkflow<Args extends JsonValue, Result extends JsonVa
   if (options.fromStage !== undefined && options.recorded === undefined) {
     throw new Error("fromStage continues a run: give the stages it recorded as `recorded`");
   }
-  const continued = options.recorded
-    ? await recordEarlierAttempt(join(runRoot, "test"), options.recorded)
-    : undefined;
-  const recordedStages = async ({ runId, stages: entered = [] }: SettledRun) => {
-    const records = await readStageRecords(join(runRoot, runId));
-    return entered.flatMap(({ stage }) => records.get(stage) ?? []);
+  const run = await createRun(runRoot, {
+    id: "test",
+    workflow: definition.meta.name,
+    argv: [],
+    cwd,
+    sandbox: null,
+  });
+  if (options.recorded) await recordEarlierAttempt(run.dir, options.recorded);
+  const recordedStages = async ({ stages: entered = [] }: SettledRun) => {
+    const records = await readStageRecords(run.dir);
+    // A stage the plan stopped has no record of this attempt's: the one there is an earlier one's.
+    return entered.flatMap(({ stage, attempt }) => {
+      const record = records.get(stage);
+      return record?.attempt === attempt ? [record] : [];
+    });
   };
   events.onActivity();
   try {
     const result = await runWorkflow(definition, args, {
       runRoot,
-      ...(continued
-        ? {
-            run: {
-              dir: continued,
-              id: "test",
-              attempt: 2,
-              ...(options.fromStage === undefined ? {} : { fromStage: options.fromStage }),
-            },
-          }
-        : {}),
+      run: {
+        dir: run.dir,
+        id: run.record.id,
+        attempt: options.recorded ? 2 : 1,
+        ...(options.fromStage === undefined ? {} : { fromStage: options.fromStage }),
+      },
       cwd,
       deadline: { unixMilliseconds: Date.now() + (options.timeoutMs ?? 30 * 60_000) },
       signal: stopping.signal,
@@ -195,6 +203,7 @@ export async function testWorkflow<Args extends JsonValue, Result extends JsonVa
           installed: { srt: sandboxes.provider, docker: sandboxes.provider },
           default: "srt",
         },
+        sandboxesDir: directory(),
       },
       decisions: {
         providers: { scripted: decisions.provider },
@@ -258,14 +267,18 @@ export async function testWorkflow<Args extends JsonValue, Result extends JsonVa
   };
 }
 
-/** Writes `recorded` as attempt 1's succeeded stages, in order, into a run's folder. */
+/**
+ * Writes `recorded` as attempt 1's succeeded stages into a run's folder, a second apart in the order
+ * given: a continue orders what is recorded by when each stage started.
+ */
 async function recordEarlierAttempt(
   dir: string,
   recorded: Readonly<Record<string, JsonValue | undefined>>,
-): Promise<string> {
-  const at = Date.now() - Object.keys(recorded).length * 1_000;
-  for (const [index, [stage, value]] of Object.entries(recorded).entries()) {
-    const time = new Date(at + index * 1_000).toISOString();
+): Promise<void> {
+  let at = Date.now() - Object.keys(recorded).length * 1_000;
+  for (const [stage, value] of Object.entries(recorded)) {
+    const time = new Date(at).toISOString();
+    at += 1_000;
     await writeStageRecord(dir, {
       version: STAGE_RECORD_VERSION,
       stage,
@@ -277,7 +290,6 @@ async function recordEarlierAttempt(
       ...(value === undefined ? {} : { value }),
     });
   }
-  return dir;
 }
 
 function isExecutable<Args extends JsonValue, Result extends JsonValue>(

@@ -367,9 +367,10 @@ describe("turns.jsonl", () => {
     );
     const turns = await readTurns(dir);
     expect(
-      turns.map(({ version, attempt, agent, stage, label, outcome }) => ({
+      turns.map(({ version, attempt, kind, agent, stage, label, outcome }) => ({
         version,
         attempt,
+        kind,
         agent,
         stage,
         label,
@@ -379,6 +380,7 @@ describe("turns.jsonl", () => {
       {
         version: 1,
         attempt: 3,
+        kind: "turn",
         agent: "worker",
         stage: undefined,
         label: "before",
@@ -388,6 +390,7 @@ describe("turns.jsonl", () => {
       {
         version: 1,
         attempt: 3,
+        kind: "compact",
         agent: "worker",
         stage: "implement",
         label: undefined,
@@ -396,6 +399,7 @@ describe("turns.jsonl", () => {
       {
         version: 1,
         attempt: 3,
+        kind: "turn",
         agent: "worker",
         stage: "implement",
         label: undefined,
