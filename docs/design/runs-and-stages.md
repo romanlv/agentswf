@@ -381,10 +381,12 @@ emits a deny nested in an allowed path after the allow, so a run root inside the
 would hide a sandbox folder under it too. No sandbox reaches into `~/.awf`, and a run root holding
 its sandboxes is refused.
 
-- srt lists the run root in `denyRead` already (`srt/profile.ts:62`) and gains a write deny for it.
-- docker mounts an empty tmpfs over the run root when a mount contains it.
-- `resolve.ts`'s `forbidden()` (line 85) stops refusing a path that contains the run root, since
-  the provider now hides it; a path inside the run root is still refused.
+- `resolveSandbox` stops refusing a path that contains the run root, and decides once whether to
+  hide it: `ResolvedSandbox.hidden` holds the run root when an allowed path holds it. A path
+  inside the run root is still refused.
+- Each provider renders `hidden`: srt denies each path for reads and writes, and its
+  `checkProfile` refuses an allowed path holding the run root unless it is hidden; docker mounts
+  an empty tmpfs over each.
 
 Agents outside a sandbox can reach `.awf/`, and `git clean -xfd` deletes it, as with
 `.terraform/`. Only the run's own root is hidden: a sandbox that reads a folder holding other

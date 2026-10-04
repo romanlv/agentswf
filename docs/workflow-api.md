@@ -511,10 +511,11 @@ const args = {
 };
 const doc = "docs/ABC-1.md";
 const ready = (summary: string) => answer(VERDICT, { kind: "ready", summary });
+const planned = { docPath: doc, summary: "plan", decisions: [] };
 
 /** Every agent does its part at once: the doc is approved, then the code. */
 const happyPath: Record<string, Script> = {
-  planner: answer(WORK, { docPath: doc, summary: "plan", decisions: [] }),
+  planner: answer(WORK, planned),
   reviewer: ready("ok"),
   implementer: answer(WORK, { docPath: doc, summary: "built", decisions: ["LRU"] }),
 };
@@ -528,7 +529,7 @@ const run = await testWorkflow(featureDelivery, args, {
   agents: {
     ...happyPath,
     planner: [
-      answer(WORK, { docPath: doc, summary: "plan", decisions: [] }),
+      answer(WORK, planned),
       answer(WORK, { docPath: doc, summary: "plan v2", decisions: ["name the cache"] }),
     ],
     reviewer: [
