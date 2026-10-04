@@ -24,17 +24,13 @@ import {
 } from "@agentswf/sandbox";
 import { CONTROL_PLANE_ROOT } from "./control-plane";
 import { messageOf } from "./errors";
+import { machinePaths } from "./runs";
 import { type CredentialLocks, placeCarried, type SeededHome, seedHome } from "./sandbox-homes";
 import { placeSkills, type ResolvedSkill } from "./skills/run-skills";
 
-/** The providers a run may open sandboxes with, and the directory holding every run. */
+/** The providers a run may open sandboxes with, and where their directories are made. */
 export type RunSandboxOptions = {
   providers: SandboxProviders;
-  /**
-   * Every run's directory, denied inside each sandbox: the `--run-root`, of which this run's is one
-   * entry. Defaults to the run's own root.
-   */
-  runRoot?: string;
   /**
    * Where each sandbox's own directory, its homes and quarantine, is made. Outside the run root, so
    * a provider that denies it hides none of a sandbox's own.
@@ -380,14 +376,18 @@ export class RunSandboxes {
   ): Promise<RunSandbox> {
     const options = await this.#resolveOptions(key, cwd, inline);
     const { provider, sandbox: resolved } = await resolveSandbox(spec, options);
+    // Resolving found the provider installed, which only the operator's sandboxes install.
+    const setup = this.options.sandboxes;
+    const installed = setup?.providers.installed[provider];
+    if (!setup || !installed) throw new Error(`the ${provider} sandbox provider is not installed`);
     // Minted, not derived from the key, which may hold `/` or `..`; real, as every path a
     // provider is handed is, so a path rule it writes matches what the system checks.
-    const parent = this.options.sandboxes!.sandboxesDir;
+    const parent = setup.sandboxesDir;
     await mkdir(parent, { recursive: true, mode: 0o700 });
     const directory = join(await realpath(parent), randomUUID());
     // Before the provider opens: a box mounts `homes/` once, and later agents' homes appear in it.
     await mkdir(join(directory, "homes"), { recursive: true, mode: 0o700 });
-    const opened = await this.#providers.installed[provider]!.open(resolved, {
+    const opened = await installed.open(resolved, {
       runRoot: options.runRoot,
       directory,
       deadline: this.options.deadline,
@@ -396,11 +396,12 @@ export class RunSandboxes {
   }
 
   async #resolveOptions(key: string, cwd: string, inline: boolean) {
-    this.#runRoot ??= realpath(this.options.sandboxes?.runRoot ?? this.options.runRoot);
+    this.#runRoot ??= realpath(this.options.runRoot);
     return {
       key,
       cwd,
       runRoot: await this.#runRoot,
+      machineRoot: machinePaths(homedir()).root,
       providers: this.#providers,
       harnessState: Object.values(harnessState(this.#environment)),
       controlRoot: CONTROL_PLANE_ROOT,

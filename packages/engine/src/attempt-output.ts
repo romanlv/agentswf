@@ -1,26 +1,19 @@
 import { rm } from "node:fs/promises";
-import { homedir } from "node:os";
-import { isAbsolute, relative } from "node:path";
 import {
-  type AttemptAccounting,
-  type AttemptRecord,
+  type AttemptStage,
   OUTPUT_RECORD_VERSION,
   type OutputRecord,
-  type RunAccounting,
 } from "@agentswf/contract/records";
-import type { Ending, ExecutableWorkflow, JsonValue } from "@agentswf/contract/workflow";
-import {
-  describeAttempts,
-  describeDecisionLine,
-  describeFigures,
-  describeGroups,
-  duration,
-} from "./accounting/format";
-import { sumAttempts } from "./accounting/summary";
-import { type AttemptEnd, ENDINGS } from "./attempt-ending";
+import type {
+  Ending,
+  ExecutableWorkflow,
+  JsonValue,
+  StageSummary,
+} from "@agentswf/contract/workflow";
+import { attemptAccounting } from "./accounting/summary";
+import type { AttemptEnd } from "./attempt-ending";
 import { messageOf } from "./errors";
 import { writeJson, writeWhole } from "./files";
-import { endingMark, type Paint } from "./progress-view";
 import { type Attempt, endAttempt, outputFile, reportFile } from "./runs";
 
 /** Where an attempt's records went, and its output record as `--json` prints it. */
@@ -50,7 +43,7 @@ export async function keepRecords(
   const { ending, settled } = end;
   const dir = attempt.run.dir;
   const report = await writeReport(context.executable, ending, dir, stderr);
-  const stages = settled?.stages?.map(({ value: _value, ...stage }) => stage);
+  const stages = settled?.stages && withoutValues(settled.stages);
   const at =
     ending.kind !== "completed" && ending.stage !== undefined ? { stage: ending.stage } : {};
   const ended =
@@ -58,7 +51,13 @@ export async function keepRecords(
       ? { outcome: "completed" as const, value: ending.value }
       : { outcome: ending.kind, reason: ending.reason, ...at };
   const kept: Kept = report ? { report } : {};
-  if (settled) {
+  const output = outputFile(dir);
+  if (!settled) {
+    // An earlier attempt's output is gone with it, as its report is.
+    await rm(output, { force: true }).catch((error) =>
+      stderr(`awf: output.json: ${messageOf(error)}`),
+    );
+  } else {
     const record: OutputRecord = {
       version: OUTPUT_RECORD_VERSION,
       runId: settled.runId,
@@ -75,7 +74,6 @@ export async function keepRecords(
       ...ended,
     };
     kept.json = JSON.stringify(record, null, 2);
-    const output = outputFile(dir);
     try {
       await writeJson(output, record);
       kept.output = output;
@@ -95,21 +93,6 @@ export async function keepRecords(
     stderr(`awf: the attempt's ending was not written to ${attempt.file}: ${messageOf(error)}`);
   }
   return kept;
-}
-
-/** A completed attempt's value as the workflow presents it; undefined to print the JSON. */
-export function present(
-  executable: ExecutableWorkflow<JsonValue, JsonValue>,
-  ending: Ending<JsonValue>,
-  stderr: (text: string) => void,
-): string | undefined {
-  if (!executable.present || ending.kind !== "completed") return undefined;
-  try {
-    return executable.present(ending.value, ending)?.trimEnd();
-  } catch (error) {
-    stderr(`awf: present: ${messageOf(error)}; printing the full result instead`);
-    return undefined;
-  }
 }
 
 async function writeReport(
@@ -138,78 +121,7 @@ async function writeReport(
   }
 }
 
-/**
- * How an attempt ended, once, after its stages: the outcome, where and why; the run and what the
- * attempt cost, and for a later attempt the whole run, naming attempts with no accounting, which an
- * interrupted one leaves; then the command that goes on, and where the records are.
- */
-export function describeEnding(
-  ending: Ending<JsonValue>,
-  context: {
-    /** The workflow's name and the run's id. */
-    named: string;
-    n: number;
-    accounting?: RunAccounting;
-    earlier: readonly AttemptRecord[];
-    records: string;
-    report?: string;
-    paint: Paint;
-  },
-): string[] {
-  const { accounting, n } = context;
-  const mark = endingMark(ending.kind, context.paint);
-  const run = [
-    context.named,
-    ...(n > 1 ? [`attempt ${n}`] : []),
-    ...(accounting ? [duration(accounting.wallMs), ...describeFigures(accounting)] : []),
-    ...(n > 1 && accounting ? [runTotal(n, accounting, context.earlier)] : []),
-  ].join(" · ");
-  const head =
-    ending.kind === "completed"
-      ? [`${mark} completed · ${run}`]
-      : [
-          `${mark} ${ENDINGS[ending.kind].ended}${ending.stage === undefined ? "" : ` in ${ending.stage}`}: ${ending.reason}`,
-          `  ${run}`,
-        ];
-  const rows: [string, string][] = [
-    ...(ending.kind === "completed" ? [] : [["go on", ending.continue] as [string, string]]),
-    ...(context.report ? [["report", context.report] as [string, string]] : []),
-    ["records", context.records],
-  ];
-  return [
-    ...head,
-    ...(accounting ? [...describeDecisionLine(accounting), ...describeGroups(accounting)] : []),
-    ...rows.map(([key, value]) => `  ${key.padEnd(7)}  ${value}`),
-  ];
-}
-
-function runTotal(n: number, current: RunAccounting, earlier: readonly AttemptRecord[]): string {
-  const recorded = [
-    ...earlier.filter((record) => record.n < n).flatMap((record) => record.accounting ?? []),
-    current,
-  ];
-  return describeAttempts(sumAttempts(recorded), n, n - recorded.length);
-}
-
-/** A path under `cwd` relative to it, one under home from `~`; any other in full. */
-export function shown(path: string, cwd: string): string {
-  const inside = relative(cwd, path);
-  return inside && !inside.startsWith("..") && !isAbsolute(inside) ? inside : tilde(path);
-}
-
-export function tilde(path: string): string {
-  const home = homedir();
-  return path.startsWith(`${home}/`) ? `~${path.slice(home.length)}` : path;
-}
-
-function attemptAccounting({
-  basis,
-  wallMs,
-  grouping,
-  billing,
-  totals,
-  byStage,
-  unpriced,
-}: RunAccounting): AttemptAccounting {
-  return { basis, wallMs, grouping, billing, totals, byStage, unpriced };
+/** Stages without their values, which their stage records keep. */
+export function withoutValues(stages: readonly StageSummary[]): AttemptStage[] {
+  return stages.map(({ value: _value, ...stage }) => stage);
 }

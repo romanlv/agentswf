@@ -1,10 +1,9 @@
 import {
   STAGE_RECORD_VERSION,
-  type StageOutcome,
   type StageRecord,
   type TurnRecord,
 } from "@agentswf/contract/records";
-import type { JsonValue, StageSummary } from "@agentswf/contract/workflow";
+import type { JsonValue, StageOutcome, StageSummary } from "@agentswf/contract/workflow";
 import { replaceStale, stageNameProblem, writeStageRecord } from "./runs";
 import { planStage } from "./stage-plan";
 import { primaryFailure, WorkflowStopped } from "./stopped";
@@ -28,7 +27,7 @@ export type StageProgress = Omit<StageSummary, "value" | "outcome" | "spanMs"> &
 };
 
 /** A stage entered: reused from its record without running, or run. */
-export type EnteredStage =
+type EnteredStage =
   /** `release` once the value is handed back: until then the stage counts as open. */
   | { kind: "reuse"; record: StageRecord; value: JsonValue | undefined; release(): void }
   | { kind: "run"; stage: OpenStage };
@@ -49,7 +48,7 @@ export class StageLedger {
   #open: OpenStage | undefined;
   /** Set once the workflow's body has ended: what it left running enters no stage. */
   #sealed: string | undefined;
-  /** The stop that ended the attempt; caught, it is thrown again by any later stage. */
+  /** The stop that ended the attempt; a later stop throws it again. */
   #stopped: WorkflowStopped | undefined;
   /** Why the attempt fails once its stop was found caught. */
   #caught: Error | undefined;
@@ -113,7 +112,7 @@ export class StageLedger {
 
   /**
    * `workflow.stop`, called in `stage` or between stages: what to throw. The first stop is kept,
-   * and any later stage or stop throws it again; once it was found caught, that instead. After the
+   * and any later stop throws it again; once it was found caught, that instead. After the
    * workflow's body ended, a stop ends nothing.
    */
   stop(reason: string, stage: string | undefined): Error {
@@ -136,14 +135,14 @@ export class StageLedger {
   /**
    * Enters `name`: reused when the plan says so, its value checked by `misfit`, or opened to run.
    * Throws why it can't be: a bad name, a second entry, another one open, or a record that stops
-   * the attempt. Reaching the start point, it moves the records it outdates to `replaced/`.
+   * the attempt. Entered after a stop, the stop was caught, and that fails the attempt. Reaching the start point, it moves the records it outdates to `replaced/`.
    */
   async enter(
     name: string,
     misfit: (value: JsonValue | undefined) => string | undefined,
   ): Promise<EnteredStage> {
-    if (this.#caught) throw this.#caught;
-    if (this.#stopped) throw this.#stopped;
+    const caught = this.caught();
+    if (caught) throw caught;
     this.#check(name);
     const at = this.#now().getTime();
     const decision = planStage(

@@ -15,10 +15,11 @@ import { OUTPUT_RECORD_VERSION } from "../packages/contract/src/records";
 import { DeadlineExceededError } from "../packages/contract/src/workflow/timing";
 import { PUBLISHED_PRICES } from "../packages/engine/src/accounting/prices";
 import { summarizeRun } from "../packages/engine/src/accounting/summary";
-import { attemptEnd, runOutcome } from "../packages/engine/src/attempt-ending";
+import { decideEnding, runOutcome } from "../packages/engine/src/attempt-ending";
 import { WorkflowCancelledError } from "../packages/engine/src/deadlines";
 import { createFakeDecisionProvider } from "../packages/engine/src/decisions/fake";
 import { runOperatorCli } from "../packages/engine/src/operator-cli";
+import { processStart } from "../packages/engine/src/runs";
 import { WorkflowStopped } from "../packages/engine/src/stopped";
 import { createTempRunDirs, submit } from "../packages/engine/src/testing";
 import { WorkflowRunError } from "../packages/engine/src/workflow-runner";
@@ -129,7 +130,7 @@ describe("awf run", () => {
       "[0:00] ✓ Minimum review done 2/2 in 0s",
       "",
       expect.stringMatching(
-        /^✓ completed · review-loop \d{8}-\d{4}-[0-9a-f]{4} · \d+s · 2 agents · 21k tokens · ~\$0\.03 at list prices · subscription$/,
+        /^✓ completed · review-loop \d{8}-\d{4}-[0-9a-f]{4} · 2 agents · \d+s · 21k tokens · ~\$0\.03 at list prices · subscription$/,
       ),
       expect.stringMatching(/^ {2}records {2}.+\/review-loop\/\d{8}-\d{4}-[0-9a-f]{4}$/),
     ]);
@@ -222,7 +223,7 @@ describe("awf run", () => {
     ]);
     const accounting = errors.filter((line) => line !== "" && !line.startsWith("["));
     expect(accounting[0]).toMatch(
-      /^✓ completed · quick-check \S+ · \d+s · 2 agents · .* · subscription/,
+      /^✓ completed · quick-check \S+ · 2 agents · \d+s · .* · subscription/,
     );
     expect(accounting[1]).toStartWith("  records  ");
   });
@@ -718,9 +719,11 @@ describe("awf run", () => {
     });
     const output: string[] = [];
     const errors: string[] = [];
+    const runRoot = runDirs.tempRunDir();
+    let endedInCleanup: unknown;
 
     const exitCode = await cli(
-      ["run", "--run-root", runDirs.tempRunDir(), "examples/minimum-review/review-loop.ts"],
+      ["run", "--run-root", runRoot, "examples/minimum-review/review-loop.ts"],
       {
         cwd: ROOT,
         stdout: (text) => output.push(text),
@@ -728,6 +731,8 @@ describe("awf run", () => {
         installRuntime: async () => ({
           config: runtime(adapter),
           cleanup: async () => {
+            const [id] = readdirSync(join(runRoot, "review-loop"));
+            endedInCleanup = attemptOf(join(runRoot, "review-loop", id!)).ended;
             throw new Error("cleanup broke");
           },
         }),
@@ -749,6 +754,9 @@ describe("awf run", () => {
     expect(saved).toMatchObject({ outcome: "failed", reason });
     expect(saved).not.toHaveProperty("value");
     expect(reported).toMatch(/^ {2}go on {4}awf run .*review-loop\.ts --continue \S+$/m);
+    // Ended once, after its cleanup: an ended attempt lets the next start, whose records a second
+    // write of this one's would overwrite.
+    expect(endedInCleanup).toBeUndefined();
   });
 
   test("fails an incomplete review instead of reporting successful review output", async () => {
@@ -800,7 +808,7 @@ describe("awf run", () => {
       expect(exitCode).toBe(1);
       const reported = errors.join("\n");
       expect(reported).toMatch(
-        /^✗ failed: review incomplete: .*\n {2}review-loop \S+ · \d+s · 2 agents · .* · subscription$/m,
+        /^✗ failed: review incomplete: .*\n {2}review-loop \S+ · 2 agents · \d+s · .* · subscription$/m,
       );
       const saved = JSON.parse(readFileSync(join(recordsIn(reported), "output.json"), "utf8"));
       expect(saved).toMatchObject({
@@ -904,10 +912,10 @@ describe("awf run", () => {
         accounting: summarizeRun([], PUBLISHED_PRICES, times, []),
       };
       const timedOut = new WorkflowRunError(new DeadlineExceededError(deadline), run);
-      expect(runOutcome(timedOut, deadline)).toBe("timed-out");
-      expect(runOutcome(timedOut, { unixMilliseconds: 2_000 })).toBe("failed");
+      expect(runOutcome(timedOut, deadline).kind).toBe("timed-out");
+      expect(runOutcome(timedOut, { unixMilliseconds: 2_000 }).kind).toBe("failed");
       const cancelled = new WorkflowRunError(new WorkflowCancelledError("SIGINT"), run);
-      expect(runOutcome(cancelled, deadline)).toBe("cancelled");
+      expect(runOutcome(cancelled, deadline).kind).toBe("cancelled");
       const both = new WorkflowRunError(
         new AggregateError([
           new DeadlineExceededError(deadline),
@@ -915,12 +923,12 @@ describe("awf run", () => {
         ]),
         run,
       );
-      expect(runOutcome(both, deadline)).toBe("cancelled");
+      expect(runOutcome(both, deadline).kind).toBe("cancelled");
       const cleanupFailed = new WorkflowRunError(
         new AggregateError([new DeadlineExceededError(deadline), new Error("cleanup")]),
         run,
       );
-      expect(runOutcome(cleanupFailed, deadline)).toBe("timed-out");
+      expect(runOutcome(cleanupFailed, deadline).kind).toBe("timed-out");
     });
 
     test("a stop keeps its own reason, and what failed beside it is said apart", () => {
@@ -936,7 +944,7 @@ describe("awf run", () => {
         new AggregateError([new WorkflowStopped("no preview", "qa"), new Error("cleanup broke")]),
         run,
       );
-      const end = attemptEnd({ error: stopped }, { unixMilliseconds: 1_000 }, () => "awf run …");
+      const end = decideEnding({ error: stopped }, { unixMilliseconds: 1_000 }, () => "awf run …");
       expect(end.ending).toMatchObject({ kind: "stopped", stage: "qa", reason: "no preview" });
       expect(end.alsoFailed).toBe("cleanup broke");
       expect(end.exitCode).toBe(3);
@@ -1424,6 +1432,8 @@ describe("awf run's stages", () => {
     expect(failed.exitCode).toBe(1);
     expect(failed.stderr).toContain("✗ failed in qa: qa broke\n  fixture r1 · ");
     expect(failed.stderr).toContain("  go on    awf run flow.js --continue r1");
+    // No terminal drew the stages with their cost, so the closing block lists them.
+    expect(failed.stderr).toMatch(/^ {2}implement {2}0 agents · \d+s\n {2}qa {9}0 agents · \d+s$/m);
     expect(failed.record).toMatchObject({
       outcome: "failed",
       stage: "qa",
@@ -1530,6 +1540,31 @@ describe("awf run's stages", () => {
     expect(existsSync(join(dir, "report.md"))).toBe(false);
   });
 
+  test("an attempt that never starts leaves no earlier attempt's report or output behind", async () => {
+    const cwd = await projectWith(
+      executableModule(
+        "return null;",
+        `throw new Error("not yet");`,
+        `report(value, ending) { return ending.kind + ": " + ending.reason; },`,
+      ),
+    );
+    const dir = join(cwd, ".awf", "runs", "fixture", "r1");
+    await awfRun(cwd, ["--id", "r1", "flow.js"]);
+    expect(readFileSync(join(dir, "report.md"), "utf8")).toBe("failed: not yet\n");
+    expect(existsSync(join(dir, "output.json"))).toBe(true);
+    const exitCode = await cli(["run", "flow.js", "--continue", "r1"], {
+      cwd,
+      stderr: () => undefined,
+      installRuntime: async () => {
+        throw new Error("no login");
+      },
+    });
+    expect(exitCode).toBe(1);
+    expect(attemptOf(dir, 2)).toMatchObject({ outcome: "failed", reason: "runtime: no login" });
+    expect(readFileSync(join(dir, "report.md"), "utf8")).toBe("failed: runtime: no login\n");
+    expect(existsSync(join(dir, "output.json"))).toBe(false);
+  });
+
   test("--from-stage refuses a name that can't be a stage's", async () => {
     const cwd = await project();
     const refused = await awfRun(cwd, ["flow.js", "--continue", "r1", "--from-stage", "QA"]);
@@ -1618,10 +1653,8 @@ describe("awf run --here", () => {
       herdr: fakeHerdr().run,
       stderr: (text) => errors.push(text),
     });
-    expect(exitCode).toBe(1);
-    expect(errors).toEqual([
-      `awf: --here: no workflow file at ${join(ROOT, "nowhere.ts")}. Name it by a path from this directory.`,
-    ]);
+    expect(exitCode).toBe(2);
+    expect(errors).toEqual([`awf: load: workflow file not found: ${join(ROOT, "nowhere.ts")}`]);
   });
 
   test("refuses a workflow that will not start, before any tab opens", async () => {
@@ -1633,10 +1666,8 @@ describe("awf run --here", () => {
       herdr: herdr.run,
       stderr: (text) => errors.push(text),
     });
-    expect(exitCode).toBe(1);
-    expect(errors).toEqual([
-      "awf: --here: the workflow cannot start: the only argument is --no-helper. Fix it, then run this again.",
-    ]);
+    expect(exitCode).toBe(2);
+    expect(errors).toEqual(["awf: prepare: the only argument is --no-helper"]);
     expect(herdr.calls.some((call) => call[0] === "tab")).toBe(false);
   });
 
@@ -1652,9 +1683,10 @@ describe("awf run --here", () => {
       herdr: herdr.run,
       stderr: (text) => errors.push(text),
     });
-    expect(exitCode).toBe(1);
-    expect(errors.join("\n")).toContain("--here: the workflow cannot start: ");
-    expect(errors.join("\n")).toContain("keeps the arguments");
+    expect(exitCode).toBe(2);
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toStartWith("awf: ");
+    expect(errors[0]).toContain("keeps the arguments");
     expect(herdr.calls.some((call) => call[0] === "tab")).toBe(false);
   });
 
@@ -1669,8 +1701,9 @@ describe("awf run --here", () => {
       herdr: herdr.run,
       stderr: (text) => errors.push(text),
     });
-    expect(exitCode).toBe(1);
-    expect(errors.join("\n")).toContain("r1 exists");
+    expect(exitCode).toBe(2);
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toStartWith("awf: r1 exists");
     expect(herdr.calls.some((call) => call[0] === "tab")).toBe(false);
   });
 
@@ -1739,11 +1772,28 @@ describe("awf run --here", () => {
     expect(existsSync(runRoot) && readdirSync(runRoot)).toEqual([]);
   });
 
-  test("a session another live run drives is refused; a mark its process left behind is not", async () => {
+  test("a run refused before it finds its calling session brings its own tab forward", async () => {
+    const herdr = fakeHerdr();
+    const errors: string[] = [];
+    const exitCode = await cli(["run", "--session", "awf-here-0123abcd", "nowhere.ts"], {
+      cwd: ROOT,
+      environment: { ...inHerdr, HERDR_TAB_ID: "w1:t2" },
+      herdr: herdr.run,
+      stderr: (text) => errors.push(text),
+    });
+    expect(exitCode).toBe(2);
+    expect(errors).toEqual([`awf: load: workflow file not found: ${join(ROOT, "nowhere.ts")}`]);
+    expect(herdr.calls).toContainEqual(["tab", "focus", "w1:t2"]);
+  });
+
+  test("a session another live run drives is refused; a mark its process left behind, or a reused pid's, is not", async () => {
     const herdr = fakeHerdr({ "w1:p1": { agent: "pi", screen: "awf-here-0123abcd" } });
     const runRoot = runDirs.tempRunDir();
-    mkdirSync(join(HOME, ".awf", "callers"), { recursive: true });
-    writeFileSync(join(HOME, ".awf", "callers", "w1_p1.pid"), String(process.pid));
+    const callers = join(HOME, ".awf", "callers");
+    const mark = join(callers, "w1_p1.json");
+    const started = processStart(process.pid)!;
+    mkdirSync(callers, { recursive: true });
+    writeFileSync(mark, JSON.stringify({ pid: process.pid, processStart: started }));
     const errors: string[] = [];
     const exitCode = await cli(
       ["run", "--session", "awf-here-0123abcd", "--run-root", runRoot, WORKFLOW],
@@ -1760,22 +1810,28 @@ describe("awf run --here", () => {
       `awf: --session: another run (process ${process.pid}) is already driving the session in w1:p1; one run drives a session at a time`,
     ]);
     expect(herdr.calls).toContainEqual(["tab", "focus", "w1:t2"]);
-    expect(readdirSync(join(HOME, ".awf", "callers"))).toEqual(["w1_p1.pid"]);
+    expect(readdirSync(callers)).toEqual(["w1_p1.json"]);
 
-    writeFileSync(join(HOME, ".awf", "callers", "w1_p1.pid"), "999999999");
-    const second = await cli(
-      ["run", "--session", "awf-here-0123abcd", "--run-root", runRoot, WORKFLOW],
-      {
-        cwd: ROOT,
-        environment: inHerdr,
-        herdr: herdr.run,
-        stderr: () => undefined,
-        installRuntime: emptyRuntime,
-      },
-    );
-    // Past the mark, it fails only because the empty runtime has no calling session.
-    expect(second).toBe(1);
-    expect(existsSync(join(HOME, ".awf", "callers", "w1_p1.pid"))).toBe(false);
+    const earlier = new Date(Date.parse(started) - 60_000).toISOString();
+    for (const left of [
+      { pid: 999_999_999, processStart: started },
+      { pid: process.pid, processStart: earlier },
+    ]) {
+      writeFileSync(mark, JSON.stringify(left));
+      const second = await cli(
+        ["run", "--session", "awf-here-0123abcd", "--run-root", runRoot, WORKFLOW],
+        {
+          cwd: ROOT,
+          environment: inHerdr,
+          herdr: herdr.run,
+          stderr: () => undefined,
+          installRuntime: emptyRuntime,
+        },
+      );
+      // Past the mark, it fails only because the empty runtime has no calling session.
+      expect(second).toBe(1);
+      expect(existsSync(mark)).toBe(false);
+    }
   });
 
   test("takes the pane showing its code over, and hands it back with how the run ended", async () => {
@@ -1839,7 +1895,7 @@ describe("awf run --here", () => {
     const handedBack = herdr.calls.find((call) => call[0] === "agent" && call[1] === "prompt");
     expect(handedBack?.[2]).toBe("w1:p1");
     expect(handedBack?.[3]).toMatch(
-      /^\[awf\] The workflow calling-session, run \S+, succeeded; its record is .*output\.json\. The run is over and this session is yours; nothing here needs an answer\.$/,
+      /^\[awf\] The workflow calling-session, run \S+, completed; its record is .*output\.json\. The run is over and this session is yours; nothing here needs an answer\.$/,
     );
   });
 });

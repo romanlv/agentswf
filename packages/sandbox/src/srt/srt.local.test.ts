@@ -81,6 +81,7 @@ describe.skipIf(!provider)("srt on this machine", () => {
         key: "local",
         cwd: repo,
         runRoot: await mkdirReal(runRoot),
+        machineRoot: join(home, ".awf"),
         harnessState,
         providers: { installed: { srt: provider as SandboxProvider<unknown> }, default: "srt" },
       },

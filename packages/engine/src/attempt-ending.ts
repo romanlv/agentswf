@@ -1,12 +1,14 @@
 import { constants } from "node:os";
 import {
   type AbsoluteDeadline,
+  type AttemptOutcome,
   DeadlineExceededError,
   type Ending,
   type JsonValue,
   type UnfinishedOutcome,
 } from "@agentswf/contract/workflow";
 import { messageOf } from "./errors";
+import type { Paint } from "./progress-view";
 import { primaryFailure, WorkflowStopped } from "./stopped";
 import {
   type SettledRun,
@@ -27,23 +29,31 @@ export type AttemptEnd = {
   alsoFailed?: string;
 };
 
-/** A stop's exit code, apart from a failure's: the run can go on with `--continue`. */
-const STOPPED_EXIT_CODE = 3;
+/** What a started run came to: the result it returned, or what it threw. */
+export type Finished = { result: WorkflowRunResult<JsonValue> } | { error: unknown };
 
-/** Each outcome in words: as the calling session is told it, and as awf reports it. */
-export const ENDINGS = {
-  stopped: { told: "stopped", ended: "stopped" },
-  cancelled: { told: "was cancelled", ended: "cancelled" },
-  "timed-out": { told: "timed out", ended: "timed out" },
-  failed: { told: "failed", ended: "failed" },
-} as const satisfies Record<UnfinishedOutcome, { told: string; ended: string }>;
+/**
+ * Each outcome: its word as awf reports it and as the calling session is told it, its mark, as its
+ * last stage's would be, and its exit code, but for a cancellation's, which is its signal's. A
+ * stop's is apart from a failure's: the run can go on with `--continue`.
+ */
+export const OUTCOMES: Record<
+  AttemptOutcome,
+  { word: string; told: string; mark: (paint: Paint) => string; exitCode?: number }
+> = {
+  completed: { word: "completed", told: "completed", mark: (p) => p.ok("✓"), exitCode: 0 },
+  stopped: { word: "stopped", told: "stopped", mark: (p) => p.busy("■"), exitCode: 3 },
+  cancelled: { word: "cancelled", told: "was cancelled", mark: (p) => p.busy("■") },
+  "timed-out": { word: "timed out", told: "timed out", mark: (p) => p.bad("✗"), exitCode: 1 },
+  failed: { word: "failed", told: "failed", mark: (p) => p.bad("✗"), exitCode: 1 },
+};
 
 /**
  * The ending of a run that returned or threw. `goOn` is the command that continues it, given the
  * stop that ended it, if one did.
  */
-export function attemptEnd(
-  run: { result: WorkflowRunResult<JsonValue> } | { error: unknown },
+export function decideEnding(
+  run: Finished,
   deadline: AbsoluteDeadline,
   goOn: (stop: WorkflowStopped | undefined) => string,
 ): AttemptEnd {
@@ -52,19 +62,17 @@ export function attemptEnd(
     return {
       ending: { kind: "completed", value: result.value, stages: result.stages ?? [] },
       settled: result,
-      exitCode: 0,
+      exitCode: OUTCOMES.completed.exitCode!,
     };
   }
   const { error } = run;
   const settled = error instanceof WorkflowRunError ? error : undefined;
-  const kind = runOutcome(error, deadline);
-  const stop = stopOf(error);
-  const cause = error instanceof WorkflowRunError ? error.cause : error;
+  const { kind, stop, cancellation } = runOutcome(error, deadline);
+  const cause = unwrapped(error);
   const beside =
     stop && cause instanceof AggregateError
       ? cause.errors.slice(1).map(errorDetail).join("; ")
       : "";
-  const cancellation = findCancellation(error);
   return {
     ending: {
       kind,
@@ -75,12 +83,25 @@ export function attemptEnd(
       continue: goOn(stop),
     },
     ...(settled ? { settled } : {}),
-    exitCode: cancellation
-      ? signalExitCode(cancellation.reason)
-      : kind === "stopped"
-        ? STOPPED_EXIT_CODE
-        : 1,
+    exitCode: cancellation ? signalExitCode(cancellation.reason) : OUTCOMES[kind].exitCode!,
     ...(beside ? { alsoFailed: beside } : {}),
+  };
+}
+
+/** The ending of an attempt whose run never started, so left nothing settled. */
+export function endedBeforeStart(
+  outcome: { kind: "failed"; reason: string } | { kind: "cancelled"; signal: AbortSignal },
+  goOn: string,
+): AttemptEnd {
+  const cancelled = outcome.kind === "cancelled";
+  return {
+    ending: {
+      kind: outcome.kind,
+      reason: cancelled ? "cancelled before it started" : outcome.reason,
+      stages: [],
+      continue: goOn,
+    },
+    exitCode: cancelled ? signalExitCode(outcome.signal.reason) : OUTCOMES.failed.exitCode!,
   };
 }
 
@@ -98,29 +119,33 @@ export function cleanupFailed(end: AttemptEnd, error: unknown, goOn: string): At
       stages: end.ending.stages,
       continue: goOn,
     },
-    exitCode: 1,
+    exitCode: OUTCOMES.failed.exitCode!,
   };
 }
 
 /**
- * How a run that did not succeed ended. The operator cancelling wins. It timed out when its own
- * deadline ended it: the body's failure, or the first error of its aggregate, is a deadline error
- * carrying the run's deadline. A deadline the workflow set and let escape is its own failure.
+ * How a run that did not succeed ended, with the stop or the cancellation that decided it. The
+ * operator cancelling wins. It timed out when its own deadline ended it: the body's failure, or the
+ * first error of its aggregate, is a deadline error carrying the run's deadline. A deadline the
+ * workflow set and let escape is its own failure.
  */
-export function runOutcome(error: unknown, deadline: AbsoluteDeadline): UnfinishedOutcome {
-  if (findCancellation(error)) return "cancelled";
-  if (stopOf(error)) return "stopped";
-  const failure = primaryFailure(error instanceof WorkflowRunError ? error.cause : error);
-  return failure instanceof DeadlineExceededError &&
-    failure.deadline.unixMilliseconds === deadline.unixMilliseconds
-    ? "timed-out"
-    : "failed";
+export function runOutcome(
+  error: unknown,
+  deadline: AbsoluteDeadline,
+): { kind: UnfinishedOutcome; stop?: WorkflowStopped; cancellation?: WorkflowCancelledError } {
+  const cancellation = findCancellation(error);
+  const failure = primaryFailure(unwrapped(error));
+  const stop = failure instanceof WorkflowStopped ? failure : undefined;
+  const timedOut =
+    failure instanceof DeadlineExceededError &&
+    failure.deadline.unixMilliseconds === deadline.unixMilliseconds;
+  const kind = cancellation ? "cancelled" : stop ? "stopped" : timedOut ? "timed-out" : "failed";
+  return { kind, ...(stop ? { stop } : {}), ...(cancellation ? { cancellation } : {}) };
 }
 
-/** The stop that ended a run, as `runOutcome` finds it. */
-function stopOf(error: unknown): WorkflowStopped | undefined {
-  const failure = primaryFailure(error instanceof WorkflowRunError ? error.cause : error);
-  return failure instanceof WorkflowStopped ? failure : undefined;
+/** What the run threw, out of the wrapping that carries what it settled. */
+function unwrapped(error: unknown): unknown {
+  return error instanceof WorkflowRunError ? error.cause : error;
 }
 
 function findCancellation(error: unknown): WorkflowCancelledError | undefined {

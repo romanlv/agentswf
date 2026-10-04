@@ -1,5 +1,5 @@
-import type { AgentKey, JsonValue, TurnOutcome } from "@agentswf/contract/workflow";
-import type { OperationTags } from "./run-usage";
+import type { TurnRecord } from "@agentswf/contract/records";
+import type { AgentKey, OperationRecord } from "@agentswf/contract/workflow";
 
 /** One labelled `parallel` call. Its label need not be unique; its position is. */
 export type GroupProgress = {
@@ -12,17 +12,12 @@ export type GroupProgress = {
   endedAt?: number;
 };
 
-export type TurnProgress = {
+type TurnProgress = Pick<TurnRecord, "kind" | "stage" | "label"> & {
   startedAt: number;
   settledAt?: number;
   /** Absent while the turn runs. */
-  outcome?: TurnOutcome<JsonValue>["kind"];
+  outcome?: TurnRecord["outcome"];
   reason?: string;
-  /** The workflow stage it runs in, and the label the workflow gave it. */
-  stage?: string;
-  label?: string;
-  /** Present for a compaction, which has no label of its own. */
-  kind?: "compact";
 };
 
 export type AgentProgress = {
@@ -66,11 +61,15 @@ export class RunProgress {
     if (agent) agent.forkedFrom = from;
   }
 
-  turnStarted(key: AgentKey, tags: OperationTags = {}, kind: "turn" | "compact" = "turn"): void {
+  turnStarted(
+    key: AgentKey,
+    tags: Pick<OperationRecord, "stage" | "label"> = {},
+    kind: TurnRecord["kind"] = "turn",
+  ): void {
     const agent = this.#agents.get(key);
     if (!agent) return;
     agent.turns += 1;
-    agent.turn = { startedAt: Date.now(), ...tags, ...(kind === "compact" ? { kind } : {}) };
+    agent.turn = { kind, startedAt: Date.now(), ...tags };
   }
 
   turnSettled(key: AgentKey, outcome: TurnProgress["outcome"], reason?: string): void {

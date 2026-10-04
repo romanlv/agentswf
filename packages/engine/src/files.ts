@@ -42,7 +42,7 @@ export async function linkNew(path: string, value: unknown): Promise<boolean> {
 }
 
 /** Creates `path`, which must not exist, holding `text`, synced. */
-export async function writeSynced(path: string, text: string): Promise<void> {
+async function writeSynced(path: string, text: string): Promise<void> {
   const handle = await open(path, "wx", 0o600);
   try {
     await handle.writeFile(text);

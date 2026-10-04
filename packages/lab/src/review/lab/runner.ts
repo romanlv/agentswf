@@ -11,6 +11,11 @@ export type RunRequest = {
   /** The workflow's own arguments, after `--`. */
   argv: readonly string[];
   runRoot: string;
+  /**
+   * The run's id: `awf run --id`. The lab finds a run by its id alone, across workflows, so it gives
+   * each one an id unique among all of them.
+   */
+  id: string;
   /** A sandbox spec file every agent of the run is put in: `awf run --sandbox`. */
   sandbox?: string;
   /** The whole run in a container instead, with only these paths mounted, each where it is. */
@@ -49,6 +54,8 @@ export function awfArgv(request: RunRequest): string[] {
     request.timeout,
     "--run-root",
     request.runRoot,
+    "--id",
+    request.id,
     "--cwd",
     request.cwd,
     ...(request.sandbox ? ["--sandbox", request.sandbox] : []),

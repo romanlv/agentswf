@@ -37,7 +37,7 @@ export type AccountedAgent = {
 };
 
 /** One operation's place in the run, held from before its dispatch so records keep that order. */
-export type OperationEntry = {
+type OperationEntry = {
   /**
    * Records what is known when the operation settles; spend and billing wait for the run's end.
    * `finishing` is an answered turn the host left finishing, whose charges are added when it ends.
@@ -50,7 +50,7 @@ export type OperationEntry = {
 };
 
 /** Where an operation ran: its workflow stage, absent between stages, and its turn's label. */
-export type OperationTags = { stage?: string; label?: string };
+export type OperationTags = Pick<OperationRecord, "stage" | "label">;
 
 /** One agent's part of the run's ledger. */
 export type AgentLedger = { reserve(operationId: string, tags?: OperationTags): OperationEntry };

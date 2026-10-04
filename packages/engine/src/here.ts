@@ -1,35 +1,29 @@
 import { randomBytes } from "node:crypto";
-import { linkSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
-import { basename, join, resolve } from "node:path";
+import { rmSync } from "node:fs";
+import { mkdir, readFile, rm } from "node:fs/promises";
+import { basename, join } from "node:path";
 import {
   type CallerPane,
   focusTab,
   HARNESSES,
   herdrReachable,
-  type RunProcess,
   runProcess,
   searchCaller,
   startInNewTab,
 } from "@agentswf/harness";
 import { messageOf } from "./errors";
-import { isCode } from "./files";
+import { linkNew } from "./files";
+import type { OperatorEnvironment } from "./operator-cli";
 import { herdrConfig, herdrSession } from "./operator-runtime";
 import type { RunCommand } from "./run-command";
-import { prepareRun } from "./run-continue";
-import { loadWorkflowFile } from "./workflow-loader";
+import { loadAndPrepare } from "./run-prepare";
+import { processStart } from "./runs";
 
 /** What `--here` and `--session` reach Herdr and the calling session through. */
-export type HereEnvironment = {
-  /** Runs `herdr` for `--here` and `--session`. */
-  herdr?: RunProcess;
-  environment?: Readonly<Record<string, string | undefined>>;
-  /** The command that runs this awf, which `--here` types into the run's tab. */
-  self?: readonly string[];
-  /** How long `--session` looks for the pane showing its code. */
-  callerSearchMs?: number;
-  signal?: AbortSignal;
-  now?: () => number;
-};
+type HereEnvironment = Pick<
+  OperatorEnvironment,
+  "herdr" | "environment" | "self" | "callerSearchMs" | "signal" | "now"
+>;
 
 export type Caller = { pane: CallerPane; session: string };
 
@@ -37,9 +31,10 @@ export const SESSION_CODE = /^awf-here-[0-9a-f]{8}$/;
 const CALLER_SEARCH_MS = 120_000;
 
 /**
- * `awf run --here`, in an agent's shell: checks the session can be driven, then has Herdr start the
- * run in a new tab, outside this shell and any sandbox it is in, and prints the code the agent ends
- * its turn with (ADR 0010). Nothing is started when a check fails.
+ * `awf run --here`, in an agent's shell: checks the workflow loads and its run can start, and that
+ * the session can be driven, then has Herdr start the run in a new tab, outside this shell and any
+ * sandbox it is in, and prints the code the agent ends its turn with (ADR 0010). Nothing is started
+ * when a check fails.
  */
 export async function startHere(
   argv: readonly string[],
@@ -48,6 +43,14 @@ export async function startHere(
   stdout: (text: string) => void,
   stderr: (text: string) => void,
 ): Promise<number> {
+  // In this shell, before any tab opens: a workflow that will not load or a run that will not
+  // start is said here, where the agent reads it, and not in a tab nobody is looking at.
+  const ready = await loadAndPrepare(command, (environment.now ?? Date.now)());
+  if ("refused" in ready) {
+    stderr(`awf: ${ready.refused}`);
+    return 2;
+  }
+  for (const line of ready.prepared.continued?.warnings ?? []) stderr(line);
   const env = environment.environment ?? process.env;
   const run = environment.herdr ?? runProcess;
   const refuse = (why: string, instead: string) => {
@@ -61,10 +64,6 @@ export async function startHere(
       "Start the agent in a Herdr pane, or run the workflow from a shell with awf run and no --here.",
     );
   }
-  const file = resolve(command.shellCwd, command.workflowFile);
-  if (!statSync(file, { throwIfNoEntry: false })?.isFile()) {
-    return refuse(`no workflow file at ${file}`, "Name it by a path from this directory.");
-  }
   let session: string;
   try {
     session = await herdrSession(run, env);
@@ -74,14 +73,6 @@ export async function startHere(
   const unreachable = await herdrReachable(herdrConfig(session), run);
   if (unreachable) {
     return refuse(`this session cannot reach Herdr: ${unreachable.trim()}`, sandboxFix(env));
-  }
-  // In this shell, before any tab opens: a workflow that will not load fails here, where the agent
-  // reads it, and not in a tab nobody is looking at.
-  try {
-    const loaded = await loadWorkflowFile(command.workflowFile, command.shellCwd);
-    await prepareRun(command, loaded, (environment.now ?? Date.now)());
-  } catch (error) {
-    return refuse(`the workflow cannot start: ${messageOf(error)}`, "Fix it, then run this again.");
   }
   const code = `awf-here-${randomBytes(4).toString("hex")}`;
   const end = argv.indexOf("--");
@@ -96,7 +87,7 @@ export async function startHere(
       // Under codex this can be another pane's workspace (E8); the run's tab still works from it.
       workspace,
       cwd: command.shellCwd,
-      label: `awf ${basename(file)}${command.continueId === undefined ? "" : ` ${command.continueId}`}`,
+      label: `awf ${basename(ready.loaded.file)}${command.continueId === undefined ? "" : ` ${command.continueId}`}`,
       argv: [...self, "run", "--session", code, ...options, ...rest],
     },
     run,
@@ -109,7 +100,7 @@ export async function startHere(
   }
   stdout(
     [
-      `awf: ${basename(file)} is starting in Herdr tab ${started.tabId}. Once this turn ends it takes this session over: each of its steps arrives here as a prompt, and a last message hands the session back.`,
+      `awf: ${basename(ready.loaded.file)} is starting in Herdr tab ${started.tabId}. Once this turn ends it takes this session over: each of its steps arrives here as a prompt, and a last message hands the session back.`,
       "",
       "End your turn now by replying with only this line, exactly:",
       code,
@@ -130,7 +121,7 @@ export async function takeCaller(
   const found = await findCaller(code, environment);
   let refused: string;
   if (found.kind === "found") {
-    const release = claimCaller(callers, found.caller.pane.paneId);
+    const release = await claimCaller(callers, found.caller.pane.paneId);
     if (typeof release !== "string") return { caller: found.caller, release };
     refused = release;
   } else {
@@ -158,49 +149,55 @@ function sandboxFix(env: Readonly<Record<string, string | undefined>>): string {
 /**
  * Marks `paneId` as driven by this process until the returned release, under `~/.awf`, which every
  * run on this machine shares whatever its run root: a second run started from a driven session is
- * refused, as ADR 0010 allows one at a time. A mark whose process is gone is taken over. The
- * reason when refused.
+ * refused, as ADR 0010 allows one at a time. A mark whose process is gone, or is another process
+ * with its pid, is taken over. The reason when refused.
  */
-function claimCaller(marks: string, paneId: string): (() => void) | string {
-  const mark = join(marks, `${paneId.replace(/[^A-Za-z0-9_-]/g, "_")}.pid`);
-  mkdirSync(marks, { recursive: true });
-  // Linked into place whole, so a run reading the mark never sees it without its pid.
-  const pending = `${mark}.${process.pid}`;
+async function claimCaller(marks: string, paneId: string): Promise<(() => void) | string> {
+  const mark = join(marks, `${paneId.replace(/[^A-Za-z0-9_-]/g, "_")}.json`);
+  const started = processStart(process.pid);
+  if (started === undefined) return `ps gave no start time for this process (${process.pid})`;
+  const holder: CallerMark = { pid: process.pid, processStart: started };
   try {
-    writeFileSync(pending, String(process.pid));
+    await mkdir(marks, { recursive: true });
     for (let attempt = 0; attempt < 2; attempt += 1) {
-      try {
-        linkSync(pending, mark);
-        return () => rmSync(mark, { force: true });
-      } catch (error) {
-        if (!isCode(error, "EEXIST")) return messageOf(error);
-        const holder = Number(readFileSync(mark, "utf8"));
-        if (alive(holder)) {
-          return `another run (process ${holder}) is already driving the session in ${paneId}; one run drives a session at a time`;
-        }
-        rmSync(mark, { force: true });
+      if (await linkNew(mark, holder)) return () => rmSync(mark, { force: true });
+      const other = await readMark(mark);
+      if (other && isRunning(other)) {
+        return `another run (process ${other.pid}) is already driving the session in ${paneId}; one run drives a session at a time`;
       }
+      await rm(mark, { force: true });
     }
     return `could not mark the session in ${paneId} as driven`;
   } catch (error) {
     return messageOf(error);
-  } finally {
-    rmSync(pending, { force: true });
   }
 }
 
-function alive(pid: number): boolean {
-  if (!Number.isSafeInteger(pid) || pid <= 0) return false;
+/** The run driving a session: its process, and when that started, which tells a reused pid apart. */
+type CallerMark = { pid: number; processStart: string };
+
+/** A mark as written, or undefined for one gone or unreadable, which nothing holds. */
+async function readMark(file: string): Promise<CallerMark | undefined> {
   try {
-    process.kill(pid, 0);
-    return true;
-  } catch (error) {
-    return isCode(error, "EPERM");
+    const mark = JSON.parse(await readFile(file, "utf8"));
+    return typeof mark?.pid === "number" && typeof mark.processStart === "string"
+      ? mark
+      : undefined;
+  } catch {
+    return undefined;
   }
+}
+
+/** As an attempt's liveness: the process is there and still the one that started then. */
+function isRunning(mark: CallerMark): boolean {
+  const started = processStart(mark.pid);
+  return (
+    started !== undefined && Math.abs(Date.parse(started) - Date.parse(mark.processStart)) <= 1_000
+  );
 }
 
 /** Brings the tab this process runs in forward, where Herdr says which one that is. */
-async function showOwnTab(environment: HereEnvironment): Promise<void> {
+export async function showOwnTab(environment: HereEnvironment): Promise<void> {
   const env = environment.environment ?? process.env;
   if (!env.HERDR_TAB_ID) return;
   const session = await herdrSession(environment.herdr ?? runProcess, env).catch(() => undefined);
@@ -223,7 +220,7 @@ async function findCaller(
     herdrConfig(session),
     code,
     {
-      by: Date.now() + (environment.callerSearchMs ?? CALLER_SEARCH_MS),
+      by: (environment.now ?? Date.now)() + (environment.callerSearchMs ?? CALLER_SEARCH_MS),
       ...(environment.signal ? { signal: environment.signal } : {}),
     },
     run,

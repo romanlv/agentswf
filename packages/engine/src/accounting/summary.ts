@@ -283,6 +283,19 @@ function unique<T>(values: readonly T[]): T[] {
   return [...new Set(values)];
 }
 
+/** What an attempt's record keeps of its run's accounting: the totals and stages, not who spent it. */
+export function attemptAccounting({
+  basis,
+  wallMs,
+  grouping,
+  billing,
+  totals,
+  byStage,
+  unpriced,
+}: RunAccounting): AttemptAccounting {
+  return { basis, wallMs, grouping, billing, totals, byStage, unpriced };
+}
+
 /**
  * A run's attempts summed, priced as the last was: its total, and each stage's across the attempts
  * that ran it. Once any attempt grouped by stages, what another grouped by prefix, having failed

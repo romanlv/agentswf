@@ -129,7 +129,7 @@ describe("srt profiles", () => {
     expect(profile.filesystem.denyWrite.at(-1)).toBe("/private/tmp/awf-x/a1");
     expect(profile.filesystem.allowWrite).toEqual(base.filesystem.allowWrite);
     // An install tree inside harness state passes; the base is untouched.
-    expect(() => checkProfile(profile, host, context, [])).not.toThrow();
+    expect(() => checkProfile(profile, host, context, spec)).not.toThrow();
     expect(base.network.allowUnixSockets).toEqual([]);
   });
 
@@ -166,7 +166,7 @@ describe("srt profiles", () => {
         allowWrite: [...base.filesystem.allowWrite, ...(change.allowWrite ?? [])],
       },
     };
-    expect(() => checkProfile(bad, host, context, [])).toThrow(reason);
+    expect(() => checkProfile(bad, host, context, spec)).toThrow(reason);
   });
 });
 
@@ -183,12 +183,12 @@ describe("a run root inside the project", () => {
     const profile = baseProfile(hiding, project, host, `${project.directory}/tmp`, PROTECTED);
     expect(profile.filesystem.denyRead).toContain(project.runRoot);
     expect(profile.filesystem.denyWrite).toContain(project.runRoot);
-    expect(() => checkProfile(profile, host, project, hiding.hidden)).not.toThrow();
+    expect(() => checkProfile(profile, host, project, hiding)).not.toThrow();
   });
 
   test("refuses a profile that holds it unhidden", () => {
     const profile = baseProfile(spec, project, host, `${project.directory}/tmp`, PROTECTED);
-    expect(() => checkProfile(profile, host, project, [])).toThrow(
+    expect(() => checkProfile(profile, host, project, spec)).toThrow(
       "would expose the run root through /Users/op/repo",
     );
   });
@@ -202,13 +202,13 @@ describe("a run root inside the project", () => {
         denyWrite: profile.filesystem.denyWrite.filter((path) => path !== project.runRoot),
       },
     };
-    expect(() => checkProfile(bad, host, project, hiding.hidden)).toThrow("does not hide");
+    expect(() => checkProfile(bad, host, project, hiding)).toThrow("does not hide");
   });
 
   test("refuses to hide it when this sandbox's directory is inside", () => {
     const inside = { ...project, directory: `${project.runRoot}/i/r/sandboxes/s1` };
     const profile = baseProfile(hiding, inside, host, `${inside.directory}/tmp`, PROTECTED);
-    expect(() => checkProfile(profile, host, inside, hiding.hidden)).toThrow(
+    expect(() => checkProfile(profile, host, inside, hiding)).toThrow(
       "would hide its own directory",
     );
   });

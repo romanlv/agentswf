@@ -9,6 +9,7 @@ import type { SandboxProvider, SandboxProviders } from "./seam";
 // Made before the tests are declared, which `test.each` does with these paths.
 const root = realpathSync(mkdtempSync(join(tmpdir(), "wf-resolve-")));
 const home = join(root, "home");
+const machineRoot = join(home, ".awf");
 const runRoot = join(root, "runs");
 const repo = join(home, "repo");
 
@@ -25,7 +26,16 @@ const resolve = (
   spec: unknown,
   extra: { inline?: boolean; providers?: SandboxProviders; runRoot?: string } = {},
 ) =>
-  resolveSandbox(spec, { key: "box", cwd: repo, runRoot, home, providers, harnessState, ...extra });
+  resolveSandbox(spec, {
+    key: "box",
+    cwd: repo,
+    runRoot,
+    machineRoot,
+    home,
+    providers,
+    harnessState,
+    ...extra,
+  });
 
 beforeAll(async () => {
   await mkdir(join(repo, ".git", "worktrees", "feature"), { recursive: true });
@@ -137,7 +147,7 @@ describe("resolveSandbox", () => {
     await mkdir(inside, { recursive: true });
     const { sandbox } = await resolveSandbox(
       { cwd: "src" },
-      { key: "box", cwd: repo, runRoot: inside, home, providers, harnessState },
+      { key: "box", cwd: repo, runRoot: inside, machineRoot, home, providers, harnessState },
     );
     expect(sandbox.gitdirs).toEqual([{ path: join(repo, ".git"), writable: false }]);
   });
@@ -150,6 +160,7 @@ describe("resolveSandbox", () => {
       key: "box",
       cwd: repo,
       runRoot,
+      machineRoot,
       home,
       providers,
       harnessState,
@@ -168,7 +179,15 @@ describe("resolveSandbox", () => {
     await expect(
       resolveSandbox(
         { read: ["~/notes"] },
-        { key: "box", cwd: repo, runRoot, home, providers, harnessState: [join(home, "notes")] },
+        {
+          key: "box",
+          cwd: repo,
+          runRoot,
+          machineRoot,
+          home,
+          providers,
+          harnessState: [join(home, "notes")],
+        },
       ),
     ).rejects.toThrow("would expose harness state");
   });

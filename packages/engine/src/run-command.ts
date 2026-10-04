@@ -203,6 +203,6 @@ function readSandboxSpec(file: string): object {
 
 const NOT_IN_A_RUN_SANDBOX = {
   cwd: "it works in --cwd",
-  key: "the run's record keys it run",
+  key: 'awf keys it "run"',
   provider: 'its provider is its setting, such as "srt": {}',
 };

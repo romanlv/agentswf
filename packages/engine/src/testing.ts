@@ -1,5 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
-import { mkdir } from "node:fs/promises";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { createConnection } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -10,6 +9,7 @@ import type { AgentSessionAdapter } from "@agentswf/harness/adapter";
 import { createFakeAdapter } from "@agentswf/harness/testing";
 import Type from "typebox";
 import { OPERATOR_ALIASES } from "./operator-aliases";
+import { createRun, openRun } from "./runs";
 import { runWorkflow } from "./workflow-runner";
 
 export function createTempRunDirs(): {
@@ -94,23 +94,39 @@ export function answering(): AgentSessionAdapter {
   });
 }
 
-/** One attempt of run r1 in `dir`, under `runRoot`, its agents answered by `answering()`. */
+/**
+ * One attempt of run r1 of `workflow` under `runRoot`, created by the first, its agents answered by
+ * `answering()`. Its folder is `{runRoot}/{workflow}/r1`.
+ */
 export async function runAttempt<Result extends JsonValue>(
   workflow: WorkflowDefinition<null, Result>,
   options: {
     runRoot: string;
-    dir: string;
     attempt?: number;
     fromStage?: string;
     adapter?: AgentSessionAdapter;
     signal?: AbortSignal;
   },
 ) {
-  const { runRoot, dir, attempt = 1, fromStage, adapter = answering(), signal } = options;
-  await mkdir(dir, { recursive: true });
+  const { runRoot, attempt = 1, fromStage, adapter = answering(), signal } = options;
+  const name = workflow.meta.name;
+  const run = existsSync(join(runRoot, name, "r1"))
+    ? await openRun(runRoot, name, "r1")
+    : await createRun(runRoot, {
+        id: "r1",
+        workflow: name,
+        argv: [],
+        cwd: process.cwd(),
+        sandbox: null,
+      });
   return runWorkflow(workflow, null, {
     runRoot,
-    run: { dir, id: "r1", attempt, ...(fromStage === undefined ? {} : { fromStage }) },
+    run: {
+      dir: run.dir,
+      id: run.record.id,
+      attempt,
+      ...(fromStage === undefined ? {} : { fromStage }),
+    },
     runtime: { aliases: OPERATOR_ALIASES, host: createSingleSessionHostFactory(adapter) },
     deadline: future(),
     ...(signal === undefined ? {} : { signal }),

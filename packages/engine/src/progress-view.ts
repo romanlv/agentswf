@@ -1,8 +1,8 @@
-import type { StageOutcome } from "@agentswf/contract/records";
-import { type Ending, type JsonValue, placementOf } from "@agentswf/contract/workflow";
+import { type JsonValue, placementOf, type StageOutcome } from "@agentswf/contract/workflow";
 import { duration } from "./accounting/format";
+import { NO_STAGE } from "./accounting/summary";
 import type { StageProgress } from "./stage-ledger";
-import type { WorkflowRunSnapshot } from "./workflow-runner";
+import type { WorkflowRunHandle, WorkflowRunSnapshot } from "./workflow-runner";
 
 type Agent = WorkflowRunSnapshot["agents"][number];
 
@@ -187,8 +187,9 @@ type Rank = (typeof RANKS)[number];
  * The stages: those finished collapsed to a line with their time, what their agents cost when the
  * run is over, and their summary; those reused marked `↺` with their summary and the attempt that
  * ran them; the current one with each agent working in it; and those an earlier attempt recorded
- * still to come, dim. None for a run without stages. A stage that did not succeed shows only its
- * mark: why is said once, where the run's ending is.
+ * still to come, dim. Once the run is over, what ran between stages has a row of its own, so the
+ * stages add up. None for a run without stages. A stage that did not succeed shows only its mark:
+ * why is said once, where the run's ending is.
  */
 function stageLines(
   snapshot: WorkflowRunSnapshot,
@@ -199,9 +200,11 @@ function stageLines(
   // Once the run is closing, what it never reached isn't coming.
   const upcoming =
     snapshot.state === "closing" || snapshot.state === "closed" ? [] : snapshot.upcoming;
+  const between = figures.get(NO_STAGE);
   const width = Math.max(
     ...snapshot.stages.map((stage) => stage.stage.length),
     ...upcoming.map((name) => name.length),
+    between === undefined ? 0 : NO_STAGE.length,
     0,
   );
   const rows = snapshot.stages.map((stage) => {
@@ -240,6 +243,8 @@ function stageLines(
     }
     lines.push(`${stageMark(stage.outcome, paint)} ${name}${GAP}${columns(detail)}`);
   }
+  if (between !== undefined)
+    lines.push(`${paint.dim("·")} ${NO_STAGE.padEnd(width)}${GAP}${between}`);
   lines.push(...upcoming.map((name) => paint.dim(`· ${name}`)));
   return lines;
 }
@@ -247,15 +252,9 @@ function stageLines(
 const GAP = "   ";
 
 /** A finished stage's mark. */
-export function stageMark(outcome: StageOutcome | undefined, paint: Paint): string {
+function stageMark(outcome: StageOutcome | undefined, paint: Paint): string {
   if (outcome === "succeeded") return paint.ok("✓");
   return outcome === "stopped" ? paint.busy("■") : paint.bad("✗");
-}
-
-/** An attempt's ending's mark, as its last stage's would be. */
-export function endingMark(kind: Ending<JsonValue>["kind"], paint: Paint): string {
-  if (kind === "completed") return stageMark("succeeded", paint);
-  return stageMark(kind === "stopped" || kind === "cancelled" ? "stopped" : "failed", paint);
 }
 
 function summaryOf(stage: StageProgress): string[] {
@@ -270,7 +269,7 @@ function stageAgentLine(agent: Agent, keys: number, now: number, paint: Paint): 
       ? [paint.dim("·"), paint.dim("waiting")]
       : agentState(agent, now, paint);
   const took = duration((turn.settledAt ?? now) - turn.startedAt);
-  const label = turn.label ?? turn.kind;
+  const label = turn.label ?? (turn.kind === "turn" ? undefined : turn.kind);
   const labelled = label ? `  ${label}` : "";
   return `    ${mark} ${agent.key.padEnd(keys)}  ${paint.dim(`${agent.execution.model} · ${placementOf(agent.execution)}`)}${labelled}  ${took}${note ? `  ${note}` : ""}`;
 }
@@ -311,4 +310,67 @@ function oneLine(text: string): string {
 function clock(milliseconds: number): string {
   const seconds = Math.max(0, Math.floor(milliseconds / 1000));
   return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
+}
+
+/** Where progress is redrawn in place, and whether in color. */
+export type Terminal = { write(text: string): void; color: boolean };
+
+/**
+ * Polls the run's snapshot. On a terminal it keeps one block redrawn under the log; elsewhere it
+ * writes a line per change, so a log file or a calling agent reads what happened and when.
+ */
+export function watchProgress(
+  name: string,
+  startedAt: number,
+  output: { stderr: (text: string) => void; terminal: Terminal | undefined; now: () => number },
+) {
+  const { stderr, terminal, now } = output;
+  let handle: WorkflowRunHandle<JsonValue> | undefined;
+  let last: WorkflowRunSnapshot | undefined;
+  let drawn = 0;
+  const clear = () => {
+    if (terminal && drawn > 0) terminal.write(`\x1b[${drawn}F\x1b[0J`);
+    drawn = 0;
+  };
+  const tick = (final = false, figures?: ReadonlyMap<string, string>) => {
+    if (!handle) return;
+    const snapshot = handle.inspect();
+    if (terminal) {
+      const lines = renderProgress(snapshot, {
+        name,
+        startedAt,
+        now: now(),
+        paint: terminal.color ? ANSI : PLAIN,
+        ...(figures ? { figures } : {}),
+      });
+      // The header's name and clock are the command's and the accounting's once the run is over.
+      if (final) lines.shift();
+      clear();
+      if (lines.length > 0) terminal.write(`${lines.join("\n")}\n`);
+      drawn = lines.length;
+    } else {
+      for (const line of progressEvents(last, snapshot, { startedAt, now: now() })) stderr(line);
+    }
+    last = snapshot;
+  };
+  // Lines too long for the terminal are clipped rather than wrapped, so the redraw stays exact.
+  terminal?.write("\x1b[?25l\x1b[?7l");
+  const timer = setInterval(() => tick(), terminal ? 100 : 1000);
+  return {
+    watch(started: WorkflowRunHandle<JsonValue>) {
+      handle = started;
+      tick();
+    },
+    log(text: string) {
+      clear();
+      stderr(text);
+      if (terminal) tick();
+    },
+    /** `figures`, what each stage's agents cost, once the run's usage is read. */
+    stop(figures?: ReadonlyMap<string, string>) {
+      clearInterval(timer);
+      tick(true, figures);
+      terminal?.write("\x1b[?7h\x1b[?25h");
+    },
+  };
 }

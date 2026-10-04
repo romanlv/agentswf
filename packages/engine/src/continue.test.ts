@@ -222,13 +222,13 @@ describe("a continue's records", () => {
     n: number,
     workflow: WorkflowDefinition<null, JsonValue>,
     fromStage?: string,
-  ) => runAttempt(workflow, { runRoot: root, dir: join(root, "r1"), attempt: n, fromStage });
+  ) => runAttempt(workflow, { runRoot: root, attempt: n, fromStage });
   const outcomes = async (root: string) =>
-    [...(await readStageRecords(join(root, "r1"))).values()]
+    [...(await readStageRecords(join(root, "staged", "r1"))).values()]
       .map(({ stage, attempt, outcome }) => `${stage}:${attempt}:${outcome}`)
       .sort();
   const replaced = async (root: string) =>
-    (await readdir(join(root, "r1", "replaced")).catch(() => [] as string[])).sort();
+    (await readdir(join(root, "staged", "r1", "replaced")).catch(() => [] as string[])).sort();
   /** doc-review and implement succeed; qa fails while `qaFails`. */
   const flow = (qaFails: boolean, extra?: string) =>
     workflowOf(async (workflow) => {
@@ -296,8 +296,8 @@ describe("a continue's records", () => {
     await attempt(root, 1, flow(false));
     // As an attempt from implement on leaves them when it dies after moving only its start
     // stage's record: implement has none, and qa's is stale.
-    const stages = join(root, "r1", "stages");
-    await rename(join(stages, "implement.json"), join(root, "r1", "implement.1.json"));
+    const stages = join(root, "staged", "r1", "stages");
+    await rename(join(stages, "implement.json"), join(root, "staged", "r1", "implement.1.json"));
     await attempt(root, 3, flow(false));
     expect(await outcomes(root)).toEqual([
       "doc-review:1:succeeded",
@@ -455,6 +455,22 @@ describe("workflow.stop", () => {
     expect(afterCaught.stages.map(({ stage, outcome }) => [stage, outcome])).toEqual([
       ["a", "failed"],
     ]);
+  });
+
+  test("caught between stages, a later stage fails the attempt as caught, not stopped", async () => {
+    const run = await testWorkflow(
+      workflowOf(async (workflow) => {
+        try {
+          workflow.stop("no doc");
+        } catch {}
+        await workflow.stage("qa", async () => {});
+        return null;
+      }),
+      null,
+    );
+    expect(() => run.value).toThrow("stop was caught: no doc");
+    expect(run.stopped).toBeUndefined();
+    expect(run.stages).toEqual([]);
   });
 
   test("inside a parallel in a stage, it stops that stage", async () => {

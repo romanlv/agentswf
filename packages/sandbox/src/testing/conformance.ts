@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdtempSync, realpathSync } from "node:fs";
 import { chmod, mkdir, mkdtemp, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
 import { createServer, type Server } from "node:net";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { resolveSandbox } from "../resolve";
 import {
@@ -100,6 +100,7 @@ export function sandboxConformance(name: string, setup: ConformanceSetup | undef
             key,
             cwd: reach.cwd,
             runRoot: reach.runRoot,
+            machineRoot: join(homedir(), ".awf"),
             harnessState: [],
             providers: {
               installed: { [environment?.key ?? "srt"]: setup.provider },

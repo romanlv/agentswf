@@ -33,7 +33,15 @@ const provider: SandboxProvider<unknown> = {
 };
 const providers: SandboxProviders = { installed: { srt: provider }, default: "srt" };
 const resolve = (cwd: string, spec: unknown) =>
-  resolveSandbox(spec, { key: "box", cwd, runRoot, home, providers, harnessState: [] });
+  resolveSandbox(spec, {
+    key: "box",
+    cwd,
+    runRoot,
+    machineRoot: join(home, ".awf"),
+    home,
+    providers,
+    harnessState: [],
+  });
 
 beforeAll(async () => {
   await mkdir(runRoot, { recursive: true });

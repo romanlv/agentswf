@@ -7,7 +7,7 @@ import type { JsonValue } from "@agentswf/contract/workflow";
  * `--from-stage`, or else the first stage entered with no succeeded record. Pure: the records, the
  * value check and the version come in, a decision goes out.
  */
-export type StagePlanDecision =
+type StagePlanDecision =
   | { kind: "reuse"; record: StageRecord; value: JsonValue | undefined }
   /** `start` on the stage that is the start point, when the records it outdates are moved. */
   | { kind: "run"; start: boolean }

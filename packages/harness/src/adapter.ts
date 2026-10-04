@@ -225,7 +225,7 @@ export interface AgentSessionAdapter {
 
 export type HarnessRunSpec = {
   runId: string;
-  /** How the run is named to a person, such as its Herdr workspace's label. */
+  /** How the run is named to a person, such as its Herdr workspace's label; its id when absent. */
   label?: string;
   cwd: string;
   deadline: AbsoluteDeadline;

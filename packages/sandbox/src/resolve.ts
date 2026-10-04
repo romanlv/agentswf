@@ -19,6 +19,11 @@ export type ResolveOptions = {
   cwd: string;
   /** Every run's directory: no sandbox path may be or lie inside it, and one holding it hides it. */
   runRoot: string;
+  /**
+   * What awf keeps per machine, `~/.awf`: every sandbox's homes, with their copied credentials, and
+   * the sessions runs drive. No sandbox path may lie inside it.
+   */
+  machineRoot: string;
   providers: SandboxProviders;
   /** An agent's private spec, which may not carry `key` or `cwd`. */
   inline?: boolean;
@@ -73,6 +78,7 @@ export async function resolveSandbox(
 
   const home = await realpath(options.home ?? homedir());
   const runRoot = await realpath(options.runRoot);
+  const machine = await realpath(options.machineRoot).catch(() => options.machineRoot);
   const controlRoot =
     options.controlRoot === undefined
       ? undefined
@@ -93,8 +99,6 @@ export async function resolveSandbox(
       (root) => contains(path, root) || contains(root, path),
     );
     if (keys) throw new Error(`sandbox ${field} ${path} would expose keys in ${keys}`);
-    // Every sandbox's homes, with their copied credentials, and the sessions runs drive.
-    const machine = join(home, ".awf");
     if (contains(machine, path))
       throw new Error(`sandbox ${field} ${path} would expose ${machine}`);
     if (controlRoot && (contains(path, controlRoot) || insideDoors(controlRoot, path))) {

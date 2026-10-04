@@ -19,12 +19,8 @@ import { createFakeSandboxProvider } from "@agentswf/sandbox/testing/fake";
 import { messageOf } from "../errors";
 import { OPERATOR_ALIASES } from "../operator-aliases";
 import { createRun, readStageRecords, writeStageRecord } from "../runs";
-import {
-  runWorkflow,
-  type SettledRun,
-  WorkflowRunError,
-  WorkflowStopped,
-} from "../workflow-runner";
+import { WorkflowStopped } from "../stopped";
+import { runWorkflow, type SettledRun, WorkflowRunError } from "../workflow-runner";
 import { createScriptedDecisions, type DecisionRequest, type DecisionScript } from "./decisions";
 import {
   type AgentSandbox,

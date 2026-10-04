@@ -114,7 +114,6 @@ import { StageLedger, type StageProgress } from "./stage-ledger";
 import { WorkflowStopped } from "./stopped";
 
 export { WorkflowCancelledError } from "./deadlines";
-export { WorkflowStopped } from "./stopped";
 
 export type RunWorkflowOptions = {
   runRoot: string;
@@ -298,8 +297,10 @@ export async function startWorkflow<Args extends JsonValue, Result extends JsonV
       });
   const runDir = options.run?.dir ?? created!.dir;
   const runId = options.run?.id ?? created!.record.id;
-  // Before anything opens: a record this awf can't read refuses the attempt.
-  const recorded = await readStageRecords(runDir);
+  // Before anything opens: a record this awf can't read refuses the attempt, and a crash may have
+  // torn the last line an earlier attempt appended. A run just created has neither.
+  const recorded = options.run ? await readStageRecords(runDir) : undefined;
+  if (options.run) await endTurnsLine(runDir);
   const slots = createResultSlotRegistry({ runDir });
   const control = await startResultControlPlane({ slots });
   let host: AgentRunHost;
@@ -339,12 +340,10 @@ export async function startWorkflow<Args extends JsonValue, Result extends JsonV
       ),
     );
   };
-  // A crash may have torn the last line an earlier attempt appended.
-  await endTurnsLine(runDir);
   const stages = new StageLedger({
     runDir,
     attempt,
-    records: recorded,
+    ...(recorded ? { records: recorded } : {}),
     ...(options.run?.fromStage === undefined ? {} : { fromStage: options.run.fromStage }),
     ...(definition.meta.version === undefined ? {} : { workflowVersion: definition.meta.version }),
     turns: () => turns,

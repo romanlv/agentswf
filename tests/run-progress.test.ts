@@ -12,7 +12,9 @@ afterAll(() => runDirs.cleanup());
 
 const SOL = { harness: "codex", model: "gpt-6-sol" };
 
-function agent(key: string, group: number, turn?: NonNullable<Agent["turn"]>): Agent {
+type Turn = Omit<NonNullable<Agent["turn"]>, "kind">;
+
+function agent(key: string, group: number, turn?: Turn): Agent {
   return {
     key,
     execution: SOL,
@@ -20,7 +22,7 @@ function agent(key: string, group: number, turn?: NonNullable<Agent["turn"]>): A
     observedAt: 0,
     group,
     turns: turn ? 1 : 0,
-    ...(turn ? { turn } : {}),
+    ...(turn ? { turn: { kind: "turn", ...turn } } : {}),
   };
 }
 type Agent = WorkflowRunSnapshot["agents"][number];
@@ -89,7 +91,7 @@ const CONTINUED: WorkflowRunSnapshot = {
       state: "working",
       observedAt: 0,
       turns: 3,
-      turn: { startedAt: 250_000, stage: "qa", label: "preview" },
+      turn: { kind: "turn", startedAt: 250_000, stage: "qa", label: "preview" },
     },
     {
       key: "tester",
@@ -97,7 +99,13 @@ const CONTINUED: WorkflowRunSnapshot = {
       state: "idle",
       observedAt: 0,
       turns: 1,
-      turn: { startedAt: 241_000, settledAt: 245_000, outcome: "answered", stage: "qa" },
+      turn: {
+        kind: "turn",
+        startedAt: 241_000,
+        settledAt: 245_000,
+        outcome: "answered",
+        stage: "qa",
+      },
     },
     {
       key: "reviewer",
@@ -105,7 +113,7 @@ const CONTINUED: WorkflowRunSnapshot = {
       state: "idle",
       observedAt: 0,
       turns: 1,
-      turn: { startedAt: 1, settledAt: 2, outcome: "answered", stage: "review" },
+      turn: { kind: "turn", startedAt: 1, settledAt: 2, outcome: "answered", stage: "review" },
     },
   ],
 };
@@ -131,7 +139,7 @@ describe("run progress by stage", () => {
     ]);
   });
 
-  test("once the run is over, each stage that ran agents shows what they cost, and a clean group folds into its stage", () => {
+  test("once the run is over, each stage that ran agents shows what they cost, as does what ran between stages, and a clean group folds into its stage", () => {
     const over: WorkflowRunSnapshot = {
       ...CONTINUED,
       state: "closed",
@@ -157,13 +165,18 @@ describe("run progress by stage", () => {
         startedAt: 0,
         now: 300_000,
         paint: PLAIN,
-        figures: new Map([["review", "1 agent · 90k tokens · ~$0.30"]]),
+        figures: new Map([
+          ["review", "1 agent · 90k tokens · ~$0.30"],
+          ["(no stage)", "1 agent · 2k tokens · ~$0.01"],
+        ]),
       }).slice(1),
     ).toEqual([
       "↺ doc-review   docs/AIRS-1515.md                        attempt 1",
       "↺ implement                                             attempt 1",
       "✓ review       4m 00s · 1 agent · 90k tokens · ~$0.30   2 findings",
       "✗ qa           1m 00s",
+      // What ran between stages, so the stages add up to the run.
+      "· (no stage)   1 agent · 2k tokens · ~$0.01",
     ]);
   });
 
@@ -201,8 +214,7 @@ describe("run progress by stage", () => {
   });
 
   test("a labelled parallel in the current stage counts its failures, though its agents are listed under the stage", () => {
-    const inQa = (key: string, turn: NonNullable<Agent["turn"]>) =>
-      agent(key, 0, { ...turn, stage: "qa" });
+    const inQa = (key: string, turn: Turn) => agent(key, 0, { ...turn, stage: "qa" });
     const snapshot: WorkflowRunSnapshot = {
       ...CONTINUED,
       groups: [

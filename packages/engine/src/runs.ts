@@ -3,7 +3,6 @@ import { mkdir, open, readdir, readFile, rename, rm, stat, unlink } from "node:f
 import { join } from "node:path";
 import {
   ATTEMPT_RECORD_VERSION,
-  type AttemptOutcome,
   type AttemptRecord,
   type CallSpec,
   type Candidate,
@@ -13,6 +12,7 @@ import {
   type StageRecord,
   type TurnRecord,
 } from "@agentswf/contract/records";
+import type { AttemptOutcome } from "@agentswf/contract/workflow";
 import { exists, isCode, linkNew, writeJson } from "./files";
 import { appendLine, endTornLine, readLines } from "./jsonl";
 import { refusal } from "./refusal";
@@ -235,19 +235,6 @@ export async function readAttempts(run: Run): Promise<AttemptRecord[]> {
   return records.filter((record) => record !== undefined).sort((a, b) => a.n - b.n);
 }
 
-export type RunStatus = "running" | AttemptOutcome | "interrupted";
-
-/** The highest attempt's: live, ended, or neither, which is interrupted. */
-export function runStatus(
-  attempts: readonly AttemptRecord[],
-  probe: ProcessProbe = processStart,
-): RunStatus {
-  const last = attempts.at(-1);
-  if (!last) return "interrupted";
-  if (isLive(last, probe)) return "running";
-  return last.outcome ?? "interrupted";
-}
-
 /**
  * No ending, and its process still the one that started it. A second apart is the same start: on
  * Linux `ps` derives it from the boot time, which a clock step can move.
@@ -301,18 +288,21 @@ export async function claimAttempt(
     };
     const file = join(dir, `${n}.json`);
     if (await linkNew(file, record)) {
-      const before = (await readAttempts(run)).filter((other) => other.n < n);
-      const refused = refusal(run.record.id, before, {
-        fromStage: options.fromStage ?? false,
-        stages: [...(await readStageRecords(run.dir)).keys()],
-        live: (attempt) => isLive(attempt, probe),
-      });
-      if (refused) {
-        await unlink(file);
-        throw new RunRefused(refused);
+      // Unclaimed on any refusal or failure, so no attempt is left without an ending.
+      try {
+        const before = (await readAttempts(run)).filter((other) => other.n < n);
+        const refused = refusal(run.record.id, before, {
+          fromStage: options.fromStage ?? false,
+          stages: [...(await readStageRecords(run.dir)).keys()],
+          live: (attempt) => isLive(attempt, probe),
+        });
+        if (refused) throw new RunRefused(refused);
+        const interrupted = before.filter((other) => other.ended === undefined);
+        return { attempt: { run, file, record }, interrupted };
+      } catch (error) {
+        await unlink(file).catch(() => undefined);
+        throw error;
       }
-      const interrupted = before.filter((other) => other.ended === undefined);
-      return { attempt: { run, file, record }, interrupted };
     }
     n += 1;
   }
@@ -428,6 +418,7 @@ export async function recordCandidate(
   await appendLine(join(dir, "candidates.jsonl"), JSON.stringify(candidate));
 }
 
+/** A call's candidates, as tests check them; a run never reads them back. */
 export async function readCandidates(runDir: string, callId: string): Promise<Candidate[]> {
   return readLines<Candidate>(join(callDir(runDir, callId), "candidates.jsonl"));
 }

@@ -116,8 +116,8 @@ export function agentProfile(base: SrtSettings, agent: AgentContext): SrtSetting
 }
 
 /**
- * The pure check every profile passes before srt sees it: `~` and the run root denied, each
- * `hidden` path denied for reads and writes, and no allowed path exposing `~` or the run root,
+ * The pure check every profile passes before srt sees it, against the spec it was made from: `~`
+ * and the run root denied, each `hidden` path denied for reads and writes, and no allowed path exposing `~` or the run root,
  * reaching into the run root outside this sandbox's directory, or overlapping the operator's
  * harness state. A harness's install tree may lie inside its state (codex's `~/.codex/packages`),
  * never contain it. An allowed path may hold the run root only when it is hidden.
@@ -126,7 +126,7 @@ export function checkProfile(
   settings: SrtSettings,
   host: SrtHost,
   context: SandboxContext,
-  hidden: readonly string[],
+  { hidden }: Pick<ResolvedSandbox<unknown>, "hidden">,
 ): void {
   const { denyRead, allowRead, allowWrite, denyWrite } = settings.filesystem;
   for (const denied of [host.home, context.runRoot]) {

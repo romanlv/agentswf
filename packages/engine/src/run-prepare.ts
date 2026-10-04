@@ -1,13 +1,15 @@
 import { statSync } from "node:fs";
-import { relative, resolve } from "node:path";
 import type { AttemptRecord, StageRecord } from "@agentswf/contract/records";
-import type { Ending, ExecutableWorkflow, JsonValue } from "@agentswf/contract/workflow";
+import type { ExecutableWorkflow, JsonValue } from "@agentswf/contract/workflow";
+import { pathFrom } from "./display-path";
 import { messageOf } from "./errors";
 import { refusal } from "./refusal";
 import type { RunCommand } from "./run-command";
 import {
+  type Attempt,
   checkContinue,
   checkFree,
+  claimAttempt,
   idProblem,
   isLive,
   openRun,
@@ -15,9 +17,10 @@ import {
   RunRefused,
   readAttempts,
   readStageRecords,
+  readTurns,
 } from "./runs";
 import type { WorkflowStopped } from "./stopped";
-import { assertJsonValue, type LoadedWorkflow } from "./workflow-loader";
+import { assertJsonValue, type LoadedWorkflow, loadWorkflowFile } from "./workflow-loader";
 
 export type PreparedRun = {
   args: JsonValue;
@@ -28,10 +31,31 @@ export type PreparedRun = {
 };
 
 /**
+ * The command's workflow loaded and its run prepared, or why not, as awf says it: in the shell that
+ * typed the command, before anything starts.
+ */
+export async function loadAndPrepare(
+  command: RunCommand,
+  now: number,
+): Promise<{ loaded: LoadedWorkflow; prepared: PreparedRun } | { refused: string }> {
+  let loaded: LoadedWorkflow;
+  try {
+    loaded = await loadWorkflowFile(command.workflowFile, command.shellCwd);
+  } catch (error) {
+    return { refused: `load: ${messageOf(error)}` };
+  }
+  try {
+    return { loaded, prepared: await prepareRun(command, loaded, now) };
+  } catch (error) {
+    return { refused: `${error instanceof RunRefused ? "" : "prepare: "}${messageOf(error)}` };
+  }
+}
+
+/**
  * The workflow's arguments, and the run `--continue` names, whose recorded argv is prepared again
  * by the code as it is now. A new run is claimed after, by its caller.
  */
-export async function prepareRun(
+async function prepareRun(
   command: RunCommand,
   loaded: LoadedWorkflow,
   now: number,
@@ -78,7 +102,6 @@ export async function prepareRun(
   });
   if (refused) throw new RunRefused(refused);
   const { fromStage } = command;
-  // Warned of here, before anything runs.
   const unrecorded =
     fromStage !== undefined && !records.has(fromStage)
       ? [`awf: nothing is recorded for ${fromStage}; the attempt stops if it never reaches it`]
@@ -130,6 +153,37 @@ function ago(ms: number): string {
   return hours < 48 ? `${hours}h ago` : `${Math.round(hours / 24)}d ago`;
 }
 
+/** Claims the run's next attempt, naming each earlier one found interrupted. */
+export async function claimNext(
+  run: Run,
+  loaded: LoadedWorkflow,
+  command: RunCommand,
+  stderr: (text: string) => void,
+): Promise<Attempt> {
+  const { meta } = loaded.executable.definition;
+  const claimed = await claimAttempt(
+    run,
+    {
+      file: loaded.file,
+      ...(meta.version === undefined ? {} : { workflowVersion: meta.version }),
+      flags: {
+        timeout: command.timeout,
+        ...(command.fromStage === undefined ? {} : { fromStage: command.fromStage }),
+      },
+    },
+    { fromStage: command.fromStage !== undefined },
+  );
+  const turns = claimed.interrupted.length > 0 ? await readTurns(run.dir).catch(() => []) : [];
+  for (const earlier of claimed.interrupted) {
+    // Its last turn says the stage it was in, as nothing else it wrote does.
+    const stage = turns.findLast((turn) => turn.attempt === earlier.n)?.stage;
+    stderr(
+      `awf: attempt ${earlier.n} of ${run.record.id} was interrupted${stage ? ` in ${stage}` : ""}; its panes may still be open in Herdr workspace "${workspaceLabel(meta.name, run.record.id, earlier.n)}"`,
+    );
+  }
+  return claimed.attempt;
+}
+
 /** A run's Herdr workspace, which names the attempt: a dead one's may still be open. */
 export function workspaceLabel(workflow: string, id: string, attempt: number): string {
   return `awf ${workflow} ${id} #${attempt}`;
@@ -149,7 +203,7 @@ export function continueCommand(
     "run",
     ...(command.runRootGiven ? ["--run-root", command.runRoot] : []),
     ...(command.cwdGiven ? ["--cwd", command.cwd] : []),
-    relativeTo(command.shellCwd, command.workflowFile),
+    pathFrom(command.shellCwd, command.workflowFile),
     "--continue",
     id,
     ...(stop?.redo && stop.stage !== undefined ? ["--from-stage", stop.stage] : []),
@@ -158,38 +212,6 @@ export function continueCommand(
     .join(" ");
 }
 
-/** A path as typed when it is under `cwd`, absolute otherwise, so it works from elsewhere too. */
-function relativeTo(cwd: string, file: string): string {
-  const absolute = resolve(cwd, file);
-  const inside = relative(cwd, absolute);
-  return inside.startsWith("..") ? absolute : file;
-}
-
 function shellWord(word: string): string {
   return /^[\w@%+=:,./-]+$/.test(word) ? word : `'${word.replaceAll("'", `'\\''`)}'`;
-}
-
-/**
- * A plain continue that ran no stage and stopped between stages as the attempt before did: the
- * check on a reused stage's value belongs inside that stage, which a continue would redo.
- */
-export function sameStop(
-  ending: Ending<JsonValue>,
-  earlier: readonly AttemptRecord[],
-): string | undefined {
-  if (ending.kind !== "stopped" || ending.stage !== undefined) return undefined;
-  const reused = ending.stages.at(-1)?.stage;
-  // No stage ran, and one was reused: its value is what the check between stages saw.
-  if (reused === undefined || ending.stages.some((entered) => entered.source === "ran")) {
-    return undefined;
-  }
-  const before = earlier.at(-1);
-  if (
-    before?.outcome !== "stopped" ||
-    before.stage !== undefined ||
-    before.reason !== ending.reason
-  ) {
-    return undefined;
-  }
-  return `the same stop as attempt ${before.n}; if a stage's value caused it, --from-stage ${reused}, and move the check into that stage`;
 }

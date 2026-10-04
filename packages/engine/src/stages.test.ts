@@ -326,7 +326,7 @@ describe("turns.jsonl", () => {
         });
         return null;
       }),
-      { runRoot, dir, attempt: 3 },
+      { runRoot, attempt: 3 },
     );
     const turns = await readTurns(dir);
     expect(
@@ -383,7 +383,7 @@ describe("turns.jsonl", () => {
     const attempt = (n: number) =>
       runAttempt(
         workflowOf(async (workflow) => ask(workflow, "Do.")),
-        { runRoot, dir, attempt: n },
+        { runRoot, attempt: n },
       );
     await attempt(1);
     // As a crash mid-append leaves it: no newline.
@@ -412,7 +412,7 @@ describe("turns.jsonl", () => {
         await workflow.stage("mr", async () => {});
         return null;
       }),
-      { runRoot, dir, adapter, signal: controller.signal },
+      { runRoot, adapter, signal: controller.signal },
     );
     await expect(stopped).rejects.toBeInstanceOf(WorkflowRunError);
     const records = await readStageRecords(dir);
@@ -421,6 +421,30 @@ describe("turns.jsonl", () => {
       outcome: "failed",
       sessions: [expect.objectContaining({ agent: "worker" })],
     });
+  });
+
+  test("a turn its harness fails is kept as failed", async () => {
+    const runRoot = runDirs.tempRunDir();
+    const dir = join(runRoot, "staged", "r1");
+    const adapter = createFakeAdapter({
+      harnesses: ["codex"],
+      script: () => ({
+        act: async () => {
+          throw new Error("the harness broke");
+        },
+      }),
+    });
+    const failed = runAttempt(
+      workflowOf(async (workflow) => {
+        await workflow.stage("qa", { result: DOC }, () => ask(workflow, "Check."));
+        return null;
+      }),
+      { runRoot, adapter },
+    );
+    await expect(failed).rejects.toBeInstanceOf(WorkflowRunError);
+    expect((await readTurns(dir)).map(({ stage, outcome }) => [stage, outcome])).toEqual([
+      ["qa", "failed"],
+    ]);
   });
 
   test("a failed run still has its stage records and turns", async () => {
@@ -434,7 +458,7 @@ describe("turns.jsonl", () => {
         });
         return null;
       }),
-      { runRoot, dir },
+      { runRoot },
     );
     await expect(failed).rejects.toBeInstanceOf(WorkflowRunError);
     const records = await readStageRecords(dir);

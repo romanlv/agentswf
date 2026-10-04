@@ -11,6 +11,7 @@ import {
   discardRun,
   endAttempt,
   generateId,
+  isLive,
   openRun,
   type ProcessProbe,
   processStart,
@@ -18,7 +19,6 @@ import {
   readAccepted,
   readAttempts,
   replaceStale,
-  runStatus,
   writeAcceptedExclusive,
 } from "./runs";
 import { createTempRunDirs, runAttempt, workflowOf } from "./testing";
@@ -99,9 +99,9 @@ describe("runs", () => {
     const probe = alive(1);
     const one = await claimAttempt(created, fields, { pid: 1, probe });
     expect(one.attempt.record).toMatchObject({ n: 1, pid: 1, processStart: START });
-    expect(runStatus(await readAttempts(created), probe)).toBe("running");
+    expect(isLive((await readAttempts(created))[0]!, probe)).toBe(true);
     await endAttempt(one.attempt, { outcome: "failed", reason: "qa settled without an answer" });
-    expect(runStatus(await readAttempts(created), probe)).toBe("failed");
+    expect((await readAttempts(created))[0]?.outcome).toBe("failed");
 
     const opened = await openRun(at, "implement-ticket", "AIRS-1515");
     const two = await claimAttempt(opened, fields, { pid: 1, probe });
@@ -113,7 +113,6 @@ describe("runs", () => {
       [1, "failed"],
       [2, "completed"],
     ]);
-    expect(runStatus(attempts, probe)).toBe("completed");
   });
 
   test("a live attempt refuses another, and the refused one leaves no file", async () => {
@@ -126,14 +125,23 @@ describe("runs", () => {
     expect(await readdir(join(created.dir, "attempts"))).toEqual(["1.json"]);
   });
 
+  test("a claim that fails after its link leaves no file", async () => {
+    const created = await createRun(root(), run());
+    await mkdir(join(created.dir, "stages"));
+    await writeFile(join(created.dir, "stages", "plan.json"), JSON.stringify({ version: 99 }));
+    await expect(claimAttempt(created, fields, { pid: 1, probe: alive(1) })).rejects.toThrow(
+      "newer than this awf reads",
+    );
+    expect(await readdir(join(created.dir, "attempts"))).toEqual([]);
+  });
+
   test("an attempt with no ending whose process is gone, or is another, reads interrupted", async () => {
     const created = await createRun(root(), run());
     await claimAttempt(created, fields, { pid: 1, probe: alive(1) });
-    expect(runStatus(await readAttempts(created), alive())).toBe("interrupted");
+    const [first] = await readAttempts(created);
+    expect(isLive(first!, alive())).toBe(false);
     // The same pid, started at another time: another process after a reboot.
-    expect(runStatus(await readAttempts(created), () => "2026-10-05T08:00:00Z")).toBe(
-      "interrupted",
-    );
+    expect(isLive(first!, () => "2026-10-05T08:00:00Z")).toBe(false);
     const next = await claimAttempt(created, fields, { pid: 2, probe: alive(2) });
     expect(next.attempt.record.n).toBe(2);
     expect(next.interrupted.map((attempt) => attempt.n)).toEqual([1]);
@@ -142,10 +150,10 @@ describe("runs", () => {
   test("a start time a second off is the same process; two seconds off is another", async () => {
     const created = await createRun(root(), run());
     await claimAttempt(created, fields, { pid: 1, probe: alive(1) });
-    const attempts = await readAttempts(created);
-    expect(runStatus(attempts, () => "2026-10-04T10:00:01Z")).toBe("running");
-    expect(runStatus(attempts, () => "2026-10-04T09:59:59Z")).toBe("running");
-    expect(runStatus(attempts, () => "2026-10-04T10:00:02Z")).toBe("interrupted");
+    const [attempt] = await readAttempts(created);
+    expect(isLive(attempt!, () => "2026-10-04T10:00:01Z")).toBe(true);
+    expect(isLive(attempt!, () => "2026-10-04T09:59:59Z")).toBe(true);
+    expect(isLive(attempt!, () => "2026-10-04T10:00:02Z")).toBe(false);
   });
 
   test("an attempt after one that completed the run is refused at its claim, leaving no file", async () => {
@@ -181,10 +189,6 @@ describe("runs", () => {
     await expect(openRun(at, "implement-ticket", ".new-abc")).rejects.toThrow("not a valid id");
     await checkFree(at, "implement-ticket", "AIRS-2");
     expect((await createRun(at, run("AIRS-2"))).record.id).toBe("AIRS-2");
-  });
-
-  test("a run with no attempt file reads interrupted", () => {
-    expect(runStatus([])).toBe("interrupted");
   });
 
   test("of two attempts claimed at once, exactly one runs", async () => {
@@ -310,14 +314,14 @@ describe("runs", () => {
 
 test("a continue moves its start stage's record first: a move that fails after it leaves the rest", async () => {
   const runRoot = runDirs.tempRunDir();
-  const dir = join(runRoot, "r1");
+  const dir = join(runRoot, "staged", "r1");
   await runAttempt(
     workflowOf(async (workflow) => {
       for (const stage of ["doc-review", "implement", "qa"])
         await workflow.stage(stage, async () => {});
       return null;
     }),
-    { runRoot, dir },
+    { runRoot },
   );
   // A record that can't be read fails the move after implement's.
   await writeFile(join(dir, "stages", "qa.json"), "{");

@@ -12,7 +12,7 @@ import { digestOf } from "../../fixtures/seal";
 import { checkSchema, describeProblems } from "../../format/validate";
 import type { ScorerSettings, VariantSettings } from "../../format/variant";
 import { runAgainst } from "../against";
-import { type CaseInfo, type Lab, type Subject, statesOf } from "../execute";
+import { type CaseInfo, type Lab, newRunId, type Subject, statesOf } from "../execute";
 import { currentTrials } from "../plan";
 import type { ReportComparison } from "../report";
 import { summaryOf } from "../runner";
@@ -176,6 +176,7 @@ export async function runLoop(setting: LoopSetting, request: LoopRequest): Promi
       const spec = join(tryDir, "sandbox.json");
       writeFileSync(spec, JSON.stringify({ srt: {}, write: [candidateDir] }));
       const proposed = await lab.runner({
+        id: newRunId(lab),
         workflow: PROPOSER,
         cwd: tryDir,
         timeout: "30m",

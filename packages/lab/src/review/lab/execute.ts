@@ -311,8 +311,16 @@ const identityOf = (subject: Subject<unknown>): Identity => ({
   commit: subject.commit,
 });
 
-function trialId(now: Date): string {
-  const stamp = now
+function clock(lab: Lab): Date {
+  return (lab.now ?? (() => new Date()))();
+}
+
+/**
+ * An id for a trial and its run, or any other run the lab starts: unique among all of them, as the
+ * lab finds a run by its id alone.
+ */
+export function newRunId(lab: Lab): string {
+  const stamp = clock(lab)
     .toISOString()
     .replace(/[-:]/g, "")
     .replace(/\.\d+Z$/, "Z");
@@ -356,7 +364,9 @@ async function runTrial(
     // The dataset's folder, so a control that reads the key names no absolute path in its argv.
     const folder = dirname(info.dir);
     const argv = fill(defined.argv, { base, head, request, dataset: folder });
+    const id = newRunId(lab);
     const result = await runIsolated(lab, scratch, {
+      id,
       workflow: file,
       cwd: code,
       timeout: defined.timeout,
@@ -379,10 +389,10 @@ async function runTrial(
         failure = `the variant's read failed: ${String(error)}`;
       }
     } else failure = `the run ${run.outcome}: ${run.error ?? "no detail"}`;
-    const now = (lab.now ?? (() => new Date()))();
+    const now = clock(lab);
     const trial: Trial = {
       format: TRIAL_FORMAT,
-      id: trialId(now),
+      id,
       at: now.toISOString(),
       variant: identityOf(variant),
       dataset,
@@ -469,7 +479,7 @@ async function runIsolated(
     });
   } finally {
     try {
-      // Each run is `{workflow}/{id}`; ids are unique within a workflow only in their own root.
+      // Each run is `{workflow}/{id}`, its id the trial's, which no other run has.
       for (const workflow of readdirSync(runRoot).filter((name) => !name.startsWith("."))) {
         mkdirSync(join(runs, workflow), { recursive: true });
         for (const id of readdirSync(join(runRoot, workflow))) {
@@ -478,8 +488,9 @@ async function runIsolated(
         }
       }
       rmSync(runRoot, { recursive: true, force: true });
-    } catch {
-      // Left where it is, still found by its id; the run's own error is the one to report.
+    } catch (error) {
+      // The run's own error is the one to report; its records are said to be where show won't look.
+      lab.log(`the contained run stays in ${runRoot}, not moved into ${runs}: ${String(error)}`);
     }
   }
 }
@@ -522,6 +533,7 @@ async function runScorer(
       argv.push("--settled", file);
     }
     const result = await lab.runner({
+      id: newRunId(lab),
       workflow: file,
       cwd: code,
       timeout: defined.timeout,
