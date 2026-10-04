@@ -53,11 +53,12 @@ agent.set({                       queued like compact; from here  headless: the 
                                   operation's record
 ```
 
-- **At open.** An agent's effort is chosen with its runtime when it is opened. If none is named,
-  awf passes no effort and the harness uses its default.
-- **`set`.** It switches the agent's model, effort or both for every operation after it. It goes
-  in the agent's queue like `compact`: it runs after the operations enqueued before it, its id
-  makes a repeat harmless, and it is recorded. It changes the session the agent already has, so the
+- **At open.** An agent's effort is chosen with its runtime when it is opened, as its placement
+  is; an alias names none (Q1). If none is named, awf passes no effort and the harness uses its
+  default (Q2).
+- **`set`** (Q3, Q4). It switches the agent's model, effort or both for every operation after it.
+  It goes in the agent's queue like `compact`: it runs after the operations enqueued before it, its
+  id makes a repeat harmless, and it is recorded. It changes the session the agent already has, so the
   context stays.
 - **No per-turn effort.** A one-off is `set`, the turn, then `set` back. That keeps one mechanism to
   build and measure per harness, and the turn specs don't change.
@@ -83,7 +84,7 @@ by model.
 
 In scope:
 
-- `effort` on the runtime an agent is opened with, on an alias, and on a fork.
+- `effort` on the runtime an agent is opened with, with or without an alias, and on a fork.
 - `AgentRef.set({ model?, effort? })`, headless and in a pane, on claude, codex, pi and cursor where
   each can; refused with its reason where it can't.
 - Launching each harness at an effort, headless and in a pane, on the host and in a sandbox.
@@ -123,7 +124,7 @@ Out of scope:
   such a session inherits it.
 - Fact: after the first turn, a headless turn is a new process resuming the session (`resumeTurn`
   in `packages/harness/src/harnesses/*.ts`). A headless `set` is therefore flags on the next resume,
-  provided the harness honours them on a resume (see "To measure").
+  provided the harness honours them on a resume (M1).
 - Fact: `OperationRecord.execution` is already the "resolved execution for this operation"
   (`packages/contract/src/workflow/agents.ts`). Settings that change during a run fit there without
   a new field.
@@ -153,8 +154,9 @@ Out of scope:
 
 - `src/workflow/agents.ts`:
   - `Effort` is new.
-  - `RuntimeTarget`, `ExecutionRequirements` and `AgentForkSpec` gain `effort?`, and
-    `ExecutionConfig` and `AgentExecution` gain it through `RuntimeTarget`.
+  - `AgentChoice` is new: `PlacementChoice` and `effort?`. `ExecutionConfig`,
+    `ExecutionRequirements` and `AgentForkSpec` take it in place of `PlacementChoice`, so
+    `AgentExecution` gains `effort`. `RuntimeTarget` is unchanged (Q1).
   - `SettingsSpec` and `AgentRef.set` are new.
   - `AgentRef.execution` becomes the agent's current settings.
   - `OperationRecord` needs no new field.
@@ -183,7 +185,8 @@ Out of scope:
 ### `packages/engine`
 
 - `src/workflow-runner.ts`:
-  - `resolveAlias` copies the alias's `effort`, and the agent's own replaces it;
+  - the agent's `effort` is added after `resolveAlias`, as `placement` is; `resolveAlias` is
+    unchanged (Q1);
   - the agent's identity keeps its opened execution for reattach, apart from its current one;
   - `set` is queued, made idempotent by id, and recorded the way `compact` is;
   - its effort is checked against the harness's levels;
@@ -211,10 +214,8 @@ Out of scope:
   `byModel` already splits an agent whose model changed.
 - `packages/wf`: an agent doesn't change its own settings; the workflow does.
 - `packages/sandbox`: the effort flag is an argument like any other. A sandbox's fresh harness home
-  means a sandboxed agent that names no effort gets the harness default, which is the decided
-  behaviour.
-- The lab's version rule: effort lives in a variant's workflow file, so changing it is a file
-  change, and the researcher bumps the version as for any change in behaviour.
+  means a sandboxed agent that names no effort gets the harness default (Q2).
+- The lab's version rule (Q5).
 
 ## Proposed design
 
@@ -226,27 +227,27 @@ These types are published; task 2 builds them as written here.
 /** A harness's own level name, such as claude's `max` or codex's `xhigh`; see its definition's `effort`. */
 export type Effort = string;
 
-export type RuntimeTarget = {
-  harness: HarnessKind;
-  model: string;
-  /** Absent, awf passes none and the harness uses its default. */
+/** The agent's own choices beside where it runs; an alias names none of them (Q1). */
+export type AgentChoice = PlacementChoice & {
+  /** Absent, awf passes none and the harness uses its default (Q2). */
   effort?: Effort;
 };
 
-export type ExecutionRequirements = PlacementChoice & {
+// RuntimeTarget, what an alias names, stays { harness, model }.
+export type ExecutionConfig = RuntimeTarget & AgentChoice;
+
+export type ExecutionRequirements = AgentChoice & {
   alias: RuntimeAliasName;
   harness?: HarnessKind;
   model?: string;
-  /** The agent's own, like `placement`: it replaces an alias's effort rather than having to match it. */
-  effort?: Effort;
 };
 
-export interface AgentForkSpec extends PlacementChoice {
+export interface AgentForkSpec extends AgentChoice {
   key: AgentKey;
   instructions?: string;
   labels?: JsonObject;
-  /** Absent, the fork takes its parent's current effort, as it takes its current model. */
-  effort?: Effort;
+  // effort, from AgentChoice: absent, the fork takes its parent's current effort, as it takes
+  // its current model.
 }
 
 export interface SettingsSpec {
@@ -343,42 +344,64 @@ Alternatives rejected:
 What task 1 finds out by running each harness. These are not decisions. A switch that can't be
 shown working is absent with its reason.
 
-- Does each harness honour `--model` and its effort flag on a resumed headless turn, or does a
-  resume keep the session's first settings? This decides whether a headless `set` is possible.
-- In a pane, which command switches model and effort, and what on screen confirms it?
+- **M1. Resume.** Does each harness honour `--model` and its effort flag on a resumed headless
+  turn, or does a resume keep the session's first settings? This decides whether a headless `set`
+  is possible.
+- **M2. Pane switch.** In a pane, which command switches model and effort, and what on screen
+  confirms it?
   - claude is reported to have `/model` and `/effort`;
   - codex is reported to pick both under `/model`;
   - pi's and cursor's are unknown.
-- Cursor: which models take `[effort=…]`, and what does a cursor agent on another model get?
-- Precedence: does claude's `--effort` beat `CLAUDE_EFFORT` and its settings file? Does codex's `-c`
-  beat a profile?
-- Codex's levels for the models awf runs, so its definition lists the right ones.
-- Where each harness logs the model and effort it actually used, so the live checks can read them
-  back. codex's rollout is reported to log `effort` in its `turn_context`; claude's and pi's session
-  files are unchecked.
+- **M3. Cursor.** Which models take `[effort=…]`, and what does a cursor agent on another model get?
+- **M4. Precedence.** Does claude's `--effort` beat `CLAUDE_EFFORT` and its settings file? Does
+  codex's `-c` beat a profile?
+- **M5. Codex's levels** for the models awf runs, so its definition lists the right ones.
+- **M6. Logs.** Where each harness logs the model and effort it actually used, so the live checks
+  can read them back. codex's rollout is reported to log `effort` in its `turn_context`; claude's
+  and pi's session files are unchecked.
 
 ## Open questions
 
-Decisions for the operator, grouped by the task they block.
+Decisions for the operator. Q1 is open; Q2–Q5 are decided and kept so their reasons stay with them.
 
-### 2. Contract
+### Open
 
-- **Can an agent set its own effort over its alias's?** The proposal says yes, as it can its
-  placement. The same model at two efforts is the common case. Making effort a constraint, as
-  `model` is, would need an alias for every model and effort pair.
+- **Q1. Can an alias carry an effort, or is effort only the agent's own?** Blocks task 2.
+  - What an alias is today: a name for a harness and a model. `awf run` installs two,
+    `claude` (claude, `sonnet`) and `codex` (codex, `gpt-5.6-sol`). Operators can't define their
+    own; only a workflow's test can add some (`runtimes`).
+  - How the fields behave today when a workflow opens `runtime: { alias: "codex", … }`:
+    - `model` belongs to the alias. `{ alias: "codex", model: "o4" }` is refused, because the alias
+      says another model.
+    - `placement` belongs to the agent. The alias names none, and `{ alias: "codex", placement:
+      "headless" }` simply adds it.
+  - The question is which of the two effort is like.
+    - **(a) The agent's own, like `placement`** (recommended). Aliases never name an effort, and
+      a workflow writes `{ alias: "codex", effort: "high" }` to get codex's model at `high`. No
+      conflict can arise, since only one side ever names it. In the contract, `effort` sits beside
+      `placement`, not in `RuntimeTarget`, which stays harness and model.
+    - **(b) Part of the alias, like `model`.** An alias could say `deep = claude, opus, high`. A
+      workflow that wants another effort needs another alias, and `{ alias: "deep", effort: "low" }`
+      is either refused or overrides the alias, which needs a rule of its own.
+  - Why (a): Q2 already says the installed aliases name no effort, and nobody else can define an
+    alias. (b) would add a field to `RuntimeTarget` that no real alias uses. (a) can grow into (b)
+    later without breaking anything, if operators ever get aliases of their own.
+  - The contract below is written for (a).
 
 ### Decided
 
-- **Absent effort:** awf passes none, and the harness uses its default; the record says `effort`
-  absent. Installed aliases name no effort (operator, 2026-10-04).
-- **Switching mid-run is its own operation, not part of a prompt or a turn**, and it covers model as
-  well as effort (operator, 2026-10-04).
-- **It is called `set`** (operator, 2026-10-04). It beat:
+- **Q2. What does an agent that names no effort get?** awf passes none, and the harness uses its
+  default; the record says `effort` absent. Installed aliases name no effort (operator,
+  2026-10-04).
+- **Q3. How is effort changed mid-run?** By its own operation, not as part of a prompt or a turn,
+  and that operation switches model as well as effort (operator, 2026-10-04).
+- **Q4. What is that operation called?** `set` (operator, 2026-10-04). It beat:
   - `configure`, which reads like setup before the agent starts;
   - `switchTo`, which reads oddly for a later permission mode;
   - `use`, which says little.
-- **The lab's identities don't change:** a variant's effort is in its file, and the researcher
-  versions a change to it as any other (`version.ts`). Old results were never tied to an effort.
+- **Q5. Does a lab variant's or scorer's identity change?** No. A variant's effort is in its file,
+  and the researcher versions a change to it as any other change (`version.ts`). Old results were
+  never tied to an effort.
 
 ## Task execution rule
 
@@ -393,7 +416,7 @@ deliverable.
 
 ### 1. Measure each harness
 
-Outcome: every item under "To measure" is answered per harness in
+Outcome: M1–M6 are answered per harness in
 `docs/findings/agent-effort.md`, or marked unknown with why.
 
 Execution:
@@ -414,7 +437,7 @@ Work:
 
 Done when:
 
-- Every item under "To measure" has an answer, or a reason it can't be had.
+- M1–M6 each have an answer, or a reason it can't be had.
 - Each harness's levels and switches are known well enough to write its definition.
 
 ### 2. Contract, engine and testing host
@@ -424,12 +447,11 @@ host, and are documented in `workflow-api.md`.
 
 Execution:
 
-- [ ] Plan: confirm the open question is settled; map the reattach change to opened and current
-  settings.
+- [ ] Plan: confirm Q1 is settled; map the reattach change to opened and current settings.
 - [ ] Implement:
   - the contract as in "The contract";
-  - in the engine: alias merge, `set` queued like `compact`, level checks, the opened settings kept
-    for reattach;
+  - in the engine: effort added after the alias, `set` queued like `compact`, level checks, the
+    opened settings kept for reattach;
   - `set` on the testing host.
 - [ ] Review: architecture/scope and correctness/proof subagents on the diff.
 - [ ] Resolve: disposition findings.
@@ -472,7 +494,7 @@ and in a pane. A harness that can't is refused with its reason.
 
 Execution:
 
-- [ ] Plan: the shape of `setPane` and `HarnessSession.set`, from task 1's screens.
+- [ ] Plan: the shape of `setPane` and `HarnessSession.set`, from task 1's screens (M1, M2).
 - [ ] Implement:
   - headless: the settings carried to the next resume;
   - pane: the switch and its confirmation, and a relaunch at the current settings;
@@ -518,7 +540,7 @@ Done when:
 Automated:
 
 - [ ] Workflow tests:
-  - effort at open, through an alias, and on a fork;
+  - effort at open, with an alias and without, and on a fork;
   - `set` runs in order with turns, and a repeated id is harmless;
   - reattach after a `set`;
   - refusals: an unknown level, another harness, the caller, and an absent switch.
@@ -552,9 +574,9 @@ Manual or live evaluation:
 - [x] Evidence and research support the proposed design. The measurements still owed are task 1's,
   and they decide only which switches are absent, not the design.
 - [ ] Expensive interface, record-format, and stage-gate decisions are settled: the contract is
-  written out; one question is open.
+  written out; Q1 is open.
 - [x] Tasks are ordered, coherent, and independently verifiable.
-- [ ] Open questions are resolved or explicitly moved out of scope.
+- [ ] Open questions are resolved or explicitly moved out of scope: Q1 is open.
 
 ## Implementation notes
 
