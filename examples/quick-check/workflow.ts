@@ -91,8 +91,10 @@ const executable = defineExecutableWorkflow<QuickCheckArgs, QuickCheckResult>({
     },
   },
   prepare: parseRuntimes,
-  present: ({ checks }) =>
-    checks
+  present: (ending) => {
+    if (ending.kind !== "completed") return undefined;
+    const { checks } = ending.value;
+    return checks
       .map(
         ({ runtime, answers }) =>
           `${runtime}: ${answers
@@ -103,7 +105,8 @@ const executable = defineExecutableWorkflow<QuickCheckArgs, QuickCheckResult>({
             )
             .join(", then ")}`,
       )
-      .join("\n"),
+      .join("\n");
+  },
 });
 
 function parseRuntimes(invocation: WorkflowInvocation): QuickCheckArgs {

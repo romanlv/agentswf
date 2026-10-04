@@ -1,5 +1,5 @@
 import type { JsonValue } from "./json";
-import type { WorkflowDefinition } from "./workflow";
+import type { StageOutcome, WorkflowDefinition } from "./workflow";
 
 export const EXECUTABLE_WORKFLOW_KIND = "awf.executable-workflow/v1" as const;
 
@@ -7,6 +7,31 @@ export type WorkflowInvocation = Readonly<{
   argv: readonly string[];
   cwd: string;
 }>;
+
+/** One stage an attempt entered: run, or reused from the attempt that ran it. */
+export type StageSummary = {
+  stage: string;
+  source: "ran" | "reused";
+  outcome: StageOutcome;
+  /** The attempt that ran it. */
+  attempt: number;
+  summary?: string;
+  /** Its value, for a stage that returns one and succeeded. */
+  value?: JsonValue;
+};
+
+/** How an attempt ended, which `present` and `report` render. */
+export type Ending<Result> =
+  | { kind: "completed"; value: Result; stages: StageSummary[] }
+  | {
+      kind: "stopped" | "failed" | "timed-out" | "cancelled";
+      /** The stage it ended in; absent between stages. */
+      stage?: string;
+      reason: string;
+      stages: StageSummary[];
+      /** The command that goes on from here. */
+      continue: string;
+    };
 
 /**
  * Adapts operator input to one programmatic workflow call, and its result back to the operator,
@@ -22,10 +47,17 @@ export interface ExecutableWorkflow<Args extends JsonValue, Result extends JsonV
    * generated.
    */
   id?(args: Args): string;
-  /** Renders the result for a person at a terminal. Without it the operator sees the JSON. */
-  present?(result: Result): string;
-  /** A Markdown handoff of the result for whoever acts on it; the operator saves it as report.md. */
-  report?(result: Result): string;
+  /**
+   * Renders how the attempt ended for a person at a terminal: its value, or how it stopped with
+   * what its stages found. Undefined, or no `present`, and awf prints its own: the JSON, or the
+   * stage, the reason and the command that goes on.
+   */
+  present?(ending: Ending<Result>): string | undefined;
+  /**
+   * A Markdown handoff of how the attempt ended for whoever acts on it; the operator saves it as
+   * report.md. Undefined writes none.
+   */
+  report?(ending: Ending<Result>): string | undefined;
 }
 
 type ExecutableWorkflowSpec<Args extends JsonValue, Result extends JsonValue> = Omit<

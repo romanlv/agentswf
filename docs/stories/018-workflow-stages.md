@@ -234,7 +234,7 @@ Out of scope:
 - [x] 5. The author surface: `stop`, `id(args)` and `summary`, documented, with the boilerplate's
   `ask` and `md` over them.
 - [x] 6. The view by stage.
-- [ ] 7. Accounting and endings by stage.
+- [x] 7. Accounting and endings by stage.
 - [ ] 8. Consumers: an example with stages, and implement-ticket on awf's stages, run live.
 
 ## Open questions
@@ -504,6 +504,28 @@ Done when `accounting.test.ts` covers an agent across three stages, a reused sta
 a run across two attempts and the key-prefix fallback, and `tests/operator-cli.test.ts` covers
 each ending.
 
+Plan (2026-10-04):
+- **contract.**
+  - `Ending` and `StageSummary` sit beside `prepare`, and `StageOutcome` moves to the workflow
+    types.
+  - `present` and `report` take an `Ending` and may return `undefined` for awf's own rendering:
+    a breaking change, made in every example and lab workflow.
+  - `AttemptRecord` gains its `stages` (without values) and its `accounting`.
+  - `OutputRecord` gains `stages`.
+  - `byAgent.stage` goes.
+- **Accounting.**
+  - `summarizeRun` takes the stages entered. Each is a row, a reused one at zero, then
+    `(no stage)`, and a run without stages keeps the key prefix.
+  - `sumAttempts` adds attempts' accountings, totals and stage by stage.
+  - A later attempt prints "run {id}, {n} attempts: …" from the attempt files.
+- **Endings.**
+  - An attempt that didn't complete prints the stage it ended in: the stop's, or else the last
+    stage that failed or stopped.
+  - It also prints "to go on: awf run [--run-root …] [--cwd …] {file} --continue {id}", with
+    `--from-stage` after a record that didn't fit.
+  - `present` renders it to stdout, and `report.md` is written for it.
+  - An interrupted attempt is named with the stage of its last turn.
+
 ### 8. Consumers
 
 Outcome:
@@ -704,7 +726,44 @@ Two subagents, 2026-10-04. Resolved:
 Accepted: a compaction turn is labelled `compact` in the view only; its operation record has no
 label.
 
-### Tasks 7–8
+### Task 7
+
+Two subagents, 2026-10-04. Resolved:
+- **Record formats.**
+  - The attempt file's stages are `AttemptStage`, a record type of its own, no longer the author
+    API's `StageSummary` minus `value`.
+  - The attempt file keeps only the accounting a run's total sums: `basis`, `wallMs`, `billing`,
+    `totals`, `byStage` and `unpriced`.
+  - `RunAccounting.grouping` says whether `byStage` is stages or key prefixes.
+  - The design's "Each file" records all three.
+- **The stage an attempt ended in.** It was "the last stage that didn't succeed", which named a
+  caught stage's for a failure thrown later. The ledger now records which stage each failure was
+  thrown from, and the stage still open when the attempt ended.
+- **`report.md`.** For an attempt that didn't complete, it is written before the ending, so the
+  next attempt's report isn't overwritten by a late one. An earlier attempt's is removed when this
+  one writes none.
+- **The run total.** It counts every attempt and names those with no record. It merges billing and
+  unpriced models across attempts, and shows the summed stages.
+- **The command that goes on** is shell-quoted. The workflow file is given absolute unless it is
+  under the shell's directory.
+- **Smaller fixes.**
+  - A stage whose record failed to write is summarized `failed`.
+  - A `present` that throws on a stop no longer promises the full result.
+  - `docs/workflow-api.md` describes `byStage` by stage.
+- **Tests added:**
+  - a failure between stages, which names no stage;
+  - the timed-out ending's command;
+  - a run total with an interrupted attempt, and a stale report dropped;
+  - decisions by stage, with `(no stage)`;
+  - an unknown usage keeping the summed gap.
+
+Accepted, not changed:
+- **An interrupted attempt has no cost.** A turn's line carries no spend, and reading it from the
+  sessions afterwards is [[stopped-run-recovery]]'s. Recorded in the design.
+- **`--timeout` isn't repeated in the command that goes on.** A continue takes its own deadline,
+  or the default.
+
+### Task 8
 
 - Architecture and scope:
 - Correctness and proof:

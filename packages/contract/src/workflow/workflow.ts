@@ -57,6 +57,12 @@ export interface Signals {
   receive<T extends JsonValue>(spec: SignalSpec, schema: OutputSchema<T>): Promise<T>;
 }
 
+/**
+ * A stage's end: `stopped` is `workflow.stop` inside it; `failed` covers a throw, a value its
+ * schema rejects, and a cancellation.
+ */
+export type StageOutcome = "succeeded" | "stopped" | "failed";
+
 export interface StageOptions<T extends JsonValue> {
   /** Checks the value when the stage records it, and whenever a continue reuses it. */
   result: OutputSchema<T>;

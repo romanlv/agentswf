@@ -70,9 +70,10 @@ export default defineExecutableWorkflow({
   // Turns the command line into args: `awf run summarize.ts -- src/index.ts`.
   prepare: ({ argv }) => ({ file: argv[0] ?? "README.md" }),
   // Optional: what a person sees at the terminal instead of the JSON.
-  present: (result) => result.summary,
+  present: (ending) => (ending.kind === "completed" ? ending.value.summary : undefined),
   // Optional: Markdown saved beside the run as report.md.
-  report: (result) => `# Summary\n\n${result.summary}\n`,
+  report: (ending) =>
+    ending.kind === "completed" ? `# Summary\n\n${ending.value.summary}\n` : undefined,
 });
 ```
 
@@ -83,8 +84,12 @@ export default defineExecutableWorkflow({
 - **`prepare`** turns the command line (`argv` after `--`, and `cwd`) into args.
 - **`id(args)`** is optional: the run's id, such as a ticket's key, which `--id` overrides
   ([Stages](#stages)).
-- **`present`** and **`report`** are optional. Without `present`, `awf run` prints the full result
-  as JSON. `--json` always prints it.
+- **`present`** and **`report`** are optional, and take how the attempt ended: `completed` with its
+  `value`, or `stopped`, `failed`, `timed-out` or `cancelled` with its `stage`, `reason` and the
+  `continue` command; either way with its `stages`, each with its `summary` and `value`. So a
+  stopped run can report what its stages found. Returning `undefined`, or without `present`, `awf
+  run` prints its own: the full result as JSON, or the stage, the reason and the command that goes
+  on. `--json` always prints the record.
 
 The result, every agent's usage, and why the run ended are kept in `output.json` in the run's
 folder, `.awf/runs/{workflow}/{id}` under the working directory. A run that fails or is cancelled
@@ -426,8 +431,10 @@ workflow.usage();                            // this scope's finished operations
 ```
 
 Costs aren't counted inside the run. After the run, `awf` prices every agent's tokens and prints the
-total, and a line per stage when there are several (stages come from key prefixes, as above). `output.json` keeps the tokens and the
-price table it used.
+total, and a line per stage when there are several: the workflow's stages, a reused one at zero,
+with `(no stage)` for what ran between them, or for a run without stages, the agent keys'
+prefixes. A later attempt adds the run's total across its attempts. `output.json` keeps the tokens
+and the price table it used.
 
 ## Testing a workflow
 

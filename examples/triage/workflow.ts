@@ -88,15 +88,18 @@ const executable = defineExecutableWorkflow<TriageArgs, TriageResult>({
   prepare: (invocation: WorkflowInvocation) => ({
     tickets: invocation.argv.length === 0 ? [...SAMPLE_TICKETS] : [...invocation.argv],
   }),
-  present: ({ triaged }) =>
-    triaged
+  present: (ending) => {
+    if (ending.kind !== "completed") return undefined;
+    const { triaged } = ending.value;
+    return triaged
       .map(
         ({ ticket, team, bug, urgency, unsure }) =>
           `${team.padEnd(8)} ${(bug ? "bug" : "request").padEnd(7)} ${urgency.padEnd(9)} ${
             unsure.length === 0 ? "" : `(unsure: ${unsure.join(", ")}) `
           }${ticket}`,
       )
-      .join("\n"),
+      .join("\n");
+  },
 });
 
 export default executable;

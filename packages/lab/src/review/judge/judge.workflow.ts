@@ -45,13 +45,16 @@ const executable = defineExecutableWorkflow<Args, ScorerResult>({
     },
   },
   prepare: parseArgs,
-  present: (judgement) =>
-    judgement.labels
+  present: (ending) => {
+    if (ending.kind !== "completed") return undefined;
+    const judgement = ending.value;
+    return judgement.labels
       .map(
         (label) =>
           `${label.finding}: ${label.label === "hit" ? `hit ${label.issue}` : label.label}`,
       )
-      .join("\n"),
+      .join("\n");
+  },
 });
 
 /** Two judges from different model families, so a majority isn't one model agreeing with itself. */

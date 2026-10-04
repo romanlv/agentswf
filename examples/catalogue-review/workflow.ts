@@ -311,8 +311,10 @@ export function defineCatalogueReview(
         ...(maxVerifyPerLens === undefined ? {} : { maxVerifyPerLens }),
       };
     },
-    present: presentCatalogueResult,
-    report: reportCatalogueResult,
+    present: (ending) =>
+      ending.kind === "completed" ? presentCatalogueResult(ending.value) : undefined,
+    report: (ending) =>
+      ending.kind === "completed" ? reportCatalogueResult(ending.value) : undefined,
   });
 }
 

@@ -17,7 +17,7 @@ import type { AgentRuntimeConfig } from "@agentswf/harness/adapter";
 import { createFakeAdapter } from "@agentswf/harness/testing";
 import { describeAccounting } from "../accounting/format";
 import { PUBLISHED_PRICES } from "../accounting/prices";
-import { summarizeRun } from "../accounting/summary";
+import { sumAttempts, summarizeRun } from "../accounting/summary";
 import { createTempRunDirs, future } from "../testing";
 import { runWorkflow, startWorkflow, WorkflowRunError } from "../workflow-runner";
 import { digestOf, RunDecisions } from "./directory";
@@ -580,6 +580,23 @@ describe("decision accounting", () => {
     ...overrides,
   });
   const TIMES = { startedAt: "2026-09-23T10:00:00.000Z", finishedAt: "2026-09-23T10:00:05.000Z" };
+
+  test("decisions asked in a stage count there, and one between stages under (no stage)", () => {
+    const summary = summarizeRun(
+      [],
+      PUBLISHED_PRICES,
+      TIMES,
+      [decision({ stage: "triage" }), decision({ key: "match:f2" })],
+      [{ stage: "triage" }],
+    );
+    expect(summary.grouping).toBe("stages");
+    expect(summary.byStage.map(({ stage, decisions }) => [stage, decisions?.calls])).toEqual([
+      ["triage", 1],
+      ["(no stage)", 1],
+    ]);
+    const twice = sumAttempts([summary, summary]);
+    expect(twice.totals.decisions).toMatchObject({ calls: 4, known: 4 });
+  });
 
   test("an unpriced decision model is named, and its calls are not priced", () => {
     const summary = summarizeRun([], PUBLISHED_PRICES, TIMES, [

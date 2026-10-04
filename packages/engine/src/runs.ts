@@ -308,15 +308,20 @@ export async function claimAttempt(
 /** Writes the attempt's ending into its file, whole. */
 export async function endAttempt(
   attempt: Attempt,
-  ending: { outcome: AttemptOutcome; reason?: string; stage?: string },
+  ending: Pick<AttemptRecord, "stage" | "reason" | "stages" | "accounting"> & {
+    outcome: AttemptOutcome;
+  },
   now: Date = new Date(),
 ): Promise<AttemptRecord> {
+  const { stage, reason, stages, accounting } = ending;
   const record: AttemptRecord = {
     ...attempt.record,
     ended: now.toISOString(),
     outcome: ending.outcome,
-    ...(ending.stage === undefined ? {} : { stage: ending.stage }),
-    ...(ending.reason === undefined ? {} : { reason: ending.reason }),
+    ...(stage === undefined ? {} : { stage }),
+    ...(reason === undefined ? {} : { reason }),
+    ...(stages === undefined ? {} : { stages }),
+    ...(accounting === undefined ? {} : { accounting }),
   };
   await writeJson(attempt.file, record);
   attempt.record = record;

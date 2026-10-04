@@ -108,8 +108,10 @@ const executable = defineExecutableWorkflow<null, SandboxesResult>({
     },
   },
   prepare: noArguments,
-  present: ({ reports }) =>
-    reports
+  present: (ending) => {
+    if (ending.kind !== "completed") return undefined;
+    const { reports } = ending.value;
+    return reports
       .map((report) =>
         [
           `${report.agent} (${report.where})`,
@@ -119,7 +121,8 @@ const executable = defineExecutableWorkflow<null, SandboxesResult>({
           ) ?? [`  ${report.failure}\n`]),
         ].join("\n"),
       )
-      .join("\n"),
+      .join("\n");
+  },
 });
 
 function report(

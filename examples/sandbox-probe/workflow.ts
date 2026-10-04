@@ -123,14 +123,17 @@ const executable = defineExecutableWorkflow<ProbePlan, ProbeResult>({
     },
   },
   prepare: parsePlan,
-  present: ({ reports }) =>
-    reports
+  present: (ending) => {
+    if (ending.kind !== "completed") return undefined;
+    const { reports } = ending.value;
+    return reports
       .map((report) =>
         report.results
           ? `${report.agent}: ${report.results.length} commands reported`
           : `${report.agent}: ${report.outcome}: ${report.reason}`,
       )
-      .join("\n"),
+      .join("\n");
+  },
 });
 
 function probePrompt(script: string): string {

@@ -61,7 +61,8 @@ const executable = defineExecutableWorkflow<Args, Hypothesis>({
     }
     return { runtime: value };
   },
-  present: (hypothesis) => `${hypothesis.change}\n${hypothesis.predicted}`,
+  present: (ending) =>
+    ending.kind === "completed" ? `${ending.value.change}\n${ending.value.predicted}` : undefined,
 });
 
 export default executable;

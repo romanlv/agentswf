@@ -3,7 +3,7 @@ import {
   type StageRecord,
   type TurnRecord,
 } from "@agentswf/contract/records";
-import type { JsonValue } from "@agentswf/contract/workflow";
+import type { JsonValue, StageSummary } from "@agentswf/contract/workflow";
 import { replaceStale, writeStageRecord } from "./runs";
 import { planStage } from "./stage-plan";
 import { WorkflowStopped } from "./stopped";
@@ -25,9 +25,6 @@ export type OpenStage = {
   fail(reason: string): Promise<void>;
 };
 
-/** A stage an attempt entered, and whether it ran or was reused. */
-export type StageSource = { stage: string; source: "ran" | "reused" };
-
 /** A stage entered: reused from its record without running, or run. */
 export type EnteredStage =
   /** `release` once the value is handed back: until then the stage counts as open. */
@@ -43,6 +40,7 @@ export type EnteredStage =
 export class StageLedger {
   readonly #entered: string[] = [];
   readonly #reused = new Set<string>();
+  readonly #summaries = new Map<string, StageSummary>();
   /** Whether the attempt has reached its start point, after which every stage runs. */
   #started = false;
   readonly #writes = new Set<Promise<void>>();
@@ -53,6 +51,10 @@ export class StageLedger {
   #stopped: WorkflowStopped | undefined;
   /** Why the attempt fails once its stop was found caught. */
   #caught: Error | undefined;
+  /** Each stage's failure as its work threw it. */
+  readonly #failures = new Map<unknown, string>();
+  /** The stage still open when the attempt ended. */
+  #closedOpen: string | undefined;
 
   constructor(
     private readonly options: {
@@ -89,12 +91,9 @@ export class StageLedger {
     return this.#entered;
   }
 
-  /** The stages entered, in order, each run or reused. */
-  get sources(): StageSource[] {
-    return this.#entered.map((stage) => ({
-      stage,
-      source: this.#reused.has(stage) ? "reused" : "ran",
-    }));
+  /** Each stage entered that was reused or ended, in order: a plan's stop is neither. */
+  get summaries(): StageSummary[] {
+    return this.#entered.flatMap((stage) => this.#summaries.get(stage) ?? []);
   }
 
   /**
@@ -146,13 +145,22 @@ export class StageLedger {
       misfit,
     );
     if (decision.kind === "stop") {
-      this.#stopped = new WorkflowStopped(decision.reason, name);
+      this.#stopped = new WorkflowStopped(decision.reason, name, true);
       this.options.progress?.entered(name, "ran");
       this.options.progress?.ended(name, "stopped");
       throw this.#stopped;
     }
     if (decision.kind === "reuse") {
       this.#reused.add(name);
+      const { attempt, summary } = decision.record;
+      this.#summaries.set(name, {
+        stage: name,
+        source: "reused",
+        outcome: "succeeded",
+        attempt,
+        ...(summary === undefined ? {} : { summary }),
+        ...(decision.value === undefined ? {} : { value: decision.value }),
+      });
       this.options.progress?.entered(
         name,
         "reused",
@@ -224,9 +232,19 @@ export class StageLedger {
         ...(fields.summary === undefined ? {} : { summary: fields.summary }),
         ...(fields.value === undefined ? {} : { value: fields.value }),
       };
+      this.#summaries.set(name, {
+        stage: name,
+        source: "ran",
+        outcome: record.outcome,
+        attempt: record.attempt,
+        ...(record.summary === undefined ? {} : { summary: record.summary }),
+        ...(record.value === undefined ? {} : { value: record.value }),
+      });
       ended = writeStageRecord(this.options.runDir, record).then(
         () => this.options.progress?.ended(name, record.outcome, record.summary),
         (error: unknown) => {
+          const summary = this.#summaries.get(name);
+          if (summary) this.#summaries.set(name, { ...summary, outcome: "failed" });
           this.options.progress?.ended(name, "failed");
           throw error;
         },
@@ -260,8 +278,25 @@ export class StageLedger {
    */
   async close(): Promise<void> {
     this.seal("the attempt ended");
+    const open = this.#open && !this.#reused.has(this.#open.name) ? this.#open.name : undefined;
+    if (open !== undefined) this.#closedOpen = open;
     await this.#open?.fail(this.#sealed ?? "the attempt ended");
     await Promise.all(this.#writes);
+  }
+
+  /** A stage's failure, as its work threw it: the attempt ends in that stage if it escapes. */
+  failedIn(stage: string, error: unknown): void {
+    this.#failures.set(error, stage);
+  }
+
+  /**
+   * The stage an attempt that didn't complete ended in: the one its failure escaped from, or the
+   * one still open when it ended. Undefined when it ended between stages.
+   */
+  endedIn(failure: unknown): string | undefined {
+    const first = failure instanceof AggregateError ? failure.errors[0] : failure;
+    if (first instanceof WorkflowStopped) return first.stage;
+    return this.#failures.get(first) ?? this.#closedOpen;
   }
 }
 

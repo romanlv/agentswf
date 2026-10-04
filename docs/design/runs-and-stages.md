@@ -251,7 +251,9 @@ Written twice, each time whole, and only by its own attempt:
 
 1. **At start**, without the ending. Creating it is the claim ([[#Why it is shaped like this]]).
 2. **At the end**, with `ended`, `outcome`, `stage` and `reason` (for any outcome but `completed`),
-   and `stages`: each stage entered, `ran` or `reused`, with its outcome and summary.
+   `stages`: each stage entered, `ran` or `reused`, with its outcome and summary, and `accounting`:
+   its totals and `byStage`, which a run's total sums. `output.json` holds only the last attempt's,
+   and a turn's line has no spend to add up, so each attempt keeps its own.
 
 - `file`: the path it ran, for the record and the message when a run is continued from another
   file. Not identity.
@@ -294,19 +296,22 @@ Written twice, each time whole, and only by its own attempt:
 **`turns.jsonl`**: each turn, as it settles.
 
 ```json
-{"version":1,"attempt":2,"at":"2026-10-02T22:15:02Z","stage":"qa","agent":"worker","label":null,"outcome":"answered","session":"5dbd8155-…","usage":{…}}
+{"version":1,"attempt":2,"agent":"worker","operationId":"…","execution":{…},"stage":"qa","label":"preview","deliveredAt":"…","settledAt":"…","outcome":"answered","sessions":[{"harness":"claude","id":"5dbd8155-…"}]}
 ```
 
-- Appended by the live attempt, a line per turn. A crash keeps every turn that settled, so an
-  `interrupted` attempt still has its cost and sessions.
+- Appended by the live attempt, a line per turn or compaction. A crash keeps every turn that
+  settled, so an `interrupted` attempt still has its sessions. Not its cost: what a turn spent is
+  read from its sessions once the attempt ends, and an interrupted attempt has no end. Reading it
+  from the sessions later is [[stopped-run-recovery]]'s.
 - A line that doesn't parse is skipped wherever it is: a crash can tear the last line, and the next
   attempt appends after it.
 
 **`output.json`**: today's record, version 5, what `--json` prints. Replaced by each attempt that
 ends, so it may be an earlier attempt's than the last; its `attempt` says which. Adds `run` and
 `attempt`; `outcome` gains `stopped`, with `stage` (absent between stages) and
-`reason`; `stages`, as in the attempt file, with time and cost; `byStage` from stages with a
-`(no stage)` row. `byAgent.stage` goes.
+`reason`; `stages`, as in the attempt file; `byStage` from stages with a `(no stage)` row, which
+has each stage's time and cost, and `grouping` saying whether its rows are stages or key prefixes.
+`byAgent.stage` goes.
 
 **`calls/`, `report.md`**: as today. A call's `attempts.jsonl` becomes
 `candidates.jsonl`, with the type it holds ([[#What else changes]]).

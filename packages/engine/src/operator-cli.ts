@@ -10,20 +10,25 @@ import {
   statSync,
   writeFileSync,
 } from "node:fs";
+import { rm } from "node:fs/promises";
 import { constants, homedir } from "node:os";
 import { basename, join, relative, resolve } from "node:path";
 import {
-  type AttemptOutcome,
+  type AttemptRecord,
+  type AttemptStage,
   OUTPUT_RECORD_VERSION,
   type OutputRecord,
+  type RunAccounting,
   type StageRecord,
 } from "@agentswf/contract/records";
 import {
   type AbsoluteDeadline,
   DeadlineExceededError,
+  type Ending,
   type ExecutableWorkflow,
   type JsonObject,
   type JsonValue,
+  type StageSummary,
 } from "@agentswf/contract/workflow";
 import {
   type CallerPane,
@@ -38,6 +43,7 @@ import {
 } from "@agentswf/harness";
 import manifest from "../package.json" with { type: "json" };
 import { describeAccounting } from "./accounting/format";
+import { sumAttempts } from "./accounting/summary";
 import { parseDuration } from "./duration";
 import { messageOf } from "./errors";
 import {
@@ -62,6 +68,7 @@ import {
   RunRefused,
   readAttempts,
   readStageRecords,
+  readTurns,
   runRootOf,
   runStatus,
   sandboxesOf,
@@ -306,9 +313,12 @@ export async function runOperatorCli(
       { redo: command.fromStage !== undefined },
     );
     attempt = claimed.attempt;
+    const turns = claimed.interrupted.length > 0 ? await readTurns(run.dir).catch(() => []) : [];
     for (const earlier of claimed.interrupted) {
+      // Its last turn says the stage it was in, as nothing else it wrote does.
+      const stage = turns.findLast((turn) => turn.attempt === earlier.n)?.stage;
       stderr(
-        `awf: attempt ${earlier.n} of ${run.record.id} was interrupted; its panes may still be open in Herdr workspace "${workspaceLabel(meta.name, run.record.id, earlier.n)}"`,
+        `awf: attempt ${earlier.n} of ${run.record.id} was interrupted${stage ? ` in ${stage}` : ""}; its panes may still be open in Herdr workspace "${workspaceLabel(meta.name, run.record.id, earlier.n)}"`,
       );
     }
   } catch (error) {
@@ -322,7 +332,7 @@ export async function runOperatorCli(
   const n = attempt.record.n;
   const named = `${meta.name} ${id}${n > 1 ? ` · attempt ${n}` : ""}`;
   // Every way out from here writes the attempt's ending; one that never does is interrupted.
-  let ending: { outcome: AttemptOutcome; reason?: string; stage?: string } = {
+  let ending: Parameters<typeof endAttempt>[1] = {
     outcome: "failed",
     reason: "awf stopped before the run ended",
   };
@@ -361,6 +371,8 @@ export async function runOperatorCli(
 
   let output: string | undefined;
   let runError: unknown;
+  /** What the run left, settled or not: its stages and accounting, for the attempt's file. */
+  let settledRun: SettledRun | undefined;
   let outcome: Exclude<OutputRecord["outcome"], "succeeded"> = "failed";
   let failedRecord: string | undefined;
   let footer: string[] = [];
@@ -380,6 +392,7 @@ export async function runOperatorCli(
     ...(settled.sandboxes ? { sandboxes: settled.sandboxes } : {}),
     ...(settled.skills ? { skills: settled.skills } : {}),
     ...(settled.decisions ? { decisions: settled.decisions } : {}),
+    ...(settled.stages ? { stages: settled.stages.map(withoutValue) } : {}),
   });
   try {
     const progress = watchProgress(named, startedAt, {
@@ -418,7 +431,13 @@ export async function runOperatorCli(
     } finally {
       progress.stop();
     }
-    const report = await writeReport(loaded.executable, result.value, run.dir, stderr);
+    settledRun = result;
+    const completed: Ending<JsonValue> = {
+      kind: "completed",
+      value: result.value,
+      stages: result.stages ?? [],
+    };
+    const report = await writeReport(loaded.executable, completed, run.dir, stderr);
     const record: OutputRecord = {
       ...recordOf(result),
       outcome: "succeeded",
@@ -433,19 +452,22 @@ export async function runOperatorCli(
     footer = [
       "",
       ...describeAccounting(result.accounting),
+      ...(await runTotal(run, n, result.accounting)),
       ...(report ? [`Report: ${tilde(report)}`] : []),
       `Records: ${tilde(run.dir)}`,
     ];
-    output = command.json ? json : (present(loaded.executable, result.value, stderr) ?? json);
+    output = command.json ? json : (present(loaded.executable, completed, stderr) ?? json);
   } catch (error) {
     runError = error;
     outcome = runOutcome(error, deadline);
     if (error instanceof WorkflowRunError) {
+      settledRun = error;
+      const at = endedIn(error);
       const record: OutputRecord = {
         ...recordOf(error),
         outcome,
         error: errorDetail(error),
-        ...(stopAt(error) === undefined ? {} : { stage: stopAt(error) }),
+        ...(at === undefined ? {} : { stage: at }),
       };
       failedRecord = JSON.stringify(record, null, 2);
       try {
@@ -454,19 +476,46 @@ export async function runOperatorCli(
       } catch (writeError) {
         stderr(`awf: output.json: ${messageOf(writeError)}`);
       }
-      for (const line of ["", ...describeAccounting(error.accounting)]) stderr(line);
+      for (const line of [
+        "",
+        ...describeAccounting(error.accounting),
+        ...(await runTotal(run, n, error.accounting)),
+      ]) {
+        stderr(line);
+      }
     }
   }
   // Written before cleanup and the hand-back: a session told the run is over may continue it at
   // once, and a second Ctrl-C during cleanup leaves the ending already written.
-  const stoppedAt = stopAt(runError);
+  const endedAt = endedIn(runError);
+  // Before the ending: a session told the run is over may start the next attempt, whose report
+  // this one's must not overwrite.
+  let unfinished: Extract<Ending<JsonValue>, { continue: string }> | undefined;
+  let unfinishedReport: string | undefined;
+  if (runError !== undefined) {
+    unfinished = {
+      kind: outcome,
+      ...(endedAt === undefined ? {} : { stage: endedAt }),
+      reason: errorDetail(runError),
+      stages: settledRun?.stages ?? [],
+      continue: continueCommand(command, id, runError),
+    };
+    unfinishedReport = await writeReport(loaded.executable, unfinished, run.dir, stderr);
+  }
+  const settledFields = settledRun
+    ? {
+        ...(settledRun.stages ? { stages: settledRun.stages.map(withoutValue) } : {}),
+        accounting: attemptAccounting(settledRun.accounting),
+      }
+    : {};
   ending =
     runError === undefined
-      ? { outcome: "completed" }
+      ? { outcome: "completed", ...settledFields }
       : {
           outcome,
           reason: errorDetail(runError),
-          ...(stoppedAt === undefined ? {} : { stage: stoppedAt }),
+          ...(endedAt === undefined ? {} : { stage: endedAt }),
+          ...settledFields,
         };
   await writeEnding();
   let cleanupError: unknown;
@@ -476,7 +525,11 @@ export async function runOperatorCli(
     cleanupError = error;
   }
   if (cleanupError !== undefined && runError === undefined) {
-    ending = { outcome: "failed", reason: `runtime cleanup failed: ${messageOf(cleanupError)}` };
+    ending = {
+      ...ending,
+      outcome: "failed",
+      reason: `runtime cleanup failed: ${messageOf(cleanupError)}`,
+    };
     await writeEnding();
   }
   const recorded = written ? `; its record is ${join(run.dir, "output.json")}` : "";
@@ -488,9 +541,18 @@ export async function runOperatorCli(
   if (runError !== undefined) {
     const cancellation = findCancellation(runError);
     const { ended } = ENDINGS[outcome];
-    stderr(`awf: ${ended} (${named}); its records are in ${run.dir}: ${errorDetail(runError)}`);
+    const stagedAt = endedAt === undefined ? "" : ` in ${endedAt}`;
+    stderr(
+      `awf: ${ended}${stagedAt} (${named}); its records are in ${run.dir}: ${errorDetail(runError)}`,
+    );
     const again = command.fromStage === undefined ? await sameStop(run, n, runError) : undefined;
     if (again) stderr(`awf: ${again}`);
+    if (unfinished) {
+      stderr(`awf: to go on: ${unfinished.continue}`);
+      if (unfinishedReport) stderr(`Report: ${tilde(unfinishedReport)}`);
+      const shown = command.json ? undefined : present(loaded.executable, unfinished, stderr);
+      if (shown !== undefined) stdout(shown);
+    }
     if (cleanupError !== undefined)
       stderr(`awf: runtime cleanup also failed: ${messageOf(cleanupError)}`);
     // The record says the run did not succeed, so a caller that asked for it gets it either way.
@@ -726,6 +788,8 @@ type RunCommand = {
   cwd: string;
   /** Whether `--cwd` gave it, which a continue checks against its run's. */
   cwdGiven: boolean;
+  /** Whether `--run-root` gave the run root, which the command that goes on repeats. */
+  runRootGiven: boolean;
   workflowFile: string;
   workflowArgs: string[];
   /** As typed, for the attempt's record. */
@@ -864,6 +928,7 @@ function parseCommand(argv: readonly string[], cwd: string): RunCommand {
     shellCwd: cwd,
     cwd: workCwd,
     cwdGiven,
+    runRootGiven: runRoot !== undefined,
     workflowFile,
     workflowArgs,
     timeout,
@@ -1081,14 +1146,15 @@ const NOT_IN_A_RUN_SANDBOX = {
 
 function present(
   executable: ExecutableWorkflow<JsonValue, JsonValue>,
-  value: JsonValue,
+  ending: Ending<JsonValue>,
   stderr: (text: string) => void,
 ): string | undefined {
   if (!executable.present) return undefined;
   try {
-    return executable.present(value).trimEnd();
+    return executable.present(ending)?.trimEnd();
   } catch (error) {
-    stderr(`awf: present: ${messageOf(error)}; printing the full result instead`);
+    const instead = ending.kind === "completed" ? "printing the full result instead" : "see above";
+    stderr(`awf: present: ${messageOf(error)}; ${instead}`);
     return undefined;
   }
 }
@@ -1100,16 +1166,19 @@ function tilde(path: string): string {
 
 async function writeReport(
   executable: ExecutableWorkflow<JsonValue, JsonValue>,
-  value: JsonValue,
+  ending: Ending<JsonValue>,
   artifacts: string,
   stderr: (text: string) => void,
 ): Promise<string | undefined> {
-  if (!executable.report) return undefined;
+  const file = join(artifacts, "report.md");
+  // An earlier attempt's report is gone with it: report.md is the last ended attempt's.
+  const none = () => rm(file, { force: true }).then(() => undefined);
+  if (!executable.report) return none();
   // The result is still in output.json; a report that cannot be rendered or saved should not fail
   // the run, nor cost it its record.
   try {
-    const markdown = executable.report(value);
-    const file = join(artifacts, "report.md");
+    const markdown = executable.report(ending);
+    if (markdown === undefined) return await none();
     await writeWhole(file, `${markdown.trimEnd()}\n`);
     return file;
   } catch (error) {
@@ -1166,16 +1235,93 @@ export function runOutcome(
     : "failed";
 }
 
+/**
+ * The stage an attempt ended in: the one its stop names, or the one its failure escaped from or
+ * that was open when it ended. Undefined between stages.
+ */
+function endedIn(error: unknown): string | undefined {
+  const stop = stopOf(error);
+  if (stop) return stop.stage;
+  return error instanceof WorkflowRunError ? error.endedIn : undefined;
+}
+
+/**
+ * The command that goes on from an attempt that didn't complete: the same file and run root, and
+ * `--from-stage` when a plain continue would stop at the same record again.
+ */
+function continueCommand(command: RunCommand, id: string, error: unknown): string {
+  const stop = stopOf(error);
+  return [
+    "awf",
+    "run",
+    ...(command.runRootGiven ? ["--run-root", command.runRoot] : []),
+    ...(command.cwdGiven ? ["--cwd", command.cwd] : []),
+    relativeTo(command.shellCwd, command.workflowFile),
+    "--continue",
+    id,
+    ...(stop?.redo && stop.stage !== undefined ? ["--from-stage", stop.stage] : []),
+  ]
+    .map(shellWord)
+    .join(" ");
+}
+
+/** A path as typed when it is under `cwd`, absolute otherwise, so it works from elsewhere too. */
+function relativeTo(cwd: string, file: string): string {
+  const absolute = resolve(cwd, file);
+  const inside = relative(cwd, absolute);
+  return inside.startsWith("..") ? absolute : file;
+}
+
+function shellWord(word: string): string {
+  return /^[\w@%+=:,./-]+$/.test(word) ? word : `'${word.replaceAll("'", `'\\''`)}'`;
+}
+
+/**
+ * A later attempt's lines for the whole run: what its attempts cost together, by stage, naming
+ * those with no record, which an interrupted attempt leaves.
+ */
+async function runTotal(run: Run, attempt: number, current: RunAccounting): Promise<string[]> {
+  if (attempt <= 1) return [];
+  const earlier = (await readAttempts(run).catch(() => [])).filter((record) => record.n < attempt);
+  const recorded = [...earlier.flatMap((record) => record.accounting ?? []), current];
+  const sum = sumAttempts(recorded);
+  const billings = new Set(recorded.map((one) => one.billing).filter((b) => b !== "unknown"));
+  const [first, ...stages] = describeAccounting({
+    ...current,
+    wallMs: sum.wallMs,
+    totals: sum.totals,
+    byStage: sum.byStage,
+    billing: billings.size === 0 ? "unknown" : billings.size === 1 ? [...billings][0]! : "mixed",
+    unpriced: [...new Set(recorded.flatMap((one) => one.unpriced))].sort(),
+    byModel: [],
+    byAgent: [],
+  });
+  const missing = attempt - recorded.length;
+  const gap = missing > 0 ? ` (${missing} with no record)` : "";
+  return [`run ${run.record.id}, ${attempt} attempts${gap}: ${first}`, ...stages];
+}
+
+function withoutValue({ value: _value, ...summary }: StageSummary): AttemptStage {
+  return summary;
+}
+
+/** What an attempt's file keeps of its accounting: what a run's total sums. */
+function attemptAccounting({
+  basis,
+  wallMs,
+  billing,
+  totals,
+  byStage,
+  unpriced,
+}: RunAccounting): NonNullable<AttemptRecord["accounting"]> {
+  return { basis, wallMs, billing, totals, byStage, unpriced };
+}
+
 /** The stop that ended a run, as `runOutcome` finds it. */
 function stopOf(error: unknown): WorkflowStopped | undefined {
   const cause = error instanceof WorkflowRunError ? error.cause : error;
   const failure = cause instanceof AggregateError ? cause.errors[0] : cause;
   return failure instanceof WorkflowStopped ? failure : undefined;
-}
-
-/** The stage a stop that ended a run stopped in. */
-function stopAt(error: unknown): string | undefined {
-  return stopOf(error)?.stage;
 }
 
 /**

@@ -181,7 +181,8 @@ describe("testWorkflow over recorded stages", () => {
       { recorded: { "doc-review": { file: "a" } } },
     );
     expect(() => run.value).toThrow("stop was caught: doc-review's record no longer fits");
-    expect(run.stages.map(({ stage, attempt }) => [stage, attempt])).toEqual([["doc-review", 1]]);
+    // The stage the plan stopped at was neither run nor reused, and qa never became a start point.
+    expect(run.stages).toEqual([]);
 
     const returned = await testWorkflow(
       workflowOf(async (workflow) => {

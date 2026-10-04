@@ -42,6 +42,7 @@ import {
   type RuntimeSelection,
   type SkillSource,
   type StageOptions,
+  type StageSummary,
   type TurnOutcome,
   type WorkflowContext,
   type WorkflowDefinition,
@@ -111,7 +112,7 @@ import {
   type SeatedAgent,
 } from "./sandboxes";
 import { placeSkills, RunSkills, readSkillSources } from "./skills/run-skills";
-import { StageLedger, type StageSource } from "./stage-ledger";
+import { StageLedger } from "./stage-ledger";
 import { WorkflowStopped } from "./stopped";
 
 export { WorkflowCancelledError } from "./deadlines";
@@ -149,7 +150,9 @@ export type RunWorkflowOptions = {
 export type SettledRun = {
   runId: string;
   /** The stages entered, in order, each run or reused; absent when none was. */
-  stages?: StageSource[];
+  stages?: StageSummary[];
+  /** The stage a run that didn't complete ended in; absent between stages. */
+  endedIn?: string;
   /** Every operation's record, completed with the spend read when the run ended. */
   usage: SettledOperation[];
   /** ISO times the run started and its own work, cleanup included, ended. */
@@ -176,7 +179,8 @@ export type WorkflowRunResult<Result extends JsonValue> = SettledRun & { value: 
  */
 export class WorkflowRunError extends Error implements SettledRun {
   readonly runId: string;
-  readonly stages?: StageSource[];
+  readonly stages?: StageSummary[];
+  readonly endedIn?: string;
   readonly usage: SettledOperation[];
   readonly startedAt: string;
   readonly finishedAt: string;
@@ -190,6 +194,7 @@ export class WorkflowRunError extends Error implements SettledRun {
     this.name = "WorkflowRunError";
     this.runId = run.runId;
     if (run.stages) this.stages = run.stages;
+    if (run.endedIn !== undefined) this.endedIn = run.endedIn;
     this.usage = run.usage;
     this.startedAt = run.startedAt;
     this.finishedAt = run.finishedAt;
@@ -490,12 +495,14 @@ export async function startWorkflow<Args extends JsonValue, Result extends JsonV
     const opened = sandboxes.records();
     const given = skills.records();
     const asked = decisions.records();
+    const endedIn = failed ? stages.endedIn(failure) : undefined;
     const settled: SettledRun = {
       runId,
-      ...(stages.entered.length > 0 ? { stages: stages.sources } : {}),
+      ...(endedIn === undefined ? {} : { endedIn }),
+      ...(stages.summaries.length > 0 ? { stages: stages.summaries } : {}),
       usage,
       ...times,
-      accounting: summarizeRun(usage, PUBLISHED_PRICES, times, asked),
+      accounting: summarizeRun(usage, PUBLISHED_PRICES, times, asked, stages.summaries),
       ...(opened.length > 0 ? { sandboxes: opened } : {}),
       ...(given.length > 0 ? { skills: given } : {}),
       ...(asked.length > 0 ? { decisions: asked } : {}),
@@ -830,7 +837,10 @@ class WorkflowOwner {
       }).catch(() => undefined);
       const stopped = this.options.stages.stopped;
       if (stopped && error === stopped && stopped.stage === name) await open.stop(stopped.reason);
-      else await open.fail(messageOf(error));
+      else {
+        this.options.stages.failedIn(name, error);
+        await open.fail(messageOf(error));
+      }
       throw error;
     } finally {
       removeFromParent?.();

@@ -639,7 +639,7 @@ describe("awf run", () => {
         "return null;",
         "return { total: 2 };",
         // biome-ignore lint/suspicious/noTemplateCurlyInString: workflow source text
-        "present(result) { return `total ${result.total}`; }, report(result) { return `# ${result.total} found`; },",
+        "present(ending) { return `total ${ending.value.total}`; }, report(ending) { return `# ${ending.value.total} found`; },",
       ),
     );
     let errors: string[] = [];
@@ -828,6 +828,7 @@ describe("awf run", () => {
         accounting: { totals: { agents: 0 } },
       });
       expect(ended.stderr).toContain("awf: run timed out (fixture ");
+      expect(ended.stderr).toMatch(/awf: to go on: awf run --run-root \S+ \S+ --continue \S+/);
     });
 
     test("a stage with no deadline of its own outlives the run", async () => {
@@ -1148,11 +1149,16 @@ describe("awf run's runs and attempts", () => {
       ...open
     } = JSON.parse(readFileSync(file, "utf8"));
     writeFileSync(file, JSON.stringify({ ...open, pid: 999_999_999 }));
+    // Its last turn, in qa.
+    writeFileSync(
+      join(runs(cwd), "r1", "turns.jsonl"),
+      `${JSON.stringify({ version: 1, attempt: 1, agent: "w", stage: "qa", outcome: "answered", sessions: [] })}\n`,
+    );
     rmSync(join(cwd, "fail"));
     const continued = await awf(cwd, ["flow.js", "--continue", "r1"]);
     expect(continued.exitCode).toBe(0);
     expect(continued.stderr).toContain(
-      'awf: attempt 1 of r1 was interrupted; its panes may still be open in Herdr workspace "awf fixture r1 #1"',
+      'awf: attempt 1 of r1 was interrupted in qa; its panes may still be open in Herdr workspace "awf fixture r1 #1"',
     );
   });
 
@@ -1430,6 +1436,143 @@ describe("awf run's stages", () => {
       expect(refused.exitCode).toBe(2);
       expect(refused.stderr).toContain(said);
     }
+  });
+
+  test("a failure names its stage and the command that goes on; the attempt keeps its stages", async () => {
+    const cwd = await project();
+    await Bun.write(join(cwd, "fail"), "");
+    const failed = await awf(cwd, ["--id", "r1", "flow.js"]);
+    expect(failed.exitCode).toBe(1);
+    expect(failed.stderr).toContain("awf: run failed in qa (fixture r1); its records are in");
+    expect(failed.stderr).toContain("awf: to go on: awf run flow.js --continue r1");
+    expect(failed.record).toMatchObject({
+      outcome: "failed",
+      stage: "qa",
+      stages: [
+        { stage: "implement", source: "ran", outcome: "succeeded", attempt: 1, summary: "feat/a" },
+        { stage: "qa", source: "ran", outcome: "failed", attempt: 1 },
+      ],
+    });
+    expect(failed.record.stages[0]).not.toHaveProperty("value");
+    const attempt = attemptOf(runDir(cwd), 1);
+    expect(attempt).toMatchObject({ outcome: "failed", stage: "qa", stages: failed.record.stages });
+    expect(attempt.accounting).toMatchObject({
+      byStage: [{ stage: "implement" }, { stage: "qa" }],
+    });
+
+    rmSync(join(cwd, "fail"));
+    const continued = await awf(cwd, ["flow.js", "--continue", "r1"]);
+    expect(continued.record.stages).toEqual([
+      { stage: "implement", source: "reused", outcome: "succeeded", attempt: 1, summary: "feat/a" },
+      { stage: "qa", source: "ran", outcome: "succeeded", attempt: 2 },
+    ]);
+    expect(continued.stderr).toMatch(/^run r1, 2 attempts: 0 agents · \d+s$/m);
+  });
+
+  test("a stop at a record that no longer fits goes on from that stage", async () => {
+    const cwd = await project();
+    await awf(cwd, ["--run-root", "runs", "--id", "r1", "flow.js"]);
+    const record = join(cwd, "runs", "fixture", "r1", "stages", "implement.json");
+    writeFileSync(
+      record,
+      JSON.stringify({ ...JSON.parse(readFileSync(record, "utf8")), value: 7 }),
+    );
+    const stopped = await awf(cwd, [
+      "--run-root",
+      "runs",
+      "flow.js",
+      "--continue",
+      "r1",
+      "--from-stage",
+      "qa",
+    ]);
+    expect(stopped.exitCode).toBe(3);
+    expect(stopped.stderr).toContain(
+      `awf: to go on: awf run --run-root ${join(cwd, "runs")} flow.js --continue r1 --from-stage implement`,
+    );
+  });
+
+  test("present and report render a stop, with what its stages found", async () => {
+    const cwd = runDirs.tempRunDir();
+    await Bun.write(
+      join(cwd, "flow.js"),
+      executableModule(
+        "return null;",
+        `await workflow.stage("doc-review", { result: { type: "string" }, summary: (d) => d }, async () => "docs/a.md");
+         return workflow.stop("the doc has open questions");`,
+        `present(ending) {
+           if (ending.kind === "completed") return undefined;
+           return ending.stages.map((s) => s.stage + ": " + s.value).join("\\n") + "\\n" + ending.reason + "\\n" + ending.continue;
+         },
+         report(ending) { return "# " + ending.kind + "\\n\\n" + ending.reason; },`,
+      ),
+    );
+    const output: string[] = [];
+    const exitCode = await cli(["run", "--id", "r1", "flow.js"], {
+      cwd,
+      stdout: (text) => output.push(text),
+      stderr: () => undefined,
+      installRuntime: emptyRuntime,
+    });
+    expect(exitCode).toBe(3);
+    expect(output).toEqual([
+      "doc-review: docs/a.md\nthe doc has open questions\nawf run flow.js --continue r1",
+    ]);
+    expect(readFileSync(join(cwd, ".awf/runs/fixture/r1/report.md"), "utf8")).toBe(
+      "# stopped\n\nthe doc has open questions\n",
+    );
+  });
+
+  test("a failure that escapes between stages names none", async () => {
+    const cwd = runDirs.tempRunDir();
+    await Bun.write(
+      join(cwd, "flow.js"),
+      executableModule(
+        "return null;",
+        `await workflow.stage("qa", async () => { throw new Error("qa broke"); }).catch(() => undefined);
+         throw new Error("after qa");`,
+      ),
+    );
+    const failed = await awf(cwd, ["--id", "r1", "flow.js"]);
+    expect(failed.exitCode).toBe(1);
+    expect(failed.stderr).toContain("awf: run failed (fixture r1)");
+    expect(failed.record).not.toHaveProperty("stage");
+  });
+
+  test("a later attempt totals the run, naming an attempt with no record, and drops a stale report", async () => {
+    const cwd = runDirs.tempRunDir();
+    const flow = (withReport: boolean) =>
+      executableModule(
+        "return null;",
+        `await workflow.stage("qa", async () => {
+           if (workflow.attempt < 3) throw new Error("not yet");
+         });
+         return null;`,
+        withReport ? 'report() { return "# a report"; },' : "",
+      );
+    await Bun.write(join(cwd, "flow.js"), flow(true));
+    await awf(cwd, ["--id", "r1", "flow.js"]);
+    const dir = join(cwd, ".awf", "runs", "fixture", "r1");
+    expect(existsSync(join(dir, "report.md"))).toBe(true);
+    await awf(cwd, ["flow.js", "--continue", "r1"]);
+    // Attempt 2 as an interruption leaves it: no ending, no accounting.
+    const second = join(dir, "attempts", "2.json");
+    const {
+      ended: _e,
+      outcome: _o,
+      reason: _r,
+      accounting: _a,
+      stages: _s,
+      stage: _t,
+      ...open
+    } = JSON.parse(readFileSync(second, "utf8"));
+    writeFileSync(second, JSON.stringify({ ...open, pid: 999_999_999 }));
+    // Another file, as a fix is often tried: this one writes no report.
+    await Bun.write(join(cwd, "fixed.js"), flow(false));
+    const third = await awf(cwd, ["fixed.js", "--continue", "r1"]);
+    expect(third.exitCode).toBe(0);
+    expect(third.stderr).toMatch(/^run r1, 3 attempts \(1 with no record\): 0 agents · /m);
+    expect(existsSync(join(dir, "report.md"))).toBe(false);
   });
 
   test("--from-stage refuses a name that can't be a stage's", async () => {

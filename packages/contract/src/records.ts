@@ -17,6 +17,7 @@ import type {
   SandboxKey,
   SandboxSpec,
 } from "./workflow/sandboxes";
+import type { StageOutcome } from "./workflow/workflow";
 
 /** What the run directory records about one call. The format only; the engine does the I/O. */
 export type CallSpec = {
@@ -165,16 +166,24 @@ export type RunAccounting = {
   startedAt: string;
   finishedAt: string;
   wallMs: number;
+  /**
+   * What `byStage` groups by: the workflow's stages, or, for a run without any, the call path and
+   * key prefix.
+   */
+  grouping: "stages" | "prefix";
   /** `mixed` when agents whose billing is known disagree; `unknown` when none is known. */
   billing: Billing | "mixed";
   totals: AccountingFigures;
-  /** A stage is the call path and the agent or decision key's prefix before `:`, joined with `/`. */
+  /**
+   * Each workflow stage entered, in order, a reused one at zero, then `(no stage)` for what ran
+   * between stages. A run without stages groups by the call path and the agent or decision key's
+   * prefix before `:`, joined with `/`.
+   */
   byStage: (AccountingFigures & { stage: string; spanMs: number })[];
   byModel: ModelFigures[];
   byAgent: (Omit<AccountingFigures, "decisions"> & {
     callPath: string[];
     agent: string;
-    stage: string;
     execution: AgentExecution;
     billing: Billing;
   })[];
@@ -283,15 +292,31 @@ export type AttemptRecord = {
   stage?: string;
   /** Why it did not complete. */
   reason?: string;
+  /** Each stage it entered that ran or was reused, in order. */
+  stages?: AttemptStage[];
+  /**
+   * What it cost, as far as a run's total needs: `output.json` holds the last attempt's in full,
+   * and turns carry no spend, so an earlier attempt's is kept here. Absent for an interrupted one.
+   */
+  accounting?: Pick<
+    RunAccounting,
+    "basis" | "wallMs" | "billing" | "totals" | "byStage" | "unpriced"
+  >;
+};
+
+/** A stage an attempt entered, as its files record it: no value, which `stages/` holds. */
+export type AttemptStage = {
+  stage: string;
+  source: "ran" | "reused";
+  outcome: StageOutcome;
+  /** The attempt that ran it. */
+  attempt: number;
+  summary?: string;
 };
 
 export const STAGE_RECORD_VERSION = 1 as const;
 
-/**
- * A stage's end: `stopped` is `workflow.stop` inside it; `failed` covers a throw, a value its
- * schema rejects, and a cancellation.
- */
-export type StageOutcome = "succeeded" | "stopped" | "failed";
+export type { StageOutcome } from "./workflow/workflow";
 
 /**
  * `stages/{stage}.json`: the run's current record of a stage, written whole when the stage ends,
@@ -364,6 +389,8 @@ export type OutputRecord = {
   skills?: AgentSkillsRecord[];
   /** Every decision the run asked, in the order asked. Absent when it asked none. */
   decisions?: SettledDecision[];
+  /** Each stage the attempt entered, as its attempt file has them; absent when none. */
+  stages?: AttemptStage[];
 } & (
   | {
       outcome: "succeeded";

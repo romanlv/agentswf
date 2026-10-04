@@ -7,6 +7,8 @@ export class WorkflowStopped extends Error {
     readonly reason: string,
     /** The stage it stopped in; absent between stages. */
     readonly stage?: string,
+    /** Whether going on takes `--from-stage {stage}`: a record a continue can't reuse. */
+    readonly redo = false,
   ) {
     super(reason);
     this.name = "WorkflowStopped";

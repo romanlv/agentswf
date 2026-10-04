@@ -46,7 +46,7 @@ describe("triage", () => {
     expect(tickets.map((_, index) => asked(`triage:${index + 1}`))).toEqual(
       tickets.map((ticket) => ({ ticket })),
     );
-    expect(triage.present!(run.value)).toBe(
+    expect(triage.present!({ kind: "completed", value: run.value, stages: [] })).toBe(
       [
         "payments bug     now       (unsure: urgency) Checkout charges twice",
         "frontend request later     Please add dark mode",
