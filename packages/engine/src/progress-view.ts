@@ -1,7 +1,6 @@
 import { type JsonValue, placementOf, type StageOutcome } from "@agentswf/contract/workflow";
-import { duration } from "./accounting/format";
+import { ago, duration } from "./accounting/format";
 import { NO_STAGE } from "./accounting/summary";
-import { ago } from "./duration";
 import type { StageProgress } from "./stage-ledger";
 import type { WorkflowRunHandle, WorkflowRunSnapshot } from "./workflow-runner";
 
@@ -96,18 +95,21 @@ export function renderProgress(
   return lines;
 }
 
-/** For a log rather than a terminal: one line per change between two snapshots, as it happened. */
+/** For a log rather than a terminal: one line per change between two snapshots, when it happened. */
 export function progressEvents(
   before: WorkflowRunSnapshot | undefined,
   after: WorkflowRunSnapshot,
   view: { startedAt: number; now: number },
 ): string[] {
-  const at = `[${clock(view.now - view.startedAt)}]`;
-  // Ordered by when each happened; at the same instant, what ends goes before what starts, and the
-  // inner before the outer as each ends, the outer before the inner as each starts.
+  // Each stamped and ordered by when it happened; at the same instant, what ends goes before what
+  // starts, and the inner before the outer as each ends, the outer before the inner as each starts.
   const events: { time: number; rank: number; text: string }[] = [];
   const add = (time: number, rank: Rank, text: string) =>
-    events.push({ time, rank: RANKS.indexOf(rank), text: `${at} ${text}` });
+    events.push({
+      time,
+      rank: RANKS.indexOf(rank),
+      text: `[${clock(time - view.startedAt)}] ${text}`,
+    });
   after.groups.forEach((group, index) => {
     const earlier = before?.groups[index];
     if (!earlier) add(group.startedAt, "group start", `▶ ${group.label} (${group.total})`);
@@ -185,12 +187,12 @@ const RANKS = [
 type Rank = (typeof RANKS)[number];
 
 /**
- * The stages: those finished collapsed to a line with their time, what their agents cost when the
- * run is over, and their summary; those reused marked `↺` with their summary and the attempt that
- * ran them, and how long ago once that is over an hour; the current one with each agent working in
- * it; and those an earlier attempt recorded still to come, dim. Once the run is over, what ran
- * between stages has a row of its own, so the stages add up. None for a run without stages. A
- * stage that did not succeed shows only its mark: why is said once, where the run's ending is.
+ * The stages, a row each in columns: the time; the summary; and what its agents cost once the run
+ * is over, or for a reused one, marked `↺`, the attempt that ran it, and how long ago once that is
+ * over an hour. The current one lists each agent working in it; those an earlier attempt recorded
+ * still to come are dim. Once the run is over, what ran between stages has a row of its own, so the
+ * stages add up. None for a run without stages. A stage that did not succeed shows only its mark:
+ * why is said once, where the run's ending is.
  */
 function stageLines(
   snapshot: WorkflowRunSnapshot,
@@ -208,44 +210,56 @@ function stageLines(
     between === undefined ? 0 : NO_STAGE.length,
     0,
   );
-  const rows = snapshot.stages.map((stage) => {
+  type Row = { mark: string; name: string; cells: [string, string, string]; stage?: StageProgress };
+  const rows: Row[] = snapshot.stages.map((stage) => {
+    const summary = summaryOf(stage).join("");
     if (stage.source === "reused") {
-      return { stage, detail: summaryOf(stage).join(""), tail: reusedTail(stage, now) };
+      return { mark: "↺", name: stage.stage, cells: ["", summary, reusedTail(stage, now)], stage };
     }
     const took = duration((stage.endedAt ?? now) - stage.startedAt);
     const cost = figures.get(stage.stage);
+    if (stage.endedAt === undefined) {
+      return { mark: paint.busy(spin(now)), name: stage.stage, cells: [took, "", ""], stage };
+    }
     return {
+      mark: stageMark(stage.outcome, paint),
+      name: stage.stage,
+      cells: [took, summary, cost ?? ""],
       stage,
-      detail: cost === undefined ? took : `${took} · ${cost}`,
-      tail: stage.endedAt === undefined ? "" : summaryOf(stage).join(""),
     };
   });
-  const detailWidth = Math.max(
-    0,
-    ...rows.filter((row) => row.tail).map((row) => row.detail.length),
+  if (between !== undefined) {
+    rows.push({ mark: paint.dim("·"), name: NO_STAGE, cells: ["", "", between] });
+  }
+  const widths = [0, 1, 2].map((column) =>
+    Math.max(0, ...rows.map((row) => row.cells[column]!.length)),
   );
   const lines: string[] = [];
-  for (const { stage, detail, tail } of rows) {
-    const name = stage.stage.padEnd(width);
-    const columns = (painted: string) =>
-      tail
-        ? `${painted}${" ".repeat(detailWidth - detail.length)}${GAP}${paint.dim(tail)}`
-        : painted;
-    if (stage.source === "reused") {
-      lines.push(paint.dim(`↺ ${name}${GAP}${detail.padEnd(detailWidth)}${GAP}${tail}`));
+  for (const { mark, name, cells, stage } of rows) {
+    // Up to the last cell with anything in it, an empty column in no row taking no room.
+    const last = cells.findLastIndex((cell) => cell !== "");
+    const shown = cells
+      .map((cell, column) => ({ cell, column }))
+      .filter(({ column }) => column <= last && widths[column]! > 0)
+      .map(({ cell, column }) => {
+        const text = column === last ? cell : cell.padEnd(widths[column]!);
+        // A stage that ran has its summary dim; a reused one is dim whole.
+        return stage?.source !== "reused" && column === 1 ? paint.dim(text) : text;
+      });
+    const line = [name.padEnd(last < 0 ? 0 : width), ...shown].join(GAP);
+    if (stage?.source === "reused") {
+      lines.push(paint.dim(`${mark} ${line}`));
       continue;
     }
-    if (stage.endedAt === undefined) {
-      lines.push(`${paint.busy(spin(now))} ${name}${GAP}${paint.dim(detail)}`);
+    if (stage !== undefined && stage.endedAt === undefined) {
+      lines.push(`${mark} ${name.padEnd(width)}${GAP}${paint.dim(cells[0])}`);
       const agents = snapshot.agents.filter((agent) => agent.turn?.stage === stage.stage);
       const keys = Math.max(...agents.map((agent) => agent.key.length), 0);
       lines.push(...agents.map((agent) => stageAgentLine(agent, keys, now, paint)));
       continue;
     }
-    lines.push(`${stageMark(stage.outcome, paint)} ${name}${GAP}${columns(detail)}`);
+    lines.push(`${mark} ${line}`);
   }
-  if (between !== undefined)
-    lines.push(`${paint.dim("·")} ${NO_STAGE.padEnd(width)}${GAP}${between}`);
   lines.push(...upcoming.map((name) => paint.dim(`· ${name}`)));
   return lines;
 }

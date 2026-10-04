@@ -10,12 +10,3 @@ export function parseDuration(value: string): number {
   if (!Number.isSafeInteger(milliseconds)) throw new Error(`duration is too large: ${value}`);
   return milliseconds;
 }
-
-/** How long ago, for a person: `5m ago`, `3h ago`, `2d ago`. */
-export function ago(ms: number): string {
-  if (!Number.isFinite(ms)) return "at an unknown time";
-  const minutes = Math.max(0, Math.round(ms / 60_000));
-  if (minutes < 60) return `${minutes}m ago`;
-  const hours = Math.round(minutes / 60);
-  return hours < 48 ? `${hours}h ago` : `${Math.round(hours / 24)}d ago`;
-}

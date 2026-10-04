@@ -342,7 +342,7 @@ describe("describeAccounting", () => {
       [],
     );
     expect(describeAttempts(sumAttempts([none, one]), 3, 1)).toBe(
-      "run: 3 attempts (1 with no accounting), 28m 10s, ~$2.50",
+      "run: 3 attempts (1 interrupted, cost unknown), 28m 10s, ~$2.50",
     );
     expect(describeAttempts(sumAttempts([none, none]), 2, 0)).toBe("run: 2 attempts, 28m 10s");
   });
@@ -432,7 +432,7 @@ describe("byStage, from the workflow's stages", () => {
     expect(summary.byAgent[0]).not.toHaveProperty("stage");
   });
 
-  test("a reused stage is a row at zero, and each stage is timed by its own span", () => {
+  test("a reused stage is a row at zero, each stage is timed by its own span, and one that spent nothing is not shown", () => {
     const summary = summarizeRun(
       [worker("qa", 100_000, 1)],
       PUBLISHED_PRICES,
@@ -459,9 +459,7 @@ describe("byStage, from the workflow's stages", () => {
     expect(stageFigures(summary)).toEqual(new Map([["qa", "1 agent · 100k tokens · ~$2.50"]]));
     expect(describeAccounting(summary)).toEqual([
       "1 agent · 14m 05s · 100k tokens · ~$2.50 at list prices · subscription",
-      "  implement  0 agents · 0s",
-      "  qa         1 agent · 1m 30s · ~$2.50",
-      "  notify     0 agents · 3s",
+      "  qa  1 agent · 1m 30s · ~$2.50",
     ]);
     expect(describeAccounting(summary, { stages: false })).toHaveLength(1);
   });

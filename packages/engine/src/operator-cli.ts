@@ -12,10 +12,11 @@ import {
   decideEnding,
   endedBeforeStart,
   type Finished,
+  type GoOn,
   signalExitCode,
 } from "./attempt-ending";
 import { type Kept, keepRecords } from "./attempt-output";
-import { printEnding, toldOf } from "./attempt-view";
+import { continueCommand, printEnding, toldOf } from "./attempt-view";
 import { messageOf } from "./errors";
 import { type Caller, showOwnTab, startHere, takeCaller } from "./here";
 import { machinePaths, sandboxesDirOf } from "./machine";
@@ -26,15 +27,15 @@ import {
 } from "./operator-runtime";
 import { ANSI, type Terminal, watchProgress } from "./progress-view";
 import { parseCommand, type RunCommand, usage } from "./run-command";
+import { claimNext, loadAndPrepare, type PreparedRun, workspaceLabel } from "./run-prepare";
 import {
-  claimNext,
-  continueCommand,
-  loadAndPrepare,
-  type PreparedRun,
-  workspaceLabel,
-} from "./run-prepare";
-import { type Attempt, createRun, discardRun, type Run, RunRefused } from "./runs";
-import type { WorkflowStopped } from "./stopped";
+  type Attempt,
+  createRun,
+  discardRun,
+  type Run,
+  RunRefused,
+  readStageRecords,
+} from "./runs";
 import { parseTestCommand, runWorkflowTests, type TestCommand, testUsage } from "./test-command";
 import type { LoadedWorkflow } from "./workflow-loader";
 import { startWorkflow } from "./workflow-runner";
@@ -66,6 +67,8 @@ export type OperatorEnvironment = {
 type Output = {
   stdout: (text: string) => void;
   stderr: (text: string) => void;
+  /** For what awf says beside a problem rather than about one, which is never painted. */
+  notice: (text: string) => void;
   terminal: Terminal | undefined;
   now: () => number;
 };
@@ -75,11 +78,11 @@ export async function runOperatorCli(
   environment: OperatorEnvironment = {},
 ): Promise<number> {
   const stdout = environment.stdout ?? ((text) => console.log(text));
+  const write = (text: string) => void process.stderr.write(text);
   const stderr =
     environment.stderr ??
-    stderrLines((text) => void process.stderr.write(text), {
-      color: process.stderr.isTTY && !process.env.NO_COLOR,
-    });
+    stderrLines(write, { color: process.stderr.isTTY && !process.env.NO_COLOR });
+  const notice = environment.stderr ?? ((text: string) => write(`${text}\n`));
   const terminal =
     environment.terminal ??
     (!environment.stderr && process.stderr.isTTY
@@ -106,7 +109,7 @@ export async function runOperatorCli(
     stderr(`awf: ${messageOf(error)}\n\n${usage}`);
     return 2;
   }
-  if (command.here) return startHere(argv, command, environment, stdout, stderr);
+  if (command.here) return startHere(argv, command, environment, stdout, stderr, notice);
   // The session that started a `--session` run waits on it, and its tab opened unfocused: until the
   // run takes the session over, a refusal is said where the operator will look.
   const unstarted = async (exitCode: number) => {
@@ -126,7 +129,7 @@ export async function runOperatorCli(
     stderr(`awf: ${ready.refused}`);
     return unstarted(2);
   }
-  for (const line of ready.prepared.continued?.warnings ?? []) stderr(line);
+  for (const line of ready.prepared.continued?.warnings ?? []) notice(line);
 
   // Loading the workflow imports operator-supplied code before anything listens to the signal, so
   // a Ctrl-C in it would otherwise be swallowed and have to be pressed again.
@@ -146,7 +149,13 @@ export async function runOperatorCli(
       return cancelledBeforeStart(environment.signal, stderr);
     }
   }
-  return runAttempt(command, ready, calling, environment, home, { stdout, stderr, terminal, now });
+  return runAttempt(command, ready, calling, environment, home, {
+    stdout,
+    stderr,
+    notice,
+    terminal,
+    now,
+  });
 }
 
 /**
@@ -161,7 +170,7 @@ async function runAttempt(
   home: string,
   output: Output,
 ): Promise<number> {
-  const { stdout, stderr, terminal, now } = output;
+  const { stdout, stderr, notice, terminal, now } = output;
   const { executable } = loaded;
   const { meta } = executable.definition;
   /** The run, once it is claimed. */
@@ -201,7 +210,7 @@ async function runAttempt(
   }
   let attempt: Attempt;
   try {
-    attempt = await claimNext(run, loaded, command, stderr, now());
+    attempt = await claimNext(run, loaded, command, notice, now());
   } catch (error) {
     // A run this call created and never ran is not left to hold its id.
     if (!prepared.continued) await discardRun(run).catch(() => undefined);
@@ -210,16 +219,49 @@ async function runAttempt(
   const { id, cwd } = run.record;
   const sandbox = run.record.sandbox ?? undefined;
   const n = attempt.record.attempt;
-  const goOn = (stop?: WorkflowStopped) => continueCommand(command, id, stop);
+  const goOn: GoOn = (stop, entered) => continueCommand(command, id, stop, entered);
   const records = { attempt, executable, workflow: { name: meta.name, file: loaded.file }, stderr };
-  // Every way out from here writes the attempt's ending, before the hand-back: a session told the
-  // run is over may continue it at once. One that never does is interrupted.
-  const endUnstarted = async (end: AttemptEnd) => {
-    await handOver(toldOf(end, await keepRecords(end, records)));
-    return end.exitCode;
+  const close = async (end: AttemptEnd, kept: Kept, cleanupAlso?: string) => {
+    const recorded = end.unreached
+      ? [...(await readStageRecords(run.dir).catch(() => new Map())).values()].sort((a, b) =>
+          a.started.localeCompare(b.started),
+        )
+      : undefined;
+    return printEnding(end, kept, {
+      executable,
+      run: { id, dir: run.dir },
+      n,
+      earlier: prepared.continued?.attempts ?? [],
+      json: command.json,
+      fromStage: command.fromStage !== undefined,
+      ...(recorded ? { recorded } : {}),
+      now: now(),
+      shellCwd: command.shellCwd,
+      home,
+      ...(cleanupAlso === undefined ? {} : { cleanupAlso }),
+      ...(terminal ? { terminal } : {}),
+      stdout,
+      stderr,
+      notice,
+    });
   };
   // Timed from here: finding the calling session can take minutes the run itself never had.
   const startedAt = now();
+  // Every way out from here writes the attempt's ending, before the hand-back: a session told the
+  // run is over may continue it at once. One that never does is interrupted. A new run that never
+  // started is not kept at all, so the same command starts it again.
+  const endUnstarted = async (outcome: Parameters<typeof endedBeforeStart>[0], said: string) => {
+    const end = endedBeforeStart(outcome, { runId: id, startedAt, endedAt: now() }, goOn);
+    if (!prepared.continued) {
+      await discardRun(run, attempt).catch(() => undefined);
+      stderr(`awf: ${said}, and nothing of it is kept`);
+      await handOver(`did not start: ${outcome.kind === "failed" ? outcome.reason : "cancelled"}`);
+      return end.exitCode;
+    }
+    const kept = await keepRecords(end, records);
+    await handOver(toldOf(end, kept));
+    return close(end, kept);
+  };
   const deadline = { unixMilliseconds: startedAt + command.timeoutMilliseconds };
   let installed: OperatorRuntimeInstallation;
   try {
@@ -228,18 +270,16 @@ async function runAttempt(
       { watchSandboxes: command.watch, ...(calling ? { caller: calling.caller } : {}) },
     );
   } catch (error) {
-    stderr(`awf: runtime: ${messageOf(error)}`);
-    return endUnstarted(
-      endedBeforeStart({ kind: "failed", reason: `runtime: ${messageOf(error)}` }, goOn()),
-    );
+    const reason = `runtime: ${messageOf(error)}`;
+    return endUnstarted({ kind: "failed", reason }, `${reason}; the run did not start`);
   }
   // Installing the runtime probes two subscription logins, with nothing listening to the signal
   // either.
   if (environment.signal?.aborted) {
     await installed.cleanup().catch(() => undefined);
-    cancelledBeforeStart(environment.signal, stderr);
     return endUnstarted(
-      endedBeforeStart({ kind: "cancelled", signal: environment.signal }, goOn()),
+      { kind: "cancelled", signal: environment.signal },
+      "run cancelled before it started",
     );
   }
 
@@ -289,7 +329,7 @@ async function runAttempt(
     try {
       await installed.cleanup();
     } catch (error) {
-      end = cleanupFailed(end, error, goOn());
+      end = cleanupFailed(end, error, goOn(undefined, end.ending.stages));
     }
     kept = await keepRecords(end, records);
   } else {
@@ -302,19 +342,7 @@ async function runAttempt(
     }
   }
   await handOver(toldOf(end, kept));
-  return printEnding(end, kept, {
-    executable,
-    run: { id, dir: run.dir },
-    n,
-    earlier: prepared.continued?.attempts ?? [],
-    json: command.json,
-    fromStage: command.fromStage !== undefined,
-    shellCwd: command.shellCwd,
-    ...(cleanupAlso === undefined ? {} : { cleanupAlso }),
-    ...(terminal ? { terminal } : {}),
-    stdout,
-    stderr,
-  });
+  return close(end, kept, cleanupAlso);
 }
 
 /** `awf test`: the workflow tests under the given paths, with Bun's test runner. */

@@ -297,8 +297,8 @@ export function attemptAccounting({
 }
 
 /**
- * A run's attempts summed, priced as the last was: its total, and each stage's across the attempts
- * that ran it. Once any attempt grouped by stages, what another grouped by prefix, having failed
+ * A run's attempts summed, each estimate as its attempt recorded it, under the last one's basis:
+ * its total, and each stage's across the attempts that ran it. Once any attempt grouped by stages, what another grouped by prefix, having failed
  * before it entered one, ran between stages.
  */
 export function sumAttempts(attempts: readonly AttemptAccounting[]): AttemptAccounting {

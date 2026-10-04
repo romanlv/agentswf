@@ -132,9 +132,10 @@ describe("run progress by stage", () => {
       }),
     ).toEqual([
       "implement-ticket AIRS-1515 · attempt 2 · qa · 5m 00s · 1 working",
-      "↺ doc-review   docs/AIRS-1515.md   attempt 1 · 2d ago",
-      "↺ implement                        attempt 1",
-      "✓ review       4m 00s              2 findings",
+      // A reused stage took no time: its summary is where a stage that ran has its own.
+      "↺ doc-review            docs/AIRS-1515.md   attempt 1 · 2d ago",
+      "↺ implement                                 attempt 1",
+      "✓ review       4m 00s   2 findings",
       expect.stringMatching(/^. qa {11}1m 00s$/),
       expect.stringMatching(/^ {4}. worker {2}claude-opus-5-5 · pane {2}preview {2}50s$/),
       "    · tester  claude-opus-5-5 · headless  4s  waiting",
@@ -174,28 +175,29 @@ describe("run progress by stage", () => {
         ]),
       }).slice(1),
     ).toEqual([
-      "↺ doc-review   docs/AIRS-1515.md                        attempt 1 · 2d ago",
-      "↺ implement                                             attempt 1",
-      "✓ review       4m 00s · 1 agent · 90k tokens · ~$0.30   2 findings",
+      "↺ doc-review            docs/AIRS-1515.md   attempt 1 · 2d ago",
+      "↺ implement                                 attempt 1",
+      "✓ review       4m 00s   2 findings          1 agent · 90k tokens · ~$0.30",
       "✗ qa           1m 00s",
       // What ran between stages, so the stages add up to the run.
-      "· (no stage)   1 agent · 2k tokens · ~$0.01",
+      "· (no stage)                                1 agent · 2k tokens · ~$0.01",
     ]);
   });
 
-  test("the same run, without a terminal, as one line per change", () => {
+  test("the same run, without a terminal, as one line per change, stamped when it happened", () => {
     const started = { ...CONTINUED, stages: CONTINUED.stages.slice(0, 3), agents: [] };
     expect(progressEvents(undefined, started, { startedAt: 0, now: 0 })).toEqual([
       "[0:00] ↺ stage doc-review · docs/AIRS-1515.md · attempt 1",
       "[0:00] ↺ stage implement · attempt 1",
       "[0:00] ▶ stage review",
-      "[0:00] ✓ stage review · 4m 00s · 2 findings",
+      "[4:00] ✓ stage review · 4m 00s · 2 findings",
     ]);
+    // Polled at 5:00, each is stamped with its own time.
     expect(progressEvents(started, CONTINUED, { startedAt: 0, now: 300_000 })).toEqual([
-      "[5:00] ✓ reviewer · 0s",
-      "[5:00] ▶ stage qa",
-      "[5:00] ✓ tester · 4s",
-      "[5:00] ▶ worker · claude-opus-5-5",
+      "[0:00] ✓ reviewer · 0s",
+      "[4:00] ▶ stage qa",
+      "[4:05] ✓ tester · 4s",
+      "[4:10] ▶ worker · claude-opus-5-5",
     ]);
     const stopped = {
       ...CONTINUED,
@@ -263,9 +265,9 @@ describe("run progress by stage", () => {
       agents: [CONTINUED.agents[1]!],
     };
     expect(progressEvents(before, after, { startedAt: 0, now: 300_000 })).toEqual([
-      "[5:00] ✓ tester · 4s",
-      "[5:00] ✓ stage qa · 50s",
-      "[5:00] ▶ stage mr",
+      "[4:05] ✓ tester · 4s",
+      "[4:50] ✓ stage qa · 50s",
+      "[4:50] ▶ stage mr",
     ]);
   });
 
@@ -411,13 +413,13 @@ describe("run progress", () => {
     const view = { startedAt: 0, now: 200_000 };
     const first = progressEvents(undefined, MID_RUN, view);
     expect(first).toEqual([
-      "[3:20] ▶ Lenses (2)",
-      "[3:20] ✓ lens:authz · 2m 00s",
-      "[3:20] ✗ lens:infra · 2m 29s · timed-out: operation deadline exceeded",
-      "[3:20] ✗ Lenses done 2/2 in 2m 30s, 1 failed",
-      "[3:20] ▶ Verify (4)",
-      "[3:20] ▶ verifier:1 · gpt-6-sol",
-      "[3:20] ✓ verifier:0 · 40s",
+      "[0:00] ▶ Lenses (2)",
+      "[2:00] ✓ lens:authz · 2m 00s",
+      "[2:29] ✗ lens:infra · 2m 29s · timed-out: operation deadline exceeded",
+      "[2:30] ✗ Lenses done 2/2 in 2m 30s, 1 failed",
+      "[2:30] ▶ Verify (4)",
+      "[2:30] ▶ verifier:1 · gpt-6-sol",
+      "[3:10] ✓ verifier:0 · 40s",
     ]);
     expect(progressEvents(MID_RUN, MID_RUN, view)).toEqual([]);
   });

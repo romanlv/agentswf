@@ -129,7 +129,7 @@ describe("testWorkflow over recorded stages", () => {
     expect(plain.value).toBeNull();
     const from = await testWorkflow(renamed, null, { recorded, fromStage: "qa" });
     expect(() => from.value).toThrow(
-      "nothing recorded for implement (recorded and not reached: impl); --from-stage implement",
+      "nothing recorded for implement (recorded and not reached: impl)",
     );
   });
 
@@ -137,13 +137,13 @@ describe("testWorkflow over recorded stages", () => {
     [
       "a value where none is expected",
       { "doc-review": { path: "a" } },
-      "doc-review's record no longer fits: stage doc-review has no result schema, so it returns nothing, and it returned a value; --from-stage doc-review",
+      "doc-review's record holds a value, and the stage no longer has a result",
       undefined,
     ],
     [
       "none where one is",
       { "doc-review": undefined },
-      "doc-review's record no longer fits: stage doc-review returned nothing; its result expects a value; --from-stage doc-review",
+      "doc-review's record holds no value, and the stage's result now expects one",
       DOC,
     ],
   ])(
@@ -182,7 +182,9 @@ describe("testWorkflow over recorded stages", () => {
       null,
       { recorded: { "doc-review": { file: "a" } } },
     );
-    expect(() => run.value).toThrow("stop was caught: doc-review's record no longer fits");
+    expect(() => run.value).toThrow(
+      "stop was caught: doc-review's record no longer fits its result schema",
+    );
     // The stage the plan stopped at was neither run nor reused, and qa never became a start point.
     expect(run.stages).toEqual([]);
 
@@ -196,7 +198,9 @@ describe("testWorkflow over recorded stages", () => {
       null,
       { recorded: { "doc-review": { file: "a" } } },
     );
-    expect(() => returned.value).toThrow("stop was caught: doc-review's record no longer fits");
+    expect(() => returned.value).toThrow(
+      "stop was caught: doc-review's record no longer fits its result schema",
+    );
     expect(returned.stopped).toBeUndefined();
   });
 

@@ -42,6 +42,7 @@ export async function startHere(
   environment: HereEnvironment,
   stdout: (text: string) => void,
   stderr: (text: string) => void,
+  notice: (text: string) => void,
 ): Promise<number> {
   // In this shell, before any tab opens: a workflow that will not load or a run that will not
   // start is said here, where the agent reads it, and not in a tab nobody is looking at.
@@ -50,7 +51,7 @@ export async function startHere(
     stderr(`awf: ${ready.refused}`);
     return 2;
   }
-  for (const line of ready.prepared.continued?.warnings ?? []) stderr(line);
+  for (const line of ready.prepared.continued?.warnings ?? []) notice(line);
   const env = environment.environment ?? process.env;
   const run = environment.herdr ?? runProcess;
   const refuse = (why: string, instead: string) => {
@@ -87,7 +88,10 @@ export async function startHere(
       // Under codex this can be another pane's workspace (E8); the run's tab still works from it.
       workspace,
       cwd: command.shellCwd,
-      label: `awf ${basename(ready.loaded.file)}${command.continueId === undefined ? "" : ` ${command.continueId}`}`,
+      label: tabLabel(
+        ready.loaded.executable.definition.meta.name,
+        command.continueId ?? ready.prepared.id,
+      ),
       argv: [...self, "run", "--session", code, ...options, ...rest],
     },
     run,
@@ -218,4 +222,9 @@ async function findCaller(
     run,
   );
   return found.kind === "found" ? { kind: "found", caller: { pane: found.pane, session } } : found;
+}
+
+/** The run's tab, named as its Herdr workspace is, but for the attempt, which isn't claimed yet. */
+function tabLabel(workflow: string, id: string | undefined): string {
+  return `awf ${workflow}${id === undefined ? "" : ` ${id}`}`;
 }

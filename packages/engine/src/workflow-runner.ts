@@ -111,7 +111,7 @@ import {
 } from "./sandboxes";
 import { placeSkills, RunSkills, readSkillSources } from "./skills/run-skills";
 import { StageLedger, type StageProgress } from "./stage-ledger";
-import { WorkflowStopped } from "./stopped";
+import { FromStageUnreached } from "./stopped";
 
 export { WorkflowCancelledError } from "./deadlines";
 
@@ -412,7 +412,7 @@ export async function startWorkflow<Args extends JsonValue, Result extends JsonV
       const caught = stages.caught();
       if (caught) throw caught;
       if (stages.fromStageUnreached !== undefined) {
-        throw new WorkflowStopped(`never reached ${stages.fromStageUnreached}`);
+        throw new FromStageUnreached(stages.fromStageUnreached);
       }
     } catch (error) {
       failed = true;
@@ -770,14 +770,9 @@ class WorkflowOwner {
     }
     const parent = scopes.getStore();
     parent?.assertAccepting();
-    const entered = await this.options.stages.enter(name, (recorded) => {
-      try {
-        stageValue(name, options, recorded);
-        return undefined;
-      } catch (error) {
-        return messageOf(error);
-      }
-    });
+    const entered = await this.options.stages.enter(name, (recorded) =>
+      recordMisfit(options, recorded),
+    );
     if (entered.kind === "reuse") {
       entered.release();
       return entered.value;
@@ -2361,6 +2356,25 @@ function stageValue(
     throw new Error(`stage ${name}'s value does not fit its result: ${formatErrors(errors)}`);
   }
   return recorded;
+}
+
+/** How a recorded value no longer fits its stage's `result`, after `{stage}'s record`; undefined when it fits. */
+function recordMisfit(
+  options: StageOptions<JsonValue> | undefined,
+  recorded: JsonValue | undefined,
+): string | undefined {
+  if (!options) {
+    return recorded === undefined
+      ? undefined
+      : "holds a value, and the stage no longer has a result";
+  }
+  if (recorded === undefined) return "holds no value, and the stage's result now expects one";
+  const errors = validate(parseJsonSchema(options.result), recorded);
+  if (errors.length === 0) return undefined;
+  return [
+    "no longer fits its result schema:",
+    ...errors.map((error) => `  ${error.path}: ${error.message}`),
+  ].join("\n");
 }
 
 function resultSchema<T extends JsonValue>(schema: OutputSchema<T> | undefined): JsonSchema {

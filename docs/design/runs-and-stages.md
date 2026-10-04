@@ -438,7 +438,10 @@ awf run flow.ts [--id I | --continue I] [--from-stage S] -- argv
 ```
 
 A refusal exits 2 and leaves nothing behind: a new run's folder is the last thing step 2 does, and
-an attempt refused in step 3 deletes its own file.
+an attempt refused in step 3 deletes its own file. A new run whose attempt ends before it starts, its
+runtime failing to install or the operator cancelling it, leaves nothing either: its folder goes,
+so the same command starts it again. A continued run keeps such an attempt, ended with what it
+cost, which is nothing, and the command that goes on.
 
 ### The stage plan
 
@@ -450,9 +453,12 @@ no outline, and a stage in a branch not taken costs nothing.
 | A stage entered before the start point | Decision |
 | --- | --- |
 | a succeeded record whose value the `result` schema accepts, or no value and no `result` | reuse |
-| a succeeded record from another major `meta.version` (under `0.x`, another minor) | stop: "review was recorded by 1.4.0; this is 2.0.0; --from-stage review" |
-| a succeeded record that no longer fits: its schema rejects the value, or a value where none is expected, or none where one is | stop: "doc-review's record no longer fits: {error}; --from-stage doc-review" |
-| no succeeded record, with `--from-stage` given | stop: "nothing recorded for review; --from-stage review" |
+| a succeeded record from another major `meta.version` (under `0.x`, another minor) | stop: "review was recorded by 1.4.0; this is 2.0.0" |
+| a succeeded record that no longer fits: its schema rejects the value, or a value where none is expected, or none where one is | stop: "doc-review's record no longer fits its result schema: {problems}" |
+| no succeeded record, with `--from-stage` given | stop: "nothing recorded for review" |
+
+Each of these stops goes on with `--from-stage` that stage, which the ending's command to go on
+carries, so the reason doesn't repeat it.
 | no succeeded record, plain continue | this is the start point: run |
 
 - **Reuse** checks the value against the current schema and returns it; `work` is never called, so
@@ -472,7 +478,10 @@ no outline, and a stage in a branch not taken costs nothing.
   picks up after the last thing that ran; rerunning a 3-hour stage and everything after it is the
   operator's choice, made by typing `--from-stage`.
 - A `--from-stage` stage never entered (a typo, a branch not taken) ends the attempt `stopped`:
-  "never reached qaa". A `--from-stage` with no record is warned about at the start.
+  "never reached qaa". No one command goes on from it, so the closing block lists the recorded
+  stages to choose from, as the refusal of a completed run does. A `--from-stage` with no record is
+  warned about at the start. An attempt that ends before it reaches its `--from-stage` for any
+  other reason goes on with the same `--from-stage`, so the redo isn't dropped.
 
 ### Stops and failures
 

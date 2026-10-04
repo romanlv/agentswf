@@ -1,13 +1,11 @@
 import { statSync } from "node:fs";
-import type { AttemptRecord, StageRecord } from "@agentswf/contract/records";
+import type { AttemptRecord } from "@agentswf/contract/records";
 import type { ExecutableWorkflow, JsonValue } from "@agentswf/contract/workflow";
-import { pathFrom } from "./display-path";
-import { ago } from "./duration";
+import { refusalMessage } from "./attempt-view";
 import { messageOf } from "./errors";
 import type { RunCommand } from "./run-command";
 import {
   type Attempt,
-  type AttemptRefusal,
   attemptRefusal,
   checkContinue,
   checkFree,
@@ -20,7 +18,6 @@ import {
   readStageRecords,
   readTurns,
 } from "./runs";
-import type { WorkflowStopped } from "./stopped";
 import { assertJsonValue, type LoadedWorkflow, loadWorkflowFile } from "./workflow-loader";
 
 export type PreparedRun = {
@@ -123,38 +120,12 @@ function derivedId(
   return id as string;
 }
 
-/** Why a run takes no attempt now, as awf says it, at time `now`. */
-function refusalMessage(id: string, refusal: AttemptRefusal, now: number): string {
-  if (refusal.kind === "running") {
-    return `attempt ${refusal.attempt.attempt} of ${id} is still running, as process ${refusal.attempt.pid}`;
-  }
-  if (refusal.stages.length === 0) return `${id} completed; there is nothing to continue`;
-  return `${id} completed; to redo from a stage, --from-stage one of:\n${listRecorded(refusal.stages, now).join("\n")}`;
-}
-
-/** Stage records, a line each, in the order given: summary, attempt, and how long ago. */
-function listRecorded(records: readonly StageRecord[], now: number): string[] {
-  const name = Math.max(0, ...records.map((record) => record.stage.length));
-  const summary = Math.max(0, ...records.map((record) => record.summary?.length ?? 0));
-  return records.map((record) =>
-    [
-      `  ${record.stage.padEnd(name)}`,
-      ...(summary > 0 ? [(record.summary ?? "").padEnd(summary)] : []),
-      [
-        ...(record.outcome === "succeeded" ? [] : [record.outcome]),
-        `attempt ${record.attempt}`,
-        ago(now - Date.parse(record.ended)),
-      ].join(" · "),
-    ].join("   "),
-  );
-}
-
 /** Claims the run's next attempt, naming each earlier one found interrupted. */
 export async function claimNext(
   run: Run,
   loaded: LoadedWorkflow,
   command: RunCommand,
-  stderr: (text: string) => void,
+  notice: (text: string) => void,
   now: number,
 ): Promise<Attempt> {
   const { meta } = loaded.executable.definition;
@@ -177,7 +148,7 @@ export async function claimNext(
   for (const earlier of claimed.interrupted) {
     // Its last turn says the stage it was in, as nothing else it wrote does.
     const stage = turns.findLast((turn) => turn.attempt === earlier.attempt)?.stage;
-    stderr(
+    notice(
       `awf: attempt ${earlier.attempt} of ${run.record.id} was interrupted${stage ? ` in ${stage}` : ""}; its panes may still be open in Herdr workspace "${workspaceLabel(meta.name, run.record.id, earlier.attempt)}"`,
     );
   }
@@ -187,31 +158,4 @@ export async function claimNext(
 /** A run's Herdr workspace, which names the attempt: a dead one's may still be open. */
 export function workspaceLabel(workflow: string, id: string, attempt: number): string {
   return `awf ${workflow} ${id} #${attempt}`;
-}
-
-/**
- * The command that goes on from an attempt that didn't complete: the same file and run root, and
- * `--from-stage` when a plain continue would stop at the same record again.
- */
-export function continueCommand(
-  command: RunCommand,
-  id: string,
-  stop: WorkflowStopped | undefined,
-): string {
-  return [
-    "awf",
-    "run",
-    ...(command.runRootGiven ? ["--run-root", command.runRoot] : []),
-    ...(command.cwdGiven ? ["--cwd", command.cwd] : []),
-    pathFrom(command.shellCwd, command.workflowFile),
-    "--continue",
-    id,
-    ...(stop?.redo && stop.stage !== undefined ? ["--from-stage", stop.stage] : []),
-  ]
-    .map(shellWord)
-    .join(" ");
-}
-
-function shellWord(word: string): string {
-  return /^[\w@%+=:,./-]+$/.test(word) ? word : `'${word.replaceAll("'", `'\\''`)}'`;
 }

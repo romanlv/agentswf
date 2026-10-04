@@ -21,7 +21,9 @@ const state = (records: StageRecord[], fields: Partial<StagePlanState> = {}): St
 });
 const fits = () => undefined;
 const objects = (value: JsonValue | undefined) =>
-  typeof value === "object" && value !== null ? undefined : "expected an object";
+  typeof value === "object" && value !== null
+    ? undefined
+    : "no longer fits its result schema: expected an object";
 
 describe("the stage plan, before the start point", () => {
   test("a succeeded record that fits is reused, with its value or none", () => {
@@ -43,7 +45,7 @@ describe("the stage plan, before the start point", () => {
     const review = record("review", { workflowVersion: "1.4.0" });
     expect(planStage(state([review], { workflowVersion: "2.0.0" }), "review", fits)).toEqual({
       kind: "stop",
-      reason: "review was recorded by 1.4.0; this is 2.0.0; --from-stage review",
+      reason: "review was recorded by 1.4.0; this is 2.0.0",
     });
     // A minor change reuses; a version on one side only leaves the schema to guard it.
     expect(planStage(state([review], { workflowVersion: "1.5.0" }), "review", fits).kind).toBe(
@@ -67,7 +69,7 @@ describe("the stage plan, before the start point", () => {
     const doc = record("doc-review", { value: "a path" });
     expect(planStage(state([doc]), "doc-review", objects)).toEqual({
       kind: "stop",
-      reason: "doc-review's record no longer fits: expected an object; --from-stage doc-review",
+      reason: "doc-review's record no longer fits its result schema: expected an object",
     });
   });
 
@@ -85,8 +87,7 @@ describe("the stage plan, before the start point", () => {
       planStage(state(records, { fromStage: "qa", entered: ["doc-review"] }), "implement", fits),
     ).toEqual({
       kind: "stop",
-      reason:
-        "nothing recorded for implement (recorded and not reached: impl); --from-stage implement",
+      reason: "nothing recorded for implement (recorded and not reached: impl)",
     });
   });
 
@@ -94,7 +95,7 @@ describe("the stage plan, before the start point", () => {
     const failed = record("implement", { outcome: "failed", attempt: 2 });
     expect(planStage(state([failed], { fromStage: "qa" }), "implement", fits)).toEqual({
       kind: "stop",
-      reason: "implement did not succeed in attempt 2; --from-stage implement",
+      reason: "implement did not succeed in attempt 2",
     });
   });
 

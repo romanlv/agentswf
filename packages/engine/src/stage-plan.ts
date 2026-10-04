@@ -25,8 +25,9 @@ export type StagePlanState = {
 };
 
 /**
- * Decides a stage entered. `check` says why a recorded value no longer fits the stage's `result`,
- * or undefined when it does.
+ * Decides a stage entered. `check` says how a recorded value no longer fits the stage's `result`,
+ * as what follows `{stage}'s record`, or undefined when it fits. A stop's reason says why; the
+ * command that goes on names the stage to redo.
  */
 export function planStage(
   state: StagePlanState,
@@ -41,22 +42,19 @@ export function planStage(
     const missing = record
       ? `${stage} did not succeed in attempt ${record.attempt}`
       : `nothing recorded for ${stage}${unreached(state, stage)}`;
-    return { kind: "stop", reason: `${missing}; --from-stage ${stage}` };
+    return { kind: "stop", reason: missing };
   }
   const recorded = majorOf(record.workflowVersion);
   const now = majorOf(state.workflowVersion);
   if (recorded !== undefined && now !== undefined && recorded !== now) {
     return {
       kind: "stop",
-      reason: `${stage} was recorded by ${record.workflowVersion}; this is ${state.workflowVersion}; --from-stage ${stage}`,
+      reason: `${stage} was recorded by ${record.workflowVersion}; this is ${state.workflowVersion}`,
     };
   }
   const misfit = check(record.value);
   if (misfit !== undefined) {
-    return {
-      kind: "stop",
-      reason: `${stage}'s record no longer fits: ${misfit}; --from-stage ${stage}`,
-    };
+    return { kind: "stop", reason: `${stage}'s record ${misfit}` };
   }
   return { kind: "reuse", record, value: record.value };
 }

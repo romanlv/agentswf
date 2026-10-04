@@ -15,6 +15,13 @@ export class WorkflowStopped extends Error {
   }
 }
 
+/** A `--from-stage` the attempt never reached: a typo, or a branch not taken. */
+export class FromStageUnreached extends WorkflowStopped {
+  constructor(readonly fromStage: string) {
+    super(`never reached ${fromStage}`);
+  }
+}
+
 /** The failure that ended an attempt: an aggregate's first, ahead of what cleanup added to it. */
 export function primaryFailure(failure: unknown): unknown {
   return failure instanceof AggregateError ? failure.errors[0] : failure;

@@ -35,7 +35,7 @@ group("validate", () => {
     expect(errors).toEqual([
       {
         path: "value.notes",
-        message: 'unexpected property; this call accepts only "count", "even"',
+        message: 'unexpected property; the schema accepts only "count", "even"',
       },
     ]);
   });
@@ -146,7 +146,7 @@ group("properties inherited from Object.prototype", () => {
     const errors = validate(schema, JSON.parse('{"a":1,"toString":1}'));
 
     expect(errors).toEqual([
-      { path: "value.toString", message: 'unexpected property; this call accepts only "a"' },
+      { path: "value.toString", message: 'unexpected property; the schema accepts only "a"' },
     ]);
   });
 

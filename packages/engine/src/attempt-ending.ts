@@ -5,11 +5,14 @@ import {
   DeadlineExceededError,
   type Ending,
   type JsonValue,
+  type StageSummary,
   type UnfinishedOutcome,
 } from "@agentswf/contract/workflow";
+import { PUBLISHED_PRICES } from "./accounting/prices";
+import { summarizeRun } from "./accounting/summary";
 import { messageOf } from "./errors";
 import type { Paint } from "./progress-view";
-import { primaryFailure, WorkflowStopped } from "./stopped";
+import { FromStageUnreached, primaryFailure, WorkflowStopped } from "./stopped";
 import {
   type SettledRun,
   WorkflowCancelledError,
@@ -27,6 +30,8 @@ export type AttemptEnd = {
   exitCode: number;
   /** What else failed beside a stop, which its reason leaves out. */
   alsoFailed?: string;
+  /** The `--from-stage` the attempt never reached, which no one command goes on from. */
+  unreached?: string;
 };
 
 /** What a started run came to: the result it returned, or what it threw. */
@@ -48,15 +53,11 @@ export const OUTCOMES: Record<
   failed: { word: "failed", told: "failed", mark: (p) => p.bad("✗"), exitCode: 1 },
 };
 
-/**
- * The ending of a run that returned or threw. `goOn` is the command that continues it, given the
- * stop that ended it, if one did.
- */
-export function decideEnding(
-  run: Finished,
-  deadline: AbsoluteDeadline,
-  goOn: (stop: WorkflowStopped | undefined) => string,
-): AttemptEnd {
+/** The command that goes on from an attempt, given the stop that ended it and the stages it entered. */
+export type GoOn = (stop: WorkflowStopped | undefined, entered: readonly StageSummary[]) => string;
+
+/** The ending of a run that returned or threw. */
+export function decideEnding(run: Finished, deadline: AbsoluteDeadline, goOn: GoOn): AttemptEnd {
   if ("result" in run) {
     const { result } = run;
     return {
@@ -73,33 +74,49 @@ export function decideEnding(
     stop && cause instanceof AggregateError
       ? cause.errors.slice(1).map(errorDetail).join("; ")
       : "";
+  const stages = settled?.stages ?? [];
   return {
     ending: {
       kind,
       ...(settled?.endedIn === undefined ? {} : { stage: settled.endedIn }),
       // A stop's own, which the next attempt compares with its own stop's.
       reason: stop?.reason ?? errorDetail(error),
-      stages: settled?.stages ?? [],
-      continue: goOn(stop),
+      stages,
+      continue: goOn(stop, stages),
     },
     ...(settled ? { settled } : {}),
     exitCode: cancellation ? signalExitCode(cancellation.reason) : OUTCOMES[kind].exitCode!,
     ...(beside ? { alsoFailed: beside } : {}),
+    ...(stop instanceof FromStageUnreached ? { unreached: stop.fromStage } : {}),
   };
 }
 
-/** The ending of an attempt whose run never started, so left nothing settled. */
+/**
+ * The ending of an attempt whose run never started: it settled nothing, so what it cost is nothing
+ * but the time from `run.startedAt` to `run.endedAt`.
+ */
 export function endedBeforeStart(
   outcome: { kind: "failed"; reason: string } | { kind: "cancelled"; signal: AbortSignal },
-  goOn: string,
+  run: { runId: string; startedAt: number; endedAt: number },
+  goOn: GoOn,
 ): AttemptEnd {
   const cancelled = outcome.kind === "cancelled";
+  const times = {
+    startedAt: new Date(run.startedAt).toISOString(),
+    finishedAt: new Date(run.endedAt).toISOString(),
+  };
   return {
     ending: {
       kind: outcome.kind,
       reason: cancelled ? "cancelled before it started" : outcome.reason,
       stages: [],
-      continue: goOn,
+      continue: goOn(undefined, []),
+    },
+    settled: {
+      runId: run.runId,
+      usage: [],
+      ...times,
+      accounting: summarizeRun([], PUBLISHED_PRICES, times, []),
     },
     exitCode: cancelled ? signalExitCode(outcome.signal.reason) : OUTCOMES.failed.exitCode!,
   };

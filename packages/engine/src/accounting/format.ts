@@ -11,15 +11,17 @@ type Slice = AttemptAccounting["byStage"][number];
  * What an attempt cost: a line of its figures, its decisions on a line of their own when it asked
  * any, then a row per stage or group when there is more than one. `stages: false` leaves a
  * workflow's stage rows to a view that shows them beside its stages; a run without stages keeps its
- * groups. Gaps are named, never shown as zero; what is complete is left to the record.
+ * groups. A stage that opened no agent and asked nothing has no row, as it has no figures beside
+ * it in that view. Gaps are named, never shown as zero; what is complete is left to the record.
  */
 export function describeAccounting(
   accounting: AttemptAccounting,
   options: { stages?: boolean } = {},
 ): string[] {
+  const staged = accounting.grouping === "stages";
   const rows =
-    accounting.byStage.length > 1 && (accounting.grouping === "prefix" || options.stages !== false)
-      ? accounting.byStage
+    accounting.byStage.length > 1 && (!staged || options.stages !== false)
+      ? accounting.byStage.filter((row) => !staged || row.agents > 0 || row.decisions)
       : [];
   const width = Math.max(0, ...rows.map(({ stage }) => stage.length));
   return [
@@ -57,13 +59,16 @@ function describeTotals(accounting: AttemptAccounting): string {
   ].join(" · ");
 }
 
-/** A run of several attempts, in brief: how many, how long in all, and the estimate when any agent ran. */
+/**
+ * A run of several attempts, in brief: how many, those interrupted, which recorded no cost, how
+ * long in all, and the estimate when any agent ran.
+ */
 export function describeAttempts(
   sum: AttemptAccounting,
   attempts: number,
-  unaccounted: number,
+  interrupted: number,
 ): string {
-  const gap = unaccounted > 0 ? ` (${unaccounted} with no accounting)` : "";
+  const gap = interrupted > 0 ? ` (${interrupted} interrupted, cost unknown)` : "";
   const priced =
     sum.totals.agents > 0 && sum.totals.estimate !== undefined
       ? [estimate(sum.totals.estimate)]
@@ -209,6 +214,16 @@ export function duration(milliseconds: number): string {
   const minutes = Math.floor(seconds / 60);
   if (minutes < 60) return `${minutes}m ${String(seconds % 60).padStart(2, "0")}s`;
   return `${Math.floor(minutes / 60)}h ${String(minutes % 60).padStart(2, "0")}m`;
+}
+
+/** How long ago, for a person: `just now`, `5m ago`, `3h ago`, `2d ago`. */
+export function ago(ms: number): string {
+  if (!Number.isFinite(ms)) return "at an unknown time";
+  if (ms < 60_000) return "just now";
+  const minutes = Math.round(ms / 60_000);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.round(minutes / 60);
+  return hours < 48 ? `${hours}h ago` : `${Math.round(hours / 24)}d ago`;
 }
 
 function count(tokens: number): string {
