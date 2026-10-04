@@ -42,8 +42,8 @@ agentswf keeps the workflow in code you own, and moves the unreliable parts into
 
 A workflow is a TypeScript module with a default export. `awf run ./workflow.ts` loads it, runs
 it, prints its result and keeps everything in the project's `.awf/runs`. Control flow is yours: `for`,
-`if`, `Promise.all`, whatever. The engine gives you agents, sandboxes, and `parallel` with
-labelled stages it shows live in the terminal.
+`if`, `Promise.all`, whatever. The engine gives you agents, sandboxes, `parallel` with
+labelled groups it shows live in the terminal, and stages a run continues from.
 
 **A few words used below:**
 

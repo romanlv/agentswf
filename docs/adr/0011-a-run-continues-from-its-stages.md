@@ -27,9 +27,10 @@ narrower case, a run continued from its stages, and leaves the journal shelved.
 - **Stage names are durable keys.** A renamed stage has no record, so a continue reruns it, or
   stops after `--from-stage`; the message lists recorded stages the code never reached.
 - **`stop` and `stopped`.** `workflow.stop(reason)` ends an attempt `stopped`, apart from `failed`.
-- **A breaking change to the author API:** `present` and `report` take the ending (`completed` with
-  its value, or how it stopped, with its stages) instead of the result, so a stopped run can report
-  what its stages found. Every workflow with `present` or `report` changes with it.
+- **A breaking change to the author API:** `present` and `report` take the ending as well as the
+  value. `present(value, ending)` renders a completed attempt only; `report(value, ending)` is
+  called for every ending, `value` undefined unless it completed, so a stopped run can report what
+  its stages found. Every workflow with `present` or `report` changes with it.
 
 ## Why this isn't the shelved journal
 

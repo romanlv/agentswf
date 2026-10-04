@@ -12,13 +12,17 @@ exists, the code is right, then this page.
   panes (pi since story 017); codex and pi run headless. A headless claude needs `metered: true`,
   as `claude -p` bills per token even on a subscription login. A pane agent keeps its pane for all its turns (ADR 0008). Pane agents open in the Herdr session `awf run` is started
   from (`AWF_HERDR_SESSION` overrides it), and `--cwd` sets the directory the workflow works in.
-- While it runs, `awf run` shows each labelled `parallel` stage and its agents' turns: a block
-  redrawn in place on a terminal, a line per change otherwise.
+- A run is one piece of work with an id, kept in `.awf/runs/{workflow}/{id}` under its working
+  directory; each `awf run` of it is an attempt (story 018, ADR 0011). A workflow marks stages with
+  `workflow.stage`, and `awf run {file} --continue {id}` reuses the stages that succeeded and runs
+  the rest, or redoes from one with `--from-stage`. `workflow.stop` ends an attempt `stopped`.
+- While it runs, `awf run` shows its stages, each labelled `parallel` as a group, and its agents'
+  turns: a block redrawn in place on a terminal, a line per change otherwise.
 - Each agent answers through `wf result`, over a socket the engine opened for that agent alone. At
   most one result is accepted per operation, validated against its schema, with one nudge when an
   agent goes quiet without answering.
 - Every wait has a deadline. The run's default is thirty minutes.
-- Every run reports its wall time, and for each agent, stage and model its times, tokens, billing
+- Every attempt reports its wall time, and for each agent, stage and model its times, tokens, billing
   and a cost estimate at dated list prices, read from the harnesses' own session files when the run
   ends. `awf run` prints it and writes it to `output.json` (story 002), for a run that failed, timed
   out or was cancelled too; `runWorkflow` then rejects with a `WorkflowRunError` carrying it (story

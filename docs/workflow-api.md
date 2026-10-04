@@ -79,7 +79,7 @@ export default defineExecutableWorkflow({
 - **`definition`** is the workflow: `meta` and `run(workflow, args)`. Its args and result must
   be JSON. `meta.name` names the folder its runs are kept in, so it is letters, digits, `.`, `_`
   and `-`; the file may move or be copied and stay the same workflow. An optional `meta.version`
-  is semver, and is recorded with each attempt.
+  is semver ([Stages](#stages) says what it guards).
 - **`prepare`** turns the command line (`argv` after `--`, and `cwd`) into args.
 - **`id(args)`** is optional: the run's id, such as a ticket's key, which `--id` overrides
   ([Stages](#stages)).
@@ -98,7 +98,6 @@ folder, `.awf/runs/{workflow}/{id}` under the working directory. Its `outcome` i
 the `value`, or one of the others, with its `reason` and the `stage` it ended in. A run that fails
 or is cancelled keeps this record too, and `awf run {file} --continue {id}` runs it again as its
 next attempt.
-`workflow.runId` is the run's id, the same in every attempt, and `workflow.attempt` its number.
 
 ## Agents
 
@@ -114,7 +113,7 @@ const reviewer = await workflow.agents.open({
 
 | Field | What it does |
 | --- | --- |
-| `key` | The agent's name in this run. Opening the same key again returns the same agent. The part before `:` is its **stage** in the cost summary, so `review:security` and `review:style` both add up under `review`. |
+| `key` | The agent's name in this run. Opening the same key again returns the same agent. In a run without stages, the part before `:` is its **group** in the cost summary, so `review:security` and `review:style` both add up under `review`. |
 | `runtime` | Which harness and model to use. You can pass an alias (`"claude"` or `"codex"`), or `{ harness, model, placement?, metered? }`, or `{ alias, … }` to constrain an alias. |
 | `placement` | `"pane"` (the default) opens a terminal pane in [Herdr](https://herdr.dev) that you can watch and type into. `"headless"` runs a process per turn. |
 | `metered: true` | Required for headless claude. `claude -p` is billed per token even on a subscription, so you have to opt in. A claude agent in a pane runs on your plan. |
@@ -286,12 +285,12 @@ const reviews = await workflow.parallel(
 ```
 
 - **`concurrency`** defaults to all items at once.
-- **`label`** names the stage in `awf`'s live progress ("review 2/3").
+- **`label`** names the group in `awf`'s live progress ("review 2/3").
 - **`deadline`** can only make it earlier than the enclosing one.
 - **It's fail-fast.** If one item throws, the others are cancelled (their agents' turns end as
   `cancelled`) and `parallel` rejects with that error. Outcomes other than `answered` don't throw,
   so in the usual pattern above one bad agent never stops the rest.
-- **Nesting works.** A `parallel` inside another is cancelled with it. Two stages in a row are just
+- **Nesting works.** A `parallel` inside another is cancelled with it. Two steps in a row are just
   two `await`s, and a fan-out that verifies each finding is a `parallel` inside a `parallel`.
 
 ## Stages
@@ -321,7 +320,7 @@ await workflow.stage("notify", async () => {          // no result: it only has 
 - **Code between stages runs on every attempt**, reused stages or not, so it must be safe to
   repeat: compute from values, check facts. Push, post, compact or create inside a stage.
 - **One stage at a time, each name once per attempt.** A name is lowercase letters, digits and
-  `-`. Parallel work and loops go inside a stage. A turn between stages is allowed, and runs again on
+  `-`, starting with a letter. Parallel work and loops go inside a stage. A turn between stages is allowed, and runs again on
   every attempt.
 - **`workflow.stop(reason)`** ends the attempt `stopped` (exit 3), apart from failed. Inside a stage
   the stage is recorded stopped, and a continue redoes it; between stages nothing changes, and a
@@ -331,8 +330,8 @@ await workflow.stage("notify", async () => {          // no result: it only has 
 - **`id(args)`**, beside `prepare`, names the run from its args, such as a ticket's key; `--id`
   overrides it, and without either an id is generated. `workflow.runId` is that id in every attempt,
   and `workflow.attempt` the attempt's number.
-- **`meta.version`**, semver, is recorded with each stage. A record from another major, or one whose
-  value no longer fits, stops a continue at that stage rather than rerunning it: `--from-stage
+- **`meta.version`**, semver, is recorded with each attempt and stage. A record from another major
+  (under `0.x`, another minor), or one whose value no longer fits, stops a continue at that stage rather than rerunning it: `--from-stage
   {stage}` redoes from there.
 
 The model, and what happens when the code changes between attempts, is in
@@ -402,7 +401,7 @@ billed once per call, however many questions you ask, so ask them all together.
 import { choice, score, yesNo } from "agentswf/workflow";
 
 const { answers } = await workflow.decisions.decide({
-  key: "triage:42",   // the part before ":" is its cost stage
+  key: "triage:42",   // the part before ":" is its cost group, for a run without stages
   model: "jev",
   state: { title, body },
   questions: {

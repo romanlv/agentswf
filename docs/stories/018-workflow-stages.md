@@ -137,6 +137,8 @@ Out of scope:
 
 ## Context and evidence
 
+The facts are as found before this story.
+
 - **Fact: "stage" means two unrelated things in the engine today.**
   - Accounting: `stageOf` in `packages/engine/src/accounting/summary.ts` is the agent key's prefix.
   - Progress: `StageProgress` in `packages/engine/src/run-progress.ts` is a labelled `parallel`. An
@@ -192,24 +194,26 @@ Out of scope:
   - `context.stage` and `context.stop`;
   - `ExecutionScope` carries the stage;
   - progress per turn, not per open.
-- `run-dir.ts`: an attempt's own files, under `runs.ts`.
+- `run-dir.ts` (before this story) goes: the layout is `runs.ts`'s, and whole-file writes are
+  `files.ts`'s.
 - `run-progress.ts` and `progress-view.ts`: stages, the run's id and attempt.
 - `run-usage.ts`: copies `stage` and `label`.
 - `accounting/`: `stageOf` from stages; a run's total across attempts.
 - `operator-cli.ts`:
   - `--id`, `--continue` and `--from-stage`;
   - the workspace label;
-  - `ENDINGS` for `stopped` and `interrupted`;
   - `watchProgress`, `handOver`.
+- `attempt-ending.ts`: `ENDINGS` gains `stopped`. `interrupted` is never an ending; it is read off
+  the files.
 - `workflow-testing/`: `testWorkflow(…, { fromStage, recorded })`, `run.stages`, `run.stopped`, and
   `stage` on turn and compaction records.
 
 ### sandbox
 
-- `resolve.ts`: a sandbox may contain the run root (`./.awf`); the check that a sandbox path isn't
-  inside the run root stays.
-- `srt/profile.ts`: the run root denied for writes as well as reads.
-- `docker/`: an empty tmpfs over the run root inside the container.
+- `resolve.ts`: a sandbox may contain the run root (`./.awf`), which `ResolvedSandbox.hidden`
+  then holds; a sandbox path inside the run root is still refused.
+- Each provider renders `hidden`: srt denies it for reads and writes, docker mounts an empty tmpfs
+  over it.
 
 ### Checked, no change
 
@@ -239,23 +243,8 @@ Out of scope:
 
 ## Open questions
 
-The design's questions are settled ([[runs-and-stages#Decided]]);
-[[runs-and-stages#Settled in the second pass]] lists what was settled by reasoning, to veto. The
-design doc's "Checked against implement-ticket" walks the live runs through the model. What is
-left was task 1: the operator accepting [ADR 0011](../adr/0011-a-run-continues-from-its-stages.md),
-taken as given when they asked for the implementation (2026-10-04).
-
-Decided:
-
-- **One stage at a time.** Parallel work goes inside a stage, including child workflows run with
-  `call`, which can run in parallel. (2026-10-04)
-- **`feature-delivery` carries the in-repo proof** (task 8). (2026-10-04)
-- **awf provides the API; wrappers ship in the boilerplate.** `ask`, `md` and durations leave
-  this story. (2026-10-04)
-- **The view shows each agent's placement and pane id.** The view is for the operator, not portable
-  workflow state, so [[operator-run-observation]]'s line holds. (2026-10-04, second pass)
-- **`byStage` per attempt and summed per run;** no per-agent split within a stage yet.
-  `turns.jsonl` keeps the data for one. (2026-10-04, second pass)
+None. The decisions are [ADR 0011](../adr/0011-a-run-continues-from-its-stages.md), accepted by the
+operator asking for the implementation (2026-10-04); the model is [[runs-and-stages]].
 
 ## Task execution rule
 
@@ -337,15 +326,15 @@ Plan (2026-10-04):
   - `output.json` and `report.md` go in the run's folder.
   - The caller claim moves to `~/.awf/callers`.
   - `--here --continue` prepares the recorded argv.
-- **sandboxes. Deviation from the design.** A sandbox's folder is `~/.awf/sandboxes/{uuid}`, not
-  under the run. On macOS, srt emits a deny nested in an allowed path after the allow. With
+- **sandboxes. Deviation from the design.** A sandbox's folder is
+  `~/.awf/sandboxes/{workflow}/{id}/{uuid}`, not under the run. On macOS, srt emits a deny nested in an allowed path after the allow. With
   `.awf/runs` inside the project, which is allowed, the deny would also cover a sandbox folder
   under it. Linux's tmpfs-and-rebind doesn't have this problem.
   - `RunSandboxOptions.directory` sets where sandbox folders go.
   - `forbidden()` allows a path that contains the run root, and still refuses one inside it.
-  - srt gains a `denyWrite` for the run root, and its `checkProfile` accepts an allowed path
-    containing a run root that is denied for reads and writes.
-  - docker mounts a tmpfs over a run root that lies inside a mount.
+  - `ResolvedSandbox.hidden` holds the run root when an allowed path holds it. srt denies each
+    hidden path for reads and writes, and its `checkProfile` refuses an allowed path holding the
+    run root unless it is hidden; docker mounts an empty tmpfs over each.
 - **lab.** A contained run moves `{workflow}/{id}` into `runs/`. `stopped` comes with task 5.
 - **Moved to task 3:** `turns.jsonl` and its torn-line test, since turns are written with their
   stage.
@@ -420,9 +409,10 @@ Plan (2026-10-04):
   task 5.
 - **CLI.**
   - `--from-stage` requires `--continue`, and is recorded in the attempt's flags.
-  - A completed run continues only with `--from-stage`; the refusal lists its stages.
-  - A continue prints the recorded stages, with their attempt, age and summary, and warns about a
-    `--from-stage` with no record.
+  - A completed run continues only with `--from-stage`; the refusal lists its records, each with
+    its summary, attempt and age.
+  - A continue warns about a `--from-stage` with no record. Its reused stages show in the view
+    (task 6), not as a list up front.
 - **`testWorkflow(…, { recorded, fromStage })`.** It writes `recorded` as attempt 1's records and
   runs attempt 2.
 - **Moved to task 5:** the stop rows ("inside a stage the continue redoes it…", "the same stop
@@ -498,7 +488,7 @@ Outcome:
 - `byStage` comes from stages, per attempt and summed per run.
 - A stopped, failed, cancelled or interrupted attempt prints its stage, its reason, and
   `awf run {file} --continue {id}`.
-- `present` and `report` can render a stop.
+- `report` can hand off a stop; `present` renders a completed attempt only.
 
 Done when `accounting.test.ts` covers an agent across three stages, a reused stage at zero cost,
 a run across two attempts and the key-prefix fallback, and `tests/operator-cli.test.ts` covers
@@ -508,8 +498,9 @@ Plan (2026-10-04):
 - **contract.**
   - `Ending` and `StageSummary` sit beside `prepare`, and `StageOutcome` moves to the workflow
     types.
-  - `present` and `report` take an `Ending` and may return `undefined` for awf's own rendering:
-    a breaking change, made in every example and lab workflow.
+  - `present(value, ending)` renders a completed attempt; `report(value, ending)` is called for
+    every ending, `value` undefined unless it completed. Either may return `undefined` for awf's
+    own rendering: a breaking change, made in every example and lab workflow.
   - `AttemptRecord` gains its `stages` (without values) and its `accounting`.
   - `OutputRecord` gains `stages`.
   - `byAgent.stage` goes.
@@ -517,13 +508,13 @@ Plan (2026-10-04):
   - `summarizeRun` takes the stages entered. Each is a row, a reused one at zero, then
     `(no stage)`, and a run without stages keeps the key prefix.
   - `sumAttempts` adds attempts' accountings, totals and stage by stage.
-  - A later attempt prints "run {id}, {n} attempts: …" from the attempt files.
+  - A later attempt's closing block adds a "run: {n} attempts, …" segment from the attempt files.
 - **Endings.**
   - An attempt that didn't complete prints the stage it ended in: the stop's, or else the last
     stage that failed or stopped.
-  - It also prints "to go on: awf run [--run-root …] [--cwd …] {file} --continue {id}", with
-    `--from-stage` after a record that didn't fit.
-  - `present` renders it to stdout, and `report.md` is written for it.
+  - Its closing block has a `go on` row, `awf run [--run-root …] [--cwd …] {file} --continue {id}`,
+    with `--from-stage` after a record that didn't fit.
+  - `report.md` is written for it; `present` isn't called, and awf prints the ending.
   - An interrupted attempt is named with the stage of its last turn.
 
 ### 8. Consumers
@@ -561,7 +552,7 @@ Two subagents, 2026-10-04. Resolved:
   move into the project uncovered every sandbox's homes. `forbidden()` now refuses a path inside
   `~/.awf`, with a test.
 - **Sandbox folders orphaned.** They go under `~/.awf/sandboxes/{workflow}/{id}/{uuid}`, found
-  by their run. `runs.ts` builds the `~/.awf` paths, `machinePaths` and `sandboxesOf`.
+  by their run. `runs.ts` builds the `~/.awf` paths, `machinePaths` and `sandboxesDirOf`.
 - **`meta.name` and `meta.version` unchecked.** The loader refuses a name that can't be a folder
   and a version that isn't semver, with tests.
 - **A continue from elsewhere.** "No run" now says a run is kept under its working directory,
@@ -644,14 +635,13 @@ Two subagents, 2026-10-04. Resolved:
   as the design says of `stop`.
 - **Two stages at once** passed on a continue when the first was reused. A reused stage counts as
   open until its value is handed back.
-- **The recorded-stages list** was printed after the attempt claim, so a record awf couldn't read
-  left a claimed attempt with no ending. `prepareRun` describes the records before the claim.
+- **Records read after the claim.** A record awf couldn't read left a claimed attempt with no
+  ending. `prepareRun` reads the records before the claim.
 - **Messages.**
   - The completed-run refusal names the stages: "to redo from a stage, --from-stage one of: …".
   - A record that failed reads "{stage} did not succeed in attempt {n}".
   - The not-reached list leaves out the `--from-stage` stage.
   - The version stop names both versions.
-  - Each listed stage shows its version.
   - `--from-stage` checks the stage's name.
 - **Versions under 1.0.** Under `0.x`, the minor must match too, as semver has it.
 - **`stage` on the attempt and in `output.json`** is documented as the stage the attempt ended in,
@@ -809,6 +799,3 @@ breaks them under main's awf until this branch is merged, so it waits for the op
 - [ ] Only after explicit approval, mark the story `done` and update `Stories at a glance`.
 - [ ] review state file, as it might need changes
 
-%% 
-does it have cli to see workflows in progress, completed  etc... to see the status of things ? 
-%%

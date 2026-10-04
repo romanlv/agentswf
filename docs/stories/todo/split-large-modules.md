@@ -1,6 +1,6 @@
 ---
 title: Split the large modules, and keep them split
-summary: Four source files have grown past 900 lines along seams a review found, and nothing stops the next one; plan the splits, then add a check and an AGENTS.md rule that hold the line.
+summary: Three source files have grown past 900 lines along seams a review found, and nothing stops the next one; plan the splits, then add a check and an AGENTS.md rule that hold the line.
 type: story
 status: todo
 discovered_in: "codebase review, 2026-10-01"
@@ -33,9 +33,9 @@ Notes:
     `adoptAgent`, `typeInto` → `herdr-commands.ts`; `openTopology` → `herdr-topology.ts`;
     `compactInPane` and `paneOutcome` beside them. `createPaneAdapter`, about 150 lines, is used
     only by tests: move it under `testing/` or point the conformance test at the run host.
-  - `packages/engine/src/operator-cli.ts` (901): the `--here`/`--session` code (`startHere`,
-    `claimCaller`, `findCaller`, `showOwnTab`, `SESSION_CODE`) → `caller-session.ts`;
-    `parseCommand`, `usage`, `readSandboxSpec` → `run-command.ts`, as `test-command.ts` is.
+  - `packages/engine/src/operator-cli.ts` (901) is split already, now 558: the `--here`/`--session`
+    code (`startHere`, `claimCaller`, `findCaller`, `showOwnTab`, `SESSION_CODE`) is in `here.ts`,
+    and `parseCommand`, `usage` and `readSandboxSpec` in `run-command.ts`.
   - Near the line: lab's `execute.ts` (906), sandbox's `docker/index.ts` (845: the protected-path
     guard, `boxHerdr` and the relay, `dockerClient`).
 - Related duplication to settle in the same pass, not separately: the active-operation pattern
