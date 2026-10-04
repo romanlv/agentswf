@@ -79,7 +79,11 @@ skipped in each.
   login check.
 - [x] 3. Cursor in a pane: its startup block, interactive resume, interrupt, session lookup,
   `/summarize` with the focus as a message before it.
-- [ ] 4. Cursor's skills, on the host and in a sandbox.
-- [ ] 5. Cursor in a sandbox, srt and docker, with `CURSOR_API_KEY`; `cursor-agent` in the image.
+- [ ] 4. Cursor's skills in a sandbox, under its own `HOME`'s `.cursor/skills`. Built; waits on a
+  live run. On the host it is refused: it reads skills under `HOME`, the operator's own there, and
+  a `HOME` of its own on the host would be git's and every tool's too, and loses its login.
+- [ ] 5. Cursor in a sandbox, srt and docker, with `CURSOR_API_KEY`; `cursor-agent` 2026.10.01 in
+  the image, by checksum. Built; waits on a live run for its domains (`*.cursor.sh` assumed) and
+  what it writes under `HOME`.
 - [ ] 6. Evals: cursor in `harnesses`, `compaction`, `fork` (its cache asserted), `skills`,
   `sandbox-*` and `calling-session`'s usage; docs.

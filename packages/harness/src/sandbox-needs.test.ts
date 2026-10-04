@@ -3,7 +3,7 @@ import { mkdtempSync, realpathSync } from "node:fs";
 import { chmod, mkdir, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { hostHome, sandboxable, sandboxedArgs, sandboxNeeds } from "./sandbox-needs";
+import { hostHome, sandboxedArgs, sandboxNeeds } from "./sandbox-needs";
 import { HARNESSES } from "./spec";
 
 // A host laid out as this one is: claude a single binary, codex a release tree inside its state,
@@ -13,6 +13,7 @@ const home = join(root, "home");
 const agentHome = join(root, "run", "homes", "a1");
 const claude = join(root, "share", "claude", "versions", "2.0.0");
 const codexRelease = join(home, ".codex", "packages", "standalone", "releases", "0.1");
+const cursorRelease = join(home, ".local", "share", "cursor-agent", "versions", "2026.10.01");
 const nodeRoot = join(root, "node");
 const piPackage = join(nodeRoot, "lib", "node_modules", "pi-coding-agent");
 const environment = {
@@ -37,6 +38,8 @@ beforeAll(async () => {
   await symlink(claude, join(root, "bin", "claude"));
   await symlink(join(codexRelease, "bin", "codex"), join(root, "bin", "codex"));
   await symlink(join(piPackage, "dist", "cli.js"), join(nodeRoot, "bin", "pi"));
+  await executable(join(cursorRelease, "cursor-agent"));
+  await symlink(join(cursorRelease, "cursor-agent"), join(root, "bin", "cursor-agent"));
   await mkdir(join(home, ".pi", "agent"), { recursive: true });
   await writeFile(
     join(home, ".pi", "agent", "settings.json"),
@@ -175,11 +178,31 @@ describe("sandboxNeeds", () => {
     ).rejects.toThrow("codex on PATH is a mise shim");
   });
 
-  test("refuses cursor, a harness not on PATH, and claude without its token", async () => {
-    expect(sandboxable("cursor")).toBe(false);
+  test("cursor: a HOME of its own, its API key, its release directory, and its sandbox off", async () => {
+    const needs = await sandboxNeeds("cursor", agentHome, "composer-2.5", {
+      ...environment,
+      CURSOR_API_KEY: "key",
+    });
+    expect({ ...needs, defaults: needs.defaults("/repo") }).toEqual({
+      env: { HOME: agentHome, CURSOR_CONFIG_DIR: agentHome, CURSOR_DATA_DIR: agentHome },
+      seed: [],
+      defaults: [],
+      secrets: { CURSOR_API_KEY: "key" },
+      domains: ["*.cursor.sh"],
+      command: "cursor-agent",
+      executable: join(cursorRelease, "cursor-agent"),
+      reads: [cursorRelease],
+    });
+    expect(sandboxedArgs("cursor")).toEqual(["--sandbox", "disabled"]);
     await expect(sandboxNeeds("cursor", agentHome, undefined, environment)).rejects.toThrow(
-      "cursor cannot run in a sandbox",
+      "a sandboxed cursor needs CURSOR_API_KEY",
     );
+    expect(() => hostHome("cursor", agentHome, environment)).toThrow(
+      "cursor reads skills under HOME",
+    );
+  });
+
+  test("refuses a harness not on PATH, and claude without its token", async () => {
     await expect(
       sandboxNeeds("codex", agentHome, undefined, { ...environment, PATH: "/nowhere" }),
     ).rejects.toThrow("codex is not on PATH");
@@ -192,7 +215,7 @@ describe("sandboxNeeds", () => {
   });
 
   test("each turn plan puts the real flags where nothing swallows them or what follows", () => {
-    for (const harness of ["claude", "codex", "pi"] as const) {
+    for (const harness of ["claude", "codex", "pi", "cursor"] as const) {
       const spec = HARNESSES[harness];
       const args = sandboxedArgs(harness);
       for (const model of ["m", undefined]) {

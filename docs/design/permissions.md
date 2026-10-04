@@ -182,7 +182,8 @@ wider and says so afterwards.
 seed, first-run answers, its model domains, its executable and the install tree it reads, and the
 flags that take away what reaches past egress: model-side web search (X15), codex's apps and
 plugins (X23), pi's extensions. The workflow never names `~/.claude` or `api.anthropic.com`; the
-record does, because the agent can reach them. cursor has no entry and is refused.
+record does, because the agent can reach them. A sandboxed cursor gets a `HOME` of its own and
+`CURSOR_API_KEY`, its own sandbox off and its web tools kept (story 019).
 
 | | srt | docker |
 | --- | --- | --- |

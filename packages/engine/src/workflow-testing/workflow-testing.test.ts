@@ -503,16 +503,6 @@ describe("testWorkflow", () => {
   });
 
   describe("the hosts refuse what the real ones refuse", () => {
-    test("cursor in a sandbox", async () => {
-      const runtime = { harness: "cursor", model: "m", placement: "headless" } as const;
-      const boxed = workflowOf<null, null>(async (workflow) => {
-        await workflow.agents.open({ key: "solo", runtime, sandbox: { srt: {} } });
-        return null;
-      });
-      const run = await testWorkflow(boxed, null);
-      expect(() => run.value).toThrow("cursor cannot run in a sandbox");
-    });
-
     test("headless claude without metered", async () => {
       const runtime = { harness: "claude", model: "m", placement: "headless" } as const;
       const run = await testWorkflow(solo({ runtime }), null, { agents: { solo: answer("hi") } });

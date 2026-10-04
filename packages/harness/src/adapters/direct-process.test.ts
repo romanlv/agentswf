@@ -269,22 +269,11 @@ describe("createHeadlessAdapter", () => {
       expect(calls[1]?.argv.slice(1, 5)).toEqual(["codex", "exec", "resume", "thread-1"]);
     });
 
-    test("cursor cannot run in one, and a pane adapter refuses one", async () => {
+    test("a pane adapter refuses one", async () => {
       const run: RunProcess = async () => {
         throw new Error("nothing should launch");
       };
       const { place } = occupant();
-      await expect(
-        headless(
-          run,
-          {},
-          {
-            ...activation,
-            occupant: place,
-            execution: { harness: "cursor", model: "m", placement: "headless" },
-          },
-        ),
-      ).rejects.toThrow("cursor cannot run in a sandbox");
       await expect(
         createPaneAdapter(
           { session: "s", workspaceLabel: "w", commandTimeoutMs: 1_000 },

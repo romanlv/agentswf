@@ -32,8 +32,8 @@ exists, the code is right, then this page.
   and decision model scripted, typed by the schema each turn asks for. Nine examples have theirs
   beside them.
 - `agent.compact({ prompt })` runs the harness's own compaction with the workflow's focus (story
-  015, ADR 0007), within the workflow's deadline unless `timeoutMs` bounds it: claude, codex and pi
-  in a pane or headless; cursor refuses.
+  015, ADR 0007), within the workflow's deadline unless `timeoutMs` bounds it: every harness in a
+  pane, and headless all but cursor, which refuses.
   `examples/compaction` checks each live.
 - `awf run --here`, typed in a claude, codex, pi or cursor session in a Herdr pane, starts the run
   in a tab of its own, which drives that session as an agent through `agents.caller` and hands it
@@ -152,12 +152,17 @@ The gates are defined in [`foundation.md`](foundation.md) §12.
 - [016 — fork](stories/016-fork.md): done, approved 2026-10-04 (ADR 0009).
   `agent.fork({ key })` opens a new agent on a copy of an agent's session, made with no model
   call: claude, codex and pi in a pane or headless, into either, in a sandbox too, and cursor
-  headless. Every fork reads its parent's cache, codex's and cursor's by keeping their parent's
+  headless (in a pane too since story 019). Every fork reads its parent's cache, codex's and cursor's by keeping their parent's
   key; cursor's was measured on `composer-2.5` only ([findings](findings/fork-cache.md)). A headless claude turn charges what it added to its
   session's total. Claude panes are typed their prompts, which claude 2.1.288 otherwise shows as
   pasted text and will not act on.
 - [017 — pi in panes](stories/017-pi-pane-agent.md): done, approved 2026-10-01. pi runs in a Herdr
   pane, on the host and in srt and docker sandboxes, and compacts there with a focus.
+- [019 — cursor as a full harness](stories/019-cursor-harness.md): in progress. Each harness is
+  one file whose every capability is given or absent with a reason tsc checks
+  ([adding a harness](adding-a-harness.md)). cursor runs in a pane, compacts there, forks into
+  either placement, and records its tokens headless, live on 2026-10-04; its sandbox and skills
+  are built and wait on a live run with `CURSOR_API_KEY`.
 
 The inbox of possible stories is [`stories/todo/`](stories/todo/).
 
@@ -184,7 +189,7 @@ The inbox of possible stories is [`stories/todo/`](stories/todo/).
 - A headless turn killed mid-request, by its 30 s grace after answering or by a follow-up that
   stopped waiting, loses that request from its usage. At run end the runner waits up to 10 s for it
   instead.
-- An agent its host cannot run (cursor in a pane, claude headless without `metered`) is refused only
+- An agent its host cannot run (claude headless without `metered`) is refused only
   when it opens, possibly after other agents have spent. pi's billing is inferred from its
   `auth.json`. A headless claude has run live only in a sandbox, on a setup token.
 - A contained `awf-lab` trial ([story 013](stories/013-autoresearch-loop.md)) has an open network,

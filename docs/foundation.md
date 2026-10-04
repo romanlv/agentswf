@@ -555,7 +555,7 @@ Splitting the problem into three parts settles it:
 transcript JSONL where one API response appears as several rows sharing a `message.id` — E3 found
 `e2/pane-cost.ts` double-counting because of it. codex and pi record per-turn usage on disk in
 their own formats. cursor records none on disk; its headless JSON prints each turn's tokens, which awf keeps beside
-the chat (story 019), and Herdr reports no session reference for a cursor pane. Whatever reads those files
+the chat (story 019); a pane's cursor prints none, so its usage is unknown. Whatever reads those files
 belongs next to the adapter that knows which harness it is talking to — `harness/src/usage/`.
 
 **The record shape is not harness-specific, and it is the expensive thing to change.**

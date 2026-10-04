@@ -25,7 +25,9 @@ type Launch = { args: string[]; env: Record<string, string> };
 /** How a harness is given skills: their place on the host, and what holds it to them. */
 type SkillsSupport = {
   /** A directory the engine made for the agent alone, outside `cwd`, by its real path. */
-  onHost(names: readonly string[], bundle: string, cwd: string): AgentSkills;
+  onHost: ((names: readonly string[], bundle: string, cwd: string) => AgentSkills) | Absent;
+  /** Where they go in a sandboxed agent's home; absent, its `skills`. */
+  inSandbox?(home: string): string;
   launch(skills: AgentSkills, environment: Environment): Promise<Launch> | Launch;
 };
 
@@ -86,7 +88,15 @@ const SKILLS: Readonly<Record<Harness, SkillsSupport | Absent>> = {
       env: {},
     }),
   },
-  cursor: { absent: "nothing has measured how cursor is given skills yet" },
+  // It reads them under `HOME/.cursor`, and under its working directory's own roots.
+  cursor: {
+    onHost: {
+      absent:
+        "cursor reads skills under HOME, which only a home of its own shuts the operator's out of, and it has one only in a sandbox",
+    },
+    inSandbox: (home) => join(home, ".cursor", "skills"),
+    launch: () => ({ args: [], env: {} }),
+  },
 };
 
 function support(harness: string): SkillsSupport {
@@ -113,7 +123,11 @@ export function skillsLayout(
 ): AgentSkills {
   const skills = support(harness);
   if ("sandboxHome" in where) {
-    return { names, directory: join(where.sandboxHome, "skills"), sandboxed: true };
+    const directory = skills.inSandbox?.(where.sandboxHome) ?? join(where.sandboxHome, "skills");
+    return { names, directory, sandboxed: true };
+  }
+  if (isAbsent(skills.onHost)) {
+    throw new Error(`${harness} cannot be given skills on the host: ${skills.onHost.absent}`);
   }
   return skills.onHost(names, where.bundle, where.cwd);
 }

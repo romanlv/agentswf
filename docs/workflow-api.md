@@ -102,7 +102,7 @@ const reviewer = await workflow.agents.open({
 | `cwd` | Where the agent works. Defaults to the workflow's working directory, `workflow.cwd`, which `awf run --cwd` sets. |
 
 A harness is the coding-agent CLI (`claude`, `codex`, `pi`, `cursor`). Your existing login for
-each one is used. claude, codex and pi run in a pane or headless; cursor runs headless only.
+each one is used. Each runs in a pane or headless.
 
 ### Giving it work
 
@@ -189,7 +189,8 @@ if (!isAnswered(compacted)) workflow.log("compaction didn't finish", { reason: c
   as a message just before its compaction; pi passes it as its compaction's instructions
   (`/compact {prompt}` in a pane), and only
   summarizes what is older than its last 20k tokens, so a short session fails "nothing to
-  compact". Cursor has no compaction: `failed`, and nothing is sent.
+  compact". cursor takes the focus as a message just before `/summarize`, in a pane only: headless
+  it has no compaction, so `failed`, and nothing is sent.
 - **Bounds and ids** are `run`'s: it runs within the workflow's deadline unless `timeoutMs` or
   `deadline` bounds it sooner, and an `id`, generated when omitted, makes it idempotent. The same
   spec again under one id returns the same outcome; another spec under it rejects.
@@ -213,9 +214,8 @@ const [security, tests] = await Promise.all([
 - **A fork has its parent's** harness, model, working directory, sandbox and skills. It may name its
   own `placement` (with `metered`), `instructions`, which go with its first turn, and `labels`.
 - **It rejects**, as `agents.open` does, before the agent's own first turn, once the agent is
-  closed, and where its host cannot fork. Claude, codex and pi fork, in a pane or headless, into
-  either, in a sandbox too, where the fork shares its parent's sandbox; cursor, which runs headless
-  only, forks headless.
+  closed, and where its host cannot fork. Every harness forks, in a pane or headless, into either,
+  in a sandbox too, where the fork shares its parent's sandbox.
 - **The same key** with the same parent and spec returns the same agent; anything else under it
   rejects.
 - **A test** scripts a fork by its own key like any agent, and `agentOf(key).forkedFrom` names the

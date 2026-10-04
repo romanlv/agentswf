@@ -384,10 +384,10 @@ describe("sandboxed agents", () => {
     ["a missing path", (c) => open(c, { sandbox: { read: ["nowhere"] } }), "does not exist"],
     ["the run root", (c) => open(c, { sandbox: { read: [dirname(c.cwd)] } }), "would expose"],
     [
-      "a harness no sandbox can run",
+      "a cursor without its API key",
       (c) =>
         open(c, { runtime: { harness: "cursor", model: "m", placement: "headless" }, sandbox: {} }),
-      "cursor cannot run in a sandbox",
+      "a sandboxed cursor needs CURSOR_API_KEY",
     ],
   ])("refuses %s before anything opens for an agent", async (_name, body, reason) => {
     const { events, run } = setup();

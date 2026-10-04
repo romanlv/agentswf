@@ -51,8 +51,16 @@ describe("skillsLayout", () => {
     );
   });
 
-  test("refuses a harness with no route", () => {
-    expect(() => skillsLayout("cursor", [], { bundle: "/run/b", cwd: "/repo" })).toThrow("refused");
+  test("cursor only in a sandbox, under its own HOME's .cursor; and a harness awf does not know", () => {
+    expect(() => skillsLayout("cursor", [], { bundle: "/run/b", cwd: "/repo" })).toThrow(
+      "cursor cannot be given skills on the host",
+    );
+    expect(skillsLayout("cursor", ["alpha"], { sandboxHome: "/box/h" })).toEqual({
+      names: ["alpha"],
+      directory: "/box/h/.cursor/skills",
+      sandboxed: true,
+    });
+    expect(() => skillsLayout("aider", [], { sandboxHome: "/box/h" })).toThrow("refused");
   });
 });
 

@@ -26,6 +26,10 @@ type SandboxedHarness = {
   args: readonly string[];
   /** Whether an agent on the host may have a home of its own, which skills can need. */
   hostHome: true | Absent;
+  /** What points it at `home`; absent, its state variable alone. */
+  env?(home: string): Record<string, string>;
+  /** What its executable needs beside itself, where `installReads` cannot tell. */
+  reads?(executable: string): string[];
 };
 
 /**
@@ -33,6 +37,9 @@ type SandboxedHarness = {
  * measured: no turn in Task 0 needed one (X13).
  */
 const CHATGPT = ["chatgpt.com", "*.chatgpt.com", "auth.openai.com"] as const;
+
+/** Where cursor's requests go, its login and model calls both. */
+const CURSOR = ["*.cursor.sh"] as const;
 
 /**
  * pi's model domains by provider. Only `openai-codex` was measured (X5, X20); the others follow
@@ -144,7 +151,24 @@ const SANDBOXED: Readonly<Record<Harness, SandboxedHarness | Absent>> = {
       { name: "settings.json", contents: `${JSON.stringify({ shellPath: "/bin/zsh" })}\n` },
     ],
   },
-  cursor: { absent: "nothing has measured what cursor needs in a sandbox yet" },
+  cursor: {
+    // Its login is in the keychain, which a home of its own does not reach; an API key stands in.
+    seed: [],
+    token: { env: "CURSOR_API_KEY", from: "a Cursor API key, from its dashboard" },
+    domains: () => CURSOR,
+    // Its config and data directories hold its chats, its login and its trust; skills, rules, MCP
+    // servers and hooks it reads under `HOME/.cursor` whatever moves them, so `HOME` moves too.
+    env: (home) => ({ HOME: home, CURSOR_CONFIG_DIR: home, CURSOR_DATA_DIR: home }),
+    // Its own sandbox, inside ours, is off. Its web tools stay, as the operator chose (story 019):
+    // its search runs on cursor's servers, and a fetch reaches only the sandbox's domains.
+    args: ["--sandbox", "disabled"],
+    // A release directory: a wrapper script, the node it runs and its bundle beside it.
+    reads: (executable) => [dirname(executable)],
+    hostHome: {
+      absent:
+        "cursor reads skills under HOME, which on the host is git's and every tool's home too, and its login does not follow a moved one",
+    },
+  },
 };
 
 /** `harness`'s sandbox needs, or why it has none. */
@@ -177,7 +201,7 @@ function ownHome(
 ): Pick<HarnessSandboxNeeds, "env" | "seed" | "defaults"> {
   const state = harnessState(environment)[harness];
   return {
-    env: { [HOME_ENV[harness]]: home },
+    env: sandboxed.env?.(home) ?? { [HOME_ENV[harness]]: home },
     seed: sandboxed.seed.map(({ file, refreshes }) => ({
       from: join(state, file),
       to: join(home, file),
@@ -216,22 +240,22 @@ export async function sandboxNeeds(
 ): Promise<HarnessSandboxNeeds> {
   const needs = sandboxed(harness);
   if (isAbsent(needs)) throw new Error(`${harness} cannot run in a sandbox: ${needs.absent}`);
-  const domains = needs.domains(model);
-  const command = harnessSpec(harness as Harness).interactive().argv[0]!;
-  const executable = await findExecutable(command, environment);
   const tokenValue = needs.token ? environment[needs.token.env]?.trim() : undefined;
   if (needs.token && !tokenValue) {
     throw new Error(
       `a sandboxed ${harness} needs ${needs.token.env} (${needs.token.from}): its login lives in the keychain`,
     );
   }
+  const domains = needs.domains(model);
+  const command = harnessSpec(harness as Harness).interactive().argv[0]!;
+  const executable = await findExecutable(command, environment);
   return {
     ...ownHome(harness as Harness, needs, home, environment),
     secrets: needs.token && tokenValue ? { [needs.token.env]: tokenValue } : {},
     domains,
     command,
     executable,
-    reads: await installReads(executable, environment),
+    reads: needs.reads?.(executable) ?? (await installReads(executable, environment)),
   };
 }
 

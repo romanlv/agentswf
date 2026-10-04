@@ -279,7 +279,7 @@ printf '{"type":"thread.started","thread_id":"%s"}\\n' "$thread"
       [
         { harness: "cursor", model: "m", placement: "headless", metered: true },
         [{ path: await skill("alpha") }],
-        "no way to be given skills",
+        "cursor cannot be given skills on the host",
       ],
     ] as const) {
       const failed = await run(async (context) => {

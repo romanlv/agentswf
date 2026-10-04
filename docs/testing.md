@@ -57,21 +57,21 @@ printed instead of run, a skill listed but not used), 2026-10-01.
 
 What they cover between them:
 
-- `harnesses` — quick-check across codex and pi headless and claude and pi in a Herdr pane,
-  through `awf run`. Every answer must be right, each including a follow-up in the same session,
-  and every agent's spend known and billed to its subscription. 4 agents, ~20 s, ~$0.07.
-- `compaction` — native compaction (story 015) on claude, codex and pi in panes and headless, and
-  cursor headless: each compacts with a focus naming a codename it was never told, then must
-  recall it and what it noted before. Cursor must refuse, saying why. `bun
-  tests/compaction.eval.ts pi pi-pane` runs only those. 7 agents, ~60 s, ~$0.63 at list prices,
+- `harnesses` — quick-check across codex, pi and cursor headless and claude, pi and cursor in a
+  Herdr pane, through `awf run`. Every answer must be right, each including a follow-up in the same
+  session, and every agent's spend known and billed to its subscription, but cursor's: its billing
+  is unknown, and a pane's cursor prints no usage. 6 agents, ~40 s, ~$0.13.
+- `compaction` — native compaction (stories 015, 019) on every harness in panes and headless: each
+  compacts with a focus naming a codename it was never told, then must recall it and what it noted
+  before. A headless cursor, which has none, must refuse, saying why. `bun
+  tests/compaction.eval.ts pi pi-pane` runs only those. 8 agents, ~60 s, ~$0.63 at list prices,
   the headless claude's share billed per token.
-- `fork` — forks (story 016) on claude, codex and pi, in panes and headless, across a placement
-  change and after a compaction, and on cursor headless: each worker notes a codename, is forked,
-  then notes a release. Each fork must answer the codename through its own channel and not know
-  the release, and its first turn must read at least half its prompt from the cache, except
-  cursor's, whose usage awf does not read. `bun tests/fork.eval.ts codex claude>headless` runs only
-  those cases. 26 agents, ~2 min, ~$1.40 at list prices, the headless claude's share billed per
-  token.
+- `fork` — forks (story 016) on every harness, in panes and headless, across a placement change
+  and after a compaction: each worker notes a codename, is forked, then notes a release. Each fork
+  must answer the codename through its own channel and not know the release, and its first turn
+  must read at least half its prompt from the cache, except a pane's cursor, which prints no
+  usage. `bun tests/fork.eval.ts codex claude>headless` runs only those cases. 32 agents, ~2 min,
+  ~$1.40 at list prices, the headless claude's share billed per token.
 - `calling-session` — `awf run --here` (story 014) from a claude, codex, pi and cursor session,
   each started in a Herdr tab and told to run the command; codex under its workspace-write sandbox
   with local sockets allowed. Each run, in a tab of its own, drives its session through three steps;
