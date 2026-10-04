@@ -1,6 +1,16 @@
+import { constants } from "node:fs";
+import { open, rm } from "node:fs/promises";
 import { join } from "node:path";
+import { count, jsonLines, record, text } from "../json";
 import { harnessState } from "../state";
-import { entries, safeId } from "./files";
+import { entries, jsonRows, ownDirectory, ownFiles, safeId } from "./files";
+import type { SessionRead, UsageRecord } from "./records";
+
+/**
+ * Where awf keeps a chat's turns' usage, which cursor prints once per headless turn and logs
+ * nowhere: beside the chat, so a chat carried to another home carries it.
+ */
+const USAGE_FILE = "awf-usage.jsonl";
 
 /**
  * The directory chat `id` lives in under `home`: `chats/{workspace}/{id}`, its `store.db` and a
@@ -16,4 +26,108 @@ export async function cursorChatDirectory(
     if ((await entries(join(chats, workspace))).includes(id)) return join(chats, workspace, id);
   }
   return undefined;
+}
+
+/**
+ * Keeps the usage a headless turn printed beside its chat. `inputTokens` is the uncached part:
+ * a resume that read 37,004 cached tokens reported 109 input (fork-cache F11).
+ */
+export async function keepCursorTurnUsage(
+  stdout: string,
+  session: string,
+  model: string | undefined,
+  home = harnessState().cursor,
+): Promise<void> {
+  const result = jsonLines(stdout).findLast((row) => row.type === "result");
+  const usage = record(result?.usage);
+  const key = text(result?.request_id);
+  const directory = await cursorChatDirectory(session, home);
+  // A sandboxed agent's home is its own to write: nothing on the way may be a link.
+  if (!usage || !key || !directory || !(await ownDirectory(home, directory))) return;
+  const row = {
+    key,
+    at: new Date().toISOString(),
+    model: model ?? "unknown",
+    tokens: {
+      input: count(usage.inputTokens),
+      cacheRead: count(usage.cacheReadTokens),
+      cacheWrite: count(usage.cacheWriteTokens),
+      output: count(usage.outputTokens),
+    },
+  };
+  const handle = await open(
+    join(directory, USAGE_FILE),
+    constants.O_WRONLY |
+      constants.O_APPEND |
+      constants.O_CREAT |
+      constants.O_NOFOLLOW |
+      constants.O_NONBLOCK,
+  );
+  try {
+    if ((await handle.stat()).isFile()) await handle.appendFile(`${JSON.stringify(row)}\n`);
+  } finally {
+    await handle.close();
+  }
+}
+
+/** Drops the usage a copied chat carried from its parent: those turns are the parent's. */
+export async function dropCursorUsage(session: string, home = harnessState().cursor) {
+  const directory = await cursorChatDirectory(session, home);
+  if (directory) await rm(join(directory, USAGE_FILE), { force: true });
+}
+
+export async function readCursorUsage(
+  sessions: readonly string[],
+  home = harnessState().cursor,
+): Promise<SessionRead | undefined> {
+  const records = new Map<string, UsageRecord>();
+  let found = false;
+  for (const session of sessions) {
+    const directory = await cursorChatDirectory(session, home);
+    if (!directory) continue;
+    found = true;
+    for (const row of await jsonRows(join(directory, USAGE_FILE))) {
+      const key = text(row.key);
+      const at = text(row.at);
+      const tokens = record(row.tokens);
+      if (!key || !at || !tokens) continue;
+      records.set(key, {
+        key,
+        at,
+        model: text(row.model) ?? "unknown",
+        delegated: false,
+        tokens: {
+          input: count(tokens.input),
+          cacheRead: count(tokens.cacheRead),
+          cacheWrite: count(tokens.cacheWrite),
+          output: count(tokens.output),
+        },
+      });
+    }
+  }
+  // Each turn's usage is written once its process has ended, so no turn is ever open.
+  return found ? { records: [...records.values()], open: false } : undefined;
+}
+
+/** Every chat in a home the agent had alone. */
+export async function cursorHomeSessions(home: string): Promise<string[]> {
+  const chats = new Set<string>();
+  for (const name of await ownFiles(home, join(home, "chats"))) {
+    const [, chat, file] = name.split("/");
+    if (chat && file === "meta.json") chats.add(chat);
+  }
+  return [...chats];
+}
+
+/** A chat's own files relative to `home`, without the usage awf kept for it. */
+export async function cursorSessionFiles(
+  home: string,
+  session: string,
+): Promise<string[] | undefined> {
+  const directory = await cursorChatDirectory(session, home);
+  if (!directory) return undefined;
+  const chat = directory.slice(home.length + 1);
+  return (await ownFiles(home, directory))
+    .filter((name) => name !== USAGE_FILE)
+    .map((name) => join(chat, name));
 }

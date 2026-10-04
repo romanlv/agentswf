@@ -166,6 +166,7 @@ const CLAUDE = {
 } satisfies HarnessDefinition;
 
 export const claude = defineHarness(CLAUDE, {
+  keepTurnUsage: "claude logs each request in its session files",
   readCharge: "claude prints its session's running total, which readCostTotal reads (F9)",
   localSockets: "only codex's own sandbox was found blocking local sockets (E8)",
 });

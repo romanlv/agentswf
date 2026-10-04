@@ -191,6 +191,7 @@ output are in [`experiments/_archive/f-fork-cache/`](../../experiments/_archive/
   name, and the output names it as the session.
 - Sharing an `agentId` does not share a history: the parent and two such forks, each told a
   different release, each recalled only its own.
-- Cursor's headless JSON reports each turn's tokens, `cacheReadTokens` included; awf does not read
-  them yet ([[cursor-usage]]). Only `composer-2.5` was measured: cursor sends other models to their
-  own providers, whose caches may key otherwise.
+- Cursor's headless JSON reports each turn's tokens, `cacheReadTokens` included, which awf keeps
+  since story 019: in the fork eval on 2026-10-04 the fork's first turn read 0.98 of its prompt
+  from the cache. Only `composer-2.5` was measured: cursor sends other models to their own
+  providers, whose caches may key otherwise.

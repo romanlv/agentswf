@@ -16,6 +16,7 @@ import {
   type RunProcess,
   readClaudeBilling,
   readCodexBilling,
+  readCursorLogin,
   runProcess,
   withholding,
 } from "@agentswf/harness";
@@ -283,5 +284,11 @@ const LOGINS: Readonly<Record<Harness, ((run: RunProcess) => Promise<void>) | Ab
     }
   },
   pi: { absent: "pi's login is per provider, and each agent's model names its own" },
-  cursor: { absent: "not yet checked" },
+  async cursor(run) {
+    if (!(await readCursorLogin(run))) {
+      throw new Error(
+        "Cursor authentication is required (`cursor-agent login`); `cursor-agent status` reads as logged out",
+      );
+    }
+  },
 };

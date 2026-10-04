@@ -71,6 +71,18 @@ export async function readCodexBilling(run: RunProcess): Promise<Billing> {
   return result.exitCode === 0 ? codexBilling(`${result.stdout}\n${result.stderr}`) : "unknown";
 }
 
+/**
+ * Whether cursor is logged in, by `cursor-agent status --format json`. It says nothing of the plan
+ * or of an API key's billing.
+ */
+export async function readCursorLogin(run: RunProcess): Promise<boolean> {
+  const result = await run({
+    argv: ["cursor-agent", "status", "--format", "json"],
+    timeoutMs: STATUS_TIMEOUT_MS,
+  });
+  return result.exitCode === 0 && parseRow(result.stdout)?.isAuthenticated === true;
+}
+
 export async function readPiBilling(
   model: string | undefined,
   provider: string | undefined,

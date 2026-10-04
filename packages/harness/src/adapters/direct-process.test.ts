@@ -846,7 +846,13 @@ describe("createHeadlessAdapter", () => {
         process.env.HOME = home;
         mkdirSync(join(workspace, "chat-1"), { recursive: true });
         const { run, calls } = stub([
-          JSON.stringify({ type: "result", result: "ok", session_id: "chat-1" }),
+          JSON.stringify({
+            type: "result",
+            result: "ok",
+            session_id: "chat-1",
+            request_id: "r-1",
+            usage: { inputTokens: 5, outputTokens: 2, cacheReadTokens: 30, cacheWriteTokens: 0 },
+          }),
           "",
         ]);
         const ids = ["first", "fork-1"];
@@ -859,6 +865,10 @@ describe("createHeadlessAdapter", () => {
           },
         );
         await (await session.start(turnSpec, firstBinding)).settled;
+        // cursor logs no usage; the turn's printed usage is kept beside its chat.
+        expect(readFileSync(join(workspace, "chat-1", "awf-usage.jsonl"), "utf8")).toContain(
+          '"key":"r-1"',
+        );
         await expect(session.fork!(activation.deadline)).resolves.toEqual({
           harness: "cursor",
           sessionRef: "fork-1",

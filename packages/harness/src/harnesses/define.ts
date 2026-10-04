@@ -106,6 +106,11 @@ export type HarnessSpec = {
     home?: string,
   ): Promise<SessionRead | undefined>;
   /**
+   * Keeps what a headless turn printed of its usage where `readSessionUsage` finds it, for a harness
+   * that prints it and logs it nowhere; `home` is the agent's own, absent the operator's.
+   */
+  keepTurnUsage?(stdout: string, session: string, context: TurnContext): Promise<void>;
+  /**
    * The files a session is made of, relative to `home`, to carry it into another: a fork's whose
    * home is not its parent's. Undefined where the session cannot be found there.
    */

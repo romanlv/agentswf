@@ -59,7 +59,7 @@ skipped in each.
 - [x] 1. The harness definition: one file per harness, `defineHarness` with `absent`, the scattered
   tables made `Record<Harness, …>` or spec fields, single-harness comparisons made fields.
   `docs/adding-a-harness.md`.
-- [ ] 2. Cursor headless: its session in the agent's shell, launch arguments, tokens per turn, a
+- [x] 2. Cursor headless: its session in the agent's shell, launch arguments, tokens per turn, a
   login check.
 - [ ] 3. Cursor in a pane: its startup block, interactive resume, interrupt, session lookup,
   `/summarize` with the focus as a message before it.

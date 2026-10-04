@@ -16,6 +16,13 @@ import { createSessionAccounting } from "./accounting";
 import { claudeBilling, codexBilling, piBilling, readCodexBilling } from "./billing";
 import { findClaudeSession, readClaudeUsage as readClaude } from "./claude";
 import { findCodexSession, inheritCodexSessionId, readCodexUsage as readCodex } from "./codex";
+import {
+  cursorHomeSessions,
+  cursorSessionFiles,
+  dropCursorUsage,
+  keepCursorTurnUsage,
+  readCursorUsage,
+} from "./cursor";
 import { readPiUsage as readPi, readPiCompactSummary } from "./pi";
 import type { SessionRead, UsageRecord } from "./records";
 
@@ -707,6 +714,81 @@ describe("pi sessions", () => {
     expect(await readPiUsage([PI], root)).toHaveLength(2);
     expect(await readPiUsage([join(FIXTURES, "codex/sessions/x.jsonl")], agent)).toBeUndefined();
     expect(await readPiUsage(["missing"], agent)).toBeUndefined();
+  });
+});
+
+describe("cursor chats", () => {
+  const printed = (requestId: string, input: number) =>
+    `${JSON.stringify({
+      type: "result",
+      session_id: "chat-1",
+      request_id: requestId,
+      usage: { inputTokens: input, outputTokens: 7, cacheReadTokens: 900, cacheWriteTokens: 3 },
+    })}\n`;
+  const chatHome = () => {
+    const home = mkdtempSync(join(tmpdir(), "cursor-"));
+    roots.push(home);
+    const chat = join(home, "chats", "workspace", "chat-1");
+    mkdirSync(chat, { recursive: true });
+    writeFileSync(join(chat, "meta.json"), "{}");
+    writeFileSync(join(chat, "store.db"), "");
+    return { home, chat };
+  };
+
+  test("a headless turn's printed usage is kept beside its chat, one record a request", async () => {
+    const { home } = chatHome();
+    await keepCursorTurnUsage(printed("r-1", 40), "chat-1", "composer-2.5", home);
+    await keepCursorTurnUsage(printed("r-2", 12), "chat-1", "composer-2.5", home);
+    // A turn that printed no usage, as one cut off, keeps nothing.
+    await keepCursorTurnUsage("", "chat-1", "composer-2.5", home);
+    const read = await readCursorUsage(["chat-1"], home);
+    expect(read?.open).toBe(false);
+    expect(
+      read?.records.map(({ key, model, delegated, tokens }) => ({ key, model, delegated, tokens })),
+    ).toEqual([
+      {
+        key: "r-1",
+        model: "composer-2.5",
+        delegated: false,
+        tokens: { input: 40, cacheRead: 900, cacheWrite: 3, output: 7 },
+      },
+      {
+        key: "r-2",
+        model: "composer-2.5",
+        delegated: false,
+        tokens: { input: 12, cacheRead: 900, cacheWrite: 3, output: 7 },
+      },
+    ]);
+    expect(await readCursorUsage(["chat-2", "../chat-1"], home)).toBeUndefined();
+  });
+
+  test("a home's chats, and a chat's own files without the usage awf kept", async () => {
+    const { home } = chatHome();
+    await keepCursorTurnUsage(printed("r-1", 40), "chat-1", undefined, home);
+    expect(await cursorHomeSessions(home)).toEqual(["chat-1"]);
+    expect((await cursorSessionFiles(home, "chat-1"))?.sort()).toEqual([
+      "chats/workspace/chat-1/meta.json",
+      "chats/workspace/chat-1/store.db",
+    ]);
+    await dropCursorUsage("chat-1", home);
+    expect(await readCursorUsage(["chat-1"], home)).toEqual({ records: [], open: false });
+  });
+
+  test("nothing is written through a link an agent put in its home", async () => {
+    const { home, chat } = chatHome();
+    const outside = mkdtempSync(join(tmpdir(), "outside-"));
+    roots.push(outside);
+    mkdirSync(join(outside, "chat-2"));
+    symlinkSync(outside, join(home, "chats", "elsewhere"));
+    await keepCursorTurnUsage(printed("r-1", 40), "chat-2", undefined, home);
+    expect(() => readFileSync(join(outside, "chat-2", "awf-usage.jsonl"))).toThrow();
+    const target = join(outside, "target");
+    writeFileSync(target, "");
+    symlinkSync(target, join(chat, "awf-usage.jsonl"));
+    await expect(
+      keepCursorTurnUsage(printed("r-1", 40), "chat-1", undefined, home),
+    ).rejects.toThrow();
+    expect(readFileSync(target, "utf8")).toBe("");
   });
 });
 

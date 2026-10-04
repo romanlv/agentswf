@@ -307,6 +307,11 @@ describe("operator runtime", () => {
     expect(
       (await opened(claudeAi, "Logged in using an API key - sk-***", "codex")).first,
     ).toContain("Codex subscription authentication is required");
+    const cursorStatus = (isAuthenticated: boolean) => JSON.stringify({ isAuthenticated });
+    expect((await opened(claudeAi, cursorStatus(false), "cursor")).first).toBe(
+      "Cursor authentication is required (`cursor-agent login`); `cursor-agent status` reads as logged out",
+    );
+    expect((await opened(claudeAi, cursorStatus(true), "cursor")).first).toBeUndefined();
     // A codex-only run asks codex once and never asks claude: claude's login can be absent.
     const codexOnly = await opened({ authMethod: "api_key" }, chatgpt, "codex");
     expect(codexOnly.first).toBeUndefined();

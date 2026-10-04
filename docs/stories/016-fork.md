@@ -528,8 +528,8 @@ Manual or live evaluation:
 - **Cursor forks too.** Its TUI's `/fork` copies the chat's store under a new `agentId`, the key
   cursor caches by, and misses; a copy of the chat's directory that keeps the parent's hits, each
   history its own (F11). Cursor's `forkSession` is that copy, `cp -R`, headless only, as cursor
-  runs. Its eval case checks what the fork recalls, not the cache: awf reads no cursor usage
-  ([[cursor-usage]]).
+  runs. Its eval case checked what the fork recalls, not the cache, until story 019 read cursor's
+  usage.
 
 ### Task 6, 2026-10-03
 

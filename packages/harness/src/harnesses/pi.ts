@@ -160,6 +160,7 @@ const PI = {
 } satisfies HarnessDefinition;
 
 export const pi = defineHarness(PI, {
+  keepTurnUsage: "pi logs each request in its session files",
   readCostTotal: "pi prints each request's cost, which readCharge reads",
   findSession: "Herdr names a pi pane's session by its file (story 017)",
   localSockets: "only codex's own sandbox was found blocking local sockets (E8)",

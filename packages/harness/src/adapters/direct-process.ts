@@ -193,6 +193,12 @@ export function createHeadlessAdapter(
               spec.readSessionId?.(result.stdout) ??
               operation.previousSessionRef);
           if (nativeSession) identity.sessionId = nativeSession;
+          // What it printed of its usage is all there is of it; a turn's answer never waits on it.
+          if (nativeSession && !compaction) {
+            await spec
+              .keepTurnUsage?.(result.stdout, nativeSession, context)
+              .catch(() => undefined);
+          }
           let charge = spec.readCharge?.(result.stdout);
           const total = spec.readCostTotal?.(result.stdout);
           if (total !== undefined) {

@@ -33,16 +33,25 @@ export async function entries(directory: string, recursive = false): Promise<str
 }
 
 /**
+ * Whether `directory` and each directory above it below `home` is one, and not a link. `home` is
+ * the engine's or the operator's own choosing, and may be a link.
+ */
+export async function ownDirectory(home: string, directory: string): Promise<boolean> {
+  for (let path = directory; path.length >= home.length; path = dirname(path)) {
+    const found = await (path === home ? stat(path) : lstat(path)).catch(() => undefined);
+    if (!found?.isDirectory()) return false;
+    if (path === home) return true;
+  }
+  return false;
+}
+
+/**
  * The files under `directory`, relative to it, where nothing from `home` down is a link: an
  * agent's home is its own to write, and a link there would have the engine count the operator's
  * sessions as the agent's.
  */
 export async function ownFiles(home: string, directory: string): Promise<string[]> {
-  for (let path = directory; path.length >= home.length; path = dirname(path)) {
-    const found = await lstat(path).catch(() => undefined);
-    if (!found?.isDirectory()) return [];
-    if (path === home) break;
-  }
+  if (!(await ownDirectory(home, directory))) return [];
   try {
     return (await readdir(directory, { recursive: true, withFileTypes: true }))
       .filter((entry) => entry.isFile())

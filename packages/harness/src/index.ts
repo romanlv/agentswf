@@ -21,5 +21,5 @@ export * from "./spec";
 export { harnessState } from "./state";
 export * from "./types";
 export type { SessionAccounting } from "./usage/accounting";
-export { readClaudeBilling, readCodexBilling } from "./usage/billing";
+export { readClaudeBilling, readCodexBilling, readCursorLogin } from "./usage/billing";
 export type { SessionRead, UsageRecord } from "./usage/records";
