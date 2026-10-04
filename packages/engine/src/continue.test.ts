@@ -305,6 +305,23 @@ describe("a continue's records", () => {
     expect(await replaced(root)).toEqual(["qa.1.json"]);
   });
 
+  test("a stage stopped in one attempt runs again in the next", async () => {
+    const root = runDirs.tempRunDir();
+    const stopping = (stop: boolean) =>
+      workflowOf(async (workflow) => {
+        await workflow.stage("doc-review", async () => {});
+        await workflow.stage("qa", async () => {
+          if (stop) workflow.stop("no preview");
+        });
+        return null;
+      });
+    await expect(attempt(root, 1, stopping(true))).rejects.toBeInstanceOf(WorkflowRunError);
+    expect(await outcomes(root)).toEqual(["doc-review:1:succeeded", "qa:1:stopped"]);
+    await attempt(root, 2, stopping(false));
+    expect(await outcomes(root)).toEqual(["doc-review:1:succeeded", "qa:2:succeeded"]);
+    expect(await replaced(root)).toEqual(["qa.1.json"]);
+  });
+
   test("the start stage's record moves first: a move that fails after it leaves the rest", async () => {
     const root = runDirs.tempRunDir();
     await attempt(root, 1, flow(false));
@@ -332,5 +349,154 @@ describe("a continue's records", () => {
     await expect(stopped).rejects.toThrow();
     const cause = await stopped.catch((error: WorkflowRunError) => error.cause);
     expect(String(cause)).toContain("doc-review was recorded by 1.2.0; this is 2.0.0");
+  });
+});
+
+describe("workflow.stop", () => {
+  test("inside a stage, it records the stage stopped, and a continue redoes it", async () => {
+    let calls = 0;
+    const flow = workflowOf(async (workflow) => {
+      await workflow.stage("doc-review", async () => {});
+      const doc = await workflow.stage("qa", { result: DOC }, async () => {
+        calls += 1;
+        if (calls === 1) workflow.stop("no preview environment");
+        return { path: "ok" };
+      });
+      return doc.path;
+    });
+    const first = await testWorkflow(flow, null);
+    expect(() => first.value).toThrow("no preview environment");
+    expect(first.stopped).toEqual({ reason: "no preview environment", stage: "qa" });
+    expect(first.stages.map(({ stage, outcome }) => [stage, outcome])).toEqual([
+      ["doc-review", "succeeded"],
+      ["qa", "stopped"],
+    ]);
+    expect(first.stages[1]).toMatchObject({ reason: "no preview environment" });
+
+    const second = await testWorkflow(flow, null, { recorded: { "doc-review": undefined } });
+    expect(second.value).toBe("ok");
+    expect(calls).toBe(2);
+  });
+
+  test("between stages, it changes no record, and a continue checks again", async () => {
+    const flow = workflowOf(async (workflow) => {
+      const doc = await workflow.stage("doc-review", { result: DOC }, async () => ({ path: "x" }));
+      if (doc.path === "x") workflow.stop("no doc");
+      return null;
+    });
+    const first = await testWorkflow(flow, null);
+    expect(first.stopped).toEqual({ reason: "no doc" });
+    expect(first.stages.map(({ outcome }) => outcome)).toEqual(["succeeded"]);
+    const again = await testWorkflow(flow, null, { recorded: { "doc-review": { path: "x" } } });
+    expect(again.stopped).toEqual({ reason: "no doc" });
+  });
+
+  test("before any stage, it stops the attempt", async () => {
+    const run = await testWorkflow(
+      workflowOf(async (workflow) => workflow.stop("not ready")),
+      null,
+    );
+    expect(run.stopped).toEqual({ reason: "not ready" });
+    expect(run.stages).toEqual([]);
+  });
+
+  test("caught inside a stage, it fails that stage; caught between stages, the attempt", async () => {
+    const inside = await testWorkflow(
+      workflowOf(async (workflow) => {
+        await workflow.stage("qa", async () => {
+          try {
+            workflow.stop("no preview");
+          } catch {}
+        });
+        return null;
+      }),
+      null,
+    );
+    expect(() => inside.value).toThrow("stop was caught: no preview");
+    expect(inside.stopped).toBeUndefined();
+    expect(inside.stages).toEqual([
+      expect.objectContaining({
+        stage: "qa",
+        outcome: "failed",
+        reason: "stop was caught: no preview",
+      }),
+    ]);
+
+    const between = await testWorkflow(
+      workflowOf(async (workflow) => {
+        try {
+          workflow.stop("no doc");
+        } catch {}
+        return null;
+      }),
+      null,
+    );
+    expect(() => between.value).toThrow("stop was caught: no doc");
+  });
+
+  test("called beside a stage, not in it, it stops between stages", async () => {
+    const run = await testWorkflow(
+      workflowOf(async (workflow) => {
+        await Promise.all([
+          workflow.stage("a", () => new Promise<void>((resolve) => setTimeout(resolve, 20))),
+          (async () => {
+            await Promise.resolve();
+            workflow.stop("from beside");
+          })(),
+        ]);
+        return null;
+      }),
+      null,
+    );
+    expect(run.stopped).toEqual({ reason: "from beside" });
+  });
+
+  test("the first stop is kept; once caught, the next stage fails the attempt as caught", async () => {
+    const twice = await testWorkflow(
+      workflowOf(async (workflow) => {
+        try {
+          workflow.stop("first");
+        } catch {}
+        return workflow.stop("second");
+      }),
+      null,
+    );
+    expect(twice.stopped).toEqual({ reason: "first" });
+
+    const afterCaught = await testWorkflow(
+      workflowOf(async (workflow) => {
+        await workflow
+          .stage("a", async () => {
+            try {
+              workflow.stop("in a");
+            } catch {}
+          })
+          .catch(() => undefined);
+        await workflow.stage("b", async () => {});
+        return null;
+      }),
+      null,
+    );
+    expect(() => afterCaught.value).toThrow("stop was caught: in a");
+    expect(afterCaught.stopped).toBeUndefined();
+    expect(afterCaught.stages.map(({ stage, outcome }) => [stage, outcome])).toEqual([
+      ["a", "failed"],
+    ]);
+  });
+
+  test("inside a parallel in a stage, it stops that stage", async () => {
+    const run = await testWorkflow(
+      workflowOf(async (workflow) => {
+        await workflow.stage("review", async () => {
+          await workflow.parallel(["codex", "opus"], async (who) => {
+            if (who === "opus") workflow.stop("opus found a blocker");
+          });
+        });
+        return null;
+      }),
+      null,
+    );
+    expect(run.stopped).toEqual({ reason: "opus found a blocker", stage: "review" });
+    expect(run.stages[0]).toMatchObject({ outcome: "stopped" });
   });
 });

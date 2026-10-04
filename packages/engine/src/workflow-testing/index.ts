@@ -170,7 +170,7 @@ export async function testWorkflow<Args extends JsonValue, Result extends JsonVa
     : undefined;
   const recordedStages = async ({ runId, stages: entered = [] }: SettledRun) => {
     const records = await readStageRecords(join(runRoot, runId));
-    return entered.flatMap((name) => records.get(name) ?? []);
+    return entered.flatMap(({ stage }) => records.get(stage) ?? []);
   };
   events.onActivity();
   try {

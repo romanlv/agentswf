@@ -287,8 +287,11 @@ export type AttemptRecord = {
 
 export const STAGE_RECORD_VERSION = 1 as const;
 
-/** A stage's end: `failed` covers a throw, a value its schema rejects, and a cancellation. */
-export type StageOutcome = "succeeded" | "failed";
+/**
+ * A stage's end: `stopped` is `workflow.stop` inside it; `failed` covers a throw, a value its
+ * schema rejects, and a cancellation.
+ */
+export type StageOutcome = "succeeded" | "stopped" | "failed";
 
 /**
  * `stages/{stage}.json`: the run's current record of a stage, written whole when the stage ends,

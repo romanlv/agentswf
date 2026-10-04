@@ -98,6 +98,14 @@ export interface WorkflowContext {
     work: () => Promise<T>,
   ): Promise<T>;
 
+  /**
+   * Ends the attempt `stopped`, apart from failed: in the stage it is called from, which a continue
+   * then redoes, or between stages, where a continue checks again. Caught, it fails the stage that
+   * caught it, or the attempt when the workflow returns. `return workflow.stop(…)` narrows where a
+   * bare call doesn't.
+   */
+  stop(reason: string): never;
+
   call<Args extends JsonValue, Result extends JsonValue>(
     spec: WorkflowCallSpec<Args, Result>,
   ): Promise<Result>;

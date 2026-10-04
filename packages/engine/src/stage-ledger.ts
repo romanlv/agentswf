@@ -21,8 +21,12 @@ export function stageNameProblem(name: string): string | undefined {
 export type OpenStage = {
   readonly name: string;
   succeed(value: JsonValue | undefined, summary?: string): Promise<void>;
+  stop(reason: string): Promise<void>;
   fail(reason: string): Promise<void>;
 };
+
+/** A stage an attempt entered, and whether it ran or was reused. */
+export type StageSource = { stage: string; source: "ran" | "reused" };
 
 /** A stage entered: reused from its record without running, or run. */
 export type EnteredStage =
@@ -47,6 +51,8 @@ export class StageLedger {
   #sealed: string | undefined;
   /** The stop that ended the attempt; caught, it is thrown again by any later stage. */
   #stopped: WorkflowStopped | undefined;
+  /** Why the attempt fails once its stop was found caught. */
+  #caught: Error | undefined;
 
   constructor(
     private readonly options: {
@@ -78,6 +84,36 @@ export class StageLedger {
     return this.#entered;
   }
 
+  /** The stages entered, in order, each run or reused. */
+  get sources(): StageSource[] {
+    return this.#entered.map((stage) => ({
+      stage,
+      source: this.#reused.has(stage) ? "reused" : "ran",
+    }));
+  }
+
+  /**
+   * `workflow.stop`, called in `stage` or between stages: what to throw. The first stop is kept,
+   * and any later stage or stop throws it again; once it was found caught, that instead. After the
+   * workflow's body ended, a stop ends nothing.
+   */
+  stop(reason: string, stage: string | undefined): Error {
+    if (this.#caught) return this.#caught;
+    if (this.#sealed !== undefined) return new WorkflowStopped(reason, stage);
+    this.#stopped ??= new WorkflowStopped(reason, stage);
+    return this.#stopped;
+  }
+
+  /** The stop was caught and the workflow went on: from now on, that is what fails the attempt. */
+  caught(): Error | undefined {
+    if (this.#stopped) {
+      this.#caught ??= new Error(`stop was caught: ${this.#stopped.reason}`, {
+        cause: this.#stopped,
+      });
+    }
+    return this.#caught;
+  }
+
   /**
    * Enters `name`: reused when the plan says so, its value checked by `misfit`, or opened to run.
    * Throws why it can't be: a bad name, a second entry, another one open, or a record that stops
@@ -87,6 +123,7 @@ export class StageLedger {
     name: string,
     misfit: (value: JsonValue | undefined) => string | undefined,
   ): Promise<EnteredStage> {
+    if (this.#caught) throw this.#caught;
     if (this.#stopped) throw this.#stopped;
     this.#check(name);
     this.#entered.push(name);
@@ -113,6 +150,7 @@ export class StageLedger {
       const held: OpenStage = {
         name,
         succeed: async () => undefined,
+        stop: async () => undefined,
         fail: async () => undefined,
       };
       this.#open = held;
@@ -184,6 +222,7 @@ export class StageLedger {
           ...(summary === undefined ? {} : { summary }),
           ...(value === undefined ? {} : { value }),
         }),
+      stop: (reason) => end({ outcome: "stopped", reason }),
       fail: (reason) => end({ outcome: "failed", reason }),
     };
     this.#open = stage;

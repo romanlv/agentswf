@@ -231,7 +231,7 @@ Out of scope:
 - [x] 3. Stages recorded: `workflow.stage`, the ledger, tagging, stage records, test support.
 - [x] 4. Continue from a stage: the stage plan, `--from-stage`, removing stale records, schemas, test
   support.
-- [ ] 5. The author surface: `stop`, `id(args)` and `summary`, documented, with the boilerplate's
+- [x] 5. The author surface: `stop`, `id(args)` and `summary`, documented, with the boilerplate's
   `ask` and `md` over them.
 - [ ] 6. The view by stage.
 - [ ] 7. Accounting and endings by stage.
@@ -440,6 +440,25 @@ inside a stage, the continue redoes it; between stages, it checks again; the sam
 says to move the check. `docs/workflow-api.md` documents `testWorkflow`'s `recorded`,
 `fromStage` and `run.stopped`.
 
+Plan (2026-10-04):
+- **contract.**
+  - `WorkflowContext.stop(reason): never`.
+  - `ExecutableWorkflow.id?(args)`.
+  - `StageOutcome` gains `stopped`.
+- **The ledger.**
+  - `stop` keeps the first stop, with the stage open now, or none between stages.
+  - Inside a stage, the stage is recorded `stopped`. A stop caught inside a stage that then
+    returns fails that stage as "stop was caught".
+  - `SettledRun.stages` gives each stage entered with its source, ran or reused.
+- **CLI.**
+  - A new run's id is `--id`, else `id(args)`, checked like any id, else generated.
+  - After a plain continue that ran no stage and stopped between stages with the attempt
+    before's reason, it adds "the same stop as attempt {n}; if a stage's value caused it,
+    --from-stage {last reused}, and move the check into that stage".
+- **Docs.** `docs/workflow-api.md` gains a Stages section and the testing options.
+- **Moved to task 8:** implement-ticket's boilerplate `ask` calling awf's `stop` changes with the
+  flow that uses it, outside this repository.
+
 ### 6. The view by stage
 
 Outcome:
@@ -615,7 +634,40 @@ Accepted, not changed:
   for its attempt. A rename onto an existing `replaced/` file overwrites it, which can't happen
   while a stage runs once per attempt.
 
-### Tasks 5–8
+### Task 5
+
+Two subagents, 2026-10-04. Resolved:
+- **A stop named the wrong stage.** It named whichever stage was open, not the scope it was
+  called in. It now takes the scope's stage, so a stop beside an open stage is between stages.
+- **A caught stop came back as `stopped`.** Once a stop is found caught, by a stage that returns
+  or a body that returns, that "stop was caught" error is what every later stage and stop
+  throws.
+- **A stop after the body ended** latches nothing.
+- **The repeated-stop hint** is given only when a stage was reused and none ran.
+- **Narrowing.** The docs say to write `return workflow.stop(…)` where TypeScript should narrow:
+  a contextually typed `workflow` doesn't narrow on a bare call.
+- **The caught-stop wording.** It is exact now: catching it fails the stage that caught it, or
+  the attempt when the body returns.
+- **Smaller fixes.**
+  - The loader checks `id` is a function.
+  - An `id(args)` returning a non-string is refused by its type.
+  - `docs/workflow-api.md` lists `id` among the workflow's parts.
+  - `StageSource` is named once.
+- **Tests added:**
+  - a stopped stage rerun by the next attempt;
+  - a stop beside a stage;
+  - two stops;
+  - a stage after a caught stop;
+  - the hint's negatives;
+  - `id(args)` failing.
+
+Accepted, not changed:
+- **A stage the body didn't await.** If it stops before the body's end is checked, the attempt
+  fails as "stop was caught". A stage the body didn't await is already a misuse.
+- **The hint's reason match** compares whole reasons, which a cleanup failure joined onto the
+  earlier attempt's reason would defeat.
+
+### Tasks 6–8
 
 - Architecture and scope:
 - Correctness and proof:

@@ -16,6 +16,12 @@ export interface ExecutableWorkflow<Args extends JsonValue, Result extends JsonV
   readonly kind: typeof EXECUTABLE_WORKFLOW_KIND;
   readonly definition: WorkflowDefinition<Args, Result>;
   prepare(invocation: WorkflowInvocation): Args;
+  /**
+   * The run's id, derived from its args, such as a ticket's key: unique within the workflow,
+   * letters, digits, `.`, `_` and `-`. `awf run --id` overrides it; without either, one is
+   * generated.
+   */
+  id?(args: Args): string;
   /** Renders the result for a person at a terminal. Without it the operator sees the JSON. */
   present?(result: Result): string;
   /** A Markdown handoff of the result for whoever acts on it; the operator saves it as report.md. */

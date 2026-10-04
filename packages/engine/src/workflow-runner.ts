@@ -106,7 +106,7 @@ import {
   type SeatedAgent,
 } from "./sandboxes";
 import { placeSkills, RunSkills, readSkillSources } from "./skills/run-skills";
-import { StageLedger } from "./stage-ledger";
+import { StageLedger, type StageSource } from "./stage-ledger";
 import { WorkflowStopped } from "./stopped";
 
 export { WorkflowCancelledError } from "./deadlines";
@@ -143,8 +143,8 @@ export type RunWorkflowOptions = {
 /** What a run is known by once it has ended, whether or not it succeeded. */
 export type SettledRun = {
   runId: string;
-  /** The stages entered, in order; absent when none was. */
-  stages?: string[];
+  /** The stages entered, in order, each run or reused; absent when none was. */
+  stages?: StageSource[];
   /** Every operation's record, completed with the spend read when the run ended. */
   usage: SettledOperation[];
   /** ISO times the run started and its own work, cleanup included, ended. */
@@ -171,7 +171,7 @@ export type WorkflowRunResult<Result extends JsonValue> = SettledRun & { value: 
  */
 export class WorkflowRunError extends Error implements SettledRun {
   readonly runId: string;
-  readonly stages?: string[];
+  readonly stages?: StageSource[];
   readonly usage: SettledOperation[];
   readonly startedAt: string;
   readonly finishedAt: string;
@@ -418,9 +418,8 @@ export async function startWorkflow<Args extends JsonValue, Result extends JsonV
         options.deadline,
       );
       if (!isJsonValue(value)) throw new Error("workflow result must contain only JSON values");
-      if (stages.stopped) {
-        throw new Error(`stop was caught: ${stages.stopped.reason}`, { cause: stages.stopped });
-      }
+      const caught = stages.caught();
+      if (caught) throw caught;
       if (stages.fromStageUnreached !== undefined) {
         throw new WorkflowStopped(`never reached ${stages.fromStageUnreached}`);
       }
@@ -475,7 +474,7 @@ export async function startWorkflow<Args extends JsonValue, Result extends JsonV
     const asked = decisions.records();
     const settled: SettledRun = {
       runId,
-      ...(stages.entered.length > 0 ? { stages: [...stages.entered] } : {}),
+      ...(stages.entered.length > 0 ? { stages: stages.sources } : {}),
       usage,
       ...times,
       accounting: summarizeRun(usage, PUBLISHED_PRICES, times, asked),
@@ -696,6 +695,10 @@ class WorkflowOwner {
           label === undefined ? undefined : options.progress.stage(label, items.length),
         );
       },
+      stop: (reason: string): never => {
+        // The stage it is called in, by scope: not whichever one is open beside it.
+        throw this.options.stages.stop(String(reason), scopes.getStore()?.workflowStage);
+      },
       stage: ((name: string, ...rest: unknown[]) =>
         this.runStage(name, rest)) as WorkflowContext["stage"],
       call: () => unavailable("call"),
@@ -795,6 +798,7 @@ class WorkflowOwner {
       const returned: unknown = await scopes.run(scope, () => work());
       scope.seal();
       await scope.settleOwned();
+      if (this.options.stages.stopped?.stage === name) throw this.options.stages.caught();
       const value = stageValue(name, options, returned);
       await open.succeed(value, summaryOf(name, options, value, this.options.onLog));
       return value;
@@ -804,7 +808,9 @@ class WorkflowOwner {
       await waitForDeadline(scope.settleOwned(), {
         unixMilliseconds: Date.now() + CLEANUP_GRACE_MILLISECONDS,
       }).catch(() => undefined);
-      await open.fail(messageOf(error));
+      const stopped = this.options.stages.stopped;
+      if (stopped && error === stopped && stopped.stage === name) await open.stop(stopped.reason);
+      else await open.fail(messageOf(error));
       throw error;
     } finally {
       removeFromParent?.();

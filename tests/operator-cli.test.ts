@@ -1341,6 +1341,97 @@ describe("awf run's stages", () => {
     expect(attemptOf(runDir(cwd), 3)).toMatchObject({ outcome: "stopped", stage: "implement" });
   });
 
+  test("the workflow's id(args) names a new run, and --id overrides it", async () => {
+    const cwd = runDirs.tempRunDir();
+    await Bun.write(
+      join(cwd, "ticket.js"),
+      executableModule(
+        "return invocation.argv;",
+        "return workflow.runId;",
+        "id(args) { return args[0]; },",
+      ).replace("prepare()", "prepare(invocation)"),
+    );
+    const derived = await awf(cwd, ["ticket.js", "--", "AIRS-1515"]);
+    expect(derived.record).toMatchObject({ runId: "AIRS-1515", value: "AIRS-1515" });
+    const taken = await awf(cwd, ["ticket.js", "--", "AIRS-1515"]);
+    expect(taken.exitCode).toBe(2);
+    expect(taken.stderr).toBe(
+      "awf: AIRS-1515 exists; --continue it, or --id another to start over",
+    );
+    const given = await awf(cwd, ["--id", "retry-2", "ticket.js", "--", "AIRS-1515"]);
+    expect(given.record).toMatchObject({ runId: "retry-2" });
+    const bad = await awf(cwd, ["ticket.js", "--", "has space"]);
+    expect(bad.exitCode).toBe(2);
+    expect(bad.stderr).toContain('the workflow\'s id(args): "has space" is not a valid id');
+  });
+
+  test("the same stop between stages twice says to move the check into the stage", async () => {
+    const cwd = runDirs.tempRunDir();
+    await Bun.write(
+      join(cwd, "flow.js"),
+      executableModule(
+        "return null;",
+        `const doc = await workflow.stage("doc-review", { result: { type: "string" } }, async () => "no-doc");
+         if (doc === "no-doc") workflow.stop("the ticket has no doc");
+         return doc;`,
+      ),
+    );
+    const first = await awf(cwd, ["--id", "r1", "flow.js"]);
+    expect(first.exitCode).toBe(3);
+    expect(first.stderr).not.toContain("the same stop");
+    const second = await awf(cwd, ["flow.js", "--continue", "r1"]);
+    expect(second.exitCode).toBe(3);
+    expect(second.stderr).toContain(
+      "awf: the same stop as attempt 1; if a stage's value caused it, --from-stage doc-review, and move the check into that stage",
+    );
+  });
+
+  test("no hint for a stop no reused stage could have caused, nor for another reason", async () => {
+    const cwd = runDirs.tempRunDir();
+    await Bun.write(
+      join(cwd, "early.js"),
+      executableModule("return null;", 'return workflow.stop("not ready");'),
+    );
+    await awf(cwd, ["--id", "r1", "early.js"]);
+    const again = await awf(cwd, ["early.js", "--continue", "r1"]);
+    expect(again.exitCode).toBe(3);
+    expect(again.stderr).not.toContain("the same stop");
+
+    await Bun.write(
+      join(cwd, "counted.js"),
+      executableModule(
+        "return null;",
+        `await workflow.stage("doc-review", async () => {});
+         return workflow.stop("stop " + workflow.attempt);`,
+      ),
+    );
+    await awf(cwd, ["--id", "r2", "counted.js"]);
+    const other = await awf(cwd, ["counted.js", "--continue", "r2"]);
+    expect(other.exitCode).toBe(3);
+    expect(other.stderr).not.toContain("the same stop");
+  });
+
+  test("an id(args) that throws or returns no string is refused", async () => {
+    const cwd = runDirs.tempRunDir();
+    for (const [file, body, said] of [
+      [
+        "throws.js",
+        'id() { throw new Error("no ticket"); },',
+        "the workflow's id(args) failed: no ticket",
+      ],
+      [
+        "number.js",
+        "id() { return 7; },",
+        "the workflow's id(args): it returned a number, not a string",
+      ],
+    ] as const) {
+      await Bun.write(join(cwd, file), executableModule("return null;", "return 1;", body));
+      const refused = await awf(cwd, [file]);
+      expect(refused.exitCode).toBe(2);
+      expect(refused.stderr).toContain(said);
+    }
+  });
+
   test("--from-stage refuses a name that can't be a stage's", async () => {
     const cwd = await project();
     const refused = await awf(cwd, ["flow.js", "--continue", "r1", "--from-stage", "QA"]);

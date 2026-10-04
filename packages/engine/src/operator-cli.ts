@@ -280,7 +280,7 @@ export async function runOperatorCli(
     run =
       prepared.continued ??
       (await createRun(command.runRoot, {
-        ...(command.id === undefined ? {} : { id: command.id }),
+        ...(prepared.id === undefined ? {} : { id: prepared.id }),
         workflow: meta.name,
         argv: command.workflowArgs,
         cwd: command.cwd,
@@ -489,6 +489,8 @@ export async function runOperatorCli(
     const cancellation = findCancellation(runError);
     const { ended } = ENDINGS[outcome];
     stderr(`awf: ${ended} (${named}); its records are in ${run.dir}: ${errorDetail(runError)}`);
+    const again = command.fromStage === undefined ? await sameStop(run, n, runError) : undefined;
+    if (again) stderr(`awf: ${again}`);
     if (cleanupError !== undefined)
       stderr(`awf: runtime cleanup also failed: ${messageOf(cleanupError)}`);
     // The record says the run did not succeed, so a caller that asked for it gets it either way.
@@ -546,6 +548,24 @@ function ago(ms: number): string {
   return hours < 48 ? `${hours}h ago` : `${Math.round(hours / 24)}d ago`;
 }
 
+/** The id the workflow's `id(args)` gives a new run, checked; undefined when it has none. */
+function derivedId(
+  executable: ExecutableWorkflow<JsonValue, JsonValue>,
+  args: JsonValue,
+): string | undefined {
+  if (!executable.id) return undefined;
+  let id: unknown;
+  try {
+    id = executable.id(args);
+  } catch (error) {
+    throw new RunRefused(`the workflow's id(args) failed: ${messageOf(error)}; --id gives one`);
+  }
+  const problem =
+    typeof id === "string" ? idProblem(id) : `it returned a ${typeof id}, not a string`;
+  if (problem) throw new RunRefused(`the workflow's id(args): ${problem}; --id gives one`);
+  return id as string;
+}
+
 /** Why a completed run isn't continued, and how one of its stages is redone. */
 export function completedMessage(id: string, stages: readonly string[]): string {
   return stages.length > 0
@@ -565,7 +585,7 @@ function workspaceLabel(workflow: string, id: string, attempt: number): string {
 async function prepareRun(
   command: RunCommand,
   loaded: Awaited<ReturnType<typeof loadWorkflowFile>>,
-): Promise<{ args: JsonValue; continued?: Run; recorded?: string[] }> {
+): Promise<{ args: JsonValue; id?: string; continued?: Run; recorded?: string[] }> {
   const { executable, file } = loaded;
   const { meta } = executable.definition;
   const prepare = (argv: readonly string[], cwd: string) => {
@@ -575,8 +595,9 @@ async function prepareRun(
   };
   if (command.continueId === undefined) {
     const args = prepare(command.workflowArgs, command.cwd);
-    if (command.id !== undefined) await checkFree(command.runRoot, meta.name, command.id);
-    return { args };
+    const id = command.id ?? derivedId(executable, args);
+    if (id !== undefined) await checkFree(command.runRoot, meta.name, id);
+    return { args, ...(id === undefined ? {} : { id }) };
   }
   const run = await openRun(command.runRoot, meta.name, command.continueId);
   checkContinue(run, {
@@ -1145,11 +1166,38 @@ export function runOutcome(
     : "failed";
 }
 
-/** The stage a stop that ended a run stopped in, as `runOutcome` found the stop. */
-function stopAt(error: unknown): string | undefined {
+/** The stop that ended a run, as `runOutcome` finds it. */
+function stopOf(error: unknown): WorkflowStopped | undefined {
   const cause = error instanceof WorkflowRunError ? error.cause : error;
   const failure = cause instanceof AggregateError ? cause.errors[0] : cause;
-  return failure instanceof WorkflowStopped ? failure.stage : undefined;
+  return failure instanceof WorkflowStopped ? failure : undefined;
+}
+
+/** The stage a stop that ended a run stopped in. */
+function stopAt(error: unknown): string | undefined {
+  return stopOf(error)?.stage;
+}
+
+/**
+ * A plain continue that ran no stage and stopped between stages as the attempt before did: the
+ * check on a reused stage's value belongs inside that stage, which a continue would redo.
+ */
+async function sameStop(run: Run, attempt: number, error: unknown): Promise<string | undefined> {
+  const stop = stopOf(error);
+  if (!stop || stop.stage !== undefined || !(error instanceof WorkflowRunError)) return undefined;
+  const stages = error.stages ?? [];
+  const reused = stages.at(-1)?.stage;
+  // No stage ran, and one was reused: its value is what the check between stages saw.
+  if (reused === undefined || stages.some((entered) => entered.source === "ran")) return undefined;
+  const before = (await readAttempts(run).catch(() => [])).filter((one) => one.n < attempt).at(-1);
+  if (
+    before?.outcome !== "stopped" ||
+    before.stage !== undefined ||
+    before.reason !== stop.reason
+  ) {
+    return undefined;
+  }
+  return `the same stop as attempt ${before.n}; if a stage's value caused it, --from-stage ${reused}, and move the check into that stage`;
 }
 
 /** A stop's exit code, apart from a failure's: the run can go on with `--continue`. */

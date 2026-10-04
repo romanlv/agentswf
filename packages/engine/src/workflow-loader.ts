@@ -97,6 +97,7 @@ function isExecutableWorkflow(value: unknown): value is ExecutableWorkflow<JsonV
     typeof executable.prepare === "function" &&
     (executable.present === undefined || typeof executable.present === "function") &&
     (executable.report === undefined || typeof executable.report === "function") &&
+    (executable.id === undefined || typeof executable.id === "function") &&
     typeof definition?.run === "function" &&
     typeof meta?.name === "string" &&
     meta.name.trim() !== "" &&
