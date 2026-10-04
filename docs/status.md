@@ -182,8 +182,9 @@ with a long run:
    promising, cases up to a look in parallel, a resolution at 1 trial) and
    [`loop-next`](stories/todo/loop-next.md) (a proposer that thinks, spend a cut can't hide, a
    loop that outlives its shell, the scorer checked first).
-2. [Story 020](stories/020-agent-effort.md), in draft: effort per agent and per turn, recorded; a
-   published type change, so its contract questions are settled before it's built.
+2. [Story 020](stories/020-agent-effort.md), in draft: an agent opens at an effort, and `set`
+   switches its model or effort mid-run, recorded on every operation; a published type change, so
+   its contract is settled before it's built.
 3. [`turn-liveness-and-limits`](stories/todo/turn-liveness-and-limits.md): an agent waiting on its
    own background work isn't done; the implement-ticket run lost its last step to it.
 
