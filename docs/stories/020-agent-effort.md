@@ -322,9 +322,10 @@ Alternatives rejected:
   it can't
 - [ ] 5. The lab names effort for variants, judges and the proposer; the stopgap is removed
 
-## Open questions
+## To measure
 
-### 1. Measure
+What task 1 finds out by running each harness. These are not decisions; a capability that can't
+be shown is absent with its reason.
 
 - Does each harness honour its flag on a resumed headless turn, or does a resume keep the
   session's first effort? This decides whether headless per-turn effort is free or absent.
@@ -334,6 +335,10 @@ Alternatives rejected:
   effort absent, and is refused.
 - Precedence: does `--effort` beat `CLAUDE_EFFORT` and settings? Does codex's `-c` beat a
   profile?
+
+## Open questions
+
+Decisions for the operator, grouped by the task they block.
 
 ### 2. Contract
 
@@ -386,8 +391,8 @@ deliverable.
 
 ### 1. Measure each harness's effort
 
-Outcome: the facts above are measured per harness, recorded in a finding, and open questions 1 are
-answered.
+Outcome: the facts above are measured per harness, recorded in a finding, and every item under "To measure"
+has an answer.
 
 Execution:
 
@@ -409,7 +414,7 @@ Work:
 
 Done when:
 
-- Every open question under 1 has an answer or a reason it can't be had.
+- Every item under "To measure" has an answer or a reason it can't be had.
 
 ### 2. Settle the contract and the records
 
