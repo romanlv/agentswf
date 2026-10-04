@@ -305,9 +305,8 @@ function callerOutcome(
     marker !== undefined &&
     operationId !== undefined &&
     interruptedAfter(screen, operationId, marker);
-  // Herdr's codex integration reports from codex's shared daemon, so its session is another
-  // pane's (E8); the launcher reports this one's own from `CODEX_SESSION_ID`.
-  const session = harness === "codex" ? undefined : readSessionRef(agent);
+  // Where Herdr's report is another pane's, the launcher reports this one's own.
+  const session = harnessSpec(harness).herdrSessionIsOwn ? readSessionRef(agent) : undefined;
   return {
     ...(interrupted ? { state: "cancelled", detail: "interrupted by the operator" } : settled),
     resultEvidence: screen.trim() ? { kind: "transcript", text: screen } : { kind: "unavailable" },

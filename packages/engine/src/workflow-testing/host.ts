@@ -332,8 +332,9 @@ export function createScriptedHost(
 /** What the pane host refuses before it opens a pane. */
 function paneRefusal(activation: HarnessActivation): string | undefined {
   const { harness } = activation.execution;
-  if (activation.continues && !findHarness(harness)?.interactiveResume) {
-    return `${harness} panes cannot continue a forked session yet`;
+  const spec = findHarness(harness);
+  if (activation.continues && spec && !spec.interactiveResume) {
+    return `${harness} panes cannot continue a forked session: ${spec.absent.interactiveResume}`;
   }
   return undefined;
 }
@@ -350,9 +351,11 @@ function refusedCompaction(activation: HarnessActivation, hasRun: boolean): stri
     return "the calling session's context is the operator's, so a run does not compact it";
   }
   const spec = findHarness(activation.execution.harness);
-  const native =
-    placementOf(activation.execution) === "pane" ? spec?.compactPane : spec?.compactHeadless;
-  if (spec && !native) return `${activation.execution.harness} has no compaction of its own`;
+  const capability =
+    placementOf(activation.execution) === "pane" ? "compactPane" : "compactHeadless";
+  if (spec && !spec[capability]) {
+    return `${activation.execution.harness} has no compaction of its own: ${spec.absent[capability]}`;
+  }
   if (!hasRun) return "there is nothing to compact before the first turn";
   return undefined;
 }

@@ -3,21 +3,19 @@ import { basename, dirname, join } from "node:path";
 import type { HarnessSandboxNeeds } from "@agentswf/sandbox";
 import { harnessSpec } from "./spec";
 import { HOME_ENV, harnessState } from "./state";
-import type { Harness } from "./types";
+import { type Absent, type Harness, isAbsent } from "./types";
 
 type Environment = Readonly<Record<string, string | undefined>>;
 
-/**
- * What a harness needs to run in a sandbox, beyond what every agent gets. cursor has no entry: it
- * is refused, as nothing measured what it needs (story 004, Task 0).
- */
+/** What a harness needs to run in a sandbox, beyond what every agent gets. */
 type SandboxedHarness = {
   /**
    * Credential files copied from the operator's state into the home, each with the fields a
    * refresh rewrites: nothing else of it may change for the copy to be written back.
    */
   seed: readonly { file: string; refreshes: readonly string[] }[];
-  token?: string;
+  /** A credential the operator's environment holds for a login no copied file carries. */
+  token?: { env: string; from: string };
   domains(model: string | undefined): readonly string[];
   /** Config written fresh into the home: `defaults` in the seam. */
   defaults?(cwd: string): readonly { name: string; contents: string }[];
@@ -26,6 +24,8 @@ type SandboxedHarness = {
    * the sandbox from the model's side (X15).
    */
   args: readonly string[];
+  /** Whether an agent on the host may have a home of its own, which skills can need. */
+  hostHome: true | Absent;
 };
 
 /**
@@ -44,17 +44,19 @@ const PI_PROVIDER_DOMAINS: Readonly<Record<string, readonly string[]>> = {
   openai: ["api.openai.com"],
 };
 
-type SandboxedName = keyof typeof HOME_ENV;
-
-const SANDBOXED: Record<SandboxedName, SandboxedHarness> = {
+const SANDBOXED: Readonly<Record<Harness, SandboxedHarness | Absent>> = {
   claude: {
     // claude keeps its login in the keychain, where no copy reaches; a setup token stands in, and
     // lasts a year, so nothing refreshes.
     seed: [],
-    token: "CLAUDE_CODE_OAUTH_TOKEN",
+    token: { env: "CLAUDE_CODE_OAUTH_TOKEN", from: "from `claude setup-token`" },
     domains: () => ["api.anthropic.com"],
     // One argument for the list, and never last: the flag takes every argument up to the next.
     args: ["--disallowed-tools", "WebSearch,WebFetch"],
+    hostHome: {
+      absent:
+        "claude on the host keeps the operator's home: its login is in the keychain, and its home's settings turn off the prompts only a sandbox stands in for",
+    },
     // A pane's claude asks for onboarding, the folder's trust and the bypass before its first
     // prompt, and loses that prompt otherwise (H3, H6). Headless asks for none; one home's files
     // serve both placements, and a trusted folder's project settings stay inside the sandbox.
@@ -114,6 +116,7 @@ const SANDBOXED: Record<SandboxedName, SandboxedHarness> = {
       "-c",
       "features.remote_plugin=false",
     ],
+    hostHome: true,
   },
   pi: {
     // One entry per provider logged in; an OAuth one's `accountId`, where it has one, stays.
@@ -133,6 +136,7 @@ const SANDBOXED: Record<SandboxedName, SandboxedHarness> = {
     },
     // pi's core has no web search (X15); an extension, the operator's or the project's, could.
     args: ["--no-extensions"],
+    hostHome: true,
     // pi runs `/bin/bash` unless told otherwise, and macOS's bash 3.2 writes every heredoc,
     // `wf result`'s included, where a sandbox denies it (X22); zsh writes it under `TMPPREFIX`.
     // The docker image carries zsh too.
@@ -140,7 +144,15 @@ const SANDBOXED: Record<SandboxedName, SandboxedHarness> = {
       { name: "settings.json", contents: `${JSON.stringify({ shellPath: "/bin/zsh" })}\n` },
     ],
   },
+  cursor: { absent: "nothing has measured what cursor needs in a sandbox yet" },
 };
+
+/** `harness`'s sandbox needs, or why it has none. */
+function sandboxed(harness: string): SandboxedHarness | Absent {
+  return Object.hasOwn(SANDBOXED, harness)
+    ? SANDBOXED[harness as Harness]
+    : { absent: `${harness} is not a harness awf knows` };
+}
 
 /**
  * A home of `harness`'s own at `home`, for an agent on the host that needs one to be given skills:
@@ -151,19 +163,18 @@ export function hostHome(
   home: string,
   environment: Environment = process.env,
 ): Pick<HarnessSandboxNeeds, "env" | "seed" | "defaults"> {
-  if (!sandboxable(harness)) throw new Error(`${harness} cannot have a home of its own`);
-  // Its login is in the keychain, and its home's settings turn off the prompts only a sandbox
-  // stands in for.
-  if (harness === "claude") throw new Error("claude on the host keeps the operator's home");
-  return ownHome(harness as SandboxedName, home, environment);
+  const needs = sandboxed(harness);
+  if (isAbsent(needs)) throw new Error(`${harness} cannot have a home of its own: ${needs.absent}`);
+  if (isAbsent(needs.hostHome)) throw new Error(needs.hostHome.absent);
+  return ownHome(harness as Harness, needs, home, environment);
 }
 
 function ownHome(
-  harness: SandboxedName,
+  harness: Harness,
+  sandboxed: SandboxedHarness,
   home: string,
   environment: Environment,
 ): Pick<HarnessSandboxNeeds, "env" | "seed" | "defaults"> {
-  const sandboxed = SANDBOXED[harness];
   const state = harnessState(environment)[harness];
   return {
     env: { [HOME_ENV[harness]]: home },
@@ -182,12 +193,13 @@ function ownHome(
 
 /** Whether a harness can run in a sandbox at all. */
 export function sandboxable(harness: string): boolean {
-  return Object.hasOwn(SANDBOXED, harness);
+  return !isAbsent(sandboxed(harness));
 }
 
 /** The arguments a sandboxed turn adds, turning off what the model reaches past the sandbox. */
 export function sandboxedArgs(harness: string): readonly string[] {
-  return sandboxable(harness) ? SANDBOXED[harness as SandboxedName].args : [];
+  const needs = sandboxed(harness);
+  return isAbsent(needs) ? [] : needs.args;
 }
 
 /**
@@ -202,20 +214,20 @@ export async function sandboxNeeds(
   model: string | undefined,
   environment: Environment = process.env,
 ): Promise<HarnessSandboxNeeds> {
-  if (!sandboxable(harness)) throw new Error(`${harness} cannot run in a sandbox`);
-  const sandboxed = SANDBOXED[harness as SandboxedName];
-  const domains = sandboxed.domains(model);
+  const needs = sandboxed(harness);
+  if (isAbsent(needs)) throw new Error(`${harness} cannot run in a sandbox: ${needs.absent}`);
+  const domains = needs.domains(model);
   const command = harnessSpec(harness as Harness).interactive().argv[0]!;
   const executable = await findExecutable(command, environment);
-  const tokenValue = sandboxed.token ? environment[sandboxed.token]?.trim() : undefined;
-  if (sandboxed.token && !tokenValue) {
+  const tokenValue = needs.token ? environment[needs.token.env]?.trim() : undefined;
+  if (needs.token && !tokenValue) {
     throw new Error(
-      `a sandboxed ${harness} needs ${sandboxed.token} (from \`claude setup-token\`): its login lives in the keychain`,
+      `a sandboxed ${harness} needs ${needs.token.env} (${needs.token.from}): its login lives in the keychain`,
     );
   }
   return {
-    ...ownHome(harness as SandboxedName, home, environment),
-    secrets: sandboxed.token && tokenValue ? { [sandboxed.token]: tokenValue } : {},
+    ...ownHome(harness as Harness, needs, home, environment),
+    secrets: needs.token && tokenValue ? { [needs.token.env]: tokenValue } : {},
     domains,
     command,
     executable,

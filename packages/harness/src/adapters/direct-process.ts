@@ -127,7 +127,10 @@ export function createHeadlessAdapter(
           }
           if (operation.kind === "compact") {
             if (!spec.compactHeadless) {
-              return localOutcome("failed", `${harness} has no compaction of its own`);
+              return localOutcome(
+                "failed",
+                `${harness} has no compaction of its own: ${spec.absent.compactHeadless}`,
+              );
             }
             if (!operation.previousSessionRef) {
               return localOutcome("failed", "there is nothing to compact before the first turn");

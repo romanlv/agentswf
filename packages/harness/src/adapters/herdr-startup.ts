@@ -1,3 +1,4 @@
+import { type Absent, type Harness, isAbsent } from "../types";
 import {
   ANSI_SEQUENCE,
   abortableDelay,
@@ -136,42 +137,47 @@ function trustHandshakeInactive(
  */
 type StartupBlockSpec = {
   id: string;
-  kind: string;
   phrases: readonly string[];
   keys: readonly string[];
 };
 
-const STARTUP_BLOCKS: readonly StartupBlockSpec[] = [
-  {
-    id: "claude-trust",
-    kind: "claude",
-    phrases: [
-      "Quick safety check: Is this a project you created or one you trust?",
-      "Yes, I trust this folder",
-    ],
-    keys: ["down", "enter"],
-  },
-  {
-    id: "codex-trust",
-    kind: "codex",
-    phrases: ["Do you trust the contents of this directory?", "1. Yes, continue"],
-    keys: ["enter"],
-  },
-  {
-    // codex-cli 0.159 renamed its trust block, and a digit only moves its cursor: the phrase holds
-    // the cursor on the option, so enter confirms that one.
-    id: "codex-folder-access",
-    kind: "codex",
-    phrases: ["Folder access", "Trust this folder?", "› 1. Trust and continue"],
-    keys: ["enter"],
-  },
-  {
-    id: "codex-update",
-    kind: "codex",
-    phrases: ["Update available!", "2. Skip"],
-    keys: ["2"],
-  },
-];
+/**
+ * Each harness's startup blocks, or why it cannot run in a pane: a harness whose blocks were never
+ * driven would stop at the first. pi shows none (story 017).
+ */
+export const STARTUP_BLOCKS: Readonly<Record<Harness, readonly StartupBlockSpec[] | Absent>> = {
+  claude: [
+    {
+      id: "claude-trust",
+      phrases: [
+        "Quick safety check: Is this a project you created or one you trust?",
+        "Yes, I trust this folder",
+      ],
+      keys: ["down", "enter"],
+    },
+  ],
+  codex: [
+    {
+      id: "codex-trust",
+      phrases: ["Do you trust the contents of this directory?", "1. Yes, continue"],
+      keys: ["enter"],
+    },
+    {
+      // codex-cli 0.159 renamed its trust block, and a digit only moves its cursor: the phrase holds
+      // the cursor on the option, so enter confirms that one.
+      id: "codex-folder-access",
+      phrases: ["Folder access", "Trust this folder?", "› 1. Trust and continue"],
+      keys: ["enter"],
+    },
+    {
+      id: "codex-update",
+      phrases: ["Update available!", "2. Skip"],
+      keys: ["2"],
+    },
+  ],
+  pi: [],
+  cursor: { absent: "cursor's startup screens are not driven yet" },
+};
 
 /**
  * The block is rendered into the pane's own width and styled by the agent's own TUI, so neither
@@ -193,12 +199,14 @@ function startupBlock(kind: string, screen: string, answered: ReadonlySet<string
   const normalized = matchable(screen);
   const at = (block: StartupBlockSpec) =>
     Math.min(...block.phrases.map((phrase) => normalized.indexOf(matchable(phrase))));
-  return STARTUP_BLOCKS.filter(
-    (block) =>
-      block.kind === kind &&
-      !answered.has(block.id) &&
-      block.phrases.every((phrase) => normalized.includes(matchable(phrase))),
-  ).sort((left, right) => at(right) - at(left))[0];
+  const blocks = Object.hasOwn(STARTUP_BLOCKS, kind) ? STARTUP_BLOCKS[kind as Harness] : [];
+  return (isAbsent(blocks) ? [] : blocks)
+    .filter(
+      (block) =>
+        !answered.has(block.id) &&
+        block.phrases.every((phrase) => normalized.includes(matchable(phrase))),
+    )
+    .sort((left, right) => at(right) - at(left))[0];
 }
 
 /** Enough of an unanswerable screen to name it, on the single line an error detail gets. */

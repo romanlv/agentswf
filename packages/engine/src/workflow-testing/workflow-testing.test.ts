@@ -872,7 +872,7 @@ describe("testWorkflow compactions", () => {
     });
     expect(run.value).toEqual([
       "there is nothing to compact before the first turn",
-      "cursor has no compaction of its own",
+      expect.stringMatching(/^cursor has no compaction of its own: /),
     ]);
   });
 });

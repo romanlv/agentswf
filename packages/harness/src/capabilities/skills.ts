@@ -1,6 +1,7 @@
 import { readdir, realpath } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative } from "node:path";
 import { sharedSkillsRoot } from "../state";
+import { type Absent, type Harness, isAbsent } from "../types";
 
 type Environment = Readonly<Record<string, string | undefined>>;
 
@@ -19,65 +20,50 @@ export type AgentSkills = {
   sandboxed: boolean;
 };
 
-/**
- * `names`' place for `harness`: a sandboxed agent's home, or on the host a directory the engine
- * made for the agent alone, outside `cwd`, both by their real paths. Rejects a harness with no way
- * to be given skills.
- */
-export function skillsLayout(
-  harness: string,
-  names: readonly string[],
-  where: { sandboxHome: string } | { bundle: string; cwd: string },
-): AgentSkills {
-  if (!["claude", "codex", "pi"].includes(harness)) {
-    throw new Error(`${harness} has no way to be given skills; an agent with skills is refused`);
-  }
-  if ("sandboxHome" in where) {
-    return { names, directory: join(where.sandboxHome, "skills"), sandboxed: true };
-  }
-  switch (harness) {
-    // A home of its own would need a setup token: claude's login is in the keychain.
-    case "claude": {
+type Launch = { args: string[]; env: Record<string, string> };
+
+/** How a harness is given skills: their place on the host, and what holds it to them. */
+type SkillsSupport = {
+  /** A directory the engine made for the agent alone, outside `cwd`, by its real path. */
+  onHost(names: readonly string[], bundle: string, cwd: string): AgentSkills;
+  launch(skills: AgentSkills, environment: Environment): Promise<Launch> | Launch;
+};
+
+const SKILLS: Readonly<Record<Harness, SkillsSupport | Absent>> = {
+  // A home of its own would need a setup token: claude's login is in the keychain.
+  claude: {
+    onHost: (names, bundle, cwd) => {
       // claude drops an `--add-dir` inside its working directory, and says nothing.
-      const inside = relative(where.cwd, where.bundle);
+      const inside = relative(cwd, bundle);
       if (inside === "" || (!inside.startsWith("..") && !isAbsolute(inside))) {
         throw new Error(
-          `claude cannot be given skills from ${where.bundle}, inside its working directory; put the run root outside it`,
+          `claude cannot be given skills from ${bundle}, inside its working directory; put the run root outside it`,
         );
       }
-      return { names, directory: join(where.bundle, ".claude", "skills"), sandboxed: false };
-    }
-    // Nothing points codex at a skill but its home (K11).
-    case "codex": {
-      const ownHome = join(where.bundle, "home");
+      return { names, directory: join(bundle, ".claude", "skills"), sandboxed: false };
+    },
+    // Without the user source: its skills, and also its hooks and settings (K5). `--add-dir` is
+    // variadic, so a flag must follow it wherever these go.
+    launch: (skills) =>
+      skills.sandboxed
+        ? { args: [], env: {} }
+        : {
+            args: [
+              "--setting-sources",
+              "project,local",
+              "--add-dir",
+              dirname(dirname(skills.directory)),
+            ],
+            env: {},
+          },
+  },
+  // Nothing points codex at a skill but its home (K11).
+  codex: {
+    onHost: (names, bundle) => {
+      const ownHome = join(bundle, "home");
       return { names, directory: join(ownHome, "skills"), ownHome, sandboxed: false };
-    }
-    default:
-      return { names, directory: join(where.bundle, "skills"), sandboxed: false };
-  }
-}
-
-/** The arguments and environment that hold `harness` to `skills`, on every turn and pane start. */
-export async function skillsLaunch(
-  harness: string,
-  skills: AgentSkills,
-  environment: Environment = process.env,
-): Promise<{ args: string[]; env: Record<string, string> }> {
-  switch (harness) {
-    case "claude":
-      if (skills.sandboxed) return { args: [], env: {} };
-      // Without the user source: its skills, and also its hooks and settings (K5). `--add-dir` is
-      // variadic, so a flag must follow it wherever these go.
-      return {
-        args: [
-          "--setting-sources",
-          "project,local",
-          "--add-dir",
-          dirname(dirname(skills.directory)),
-        ],
-        env: {},
-      };
-    case "codex": {
+    },
+    launch: async (skills, environment): Promise<Launch> => {
       const args = ["-c", "skills.bundled.enabled=false"];
       if (skills.sandboxed) return { args, env: {} };
       if (!skills.ownHome) throw new Error("codex on the host needs a home of its own for skills");
@@ -88,18 +74,57 @@ export async function skillsLaunch(
         args.push("-c", `skills.config=[${entries.join(",")}]`);
       }
       return { args, env: { CODEX_HOME: skills.ownHome } };
-    }
-    case "pi":
-      return {
-        args: [
-          "--no-skills",
-          ...skills.names.flatMap((name) => ["--skill", join(skills.directory, name)]),
-        ],
-        env: {},
-      };
-    default:
-      throw new Error(`${harness} has no way to be given skills`);
+    },
+  },
+  pi: {
+    onHost: (names, bundle) => ({ names, directory: join(bundle, "skills"), sandboxed: false }),
+    launch: (skills) => ({
+      args: [
+        "--no-skills",
+        ...skills.names.flatMap((name) => ["--skill", join(skills.directory, name)]),
+      ],
+      env: {},
+    }),
+  },
+  cursor: { absent: "nothing has measured how cursor is given skills yet" },
+};
+
+function support(harness: string): SkillsSupport {
+  const entry = Object.hasOwn(SKILLS, harness)
+    ? SKILLS[harness as Harness]
+    : { absent: "it is not a harness awf knows" };
+  if (isAbsent(entry)) {
+    throw new Error(
+      `${harness} has no way to be given skills (${entry.absent}); an agent with skills is refused`,
+    );
   }
+  return entry;
+}
+
+/**
+ * `names`' place for `harness`: a sandboxed agent's home, or on the host a directory the engine
+ * made for the agent alone, outside `cwd`, both by their real paths. Rejects a harness with no way
+ * to be given skills.
+ */
+export function skillsLayout(
+  harness: string,
+  names: readonly string[],
+  where: { sandboxHome: string } | { bundle: string; cwd: string },
+): AgentSkills {
+  const skills = support(harness);
+  if ("sandboxHome" in where) {
+    return { names, directory: join(where.sandboxHome, "skills"), sandboxed: true };
+  }
+  return skills.onHost(names, where.bundle, where.cwd);
+}
+
+/** The arguments and environment that hold `harness` to `skills`, on every turn and pane start. */
+export async function skillsLaunch(
+  harness: string,
+  skills: AgentSkills,
+  environment: Environment = process.env,
+): Promise<Launch> {
+  return support(harness).launch(skills, environment);
 }
 
 /** Each `SKILL.md` in the shared root, by the real path codex compares. */

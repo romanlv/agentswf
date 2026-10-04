@@ -728,7 +728,9 @@ export function createHerdrRunHostFactory(
           const spec = harnessSpec(harness);
           const { continues } = request;
           if (continues && !spec.interactiveResume) {
-            throw new Error(`${harness} panes cannot continue a forked session yet`);
+            throw new Error(
+              `${harness} panes cannot continue a forked session: ${spec.absent.interactiveResume}`,
+            );
           }
           /** The harness's own fork of `sessionRef`, run beside the pane or inside its sandbox. */
           const runFork = async (
@@ -897,7 +899,9 @@ export function createHerdrRunHostFactory(
               };
             }
             // A stalled prompt returns no agent; the session is the one its turns already named.
-            const sessionRef = (agent && readSessionRef(agent)) || operation.previousSessionRef;
+            const sessionRef =
+              (agent && spec.herdrSessionIsOwn && readSessionRef(agent)) ||
+              operation.previousSessionRef;
             const summary = sessionRef
               ? await spec.readCompactSummary?.(sessionRef, request.cwd)
               : undefined;
@@ -1004,7 +1008,10 @@ export function createHerdrRunHostFactory(
                   operation.binding?.operationId ?? `internal:${request.key}:${operation.id}`;
                 if (operation.kind === "compact") {
                   if (!spec.compactPane) {
-                    return localOutcome("failed", `${harness} has no compaction of its own`);
+                    return localOutcome(
+                      "failed",
+                      `${harness} has no compaction of its own: ${spec.absent.compactPane}`,
+                    );
                   }
                   if (!current) {
                     return localOutcome(
@@ -1244,7 +1251,8 @@ function paneOutcome(
   const transcript = rawTranscript ? (spec.readTranscript?.(rawTranscript) ?? rawTranscript) : null;
   const agent = reportedAgent(sent.result);
   const nativeSession =
-    readSessionRef(agent) ?? (rawTranscript ? spec.readSessionId?.(rawTranscript) : undefined);
+    (spec.herdrSessionIsOwn ? readSessionRef(agent) : undefined) ??
+    (rawTranscript ? spec.readSessionId?.(rawTranscript) : undefined);
   return {
     ...settledOutcome(agent),
     resultEvidence: transcript ? { kind: "transcript", text: transcript } : { kind: "unavailable" },

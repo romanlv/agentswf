@@ -464,7 +464,10 @@ describe("createHeadlessAdapter", () => {
       await (await cursor.start(turnSpec, firstBinding)).settled;
       await expect(
         (await cursor.compact("c-1", "Keep it.", activation.deadline)).settled,
-      ).resolves.toMatchObject({ state: "failed", detail: "cursor has no compaction of its own" });
+      ).resolves.toMatchObject({
+        state: "failed",
+        detail: expect.stringMatching(/^cursor has no compaction of its own: /),
+      });
 
       const fresh = await headless(run);
       await expect(
