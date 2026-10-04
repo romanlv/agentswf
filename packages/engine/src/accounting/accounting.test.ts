@@ -433,6 +433,7 @@ describe("byStage, from the workflow's stages", () => {
         ["(no stage)", 1, 1.25],
       ],
     );
+    expect(summary.grouping).toBe("stages");
     expect(summary.byAgent).toHaveLength(1);
     expect(summary.byAgent[0]).not.toHaveProperty("stage");
   });

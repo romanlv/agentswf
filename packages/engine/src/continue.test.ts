@@ -1,31 +1,17 @@
 import { afterAll, describe, expect, test } from "bun:test";
 import { readdir, rename } from "node:fs/promises";
 import { join } from "node:path";
-import type { JsonValue, WorkflowContext, WorkflowDefinition } from "@agentswf/contract/workflow";
-import { createSingleSessionHostFactory } from "@agentswf/harness";
-import { createFakeAdapter } from "@agentswf/harness/testing";
+import type { JsonValue, WorkflowDefinition } from "@agentswf/contract/workflow";
 import Type from "typebox";
-import { OPERATOR_ALIASES } from "./operator-aliases";
-import { readStageRecords, replaceStale } from "./runs";
-import { createTempRunDirs, future } from "./testing";
-import { runWorkflow, WorkflowRunError } from "./workflow-runner";
+import { readStageRecords } from "./runs";
+import { createTempRunDirs, DOC, runAttempt, workflowOf } from "./testing";
+import { WorkflowRunError } from "./workflow-runner";
 import { answer, testWorkflow } from "./workflow-testing";
 
 const runDirs = createTempRunDirs();
 afterAll(() => runDirs.cleanup());
 
-const DOC = Type.Object({ path: Type.String() }, { additionalProperties: false });
 const BRANCH = Type.Object({ branch: Type.String() }, { additionalProperties: false });
-
-function workflowOf<Result extends JsonValue>(
-  run: (workflow: WorkflowContext) => Promise<Result>,
-  version?: string,
-): WorkflowDefinition<null, Result> {
-  return {
-    meta: { name: "staged", description: "stages", ...(version ? { version } : {}) },
-    run: (workflow) => run(workflow),
-  };
-}
 
 /** Work a reused stage must never call. */
 const never =
@@ -147,19 +133,35 @@ describe("testWorkflow over recorded stages", () => {
     );
   });
 
-  test("a recorded value the current schema rejects stops the attempt there", async () => {
-    const run = await testWorkflow(
-      workflowOf(async (workflow) => {
-        await workflow.stage("doc-review", { result: DOC }, never<{ path: string }>("doc-review"));
-        return null;
-      }),
-      null,
-      { recorded: { "doc-review": { file: "a" } } },
-    );
-    expect(() => run.value).toThrow("doc-review's record no longer fits");
-    expect(run.stopped?.stage).toBe("doc-review");
-    expect(run.stopped?.reason).toStartWith("doc-review's record no longer fits:");
-  });
+  test.each([
+    [
+      "a value where none is expected",
+      { "doc-review": { path: "a" } },
+      "doc-review's record no longer fits: stage doc-review has no result schema, so it returns nothing, and it returned a value; --from-stage doc-review",
+      undefined,
+    ],
+    [
+      "none where one is",
+      { "doc-review": undefined },
+      "doc-review's record no longer fits: stage doc-review returned nothing; its result expects a value; --from-stage doc-review",
+      DOC,
+    ],
+  ])(
+    "a recorded stage with %s stops the attempt there",
+    async (_name, recorded, reason, result) => {
+      const run = await testWorkflow(
+        workflowOf(async (workflow) => {
+          if (result)
+            await workflow.stage("doc-review", { result }, never<{ path: string }>("doc-review"));
+          else await workflow.stage("doc-review", never<void>("doc-review"));
+          return null;
+        }),
+        null,
+        { recorded },
+      );
+      expect(run.stopped).toEqual({ stage: "doc-review", reason });
+    },
+  );
 
   test("a stop the workflow catches still ends the attempt, moving nothing", async () => {
     const run = await testWorkflow(
@@ -215,21 +217,12 @@ describe("testWorkflow over recorded stages", () => {
 });
 
 describe("a continue's records", () => {
-  /** One attempt of run r1, whose worker answers every turn. */
-  async function attempt(
+  const attempt = (
     root: string,
     n: number,
     workflow: WorkflowDefinition<null, JsonValue>,
     fromStage?: string,
-  ) {
-    const adapter = createFakeAdapter({ harnesses: ["codex"], script: () => ({}) });
-    return runWorkflow(workflow, null, {
-      runRoot: root,
-      run: { dir: join(root, "r1"), id: "r1", attempt: n, ...(fromStage ? { fromStage } : {}) },
-      runtime: { aliases: OPERATOR_ALIASES, host: createSingleSessionHostFactory(adapter) },
-      deadline: future(),
-    });
-  }
+  ) => runAttempt(workflow, { runRoot: root, dir: join(root, "r1"), attempt: n, fromStage });
   const outcomes = async (root: string) =>
     [...(await readStageRecords(join(root, "r1"))).values()]
       .map(({ stage, attempt, outcome }) => `${stage}:${attempt}:${outcome}`)
@@ -279,13 +272,21 @@ describe("a continue's records", () => {
 
   test("an attempt that stops before its start point moves nothing", async () => {
     const root = runDirs.tempRunDir();
-    await attempt(root, 1, flow(false));
+    const versioned = (version: string) =>
+      workflowOf(
+        async (workflow) => {
+          await workflow.stage("doc-review", async () => {});
+          await workflow.stage("qa", async () => {});
+          return null;
+        },
+        { version },
+      );
+    await attempt(root, 1, versioned("1.2.0"));
     const before = await outcomes(root);
-    const changed = workflowOf(async (workflow) => {
-      await workflow.stage("doc-review", { result: DOC }, never<{ path: string }>("doc-review"));
-      return null;
-    });
-    await expect(attempt(root, 2, changed, "qa")).rejects.toBeInstanceOf(WorkflowRunError);
+    const stopped = attempt(root, 2, versioned("2.0.0"), "qa");
+    await expect(stopped).rejects.toBeInstanceOf(WorkflowRunError);
+    const cause = await stopped.catch((error: WorkflowRunError) => error.cause);
+    expect(String(cause)).toContain("doc-review was recorded by 1.2.0; this is 2.0.0");
     expect(await outcomes(root)).toEqual(before);
     expect(await replaced(root)).toEqual([]);
   });
@@ -321,35 +322,6 @@ describe("a continue's records", () => {
     await attempt(root, 2, stopping(false));
     expect(await outcomes(root)).toEqual(["doc-review:1:succeeded", "qa:2:succeeded"]);
     expect(await replaced(root)).toEqual(["qa.1.json"]);
-  });
-
-  test("the start stage's record moves first: a move that fails after it leaves the rest", async () => {
-    const root = runDirs.tempRunDir();
-    await attempt(root, 1, flow(false));
-    // A record that can't be read fails the move after implement's.
-    await Bun.write(join(root, "r1", "stages", "qa.json"), "{");
-    await expect(
-      replaceStale(join(root, "r1"), "implement", new Set(["doc-review"])),
-    ).rejects.toThrow("could not be read");
-    expect(await replaced(root)).toEqual(["implement.1.json"]);
-    expect((await readdir(join(root, "r1", "stages"))).sort()).toEqual([
-      "doc-review.json",
-      "qa.json",
-    ]);
-  });
-
-  test("a record from another major version stops the attempt, moving nothing", async () => {
-    const root = runDirs.tempRunDir();
-    const versioned = (version: string) =>
-      workflowOf(async (workflow) => {
-        await workflow.stage("doc-review", async () => {});
-        return null;
-      }, version);
-    await attempt(root, 1, versioned("1.2.0"));
-    const stopped = attempt(root, 2, versioned("2.0.0"), "qa");
-    await expect(stopped).rejects.toThrow();
-    const cause = await stopped.catch((error: WorkflowRunError) => error.cause);
-    expect(String(cause)).toContain("doc-review was recorded by 1.2.0; this is 2.0.0");
   });
 });
 

@@ -1,36 +1,19 @@
 import { afterAll, describe, expect, test } from "bun:test";
-import { existsSync } from "node:fs";
-import { appendFile, mkdir } from "node:fs/promises";
+import { appendFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { JsonValue, WorkflowContext, WorkflowDefinition } from "@agentswf/contract/workflow";
+import type { JsonValue, WorkflowContext } from "@agentswf/contract/workflow";
 import { createSingleSessionHostFactory } from "@agentswf/harness";
 import { createFakeAdapter } from "@agentswf/harness/testing";
 import Type from "typebox";
 import { createFakeDecisionProvider } from "./decisions/fake";
 import { OPERATOR_ALIASES } from "./operator-aliases";
 import { readStageRecords, readTurns } from "./runs";
-import { createTempRunDirs, future, submit } from "./testing";
+import { createTempRunDirs, DOC, future, runAttempt, workflowOf } from "./testing";
 import { runWorkflow, WorkflowRunError } from "./workflow-runner";
 import { answer, reply, testWorkflow } from "./workflow-testing";
 
 const runDirs = createTempRunDirs();
 afterAll(() => runDirs.cleanup());
-
-const DOC = Type.Object({ path: Type.String() }, { additionalProperties: false });
-
-function workflowOf<Result extends JsonValue>(
-  run: (workflow: WorkflowContext) => Promise<Result>,
-  version?: string,
-): WorkflowDefinition<null, Result> {
-  return {
-    meta: {
-      name: "staged",
-      description: "stages",
-      ...(version === undefined ? {} : { version }),
-    },
-    run: (workflow) => run(workflow),
-  };
-}
 
 /** Asks `worker` once, in whatever stage it is called from. */
 async function ask(workflow: WorkflowContext, prompt: string, label?: string) {
@@ -47,15 +30,18 @@ async function ask(workflow: WorkflowContext, prompt: string, label?: string) {
 describe("workflow.stage", () => {
   test("a stage runs its work, returns its value, and records it with its sessions", async () => {
     const run = await testWorkflow(
-      workflowOf(async (workflow) => {
-        const doc = await workflow.stage(
-          "doc-review",
-          { result: DOC, summary: (value) => value.path },
-          () => ask(workflow, "Review the doc.", "review"),
-        );
-        await workflow.stage("notify", async () => {});
-        return doc;
-      }, "1.2.0"),
+      workflowOf(
+        async (workflow) => {
+          const doc = await workflow.stage(
+            "doc-review",
+            { result: DOC, summary: (value) => value.path },
+            () => ask(workflow, "Review the doc.", "review"),
+          );
+          await workflow.stage("notify", async () => {});
+          return doc;
+        },
+        { version: "1.2.0" },
+      ),
       null,
       { agents: { worker: answer(DOC, { path: "docs/AIRS-1515.md" }) } },
     );
@@ -233,8 +219,7 @@ describe("workflow.stage", () => {
       ),
       null,
     );
-    expect(run.value).toEqual({ path: "a" });
-    expect(Object.keys(run.value as object)).toEqual(["path"]);
+    expect(run.value).toStrictEqual({ path: "a" });
   });
 
   test("a stage the run's deadline ends is recorded failed", async () => {
@@ -327,27 +312,11 @@ describe("workflow.stage", () => {
   });
 });
 
-/** Answers every turn with a doc, and every compaction with a summary. */
-function answering() {
-  return createFakeAdapter({
-    harnesses: ["codex"],
-    script: (context) =>
-      context.kind === "compact"
-        ? { summary: "kept" }
-        : {
-            act: async () => {
-              await submit(context.binding!, { path: "x" });
-            },
-          },
-  });
-}
-
 describe("turns.jsonl", () => {
   test("each settled turn is appended with its attempt and stage", async () => {
     const runRoot = runDirs.tempRunDir();
     const dir = join(runRoot, "staged", "r1");
-    await mkdir(dir, { recursive: true });
-    const result = await runWorkflow(
+    const result = await runAttempt(
       workflowOf(async (workflow) => {
         await ask(workflow, "Before.", "before");
         await workflow.stage("implement", { result: DOC }, async () => {
@@ -357,13 +326,7 @@ describe("turns.jsonl", () => {
         });
         return null;
       }),
-      null,
-      {
-        runRoot,
-        run: { dir, id: "r1", attempt: 3 },
-        runtime: { aliases: OPERATOR_ALIASES, host: createSingleSessionHostFactory(answering()) },
-        deadline: future(),
-      },
+      { runRoot, dir, attempt: 3 },
     );
     const turns = await readTurns(dir);
     expect(
@@ -417,17 +380,10 @@ describe("turns.jsonl", () => {
   test("a line a crash tore is skipped, and the next attempt's turns start lines of their own", async () => {
     const runRoot = runDirs.tempRunDir();
     const dir = join(runRoot, "staged", "r1");
-    await mkdir(dir, { recursive: true });
     const attempt = (n: number) =>
-      runWorkflow(
+      runAttempt(
         workflowOf(async (workflow) => ask(workflow, "Do.")),
-        null,
-        {
-          runRoot,
-          run: { dir, id: "r1", attempt: n },
-          runtime: { aliases: OPERATOR_ALIASES, host: createSingleSessionHostFactory(answering()) },
-          deadline: future(),
-        },
+        { runRoot, dir, attempt: n },
       );
     await attempt(1);
     // As a crash mid-append leaves it: no newline.
@@ -440,7 +396,6 @@ describe("turns.jsonl", () => {
   test("a run stopped mid-stage records the stage failed once, before its result settles", async () => {
     const runRoot = runDirs.tempRunDir();
     const dir = join(runRoot, "staged", "r1");
-    await mkdir(dir, { recursive: true });
     const controller = new AbortController();
     const adapter = createFakeAdapter({
       harnesses: ["codex"],
@@ -451,20 +406,13 @@ describe("turns.jsonl", () => {
         },
       }),
     });
-    const stopped = runWorkflow(
+    const stopped = runAttempt(
       workflowOf(async (workflow) => {
         await workflow.stage("qa", { result: DOC }, () => ask(workflow, "Check."));
         await workflow.stage("mr", async () => {});
         return null;
       }),
-      null,
-      {
-        runRoot,
-        run: { dir, id: "r1", attempt: 1 },
-        runtime: { aliases: OPERATOR_ALIASES, host: createSingleSessionHostFactory(adapter) },
-        deadline: future(),
-        signal: controller.signal,
-      },
+      { runRoot, dir, adapter, signal: controller.signal },
     );
     await expect(stopped).rejects.toBeInstanceOf(WorkflowRunError);
     const records = await readStageRecords(dir);
@@ -478,16 +426,7 @@ describe("turns.jsonl", () => {
   test("a failed run still has its stage records and turns", async () => {
     const runRoot = runDirs.tempRunDir();
     const dir = join(runRoot, "staged", "r1");
-    await mkdir(dir, { recursive: true });
-    const adapter = createFakeAdapter({
-      harnesses: ["codex"],
-      script: (context) => ({
-        act: async () => {
-          await submit(context.binding!, { path: "x" });
-        },
-      }),
-    });
-    const failed = runWorkflow(
+    const failed = runAttempt(
       workflowOf(async (workflow) => {
         await workflow.stage("implement", { result: DOC }, () => ask(workflow, "Do."));
         await workflow.stage("qa", async () => {
@@ -495,13 +434,7 @@ describe("turns.jsonl", () => {
         });
         return null;
       }),
-      null,
-      {
-        runRoot,
-        run: { dir, id: "r1", attempt: 1 },
-        runtime: { aliases: OPERATOR_ALIASES, host: createSingleSessionHostFactory(adapter) },
-        deadline: future(),
-      },
+      { runRoot, dir },
     );
     await expect(failed).rejects.toBeInstanceOf(WorkflowRunError);
     const records = await readStageRecords(dir);
@@ -510,6 +443,5 @@ describe("turns.jsonl", () => {
       ["qa", "failed"],
     ]);
     expect(await readTurns(dir)).toHaveLength(1);
-    expect(existsSync(join(dir, "stages", "qa.json"))).toBe(true);
   });
 });

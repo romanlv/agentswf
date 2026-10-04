@@ -9,7 +9,6 @@ import {
   type JsonValue,
   score,
   type WorkflowContext,
-  type WorkflowDefinition,
   yesNo,
 } from "@agentswf/contract/workflow";
 import { createSingleSessionHostFactory } from "@agentswf/harness";
@@ -19,7 +18,7 @@ import { describeAccounting } from "../accounting/format";
 import { PUBLISHED_PRICES } from "../accounting/prices";
 import { sumAttempts, summarizeRun } from "../accounting/summary";
 import { openRun } from "../runs";
-import { createTempRunDirs, future } from "../testing";
+import { createTempRunDirs, future, workflowOf } from "../testing";
 import { runWorkflow, startWorkflow, WorkflowRunError } from "../workflow-runner";
 import { digestOf, RunDecisions } from "./directory";
 import { confidentResponse, createFakeDecisionProvider } from "./fake";
@@ -671,7 +670,7 @@ function run<Result extends JsonValue>(
   runRoot: string,
   body: (context: WorkflowContext) => Promise<Result>,
 ) {
-  return runWorkflow(workflowOf(body), null, options(provider, runRoot));
+  return runWorkflow(workflowOf(body, { name: "decisions" }), null, options(provider, runRoot));
 }
 
 function options(provider: ReturnType<typeof createFakeDecisionProvider>, runRoot: string) {
@@ -687,12 +686,6 @@ function emptyRuntime(): AgentRuntimeConfig {
     aliases: {},
     host: createSingleSessionHostFactory(createFakeAdapter({ script: () => ({}) })),
   };
-}
-
-function workflowOf<Result extends JsonValue>(
-  run: (context: WorkflowContext) => Promise<Result>,
-): WorkflowDefinition<null, Result> {
-  return { meta: { name: "decisions", description: "decisions" }, run };
 }
 
 function unexpected(): never {

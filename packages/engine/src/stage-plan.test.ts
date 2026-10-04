@@ -50,6 +50,9 @@ describe("the stage plan, before the start point", () => {
       "reuse",
     );
     expect(planStage(state([review]), "review", fits).kind).toBe("reuse");
+    expect(
+      planStage(state([record("review")], { workflowVersion: "2.0.0" }), "review", fits).kind,
+    ).toBe("reuse");
     // Under 1.0, a minor is breaking.
     const early = record("review", { workflowVersion: "0.1.3" });
     expect(planStage(state([early], { workflowVersion: "0.2.0" }), "review", fits).kind).toBe(

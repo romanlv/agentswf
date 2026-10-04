@@ -1,7 +1,5 @@
-import { describe, expect, test } from "bun:test";
-import { mkdtempSync } from "node:fs";
-import { mkdir, readdir, readFile, rm, utimes, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { afterAll, describe, expect, test } from "bun:test";
+import { mkdir, readdir, readFile, rm, stat, utimes, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { AttemptRecord } from "@agentswf/contract/records";
 import { writeJson } from "./files";
@@ -19,11 +17,15 @@ import {
   RunRefused,
   readAccepted,
   readAttempts,
+  replaceStale,
   runStatus,
   writeAcceptedExclusive,
 } from "./runs";
+import { createTempRunDirs, runAttempt, workflowOf } from "./testing";
 
-const root = () => join(mkdtempSync(join(tmpdir(), "awf-runs-")), ".awf", "runs");
+const runDirs = createTempRunDirs();
+afterAll(() => runDirs.cleanup());
+const root = () => join(runDirs.tempRunDir(), ".awf", "runs");
 const run = (id = "AIRS-1515", workflow = "implement-ticket") => ({
   id,
   workflow,
@@ -272,7 +274,7 @@ describe("runs", () => {
   });
 
   test("a write that fails leaves the old file whole and no temp file beside it", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "awf-write-"));
+    const dir = runDirs.tempRunDir();
     const file = join(dir, "1.json");
     await writeJson(file, { n: 1 });
     await expect(writeJson(file, { n: 2n } as unknown as object)).rejects.toThrow();
@@ -294,6 +296,8 @@ describe("runs", () => {
       { pid: 1, probe: alive(1) },
     );
     const written = JSON.parse(await readFile(attempt.file, "utf8")) as AttemptRecord;
+    // Records are the operator's alone.
+    expect((await stat(attempt.file)).mode & 0o777).toBe(0o600);
     expect(written).toMatchObject({
       version: 1,
       n: 1,
@@ -304,16 +308,36 @@ describe("runs", () => {
   });
 });
 
+test("a continue moves its start stage's record first: a move that fails after it leaves the rest", async () => {
+  const runRoot = runDirs.tempRunDir();
+  const dir = join(runRoot, "r1");
+  await runAttempt(
+    workflowOf(async (workflow) => {
+      for (const stage of ["doc-review", "implement", "qa"])
+        await workflow.stage(stage, async () => {});
+      return null;
+    }),
+    { runRoot, dir },
+  );
+  // A record that can't be read fails the move after implement's.
+  await writeFile(join(dir, "stages", "qa.json"), "{");
+  await expect(replaceStale(dir, "implement", new Set(["doc-review"]))).rejects.toThrow(
+    "could not be read",
+  );
+  expect(await readdir(join(dir, "replaced"))).toEqual(["implement.1.json"]);
+  expect((await readdir(join(dir, "stages"))).sort()).toEqual(["doc-review.json", "qa.json"]);
+});
+
 describe("an operation's accepted result", () => {
   test("the first accepted value wins and a later one does not replace it", async () => {
-    const runDir = mkdtempSync(join(tmpdir(), "awf-calls-"));
+    const runDir = runDirs.tempRunDir();
     expect(await writeAcceptedExclusive(runDir, "c1", { n: 1 })).toBe(true);
     expect(await writeAcceptedExclusive(runDir, "c1", { n: 2 })).toBe(false);
     expect(await readAccepted(runDir, "c1")).toEqual({ value: { n: 1 } });
   });
 
   test("concurrent writers expose exactly one complete result", async () => {
-    const runDir = mkdtempSync(join(tmpdir(), "awf-calls-"));
+    const runDir = runDirs.tempRunDir();
     const claims = await Promise.all(
       Array.from({ length: 16 }, (_, n) => writeAcceptedExclusive(runDir, "c1", { n })),
     );

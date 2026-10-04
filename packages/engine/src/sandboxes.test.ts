@@ -3,12 +3,7 @@ import { mkdtempSync, realpathSync } from "node:fs";
 import { chmod, mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import type {
-  AgentOpenSpec,
-  JsonValue,
-  WorkflowContext,
-  WorkflowDefinition,
-} from "@agentswf/contract/workflow";
+import type { AgentOpenSpec, JsonValue, WorkflowContext } from "@agentswf/contract/workflow";
 import { DeadlineExceededError } from "@agentswf/contract/workflow";
 import { createHeadlessRunHostFactory } from "@agentswf/harness";
 import type {
@@ -26,7 +21,7 @@ import {
 } from "@agentswf/sandbox/testing";
 import { installSandboxes } from "./operator-runtime";
 import { RunSandboxes } from "./sandboxes";
-import { createTempRunDirs, future } from "./testing";
+import { createTempRunDirs, future, workflowOf } from "./testing";
 import {
   runWorkflow,
   startWorkflow,
@@ -123,7 +118,7 @@ function setup(
   };
   const logs: string[] = [];
   const run = <Result extends JsonValue>(body: (context: WorkflowContext) => Promise<Result>) =>
-    runWorkflow(workflowOf(body), null, {
+    runWorkflow(workflowOf(body, { name: "sandboxes" }), null, {
       runRoot: runDirs.tempRunDir(),
       runtime,
       deadline: future(),
@@ -136,12 +131,6 @@ function setup(
       onLog: (message) => logs.push(message),
     });
   return { events: fake.events, run, providers, runtime, logs };
-}
-
-function workflowOf<Result extends JsonValue>(
-  body: (context: WorkflowContext) => Promise<Result>,
-): WorkflowDefinition<null, Result> {
-  return { meta: { name: "sandboxes", description: "test" }, run: (context) => body(context) };
 }
 
 const kinds = (events: FakeSandboxEvent[], sandbox?: string) =>

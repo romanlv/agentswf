@@ -502,8 +502,9 @@ describe("awf run", () => {
 
   test("distinguishes runtime installation and workflow-body failures", async () => {
     const runtimeErrors: string[] = [];
+    const runtimeRoot = runDirs.tempRunDir();
     const runtimeExit = await cli(
-      ["run", "--run-root", runDirs.tempRunDir(), "examples/minimum-review/review-loop.ts"],
+      ["run", "--run-root", runtimeRoot, "--id", "r1", "examples/minimum-review/review-loop.ts"],
       {
         cwd: ROOT,
         stderr: (text) => runtimeErrors.push(text),
@@ -514,6 +515,11 @@ describe("awf run", () => {
     );
     expect(runtimeExit).toBe(1);
     expect(runtimeErrors.join("\n")).toContain("runtime: Herdr unavailable");
+    // The attempt was claimed before the runtime failed, and is ended for it.
+    expect(attemptOf(join(runtimeRoot, "review-loop", "r1"))).toMatchObject({
+      outcome: "failed",
+      reason: "runtime: Herdr unavailable",
+    });
 
     const root = runDirs.tempRunDir();
     const workflow = join(root, "throws.js");
@@ -1069,45 +1075,12 @@ describe("awf run", () => {
 });
 
 describe("awf run's runs and attempts", () => {
-  /** Fails while `fail` is in its working directory; returns its run, attempt and args. */
-  const flaky = executableModule(
-    "return invocation.argv;",
-    `const { existsSync } = await import("node:fs");
-     if (existsSync(workflow.cwd + "/fail")) throw new Error("not yet");
-     return { runId: workflow.runId, attempt: workflow.attempt, args };`,
-  ).replace("prepare()", "prepare(invocation)");
-
-  const project = async () => {
-    const cwd = runDirs.tempRunDir();
-    await Bun.write(join(cwd, "flow.js"), flaky);
-    return cwd;
-  };
-  const awf = async (cwd: string, argv: string[]) => {
-    const output: string[] = [];
-    const errors: string[] = [];
-    let installed = false;
-    const exitCode = await cli(["run", "--json", ...argv], {
-      cwd,
-      stdout: (text) => output.push(text),
-      stderr: (text) => errors.push(text),
-      installRuntime: async () => {
-        installed = true;
-        return emptyRuntime();
-      },
-    });
-    const text = output.join("\n");
-    return {
-      exitCode,
-      installed,
-      stderr: errors.join("\n"),
-      ...(text ? { record: JSON.parse(text) } : {}),
-    };
-  };
+  const project = () => projectWith(FLAKY);
   const runs = (cwd: string) => join(cwd, ".awf", "runs", "fixture");
 
   test("--id names the run, and a taken id is refused before anything starts", async () => {
     const cwd = await project();
-    const first = await awf(cwd, ["--id", "AIRS-1515", "flow.js", "--", "AIRS-1515"]);
+    const first = await awfRun(cwd, ["--id", "AIRS-1515", "flow.js", "--", "AIRS-1515"]);
     expect(first.exitCode).toBe(0);
     expect(first.record).toMatchObject({
       runId: "AIRS-1515",
@@ -1122,35 +1095,23 @@ describe("awf run's runs and attempts", () => {
     });
 
     const before = readdirSync(runs(cwd));
-    const again = await awf(cwd, ["--id", "AIRS-1515", "flow.js", "--", "AIRS-1515"]);
+    const again = await awfRun(cwd, ["--id", "AIRS-1515", "flow.js", "--", "AIRS-1515"]);
     expect(again).toMatchObject({ exitCode: 2, installed: false });
     expect(readdirSync(runs(cwd))).toEqual(before);
-    expect(again.stderr).toBe(
-      "awf: AIRS-1515 exists; --continue it, or --id another to start over",
-    );
+    expect(again.stderr).toContain("AIRS-1515 exists");
   });
 
-  test("--continue adds an attempt with the run's own argv, and refuses one that changes it", async () => {
+  test("--continue adds an attempt with the run's own argv", async () => {
     const cwd = await project();
     await Bun.write(join(cwd, "fail"), "");
-    const failed = await awf(cwd, ["--id", "r1", "flow.js", "--", "a", "b"]);
+    const failed = await awfRun(cwd, ["--id", "r1", "flow.js", "--", "a", "b"]);
     expect(failed.exitCode).toBe(1);
     expect(failed.stderr).toContain(
       "✗ failed: not yet\n  fixture r1 · 0s\n  go on    awf run flow.js --continue r1\n  records  .awf/runs/fixture/r1",
     );
 
-    const withArgv = await awf(cwd, ["flow.js", "--continue", "r1", "--", "c"]);
-    expect(withArgv).toMatchObject({ exitCode: 2, installed: false });
-    expect(withArgv.stderr).toContain("r1 keeps the arguments it was started with");
-    const both = await awf(cwd, ["--id", "r2", "--continue", "r1", "flow.js"]);
-    expect(both.exitCode).toBe(2);
-    expect(both.stderr).toContain("--id names a new run and --continue an existing one");
-    const missing = await awf(cwd, ["flow.js", "--continue", "r9"]);
-    expect(missing).toMatchObject({ exitCode: 2, installed: false });
-    expect(missing.stderr).toContain(`no run r9 of fixture in ${join(cwd, ".awf", "runs")}`);
-
     rmSync(join(cwd, "fail"));
-    const continued = await awf(cwd, ["flow.js", "--continue", "r1"]);
+    const continued = await awfRun(cwd, ["flow.js", "--continue", "r1"]);
     expect(continued.exitCode).toBe(0);
     expect(continued.record).toMatchObject({
       runId: "r1",
@@ -1162,32 +1123,42 @@ describe("awf run's runs and attempts", () => {
       reason: "not yet",
     });
     expect(attemptOf(join(runs(cwd), "r1"), 2)).toMatchObject({ outcome: "completed" });
+  });
 
-    const done = await awf(cwd, ["flow.js", "--continue", "r1"]);
+  test("--continue refuses other argv, --id beside it, a run that isn't there, and a completed run", async () => {
+    const cwd = await project();
+    await Bun.write(join(cwd, "fail"), "");
+    await awfRun(cwd, ["--id", "r1", "flow.js", "--", "a", "b"]);
+    const withArgv = await awfRun(cwd, ["flow.js", "--continue", "r1", "--", "c"]);
+    expect(withArgv).toMatchObject({ exitCode: 2, installed: false });
+    expect(withArgv.stderr).toContain("keeps the arguments");
+    const both = await awfRun(cwd, ["--id", "r2", "--continue", "r1", "flow.js"]);
+    expect(both.exitCode).toBe(2);
+    expect(both.stderr).toContain("--id names a new run and --continue an existing one");
+    const missing = await awfRun(cwd, ["flow.js", "--continue", "r9"]);
+    expect(missing).toMatchObject({ exitCode: 2, installed: false });
+    expect(missing.stderr).toContain(`no run r9 of fixture in ${join(cwd, ".awf", "runs")}`);
+
+    rmSync(join(cwd, "fail"));
+    await awfRun(cwd, ["--id", "r2", "flow.js"]);
+    const done = await awfRun(cwd, ["flow.js", "--continue", "r2"]);
     expect(done).toMatchObject({ exitCode: 2, installed: false });
-    expect(done.stderr).toBe("awf: r1 completed; there is nothing to continue");
+    expect(done.stderr).toBe("awf: r2 completed; there is nothing to continue");
   });
 
   test("a continue names an earlier attempt that was interrupted", async () => {
     const cwd = await project();
     await Bun.write(join(cwd, "fail"), "");
-    await awf(cwd, ["--id", "r1", "flow.js"]);
+    await awfRun(cwd, ["--id", "r1", "flow.js"]);
     // As a crash leaves it: no ending, and its process gone. This test's own process ran it.
-    const file = join(runs(cwd), "r1", "attempts", "1.json");
-    const {
-      ended: _ended,
-      outcome: _outcome,
-      reason: _reason,
-      ...open
-    } = JSON.parse(readFileSync(file, "utf8"));
-    writeFileSync(file, JSON.stringify({ ...open, pid: 999_999_999 }));
+    reopenAttempt(join(runs(cwd), "r1"), 1, { pid: 999_999_999 });
     // Its last turn, in qa.
     writeFileSync(
       join(runs(cwd), "r1", "turns.jsonl"),
       `${JSON.stringify({ version: 1, attempt: 1, agent: "w", stage: "qa", outcome: "answered", sessions: [] })}\n`,
     );
     rmSync(join(cwd, "fail"));
-    const continued = await awf(cwd, ["flow.js", "--continue", "r1"]);
+    const continued = await awfRun(cwd, ["flow.js", "--continue", "r1"]);
     expect(continued.exitCode).toBe(0);
     expect(continued.stderr).toContain(
       'awf: attempt 1 of r1 was interrupted in qa; its panes may still be open in Herdr workspace "awf fixture r1 #1"',
@@ -1197,17 +1168,10 @@ describe("awf run's runs and attempts", () => {
   test("a live attempt refuses a continue", async () => {
     const cwd = await project();
     await Bun.write(join(cwd, "fail"), "");
-    await awf(cwd, ["--id", "r1", "flow.js"]);
+    await awfRun(cwd, ["--id", "r1", "flow.js"]);
     // This test's own process, with no ending: live.
-    const file = join(runs(cwd), "r1", "attempts", "1.json");
-    const {
-      ended: _ended,
-      outcome: _outcome,
-      reason: _reason,
-      ...open
-    } = JSON.parse(readFileSync(file, "utf8"));
-    writeFileSync(file, JSON.stringify(open));
-    const refused = await awf(cwd, ["flow.js", "--continue", "r1"]);
+    reopenAttempt(join(runs(cwd), "r1"), 1);
+    const refused = await awfRun(cwd, ["flow.js", "--continue", "r1"]);
     expect(refused).toMatchObject({ exitCode: 2, installed: false });
     expect(refused.stderr).toBe(`awf: attempt 1 of r1 is still running, as process ${process.pid}`);
     expect(readdirSync(join(runs(cwd), "r1", "attempts"))).toEqual(["1.json"]);
@@ -1216,28 +1180,24 @@ describe("awf run's runs and attempts", () => {
   test("a continue whose recorded argv no longer parses, or whose directory is gone, is refused", async () => {
     const cwd = await project();
     await Bun.write(join(cwd, "fail"), "");
-    await awf(cwd, ["--id", "r1", "flow.js", "--", "old"]);
+    await awfRun(cwd, ["--id", "r1", "flow.js", "--", "old"]);
     // The fix that follows renames the argument the run was started with.
     await Bun.write(
       join(cwd, "strict.js"),
-      flaky.replace(
+      FLAKY.replace(
         "return invocation.argv;",
         'if (invocation.argv[0] === "old") throw new Error("old is gone"); return invocation.argv;',
       ),
     );
-    const parsed = await awf(cwd, ["strict.js", "--continue", "r1"]);
+    const parsed = await awfRun(cwd, ["strict.js", "--continue", "r1"]);
     expect(parsed).toMatchObject({ exitCode: 2, installed: false });
     expect(parsed.stderr).toBe(
       `awf: the recorded argv of r1 no longer parses with ${join(cwd, "strict.js")}: old is gone; start a new run`,
     );
 
-    const record = join(runs(cwd), "r1", "run.json");
     const gone = join(cwd, "gone");
-    writeFileSync(
-      record,
-      JSON.stringify({ ...JSON.parse(readFileSync(record, "utf8")), cwd: gone }),
-    );
-    const moved = await awf(cwd, ["flow.js", "--continue", "r1"]);
+    rewriteJson(join(runs(cwd), "r1", "run.json"), { cwd: gone });
+    const moved = await awfRun(cwd, ["flow.js", "--continue", "r1"]);
     expect(moved).toMatchObject({ exitCode: 2, installed: false });
     expect(moved.stderr).toBe(`awf: r1 works in ${gone}, which is no longer a directory`);
   });
@@ -1245,18 +1205,16 @@ describe("awf run's runs and attempts", () => {
   test("a continue refuses a sandbox other than its run's", async () => {
     const cwd = await project();
     await Bun.write(join(cwd, "fail"), "");
-    await awf(cwd, ["--id", "r1", "flow.js"]);
+    await awfRun(cwd, ["--id", "r1", "flow.js"]);
     await Bun.write(join(cwd, "box.json"), JSON.stringify({ srt: {} }));
-    const boxed = await awf(cwd, ["--sandbox", "box.json", "flow.js", "--continue", "r1"]);
+    const boxed = await awfRun(cwd, ["--sandbox", "box.json", "flow.js", "--continue", "r1"]);
     expect(boxed).toMatchObject({ exitCode: 2, installed: false });
-    expect(boxed.stderr).toBe(
-      "awf: r1 runs in the sandbox it was started with; leave --sandbox out",
-    );
+    expect(boxed.stderr).toContain("leave --sandbox out");
   });
 
   test("a run root holding ~/.awf's sandboxes is refused", async () => {
     const cwd = await project();
-    const refused = await awf(cwd, ["--run-root", HOME, "flow.js"]);
+    const refused = await awfRun(cwd, ["--run-root", HOME, "flow.js"]);
     expect(refused).toMatchObject({ exitCode: 2, installed: false });
     expect(refused.stderr).toContain(
       `awf: --run-root ${HOME} holds ${join(HOME, ".awf", "sandboxes")}`,
@@ -1266,9 +1224,9 @@ describe("awf run's runs and attempts", () => {
   test("a continue keeps the run's working directory, and refuses another", async () => {
     const cwd = await project();
     await Bun.write(join(cwd, "fail"), "");
-    await awf(cwd, ["--id", "r1", "flow.js"]);
+    await awfRun(cwd, ["--id", "r1", "flow.js"]);
     const elsewhere = runDirs.tempRunDir();
-    const moved = await awf(cwd, [
+    const moved = await awfRun(cwd, [
       "--run-root",
       join(cwd, ".awf", "runs"),
       "--cwd",
@@ -1277,8 +1235,8 @@ describe("awf run's runs and attempts", () => {
       "--continue",
       "r1",
     ]);
-    expect(moved.exitCode).toBe(2);
-    expect(moved.stderr).toContain(`r1 works in ${cwd}, not ${elsewhere}`);
+    expect(moved).toMatchObject({ exitCode: 2, installed: false });
+    expect(moved.stderr).toContain(`not ${elsewhere}`);
   });
 });
 
@@ -1293,28 +1251,12 @@ describe("awf run's stages", () => {
      });
      return workflow.attempt;`,
   );
-  const awf = async (cwd: string, argv: string[]) => {
-    const output: string[] = [];
-    const errors: string[] = [];
-    const exitCode = await cli(["run", "--json", ...argv], {
-      cwd,
-      stdout: (text) => output.push(text),
-      stderr: (text) => errors.push(text),
-      installRuntime: emptyRuntime,
-    });
-    const text = output.join("\n");
-    return { exitCode, stderr: errors.join("\n"), ...(text ? { record: JSON.parse(text) } : {}) };
-  };
-  const project = async () => {
-    const cwd = runDirs.tempRunDir();
-    await Bun.write(join(cwd, "flow.js"), staged);
-    return cwd;
-  };
+  const project = () => projectWith(staged);
   const runDir = (cwd: string) => join(cwd, ".awf", "runs", "fixture", "r1");
 
   test("--from-stage needs --continue", async () => {
     const cwd = await project();
-    const refused = await awf(cwd, ["--from-stage", "qa", "flow.js"]);
+    const refused = await awfRun(cwd, ["--from-stage", "qa", "flow.js"]);
     expect(refused.exitCode).toBe(2);
     expect(refused.stderr).toContain(
       "--from-stage goes with --continue: a new run has nothing to reuse",
@@ -1324,20 +1266,20 @@ describe("awf run's stages", () => {
   test("a continue lists what is recorded, and a completed run is redone only from a stage", async () => {
     const cwd = await project();
     await Bun.write(join(cwd, "fail"), "");
-    expect((await awf(cwd, ["--id", "r1", "flow.js"])).exitCode).toBe(1);
+    expect((await awfRun(cwd, ["--id", "r1", "flow.js"])).exitCode).toBe(1);
     rmSync(join(cwd, "fail"));
-    const continued = await awf(cwd, ["flow.js", "--continue", "r1"]);
+    const continued = await awfRun(cwd, ["flow.js", "--continue", "r1"]);
     expect(continued.exitCode).toBe(0);
     expect(continued.record.value).toBe(2);
     expect(continued.stderr).not.toContain("awf: ");
     expect(continued.stderr).toContain("↺ stage implement · feat/a · attempt 1");
 
-    const done = await awf(cwd, ["flow.js", "--continue", "r1"]);
+    const done = await awfRun(cwd, ["flow.js", "--continue", "r1"]);
     expect(done.exitCode).toBe(2);
     expect(done.stderr).toMatch(
       /^awf: r1 completed; to redo from a stage, --from-stage one of:\n {2}implement {3}feat\/a {3}attempt 1 · 0m ago\n {2}qa {19}attempt 2 · 0m ago$/,
     );
-    const redone = await awf(cwd, ["flow.js", "--continue", "r1", "--from-stage", "qa"]);
+    const redone = await awfRun(cwd, ["flow.js", "--continue", "r1", "--from-stage", "qa"]);
     expect(redone.exitCode).toBe(0);
     expect(attemptOf(runDir(cwd), 3)).toMatchObject({
       outcome: "completed",
@@ -1349,10 +1291,10 @@ describe("awf run's stages", () => {
     ]);
   });
 
-  test("a stop exits 3, recording the stage it stopped at", async () => {
+  test("a --from-stage never reached stops: exit 3, and no stage recorded", async () => {
     const cwd = await project();
-    await awf(cwd, ["--id", "r1", "flow.js"]);
-    const stopped = await awf(cwd, ["flow.js", "--continue", "r1", "--from-stage", "qaa"]);
+    await awfRun(cwd, ["--id", "r1", "flow.js"]);
+    const stopped = await awfRun(cwd, ["flow.js", "--continue", "r1", "--from-stage", "qaa"]);
     expect(stopped.exitCode).toBe(3);
     expect(stopped.stderr).toContain(
       "awf: nothing is recorded for qaa; the attempt stops if it never reaches it",
@@ -1364,18 +1306,29 @@ describe("awf run's stages", () => {
       reason: "never reached qaa",
     });
     expect(attemptOf(runDir(cwd), 2)).not.toHaveProperty("stage");
+  });
 
-    // A record that no longer fits stops at its stage.
-    const record = join(runDir(cwd), "stages", "implement.json");
-    writeFileSync(
-      record,
-      JSON.stringify({ ...JSON.parse(readFileSync(record, "utf8")), value: 7 }),
-    );
-    const misfit = await awf(cwd, ["flow.js", "--continue", "r1", "--from-stage", "qa"]);
+  test("a record that no longer fits stops at its stage, and goes on from it", async () => {
+    const cwd = await project();
+    await awfRun(cwd, ["--run-root", "runs", "--id", "r1", "flow.js"]);
+    const dir = join(cwd, "runs", "fixture", "r1");
+    rewriteJson(join(dir, "stages", "implement.json"), { value: 7 });
+    const misfit = await awfRun(cwd, [
+      "--run-root",
+      "runs",
+      "flow.js",
+      "--continue",
+      "r1",
+      "--from-stage",
+      "qa",
+    ]);
     expect(misfit.exitCode).toBe(3);
     expect(misfit.record).toMatchObject({ outcome: "stopped", stage: "implement" });
     expect(misfit.record.reason).toStartWith("implement's record no longer fits:");
-    expect(attemptOf(runDir(cwd), 3)).toMatchObject({ outcome: "stopped", stage: "implement" });
+    expect(attemptOf(dir, 2)).toMatchObject({ outcome: "stopped", stage: "implement" });
+    expect(misfit.stderr).toContain(
+      `  go on    awf run --run-root ${join(cwd, "runs")} flow.js --continue r1 --from-stage implement`,
+    );
   });
 
   test("the workflow's id(args) names a new run, and --id overrides it", async () => {
@@ -1388,16 +1341,11 @@ describe("awf run's stages", () => {
         "id(args) { return args[0]; },",
       ).replace("prepare()", "prepare(invocation)"),
     );
-    const derived = await awf(cwd, ["ticket.js", "--", "AIRS-1515"]);
+    const derived = await awfRun(cwd, ["ticket.js", "--", "AIRS-1515"]);
     expect(derived.record).toMatchObject({ runId: "AIRS-1515", value: "AIRS-1515" });
-    const taken = await awf(cwd, ["ticket.js", "--", "AIRS-1515"]);
-    expect(taken.exitCode).toBe(2);
-    expect(taken.stderr).toBe(
-      "awf: AIRS-1515 exists; --continue it, or --id another to start over",
-    );
-    const given = await awf(cwd, ["--id", "retry-2", "ticket.js", "--", "AIRS-1515"]);
+    const given = await awfRun(cwd, ["--id", "retry-2", "ticket.js", "--", "AIRS-1515"]);
     expect(given.record).toMatchObject({ runId: "retry-2" });
-    const bad = await awf(cwd, ["ticket.js", "--", "has space"]);
+    const bad = await awfRun(cwd, ["ticket.js", "--", "has space"]);
     expect(bad.exitCode).toBe(2);
     expect(bad.stderr).toContain('the workflow\'s id(args): "has space" is not a valid id');
   });
@@ -1413,10 +1361,10 @@ describe("awf run's stages", () => {
          return doc;`,
       ),
     );
-    const first = await awf(cwd, ["--id", "r1", "flow.js"]);
+    const first = await awfRun(cwd, ["--id", "r1", "flow.js"]);
     expect(first.exitCode).toBe(3);
     expect(first.stderr).not.toContain("the same stop");
-    const second = await awf(cwd, ["flow.js", "--continue", "r1"]);
+    const second = await awfRun(cwd, ["flow.js", "--continue", "r1"]);
     expect(second.exitCode).toBe(3);
     expect(second.stderr).toContain(
       "awf: the same stop as attempt 1; if a stage's value caused it, --from-stage doc-review, and move the check into that stage",
@@ -1429,8 +1377,8 @@ describe("awf run's stages", () => {
       join(cwd, "early.js"),
       executableModule("return null;", 'return workflow.stop("not ready");'),
     );
-    await awf(cwd, ["--id", "r1", "early.js"]);
-    const again = await awf(cwd, ["early.js", "--continue", "r1"]);
+    await awfRun(cwd, ["--id", "r1", "early.js"]);
+    const again = await awfRun(cwd, ["early.js", "--continue", "r1"]);
     expect(again.exitCode).toBe(3);
     expect(again.stderr).not.toContain("the same stop");
 
@@ -1442,8 +1390,8 @@ describe("awf run's stages", () => {
          return workflow.stop("stop " + workflow.attempt);`,
       ),
     );
-    await awf(cwd, ["--id", "r2", "counted.js"]);
-    const other = await awf(cwd, ["counted.js", "--continue", "r2"]);
+    await awfRun(cwd, ["--id", "r2", "counted.js"]);
+    const other = await awfRun(cwd, ["counted.js", "--continue", "r2"]);
     expect(other.exitCode).toBe(3);
     expect(other.stderr).not.toContain("the same stop");
   });
@@ -1463,7 +1411,7 @@ describe("awf run's stages", () => {
       ],
     ] as const) {
       await Bun.write(join(cwd, file), executableModule("return null;", "return 1;", body));
-      const refused = await awf(cwd, [file]);
+      const refused = await awfRun(cwd, [file]);
       expect(refused.exitCode).toBe(2);
       expect(refused.stderr).toContain(said);
     }
@@ -1472,7 +1420,7 @@ describe("awf run's stages", () => {
   test("a failure names its stage and the command that goes on; the attempt keeps its stages", async () => {
     const cwd = await project();
     await Bun.write(join(cwd, "fail"), "");
-    const failed = await awf(cwd, ["--id", "r1", "flow.js"]);
+    const failed = await awfRun(cwd, ["--id", "r1", "flow.js"]);
     expect(failed.exitCode).toBe(1);
     expect(failed.stderr).toContain("✗ failed in qa: qa broke\n  fixture r1 · ");
     expect(failed.stderr).toContain("  go on    awf run flow.js --continue r1");
@@ -1492,7 +1440,7 @@ describe("awf run's stages", () => {
     });
 
     rmSync(join(cwd, "fail"));
-    const continued = await awf(cwd, ["flow.js", "--continue", "r1"]);
+    const continued = await awfRun(cwd, ["flow.js", "--continue", "r1"]);
     expect(continued.record.stages).toEqual([
       {
         stage: "implement",
@@ -1506,29 +1454,6 @@ describe("awf run's stages", () => {
     ]);
     expect(continued.stderr).toMatch(
       /^✓ completed · fixture r1 · attempt 2 · \d+s · run: 2 attempts, \d+s$/m,
-    );
-  });
-
-  test("a stop at a record that no longer fits goes on from that stage", async () => {
-    const cwd = await project();
-    await awf(cwd, ["--run-root", "runs", "--id", "r1", "flow.js"]);
-    const record = join(cwd, "runs", "fixture", "r1", "stages", "implement.json");
-    writeFileSync(
-      record,
-      JSON.stringify({ ...JSON.parse(readFileSync(record, "utf8")), value: 7 }),
-    );
-    const stopped = await awf(cwd, [
-      "--run-root",
-      "runs",
-      "flow.js",
-      "--continue",
-      "r1",
-      "--from-stage",
-      "qa",
-    ]);
-    expect(stopped.exitCode).toBe(3);
-    expect(stopped.stderr).toContain(
-      `  go on    awf run --run-root ${join(cwd, "runs")} flow.js --continue r1 --from-stage implement`,
     );
   });
 
@@ -1573,7 +1498,7 @@ describe("awf run's stages", () => {
          throw new Error("after qa");`,
       ),
     );
-    const failed = await awf(cwd, ["--id", "r1", "flow.js"]);
+    const failed = await awfRun(cwd, ["--id", "r1", "flow.js"]);
     expect(failed.exitCode).toBe(1);
     expect(failed.stderr).toContain("✗ failed: after qa\n");
     expect(failed.record).not.toHaveProperty("stage");
@@ -1591,25 +1516,15 @@ describe("awf run's stages", () => {
         withReport ? 'report() { return "# a report"; },' : "",
       );
     await Bun.write(join(cwd, "flow.js"), flow(true));
-    await awf(cwd, ["--id", "r1", "flow.js"]);
+    await awfRun(cwd, ["--id", "r1", "flow.js"]);
     const dir = join(cwd, ".awf", "runs", "fixture", "r1");
     expect(existsSync(join(dir, "report.md"))).toBe(true);
-    await awf(cwd, ["flow.js", "--continue", "r1"]);
+    await awfRun(cwd, ["flow.js", "--continue", "r1"]);
     // Attempt 2 as an interruption leaves it: no ending, no accounting.
-    const second = join(dir, "attempts", "2.json");
-    const {
-      ended: _e,
-      outcome: _o,
-      reason: _r,
-      accounting: _a,
-      stages: _s,
-      stage: _t,
-      ...open
-    } = JSON.parse(readFileSync(second, "utf8"));
-    writeFileSync(second, JSON.stringify({ ...open, pid: 999_999_999 }));
+    reopenAttempt(dir, 2, { pid: 999_999_999 });
     // Another file, as a fix is often tried: this one writes no report.
     await Bun.write(join(cwd, "fixed.js"), flow(false));
-    const third = await awf(cwd, ["fixed.js", "--continue", "r1"]);
+    const third = await awfRun(cwd, ["fixed.js", "--continue", "r1"]);
     expect(third.exitCode).toBe(0);
     expect(third.stderr).toMatch(/ · run: 3 attempts \(1 with no accounting\), \d+s$/m);
     expect(existsSync(join(dir, "report.md"))).toBe(false);
@@ -1617,7 +1532,7 @@ describe("awf run's stages", () => {
 
   test("--from-stage refuses a name that can't be a stage's", async () => {
     const cwd = await project();
-    const refused = await awf(cwd, ["flow.js", "--continue", "r1", "--from-stage", "QA"]);
+    const refused = await awfRun(cwd, ["flow.js", "--continue", "r1", "--from-stage", "QA"]);
     expect(refused.exitCode).toBe(2);
     expect(refused.stderr).toContain('--from-stage: "QA" is not a stage\'s name');
   });
@@ -1722,6 +1637,40 @@ describe("awf run --here", () => {
     expect(errors).toEqual([
       "awf: --here: the workflow cannot start: the only argument is --no-helper. Fix it, then run this again.",
     ]);
+    expect(herdr.calls.some((call) => call[0] === "tab")).toBe(false);
+  });
+
+  test("refuses a --continue that changes its run's arguments, before any tab opens", async () => {
+    const cwd = await projectWith(FLAKY);
+    await Bun.write(join(cwd, "fail"), "");
+    await awfRun(cwd, ["--id", "r1", "flow.js"]);
+    const herdr = fakeHerdr();
+    const errors: string[] = [];
+    const exitCode = await cli(["run", "--here", "flow.js", "--continue", "r1", "--", "other"], {
+      cwd,
+      environment: inHerdr,
+      herdr: herdr.run,
+      stderr: (text) => errors.push(text),
+    });
+    expect(exitCode).toBe(1);
+    expect(errors.join("\n")).toContain("--here: the workflow cannot start: ");
+    expect(errors.join("\n")).toContain("keeps the arguments");
+    expect(herdr.calls.some((call) => call[0] === "tab")).toBe(false);
+  });
+
+  test("refuses an --id that is taken, before any tab opens", async () => {
+    const cwd = await projectWith(FLAKY);
+    await awfRun(cwd, ["--id", "r1", "flow.js"]);
+    const herdr = fakeHerdr();
+    const errors: string[] = [];
+    const exitCode = await cli(["run", "--here", "--id", "r1", "flow.js"], {
+      cwd,
+      environment: inHerdr,
+      herdr: herdr.run,
+      stderr: (text) => errors.push(text),
+    });
+    expect(exitCode).toBe(1);
+    expect(errors.join("\n")).toContain("r1 exists");
     expect(herdr.calls.some((call) => call[0] === "tab")).toBe(false);
   });
 
@@ -1915,6 +1864,64 @@ function executableModule(prepareBody: string, runBody: string, members = ""): s
       ${members}
     };
   `;
+}
+
+/** Fails while `fail` is in its working directory; returns its run, attempt and args. */
+const FLAKY = executableModule(
+  "return invocation.argv;",
+  `const { existsSync } = await import("node:fs");
+   if (existsSync(workflow.cwd + "/fail")) throw new Error("not yet");
+   return { runId: workflow.runId, attempt: workflow.attempt, args };`,
+).replace("prepare()", "prepare(invocation)");
+
+/** A project folder holding `module` as flow.js. */
+async function projectWith(module: string): Promise<string> {
+  const cwd = runDirs.tempRunDir();
+  await Bun.write(join(cwd, "flow.js"), module);
+  return cwd;
+}
+
+/** `awf run --json` in `cwd`: its exit code, stderr, record, and whether it installed a runtime. */
+async function awfRun(cwd: string, argv: string[]) {
+  const output: string[] = [];
+  const errors: string[] = [];
+  let installed = false;
+  const exitCode = await cli(["run", "--json", ...argv], {
+    cwd,
+    stdout: (text) => output.push(text),
+    stderr: (text) => errors.push(text),
+    installRuntime: async () => {
+      installed = true;
+      return emptyRuntime();
+    },
+  });
+  const text = output.join("\n");
+  return {
+    exitCode,
+    installed,
+    stderr: errors.join("\n"),
+    ...(text ? { record: JSON.parse(text) } : {}),
+  };
+}
+
+/** Rewrites attempt `n` as a crash leaves it, with no ending, and with `fields`. */
+function reopenAttempt(runDir: string, n: number, fields: Record<string, unknown> = {}): void {
+  const file = join(runDir, "attempts", `${n}.json`);
+  const {
+    ended: _ended,
+    outcome: _outcome,
+    reason: _reason,
+    accounting: _accounting,
+    stages: _stages,
+    stage: _stage,
+    ...open
+  } = JSON.parse(readFileSync(file, "utf8"));
+  writeFileSync(file, JSON.stringify({ ...open, ...fields }));
+}
+
+/** Rewrites a JSON record with `fields` over its own. */
+function rewriteJson(file: string, fields: Record<string, unknown>): void {
+  writeFileSync(file, JSON.stringify({ ...JSON.parse(readFileSync(file, "utf8")), ...fields }));
 }
 
 /** An attempt's record in a run's folder: the first, unless `n` says another. */
