@@ -15,6 +15,7 @@ import type { HarnessActivation } from "../adapter";
 import type { ProcessInput, RunProcess } from "../command";
 import { createSingleSessionHostFactory } from "../single-session-host";
 import { HARNESSES } from "../spec";
+import { codexForkHome } from "../testing/codex-rollouts";
 import { createHeadlessAdapter, type DirectProcessConfig } from "./direct-process";
 import { createPaneAdapter } from "./herdr";
 
@@ -35,34 +36,6 @@ function stub(stdouts: string[]): {
 
 const claudeOut = (result: string, sessionId = "sess-1") =>
   JSON.stringify({ session_id: sessionId, result });
-
-/** A codex home holding a parent's rollout and its fork's, as `thread/fork` leaves them. */
-function codexForkHome(): { home: string; fork: string; restore: () => void } {
-  const home = mkdtempSync(join(tmpdir(), "codex-fork-"));
-  const day = join(home, "sessions", "2026", "10", "03");
-  mkdirSync(day, { recursive: true });
-  const meta = (payload: object) => `${JSON.stringify({ type: "session_meta", payload })}\n`;
-  writeFileSync(
-    join(day, "rollout-2026-10-03T00-00-00-thread-1.jsonl"),
-    meta({ session_id: "thread-1", id: "thread-1", source: "exec" }),
-  );
-  const fork = join(day, "rollout-2026-10-03T00-00-01-thread-2.jsonl");
-  writeFileSync(
-    fork,
-    meta({ session_id: "thread-2", id: "thread-2", forked_from_id: "thread-1", source: "exec" }),
-  );
-  const operator = process.env.CODEX_HOME;
-  process.env.CODEX_HOME = home;
-  return {
-    home,
-    fork,
-    restore: () => {
-      if (operator === undefined) delete process.env.CODEX_HOME;
-      else process.env.CODEX_HOME = operator;
-      rmSync(home, { recursive: true, force: true });
-    },
-  };
-}
 
 describe("createHeadlessAdapter", () => {
   const activation: HarnessActivation = {
@@ -853,22 +826,56 @@ describe("createHeadlessAdapter", () => {
       expect(session.sessions?.()).toEqual(["/pi/sessions/awf-forks/u/fork.jsonl"]);
     });
 
-    test("an agent is not forked before its first turn, and a harness with none has no fork", async () => {
+    test("an agent is not forked before its first turn", async () => {
       const { run, calls } = stub([]);
       const session = await headless(run);
       await expect(session.fork!(activation.deadline)).rejects.toThrow(
         "an agent cannot be forked before its first turn",
       );
-      const cursor = await headless(
-        run,
-        {},
-        {
-          ...activation,
-          execution: { harness: "cursor", model: "composer", placement: "headless" },
-        },
-      );
-      expect(cursor.fork).toBeUndefined();
       expect(calls).toHaveLength(0);
+    });
+
+    test("cursor forks by copying its chat's directory under a new id, keeping its parent's agentId", async () => {
+      const operator = process.env.HOME;
+      const home = mkdtempSync(join(tmpdir(), "cursor-home-"));
+      const workspace = join(home, ".cursor", "chats", "workspace");
+      try {
+        process.env.HOME = home;
+        mkdirSync(join(workspace, "chat-1"), { recursive: true });
+        const { run, calls } = stub([
+          JSON.stringify({ type: "result", result: "ok", session_id: "chat-1" }),
+          "",
+        ]);
+        const ids = ["first", "fork-1"];
+        const session = await headless(
+          run,
+          { newSessionId: () => ids.shift()! },
+          {
+            ...activation,
+            execution: { harness: "cursor", model: "composer", placement: "headless" },
+          },
+        );
+        await (await session.start(turnSpec, firstBinding)).settled;
+        await expect(session.fork!(activation.deadline)).resolves.toEqual({
+          harness: "cursor",
+          sessionRef: "fork-1",
+        });
+        expect(calls[1]?.argv).toEqual([
+          "cp",
+          "-R",
+          join(workspace, "chat-1"),
+          join(workspace, "fork-1"),
+        ]);
+        await expect(
+          HARNESSES.cursor.forkSession!("chat-2", "fork-2", { sessionHint: "x" }),
+        ).rejects.toThrow("cursor has no chat chat-2 to fork");
+        await expect(
+          HARNESSES.cursor.forkSession!("../chat-1", "fork-2", { sessionHint: "x" }),
+        ).rejects.toThrow("cursor has no chat ../chat-1 to fork");
+      } finally {
+        process.env.HOME = operator;
+        rmSync(home, { recursive: true, force: true });
+      }
     });
 
     test("a fork of another harness's session is refused", async () => {

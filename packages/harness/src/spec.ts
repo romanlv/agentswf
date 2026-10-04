@@ -1,4 +1,4 @@
-import { basename, isAbsolute, join } from "node:path";
+import { basename, dirname, isAbsolute, join } from "node:path";
 import type { Billing } from "@agentswf/contract/records";
 import type { AgentPlacement } from "@agentswf/contract/workflow";
 import type { Holding, RunProcess } from "./command";
@@ -21,6 +21,7 @@ import {
   inheritCodexSessionId,
   readCodexUsage,
 } from "./usage/codex";
+import { cursorChatDirectory } from "./usage/cursor";
 import { ownFiles } from "./usage/files";
 import {
   piForksDirectory,
@@ -714,6 +715,19 @@ export const HARNESSES: Record<Harness, HarnessSpec> = {
     }),
     readSessionId: (stdout) => text(lastJson(stdout)?.session_id),
     readTranscript: (stdout) => text(lastJson(stdout)?.result) ?? stdout,
+    // Its CLI has no fork; its TUI's `/fork` copies the chat's store under a new id and gives it a
+    // new `agentId`, which keys cursor's cache, so that fork misses it. A copy of the chat's
+    // directory keeps its parent's `agentId` and reads its parent's cache, its history its own
+    // (F11).
+    forkSession: async (session, newSessionId, { home }) => {
+      const parent = await cursorChatDirectory(session, home);
+      if (!parent) throw new Error(`cursor has no chat ${session} to fork`);
+      const fork = join(dirname(parent), newSessionId);
+      return {
+        argv: ["cp", "-R", parent, fork],
+        read: () => ({ sessionId: newSessionId }),
+      };
+    },
     // No dollar figure anywhere: a cursor step is unpriceable, which E1 also found.
   },
 };

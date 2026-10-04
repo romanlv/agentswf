@@ -11,8 +11,9 @@ import { outputSchema } from "../output-schema";
 /**
  * Each harness and placement that forks (story 016). A runtime named with `:compact` compacts its
  * worker before the fork, and one named with `>pane` or `>headless` forks into that placement
- * instead of its worker's; with `+sandbox` its worker runs in a private sandbox, its fork too. pi summarizes only what is older than its last 20k tokens, so its worker
- * skims an inventory before compacting, as in `examples/compaction`.
+ * instead of its worker's; with `+sandbox` its worker runs in a private sandbox, its fork too. pi
+ * summarizes only what is older than its last 20k tokens, so its worker skims an inventory before
+ * compacting, as in `examples/compaction`. Cursor runs headless only, and does not compact there.
  */
 export const RUNTIMES = {
   claude: { execution: { harness: "claude", model: "claude-sonnet-5-5" } },
@@ -36,6 +37,7 @@ export const RUNTIMES = {
     execution: { harness: "pi", model: "openai-codex/gpt-5.6-terra" },
     inventoryLines: 2_000,
   },
+  cursor: { execution: { harness: "cursor", model: "composer-2.5", placement: "headless" } },
 } as const satisfies Record<string, { execution: ExecutionConfig; inventoryLines?: number }>;
 
 type RuntimeName = keyof typeof RUNTIMES;

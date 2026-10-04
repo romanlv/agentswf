@@ -1,0 +1,26 @@
+import { spawnSync } from "node:child_process";
+import { createHash, randomUUID } from "node:crypto";
+import { cpSync, mkdtempSync, realpathSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+const MODEL = process.argv[2] ?? "composer-2.5";
+const cwd = realpathSync(mkdtempSync(join(tmpdir(), "cursor-fork-")));
+const turn = (prompt: string, resume?: string) => {
+  const r = spawnSync("cursor-agent", ["-p", "--output-format", "json", "--force", "--trust", "--model", MODEL, ...(resume ? ["--resume", resume] : [])], { cwd, input: prompt, encoding: "utf8" });
+  const out = JSON.parse(r.stdout.trim().split("\n").at(-1)!);
+  return { id: out.session_id, answer: out.result.slice(0, 120), usage: `${out.usage.inputTokens}/${out.usage.cacheReadTokens}` };
+};
+const chats = join(process.env.HOME!, ".cursor/chats", createHash("md5").update(cwd).digest("hex"));
+const fork = (parent: string) => { const id = randomUUID(); cpSync(join(chats, parent), join(chats, id), { recursive: true }); return id; };
+const manual = Array.from({ length: 900 }, (_, i) => `Section ${i}: the valve ${i * 7 % 113} opens when gauge ${i % 17} reads ${(i * 37) % 1000} kPa, unless relay R${i % 29} is latched.`).join("\n");
+const p = turn(`Here is a manual.\n\n${manual}\n\nRemember the codename OSPREY. Reply with just "noted".`);
+const a = fork(p.id), b = fork(p.id);
+const log: Record<string, unknown> = { model: MODEL };
+log.parentNote = turn("Remember the release R-PARENT-7. Reply noted.", p.id);
+log.aNote = turn("Remember the release R-FORKA-3. Reply noted.", a);
+log.bNote = turn("Remember the release R-FORKB-9. Reply noted.", b);
+const ask = "List every release name I asked you to remember, and nothing else. If none, say none.";
+log.parentAsk = turn(ask, p.id);
+log.aAsk = turn(ask, a);
+log.bAsk = turn(ask, b);
+console.log(JSON.stringify(log, null, 1));

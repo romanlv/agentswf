@@ -29,8 +29,10 @@ implementation.
     fork's own.
   - Codex's persisted fork is given its parent's session id, the key it caches by, in its rollout
     (F4, F10). Codex's own means, an ephemeral fork, outlives no process (F5).
+  - Cursor's fork is a copy of its chat's directory, which keeps its parent's `agentId`, the key it
+    caches by; its own `/fork` gives the copy a new one and misses (F11).
 - **Fork is refused where it cannot work:**
-  - a harness with no fork (cursor);
+  - a host with no fork;
   - an agent before its own first turn, a fork that has not run included, since its instructions
     are not in its session yet.
 

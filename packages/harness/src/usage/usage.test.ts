@@ -475,6 +475,58 @@ describe("codex sessions", () => {
     expect(fork.map(({ delegated, tokens }) => [delegated, tokens.output])).toEqual([[false, 2]]);
   });
 
+  test("a subagent is its spawner's, a fork's under its root's session id and a nested one's too", async () => {
+    const root = mkdtempSync(join(tmpdir(), "codex-usage-"));
+    roots.push(root);
+    const spawned = (id: string, parent: string) => ({
+      ...meta(id, "root-1"),
+      payload: {
+        ...meta(id, "root-1").payload,
+        parent_thread_id: parent,
+        source: { subagent: {} },
+      },
+    });
+    const own = (id: string) => ({
+      ...meta(id, "root-1"),
+      payload: { ...meta(id, "root-1").payload, source: "exec" },
+    });
+    rollout(root, "2026/09/23", "root-1", [
+      own("root-1"),
+      counted("2026-09-23T10:00:01Z", [10, 0, 1], [10, 0, 1]),
+    ]);
+    rollout(root, "2026/09/24", "fork-1", [
+      own("fork-1"),
+      counted("2026-09-24T10:00:01Z", [20, 0, 2], [20, 0, 2]),
+    ]);
+    rollout(root, "2026/09/24", "helper", [
+      spawned("helper", "fork-1"),
+      counted("2026-09-24T10:00:02Z", [30, 0, 3], [30, 0, 3]),
+    ]);
+    rollout(root, "2026/09/25", "nested", [
+      spawned("nested", "helper"),
+      counted("2026-09-25T10:00:03Z", [40, 0, 4], [40, 0, 4]),
+    ]);
+    rollout(root, "2026/09/25", "guard", [
+      spawned("guard", "root-1"),
+      counted("2026-09-25T10:00:04Z", [50, 0, 5], [50, 0, 5]),
+    ]);
+
+    const outputs = async (id: string) =>
+      (await readCodexUsage([id], root))!.map(({ delegated, tokens }) => [
+        delegated,
+        tokens.output,
+      ]);
+    expect(await outputs("root-1")).toEqual([
+      [false, 1],
+      [true, 5],
+    ]);
+    expect(await outputs("fork-1")).toEqual([
+      [false, 2],
+      [true, 3],
+      [true, 4],
+    ]);
+  });
+
   test("a fork is given its parent's session id, in its own rollout only", async () => {
     const home = mkdtempSync(join(tmpdir(), "codex-home-"));
     roots.push(home);
@@ -501,17 +553,20 @@ describe("codex sessions", () => {
     await inheritCodexSessionId(home, "parent", "fork");
 
     await expect(inheritCodexSessionId(home, "parent", "stray")).rejects.toThrow(
-      "does not name parent as its parent",
+      "is not stray's fork of parent",
     );
     await expect(inheritCodexSessionId(home, "parent", "missing")).rejects.toThrow("no rollout");
+    // A codex that writes no session id leaves the fork as it made it.
+    rollout(sessions, day, "old", [
+      { type: "session_meta", payload: { id: "old", forked_from_id: "parent" } },
+    ]);
+    await inheritCodexSessionId(home, "parent", "old");
     // A rollout the agent swapped for a link is not written through.
     const outside = join(home, "outside.jsonl");
     writeFileSync(outside, `${JSON.stringify(forkRow)}\n`);
     rmSync(file);
     symlinkSync(outside, file);
-    await expect(inheritCodexSessionId(home, "parent", "fork")).rejects.toThrow(
-      "is not a rollout of its own",
-    );
+    await expect(inheritCodexSessionId(home, "parent", "fork")).rejects.toThrow("is a link");
     expect(readFileSync(outside, "utf8")).toContain('"session_id":"fork"');
   });
 

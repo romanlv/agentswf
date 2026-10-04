@@ -80,7 +80,8 @@ before any of the code here existed. Their raw rows are in `experiments/_archive
 - Branching a session (fork, `/fork`, `/clear`) re-pays the context almost everywhere. Continuing
   it keeps the cache. Cold agents plus prefix caching beat forking in a pane by ~11x. Measured again
   in 2026-10 ([`fork-cache.md`](findings/fork-cache.md)), claude's forks and pi's keeping its
-  parent's id now read the cache in every placement, and codex's given its parent's session id (F10).
+  parent's id now read the cache in every placement, and so do codex's and cursor's that keep
+  their parent's key (F10, F11).
 - Schema constraints must be in the prompt, not just in the validator: 0/160 first-attempt validity
   without, 80/80 with — headless, one schema. Field-level error text costs 2.00 attempts against
   2.90–4.95 for a bare refusal, worst case 11. The runner has sent the schema itself since
@@ -553,8 +554,8 @@ Splitting the problem into three parts settles it:
 **Extraction is harness-specific, as specific as the flags table.** claude writes usage into a
 transcript JSONL where one API response appears as several rows sharing a `message.id` — E3 found
 `e2/pane-cost.ts` double-counting because of it. codex and pi record per-turn usage on disk in
-their own formats. cursor records none anywhere, and Herdr reports no session reference for a
-cursor pane either, so there is nothing to look up even if it did. Whatever reads those files
+their own formats. cursor records none on disk; its headless JSON prints each turn's tokens
+([[cursor-usage]]), and Herdr reports no session reference for a cursor pane. Whatever reads those files
 belongs next to the adapter that knows which harness it is talking to — `harness/src/usage/`.
 
 **The record shape is not harness-specific, and it is the expensive thing to change.**

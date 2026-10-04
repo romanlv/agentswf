@@ -25,7 +25,7 @@ but several repositories have not yet been examined against the harder design pr
 
 | Open design problem | Where to read | The specific pattern |
 | --- | --- | --- |
-| Adapter capability negotiation — fork exists on claude, not on cursor | MCP; openclaw `plugin-package-contract` | declared capabilities, negotiated at connect |
+| Adapter capability negotiation — what each host can do, such as fork or compact | MCP; openclaw `plugin-package-contract` | declared capabilities, negotiated at connect |
 | Messaging routes granted rather than ambient | openclaw `gateway-protocol` | a protocol package that plugins depend on, never the reverse |
 | Conformance kits that travel with a contract | pi `telemetry/src/testing/conformance.ts` | named here, only half-applied |
 | Mechanical boundary enforcement | openclaw `tsconfig.package-boundary.*` | `contract` purity is currently a rule, not a check |

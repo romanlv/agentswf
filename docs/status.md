@@ -150,12 +150,12 @@ The gates are defined in [`foundation.md`](foundation.md) §12.
   ([findings](findings/native-compaction.md)); its eval passes on all seven runtimes, pi panes
   included. `compact({ prompt })` takes `run`'s id and deadline defaults (ADR 0007, amended).
 - [016 — fork](stories/016-fork.md): done, approved 2026-10-04 (ADR 0009).
-  `agent.fork({ key })` opens a new agent on a copy of an agent's session, on claude, codex and
-  pi, in a pane or headless, into either, in a sandbox too; claude's and pi's read their parent's
-  cache. A headless claude turn charges what it added to its session's total. Claude panes are
-  typed their prompts, which claude 2.1.288 otherwise shows as pasted text and will not act on. A
-  fork is a new agent on a copy of the session, made with no model call; every harness's fork reads
-  its parent's cache, codex's under its parent's session id ([findings](findings/fork-cache.md)).
+  `agent.fork({ key })` opens a new agent on a copy of an agent's session, made with no model
+  call: claude, codex and pi in a pane or headless, into either, in a sandbox too, and cursor
+  headless. Every fork reads its parent's cache, codex's and cursor's by keeping their parent's
+  key; cursor's was measured on `composer-2.5` only ([findings](findings/fork-cache.md)). A headless claude turn charges what it added to its
+  session's total. Claude panes are typed their prompts, which claude 2.1.288 otherwise shows as
+  pasted text and will not act on.
 - [017 — pi in panes](stories/017-pi-pane-agent.md): done, approved 2026-10-01. pi runs in a Herdr
   pane, on the host and in srt and docker sandboxes, and compacts there with a focus.
 

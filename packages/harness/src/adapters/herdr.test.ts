@@ -1,9 +1,10 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ProcessInput, ProcessResult, RunProcess } from "../command";
 import { HARNESSES } from "../spec";
+import { codexForkHome } from "../testing/codex-rollouts";
 import { createHerdrRunHostFactory, createPaneAdapter, type HerdrConfig } from "./herdr";
 
 const CONFIG: HerdrConfig = {
@@ -27,34 +28,6 @@ function askedTimeout(input: ProcessInput): number {
 function argv(calls: ProcessInput[], key: string): string[] {
   const found = calls.find((call) => verb(call) === key);
   return found ? [...found.argv] : [];
-}
-
-/** A codex home holding a parent's rollout and its fork's, as `thread/fork` leaves them. */
-function codexForkHome(): { home: string; fork: string; restore: () => void } {
-  const home = mkdtempSync(join(tmpdir(), "codex-fork-"));
-  const day = join(home, "sessions", "2026", "10", "03");
-  mkdirSync(day, { recursive: true });
-  const meta = (payload: object) => `${JSON.stringify({ type: "session_meta", payload })}\n`;
-  writeFileSync(
-    join(day, "rollout-2026-10-03T00-00-00-thread-1.jsonl"),
-    meta({ session_id: "thread-1", id: "thread-1", source: "exec" }),
-  );
-  const fork = join(day, "rollout-2026-10-03T00-00-01-thread-2.jsonl");
-  writeFileSync(
-    fork,
-    meta({ session_id: "thread-2", id: "thread-2", forked_from_id: "thread-1", source: "exec" }),
-  );
-  const operator = process.env.CODEX_HOME;
-  process.env.CODEX_HOME = home;
-  return {
-    home,
-    fork,
-    restore: () => {
-      if (operator === undefined) delete process.env.CODEX_HOME;
-      else process.env.CODEX_HOME = operator;
-      rmSync(home, { recursive: true, force: true });
-    },
-  };
 }
 
 describe("createPaneAdapter", () => {
@@ -1315,6 +1288,9 @@ describe("createHerdrRunHostFactory", () => {
             harness: "codex",
             sessionRef: "thread-2",
           });
+          expect(readFileSync(rollouts.fork, "utf8")).toContain(
+            '"session_id":"thread-1","id":"thread-2"',
+          );
         } finally {
           rollouts.restore();
         }

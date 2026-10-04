@@ -22,7 +22,7 @@ below is re-derivable from committed raw data, except where marked.
 | S1–S10 | what does a System One model (Jev) do on awf's questions? | **matches findings well; grades severity only after re-thresholding** — see [`system-one-models.md`](system-one-models.md) |
 | K1–K12 | can each harness be held to the skills a workflow names? | **yes, each by its own route; codex only through its home** — see [`agent-skills.md`](agent-skills.md) |
 | C1–C10 | does each harness compact natively, with a workflow's focus? | **claude, codex and pi do, each its own way, and fork the result; cursor only in its TUI** — see [`native-compaction.md`](native-compaction.md) |
-| F1–F10 | does a forked session read its parent's prompt cache? | **claude in every placement; pi when it keeps its parent's id; codex when it is given its parent's session id** — see [`fork-cache.md`](fork-cache.md) |
+| F1–F11 | does a forked session read its parent's prompt cache? | **claude in every placement; pi, codex and cursor when the fork keeps its parent's cache key** — see [`fork-cache.md`](fork-cache.md) |
 
 E1's removed report read 24/24; that counted one prompt-size arm of the 48 rows in
 `e1/results/e1.jsonl`. [`../foundation.md`](../foundation.md) §4 carries the corrected number.
@@ -68,7 +68,8 @@ Resume's honest scope is read-only fan-outs over inputs pinned in the prompt.
 **Fork's real capability is not whether it can.** Every harness that forks does it natively and
 inherits context correctly, so "can it fork" is the uninteresting question. The economics split by
 **(harness, backend)**: a warm headless claude fork costs about what a resume costs; codex gets 33%
-of its input cached where a resume gets 96%; pi pays about 7x a resume; cursor has no fork. In a
+of its input cached where a resume gets 96%; pi pays about 7x a resume; cursor has no fork (all
+since superseded, below). In a
 pane it inverts — six pane forks scored zero cache hits, so fourteen forks write the prefix fourteen
 times where fourteen cold agents write it once, about 11x. A boolean fork capability cannot tell a
 cheap fork from an expensive one, and §6 has since removed `pane | headless` — the axis the
@@ -77,7 +78,7 @@ economics split on — from every surface. Settle that before fork is ever expos
 Re-measured 2026-10-01 ([`fork-cache.md`](fork-cache.md)), the split is by provider, not by
 placement. Claude now resends a recorded system prompt, so its forks read the parent's cache in a
 pane, headless and across the two. A provider that routes its cache by session misses unless the
-fork keeps the parent's key: pi can, codex only for an ephemeral fork.
+fork keeps the parent's key, which pi, codex and cursor each can (F6, F10, F11).
 
 **E7 is prose-only.** It was ad-hoc CLI probing, never committed: no scripts, no
 `experiments/_archive/e7/`, no raw rows. Its numbers cannot be re-derived from this repository —

@@ -1,6 +1,5 @@
-import { randomUUID } from "node:crypto";
 import { constants } from "node:fs";
-import { lstat, open, realpath, rename, writeFile } from "node:fs/promises";
+import { type FileHandle, open, realpath } from "node:fs/promises";
 import { basename, dirname, join, relative } from "node:path";
 import { count, parseRow, type Row, record, text } from "../json";
 import { harnessState } from "../state";
@@ -14,7 +13,7 @@ export function codexSessionsDirectory(home = harnessState().codex): string {
 
 /**
  * One record per response the rollout logged. A subagent writes a rollout of its own naming the
- * root session in its `session_meta`, and is counted as delegated.
+ * thread that spawned it in its `session_meta`, and is counted as that thread's, delegated.
  */
 export async function readCodexUsage(
   sessions: readonly string[],
@@ -43,12 +42,16 @@ export async function readCodexUsage(
     const rows = await jsonRows(join(root, file));
     open ||= turnOpen(rows);
     records.push(...rolloutRecords(rows, file, false));
-    // A subagent starts after its root, so it is never in an earlier day's directory.
+    // A subagent starts after the thread that spawned it, so it is never in an earlier day's
+    // directory, and is read after it, oldest first.
     const day = dirname(file);
-    for (const other of all) {
-      if (dirname(other) < day) break;
-      if (read.has(other) || !(await spawnedBy(join(root, other), id))) continue;
+    const spawners = new Set([id]);
+    for (const other of all.filter((name) => dirname(name) >= day).reverse()) {
+      if (read.has(other)) continue;
+      const parent = spawnerOf(await rolloutHead(join(root, other)));
+      if (!parent || !spawners.has(parent)) continue;
       read.add(other);
+      spawners.add(codexRolloutId(other)!);
       records.push(...rolloutRecords(await jsonRows(join(root, other)), other, true));
     }
   }
@@ -115,12 +118,7 @@ export async function codexSessionFiles(home: string, id: string): Promise<strin
     const name = all.find((each) => codexRolloutId(each) === thread);
     if (!name || files.includes(name)) break;
     files.push(name);
-    let head = "";
-    try {
-      const content = await Bun.file(join(root, name)).text();
-      head = content.slice(0, content.indexOf("\n"));
-    } catch {}
-    thread = text(record(parseRow(head)?.payload)?.forked_from_id);
+    thread = metaField(await rolloutHead(join(root, name)), "forked_from_id");
   }
   return files.length === 0 ? undefined : files.map((name) => relative(home, join(root, name)));
 }
@@ -129,8 +127,8 @@ export async function codexSessionFiles(home: string, id: string): Promise<strin
  * Gives thread `fork`, forked from `parent` under `home`, its parent's session id. Codex keys its
  * prompt cache, and the ChatGPT backend routes requests, by the session id a resumed thread reads
  * from its rollout's `session_meta`; a fork writes its own id there and misses its parent's cache,
- * where codex's own subagents keep the root's and hit it (F4, F5). Run once the fork's process has
- * exited, before anything resumes the fork.
+ * where codex's own subagents keep the root's and hit it (F4, F10). Left as it is where a codex
+ * writes no session id.
  */
 export async function inheritCodexSessionId(
   home: string,
@@ -142,48 +140,73 @@ export async function inheritCodexSessionId(
   if (!parentFile || !forkFile || codexRolloutId(forkFile) !== fork) {
     throw new Error(`codex left no rollout of ${fork} forked from ${parent} under ${home}`);
   }
-  const session = await sessionIdOf(join(home, parentFile));
+  const session = metaField(await rolloutHead(join(home, parentFile)), "session_id");
   const path = join(home, forkFile);
-  // The home may be a sandboxed agent's, which it can write: the fork's rollout is rewritten only
-  // where it is a file of its own under it, and replaced, never written through.
-  const [real, root] = await Promise.all([realpath(dirname(path)), realpath(home)]);
-  const found = await lstat(path);
-  if (!found.isFile() || found.nlink !== 1 || relative(root, real).startsWith("..")) {
-    throw new Error(`${path} is not a rollout of its own`);
-  }
-  const content = await Bun.file(path).text();
-  const end = content.indexOf("\n");
-  const head = end === -1 ? content : content.slice(0, end);
-  const meta = record(parseRow(head)?.payload);
-  const own = text(meta?.session_id);
-  if (!session || !own || text(meta?.forked_from_id) !== parent) {
-    throw new Error(`codex's fork ${fork} does not name ${parent} as its parent`);
-  }
-  if (own === session) return;
-  // Created afresh, so a link planted under its name is not written through.
-  const temporary = `${path}.awf-${randomUUID()}`;
-  await writeFile(
-    temporary,
-    head.replace(`"session_id":"${own}"`, `"session_id":"${session}"`) + content.slice(head.length),
-    { flag: "wx", mode: found.mode & 0o777 },
-  );
-  await rename(temporary, path);
-}
-
-/** The session id at the head of a rollout, read without waiting on what is not a file. */
-async function sessionIdOf(path: string): Promise<string | undefined> {
-  const handle = await open(path, constants.O_RDONLY | constants.O_NONBLOCK).catch(() => undefined);
-  if (!handle) return undefined;
+  // The home may be a sandboxed agent's, which it can write. The rollout is opened once, never
+  // through a link, and only a regular file of its own is written, in place: a path swapped after
+  // the check, or a FIFO, is never reached, and nothing codex appends meanwhile is lost.
+  const handle = await open(
+    path,
+    constants.O_RDWR | constants.O_NOFOLLOW | constants.O_NONBLOCK,
+  ).catch((error: NodeJS.ErrnoException) => {
+    throw new Error(error.code === "ELOOP" ? `${path} is a link` : error.message);
+  });
   try {
-    if (!(await handle.stat()).isFile()) return undefined;
-    const { buffer, bytesRead } = await handle.read(Buffer.alloc(4096), 0, 4096, 0);
-    const head = buffer.subarray(0, bytesRead).toString("utf8").split("\n", 1)[0] ?? "";
-    // `session_id` comes before the system prompt, which can outrun the read.
-    if (!head.includes('"type":"session_meta"')) return undefined;
-    return /"session_id":"([^"]+)"/.exec(head)?.[1];
+    const stat = await handle.stat();
+    if (!stat.isFile() || stat.nlink !== 1) throw new Error(`${path} is not a rollout of its own`);
+    const head = await readHead(handle);
+    if (metaField(head, "id") !== fork || metaField(head, "forked_from_id") !== parent) {
+      throw new Error(`${path} is not ${fork}'s fork of ${parent}`);
+    }
+    const own = metaField(head, "session_id");
+    if (!session || !own || own === session || !safeId(session)) return;
+    if (own.length !== session.length) {
+      throw new Error(`codex's session ids ${own} and ${session} differ in length`);
+    }
+    const at = Buffer.byteLength(head.slice(0, head.indexOf(`"session_id":"${own}"`)));
+    await handle.write(Buffer.from(`"session_id":"${session}"`), 0, undefined, at);
   } finally {
     await handle.close();
   }
+}
+
+/**
+ * The start of a rollout's first line, which holds the whole system prompt and can outrun it:
+ * every field read from it comes before. Read without following a link or waiting on what is not
+ * a file; `""` where there is none.
+ */
+async function rolloutHead(path: string): Promise<string> {
+  const handle = await open(
+    path,
+    constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,
+  ).catch(() => undefined);
+  if (!handle) return "";
+  try {
+    return (await handle.stat()).isFile() ? await readHead(handle) : "";
+  } finally {
+    await handle.close();
+  }
+}
+
+async function readHead(handle: FileHandle): Promise<string> {
+  const { buffer, bytesRead } = await handle.read(Buffer.alloc(4096), 0, 4096, 0);
+  const head = buffer.subarray(0, bytesRead).toString("utf8").split("\n", 1)[0] ?? "";
+  return head.includes('"type":"session_meta"') ? head : "";
+}
+
+/** A string field of a rollout's `session_meta`, its first occurrence in the head. */
+function metaField(head: string, field: string): string | undefined {
+  return new RegExp(`"${field}":"([^"\\\\]+)"`).exec(head)?.[1];
+}
+
+/**
+ * The thread a subagent's rollout was spawned by: its `parent_thread_id`, or, from a codex that
+ * wrote none, the root its `session_id` names. A rollout whose `source` is a string is a session
+ * of its own, a fork awf gave its parent's session id included, and was spawned by none.
+ */
+function spawnerOf(head: string): string | undefined {
+  if (!head || head.includes('"source":"')) return undefined;
+  return metaField(head, "parent_thread_id") ?? metaField(head, "session_id");
 }
 
 /** The agent's own turn: a subagent it is still waiting on keeps that turn open too. */
@@ -198,25 +221,6 @@ function turnOpen(rows: readonly Row[]): boolean {
 /** The session id a codex rollout's file name ends with, after its start time. */
 export function codexRolloutId(path: string): string | undefined {
   return /^rollout-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-(.+)\.jsonl$/.exec(basename(path))?.[1];
-}
-
-async function spawnedBy(path: string, id: string): Promise<boolean> {
-  let head: string;
-  try {
-    head = await Bun.file(path).slice(0, 4096).text();
-  } catch {
-    return false;
-  }
-  const line = head.split("\n", 1)[0] ?? "";
-  // The first line holds the whole system prompt and can outrun the slice, so it is matched as
-  // text rather than parsed; `session_id` and `source` come before it. The root's own id is already
-  // read. A fork awf gave its parent's session id names a source of its own, a string, where a
-  // subagent's is an object.
-  return (
-    line.includes('"type":"session_meta"') &&
-    line.includes(`"session_id":"${id}"`) &&
-    !line.includes('"source":"')
-  );
 }
 
 function rolloutRecords(rows: readonly Row[], file: string, delegated: boolean): UsageRecord[] {

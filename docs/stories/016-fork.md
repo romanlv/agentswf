@@ -1,7 +1,7 @@
 ---
 id: "016"
 title: Fork an agent so new agents start from what it knows, from the cache
-summary: "agent.fork({ key }) opens a new agent on a copy of the agent's session, taken by the harness's own fork with no model call; claude and pi forks read the parent's context from the provider's cache, with or without compaction first."
+summary: "agent.fork({ key }) opens a new agent on a copy of the agent's session, taken by the harness's own fork with no model call; each fork reads the parent's context from the provider's cache, with or without compaction first."
 type: story
 status: done
 discovered_in: "story 015, the operator's review, 2026-10-01"
@@ -87,6 +87,8 @@ already knows the change.
     key, so awf forks it into a session directory of the fork's own under that id.
   - Codex's fork hits once its rollout carries its parent's session id, the key codex caches by
     (F10; found after closing, below).
+  - Cursor's fork, a copy of its chat's directory, hits by keeping its parent's `agentId` (F11;
+    found after closing, below).
 - **After compaction**, a fork reads the system prompt and tools from the cache and writes the
   summary once, which compaction made small (F3).
 - **Usage.** A fork's session file begins with its parent's rows (claude, pi) or refers to them
@@ -112,7 +114,6 @@ In scope:
 
 Out of scope:
 
-- Cursor: its CLI has no fork; its TUI's "Fork Chat" is unmeasured.
 - Forking at an earlier point than now (codex `lastTurnId`, claude message uuids).
 - A fork with another model, sandbox or set of skills.
 - Warming the cache at a compacted fork point so siblings share the summary: one summary per child
@@ -505,18 +506,30 @@ Manual or live evaluation:
 
 ## Implementation notes
 
-### After closing, 2026-10-04: codex forks hit the cache
+### After closing, 2026-10-04: codex forks hit the cache, and cursor forks
 
 - The operator questioned codex's miss. A resumed codex thread keys its cache by its rollout's
   `session_meta.session_id`, which a fork sets to its own id and codex's subagents to the root's
   (F10). Codex's `forkSession` now rewrites the fork's to its parent's once the app-server has
-  exited (`inheritCodexSessionId`), replacing the rollout rather than writing through it, and only
-  where it is a file of its own under the agent's home.
-- Usage told a subagent from such a fork by `session_id` alone, which would have read the fork's
-  spend as its parent's; a subagent's `source` is an object, a fork's a string.
+  answered (`inheritCodexSessionId`): in place, the id's bytes only, through one handle opened
+  without following a link or waiting on a FIFO, and only on a regular file of its own naming the
+  fork and its parent. A sandboxed agent can write its home, so no path is reopened after the
+  check, and nothing codex appends meanwhile is lost.
+- Usage credited a subagent to the thread whose `session_id` it carried, which a fork now shares
+  with its root: the fork's spend, and its subagents', would have been the root's. A subagent is
+  now its spawner's, by `parent_thread_id`, nested ones included; a rollout whose `source` is a
+  string, as a fork's is, is no one's subagent. A codex writing no `parent_thread_id` falls back
+  to `session_id`, and one writing no `session_id` leaves the fork as it made it.
+- Accepted: a cursor fork whose `cp -R` fails leaves a partial chat directory under a fresh id,
+  which no agent resumes.
 - `tests/fork.eval.ts` now asserts the cache share for codex too. Live: codex 0.97 in a pane, 0.90
   headless, 0.97 and 0.94 compacted; both srt-sandboxed cases read 19,968 of ~22k.
 - `codex-app-server-agent`, a todo whose only reason was this miss, is removed.
+- **Cursor forks too.** Its TUI's `/fork` copies the chat's store under a new `agentId`, the key
+  cursor caches by, and misses; a copy of the chat's directory that keeps the parent's hits, each
+  history its own (F11). Cursor's `forkSession` is that copy, `cp -R`, headless only, as cursor
+  runs. Its eval case checks what the fork recalls, not the cache: awf reads no cursor usage
+  ([[cursor-usage]]).
 
 ### Task 6, 2026-10-03
 

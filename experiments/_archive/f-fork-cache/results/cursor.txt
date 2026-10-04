@@ -1,0 +1,20 @@
+F11, 2026-10-04, cursor-agent 2026.10.01-14929f9, composer-2.5, headless. Requests are the
+`usage` of `cursor-agent -p --output-format json`: inputTokens / cacheReadTokens.
+A parent is given a ~37k-token prompt and a codename; each fork is a copy of its chat directory,
+`~/.cursor/chats/{md5 of the cwd}/{id}/`, under a new id.
+
+cursor.ts, a fork as `/fork` makes it (the copy's `agentId` set to its new id), then forkAgain:
+  parent 33140/3865; parent resumed 109/37004
+  fork 33354/3879 (OSPREY), forkAgain 81/37232; fork2 33358/3875 (OSPREY); parent after 121/37112
+
+cursor.ts with keep (the copy keeps its parent's `agentId`):
+  parent 33173/3808; parent resumed 67/37024
+  keep 54/37152 (OSPREY), keepAgain 70/37216 (R13); keep2 19/37184
+  parent after 22/37184 (OSPREY); keep after the parent 50/37344 (R12)
+
+cursor-isolation.ts, the parent and two kept-id forks each told a different release, then asked
+for every release they were told: parent R-PARENT-7, fork a R-FORKA-3, fork b R-FORKB-9.
+  notes 103/37004, 16/37092, 15/74201; asks 83/74293, 83/37107, 83/37107
+
+awf's recipe (`cp -R` of the chat directory), `bun tests/fork.eval.ts cursor`: the fork recalled
+the codename and not the release told after it. awf records no cursor usage, so its share is not read.

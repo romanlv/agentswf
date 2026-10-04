@@ -1,0 +1,43 @@
+import { spawnSync } from "node:child_process";
+import { createHash, randomUUID } from "node:crypto";
+import { cpSync, mkdtempSync, realpathSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { Database } from "bun:sqlite";
+
+const MODEL = process.argv[2] ?? "composer-2.5";
+const cwd = realpathSync(mkdtempSync(join(tmpdir(), "cursor-fork-")));
+const turn = (prompt: string, resume?: string) => {
+  const r = spawnSync("cursor-agent", ["-p", "--output-format", "json", "--force", "--trust", "--model", MODEL, ...(resume ? ["--resume", resume] : [])], { cwd, input: prompt, encoding: "utf8" });
+  const out = JSON.parse(r.stdout.trim().split("\n").at(-1)!);
+  return { id: out.session_id, answer: out.result.slice(0, 60), usage: out.usage };
+};
+const chats = join(process.env.HOME!, ".cursor/chats", createHash("md5").update(cwd).digest("hex"));
+function fork(parent: string, keep = false): string {
+  const id = randomUUID();
+  cpSync(join(chats, parent), join(chats, id), { recursive: true });
+  const db = new Database(join(chats, id, "store.db"));
+  const row = db.query("select key, value from meta").all() as { key: string; value: string }[];
+  for (const { key, value } of row) {
+    const meta = JSON.parse(Buffer.from(value, "hex").toString());
+    if (meta.agentId !== parent) continue;
+    if (keep) continue;
+    meta.agentId = id;
+    db.run("update meta set value = ? where key = ?", [Buffer.from(JSON.stringify(meta)).toString("hex"), key]);
+  }
+  db.close();
+  return id;
+}
+const manual = Array.from({ length: 900 }, (_, i) => `Section ${i}: the valve ${i * 7 % 113} opens when gauge ${i % 17} reads ${(i * 37) % 1000} kPa, unless relay R${i % 29} is latched.`).join("\n");
+const log: any = { model: MODEL, cwd };
+const p = turn(`Here is a manual.\n\n${manual}\n\nRemember the codename OSPREY. Reply with just "noted".`);
+log.parent = p;
+log.parentResume = turn("Which relay goes with section 412? Answer briefly.", p.id);
+const k1 = fork(p.id, true);
+log.keep = turn("What codename did I tell you? Answer with just the word.", k1);
+log.keepAgain = turn("Which relay goes with section 13? Briefly.", k1);
+const k2 = fork(p.id, true);
+log.keep2 = turn("What is section 7's gauge? Answer briefly.", k2);
+log.parentAfter = turn("What codename did I tell you? Answer with just the word.", p.id);
+log.keepAfterParent = turn("And section 99's relay? Briefly.", k1);
+console.log(JSON.stringify(log, null, 1));

@@ -1,4 +1,4 @@
-# Forking a session and the prompt cache, F1–F10
+# Forking a session and the prompt cache, F1–F11
 
 Whether a forked session reads its parent's prompt cache, measured 2026-10-01 for
 [story 016](../stories/016-fork.md) on claude 2.1.286 (`claude-haiku-4-5`), codex-cli 0.159.3
@@ -29,6 +29,7 @@ superseded here.
 | F8 | does a fork's session double-count its parent's usage? | **claude and pi copy the parent's rows; codex refers to them** |
 | F9 | what does claude's `total_cost_usd` count? | **the whole session, the parent's turns included** |
 | F10 | does a persisted codex fork given its parent's session id read its parent's cache? | **yes**, in every placement, compacted and sandboxed too: 3,727 / 45,824 against 37,519 / 12,032 |
+| F11 | does a cursor fork read its parent's cache? | **as `/fork` makes it, no**: 33,354 / 3,879; **keeping the parent's `agentId`, yes**: 54 / 37,152, each history its own |
 
 ## F1–F3 — claude
 
@@ -171,3 +172,25 @@ are in [`experiments/_archive/f-fork-cache/`](../../experiments/_archive/f-fork-
   a root and its subagents do. A rollout whose `session_id` names another thread is not always a
   subagent: codex writes a subagent's `source` as an object (`{"subagent": …}`) and a root
   session's as a string, which tells the two apart.
+
+## F11 — cursor
+
+Measured 2026-10-04 on cursor-agent 2026.10.01 (`composer-2.5`, headless); the probes and their
+output are in [`experiments/_archive/f-fork-cache/`](../../experiments/_archive/f-fork-cache/)
+(`scripts/cursor*.ts.txt`, `results/cursor.txt`).
+
+- Cursor's CLI has no fork flag, but its TUI has `/fork` ("Fork Chat"). It calls no model: it
+  copies every blob of the chat's `store.db`, under `~/.cursor/chats/{md5 of the cwd}/{id}/`, into
+  a new chat directory and gives the copy a new `agentId` in its `meta` row. The TUI then goes on
+  as the fork, the parent left to `--resume`.
+- A fork made that way misses: its first request read 33,354 / 3,879, twice, where a resume of the
+  parent read 109 / 37,004. Cursor keys its cache by the chat's `agentId`, as codex does by its
+  session id (F10).
+- A copy of the chat's directory under a new id that keeps the parent's `agentId` read 54 / 37,152
+  on its first request, and 19 / 37,184 for a second such fork. `--resume` takes the directory's
+  name, and the output names it as the session.
+- Sharing an `agentId` does not share a history: the parent and two such forks, each told a
+  different release, each recalled only its own.
+- Cursor's headless JSON reports each turn's tokens, `cacheReadTokens` included; awf does not read
+  them yet ([[cursor-usage]]). Only `composer-2.5` was measured: cursor sends other models to their
+  own providers, whose caches may key otherwise.
