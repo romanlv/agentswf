@@ -184,7 +184,7 @@ if [ "$1" = "app-server" ]; then
   while IFS= read -r line; do
     case "$line" in *'"id":2'*)
       [ -f "$day/rollout-2026-10-03T00-00-00-thread-1.jsonl" ] || exit 1
-      echo '{"type":"session_meta","payload":{"id":"thread-2","forked_from_id":"thread-1"}}' > "$day/rollout-2026-10-03T00-00-01-thread-2.jsonl"
+      echo '{"type":"session_meta","payload":{"session_id":"thread-2","id":"thread-2","forked_from_id":"thread-1","source":"exec"}}' > "$day/rollout-2026-10-03T00-00-01-thread-2.jsonl"
       echo '{"id":2,"result":{"thread":{"id":"thread-2"}}}' ;;
     esac
   done
@@ -192,7 +192,7 @@ if [ "$1" = "app-server" ]; then
 fi
 thread=thread-1
 [ "$2" = "resume" ] && thread=$3
-[ "$thread" = thread-1 ] && echo '{"type":"session_meta","payload":{"id":"thread-1"}}' >> "$day/rollout-2026-10-03T00-00-00-thread-1.jsonl"
+[ "$thread" = thread-1 ] && echo '{"type":"session_meta","payload":{"session_id":"thread-1","id":"thread-1"}}' >> "$day/rollout-2026-10-03T00-00-00-thread-1.jsonl"
 echo "$*" >> "$CODEX_HOME/argv.log"
 prompt=$(cat)
 line=$(printf '%s\\n' "$prompt" | grep " result .* <<'WF_JSON'$" | head -1)

@@ -1,0 +1,19 @@
+F10, 2026-10-04, codex-cli 0.160.0, gpt-6-luna, ChatGPT login. `bun sessionid.ts [control-first]`.
+A parent is given a ~42k-token prompt and a codename, then asked one question; two persisted forks
+are made with `thread/fork` (`excludeTurns: true`); one fork's `session_meta.session_id` is
+rewritten to the parent's; each fork is resumed on a fresh app-server and asked the codename.
+Requests are uncached / cached, as `thread/tokenUsage/updated` reported them. The first entry of
+a resumed thread repeats its last restored usage; the fork's own first request follows it.
+
+run 1 (patched resumed first)
+  parent      turn 1: 30078/12032   turn 2: 4595/41728
+  patched     [4595/41728] 3727/45824   answered OSPREY   next turn: 4870/48896
+  control     [4595/41728] 37519/12032  answered OSPREY   next turn: 4870/48896
+
+run 2 (control resumed first)
+  control     [4595/41728] 37525/12032  answered OSPREY   next turn: 4876/48896
+  patched     3733/45824                answered OSPREY   next turn: 4876/48896
+
+awf's recipe through `tests/fork.eval.ts` and `examples/fork`, first operation's cached share:
+  codex 0.971, codex:compact 0.972, codex-headless 0.903, codex-headless:compact 0.943
+  codex+sandbox and codex-headless+sandbox (srt): 2161/19968 and 2081/19968

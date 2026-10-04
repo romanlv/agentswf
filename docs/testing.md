@@ -67,8 +67,8 @@ What they cover between them:
   the headless claude's share billed per token.
 - `fork` — forks (story 016) on claude, codex and pi, in panes and headless, across a placement
   change and after a compaction: each worker notes a codename, is forked, then notes a release.
-  Each fork must answer the codename through its own channel and not know the release; a claude
-  or pi fork's first turn must read at least half its prompt from the cache. `bun tests/fork.eval.ts
+  Each fork must answer the codename through its own channel and not know the release, and its
+  first turn must read at least half its prompt from the cache. `bun tests/fork.eval.ts
   codex claude>headless` runs only those cases. 24 agents, ~2 min, ~$1.40 at list prices, the
   headless claude's share billed per token.
 - `calling-session` — `awf run --here` (story 014) from a claude, codex, pi and cursor session,

@@ -44,7 +44,7 @@ if [ "$1" = "app-server" ]; then
     case "$line" in *'"id":2'*)
       parent=$(printf '%s' "$line" | sed -n 's/.*"threadId":"\\([^"]*\\)".*/\\1/p')
       if [ -f "$day/rollout-2026-10-03T00-00-00-$parent.jsonl" ]; then
-        printf '{"type":"session_meta","payload":{"id":"thread-2","forked_from_id":"%s"}}\\n' "$parent" > "$day/rollout-2026-10-03T00-00-01-thread-2.jsonl"
+        printf '{"type":"session_meta","payload":{"session_id":"thread-2","id":"thread-2","forked_from_id":"%s","source":"exec"}}\\n' "$parent" > "$day/rollout-2026-10-03T00-00-01-thread-2.jsonl"
         echo '{"id":2,"result":{"thread":{"id":"thread-2"}}}'
       else
         echo '{"id":2,"error":{"message":"no such thread"}}'
@@ -56,7 +56,7 @@ fi
 thread=thread-1
 [ "$2" = "resume" ] && thread=$3
 mkdir -p "$day"
-[ "$thread" = thread-1 ] && printf '{"type":"session_meta","payload":{"id":"thread-1"}}\\n' >> "$day/rollout-2026-10-03T00-00-00-thread-1.jsonl"
+[ "$thread" = thread-1 ] && printf '{"type":"session_meta","payload":{"session_id":"thread-1","id":"thread-1"}}\\n' >> "$day/rollout-2026-10-03T00-00-00-thread-1.jsonl"
 prompt=$(cat)
 { printf 'argv:'; printf ' %s' "$@"; printf '\\n'; env; echo ---; } >> "$CODEX_HOME/turns.log"
 case "$prompt" in *wait*) sleep 30 ;; esac
@@ -255,6 +255,9 @@ describe("sandboxed agents", () => {
       "rollout-2026-10-03T00-00-00-thread-1.jsonl",
       "rollout-2026-10-03T00-00-01-thread-2.jsonl",
     ]);
+    // The fork reads its parent's cache under its parent's session id (F5).
+    const fork = join(testsHome!, "sessions/2026/10/03/rollout-2026-10-03T00-00-01-thread-2.jsonl");
+    expect(await readFile(fork, "utf8")).toContain('"session_id":"thread-1","id":"thread-2"');
     const turns = await turnsOf(testsHome!);
     expect(turns.map((turn) => turn.argv.split(" ").slice(1, 3).join(" "))).toEqual([
       "app-server --listen",

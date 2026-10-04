@@ -27,8 +27,8 @@ implementation.
   - Claude forks natively and hits in every placement.
   - pi keeps its parent's session id, the key its provider caches by, in a session directory of the
     fork's own.
-  - Codex hits only with an ephemeral fork, which outlives no process, so its fork is persisted and
-    pays its parent's context once (F4, F5).
+  - Codex's persisted fork is given its parent's session id, the key it caches by, in its rollout
+    (F4, F10). Codex's own means, an ephemeral fork, outlives no process (F5).
 - **Fork is refused where it cannot work:**
   - a harness with no fork (cursor);
   - an agent before its own first turn, a fork that has not run included, since its instructions
@@ -58,8 +58,6 @@ is one added here: every harness that forks does, and what each costs is a findi
 
 ## Not decided
 
-- An ephemeral codex fork, which hits, needs a codex agent that lives on one app-server process
-  across its turns: [`codex-app-server-agent`](../stories/todo/codex-app-server-agent.md).
 - Forking at an earlier point than now, as codex's `lastTurnId` and claude's message uuids would
   allow.
 - A fork in a different sandbox, or with other skills. Its session's working directory is the

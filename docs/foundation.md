@@ -80,7 +80,7 @@ before any of the code here existed. Their raw rows are in `experiments/_archive
 - Branching a session (fork, `/fork`, `/clear`) re-pays the context almost everywhere. Continuing
   it keeps the cache. Cold agents plus prefix caching beat forking in a pane by ~11x. Measured again
   in 2026-10 ([`fork-cache.md`](findings/fork-cache.md)), claude's forks and pi's keeping its
-  parent's id now read the cache in every placement; codex's still pay it once.
+  parent's id now read the cache in every placement, and codex's given its parent's session id (F10).
 - Schema constraints must be in the prompt, not just in the validator: 0/160 first-attempt validity
   without, 80/80 with — headless, one schema. Field-level error text costs 2.00 attempts against
   2.90–4.95 for a bare refusal, worst case 11. The runner has sent the schema itself since

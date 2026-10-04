@@ -36,7 +36,7 @@ Questions from the review, 2026-10-01:
   - **Claude:** a pane worker's headless fork read 60,377 tokens from the cache, the same as its
     pane fork (F2). A headless worker forked into a pane reads only part of it: 26,454 read and
     17,502 written (task 3).
-  - **Codex:** both directions work, but codex misses the cache in any placement.
+  - **Codex:** both directions work, and hit the cache under the parent's session id (F10).
   - **pi:** forks into a pane once pi runs in one
     ([story 017](017-pi-pane-agent.md)).
 - **What is `compact`'s `id` for?** Only idempotency: a second `compact` with the same id returns
@@ -85,9 +85,8 @@ already knows the change.
   - Claude forks hit in every placement, because claude resends its recorded system prompt.
   - pi's fork hits only when it keeps its parent's session id, which is its provider's cache
     key, so awf forks it into a session directory of the fork's own under that id.
-  - Codex's fork pays its parent's context once, then caches its own. Only an ephemeral fork
-    hits, and that needs a codex agent living on one app-server
-    ([`codex-app-server-agent`](todo/codex-app-server-agent.md)).
+  - Codex's fork hits once its rollout carries its parent's session id, the key codex caches by
+    (F10; found after closing, below).
 - **After compaction**, a fork reads the system prompt and tools from the cache and writes the
   summary once, which compaction made small (F3).
 - **Usage.** A fork's session file begins with its parent's rows (claude, pi) or refers to them
@@ -113,8 +112,6 @@ In scope:
 
 Out of scope:
 
-- Codex forks that hit the cache: an ephemeral fork outlives no process
-  ([`codex-app-server-agent`](todo/codex-app-server-agent.md)).
 - Cursor: its CLI has no fork; its TUI's "Fork Chat" is unmeasured.
 - Forking at an earlier point than now (codex `lastTurnId`, claude message uuids).
 - A fork with another model, sandbox or set of skills.
@@ -507,6 +504,19 @@ Manual or live evaluation:
 - [x] Open questions are resolved or explicitly moved out of scope.
 
 ## Implementation notes
+
+### After closing, 2026-10-04: codex forks hit the cache
+
+- The operator questioned codex's miss. A resumed codex thread keys its cache by its rollout's
+  `session_meta.session_id`, which a fork sets to its own id and codex's subagents to the root's
+  (F10). Codex's `forkSession` now rewrites the fork's to its parent's once the app-server has
+  exited (`inheritCodexSessionId`), replacing the rollout rather than writing through it, and only
+  where it is a file of its own under the agent's home.
+- Usage told a subagent from such a fork by `session_id` alone, which would have read the fork's
+  spend as its parent's; a subagent's `source` is an object, a fork's a string.
+- `tests/fork.eval.ts` now asserts the cache share for codex too. Live: codex 0.97 in a pane, 0.90
+  headless, 0.97 and 0.94 compacted; both srt-sandboxed cases read 19,968 of ~22k.
+- `codex-app-server-agent`, a todo whose only reason was this miss, is removed.
 
 ### Task 6, 2026-10-03
 

@@ -1,4 +1,4 @@
-# Forking a session and the prompt cache, F1–F9
+# Forking a session and the prompt cache, F1–F10
 
 Whether a forked session reads its parent's prompt cache, measured 2026-10-01 for
 [story 016](../stories/016-fork.md) on claude 2.1.286 (`claude-haiku-4-5`), codex-cli 0.159.3
@@ -23,11 +23,12 @@ superseded here.
 | F2 | does a pane claude fork, and a fork changing placement? | **yes** from a pane parent: 10 / 60,377 / 793 in a pane and 10 / 60,377 / 1,010 headless; **in part** from a headless parent into a pane: 2 / 26,454 / 17,502 |
 | F3 | after compaction? | **the system prompt and tools, not the summary**: every child writes the summary once |
 | F4 | does a codex fork read its parent's cache? | **no**, in every placement; 7–17k of it, never the conversation |
-| F5 | can it? | **only an ephemeral fork**: 807 / 24,320; it is never saved |
+| F5 | can it? | **by codex's own means only an ephemeral fork**: 807 / 24,320; it is never saved. A persisted one given its parent's session id does (F10) |
 | F6 | does a pi fork read its parent's cache? | **not by default**: 31,102 / 0; **yes keeping the parent's session id**: 800 / 30,208 |
 | F7 | can a fork be made without a model call? | **yes on all three** |
 | F8 | does a fork's session double-count its parent's usage? | **claude and pi copy the parent's rows; codex refers to them** |
 | F9 | what does claude's `total_cost_usd` count? | **the whole session, the parent's turns included** |
+| F10 | does a persisted codex fork given its parent's session id read its parent's cache? | **yes**, in every placement, compacted and sandboxed too: 3,727 / 45,824 against 37,519 / 12,032 |
 
 ## F1–F3 — claude
 
@@ -74,7 +75,7 @@ superseded here.
   cache key is the thread's session id, which is the root thread's id. The ChatGPT backend also
   routes by the `session-id` header carrying it. A fork is a new thread, so a new key, and a request
   routed where the parent's prefix is not cached. A resume keeps the key. There is no config to pin
-  it.
+  it, but the rollout does (F10).
 - The one exception is an ephemeral root fork, which reuses its parent's key ("Ephemeral forks
   reuse cache routing…"). `thread/fork` with `ephemeral: true`, then a turn on the same app-server,
   read 24,320 of 25,127 from the cache, twice. An ephemeral thread is not written to disk, so it
@@ -145,3 +146,28 @@ claude agent's second and later turns already report what the earlier ones charg
 in the same operation adds two totals, and a compaction printed $0.1017 where it cost about $0.015.
 pi's `readCharge` errs the other way: it takes the last `turn_end`'s cost, which is one request's of
 several.
+
+## F10 — a codex fork under its parent's session id
+
+Measured 2026-10-04 on codex-cli 0.160.0 (`gpt-6-luna`, ChatGPT login); the probe and its output
+are in [`experiments/_archive/f-fork-cache/`](../../experiments/_archive/f-fork-cache/)
+(`scripts/sessionid.ts.txt`, `results/sessionid.txt`).
+
+- What F4 missed: a resumed thread takes its session id, and with it its cache key and `session-id`
+  header, from its rollout's `session_meta.session_id` (`core/src/session/session.rs`, tag
+  `rust-v0.160.0`), not from its thread id. Codex's own subagents write the root's there and hit;
+  a `thread/fork` or `exec fork` writes its own thread id there and misses.
+- Two persisted forks of one parent, each resumed on a fresh app-server: one as codex left it, one
+  whose `session_meta.session_id` was rewritten to the parent's. The parent's prompt was ~42k. The
+  rewritten fork's first request read 3,727 / 45,824, twice; the plain fork 37,519 / 12,032 and
+  37,525 / 12,032, as in F4, whichever was resumed first. Both answered from the parent's context.
+  openai/codex#44716 saw the same through the header: 40,064 cached with the parent's `session-id`,
+  12,928 without.
+- awf's whole recipe, in `tests/fork.eval.ts` and `examples/fork`: the fork's first operation read
+  0.97 of its prompt from the cache in a pane, 0.90 headless, 0.97 and 0.94 after compaction, and
+  19,968 of about 22k in a pane and headless in an srt sandbox. F4's miss after compaction does not
+  recur under the parent's key.
+- The fork keeps its own thread id, so the two threads do not collide; they share a cache key, as
+  a root and its subagents do. A rollout whose `session_id` names another thread is not always a
+  subagent: codex writes a subagent's `source` as an object (`{"subagent": …}`) and a root
+  session's as a string, which tells the two apart.

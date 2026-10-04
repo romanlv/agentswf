@@ -1,12 +1,21 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { appendFileSync, cpSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  appendFileSync,
+  cpSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { TokenUsage } from "@agentswf/contract/records";
 import { createSessionAccounting } from "./accounting";
 import { claudeBilling, codexBilling, piBilling, readCodexBilling } from "./billing";
 import { findClaudeSession, readClaudeUsage as readClaude } from "./claude";
-import { findCodexSession, readCodexUsage as readCodex } from "./codex";
+import { findCodexSession, inheritCodexSessionId, readCodexUsage as readCodex } from "./codex";
 import { readPiUsage as readPi, readPiCompactSummary } from "./pi";
 import type { SessionRead, UsageRecord } from "./records";
 
@@ -435,6 +444,75 @@ describe("codex sessions", () => {
       [true, 2],
     ]);
     expect(await readCodexUsage(["oot-1"], root)).toBeUndefined();
+  });
+
+  test("a fork given its parent's session id is a session of its own, not its parent's subagent", async () => {
+    const root = mkdtempSync(join(tmpdir(), "codex-usage-"));
+    roots.push(root);
+    const withSource = (row: ReturnType<typeof meta>, source: unknown) => ({
+      ...row,
+      payload: { ...row.payload, source },
+    });
+    rollout(root, "2026/09/23", "root-1", [
+      withSource(meta("root-1"), "exec"),
+      counted("2026-09-23T10:00:01Z", [10, 0, 1], [10, 0, 1]),
+    ]);
+    rollout(root, "2026/09/23", "fork-1", [
+      withSource(meta("fork-1", "root-1"), "exec"),
+      counted("2026-09-23T10:00:02Z", [20, 0, 2], [20, 0, 2]),
+    ]);
+    rollout(root, "2026/09/23", "child", [
+      withSource(meta("child", "root-1"), { subagent: { other: "guardian" } }),
+      counted("2026-09-23T10:00:03Z", [30, 0, 3], [30, 0, 3]),
+    ]);
+
+    const records = (await readCodexUsage(["root-1"], root))!;
+    expect(records.map(({ delegated, tokens }) => [delegated, tokens.output])).toEqual([
+      [false, 1],
+      [true, 3],
+    ]);
+    const fork = (await readCodexUsage(["fork-1"], root))!;
+    expect(fork.map(({ delegated, tokens }) => [delegated, tokens.output])).toEqual([[false, 2]]);
+  });
+
+  test("a fork is given its parent's session id, in its own rollout only", async () => {
+    const home = mkdtempSync(join(tmpdir(), "codex-home-"));
+    roots.push(home);
+    const sessions = join(home, "sessions");
+    const day = "2026/09/23";
+    rollout(sessions, day, "parent", [
+      { type: "session_meta", payload: { session_id: "root", id: "parent" } },
+    ]);
+    const forkRow = {
+      type: "session_meta",
+      payload: { session_id: "fork", id: "fork", forked_from_id: "parent", source: "exec" },
+    };
+    rollout(sessions, day, "fork", [forkRow, { type: "event_msg", payload: { n: 1 } }]);
+    rollout(sessions, day, "stray", [
+      { ...forkRow, payload: { ...forkRow.payload, id: "stray", forked_from_id: "other" } },
+    ]);
+
+    await inheritCodexSessionId(home, "parent", "fork");
+    const file = join(sessions, day, "rollout-2026-09-23T10-00-00-fork.jsonl");
+    const [head, rest] = readFileSync(file, "utf8").split("\n");
+    expect(JSON.parse(head!).payload).toMatchObject({ session_id: "root", id: "fork" });
+    expect(JSON.parse(rest!)).toEqual({ type: "event_msg", payload: { n: 1 } });
+    // Again is a no-op.
+    await inheritCodexSessionId(home, "parent", "fork");
+
+    await expect(inheritCodexSessionId(home, "parent", "stray")).rejects.toThrow(
+      "does not name parent as its parent",
+    );
+    await expect(inheritCodexSessionId(home, "parent", "missing")).rejects.toThrow("no rollout");
+    // A rollout the agent swapped for a link is not written through.
+    const outside = join(home, "outside.jsonl");
+    writeFileSync(outside, `${JSON.stringify(forkRow)}\n`);
+    rmSync(file);
+    symlinkSync(outside, file);
+    await expect(inheritCodexSessionId(home, "parent", "fork")).rejects.toThrow(
+      "is not a rollout of its own",
+    );
+    expect(readFileSync(outside, "utf8")).toContain('"session_id":"fork"');
   });
 
   test("a half-written last line is ignored, and a missing or hostile id is unknown", async () => {

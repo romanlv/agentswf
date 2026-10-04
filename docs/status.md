@@ -153,10 +153,9 @@ The gates are defined in [`foundation.md`](foundation.md) §12.
   `agent.fork({ key })` opens a new agent on a copy of an agent's session, on claude, codex and
   pi, in a pane or headless, into either, in a sandbox too; claude's and pi's read their parent's
   cache. A headless claude turn charges what it added to its session's total. Claude panes are
-  typed their prompts, which claude 2.1.288 otherwise shows as pasted text and will not act on. Claude panes are
-  typed their prompts, which claude 2.1.288 otherwise shows as pasted text and will not act on. A fork is a new
-  agent on a copy of the session, made with no model call; claude's and pi's forks read the
-  parent's cache, codex's pay it once ([findings](findings/fork-cache.md)).
+  typed their prompts, which claude 2.1.288 otherwise shows as pasted text and will not act on. A
+  fork is a new agent on a copy of the session, made with no model call; every harness's fork reads
+  its parent's cache, codex's under its parent's session id ([findings](findings/fork-cache.md)).
 - [017 — pi in panes](stories/017-pi-pane-agent.md): done, approved 2026-10-01. pi runs in a Herdr
   pane, on the host and in srt and docker sandboxes, and compacts there with a focus.
 

@@ -41,12 +41,12 @@ export function forkCommand(
 }
 
 /** What the fork plan's process left: the new session, or why there is none. */
-export function forkResult(
+export async function forkResult(
   harness: Harness,
   plan: ForkPlan,
   result: ProcessResult,
   deadline: AbsoluteDeadline,
-): NativeFork {
+): Promise<NativeFork> {
   if (result.cancelled) throw new Error("the fork was cancelled");
   // A held server answered before it was made to exit: its exit says nothing about the fork.
   if (!result.answered) {
@@ -59,6 +59,7 @@ export function forkResult(
   }
   const read = plan.read(result.stdout);
   if ("error" in read) throw new Error(read.error);
+  await plan.finish?.(read.sessionId);
   return {
     harness,
     sessionRef: read.sessionId,

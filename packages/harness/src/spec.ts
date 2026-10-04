@@ -3,6 +3,7 @@ import type { Billing } from "@agentswf/contract/records";
 import type { AgentPlacement } from "@agentswf/contract/workflow";
 import type { Holding, RunProcess } from "./command";
 import { count, jsonLines, parseRow, type Row, record, reported, text } from "./json";
+import { harnessState } from "./state";
 import type { Harness } from "./types";
 import { readClaudeBilling, readCodexBilling, readPiBilling } from "./usage/billing";
 import {
@@ -17,6 +18,7 @@ import {
   codexSessionFiles,
   codexSessionsDirectory,
   findCodexSession,
+  inheritCodexSessionId,
   readCodexUsage,
 } from "./usage/codex";
 import { ownFiles } from "./usage/files";
@@ -49,6 +51,8 @@ export type ForkPlan = TurnPlan &
   Holding & {
     /** The new session, and the running total printed with it where there is one; or why not. */
     read(stdout: string): { sessionId: string; costTotal?: number } | { error: string };
+    /** What the fork still needs once its process has exited, before anything resumes it. */
+    finish?(sessionId: string): Promise<void>;
   };
 
 export type BillingContext = {
@@ -411,10 +415,10 @@ export const HARNESSES: Record<Harness, HarnessSpec> = {
         .map((row) => text(record(row.item)?.text) ?? "");
       return messages.join("\n") || stdout;
     },
-    // The app-server forks a thread with no turn, and exits once its stdin closes. The fork is
-    // persisted, so it misses its parent's cache once (F4, F5); it takes its own id, which the
-    // response names.
-    forkSession: (sessionId, _newSessionId, { model, launchArgs = [] }) => {
+    // The app-server forks a thread with no turn, and exits once its stdin closes. The fork takes
+    // its own id, which the response names, and is then given its parent's session id, which keys
+    // the cache, so it reads its parent's (F4, F5).
+    forkSession: (sessionId, _newSessionId, { model, launchArgs = [], home }) => {
       const answered = (row: Row | undefined) => row?.id === 2;
       return {
         argv: [
@@ -449,6 +453,7 @@ export const HARNESSES: Record<Harness, HarnessSpec> = {
           const why = text(record(response?.error)?.message);
           return { error: `codex wrote no fork${why ? `: ${why}` : ""}` };
         },
+        finish: (forked) => inheritCodexSessionId(home ?? harnessState().codex, sessionId, forked),
       };
     },
     // `exec` sends `/compact` to the model as text; the app-server compacts, and exits once its
