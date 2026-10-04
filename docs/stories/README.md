@@ -92,6 +92,9 @@ status is one of `todo`, `draft`, `ready`, `in-progress`, `blocked`, `awaiting-h
 - [`017` — Run pi in a Herdr pane, as claude and codex run](017-pi-pane-agent.md) —
   `done` — a pi agent may take placement pane, on the host and in sandboxes, with
   turns, continuation and compaction there.
+- [`018` — Run a workflow as named stages, and continue it from one](018-workflow-stages.md) —
+  `in-progress` — a run has an id and numbered attempts; stages are marked inline, and a continue reuses
+  the stages that succeeded and runs the rest; awf gains `stage` and `stop`.
 
 This is the high-level index of numbered stories. Keep each entry to its title, status, and
 one-sentence summary; put code maps, research, design, tasks, and verification in the linked story.

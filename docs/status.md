@@ -158,6 +158,9 @@ The gates are defined in [`foundation.md`](foundation.md) §12.
   pasted text and will not act on.
 - [017 — pi in panes](stories/017-pi-pane-agent.md): done, approved 2026-10-01. pi runs in a Herdr
   pane, on the host and in srt and docker sandboxes, and compacts there with a focus.
+- [018 — workflow stages](stories/018-workflow-stages.md): in progress. Runs with ids and attempts,
+  stages marked inline, a continue that reuses what succeeded; the model is
+  `design/runs-and-stages.md`, and ADR 0011 amends §10's plan.
 - [019 — cursor as a full harness](stories/019-cursor-harness.md): in progress. Each harness is
   one file whose every capability is given or absent with a reason tsc checks
   ([adding a harness](adding-a-harness.md)). cursor runs in a pane, compacts there, forks into
