@@ -96,6 +96,9 @@ status is one of `todo`, `draft`, `ready`, `in-progress`, `blocked`, `awaiting-h
   `awaiting-human-review` — cursor runs in a pane, compacts, records its tokens, takes skills and
   runs in a sandbox; each harness is one file whose every capability is built or absent with a
   reason tsc checks.
+- [`020` — An agent runs at the effort its workflow names, and its record says which](020-agent-effort.md) —
+  `draft` — a workflow names an agent's reasoning effort and may change it for one turn; each
+  harness is launched or switched to it, or refused with its reason, and every operation records it.
 
 This is the high-level index of numbered stories. Keep each entry to its title, status, and
 one-sentence summary; put code maps, research, design, tasks, and verification in the linked story.

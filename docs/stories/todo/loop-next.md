@@ -5,7 +5,7 @@ status: todo
 priority: P0
 epic: loop
 discovered_in: "story 013, task 6, the first live loop, 2026-10-01"
-depends_on: ["013", runtime-effort, comparison-efficiency]
+depends_on: ["013", "020", comparison-efficiency]
 ---
 
 # The loop's next version, from its first live run
@@ -26,12 +26,12 @@ Where each finding of the report went:
 | Report | Where |
 | --- | --- |
 | 1. A second turn of one agent finds little; separate agents do | the program, below; [[review-shapes-and-models]] |
-| 2. The proposer was lazy | here, and [[runtime-effort]] for its effort |
+| 2. The proposer was lazy | here, and [[020-agent-effort]] for its effort |
 | 3. A try costs 3 h and $24; it should stop at 8 cases | [[comparison-efficiency]] |
 | 4. The proposer was told no resolution | [[comparison-efficiency]] |
 | 5. A cut loop lost its place | fixed (`f61911a`); its spend: here |
 | 6. Codex 0.157 refused `gpt-6.1-sol` | fixed: the image has 0.159.3 |
-| 7. Contained codex ran at low effort | stopgap in `execute.ts`; the fix is [[runtime-effort]] |
+| 7. Contained codex ran at low effort | stopgap in `execute.ts`; the fix is [[020-agent-effort]] |
 | 8. A finished review lost to a slow shutdown | fixed: the lab reruns it, its spend counted |
 | 9. The scorer needs `OPENROUTER_API_KEY` | here |
 
@@ -44,7 +44,7 @@ Where each finding of the report went:
 2. **A proposer that thinks.** It spent one minute, 50 reasoning tokens and $0.05. It is the
    cheapest step by far.
    - High effort, or a stronger model, for the proposer only: `--proposer` names a harness and
-     model and no effort, so it needs [[runtime-effort]]. Until then the contained home's copy of
+     model and no effort, so it needs [[020-agent-effort]]. Until then the contained home's copy of
      the host's effort applies to it too.
    - Its answer cites the feedback it used: which cases' `missed` text, and what pattern across
      them. A hypothesis that cites nothing is refused, like a scope breach.

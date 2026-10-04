@@ -31,7 +31,7 @@ as an unanswered turn.
 
 Notes:
 
-- A choice per agent, beside `effort` ([[runtime-effort]]) in `ExecutionConfig`, is a published
+- A choice per agent, beside `effort` ([[020-agent-effort]]) in `ExecutionConfig`, is a published
   type change: decide its values (one awf vocabulary mapped per harness, or each harness's own),
   which a harness without the concept rejects, and whether the operator may override a workflow's.
 - The mapping: claude `--permission-mode` (`default`, `acceptEdits`, `auto`, `dontAsk`,

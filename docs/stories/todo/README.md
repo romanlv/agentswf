@@ -71,8 +71,8 @@ live runs.
   can't hide, a loop that outlives its shell, a scorer checked before spending.
 - [[comparison-efficiency]] — a try that's no better stops at 8 cases, cases up to a look run in
   parallel, a resolution at 1 trial. The report's "3 hours and $24 for one try".
-- [[runtime-effort]] — effort per agent and per turn, recorded. A published type change to
-  `ExecutionConfig`: settle the values first.
+- [[020-agent-effort]] — now story 020, in draft: effort per agent and per turn, recorded. Its
+  contract questions are settled before it's built.
 - [[turn-liveness-and-limits]] — an agent waiting on its own background work is not done; limits by
   progress and cost. Lost implement-ticket's run one step from the end.
 
