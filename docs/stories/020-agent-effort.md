@@ -252,7 +252,13 @@ interface AgentRunBase {
 ```ts
 const findings = await reviewer.run({ prompt: review, schema: Findings });           // high
 const summary = await reviewer.run({ prompt: "Summarise.", effort: "low" });          // low, once
+const recheck = await reviewer.run({ prompt: "Check the fixes." });                   // high again
 ```
+
+A turn's effort does not carry over. The turns after it run at the agent's effort, which is fixed
+when the agent is opened, as `AgentRef.execution` is today. To run several turns low, each one names
+`low`. There is no call that changes the agent's effort for the rest of the run. Open question 2
+asks whether there should be.
 
 **In the records:** nothing new is added. `OperationRecord.execution` is already "resolved execution
 for this operation", so a turn's effort is written there; `byAgent[].execution` holds the agent's.
@@ -341,6 +347,18 @@ Alternatives rejected:
 - Is `effort` agent-owned (an alias's is a default the agent can change, like placement) or
   alias-owned (a constraint, like model)? The proposal says agent-owned: the same model at two
   efforts is the common case, and an alias per pair multiplies aliases.
+- **Should a turn's effort stay for the turns after it?** The proposal says no: a turn's effort is
+  for that turn only, and the agent's effort is fixed when it is opened.
+  - Why: a turn's spec then says everything about the turn. A turn that is replayed, or continued
+    from a stage ([story 018](018-workflow-stages.md)), runs at the effort it was recorded with,
+    whatever ran before it.
+  - The cost: a workflow that wants every turn after some point at `low` has to name `low` on each
+    of them.
+  - The alternative is a call that changes the agent's own effort, `reviewer.setEffort("low")`, and
+    that its record shows from then on. The agent's execution would then change over the run, so
+    `byAgent[].execution` would need an effort per span of turns, or the last one.
+  - Recommendation: keep effort per turn now. A setter can be added later without breaking
+    anything, and taking one back would break workflows.
 
 ### 3. Harnesses
 
