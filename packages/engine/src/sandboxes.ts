@@ -31,10 +31,15 @@ import { placeSkills, type ResolvedSkill } from "./skills/run-skills";
 export type RunSandboxOptions = {
   providers: SandboxProviders;
   /**
-   * Every run's directory, denied inside each sandbox but for its own directory: the `--run-root`,
-   * of which this run's is one entry. Defaults to the run's own root.
+   * Every run's directory, denied inside each sandbox: the `--run-root`, of which this run's is one
+   * entry. Defaults to the run's own root.
    */
   runRoot?: string;
+  /**
+   * Where each sandbox's own directory, its homes and quarantine, is made. Outside the run root, so
+   * a provider that denies it hides none of a sandbox's own. Defaults to the run's `sandboxes/`.
+   */
+  directory?: string;
   /**
    * The operator's environment, which says where each harness keeps its state, the `PATH` an
    * agent's harness is found on and claude's token. Defaults to the engine's.
@@ -378,7 +383,9 @@ export class RunSandboxes {
     const { provider, sandbox: resolved } = await resolveSandbox(spec, options);
     // Minted, not derived from the key, which may hold `/` or `..`; real, as every path a
     // provider is handed is, so a path rule it writes matches what the system checks.
-    const directory = join(await realpath(this.options.runDir), "sandboxes", randomUUID());
+    const parent = this.options.sandboxes?.directory ?? join(this.options.runDir, "sandboxes");
+    await mkdir(parent, { recursive: true, mode: 0o700 });
+    const directory = join(await realpath(parent), randomUUID());
     // Before the provider opens: a box mounts `homes/` once, and later agents' homes appear in it.
     await mkdir(join(directory, "homes"), { recursive: true, mode: 0o700 });
     const opened = await this.#providers.installed[provider]!.open(resolved, {

@@ -298,7 +298,7 @@ async function openBox(
       "--network",
       names.network,
       ...PROXY_VARIABLES.flatMap((name) => ["-e", `${name}=${proxy}`]),
-      ...mountArgs(spec, context.directory, existing),
+      ...mountArgs(spec, context.directory, existing, context.runRoot),
       image,
       "sleep",
       lifetime,

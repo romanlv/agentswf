@@ -201,7 +201,7 @@ so restarting a run twenty times adds twenty small files.
 Today a run is `~/.awf/runs/invocation-{uuid}/{runId}/`, holding `calls/`, `sandboxes/`,
 `output.json` and `report.md`. Calls, the output and the report stay as they are, one level up,
 shared by the run's attempts: calls are keyed by uuid, so attempts never collide. Sandboxes move out
-of the project, to `~/.awf/sandboxes/{uuid}/` ([[#Sandboxes]]).
+of the project, to `~/.awf/sandboxes/{workflow}/{id}/{uuid}/` ([[#Sandboxes]]).
 
 ### Each file
 
@@ -371,9 +371,10 @@ random hex digits: `20261004-1532-a7f3`.
 ### Sandboxes
 
 A sandbox may contain the run root; its provider hides it. Each sandbox's own folder, its homes
-and quarantine, is `~/.awf/sandboxes/{uuid}/`, outside the project: srt on macOS emits a deny
-nested in an allowed path after the allow, so a run root inside the project, denied, would hide a
-sandbox folder under it too. The run's records name the folder, as today.
+and quarantine, is `~/.awf/sandboxes/{workflow}/{id}/{uuid}/`, outside the project: srt on macOS
+emits a deny nested in an allowed path after the allow, so a run root inside the project, denied,
+would hide a sandbox folder under it too. No sandbox reaches into `~/.awf`, and a run root holding
+its sandboxes is refused.
 
 - srt lists the run root in `denyRead` already (`srt/profile.ts:62`) and gains a write deny for it.
 - docker mounts an empty tmpfs over the run root when a mount contains it.
@@ -381,7 +382,8 @@ sandbox folder under it too. The run's records name the folder, as today.
   the provider now hides it; a path inside the run root is still refused.
 
 Agents outside a sandbox can reach `.awf/`, and `git clean -xfd` deletes it, as with
-`.terraform/`.
+`.terraform/`. Only the run's own root is hidden: a sandbox that reads a folder holding other
+projects reaches their `.awf/runs`, as it reaches their source.
 
 ## One attempt, start to end
 

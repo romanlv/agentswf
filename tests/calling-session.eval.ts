@@ -148,7 +148,7 @@ if (import.meta.main) {
     let pressed = false;
     const by = Date.now() + 8 * 60_000;
     while (Date.now() < by && !signal.aborted) {
-      const records = [...new Bun.Glob("invocation-*/*/output.json").scanSync({ cwd: runRoot })];
+      const records = [...new Bun.Glob("*/*/output.json").scanSync({ cwd: runRoot })];
       if (records[0]) {
         return problems(harness, JSON.parse(readFileSync(join(runRoot, records[0]), "utf8")));
       }
@@ -195,7 +195,7 @@ if (import.meta.main) {
   await herdr(["workspace", "close", workspace]);
   const estimates = (Object.keys(SESSIONS) as Harness[]).flatMap((harness) => {
     const runRoot = join(workDir, `runs-${harness}`);
-    return [...new Bun.Glob("invocation-*/*/output.json").scanSync({ cwd: runRoot })].map(
+    return [...new Bun.Glob("*/*/output.json").scanSync({ cwd: runRoot })].map(
       (file) =>
         (JSON.parse(readFileSync(join(runRoot, file), "utf8")) as OutputRecord).accounting.totals
           .estimate,

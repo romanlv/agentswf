@@ -68,6 +68,8 @@ function inProcess(options: { spend?: number } = {}) {
     const started = Date.now();
     const exitCode = await runOperatorCli(awfArgv(request), {
       cwd: request.cwd,
+      // Sandboxes go under `~/.awf`: the test workspace's, never the operator's.
+      home: dirname(request.runRoot),
       stdout: (text) => output.push(text),
       stderr: (text) => errors.push(text),
       installRuntime: async () => ({

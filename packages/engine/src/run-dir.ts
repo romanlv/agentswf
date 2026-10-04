@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { link, mkdir, open, unlink } from "node:fs/promises";
 import { join } from "node:path";
-import type { Attempt, CallSpec } from "@agentswf/contract/records";
+import type { CallSpec, Candidate } from "@agentswf/contract/records";
 import { appendLine, readLines } from "./jsonl";
 
 /**
@@ -25,18 +25,18 @@ export async function writeCall(runDir: string, spec: CallSpec): Promise<void> {
   await Bun.write(join(dir, "call.json"), JSON.stringify(spec, null, 2));
 }
 
-export async function recordAttempt(
+export async function recordCandidate(
   runDir: string,
   callId: string,
-  attempt: Attempt,
+  candidate: Candidate,
 ): Promise<void> {
   const dir = callDir(runDir, callId);
   await mkdir(dir, { recursive: true });
-  await appendLine(join(dir, "attempts.jsonl"), JSON.stringify(attempt));
+  await appendLine(join(dir, "candidates.jsonl"), JSON.stringify(candidate));
 }
 
-export async function readAttempts(runDir: string, callId: string): Promise<Attempt[]> {
-  return readLines<Attempt>(join(callDir(runDir, callId), "attempts.jsonl"));
+export async function readCandidates(runDir: string, callId: string): Promise<Candidate[]> {
+  return readLines<Candidate>(join(callDir(runDir, callId), "candidates.jsonl"));
 }
 
 /** Writes a complete candidate before atomically claiming the one accepted-result path. */

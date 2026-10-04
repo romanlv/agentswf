@@ -12,9 +12,12 @@ export type StepId = string;
 export type SignalId = string;
 
 export interface WorkflowMeta {
+  /** What its runs are kept under; a file may move or be copied and stay the same workflow. */
   name: string;
   description: string;
   whenToUse?: string;
+  /** Semver, recorded with each attempt. */
+  version?: string;
 }
 
 export interface StepSpec {
@@ -55,7 +58,10 @@ export interface Signals {
 }
 
 export interface WorkflowContext {
+  /** The run's id, the same in every attempt of it. */
   readonly runId: WorkflowRunId;
+  /** Which `awf run` of the run this is: 1, then one more for each continue. */
+  readonly attempt: number;
   /** Working directory and hard bound for this invocation, supplied and enforced by the engine. */
   readonly cwd: string;
   readonly deadline: AbsoluteDeadline;

@@ -21,7 +21,10 @@ const providers: SandboxProviders = {
   default: "srt",
 };
 const harnessState = [join(home, ".claude"), join(home, ".codex"), join(home, ".pi", "agent")];
-const resolve = (spec: unknown, extra: { inline?: boolean; providers?: SandboxProviders } = {}) =>
+const resolve = (
+  spec: unknown,
+  extra: { inline?: boolean; providers?: SandboxProviders; runRoot?: string } = {},
+) =>
   resolveSandbox(spec, { key: "box", cwd: repo, runRoot, home, providers, harnessState, ...extra });
 
 beforeAll(async () => {
@@ -29,6 +32,7 @@ beforeAll(async () => {
   await mkdir(join(repo, "src"), { recursive: true });
   await mkdir(join(home, "notes"), { recursive: true });
   await mkdir(join(home, ".ssh"), { recursive: true });
+  await mkdir(join(home, ".awf", "sandboxes"), { recursive: true });
   await mkdir(join(home, ".orbstack", "ssh"), { recursive: true });
   await mkdir(join(home, "feature"), { recursive: true });
   await mkdir(runRoot, { recursive: true });
@@ -189,6 +193,8 @@ describe("resolveSandbox", () => {
     [{ read: ["~/.claude/projects"] }, "would expose harness state"],
     [{ read: ["~/.claude"] }, "would expose harness state"],
     [{ read: ["~/.ssh"] }, "would expose keys"],
+    [{ read: ["~/.awf"] }, "would expose"],
+    [{ write: ["~/.awf/sandboxes"] }, "would expose"],
     [{ docker: {}, read: ["~/.orbstack"] }, "would expose keys"],
     [{ read: ["~root"] }, "only ~ and ~/ expand"],
     [{ cwd: join(root, "crafted", "points-home") }, "would expose ~"],
@@ -205,6 +211,16 @@ describe("resolveSandbox", () => {
     [null, "must be an object"],
   ])("rejects %j", async (spec, reason) => {
     await expect(resolve(spec)).rejects.toThrow(reason);
+  });
+
+  test("a project holding the run root resolves, and its runs are still refused", async () => {
+    const projectRuns = join(repo, ".awf", "runs");
+    await mkdir(join(projectRuns, "flow", "r1"), { recursive: true });
+    const { sandbox } = await resolve({ write: ["."] }, { runRoot: projectRuns });
+    expect(sandbox.write).toEqual([repo]);
+    await expect(
+      resolve({ read: [join(projectRuns, "flow", "r1")] }, { runRoot: projectRuns }),
+    ).rejects.toThrow("would expose the run root");
   });
 
   test("tells `{ srt: undefined }` from an environment", async () => {

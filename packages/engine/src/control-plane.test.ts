@@ -117,7 +117,7 @@ describe("result control plane", () => {
       async submit() {
         entered();
         await gate;
-        return { kind: "accepted", value: {}, attemptRecorded: true, acceptedAt: 0 };
+        return { kind: "accepted", value: {}, candidateRecorded: true, acceptedAt: 0 };
       },
       async close() {
         return false;

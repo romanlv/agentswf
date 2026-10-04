@@ -138,6 +138,15 @@ describe("docker arguments", () => {
     expect(mountArgs(outside, directory, [])).toContain(bind(repo, true));
     expect(() => mountArgs({ ...spec, read: ["/a,b"] }, directory, [])).toThrow("comma");
   });
+
+  test("an empty tmpfs hides a run root a mount holds, and only then", () => {
+    const projectRuns = join(repo, ".awf", "runs");
+    const mounts = mountArgs(spec, directory, [], projectRuns).filter((arg) => arg !== "--mount");
+    expect(mounts.indexOf(`type=tmpfs,target=${projectRuns}`)).toBeGreaterThan(
+      mounts.indexOf(bind(repo)),
+    );
+    expect(mountArgs(spec, directory, [], runRoot).join(" ")).not.toContain("tmpfs");
+  });
 });
 
 describe("the docker provider", () => {

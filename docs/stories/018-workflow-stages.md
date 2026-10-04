@@ -226,7 +226,7 @@ Out of scope:
 
 - [x] 1. Decisions and the ADR: the open questions below and in [[runs-and-stages]]; ADR 0011
   "A run continues from its stages".
-- [ ] 2. Runs and attempts: `runs.ts`, `run.json`, attempts, id and attempt claims, `--id`,
+- [x] 2. Runs and attempts: `runs.ts`, `run.json`, attempts, id and attempt claims, `--id`,
   `--continue`, labels.
 - [ ] 3. Stages recorded: `workflow.stage`, the ledger, tagging, stage records, test support.
 - [ ] 4. Continue from a stage: the stage plan, `--from-stage`, removing stale records, schemas, test
@@ -304,7 +304,6 @@ Done when `runs.ts` tests cover, against a temp root:
 - a live attempt refusing, and a dead one (no `ended`, no process) read as `interrupted`;
 - two attempts claimed at once: exactly one runs, and the refused one leaves no file;
 - leftover `.tmp-*` and `.new-*` temp files and folders ignored;
-- a torn `turns.jsonl` line skipped, with a later attempt's lines after it;
 - a continue after `meta.name` changed, pointing at the old folder;
 - a deleted run dir freeing its id;
 - a newer `version` refused;
@@ -363,7 +362,8 @@ Done when runner tests cover:
 - an agent's turns in two stages;
 - a failed, stopped and cancelled stage;
 - a value its schema rejects;
-- a workflow without stages, unchanged.
+- a workflow without stages, unchanged;
+- a torn `turns.jsonl` line skipped, with a later attempt's lines after it (moved from task 2).
 
 ### 4. Continue from a stage
 
@@ -446,7 +446,56 @@ Manual or live evaluation:
 
 - ADR review:
 
-### Tasks 2–8
+### Task 2
+
+Two subagents, 2026-10-04. Resolved:
+- **Blocking, `~/.awf` no longer refused.** The old run root, `~/.awf/runs`, covered it, and the
+  move into the project uncovered every sandbox's homes. `forbidden()` now refuses a path inside
+  `~/.awf`, with a test.
+- **Sandbox folders orphaned.** They go under `~/.awf/sandboxes/{workflow}/{id}/{uuid}`, found
+  by their run. `runs.ts` builds the `~/.awf` paths, `machinePaths` and `sandboxesOf`.
+- **`meta.name` and `meta.version` unchecked.** The loader refuses a name that can't be a folder
+  and a version that isn't semver, with tests.
+- **A continue from elsewhere.** "No run" now says a run is kept under its working directory,
+  which `--cwd` names.
+- **Refusals left a run behind.** A new run whose first attempt claim fails is discarded. Only
+  ids differing in case are refused before the rename, so the rename claims every exact id and
+  the race test exercises it.
+- **Liveness.** `ps` runs in UTC, and start times a second apart match (Linux derives `lstart`
+  from the boot time).
+- **The ending is written before cleanup and the hand-back.** It is rewritten as `failed` only
+  if cleanup fails.
+- **`--here` refusing late.** `prepareRun` refuses a taken `--id` and a live attempt, so the tab
+  never opens for one.
+- **Races.** An attempt file gone between listing and reading is skipped. A completed run is
+  refused at the attempt claim too, not only before it.
+- **`label`** moved into `run`, and the runner refuses a `run.dir` outside `runRoot`. A run
+  root holding `~/.awf/sandboxes` is refused. `report.md` is written whole.
+- **Tests added:**
+  - recorded argv that no longer parses;
+  - a working directory that is gone;
+  - `--sandbox` on a continue;
+  - a refused new run leaving the root unchanged;
+  - a fresh `.new-*` folder invisible;
+  - liveness a second apart.
+
+Accepted, not changed:
+- **Other projects' runs.** A sandbox reading `~/dev` reaches every other project's
+  `.awf/runs`, as it reaches their source. Recorded in [[runs-and-stages#Sandboxes]].
+- **Interrupted attempts.** The message names an interrupted attempt's workspace without asking
+  Herdr whether it is still open.
+- **The completed-run refusal's text.** Task 4 adds "`--from-stage {stage}` to redo from there".
+- **Case on Linux.** On a case-sensitive filesystem, two ids differing only in case and claimed
+  at the same instant can both succeed.
+- **Sandbox comparison.** `checkContinue` compares sandbox specs by their JSON text, so key order
+  counts. The message says to leave `--sandbox` out.
+- **The write-failure test** proves that the old file stays whole and the temp file is removed,
+  not that a crash mid-write is safe; renaming the temp file into place is what makes that hold.
+- **Untested:**
+  - `--here --continue` has no test of its own; it runs the same `prepareRun` the tests cover;
+  - Linux `ps`.
+
+### Tasks 3–8
 
 - Architecture and scope:
 - Correctness and proof:

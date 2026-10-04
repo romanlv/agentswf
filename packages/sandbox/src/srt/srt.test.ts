@@ -141,7 +141,12 @@ describe("srt profiles", () => {
       { allowRead: [`${context.runRoot}/other`] },
       "reaches into the run root",
     ],
-    ["exposes the run root", { allowWrite: ["/Users/op/.awf"] }, "would expose the run root"],
+    ["exposes the run root", { allowWrite: ["/Users/op/.awf/runs"] }, "would expose the run root"],
+    [
+      "holds the run root its own directory is in",
+      { allowWrite: ["/Users/op/.awf"] },
+      "would hide its own directory",
+    ],
     ["exposes harness state", { allowRead: ["/Users/op/.codex"] }, "would expose harness state"],
     [
       "writes harness state",
@@ -161,6 +166,41 @@ describe("srt profiles", () => {
       },
     };
     expect(() => checkProfile(bad, host, context)).toThrow(reason);
+  });
+});
+
+describe("a run root inside the project", () => {
+  // As the engine lays them out: runs in the project, each sandbox's directory under ~/.awf.
+  const project: SandboxContext = {
+    ...context,
+    runRoot: "/Users/op/repo/.awf/runs",
+    directory: "/Users/op/.awf/sandboxes/s1",
+  };
+
+  test("is denied for reads and writes inside the paths that hold it", () => {
+    const profile = baseProfile(spec, project, host, `${project.directory}/tmp`, PROTECTED);
+    expect(profile.filesystem.denyRead).toContain(project.runRoot);
+    expect(profile.filesystem.denyWrite).toContain(project.runRoot);
+    expect(() => checkProfile(profile, host, project)).not.toThrow();
+  });
+
+  test("is not denied for writes when nothing writable holds it", () => {
+    const readOnly = { ...spec, write: [], gitdirs: [] };
+    const profile = baseProfile(readOnly, project, host, `${project.directory}/tmp`, []);
+    expect(profile.filesystem.denyWrite).not.toContain(project.runRoot);
+    expect(() => checkProfile(profile, host, project)).not.toThrow();
+  });
+
+  test("refuses a profile writing through a path holding it without denying it", () => {
+    const profile = baseProfile(spec, project, host, `${project.directory}/tmp`, PROTECTED);
+    const bad = {
+      ...profile,
+      filesystem: {
+        ...profile.filesystem,
+        denyWrite: profile.filesystem.denyWrite.filter((path) => path !== project.runRoot),
+      },
+    };
+    expect(() => checkProfile(bad, host, project)).toThrow("would expose the run root to writes");
   });
 });
 

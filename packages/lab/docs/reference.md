@@ -525,7 +525,7 @@ in a sandbox needs `CLAUDE_CODE_OAUTH_TOKEN` (from `claude setup-token`) in awf-
 | key | `{case}/key/key.json`, with `evidence/` and `fixes.bundle`. A reviewer never sees it |
 | trial | `{results}/{dataset}/{variant}@{major}.{minor}/{case}/{trial-id}/findings.json` |
 | score | `score.{scorer}@{major}.{minor}.k{key-revision}.{n}.json` beside its trial, where `n` counts retries |
-| run | `{runs}/invocation-{id}/{run-id}/`: `output.json` and transcripts, not needed by any record |
+| run | `{runs}/{workflow}/{run-id}/`: `output.json` and the attempt's records, not needed by any record |
 
 To use `@agentswf/lab/review` from a workspace outside this repository, run `bun link` in
 `packages/lab`, then `bun link @agentswf/lab` in the workspace.

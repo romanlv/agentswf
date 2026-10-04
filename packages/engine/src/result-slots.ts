@@ -1,11 +1,11 @@
 import { acceptAny, type SemanticCheck } from "@agentswf/contract";
-import type { AttemptSource } from "@agentswf/contract/records";
+import type { CandidateSource } from "@agentswf/contract/records";
 import type { JsonSchema } from "@agentswf/contract/schema";
 import type { ResultSubmitCode } from "@agentswf/contract/wire";
 import type { AbsoluteDeadline } from "@agentswf/contract/workflow";
 import { scheduleAt } from "./deadlines";
 import { evaluateResult } from "./result-validation";
-import { recordAttempt, writeAcceptedExclusive, writeCall } from "./run-dir";
+import { recordCandidate, writeAcceptedExclusive, writeCall } from "./run-dir";
 
 export type ResultRejectionCode = Exclude<
   ResultSubmitCode,
@@ -16,7 +16,7 @@ export type ResultSlotAccepted = {
   kind: "accepted";
   value: unknown;
   /** False only when atomic result persistence won but audit append failed. */
-  attemptRecorded: boolean;
+  candidateRecorded: boolean;
   /** Unix milliseconds the result was taken, before the agent was told. */
   acceptedAt: number;
 };
@@ -51,7 +51,7 @@ export type ResultSlotRegistryOptions = {
 
 interface ResultSlotPersistence {
   writeCall: typeof writeCall;
-  recordAttempt: typeof recordAttempt;
+  recordCandidate: typeof recordCandidate;
   writeAcceptedExclusive: typeof writeAcceptedExclusive;
 }
 
@@ -62,7 +62,7 @@ export interface ResultSlotRegistry {
     /** Taken from the socket the request arrived on, never from the request itself. */
     agentId: string;
     raw: string;
-    source: AttemptSource;
+    source: CandidateSource;
   }): Promise<ResultSubmission>;
   close(operationId: string): Promise<boolean>;
 }
@@ -83,7 +83,7 @@ export function createResultSlotRegistry(options: ResultSlotRegistryOptions): Re
   const schedule = options.schedule ?? scheduleExpiry;
   const persistence = options.persistence ?? {
     writeCall,
-    recordAttempt,
+    recordCandidate,
     writeAcceptedExclusive,
   };
   const slots = new Map<string, Slot>();
@@ -132,7 +132,7 @@ export function createResultSlotRegistry(options: ResultSlotRegistryOptions): Re
       const slot = slots.get(input.operationId);
       if (!slot) return rejected("unknown-operation");
       // The agent id comes from the socket, so this refuses one agent answering another's call.
-      // No attempt is recorded: the value came from somebody else, and this call's own log is
+      // No candidate is recorded: the value came from somebody else, and this call's own log is
       // read as the history of the agent that owns it.
       if (input.agentId !== slot.agentId) return rejected("wrong-agent");
 
@@ -177,9 +177,9 @@ export function createResultSlotRegistry(options: ResultSlotRegistryOptions): Re
         slot.state = "accepted";
         slot.cancelExpiry();
         const acceptedAt = now();
-        let attemptRecorded = true;
+        let candidateRecorded = true;
         try {
-          await persistence.recordAttempt(options.runDir, slot.operationId, {
+          await persistence.recordCandidate(options.runDir, slot.operationId, {
             at: new Date(acceptedAt).toISOString(),
             source: input.source,
             accepted: true,
@@ -187,12 +187,12 @@ export function createResultSlotRegistry(options: ResultSlotRegistryOptions): Re
           });
         } catch {
           // result.json is already the authoritative atomic settlement and cannot be reported lost.
-          attemptRecorded = false;
+          candidateRecorded = false;
         }
         const accepted: ResultSlotAccepted = {
           kind: "accepted",
           value: evaluated.value,
-          attemptRecorded,
+          candidateRecorded,
           acceptedAt,
         };
         slot.settle(accepted);
@@ -233,7 +233,7 @@ async function rejectKnown(
   persistence: ResultSlotPersistence,
   runDir: string,
   slot: Slot,
-  input: { raw: string; source: AttemptSource },
+  input: { raw: string; source: CandidateSource },
   code: ResultRejectionCode,
   now: () => number,
 ): Promise<ResultSubmission> {
@@ -245,12 +245,12 @@ async function recordRejected(
   persistence: ResultSlotPersistence,
   runDir: string,
   operationId: string,
-  source: AttemptSource,
+  source: CandidateSource,
   raw: string,
   error: string,
   now: () => number,
 ): Promise<void> {
-  await persistence.recordAttempt(runDir, operationId, {
+  await persistence.recordCandidate(runDir, operationId, {
     at: new Date(now()).toISOString(),
     source,
     accepted: false,

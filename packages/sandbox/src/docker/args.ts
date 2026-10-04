@@ -1,5 +1,5 @@
 import { RECORD_LEADER } from "../groups";
-import { writableIn } from "../resolve";
+import { contains, writableIn } from "../resolve";
 import type { ResolvedSandbox } from "../seam";
 
 /**
@@ -13,8 +13,10 @@ export function mountArgs(
   spec: ResolvedSandbox<unknown>,
   directory: string,
   guarded: readonly string[],
+  /** Hidden under an empty tmpfs when a mount holds it, as a project holds `.awf/runs`. */
+  runRoot?: string,
 ): string[] {
-  const mounts = new Map<string, boolean>();
+  const mounts = new Map<string, boolean | "empty">();
   for (const path of [spec.cwd, ...spec.read, ...spec.write]) {
     mounts.set(path, !writableIn(spec, path));
   }
@@ -24,10 +26,14 @@ export function mountArgs(
   for (const path of guarded) mounts.set(path, true);
   mounts.set(`${directory}/homes`, false);
   mounts.set(`${directory}/quarantine`, false);
+  if (runRoot !== undefined && [...mounts.keys()].some((path) => contains(path, runRoot))) {
+    mounts.set(runRoot, "empty");
+  }
   return [...mounts]
     .sort(([a], [b]) => a.length - b.length || a.localeCompare(b))
     .flatMap(([path, readOnly]) => {
       if (path.includes(",")) throw new Error(`docker: cannot mount ${path}, which holds a comma`);
+      if (readOnly === "empty") return ["--mount", `type=tmpfs,target=${path}`];
       return ["--mount", `type=bind,source=${path},target=${path}${readOnly ? ",readonly" : ""}`];
     });
 }

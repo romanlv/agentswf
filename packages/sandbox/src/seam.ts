@@ -54,9 +54,12 @@ export type ResolvedSandbox<E> = {
 export type { Gitdir };
 
 export type SandboxContext = {
-  /** Every run's directory. Denied inside, except this sandbox's own directory. */
+  /**
+   * Every run's directory. Denied inside, though an allowed path may hold it, as a project holds
+   * `.awf/runs`.
+   */
   runRoot: string;
-  /** This sandbox's directory, holding `homes/`. */
+  /** This sandbox's directory, holding `homes/`; outside the run root when the engine makes it. */
   directory: string;
   deadline: AbsoluteDeadline;
 };

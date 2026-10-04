@@ -1,5 +1,5 @@
 import { afterAll, expect, test } from "bun:test";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { cancelOnSignals } from "../packages/engine/src/operator-cli";
@@ -54,7 +54,7 @@ test("a cancelled run exits as the signal would, having written its record", asy
       join(root, "runs"),
       workflow,
     ],
-    { cwd: root, stdout: "pipe", stderr: "pipe" },
+    { cwd: root, stdout: "pipe", stderr: "pipe", env: { ...process.env, HOME: root } },
   );
   let stderr = "";
   const decoder = new TextDecoder();
@@ -64,6 +64,10 @@ test("a cancelled run exits as the signal would, having written its record", asy
   }
   expect(await child.exited).toBe(129);
   expect(stderr).toContain("awf: run cancelled");
-  const retained = /artifacts retained under (\S+):/.exec(stderr)?.[1] ?? "";
-  expect([...new Bun.Glob("*/output.json").scanSync({ cwd: retained })]).toHaveLength(1);
+  const runs = join(root, "runs", "waits");
+  expect([...new Bun.Glob("*/output.json").scanSync({ cwd: runs })]).toHaveLength(1);
+  const [attempt] = [...new Bun.Glob("*/attempts/1.json").scanSync({ cwd: runs })];
+  expect(JSON.parse(readFileSync(join(runs, attempt!), "utf8"))).toMatchObject({
+    outcome: "cancelled",
+  });
 }, 30_000);

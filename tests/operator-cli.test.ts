@@ -5,6 +5,7 @@ import {
   readdirSync,
   readFileSync,
   realpathSync,
+  rmSync,
   writeFileSync,
 } from "node:fs";
 import { homedir } from "node:os";
@@ -30,6 +31,10 @@ const ROOT = join(import.meta.dir, "..");
 const CLI = join(ROOT, "packages/engine/src/operator-cli.ts");
 const runDirs = createTempRunDirs();
 afterAll(() => runDirs.cleanup());
+/** awf keeps sandboxes and caller marks under `~/.awf`: never the operator's, from a test. */
+const HOME = runDirs.tempRunDir();
+const cli = (...[argv, environment]: Parameters<typeof runOperatorCli>) =>
+  runOperatorCli(argv, { home: HOME, ...environment });
 
 describe("awf", () => {
   test("--version prints the engine's version and, from a clone, its commit", async () => {
@@ -39,7 +44,7 @@ describe("awf", () => {
     );
     const commit = Bun.spawnSync(["git", "-C", ROOT, "rev-parse", "--short", "HEAD"]);
 
-    const exitCode = await runOperatorCli(["--version"], { stdout: (text) => output.push(text) });
+    const exitCode = await cli(["--version"], { stdout: (text) => output.push(text) });
 
     expect(exitCode).toBe(0);
     expect(output).toEqual([`awf ${version} (${commit.stdout.toString().trim()})`]);
@@ -48,7 +53,7 @@ describe("awf", () => {
   test("refuses a Bun older than engines.bun, naming both versions", async () => {
     const errors: string[] = [];
 
-    const exitCode = await runOperatorCli(["--version"], {
+    const exitCode = await cli(["--version"], {
       bunVersion: "1.1.0",
       stderr: (text) => errors.push(text),
     });
@@ -85,7 +90,7 @@ describe("awf run", () => {
     const runRoot = runDirs.tempRunDir();
     const startedAt = Date.now();
 
-    const exitCode = await runOperatorCli(
+    const exitCode = await cli(
       [
         "run",
         "--timeout",
@@ -124,7 +129,7 @@ describe("awf run", () => {
       expect.stringMatching(
         /^2 agents · \d+s · 21k tokens · ~\$0\.03 at list prices · subscription$/,
       ),
-      expect.stringMatching(/^Records: .+invocation-[^/]+\/[^/]+$/),
+      expect.stringMatching(/^Records: .+\/review-loop\/\d{8}-\d{4}-[0-9a-f]{4}$/),
     ]);
     expect(cleaned).toBe(1);
     expect(adapter.turns).toHaveLength(2);
@@ -183,7 +188,7 @@ describe("awf run", () => {
     const output: string[] = [];
     const errors: string[] = [];
 
-    const exitCode = await runOperatorCli(
+    const exitCode = await cli(
       [
         "run",
         "--run-root",
@@ -220,10 +225,11 @@ describe("awf run", () => {
 
   test("quick-check refuses a runtime it does not know", async () => {
     const errors: string[] = [];
-    const exitCode = await runOperatorCli(
-      ["run", "examples/quick-check/workflow.ts", "--", "aider"],
-      { cwd: ROOT, stderr: (text) => errors.push(text), installRuntime: emptyRuntime },
-    );
+    const exitCode = await cli(["run", "examples/quick-check/workflow.ts", "--", "aider"], {
+      cwd: ROOT,
+      stderr: (text) => errors.push(text),
+      installRuntime: emptyRuntime,
+    });
     expect(exitCode).toBe(2);
     expect(errors.join("\n")).toContain(
       "unknown runtime aider; expected codex, pi, pi-pane, claude, cursor, cursor-pane",
@@ -236,18 +242,15 @@ describe("awf run", () => {
     await Bun.write(workflow, executableModule("return null;", "return null;"));
     const asked: boolean[] = [];
     for (const flags of [[], ["--no-watch"]]) {
-      const exitCode = await runOperatorCli(
-        ["run", "--run-root", runDirs.tempRunDir(), ...flags, workflow],
-        {
-          cwd: root,
-          stdout: () => undefined,
-          stderr: () => undefined,
-          installRuntime: async (_timeout, options) => {
-            asked.push(options.watchSandboxes);
-            return emptyRuntime();
-          },
+      const exitCode = await cli(["run", "--run-root", runDirs.tempRunDir(), ...flags, workflow], {
+        cwd: root,
+        stdout: () => undefined,
+        stderr: () => undefined,
+        installRuntime: async (_timeout, options) => {
+          asked.push(options.watchSandboxes);
+          return emptyRuntime();
         },
-      );
+      });
       expect(exitCode).toBe(0);
     }
     expect(asked).toEqual([true, false]);
@@ -255,10 +258,11 @@ describe("awf run", () => {
 
   test("the sandboxes example refuses an argument it does not know", async () => {
     const errors: string[] = [];
-    const exitCode = await runOperatorCli(
-      ["run", "examples/sandboxes/workflow.ts", "--", "firejail"],
-      { cwd: ROOT, stderr: (text) => errors.push(text), installRuntime: emptyRuntime },
-    );
+    const exitCode = await cli(["run", "examples/sandboxes/workflow.ts", "--", "firejail"], {
+      cwd: ROOT,
+      stderr: (text) => errors.push(text),
+      installRuntime: emptyRuntime,
+    });
     expect(exitCode).toBe(2);
     expect(errors.join("\n")).toContain("unexpected argument firejail; this example takes none");
   });
@@ -273,7 +277,7 @@ describe("awf run", () => {
     const output: string[] = [];
     const errors: string[] = [];
 
-    const exitCode = await runOperatorCli(
+    const exitCode = await cli(
       ["run", "--run-root", runDirs.tempRunDir(), "examples/minimum-review/review-loop.ts"],
       {
         cwd: ROOT,
@@ -355,7 +359,7 @@ describe("awf run", () => {
     for (const item of cases) {
       const errors: string[] = [];
       let installed = false;
-      const exitCode = await runOperatorCli(item.argv, {
+      const exitCode = await cli(item.argv, {
         cwd: ROOT,
         stderr: (text) => errors.push(text),
         installRuntime: async () => {
@@ -386,7 +390,7 @@ describe("awf run", () => {
     const runRoot = runDirs.tempRunDir();
     const fake = createFakeSandboxProvider();
     const output: string[] = [];
-    const exitCode = await runOperatorCli(["run", "--json", "--run-root", runRoot, workflow], {
+    const exitCode = await cli(["run", "--json", "--run-root", runRoot, workflow], {
       cwd: root,
       stdout: (text) => output.push(text),
       stderr: () => undefined,
@@ -409,7 +413,8 @@ describe("awf run", () => {
           network: ["registry.npmjs.org"],
           srt: {},
         },
-        directory: expect.stringContaining(realpathSync(record.artifacts)),
+        // Under ~/.awf, outside the run root its provider denies.
+        directory: expect.stringContaining(realpathSync(join(HOME, ".awf", "sandboxes"))),
         gitdirs: [],
         domains: ["registry.npmjs.org"],
         agents: [],
@@ -434,21 +439,18 @@ describe("awf run", () => {
     const provider = createFakeDecisionProvider();
     const output: string[] = [];
     const errors: string[] = [];
-    const exitCode = await runOperatorCli(
-      ["run", "--json", "--run-root", runDirs.tempRunDir(), workflow],
-      {
-        cwd: root,
-        stdout: (text) => output.push(text),
-        stderr: (text) => errors.push(text),
-        installRuntime: async () => ({
-          ...(await emptyRuntime()),
-          decisions: {
-            providers: { fake: provider },
-            aliases: { jev: { provider: "fake", model: "fake/jev-1" } },
-          },
-        }),
-      },
-    );
+    const exitCode = await cli(["run", "--json", "--run-root", runDirs.tempRunDir(), workflow], {
+      cwd: root,
+      stdout: (text) => output.push(text),
+      stderr: (text) => errors.push(text),
+      installRuntime: async () => ({
+        ...(await emptyRuntime()),
+        decisions: {
+          providers: { fake: provider },
+          aliases: { jev: { provider: "fake", model: "fake/jev-1" } },
+        },
+      }),
+    });
     expect(exitCode).toBe(0);
     const record = JSON.parse(output.join("\n"));
     expect(record.value).toBe(0.9);
@@ -478,7 +480,7 @@ describe("awf run", () => {
     const errors: string[] = [];
     const output: string[] = [];
 
-    const exitCode = await runOperatorCli(["run", "--run-root", runRoot, workflow], {
+    const exitCode = await cli(["run", "--run-root", runRoot, workflow], {
       cwd: ROOT,
       stdout: (text) => output.push(text),
       stderr: (text) => errors.push(text),
@@ -488,19 +490,24 @@ describe("awf run", () => {
     expect(exitCode).toBe(1);
     expect(output).toEqual([]);
     expect(errors.join("\n")).toContain("workflow result must contain only JSON values");
-    const retained = retainedRoot(errors.join("\n"));
-    expect(existsSync(join(retainedRunDir(retained), "calls"))).toBe(true);
+    expect(attemptOf(recordsIn(errors.join("\n")))).toMatchObject({
+      outcome: "failed",
+      reason: "workflow result must contain only JSON values",
+    });
   });
 
   test("distinguishes runtime installation and workflow-body failures", async () => {
     const runtimeErrors: string[] = [];
-    const runtimeExit = await runOperatorCli(["run", "examples/minimum-review/review-loop.ts"], {
-      cwd: ROOT,
-      stderr: (text) => runtimeErrors.push(text),
-      installRuntime: async () => {
-        throw new Error("Herdr unavailable");
+    const runtimeExit = await cli(
+      ["run", "--run-root", runDirs.tempRunDir(), "examples/minimum-review/review-loop.ts"],
+      {
+        cwd: ROOT,
+        stderr: (text) => runtimeErrors.push(text),
+        installRuntime: async () => {
+          throw new Error("Herdr unavailable");
+        },
       },
-    });
+    );
     expect(runtimeExit).toBe(1);
     expect(runtimeErrors.join("\n")).toContain("runtime: Herdr unavailable");
 
@@ -508,19 +515,20 @@ describe("awf run", () => {
     const workflow = join(root, "throws.js");
     await Bun.write(workflow, executableModule("return null;", "throw new Error('body broke');"));
     const bodyErrors: string[] = [];
-    const bodyExit = await runOperatorCli(["run", "--run-root", runDirs.tempRunDir(), workflow], {
+    const bodyExit = await cli(["run", "--run-root", runDirs.tempRunDir(), workflow], {
       cwd: ROOT,
       stderr: (text) => bodyErrors.push(text),
       installRuntime: emptyRuntime,
     });
     expect(bodyExit).toBe(1);
     expect(bodyErrors.join("\n")).toContain("body broke");
-    expect(existsSync(join(retainedRunDir(retainedRoot(bodyErrors.join("\n"))), "calls"))).toBe(
-      true,
-    );
+    expect(attemptOf(recordsIn(bodyErrors.join("\n")))).toMatchObject({
+      outcome: "failed",
+      reason: "body broke",
+    });
   });
 
-  test("without flags, a run gets 30 minutes and keeps its artifacts out of the working directory", async () => {
+  test("without flags, a run gets 30 minutes and is kept in the project's .awf, ignored by git", async () => {
     const home = runDirs.tempRunDir();
     const cwd = runDirs.tempRunDir();
     const workflow = join(cwd, "ok.js");
@@ -529,7 +537,7 @@ describe("awf run", () => {
     let timeout: number | undefined;
     const output: string[] = [];
 
-    const exitCode = await runOperatorCli(["run", workflow], {
+    const exitCode = await cli(["run", workflow], {
       cwd,
       home,
       now: () => startedAt,
@@ -542,8 +550,11 @@ describe("awf run", () => {
 
     expect(exitCode).toBe(0);
     expect(timeout).toBe(30 * 60_000);
-    expect(existsSync(join(home, ".awf/runs"))).toBe(true);
-    expect(existsSync(join(cwd, ".awf"))).toBe(false);
+    expect(existsSync(join(home, ".awf/runs"))).toBe(false);
+    expect(readFileSync(join(cwd, ".awf/runs/.gitignore"), "utf8")).toBe("*\n");
+    expect([...new Bun.Glob("*/*/run.json").scanSync({ cwd: join(cwd, ".awf/runs") })]).toEqual([
+      expect.stringMatching(/^fixture\/\d{8}-\d{4}-[0-9a-f]{4}\/run\.json$/),
+    ]);
   });
 
   test("--cwd, before or after the workflow file, moves where the workflow works; command-line paths stay relative to the shell", async () => {
@@ -557,7 +568,7 @@ describe("awf run", () => {
     );
     const output: string[] = [];
 
-    const exitCode = await runOperatorCli(
+    const exitCode = await cli(
       ["run", "--run-root", "runs", "where.js", "--cwd", target, "--json"],
       { cwd: shell, stdout: (text) => output.push(text), installRuntime: emptyRuntime },
     );
@@ -577,10 +588,11 @@ describe("awf run", () => {
     const errors: string[] = [];
 
     // No provider is installed, so the run's srt sandbox can't open.
-    const exitCode = await runOperatorCli(
-      ["run", "--run-root", "runs", "--sandbox", "box.json", "opens.js"],
-      { cwd: shell, stderr: (text) => errors.push(text), installRuntime: emptyRuntime },
-    );
+    const exitCode = await cli(["run", "--run-root", "runs", "--sandbox", "box.json", "opens.js"], {
+      cwd: shell,
+      stderr: (text) => errors.push(text),
+      installRuntime: emptyRuntime,
+    });
 
     expect(exitCode).not.toBe(0);
     expect(errors.join("")).toContain("the run's sandbox did not open");
@@ -601,7 +613,7 @@ describe("awf run", () => {
     const drawn: string[] = [];
     const errors: string[] = [];
 
-    const exitCode = await runOperatorCli(["run", "--run-root", runDirs.tempRunDir(), workflow], {
+    const exitCode = await cli(["run", "--run-root", runDirs.tempRunDir(), workflow], {
       cwd: ROOT,
       stderr: (text) => errors.push(text),
       terminal: { write: (text) => drawn.push(text), color: false },
@@ -613,7 +625,7 @@ describe("awf run", () => {
     expect(errors.some((line) => line.startsWith("["))).toBe(false);
     expect(drawn[0]).toBe("\x1b[?25l\x1b[?7l");
     expect(drawn.at(-1)).toBe("\x1b[?7h\x1b[?25h");
-    expect(drawn.some((frame) => /^fixture · \d+s\n$/.test(frame))).toBe(true);
+    expect(drawn.some((frame) => /^fixture \S+ · \d+s\n$/.test(frame))).toBe(true);
     // Once the run is over, its name and clock are the command's and the accounting's.
     expect(drawn.at(-2)).not.toContain("fixture");
   });
@@ -634,15 +646,12 @@ describe("awf run", () => {
     const invoke = async (...flags: string[]) => {
       const output: string[] = [];
       errors = [];
-      const exitCode = await runOperatorCli(
-        ["run", "--run-root", runDirs.tempRunDir(), ...flags, workflow],
-        {
-          cwd: ROOT,
-          stdout: (text) => output.push(text),
-          stderr: (text) => errors.push(text),
-          installRuntime: emptyRuntime,
-        },
-      );
+      const exitCode = await cli(["run", "--run-root", runDirs.tempRunDir(), ...flags, workflow], {
+        cwd: ROOT,
+        stdout: (text) => output.push(text),
+        stderr: (text) => errors.push(text),
+        installRuntime: emptyRuntime,
+      });
       expect(exitCode).toBe(0);
       return output.join("\n");
     };
@@ -665,7 +674,7 @@ describe("awf run", () => {
     const runRoot = runDirs.tempRunDir();
     const errors: string[] = [];
     let cleaned = 0;
-    const exitCode = await runOperatorCli(
+    const exitCode = await cli(
       ["run", "--run-root", runRoot, "examples/minimum-review/review-loop.ts"],
       {
         cwd: ROOT,
@@ -681,7 +690,7 @@ describe("awf run", () => {
 
     expect(exitCode).toBe(1);
     expect(cleaned).toBe(1);
-    expect(errors.join("\n")).toContain(`artifacts retained under ${runRoot}/invocation-`);
+    expect(errors.join("\n")).toContain(`its records are in ${runRoot}/review-loop/`);
     expect(errors.join("\n")).toContain("unknown runtime alias: claude");
   });
 
@@ -700,7 +709,7 @@ describe("awf run", () => {
     const output: string[] = [];
     const errors: string[] = [];
 
-    const exitCode = await runOperatorCli(
+    const exitCode = await cli(
       ["run", "--run-root", runDirs.tempRunDir(), "examples/minimum-review/review-loop.ts"],
       {
         cwd: ROOT,
@@ -721,14 +730,14 @@ describe("awf run", () => {
     expect(reported).toContain("runtime cleanup failed");
     expect(reported).toContain("cleanup broke");
     // Stdout is withheld, so the failure has to say where the run's work ended up.
-    expect(reported).toContain("artifacts retained under");
+    expect(reported).toContain("its records are in");
   });
 
   test("fails an incomplete review instead of reporting successful review output", async () => {
     const adapter = createFakeAdapter({ harnesses: ["claude", "codex"], script: () => ({}) });
     const output: string[] = [];
     const errors: string[] = [];
-    const exitCode = await runOperatorCli(
+    const exitCode = await cli(
       ["run", "--run-root", runDirs.tempRunDir(), "examples/minimum-review/review-loop.ts"],
       {
         cwd: ROOT,
@@ -751,7 +760,7 @@ describe("awf run", () => {
     for (const json of [false, true]) {
       const output: string[] = [];
       const errors: string[] = [];
-      const exitCode = await runOperatorCli(
+      const exitCode = await cli(
         [
           "run",
           "--run-root",
@@ -774,9 +783,7 @@ describe("awf run", () => {
       const reported = errors.join("\n");
       expect(reported).toMatch(/^2 agents · .* · subscription$/m);
       expect(reported.indexOf("2 agents")).toBeLessThan(reported.indexOf("run failed"));
-      const saved = JSON.parse(
-        readFileSync(join(retainedRunDir(retainedRoot(reported)), "output.json"), "utf8"),
-      );
+      const saved = JSON.parse(readFileSync(join(recordsIn(reported), "output.json"), "utf8"));
       expect(saved).toMatchObject({
         version: OUTPUT_RECORD_VERSION,
         outcome: "failed",
@@ -796,7 +803,7 @@ describe("awf run", () => {
       const workflow = join(root, "waits.js");
       await Bun.write(workflow, executableModule("return null;", runBody));
       const errors: string[] = [];
-      const exitCode = await runOperatorCli(
+      const exitCode = await cli(
         ["run", "--timeout", timeout, "--run-root", runDirs.tempRunDir(), workflow],
         {
           cwd: ROOT,
@@ -807,7 +814,7 @@ describe("awf run", () => {
         },
       );
       const saved = JSON.parse(
-        readFileSync(join(retainedRunDir(retainedRoot(errors.join("\n"))), "output.json"), "utf8"),
+        readFileSync(join(recordsIn(errors.join("\n")), "output.json"), "utf8"),
       );
       return { exitCode, saved, stderr: errors.join("\n") };
     };
@@ -820,7 +827,7 @@ describe("awf run", () => {
         outcome: "timed-out",
         accounting: { totals: { agents: 0 } },
       });
-      expect(ended.stderr).toContain("awf: run timed out;");
+      expect(ended.stderr).toContain("awf: run timed out (fixture ");
     });
 
     test("a stage with no deadline of its own outlives the run", async () => {
@@ -830,7 +837,7 @@ describe("awf run", () => {
       );
       expect(ended.exitCode).toBe(1);
       expect(ended.saved.outcome).toBe("timed-out");
-      expect(ended.stderr).toContain("awf: run timed out;");
+      expect(ended.stderr).toContain("awf: run timed out (fixture ");
     });
 
     test("a stage deadline the workflow set and let escape is failed", async () => {
@@ -840,7 +847,7 @@ describe("awf run", () => {
       );
       expect(ended.exitCode).toBe(1);
       expect(ended.saved.outcome).toBe("failed");
-      expect(ended.stderr).toContain("awf: run failed;");
+      expect(ended.stderr).toContain("awf: run failed (fixture ");
     });
 
     test("a turn that timed out, turned into the workflow's own error, is failed", async () => {
@@ -915,7 +922,7 @@ describe("awf run", () => {
     const controller = new AbortController();
     let cleaned = 0;
     const errors: string[] = [];
-    const running = runOperatorCli(
+    const running = cli(
       [
         "run",
         "--timeout",
@@ -944,7 +951,7 @@ describe("awf run", () => {
     expect(adapter.closed.length).toBeGreaterThan(0);
     expect(errors.join("\n")).toContain("run cancelled");
     const saved = JSON.parse(
-      readFileSync(join(retainedRunDir(retainedRoot(errors.join("\n"))), "output.json"), "utf8"),
+      readFileSync(join(recordsIn(errors.join("\n")), "output.json"), "utf8"),
     );
     expect(saved).toMatchObject({ outcome: "cancelled", error: "workflow cancelled by operator" });
     expect(saved.accounting.totals.known).toBeGreaterThan(0);
@@ -977,7 +984,7 @@ describe("awf run", () => {
     const controller = new AbortController();
     const errors: string[] = [];
     let cleaned = 0;
-    const running = runOperatorCli(
+    const running = cli(
       [
         "run",
         "--timeout",
@@ -1006,25 +1013,234 @@ describe("awf run", () => {
     expect(errors.join("\n")).toContain("run cancelled");
     expect(errors.join("\n")).toContain("session close broke");
     const saved = JSON.parse(
-      readFileSync(join(retainedRunDir(retainedRoot(errors.join("\n"))), "output.json"), "utf8"),
+      readFileSync(join(recordsIn(errors.join("\n")), "output.json"), "utf8"),
     );
     expect(saved.outcome).toBe("cancelled");
     expect(saved.error).toContain("session close broke");
   });
 
-  test("does not claim retention when the invocation root cannot be created", async () => {
+  test("a run root that can't be made refuses the run, naming it", async () => {
     const root = runDirs.tempRunDir();
     const notDirectory = join(root, "not-a-directory");
     await Bun.write(notDirectory, "file");
     const errors: string[] = [];
-    const exitCode = await runOperatorCli(
+    const exitCode = await cli(
       ["run", "--run-root", notDirectory, "examples/minimum-review/review-loop.ts"],
       { cwd: ROOT, stderr: (text) => errors.push(text), installRuntime: emptyRuntime },
     );
 
-    expect(exitCode).toBe(1);
-    expect(errors.join("\n")).toContain("artifacts were not created");
-    expect(errors.join("\n")).not.toContain("artifacts retained");
+    expect(exitCode).toBe(2);
+    expect(errors.join("\n")).toContain(`awf: ${notDirectory}: `);
+    expect(errors.join("\n")).not.toContain("its records are in");
+  });
+});
+
+describe("awf run's runs and attempts", () => {
+  /** Fails while `fail` is in its working directory; returns its run, attempt and args. */
+  const flaky = executableModule(
+    "return invocation.argv;",
+    `const { existsSync } = await import("node:fs");
+     if (existsSync(workflow.cwd + "/fail")) throw new Error("not yet");
+     return { runId: workflow.runId, attempt: workflow.attempt, args };`,
+  ).replace("prepare()", "prepare(invocation)");
+
+  const project = async () => {
+    const cwd = runDirs.tempRunDir();
+    await Bun.write(join(cwd, "flow.js"), flaky);
+    return cwd;
+  };
+  const awf = async (cwd: string, argv: string[]) => {
+    const output: string[] = [];
+    const errors: string[] = [];
+    let installed = false;
+    const exitCode = await cli(["run", "--json", ...argv], {
+      cwd,
+      stdout: (text) => output.push(text),
+      stderr: (text) => errors.push(text),
+      installRuntime: async () => {
+        installed = true;
+        return emptyRuntime();
+      },
+    });
+    const text = output.join("\n");
+    return {
+      exitCode,
+      installed,
+      stderr: errors.join("\n"),
+      ...(text ? { record: JSON.parse(text) } : {}),
+    };
+  };
+  const runs = (cwd: string) => join(cwd, ".awf", "runs", "fixture");
+
+  test("--id names the run, and a taken id is refused before anything starts", async () => {
+    const cwd = await project();
+    const first = await awf(cwd, ["--id", "AIRS-1515", "flow.js", "--", "AIRS-1515"]);
+    expect(first.exitCode).toBe(0);
+    expect(first.record).toMatchObject({
+      runId: "AIRS-1515",
+      attempt: 1,
+      artifacts: join(runs(cwd), "AIRS-1515"),
+      value: { runId: "AIRS-1515", attempt: 1, args: ["AIRS-1515"] },
+    });
+    expect(attemptOf(join(runs(cwd), "AIRS-1515"))).toMatchObject({
+      n: 1,
+      outcome: "completed",
+      flags: { timeout: "30m" },
+    });
+
+    const before = readdirSync(runs(cwd));
+    const again = await awf(cwd, ["--id", "AIRS-1515", "flow.js", "--", "AIRS-1515"]);
+    expect(again).toMatchObject({ exitCode: 2, installed: false });
+    expect(readdirSync(runs(cwd))).toEqual(before);
+    expect(again.stderr).toBe(
+      "awf: AIRS-1515 exists; --continue it, or --id another to start over",
+    );
+  });
+
+  test("--continue adds an attempt with the run's own argv, and refuses one that changes it", async () => {
+    const cwd = await project();
+    await Bun.write(join(cwd, "fail"), "");
+    const failed = await awf(cwd, ["--id", "r1", "flow.js", "--", "a", "b"]);
+    expect(failed.exitCode).toBe(1);
+    expect(failed.stderr).toContain(
+      `awf: run failed (fixture r1); its records are in ${join(runs(cwd), "r1")}: not yet`,
+    );
+
+    const withArgv = await awf(cwd, ["flow.js", "--continue", "r1", "--", "c"]);
+    expect(withArgv).toMatchObject({ exitCode: 2, installed: false });
+    expect(withArgv.stderr).toContain("r1 keeps the arguments it was started with");
+    const both = await awf(cwd, ["--id", "r2", "--continue", "r1", "flow.js"]);
+    expect(both.exitCode).toBe(2);
+    expect(both.stderr).toContain("--id names a new run and --continue an existing one");
+    const missing = await awf(cwd, ["flow.js", "--continue", "r9"]);
+    expect(missing).toMatchObject({ exitCode: 2, installed: false });
+    expect(missing.stderr).toContain(`no run r9 of fixture in ${join(cwd, ".awf", "runs")}`);
+
+    rmSync(join(cwd, "fail"));
+    const continued = await awf(cwd, ["flow.js", "--continue", "r1"]);
+    expect(continued.exitCode).toBe(0);
+    expect(continued.record).toMatchObject({
+      runId: "r1",
+      attempt: 2,
+      value: { runId: "r1", attempt: 2, args: ["a", "b"] },
+    });
+    expect(attemptOf(join(runs(cwd), "r1"), 1)).toMatchObject({
+      outcome: "failed",
+      reason: "not yet",
+    });
+    expect(attemptOf(join(runs(cwd), "r1"), 2)).toMatchObject({ outcome: "completed" });
+
+    const done = await awf(cwd, ["flow.js", "--continue", "r1"]);
+    expect(done).toMatchObject({ exitCode: 2, installed: false });
+    expect(done.stderr).toBe("awf: r1 completed; there is nothing to continue");
+  });
+
+  test("a continue names an earlier attempt that was interrupted", async () => {
+    const cwd = await project();
+    await Bun.write(join(cwd, "fail"), "");
+    await awf(cwd, ["--id", "r1", "flow.js"]);
+    // As a crash leaves it: no ending, and its process gone. This test's own process ran it.
+    const file = join(runs(cwd), "r1", "attempts", "1.json");
+    const {
+      ended: _ended,
+      outcome: _outcome,
+      reason: _reason,
+      ...open
+    } = JSON.parse(readFileSync(file, "utf8"));
+    writeFileSync(file, JSON.stringify({ ...open, pid: 999_999_999 }));
+    rmSync(join(cwd, "fail"));
+    const continued = await awf(cwd, ["flow.js", "--continue", "r1"]);
+    expect(continued.exitCode).toBe(0);
+    expect(continued.stderr).toContain(
+      'awf: attempt 1 of r1 was interrupted; its panes may still be open in Herdr workspace "awf fixture r1 #1"',
+    );
+  });
+
+  test("a live attempt refuses a continue", async () => {
+    const cwd = await project();
+    await Bun.write(join(cwd, "fail"), "");
+    await awf(cwd, ["--id", "r1", "flow.js"]);
+    // This test's own process, with no ending: live.
+    const file = join(runs(cwd), "r1", "attempts", "1.json");
+    const {
+      ended: _ended,
+      outcome: _outcome,
+      reason: _reason,
+      ...open
+    } = JSON.parse(readFileSync(file, "utf8"));
+    writeFileSync(file, JSON.stringify(open));
+    const refused = await awf(cwd, ["flow.js", "--continue", "r1"]);
+    expect(refused).toMatchObject({ exitCode: 2, installed: false });
+    expect(refused.stderr).toBe(`awf: attempt 1 of r1 is still running, as process ${process.pid}`);
+    expect(readdirSync(join(runs(cwd), "r1", "attempts"))).toEqual(["1.json"]);
+  });
+
+  test("a continue whose recorded argv no longer parses, or whose directory is gone, is refused", async () => {
+    const cwd = await project();
+    await Bun.write(join(cwd, "fail"), "");
+    await awf(cwd, ["--id", "r1", "flow.js", "--", "old"]);
+    // The fix that follows renames the argument the run was started with.
+    await Bun.write(
+      join(cwd, "strict.js"),
+      flaky.replace(
+        "return invocation.argv;",
+        'if (invocation.argv[0] === "old") throw new Error("old is gone"); return invocation.argv;',
+      ),
+    );
+    const parsed = await awf(cwd, ["strict.js", "--continue", "r1"]);
+    expect(parsed).toMatchObject({ exitCode: 2, installed: false });
+    expect(parsed.stderr).toBe(
+      `awf: the recorded argv of r1 no longer parses with ${join(cwd, "strict.js")}: old is gone; start a new run`,
+    );
+
+    const record = join(runs(cwd), "r1", "run.json");
+    const gone = join(cwd, "gone");
+    writeFileSync(
+      record,
+      JSON.stringify({ ...JSON.parse(readFileSync(record, "utf8")), cwd: gone }),
+    );
+    const moved = await awf(cwd, ["flow.js", "--continue", "r1"]);
+    expect(moved).toMatchObject({ exitCode: 2, installed: false });
+    expect(moved.stderr).toBe(`awf: r1 works in ${gone}, which is no longer a directory`);
+  });
+
+  test("a continue refuses a sandbox other than its run's", async () => {
+    const cwd = await project();
+    await Bun.write(join(cwd, "fail"), "");
+    await awf(cwd, ["--id", "r1", "flow.js"]);
+    await Bun.write(join(cwd, "box.json"), JSON.stringify({ srt: {} }));
+    const boxed = await awf(cwd, ["--sandbox", "box.json", "flow.js", "--continue", "r1"]);
+    expect(boxed).toMatchObject({ exitCode: 2, installed: false });
+    expect(boxed.stderr).toBe(
+      "awf: r1 runs in the sandbox it was started with; leave --sandbox out",
+    );
+  });
+
+  test("a run root holding ~/.awf's sandboxes is refused", async () => {
+    const cwd = await project();
+    const refused = await awf(cwd, ["--run-root", HOME, "flow.js"]);
+    expect(refused).toMatchObject({ exitCode: 2, installed: false });
+    expect(refused.stderr).toContain(
+      `awf: --run-root ${HOME} holds ${join(HOME, ".awf", "sandboxes")}`,
+    );
+  });
+
+  test("a continue keeps the run's working directory, and refuses another", async () => {
+    const cwd = await project();
+    await Bun.write(join(cwd, "fail"), "");
+    await awf(cwd, ["--id", "r1", "flow.js"]);
+    const elsewhere = runDirs.tempRunDir();
+    const moved = await awf(cwd, [
+      "--run-root",
+      join(cwd, ".awf", "runs"),
+      "--cwd",
+      elsewhere,
+      "flow.js",
+      "--continue",
+      "r1",
+    ]);
+    expect(moved.exitCode).toBe(2);
+    expect(moved.stderr).toContain(`r1 works in ${cwd}, not ${elsewhere}`);
   });
 });
 
@@ -1069,7 +1285,7 @@ describe("awf run --here", () => {
   test("refuses outside a Herdr pane, before asking Herdr anything", async () => {
     const herdr = fakeHerdr();
     const errors: string[] = [];
-    const exitCode = await runOperatorCli(["run", "--here", WORKFLOW], {
+    const exitCode = await cli(["run", "--here", WORKFLOW], {
       cwd: ROOT,
       environment: {},
       herdr: herdr.run,
@@ -1084,7 +1300,7 @@ describe("awf run --here", () => {
 
   test("under codex's sandbox, names the setting that lets it reach Herdr", async () => {
     const errors: string[] = [];
-    const exitCode = await runOperatorCli(["run", "--here", WORKFLOW], {
+    const exitCode = await cli(["run", "--here", WORKFLOW], {
       cwd: ROOT,
       environment: { ...inHerdr, CODEX_SESSION_ID: "t-1" },
       herdr: async () => ({
@@ -1102,7 +1318,7 @@ describe("awf run --here", () => {
 
   test("refuses a workflow file that is not there", async () => {
     const errors: string[] = [];
-    const exitCode = await runOperatorCli(["run", "--here", "nowhere.ts"], {
+    const exitCode = await cli(["run", "--here", "nowhere.ts"], {
       cwd: ROOT,
       environment: inHerdr,
       herdr: fakeHerdr().run,
@@ -1117,7 +1333,7 @@ describe("awf run --here", () => {
   test("refuses a workflow that will not start, before any tab opens", async () => {
     const herdr = fakeHerdr();
     const errors: string[] = [];
-    const exitCode = await runOperatorCli(["run", "--here", WORKFLOW, "--", "bogus"], {
+    const exitCode = await cli(["run", "--here", WORKFLOW, "--", "bogus"], {
       cwd: ROOT,
       environment: inHerdr,
       herdr: herdr.run,
@@ -1133,7 +1349,7 @@ describe("awf run --here", () => {
   test("starts the run in a new tab with a code, and prints the line to end the turn with", async () => {
     const herdr = fakeHerdr();
     const output: string[] = [];
-    const exitCode = await runOperatorCli(
+    const exitCode = await cli(
       ["run", "--here", "--timeout", "20m", WORKFLOW, "--", "--no-helper"],
       {
         cwd: ROOT,
@@ -1173,7 +1389,7 @@ describe("awf run --here", () => {
     const errors: string[] = [];
     const runRoot = runDirs.tempRunDir();
     let installed = false;
-    const exitCode = await runOperatorCli(
+    const exitCode = await cli(
       ["run", "--session", "awf-here-0123abcd", "--run-root", runRoot, WORKFLOW],
       {
         cwd: ROOT,
@@ -1198,10 +1414,10 @@ describe("awf run --here", () => {
   test("a session another live run drives is refused; a mark its process left behind is not", async () => {
     const herdr = fakeHerdr({ "w1:p1": { agent: "pi", screen: "awf-here-0123abcd" } });
     const runRoot = runDirs.tempRunDir();
-    mkdirSync(join(runRoot, "callers"), { recursive: true });
-    writeFileSync(join(runRoot, "callers", "w1_p1.pid"), String(process.pid));
+    mkdirSync(join(HOME, ".awf", "callers"), { recursive: true });
+    writeFileSync(join(HOME, ".awf", "callers", "w1_p1.pid"), String(process.pid));
     const errors: string[] = [];
-    const exitCode = await runOperatorCli(
+    const exitCode = await cli(
       ["run", "--session", "awf-here-0123abcd", "--run-root", runRoot, WORKFLOW],
       {
         cwd: ROOT,
@@ -1216,10 +1432,10 @@ describe("awf run --here", () => {
       `awf: --session: another run (process ${process.pid}) is already driving the session in w1:p1; one run drives a session at a time`,
     ]);
     expect(herdr.calls).toContainEqual(["tab", "focus", "w1:t2"]);
-    expect(readdirSync(join(runRoot, "callers"))).toEqual(["w1_p1.pid"]);
+    expect(readdirSync(join(HOME, ".awf", "callers"))).toEqual(["w1_p1.pid"]);
 
-    writeFileSync(join(runRoot, "callers", "w1_p1.pid"), "999999999");
-    const second = await runOperatorCli(
+    writeFileSync(join(HOME, ".awf", "callers", "w1_p1.pid"), "999999999");
+    const second = await cli(
       ["run", "--session", "awf-here-0123abcd", "--run-root", runRoot, WORKFLOW],
       {
         cwd: ROOT,
@@ -1231,7 +1447,7 @@ describe("awf run --here", () => {
     );
     // Past the mark, it fails only because the empty runtime has no calling session.
     expect(second).toBe(1);
-    expect(existsSync(join(runRoot, "callers", "w1_p1.pid"))).toBe(false);
+    expect(existsSync(join(HOME, ".awf", "callers", "w1_p1.pid"))).toBe(false);
   });
 
   test("takes the pane showing its code over, and hands it back with how the run ended", async () => {
@@ -1254,7 +1470,7 @@ describe("awf run --here", () => {
         },
       }),
     });
-    const exitCode = await runOperatorCli(
+    const exitCode = await cli(
       [
         "run",
         "--session",
@@ -1295,7 +1511,7 @@ describe("awf run --here", () => {
     const handedBack = herdr.calls.find((call) => call[0] === "agent" && call[1] === "prompt");
     expect(handedBack?.[2]).toBe("w1:p1");
     expect(handedBack?.[3]).toMatch(
-      /^\[awf\] The workflow calling-session succeeded; its record is .*output\.json\. The run is over and this session is yours; nothing here needs an answer\.$/,
+      /^\[awf\] The workflow calling-session, run \S+, succeeded; its record is .*output\.json\. The run is over and this session is yours; nothing here needs an answer\.$/,
     );
   });
 });
@@ -1322,18 +1538,16 @@ function executableModule(prepareBody: string, runBody: string, members = ""): s
   `;
 }
 
-function retainedRoot(stderr: string): string {
-  const matched = /artifacts retained under ([^:]+):/.exec(stderr);
-  if (!matched?.[1]) throw new Error(`missing retained artifact path in: ${stderr}`);
-  return matched[1];
+/** An attempt's record in a run's folder: the first, unless `n` says another. */
+function attemptOf(runDir: string, n = 1): Record<string, unknown> {
+  return JSON.parse(readFileSync(join(runDir, "attempts", `${n}.json`), "utf8"));
 }
 
-function retainedRunDir(invocationRoot: string): string {
-  const entries = readdirSync(invocationRoot);
-  if (entries.length !== 1 || !entries[0]) {
-    throw new Error(`expected one retained run under ${invocationRoot}`);
-  }
-  return join(invocationRoot, entries[0]);
+/** The run's folder, as a run that did not complete names it. */
+function recordsIn(stderr: string): string {
+  const matched = /its records are in ([^:]+):/.exec(stderr);
+  if (!matched?.[1]) throw new Error(`missing the run's folder in: ${stderr}`);
+  return matched[1];
 }
 
 function runtime(adapter: AgentSessionAdapter, accounting?: SessionAccounting): AgentRuntimeConfig {
@@ -1420,7 +1634,7 @@ test("a summary that is not the writer's fails", async () => {
   };
   const awfTest = async (cwd: string, ...argv: string[]) => {
     const output: string[] = [];
-    const exitCode = await runOperatorCli(["test", ...argv], {
+    const exitCode = await cli(["test", ...argv], {
       cwd,
       stdout: (text) => output.push(text),
       stderr: (text) => output.push(text),

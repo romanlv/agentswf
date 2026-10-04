@@ -44,3 +44,38 @@ export default defineExecutableWorkflow({
   expect(surface?.TypeDefault).toBe(typebox.default);
   expect(surface?.Value).toBe(typeboxValue.Value);
 });
+
+test.each([
+  [{ name: "has spaces" }, 'meta.name: "has spaces" is not a valid id'],
+  [{ name: "../up" }, "meta.name:"],
+  [{ name: "ok", version: "1.2" }, 'meta.version: "1.2" is not a semver version'],
+  [{ name: "ok", version: 2 }, "meta.version: 2 is not a semver version"],
+])("a workflow whose meta %j can't name its runs is refused", async (meta, reason) => {
+  const folder = await mkdtemp(join(tmpdir(), "awf-meta-"));
+  folders.push(folder);
+  await writeFile(
+    join(folder, "x.js"),
+    `export default {
+      kind: "awf.executable-workflow/v1",
+      definition: { meta: { description: "d", ...${JSON.stringify(meta)} }, run: async () => null },
+      prepare: () => null,
+    };`,
+  );
+  await expect(loadWorkflowFile("x.js", folder)).rejects.toThrow(reason);
+});
+
+test("a semver meta.version loads", async () => {
+  const folder = await mkdtemp(join(tmpdir(), "awf-meta-"));
+  folders.push(folder);
+  await writeFile(
+    join(folder, "x.js"),
+    `export default {
+      kind: "awf.executable-workflow/v1",
+      definition: { meta: { name: "ok", description: "d", version: "1.2.0-rc.1" }, run: async () => null },
+      prepare: () => null,
+    };`,
+  );
+  expect((await loadWorkflowFile("x.js", folder)).executable.definition.meta.version).toBe(
+    "1.2.0-rc.1",
+  );
+});

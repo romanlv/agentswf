@@ -469,7 +469,14 @@ async function runIsolated(
     });
   } finally {
     try {
-      for (const entry of readdirSync(runRoot)) renameSync(join(runRoot, entry), join(runs, entry));
+      // Each run is `{workflow}/{id}`; ids are unique within a workflow only in their own root.
+      for (const workflow of readdirSync(runRoot).filter((name) => !name.startsWith("."))) {
+        mkdirSync(join(runs, workflow), { recursive: true });
+        for (const id of readdirSync(join(runRoot, workflow))) {
+          if (!id.startsWith("."))
+            renameSync(join(runRoot, workflow, id), join(runs, workflow, id));
+        }
+      }
       rmSync(runRoot, { recursive: true, force: true });
     } catch {
       // Left where it is, still found by its id; the run's own error is the one to report.

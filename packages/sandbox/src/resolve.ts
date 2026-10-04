@@ -82,7 +82,9 @@ export async function resolveSandbox(
   );
   const forbidden = (path: string, field: string) => {
     if (contains(path, home)) throw new Error(`sandbox ${field} ${path} would expose ~`);
-    if (contains(path, runRoot) || contains(runRoot, path)) {
+    // A path holding the run root is the project's, which keeps its runs in `.awf/runs`: every
+    // provider hides the run root inside it. A path within it would be another run's.
+    if (contains(runRoot, path)) {
       throw new Error(`sandbox ${field} ${path} would expose the run root`);
     }
     // Code the host runs and every past transcript (story 004, "A fresh harness home").
@@ -92,6 +94,10 @@ export async function resolveSandbox(
       (root) => contains(path, root) || contains(root, path),
     );
     if (keys) throw new Error(`sandbox ${field} ${path} would expose keys in ${keys}`);
+    // Every sandbox's homes, with their copied credentials, and the sessions runs drive.
+    const machine = join(home, ".awf");
+    if (contains(machine, path))
+      throw new Error(`sandbox ${field} ${path} would expose ${machine}`);
     if (controlRoot && (contains(path, controlRoot) || insideDoors(controlRoot, path))) {
       throw new Error(`sandbox ${field} ${path} would expose the engine's doors`);
     }

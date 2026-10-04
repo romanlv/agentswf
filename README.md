@@ -41,7 +41,7 @@ agentswf keeps the workflow in code you own, and moves the unreliable parts into
 ```
 
 A workflow is a TypeScript module with a default export. `awf run ./workflow.ts` loads it, runs
-it, prints its result and keeps everything under `~/.awf/runs`. Control flow is yours: `for`,
+it, prints its result and keeps everything in the project's `.awf/runs`. Control flow is yours: `for`,
 `if`, `Promise.all`, whatever. The engine gives you agents, sandboxes, and `parallel` with
 labelled stages it shows live in the terminal.
 
@@ -146,7 +146,8 @@ cd ~/workflows && awf run ./hello.ts
 
 It prints the result as JSON, with the agent's answer, `{ "answer": 391 }`, under `value`, and a
 line on time, tokens and estimated cost. The run's full record, including `output.json`, stays
-under `~/.awf/runs` (`--run-root` moves it).
+in `.awf/runs/{workflow}/{id}` under the working directory (`--run-root` moves it), and
+`--continue {id}` runs it again with the arguments it was started with.
 
 ### Things to know
 
@@ -458,7 +459,7 @@ have types in the API already, and calling them fails with a clear "unavailable"
 ## Names
 
 The project is **agentswf**. **`awf`** is the command you run, and what it owns keeps that
-name (`~/.awf/runs`, `AWF_*`). **`wf`** is the command an agent runs inside its session to answer.
+name (`.awf/runs`, `AWF_*`). **`wf`** is the command an agent runs inside its session to answer.
 A workflow imports **`agentswf/workflow`**. The packages here are **`@agentswf/*`**.
 
 ## Contributing and design docs

@@ -11,6 +11,7 @@ import {
 import { plugin } from "bun";
 import * as typebox from "typebox";
 import * as typeboxValue from "typebox/value";
+import { idProblem } from "./runs";
 
 /**
  * What a workflow in any folder imports without installing it, served from the engine's own
@@ -68,8 +69,20 @@ export async function loadWorkflowFile(file: string, cwd: string): Promise<Loade
   if (!isExecutableWorkflow(exported)) {
     throw new Error(`default export must be an ${EXECUTABLE_WORKFLOW_KIND} executable workflow`);
   }
+  const { name, version } = exported.definition.meta;
+  // The name is a folder its runs are kept in, and the version's major decides which records a
+  // continue may reuse.
+  const problem = idProblem(name);
+  if (problem) throw new Error(`meta.name: ${problem}`);
+  if (version !== undefined && (typeof version !== "string" || !SEMVER.test(version))) {
+    throw new Error(
+      `meta.version: ${JSON.stringify(version)} is not a semver version such as 1.2.0`,
+    );
+  }
   return { file: absolute, executable: exported };
 }
+
+const SEMVER = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
 
 export function assertJsonValue(value: unknown, label: string): asserts value is JsonValue {
   if (!isJsonValue(value)) throw new Error(`${label} must contain only JSON values`);

@@ -47,8 +47,8 @@ runtime selects subscription-authenticated Claude and Codex models without expos
 placement in workflow aliases. A metered API-key variable set in the environment refuses the run,
 and none is passed to an agent, so they cannot silently take precedence. A workflow that presents its own result prints that report on standard output;
 otherwise, or with `--json`, the command prints the result as JSON. Either way the JSON is kept as
-`output.json` beside the run's other artifacts, under `~/.awf/runs` unless `--run-root` says
-otherwise, and a workflow that writes a Markdown report has it saved there as `report.md`. A run
+`output.json` in the run's folder, `.awf/runs/{workflow}/{id}` under `--cwd` unless `--run-root`
+says otherwise, and a workflow that writes a Markdown report has it saved there as `report.md`. A run
 that fails, times out or is cancelled once it has started still writes `output.json`, with `outcome` saying
 so, its `error`, and what its agents spent. A run directory without one is a run that never
 started, or whose process was killed. A workflow file is trusted

@@ -19,14 +19,14 @@ export type CallSpec = {
 
 /**
  * Which channel carried a candidate value — `control-plane` in production. A string, because
- * attempts recorded by the archived experiments name channels of their own.
+ * candidates recorded by the archived experiments name channels of their own.
  */
-export type AttemptSource = string;
+export type CandidateSource = string;
 
 /** Every candidate value, accepted or not. A rejection is evidence, so it is never dropped. */
-export type Attempt = {
+export type Candidate = {
   at: string;
-  source: AttemptSource;
+  source: CandidateSource;
   accepted: boolean;
   raw: string;
   error?: string;
@@ -226,7 +226,56 @@ export type AgentSkillsRecord = {
   home?: string;
 };
 
-export const OUTPUT_RECORD_VERSION = 4 as const;
+export const RUN_RECORD_VERSION = 1 as const;
+
+/**
+ * `run.json`: what a run is, written once as its folder is claimed. A run's status, current stage
+ * and last attempt are read off its other files, so none of them is here to go stale.
+ */
+export type RunRecord = {
+  version: typeof RUN_RECORD_VERSION;
+  /** Unique within its workflow; its folder's name. */
+  id: string;
+  /** The workflow's `meta.name`, never its file. */
+  workflow: string;
+  /** As given, not as parsed: a continue prepares it again with the code as it is then. */
+  argv: string[];
+  /** Where every attempt works. */
+  cwd: string;
+  /** `awf run --sandbox`'s spec, as its file gave it, which every attempt runs in. */
+  sandbox: JsonValue | null;
+  created: string;
+};
+
+export const ATTEMPT_RECORD_VERSION = 1 as const;
+
+/** How an attempt ended. `interrupted` is never written: it is an attempt with no ending and no process. */
+export type AttemptOutcome = "completed" | "failed" | "timed-out" | "cancelled";
+
+/**
+ * `attempts/{n}.json`: one `awf run` of a run. Written whole when the attempt claims its number, and
+ * again when it ends, with its ending.
+ */
+export type AttemptRecord = {
+  version: typeof ATTEMPT_RECORD_VERSION;
+  n: number;
+  /** The file it ran, for the record; never identity. */
+  file: string;
+  /** The workflow's `meta.version`, when it gives one. */
+  workflowVersion?: string;
+  flags: { timeout: string };
+  /** With `processStart`, what makes the attempt checkably live: a pid alone may be reused. */
+  pid: number;
+  /** As `ps -o lstart=` gives it, as an ISO time to the second. */
+  processStart: string;
+  started: string;
+  ended?: string;
+  outcome?: AttemptOutcome;
+  /** Why it did not complete. */
+  reason?: string;
+};
+
+export const OUTPUT_RECORD_VERSION = 5 as const;
 
 /**
  * A run, as the operator CLI keeps it in `output.json` and prints it with `--json`. A run that
@@ -234,11 +283,14 @@ export const OUTPUT_RECORD_VERSION = 4 as const;
  */
 export type OutputRecord = {
   version: typeof OUTPUT_RECORD_VERSION;
+  /** The run's id, the same in every attempt. */
   runId: string;
+  /** The attempt that wrote this record: `output.json` is the last ended attempt's. */
+  attempt: number;
   workflow: { name: string; file: string };
   accounting: RunAccounting;
   usage: SettledOperation[];
-  /** The run's artifact directory. */
+  /** The run's folder. */
   artifacts: string;
   /**
    * Each sandbox the run opened, once. Absent when it opened none. Readers must not switch

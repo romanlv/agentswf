@@ -70,13 +70,17 @@ export default defineExecutableWorkflow({
 ```
 
 - **`definition`** is the workflow: `meta` and `run(workflow, args)`. Its args and result must
-  be JSON.
+  be JSON. `meta.name` names the folder its runs are kept in, so it is letters, digits, `.`, `_`
+  and `-`; the file may move or be copied and stay the same workflow. An optional `meta.version`
+  is semver, and is recorded with each attempt.
 - **`prepare`** turns the command line (`argv` after `--`, and `cwd`) into args.
 - **`present`** and **`report`** are optional. Without `present`, `awf run` prints the full result
   as JSON. `--json` always prints it.
 
-The result, every agent's usage, and why the run ended are kept in `output.json` under
-`~/.awf/runs/{run}`. A run that fails or is cancelled keeps this record too.
+The result, every agent's usage, and why the run ended are kept in `output.json` in the run's
+folder, `.awf/runs/{workflow}/{id}` under the working directory. A run that fails or is cancelled
+keeps this record too, and `awf run {file} --continue {id}` runs it again as its next attempt.
+`workflow.runId` is the run's id, the same in every attempt, and `workflow.attempt` its number.
 
 ## Agents
 

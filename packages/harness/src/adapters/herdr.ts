@@ -654,7 +654,7 @@ export function createHerdrRunHostFactory(
     accounting: createSessionAccounting(withholding(run, config.emptyEnvironment ?? [])),
     async openRun(runSpec) {
       const remaining = () => runSpec.deadline.unixMilliseconds - Date.now();
-      const label = `${config.workspaceLabel} ${runSpec.runId}`;
+      const label = runSpec.label ?? `${config.workspaceLabel} ${runSpec.runId}`;
       type Topology = Awaited<ReturnType<typeof openTopology>>;
       // Opened at the first tab it needs, so a run whose panes are all in boxes, unwatched, leaves
       // no empty workspace in the operator's Herdr.

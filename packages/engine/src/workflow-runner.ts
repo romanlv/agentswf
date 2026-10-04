@@ -102,6 +102,17 @@ export { WorkflowCancelledError } from "./deadlines";
 
 export type RunWorkflowOptions = {
   runRoot: string;
+  /**
+   * The run this is an attempt of, whose folder the operator claimed under `runRoot`. Without it the
+   * run is a folder of its own, `{runRoot}/{uuid}`, with that id, as tests make one.
+   */
+  run?: {
+    dir: string;
+    id: string;
+    attempt: number;
+    /** How the attempt is named to a person: its Herdr workspace's label. */
+    label?: string;
+  };
   runtime: AgentRuntimeConfig;
   deadline: AbsoluteDeadline;
   cwd?: string;
@@ -244,9 +255,16 @@ export async function startWorkflow<Args extends JsonValue, Result extends JsonV
 ): Promise<WorkflowRunHandle<Result>> {
   assertDeadline(options.deadline);
   if (options.signal?.aborted) throw new WorkflowCancelledError(options.signal.reason);
-  const runId = randomUUID();
+  const runId = options.run?.id ?? randomUUID();
+  const attempt = options.run?.attempt ?? 1;
   const startedAt = Date.now();
-  const runDir = await createRunDir(options.runRoot, runId);
+  // Inside the run root, which every sandbox is denied.
+  if (options.run && relative(options.runRoot, options.run.dir).startsWith("..")) {
+    throw new Error(
+      `the run's folder ${options.run.dir} is outside the run root ${options.runRoot}`,
+    );
+  }
+  const runDir = options.run?.dir ?? (await createRunDir(options.runRoot, runId));
   const slots = createResultSlotRegistry({ runDir });
   const control = await startResultControlPlane({ slots });
   const cwd = options.cwd ?? process.cwd();
@@ -254,6 +272,7 @@ export async function startWorkflow<Args extends JsonValue, Result extends JsonV
   const openingHost = Promise.resolve().then(() =>
     options.runtime.host.openRun({
       runId,
+      ...(options.run?.label === undefined ? {} : { label: options.run.label }),
       cwd,
       deadline: options.deadline,
     }),
@@ -312,6 +331,7 @@ export async function startWorkflow<Args extends JsonValue, Result extends JsonV
     environment,
     progress,
     runId,
+    attempt,
     cwd,
     deadline: options.deadline,
     runtime: options.runtime,
@@ -513,6 +533,7 @@ class WorkflowOwner {
       environment: Readonly<Record<string, string | undefined>>;
       decisions: RunDecisions;
       runId: string;
+      attempt: number;
       cwd: string;
       deadline: AbsoluteDeadline;
       runtime: AgentRuntimeConfig;
@@ -526,6 +547,7 @@ class WorkflowOwner {
   ) {
     this.context = {
       runId: options.runId,
+      attempt: options.attempt,
       cwd: options.cwd,
       deadline: options.deadline,
       agents: {
