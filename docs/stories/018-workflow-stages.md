@@ -788,6 +788,8 @@ breaks them under main's awf until this branch is merged, so it waits for the op
 
 ## Implementation notes
 
+- Todo found: [[flaky-turn-deadline-test]], a wall-clock test that failed once under full-suite load.
+
 ## Human review
 
 - [ ] Every task is complete and story-level verification passes.
