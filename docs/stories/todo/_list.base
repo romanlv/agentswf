@@ -7,13 +7,33 @@ views:
         - file.name != "README"
     order:
       - priority
+      - epic
       - file.name
       - type
       - depends_on
     sort:
       - property: priority
         direction: ASC
-      - property: file.name
+      - property: epic
+        direction: ASC
+    columnSize:
+      file.name: 260
+  - type: table
+    name: By epic
+    filters:
+      and:
+        - file.inFolder("stories/todo")
+        - file.name != "README"
+    order:
+      - epic
+      - priority
+      - file.name
+      - type
+      - depends_on
+    sort:
+      - property: epic
+        direction: ASC
+      - property: priority
         direction: ASC
     columnSize:
       file.name: 260

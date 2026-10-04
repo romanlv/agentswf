@@ -3,6 +3,7 @@ title: Split the large modules, and keep them split
 type: story
 status: todo
 priority: P2
+epic: codebase
 discovered_in: "codebase review, 2026-10-01"
 depends_on: []
 ---

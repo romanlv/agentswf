@@ -3,6 +3,7 @@ title: Test a workflow's deadlines on a virtual clock
 type: story
 status: todo
 priority: P3
+epic: authoring
 discovered_in: "story 012, design review, 2026-09-30"
 depends_on: ["012"]
 ---

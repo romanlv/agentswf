@@ -3,6 +3,7 @@ title: Record whether billing was observed or assumed, and settle headless claud
 type: story
 status: todo
 priority: P2
+epic: observability
 discovered_in: "story 008, the trial"
 depends_on: ["002"]
 ---

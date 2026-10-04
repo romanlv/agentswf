@@ -3,6 +3,7 @@ title: Make live-evaluation disclosure explicit
 type: story
 status: todo
 priority: P3
+epic: launch
 discovered_in: "001 Task 7 approval gate"
 depends_on: []
 ---

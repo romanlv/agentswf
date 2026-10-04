@@ -3,6 +3,7 @@ title: Measure and classify Herdr pane settlement
 type: story
 status: todo
 priority: P2
+epic: long-runs
 discovered_in: "001 post-review live evidence"
 depends_on: []
 ---

@@ -3,6 +3,7 @@ title: Expose operator run progress
 type: story
 status: todo
 priority: P2
+epic: observability
 discovered_in: "001 Task 8 audit"
 depends_on: []
 ---

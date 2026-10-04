@@ -3,6 +3,7 @@ title: A workflow reads as its process, not as its plumbing
 type: story
 status: todo
 priority: P1
+epic: authoring
 discovered_in: "story 015, the operator's review, 2026-10-01"
 depends_on: []
 ---

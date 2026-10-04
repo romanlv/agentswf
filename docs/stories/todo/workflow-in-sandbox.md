@@ -3,6 +3,7 @@ title: Run a whole workflow inside a sandbox
 type: story
 status: todo
 priority: P2
+epic: sandbox
 discovered_in: "story 004, 2026-09-25"
 depends_on: ["004"]
 ---

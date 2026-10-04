@@ -18,6 +18,7 @@ title: <Short title>
 type: story
 status: todo
 priority: <P0 | P1 | P2 | P3>
+epic: <one of the epics below>
 discovered_in: <story id, code path, test, or investigation>
 depends_on: []
 ---
@@ -39,6 +40,19 @@ what is still useful into that one and delete the file; git keeps the rest.
 
 Prefer one concrete concern per file. Link the new todo from the originating story's implementation
 notes, then continue the original scope.
+
+## Epics
+
+What a todo belongs to, one per file:
+
+- **loop** — the autoresearch loop and the lab: proposer, comparison, scorer, datasets.
+- **long-runs** — a long run of the operator's own workflows finishing, or stopping recoverably.
+- **observability** — seeing what a run does and did: logs, progress, context, spend records.
+- **agent-config** — what an agent runs with: effort, permissions, operator settings.
+- **authoring** — writing and testing a workflow.
+- **sandbox** — containing agents and workflows.
+- **launch** — going public: npm, Node, private references, disclosure.
+- **codebase** — the repository's own shape.
 
 ## Priorities
 

@@ -3,6 +3,7 @@ title: Measure how often Jev's settled noise is wrong
 type: story
 status: todo
 priority: P2
+epic: loop
 discovered_in: "story 011, decision 5 and task 1's review"
 depends_on: ["011"]
 ---

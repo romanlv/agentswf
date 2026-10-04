@@ -3,6 +3,7 @@ title: Choose an agent's permission mode
 type: story
 status: todo
 priority: P1
+epic: agent-config
 discovered_in: "eval timing, 2026-10-01; [[permissions]]"
 depends_on: []
 ---

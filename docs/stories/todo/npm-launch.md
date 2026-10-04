@@ -3,6 +3,7 @@ title: Launch agents.wf on npm
 type: story
 status: todo
 priority: P3
+epic: launch
 discovered_in: "story 009, 2026-09-28"
 depends_on: ["009"]
 ---

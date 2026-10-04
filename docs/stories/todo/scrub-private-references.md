@@ -3,6 +3,7 @@ title: Remove private project references before open-sourcing
 type: story
 status: todo
 priority: P3
+epic: launch
 discovered_in: "story 005 review, 2026-09-25"
 depends_on: []
 ---

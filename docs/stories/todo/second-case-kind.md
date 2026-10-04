@@ -3,6 +3,7 @@ title: Evaluate a second kind of workflow, and make the lab's case side generic
 type: story
 status: todo
 priority: P2
+epic: loop
 discovered_in: "story 011, decision 1, 2026-09-30"
 depends_on: ["011"]
 ---

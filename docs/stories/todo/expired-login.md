@@ -3,6 +3,7 @@ title: Stop and tell the operator when a harness's login has expired
 type: story
 status: todo
 priority: P1
+epic: long-runs
 discovered_in: "story 016, task 4's live run, 2026-10-03"
 depends_on: []
 ---

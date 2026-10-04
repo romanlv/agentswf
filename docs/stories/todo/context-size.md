@@ -3,6 +3,7 @@ title: Show an agent's context size to the workflow
 type: story
 status: todo
 priority: P2
+epic: observability
 discovered_in: "story 016, the operator's review, 2026-10-01"
 depends_on: []
 ---

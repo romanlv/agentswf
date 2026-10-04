@@ -3,6 +3,7 @@ title: Control how workflow agents are displayed in Herdr
 type: story
 status: todo
 priority: P3
+epic: observability
 discovered_in: "001 Task 7 user review"
 depends_on: []
 ---

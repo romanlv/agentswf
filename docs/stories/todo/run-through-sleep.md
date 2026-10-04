@@ -3,6 +3,7 @@ title: A run the machine slept through
 type: story
 status: todo
 priority: P1
+epic: long-runs
 discovered_in: "story 008, the trial; measured 2026-10-02"
 depends_on: ["operator-settings"]
 ---

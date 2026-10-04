@@ -4,6 +4,7 @@ type: story
 status: todo
 discovered_in: "story 011, task 7's live check, 2026-09-30"
 priority: P0
+epic: loop
 depends_on: ["011"]
 ---
 

@@ -3,6 +3,7 @@ title: Keep a sandboxed agent's writes from running on the host
 type: story
 status: todo
 priority: P2
+epic: sandbox
 discovered_in: "story 004, human review, 2026-09-26"
 depends_on: ["004"]
 ---

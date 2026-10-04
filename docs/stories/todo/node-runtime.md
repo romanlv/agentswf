@@ -3,6 +3,7 @@ title: Run the packages on Node.js
 type: story
 status: todo
 priority: P3
+epic: launch
 discovered_in: "story 009 review, 2026-09-28"
 depends_on: ["009"]
 ---

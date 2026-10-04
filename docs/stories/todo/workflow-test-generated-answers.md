@@ -3,6 +3,7 @@ title: Test a workflow against every answer its schemas allow
 type: story
 status: todo
 priority: P3
+epic: authoring
 discovered_in: "story 012, prototype, 2026-09-30"
 depends_on: ["012"]
 ---

@@ -3,6 +3,7 @@ title: Try claude opus 5.5 as the judge's second voter
 type: story
 status: todo
 priority: P3
+epic: loop
 discovered_in: "story 008, match first"
 depends_on: ["008"]
 ---

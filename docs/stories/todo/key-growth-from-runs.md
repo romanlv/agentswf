@@ -3,6 +3,7 @@ title: Grow an answer key from what scored runs find
 type: story
 status: todo
 priority: P2
+epic: loop
 discovered_in: "story 008 refinement, 2026-09-26"
 depends_on: ["008"]
 ---

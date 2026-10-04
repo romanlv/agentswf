@@ -4,6 +4,7 @@ type: story
 status: todo
 discovered_in: "story 008, match first"
 priority: P0
+epic: agent-config
 depends_on: []
 ---
 

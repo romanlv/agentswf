@@ -3,6 +3,7 @@ title: Operator settings files
 type: story
 status: todo
 priority: P2
+epic: agent-config
 discovered_in: "run-through-sleep, 2026-10-02"
 depends_on: []
 ---
