@@ -66,6 +66,11 @@ export class StageLedger {
       /** `--from-stage`: the stage the attempt starts at. */
       fromStage?: string;
       now?: () => Date;
+      /** Each stage as it is entered and as it ends, as its record says: what the view shows. */
+      progress?: {
+        entered(name: string, source: "ran" | "reused", attempt?: number, summary?: string): void;
+        ended(name: string, outcome: StageRecord["outcome"], summary?: string): void;
+      };
     },
   ) {}
 
@@ -142,10 +147,18 @@ export class StageLedger {
     );
     if (decision.kind === "stop") {
       this.#stopped = new WorkflowStopped(decision.reason, name);
+      this.options.progress?.entered(name, "ran");
+      this.options.progress?.ended(name, "stopped");
       throw this.#stopped;
     }
     if (decision.kind === "reuse") {
       this.#reused.add(name);
+      this.options.progress?.entered(
+        name,
+        "reused",
+        decision.record.attempt,
+        decision.record.summary,
+      );
       // Open until handed back, so a stage entered beside it is refused as on a fresh attempt.
       const held: OpenStage = {
         name,
@@ -190,6 +203,7 @@ export class StageLedger {
   #opened(name: string): OpenStage {
     const now = this.options.now ?? (() => new Date());
     const started = now();
+    this.options.progress?.entered(name, "ran");
     let ended: Promise<void> | undefined;
     // A record that fails to be written fails the stage with that error, whatever its work did.
     const end = (fields: Pick<StageRecord, "outcome" | "reason" | "summary" | "value">) => {
@@ -210,7 +224,13 @@ export class StageLedger {
         ...(fields.summary === undefined ? {} : { summary: fields.summary }),
         ...(fields.value === undefined ? {} : { value: fields.value }),
       };
-      ended = writeStageRecord(this.options.runDir, record);
+      ended = writeStageRecord(this.options.runDir, record).then(
+        () => this.options.progress?.ended(name, record.outcome, record.summary),
+        (error: unknown) => {
+          this.options.progress?.ended(name, "failed");
+          throw error;
+        },
+      );
       this.#writes.add(ended);
       return ended;
     };

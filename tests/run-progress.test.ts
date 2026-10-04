@@ -1,6 +1,8 @@
 import { afterAll, describe, expect, test } from "bun:test";
+import { join } from "node:path";
 import type { WorkflowDefinition } from "../packages/contract/src/workflow";
 import { PLAIN, progressEvents, renderProgress } from "../packages/engine/src/progress-view";
+import { writeStageRecord } from "../packages/engine/src/runs";
 import { createTempRunDirs, future, submit } from "../packages/engine/src/testing";
 import { startWorkflow, type WorkflowRunSnapshot } from "../packages/engine/src/workflow-runner";
 import { createSingleSessionHostFactory } from "../packages/harness/src/single-session-host";
@@ -11,13 +13,13 @@ afterAll(() => runDirs.cleanup());
 
 const SOL = { harness: "codex", model: "gpt-6-sol" };
 
-function agent(key: string, stage: number, turn?: NonNullable<Agent["turn"]>): Agent {
+function agent(key: string, group: number, turn?: NonNullable<Agent["turn"]>): Agent {
   return {
     key,
     execution: SOL,
     state: turn?.outcome === undefined ? "working" : "idle",
     observedAt: 0,
-    stage,
+    group,
     turns: turn ? 1 : 0,
     ...(turn ? { turn } : {}),
   };
@@ -26,7 +28,9 @@ type Agent = WorkflowRunSnapshot["agents"][number];
 
 const MID_RUN: WorkflowRunSnapshot = {
   state: "running",
-  stages: [
+  stages: [],
+  upcoming: [],
+  groups: [
     { label: "Lenses", total: 2, started: 2, done: 2, startedAt: 0, endedAt: 150_000 },
     { label: "Verify", total: 4, started: 2, done: 1, startedAt: 150_000 },
   ],
@@ -43,8 +47,242 @@ const MID_RUN: WorkflowRunSnapshot = {
   ],
 };
 
+const OPUS = { harness: "claude", model: "claude-opus-5-5" };
+
+/** Attempt 2 of a run, in qa: two stages reused, review done, mr recorded and still to come. */
+const CONTINUED: WorkflowRunSnapshot = {
+  state: "running",
+  groups: [],
+  upcoming: ["mr"],
+  stages: [
+    {
+      name: "doc-review",
+      source: "reused",
+      attempt: 1,
+      startedAt: 0,
+      endedAt: 0,
+      outcome: "succeeded",
+      summary: "docs/AIRS-1515.md",
+    },
+    {
+      name: "implement",
+      source: "reused",
+      attempt: 1,
+      startedAt: 0,
+      endedAt: 0,
+      outcome: "succeeded",
+    },
+    {
+      name: "review",
+      source: "ran",
+      startedAt: 0,
+      endedAt: 240_000,
+      outcome: "succeeded",
+      summary: "2 findings",
+    },
+    { name: "qa", source: "ran", startedAt: 240_000 },
+  ],
+  agents: [
+    {
+      key: "worker",
+      execution: OPUS,
+      state: "working",
+      observedAt: 0,
+      turns: 3,
+      turn: { startedAt: 250_000, stage: "qa", label: "preview" },
+    },
+    {
+      key: "tester",
+      execution: { ...OPUS, placement: "headless" },
+      state: "idle",
+      observedAt: 0,
+      turns: 1,
+      turn: { startedAt: 241_000, settledAt: 245_000, outcome: "answered", stage: "qa" },
+    },
+    {
+      key: "reviewer",
+      execution: OPUS,
+      state: "idle",
+      observedAt: 0,
+      turns: 1,
+      turn: { startedAt: 1, settledAt: 2, outcome: "answered", stage: "review" },
+    },
+  ],
+};
+
+describe("run progress by stage", () => {
+  test("a continued run mid-stage: reused, done, current with its agents, and still to come", () => {
+    expect(
+      renderProgress(CONTINUED, {
+        name: "implement-ticket AIRS-1515 · attempt 2",
+        startedAt: 0,
+        now: 300_000,
+        paint: PLAIN,
+      }),
+    ).toEqual([
+      "implement-ticket AIRS-1515 · attempt 2 · qa · 5m 00s · 1 working",
+      "↺ doc-review  attempt 1 · docs/AIRS-1515.md",
+      "↺ implement   attempt 1",
+      "✓ review      4m 00s · 2 findings",
+      expect.stringMatching(/^. qa {10}1m 00s$/),
+      expect.stringMatching(/^ {4}. worker {2}claude-opus-5-5 · pane {2}preview {2}50s$/),
+      "    · tester  claude-opus-5-5 · headless  4s  waiting",
+      "· mr",
+    ]);
+  });
+
+  test("the same run, without a terminal, as one line per change", () => {
+    const started = { ...CONTINUED, stages: CONTINUED.stages.slice(0, 3), agents: [] };
+    expect(progressEvents(undefined, started, { startedAt: 0, now: 0 })).toEqual([
+      "[0:00] ↺ stage doc-review · attempt 1 · docs/AIRS-1515.md",
+      "[0:00] ↺ stage implement · attempt 1",
+      "[0:00] ▶ stage review",
+      "[0:00] ✓ stage review succeeded in 4m 00s · 2 findings",
+    ]);
+    expect(progressEvents(started, CONTINUED, { startedAt: 0, now: 300_000 })).toEqual([
+      "[5:00] ▶ stage qa",
+      "[5:00] ▶ worker · claude-opus-5-5",
+      "[5:00] ✓ tester · 4s",
+      "[5:00] ✓ reviewer · 0s",
+    ]);
+    const stopped = {
+      ...CONTINUED,
+      stages: [
+        ...CONTINUED.stages.slice(0, 3),
+        {
+          name: "qa",
+          source: "ran" as const,
+          startedAt: 240_000,
+          endedAt: 360_000,
+          outcome: "stopped" as const,
+        },
+      ],
+    };
+    expect(progressEvents(CONTINUED, stopped, { startedAt: 0, now: 360_000 })).toEqual([
+      "[6:00] ■ stage qa stopped in 2m 00s",
+    ]);
+  });
+
+  test("a continue's snapshot: a stage reused with its attempt, one failed, none left to come", async () => {
+    const runRoot = runDirs.tempRunDir();
+    const dir = join(runRoot, "staged", "r1");
+    await writeStageRecord(dir, {
+      version: 1,
+      stage: "implement",
+      attempt: 1,
+      outcome: "succeeded",
+      started: "2026-10-02T16:00:00Z",
+      ended: "2026-10-02T16:10:00Z",
+      sessions: [],
+      summary: "feat/a",
+    });
+    await writeStageRecord(dir, {
+      version: 1,
+      stage: "qa",
+      attempt: 1,
+      outcome: "failed",
+      started: "2026-10-02T16:11:00Z",
+      ended: "2026-10-02T16:12:00Z",
+      sessions: [],
+    });
+    const workflow: WorkflowDefinition<null, null> = {
+      meta: { name: "staged", description: "stages" },
+      async run(context) {
+        await context.stage("implement", async () => {
+          throw new Error("implement's work was called");
+        });
+        await context.stage("qa", async () => {
+          throw new Error("qa broke");
+        });
+        return null;
+      },
+    };
+    const handle = await startWorkflow(workflow, null, {
+      runRoot,
+      run: { dir, id: "r1", attempt: 2 },
+      runtime: {
+        aliases: {},
+        host: createSingleSessionHostFactory(createFakeAdapter({ script: () => ({}) })),
+      },
+      deadline: future(),
+    });
+    await handle.result.catch(() => undefined);
+    const { stages, upcoming } = handle.inspect();
+    expect(stages).toMatchObject([
+      { name: "implement", source: "reused", attempt: 1, summary: "feat/a" },
+      { name: "qa", source: "ran", outcome: "failed" },
+    ]);
+    expect(upcoming).toEqual([]);
+  });
+
+  test("a stage the run's stop ends is shown ended, as its record is", async () => {
+    let entered!: () => void;
+    const inside = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    const workflow: WorkflowDefinition<null, null> = {
+      meta: { name: "staged", description: "stages" },
+      async run(context) {
+        await context.stage("qa", async () => {
+          entered();
+          // Nothing cancelling the run rejects.
+          await new Promise(() => {});
+        });
+        return null;
+      },
+    };
+    const handle = await startWorkflow(workflow, null, {
+      runRoot: runDirs.tempRunDir(),
+      runtime: {
+        aliases: {},
+        host: createSingleSessionHostFactory(createFakeAdapter({ script: () => ({}) })),
+      },
+      deadline: future(),
+    });
+    await inside;
+    await handle.stop("SIGINT");
+    expect(handle.inspect().stages).toMatchObject([{ name: "qa", outcome: "failed" }]);
+  });
+
+  test("a live run's snapshot names its stages and each turn's stage and label", async () => {
+    const adapter = createFakeAdapter({
+      harnesses: ["codex"],
+      script: (context) => ({
+        act: async () => {
+          await submit(context.binding!, "done");
+        },
+      }),
+    });
+    let seen: WorkflowRunSnapshot | undefined;
+    let handle: Awaited<ReturnType<typeof startWorkflow>> | undefined;
+    const workflow: WorkflowDefinition<null, null> = {
+      meta: { name: "staged", description: "stages" },
+      async run(context) {
+        const worker = await context.agents.open({ key: "worker", runtime: "codex" });
+        await context.stage("implement", async () => {
+          await worker.run({ prompt: "Do it.", label: "build" });
+          seen = handle?.inspect();
+        });
+        return null;
+      },
+    };
+    handle = await startWorkflow(workflow, null, {
+      runRoot: runDirs.tempRunDir(),
+      runtime: {
+        aliases: { codex: SOL },
+        host: createSingleSessionHostFactory(adapter),
+      },
+      deadline: future(),
+    });
+    await handle.result;
+    expect(seen?.stages).toMatchObject([{ name: "implement", source: "ran" }]);
+    expect(seen?.agents[0]?.turn).toMatchObject({ stage: "implement", label: "build" });
+    expect(handle.inspect().stages[0]).toMatchObject({ outcome: "succeeded" });
+  });
+});
+
 describe("run progress", () => {
-  test("the terminal block names each stage, and under it what runs or went wrong", () => {
+  test("the terminal block names each labelled parallel, and under it what runs or went wrong", () => {
     expect(
       renderProgress(MID_RUN, { name: "review", startedAt: 0, now: 200_000, paint: PLAIN }),
     ).toEqual([
@@ -109,9 +347,9 @@ describe("run progress", () => {
     const snapshot = handle.inspect();
 
     expect(result.value).toEqual(["answered", "failed"]);
-    expect(snapshot.stages).toMatchObject([{ label: "Pair", total: 2, started: 2, done: 2 }]);
-    expect(snapshot.stages[0]?.endedAt).toBeNumber();
-    expect(snapshot.agents.map((a) => [a.key, a.stage, a.turns, a.turn?.outcome]).sort()).toEqual([
+    expect(snapshot.groups).toMatchObject([{ label: "Pair", total: 2, started: 2, done: 2 }]);
+    expect(snapshot.groups[0]?.endedAt).toBeNumber();
+    expect(snapshot.agents.map((a) => [a.key, a.group, a.turns, a.turn?.outcome]).sort()).toEqual([
       ["a", 0, 1, "answered"],
       ["b", 0, 1, "failed"],
     ]);

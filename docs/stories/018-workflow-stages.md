@@ -233,7 +233,7 @@ Out of scope:
   support.
 - [x] 5. The author surface: `stop`, `id(args)` and `summary`, documented, with the boilerplate's
   `ask` and `md` over them.
-- [ ] 6. The view by stage.
+- [x] 6. The view by stage.
 - [ ] 7. Accounting and endings by stage.
 - [ ] 8. Consumers: an example with stages, and implement-ticket on awf's stages, run live.
 
@@ -473,6 +473,25 @@ Outcome:
 Done when progress-view tests render a continued run mid-stage, the same run as non-TTY events,
 and a run without stages, which is unchanged.
 
+Plan (2026-10-04):
+- **`run-progress.ts`.** The labelled `parallel`s become groups (`GroupProgress`, `group`), so
+  "stage" means one thing. Workflow stages are tracked as entered (ran or reused, with the attempt
+  a reused one came from, the outcome and the summary). The stages an earlier attempt recorded
+  are listed as still to come, and each turn's progress carries its stage and label.
+- **`progress-view.ts`.**
+  - The header names the current stage.
+  - The stage block comes first:
+    - reused stages `↺` with their attempt;
+    - finished stages collapsed, with their time, outcome and summary;
+    - the current stage with each agent working in it: its model, placement, turn label and time,
+      and `waiting` once its turn is answered;
+    - the stages still to come, dim.
+  - Then the groups and loose agents, as before, without the current stage's agents.
+  - Without a terminal, stages are entered, reused and ended as lines.
+- **Deviation:** the view shows each agent's placement but not its pane id. The harness's agent
+  snapshot doesn't carry one, and adding it reaches into the session core of every host; it is
+  left for [[operator-run-observation]].
+
 ### 7. Accounting and endings by stage
 
 Outcome:
@@ -667,7 +686,25 @@ Accepted, not changed:
 - **The hint's reason match** compares whole reasons, which a cleanup failure joined onto the
   earlier attempt's reason would defeat.
 
-### Tasks 6–8
+### Task 6
+
+Two subagents, 2026-10-04. Resolved:
+- **Stage progress could stay open.** A stage that the ledger's `close()` ended, when a
+  cancellation left its work hanging, kept spinning, and a stage whose record failed to write
+  showed ✓. The ledger now reports every stage it enters and ends to the view, after the record
+  is written, so the view matches the records. A plan's stop shows its stage as stopped.
+- **Events out of order.** Without a terminal, a known stage's end now comes before a new one's
+  start, and a stage entered and ended between two ticks ends after its turns.
+- **Leftover stages.** Stages still to come are hidden once the run closes.
+- **Display.** Agents in a stage line up; a stopped stage is `■` in both views; the groups loop
+  says `group`.
+- **Tests added:** a continue's snapshot (reused with attempt and summary, failed, nothing left to
+  come), and a stage ended by the run's stop.
+
+Accepted: a compaction turn is labelled `compact` in the view only; its operation record has no
+label.
+
+### Tasks 7–8
 
 - Architecture and scope:
 - Correctness and proof:

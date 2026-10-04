@@ -89,7 +89,12 @@ import {
   type ResultSlotSettlement,
 } from "./result-slots";
 import { createRunDir } from "./run-dir";
-import { type AgentProgress, RunProgress, type StageProgress } from "./run-progress";
+import {
+  type AgentProgress,
+  type GroupProgress,
+  RunProgress,
+  type StageProgress,
+} from "./run-progress";
 import {
   type AccountedAgent,
   type AgentLedger,
@@ -205,7 +210,11 @@ export type WorkflowRunHandle<Result extends JsonValue> = {
 export type WorkflowRunSnapshot = {
   state: "starting" | "running" | "closing" | "closed";
   /** Labelled `parallel` calls, in the order they began. */
+  groups: readonly GroupProgress[];
+  /** The workflow stages this attempt entered, in order. */
   stages: readonly StageProgress[];
+  /** Stages an earlier attempt recorded that this one hasn't entered yet. */
+  upcoming: readonly string[];
   agents: readonly (Partial<AgentProgress> & {
     key: AgentKey;
     execution: AgentExecution;
@@ -343,8 +352,17 @@ export async function startWorkflow<Args extends JsonValue, Result extends JsonV
     ...(options.run?.fromStage === undefined ? {} : { fromStage: options.run.fromStage }),
     ...(definition.meta.version === undefined ? {} : { workflowVersion: definition.meta.version }),
     turns: () => turns,
+    progress: {
+      entered: (name, source, from, summary) => progress.stageEntered(name, source, from, summary),
+      ended: (name, outcome, summary) => progress.stageEnded(name, outcome, summary),
+    },
   });
   const progress = new RunProgress();
+  progress.recorded(
+    [...recorded.values()]
+      .sort((a, b) => a.started.localeCompare(b.started))
+      .map((record) => record.stage),
+  );
   // Shared by sandboxed agents' homes and a host agent's own: they may copy one credential.
   const locks: CredentialLocks = new Map();
   const environment = options.sandboxes?.environment ?? process.env;
@@ -507,7 +525,9 @@ export async function startWorkflow<Args extends JsonValue, Result extends JsonV
       const known = progress.snapshot();
       return {
         state,
+        groups: known.groups,
         stages: known.stages,
+        upcoming: known.upcoming,
         agents: agents.map((agent) => ({ ...known.agents.get(agent.key), ...agent })),
       };
     },
@@ -692,7 +712,7 @@ class WorkflowOwner {
           : inherited;
         const label = parallelOptions?.label;
         return runParallel(items, operation, deadline, parallelOptions?.concurrency, () =>
-          label === undefined ? undefined : options.progress.stage(label, items.length),
+          label === undefined ? undefined : options.progress.group(label, items.length),
         );
       },
       stop: (reason: string): never => {
@@ -790,7 +810,7 @@ class WorkflowOwner {
     const open = entered.stage;
     const scope = new ExecutionScope(
       parent?.deadline ?? this.options.deadline,
-      parent?.stage,
+      parent?.group,
       name,
     );
     const removeFromParent = parent?.add(() => scope.cancel());
@@ -857,7 +877,7 @@ class WorkflowOwner {
       return attached;
     }
 
-    this.options.progress.agentOpened(spec.key, scope?.stage);
+    this.options.progress.agentOpened(spec.key, scope?.group);
     // Opened before the session so registration below stays synchronous: two concurrent `agent()`
     // calls for one key must not each build an agent.
     const sessions: AgentSessions = { launcher: new Set(), forks: [] };
@@ -935,7 +955,7 @@ class WorkflowOwner {
     if (this.#agents.has(key))
       throw new Error(`agent ${key} is already open; the caller needs a key of its own`);
     const execution: AgentExecution = { harness: found.harness, model: "", caller: true };
-    this.options.progress.agentOpened(key, scope?.stage);
+    this.options.progress.agentOpened(key, scope?.group);
     const sessions: AgentSessions = { launcher: new Set(), forks: [] };
     const accounted: AccountedAgent = {
       key,
@@ -1267,7 +1287,7 @@ class WorkflowOwner {
       forkedFrom: { parent: parentKey, spec: forkSpec },
     };
 
-    this.options.progress.agentOpened(spec.key, scope?.stage);
+    this.options.progress.agentOpened(spec.key, scope?.group);
     const sessions: AgentSessions = { launcher: new Set(), forks: [], parent: opening.sessions };
     opening.sessions.forks.push(sessions);
     const accounted: AccountedAgent = {
@@ -1489,7 +1509,7 @@ class LogicalAgent implements AgentRef {
       }
       scope?.assertActive();
       const { progress, key } = this.options;
-      progress.turnStarted(key);
+      progress.turnStarted(key, tagsOf(scope, completeSpec.label));
       try {
         const settled = await this.executeOperation(completeSpec, scope, deadline);
         const { outcome } = settled;
@@ -1544,7 +1564,7 @@ class LogicalAgent implements AgentRef {
       }
       scope?.assertActive();
       const { progress, key } = this.options;
-      progress.turnStarted(key);
+      progress.turnStarted(key, tagsOf(scope, "compact"));
       try {
         const outcome = await this.executeCompaction(id, spec.prompt, deadline, scope);
         progress.turnSettled(key, outcome.kind, "reason" in outcome ? outcome.reason : undefined);
@@ -2024,7 +2044,8 @@ class ExecutionScope {
 
   constructor(
     readonly deadline: AbsoluteDeadline,
-    readonly stage?: StageProgress,
+    /** The labelled `parallel` it runs in, for progress. */
+    readonly group?: GroupProgress,
     /** The workflow stage everything in this scope runs in. */
     readonly workflowStage?: string,
   ) {}
@@ -2088,7 +2109,7 @@ function runParallel<Item, Result>(
   operation: (item: Item, index: number) => Promise<Result>,
   deadline: AbsoluteDeadline,
   requestedConcurrency?: number,
-  openStage?: () => StageProgress | undefined,
+  openGroup?: () => GroupProgress | undefined,
 ): Promise<Result[]> {
   assertDeadline(deadline);
   const concurrency = requestedConcurrency ?? Math.max(1, items.length);
@@ -2098,7 +2119,7 @@ function runParallel<Item, Result>(
   const parent = scopes.getStore();
   parent?.assertAccepting();
   if (items.length === 0) return Promise.resolve([]);
-  const execution = executeParallel(items, operation, deadline, concurrency, parent, openStage?.());
+  const execution = executeParallel(items, operation, deadline, concurrency, parent, openGroup?.());
   parent?.track(execution);
   return execution;
 }
@@ -2109,10 +2130,10 @@ async function executeParallel<Item, Result>(
   deadline: AbsoluteDeadline,
   concurrency: number,
   parent: ExecutionScope | undefined,
-  stage?: StageProgress,
+  group?: GroupProgress,
 ): Promise<Result[]> {
-  // An unlabelled parallel inside a stage stays part of it.
-  const scope = new ExecutionScope(deadline, stage ?? parent?.stage, parent?.workflowStage);
+  // An unlabelled parallel inside a labelled one stays part of it.
+  const scope = new ExecutionScope(deadline, group ?? parent?.group, parent?.workflowStage);
   const removeFromParent = parent?.add(() => scope.cancel());
   const results = new Array<Result>(items.length);
   let next = 0;
@@ -2123,11 +2144,11 @@ async function executeParallel<Item, Result>(
         next += 1;
         if (index >= items.length) return;
         scope.assertActive();
-        if (stage) stage.started += 1;
+        if (group) group.started += 1;
         try {
           results[index] = await operation(items[index]!, index);
         } finally {
-          if (stage) stage.done += 1;
+          if (group) group.done += 1;
         }
       }
     });
@@ -2154,7 +2175,7 @@ async function executeParallel<Item, Result>(
     completion.catch(() => undefined);
     throw error;
   } finally {
-    if (stage) stage.endedAt = Date.now();
+    if (group) group.endedAt = Date.now();
     cancelTimer?.();
     removeFromParent?.();
   }
