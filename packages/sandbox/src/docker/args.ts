@@ -1,20 +1,19 @@
 import { RECORD_LEADER } from "../groups";
-import { contains, writableIn } from "../resolve";
+import { writableIn } from "../resolve";
 import type { ResolvedSandbox } from "../seam";
 
 /**
  * The box's mounts, at the host's paths: the working directory and `read` read-only, `write`
- * writable, `homes/` and `quarantine/`, and the gitdirs, read-only unless writable. The most specific path decides,
- * so mounts go shortest first and a nested one lies over its parent. `guarded` names the
- * protected gitdir paths that exist, each mounted read-only over a writable gitdir. `--mount`,
- * not `-v`, which would make a missing source as root rather than refuse it.
+ * writable, `homes/` and `quarantine/`, the gitdirs, read-only unless writable, and an empty tmpfs
+ * over each `hidden` path. The most specific path decides, so mounts go shortest first and a
+ * nested one lies over its parent. `guarded` names the protected gitdir paths that exist, each
+ * mounted read-only over a writable gitdir. `--mount`, not `-v`, which would make a missing source
+ * as root rather than refuse it.
  */
 export function mountArgs(
   spec: ResolvedSandbox<unknown>,
   directory: string,
   guarded: readonly string[],
-  /** Hidden under an empty tmpfs when a mount holds it, as a project holds `.awf/runs`. */
-  runRoot?: string,
 ): string[] {
   const mounts = new Map<string, boolean | "empty">();
   for (const path of [spec.cwd, ...spec.read, ...spec.write]) {
@@ -26,9 +25,7 @@ export function mountArgs(
   for (const path of guarded) mounts.set(path, true);
   mounts.set(`${directory}/homes`, false);
   mounts.set(`${directory}/quarantine`, false);
-  if (runRoot !== undefined && [...mounts.keys()].some((path) => contains(path, runRoot))) {
-    mounts.set(runRoot, "empty");
-  }
+  for (const path of spec.hidden) mounts.set(path, "empty");
   return [...mounts]
     .sort(([a], [b]) => a.length - b.length || a.localeCompare(b))
     .flatMap(([path, readOnly]) => {

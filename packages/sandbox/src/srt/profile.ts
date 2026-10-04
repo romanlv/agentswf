@@ -55,15 +55,11 @@ export function baseProfile(
   protectedGit: readonly string[],
 ): SrtSettings {
   const gitdirs = spec.gitdirs.map((gitdir) => gitdir.path);
-  const writable = [
-    ...spec.write,
-    ...spec.gitdirs.filter((gitdir) => gitdir.writable).map((gitdir) => gitdir.path),
-  ];
   return {
     enableWeakerNetworkIsolation: true,
     network: { allowedDomains: [...spec.network], deniedDomains: [], allowUnixSockets: [] },
     filesystem: {
-      denyRead: unique([host.home, ...DENIED, context.runRoot]),
+      denyRead: unique([host.home, ...DENIED, context.runRoot, ...spec.hidden]),
       allowRead: unique([
         spec.cwd,
         ...spec.read,
@@ -72,13 +68,17 @@ export function baseProfile(
         context.directory,
         ...host.toolchain,
       ]),
-      allowWrite: unique([...writable, join(context.directory, "homes"), temp]),
-      // What the host's git runs or follows, and a `read` path inside a `write` one, which the more
-      // specific path makes read-only.
-      // A writable path holding the run root, as a project holds `.awf/runs`, has it denied: srt
-      // applies a deny nested in an allowed path after the allow.
+      allowWrite: unique([
+        ...spec.write,
+        ...spec.gitdirs.filter((gitdir) => gitdir.writable).map((gitdir) => gitdir.path),
+        join(context.directory, "homes"),
+        temp,
+      ]),
+      // What is hidden, which srt denies though an allowed path holds it: it applies a deny nested
+      // in an allowed path after the allow. What the host's git runs or follows, and a `read` path
+      // inside a `write` one, which the more specific path makes read-only.
       denyWrite: unique([
-        ...(writable.some((path) => contains(path, context.runRoot)) ? [context.runRoot] : []),
+        ...spec.hidden,
         ...protectedGit,
         ...spec.read.filter((path) =>
           spec.write.some((root) => root !== path && contains(root, path)),
@@ -116,21 +116,39 @@ export function agentProfile(base: SrtSettings, agent: AgentContext): SrtSetting
 }
 
 /**
- * The pure check every profile passes before srt sees it: `~` and the run root denied, and no
- * allowed path exposing either, reaching into the run root outside this sandbox's directory, or
- * overlapping the operator's harness state. A harness's install tree may lie inside its state
- * (codex's `~/.codex/packages`), never contain it.
+ * The pure check every profile passes before srt sees it: `~` and the run root denied, each
+ * `hidden` path denied for reads and writes, and no allowed path exposing `~` or the run root,
+ * reaching into the run root outside this sandbox's directory, or overlapping the operator's
+ * harness state. A harness's install tree may lie inside its state (codex's `~/.codex/packages`),
+ * never contain it. An allowed path may hold the run root only when it is hidden.
  */
-export function checkProfile(settings: SrtSettings, host: SrtHost, context: SandboxContext): void {
+export function checkProfile(
+  settings: SrtSettings,
+  host: SrtHost,
+  context: SandboxContext,
+  hidden: readonly string[],
+): void {
   const { denyRead, allowRead, allowWrite, denyWrite } = settings.filesystem;
   for (const denied of [host.home, context.runRoot]) {
     if (!denyRead.includes(denied)) throw new Error(`srt profile does not deny ${denied}`);
   }
+  for (const path of hidden) {
+    if (!denyRead.includes(path) || !denyWrite.includes(path)) {
+      throw new Error(`srt profile does not hide ${path}`);
+    }
+    // srt's deny, applied after every allow, would hide this sandbox's own directory with it.
+    if (contains(path, context.directory)) {
+      throw new Error(`srt profile would hide its own directory ${context.directory} in ${path}`);
+    }
+  }
   for (const path of [...allowRead, ...allowWrite]) {
-    if (path === context.runRoot) {
+    if (contains(path, host.home)) throw new Error(`srt profile would expose ~ through ${path}`);
+    if (
+      path === context.runRoot ||
+      (contains(path, context.runRoot) && !hidden.includes(context.runRoot))
+    ) {
       throw new Error(`srt profile would expose the run root through ${path}`);
     }
-    if (contains(path, host.home)) throw new Error(`srt profile would expose ~ through ${path}`);
     if (contains(context.runRoot, path) && !contains(context.directory, path)) {
       throw new Error(`srt profile reaches into the run root at ${path}`);
     }
@@ -144,22 +162,6 @@ export function checkProfile(settings: SrtSettings, host: SrtHost, context: Sand
   for (const path of allowWrite) {
     const state = host.harnessState.find((root) => contains(root, path));
     if (state) throw new Error(`srt profile would let ${path} in harness state be written`);
-  }
-  // An allowed path may hold the run root, as a project holds `.awf/runs`: srt applies a deny
-  // nested in an allowed path after the allow, to this sandbox's directory too were it inside.
-  const holding = [...allowRead, ...allowWrite].filter(
-    (path) => path !== context.runRoot && contains(path, context.runRoot),
-  );
-  if (holding.length > 0 && contains(context.runRoot, context.directory)) {
-    throw new Error(
-      `srt profile would hide its own directory ${context.directory}: ${holding[0]} holds the run root it is in`,
-    );
-  }
-  if (
-    allowWrite.some((path) => contains(path, context.runRoot)) &&
-    !denyWrite.includes(context.runRoot)
-  ) {
-    throw new Error(`srt profile would expose the run root to writes through a path holding it`);
   }
 }
 

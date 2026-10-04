@@ -47,6 +47,11 @@ export type ResolvedSandbox<E> = {
 } & {
   key: SandboxKey;
   cwd: string;
+  /**
+   * Paths inside reach that no agent reads or writes, which the provider hides: the run root,
+   * when an allowed path holds it, as a project holds `.awf/runs`.
+   */
+  hidden: readonly string[];
   gitdirs: readonly Gitdir[];
   environment: E;
 };
@@ -54,10 +59,7 @@ export type ResolvedSandbox<E> = {
 export type { Gitdir };
 
 export type SandboxContext = {
-  /**
-   * Every run's directory. Denied inside, though an allowed path may hold it, as a project holds
-   * `.awf/runs`.
-   */
+  /** Every run's directory. Denied inside, and in the spec's `hidden` when an allowed path holds it. */
   runRoot: string;
   /** This sandbox's directory, holding `homes/`; outside the run root when the engine makes it. */
   directory: string;

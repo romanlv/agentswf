@@ -77,6 +77,7 @@ describe("resolveSandbox", () => {
       read: [join(home, "notes"), repo],
       write: [join(repo, "src")],
       network: ["registry.npmjs.org", "*.npmjs.org"],
+      hidden: [],
       // Read-only: `src` is writable, not the worktree whose history it holds.
       gitdirs: [{ path: join(repo, ".git"), writable: false }],
       environment: { name: "srt", raw: {} },
@@ -218,6 +219,10 @@ describe("resolveSandbox", () => {
     await mkdir(join(projectRuns, "flow", "r1"), { recursive: true });
     const { sandbox } = await resolve({ write: ["."] }, { runRoot: projectRuns });
     expect(sandbox.write).toEqual([repo]);
+    expect(sandbox.hidden).toEqual([projectRuns]);
+    const apart = await resolve({ read: [join(home, "notes")] }, { runRoot: projectRuns });
+    expect(apart.sandbox.hidden).toEqual([projectRuns]);
+    expect((await resolve({ cwd: join(home, "notes") })).sandbox.hidden).toEqual([]);
     await expect(
       resolve({ read: [join(projectRuns, "flow", "r1")] }, { runRoot: projectRuns }),
     ).rejects.toThrow("would expose the run root");

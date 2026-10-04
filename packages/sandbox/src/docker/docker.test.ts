@@ -111,6 +111,7 @@ const spec: ResolvedSandbox<DockerEnvironment> = {
   read: [join(repo, "vendor"), join(root, "notes")],
   write: [repo],
   network: ["registry.npmjs.org"],
+  hidden: [],
   gitdirs: [{ path: join(repo, ".git"), writable: true }],
   environment: {},
 };
@@ -139,13 +140,14 @@ describe("docker arguments", () => {
     expect(() => mountArgs({ ...spec, read: ["/a,b"] }, directory, [])).toThrow("comma");
   });
 
-  test("an empty tmpfs hides a run root a mount holds, and only then", () => {
+  test("an empty tmpfs lies over each hidden path", () => {
     const projectRuns = join(repo, ".awf", "runs");
-    const mounts = mountArgs(spec, directory, [], projectRuns).filter((arg) => arg !== "--mount");
+    const hiding = { ...spec, hidden: [projectRuns] };
+    const mounts = mountArgs(hiding, directory, []).filter((arg) => arg !== "--mount");
     expect(mounts.indexOf(`type=tmpfs,target=${projectRuns}`)).toBeGreaterThan(
       mounts.indexOf(bind(repo)),
     );
-    expect(mountArgs(spec, directory, [], runRoot).join(" ")).not.toContain("tmpfs");
+    expect(mountArgs(spec, directory, []).join(" ")).not.toContain("tmpfs");
   });
 });
 
