@@ -28,6 +28,7 @@ import {
   type Severity,
   settleSeverity,
 } from "../format/grading";
+import { runtimeName } from "../format/runtime";
 import type { Problem } from "../format/validate";
 
 /**
@@ -97,7 +98,7 @@ export type Drafted =
   | { status: "drafted"; key: AnswerKey; votes: Votes; attempts: number }
   | { status: "failed"; detail: string };
 
-const label = (runtime: ExecutionConfig) => `${runtime.harness}/${runtime.model}`;
+const label = (runtime: ExecutionConfig) => runtimeName(runtime);
 
 /**
  * Drafts a fixture's answer key with one agent, and checks each draft in code against the fixture's

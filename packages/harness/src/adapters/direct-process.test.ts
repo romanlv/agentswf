@@ -494,6 +494,100 @@ describe("createHeadlessAdapter", () => {
     expect(calls[1]?.argv[calls[1].argv.indexOf("--session-id") + 1]).toBe("chosen-id");
   });
 
+  describe("effort and set", () => {
+    const codexOut = (text: string) =>
+      [
+        JSON.stringify({ type: "thread.started", thread_id: "thread-1" }),
+        JSON.stringify({ type: "item.completed", item: { type: "agent_message", text } }),
+      ].join("\n");
+    const cases = [
+      {
+        harness: "claude",
+        out: claudeOut("ok"),
+        flags: (model: string, effort: string) => ["--model", model, "--effort", effort],
+      },
+      {
+        harness: "codex",
+        out: codexOut("ok"),
+        flags: (model: string, effort: string) => [
+          "-c",
+          `model_reasoning_effort="${effort}"`,
+          "--model",
+          model,
+        ],
+      },
+      {
+        harness: "pi",
+        out: "{}",
+        flags: (model: string, effort: string) => ["--model", model, "--thinking", effort],
+      },
+    ] as const;
+
+    for (const { harness, out, flags } of cases) {
+      test(`${harness} launches at its effort, and set switches the next resume's model and effort`, async () => {
+        const { run, calls } = stub([out, out, out]);
+        const session = await headless(
+          run,
+          {},
+          {
+            ...activation,
+            execution: {
+              harness,
+              model: "first",
+              effort: "low",
+              placement: "headless",
+              metered: true,
+            },
+          },
+        );
+        await (await session.start(turnSpec, firstBinding)).settled;
+        await session.set!({ model: "second", effort: "high" }, activation.deadline);
+        await (
+          await session.start(
+            { ...turnSpec, id: "turn-2" },
+            { ...firstBinding, operationId: "op-2" },
+          )
+        ).settled;
+        const contains = (argv: readonly string[], part: readonly string[]) =>
+          argv.some((_, at) => part.every((word, offset) => argv[at + offset] === word));
+
+        expect(calls).toHaveLength(2);
+        expect(contains(calls[0]!.argv, flags("first", "low"))).toBe(true);
+        expect(contains(calls[1]!.argv, flags("second", "high"))).toBe(true);
+        expect(calls[1]!.argv.join(" ")).not.toContain("first");
+        // codex reads its prompt from stdin by the marker its plan ends with.
+        if (harness === "codex") expect(calls.map((call) => call.argv.at(-1))).toEqual(["-", "-"]);
+      });
+    }
+
+    test("an agent that names no effort is launched with no effort flag", async () => {
+      const { run, calls } = stub([claudeOut("ok")]);
+      const session = await headless(run);
+      await (await session.start(turnSpec, firstBinding)).settled;
+      expect(calls[0]!.argv).not.toContain("--effort");
+    });
+
+    test("cursor switches its model on a resume, and has no effort to switch", async () => {
+      const cursorOut = JSON.stringify({ session_id: "chat-1", result: "ok" });
+      const { run, calls } = stub([cursorOut, cursorOut]);
+      const session = await headless(
+        run,
+        {},
+        {
+          ...activation,
+          execution: { harness: "cursor", model: "composer-2.5", placement: "headless" },
+        },
+      );
+      await (await session.start(turnSpec, firstBinding)).settled;
+      await session.set!({ model: "gpt-5.6-luna-high" }, activation.deadline);
+      await (
+        await session.start({ ...turnSpec, id: "turn-2" }, { ...firstBinding, operationId: "op-2" })
+      ).settled;
+      expect(calls[1]!.argv.slice(-2)).toEqual(["--model", "gpt-5.6-luna-high"]);
+      expect(HARNESSES.cursor.effort).toBeUndefined();
+    });
+  });
+
   test("what the turn cost is carried out of the harness envelope", async () => {
     const { run } = stub([
       JSON.stringify({

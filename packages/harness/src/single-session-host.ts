@@ -120,8 +120,10 @@ function observeSession(
   /** Only for the early "working": a quarantined session refuses the start it would announce. */
   let quarantined = false;
   let closed = false;
+  /** Its settings now, which a `set` changes. */
+  let current = execution;
   const record = (status: HarnessSessionStatus) => {
-    if (!closed) setSnapshot(snapshots, key, execution, status);
+    if (!closed) setSnapshot(snapshots, key, current, status);
   };
   /** The session decides what a turn's end leaves the agent as, a turn left finishing included. */
   const recordSession = () => session.status().then(record, () => undefined);
@@ -172,6 +174,20 @@ function observeSession(
             record({ state: "working" });
             try {
               return await session.fork!(deadline, into);
+            } finally {
+              await recordSession();
+            }
+          },
+        }
+      : {}),
+    ...(session.set
+      ? {
+          async set(settings, deadline) {
+            record({ state: "working" });
+            try {
+              await session.set!(settings, deadline);
+              const { effort: _effort, ...rest } = current;
+              current = { ...rest, ...settings };
             } finally {
               await recordSession();
             }

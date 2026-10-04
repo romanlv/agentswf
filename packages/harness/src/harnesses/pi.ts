@@ -9,26 +9,30 @@ import {
   readPiCompactSummary,
   readPiUsage,
 } from "../usage/pi";
-import { defineHarness, type HarnessDefinition } from "./define";
+import { defineHarness, type HarnessDefinition, type LaunchSettings } from "./define";
 
 const PI = {
   callingSessionEnv: ["PI_SESSION_ID"],
+  settingsEnv: [],
   // pi logs in to the providers claude and codex do, and reads the same keys.
   meteredCredentials: [],
   herdrSessionIsOwn: true,
   pastesQuoted: false,
   meteredHeadless: false,
+  effort: ["off", "minimal", "low", "medium", "high", "xhigh", "max"],
+  setHeadless: true,
+  setPane: true,
   sessionEnv: "PI_SESSION_ID",
   interrupted: "Operation aborted",
-  interactive: (model, launchArgs = []) => ({
-    argv: ["pi", ...(model ? ["--model", model] : []), ...launchArgs],
+  interactive: (settings = {}, launchArgs = []) => ({
+    argv: ["pi", ...piSettings(settings), ...launchArgs],
   }),
-  interactiveResume: (session, model, launchArgs = []) => ({
-    argv: ["pi", ...piSession(session), ...(model ? ["--model", model] : []), ...launchArgs],
+  interactiveResume: (session, settings = {}, launchArgs = []) => ({
+    argv: ["pi", ...piSession(session), ...piSettings(settings), ...launchArgs],
   }),
   // pi is the one harness whose session id we choose: `--session-id` creates it on the first
   // turn and reuses it on the second, so no id has to be scraped back out of the output.
-  headlessTurn: (prompt, { model, sessionHint, launchArgs = [] }) => ({
+  headlessTurn: (prompt, { sessionHint, launchArgs = [], ...settings }) => ({
     argv: [
       "pi",
       "--print",
@@ -37,13 +41,13 @@ const PI = {
       "--session-id",
       sessionHint,
       ...launchArgs,
-      ...(model ? ["--model", model] : []),
+      ...piSettings(settings),
     ],
     stdin: prompt,
     sessionId: sessionHint,
   }),
   // A fork's session is its file's path: its id is its parent's (F6), which names the parent.
-  resumeTurn: (prompt, session, { model, launchArgs = [] }) => ({
+  resumeTurn: (prompt, session, { launchArgs = [], ...settings }) => ({
     argv: [
       "pi",
       "--print",
@@ -51,7 +55,7 @@ const PI = {
       "json",
       ...piSession(session),
       ...launchArgs,
-      ...(model ? ["--model", model] : []),
+      ...piSettings(settings),
     ],
     stdin: prompt,
     sessionId: session,
@@ -111,7 +115,7 @@ const PI = {
   },
   // `--print` sends `/compact` to the model as text; rpc mode compacts, and exits once its
   // stdin closes.
-  compactHeadless: (focus, sessionId, { model, launchArgs = [] }) => {
+  compactHeadless: (focus, sessionId, { launchArgs = [], ...settings }) => {
     const answer = (row: Row | undefined) => row?.type === "response" && row.command === "compact";
     return {
       argv: [
@@ -120,7 +124,7 @@ const PI = {
         "rpc",
         ...piSession(sessionId),
         ...launchArgs,
-        ...(model ? ["--model", model] : []),
+        ...piSettings(settings),
       ],
       sessionId,
       stdin: `${JSON.stringify({ type: "compact", customInstructions: focus })}\n`,
@@ -197,4 +201,12 @@ function piRefused(screen: string, before: string): boolean {
 /** pi names a session by its id, or by its file where the id is a fork's parent's. */
 function piSession(session: string): string[] {
   return isAbsolute(session) ? ["--session", session] : ["--session-id", session];
+}
+
+/**
+ * `--thinking` beats a `:level` model suffix and the settings; a resume without it takes the
+ * session's first logged level (M1, M4).
+ */
+function piSettings({ model, effort }: LaunchSettings): string[] {
+  return [...(model ? ["--model", model] : []), ...(effort ? ["--thinking", effort] : [])];
 }

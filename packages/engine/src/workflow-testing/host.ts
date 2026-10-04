@@ -3,6 +3,7 @@ import { WIRE_VERSION } from "@agentswf/contract/wire";
 import {
   type AgentExecution,
   type AgentPlacement,
+  type Effort,
   type JsonObject,
   placementOf,
 } from "@agentswf/contract/workflow";
@@ -12,6 +13,7 @@ import {
   findHarness,
   headlessRefusal,
   PLACEMENT_HARNESSES,
+  settingsRefusal,
 } from "@agentswf/harness";
 import type { AgentRunHostFactory, HarnessActivation } from "@agentswf/harness/adapter";
 import {
@@ -19,6 +21,7 @@ import {
   type FakeAdapterTurn,
   type FakeAdapterTurnContext,
   type FakeFork,
+  type FakeSet,
 } from "@agentswf/harness/testing";
 import { submitResult } from "@agentswf/wf/client";
 import type { Scripts, Step, Turn, TurnOutcome } from "./script";
@@ -35,6 +38,16 @@ export type CompactionRecord = {
   /** The spec's prompt: what the harness is to keep and drop. */
   focus: string;
   outcome: TurnOutcome;
+};
+
+/** A switch of an agent's model or effort, as the host was asked for it. */
+export type SetRecord = {
+  agent: string;
+  /** 1-based among the agent's switches. */
+  n: number;
+  /** The settings switched to, whole. */
+  model: string;
+  effort?: Effort;
 };
 
 /** An agent the workflow opened, as it opened it. */
@@ -58,6 +71,7 @@ export type ScriptedHost = {
   factory: AgentRunHostFactory;
   turns: TurnRecord[];
   compactions: CompactionRecord[];
+  sets: SetRecord[];
   agents: OpenedAgent[];
   /** Turns started and not yet ended, for a stalled run's message. */
   inFlight(): TurnRecord[];
@@ -84,6 +98,7 @@ export function createScriptedHost(
   const turns: TurnRecord[] = [];
   const compactions: CompactionRecord[] = [];
   const compactionCounts = new Map<string, number>();
+  const sets: SetRecord[] = [];
   const agents: OpenedAgent[] = [];
   const open = new Set<TurnRecord>();
   const counts = new Map<string, number>();
@@ -188,6 +203,8 @@ export function createScriptedHost(
         nudge: false,
         prompt: context.prompt,
         cwd: activation.cwd,
+        model: context.settings.model,
+        ...(context.settings.effort === undefined ? {} : { effort: context.settings.effort }),
         signal: context.signal,
       }),
       whenAborted(context.signal),
@@ -245,6 +262,8 @@ export function createScriptedHost(
       ...(authored.schema === undefined ? {} : { schema: authored.schema }),
       ...(authored.label === undefined ? {} : { label: authored.label }),
       cwd: activation.cwd,
+      model: context.settings.model,
+      ...(context.settings.effort === undefined ? {} : { effort: context.settings.effort }),
       signal: context.signal,
     };
     const { signal: _signal, ...written } = turn;
@@ -278,6 +297,18 @@ export function createScriptedHost(
             key: activation.key,
             turns: counts.get(activation.key) ?? 0,
           }),
+        // As the real hosts: each switches where the harness can, in its placement.
+        sets: (activation: HarnessActivation) =>
+          settingsRefusal(activation.execution) === undefined,
+        onSet: ({ activation, settings }: FakeSet) => {
+          sets.push({
+            agent: activation.key,
+            n: sets.filter((set) => set.agent === activation.key).length + 1,
+            ...settings,
+          });
+          events.onActivity();
+          return undefined;
+        },
         script,
       }),
     );
@@ -324,6 +355,7 @@ export function createScriptedHost(
     },
     turns,
     compactions,
+    sets,
     agents,
     inFlight: () => [...open],
   };

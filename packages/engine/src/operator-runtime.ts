@@ -208,12 +208,15 @@ const METERED_CREDENTIAL_ENVIRONMENT = [
 
 /** What every harness's session sets for the commands it runs, `awf` among them. */
 const CALLING_SESSION_ENVIRONMENT = [
-  ...new Set(Object.values(HARNESSES).flatMap((spec) => spec.callingSessionEnv)),
+  ...new Set(
+    Object.values(HARNESSES).flatMap((spec) => [...spec.callingSessionEnv, ...spec.settingsEnv]),
+  ),
 ];
 
 /**
  * Unset for every agent: the metered credentials, which also refuse the run, the engine's own,
- * which a harness such as pi would otherwise bill against, and the calling session's markers.
+ * which a harness such as pi would otherwise bill against, the calling session's markers, and what
+ * would override the settings an agent is launched at.
  */
 const WITHHELD_ENVIRONMENT = [
   ...METERED_CREDENTIAL_ENVIRONMENT,

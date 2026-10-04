@@ -45,6 +45,11 @@ Each of these is a live probe, recorded under `experiments/` and cited where it 
   what keys the provider's cache (`docs/findings/fork-cache.md`).
 - **Compaction.** Headless and in a pane, with a focus, and what shows it ran
   (`docs/findings/native-compaction.md`).
+- **Effort and model.** Its levels (`effort`), the flag that launches at one, and whether it beats
+  the harness's config and environment. Whether a headless resume runs at the model and effort it
+  is given (`setHeadless`), and a pane relaunched on its session at them keeps the context
+  (`setPane`). Where it logs what it ran at, and what it does with a level it lacks
+  (`docs/findings/agent-effort.md`). Each launch plan passes `LaunchSettings`.
 - **A pane.** Every startup screen, at a narrow and a wide pane, including the first run in a fresh
   home; what an interrupted turn shows (`interrupted`); whether Herdr names its session, and whether
   that is the pane's own.
@@ -68,8 +73,9 @@ Each of these is a live probe, recorded under `experiments/` and cited where it 
 - The live evals: `tests/harnesses.eval.ts`, `fork.eval.ts`, `compaction.eval.ts`,
   `calling-session.eval.ts`, `skills.eval.ts` and the `sandbox-*` evals, with
   `examples/quick-check`, `examples/compaction` and `examples/fork`. Each lists its harnesses.
-- `packages/lab` and `examples/single-agent-review` repeat `meteredHeadless` for claude, as they
-  may not import the harness package.
-- Docs: `status.md`, `workflow-api.md` (placements, compaction), `foundation.md` §8 (usage),
+- `packages/lab` and `examples/single-agent-review` repeat `meteredHeadless` for claude, and
+  `packages/lab/src/review/format/runtime.ts` every harness's effort levels, as they may not
+  import the harness package.
+- Docs: `status.md`, `workflow-api.md` (placements, compaction, effort), `foundation.md` §8 (usage),
   `design/permissions.md` (its permission column), `testing.md`, and a finding for each
   measurement.

@@ -14,7 +14,8 @@ to, and [`examples/`](../examples) has complete workflows.
 workflow.agents.open({ key, runtime, instructions?, skills?, sandbox?, cwd? })  // → agent
 agent.run({ prompt, schema?, timeoutMs?, label?, nudge? })  // → { outcome }; the same agent keeps its session
 agent.compact({ prompt })                                    // → outcome; the harness's own compaction, with a focus
-agent.fork({ key, placement?, instructions? })               // → a new agent on a copy of this one's session
+agent.set({ model?, effort? })                               // → outcome; later turns run at these, in the same session
+agent.fork({ key, placement?, effort?, instructions? })      // → a new agent on a copy of this one's session
 workflow.agents.caller({ key })                              // → the session `awf run --here` was typed in, or null
 isAnswered(outcome)                                          // narrows to { kind: "answered", value }
 
@@ -93,7 +94,8 @@ const reviewer = await workflow.agents.open({
 | Field | What it does |
 | --- | --- |
 | `key` | The agent's name in this run. Opening the same key again returns the same agent. The part before `:` is its **stage** in the cost summary, so `review:security` and `review:style` both add up under `review`. |
-| `runtime` | Which harness and model to use. You can pass an alias (`"claude"` or `"codex"`), or `{ harness, model, placement?, metered? }`, or `{ alias, … }` to constrain an alias. |
+| `runtime` | Which harness and model to use. You can pass an alias (`"claude"` or `"codex"`), or `{ harness, model, effort?, placement?, metered? }`, or `{ alias, … }` to constrain an alias. |
+| `effort` | How hard it thinks, in the harness's own words: claude's `low` to `max`, codex's `low` to `ultra`, pi's `off` to `max`. A level the harness doesn't list is refused; codex's levels differ per model, and one its model lacks fails its turn. cursor takes none: name the variant as the model (`gpt-5.6-luna-high`). Left out, awf passes none and the harness uses its default or its own config. An alias may name one; yours replaces it. |
 | `placement` | `"pane"` (the default) opens a terminal pane in [Herdr](https://herdr.dev) that you can watch and type into. `"headless"` runs a process per turn. |
 | `metered: true` | Required for headless claude. `claude -p` is billed per token even on a subscription, so you have to opt in. A claude agent in a pane runs on your plan. |
 | `instructions` | Standing instructions, given once when the agent opens. |
@@ -195,6 +197,37 @@ if (!isAnswered(compacted)) workflow.log("compaction didn't finish", { reason: c
   `deadline` bounds it sooner, and an `id`, generated when omitted, makes it idempotent. The same
   spec again under one id returns the same outcome; another spec under it rejects.
 
+### Switching model or effort: `set`
+
+`set` switches the agent's model, effort or both for every operation after it, as an operator types
+`/model` or `/effort`. The session and its context stay.
+
+```ts
+const reviewer = await workflow.agents.open({ key: "reviewer", runtime: { alias: "codex", effort: "high" } });
+const findings = await reviewer.run({ prompt: review, schema: FINDINGS });  // high
+await reviewer.set({ effort: "low" });
+const summary = await reviewer.run({ prompt: "Summarise." });               // low, and every turn after
+```
+
+- **It is queued** like `compact`: it runs after the agent's earlier operations, and an `id`,
+  generated when omitted, makes it idempotent. `timeoutMs` and `deadline` bound it as they bound
+  `run`.
+- **`answered`** means the switch is in force. The outcome's `usage.execution`, and
+  `agent.execution` from then on, are the new settings. Every operation's record holds the settings
+  it ran at.
+- **It is refused before it runs** for an effort the harness doesn't list, for anything besides
+  `model` and `effort` (another harness or placement is another agent), for the calling session, and
+  where the harness can't switch, with why.
+- **A pane's switch that fails or times out** leaves settings nobody can name, so the agent is closed, as after a
+  failed turn.
+- **Per harness**: headless, the next turn resumes the session at the new flags, on all four. In a
+  pane, the harness is relaunched on its session at them, on claude, codex and pi; a typed
+  `/model` or `/effort` would save them as your default
+  ([finding](findings/agent-effort.md)). A cursor pane can't switch yet.
+- **Switching the model costs a cache**: the new model has none for this session, so the next turn
+  reads the whole context at full price.
+- **Reopening** the agent with the spec it was opened with still returns it.
+
 ### Forking: new agents that start from what one knows
 
 `fork` opens a new agent on a copy of this agent's session, so it starts knowing what this agent
@@ -211,8 +244,10 @@ const [security, tests] = await Promise.all([
 
 - **The copy is taken when `fork` is called**, after the agent's earlier operations: a `run` queued
   after it is not in it. From then on neither agent sees the other's turns.
-- **A fork has its parent's** harness, model, working directory, sandbox and skills. It may name its
-  own `placement` (with `metered`), `instructions`, which go with its first turn, and `labels`.
+- **A fork has its parent's** harness, model, effort, working directory, sandbox and skills, its
+  model and effort as every `set` queued before the fork leaves them. It may name its own
+  `placement` (with `metered`), `effort`, `instructions`, which go with its first turn, and
+  `labels`.
 - **It rejects**, as `agents.open` does, before the agent's own first turn, once the agent is
   closed, and where its host cannot fork. Every harness forks, in a pane or headless, into either,
   in a sandbox too, where the fork shares its parent's sandbox.
@@ -236,7 +271,7 @@ const { outcome } = await author.run({ prompt: "Pick a number and remember it.",
 - **`null`** means the run has no calling session: refuse, or open an agent of your own instead.
   The same key again returns the same agent; another key rejects.
 - **It is the operator's session**, so it is not opened: no `instructions`, and what it needs goes
-  in its prompts. `compact` fails, a turn that fails, is cancelled or times out leaves it usable,
+  in its prompts. `compact` fails, `set` is refused, a turn that fails, is cancelled or times out leaves it usable,
   the operator interrupting a turn settles it `cancelled`, and `execution.model` is `""`.
 - **When the run ends**, answered, failed, timed out or stopped, the session gets one message
   saying how and where the run directory is. A run that is killed sends nothing.
@@ -531,12 +566,15 @@ decisions: {
   the workflow's error as the cause, so a test of a failure reads
   `expect(() => run.value).toThrow("lens ids must be unique")`.
 - **`run.turnsOf(key)`** is one agent's turns in order, nudges included, each as the workflow
-  wrote it: `prompt`, `schema`, `label`, `n`, `nudge`, and its `outcome`. An agent never asked has
+  wrote it: `prompt`, `schema`, `label`, `n`, `nudge`, the `model` and `effort` it ran at, and its
+  `outcome`. An agent never asked has
   none: `expect(run.turnsOf("implementer")).toEqual([])`. **`run.turns`** has every agent's.
 - **`run.compactionsOf(key)`** is one agent's compactions in order, each with its `id`, `focus`
   and `outcome`. They are not turns, and take no entry in the agent's script: each answers `""`
   unless `compactions` scripts it, by key or pattern like `agents`, with `answer("a summary")` or a
   `reply`, a list one entry per compaction.
+- **`run.setsOf(key)`** is one agent's switches in order, each with the `model` and `effort` it
+  switched to. A switch answers wherever its harness can make it, and is refused where it can't.
 - **`run.agentOf(key)`** is what an agent was opened with: `execution`, `instructions`,
   `labels`, `skills`, and `sandbox`, absent for an agent on the host. **`run.agents`** lists them
   all.

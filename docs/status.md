@@ -185,9 +185,10 @@ with a long run:
    promising, cases up to a look in parallel, a resolution at 1 trial) and
    [`loop-next`](stories/todo/loop-next.md) (a proposer that thinks, spend a cut can't hide, a
    loop that outlives its shell, the scorer checked first).
-2. [Story 020](stories/020-agent-effort.md), ready: an agent opens at an effort, and `set`
-   switches its model or effort mid-run, recorded on every operation; its contract is settled,
-   and task 1 measures each harness first.
+2. [Story 020](stories/020-agent-effort.md), in progress: an agent opens at an effort, and `set`
+   switches its model or effort mid-run, recorded on every operation; claude, codex and pi
+   switch headless and in a pane, cursor headless by model. Left: the data repository's contained
+   variants name their effort, and the lab's `hostReasoningEffort` stopgap goes.
 3. [`turn-liveness-and-limits`](stories/todo/turn-liveness-and-limits.md): an agent waiting on its
    own background work isn't done; the implement-ticket run lost its last step to it.
 

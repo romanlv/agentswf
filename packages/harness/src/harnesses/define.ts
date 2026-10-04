@@ -1,4 +1,5 @@
 import type { Billing } from "@agentswf/contract/records";
+import type { Effort } from "@agentswf/contract/workflow";
 import type { Holding, RunProcess } from "../command";
 import type { SessionRead } from "../usage/records";
 
@@ -36,13 +37,19 @@ export type BillingContext = {
   caller: boolean;
 };
 
+/** The model and effort a launch passes; each absent, the harness's own. */
+export type LaunchSettings = {
+  model?: string;
+  /** Absent, the plan passes none and the harness uses its default. */
+  effort?: Effort;
+};
+
 /**
  * A session id we choose ahead of the first turn, for a harness that will accept one, and the
  * arguments the launch adds, a sandbox's and the agent's skills', which each plan puts where they
  * cannot swallow what follows.
  */
-export type TurnContext = {
-  model?: string;
+export type TurnContext = LaunchSettings & {
   sessionHint: string;
   launchArgs?: readonly string[];
   /** The agent's harness home, a sandbox's or its own; absent, the operator's. */
@@ -57,6 +64,11 @@ export type HarnessSpec = {
    * must not inherit: it would be told it runs inside that session.
    */
   callingSessionEnv: readonly string[];
+  /**
+   * The operator's variables that would override the model or effort awf launches it at, which an
+   * agent must not inherit: its record would name settings it never ran at.
+   */
+  settingsEnv: readonly string[];
   /** Credentials that bill per token, which refuse a run: awf runs on subscription logins. */
   meteredCredentials: readonly string[];
   /**
@@ -68,9 +80,16 @@ export type HarnessSpec = {
    * A retained interactive launch, independent of the terminal provider that hosts it, with the
    * arguments its launch adds last, where nothing follows to be swallowed.
    */
-  interactive(model?: string, launchArgs?: readonly string[]): TurnPlan;
-  /** The same launch on a session that exists, such as a fork; absent where a pane cannot. */
-  interactiveResume?(sessionId: string, model?: string, launchArgs?: readonly string[]): TurnPlan;
+  interactive(settings?: LaunchSettings, launchArgs?: readonly string[]): TurnPlan;
+  /**
+   * The same launch on a session that exists, such as a fork's, or a pane's relaunched at other
+   * settings; absent where a pane cannot.
+   */
+  interactiveResume?(
+    sessionId: string,
+    settings?: LaunchSettings,
+    launchArgs?: readonly string[],
+  ): TurnPlan;
   /** A one-shot, non-interactive run of `prompt`. */
   headlessTurn(prompt: string, context: TurnContext): TurnPlan;
   /**
@@ -192,6 +211,22 @@ export type HarnessSpec = {
    * `metered` whatever `billing` says, and runs only when its execution says `metered`.
    */
   meteredHeadless: boolean;
+  /**
+   * The effort levels it takes, in its own words, lowest first. An agent given one it does not
+   * list is refused before anything runs.
+   */
+  effort?: readonly [Effort, ...Effort[]];
+  /**
+   * Its headless resume runs at the model and effort it is given, so a headless `set` is the next
+   * resume's flags; the session keeps its context (M1).
+   */
+  setHeadless?: true;
+  /**
+   * Its pane, relaunched on its session by `interactiveResume` at other settings, keeps the
+   * session's context, so a pane's `set` is that relaunch. Typing a switch instead saves it as the
+   * operator's default in claude, and is a picker in codex (M2).
+   */
+  setPane?: true;
   /** Why each capability this harness lacks is absent; see `defineHarness`. */
   absent: Absences;
 };

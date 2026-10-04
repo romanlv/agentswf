@@ -9,14 +9,23 @@ import {
   keepCursorTurnUsage,
   readCursorUsage,
 } from "../usage/cursor";
-import { defineHarness, type HarnessDefinition, type TurnContext, type TurnPlan } from "./define";
+import {
+  defineHarness,
+  type HarnessDefinition,
+  type LaunchSettings,
+  type TurnContext,
+  type TurnPlan,
+} from "./define";
 import { lastJson, resuming } from "./shared";
 
 /**
  * `--force` runs its tools without asking; `--trust` answers the trust screen its TUI shows even
  * so, which swallowed the prompts sent while it was up (C7).
  */
-function cursorInteractive(model?: string, launchArgs: readonly string[] = []): TurnPlan {
+function cursorInteractive(
+  { model }: LaunchSettings = {},
+  launchArgs: readonly string[] = [],
+): TurnPlan {
   return {
     argv: [
       "cursor-agent",
@@ -51,17 +60,20 @@ function cursorHeadless(
 const CURSOR = {
   sessionEnv: "CURSOR_CONVERSATION_ID",
   callingSessionEnv: ["CURSOR_AGENT", "CURSOR_CONVERSATION_ID", "CURSOR_REQUEST_ID"],
+  settingsEnv: [],
   meteredCredentials: [],
   // Herdr 0.9.1 names a cursor pane's chat, the id its shell's `CURSOR_CONVERSATION_ID` holds.
   herdrSessionIsOwn: true,
   pastesQuoted: false,
   meteredHeadless: false,
+  // A resume runs on the `--model` it is given, a model's other variant included (M1).
+  setHeadless: true,
   interactive: cursorInteractive,
   // Herdr reports it idle about 3.5 s after it starts, drawn or not; under srt it drew 2.5 s later.
   // Its status line names the mode `--force` sets.
   paneReady: "Run Everything",
-  interactiveResume: (sessionId, model, launchArgs) =>
-    resuming(cursorInteractive(model, launchArgs), "--resume", sessionId),
+  interactiveResume: (sessionId, settings, launchArgs) =>
+    resuming(cursorInteractive(settings, launchArgs), "--resume", sessionId),
   headlessTurn: (prompt, context) => cursorHeadless(prompt, [], context),
   resumeTurn: (prompt, sessionId, context) =>
     cursorHeadless(prompt, ["--resume", sessionId], context),
@@ -127,4 +139,8 @@ export const cursor = defineHarness(CURSOR, {
   interrupted:
     "cursor draws no line of its own for an interrupted turn: a stopped tool's line ends in `Cancelled`, and a stopped reply puts the prompt back in the input (2026.10.01)",
   readCompactSummary: "cursor draws its summary on the screen only; its transcript keeps none (C7)",
+  effort:
+    "cursor names a model's effort in its id, as `gpt-5.6-luna-high`, or as a parameter whose key differs per model; a variant is chosen as the model (M3)",
+  setPane:
+    "not measured: a cursor pane rewrites the operator's `~/.cursor/cli-config.json`, and one in a home of its own asks for the macOS keychain (M2)",
 });

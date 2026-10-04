@@ -21,6 +21,7 @@ import {
   type CompactionRecord,
   createScriptedHost,
   type OpenedAgent,
+  type SetRecord,
   type TurnRecord,
 } from "./host";
 import { type Script, Scripts } from "./script";
@@ -70,6 +71,10 @@ export type TestRun<Result> = {
   compactions: CompactionRecord[];
   /** One agent's compactions, in order. */
   compactionsOf(agent: string): CompactionRecord[];
+  /** Every switch of an agent's model or effort its host was asked for, in order; not among the turns. */
+  sets: SetRecord[];
+  /** One agent's switches, in order. */
+  setsOf(agent: string): SetRecord[];
   /** Every agent opened, in the order opened. */
   agents: OpenedAgent[];
   /** The agent opened under `key`; throws, naming the keys opened, when there is none. */
@@ -194,6 +199,8 @@ export async function testWorkflow<Args extends JsonValue, Result extends JsonVa
     turnsOf: (agent) => host.turns.filter((turn) => turn.agent === agent),
     compactions: host.compactions,
     compactionsOf: (agent) => host.compactions.filter((compaction) => compaction.agent === agent),
+    sets: host.sets,
+    setsOf: (agent) => host.sets.filter((set) => set.agent === agent),
     agents,
     agentOf(key) {
       const agent = agents.find((opened) => opened.key === key);

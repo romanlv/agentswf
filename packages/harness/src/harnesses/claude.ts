@@ -9,20 +9,31 @@ import {
   readClaudeUsage,
 } from "../usage/claude";
 import { ownFiles } from "../usage/files";
-import { defineHarness, type HarnessDefinition, type TurnPlan } from "./define";
+import {
+  defineHarness,
+  type HarnessDefinition,
+  type LaunchSettings,
+  type TurnPlan,
+} from "./define";
 import { after, lastJson, resuming } from "./shared";
 
 /** `Bash` has to be allowed or the agent cannot run `wf` at all. */
-function claudeInteractive(model?: string, launchArgs: readonly string[] = []): TurnPlan {
+function claudeInteractive(
+  settings: LaunchSettings = {},
+  launchArgs: readonly string[] = [],
+): TurnPlan {
   return {
-    argv: [
-      "claude",
-      "--allowed-tools",
-      "Bash",
-      ...(model ? ["--model", model] : []),
-      ...launchArgs,
-    ],
+    argv: ["claude", "--allowed-tools", "Bash", ...claudeSettings(settings), ...launchArgs],
   };
+}
+
+/**
+ * `--effort` beats the settings file's level, and a resume without it runs at the default (M1).
+ * `CLAUDE_CODE_EFFORT_LEVEL` beats it, so it is withheld; the settings' `maxEffortLevel` caps it
+ * silently (M4).
+ */
+function claudeSettings({ model, effort }: LaunchSettings): string[] {
+  return [...(model ? ["--model", model] : []), ...(effort ? ["--effort", effort] : [])];
 }
 
 const CLAUDE = {
@@ -39,8 +50,11 @@ const CLAUDE = {
     "CLAUDE_CODE_MESSAGING_TOKEN",
     "CLAUDE_CODE_SESSION_ATTENDED",
     "CLAUDE_CODE_SESSION_ID",
+    // Exported to its Bash; claude itself ignores it (M4), so this only keeps an agent's shell clean.
+    "CLAUDE_EFFORT",
     "CLAUDE_PID",
   ],
+  settingsEnv: ["CLAUDE_CODE_EFFORT_LEVEL"],
   meteredCredentials: ["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL"],
   herdrSessionIsOwn: true,
   sessionEnv: "CLAUDE_CODE_SESSION_ID",
@@ -48,11 +62,11 @@ const CLAUDE = {
   // `Bash` has to be allowed or the agent cannot run `wf` at all, which would measure the
   // permission prompt rather than the return channel.
   interactive: claudeInteractive,
-  interactiveResume: (sessionId, model, launchArgs) =>
-    resuming(claudeInteractive(model, launchArgs), "--resume", sessionId),
+  interactiveResume: (sessionId, settings, launchArgs) =>
+    resuming(claudeInteractive(settings, launchArgs), "--resume", sessionId),
   // `--output-format json` is the only place the resumable session id is printed, and
   // without it there is no headless nudge.
-  headlessTurn: (prompt, { model, launchArgs = [] }) => ({
+  headlessTurn: (prompt, { launchArgs = [], ...settings }) => ({
     argv: [
       "claude",
       "-p",
@@ -61,11 +75,11 @@ const CLAUDE = {
       "json",
       "--allowed-tools",
       "Bash",
-      ...(model ? ["--model", model] : []),
+      ...claudeSettings(settings),
     ],
     stdin: prompt,
   }),
-  resumeTurn: (prompt, sessionId, { model, launchArgs = [] }) => ({
+  resumeTurn: (prompt, sessionId, { launchArgs = [], ...settings }) => ({
     argv: [
       "claude",
       "-p",
@@ -76,7 +90,7 @@ const CLAUDE = {
       "json",
       "--allowed-tools",
       "Bash",
-      ...(model ? ["--model", model] : []),
+      ...claudeSettings(settings),
     ],
     stdin: prompt,
   }),
@@ -85,7 +99,7 @@ const CLAUDE = {
   readCostTotal: (stdout) => reported(lastJson(stdout)?.total_cost_usd),
   // Only `stream-json` prints the compaction: its boundary, then the summary as a synthetic
   // user row. `json` prints an empty result either way.
-  compactHeadless: (focus, sessionId, { model, launchArgs = [] }) => ({
+  compactHeadless: (focus, sessionId, { launchArgs = [], ...settings }) => ({
     argv: [
       "claude",
       "-p",
@@ -95,7 +109,7 @@ const CLAUDE = {
       "--output-format",
       "stream-json",
       "--verbose",
-      ...(model ? ["--model", model] : []),
+      ...claudeSettings(settings),
     ],
     stdin: `/compact ${focus}`,
     read: (stdout) => {
@@ -162,6 +176,10 @@ const CLAUDE = {
       .map((name) => basename(name, ".jsonl")),
   // E3: `claude -p` bills metered on a subscription login, with no key in the environment.
   meteredHeadless: true,
+  // `--help`'s list; `/effort` also takes `auto` and `ultracode`, which are not levels (M2).
+  effort: ["low", "medium", "high", "xhigh", "max"],
+  setHeadless: true,
+  setPane: true,
   billing: ({ run }) => readClaudeBilling(run),
 } satisfies HarnessDefinition;
 

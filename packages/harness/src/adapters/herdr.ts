@@ -1,8 +1,16 @@
 import { randomUUID } from "node:crypto";
+import { isAbsolute } from "node:path";
 import { type PaneHerdr, type PaneTerminal, shellQuote } from "@agentswf/sandbox";
-import type { AgentRunHostFactory, AgentSessionAdapter, NativeFork, SessionCopy } from "../adapter";
+import type {
+  AgentRunHostFactory,
+  AgentSessionAdapter,
+  NativeFork,
+  SessionCopy,
+  SessionSettings,
+} from "../adapter";
 import { skillsLaunch } from "../capabilities/skills";
 import { type RunProcess, runProcess, withholding } from "../command";
+import { launchSettings } from "../harnesses/shared";
 import { parseRow, record } from "../json";
 import { sandboxedArgs } from "../sandbox-needs";
 import {
@@ -456,7 +464,7 @@ export function createPaneAdapter(
             if (!paneId || !workspaceId) {
               throw new Error("workspace create returned incomplete identity");
             }
-            const launch = spec.interactive(request.execution.model);
+            const launch = spec.interactive(launchSettings(request.execution));
             const started = await startAgent(
               name,
               harness,
@@ -749,6 +757,10 @@ export function createHerdrRunHostFactory(
               `${harness} panes cannot continue a forked session: ${spec.absent.interactiveResume}`,
             );
           }
+          /** What its harness is launched at: as activated, then as the last `set` left it. */
+          let settings = launchSettings(request.execution);
+          /** Its harness's launches in a pane, a relaunch at other settings included. */
+          let launches = 0;
           /** The harness's own fork of `sessionRef`, run beside the pane or inside its sandbox. */
           const runFork = async (
             sessionRef: string,
@@ -757,7 +769,7 @@ export function createHerdrRunHostFactory(
           ): Promise<NativeFork> => {
             const skills = request.skills ? await skillsLaunch(harness, request.skills) : undefined;
             const plan = await spec.forkSession!(sessionRef, randomUUID(), {
-              ...(request.execution.model ? { model: request.execution.model } : {}),
+              ...settings,
               sessionHint: sessionRef,
               ...(request.home ? { home: request.home } : {}),
               launchArgs: [
@@ -931,6 +943,155 @@ export function createHerdrRunHostFactory(
             };
           };
 
+          /**
+           * Opens a pane and starts its harness in it at `settings`, on `resume` where there is a
+           * session to go on; why not, where it did not start.
+           */
+          const launchPane = async (
+            resume: string | undefined,
+            operationId: string,
+            deadline: { unixMilliseconds: number },
+            signal: AbortSignal,
+          ): Promise<NativeTurnOutcome | undefined> => {
+            const skills = request.skills ? await skillsLaunch(harness, request.skills) : undefined;
+            let paneId: string;
+            try {
+              paneId = await allocatePane(
+                request.key,
+                request.cwd,
+                deadline.unixMilliseconds,
+                signal,
+                skills?.env,
+              );
+            } catch (error) {
+              if (signal.aborted) {
+                return localOutcome("cancelled", "pane operation cancelled");
+              }
+              throw error;
+            }
+            launchedAt = Date.now();
+            launches += 1;
+            // A relaunch is a new agent in Herdr, never the one whose tab it closed.
+            const agentName = safeAgentName(
+              `wf-${request.key}`,
+              `${runSpec.runId}:${request.key}:${operationId}${launches > 1 ? `:${launches}` : ""}`,
+            );
+            current = { operationId, paneId, agentName };
+            const launchArgs = [
+              ...(request.occupant ? sandboxedArgs(harness) : []),
+              ...(skills?.args ?? []),
+            ];
+            const launch = resume
+              ? spec.interactiveResume!(resume, settings, launchArgs)
+              : spec.interactive(settings, launchArgs);
+            if (terminal && typed) terminal = await request.occupant!.pane!();
+            typed = true;
+            const started = terminal
+              ? await adoptAgent(
+                  agentName,
+                  harness,
+                  paneId,
+                  terminal,
+                  launch.argv.slice(1),
+                  deadline.unixMilliseconds,
+                  signal,
+                )
+              : await startAgent(
+                  agentName,
+                  harness,
+                  paneId,
+                  launch.argv.slice(1),
+                  deadline.unixMilliseconds,
+                  signal,
+                );
+            if (!started.ok) {
+              await closeCurrentPane().catch(() => undefined);
+              if (signal.aborted || started.cancelled) {
+                return localOutcome("cancelled", "pane operation cancelled");
+              }
+              return localOutcome(
+                started.timedOut ? "timed-out" : "failed",
+                `agent start failed after ${started.attempts}: ${started.error}`,
+              );
+            }
+            return undefined;
+          };
+
+          /**
+           * Waits, where the usage reader can tell, until the session's last turn is written, or the
+           * deadline; false when cancelled first.
+           */
+          const untilWritten = async (
+            sessionRef: string,
+            deadline: { unixMilliseconds: number },
+            signal: AbortSignal,
+          ): Promise<boolean> => {
+            while (
+              (await spec.readSessionUsage?.([sessionRef], request.cwd, request.home))?.open ===
+                true &&
+              Date.now() < deadline.unixMilliseconds
+            ) {
+              if (!(await abortableDelay(FORK_SETTLE_POLL_MS, signal))) return false;
+            }
+            return true;
+          };
+
+          /**
+           * Switches its settings by relaunching its harness on its session at them, once its
+           * agent has settled: a typed switch would save them as the operator's default (M2).
+           * Before its pane opens, the pane opens at them. One that did not come back leaves no
+           * pane, so the agent's next operation fails.
+           */
+          const relaunchAt = async (
+            next: SessionSettings,
+            deadline: { unixMilliseconds: number },
+            sessionRef?: string,
+          ): Promise<void> => {
+            if (closed) throw new Error("Herdr run session is closed");
+            if (!current) {
+              if (hasExecuted) {
+                throw new Error("this agent's pane was closed, so its session cannot be switched");
+              }
+              settings = launchSettings(next);
+              return;
+            }
+            // A harness that names its session to nobody is found by its last operation's id.
+            sessionRef ??= await spec.findSession?.(
+              current.operationId,
+              launchedAt,
+              request.cwd,
+              request.home,
+            );
+            if (!sessionRef) {
+              throw new Error(
+                "its harness never named its session, so its pane cannot relaunch on it",
+              );
+            }
+            const controller = new AbortController();
+            activeController = controller;
+            let finish!: () => void;
+            activeCompletion = new Promise<void>((resolve) => {
+              finish = resolve;
+            });
+            try {
+              const busy = await settle(current.agentName, deadline, controller.signal);
+              if (busy)
+                throw new Error(`the agent did not settle before its switch: ${busy.detail}`);
+              // Its harness is stopped with its tab: the session's last turn must be in it first.
+              if (!(await untilWritten(sessionRef, deadline, controller.signal))) {
+                throw new Error("the switch was cancelled");
+              }
+              const { operationId } = current;
+              await closeCurrentPane();
+              settings = launchSettings(next);
+              const failed = await launchPane(sessionRef, operationId, deadline, controller.signal);
+              if (failed) throw new Error(failed.detail ?? "its harness did not start again");
+            } finally {
+              if (activeController === controller) activeController = undefined;
+              finish();
+            }
+          };
+
           /** Ends the active wait on the agent, leaving the agent, and its pane, as they are. */
           const stopWaiting = async (): Promise<boolean> => {
             if (!activeController) return false;
@@ -965,14 +1126,8 @@ export function createHerdrRunHostFactory(
             try {
               const busy = await settle(current.agentName, deadline, controller.signal);
               if (busy) throw new Error(`the agent did not settle before its fork: ${busy.detail}`);
-              while (
-                (await spec.readSessionUsage?.([sessionRef], request.cwd, request.home))?.open ===
-                  true &&
-                Date.now() < deadline.unixMilliseconds
-              ) {
-                if (!(await abortableDelay(FORK_SETTLE_POLL_MS, controller.signal))) {
-                  throw new Error("the fork was cancelled");
-                }
+              if (!(await untilWritten(sessionRef, deadline, controller.signal))) {
+                throw new Error("the fork was cancelled");
               }
               // A home of its own is carried whole; the new agent forks it in its own.
               if (into) {
@@ -994,6 +1149,7 @@ export function createHerdrRunHostFactory(
           const backend: ActivatedSessionBackend = {
             identity: { sessionId: continued ?? randomUUID(), cwd: request.cwd },
             ...(spec.forkSession ? { fork: forkPane } : {}),
+            ...(spec.setPane && spec.interactiveResume ? { set: relaunchAt } : {}),
             // The pane's agent is the session: an answered turn is left to end in it, and the next
             // operation is prompted into the same pane once it has.
             finishesAnswered: true,
@@ -1048,67 +1204,13 @@ export function createHerdrRunHostFactory(
                       "this agent's pane was closed, so its session cannot be continued",
                     );
                   }
-                  const skills = request.skills
-                    ? await skillsLaunch(harness, request.skills)
-                    : undefined;
-                  let paneId: string;
-                  try {
-                    paneId = await allocatePane(
-                      request.key,
-                      request.cwd,
-                      operation.deadline.unixMilliseconds,
-                      controller.signal,
-                      skills?.env,
-                    );
-                  } catch (error) {
-                    if (controller.signal.aborted) {
-                      return localOutcome("cancelled", "pane operation cancelled");
-                    }
-                    throw error;
-                  }
-                  launchedAt = Date.now();
-                  const agentName = safeAgentName(
-                    `wf-${request.key}`,
-                    `${runSpec.runId}:${request.key}:${operationId}`,
+                  const failed = await launchPane(
+                    continued,
+                    operationId,
+                    operation.deadline,
+                    controller.signal,
                   );
-                  current = { operationId, paneId, agentName };
-                  const launchArgs = [
-                    ...(request.occupant ? sandboxedArgs(harness) : []),
-                    ...(skills?.args ?? []),
-                  ];
-                  const launch = continued
-                    ? spec.interactiveResume!(continued, request.execution.model, launchArgs)
-                    : spec.interactive(request.execution.model, launchArgs);
-                  if (terminal && typed) terminal = await request.occupant!.pane!();
-                  typed = true;
-                  const started = terminal
-                    ? await adoptAgent(
-                        agentName,
-                        harness,
-                        paneId,
-                        terminal,
-                        launch.argv.slice(1),
-                        operation.deadline.unixMilliseconds,
-                        controller.signal,
-                      )
-                    : await startAgent(
-                        agentName,
-                        harness,
-                        paneId,
-                        launch.argv.slice(1),
-                        operation.deadline.unixMilliseconds,
-                        controller.signal,
-                      );
-                  if (!started.ok) {
-                    await closeCurrentPane().catch(() => undefined);
-                    if (controller.signal.aborted || started.cancelled) {
-                      return localOutcome("cancelled", "pane operation cancelled");
-                    }
-                    return localOutcome(
-                      started.timedOut ? "timed-out" : "failed",
-                      `agent start failed after ${started.attempts}: ${started.error}`,
-                    );
-                  }
+                  if (failed) return failed;
                   hasExecuted = true;
                 } else {
                   // Herdr's prompt wait does not track turns: prompted while the last turn is still
@@ -1177,6 +1279,11 @@ export function createHerdrRunHostFactory(
                   return localOutcome("cancelled", "pane operation cancelled");
                 }
                 const outcome = paneOutcome(spec, sent, read);
+                // A session named by its file, a pi fork's, keeps that name: the id Herdr reports
+                // for it is its parent's (F6), which a relaunch or a fork would resume instead.
+                if (operation.previousSessionRef && isAbsolute(operation.previousSessionRef)) {
+                  return { ...outcome, sessionRef: operation.previousSessionRef };
+                }
                 if (outcome.sessionRef || !spec.findSession || !operation.binding) return outcome;
                 // A harness that names its session to nobody is found by this operation's id.
                 const found =

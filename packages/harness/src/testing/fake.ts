@@ -7,6 +7,7 @@ import type {
   HarnessOperationBinding,
   NativeFork,
   SessionCopy,
+  SessionSettings,
 } from "../adapter";
 import { createSessionAdapter, type SessionAdapterOptions } from "../session-core";
 
@@ -31,6 +32,8 @@ export type FakeAdapterTurnContext = {
   binding?: HarnessOperationBinding;
   previousSessionRef?: string;
   turn: number;
+  /** The model and effort the session is at: as activated, then as the last `set` left them. */
+  settings: SessionSettings;
   signal: AbortSignal;
 };
 
@@ -44,6 +47,14 @@ export type FakeAdapterTurn = {
   summary?: string;
   durationMs?: number;
   act?: (context: FakeAdapterTurnContext) => void | Promise<void>;
+};
+
+/** A switch the fake was asked for: the agent, the settings it was at, and those asked for. */
+export type FakeSet = {
+  activation: HarnessActivation;
+  previous: SessionSettings;
+  settings: SessionSettings;
+  signal: AbortSignal;
 };
 
 /** A fork the fake made: the agent it copied, the new session, and that agent's turns so far. */
@@ -69,6 +80,12 @@ export function createFakeAdapter(
      */
     forks?: (activation: HarnessActivation) => boolean;
     onFork?: (fork: FakeFork) => void;
+    /**
+     * Whether this agent switches its model and effort, as its real host would; absent, none
+     * does. Given, it is asked for each switch and refuses with the reason it returns.
+     */
+    sets?: (activation: HarnessActivation) => boolean;
+    onSet?: (set: FakeSet) => string | undefined | Promise<string | undefined>;
   } & Pick<SessionAdapterOptions, "placement" | "launchesInSandbox" | "givesSkills" | "continues">,
 ): FakeAgentSessionAdapter {
   const activations: HarnessActivation[] = [];
@@ -95,6 +112,8 @@ export function createFakeAdapter(
         ? `${activation.continues.sessionRef}${activation.continues.copied ? "/forked" : ""}`
         : `fake-${activation.key}`;
       const forks = options.forks?.(activation) ?? false;
+      const { model, effort } = activation.execution;
+      let settings: SessionSettings = { model, ...(effort === undefined ? {} : { effort }) };
       return {
         identity: { sessionId, cwd: activation.cwd },
         ...(forks
@@ -110,6 +129,27 @@ export function createFakeAdapter(
                 };
                 options.onFork?.({ activation, sessionRef: fork.sessionRef, turns: turn });
                 return fork;
+              },
+            }
+          : {}),
+        ...(options.sets?.(activation)
+          ? {
+              async set(next: SessionSettings) {
+                if (isClosed) throw new Error("fake session is closed");
+                const controller = new AbortController();
+                activeController = controller;
+                try {
+                  const refused = await options.onSet?.({
+                    activation,
+                    previous: settings,
+                    settings: next,
+                    signal: controller.signal,
+                  });
+                  if (refused) throw new Error(refused);
+                  settings = next;
+                } finally {
+                  if (activeController === controller) activeController = undefined;
+                }
               },
             }
           : {}),
@@ -135,6 +175,7 @@ export function createFakeAdapter(
               ? { previousSessionRef: operation.previousSessionRef }
               : {}),
             turn,
+            settings,
             signal: controller.signal,
           };
           turns.push(context);

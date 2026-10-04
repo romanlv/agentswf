@@ -34,12 +34,20 @@ import {
   placementOf,
   type RunResult,
   type RuntimeSelection,
+  type SettingsSpec,
   type SkillSource,
   type TurnOutcome,
   type WorkflowContext,
   type WorkflowDefinition,
 } from "@agentswf/contract/workflow";
-import { type AgentSkills, findHarness, hostHome, skillsLayout } from "@agentswf/harness";
+import {
+  type AgentSkills,
+  effortRefusal,
+  findHarness,
+  hostHome,
+  settingsRefusal,
+  skillsLayout,
+} from "@agentswf/harness";
 import type {
   AgentRunHost,
   AgentRuntimeConfig,
@@ -52,6 +60,7 @@ import type {
   HarnessTurnOutcome,
   NativeFork,
   SessionCopy,
+  SessionSettings,
 } from "@agentswf/harness/adapter";
 import type { Occupant } from "@agentswf/sandbox";
 import { PUBLISHED_PRICES } from "./accounting/prices";
@@ -664,7 +673,7 @@ class WorkflowOwner {
     const existing = this.#agents.get(spec.key);
     const execution = existing
       ? constrainExistingExecution(spec.runtime, existing.identity.execution)
-      : resolveExecution(spec.runtime, this.options.runtime);
+      : withKnownEffort(resolveExecution(spec.runtime, this.options.runtime));
     const identity: AgentIdentity = {
       execution,
       cwd: spec.cwd ?? this.options.cwd,
@@ -1036,7 +1045,7 @@ class WorkflowOwner {
       progress: this.options.progress,
       track: (promise) => this.track(promise),
       isRunClosing: () => this.#closed,
-      fork: (spec, take) => this.forkAgent(key, spec, take),
+      fork: (spec, take, settings) => this.forkAgent(key, spec, take, settings),
       ...(seated
         ? {
             // A turn may have refreshed the agent's credential; the operator's copy follows it.
@@ -1059,6 +1068,8 @@ class WorkflowOwner {
     spec: AgentForkSpec,
     /** Queues the native fork, or its copy `into` another home; or why its host cannot fork. */
     take: ((into?: SessionCopy) => Promise<NativeFork>) | string,
+    /** The parent's settings once every `set` queued before the fork has run. */
+    parentSettings: AgentExecution,
   ): Promise<AgentRef> {
     if (this.#closed) throw new Error("workflow context is closed");
     const scope = scopes.getStore();
@@ -1091,7 +1102,7 @@ class WorkflowOwner {
       sandboxed || opening.accounted.home !== undefined
         ? join(this.options.runDir, "forks", randomUUID())
         : undefined;
-    const execution = forkExecution(parent.identity.execution, forkSpec);
+    const execution = withKnownEffort(forkExecution(parentSettings, forkSpec));
     const identity: AgentIdentity = {
       execution,
       cwd: parent.identity.cwd,
@@ -1240,6 +1251,11 @@ class LogicalAgent implements AgentRef {
     string,
     { spec: CompactSpec; result: Promise<TurnOutcome<string>> }
   >();
+  readonly #sets = new Map<string, { spec: SettingsSpec; result: Promise<TurnOutcome<null>> }>();
+  /** Its settings now; see `AgentRef.execution`. */
+  #execution: AgentExecution;
+  /** What each `set` queued and not yet settled changes, in queue order. */
+  readonly #pendingSets: SettingsChange[] = [];
   #tail: Promise<void> = Promise.resolve();
   #closed = false;
   #closePromise: Promise<void> | undefined;
@@ -1260,20 +1276,26 @@ class LogicalAgent implements AgentRef {
       isRunClosing(): boolean;
       /** After each operation settles, whatever its outcome. */
       afterOperation?(): Promise<void>;
-      /** Opens `spec`'s agent on the native fork `take` queues in this agent's operations. */
+      /**
+       * Opens `spec`'s agent on the native fork `take` queues in this agent's operations, at
+       * `settings`, this agent's once the operations before the fork have run.
+       */
       fork(
         spec: AgentForkSpec,
         take: ((into?: SessionCopy) => Promise<NativeFork>) | string,
+        settings: AgentExecution,
       ): Promise<AgentRef>;
     },
-  ) {}
+  ) {
+    this.#execution = options.execution;
+  }
 
   get key(): string {
     return this.options.key;
   }
 
   get execution(): AgentExecution {
-    return this.options.execution;
+    return this.#execution;
   }
 
   enqueue(_spec: AgentTextTurnSpec): Promise<never>;
@@ -1397,17 +1419,70 @@ class LogicalAgent implements AgentRef {
     return tracked;
   }
 
+  /** Not a turn: progress counts none for it, and it asks the model nothing. */
+  set(spec: SettingsSpec): Promise<TurnOutcome<null>> {
+    if (this.#closed) return Promise.reject(new Error("logical agent is closed"));
+    const scope = scopes.getStore();
+    try {
+      scope?.assertAccepting();
+    } catch (error) {
+      return Promise.reject(error);
+    }
+    const id = spec.id ?? randomUUID();
+    const completeSpec = structuredClone({ ...spec, id });
+    const existing = this.#sets.get(id);
+    if (existing) {
+      if (!isDeepStrictEqual(existing.spec, completeSpec)) {
+        const rejected = Promise.reject<TurnOutcome<null>>(
+          new Error(`settings id ${id} was reused with a different specification`),
+        );
+        scope?.track(rejected);
+        return rejected;
+      }
+      scope?.track(existing.result);
+      return existing.result;
+    }
+    let change: SettingsChange;
+    let deadline: AbsoluteDeadline;
+    try {
+      change = this.settingsChange(spec);
+      deadline = this.operationDeadline(spec, scope);
+    } catch (error) {
+      const rejected = Promise.reject<TurnOutcome<null>>(error);
+      scope?.track(rejected);
+      return rejected;
+    }
+    this.#pendingSets.push(change);
+    const result = this.queue(async () => {
+      try {
+        if (this.#closed || this.options.isRunClosing()) {
+          throw new Error("logical agent is closed");
+        }
+        scope?.assertActive();
+        return await this.executeSet(change, deadline, scope);
+      } finally {
+        this.#pendingSets.splice(this.#pendingSets.indexOf(change), 1);
+      }
+    });
+    const tracked = this.options.track(result);
+    scope?.track(tracked);
+    this.#sets.set(id, { spec: completeSpec, result: tracked });
+    return tracked;
+  }
+
   fork(spec: AgentForkSpec): Promise<AgentRef> {
     if (this.#closed) return Promise.reject(new Error("logical agent is closed"));
     const scope = scopes.getStore();
     const deadline = this.deadlineCeiling(scope);
     const { session, execution } = this.options;
+    const settings = this.queuedExecution();
     const fork = session.fork?.bind(session);
     if (!fork) {
       try {
         return this.options.fork(
           spec,
           `agent ${this.key} cannot be forked: ${execution.harness} ${placementOf(execution)} agents have no fork yet`,
+          settings,
         );
       } catch (error) {
         return Promise.reject(error);
@@ -1421,10 +1496,17 @@ class LogicalAgent implements AgentRef {
           throw new Error("logical agent is closed");
         }
         scope?.assertActive();
+        // The fork was opened at the settings it would copy; a `set` before it that did not take
+        // would leave it recording settings it never ran at.
+        if (!isDeepStrictEqual(sessionSettings(this.#execution), sessionSettings(settings))) {
+          throw new Error(
+            `agent ${this.key} was not at the settings its fork was opened at: a set queued before the fork did not take`,
+          );
+        }
         return fork(deadlineWithin(FORK_TIMEOUT_MS, deadline), into);
       });
     try {
-      return this.options.fork(spec, take);
+      return this.options.fork(spec, take, settings);
     } catch (error) {
       return Promise.reject(error);
     }
@@ -1447,6 +1529,95 @@ class LogicalAgent implements AgentRef {
 
   private deadlineCeiling(scope: ExecutionScope | undefined): AbsoluteDeadline {
     return scope ? earlierDeadline(scope.deadline, this.options.deadline) : this.options.deadline;
+  }
+
+  /** Its settings once every `set` queued so far has run. */
+  private queuedExecution(): AgentExecution {
+    return Object.assign({}, this.#execution, ...this.#pendingSets);
+  }
+
+  /** What `spec` changes, or why it is refused before it is queued. */
+  private settingsChange(spec: SettingsSpec): SettingsChange {
+    const { execution, session } = this.options;
+    if (execution.caller) {
+      throw new Error(
+        `agent ${this.key} is the calling session, whose model and effort are the operator's`,
+      );
+    }
+    // A workflow is untyped JavaScript at run time: a harness or placement asked for must not be
+    // dropped in silence.
+    const others = Object.keys(spec).filter((field) => !SETTINGS_FIELDS.has(field));
+    if (others.length > 0) {
+      throw new Error(
+        `set changes an agent's model and effort, not its ${others.join(", ")}: another harness or placement is another agent`,
+      );
+    }
+    if (spec.model === undefined && spec.effort === undefined) {
+      throw new Error("set names neither a model nor an effort");
+    }
+    if (spec.model !== undefined && (typeof spec.model !== "string" || spec.model === "")) {
+      throw new Error(`set names no model: ${JSON.stringify(spec.model)}`);
+    }
+    if (spec.effort !== undefined && typeof spec.effort !== "string") {
+      throw new Error(`an effort is a level's name, not ${JSON.stringify(spec.effort)}`);
+    }
+    const refused =
+      (spec.effort === undefined ? undefined : effortRefusal(execution.harness, spec.effort)) ??
+      (session.set
+        ? undefined
+        : (settingsRefusal(execution) ??
+          `${execution.harness} ${placementOf(execution)} agents cannot switch model or effort yet`));
+    if (refused) throw new Error(`agent ${this.key}: ${refused}`);
+    return {
+      ...(spec.model === undefined ? {} : { model: spec.model }),
+      ...(spec.effort === undefined ? {} : { effort: spec.effort }),
+    };
+  }
+
+  /**
+   * Switches the session's settings. Nothing answers through a result slot: the host confirms the
+   * switch by resolving. A pane's that did not is in settings nobody knows, so it is closed.
+   */
+  private async executeSet(
+    change: SettingsChange,
+    deadline: AbsoluteDeadline,
+    scope: ExecutionScope | undefined,
+  ): Promise<TurnOutcome<null>> {
+    const entry = this.options.ledger.reserve(randomUUID(), () => this.#execution);
+    const usage = () =>
+      entry.settle({ settledAt: Math.min(Date.now(), deadline.unixMilliseconds) }, []);
+    if (Date.now() >= deadline.unixMilliseconds) {
+      return { kind: "timed-out", reason: "settings deadline exceeded", usage: usage() };
+    }
+    const next: AgentExecution = { ...this.#execution, ...change };
+    const pane = placementOf(next) === "pane";
+    let cancelled: string | undefined;
+    // A pane's switch waits on its screen; a scope cancelled meanwhile closes the agent, as a
+    // half-made switch leaves it at settings nobody knows. A headless one takes no time.
+    const removeCanceller = pane
+      ? scope?.add(async (reason) => {
+          cancelled = reason;
+          await this.close(reason);
+        })
+      : undefined;
+    try {
+      await waitForDeadline(
+        Promise.resolve().then(() => this.options.session.set!(sessionSettings(next), deadline)),
+        deadline,
+      );
+    } catch (error) {
+      const expired = error instanceof DeadlineExceededError;
+      const reason = cancelled ?? (expired ? "settings deadline exceeded" : messageOf(error));
+      if (pane) this.closeAfterFailure(reason);
+      if (cancelled !== undefined) return { kind: "cancelled", reason, usage: usage() };
+      return expired
+        ? { kind: "timed-out", reason, usage: usage() }
+        : { kind: "failed", reason, retryable: false, usage: usage() };
+    } finally {
+      removeCanceller?.();
+    }
+    this.#execution = next;
+    return { kind: "answered", value: null, usage: usage() };
   }
 
   /**
@@ -1508,7 +1679,7 @@ class LogicalAgent implements AgentRef {
     const schema = resultSchema(spec.schema);
     if (Date.now() >= operationDeadline.unixMilliseconds) {
       const usage = this.options.ledger
-        .reserve(operationId)
+        .reserve(operationId, () => this.#execution)
         .settle({ settledAt: operationDeadline.unixMilliseconds }, []);
       return {
         outcome: { kind: "timed-out", reason: "operation deadline exceeded", usage },
@@ -1524,7 +1695,7 @@ class LogicalAgent implements AgentRef {
     const binding = { endpoint: this.options.endpoint, operationId };
     const charges: number[] = [];
     let later: Promise<HarnessTurnOutcome> | undefined;
-    const entry = this.options.ledger.reserve(operationId);
+    const entry = this.options.ledger.reserve(operationId, () => this.#execution);
     /** The native turn this operation currently answers for; a nudge replaces it. */
     const held: HeldTurn = {};
     const finish = async (
@@ -1665,7 +1836,7 @@ class LogicalAgent implements AgentRef {
     deadline: AbsoluteDeadline,
     scope: ExecutionScope | undefined,
   ): Promise<TurnOutcome<string>> {
-    const entry = this.options.ledger.reserve(randomUUID());
+    const entry = this.options.ledger.reserve(randomUUID(), () => this.#execution);
     const times: { deliveredAt?: number } = {};
     const settle = (
       native: HarnessTurnOutcome | "expired",
@@ -2165,10 +2336,39 @@ function resolveExecution(
         throw new Error(`runtime alias ${selection.alias} does not satisfy required ${field}`);
       }
     }
-    return { ...resolved, ...storedPlacement(selection) };
+    return {
+      ...resolved,
+      ...(selection.effort === undefined ? {} : { effort: selection.effort }),
+      ...storedPlacement(selection),
+    };
   }
-  const { harness, model } = selection;
-  return { harness, model, ...storedPlacement(selection) };
+  const { harness, model, effort } = selection;
+  return {
+    harness,
+    model,
+    ...(effort === undefined ? {} : { effort }),
+    ...storedPlacement(selection),
+  };
+}
+
+/** An agent at an effort its harness does not list is refused before anything runs. */
+function withKnownEffort(execution: AgentExecution): AgentExecution {
+  if (execution.effort === undefined) return execution;
+  if (typeof execution.effort !== "string") {
+    throw new Error(`an effort is a level's name, not ${JSON.stringify(execution.effort)}`);
+  }
+  const refused = effortRefusal(execution.harness, execution.effort);
+  if (refused) throw new Error(refused);
+  return execution;
+}
+
+/** What `set` changes. */
+type SettingsChange = Partial<Pick<AgentExecution, "model" | "effort">>;
+
+const SETTINGS_FIELDS = new Set(["id", "model", "effort", "deadline", "timeoutMs"]);
+
+function sessionSettings({ model, effort }: AgentExecution): SessionSettings {
+  return { model, ...(effort === undefined ? {} : { effort }) };
 }
 
 /**
@@ -2191,11 +2391,18 @@ function storedPlacement(choice: PlacementChoice): PlacementChoice {
     : {};
 }
 
-/** The parent's harness and model, in the placement the fork names, else its parent's. */
+/**
+ * The parent's harness, model and effort, in the placement and at the effort the fork names, else
+ * its parent's.
+ */
 function forkExecution(parent: AgentExecution, spec: AgentForkSpec): AgentExecution {
   const { placement: _placement, metered: _metered, ...target } = parent;
   const choice = spec.placement === undefined && spec.metered === undefined ? parent : spec;
-  return { ...target, ...storedPlacement(choice) };
+  return {
+    ...target,
+    ...(spec.effort === undefined ? {} : { effort: spec.effort }),
+    ...storedPlacement(choice),
+  };
 }
 
 function constrainExistingExecution(
@@ -2218,6 +2425,10 @@ function constrainExistingExecution(
   } else if (selection.harness !== existing.harness || selection.model !== existing.model) {
     throw new Error("existing agent uses a different runtime configuration");
   }
+  // As opened: a `set` since does not change what reopening it compares with.
+  if (selection.effort !== undefined && selection.effort !== existing.effort) {
+    throw new Error("existing agent was opened at a different effort");
+  }
   const placed = placementOf(existing);
   if (
     (selection.placement !== undefined && placementOf(selection) !== placed) ||
@@ -2234,7 +2445,12 @@ function resolveAlias(alias: string, runtime: AgentRuntimeConfig): AgentExecutio
   const selected = runtime.aliases[alias];
   if (!selected) throw new Error(`unknown runtime alias: ${alias}`);
   // Placement is the agent's to choose, never the operator's, so only the target is copied.
-  return { harness: selected.harness, model: selected.model, alias };
+  return {
+    harness: selected.harness,
+    model: selected.model,
+    ...(selected.effort === undefined ? {} : { effort: selected.effort }),
+    alias,
+  };
 }
 
 function assertCompatibleAgent(

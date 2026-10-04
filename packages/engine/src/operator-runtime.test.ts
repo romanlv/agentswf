@@ -218,7 +218,14 @@ describe("operator runtime", () => {
       const workspace = calls.find(
         (call) => call.argv.slice(3, 5).join(" ") === "workspace create",
       );
-      for (const name of ["CLAUDECODE", "CLAUDE_CODE_SESSION_ID", "CLAUDE_CODE_MESSAGING_TOKEN"]) {
+      // The calling session's markers, and what would override the effort an agent is launched at.
+      for (const name of [
+        "CLAUDECODE",
+        "CLAUDE_CODE_SESSION_ID",
+        "CLAUDE_CODE_MESSAGING_TOKEN",
+        "CLAUDE_EFFORT",
+        "CLAUDE_CODE_EFFORT_LEVEL",
+      ]) {
         expect(headless?.env).toHaveProperty(name, undefined);
         expect(workspace?.argv).toContain(`${name}=`);
       }

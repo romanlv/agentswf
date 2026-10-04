@@ -3,7 +3,7 @@ id: "020"
 title: An agent runs at the effort and model its workflow sets, and switches them mid-run
 summary: "A workflow opens an agent at a reasoning effort, as at a model, and can switch either later in the same session with `set`; each harness is launched or switched by its own flag or command, a harness that cannot is refused with its reason, and every operation records the settings it ran at."
 type: story
-status: ready
+status: in-progress
 priority: P0
 epic: agent-config
 discovered_in: "story 008, match first; the first live loop, 2026-10-01"
@@ -28,8 +28,8 @@ Why now: awf neither sets nor records effort, and effort changes an agent's time
 as much as its model does.
 
 - In story 008, every judge ran at an effort nobody chose:
-  - headless claude took `CLAUDE_EFFORT=medium` from the Claude Code session that launched
-    `awf-lab`;
+  - headless claude ran at its own default for Sonnet, `medium`. The draft blamed the
+    `CLAUDE_EFFORT=medium` a Claude Code session exports, but claude ignores that variable (M4);
   - codex read `model_reasoning_effort` from the operator's `~/.codex/config.toml`;
   - pi read `defaultThinkingLevel` from `~/.pi/agent/settings.json`.
 - The first live loop (data repository, `reports/2026-10-01-first-live-loop.md`) hit it twice:
@@ -45,11 +45,11 @@ workflow                          engine                          harness
 open({ runtime: {                 execution = { harness, model,   claude  --effort high
   alias: "codex",                   placement, effort: "high" }   codex   -c model_reasoning_effort="high"
   effort: "high" } })        ──▶  effort checked against the      pi      --thinking high
-                                  harness's levels                cursor  --model '{m}[effort=high]'
+                                  harness's levels                cursor  none: the variant is the model
 
 agent.set({                       queued like compact; from here  headless: the next resume carries
-  effort: "low" })           ──▶  on the agent's execution says   the new flags. pane: the harness's
-                                  "low", and so does each later   own command, confirmed on screen
+  effort: "low" })           ──▶  on the agent's execution says   the new flags. pane: the harness is
+                                  "low", and so does each later   relaunched on its session at them
                                   operation's record
 ```
 
@@ -89,7 +89,7 @@ In scope:
   each can; refused with its reason where it can't.
 - Launching each harness at an effort, headless and in a pane, on the host and in a sandbox.
 - Recording effort on every operation and agent in `output.json`.
-- Withholding `CLAUDE_EFFORT` from agents, like the other calling-session variables.
+- Withholding `CLAUDE_CODE_EFFORT_LEVEL`, which would beat `--effort` (M4), from agents.
 - The lab names effort wherever it names a runtime (`harness/model:{effort}`), and its
   contained-codex stopgap is removed.
 - [`workflow-api.md`](../workflow-api.md) and [`adding-a-harness.md`](../adding-a-harness.md)
@@ -116,12 +116,10 @@ Out of scope:
   | claude | 2.1.289 | `--effort {low, medium, high, xhigh, max}` |
   | codex | 0.160.0 | `-c model_reasoning_effort="{level}"`, a config override; the levels depend on the model |
   | pi | 0.87.1 | `--thinking {off, minimal, low, medium, high, xhigh, max}`, or `--model {m}:{level}` |
-  | cursor | 2026.10.01 | none; a parameterised model takes `--model '{m}[effort=high]'` |
+  | cursor | 2026.10.01 | none; a parameterised model takes `--model '{m}[effort=high]'` (M3 found the key differs per model and `effort` refused on every model tried; the flat `{model}-{level}` ids work) |
 
-- Fact: a Claude Code session exports `CLAUDE_EFFORT` to the commands it runs (`medium` in the
-  session that drafted this story). `CLAUDE.callingSessionEnv` in
-  `packages/harness/src/harnesses/claude.ts` doesn't list it, so every claude agent awf starts from
-  such a session inherits it.
+- Fact: a Claude Code session exports `CLAUDE_EFFORT` to the commands it runs, but claude itself
+  ignores it. `CLAUDE_CODE_EFFORT_LEVEL` is the variable that beats `--effort` (M4).
 - Fact: after the first turn, a headless turn is a new process resuming the session (`resumeTurn`
   in `packages/harness/src/harnesses/*.ts`). A headless `set` is therefore flags on the next resume,
   provided the harness honours them on a resume (M1).
@@ -159,8 +157,8 @@ Out of scope:
   - `SettingsSpec` and `AgentRef.set` are new.
   - `AgentRef.execution` becomes the agent's current settings.
   - `OperationRecord` needs no new field.
-- `src/records.ts`: `byAgent[].execution` carries effort with no change; it holds the opened
-  settings.
+- `src/records.ts`: `byAgent[].execution` carries effort with no change; it holds the agent's first
+  operation's settings, which a `set` before its first turn has already changed.
 
 ### `packages/harness`
 
@@ -168,18 +166,19 @@ Out of scope:
   - `TurnContext` gains `effort`.
   - `interactive` and `interactiveResume` take it.
   - A required `effort` field lists the harness's levels, or is `Absent` with a reason.
-  - A new optional `setPane` capability switches a pane's model and effort, shaped like
-    `compactPane`: the text to type, and the screen that confirms it.
+  - Optional `setHeadless` and `setPane` capabilities say a resume, or a pane relaunched on its
+    session, runs at the settings it is given.
+  - A required `settingsEnv` names the operator's variables that would override them.
 - `src/harnesses/{claude,codex,pi,cursor}.ts`: each launch and resume plan adds the harness's flag.
-  For cursor, the plan rewrites `--model` instead.
+  cursor takes none (M3).
 - `src/adapter.ts`: `HarnessSession` gains `set?(settings, deadline)`, beside `compact`. Absent
   means the host can't switch.
 - `src/adapters/direct-process.ts`: a `set` updates the settings that the next resume's plan is
   built from.
 - `src/adapters/herdr.ts`:
-  - a `set` types the switch and waits for its screen;
-  - a pane relaunched on its session (`interactiveResume`) launches at the current settings.
-- `CLAUDE.callingSessionEnv`: add `CLAUDE_EFFORT`.
+  - a `set` waits for the agent to settle and its session to be written, closes its tab, and
+    relaunches the harness on its session (`interactiveResume`) at the new settings (Q6).
+- `CLAUDE.settingsEnv`: `CLAUDE_CODE_EFFORT_LEVEL`, withheld from every agent.
 
 ### `packages/engine`
 
@@ -298,7 +297,9 @@ spec still gets it back.
   sandbox.
 - **Headless**, `set` runs no process. It is answered once its effort is valid, and the next resume
   carries the new flags.
-- **In a pane**, `set` types the harness's own command and is answered when the screen confirms it.
+- **In a pane**, `set` relaunches the harness on its session at the new settings, once its agent has
+  settled, and is answered once the harness is up (Q6). Before the pane's first turn it only
+  changes what the pane opens at.
 
 Invariants:
 
@@ -307,8 +308,8 @@ Invariants:
   starts, and the refusal quotes the harness's levels.
 - A `set` the harness can't do is refused with the definition's absent reason. It never silently
   leaves the old settings in force.
-- A pane `set` whose confirmation never shows settles `failed`, and nobody knows the agent's
-  settings any more. The agent is closed, as after any failed turn, so nothing later runs at
+- A pane `set` whose relaunch fails or times out settles `failed` or `timed-out`, and nobody knows
+  the agent's settings any more. The agent is closed, as after any failed turn, so nothing later runs at
   settings nobody can name.
 
 Alternatives rejected:
@@ -328,14 +329,15 @@ Alternatives rejected:
 
 ## Tasks at a glance
 
-- [ ] 1. Measure each harness: effort levels; effort and model at launch and on a resume; the pane
+- [x] 1. Measure each harness: effort levels; effort and model at launch and on a resume; the pane
   commands and the screens that confirm them; precedence over config
-- [ ] 2. Add `effort` and `set` to the contract, the engine and the testing host; refuse what a
+- [x] 2. Add `effort` and `set` to the contract, the engine and the testing host; refuse what a
   harness doesn't list
-- [ ] 3. Each harness launches at its agent's effort, headless and in a pane; `CLAUDE_EFFORT`
-  withheld
-- [ ] 4. `set` switches model and effort mid-session, headless and in a pane, where the harness can
-- [ ] 5. The lab names effort wherever it names a runtime; the stopgap is removed
+- [x] 3. Each harness launches at its agent's effort, headless and in a pane;
+  `CLAUDE_CODE_EFFORT_LEVEL` withheld
+- [x] 4. `set` switches model and effort mid-session, headless and in a pane, where the harness can
+- [ ] 5. The lab names effort wherever it names a runtime (done); the stopgap is removed (waits on
+  the data repository's variants naming their effort, Q5)
 
 ## To measure
 
@@ -383,6 +385,11 @@ Decisions for the operator. None is open; each keeps its reasons.
 - **Q5. Does a lab variant's or scorer's identity change?** No. A variant's effort is in its file,
   and the researcher versions a change to it as any other change (`version.ts`). Old results were
   never tied to an effort.
+- **Q6. How does a pane `set` switch claude and codex?** By relaunching the harness on its
+  session at the new settings, on every harness that switches (operator, 2026-10-04). M2 found
+  claude's typed `/effort` and `/model` save to the operator's `~/.claude/settings.json` as their
+  default, and codex's `/model` is a picker. The relaunch was measured to keep the context and save
+  nothing; it costs a few seconds, and the operator sees the agent's tab replaced.
 
 ## Task execution rule
 
@@ -402,11 +409,11 @@ Outcome: M1–M6 are answered per harness in
 
 Execution:
 
-- [ ] Plan: list each probe and the cheapest model it can run on.
-- [ ] Implement: run the probes and record the commands, versions and output in the finding.
-- [ ] Review: one subagent checks each claim in the finding against its probe's output.
-- [ ] Resolve: disposition every gap; a switch that can't be shown working is absent.
-- [ ] Verify: every row of the finding's table is measured or marked unknown.
+- [x] Plan: list each probe and the cheapest model it can run on.
+- [x] Implement: run the probes and record the commands, versions and output in the finding.
+- [x] Review: one subagent checks each claim in the finding against its probe's output.
+- [x] Resolve: disposition every gap; a switch that can't be shown working is absent.
+- [x] Verify: every row of the finding's table is measured or marked unknown.
 
 Work:
 
@@ -428,15 +435,15 @@ host, and are documented in `workflow-api.md`.
 
 Execution:
 
-- [ ] Plan: map the reattach change to opened and current settings.
-- [ ] Implement:
+- [x] Plan: map the reattach change to opened and current settings.
+- [x] Implement:
   - the contract as in "The contract";
   - in the engine: the alias's effort and the workflow's over it, `set` queued like `compact`, level
     checks, the opened settings kept for reattach;
   - `set` on the testing host.
-- [ ] Review: architecture/scope and correctness/proof subagents on the diff.
-- [ ] Resolve: disposition findings.
-- [ ] Verify: focused workflow tests; `bun test`, `bunx tsc --noEmit`, boundaries.
+- [x] Review: architecture/scope and correctness/proof subagents on the diff.
+- [x] Resolve: disposition findings.
+- [x] Verify: focused workflow tests; `bun test`, `bunx tsc --noEmit`, boundaries.
 
 Done when:
 
@@ -453,20 +460,22 @@ sandbox.
 
 Execution:
 
-- [ ] Plan: per-harness flags and levels from task 1's finding.
-- [ ] Implement:
+- [x] Plan: per-harness flags and levels from task 1's finding.
+- [x] Implement:
   - each harness definition's `effort`;
   - the launch and resume plans;
-  - `CLAUDE_EFFORT` in `callingSessionEnv`;
+  - `CLAUDE_CODE_EFFORT_LEVEL` in claude's `settingsEnv`, withheld (and `CLAUDE_EFFORT` in
+    `callingSessionEnv`, which only keeps an agent's shell clean);
   - `adding-a-harness.md`.
-- [ ] Review: two subagents.
-- [ ] Resolve: disposition findings.
-- [ ] Verify: plan tests per harness; a cheap live check per harness reads the effort back.
+- [x] Review: two subagents.
+- [x] Resolve: disposition findings.
+- [x] Verify: plan tests per harness; a cheap live check per harness reads the effort back.
 
 Done when:
 
-- A live run of each harness, headless and in a pane, logs the effort it was given.
-- A claude agent started from a Claude Code session no longer sees `CLAUDE_EFFORT`.
+- A live run of each harness, headless and in a pane, logs the effort it was given. Done for
+  claude, codex and pi; cursor takes none. A sandboxed launch is not checked live.
+- A claude agent never sees `CLAUDE_CODE_EFFORT_LEVEL`, which would beat `--effort`.
 
 ### 4. `set` switches the session
 
@@ -475,15 +484,16 @@ and in a pane. A harness that can't is refused with its reason.
 
 Execution:
 
-- [ ] Plan: the shape of `setPane` and `HarnessSession.set`, from task 1's screens (M1, M2).
-- [ ] Implement:
+- [x] Plan: the shape of `setPane` and `HarnessSession.set`, from task 1's screens (M1, M2): a
+  relaunch on the session (Q6), so `setPane` is a marker, not commands to type.
+- [x] Implement:
   - headless: the settings carried to the next resume;
-  - pane: the switch and its confirmation, and a relaunch at the current settings;
+  - pane: a relaunch on the session at the new settings;
   - the absent reasons.
-- [ ] Review: two subagents.
-- [ ] Resolve: disposition findings.
-- [ ] Verify: adapter tests for a switch and for a confirmation that never shows; a live pane check
-  on claude and codex.
+- [x] Review: two subagents.
+- [x] Resolve: disposition findings.
+- [x] Verify: adapter tests for a switch and for a relaunch that fails; a live pane check on claude,
+  codex and pi.
 
 Done when:
 
@@ -499,16 +509,18 @@ an effort copied from the operator's config.
 
 Execution:
 
-- [ ] Plan: the `harness/model:{effort}` syntax. The suffix after the last `:` is an effort only if
+- [x] Plan: the `harness/model:{effort}` syntax. The suffix after the last `:` is an effort only if
   it is one of the harness's levels; otherwise it stays part of the model, as in a pi model
   ending `:free`.
 - [ ] Implement:
-  - `runtimeOf` and `runtimeName`;
-  - the data repository's contained variants name their effort (an operating step);
-  - then remove `hostReasoningEffort`.
-- [ ] Review: two subagents.
-- [ ] Resolve: disposition findings.
-- [ ] Verify: lab tests; one contained codex trial at `high` logs `high`.
+  - [x] `runtimeOf` and `runtimeName`, and `draft-key`'s names;
+  - [ ] the data repository's contained variants name their effort (an operating step; the
+    researcher's, Q5);
+  - [ ] then remove `hostReasoningEffort`.
+- [x] Review: two subagents.
+- [x] Resolve: disposition findings.
+- [ ] Verify: lab tests (done); one contained codex trial at `high` logs `high` (waits on the
+  variants).
 
 Done when:
 
@@ -520,33 +532,98 @@ Done when:
 
 Automated:
 
-- [ ] Workflow tests:
+- [x] Workflow tests (`engine/src/settings.test.ts`, `workflow-testing.test.ts`,
+  `examples/effort/workflow.test.ts`):
   - effort at open, from an alias, over an alias's, and on a fork;
   - `set` runs in order with turns, and a repeated id is harmless;
   - reattach after a `set`;
   - refusals: an unknown level, another harness, the caller, and an absent switch.
-- [ ] Harness plan tests: each harness's flag at launch and on a resume.
-- [ ] Lab tests: `runtimeOf` with and without an effort, and a model containing `:`.
-- [ ] `bun test`
-- [ ] `bunx tsc --noEmit`
-- [ ] `bun run scripts/check-boundaries.ts`
+- [x] Harness plan tests: each harness's flag at launch and on a resume, and a pane's relaunch
+  (`direct-process.test.ts`, `herdr.test.ts`).
+- [x] Lab tests: `runtimeOf` with and without an effort, and a model containing `:`; the lab's
+  levels match the harnesses' (`tests/effort-levels.test.ts`).
+- [x] `bun test`
+- [x] `bunx tsc --noEmit`
+- [x] `bun run scripts/check-boundaries.ts`
 
 Manual or live evaluation:
 
-- [ ] Per harness, headless and in a pane: launch at a level, then `set` another effort and model;
-  the harness's own log agrees with `output.json`. Cheap models, a few cents a harness.
+- [x] Per harness, headless and in a pane: launch at a level, then `set` another effort and model;
+  the harness's own log agrees with `output.json`. `tests/effort.eval.ts` on claude, codex and pi
+  (cursor left out: any cursor run on another model rewrites the operator's
+  `~/.cursor/cli-config.json`).
 
 ## Review record
 
 ### Task 1
 
+### Task 1
+
+One subagent checked each claim in the finding against the probes' scripts, their logged output
+and the harnesses' own session files, and against the first live eval. About 55 claims supported,
+one contradicted, eleven partial; all corrected in the finding:
+
+- pi's `thinkingLevelMap` differs between `gpt-6-luna` and `gpt-5.6-terra`.
+- codex's cross-model warning was never seen beside a completed turn.
+- claude's `--effort` was shown to beat `--settings`' `effortLevel`, not the user file's
+  `modelSettings` shape a typed `/effort` writes.
+- The flat cursor ids worked on the three tried, not "every listed model".
+- `agent_prompt_stalled` was seen for claude only.
+- `--effort ultracode` turns on ultracode mode, not just `xhigh`.
+- pi's level without a flag is its last `thinking_level_change` row.
+- Two inferences are marked as such.
+- claude's relaunch wrote nothing to `settings.json`; `.claude.json` bookkeeping changed.
+- pi's `/model` switches directly only within `enabledModels`.
+- A pi pane relaunch writes no level rows (from the live eval).
+
+None changes the design: the switches are the relaunch and the resume, which the live eval proved.
+
 ### Task 2
 
-### Task 3
+Two subagents, architecture/scope and correctness/proof, on the diff before tasks 3–4. No
+blockers.
 
-### Task 4
+- Effort is recorded but no harness launches with it yet (major): task 2 lands with tasks 3 and 4,
+  not alone.
+- `set` on the caller untested (major): `workflow-testing.test.ts` refuses it.
+- A pane `set` held past a cancelled scope: it now closes the agent and settles `cancelled`.
+- An effort that is no string reached the host on an unknown harness: refused everywhere.
+- A `set` past its deadline settled at "now": it settles at its deadline, as compaction does.
+- A `set` is not a turn in progress: decided, and said where `set` is defined.
+- Docs: a reopen's effort constrains only when given; a pane switch that fails *or times out*
+  closes the agent; a fork rejects when a `set` before it did not take; the record's alias is the
+  one opened through, whose model a `set` may have changed; a headless switch applies whole or not
+  at all.
+- Tests added: a pane switch past its deadline; a failed headless switch; one past its deadline
+  before it runs; a switch before the first turn and before a compaction; an effort of the wrong
+  type.
+- Kept: `SetRecord` has no `id` or `outcome`. Idempotency is the engine's, and the scripted host
+  answers every switch it is asked for. `setHeadless` and `setPane` are provisional: task 4 shapes
+  them from M1 and M2.
 
-### Task 5
+### Tasks 3–5
+
+Reviewed together, as one diff: architecture/scope and correctness/proof subagents. No blockers.
+
+- A pane relaunch could drop the session's last turn (major): it waits, as a fork does, until the
+  usage reader sees the session written.
+- `CLAUDE_CODE_EFFORT_LEVEL` beats `--effort` (major): a harness's `settingsEnv` names such
+  variables, and every agent is launched without them.
+- The story described the dropped design (major): corrected, with Q6.
+- A relaunch reused the closed agent's Herdr name: it takes a new one.
+- A forked pi pane could relaunch on its parent's session, the id Herdr reports: a session named by
+  its file keeps that name.
+- A codex pane whose turn never found its session refused `set`, which closes the agent: it looks
+  again first.
+- A headless codex compaction ran at codex's default effort: it takes the agent's.
+- The eval's pi check took `xhigh` for `high`, and claude's switch to haiku, which takes no effort,
+  proved none: exact words, and claude switches to opus.
+- `draft-key` named graders without their effort; the stopgap's comment was false; the lab's copy
+  of the levels was unlisted and could drift: fixed, listed in `adding-a-harness.md`, and pinned by
+  `tests/effort-levels.test.ts`.
+- Kept: pi's rpc fork passes no `--thinking`, and codex's fork no effort; neither asks the model.
+- Not built: adapter tests for a pane `set` in a sandbox, with a turn left finishing, and closed
+  mid-relaunch. The code paths are traced, and are those `fork` and every turn take.
 
 ## Readiness
 
@@ -560,6 +637,34 @@ Manual or live evaluation:
 - [x] Open questions are resolved or explicitly moved out of scope.
 
 ## Implementation notes
+
+What changed from the design above, and why:
+
+- **A pane `set` relaunches the harness on its session** (Q6), so `setPane` is a capability marker
+  and the herdr adapter does the work: settle, wait for the session to be written, close the tab,
+  start the harness again by `interactiveResume` at the new settings, under a new agent name.
+- **cursor takes no effort.** Its effort is part of the model id (`gpt-5.6-luna-high`), or a
+  parameter whose key differs per model (M3); a variant is chosen as the model. Its headless `set`
+  switches the model; its pane `set` is absent, since measuring it rewrites the operator's
+  `~/.cursor/cli-config.json` or asks for the keychain.
+- **`CLAUDE_EFFORT` never mattered**: claude ignores it, and Sonnet's own default is `medium`.
+  `CLAUDE_CODE_EFFORT_LEVEL` does matter, and is withheld through the new `settingsEnv`.
+- **codex's levels are per model.** Its definition lists every level of the models awf runs; one a
+  model lacks fails its turn at the API, as an unknown model does.
+- **`byAgent[].execution`** is the agent's first operation's settings, which a `set` before its
+  first turn has already changed.
+
+Known gaps:
+
+- No live check of a sandboxed agent at an effort; the flag is an argument like any other, and a
+  sandbox's home has no settings to beat it.
+- A cursor `set` is not checked live, for the reason above; M1 measured its resume on another model.
+- The settings' `maxEffortLevel` caps claude's effort silently (M4): a host agent recorded at `max`
+  can run lower. A claude `settings.json` `env` block, or a pane's login shell rc files, could still
+  set `CLAUDE_CODE_EFFORT_LEVEL`; not measured.
+- An interactive `claude --resume` of a long session may show a prompt the startup screens don't
+  answer; unchecked.
+- Task 5's stopgap stays until the data repository's contained variants name their effort.
 
 ## Human review
 

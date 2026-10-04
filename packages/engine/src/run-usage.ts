@@ -50,7 +50,10 @@ export type OperationEntry = {
 };
 
 /** One agent's part of the run's ledger. */
-export type AgentLedger = { reserve(operationId: string): OperationEntry };
+export type AgentLedger = {
+  /** `execution` is read as the operation settles: the agent's settings it ran at. */
+  reserve(operationId: string, execution: () => AgentExecution): OperationEntry;
+};
 
 export type RunLedger = {
   /** Called in open order, so which agent keeps a request two of them report does not vary. */
@@ -100,7 +103,7 @@ export function createRunLedger({
     agent(agent) {
       agents.push(agent);
       return {
-        reserve(operationId) {
+        reserve(operationId, execution) {
           const operation: Operation = { agent, costs: [] };
           operations.push(operation);
           return {
@@ -109,7 +112,7 @@ export function createRunLedger({
                 callPath: [],
                 agent: agent.key,
                 operationId,
-                execution: agent.execution,
+                execution: execution(),
                 ...(times.deliveredAt === undefined
                   ? {}
                   : { deliveredAt: new Date(times.deliveredAt).toISOString() }),

@@ -1,8 +1,15 @@
 import { randomUUID } from "node:crypto";
 import type { AbsoluteDeadline } from "@agentswf/contract/workflow";
-import type { AgentRunHostFactory, AgentSessionAdapter, NativeFork, SessionCopy } from "../adapter";
+import type {
+  AgentRunHostFactory,
+  AgentSessionAdapter,
+  NativeFork,
+  SessionCopy,
+  SessionSettings,
+} from "../adapter";
 import { skillsLaunch } from "../capabilities/skills";
 import { type RunProcess, runProcess } from "../command";
+import { launchSettings } from "../harnesses/shared";
 import { headlessRefusal } from "../refusals";
 import { sandboxedArgs } from "../sandbox-needs";
 import { createSessionAdapter, localOutcome } from "../session-core";
@@ -55,6 +62,8 @@ export function createHeadlessAdapter(
       let costTotal: number | undefined = request.continues ? request.continues.costTotal : 0;
       /** The instructions go with the first turn, not a compaction, a forked session's too. */
       let instructed = false;
+      /** What each turn is launched at: as activated, then as the last `set` left it. */
+      let settings = launchSettings(request.execution);
       /** Every turn, a resumed one too: none of them remembers the last one's arguments. */
       const launchContext = async () => {
         const skills = request.skills ? await skillsLaunch(harness, request.skills) : undefined;
@@ -62,7 +71,7 @@ export function createHeadlessAdapter(
         return {
           env: { ...skills?.env },
           context: {
-            ...(request.execution.model ? { model: request.execution.model } : {}),
+            ...settings,
             sessionHint: identity.sessionId,
             ...(launchArgs.length > 0 ? { launchArgs } : {}),
             ...(request.home ? { home: request.home } : {}),
@@ -271,6 +280,15 @@ export function createHeadlessAdapter(
                 }
                 if (occupant) throw new Error("a sandboxed agent's session is forked by copy");
                 return runFork(sessionRef, deadline);
+              },
+            }
+          : {}),
+        // The next turn resumes at them: each turn is a launch of its own (M1).
+        ...(spec.setHeadless
+          ? {
+              async set(next: SessionSettings) {
+                if (closed) throw new Error("headless session is closed");
+                settings = launchSettings(next);
               },
             }
           : {}),

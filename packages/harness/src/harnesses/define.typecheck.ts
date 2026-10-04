@@ -8,6 +8,7 @@ import {
 
 const bare = {
   callingSessionEnv: [],
+  settingsEnv: [],
   meteredCredentials: [],
   herdrSessionIsOwn: false,
   pastesQuoted: false,

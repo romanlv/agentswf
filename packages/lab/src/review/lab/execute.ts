@@ -441,8 +441,9 @@ async function runIsolated(
   const home = join(scratch, "home");
   mkdirSync(join(home, ".codex"), { recursive: true });
   copyFileSync(auth, join(home, ".codex", "auth.json"));
-  // awf can't yet set an agent's reasoning effort, so codex reads it from its config; without the
-  // host's, a model's own default (low, for some) would make a contained trial unlike a host one.
+  // A contained variant that names no effort runs at codex's config; without the host's, a model's
+  // own default (low, for some) would make it unlike a host trial. It goes once the data
+  // repository's variants name their effort (story 020, Q5).
   const effort = hostReasoningEffort(dirname(auth));
   if (effort) {
     writeFileSync(join(home, ".codex", "config.toml"), `model_reasoning_effort = "${effort}"\n`);

@@ -14,7 +14,7 @@ export {
 export * from "./capabilities/skills";
 export * from "./command";
 export { createPlacementHostFactory } from "./placement-host";
-export { headlessRefusal } from "./refusals";
+export { effortRefusal, headlessRefusal, settingsRefusal } from "./refusals";
 export { hostHome, sandboxNeeds, sandboxTokens } from "./sandbox-needs";
 export { createSingleSessionHostFactory } from "./single-session-host";
 export * from "./spec";

@@ -1,4 +1,4 @@
-import type { JsonValue, OutputSchema } from "@agentswf/contract/workflow";
+import type { Effort, JsonValue, OutputSchema } from "@agentswf/contract/workflow";
 import type Type from "typebox";
 import { canonical } from "../canonical-json";
 import { messageOf } from "../errors";
@@ -15,6 +15,10 @@ export type Turn = {
   schema?: OutputSchema;
   label?: string;
   cwd: string;
+  /** The model the agent ran this turn at: as opened, then as its last `set` left it. */
+  model: string;
+  /** Its effort, likewise; absent, the harness's default. */
+  effort?: Effort;
   /** Fires when the engine cancels the turn. */
   signal: AbortSignal;
 };

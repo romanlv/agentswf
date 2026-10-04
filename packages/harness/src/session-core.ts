@@ -22,6 +22,7 @@ import type {
   HarnessTurnOutcome,
   NativeFork,
   SessionCopy,
+  SessionSettings,
 } from "./adapter";
 
 export type NativeTurnRequest = {
@@ -59,6 +60,11 @@ export type ActivatedSessionBackend = {
   execute(request: NativeTurnRequest): Promise<NativeTurnOutcome>;
   /** The harness's own fork of `sessionRef`, or its copy `into` another home; absent where none. */
   fork?(sessionRef: string, deadline: AbsoluteDeadline, into?: SessionCopy): Promise<NativeFork>;
+  /**
+   * Switches the settings later turns run at, on `sessionRef` where a turn has named it; absent
+   * where it cannot. See `HarnessSession.set`.
+   */
+  set?(settings: SessionSettings, deadline: AbsoluteDeadline, sessionRef?: string): Promise<void>;
   close(reason?: string): Promise<void>;
 } & (
   | { cancel?(reason?: string): Promise<boolean>; readonly finishesAnswered?: false }
@@ -228,6 +234,17 @@ function createSession(
     }
   };
 
+  const set = async (settings: SessionSettings, deadline: AbsoluteDeadline): Promise<void> => {
+    assertIdle();
+    assertDeadline(deadline, now);
+    active = true;
+    try {
+      await native.set!(settings, deadline, sessionRef);
+    } finally {
+      active = false;
+    }
+  };
+
   const start = (request: NativeTurnRequest): HarnessTurn => {
     assertIdle();
     assertDeadline(request.deadline, now);
@@ -362,6 +379,9 @@ function createSession(
       afterFinishing(deadline, () => start({ id, prompt, deadline, kind: "compact" })),
     ...(native.fork
       ? { fork: (deadline, into) => afterFinishing(deadline, () => fork(deadline, into)) }
+      : {}),
+    ...(native.set
+      ? { set: (settings, deadline) => afterFinishing(deadline, () => set(settings, deadline)) }
       : {}),
     sessions: () => [...seen],
     ...(native.promptedAt ? { promptedAt: () => native.promptedAt!() } : {}),

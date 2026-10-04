@@ -23,7 +23,7 @@ const STEPS = join(import.meta.dir, "fixtures/caller-steps.ts");
 const CLI = join(import.meta.dir, "../packages/engine/src/operator-cli.ts");
 
 const SESSIONS = {
-  claude: harnessSpec("claude").interactive("claude-sonnet-5-5").argv.slice(1),
+  claude: harnessSpec("claude").interactive({ model: "claude-sonnet-5-5" }).argv.slice(1),
   codex: [
     "--sandbox",
     "workspace-write",
@@ -34,8 +34,11 @@ const SESSIONS = {
     "--model",
     "gpt-6-luna",
   ],
-  pi: harnessSpec("pi").interactive("openai-codex/gpt-5.6-terra").argv.slice(1),
-  cursor: [...harnessSpec("cursor").interactive("composer-2.5").argv.slice(1), "--trust"],
+  pi: harnessSpec("pi").interactive({ model: "openai-codex/gpt-5.6-terra" }).argv.slice(1),
+  cursor: [
+    ...harnessSpec("cursor").interactive({ model: "composer-2.5" }).argv.slice(1),
+    "--trust",
+  ],
 } as const;
 type Harness = keyof typeof SESSIONS;
 

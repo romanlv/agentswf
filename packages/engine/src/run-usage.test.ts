@@ -799,7 +799,7 @@ describe("the bound on reading spend", () => {
           cwd: "/",
           sessions: () => ["s"],
         })
-        .reserve("op-1")
+        .reserve("op-1", () => ({ harness: "fake", model: "fake" }))
         .settle({ settledAt: Date.now() }, []);
 
       const settling = ledger.settle(new AbortController().signal);

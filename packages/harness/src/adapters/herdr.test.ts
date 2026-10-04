@@ -1179,6 +1179,176 @@ describe("createHerdrRunHostFactory", () => {
     });
   });
 
+  describe("set", () => {
+    const opened = async (run: RunProcess, harness: "claude" | "codex" | "pi" = "claude") => {
+      const host = await createHerdrRunHostFactory(CONFIG, run).openRun({
+        runId: "run-1",
+        cwd: "/repo",
+        deadline: deadline(),
+      });
+      const session = await host.openAgent({
+        key: "worker",
+        cwd: "/repo",
+        deadline: deadline(),
+        instructions: "You build it.",
+        execution: { harness, model: "m", effort: "low" },
+      });
+      return { host, session };
+    };
+    const starts = (calls: ProcessInput[]) => calls.filter((call) => verb(call) === "agent start");
+    const turn = async (session: Awaited<ReturnType<typeof opened>>["session"], n: number) =>
+      (
+        await session.start(
+          { id: `t${n}`, prompt: `go ${n}`, deadline: deadline() },
+          binding(`op-${n}`),
+        )
+      ).settled;
+
+    test("relaunches the pane's harness on its session at the new settings, once it has settled", async () => {
+      const { run, calls } = hostStub();
+      const { host, session } = await opened(run);
+      await turn(session, 1);
+      const named = calls.find((call) => verb(call) === "agent prompt")!.argv[5];
+      await session.set!({ model: "m2", effort: "high" }, deadline());
+      await turn(session, 2);
+
+      const [first, second] = starts(calls);
+      expect(first!.argv).toEqual(expect.arrayContaining(["--model", "m", "--effort", "low"]));
+      expect(first!.argv).not.toContain("--resume");
+      expect(second!.argv).toEqual(
+        expect.arrayContaining([
+          "--resume",
+          `session-${named}`,
+          "--model",
+          "m2",
+          "--effort",
+          "high",
+        ]),
+      );
+      expect(calls.filter((call) => verb(call) === "tab close")).toHaveLength(1);
+      const order = calls.map(verb);
+      const relaunched = order.lastIndexOf("agent start");
+      expect(order.slice(0, relaunched)).toContain("agent wait");
+      // The session already holds its instructions: the relaunched pane is not told them again.
+      const typed = calls
+        .filter((call) => ["agent prompt", "pane send-text"].includes(verb(call)))
+        .map((call) => call.argv.join(" "));
+      expect(typed.filter((line) => line.includes("You build it."))).toHaveLength(1);
+      await host.close();
+    });
+
+    test("pi relaunches with its own flags, and codex's relaunch plan carries its own", async () => {
+      const { run, calls } = hostStub();
+      const { host, session } = await opened(run, "pi");
+      await turn(session, 1);
+      await session.set!({ model: "m2", effort: "high" }, deadline());
+      expect(starts(calls)[1]!.argv).toEqual(
+        expect.arrayContaining(["--model", "m2", "--thinking", "high"]),
+      );
+      await host.close();
+      // A codex pane names its session to nobody; the engine's tests find it by its operation.
+      expect(
+        HARNESSES.codex.interactiveResume!("thread-1", { model: "m2", effort: "high" }).argv,
+      ).toEqual(
+        expect.arrayContaining([
+          "resume",
+          "thread-1",
+          "-c",
+          'model_reasoning_effort="high"',
+          "--model",
+          "m2",
+        ]),
+      );
+    });
+
+    test("a relaunch is a new agent in Herdr, not the name of the one it closed", async () => {
+      const { run, calls } = hostStub();
+      const { host, session } = await opened(run);
+      await turn(session, 1);
+      await session.set!({ model: "m", effort: "high" }, deadline());
+      const [first, second] = starts(calls);
+      expect(second!.argv[5]).not.toBe(first!.argv[5]);
+      await host.close();
+    });
+
+    test("a pi pane on a fork relaunches on the fork's file, not the parent id Herdr reports", async () => {
+      const { run, calls } = hostStub();
+      const host = await createHerdrRunHostFactory(CONFIG, run).openRun({
+        runId: "run-1",
+        cwd: "/repo",
+        deadline: deadline(),
+      });
+      const session = await host.openAgent({
+        key: "worker",
+        cwd: "/repo",
+        deadline: deadline(),
+        execution: { harness: "pi", model: "m" },
+        continues: { harness: "pi", sessionRef: "/forks/abc/fork.jsonl" },
+      });
+      await turn(session, 1);
+      await session.set!({ model: "m", effort: "high" }, deadline());
+      expect(starts(calls)[1]!.argv).toEqual(
+        expect.arrayContaining(["--session", "/forks/abc/fork.jsonl", "--thinking", "high"]),
+      );
+      await host.close();
+    });
+
+    test("a codex pane whose session its turn never found looks again before it relaunches", async () => {
+      const { run, calls } = hostStub();
+      const codex = HARNESSES.codex;
+      const original = codex.findSession;
+      const asked: string[] = [];
+      codex.findSession = async (marker) => {
+        asked.push(marker);
+        return asked.length > 1 ? "thread-1" : undefined;
+      };
+      try {
+        const { host, session } = await opened(run, "codex");
+        await turn(session, 1);
+        await session.set!({ model: "m", effort: "high" }, deadline());
+        expect(asked).toEqual(["op-1", "op-1"]);
+        expect(starts(calls)[1]!.argv).toEqual(expect.arrayContaining(["resume", "thread-1"]));
+        await host.close();
+      } finally {
+        codex.findSession = original;
+      }
+    });
+
+    test("before its first turn, the pane opens at the new settings and nothing is relaunched", async () => {
+      const { run, calls } = hostStub();
+      const { host, session } = await opened(run);
+      await session.set!({ model: "m2", effort: "max" }, deadline());
+      await turn(session, 1);
+
+      expect(starts(calls)).toHaveLength(1);
+      expect(starts(calls)[0]!.argv).toEqual(
+        expect.arrayContaining(["--model", "m2", "--effort", "max"]),
+      );
+      await host.close();
+    });
+
+    test("a relaunch that does not start rejects, and leaves no pane to go on in", async () => {
+      const base = hostStub();
+      let started = 0;
+      const run: RunProcess = async (input) => {
+        if (verb(input) === "agent start" && started++ > 0) {
+          base.calls.push(input);
+          return errorResult("agent_start_failed");
+        }
+        return base.run(input);
+      };
+      const { host, session } = await opened(run);
+      await turn(session, 1);
+
+      await expect(session.set!({ effort: "high", model: "m" }, deadline())).rejects.toThrow();
+      await expect(turn(session, 2)).resolves.toMatchObject({
+        state: "failed",
+        detail: "this agent's pane was closed, so its session cannot be continued",
+      });
+      await host.close();
+    });
+  });
+
   describe("fork", () => {
     /** The stub, with the harness's own fork answered as claude prints it for `/cost`. */
     const forking = (options: { exposeSession?: boolean } = {}) => {

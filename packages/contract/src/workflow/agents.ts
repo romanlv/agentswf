@@ -27,11 +27,16 @@ export type RuntimeAliasName = string;
 export type TurnId = string;
 export type CompactionId = string;
 export type HarnessKind = string;
+export type SettingsId = string;
+/** A harness's own level name, such as claude's `max` or codex's `xhigh`; see its definition's `effort`. */
+export type Effort = string;
 
-/** What an alias names: today a harness and model; later perhaps a pool or sandbox. */
+/** What an alias names: today a harness, a model and an effort; later perhaps a pool or sandbox. */
 export type RuntimeTarget = {
   harness: HarnessKind;
   model: string;
+  /** Absent, awf passes none and the harness uses its default. */
+  effort?: Effort;
 };
 
 /**
@@ -70,13 +75,22 @@ export type ExecutionRequirements = PlacementChoice & {
   alias: RuntimeAliasName;
   harness?: HarnessKind;
   model?: string;
+  /**
+   * Replaces the alias's effort rather than having to match it, unlike `model`: `set` could change
+   * it straight after the agent opens anyway. Given on a reopen, it must match the effort the agent
+   * was opened at; left out, it does not constrain, as `model` does not.
+   */
+  effort?: Effort;
 };
 
 /** An alias, constrained alias, or complete execution configuration. */
 export type RuntimeSelection = RuntimeAliasName | ExecutionRequirements | ExecutionConfig;
 
 export type AgentExecution = ExecutionConfig & {
-  /** Present when this execution was selected through an alias. */
+  /**
+   * Present when this execution was selected through an alias: the one it was opened through, whose
+   * model a `set` may since have changed.
+   */
   alias?: RuntimeAliasName;
   /**
    * The session the run was started from with `awf run --here`, which the run found rather than
@@ -233,11 +247,28 @@ export interface AgentForkSpec extends PlacementChoice {
   /** Given with its first turn; it already knows what this agent was told. */
   instructions?: string;
   labels?: JsonObject;
+  /** Absent, the fork takes its parent's effort when it is taken, as it takes its model. */
+  effort?: Effort;
+}
+
+export interface SettingsSpec {
+  /** Idempotency key scoped to this agent. Generated when omitted. */
+  id?: SettingsId;
+  /** Another model of the same harness. */
+  model?: string;
+  effort?: Effort;
+  /** Defaults to the current workflow scope deadline. */
+  deadline?: AbsoluteDeadline;
+  /** Relative bound, capped by the current workflow scope deadline. */
+  timeoutMs?: number;
 }
 
 export interface AgentRef extends ParticipantRef {
   readonly key: AgentKey;
-  /** Fixed for this logical agent. */
+  /**
+   * The agent's settings now: as it was opened, then as the last answered `set` left them. Its
+   * harness, placement and alias never change.
+   */
   readonly execution: AgentExecution;
   /** Resolves once durably queued. Turns execute one at a time in enqueue order. */
   enqueue(spec: AgentTextTurnSpec): Promise<TurnRef<string>>;
@@ -255,11 +286,20 @@ export interface AgentRef extends ParticipantRef {
    */
   compact(spec: CompactSpec): Promise<TurnOutcome<string>>;
   /**
+   * Switches this session's model or effort for every operation after the earlier ones, idempotent
+   * by id; its context is kept. Answered once the switch is in force, with the settings then in
+   * force as the outcome's `usage.execution`. Refused before it runs where the harness can't switch,
+   * with why, and for an effort the harness doesn't list. One that fails or times out in a pane
+   * closes the agent, whose settings nobody then knows.
+   */
+  set(spec: SettingsSpec): Promise<TurnOutcome<null>>;
+  /**
    * Opens a new agent on a copy of this agent's session, taken after its earlier operations: it
    * starts knowing what this agent knew then, and from then on neither sees the other's turns. It
    * has this agent's harness, model, working directory, sandbox and skills, and this agent's
-   * placement unless it names one. Rejects before this agent's first turn and where the harness
-   * cannot fork. The same key with the same parent and spec returns the same agent (ADR 0009).
+   * placement and effort unless it names its own; model and effort are those after every `set`
+   * queued before it. Rejects before this agent's first turn, where the harness cannot fork, and
+   * where a `set` queued before it did not take. The same key with the same parent and spec returns the same agent (ADR 0009).
    */
   fork(spec: AgentForkSpec): Promise<AgentRef>;
 }

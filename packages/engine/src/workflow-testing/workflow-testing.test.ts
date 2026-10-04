@@ -860,6 +860,78 @@ describe("testWorkflow compactions", () => {
   });
 });
 
+describe("testWorkflow with effort and set", () => {
+  const switching = workflowOf<null, JsonValue>(async (workflow) => {
+    const reviewer = await workflow.agents.open({
+      key: "reviewer",
+      runtime: { alias: "codex", effort: "high" },
+    });
+    await reviewer.run({ prompt: "Review." });
+    await reviewer.set({ model: "gpt-6-luna", effort: "low" });
+    await reviewer.run({ prompt: "Summarise." });
+    await reviewer.run({ prompt: "Check the fixes." });
+    const again = await workflow.agents.open({
+      key: "reviewer",
+      runtime: { alias: "codex", effort: "high" },
+    });
+    return { same: again === reviewer, now: reviewer.execution };
+  });
+
+  test("each turn runs at the settings in force, and reopening with the original spec returns the agent", async () => {
+    const run = await testWorkflow(switching, null, {
+      agents: { reviewer: answer("ok") },
+    });
+    expect(run.value).toEqual({
+      same: true,
+      now: { harness: "codex", model: "gpt-6-luna", effort: "low", alias: "codex" },
+    });
+    expect(run.turnsOf("reviewer").map(({ model, effort }) => [model, effort])).toEqual([
+      ["gpt-5.6-sol", "high"],
+      ["gpt-6-luna", "low"],
+      ["gpt-6-luna", "low"],
+    ]);
+    expect(run.setsOf("reviewer")).toEqual([
+      { agent: "reviewer", n: 1, model: "gpt-6-luna", effort: "low" },
+    ]);
+    expect(run.agentOf("reviewer").execution).toEqual({
+      harness: "codex",
+      model: "gpt-5.6-sol",
+      effort: "high",
+      alias: "codex",
+    });
+  });
+
+  test("a level the harness lacks, and a switch it cannot make, are refused before any turn", async () => {
+    const workflow = workflowOf<null, JsonValue>(async (workflow) => {
+      const refusal = (promise: Promise<unknown>) =>
+        promise.then(
+          () => "accepted",
+          (error: unknown) => String(error),
+        );
+      const level = await refusal(
+        workflow.agents.open({ key: "a", runtime: { alias: "claude", effort: "ultracode" } }),
+      );
+      const cursor = await workflow.agents.open({
+        key: "b",
+        runtime: { harness: "cursor", model: "composer-2.5" },
+      });
+      return [
+        level,
+        await refusal(cursor.set({ model: "gpt-5.6-luna-high" })),
+        await refusal(cursor.set({ effort: "high" })),
+      ];
+    });
+    const run = await testWorkflow(workflow, null);
+    expect(run.value).toEqual([
+      'Error: claude has no effort "ultracode"; its levels are low, medium, high, xhigh, max',
+      expect.stringContaining("cursor pane agents cannot switch model or effort: not measured"),
+      expect.stringContaining("cursor takes no effort: cursor names a model's effort in its id"),
+    ]);
+    expect(run.turns).toEqual([]);
+    expect(run.sets).toEqual([]);
+  });
+});
+
 /** Each step of a short procedure in the calling session, and how each ended. */
 const steps = (prompts: string[], options: { timeoutMs?: number } = {}) =>
   workflowOf<null, JsonValue>(async (workflow): Promise<JsonValue> => {
@@ -930,6 +1002,21 @@ describe("testWorkflow with a calling session", () => {
     });
     expect(hides.value).toEqual(["unanswered"]);
     expect(hides.turnsOf("author")).toHaveLength(1);
+  });
+
+  test("set is refused: its model and effort are the operator's", async () => {
+    const workflow = workflowOf<null, string>(async (workflow) => {
+      const caller = await workflow.agents.caller({ key: "author" });
+      return caller!.set({ effort: "low" }).then(
+        () => "set",
+        (error: unknown) => String(error),
+      );
+    });
+    const run = await testWorkflow(workflow, null, { caller: { harness: "claude" } });
+    expect(run.value).toBe(
+      "Error: agent author is the calling session, whose model and effort are the operator's",
+    );
+    expect(run.sets).toEqual([]);
   });
 
   test("one key: the same returns the same ref, another rejects, and so do open and compact", async () => {

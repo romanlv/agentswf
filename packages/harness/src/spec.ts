@@ -15,6 +15,7 @@ export type {
   DefinedHarness,
   ForkPlan,
   HarnessSpec,
+  LaunchSettings,
   TurnContext,
   TurnPlan,
 } from "./harnesses/define";

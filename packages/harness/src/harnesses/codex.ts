@@ -11,10 +11,18 @@ import {
   readCodexUsage,
 } from "../usage/codex";
 import { ownFiles } from "../usage/files";
-import { defineHarness, type HarnessDefinition, type TurnPlan } from "./define";
+import {
+  defineHarness,
+  type HarnessDefinition,
+  type LaunchSettings,
+  type TurnPlan,
+} from "./define";
 import { after, resuming } from "./shared";
 
-function codexInteractive(model?: string, launchArgs: readonly string[] = []): TurnPlan {
+function codexInteractive(
+  settings: LaunchSettings = {},
+  launchArgs: readonly string[] = [],
+): TurnPlan {
   return {
     argv: [
       "codex",
@@ -22,28 +30,45 @@ function codexInteractive(model?: string, launchArgs: readonly string[] = []): T
       "danger-full-access",
       "--ask-for-approval",
       "never",
-      ...(model ? ["--model", model] : []),
+      ...codexSettings(settings),
       ...launchArgs,
     ],
   };
 }
 
+/**
+ * A config override, which beats a profile and `config.toml`; a resume without it takes theirs,
+ * not the session's last (M1, M4).
+ */
+function codexSettings({ model, effort }: LaunchSettings): string[] {
+  return [
+    ...(effort ? ["-c", `model_reasoning_effort=${JSON.stringify(effort)}`] : []),
+    ...(model ? ["--model", model] : []),
+  ];
+}
+
 const CODEX = {
   callingSessionEnv: ["CODEX_SESSION_ID"],
+  settingsEnv: [],
   meteredCredentials: ["OPENAI_API_KEY", "OPENAI_BASE_URL", "CODEX_API_KEY"],
   herdrSessionIsOwn: false,
   pastesQuoted: false,
   meteredHeadless: false,
+  // The levels of the models awf runs, from `codex debug models`; each model takes some of them,
+  // and one it does not fails its turn at the API (M5).
+  effort: ["low", "medium", "high", "xhigh", "max", "ultra"],
+  setHeadless: true,
+  setPane: true,
   sessionEnv: "CODEX_SESSION_ID",
   interrupted: "Conversation interrupted",
   localSockets:
     "codex's workspace-write sandbox blocks local sockets: start codex with -c sandbox_workspace_write.network_access=true, or approve running awf outside its sandbox",
   interactive: codexInteractive,
-  interactiveResume: (sessionId, model, launchArgs) =>
-    resuming(codexInteractive(model, launchArgs), "resume", sessionId),
+  interactiveResume: (sessionId, settings, launchArgs) =>
+    resuming(codexInteractive(settings, launchArgs), "resume", sessionId),
   // `exec resume` takes no `-s`, so the sandbox is set through `-c` on both turns rather
   // than through a flag that exists on only one of them.
-  headlessTurn: (prompt, { model, launchArgs = [] }) => ({
+  headlessTurn: (prompt, { launchArgs = [], ...settings }) => ({
     argv: [
       "codex",
       "exec",
@@ -52,12 +77,14 @@ const CODEX = {
       "-c",
       'sandbox_mode="danger-full-access"',
       ...launchArgs,
-      ...(model ? ["--model", model] : []),
+      ...codexSettings(settings),
       "-",
     ],
     stdin: prompt,
   }),
-  resumeTurn: (prompt, sessionId, { model, launchArgs = [] }) => ({
+  // A resume on another model prints an `error` item, "This session was recorded with model …",
+  // and goes on (M1).
+  resumeTurn: (prompt, sessionId, { launchArgs = [], ...settings }) => ({
     argv: [
       "codex",
       "exec",
@@ -68,7 +95,7 @@ const CODEX = {
       "-c",
       'sandbox_mode="danger-full-access"',
       ...launchArgs,
-      ...(model ? ["--model", model] : []),
+      ...codexSettings(settings),
       "-",
     ],
     stdin: prompt,
@@ -127,7 +154,7 @@ const CODEX = {
   // `exec` sends `/compact` to the model as text; the app-server compacts, and exits once its
   // stdin closes. It takes no focus, and an OpenAI login ignores `compact_prompt`, so the focus
   // goes in as a user message first, which the compaction reads and keeps.
-  compactHeadless: (focus, sessionId, { model, launchArgs = [] }) => {
+  compactHeadless: (focus, sessionId, { model, effort, launchArgs = [] }) => {
     const request = (id: number, method: string, params: object) =>
       JSON.stringify({ jsonrpc: "2.0", id, method, params });
     const requests = [
@@ -160,6 +187,8 @@ const CODEX = {
         "-c",
         'sandbox_mode="danger-full-access"',
         ...launchArgs,
+        // A compaction asks the model, at the agent's effort; a fork asks nothing.
+        ...codexSettings({ ...(effort ? { effort } : {}) }),
       ],
       stdin: `${requests.join("\n")}\n`,
       holdStdinUntil: (line) => {

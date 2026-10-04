@@ -5,6 +5,7 @@ import type {
   AgentStructuredTurnSpec,
   AgentTextTurnSpec,
   CompactionId,
+  Effort,
   HarnessKind,
   JsonObject,
   JsonValue,
@@ -132,6 +133,13 @@ export interface HarnessSession {
   ): Promise<HarnessTurn>;
   compact(id: CompactionId, prompt: string, deadline: AbsoluteDeadline): Promise<HarnessTurn>;
   /**
+   * Switches the session's model and effort for every later turn, its context kept, once any turn
+   * left finishing has ended; resolves once they are in force. Absent where the host cannot switch
+   * this agent; see `settingsRefusal`. A pane whose switch rejects is in settings nobody knows; a
+   * headless switch applies whole or not at all.
+   */
+  set?(settings: SessionSettings, deadline: AbsoluteDeadline): Promise<void>;
+  /**
    * A copy of this session, taken by the harness's own fork with no model call, once any turn left
    * finishing has ended (ADR 0009). Absent where the host cannot fork; rejects before the agent's
    * own first turn and where its harness cannot.
@@ -146,6 +154,9 @@ export interface HarnessSession {
    */
   promptedAt?(): number | undefined;
 }
+
+/** The settings a session runs at, whole: an absent effort is the harness's default. */
+export type SessionSettings = { model: string; effort?: Effort };
 
 /**
  * Where a fork's session is carried when the new agent's harness home is not its parent's: the
