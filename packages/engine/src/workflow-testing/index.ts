@@ -19,7 +19,7 @@ import { createFakeSandboxProvider } from "@agentswf/sandbox/testing/fake";
 import { messageOf } from "../errors";
 import { OPERATOR_ALIASES } from "../operator-aliases";
 import { createRun, readStageRecords, writeStageRecord } from "../runs";
-import { WorkflowStopped } from "../stopped";
+import { primaryFailure, WorkflowStopped } from "../stopped";
 import { runWorkflow, type SettledRun, WorkflowRunError } from "../workflow-runner";
 import { createScriptedDecisions, type DecisionRequest, type DecisionScript } from "./decisions";
 import {
@@ -115,6 +115,9 @@ export async function testWorkflow<Args extends JsonValue, Result extends JsonVa
     noun: "compaction",
     option: "compactions",
   });
+  if (options.fromStage !== undefined && options.recorded === undefined) {
+    throw new Error("fromStage continues a run: give the stages it recorded as `recorded`");
+  }
   const stopping = new AbortController();
   const problems: string[] = [];
   const stallMs = options.stallMs ?? 2_000;
@@ -161,15 +164,15 @@ export async function testWorkflow<Args extends JsonValue, Result extends JsonVa
   let sandboxOf = new Map<string, AgentSandbox>();
   let stages: StageRecord[] = [];
   const runRoot = directory();
-  if (options.fromStage !== undefined && options.recorded === undefined) {
-    throw new Error("fromStage continues a run: give the stages it recorded as `recorded`");
-  }
   const run = await createRun(runRoot, {
     id: "test",
     workflow: definition.meta.name,
     argv: [],
     cwd,
     sandbox: null,
+  }).catch((error: unknown) => {
+    for (const path of temporary) rmSync(path, { recursive: true, force: true });
+    throw error;
   });
   if (options.recorded) await recordEarlierAttempt(run.dir, options.recorded);
   const recordedStages = async ({ stages: entered = [] }: SettledRun) => {
@@ -200,6 +203,7 @@ export async function testWorkflow<Args extends JsonValue, Result extends JsonVa
           default: "srt",
         },
         sandboxesDir: directory(),
+        machineRoot: directory(),
       },
       decisions: {
         providers: { scripted: decisions.provider },
@@ -252,14 +256,7 @@ export async function testWorkflow<Args extends JsonValue, Result extends JsonVa
     decisions: decisions.asked,
     logs,
     stages,
-    ...("error" in settled && settled.error instanceof WorkflowStopped
-      ? {
-          stopped: {
-            reason: settled.error.reason,
-            ...(settled.error.stage === undefined ? {} : { stage: settled.error.stage }),
-          },
-        }
-      : {}),
+    ...stoppedOf(settled),
   };
 }
 
@@ -300,4 +297,16 @@ function sandboxesOf(sandboxes: readonly SandboxRecord[] | undefined): Map<strin
       agents.map(({ agent }) => [agent, { key, provider, spec, domains }] as const),
     ),
   );
+}
+
+/** Decided as `awf run` decides it: a stop is the run's first failure, whatever failed beside it. */
+function stoppedOf(
+  settled: { value: unknown } | { error: unknown },
+): Partial<Pick<TestRun<unknown>, "stopped">> {
+  if (!("error" in settled)) return {};
+  const stop = primaryFailure(settled.error);
+  if (!(stop instanceof WorkflowStopped)) return {};
+  return {
+    stopped: { reason: stop.reason, ...(stop.stage === undefined ? {} : { stage: stop.stage }) },
+  };
 }

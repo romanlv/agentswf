@@ -393,7 +393,7 @@ describe("turns.jsonl", () => {
     expect(await readTurns(join(dir, "none"))).toEqual([]);
   });
 
-  test("a run stopped mid-stage records the stage failed once, before its result settles", async () => {
+  test("a run stopped mid-stage ends in that stage, recorded failed once before its result settles", async () => {
     const runRoot = runDirs.tempRunDir();
     const dir = join(runRoot, "staged", "r1");
     const controller = new AbortController();
@@ -414,7 +414,9 @@ describe("turns.jsonl", () => {
       }),
       { runRoot, adapter, signal: controller.signal },
     );
-    await expect(stopped).rejects.toBeInstanceOf(WorkflowRunError);
+    const error = await stopped.catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(WorkflowRunError);
+    expect((error as WorkflowRunError).endedIn).toBe("qa");
     const records = await readStageRecords(dir);
     expect([...records.keys()]).toEqual(["qa"]);
     expect(records.get("qa")).toMatchObject({

@@ -313,7 +313,10 @@ export class StageLedger {
 
   /** Once the workflow's body has ended, why: no stage is entered after it. */
   seal(reason: string): void {
-    this.#sealed ??= reason;
+    if (this.#sealed !== undefined) return;
+    this.#sealed = reason;
+    // Cancellation settles the stage's own work after the body ended: the stage open now is where.
+    if (this.#open && !this.#reused.has(this.#open.name)) this.#closedOpen = this.#open.name;
   }
 
   /**
@@ -322,8 +325,6 @@ export class StageLedger {
    */
   async close(): Promise<void> {
     this.seal("the attempt ended");
-    const open = this.#open && !this.#reused.has(this.#open.name) ? this.#open.name : undefined;
-    if (open !== undefined) this.#closedOpen = open;
     const failing = this.#open?.fail(this.#sealed ?? "the attempt ended");
     // Every other write's failure was its stage's, and reported there.
     await Promise.allSettled(this.#writes);

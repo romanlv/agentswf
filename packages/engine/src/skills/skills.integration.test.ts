@@ -91,6 +91,7 @@ function run<Result extends JsonValue>(
     sandboxes: {
       providers: { installed: { srt: fake.provider }, default: "srt" },
       sandboxesDir: runDirs.tempRunDir(),
+      machineRoot: runDirs.tempRunDir(),
     },
     skillCache: join(root, "cache"),
   });

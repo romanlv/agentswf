@@ -36,6 +36,8 @@ export type RunSandboxOptions = {
    * a provider that denies it hides none of a sandbox's own.
    */
   sandboxesDir: string;
+  /** The operator's `~/.awf`, which no sandbox reaches. */
+  machineRoot: string;
   /**
    * The operator's environment, which says where each harness keeps its state, the `PATH` an
    * agent's harness is found on and claude's token. Defaults to the engine's.
@@ -401,7 +403,7 @@ export class RunSandboxes {
       key,
       cwd,
       runRoot: await this.#runRoot,
-      machineRoot: machinePaths(homedir()).root,
+      machineRoot: this.options.sandboxes?.machineRoot ?? machinePaths(homedir()).root,
       providers: this.#providers,
       harnessState: Object.values(harnessState(this.#environment)),
       controlRoot: CONTROL_PLANE_ROOT,

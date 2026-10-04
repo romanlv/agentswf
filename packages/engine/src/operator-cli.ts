@@ -263,6 +263,7 @@ async function runAttempt(
       sandboxes: {
         providers: installed.sandboxes ?? { installed: {} },
         sandboxesDir: sandboxesDirOf(home, run.record),
+        machineRoot: machinePaths(home).root,
         ...(sandbox === undefined ? {} : { run: sandbox }),
       },
       ...(installed.decisions ? { decisions: installed.decisions } : {}),

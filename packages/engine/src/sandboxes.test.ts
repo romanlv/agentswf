@@ -121,6 +121,7 @@ function setup(
       sandboxes: {
         providers,
         sandboxesDir: runDirs.tempRunDir(),
+        machineRoot: runDirs.tempRunDir(),
         ...(runSpec === undefined ? {} : { run: runSpec }),
       },
       onLog: (message) => logs.push(message),
@@ -470,7 +471,11 @@ describe("sandboxed agents", () => {
         runtime,
         deadline: future(),
         cwd: work,
-        sandboxes: { providers, sandboxesDir: runDirs.tempRunDir() },
+        sandboxes: {
+          providers,
+          sandboxesDir: runDirs.tempRunDir(),
+          machineRoot: runDirs.tempRunDir(),
+        },
       },
     );
     for (let tries = 0; tries < 100 && !kinds(events).includes("launch"); tries++) {
@@ -644,6 +649,7 @@ describe("the operator's sandbox for the whole run", () => {
         sandboxes: {
           providers: { installed: { srt: slow }, default: "srt" },
           sandboxesDir: runDirs.tempRunDir(),
+          machineRoot: runDirs.tempRunDir(),
           run: {},
         },
       },
@@ -689,7 +695,11 @@ describe.skipIf(!installed.installed.srt)("a sandboxed agent under srt", () => {
           },
           deadline: future(),
           cwd: work,
-          sandboxes: { providers: installed, sandboxesDir: runDirs.tempRunDir() },
+          sandboxes: {
+            providers: installed,
+            sandboxesDir: runDirs.tempRunDir(),
+            machineRoot: runDirs.tempRunDir(),
+          },
         },
       );
       expect(result.value).toBe("answered");
@@ -727,6 +737,7 @@ describe("a run's sandboxes, opening as the run ends", () => {
       sandboxes: {
         providers: { installed: { srt: provider }, default: "srt" },
         sandboxesDir: runDirs.tempRunDir(),
+        machineRoot: runDirs.tempRunDir(),
       },
       runRoot: runDirs.tempRunDir(),
       cwd: work,
