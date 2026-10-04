@@ -55,7 +55,7 @@ exists, the code is right, then this page.
   agent has exactly those, on the host or in a sandbox, under claude, codex and pi (story 007).
   Each agent gets a checked copy; a public skill is pinned to a commit in a cache shared by runs.
   `output.json` records each agent's skills. An agent named none keeps the operator's on the host.
-- `feature-delivery` is a typechecked design and has never run.
+- `feature-delivery` runs on stages and its tests pass; it has never run live.
 - `bun run eval` checks every supported feature against the live harnesses, on their cheapest
   models; [`testing.md`](testing.md) says what each eval takes and when to run it.
 

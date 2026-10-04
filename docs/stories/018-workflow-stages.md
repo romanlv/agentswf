@@ -765,6 +765,25 @@ Accepted, not changed:
 
 ### Task 8
 
+feature-delivery, one subagent covering both lenses, 2026-10-04. Resolved:
+- **The continue hint.** The example's comment promised `--continue {ticket}` though it has no
+  `id(args)`; it now names the run's id.
+- **Fresh agents on a continue.**
+  - A fresh reviewer is told the ticket, the author's summary and its decisions.
+  - A fresh implementer is told the ticket.
+  - A test continues into the additional reviews alone and checks their prompts.
+- **Smaller fixes.**
+  - The new schemas are in the contract-subset check.
+  - `ReviewPass` says `not-ready`.
+  - additional-review has a summary.
+  - README and status agree.
+- **The behaviour change, recorded:** a deferral that completed with exit 0 and a `docPath` is now a
+  stop, exit 3, whose doc path is in `stages/ticket-doc.json`.
+
+Left: implement-ticket on awf's stages, its live run, and the cheap `examples/` runs side by side.
+Its files in `~/dev/braintrust/agent/workflows` are untracked, and moving them onto the new API
+breaks them under main's awf until this branch is merged, so it waits for the operator.
+
 - Architecture and scope:
 - Correctness and proof:
 

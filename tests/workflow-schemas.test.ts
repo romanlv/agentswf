@@ -1,6 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import { FINDINGS_SCHEMA, VERDICT_SCHEMA } from "../examples/catalogue-review/schema";
-import { REVIEW_VERDICT_SCHEMA, WORK_UPDATE_SCHEMA } from "../examples/feature-delivery/schema";
+import {
+  ADDITIONAL_SCHEMA,
+  REVIEW_VERDICT_SCHEMA,
+  REVIEWED_SCHEMA,
+  WORK_UPDATE_SCHEMA,
+} from "../examples/feature-delivery/schema";
 import { parseJsonSchema, validate } from "../packages/contract/src/schema";
 
 describe("example workflow schemas", () => {
@@ -10,6 +15,8 @@ describe("example workflow schemas", () => {
       VERDICT_SCHEMA,
       WORK_UPDATE_SCHEMA,
       REVIEW_VERDICT_SCHEMA,
+      REVIEWED_SCHEMA,
+      ADDITIONAL_SCHEMA,
     ]) {
       expect(() => parseJsonSchema(schema)).not.toThrow();
     }

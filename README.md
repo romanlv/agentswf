@@ -305,7 +305,8 @@ it sooner). Claude, codex and pi compact, in a pane or headless; cursor refuses,
 is left as it was.
 
 [`examples/feature-delivery`](examples/feature-delivery/) is the bigger design: plan, implement,
-review and revise. It typechecks but hasn't run yet.
+review and revise, each a stage, so a step that stops is redone by `--continue` and the ones before
+it are reused. It typechecks and its tests run, but it hasn't run live yet.
 
 ### Put agents in a sandbox, with exactly the skills they need
 
@@ -426,7 +427,7 @@ Herdr pane, or when its sandbox cannot reach Herdr. Under codex's default sandbo
 | [`triage`](examples/triage/) | typed decisions with probabilities | `awf run examples/triage/workflow.ts` |
 | [`compaction`](examples/compaction/) | an agent compacted with a focus, then asked what it kept, per harness | `awf run examples/compaction/workflow.ts -- claude pi` |
 | [`calling-session`](examples/calling-session/) | a workflow driving the session it was started from | `awf run --here examples/calling-session/workflow.ts`, from an agent |
-| [`feature-delivery`](examples/feature-delivery/) | plan, implement, review, revise | a design that typechecks; it hasn't run yet |
+| [`feature-delivery`](examples/feature-delivery/) | plan, implement, review, revise, as stages | tests run; not yet run live |
 
 [`examples/README.md`](examples/README.md) has the details of each. The rest of the folder is test
 apparatus and a shared helper.
