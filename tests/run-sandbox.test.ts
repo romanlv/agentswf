@@ -43,7 +43,7 @@ function passing(provider: Provider = "srt"): Evidence {
     lab: {
       exitCode: 0,
       log: "",
-      trial: { run: { outcome: "succeeded" }, sandbox: { [provider]: {} } } as unknown as Trial,
+      trial: { run: { outcome: "completed" }, sandbox: { [provider]: {} } } as unknown as Trial,
       record: {
         outcome: "completed",
         sandboxes: [box("run", ["prober", "reader"], ["/s/request.md"])],

@@ -110,9 +110,9 @@
           "description": "Absent when the run never started."
         },
         "outcome": {
-          "enum": ["succeeded", "stopped", "failed", "cancelled", "timed-out"]
+          "enum": ["completed", "stopped", "failed", "cancelled", "timed-out"]
         },
-        "error": {
+        "reason": {
           "type": "string"
         },
         "models": {

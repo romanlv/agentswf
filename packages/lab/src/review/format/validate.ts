@@ -61,7 +61,7 @@ export function checkVotes(value: unknown): Checked<Votes> {
   return checkSchema(VotesSchema, value);
 }
 
-/** Shape, plus what a schema cannot say: a review with a failure has no findings, and one without has a run that succeeded. */
+/** Shape, plus what a schema cannot say: a review with a failure has no findings, and one without has a run that completed. */
 export function checkFindingsRecord(value: unknown): Checked<FindingsRecord> {
   const checked = checkSchema(FindingsRecordSchema, value);
   if (!checked.ok) return checked;
@@ -69,7 +69,7 @@ export function checkFindingsRecord(value: unknown): Checked<FindingsRecord> {
   if (failure !== undefined && findings.length > 0) {
     return { ok: false, problems: [{ path: "/findings", message: "a failed review has none" }] };
   }
-  if (failure === undefined && run.outcome !== "succeeded") {
+  if (failure === undefined && run.outcome !== "completed") {
     return {
       ok: false,
       problems: [

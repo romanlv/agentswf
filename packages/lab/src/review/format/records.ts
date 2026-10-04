@@ -200,7 +200,7 @@ function partialFromV1(record: PartialRecord, version: string, baseVersion: stri
 }
 
 /**
- * A trial, as either version; a failed trial has no findings, and one that didn't fail succeeded.
+ * A trial, as either version; a failed trial has no findings, and one that didn't fail completed.
  * A first-version record declared no version, so it takes `filed`, the one its folder names.
  */
 export function readTrial(value: unknown, filed: string): Checked<Trial> {

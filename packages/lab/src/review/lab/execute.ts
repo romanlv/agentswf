@@ -388,7 +388,7 @@ async function runTrial(
       } catch (error) {
         failure = `the variant's read failed: ${String(error)}`;
       }
-    } else failure = `the run ${run.outcome}: ${run.error ?? "no detail"}`;
+    } else failure = `the run ${run.outcome}: ${run.reason ?? "no detail"}`;
     const now = clock(lab);
     const trial: Trial = {
       format: TRIAL_FORMAT,
@@ -547,7 +547,7 @@ async function runScorer(
         result: {
           status: "failed",
           reason: `the run ${run.outcome}`,
-          problems: run.error ? [run.error] : [],
+          problems: run.reason ? [run.reason] : [],
         },
       };
     }
@@ -660,9 +660,9 @@ async function scoreChosen(
   // A run that failed before any agent ran is the scorer refusing its arguments, `--settled` most
   // likely: it cost nothing and says nothing about the findings, so it is reported, not kept. Labels
   // that fail their check are a result, and are kept.
-  if (scored.run?.outcome !== "succeeded" && (scored.run?.models.length ?? 0) === 0) {
+  if (scored.run?.outcome !== "completed" && (scored.run?.models.length ?? 0) === 0) {
     throw new Error(
-      `${scorer.label} failed before any agent ran, so it may not take --settled: ${scored.run?.error ?? "no detail"}`,
+      `${scorer.label} failed before any agent ran, so it may not take --settled: ${scored.run?.reason ?? "no detail"}`,
     );
   }
   const partial: PartialScore = {

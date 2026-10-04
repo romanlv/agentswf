@@ -95,7 +95,7 @@ export function problems(evidence: Evidence): string[] {
   const { lab } = evidence;
   if (lab.exitCode !== 0) found.push(`awf-lab run exited ${lab.exitCode}: ${lab.log}`);
   const trial = lab.trial;
-  if (trial?.run.outcome !== "succeeded") {
+  if (trial?.run.outcome !== "completed") {
     found.push(
       `the trial did not succeed: ${trial?.run.outcome ?? "no trial"} ${trial?.failure ?? ""}`,
     );

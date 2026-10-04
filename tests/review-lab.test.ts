@@ -152,7 +152,7 @@ describe("awf-lab", () => {
     });
     const runs = inProcess();
     const first = await lab(ws, ["run", "canned"], runs.runner);
-    expect(first.stderr).toContain("app-1: trial succeeded, 3 findings");
+    expect(first.stderr).toContain("app-1: trial completed, 3 findings");
     expect(first.exitCode).toBe(0);
     // Every trial, then every score, in the seeded order: a scorer never runs beside a trial.
     expect(runs.calls.map(stepOf)).toEqual([TRIAL, TRIAL, SCORE, SCORE]);
@@ -891,7 +891,7 @@ export default defineComparison({
       "other:app-1",
     ]);
     expect(
-      both.steps.every((s) => s.trial.outcome === "succeeded" && s.score.status === "scored"),
+      both.steps.every((s) => s.trial.outcome === "completed" && s.score.status === "scored"),
     ).toBe(true);
     expect(both.outcome).toEqual({ exitCode: 0, listPrice: 0, stopped: false });
     expect((await lab(ws, ["run", "canned", "canned"])).exitCode).toBe(2);

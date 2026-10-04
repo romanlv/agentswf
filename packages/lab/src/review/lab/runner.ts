@@ -169,7 +169,7 @@ export function summaryOf(result: RunResult): RunSummary {
     const said = result.stderr.trim().split("\n").slice(-3).join(" ").trim();
     return {
       outcome: "failed",
-      error: `awf run exited ${result.exitCode} without a record${said ? `: ${said}` : ""}`,
+      reason: `awf run exited ${result.exitCode} without a record${said ? `: ${said}` : ""}`,
       models: [],
       ms: result.ms,
       estimate: 0,
@@ -183,7 +183,7 @@ export function summaryOf(result: RunResult): RunSummary {
   if (record.outcome !== "completed" && totals.agents === 0 && LOGIN_REFUSED.test(record.reason)) {
     return {
       outcome: "failed",
-      error: record.reason,
+      reason: record.reason,
       models: [],
       ms: record.accounting.wallMs,
       estimate: 0,
@@ -200,10 +200,8 @@ export function summaryOf(result: RunResult): RunSummary {
     ...(record.outcome !== "completed" && CLEANUP_LATE.test(record.reason)
       ? {}
       : { id: record.runId }),
-    // Stored scores say `succeeded` for a completed run, as awf did before attempts.
-    ...(record.outcome === "completed"
-      ? { outcome: "succeeded" as const }
-      : { outcome: record.outcome, error: record.reason }),
+    outcome: record.outcome,
+    ...(record.outcome === "completed" ? {} : { reason: record.reason }),
     models: record.accounting.byModel.map((model) => model.model),
     ms: record.accounting.wallMs,
     ...(priced ? { estimate: (totals.estimate ?? 0) + (decisions?.estimate ?? 0) } : {}),
