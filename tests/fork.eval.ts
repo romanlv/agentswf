@@ -10,7 +10,7 @@ import { assertLiveOptIn, interruption } from "./live";
  * Forks on every harness and placement, with and without compaction, live (story 016): a worker
  * notes a codename, may compact, is forked, then notes a release. Each fork must answer the codename
  * through its own channel and not know the release, and the worker both. Each fork's first operation
- * must read most of its prompt from its parent's cache. One run of 26 agents, about two minutes and ~$2 at list prices, its headless claude
+ * must read most of its prompt from its parent's cache, but where cursor runs in a pane. One run of 32 agents, about two minutes and ~$2 at list prices, its headless claude
  * metered, the rest on subscriptions.
  */
 const FORK = join(import.meta.dir, "../examples/fork/workflow.ts");
@@ -29,7 +29,13 @@ export const CASES = [
   "pi",
   "pi:compact",
   "cursor",
+  "cursor:compact",
+  "cursor-headless",
+  "cursor-headless>pane",
 ];
+
+/** A pane's cursor prints no usage, so its fork's cache cannot be read (story 019). */
+const UNREAD = new Set(["cursor", "cursor:compact", "cursor-headless>pane"]);
 
 /** A fork reads at least this share of its first operation's prompt from the cache. */
 const CACHED = 0.5;
@@ -62,6 +68,7 @@ export function problems(exitCode: number, record: OutputRecord | undefined): st
     if (worker && (worker.codename !== args.codename || worker.release !== args.release)) {
       found.push(`${check.name}: the worker recalled ${worker.codename} and ${worker.release}`);
     }
+    if (UNREAD.has(check.name)) continue;
     const first = record.usage.find((usage) => usage.agent === `fork:${check.name}`);
     const share = cachedShare(first);
     if (share === undefined || share < CACHED) {

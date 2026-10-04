@@ -51,19 +51,28 @@ describe("compaction", () => {
     expect(run.turnsOf("compact:claude")).toHaveLength(2);
   });
 
-  test("cursor's compaction fails, is reported, and the agent is still asked", async () => {
+  test("a headless cursor's compaction fails, is reported, and the agent is still asked", async () => {
     const run = await testWorkflow(
       compaction,
-      { ...args, runtimes: ["cursor"] },
+      { ...args, runtimes: ["cursor", "cursor-headless"] },
       {
-        agents: { "compact:cursor": [answer(NOTED, { noted: true }), recalled] },
+        agents: {
+          "compact:cursor": [answer(NOTED, { noted: true }), recalled],
+          "compact:cursor-headless": [answer(NOTED, { noted: true }), recalled],
+        },
       },
     );
     expect(run.value.checks).toEqual([
       {
         runtime: "cursor",
+        compacted: "answered",
+        summary: "",
+        recalled: { codename: "HERON-1234", colour: "teal" },
+      },
+      {
+        runtime: "cursor-headless",
         compacted: "failed",
-        reason: "cursor has no compaction of its own",
+        reason: expect.stringMatching(/^cursor has no compaction of its own: /),
         recalled: { codename: "HERON-1234", colour: "teal" },
       },
     ]);

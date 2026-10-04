@@ -3,7 +3,7 @@ import { open, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { count, jsonLines, record, text } from "../json";
 import { harnessState } from "../state";
-import { entries, jsonRows, ownDirectory, ownFiles, safeId } from "./files";
+import { entries, isFile, jsonRows, ownDirectory, ownFiles, safeId } from "./files";
 import type { SessionRead, UsageRecord } from "./records";
 
 /**
@@ -84,7 +84,8 @@ export async function readCursorUsage(
   let found = false;
   for (const session of sessions) {
     const directory = await cursorChatDirectory(session, home);
-    if (!directory) continue;
+    // A pane's turns print nothing, so a chat with no usage kept is unknown, not free.
+    if (!directory || !(await isFile(join(directory, USAGE_FILE)))) continue;
     found = true;
     for (const row of await jsonRows(join(directory, USAGE_FILE))) {
       const key = text(row.key);

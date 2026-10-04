@@ -7,13 +7,14 @@ import { runOperatorCli } from "../packages/engine/src/operator-cli";
 import { assertLiveOptIn, interruption } from "./live";
 
 /**
- * Every harness awf runs, live, on its cheapest model: codex and pi headless, and claude and pi in
- * a Herdr pane, each answering a follow-up in the same session. Each must answer right through
- * `wf result`, and each agent's spend must be read from its own session files on its subscription.
- * One run of four agents, about 30 s and $0.07 at list prices.
+ * Every harness awf runs, live, on its cheapest model: codex, pi and cursor headless, and claude, pi
+ * and cursor in a Herdr pane, each answering a follow-up in the same session. Each must answer right
+ * through `wf result`, and each agent's spend must be read on its subscription, but cursor's: what
+ * it bills is unknown, and in a pane it prints no usage. One run of six agents, about 40 s and $0.07
+ * at list prices.
  */
 const QUICK_CHECK = join(import.meta.dir, "../examples/quick-check/workflow.ts");
-const HARNESSES = ["codex", "pi", "pi-pane", "claude"] as const;
+const HARNESSES = ["codex", "pi", "pi-pane", "claude", "cursor", "cursor-pane"] as const;
 
 export function problems(exitCode: number, record: OutputRecord | undefined): string[] {
   if (exitCode !== 0 || record?.outcome !== "succeeded") {
@@ -30,8 +31,13 @@ export function problems(exitCode: number, record: OutputRecord | undefined): st
     }
   }
   for (const agent of record.accounting.byAgent) {
-    if (agent.known !== agent.agents) found.push(`${agent.agent}: usage unknown`);
-    if (agent.billing !== "subscription") found.push(`${agent.agent}: billing ${agent.billing}`);
+    const cursor = agent.execution.harness === "cursor";
+    if (agent.known !== agent.agents && !(cursor && agent.execution.placement !== "headless")) {
+      found.push(`${agent.agent}: usage unknown`);
+    }
+    if (agent.billing !== (cursor ? "unknown" : "subscription")) {
+      found.push(`${agent.agent}: billing ${agent.billing}`);
+    }
   }
   if (record.accounting.byAgent.length !== HARNESSES.length) {
     found.push(

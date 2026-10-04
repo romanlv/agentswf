@@ -9,11 +9,22 @@ import {
   readCursorUsage,
 } from "../usage/cursor";
 import { defineHarness, type HarnessDefinition, type TurnContext, type TurnPlan } from "./define";
-import { lastJson } from "./shared";
+import { lastJson, resuming } from "./shared";
 
-/** `--force` runs its tools without asking, and also trusts the directory, which headless asks. */
+/**
+ * `--force` runs its tools without asking; `--trust` answers the trust screen its TUI shows even
+ * so, which swallowed the prompts sent while it was up (C7).
+ */
 function cursorInteractive(model?: string, launchArgs: readonly string[] = []): TurnPlan {
-  return { argv: ["cursor-agent", "--force", ...(model ? ["--model", model] : []), ...launchArgs] };
+  return {
+    argv: [
+      "cursor-agent",
+      "--force",
+      "--trust",
+      ...(model ? ["--model", model] : []),
+      ...launchArgs,
+    ],
+  };
 }
 
 function cursorHeadless(
@@ -40,10 +51,13 @@ const CURSOR = {
   sessionEnv: "CURSOR_CONVERSATION_ID",
   callingSessionEnv: ["CURSOR_AGENT", "CURSOR_CONVERSATION_ID", "CURSOR_REQUEST_ID"],
   meteredCredentials: [],
-  herdrSessionIsOwn: false,
+  // Herdr 0.9.1 names a cursor pane's chat, the id its shell's `CURSOR_CONVERSATION_ID` holds.
+  herdrSessionIsOwn: true,
   pastesQuoted: false,
   meteredHeadless: false,
   interactive: cursorInteractive,
+  interactiveResume: (sessionId, model, launchArgs) =>
+    resuming(cursorInteractive(model, launchArgs), "--resume", sessionId),
   headlessTurn: (prompt, context) => cursorHeadless(prompt, [], context),
   resumeTurn: (prompt, sessionId, context) =>
     cursorHeadless(prompt, ["--resume", sessionId], context),
@@ -63,6 +77,17 @@ const CURSOR = {
       finish: (forked) => dropCursorUsage(forked, home),
     };
   },
+  // `/summarize` takes no focus: the text after it looked ignored (C7). The focus goes in as a
+  // message first, as codex's does, which the summary followed live (story 019).
+  compactPane: {
+    prompts: (focus) => [cursorCompactionFocus(focus), "/summarize"],
+    compacted: (screen, _focus, before) => {
+      const summary = lastSummary(screen);
+      return summary !== undefined && summary !== lastSummary(before);
+    },
+    // Herdr's wait returns once the summary is drawn; this only has the screen before read.
+    ended: () => true,
+  },
   keepTurnUsage: (stdout, session, { model, home }) =>
     keepCursorTurnUsage(stdout, session, model, home),
   readSessionUsage: (sessions, _cwd, home) => readCursorUsage(sessions, home),
@@ -70,16 +95,31 @@ const CURSOR = {
   homeSessions: (home) => cursorHomeSessions(home),
 } satisfies HarnessDefinition;
 
+const TRANSCRIPT_LOCATION = "Transcript location:";
+
+/**
+ * The summary box's last lines above the transcript's path, which it ends every summary with. The
+ * focus and every prompt are quoted inside the box, so no text of ours marks where it starts.
+ */
+function lastSummary(screen: string): string | undefined {
+  const lines = screen.split("\n");
+  const at = lines.findLastIndex((line) => line.includes(TRANSCRIPT_LOCATION));
+  return at < 0 ? undefined : lines.slice(Math.max(0, at - 12), at).join("\n");
+}
+
+function cursorCompactionFocus(focus: string): string {
+  return `Your context is about to be compacted. For its summary: ${focus}\n\nReply only: ok`;
+}
+
 export const cursor = defineHarness(CURSOR, {
-  interactiveResume: "cursor runs headless only",
   readCharge: "cursor prints no dollars, which E1 also found",
   readCostTotal: "cursor prints no dollars, which E1 also found",
-  findSession: "cursor runs headless only",
+  findSession: "Herdr names a cursor pane's chat",
   billing:
     "nothing cursor reports tells usage within its plan from on-demand usage, which is billed per token",
-  compactHeadless: "cursor compacts only in its TUI, and runs headless only",
-  compactPane: "cursor runs headless only",
+  compactHeadless: "cursor compacts only in its TUI; headless, `/summarize` goes to the model (C7)",
   localSockets: "only codex's own sandbox was found blocking local sockets (E8)",
-  interrupted: "not yet read",
-  readCompactSummary: "cursor's transcript keeps no summary (C7)",
+  interrupted:
+    "cursor draws no line of its own for an interrupted turn: a stopped tool's line ends in `Cancelled`, and a stopped reply puts the prompt back in the input (2026.10.01)",
+  readCompactSummary: "cursor draws its summary on the screen only; its transcript keeps none (C7)",
 });

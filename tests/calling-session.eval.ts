@@ -62,7 +62,7 @@ export function problems(harness: Harness, record: OutputRecord | undefined): st
   if (steps.recalled !== steps.picked) {
     found.push(`${harness}: recalled ${steps.recalled}, picked ${steps.picked}`);
   }
-  // cursor's spend is unreadable for any agent (E1).
+  // cursor prints no usage in a pane, the calling session's included.
   for (const agent of harness === "cursor" ? [] : record.accounting.byAgent) {
     if (agent.known !== agent.agents) found.push(`${harness}: usage unknown`);
   }

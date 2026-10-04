@@ -54,6 +54,22 @@ skipped in each.
   `awf-usage.jsonl`, since cursor logs none. The session readers stay the one path usage comes in
   by, and a fork's copy carries its parent's records, which the parent, read first, claims.
 
+## Measured (cursor-agent 2026.10.01, Herdr 0.9.1, `composer-2.5`)
+
+- **Headless.** The shell of a turn has `CURSOR_CONVERSATION_ID`, the chat id the output names, and
+  `CURSOR_AGENT=1`. The JSON ends with `request_id` and the turn's `usage`; with it kept, the fork
+  eval read 0.98 of a headless fork's first prompt from its parent's cache.
+- **A pane.** `--trust` skips the trust screen, and no other screen showed. Herdr names the chat as
+  the pane's session, the same id as `CURSOR_CONVERSATION_ID`. The screen shows no usage.
+- **Compaction in a pane.** The focus sent as a message, then `/summarize`: the summary, drawn in a
+  box ending `Transcript location:` and the transcript's path, kept what the focus kept, and asked
+  afterwards the agent called the dropped fact unknown. The box quotes every prompt, the focus
+  included, so the screen is read for a new box, not for text after the focus.
+- **An interrupt.** Escape during a tool ended its line `Cancelled • 4.8s`; during a reply, the prompt
+  went back into the input. Neither is a line of its own to tell an interrupted turn by.
+- **The evals.** `harnesses` (cursor headless and in a pane), `compaction` (`cursor` compacts,
+  `cursor-headless` refuses and goes on) and `fork` (four cursor cases) passed live on 2026-10-04.
+
 ## Tasks
 
 - [x] 1. The harness definition: one file per harness, `defineHarness` with `absent`, the scattered
@@ -61,7 +77,7 @@ skipped in each.
   `docs/adding-a-harness.md`.
 - [x] 2. Cursor headless: its session in the agent's shell, launch arguments, tokens per turn, a
   login check.
-- [ ] 3. Cursor in a pane: its startup block, interactive resume, interrupt, session lookup,
+- [x] 3. Cursor in a pane: its startup block, interactive resume, interrupt, session lookup,
   `/summarize` with the focus as a message before it.
 - [ ] 4. Cursor's skills, on the host and in a sandbox.
 - [ ] 5. Cursor in a sandbox, srt and docker, with `CURSOR_API_KEY`; `cursor-agent` in the image.

@@ -771,7 +771,8 @@ describe("cursor chats", () => {
       "chats/workspace/chat-1/store.db",
     ]);
     await dropCursorUsage("chat-1", home);
-    expect(await readCursorUsage(["chat-1"], home)).toEqual({ records: [], open: false });
+    // With none kept, as for a pane, its usage is unknown.
+    expect(await readCursorUsage(["chat-1"], home)).toBeUndefined();
   });
 
   test("nothing is written through a link an agent put in its home", async () => {

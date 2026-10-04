@@ -35,7 +35,10 @@ export const RUNTIMES = {
     execution: { harness: "pi", model: "openai-codex/gpt-5.6-terra" },
     inventoryLines: 2_000,
   },
-  cursor: { execution: { harness: "cursor", model: "composer-2.5", placement: "headless" } },
+  cursor: { execution: { harness: "cursor", model: "composer-2.5" } },
+  "cursor-headless": {
+    execution: { harness: "cursor", model: "composer-2.5", placement: "headless" },
+  },
 } as const satisfies Record<string, { execution: ExecutionConfig; inventoryLines?: number }>;
 
 type RuntimeName = keyof typeof RUNTIMES;

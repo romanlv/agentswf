@@ -64,7 +64,7 @@ In scope:
 
 Out of scope:
 
-- Cursor in panes: [`cursor-pane-agent`](todo/cursor-pane-agent.md).
+- Cursor in panes: [story 019](019-cursor-harness.md).
 - pi's split-turn summary ignoring the focus (C6): pi's own.
 
 ## Context and evidence

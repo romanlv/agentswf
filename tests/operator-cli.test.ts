@@ -221,12 +221,12 @@ describe("awf run", () => {
   test("quick-check refuses a runtime it does not know", async () => {
     const errors: string[] = [];
     const exitCode = await runOperatorCli(
-      ["run", "examples/quick-check/workflow.ts", "--", "cursor"],
+      ["run", "examples/quick-check/workflow.ts", "--", "aider"],
       { cwd: ROOT, stderr: (text) => errors.push(text), installRuntime: emptyRuntime },
     );
     expect(exitCode).toBe(2);
     expect(errors.join("\n")).toContain(
-      "unknown runtime cursor; expected codex, pi, pi-pane, claude",
+      "unknown runtime aider; expected codex, pi, pi-pane, claude, cursor, cursor-pane",
     );
   });
 

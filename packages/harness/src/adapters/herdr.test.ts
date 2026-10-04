@@ -102,7 +102,7 @@ describe("createPaneAdapter", () => {
     for (const [harness, model, args] of [
       ["codex", "gpt-5", "-- --sandbox danger-full-access --ask-for-approval never --model gpt-5"],
       // Herdr's naming stays local when its kind differs from the executable.
-      ["cursor", "", "-- --force"],
+      ["cursor", "", "-- --force --trust"],
     ] as const) {
       const { run, calls } = operationStub();
       const session = await createPaneAdapter(CONFIG, run).activate({

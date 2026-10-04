@@ -82,7 +82,7 @@ Out of scope:
 - Compaction for cursor. Its compaction is `/summarize` (`/compress` is an alias), and it runs
   only in its interactive TUI: headless, both reach the model as text (measured). In a pane it
   summarized and went on, but awf does not run cursor in panes yet: that is
-  [`cursor-pane-agent`](todo/cursor-pane-agent.md).
+  [story 019](019-cursor-harness.md).
 - Verified pane release and a concurrent identity observer: still
   [`herdr-pane-settlement`](todo/herdr-pane-settlement.md)'s. Continuation here never releases a
   pane between operations, so it needs neither.

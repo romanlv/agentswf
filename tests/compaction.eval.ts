@@ -10,8 +10,8 @@ import { assertLiveOptIn, interruption } from "./live";
  * Native compaction on every harness and placement, live, on its cheapest model (story 015): each
  * agent notes a colour, is compacted with a focus naming a codename it was never told, and is then
  * asked both. An answer means the harness compacted; the codename back means the focus reached it;
- * the colour back means the session went on. Cursor has no compaction and must say so, then go on.
- * One run of seven agents, a pane claude, codex and pi among them, about two minutes and $0.20
+ * the colour back means the session went on. A headless cursor has no compaction and must say so,
+ * then go on. One run of eight agents, a pane claude, codex, pi and cursor among them, about two minutes and $0.20
  * at list prices, a metered headless claude included.
  */
 const COMPACTION = join(import.meta.dir, "../examples/compaction/workflow.ts");
@@ -28,14 +28,14 @@ export function problems(exitCode: number, record: OutputRecord | undefined): st
   for (const check of checks) {
     const name = check.runtime;
     if (check.problem) found.push(`${name}: ${check.problem}`);
-    if (name === "cursor") {
-      if (check.compacted !== "failed") found.push(`cursor: compaction ${check.compacted}`);
+    if (name === "cursor-headless") {
+      if (check.compacted !== "failed") found.push(`${name}: compaction ${check.compacted}`);
     } else if (check.compacted !== "answered") {
       found.push(`${name}: compaction ${check.compacted}: ${check.reason ?? ""}`);
     } else if (SHOWS_SUMMARY.has(name) && !check.summary?.includes(codename)) {
       found.push(`${name}: its summary lacks the codename: ${check.summary?.slice(0, 200)}`);
     }
-    if (check.recalled && name !== "cursor" && check.recalled.codename !== codename) {
+    if (check.recalled && name !== "cursor-headless" && check.recalled.codename !== codename) {
       found.push(`${name}: recalled codename ${check.recalled.codename}, not ${codename}`);
     }
     if (check.recalled && check.recalled.colour.toLowerCase() !== colour) {

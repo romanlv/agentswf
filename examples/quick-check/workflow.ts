@@ -10,14 +10,17 @@ import Type from "typebox";
 import { outputSchema } from "../output-schema";
 
 /**
- * A cheap model for each, so a check costs cents. Codex and pi run headless, and pi in a pane as
- * well; claude stays in a pane, because headless it is billed per token even on a subscription.
+ * A cheap model for each, so a check costs cents. Codex, pi and cursor run headless, and pi and
+ * cursor in a pane as well; claude stays in a pane, because headless it is billed per token even on
+ * a subscription.
  */
 export const RUNTIMES = {
   codex: { harness: "codex", model: "gpt-6-luna", placement: "headless" },
   pi: { harness: "pi", model: "openai-codex/gpt-5.6-terra", placement: "headless" },
   "pi-pane": { harness: "pi", model: "openai-codex/gpt-5.6-terra" },
   claude: { harness: "claude", model: "claude-sonnet-5-5" },
+  cursor: { harness: "cursor", model: "composer-2.5", placement: "headless" },
+  "cursor-pane": { harness: "cursor", model: "composer-2.5" },
 } as const satisfies Record<string, ExecutionConfig>;
 
 type RuntimeName = keyof typeof RUNTIMES;

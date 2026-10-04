@@ -176,7 +176,8 @@ export const STARTUP_BLOCKS: Readonly<Record<Harness, readonly StartupBlockSpec[
     },
   ],
   pi: [],
-  cursor: { absent: "cursor's startup screens are not driven yet" },
+  // `--trust` skips its trust screen; it showed no other (story 019).
+  cursor: [],
 };
 
 /**
