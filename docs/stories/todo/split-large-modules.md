@@ -1,13 +1,16 @@
 ---
 title: Split the large modules, and keep them split
-summary: Four source files have grown past 900 lines along seams a review found, and nothing stops the next one; plan the splits, then add a check and an AGENTS.md rule that hold the line.
 type: story
 status: todo
+priority: P2
 discovered_in: "codebase review, 2026-10-01"
 depends_on: []
 ---
 
 # Split the large modules, and keep them split
+
+Four source files have grown past 900 lines along seams a review found, and nothing stops the next
+one; plan the splits, then add a check and an AGENTS.md rule that hold the line.
 
 Why it matters: an agent reading `workflow-runner.ts` to change one turn helper loads 2,000 lines of
 unrelated code, and two sessions editing the same big file on a shared main collide. The seams below

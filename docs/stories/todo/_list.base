@@ -1,0 +1,19 @@
+views:
+  - type: table
+    name: By priority
+    filters:
+      and:
+        - file.inFolder("stories/todo")
+        - file.name != "README"
+    order:
+      - priority
+      - file.name
+      - type
+      - depends_on
+    sort:
+      - property: priority
+        direction: ASC
+      - property: file.name
+        direction: ASC
+    columnSize:
+      file.name: 260

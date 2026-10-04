@@ -1,6 +1,6 @@
 # Status
 
-Where awf stands, as of 2026-10-01. [`foundation.md`](foundation.md) is the argument and changes
+Where awf stands, as of 2026-10-04. [`foundation.md`](foundation.md) is the argument and changes
 slowly; this page is the state and changes with every story. When the two disagree about what
 exists, the code is right, then this page.
 
@@ -137,8 +137,11 @@ The gates are defined in [`foundation.md`](foundation.md) §12.
   `@agentswf/engine/workflow-testing`, served to authors as `agentswf/testing`, on a second
   composition root (ADR 0006); nine examples tested beside them; `awf test` runs them in any
   folder.
-- [013 — autoresearch loop](stories/013-autoresearch-loop.md): in progress. The proposer writes
-  workflow code, so trials run whole in a container; air-1 is split 23 tuning / 10 holdout.
+- [013 — autoresearch loop](stories/013-autoresearch-loop.md): in progress, every task built.
+  The proposer writes workflow code, so trials run whole in a container; air-1 is split 23 tuning
+  / 10 holdout. The first live loop (2026-10-01) ran one try, +0.035 at twice the cost, discarded;
+  about 3 hours and $29 against a $25 cap. What it showed is missing is
+  [`loop-next`](stories/todo/loop-next.md).
 - [014 — a workflow in the current session](stories/014-workflow-in-current-session.md): done,
   approved 2026-10-01. `awf run --here` takes the session it was typed in over as `agents.caller`
   ([ADR 0010](adr/0010-the-calling-session-is-an-agent.md)); its eval passes on claude, codex, pi
@@ -158,7 +161,7 @@ The gates are defined in [`foundation.md`](foundation.md) §12.
   pasted text and will not act on.
 - [017 — pi in panes](stories/017-pi-pane-agent.md): done, approved 2026-10-01. pi runs in a Herdr
   pane, on the host and in srt and docker sandboxes, and compacts there with a focus.
-- [019 — cursor as a full harness](stories/019-cursor-harness.md): in progress. Each harness is
+- [019 — cursor as a full harness](stories/019-cursor-harness.md): awaiting the operator's review. Each harness is
   one file whose every capability is given or absent with a reason tsc checks
   ([adding a harness](adding-a-harness.md)). cursor runs in a pane, compacts there, forks into
   either placement, records its tokens headless, and runs in srt and docker sandboxes with
@@ -170,15 +173,24 @@ The inbox of possible stories is [`stories/todo/`](stories/todo/).
 
 ## Next
 
-1. The first autoresearch loop over review variants, with its general tools in this repository
-   ([ADR 0002](adr/0002-autoresearch-lives-here.md)), scored against old MRs replayed as they
-   were when review started. The fixtures to score against are built
-   ([story 005](stories/005-review-fixtures.md)), and so are the sandboxes to isolate them in
-   ([story 004](stories/004-sandboxed-agents.md)), and every trial runs in one
-   ([story 010](stories/010-eval-isolation.md)). In order:
-   [story 011](stories/011-compare-variants.md) (done), then
-   [story 013](stories/013-autoresearch-loop.md), the loop, taken before
-   [`second-case-kind`](stories/todo/second-case-kind.md) by the user's choice (2026-09-30).
+The todo inbox is prioritised in [`stories/todo/README.md`](stories/todo/README.md#Priorities)
+(2026-10-04). The P0s, so the loop can run again and the operator's own workflows can be trusted
+with a long run:
+
+1. The loop's tries made cheap to reject:
+   [`comparison-efficiency`](stories/todo/comparison-efficiency.md) (stop a try at 8 cases unless
+   promising, cases up to a look in parallel, a resolution at 1 trial) and
+   [`loop-next`](stories/todo/loop-next.md) (a proposer that thinks, spend a cut can't hide, a
+   loop that outlives its shell, the scorer checked first).
+2. [`runtime-effort`](stories/todo/runtime-effort.md): effort per agent and per turn, recorded; a
+   published type change, so its values are settled before it's built.
+3. [`turn-liveness-and-limits`](stories/todo/turn-liveness-and-limits.md): an agent waiting on its
+   own background work isn't done; the implement-ticket run lost its last step to it.
+
+Alongside: [story 018](stories/018-workflow-stages.md), stages and continuing a run, in draft;
+then [`stopped-run-recovery`](stories/todo/stopped-run-recovery.md) on top of 018 and liveness.
+[`second-case-kind`](stories/todo/second-case-kind.md) waits behind the loop, by the user's choice
+(2026-09-30).
 
 ## Known gaps
 

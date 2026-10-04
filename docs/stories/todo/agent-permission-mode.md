@@ -1,13 +1,17 @@
 ---
 title: Choose an agent's permission mode
-summary: awf fixes each harness's permission handling in code, so a host claude now runs in Claude Code's auto mode, a classifier call on every shell command and `wf result` too, and no workflow or operator can choose otherwise.
 type: story
 status: todo
+priority: P1
 discovered_in: "eval timing, 2026-10-01; [[permissions]]"
 depends_on: []
 ---
 
 # Choose an agent's permission mode
+
+awf fixes each harness's permission handling in code, so a host claude now runs in Claude Code's
+auto mode, a classifier call on every shell command and `wf result` too, and no workflow or operator
+can choose otherwise.
 
 Why it matters: an agent's permission mode changes its time, what it may do unasked, and whether a
 turn stalls on a prompt nobody answers, and awf neither chooses nor records it. Each harness's

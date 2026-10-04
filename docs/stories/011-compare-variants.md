@@ -14,7 +14,7 @@ depends_on: ["008", "010"]
 
 Someone with an idea for a workflow asks "is this better than what we have?" and gets an answer
 with its uncertainty, not one run's anecdote. The same answer is what the autoresearch loop acts on
-([[autoresearch-loop]]), so it works for any workflow evaluated against cases with known answers,
+([[013-autoresearch-loop]]), so it works for any workflow evaluated against cases with known answers,
 not only reviews.
 
 The project doing the evaluation owns two things, and awf-lab owns the running:
@@ -95,7 +95,7 @@ retired; `awf-lab check`.
 
 Out of scope:
 
-- The proposer, the history, the spend cap and the holdout: [[autoresearch-loop]].
+- The proposer, the history, the spend cap and the holdout: [[013-autoresearch-loop]].
 - A second kind of case's dataset, restore and runner: [[second-case-kind]].
 - Several challengers at once, and variants run in parallel.
 - A stored metrics record: the numbers are derived, and storing them would freeze a format one kind
@@ -184,7 +184,7 @@ For the human review. The user's answers of 2026-09-30 are recorded.
   `run --cases 33` would carry on to the last look.
 - **Task 7, answered:** keep `variants/one-codex-skill.variant.ts`? Not yet; it stays uncommitted.
 - **Task 7, raised by the user and answered yes:** hold out cases the loop never tunes on. Moved to
-  [[autoresearch-loop]], with why 33 cases are too few to split.
+  [[013-autoresearch-loop]], with why 33 cases are too few to split.
 - **Task 8, answered:** the keep rule for equals. The same quality, faster and cheaper, is better.
   Moved to [[comparison-efficiency]].
 - **Task 8, left to me:** the smallest recall gain worth having. See decision 6.
@@ -232,8 +232,8 @@ built here.
 | Measure how often a noise label Jev settled alone is wrong | [[jev-noise-audit]] |
 | The keep rule for equals: the same quality, faster and cheaper, is better; a non-inferiority margin the dataset resolves | [[comparison-efficiency]] |
 | Run the baseline once on the whole dataset; `run --ahead n`; a cost estimate for a new variant; a progress line | [[comparison-efficiency]] |
-| A held-out set, chosen before the first proposal and checked rarely; the headline is fresh trials of the kept variant | [[autoresearch-loop]] |
-| Proposer input, one hypothesis per try, predicted effect, refusing proposals under the resolution, root-cause rounds, stricter later rounds, GEPA's Pareto front for parents, a model × effort staircase, a thin agent skill | [[autoresearch-loop]] |
+| A held-out set, chosen before the first proposal and checked rarely; the headline is fresh trials of the kept variant | [[013-autoresearch-loop]] |
+| Proposer input, one hypothesis per try, predicted effect, refusing proposals under the resolution, root-cause rounds, stricter later rounds, GEPA's Pareto front for parents, a model × effort staircase, a thin agent skill | [[013-autoresearch-loop]]; what it left, [[loop-next]] |
 | A second kind of case (triage), and scorers that declare their own metrics | [[second-case-kind]] |
 | Claude voters for match first | [[judge-opus-voter]] |
 | A betting e-process when looks can't be planned; marking verdicts under 10 cases indicative; flagging a trial whose profile differs from the baseline's; a page showing every case in full; rebuild variance | later, no todo yet |

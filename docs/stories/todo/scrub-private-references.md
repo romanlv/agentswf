@@ -1,13 +1,16 @@
 ---
 title: Remove private project references before open-sourcing
-summary: Take the names, paths and projects of the private work awf grew out of out of the docs, code and history, so the repository stands on its own.
 type: story
 status: todo
+priority: P3
 discovered_in: "story 005 review, 2026-09-25"
 depends_on: []
 ---
 
 # Remove private project references before open-sourcing
+
+Take the names, paths and projects of the private work awf grew out of out of the docs, code and
+history, so the repository stands on its own.
 
 Why it matters: awf will be open source, and should not be tied to the private projects it was
 first used on. Story 005 now describes its fixtures without naming the project they came from, but

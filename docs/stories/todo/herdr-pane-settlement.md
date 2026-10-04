@@ -1,13 +1,15 @@
 ---
 title: Measure and classify Herdr pane settlement
-summary: Make interactive prompt delivery and native completion observable without unsafe retries.
 type: story
 status: todo
+priority: P2
 discovered_in: "001 post-review live evidence"
 depends_on: []
 ---
 
 # Measure and classify Herdr pane settlement
+
+Make interactive prompt delivery and native completion observable without unsafe retries.
 
 Why it matters: the pane path now runs reliably, but it still cannot tell an undelivered prompt
 from a delivered prompt whose pane state has not moved, and no provider reports turn-scoped
@@ -75,3 +77,17 @@ the session close, so a concurrent `execute` can still split a pane that the imm
 
 Two constraints on whatever lands here: do not add a retry until delivery is provably absent, and
 do not promote a heuristic to author-facing semantics without an explicit design decision.
+
+## Keep the evidence of a pane that didn't answer
+
+Folded in from `pane-agent-start-readiness` (story 001, task 7) and `docs/design/tofix.md`:
+
+- **Start failures.** In story 001's first live run every `agent.start` failed and the run record
+  kept no native diagnostic, so the Herdr rejection was lost with the workspace. Keep a redacted
+  `agent.start` diagnostic in the engine-owned run record, without raw command arguments or unsafe
+  provider output. The record shape and redaction boundary are a durable-evidence decision: settle
+  them before building.
+- **Non-answered outcomes.** A turn settled `blocked`, `unanswered` or timed out keeps no screen,
+  and closing the run closes the pane. In the AIRS-1515 rerun a worker mid-tool-call was settled
+  `blocked`, likely wrongly, and nothing was left to check. Save `agent read --source detection`
+  in the call dir with every non-answered outcome.

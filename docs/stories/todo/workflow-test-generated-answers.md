@@ -1,13 +1,16 @@
 ---
 title: Test a workflow against every answer its schemas allow
-summary: Property-based workflow tests, with the turn's schema as the generator; seeded random answers, typed by the schema, that honour every keyword the engine checks.
 type: story
 status: todo
+priority: P3
 discovered_in: "story 012, prototype, 2026-09-30"
 depends_on: ["012"]
 ---
 
 # Test a workflow against every answer its schemas allow
+
+Property-based workflow tests, with the turn's schema as the generator; seeded random answers, typed
+by the schema, that honour every keyword the engine checks.
 
 Why it matters: a scripted answer tests the case its author thought of. Story 012's prototype ran
 `catalogue-review` 100 times, in 0.47 s, against seeded random answers its schemas accepted, and

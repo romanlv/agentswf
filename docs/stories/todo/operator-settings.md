@@ -1,13 +1,16 @@
 ---
 title: Operator settings files
-summary: What awf does on this machine is fixed in code, flags and a few AWF_* variables; give the operator a settings file, per user and per project, that awf reads and passes to the engine.
 type: story
 status: todo
+priority: P2
 discovered_in: "run-through-sleep, 2026-10-02"
 depends_on: []
 ---
 
 # Operator settings files
+
+What awf does on this machine is fixed in code, flags and a few AWF_* variables; give the operator a
+settings file, per user and per project, that awf reads and passes to the engine.
 
 Why it matters: keeping the machine awake for a run ([[run-through-sleep]]) wants a default the
 operator can turn off, per machine or per project, and it is not the only such choice. Today they

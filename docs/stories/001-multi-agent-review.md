@@ -209,8 +209,8 @@ Follow-ups in [`todo/`](todo/):
 
 - [`herdr-pane-settlement.md`](todo/herdr-pane-settlement.md) — verified release, the identity
   observer, pane continuation, and pane usage.
-- [`pane-agent-start-readiness.md`](todo/pane-agent-start-readiness.md) — durable redacted start
-  diagnostics.
+- `pane-agent-start-readiness` — durable redacted start diagnostics; folded into
+  [`herdr-pane-settlement.md`](todo/herdr-pane-settlement.md).
 - [`herdr-layout-policy.md`](todo/herdr-layout-policy.md) — operator control over tabs and panes.
 - [`operator-run-observation.md`](todo/operator-run-observation.md) — operator progress and status.
 - [`live-eval-disclosure.md`](todo/live-eval-disclosure.md) — explicit live-evaluation disclosure.

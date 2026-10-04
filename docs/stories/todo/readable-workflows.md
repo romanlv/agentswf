@@ -1,13 +1,16 @@
 ---
 title: A workflow reads as its process, not as its plumbing
-summary: The operator's ticket workflow spends its lines on timeouts, millisecond durations and helpers; make the author surface let a workflow read as the steps a person would take.
 type: story
 status: todo
+priority: P1
 discovered_in: "story 015, the operator's review, 2026-10-01"
 depends_on: []
 ---
 
 # A workflow reads as its process, not as its plumbing
+
+The operator's ticket workflow spends its lines on timeouts, millisecond durations and helpers; make
+the author surface let a workflow read as the steps a person would take.
 
 Why it matters: the operator's review of the ticket workflow
 (`~/dev/braintrust/agent/workflows/implement-ticket/workflow.ts`):

@@ -1,13 +1,16 @@
 ---
 title: Try review shapes and models against AIR's own review
-summary: Screen and then confirm review workflows of different shapes (lenses, verify, planning, staged) and models per stage, against an agent with AIR's air-code-review skill.
 type: story
 status: todo
+priority: P1
 discovered_in: "story 013, the AIR review screen, 2026-10-01"
 depends_on: ["013"]
 ---
 
 # Try review shapes and models against AIR's own review
+
+Screen and then confirm review workflows of different shapes (lenses, verify, planning, staged) and
+models per stage, against an agent with AIR's air-code-review skill.
 
 Why it matters: the first screen (data repository, `reports/2026-10-01-air-review-screen.md`)
 found shape mattered more than instructions. Three codex agents with one lens each reached 0.41

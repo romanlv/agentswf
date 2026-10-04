@@ -1,13 +1,16 @@
 ---
 title: Try claude opus 5.5 as the judge's second voter
-summary: The panel's claude voter, sonnet, was its slowest and costliest part; opus 5.5 at a pinned effort, on only the findings Jev leaves, may be the second family worth keeping.
 type: story
 status: todo
+priority: P3
 discovered_in: "story 008, match first"
 depends_on: ["008"]
 ---
 
 # Try claude opus 5.5 as the judge's second voter
+
+The panel's claude voter, sonnet, was its slowest and costliest part; opus 5.5 at a pinned effort,
+on only the findings Jev leaves, may be the second family worth keeping.
 
 Why it matters: a panel is two model families so a majority isn't one model agreeing with itself.
 In story 008's trial the claude voter, `claude-sonnet-5`, finished last on every panel judging but

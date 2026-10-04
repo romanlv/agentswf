@@ -1,13 +1,16 @@
 ---
 title: Measure how often Jev's settled noise is wrong
-summary: Match first lets a sure Jev label a finding noise without a voter; voters re-label a sample of those and the disagreement rate says whether that costs precision unfairly.
 type: story
 status: todo
+priority: P2
 discovered_in: "story 011, decision 5 and task 1's review"
 depends_on: ["011"]
 ---
 
 # Measure how often Jev's settled noise is wrong
+
+Match first lets a sure Jev label a finding noise without a voter; voters re-label a sample of those
+and the disagreement rate says whether that costs precision unfairly.
 
 Why it matters: noise counts in precision, a guard, so a real finding Jev calls noise costs a
 variant on its text alone. Story 011 kept the rule (decision 5) and the user asked for it to be

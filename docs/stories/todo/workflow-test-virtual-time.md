@@ -1,13 +1,17 @@
 ---
 title: Test a workflow's deadlines on a virtual clock
-summary: A workflow test can't check its own deadlines deterministically, because every engine deadline is a real timer; a clock that skips while every fake is idle would make a hung agent under a 30-minute deadline time out in milliseconds, the same way every time.
 type: story
 status: todo
+priority: P3
 discovered_in: "story 012, design review, 2026-09-30"
 depends_on: ["012"]
 ---
 
 # Test a workflow's deadlines on a virtual clock
+
+A workflow test can't check its own deadlines deterministically, because every engine deadline is a
+real timer; a clock that skips while every fake is idle would make a hung agent under a 30-minute
+deadline time out in milliseconds, the same way every time.
 
 Why it matters: story 012's tests script `reply.timedOut()` to reach a timed-out turn, which is
 enough for what a workflow does with one. They can't check deadlines themselves: a `parallel`

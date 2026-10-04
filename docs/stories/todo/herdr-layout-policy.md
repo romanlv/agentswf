@@ -1,13 +1,15 @@
 ---
 title: Control how workflow agents are displayed in Herdr
-summary: Add a small presentation policy for grouping workflow agents into Herdr tabs and panes.
 type: story
 status: todo
+priority: P3
 discovered_in: "001 Task 7 user review"
 depends_on: []
 ---
 
 # Control how workflow agents are displayed in Herdr
+
+Add a small presentation policy for grouping workflow agents into Herdr tabs and panes.
 
 Why it matters: the production host currently chooses one workspace and gives every agent a tab
 of its own. Sibling panes in one tab came first and stopped being readable at five agents, because

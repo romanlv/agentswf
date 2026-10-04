@@ -1,13 +1,16 @@
 ---
 title: Run a whole workflow inside a sandbox
-summary: Run the engine and the workflow code inside a box or on a remote machine, so every agent and the control plane live there together.
 type: story
 status: todo
+priority: P2
 discovered_in: "story 004, 2026-09-25"
 depends_on: ["004"]
 ---
 
 # Run a whole workflow inside a sandbox
+
+Run the engine and the workflow code inside a box or on a remote machine, so every agent and the
+control plane live there together.
 
 Why it matters: [story 004](../004-sandboxed-agents.md) puts agents in sandboxes that the workflow
 opens, while the engine stays on the host. A second abstraction is where the engine itself runs:

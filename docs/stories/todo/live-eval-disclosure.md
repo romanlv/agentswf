@@ -1,13 +1,15 @@
 ---
 title: Make live-evaluation disclosure explicit
-summary: Name the local payload and external providers at the live-agent consent boundary.
 type: story
 status: todo
+priority: P3
 discovered_in: "001 Task 7 approval gate"
 depends_on: []
 ---
 
 # Make live-evaluation disclosure explicit
+
+Name the local payload and external providers at the live-agent consent boundary.
 
 Why it matters: `AWF_LIVE_EVAL=1` proves deliberate spending, but its error only says that live
 agents will start. It does not state which local content will leave the machine or identify the

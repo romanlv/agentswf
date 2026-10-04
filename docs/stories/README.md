@@ -76,7 +76,7 @@ status is one of `todo`, `draft`, `ready`, `in-progress`, `blocked`, `awaiting-h
   beside the workflow, typed by the schema each turn asks for, and checks what it did, through the
   real engine and for free.
 - [`013` — Let an agent propose review workflows and keep the better ones](013-autoresearch-loop.md) —
-  `in-progress` — `awf-lab loop` has a codex agent write one changed review workflow per try, runs it
+  `in-progress` (tasks done; its first live loop's gaps are [`loop-next`](todo/loop-next.md)) — `awf-lab loop` has a codex agent write one changed review workflow per try, runs it
   contained against the incumbent, keeps it only on `better`, logs the tree, caps spend, and checks
   the final incumbent once on a holdout.
 - [`014` — Run a workflow from inside the session you are in](014-workflow-in-current-session.md) —
@@ -92,6 +92,10 @@ status is one of `todo`, `draft`, `ready`, `in-progress`, `blocked`, `awaiting-h
 - [`017` — Run pi in a Herdr pane, as claude and codex run](017-pi-pane-agent.md) —
   `done` — a pi agent may take placement pane, on the host and in sandboxes, with
   turns, continuation and compaction there.
+- [`019` — Cursor as a full harness, and a harness definition that cannot be half-added](019-cursor-harness.md) —
+  `awaiting-human-review` — cursor runs in a pane, compacts, records its tokens, takes skills and
+  runs in a sandbox; each harness is one file whose every capability is built or absent with a
+  reason tsc checks.
 
 This is the high-level index of numbered stories. Keep each entry to its title, status, and
 one-sentence summary; put code maps, research, design, tasks, and verification in the linked story.

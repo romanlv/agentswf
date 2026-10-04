@@ -1,13 +1,17 @@
 ---
 title: Make a comparison decide what it can, sooner
-summary: Give the standard comparison, whose futility stop is built, an equivalence margin the dataset can resolve, have check say what a verdict can decide, and make run --baseline cheaper and faster, from what story 011's live check cost.
 type: story
 status: todo
 discovered_in: "story 011, task 7's live check, 2026-09-30"
+priority: P0
 depends_on: ["011"]
 ---
 
 # Make a comparison decide what it can, sooner
+
+Give the standard comparison, whose futility stop is built, an equivalence margin the dataset can
+resolve, have check say what a verdict can decide, and make run --baseline cheaper and faster, from
+what story 011's live check cost.
 
 Why it matters: story 011's live check compared the codex baseline with a public review skill
 added, over 16 cases × 2 trials: $27.40 at list price and about 4 hours, and it ended `undecided`
@@ -24,6 +28,21 @@ Why the current design can't conclude on equals:
   seldom show it: the README's own simulation says so. The plan runs out, `undecided`.
 - Tie-breakers (cost, time) decide only after a tie on recall, so a slower equal (here +36 s a
   case, [+16, +55]) is never called worse on time.
+
+The first live loop (2026-10-01, data repository `reports/2026-10-01-first-live-loop.md`) hit the
+same wall, at 1 trial a case: a try of +0.035 [−0.01, +0.08] ran all 23 tuning cases, about 3 hours
+and $24, because +0.05 was still in reach at the look at 16. What it asks of this story, in its
+order:
+
+1. **Run the cases up to each look in parallel** (`--ahead`, below). Cases ran one at a time, about
+   6 minutes each.
+2. **Stop a try at its first look unless it is clearly promising**: at 8 cases, unless the gain
+   there is at least `minGain`. A screening rule, stricter than the futility stop, which stops
+   only when the upper bound is below `minGain`. It trades some missed small gains for cost; with
+   1 trial a case a gain under ~0.10 can't be shown anyway.
+3. **A resolution at 1 trial a case.** `check` needs two trials to split the variance, so the
+   proposer was told no target size. Use the variance measured on the same dataset at 2 trials
+   (story 011's runs), saying where it came from.
 
 Notes, the design changes first. Story 011's task 8 built the futility stop (`minGain`, at looks,
 in the default comparison at 0.05) and `check`'s tie line; the rest is open.

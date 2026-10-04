@@ -1,13 +1,16 @@
 ---
 title: Show an agent's context size to the workflow
-summary: How full an agent's context is, after each operation and especially after a fork or compaction, read from what the harness logs.
 type: story
 status: todo
+priority: P2
 discovered_in: "story 016, the operator's review, 2026-10-01"
 depends_on: []
 ---
 
 # Show an agent's context size to the workflow
+
+How full an agent's context is, after each operation and especially after a fork or compaction, read
+from what the harness logs.
 
 Why it matters: the operator asked for it, at least after a fork or a compaction. A workflow that
 compacts by stage cannot see whether it needed to, or what the compaction left. Foundation §7 gave

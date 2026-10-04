@@ -1,13 +1,16 @@
 ---
 title: Record whether billing was observed or assumed, and settle headless claude's
-summary: output.json says a headless claude agent was "metered" and "charged" by a harness rule and claude's own printed cost, and readers take that for a bill.
 type: story
 status: todo
+priority: P2
 discovered_in: "story 008, the trial"
 depends_on: ["002"]
 ---
 
 # Record whether billing was observed or assumed, and settle headless claude's
+
+output.json says a headless claude agent was "metered" and "charged" by a harness rule and claude's
+own printed cost, and readers take that for a bill.
 
 Why it matters: after story 008's trial the operator was told about $40 had been charged. It had
 not been shown: no `ANTHROPIC_API_KEY` was set, and the runs used a subscription login. The

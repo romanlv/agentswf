@@ -25,7 +25,7 @@ Why now:
 - **The tests that exist don't show authors how.** Four examples are tested offline, from `tests/`,
   through engine and harness internals, with 20–40 lines of wiring before the first assertion. An
   author outside the repository can't write one.
-- **The autoresearch loop will edit workflows** ([[autoresearch-loop]]). A variant that breaks a
+- **The autoresearch loop will edit workflows** ([[013-autoresearch-loop]]). A variant that breaks a
   workflow's logic should fail in milliseconds, before it costs a trial.
 
 ```ts

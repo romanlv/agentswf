@@ -1,13 +1,16 @@
 ---
 title: A run the machine slept through
-summary: Story 008's two runs that ended 5 and 14 minutes past their deadline were not slow to close; the Mac slept through the deadline, and a run's times then count the sleep as work.
 type: story
 status: todo
+priority: P1
 discovered_in: "story 008, the trial; measured 2026-10-02"
 depends_on: ["operator-settings"]
 ---
 
 # A run the machine slept through
+
+Story 008's two runs that ended 5 and 14 minutes past their deadline were not slow to close; the Mac
+slept through the deadline, and a run's times then count the sleep as work.
 
 Why it matters: `awf-lab` compares variants on time, and gives each run a timeout. A run the machine
 sleeps through ends after its deadline by the length of the sleep, and its `wallMs`, `agentMs` and

@@ -1,13 +1,16 @@
 ---
 title: A stopped headless turn leaves its commands running
-summary: An unsandboxed headless turn stopped at its deadline or cancelled is killed alone; the commands its agent started keep running after the run ends.
 type: story
 status: todo
+priority: P1
 discovered_in: "the run-through-sleep measurement, 2026-10-02"
 depends_on: []
 ---
 
 # A stopped headless turn leaves its commands running
+
+An unsandboxed headless turn stopped at its deadline or cancelled is killed alone; the commands its
+agent started keep running after the run ends.
 
 Why it matters: `runProcess` in `packages/harness/src/command.ts` starts an unsandboxed command as
 a child of awf, not in a group of its own, and `kill` sends `SIGKILL` to that child alone. A

@@ -1,13 +1,16 @@
 ---
 title: Keep the spend when Ctrl-C lands during the end-of-run read
-summary: A first Ctrl-C after the work is done cuts the usage read, so a finished run is recorded with its spend unknown.
 type: story
 status: todo
+priority: P2
 discovered_in: "story 003, live verification"
 depends_on: ["003"]
 ---
 
 # Keep the spend when Ctrl-C lands during the end-of-run read
+
+A first Ctrl-C after the work is done cuts the usage read, so a finished run is recorded with its
+spend unknown.
 
 Why it matters: in a live `quick-check`, a SIGINT sent after the agent had answered landed while the
 run was reading session files. The run succeeded, but `output.json` said `usage known 0/1`. An
