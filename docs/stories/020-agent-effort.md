@@ -187,6 +187,96 @@ Out of scope:
 
 ## Proposed design
 
+### The contract change
+
+Effort is set in two places in `packages/contract/src/workflow/agents.ts`: on the agent, when the
+workflow opens it, and on a turn, while the run goes on. All of these types are published, so this
+section is what task 2 settles before any code.
+
+**On the agent:**
+
+```ts
+/** A harness's own level name, such as claude's `max` or codex's `xhigh`; see `HarnessSpec.effort`. */
+export type Effort = string;
+
+export type RuntimeTarget = {
+  harness: HarnessKind;
+  model: string;
+  /** A default an alias gives; the agent may set its own over it. */
+  effort?: Effort;
+};
+
+export type ExecutionRequirements = PlacementChoice & {
+  alias: RuntimeAliasName;
+  harness?: HarnessKind;
+  model?: string;
+  /** Agent-owned, like `placement`: it replaces the alias's effort rather than having to match it. */
+  effort?: Effort;
+};
+
+// ExecutionConfig = RuntimeTarget & PlacementChoice, so it gains `effort` with RuntimeTarget, and
+// AgentExecution, what an agent and each operation record, gains it with ExecutionConfig.
+
+export interface AgentForkSpec extends PlacementChoice {
+  key: AgentKey;
+  instructions?: string;
+  labels?: JsonObject;
+  /** Absent, the fork keeps its parent's agent effort, not the effort of the parent's last turn. */
+  effort?: Effort;
+}
+```
+
+```ts
+const reviewer = await agents.open({
+  key: "reviewer",
+  runtime: { alias: "codex", effort: "high" },
+});
+```
+
+**During the run, for one turn:**
+
+```ts
+interface EnqueuedTurnBase extends AgentTurnBase {
+  id: TurnId;
+  /** This turn only; the next turn that names none runs at the agent's effort. */
+  effort?: Effort;
+}
+
+interface AgentRunBase {
+  // ...id, prompt, deadline, timeoutMs, label, nudge, as today
+  /** This turn only, its nudge included. Part of the turn's spec: a reused id with another effort is refused. */
+  effort?: Effort;
+}
+```
+
+```ts
+const findings = await reviewer.run({ prompt: review, schema: Findings });           // high
+const summary = await reviewer.run({ prompt: "Summarise.", effort: "low" });          // low, once
+```
+
+**In the records:** nothing new is added. `OperationRecord.execution` is already "resolved execution
+for this operation", so a turn's effort is written there; `byAgent[].execution` holds the agent's.
+In `output.json`, an operation looks like this:
+
+```json
+{ "agent": "reviewer", "operationId": "…",
+  "execution": { "harness": "codex", "model": "gpt-6.1-sol", "placement": "pane", "effort": "low" } }
+```
+
+**Not changed:**
+
+- `CompactSpec`: a compaction runs at the agent's effort.
+- `AgentDirectory.attach`: it takes a `RuntimeSelection`, so it gains `effort` as a constraint with
+  the rest.
+- `caller`: a turn on the caller that names an effort is refused.
+- `wf`: an agent does not set its own effort; the workflow does.
+
+**In the harness package**, not the contract: `HarnessSpec` gains the levels the harness takes
+(`effort: readonly string[]`), plus the plan that switches a pane's effort, or that capability
+absent with its reason.
+
+### How it runs
+
 `effort` is an optional string on the runtime and on a turn:
 
 - it is validated against the levels the agent's harness definition lists;
