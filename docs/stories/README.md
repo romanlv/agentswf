@@ -87,7 +87,7 @@ status is one of `todo`, `draft`, `ready`, `in-progress`, `blocked`, `awaiting-h
   `done` — `agent.compact` runs the harness's native compaction with the workflow's focus,
   and a pane agent takes more than one operation, so one agent can carry a long task.
 - [`016` — Fork an agent so new agents start from what it knows, from the cache](016-fork.md) —
-  `awaiting-human-review` — `agent.fork({ key })` opens a new agent on a copy of the agent's session, whose first
+  `done` — `agent.fork({ key })` opens a new agent on a copy of the agent's session, whose first
   request reads the parent's context from the provider's cache on claude and pi.
 - [`017` — Run pi in a Herdr pane, as claude and codex run](017-pi-pane-agent.md) —
   `done` — a pi agent may take placement pane, on the host and in sandboxes, with

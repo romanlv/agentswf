@@ -3,7 +3,7 @@ id: "016"
 title: Fork an agent so new agents start from what it knows, from the cache
 summary: "agent.fork({ key }) opens a new agent on a copy of the agent's session, taken by the harness's own fork with no model call; claude and pi forks read the parent's context from the provider's cache, with or without compaction first."
 type: story
-status: awaiting-human-review
+status: done
 discovered_in: "story 015, the operator's review, 2026-10-01"
 depends_on: []
 ---
@@ -697,4 +697,5 @@ Manual or live evaluation:
 
 - [x] Every task is complete and story-level verification passes.
 - [x] Set the story status to `awaiting-human-review` and present the outcome.
-- [ ] Record the human's explicit approval or requested changes here.
+- [x] Record the human's explicit approval or requested changes here: approved by the operator,
+  2026-10-04, and merged into main.
