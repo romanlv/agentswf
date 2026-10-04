@@ -35,3 +35,5 @@ Open questions:
   querying a running command a demonstrated requirement?
 - Which snapshot fields are durable operator semantics, and which remain best-effort diagnostics?
 - How should progress output coexist with machine-readable final JSON and shell interruption?
+- Across runs: [[runs-and-stages]] plans `awf status` over a workflow's runs, with a status read off
+  each run's attempts. Is that the same command, or another one?

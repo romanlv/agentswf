@@ -33,6 +33,11 @@ const outcome = await run.worker.compact({
 
 What to settle:
 
+- A principle from story 018 (2026-10-04): awf provides the API, and convenience wrappers ship in
+  a workflow's boilerplate, copied and changed by its author. The prototype's `ask` (a turn that
+  stops without an answer) and `md` live there, over `run` and awf's `stop`. What's left here is
+  what belongs in the API itself, such as a duration a person writes.
+
 - Done: `compact({ prompt })` takes `run`'s defaults, a generated id and the workflow's deadline,
   with `timeoutMs` to bound it (ADR 0007, amended). The ticket workflow's helper now calls
   `compact({ id, prompt, timeoutMs })`.

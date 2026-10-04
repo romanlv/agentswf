@@ -22,3 +22,4 @@ One file per decision: what was decided, what it replaces, and what evidence mov
   copy of its parent's session
 - [0010](0010-the-calling-session-is-an-agent.md) — the calling session is an agent of the run it
   started
+- [0011](0011-a-run-continues-from-its-stages.md) — a run continues from its stages
