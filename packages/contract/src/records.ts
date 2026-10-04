@@ -9,6 +9,7 @@ import type {
   TurnOutcome,
 } from "./workflow/agents";
 import type { DecisionRecord, Question } from "./workflow/decisions";
+import type { StageSummary } from "./workflow/executable";
 import type { JsonObject, JsonValue } from "./workflow/json";
 import type {
   Domain,
@@ -305,14 +306,7 @@ export type AttemptRecord = {
 };
 
 /** A stage an attempt entered, as its files record it: no value, which `stages/` holds. */
-export type AttemptStage = {
-  stage: string;
-  source: "ran" | "reused";
-  outcome: StageOutcome;
-  /** The attempt that ran it. */
-  attempt: number;
-  summary?: string;
-};
+export type AttemptStage = Omit<StageSummary, "value">;
 
 export const STAGE_RECORD_VERSION = 1 as const;
 

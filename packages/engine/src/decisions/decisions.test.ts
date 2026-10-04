@@ -587,7 +587,7 @@ describe("decision accounting", () => {
       PUBLISHED_PRICES,
       TIMES,
       [decision({ stage: "triage" }), decision({ key: "match:f2" })],
-      [{ stage: "triage" }],
+      [{ stage: "triage", spanMs: 0 }],
     );
     expect(summary.grouping).toBe("stages");
     expect(summary.byStage.map(({ stage, decisions }) => [stage, decisions?.calls])).toEqual([

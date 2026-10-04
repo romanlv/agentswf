@@ -158,6 +158,7 @@ export class StageLedger {
         source: "reused",
         outcome: "succeeded",
         attempt,
+        spanMs: 0,
         ...(summary === undefined ? {} : { summary }),
         ...(decision.value === undefined ? {} : { value: decision.value }),
       });
@@ -217,6 +218,7 @@ export class StageLedger {
     const end = (fields: Pick<StageRecord, "outcome" | "reason" | "summary" | "value">) => {
       if (ended) return ended;
       if (this.#open === stage) this.#open = undefined;
+      const at = now();
       const record: StageRecord = {
         version: STAGE_RECORD_VERSION,
         stage: name,
@@ -224,7 +226,7 @@ export class StageLedger {
         outcome: fields.outcome,
         ...(fields.reason === undefined ? {} : { reason: fields.reason }),
         started: started.toISOString(),
-        ended: now().toISOString(),
+        ended: at.toISOString(),
         ...(this.options.workflowVersion === undefined
           ? {}
           : { workflowVersion: this.options.workflowVersion }),
@@ -237,6 +239,7 @@ export class StageLedger {
         source: "ran",
         outcome: record.outcome,
         attempt: record.attempt,
+        spanMs: at.getTime() - started.getTime(),
         ...(record.summary === undefined ? {} : { summary: record.summary }),
         ...(record.value === undefined ? {} : { value: record.value }),
       });

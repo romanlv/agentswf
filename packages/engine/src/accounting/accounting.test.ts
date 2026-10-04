@@ -395,7 +395,11 @@ describe("byStage, from the workflow's stages", () => {
       PUBLISHED_PRICES,
       TIMES,
       [],
-      [{ stage: "doc-review" }, { stage: "implement" }, { stage: "qa" }],
+      [
+        { stage: "doc-review", spanMs: 0 },
+        { stage: "implement", spanMs: 0 },
+        { stage: "qa", spanMs: 0 },
+      ],
     );
     expect(summary.byStage.map(({ stage, agents, estimate }) => [stage, agents, estimate])).toEqual(
       [
@@ -409,20 +413,30 @@ describe("byStage, from the workflow's stages", () => {
     expect(summary.byAgent[0]).not.toHaveProperty("stage");
   });
 
-  test("a reused stage is a row at zero", () => {
+  test("a reused stage is a row at zero, and each stage is timed by its own span", () => {
     const summary = summarizeRun(
       [worker("qa", 100_000, 1)],
       PUBLISHED_PRICES,
       TIMES,
       [],
-      [{ stage: "implement" }, { stage: "qa" }],
-    );
-    expect(summary.byStage.map(({ stage, agents, estimate }) => [stage, agents, estimate])).toEqual(
       [
-        ["implement", 0, undefined],
-        ["qa", 1, 2.5],
+        { stage: "implement", spanMs: 0 },
+        { stage: "qa", spanMs: 90_000 },
+        { stage: "notify", spanMs: 3_000 },
       ],
     );
+    expect(
+      summary.byStage.map(({ stage, agents, estimate, spanMs }) => [
+        stage,
+        agents,
+        estimate,
+        spanMs,
+      ]),
+    ).toEqual([
+      ["implement", 0, undefined, 0],
+      ["qa", 1, 2.5, 90_000],
+      ["notify", 0, undefined, 3_000],
+    ]);
   });
 
   test("a run with no stages keeps the key prefix", () => {
@@ -441,14 +455,20 @@ describe("byStage, from the workflow's stages", () => {
       PUBLISHED_PRICES,
       TIMES,
       [],
-      [{ stage: "implement" }, { stage: "qa" }],
+      [
+        { stage: "implement", spanMs: 0 },
+        { stage: "qa", spanMs: 0 },
+      ],
     );
     const second = summarizeRun(
       [worker("qa", 300_000, 3)],
       PUBLISHED_PRICES,
       TIMES,
       [],
-      [{ stage: "implement" }, { stage: "qa" }],
+      [
+        { stage: "implement", spanMs: 0 },
+        { stage: "qa", spanMs: 0 },
+      ],
     );
     const run = sumAttempts([first, second]);
     expect(run.totals).toMatchObject({ agents: 2, estimate: 15 });
@@ -465,14 +485,14 @@ describe("byStage, from the workflow's stages", () => {
       PUBLISHED_PRICES,
       TIMES,
       [],
-      [{ stage: "qa" }],
+      [{ stage: "qa", spanMs: 0 }],
     );
     const unknown = summarizeRun(
       [worker("qa", 0, 2)].map(({ spend: _spend, ...rest }) => rest),
       PUBLISHED_PRICES,
       TIMES,
       [],
-      [{ stage: "qa" }],
+      [{ stage: "qa", spanMs: 0 }],
     );
     const run = sumAttempts([priced, unknown]);
     expect(run.totals).toMatchObject({ agents: 2, known: 1, priced: 1, estimate: 2.5 });

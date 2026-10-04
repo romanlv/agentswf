@@ -808,3 +808,7 @@ breaks them under main's awf until this branch is merged, so it waits for the op
 - [ ] If changes are requested, return to the affected task and repeat its review and verification.
 - [ ] Only after explicit approval, mark the story `done` and update `Stories at a glance`.
 - [ ] review state file, as it might need changes
+
+%% 
+does it have cli to see workflows in progress, completed  etc... to see the status of things ? 
+%%

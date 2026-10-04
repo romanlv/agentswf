@@ -1463,8 +1463,15 @@ describe("awf run's stages", () => {
     rmSync(join(cwd, "fail"));
     const continued = await awf(cwd, ["flow.js", "--continue", "r1"]);
     expect(continued.record.stages).toEqual([
-      { stage: "implement", source: "reused", outcome: "succeeded", attempt: 1, summary: "feat/a" },
-      { stage: "qa", source: "ran", outcome: "succeeded", attempt: 2 },
+      {
+        stage: "implement",
+        source: "reused",
+        outcome: "succeeded",
+        attempt: 1,
+        spanMs: 0,
+        summary: "feat/a",
+      },
+      { stage: "qa", source: "ran", outcome: "succeeded", attempt: 2, spanMs: expect.any(Number) },
     ]);
     expect(continued.stderr).toMatch(/^run r1, 2 attempts: 0 agents · \d+s$/m);
   });

@@ -17,15 +17,16 @@ export const NO_STAGE = "(no stage)";
 
 /**
  * What a run cost and how long it took, from its usage and decision records alone, so a finished
- * run can be priced again with another table. `stages` are the workflow stages entered, in order:
- * each is a row, a reused one at zero; without them, a row per call path and key prefix.
+ * run can be priced again with another table. `entered` are the workflow stages entered, in order:
+ * each is a row timed by its own span, a reused one at zero; without them, a row per call path and
+ * key prefix, timed by what ran in it.
  */
 export function summarizeRun(
   usage: readonly SettledOperation[],
   prices: PriceTable,
   times: { startedAt: string; finishedAt: string },
   decisions: readonly SettledDecision[],
-  entered: readonly { stage: string }[] = [],
+  entered: readonly { stage: string; spanMs: number }[] = [],
 ): RunAccounting {
   const spends = usage.flatMap((record) => record.spend ?? []);
   const agentModels = unique(spends.map((spend) => spend.model));
@@ -65,7 +66,8 @@ export function summarizeRun(
     byStage: stages.map((stage) => {
       const records = usage.filter((record) => stageOf(record) === stage);
       const asked = decisions.filter((record) => decisionStageOf(record) === stage);
-      return { stage, ...figures(records, asked), spanMs: spanOf(records, asked) };
+      const spanMs = entered.find((one) => one.stage === stage)?.spanMs ?? spanOf(records, asked);
+      return { stage, ...figures(records, asked), spanMs };
     }),
     byModel: models.map((model) => {
       const agents = modelFigures(model, usage, prices);

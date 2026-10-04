@@ -15,6 +15,8 @@ export type StageSummary = {
   outcome: StageOutcome;
   /** The attempt that ran it. */
   attempt: number;
+  /** How long it ran in this attempt: zero for a reused one. */
+  spanMs: number;
   summary?: string;
   /** Its value, for a stage that returns one and succeeded. */
   value?: JsonValue;
