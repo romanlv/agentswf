@@ -3,7 +3,7 @@ id: "016"
 title: Fork an agent so new agents start from what it knows, from the cache
 summary: "agent.fork({ key }) opens a new agent on a copy of the agent's session, taken by the harness's own fork with no model call; claude and pi forks read the parent's context from the provider's cache, with or without compaction first."
 type: story
-status: in-progress
+status: awaiting-human-review
 discovered_in: "story 015, the operator's review, 2026-10-01"
 depends_on: []
 ---
@@ -276,9 +276,9 @@ Alternatives rejected:
 - [x] 1. Each headless claude or pi turn charges what it cost
 - [x] 2. A headless claude agent forks, end to end
 - [x] 3. Forks in panes and across placements: claude and codex
-- [ ] 4. Headless codex and pi fork
+- [x] 4. Headless codex and pi fork
 - [x] 5. A fork whose home differs from its parent's: sandboxes and codex's skills home
-- [ ] 6. A live eval of forks on every harness and placement, with and without compaction
+- [x] 6. A live eval of forks on every harness and placement, with and without compaction
 
 Each slice from 2 on lands its seam with the code that uses it, as ADR 0001 asks of anything that
 returns to the surface.
@@ -453,15 +453,15 @@ Done when:
 
 Automated:
 
-- [ ] The tests named under each task.
-- [ ] `bun test`
-- [ ] `bunx tsc --noEmit`
-- [ ] `bun run check`
+- [x] The tests named under each task.
+- [x] `bun test`
+- [x] `bunx tsc --noEmit`
+- [x] `bun run check`
 
 Manual or live evaluation:
 
-- [ ] `tests/fork.eval.ts`, on the cheapest models: about a dollar of haiku with the rest on
-  subscriptions.
+- [x] `tests/fork.eval.ts`: all twelve cases passed, about $1.40 at list prices on sonnet 5.5,
+  gpt-6-luna and gpt-5.6-terra, the headless claude's share billed per token.
 
 ## Review record
 
@@ -508,7 +508,7 @@ Manual or live evaluation:
 
 ## Implementation notes
 
-### Task 6, 2026-10-03: built, pi's cases waiting on its login
+### Task 6, 2026-10-03
 
 - `tests/fork.eval.ts` runs `examples/fork` on twelve cases: claude in a pane and headless, across
   a placement change both ways, each with and without compaction where the story asks; codex in a
@@ -520,9 +520,9 @@ Manual or live evaluation:
   claude or pi fork's first turn must read at least half its prompt from the cache. Codex's is
   recorded, not asserted, and its share is high only because the turn's later requests hit codex's
   own cache (F4).
-- Live, claude and codex: all ten passed, ~$1.12 at list prices. First-turn cache shares: claude
+- Live: all twelve passed, ~$1.40 at list prices; pi's two once its login was renewed. First-turn cache shares: claude
   0.98 in a pane, headless and pane to headless, 0.80 headless to pane and pane compacted, 0.71
-  headless compacted; codex 0.55–0.92.
+  headless compacted; codex 0.55–0.92; pi 0.91, and 0.98 compacted.
 
 ### Task 5, 2026-10-03
 
@@ -559,7 +559,7 @@ Manual or live evaluation:
   overwrite, the activation fork's bound, the copy left behind, a closed parent sandbox, the
   accounting comment.
 
-### Task 4, 2026-10-03: built and reviewed, its live run pending
+### Task 4, 2026-10-03
 
 - pi's `forkSession`: a turnless rpc fork of the parent's file into
   `sessions/awf-forks/{uuid}/`, keeping the parent's id, its provider's cache key (F6, F7). Its ref
@@ -579,8 +579,13 @@ Manual or live evaluation:
   fixed and tested. The live run must check: the fork's path from `get_state`; its first request
   reads the cache; `pi:compact` compacts the same file; a pane parent forks from the path Herdr
   names; the parent's id still resolves to its own file afterwards.
-- **Live run blocked**: pi's OpenAI Codex login expired (refresh token invalidated) on
-  2026-10-03; the operator must sign in again.
+- Live, once pi's expired login was renewed (2026-10-03; [[expired-login]] records the failure
+  mode): pi, pi>pane, pi-pane, pi-pane>headless, pi:compact and pi+sandbox all passed. Each fork
+  is a file under `sessions/awf-forks/{uuid}/` keeping its parent's id, and its first turn read
+  0.91 of its prompt from the cache, 0.97 compacted. pi in a sandbox read nothing from the cache,
+  its parent no more than its fork: a sandbox matter, not a fork's.
+- **A pi fork answers under its parent's id**, which its `wf` launcher reports, so a fork's record
+  drops any session its parent has, unless its own harness saw it.
 
 ### Task 3, 2026-10-03
 
@@ -690,6 +695,6 @@ Manual or live evaluation:
 
 ## Human review
 
-- [ ] Every task is complete and story-level verification passes.
-- [ ] Set the story status to `awaiting-human-review` and present the outcome.
+- [x] Every task is complete and story-level verification passes.
+- [x] Set the story status to `awaiting-human-review` and present the outcome.
 - [ ] Record the human's explicit approval or requested changes here.

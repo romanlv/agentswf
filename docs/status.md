@@ -149,10 +149,11 @@ The gates are defined in [`foundation.md`](foundation.md) §12.
   `/compact`. Measured on every harness
   ([findings](findings/native-compaction.md)); its eval passes on all seven runtimes, pi panes
   included. `compact({ prompt })` takes `run`'s id and deadline defaults (ADR 0007, amended).
-- [016 — fork](stories/016-fork.md): in progress, ADR 0009 approved 2026-10-03; tasks 1–3 and 5
-  done, 4 built with its live run waiting on pi's login: a headless claude turn charges what it
-  added to its session's total, and a workflow forks claude and codex agents with
-  `agent.fork({ key })`, in a pane or headless, into either, in a sandbox too. Claude panes are
+- [016 — fork](stories/016-fork.md): awaiting human review, ADR 0009 approved 2026-10-03.
+  `agent.fork({ key })` opens a new agent on a copy of an agent's session, on claude, codex and
+  pi, in a pane or headless, into either, in a sandbox too; claude's and pi's read their parent's
+  cache. A headless claude turn charges what it added to its session's total. Claude panes are
+  typed their prompts, which claude 2.1.288 otherwise shows as pasted text and will not act on. Claude panes are
   typed their prompts, which claude 2.1.288 otherwise shows as pasted text and will not act on. A fork is a new
   agent on a copy of the session, made with no model call; claude's and pi's forks read the
   parent's cache, codex's pay it once ([findings](findings/fork-cache.md)).

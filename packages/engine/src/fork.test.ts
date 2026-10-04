@@ -143,6 +143,28 @@ describe("fork", () => {
     expect(sessionsOf("tests")).toContain(forkSession);
   });
 
+  test("a fork that answers under its parent's session, as a pi fork keeps its id, does not list it as its own", async () => {
+    const adapter = forkingAdapter({
+      act: async (context) => {
+        const parent = context.activation.key === "tests" ? "fake-worker" : undefined;
+        await submit(context.binding!, { answer: context.activation.key }, parent);
+      },
+    });
+    const result = await run(adapter, async (context) => {
+      const worker = await open(context);
+      await ask(worker, "Plan.");
+      const tests = await worker.fork({ key: "tests" });
+      return ask(tests, "Which tests?");
+    });
+    expect(result.value).toBe("tests");
+    const sessionsOf = (agent: string) =>
+      result.usage
+        .filter((usage) => usage.agent === agent)
+        .flatMap((usage) => usage.sessions.map((session) => session.id));
+    expect(sessionsOf("worker")).toEqual(["fake-worker"]);
+    expect(sessionsOf("tests")).toEqual([adapter.forks[0]!.sessionRef]);
+  });
+
   test("the same key and spec is the same fork; anything else under it conflicts", async () => {
     const adapter = forkingAdapter();
     const result = await run(adapter, async (context) => {

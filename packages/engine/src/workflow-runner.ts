@@ -436,14 +436,28 @@ export async function startWorkflow<Args extends JsonValue, Result extends JsonV
  * An agent's sessions, as its launcher reports them and as its harness session knows them, and its
  * forks', whose copied context may reach its launcher with a fork's own session (ADR 0009).
  */
-type AgentSessions = { launcher: Set<string>; harness?: HarnessSession; forks: AgentSessions[] };
+type AgentSessions = {
+  launcher: Set<string>;
+  harness?: HarnessSession;
+  forks: AgentSessions[];
+  /** A fork's parent's, whose session the fork's copied context can name (pi keeps its id). */
+  parent?: AgentSessions;
+};
 
-/** What the agent reported or its harness saw, less any session one of its forks runs. */
+/**
+ * What the agent reported or its harness saw, less any session one of its forks runs, and less
+ * any its parent has: a fork answering under its parent's id is its parent's session, not its own.
+ */
 function reportedSessions(sessions: AgentSessions): string[] {
-  const forks = new Set(forkSessions(sessions));
-  return [...new Set([...sessions.launcher, ...(sessions.harness?.sessions?.() ?? [])])].filter(
-    (id) => !forks.has(id),
-  );
+  const own = sessions.harness?.sessions?.() ?? [];
+  const others = new Set(forkSessions(sessions));
+  for (let parent = sessions.parent; parent; parent = parent.parent) {
+    for (const id of [...parent.launcher, ...(parent.harness?.sessions?.() ?? [])]) {
+      // What its own harness saw is its own, even reported through its parent's channel.
+      if (!own.includes(id)) others.add(id);
+    }
+  }
+  return [...new Set([...sessions.launcher, ...own])].filter((id) => !others.has(id));
 }
 
 function forkSessions(sessions: AgentSessions): string[] {
@@ -1089,7 +1103,7 @@ class WorkflowOwner {
     };
 
     this.options.progress.agentOpened(spec.key, scope?.stage);
-    const sessions: AgentSessions = { launcher: new Set(), forks: [] };
+    const sessions: AgentSessions = { launcher: new Set(), forks: [], parent: opening.sessions };
     opening.sessions.forks.push(sessions);
     const accounted: AccountedAgent = {
       key: spec.key,
