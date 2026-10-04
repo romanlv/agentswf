@@ -1,5 +1,6 @@
 import { rm } from "node:fs/promises";
 import { homedir } from "node:os";
+import { isAbsolute, relative } from "node:path";
 import {
   type AttemptAccounting,
   type AttemptRecord,
@@ -8,11 +9,18 @@ import {
   type RunAccounting,
 } from "@agentswf/contract/records";
 import type { Ending, ExecutableWorkflow, JsonValue } from "@agentswf/contract/workflow";
-import { describeAccounting } from "./accounting/format";
+import {
+  describeAttempts,
+  describeDecisionLine,
+  describeFigures,
+  describeGroups,
+  duration,
+} from "./accounting/format";
 import { sumAttempts } from "./accounting/summary";
-import type { AttemptEnd } from "./attempt-ending";
+import { type AttemptEnd, ENDINGS } from "./attempt-ending";
 import { messageOf } from "./errors";
 import { writeJson, writeWhole } from "./files";
+import { endingMark, type Paint } from "./progress-view";
 import { type Attempt, endAttempt, outputFile, reportFile } from "./runs";
 
 /** Where an attempt's records went, and its output record as `--json` prints it. */
@@ -131,22 +139,62 @@ async function writeReport(
 }
 
 /**
- * What the attempt cost, and for a later attempt the whole run: its attempts summed, by stage,
- * naming those with no accounting, which an interrupted attempt leaves.
+ * How an attempt ended, once, after its stages: the outcome, where and why; the run and what the
+ * attempt cost, and for a later attempt the whole run, naming attempts with no accounting, which an
+ * interrupted one leaves; then the command that goes on, and where the records are.
  */
-export function accountingLines(
-  id: string,
-  n: number,
-  current: RunAccounting,
-  earlier: readonly AttemptRecord[],
+export function describeEnding(
+  ending: Ending<JsonValue>,
+  context: {
+    /** The workflow's name and the run's id. */
+    named: string;
+    n: number;
+    accounting?: RunAccounting;
+    earlier: readonly AttemptRecord[];
+    records: string;
+    report?: string;
+    paint: Paint;
+  },
 ): string[] {
-  if (n <= 1) return describeAccounting(current);
-  const before = earlier.filter((record) => record.n < n);
-  const recorded = [...before.flatMap((record) => record.accounting ?? []), current];
-  const [first, ...stages] = describeAccounting(sumAttempts(recorded));
-  const missing = n - recorded.length;
-  const gap = missing > 0 ? ` (${missing} with no accounting)` : "";
-  return [...describeAccounting(current), `run ${id}, ${n} attempts${gap}: ${first}`, ...stages];
+  const { accounting, n } = context;
+  const mark = endingMark(ending.kind, context.paint);
+  const run = [
+    context.named,
+    ...(n > 1 ? [`attempt ${n}`] : []),
+    ...(accounting ? [duration(accounting.wallMs), ...describeFigures(accounting)] : []),
+    ...(n > 1 && accounting ? [runTotal(n, accounting, context.earlier)] : []),
+  ].join(" · ");
+  const head =
+    ending.kind === "completed"
+      ? [`${mark} completed · ${run}`]
+      : [
+          `${mark} ${ENDINGS[ending.kind].ended}${ending.stage === undefined ? "" : ` in ${ending.stage}`}: ${ending.reason}`,
+          `  ${run}`,
+        ];
+  const rows: [string, string][] = [
+    ...(ending.kind === "completed" ? [] : [["go on", ending.continue] as [string, string]]),
+    ...(context.report ? [["report", context.report] as [string, string]] : []),
+    ["records", context.records],
+  ];
+  return [
+    ...head,
+    ...(accounting ? [...describeDecisionLine(accounting), ...describeGroups(accounting)] : []),
+    ...rows.map(([key, value]) => `  ${key.padEnd(7)}  ${value}`),
+  ];
+}
+
+function runTotal(n: number, current: RunAccounting, earlier: readonly AttemptRecord[]): string {
+  const recorded = [
+    ...earlier.filter((record) => record.n < n).flatMap((record) => record.accounting ?? []),
+    current,
+  ];
+  return describeAttempts(sumAttempts(recorded), n, n - recorded.length);
+}
+
+/** A path under `cwd` relative to it, one under home from `~`; any other in full. */
+export function shown(path: string, cwd: string): string {
+  const inside = relative(cwd, path);
+  return inside && !inside.startsWith("..") && !isAbsolute(inside) ? inside : tilde(path);
 }
 
 export function tilde(path: string): string {

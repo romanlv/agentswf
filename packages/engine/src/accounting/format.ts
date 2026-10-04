@@ -10,72 +10,142 @@ import { PUBLISHED_PRICES } from "./prices";
  * is more than one. Gaps are named, never shown as zero; what is complete is left to the record.
  */
 export function describeAccounting(accounting: AttemptAccounting): string[] {
+  const stages = accounting.byStage.length > 1 ? accounting.byStage : [];
+  return [
+    [
+      ...(accounting.totals.agents === 0 ? [plural(0, "agent")] : []),
+      ...describeFigures(accounting, duration(accounting.wallMs)),
+    ].join(" · "),
+    ...describeDecisionLine(accounting),
+    ...describeSlices(stages),
+  ];
+}
+
+/**
+ * What the agents cost: their count, tokens, estimate, billing and gaps, with `took` after the
+ * count; just `took` and what went unpriced for a run that opened no agent.
+ */
+export function describeFigures(accounting: AttemptAccounting, took?: string): string[] {
   const { totals } = accounting;
   const basis = shortBasis(accounting.basis);
+  const spent = took === undefined ? [] : [took];
   const unpriced =
     accounting.unpriced.length === 0 ? [] : [`unpriced: ${accounting.unpriced.join(", ")}`];
   // A run that opened no agent has no agent usage to be missing.
-  const first =
-    totals.agents === 0
-      ? [plural(0, "agent"), duration(accounting.wallMs), ...unpriced]
-      : [
-          plural(totals.agents, "agent"),
-          duration(accounting.wallMs),
-          totals.known === 0 ? "no usage known" : plural(total(totals), "token", count),
-          ...(totals.estimate === undefined ? [] : [`${estimate(totals.estimate)} at ${basis}`]),
-          ...(totals.charged === undefined ? [] : [`${usd(totals.charged)} charged`]),
-          accounting.billing,
-          ...(totals.billed < totals.agents
-            ? [`billing known ${totals.billed}/${totals.agents}`]
-            : []),
-          ...(totals.known < totals.agents && totals.known > 0
-            ? [`usage known ${totals.known}/${totals.agents}`]
-            : []),
-          ...gaps(totals),
-          ...unpriced,
-        ];
-  const stages = accounting.byStage.length > 1 ? accounting.byStage : [];
-  const width = Math.max(0, ...stages.map(({ stage }) => stage.length));
+  if (totals.agents === 0) return [...spent, ...unpriced];
   return [
-    first.join(" · "),
-    ...(totals.decisions ? [describeDecisions(totals.decisions, basis)] : []),
-    ...stages.map((stage) => {
-      const agents =
-        stage.agents === 0
-          ? []
-          : [
-              stage.estimate !== undefined
-                ? estimate(stage.estimate)
-                : stage.known === 0
-                  ? "no usage known"
-                  : plural(total(stage), "token", count),
-              ...(stage.known < stage.agents ? [`usage known ${stage.known}/${stage.agents}`] : []),
-              ...gaps(stage),
-            ];
-      const decisions = stage.decisions
-        ? [
-            plural(stage.decisions.calls, "decision"),
-            ...(stage.decisions.estimate === undefined
-              ? stage.decisions.known === 0
-                ? ["no usage known"]
-                : []
-              : [
-                  stage.agents === 0
-                    ? estimate(stage.decisions.estimate)
-                    : `${estimate(stage.decisions.estimate)} in decisions`,
-                ]),
-            ...decisionGaps(stage.decisions),
-          ]
-        : [];
-      const counted = stage.agents === 0 && stage.decisions ? [] : [plural(stage.agents, "agent")];
-      return [
-        `  ${stage.stage.padEnd(width)}  ${[...counted, ...decisions.slice(0, 1)].join(", ")}`,
-        duration(stage.spanMs),
-        ...agents,
-        ...decisions.slice(1),
-      ].join(" · ");
-    }),
+    plural(totals.agents, "agent"),
+    ...spent,
+    totals.known === 0 ? "no usage known" : plural(total(totals), "token", count),
+    ...(totals.estimate === undefined ? [] : [`${estimate(totals.estimate)} at ${basis}`]),
+    ...(totals.charged === undefined ? [] : [`${usd(totals.charged)} charged`]),
+    accounting.billing,
+    ...(totals.billed < totals.agents ? [`billing known ${totals.billed}/${totals.agents}`] : []),
+    ...(totals.known < totals.agents && totals.known > 0
+      ? [`usage known ${totals.known}/${totals.agents}`]
+      : []),
+    ...gaps(totals),
+    ...unpriced,
   ];
+}
+
+/** A run of several attempts, in brief: how many, how long in all, and the estimate when any agent ran. */
+export function describeAttempts(
+  sum: AttemptAccounting,
+  attempts: number,
+  unaccounted: number,
+): string {
+  const gap = unaccounted > 0 ? ` (${unaccounted} with no accounting)` : "";
+  const priced =
+    sum.totals.agents > 0 && sum.totals.estimate !== undefined
+      ? [estimate(sum.totals.estimate)]
+      : [];
+  return `run: ${[`${attempts} attempts${gap}`, duration(sum.wallMs), ...priced].join(", ")}`;
+}
+
+/** The run's decisions on a line of their own, when it asked any. */
+export function describeDecisionLine(accounting: AttemptAccounting): string[] {
+  const { decisions } = accounting.totals;
+  return decisions ? [describeDecisions(decisions, shortBasis(accounting.basis))] : [];
+}
+
+/**
+ * A workflow's stages, each to what its agents and decisions cost; a stage that opened none and
+ * asked nothing is left out, not shown at zero.
+ */
+export function stageFigures(accounting: AttemptAccounting): Map<string, string> {
+  if (accounting.grouping !== "stages") return new Map();
+  return new Map(
+    accounting.byStage.flatMap((stage) => {
+      const figures = sliceFigures(stage);
+      return figures.length === 0 ? [] : [[stage.stage, figures.join(" · ")] as const];
+    }),
+  );
+}
+
+/**
+ * A run without stages, a line per group of its agents, when there is more than one and any agent
+ * ran: stages are on their own lines in the view.
+ */
+export function describeGroups(accounting: AttemptAccounting): string[] {
+  const groups =
+    accounting.grouping === "prefix" &&
+    accounting.byStage.length > 1 &&
+    accounting.totals.agents > 0
+      ? accounting.byStage
+      : [];
+  return describeSlices(groups);
+}
+
+function describeSlices(slices: AttemptAccounting["byStage"]): string[] {
+  const width = Math.max(0, ...slices.map(({ stage }) => stage.length));
+  return slices.map((stage) => {
+    const [counted, ...rest] = sliceFigures(stage, true);
+    return [`  ${stage.stage.padEnd(width)}  ${counted}`, duration(stage.spanMs), ...rest].join(
+      " · ",
+    );
+  });
+}
+
+/**
+ * One slice's agents and decisions. `counted` keeps a slice with neither as `0 agents`, and the
+ * agents and decisions counted together first, for a table's rows.
+ */
+function sliceFigures(stage: AttemptAccounting["byStage"][number], counted = false): string[] {
+  const tokens = stage.known === 0 ? "no usage known" : plural(total(stage), "token", count);
+  const priced = stage.estimate === undefined ? [] : [estimate(stage.estimate)];
+  const agents =
+    stage.agents === 0
+      ? []
+      : [
+          // A table's row has room for the estimate alone, when there is one.
+          ...(counted && priced.length > 0 ? priced : [tokens, ...priced]),
+          ...(stage.known < stage.agents && stage.known > 0
+            ? [`usage known ${stage.known}/${stage.agents}`]
+            : []),
+          ...gaps(stage),
+        ];
+  const decisions = stage.decisions
+    ? [
+        plural(stage.decisions.calls, "decision"),
+        ...(stage.decisions.estimate === undefined
+          ? stage.decisions.known === 0
+            ? ["no usage known"]
+            : []
+          : [
+              stage.agents === 0
+                ? estimate(stage.decisions.estimate)
+                : `${estimate(stage.decisions.estimate)} in decisions`,
+            ]),
+        ...decisionGaps(stage.decisions),
+      ]
+    : [];
+  const agentCount =
+    stage.agents === 0 && (stage.decisions || !counted) ? [] : [plural(stage.agents, "agent")];
+  if (counted) {
+    return [[...agentCount, ...decisions.slice(0, 1)].join(", "), ...agents, ...decisions.slice(1)];
+  }
+  return [...agentCount, ...agents, ...decisions];
 }
 
 /** The published table by its kind alone, its date being in the record; any other table in full. */

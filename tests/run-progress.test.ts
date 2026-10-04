@@ -121,29 +121,65 @@ describe("run progress by stage", () => {
       }),
     ).toEqual([
       "implement-ticket AIRS-1515 · attempt 2 · qa · 5m 00s · 1 working",
-      "↺ doc-review  attempt 1 · docs/AIRS-1515.md",
-      "↺ implement   attempt 1",
-      "✓ review      4m 00s · 2 findings",
-      expect.stringMatching(/^. qa {10}1m 00s$/),
+      "↺ doc-review   docs/AIRS-1515.md   attempt 1",
+      "↺ implement                        attempt 1",
+      "✓ review       4m 00s              2 findings",
+      expect.stringMatching(/^. qa {11}1m 00s$/),
       expect.stringMatching(/^ {4}. worker {2}claude-opus-5-5 · pane {2}preview {2}50s$/),
       "    · tester  claude-opus-5-5 · headless  4s  waiting",
       "· mr",
     ]);
   });
 
+  test("once the run is over, each stage that ran agents shows what they cost, and a clean group folds into its stage", () => {
+    const over: WorkflowRunSnapshot = {
+      ...CONTINUED,
+      state: "closed",
+      groups: [
+        { label: "Checks", total: 1, started: 1, done: 1, startedAt: 240_000, endedAt: 245_000 },
+      ],
+      stages: [
+        ...CONTINUED.stages.slice(0, 3),
+        {
+          stage: "qa",
+          source: "ran",
+          attempt: 2,
+          startedAt: 240_000,
+          endedAt: 300_000,
+          outcome: "failed",
+        },
+      ],
+      agents: [{ ...CONTINUED.agents[1]!, group: 0 }],
+    };
+    expect(
+      renderProgress(over, {
+        name: "flow",
+        startedAt: 0,
+        now: 300_000,
+        paint: PLAIN,
+        figures: new Map([["review", "1 agent · 90k tokens · ~$0.30"]]),
+      }).slice(1),
+    ).toEqual([
+      "↺ doc-review   docs/AIRS-1515.md                        attempt 1",
+      "↺ implement                                             attempt 1",
+      "✓ review       4m 00s · 1 agent · 90k tokens · ~$0.30   2 findings",
+      "✗ qa           1m 00s",
+    ]);
+  });
+
   test("the same run, without a terminal, as one line per change", () => {
     const started = { ...CONTINUED, stages: CONTINUED.stages.slice(0, 3), agents: [] };
     expect(progressEvents(undefined, started, { startedAt: 0, now: 0 })).toEqual([
-      "[0:00] ↺ stage doc-review · attempt 1 · docs/AIRS-1515.md",
+      "[0:00] ↺ stage doc-review · docs/AIRS-1515.md · attempt 1",
       "[0:00] ↺ stage implement · attempt 1",
       "[0:00] ▶ stage review",
-      "[0:00] ✓ stage review succeeded in 4m 00s · 2 findings",
+      "[0:00] ✓ stage review · 4m 00s · 2 findings",
     ]);
     expect(progressEvents(started, CONTINUED, { startedAt: 0, now: 300_000 })).toEqual([
-      "[5:00] ▶ worker · claude-opus-5-5",
-      "[5:00] ✓ tester · 4s",
       "[5:00] ✓ reviewer · 0s",
       "[5:00] ▶ stage qa",
+      "[5:00] ✓ tester · 4s",
+      "[5:00] ▶ worker · claude-opus-5-5",
     ]);
     const stopped = {
       ...CONTINUED,
@@ -160,7 +196,7 @@ describe("run progress by stage", () => {
       ],
     };
     expect(progressEvents(CONTINUED, stopped, { startedAt: 0, now: 360_000 })).toEqual([
-      "[6:00] ■ stage qa stopped in 2m 00s",
+      "[6:00] ■ stage qa · 2m 00s",
     ]);
   });
 
@@ -213,7 +249,7 @@ describe("run progress by stage", () => {
     };
     expect(progressEvents(before, after, { startedAt: 0, now: 300_000 })).toEqual([
       "[5:00] ✓ tester · 4s",
-      "[5:00] ✓ stage qa succeeded in 50s",
+      "[5:00] ✓ stage qa · 50s",
       "[5:00] ▶ stage mr",
     ]);
   });
@@ -361,12 +397,12 @@ describe("run progress", () => {
     const first = progressEvents(undefined, MID_RUN, view);
     expect(first).toEqual([
       "[3:20] ▶ Lenses (2)",
-      "[3:20] ▶ Verify (4)",
       "[3:20] ✓ lens:authz · 2m 00s",
       "[3:20] ✗ lens:infra · 2m 29s · timed-out: operation deadline exceeded",
-      "[3:20] ✓ verifier:0 · 40s",
+      "[3:20] ✗ Lenses done 2/2 in 2m 30s, 1 failed",
+      "[3:20] ▶ Verify (4)",
       "[3:20] ▶ verifier:1 · gpt-6-sol",
-      "[3:20] ■ Lenses done 2/2 in 2m 30s, 1 failed",
+      "[3:20] ✓ verifier:0 · 40s",
     ]);
     expect(progressEvents(MID_RUN, MID_RUN, view)).toEqual([]);
   });

@@ -498,7 +498,7 @@ every record of it says so.
 
 `meta.version` is optional semver, and awf doesn't hash code. Every attempt and stage record stores
 it. A record from another major version stops a continue at that stage (the table above). Without a
-version, the schemas alone guard a continue. The continue prints each reused stage's version.
+version, the schemas alone guard a continue. A version that stops a continue is named in its stop.
 
 A minor change, a prompt reworded, still reuses: whether this run should redo a stage after a fix
 is the operator's call, made with `--from-stage`, and most often the fix is for later runs. A major
@@ -516,7 +516,7 @@ id up under the other workflows: "AIRS-1515 is a run of implement-ticket-old; mo
 runs/implement-ticket-old/AIRS-1515 to runs/implement-ticket to continue it here".
 
 **The code changes between attempts.** Expected: restarting after a fix is the main use. The
-continue prints what it reuses, from which attempt and version.
+continue shows what it reuses, and from which attempt.
 
 **The code's types change.** The defences, from coarse to fine:
 1. **Args.** A continue runs the current `prepare` on the recorded argv, and prints how the args
@@ -547,8 +547,8 @@ stage runs on the next plain continue. An attempt file: the next attempt may reu
 file that doesn't parse, or has a newer `version`, refuses a continue, naming the file.
 
 **The world changed since a stage was recorded** (the worktree moved, the MR closed). Not detected.
-The continue prints each reused stage with its age, and a check between stages can stop on what it
-can see. A `fresh` check per stage is later.
+The continue shows each reused stage with the attempt that ran it, a completed run's refusal lists
+each with its age, and a check between stages can stop on what it can see. A `fresh` check per stage is later.
 
 **The harness, model or environment changes.** Records stay valid: only `meta.version`'s major
 invalidates them. A stage that should be redone under a new model is `--from-stage`.

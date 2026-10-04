@@ -1,5 +1,5 @@
 import type { StageOutcome } from "@agentswf/contract/records";
-import { placementOf } from "@agentswf/contract/workflow";
+import { type Ending, type JsonValue, placementOf } from "@agentswf/contract/workflow";
 import { duration } from "./accounting/format";
 import type { StageProgress } from "./stage-ledger";
 import type { WorkflowRunSnapshot } from "./workflow-runner";
@@ -32,7 +32,14 @@ export const ANSI: Paint = {
  */
 export function renderProgress(
   snapshot: WorkflowRunSnapshot,
-  view: { name: string; startedAt: number; now: number; paint: Paint },
+  view: {
+    name: string;
+    startedAt: number;
+    now: number;
+    paint: Paint;
+    /** Once the run is over: what each stage's agents cost, by stage. */
+    figures?: ReadonlyMap<string, string>;
+  },
 ): string[] {
   const { now, paint } = view;
   const working = snapshot.agents.filter(isRunning).length;
@@ -40,7 +47,7 @@ export function renderProgress(
   const lines = [
     `${view.name}${current ? ` · ${current.stage}` : ""} ${paint.dim(`· ${duration(now - view.startedAt)}`)}${working ? paint.dim(` · ${working} working`) : ""}`,
   ];
-  lines.push(...stageLines(snapshot, now, paint));
+  lines.push(...stageLines(snapshot, now, paint, view.figures ?? new Map()));
   const width = Math.max(...snapshot.agents.map((agent) => agent.key.length), 0);
   const model = Math.max(...snapshot.agents.map((agent) => agent.execution.model.length), 0);
   const agentLine = (agent: Agent) => {
@@ -64,6 +71,11 @@ export function renderProgress(
     const failed = members.filter(isFailed).length;
     const failures = failed ? paint.bad(` · ${failed} failed`) : "";
     if (group.endedAt !== undefined) {
+      // A finished stage's line already says what went well in it.
+      const folded = members.every((agent) =>
+        snapshot.stages.some((stage) => stage.stage === agent.turn?.stage && stage.endedAt),
+      );
+      if (!failed && members.length > 0 && folded) return;
       const mark = failed ? paint.bad("✗") : paint.ok("✓");
       lines.push(
         `${mark} ${group.label} ${paint.dim(`${group.done}/${group.total} · ${duration(group.endedAt - group.startedAt)}`)}${failures}`,
@@ -83,71 +95,107 @@ export function renderProgress(
   return lines;
 }
 
-/** For a log rather than a terminal: one line per change between two snapshots. */
+/** For a log rather than a terminal: one line per change between two snapshots, as it happened. */
 export function progressEvents(
   before: WorkflowRunSnapshot | undefined,
   after: WorkflowRunSnapshot,
   view: { startedAt: number; now: number },
 ): string[] {
   const at = `[${clock(view.now - view.startedAt)}]`;
-  const events: string[] = [];
+  // Ordered by when each happened; at the same instant, what ends goes before what starts, and the
+  // inner before the outer as each ends, the outer before the inner as each starts.
+  const events: { time: number; rank: number; text: string }[] = [];
+  const add = (time: number, rank: Rank, text: string) =>
+    events.push({ time, rank: RANKS.indexOf(rank), text: `${at} ${text}` });
   after.groups.forEach((group, index) => {
-    if (!before?.groups[index]) events.push(`${at} ▶ ${group.label} (${group.total})`);
+    const earlier = before?.groups[index];
+    if (!earlier) add(group.startedAt, "group start", `▶ ${group.label} (${group.total})`);
+    if (group.endedAt !== undefined && earlier?.endedAt === undefined) {
+      const failed = after.agents.filter((a) => a.group === index && isFailed(a)).length;
+      add(
+        group.endedAt,
+        group.endedAt === group.startedAt ? "zero-length end" : "group end",
+        `${failed ? "✗" : "✓"} ${group.label} done ${group.done}/${group.total} in ${duration(group.endedAt - group.startedAt)}${failed ? `, ${failed} failed` : ""}`,
+      );
+    }
   });
   for (const agent of after.agents) {
     const earlier = before?.agents.find((a) => a.key === agent.key);
-    if (agent.forkedFrom !== undefined && earlier?.forkedFrom === undefined) {
-      events.push(`${at} ↳ ${agent.key} forked from ${agent.forkedFrom}`);
-    }
     const turn = agent.turn;
+    if (agent.forkedFrom !== undefined && earlier?.forkedFrom === undefined) {
+      add(turn?.startedAt ?? view.now, "fork", `↳ ${agent.key} forked from ${agent.forkedFrom}`);
+    }
     if (!turn) continue;
     const fresh = earlier?.turns !== agent.turns;
-    if (fresh && turn.outcome === undefined) {
-      events.push(`${at} ▶ ${agent.key} · ${agent.execution.model}`);
-    }
+    if (fresh && turn.outcome === undefined)
+      add(turn.startedAt, "agent start", `▶ ${agent.key} · ${agent.execution.model}`);
     if (turn.outcome !== undefined && (fresh || earlier?.turn?.outcome === undefined)) {
-      const took = duration((turn.settledAt ?? view.now) - turn.startedAt);
-      events.push(
+      const settledAt = turn.settledAt ?? view.now;
+      const took = duration(settledAt - turn.startedAt);
+      add(
+        settledAt,
+        settledAt === turn.startedAt ? "zero-length end" : "agent end",
         turn.outcome === "answered"
-          ? `${at} ✓ ${agent.key} · ${took}`
-          : `${at} ✗ ${agent.key} · ${took} · ${turn.outcome}${turn.reason ? `: ${oneLine(turn.reason)}` : ""}`,
+          ? `✓ ${agent.key} · ${took}`
+          : `✗ ${agent.key} · ${took} · ${turn.outcome}${turn.reason ? `: ${oneLine(turn.reason)}` : ""}`,
       );
     }
   }
-  // After the agents, so a group's and a stage's end follow the turns that ended them; and in the
-  // order entered, so one stage's end comes before the next one's start.
-  after.groups.forEach((group, index) => {
-    if (group.endedAt !== undefined && before?.groups[index]?.endedAt === undefined) {
-      const failed = after.agents.filter((a) => a.group === index && isFailed(a)).length;
-      events.push(
-        `${at} ■ ${group.label} done ${group.done}/${group.total} in ${duration(group.endedAt - group.startedAt)}${failed ? `, ${failed} failed` : ""}`,
-      );
-    }
-  });
   after.stages.forEach((stage, index) => {
     const earlier = before?.stages[index];
     if (stage.source === "reused") {
       if (!earlier) {
-        events.push(`${at} ↺ stage ${stage.stage} · attempt ${stage.attempt}${summaryOf(stage)}`);
+        add(
+          stage.startedAt,
+          "stage start",
+          `↺ stage ${[stage.stage, ...summaryOf(stage), `attempt ${stage.attempt}`].join(" · ")}`,
+        );
       }
       return;
     }
-    if (!earlier) events.push(`${at} ▶ stage ${stage.stage}`);
-    if (stage.endedAt !== undefined && earlier?.endedAt === undefined) {
-      events.push(
-        `${at} ${stageMark(stage.outcome, PLAIN).mark} stage ${stage.stage} ${stage.outcome} in ${duration(stage.endedAt - stage.startedAt)}${summaryOf(stage)}`,
+    const ended = stage.endedAt !== undefined && earlier?.endedAt === undefined;
+    // A stage that ended as it was entered, as a stop before it does, is one line.
+    const instant = ended && !earlier && stage.endedAt === stage.startedAt;
+    if (!earlier && !instant) add(stage.startedAt, "stage start", `▶ stage ${stage.stage}`);
+    if (ended) {
+      add(
+        stage.endedAt!,
+        instant ? "stage start" : "stage end",
+        `${stageMark(stage.outcome, PLAIN)} stage ${[stage.stage, duration(stage.endedAt! - stage.startedAt), ...summaryOf(stage)].join(" · ")}`,
       );
     }
   });
-  return events;
+  return events
+    .map((event, order) => ({ ...event, order }))
+    .sort((a, b) => a.time - b.time || a.rank - b.rank || a.order - b.order)
+    .map((event) => event.text);
 }
 
+const RANKS = [
+  "agent end",
+  "group end",
+  "stage end",
+  "stage start",
+  "group start",
+  "fork",
+  "agent start",
+  "zero-length end",
+] as const;
+type Rank = (typeof RANKS)[number];
+
 /**
- * The stages: those finished collapsed to a line with their time and outcome, those reused marked
- * `↺` with the attempt that ran them, the current one with each agent working in it, and those an
- * earlier attempt recorded still to come, dim. None for a run without stages.
+ * The stages: those finished collapsed to a line with their time, what their agents cost when the
+ * run is over, and their summary; those reused marked `↺` with their summary and the attempt that
+ * ran them; the current one with each agent working in it; and those an earlier attempt recorded
+ * still to come, dim. None for a run without stages. A stage that did not succeed shows only its
+ * mark: why is said once, where the run's ending is.
  */
-function stageLines(snapshot: WorkflowRunSnapshot, now: number, paint: Paint): string[] {
+function stageLines(
+  snapshot: WorkflowRunSnapshot,
+  now: number,
+  paint: Paint,
+  figures: ReadonlyMap<string, string>,
+): string[] {
   // Once the run is closing, what it never reached isn't coming.
   const upcoming =
     snapshot.state === "closing" || snapshot.state === "closed" ? [] : snapshot.upcoming;
@@ -156,40 +204,62 @@ function stageLines(snapshot: WorkflowRunSnapshot, now: number, paint: Paint): s
     ...upcoming.map((name) => name.length),
     0,
   );
-  const lines: string[] = [];
-  for (const stage of snapshot.stages) {
-    const name = stage.stage.padEnd(width);
+  const rows = snapshot.stages.map((stage) => {
     if (stage.source === "reused") {
-      lines.push(paint.dim(`↺ ${name}  attempt ${stage.attempt}${summaryOf(stage)}`));
-      continue;
+      return { stage, detail: summaryOf(stage).join(""), tail: `attempt ${stage.attempt}` };
     }
     const took = duration((stage.endedAt ?? now) - stage.startedAt);
+    const cost = figures.get(stage.stage);
+    return {
+      stage,
+      detail: cost === undefined ? took : `${took} · ${cost}`,
+      tail: stage.endedAt === undefined ? "" : summaryOf(stage).join(""),
+    };
+  });
+  const detailWidth = Math.max(
+    0,
+    ...rows.filter((row) => row.tail).map((row) => row.detail.length),
+  );
+  const lines: string[] = [];
+  for (const { stage, detail, tail } of rows) {
+    const name = stage.stage.padEnd(width);
+    const columns = (painted: string) =>
+      tail
+        ? `${painted}${" ".repeat(detailWidth - detail.length)}${GAP}${paint.dim(tail)}`
+        : painted;
+    if (stage.source === "reused") {
+      lines.push(paint.dim(`↺ ${name}${GAP}${detail.padEnd(detailWidth)}${GAP}${tail}`));
+      continue;
+    }
     if (stage.endedAt === undefined) {
-      lines.push(`${paint.busy(spin(now))} ${name}  ${paint.dim(took)}`);
+      lines.push(`${paint.busy(spin(now))} ${name}${GAP}${paint.dim(detail)}`);
       const agents = snapshot.agents.filter((agent) => agent.turn?.stage === stage.stage);
       const keys = Math.max(...agents.map((agent) => agent.key.length), 0);
       lines.push(...agents.map((agent) => stageAgentLine(agent, keys, now, paint)));
       continue;
     }
-    const { mark, note } = stageMark(stage.outcome, paint);
-    lines.push(`${mark} ${name}  ${paint.dim(took)}${note}${paint.dim(summaryOf(stage))}`);
+    lines.push(`${stageMark(stage.outcome, paint)} ${name}${GAP}${columns(detail)}`);
   }
   lines.push(...upcoming.map((name) => paint.dim(`· ${name}`)));
   return lines;
 }
 
-/** A finished stage's mark, and its outcome when it didn't succeed. */
-function stageMark(
-  outcome: StageOutcome | undefined,
-  paint: Paint,
-): { mark: string; note: string } {
-  if (outcome === "succeeded") return { mark: paint.ok("✓"), note: "" };
-  const tone = outcome === "stopped" ? paint.busy : paint.bad;
-  return { mark: tone(outcome === "stopped" ? "■" : "✗"), note: tone(` · ${outcome}`) };
+const GAP = "   ";
+
+/** A finished stage's mark. */
+export function stageMark(outcome: StageOutcome | undefined, paint: Paint): string {
+  if (outcome === "succeeded") return paint.ok("✓");
+  return outcome === "stopped" ? paint.busy("■") : paint.bad("✗");
 }
 
-function summaryOf(stage: StageProgress): string {
-  return stage.summary ? ` · ${oneLine(stage.summary)}` : "";
+/** An attempt's ending's mark, as its last stage's would be. */
+export function endingMark(kind: Ending<JsonValue>["kind"], paint: Paint): string {
+  if (kind === "completed") return stageMark("succeeded", paint);
+  return stageMark(kind === "stopped" || kind === "cancelled" ? "stopped" : "failed", paint);
+}
+
+function summaryOf(stage: StageProgress): string[] {
+  return stage.summary ? [oneLine(stage.summary)] : [];
 }
 
 /** An agent in the current stage: its placement, its turn's label and time; done, it waits. */

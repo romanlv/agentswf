@@ -52,8 +52,8 @@ Stages answer each by not replaying calls at all:
   stage name, so a clock in a prompt and fan-out order don't arise, and stages can't run in
   parallel.
 - **A stale world isn't detected, as with the journal.** A reused value can name a worktree a fresh
-  sandbox or `git clean` removed, which is E6's lost agent side effect. The continue lists what it
-  reuses with its age, and a check between stages can stop on what it can see.
+  sandbox or `git clean` removed, which is E6's lost agent side effect. The continue shows what it
+  reuses and from which attempt, and a check between stages can stop on what it can see.
 - **Persistence** is the run folder above: written by one attempt at a time, each record replaced
   whole and turns appended. Claiming the run's folder and each attempt's file, each one system
   call, are the only locks.

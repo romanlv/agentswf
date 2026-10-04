@@ -6,6 +6,7 @@ import type { AttemptRecord } from "@agentswf/contract/records";
 import type { JsonObject, JsonValue } from "@agentswf/contract/workflow";
 import { handBack } from "@agentswf/harness";
 import manifest from "../package.json" with { type: "json" };
+import { stageFigures } from "./accounting/format";
 import {
   type AttemptEnd,
   attemptEnd,
@@ -13,7 +14,7 @@ import {
   ENDINGS,
   signalExitCode,
 } from "./attempt-ending";
-import { accountingLines, type Kept, keepRecords, present, tilde } from "./attempt-output";
+import { describeEnding, type Kept, keepRecords, present, shown } from "./attempt-output";
 import { messageOf } from "./errors";
 import { type Caller, type HereEnvironment, startHere, takeCaller } from "./here";
 import {
@@ -125,7 +126,7 @@ export async function runOperatorCli(
     stderr(`awf: ${error instanceof RunRefused ? "" : "prepare: "}${messageOf(error)}`);
     return 2;
   }
-  for (const line of prepared.continued?.recorded ?? []) stderr(line);
+  for (const line of prepared.continued?.warnings ?? []) stderr(line);
 
   // Loading the workflow imports operator-supplied code, and installing the runtime probes two
   // subscription logins. Both run before anything is listening to the signal, so a Ctrl-C in that
@@ -192,7 +193,6 @@ export async function runOperatorCli(
   const { id, cwd } = run.record;
   const sandbox = run.record.sandbox ?? undefined;
   const n = attempt.record.n;
-  const named = `${meta.name} ${id}${n > 1 ? ` · attempt ${n}` : ""}`;
   // Every way out from here writes the attempt's ending, before the hand-back: a session told the
   // run is over may continue it at once. One that never does is interrupted.
   const endEarly = async (outcome: "failed" | "cancelled", reason: string, told: string) => {
@@ -224,7 +224,11 @@ export async function runOperatorCli(
   }
 
   let finished: Parameters<typeof attemptEnd>[0];
-  const progress = watchProgress(named, startedAt, { stderr, terminal, now });
+  const progress = watchProgress(`${meta.name} ${id}${n > 1 ? ` · attempt ${n}` : ""}`, startedAt, {
+    stderr,
+    terminal,
+    now,
+  });
   try {
     const handle = await startWorkflow(executable.definition, prepared.args, {
       runRoot: run.root,
@@ -254,13 +258,12 @@ export async function runOperatorCli(
     finished = { result: await handle.result };
   } catch (error) {
     finished = { error };
-  } finally {
-    progress.stop();
   }
 
   const goOn = (stop?: WorkflowStopped) => continueCommand(command, id, stop);
   const records = { attempt, executable, workflow: { name: meta.name, file: loaded.file }, stderr };
   let end = attemptEnd(finished, deadline, goOn);
+  progress.stop(end.settled ? stageFigures(end.settled.accounting) : undefined);
   // Kept before cleanup, so a second Ctrl-C during it leaves the attempt ended.
   let kept = await keepRecords(end, records);
   let cleanupAlso: string | undefined;
@@ -286,8 +289,8 @@ export async function runOperatorCli(
     executable,
     run,
     n,
-    named,
     earlier: prepared.continued?.attempts ?? [],
+    color: terminal?.color ?? false,
     ...(cleanupAlso === undefined ? {} : { cleanupAlso }),
     stdout,
     stderr,
@@ -307,37 +310,42 @@ function tell(
     executable: LoadedWorkflow["executable"];
     run: Run;
     n: number;
-    named: string;
     earlier: readonly AttemptRecord[];
     cleanupAlso?: string;
+    color: boolean;
     stdout: (text: string) => void;
     stderr: (text: string) => void;
   },
 ): number {
   const { command, run, stdout, stderr } = context;
   const { ending, settled } = end;
+  const presented =
+    ending.kind === "completed" && !command.json
+      ? present(context.executable, ending, stderr)
+      : undefined;
+  if (end.alsoFailed) stderr(`awf: also failed: ${end.alsoFailed}`);
+  const again =
+    ending.kind !== "completed" && command.fromStage === undefined
+      ? sameStop(ending, context.earlier)
+      : undefined;
+  if (again) stderr(`awf: ${again}`);
+  if (context.cleanupAlso) stderr(`awf: runtime cleanup also failed: ${context.cleanupAlso}`);
   // Beside the result rather than in it: stdout stays the workflow's report or the JSON.
-  const accounting = settled
-    ? ["", ...accountingLines(run.record.id, context.n, settled.accounting, context.earlier)]
-    : [];
-  const report = kept.report ? [`Report: ${tilde(kept.report)}`] : [];
+  const lines = describeEnding(ending, {
+    named: `${context.executable.definition.meta.name} ${run.record.id}`,
+    n: context.n,
+    ...(settled ? { accounting: settled.accounting } : {}),
+    earlier: context.earlier,
+    records: shown(run.dir, command.shellCwd),
+    ...(kept.report ? { report: shown(kept.report, command.shellCwd) } : {}),
+    paint: context.color ? ANSI : PLAIN,
+  });
+  for (const line of ["", ...lines]) stderr(line);
   if (ending.kind === "completed") {
     const json = kept.json ?? JSON.stringify(ending.value);
-    stdout(command.json ? json : (present(context.executable, ending, stderr) ?? json));
-    for (const line of [...accounting, ...report, `Records: ${tilde(run.dir)}`]) stderr(line);
+    stdout(presented ?? json);
     return 0;
   }
-  for (const line of accounting) stderr(line);
-  const stagedAt = ending.stage === undefined ? "" : ` in ${ending.stage}`;
-  stderr(
-    `awf: ${ENDINGS[ending.kind].ended}${stagedAt} (${context.named}); its records are in ${run.dir}: ${ending.reason}`,
-  );
-  if (end.alsoFailed) stderr(`awf: also failed: ${end.alsoFailed}`);
-  const again = command.fromStage === undefined ? sameStop(ending, context.earlier) : undefined;
-  if (again) stderr(`awf: ${again}`);
-  stderr(`awf: to go on: ${ending.continue}`);
-  for (const line of report) stderr(line);
-  if (context.cleanupAlso) stderr(`awf: runtime cleanup also failed: ${context.cleanupAlso}`);
   if (command.json && kept.json !== undefined) stdout(kept.json);
   return end.exitCode;
 }
@@ -419,7 +427,7 @@ function watchProgress(
     if (terminal && drawn > 0) terminal.write(`\x1b[${drawn}F\x1b[0J`);
     drawn = 0;
   };
-  const tick = (final = false) => {
+  const tick = (final = false, figures?: ReadonlyMap<string, string>) => {
     if (!handle) return;
     const snapshot = handle.inspect();
     if (terminal) {
@@ -428,6 +436,7 @@ function watchProgress(
         startedAt,
         now: now(),
         paint: terminal.color ? ANSI : PLAIN,
+        ...(figures ? { figures } : {}),
       });
       // The header's name and clock are the command's and the accounting's once the run is over.
       if (final) lines.shift();
@@ -452,9 +461,10 @@ function watchProgress(
       stderr(text);
       if (terminal) tick();
     },
-    stop() {
+    /** `figures`, what each stage's agents cost, once the run's usage is read. */
+    stop(figures?: ReadonlyMap<string, string>) {
       clearInterval(timer);
-      tick(true);
+      tick(true, figures);
       terminal?.write("\x1b[?7h\x1b[?25h");
     },
   };

@@ -1,6 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import type { ModelSpend, SettledOperation, TokenUsage } from "@agentswf/contract/records";
-import { describeAccounting } from "./format";
+import {
+  describeAccounting,
+  describeAttempts,
+  describeFigures,
+  describeGroups,
+  stageFigures,
+} from "./format";
 import { costOf, type PriceTable, PUBLISHED_PRICES } from "./prices";
 import { sumAttempts, summarizeRun } from "./summary";
 import { addTokens, spendOf } from "./tokens";
@@ -327,6 +333,24 @@ describe("describeAccounting", () => {
       "  lens      2 agents · 1m 00s · ~$1.38 · usage known 1/2",
       "  verifier  1 agent · 1m 00s · 1k tokens · fully priced 0/1",
     ]);
+    expect(describeGroups(summary)).toEqual(describeAccounting(summary).slice(1));
+    expect(stageFigures(summary)).toEqual(new Map());
+  });
+
+  test("a run that opened no agent shows no agent figures, and several attempts are summed in brief", () => {
+    const none = summarizeRun([], PUBLISHED_PRICES, TIMES, []);
+    expect(describeFigures(none)).toEqual([]);
+    expect(describeGroups(none)).toEqual([]);
+    const one = summarizeRun(
+      [record("lens:a", [spent("claude-opus-5", { output: 100_000 })])],
+      PUBLISHED_PRICES,
+      TIMES,
+      [],
+    );
+    expect(describeAttempts(sumAttempts([none, one]), 3, 1)).toBe(
+      "run: 3 attempts (1 with no accounting), 28m 10s, ~$2.50",
+    );
+    expect(describeAttempts(sumAttempts([none, none]), 2, 0)).toBe("run: 2 attempts, 28m 10s");
   });
 });
 
@@ -437,6 +461,8 @@ describe("byStage, from the workflow's stages", () => {
       ["qa", 1, 2.5, 90_000],
       ["notify", 0, undefined, 3_000],
     ]);
+    expect(stageFigures(summary)).toEqual(new Map([["qa", "1 agent · 100k tokens · ~$2.50"]]));
+    expect(describeGroups(summary)).toEqual([]);
   });
 
   test("a run with no stages keeps the key prefix", () => {

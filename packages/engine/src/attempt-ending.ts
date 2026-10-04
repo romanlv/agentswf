@@ -32,10 +32,10 @@ const STOPPED_EXIT_CODE = 3;
 
 /** Each outcome in words: as the calling session is told it, and as awf reports it. */
 export const ENDINGS = {
-  stopped: { told: "stopped", ended: "run stopped" },
-  cancelled: { told: "was cancelled", ended: "run cancelled" },
-  "timed-out": { told: "timed out", ended: "run timed out" },
-  failed: { told: "failed", ended: "run failed" },
+  stopped: { told: "stopped", ended: "stopped" },
+  cancelled: { told: "was cancelled", ended: "cancelled" },
+  "timed-out": { told: "timed out", ended: "timed out" },
+  failed: { told: "failed", ended: "failed" },
 } as const satisfies Record<UnfinishedOutcome, { told: string; ended: string }>;
 
 /**

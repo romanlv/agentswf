@@ -23,8 +23,8 @@ export type PreparedRun = {
   args: JsonValue;
   /** A new run's id, from `--id` or the workflow's `id(args)`; absent for one to generate. */
   id?: string;
-  /** The run `--continue` names, its earlier attempts, and what it has recorded, as lines. */
-  continued?: { run: Run; attempts: AttemptRecord[]; recorded: string[] };
+  /** The run `--continue` names, its earlier attempts, and what to warn of before it goes on. */
+  continued?: { run: Run; attempts: AttemptRecord[]; warnings: string[] };
 };
 
 /**
@@ -73,13 +73,17 @@ export async function prepareRun(
   const refused = refusal(id, attempts, {
     fromStage: command.fromStage !== undefined,
     stages: [...records.keys()],
+    listed: listRecorded(records, now),
     live: (attempt) => isLive(attempt),
   });
   if (refused) throw new RunRefused(refused);
-  return {
-    args,
-    continued: { run, attempts, recorded: describeRecorded(run, records, command.fromStage, now) },
-  };
+  const { fromStage } = command;
+  // Warned of here, before anything runs.
+  const unrecorded =
+    fromStage !== undefined && !records.has(fromStage)
+      ? [`awf: nothing is recorded for ${fromStage}; the attempt stops if it never reaches it`]
+      : [];
+  return { args, continued: { run, attempts, warnings: unrecorded } };
 }
 
 /** The id the workflow's `id(args)` gives a new run, checked; undefined when it has none. */
@@ -100,29 +104,22 @@ function derivedId(
   return id as string;
 }
 
-/**
- * What a continue finds in `stages/`: each stage, the attempt that ran it, how long ago, and its
- * summary. A `--from-stage` with no record is warned about here, before anything runs.
- */
-function describeRecorded(
-  run: Run,
-  recorded: ReadonlyMap<string, StageRecord>,
-  fromStage: string | undefined,
-  now: number,
-): string[] {
+/** A run's stage records, a line each in the order they began: summary, attempt, and how long ago. */
+function listRecorded(recorded: ReadonlyMap<string, StageRecord>, now: number): string[] {
   const records = [...recorded.values()].sort((a, b) => a.started.localeCompare(b.started));
-  const lines = records.map((record) => {
-    const version = record.workflowVersion === undefined ? "" : ` · v${record.workflowVersion}`;
-    const outcome = record.outcome === "succeeded" ? "" : ` · ${record.outcome}`;
-    const summary = record.summary === undefined ? "" : ` · ${record.summary}`;
-    return `  ${record.stage} · attempt ${record.attempt}${version} · ${ago(now - Date.parse(record.ended))}${outcome}${summary}`;
-  });
-  return [
-    ...(lines.length > 0 ? [`awf: ${run.record.id} has these stages recorded:`, ...lines] : []),
-    ...(fromStage !== undefined && !records.some((record) => record.stage === fromStage)
-      ? [`awf: nothing is recorded for ${fromStage}; the attempt stops if it never reaches it`]
-      : []),
-  ];
+  const name = Math.max(0, ...records.map((record) => record.stage.length));
+  const summary = Math.max(0, ...records.map((record) => record.summary?.length ?? 0));
+  return records.map((record) =>
+    [
+      `  ${record.stage.padEnd(name)}`,
+      ...(summary > 0 ? [(record.summary ?? "").padEnd(summary)] : []),
+      [
+        ...(record.outcome === "succeeded" ? [] : [record.outcome]),
+        `attempt ${record.attempt}`,
+        ago(now - Date.parse(record.ended)),
+      ].join(" · "),
+    ].join("   "),
+  );
 }
 
 function ago(ms: number): string {
