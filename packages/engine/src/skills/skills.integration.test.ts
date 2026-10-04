@@ -8,8 +8,8 @@ import { createHeadlessRunHostFactory } from "@agentswf/harness";
 import type { AgentRuntimeConfig } from "@agentswf/harness/adapter";
 import { createFakeSandboxProvider } from "@agentswf/sandbox/testing";
 import { openRun } from "../runs";
-import { createTempRunDirs, future } from "../testing";
-import { runWorkflow, WorkflowRunError } from "../workflow-runner";
+import { createTempRunDirs, future, runNew } from "../testing";
+import { WorkflowRunError } from "../workflow-runner";
 
 // A harness that answers through the launcher its prompt names, and logs what it was started with
 // and which skills it could find, to `$LOG_DIR` on the host or to its home in a sandbox.
@@ -83,7 +83,7 @@ function run<Result extends JsonValue>(
     aliases: {},
     host: createHeadlessRunHostFactory({}),
   };
-  return runWorkflow({ meta: { name: "skills", description: "test" }, run: body }, null, {
+  return runNew({ meta: { name: "skills", description: "test" }, run: body }, null, {
     runRoot,
     runtime,
     deadline: future(),

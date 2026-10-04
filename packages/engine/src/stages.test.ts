@@ -8,8 +8,8 @@ import Type from "typebox";
 import { createFakeDecisionProvider } from "./decisions/fake";
 import { OPERATOR_ALIASES } from "./operator-aliases";
 import { readStageRecords, readTurns } from "./runs";
-import { createTempRunDirs, DOC, future, runAttempt, workflowOf } from "./testing";
-import { runWorkflow, WorkflowRunError } from "./workflow-runner";
+import { createTempRunDirs, DOC, future, runAttempt, runNew, workflowOf } from "./testing";
+import { WorkflowRunError } from "./workflow-runner";
 import { answer, reply, testWorkflow } from "./workflow-testing";
 
 const runDirs = createTempRunDirs();
@@ -266,7 +266,7 @@ describe("workflow.stage", () => {
   });
 
   test("a decision asked in a stage records it", async () => {
-    const result = await runWorkflow(
+    const result = await runNew(
       workflowOf(async (workflow) => {
         const ask = (key: string) =>
           workflow.decisions.decide({

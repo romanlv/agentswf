@@ -17,7 +17,7 @@ import type { OperatorEnvironment } from "./operator-cli";
 import { herdrConfig, herdrSession } from "./operator-runtime";
 import type { RunCommand } from "./run-command";
 import { loadAndPrepare } from "./run-prepare";
-import { processStart } from "./runs";
+import { processStart, sameProcess } from "./runs";
 
 /** What `--here` and `--session` reach Herdr and the calling session through. */
 type HereEnvironment = Pick<
@@ -162,7 +162,7 @@ async function claimCaller(marks: string, paneId: string): Promise<(() => void) 
     for (let attempt = 0; attempt < 2; attempt += 1) {
       if (await linkNew(mark, holder)) return () => rmSync(mark, { force: true });
       const other = await readMark(mark);
-      if (other && isRunning(other)) {
+      if (other && sameProcess(other.pid, other.processStart)) {
         return `another run (process ${other.pid}) is already driving the session in ${paneId}; one run drives a session at a time`;
       }
       await rm(mark, { force: true });
@@ -186,14 +186,6 @@ async function readMark(file: string): Promise<CallerMark | undefined> {
   } catch {
     return undefined;
   }
-}
-
-/** As an attempt's liveness: the process is there and still the one that started then. */
-function isRunning(mark: CallerMark): boolean {
-  const started = processStart(mark.pid);
-  return (
-    started !== undefined && Math.abs(Date.parse(started) - Date.parse(mark.processStart)) <= 1_000
-  );
 }
 
 /** Brings the tab this process runs in forward, where Herdr says which one that is. */

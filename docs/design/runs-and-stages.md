@@ -227,12 +227,12 @@ attempts never collide. Sandboxes live outside the project, in
 - No status, no current stage, no last attempt: all are read off the other files, so they can't go
   stale.
 
-**`attempts/{n}.json`**: one attempt: the claim that makes it the live one, then its ending.
+**`attempts/{attempt}.json`**: one attempt: the claim that makes it the live one, then its ending.
 
 ```json
 {
   "version": 1,
-  "n": 2,
+  "attempt": 2,
   "file": "/Users/roman/dev/braintrust/agent/workflows/implement-ticket/flow.ts",
   "workflowVersion": "1.2.1",
   "flags": { "timeout": "10h" },
@@ -352,7 +352,7 @@ be an earlier attempt's than the last; its `attempt` says which.
   and the folder renamed to `{id}`. Renaming onto a folder that exists and isn't empty fails, so the
   first to rename holds the id, and a claimed folder always has its `run.json`. There is no index
   of names to keep in step.
-- **The attempt claim is one `link`.** The first version of `attempts/{n}.json` is written to a temp
+- **The attempt claim is one `link`.** The first version of `attempts/{attempt}.json` is written to a temp
   file and linked into place; `link` fails if the name exists (as `writeAcceptedExclusive` does for
   `result.json`). `n` is one more than the highest attempt file; a failed link tries `n + 1`.
   Having claimed `n`, the attempt reads attempts `1 … n-1`; if one is live, it deletes its own file
@@ -431,8 +431,8 @@ awf run flow.ts [--id I | --continue I] [--from-stage S] -- argv
     interrupted is named, with the stage of its last turn and the Herdr workspace its panes may
     still be open in, "awf implement-ticket AIRS-1515 #1"; awf names it without asking Herdr.
  4. run the workflow; each stage entered goes through the stage plan. The view shows each reused
-    stage as ↺ with its summary and the attempt that ran it, and the stages recorded but not yet
-    reached, dim
+    stage as ↺ with its summary and the attempt that ran it, and its age once over an hour, as a
+    guard against reusing a stale record; and the stages recorded but not yet reached, dim
  5. write report.md, output.json, then the attempt's ending, last: an ended attempt lets the next
     start, whose files this one's must not overwrite. Exit with the ending's code
 ```

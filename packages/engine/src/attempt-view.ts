@@ -119,7 +119,7 @@ export function describeEnding(
 
 function runTotal(n: number, current: RunAccounting, earlier: readonly AttemptRecord[]): string {
   const recorded = [
-    ...earlier.filter((record) => record.n < n).flatMap((record) => record.accounting ?? []),
+    ...earlier.filter((record) => record.attempt < n).flatMap((record) => record.accounting ?? []),
     current,
   ];
   return describeAttempts(sumAttempts(recorded), n, n - recorded.length);
@@ -162,5 +162,5 @@ function sameStop(
   ) {
     return undefined;
   }
-  return `the same stop as attempt ${before.n}; if a stage's value caused it, --from-stage ${reused}, and move the check into that stage`;
+  return `the same stop as attempt ${before.attempt}; if a stage's value caused it, --from-stage ${reused}, and move the check into that stage`;
 }

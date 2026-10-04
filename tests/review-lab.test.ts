@@ -952,6 +952,26 @@ export default defineComparison({
     expect(given[0]!.spec).toEqual({ read: [given[0]!.request], docker: { image: "awf-review" } });
   });
 
+  test("each run, a trial's and its scorer's, goes to awf under an id of its own, which finds it", async () => {
+    await ws.variant("canned");
+    await answer(ws, { "app-1": [finding(mechanism("app-1", 1))], "app-2": [] });
+    const runs = inProcess();
+    expect((await lab(ws, ["run", "canned", "--cases", "app-1"], runs.runner)).exitCode).toBe(0);
+    expect(runs.calls.map(stepOf)).toEqual([TRIAL, SCORE]);
+    const found = await Promise.all(
+      runs.calls.map(async (call) => {
+        const argv = awfArgv(call);
+        expect(argv[argv.indexOf("--id") + 1]).toBe(call.id);
+        const dir = await runDirOf(call.runRoot, call.id);
+        expect(await Bun.file(join(dir!, "run.json")).json()).toMatchObject({ id: call.id });
+        return dir!;
+      }),
+    );
+    // Two workflows, two ids: the scorer's run is never taken for the trial's.
+    expect(new Set(runs.calls.map((call) => call.id)).size).toBe(2);
+    expect(new Set(found.map((dir) => basename(dirname(dir)))).size).toBe(2);
+  });
+
   test("a contained trial mounts awf, the variant's folder, the checkout and the request, never the data", async () => {
     await ws.variant("canned");
     await answer(ws, { "app-1": [finding(mechanism("app-1", 1))], "app-2": [] });

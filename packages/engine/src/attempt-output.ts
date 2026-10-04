@@ -1,20 +1,12 @@
 import { rm } from "node:fs/promises";
-import {
-  type AttemptStage,
-  OUTPUT_RECORD_VERSION,
-  type OutputRecord,
-} from "@agentswf/contract/records";
-import type {
-  Ending,
-  ExecutableWorkflow,
-  JsonValue,
-  StageSummary,
-} from "@agentswf/contract/workflow";
+import { OUTPUT_RECORD_VERSION, type OutputRecord } from "@agentswf/contract/records";
+import type { Ending, ExecutableWorkflow, JsonValue } from "@agentswf/contract/workflow";
 import { attemptAccounting } from "./accounting/summary";
 import type { AttemptEnd } from "./attempt-ending";
 import { messageOf } from "./errors";
 import { writeJson, writeWhole } from "./files";
 import { type Attempt, endAttempt, outputFile, reportFile } from "./runs";
+import { withoutValue } from "./stage-ledger";
 
 /** Where an attempt's records went, and its output record as `--json` prints it. */
 export type Kept = {
@@ -43,7 +35,7 @@ export async function keepRecords(
   const { ending, settled } = end;
   const dir = attempt.run.dir;
   const report = await writeReport(context.executable, ending, dir, stderr);
-  const stages = settled?.stages && withoutValues(settled.stages);
+  const stages = settled?.stages?.map(withoutValue);
   const at =
     ending.kind !== "completed" && ending.stage !== undefined ? { stage: ending.stage } : {};
   const ended =
@@ -61,7 +53,7 @@ export async function keepRecords(
     const record: OutputRecord = {
       version: OUTPUT_RECORD_VERSION,
       runId: settled.runId,
-      attempt: attempt.record.n,
+      attempt: attempt.record.attempt,
       workflow: context.workflow,
       accounting: settled.accounting,
       usage: settled.usage,
@@ -119,9 +111,4 @@ async function writeReport(
     stderr(`awf: report: ${messageOf(error)}; see output.json instead`);
     return undefined;
   }
-}
-
-/** Stages without their values, which their stage records keep. */
-export function withoutValues(stages: readonly StageSummary[]): AttemptStage[] {
-  return stages.map(({ value: _value, ...stage }) => stage);
 }

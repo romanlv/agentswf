@@ -18,6 +18,7 @@ import { type Kept, keepRecords } from "./attempt-output";
 import { printEnding, toldOf } from "./attempt-view";
 import { messageOf } from "./errors";
 import { type Caller, showOwnTab, startHere, takeCaller } from "./here";
+import { machinePaths, sandboxesDirOf } from "./machine";
 import {
   herdrConfig,
   installOperatorRuntime,
@@ -32,15 +33,7 @@ import {
   type PreparedRun,
   workspaceLabel,
 } from "./run-prepare";
-import {
-  type Attempt,
-  createRun,
-  discardRun,
-  machinePaths,
-  type Run,
-  RunRefused,
-  sandboxesDirOf,
-} from "./runs";
+import { type Attempt, createRun, discardRun, type Run, RunRefused } from "./runs";
 import type { WorkflowStopped } from "./stopped";
 import { parseTestCommand, runWorkflowTests, type TestCommand, testUsage } from "./test-command";
 import type { LoadedWorkflow } from "./workflow-loader";
@@ -208,7 +201,7 @@ async function runAttempt(
   }
   let attempt: Attempt;
   try {
-    attempt = await claimNext(run, loaded, command, stderr);
+    attempt = await claimNext(run, loaded, command, stderr, now());
   } catch (error) {
     // A run this call created and never ran is not left to hold its id.
     if (!prepared.continued) await discardRun(run).catch(() => undefined);
@@ -216,7 +209,7 @@ async function runAttempt(
   }
   const { id, cwd } = run.record;
   const sandbox = run.record.sandbox ?? undefined;
-  const n = attempt.record.n;
+  const n = attempt.record.attempt;
   const goOn = (stop?: WorkflowStopped) => continueCommand(command, id, stop);
   const records = { attempt, executable, workflow: { name: meta.name, file: loaded.file }, stderr };
   // Every way out from here writes the attempt's ending, before the hand-back: a session told the
@@ -269,7 +262,7 @@ async function runAttempt(
       runtime: installed.config,
       sandboxes: {
         providers: installed.sandboxes ?? { installed: {} },
-        sandboxesDir: sandboxesDirOf(home, run),
+        sandboxesDir: sandboxesDirOf(home, run.record),
         ...(sandbox === undefined ? {} : { run: sandbox }),
       },
       ...(installed.decisions ? { decisions: installed.decisions } : {}),

@@ -15,10 +15,9 @@ import {
 import type { AttemptOutcome } from "@agentswf/contract/workflow";
 import { exists, isCode, linkNew, writeJson } from "./files";
 import { appendLine, endTornLine, readLines } from "./jsonl";
-import { refusal } from "./refusal";
 
 /**
- * Runs on disk: `{root}/{workflow}/{id}/`, holding `run.json`, `attempts/{n}.json`,
+ * Runs on disk: `{root}/{workflow}/{id}/`, holding `run.json`, `attempts/{attempt}.json`,
  * `stages/{stage}.json`, `replaced/{stage}.{attempt}.json`, `turns.jsonl`, each operation's
  * `calls/{id}/` with its `call.json`, `candidates.jsonl` and `result.json`, and the last ended
  * attempt's `output.json` and `report.md`. The only module that knows where a run's records are;
@@ -30,20 +29,6 @@ import { refusal } from "./refusal";
 /** Where a project's runs are kept, unless `--run-root` says otherwise. */
 export function runRootOf(cwd: string): string {
   return join(cwd, ".awf", "runs");
-}
-
-/**
- * What awf keeps per machine, under `~/.awf`, whatever a run's root: the marks of sessions runs
- * drive, and each sandbox's homes, kept outside the project, whose run root a provider denies.
- */
-export function machinePaths(home: string): { root: string; callers: string; sandboxes: string } {
-  const root = join(home, ".awf");
-  return { root, callers: join(root, "callers"), sandboxes: join(root, "sandboxes") };
-}
-
-/** Where a run's sandboxes keep their homes: found by the run, though outside it. */
-export function sandboxesDirOf(home: string, run: Run): string {
-  return join(machinePaths(home).sandboxes, run.record.workflow, run.record.id);
 }
 
 /** Why awf will not start an attempt: the operator's to fix, so `awf run` exits 2. */
@@ -232,18 +217,48 @@ export async function readAttempts(run: Run): Promise<AttemptRecord[]> {
       readRecord<AttemptRecord>(join(dir, name), ATTEMPT_RECORD_VERSION, { missing: true }),
     ),
   );
-  return records.filter((record) => record !== undefined).sort((a, b) => a.n - b.n);
+  return records.filter((record) => record !== undefined).sort((a, b) => a.attempt - b.attempt);
+}
+
+/** No ending, and its process still the one that started it. */
+export function isLive(attempt: AttemptRecord, probe: ProcessProbe = processStart): boolean {
+  return attempt.ended === undefined && sameProcess(attempt.pid, attempt.processStart, probe);
 }
 
 /**
- * No ending, and its process still the one that started it. A second apart is the same start: on
- * Linux `ps` derives it from the boot time, which a clock step can move.
+ * Process `pid` is there and still the one that started at `started`, which tells a reused pid
+ * apart. A second apart is the same start: on Linux `ps` derives it from the boot time, which a
+ * clock step can move.
  */
-export function isLive(attempt: AttemptRecord, probe: ProcessProbe = processStart): boolean {
-  if (attempt.ended !== undefined) return false;
-  const started = probe(attempt.pid);
-  if (started === undefined) return false;
-  return Math.abs(Date.parse(started) - Date.parse(attempt.processStart)) <= 1_000;
+export function sameProcess(
+  pid: number,
+  started: string,
+  probe: ProcessProbe = processStart,
+): boolean {
+  const now = probe(pid);
+  return now !== undefined && Math.abs(Date.parse(now) - Date.parse(started)) <= 1_000;
+}
+
+/** Why a run takes no attempt now: one of its attempts is still running, or it completed. */
+export type AttemptRefusal =
+  | { kind: "running"; attempt: AttemptRecord }
+  /** `stages` are the run's records, in the order they began, from which `--from-stage` redoes. */
+  | { kind: "completed"; stages: StageRecord[] };
+
+/**
+ * Why the run whose attempts and stage records these are takes no attempt now, or undefined when
+ * it takes one. A completed run takes one only to redo a stage, which `fromStage` says.
+ */
+export function attemptRefusal(
+  attempts: readonly AttemptRecord[],
+  records: ReadonlyMap<string, StageRecord>,
+  options: { fromStage: boolean; probe?: ProcessProbe },
+): AttemptRefusal | undefined {
+  const live = attempts.find((attempt) => isLive(attempt, options.probe));
+  if (live) return { kind: "running", attempt: live };
+  if (attempts.at(-1)?.outcome !== "completed" || options.fromStage) return undefined;
+  const stages = [...records.values()].sort((a, b) => a.started.localeCompare(b.started));
+  return { kind: "completed", stages };
 }
 
 /**
@@ -251,7 +266,7 @@ export function isLive(attempt: AttemptRecord, probe: ProcessProbe = processStar
  * failed link tries the next number. Having claimed `n`, it reads attempts `1 … n-1`: one still
  * live refuses it, and its own file goes, as it does when the last of them completed the run. Of
  * two racing attempts the later always sees the earlier, since it could only pick a higher number
- * once the earlier file existed.
+ * once the earlier file existed. A refusal is returned, for the caller to say.
  */
 export async function claimAttempt(
   run: Run,
@@ -263,7 +278,7 @@ export async function claimAttempt(
     /** `--from-stage`: a run that completed is continued only to redo a stage of it. */
     fromStage?: boolean;
   } = {},
-): Promise<{ attempt: Attempt; interrupted: AttemptRecord[] }> {
+): Promise<{ attempt: Attempt; interrupted: AttemptRecord[] } | { refused: AttemptRefusal }> {
   const probe = options.probe ?? processStart;
   const pid = options.pid ?? process.pid;
   const started = probe(pid);
@@ -274,11 +289,11 @@ export async function claimAttempt(
   await mkdir(dir, { recursive: true, mode: 0o700 });
   await sweep(dir);
   const earlier = await readAttempts(run);
-  let n = (earlier.at(-1)?.n ?? 0) + 1;
+  let n = (earlier.at(-1)?.attempt ?? 0) + 1;
   for (;;) {
     const record: AttemptRecord = {
       version: ATTEMPT_RECORD_VERSION,
-      n,
+      attempt: n,
       file: fields.file,
       ...(fields.workflowVersion === undefined ? {} : { workflowVersion: fields.workflowVersion }),
       flags: fields.flags,
@@ -289,18 +304,21 @@ export async function claimAttempt(
     const file = join(dir, `${n}.json`);
     if (await linkNew(file, record)) {
       // Unclaimed on any refusal or failure, so no attempt is left without an ending.
+      const unclaim = () => unlink(file).catch(() => undefined);
       try {
-        const before = (await readAttempts(run)).filter((other) => other.n < n);
-        const refused = refusal(run.record.id, before, {
+        const before = (await readAttempts(run)).filter((other) => other.attempt < n);
+        const refused = attemptRefusal(before, await readStageRecords(run.dir), {
           fromStage: options.fromStage ?? false,
-          stages: [...(await readStageRecords(run.dir)).keys()],
-          live: (attempt) => isLive(attempt, probe),
+          probe,
         });
-        if (refused) throw new RunRefused(refused);
+        if (refused) {
+          await unclaim();
+          return { refused };
+        }
         const interrupted = before.filter((other) => other.ended === undefined);
         return { attempt: { run, file, record }, interrupted };
       } catch (error) {
-        await unlink(file).catch(() => undefined);
+        await unclaim();
         throw error;
       }
     }

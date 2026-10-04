@@ -21,13 +21,8 @@ import {
 } from "@agentswf/sandbox/testing";
 import { installSandboxes } from "./operator-runtime";
 import { RunSandboxes } from "./sandboxes";
-import { createTempRunDirs, future, workflowOf } from "./testing";
-import {
-  runWorkflow,
-  startWorkflow,
-  WorkflowCancelledError,
-  WorkflowRunError,
-} from "./workflow-runner";
+import { createTempRunDirs, future, runNew, startNew, workflowOf } from "./testing";
+import { WorkflowCancelledError, WorkflowRunError } from "./workflow-runner";
 
 // A codex that answers through the launcher its prompt names, as a real one would, and keeps what
 // it was started with in its home. Asked to wait, it waits; asked to peek, it tries to read a file.
@@ -118,7 +113,7 @@ function setup(
   };
   const logs: string[] = [];
   const run = <Result extends JsonValue>(body: (context: WorkflowContext) => Promise<Result>) =>
-    runWorkflow(workflowOf(body, { name: "sandboxes" }), null, {
+    runNew(workflowOf(body, { name: "sandboxes" }), null, {
       runRoot: runDirs.tempRunDir(),
       runtime,
       deadline: future(),
@@ -463,7 +458,7 @@ describe("sandboxed agents", () => {
 
   test("a cancelled run releases its agents and closes their sandboxes, leaving nothing", async () => {
     const { events, providers, runtime } = setup();
-    const handle = await startWorkflow(
+    const handle = await startNew(
       workflowOf(async (context) => {
         const agent = await open(context, { sandbox: {} });
         await agent.run({ prompt: "wait for it", nudge: false });
@@ -637,7 +632,7 @@ describe("the operator's sandbox for the whole run", () => {
       },
     };
     const controller = new AbortController();
-    const failure = runWorkflow(
+    const failure = runNew(
       workflowOf(async () => null),
       null,
       {
@@ -679,7 +674,7 @@ describe.skipIf(!installed.installed.srt)("a sandboxed agent under srt", () => {
     const canary = join(realpathSync(homedir()), `.awf-engine-canary-${crypto.randomUUID()}`);
     await writeFile(canary, "canary-in-home");
     try {
-      const result = await runWorkflow(
+      const result = await runNew(
         workflowOf(async (context) => {
           const agent = await open(context, { sandbox: { srt: {} } });
           const { outcome } = await agent.run({ prompt: `peek: ${canary}`, nudge: false });

@@ -24,7 +24,17 @@ export type StageProgress = Omit<StageSummary, "value" | "outcome" | "spanMs"> &
   outcome?: StageOutcome;
   startedAt: number;
   endedAt?: number;
+  /** When a reused stage's record ended, which the view ages. */
+  recordedAt?: number;
 };
+
+/** A stage without its value, which its stage record keeps. */
+export function withoutValue<Stage extends { value?: JsonValue }>(
+  stage: Stage,
+): Omit<Stage, "value"> {
+  const { value: _value, ...rest } = stage;
+  return rest;
+}
 
 /** A stage entered: reused from its record without running, or run. */
 type EnteredStage =
@@ -104,8 +114,13 @@ export class StageLedger {
       .sort((a, b) => a.started.localeCompare(b.started))
       .map((record) => record.stage)
       .filter((stage) => !this.#stages.has(stage));
+    const recorded = (stage: string) => this.options.records?.get(stage)?.ended;
     return {
-      stages: [...this.#stages.values()].map(({ value: _value, ...stage }) => ({ ...stage })),
+      stages: [...this.#stages.values()].map((entered) => {
+        const ended = entered.source === "reused" ? recorded(entered.stage) : undefined;
+        const stage = withoutValue(entered);
+        return ended === undefined ? stage : { ...stage, recordedAt: Date.parse(ended) };
+      }),
       upcoming,
     };
   }

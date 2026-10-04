@@ -15,13 +15,8 @@ import {
 import type { AgentRuntimeConfig, AgentSessionAdapter } from "@agentswf/harness/adapter";
 import { createFakeAdapter, type FakeAdapterTurnContext } from "@agentswf/harness/testing";
 import { createRunLedger } from "./run-usage";
-import { createTempRunDirs, future, submit } from "./testing";
-import {
-  runWorkflow,
-  startWorkflow,
-  WorkflowCancelledError,
-  WorkflowRunError,
-} from "./workflow-runner";
+import { createTempRunDirs, future, runNew, startNew, submit } from "./testing";
+import { WorkflowCancelledError, WorkflowRunError } from "./workflow-runner";
 
 const runDirs = createTempRunDirs();
 afterAll(() => runDirs.cleanup());
@@ -278,7 +273,7 @@ describe("usage read when the run ends", () => {
       }),
     });
     const accounting = files.accounting({ pollMs: 50, stalledMs: 60_000 });
-    const handle = await startWorkflow(
+    const handle = await startNew(
       workflow(async (context) => {
         await (await open(context, "stopped")).run({ prompt: "Go.", schema: ANSWER });
         return null;
@@ -373,7 +368,7 @@ describe("usage read when the run ends", () => {
         caller: { harness: "fake", cwd: "/repo" },
       },
     };
-    const result = await runWorkflow(
+    const result = await runNew(
       workflow(async (context) => {
         // The operator's turn that replied with the run's code, before any step reached it.
         files.log("s-caller", 20);
@@ -558,7 +553,7 @@ describe("usage read when the run ends", () => {
       }),
     });
 
-    const result = await runWorkflow(
+    const result = await runNew(
       workflow(async (context) => {
         await (await open(context, "plain")).run({ prompt: "Go.", schema: ANSWER });
         return null;
@@ -596,7 +591,7 @@ describe("usage read when the run fails", () => {
     body: (context: WorkflowContext) => Promise<JsonValue>,
     options: { deadline?: ReturnType<typeof future>; signal?: AbortSignal } = {},
   ) {
-    return startWorkflow(workflow(body), null, {
+    return startNew(workflow(body), null, {
       runRoot: runDirs.tempRunDir(),
       deadline: options.deadline ?? future(),
       runtime: { aliases: ALIASES, host: createSingleSessionHostFactory(adapter, accounting) },
@@ -846,7 +841,7 @@ function run<Result extends JsonValue>(
     aliases: ALIASES,
     host: createSingleSessionHostFactory(adapter, accounting),
   };
-  return runWorkflow(workflow(body), null, {
+  return runNew(workflow(body), null, {
     runRoot: runDirs.tempRunDir(),
     deadline: future(),
     runtime,

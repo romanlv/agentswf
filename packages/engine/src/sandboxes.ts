@@ -24,7 +24,7 @@ import {
 } from "@agentswf/sandbox";
 import { CONTROL_PLANE_ROOT } from "./control-plane";
 import { messageOf } from "./errors";
-import { machinePaths } from "./runs";
+import { machinePaths } from "./machine";
 import { type CredentialLocks, placeCarried, type SeededHome, seedHome } from "./sandbox-homes";
 import { placeSkills, type ResolvedSkill } from "./skills/run-skills";
 

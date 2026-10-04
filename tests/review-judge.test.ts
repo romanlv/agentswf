@@ -2,12 +2,11 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { runWorkflow } from "../packages/engine/src";
 import {
   confidentResponse,
   createFakeDecisionProvider,
 } from "../packages/engine/src/decisions/fake";
-import { createTempRunDirs, future, submit } from "../packages/engine/src/testing";
+import { createTempRunDirs, future, runNew, submit } from "../packages/engine/src/testing";
 import type { AgentRuntimeConfig } from "../packages/harness/src/adapter";
 import { createSingleSessionHostFactory } from "../packages/harness/src/single-session-host";
 import {
@@ -86,7 +85,7 @@ async function judge(script: Script, findings: unknown = EXAMPLE_FINDINGS) {
     argv: ["--fixture", files.fixture, "--findings", files.findings],
     cwd: scratch,
   });
-  const run = runWorkflow(panelJudge, args, {
+  const run = runNew(panelJudge, args, {
     runRoot: runDirs.tempRunDir(),
     runtime,
     deadline: future(),
@@ -305,7 +304,7 @@ async function match(script: Script, provider: ReturnType<typeof jev>, argv: str
     argv: ["--sandbox", "none", ...argv, "--fixture", files.fixture, "--findings", files.findings],
     cwd: scratch,
   });
-  const run = runWorkflow(matchJudge, args, {
+  const run = runNew(matchJudge, args, {
     runRoot: runDirs.tempRunDir(),
     runtime,
     decisions: {

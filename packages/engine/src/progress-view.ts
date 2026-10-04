@@ -1,6 +1,7 @@
 import { type JsonValue, placementOf, type StageOutcome } from "@agentswf/contract/workflow";
 import { duration } from "./accounting/format";
 import { NO_STAGE } from "./accounting/summary";
+import { ago } from "./duration";
 import type { StageProgress } from "./stage-ledger";
 import type { WorkflowRunHandle, WorkflowRunSnapshot } from "./workflow-runner";
 
@@ -186,10 +187,10 @@ type Rank = (typeof RANKS)[number];
 /**
  * The stages: those finished collapsed to a line with their time, what their agents cost when the
  * run is over, and their summary; those reused marked `↺` with their summary and the attempt that
- * ran them; the current one with each agent working in it; and those an earlier attempt recorded
- * still to come, dim. Once the run is over, what ran between stages has a row of its own, so the
- * stages add up. None for a run without stages. A stage that did not succeed shows only its mark:
- * why is said once, where the run's ending is.
+ * ran them, and how long ago once that is over an hour; the current one with each agent working in
+ * it; and those an earlier attempt recorded still to come, dim. Once the run is over, what ran
+ * between stages has a row of its own, so the stages add up. None for a run without stages. A
+ * stage that did not succeed shows only its mark: why is said once, where the run's ending is.
  */
 function stageLines(
   snapshot: WorkflowRunSnapshot,
@@ -209,7 +210,7 @@ function stageLines(
   );
   const rows = snapshot.stages.map((stage) => {
     if (stage.source === "reused") {
-      return { stage, detail: summaryOf(stage).join(""), tail: `attempt ${stage.attempt}` };
+      return { stage, detail: summaryOf(stage).join(""), tail: reusedTail(stage, now) };
     }
     const took = duration((stage.endedAt ?? now) - stage.startedAt);
     const cost = figures.get(stage.stage);
@@ -250,6 +251,14 @@ function stageLines(
 }
 
 const GAP = "   ";
+
+const HOUR_MS = 60 * 60_000;
+
+/** The attempt that ran a reused stage, and its record's age once that may make it stale. */
+function reusedTail(stage: StageProgress, now: number): string {
+  const age = stage.recordedAt === undefined ? 0 : now - stage.recordedAt;
+  return [`attempt ${stage.attempt}`, ...(age > HOUR_MS ? [ago(age)] : [])].join(" · ");
+}
 
 /** A finished stage's mark. */
 function stageMark(outcome: StageOutcome | undefined, paint: Paint): string {

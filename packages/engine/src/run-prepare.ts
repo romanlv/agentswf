@@ -2,16 +2,17 @@ import { statSync } from "node:fs";
 import type { AttemptRecord, StageRecord } from "@agentswf/contract/records";
 import type { ExecutableWorkflow, JsonValue } from "@agentswf/contract/workflow";
 import { pathFrom } from "./display-path";
+import { ago } from "./duration";
 import { messageOf } from "./errors";
-import { refusal } from "./refusal";
 import type { RunCommand } from "./run-command";
 import {
   type Attempt,
+  type AttemptRefusal,
+  attemptRefusal,
   checkContinue,
   checkFree,
   claimAttempt,
   idProblem,
-  isLive,
   openRun,
   type Run,
   RunRefused,
@@ -94,13 +95,8 @@ async function prepareRun(
   const attempts = await readAttempts(run);
   const records = await readStageRecords(run.dir);
   // The claim refuses it too; this says so before `--here` opens a tab, or `--session` waits.
-  const refused = refusal(id, attempts, {
-    fromStage: command.fromStage !== undefined,
-    stages: [...records.keys()],
-    listed: listRecorded(records, now),
-    live: (attempt) => isLive(attempt),
-  });
-  if (refused) throw new RunRefused(refused);
+  const refused = attemptRefusal(attempts, records, { fromStage: command.fromStage !== undefined });
+  if (refused) throw new RunRefused(refusalMessage(id, refused, now));
   const { fromStage } = command;
   const unrecorded =
     fromStage !== undefined && !records.has(fromStage)
@@ -127,9 +123,17 @@ function derivedId(
   return id as string;
 }
 
-/** A run's stage records, a line each in the order they began: summary, attempt, and how long ago. */
-function listRecorded(recorded: ReadonlyMap<string, StageRecord>, now: number): string[] {
-  const records = [...recorded.values()].sort((a, b) => a.started.localeCompare(b.started));
+/** Why a run takes no attempt now, as awf says it, at time `now`. */
+function refusalMessage(id: string, refusal: AttemptRefusal, now: number): string {
+  if (refusal.kind === "running") {
+    return `attempt ${refusal.attempt.attempt} of ${id} is still running, as process ${refusal.attempt.pid}`;
+  }
+  if (refusal.stages.length === 0) return `${id} completed; there is nothing to continue`;
+  return `${id} completed; to redo from a stage, --from-stage one of:\n${listRecorded(refusal.stages, now).join("\n")}`;
+}
+
+/** Stage records, a line each, in the order given: summary, attempt, and how long ago. */
+function listRecorded(records: readonly StageRecord[], now: number): string[] {
   const name = Math.max(0, ...records.map((record) => record.stage.length));
   const summary = Math.max(0, ...records.map((record) => record.summary?.length ?? 0));
   return records.map((record) =>
@@ -145,20 +149,13 @@ function listRecorded(recorded: ReadonlyMap<string, StageRecord>, now: number): 
   );
 }
 
-function ago(ms: number): string {
-  if (!Number.isFinite(ms)) return "at an unknown time";
-  const minutes = Math.max(0, Math.round(ms / 60_000));
-  if (minutes < 60) return `${minutes}m ago`;
-  const hours = Math.round(minutes / 60);
-  return hours < 48 ? `${hours}h ago` : `${Math.round(hours / 24)}d ago`;
-}
-
 /** Claims the run's next attempt, naming each earlier one found interrupted. */
 export async function claimNext(
   run: Run,
   loaded: LoadedWorkflow,
   command: RunCommand,
   stderr: (text: string) => void,
+  now: number,
 ): Promise<Attempt> {
   const { meta } = loaded.executable.definition;
   const claimed = await claimAttempt(
@@ -173,12 +170,15 @@ export async function claimNext(
     },
     { fromStage: command.fromStage !== undefined },
   );
+  if ("refused" in claimed) {
+    throw new RunRefused(refusalMessage(run.record.id, claimed.refused, now));
+  }
   const turns = claimed.interrupted.length > 0 ? await readTurns(run.dir).catch(() => []) : [];
   for (const earlier of claimed.interrupted) {
     // Its last turn says the stage it was in, as nothing else it wrote does.
-    const stage = turns.findLast((turn) => turn.attempt === earlier.n)?.stage;
+    const stage = turns.findLast((turn) => turn.attempt === earlier.attempt)?.stage;
     stderr(
-      `awf: attempt ${earlier.n} of ${run.record.id} was interrupted${stage ? ` in ${stage}` : ""}; its panes may still be open in Herdr workspace "${workspaceLabel(meta.name, run.record.id, earlier.n)}"`,
+      `awf: attempt ${earlier.attempt} of ${run.record.id} was interrupted${stage ? ` in ${stage}` : ""}; its panes may still be open in Herdr workspace "${workspaceLabel(meta.name, run.record.id, earlier.attempt)}"`,
     );
   }
   return claimed.attempt;

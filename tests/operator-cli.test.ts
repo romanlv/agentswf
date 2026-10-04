@@ -1097,7 +1097,7 @@ describe("awf run's runs and attempts", () => {
       value: { runId: "AIRS-1515", attempt: 1, args: ["AIRS-1515"] },
     });
     expect(attemptOf(join(runs(cwd), "AIRS-1515"))).toMatchObject({
-      n: 1,
+      attempt: 1,
       outcome: "completed",
       flags: { timeout: "30m" },
     });

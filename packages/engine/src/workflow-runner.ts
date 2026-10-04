@@ -101,7 +101,7 @@ import {
   type OperationTags,
   type RunLedger,
 } from "./run-usage";
-import { appendTurn, createRun, endTurnsLine, readStageRecords } from "./runs";
+import { appendTurn, endTurnsLine, readStageRecords } from "./runs";
 import { type CredentialLocks, placeCarried, seedHome } from "./sandbox-homes";
 import {
   RUN_SANDBOX_ONLY,
@@ -117,11 +117,8 @@ export { WorkflowCancelledError } from "./deadlines";
 
 export type RunWorkflowOptions = {
   runRoot: string;
-  /**
-   * The run this is an attempt of, whose folder the operator claimed under `runRoot`. Without it a
-   * new run is created there, with no attempt file, as tests make one.
-   */
-  run?: {
+  /** The run this is an attempt of, whose folder the operator claimed under `runRoot`. */
+  run: {
     dir: string;
     id: string;
     attempt: number;
@@ -284,30 +281,20 @@ export async function startWorkflow<Args extends JsonValue, Result extends JsonV
 ): Promise<WorkflowRunHandle<Result>> {
   assertDeadline(options.deadline);
   if (options.signal?.aborted) throw new WorkflowCancelledError(options.signal.reason);
-  const attempt = options.run?.attempt ?? 1;
+  const { dir: runDir, id: runId, attempt } = options.run;
   const startedAt = Date.now();
   const cwd = options.cwd ?? process.cwd();
-  const created = options.run
-    ? undefined
-    : await createRun(options.runRoot, {
-        workflow: definition.meta.name,
-        argv: [],
-        cwd,
-        sandbox: null,
-      });
-  const runDir = options.run?.dir ?? created!.dir;
-  const runId = options.run?.id ?? created!.record.id;
   // Before anything opens: a record this awf can't read refuses the attempt, and a crash may have
-  // torn the last line an earlier attempt appended. A run just created has neither.
-  const recorded = options.run ? await readStageRecords(runDir) : undefined;
-  if (options.run) await endTurnsLine(runDir);
+  // torn the last line an earlier attempt appended.
+  const recorded = await readStageRecords(runDir);
+  await endTurnsLine(runDir);
   const slots = createResultSlotRegistry({ runDir });
   const control = await startResultControlPlane({ slots });
   let host: AgentRunHost;
   const openingHost = Promise.resolve().then(() =>
     options.runtime.host.openRun({
       runId,
-      ...(options.run?.label === undefined ? {} : { label: options.run.label }),
+      ...(options.run.label === undefined ? {} : { label: options.run.label }),
       cwd,
       deadline: options.deadline,
     }),
@@ -343,8 +330,8 @@ export async function startWorkflow<Args extends JsonValue, Result extends JsonV
   const stages = new StageLedger({
     runDir,
     attempt,
-    ...(recorded ? { records: recorded } : {}),
-    ...(options.run?.fromStage === undefined ? {} : { fromStage: options.run.fromStage }),
+    records: recorded,
+    ...(options.run.fromStage === undefined ? {} : { fromStage: options.run.fromStage }),
     ...(definition.meta.version === undefined ? {} : { workflowVersion: definition.meta.version }),
     turns: () => turns,
   });

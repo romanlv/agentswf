@@ -2,7 +2,7 @@ import { afterAll, describe, expect, test } from "bun:test";
 import type { WorkflowDefinition } from "../packages/contract/src/workflow";
 import { PLAIN, progressEvents, renderProgress } from "../packages/engine/src/progress-view";
 import { createRun, writeStageRecord } from "../packages/engine/src/runs";
-import { createTempRunDirs, future, submit } from "../packages/engine/src/testing";
+import { createTempRunDirs, future, startNew, submit } from "../packages/engine/src/testing";
 import { startWorkflow, type WorkflowRunSnapshot } from "../packages/engine/src/workflow-runner";
 import { createSingleSessionHostFactory } from "../packages/harness/src/single-session-host";
 import { createFakeAdapter } from "../packages/harness/src/testing/fake";
@@ -64,6 +64,8 @@ const CONTINUED: WorkflowRunSnapshot = {
       endedAt: 0,
       outcome: "succeeded",
       summary: "docs/AIRS-1515.md",
+      // Old enough that its age is shown, as the next one's is not.
+      recordedAt: -2 * 24 * 60 * 60_000,
     },
     {
       stage: "implement",
@@ -72,6 +74,7 @@ const CONTINUED: WorkflowRunSnapshot = {
       startedAt: 0,
       endedAt: 0,
       outcome: "succeeded",
+      recordedAt: -10 * 60_000,
     },
     {
       stage: "review",
@@ -129,7 +132,7 @@ describe("run progress by stage", () => {
       }),
     ).toEqual([
       "implement-ticket AIRS-1515 · attempt 2 · qa · 5m 00s · 1 working",
-      "↺ doc-review   docs/AIRS-1515.md   attempt 1",
+      "↺ doc-review   docs/AIRS-1515.md   attempt 1 · 2d ago",
       "↺ implement                        attempt 1",
       "✓ review       4m 00s              2 findings",
       expect.stringMatching(/^. qa {11}1m 00s$/),
@@ -171,7 +174,7 @@ describe("run progress by stage", () => {
         ]),
       }).slice(1),
     ).toEqual([
-      "↺ doc-review   docs/AIRS-1515.md                        attempt 1",
+      "↺ doc-review   docs/AIRS-1515.md                        attempt 1 · 2d ago",
       "↺ implement                                             attempt 1",
       "✓ review       4m 00s · 1 agent · 90k tokens · ~$0.30   2 findings",
       "✗ qa           1m 00s",
@@ -340,7 +343,7 @@ describe("run progress by stage", () => {
         return null;
       },
     };
-    const handle = await startWorkflow(workflow, null, {
+    const handle = await startNew(workflow, null, {
       runRoot: runDirs.tempRunDir(),
       runtime: {
         aliases: {},
@@ -375,7 +378,7 @@ describe("run progress by stage", () => {
         return null;
       },
     };
-    handle = await startWorkflow(workflow, null, {
+    handle = await startNew(workflow, null, {
       runRoot: runDirs.tempRunDir(),
       runtime: {
         aliases: { codex: SOL },
@@ -443,7 +446,7 @@ describe("run progress", () => {
       },
     };
 
-    const handle = await startWorkflow(definition, null, {
+    const handle = await startNew(definition, null, {
       runRoot: runDirs.tempRunDir(),
       runtime: {
         aliases: { fake: { harness: "fake", model: "m" } },

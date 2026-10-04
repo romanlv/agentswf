@@ -10,7 +10,7 @@ import { createFakeAdapter } from "@agentswf/harness/testing";
 import Type from "typebox";
 import { OPERATOR_ALIASES } from "./operator-aliases";
 import { createRun, openRun } from "./runs";
-import { runWorkflow } from "./workflow-runner";
+import { type RunWorkflowOptions, runWorkflow, startWorkflow } from "./workflow-runner";
 
 export function createTempRunDirs(): {
   tempRunDir(): string;
@@ -131,4 +131,31 @@ export async function runAttempt<Result extends JsonValue>(
     deadline: future(),
     ...(signal === undefined ? {} : { signal }),
   });
+}
+
+/** `startWorkflow` as the first attempt of a new run of the workflow under `options.runRoot`. */
+export async function startNew<Args extends JsonValue, Result extends JsonValue>(
+  definition: WorkflowDefinition<Args, Result>,
+  args: Args,
+  options: Omit<RunWorkflowOptions, "run">,
+) {
+  const run = await createRun(options.runRoot, {
+    workflow: definition.meta.name,
+    argv: [],
+    cwd: options.cwd ?? process.cwd(),
+    sandbox: null,
+  });
+  return startWorkflow(definition, args, {
+    ...options,
+    run: { dir: run.dir, id: run.record.id, attempt: 1 },
+  });
+}
+
+/** `runWorkflow` as the first attempt of a new run of the workflow under `options.runRoot`. */
+export async function runNew<Args extends JsonValue, Result extends JsonValue>(
+  definition: WorkflowDefinition<Args, Result>,
+  args: Args,
+  options: Omit<RunWorkflowOptions, "run">,
+) {
+  return (await startNew(definition, args, options)).result;
 }

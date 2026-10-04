@@ -13,8 +13,7 @@ import {
   type FakeAdapterTurnContext,
   type FakeFork,
 } from "@agentswf/harness/testing";
-import { createTempRunDirs, future, submit } from "./testing";
-import { runWorkflow } from "./workflow-runner";
+import { createTempRunDirs, future, runNew, submit } from "./testing";
 
 const runDirs = createTempRunDirs();
 afterAll(() => runDirs.cleanup());
@@ -63,7 +62,7 @@ function run<Result extends JsonValue>(
     meta: { name: "fork", description: "fork" },
     run: body,
   };
-  return runWorkflow(workflow, null, {
+  return runNew(workflow, null, {
     runRoot: runDirs.tempRunDir(),
     deadline: future(),
     runtime: runtime(adapter),

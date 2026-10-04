@@ -18,8 +18,8 @@ import { describeAccounting } from "../accounting/format";
 import { PUBLISHED_PRICES } from "../accounting/prices";
 import { sumAttempts, summarizeRun } from "../accounting/summary";
 import { openRun } from "../runs";
-import { createTempRunDirs, future, workflowOf } from "../testing";
-import { runWorkflow, startWorkflow, WorkflowRunError } from "../workflow-runner";
+import { createTempRunDirs, future, runNew, startNew, workflowOf } from "../testing";
+import { WorkflowRunError } from "../workflow-runner";
 import { digestOf, RunDecisions } from "./directory";
 import { confidentResponse, createFakeDecisionProvider } from "./fake";
 import { type DecisionInstallation, DecisionProviderError, type ProviderAnswer } from "./seam";
@@ -311,7 +311,7 @@ describe("decisions.decide", () => {
           signal.addEventListener("abort", () => reject(signal.reason), { once: true });
         }),
     ]);
-    const handle = await startWorkflow(
+    const handle = await startNew(
       workflowOf(async (context) => {
         await context.decisions.decide({
           key: "held",
@@ -406,7 +406,7 @@ describe("decisions.decide", () => {
     expect(provider.requests).toEqual([]);
     expect(result.decisions).toBeUndefined();
 
-    const none = await runWorkflow(
+    const none = await runNew(
       workflowOf((context) =>
         context.decisions.decide({ key: "k", model: "jev", state: "s", questions: TRIAGE }).then(
           () => "answered",
@@ -670,7 +670,7 @@ function run<Result extends JsonValue>(
   runRoot: string,
   body: (context: WorkflowContext) => Promise<Result>,
 ) {
-  return runWorkflow(workflowOf(body, { name: "decisions" }), null, options(provider, runRoot));
+  return runNew(workflowOf(body, { name: "decisions" }), null, options(provider, runRoot));
 }
 
 function options(provider: ReturnType<typeof createFakeDecisionProvider>, runRoot: string) {

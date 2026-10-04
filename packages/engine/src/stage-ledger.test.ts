@@ -152,3 +152,39 @@ test("a stage the plan stops as it is entered shows stopped, in the view as in t
     upcoming: [],
   });
 });
+
+test("a reused stage shows the view when its record ended, without its value", async () => {
+  const record = {
+    version: 1 as const,
+    stage: "plan",
+    attempt: 1,
+    outcome: "succeeded" as const,
+    started: "2026-10-04T10:00:00Z",
+    ended: "2026-10-04T10:01:00Z",
+    sessions: [],
+    value: { path: "docs/a.md" },
+  };
+  const ledger = new StageLedger({
+    runDir: runDirs.tempRunDir(),
+    attempt: 2,
+    turns: () => [],
+    records: new Map([["plan", record]]),
+    fromStage: "mr",
+  });
+  const entered = await ledger.enter("plan", () => undefined);
+  expect(entered).toMatchObject({ kind: "reuse", value: { path: "docs/a.md" } });
+  if (entered.kind === "reuse") entered.release();
+  const [shown] = ledger.progress().stages;
+  expect(shown).toMatchObject({ source: "reused", recordedAt: Date.parse(record.ended) });
+  expect(shown).not.toHaveProperty("value");
+  expect(ledger.summaries).toEqual([
+    {
+      stage: "plan",
+      source: "reused",
+      outcome: "succeeded",
+      attempt: 1,
+      spanMs: 0,
+      value: { path: "docs/a.md" },
+    },
+  ]);
+});

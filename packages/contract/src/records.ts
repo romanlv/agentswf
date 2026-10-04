@@ -266,15 +266,13 @@ export type RunRecord = {
 
 export const ATTEMPT_RECORD_VERSION = 1 as const;
 
-export type { AttemptOutcome, UnfinishedOutcome } from "./workflow/executable";
-
 /**
- * `attempts/{n}.json`: one `awf run` of a run. Written whole when the attempt claims its number, and
+ * `attempts/{attempt}.json`: one `awf run` of a run. Written whole when the attempt claims its number, and
  * again when it ends, with its ending.
  */
 export type AttemptRecord = {
   version: typeof ATTEMPT_RECORD_VERSION;
-  n: number;
+  attempt: number;
   /** The file it ran, for the record; never identity. */
   file: string;
   /** The workflow's `meta.version`, when it gives one. */
@@ -310,8 +308,6 @@ export type AttemptAccounting = Pick<
 export type AttemptStage = Omit<StageSummary, "value">;
 
 export const STAGE_RECORD_VERSION = 1 as const;
-
-export type { StageOutcome } from "./workflow/workflow";
 
 /**
  * `stages/{stage}.json`: the run's current record of a stage, written whole when the stage ends,
