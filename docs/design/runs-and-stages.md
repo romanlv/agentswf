@@ -65,8 +65,8 @@ What a workflow sees. Everything else in this page is awf's.
 ```ts
 // packages/contract/src/workflow/executable.ts, beside prepare
 id?(args: Args): string;                       // the run's id, unless --id gives one
-present?(ending: Ending<Result>): string;      // was (result: Result)
-report?(ending: Ending<Result>): string;
+present?(value: Result, ending: Ending<Result>): string | undefined;           // a completed attempt's
+report?(value: Result | undefined, ending: Ending<Result>): string | undefined; // every attempt's
 
 // packages/contract/src/workflow/workflow.ts, on WorkflowContext
 readonly runId: string;                        // the run's id, the same in every attempt
@@ -308,8 +308,9 @@ Written twice, each time whole, and only by its own attempt:
 
 **`output.json`**: today's record, version 5, what `--json` prints. Replaced by each attempt that
 ends, so it may be an earlier attempt's than the last; its `attempt` says which. Adds `run` and
-`attempt`; `outcome` gains `stopped`, with `stage` (absent between stages) and
-`reason`; `stages`, as in the attempt file; `byStage` from stages with a `(no stage)` row, which
+`attempt`; `outcome` takes the attempt file's words, `completed` (was `succeeded`) with its
+`value`, or `stopped`, `failed`, `timed-out` or `cancelled` with `reason` (was `error`) and
+`stage` (absent between stages); `report` whatever the outcome; `stages`, as in the attempt file; `byStage` from stages with a `(no stage)` row, which
 has each stage's time and cost, and `grouping` saying whether its rows are stages or key prefixes.
 `byAgent.stage` goes.
 
@@ -483,10 +484,12 @@ named is the last one reused before the stop.
 
 A refusal (the id taken, an attempt live, argv on a continue) exits 2, as usage errors do today.
 
-`present` and `report` take the `Ending` ([[#The author API]]), so a stopped run can report what
-its stages found. Without `present`, awf prints the value for `completed`, and otherwise the
-stage, the reason and `continue`: `awf run {file} --continue {id}`, plus `--from-stage {stage}`
-when a plain continue wouldn't start there.
+`report` is called for every ending, with the `Ending` ([[#The author API]]), so a stopped run
+can hand off what its stages found. `present` renders a completed attempt's value, and without it
+awf prints the JSON. An attempt that didn't complete is awf's to print: the stage, the reason and
+`continue`: `awf run {file} --continue {id}`, plus `--from-stage {stage}` when a plain continue
+wouldn't start there. A completed attempt whose runtime then fails to clean up ends `failed`, and
+every record of it says so.
 
 ## Workflow version
 
@@ -594,9 +597,10 @@ Migrating old runs is decided when a format first changes.
   `packages/contract/src/records.ts`, whose doc already calls it a candidate, becomes `Candidate`,
   before `AttemptRecord` is published, and the call's `attempts.jsonl` (`run-dir.ts`) becomes
   `candidates.jsonl`.
-- **lab.** `RUN_OUTCOMES` (`packages/lab/.../format/scoring.ts`) gains `stopped`; contained runs
+- **lab.** `RUN_OUTCOMES` (`packages/lab/.../format/scoring.ts`) gains `stopped`, and keeps
+  `succeeded` for a completed run, which its stored scores say; contained runs
   move `runs/*`; `tests/calling-session.eval.ts` and lab's reference stop expecting `invocation-*`.
-- **The caller claim** (`claimCaller` in `operator-cli.ts`) moves to one machine-wide path, since
+- **The caller claim** (`claimCaller`, now in `here.ts`) moves to one machine-wide path, since
   per-project run roots would split it.
 - **`--here` with `--continue`** resolves the run first and prepares the recorded argv.
 - **Workflow tests:** `runId` becomes an input to `startWorkflow`, `TestRun` gains `stopped`, and
@@ -651,8 +655,8 @@ The prototype's `flow.ts`, its two live runs on AIRS-1515 and their run notes, t
 - **`not-ready` ends completed;** after answering the questions, `--continue AIRS-1515
   --from-stage doc-review`. ✓
 - **Every stage returns a value**, so each gets a schema; review's needs writing. ✓
-- **The prototype's `stopped()`** built its result from the stages done; the ending value's
-  `stages` gives `present` the same. ✓
+- **The prototype's `stopped()`** built its result from the stages done; the ending's `stages`
+  gives `report` the same. ✓
 - **The record lived beside the ticket doc, keyed by ticket.** Here it lives in `.awf/`, keyed by
   the run's id, which the workflow's `id(args)` makes the ticket.
 - **`--timeout 10h`** is per attempt; a continue takes its own or none.

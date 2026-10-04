@@ -111,17 +111,14 @@ const executable = defineExecutableWorkflow<SkillsPlan, { reports: SkillsReport[
     },
   },
   prepare: parsePlan,
-  present: (ending) => {
-    if (ending.kind !== "completed") return undefined;
-    const { reports } = ending.value;
-    return reports
+  present: ({ reports }) =>
+    reports
       .map((report) =>
         report.skills === undefined
           ? `${report.agent}: ${report.outcome}: ${report.reason}`
           : `${report.agent}: stamp ${report.stamp || "-"}, seal ${report.seal || "-"}; ${report.skills.join(", ")}`,
       )
-      .join("\n");
-  },
+      .join("\n"),
 });
 
 /** One argument: the plan, as JSON. The host writes it, with the probes it made. */

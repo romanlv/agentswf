@@ -142,14 +142,14 @@ export function problems(evidence: Evidence): string[] {
     found.push("the reader never read the request");
   }
   if (!lab.keyOnHost) found.push("the key is not on the host, so its refusal proves nothing");
-  const value = lab.record?.outcome === "succeeded" ? lab.record.value : undefined;
+  const value = lab.record?.outcome === "completed" ? lab.record.value : undefined;
   if (`${lab.transcripts}${JSON.stringify(value ?? {})}`.includes(KEY_TEXT)) {
     found.push("the key reached an agent");
   }
 
   const { quickCheck } = evidence;
   const checks =
-    quickCheck.record?.outcome === "succeeded"
+    quickCheck.record?.outcome === "completed"
       ? (quickCheck.record.value as QuickCheckResult).checks
       : [];
   const right = checks.flatMap((c) => c.answers).filter((a) => a.answer === a.expected).length;

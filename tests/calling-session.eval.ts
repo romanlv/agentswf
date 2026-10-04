@@ -49,8 +49,8 @@ const INTERRUPTED: Record<Harness, string> = {
 
 export function problems(harness: Harness, record: OutputRecord | undefined): string[] {
   if (!record) return [`${harness}: no run record`];
-  if (record.outcome !== "succeeded") {
-    return [`${harness}: run ${record.outcome}: ${"error" in record ? record.error : ""}`];
+  if (record.outcome !== "completed") {
+    return [`${harness}: run ${record.outcome}: ${"reason" in record ? record.reason : ""}`];
   }
   const steps = record.value as CallerSteps;
   const found: string[] = [];

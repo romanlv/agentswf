@@ -62,30 +62,25 @@ describe("sandboxes", () => {
       failure: "blocked: waiting on a permission prompt",
     });
     expect(run.value.reports.filter((report) => report.results)).toHaveLength(3);
-    expect(sandboxes.present!({ kind: "completed", value: run.value, stages: [] })).toContain(
-      "grace (docker, shared, headed)\n  blocked: waiting on a permission prompt",
-    );
+    expect(
+      sandboxes.present!(run.value, { kind: "completed", value: run.value, stages: [] }),
+    ).toContain("grace (docker, shared, headed)\n  blocked: waiting on a permission prompt");
   });
 
   test("prints each command with its output, and a failing one's exit code", () => {
-    expect(
-      sandboxes.present!({
-        kind: "completed",
-        stages: [],
-        value: {
-          reports: [
-            {
-              agent: "auditor",
-              where: "srt, private, headless",
-              results: [
-                { command: "cat *.txt", output: "ada was here\n", exitCode: 0 },
-                { command: "touch auditor.txt", output: "Read-only file system", exitCode: 1 },
-              ],
-            },
+    const value = {
+      reports: [
+        {
+          agent: "auditor",
+          where: "srt, private, headless",
+          results: [
+            { command: "cat *.txt", output: "ada was here\n", exitCode: 0 },
+            { command: "touch auditor.txt", output: "Read-only file system", exitCode: 1 },
           ],
         },
-      }),
-    ).toBe(
+      ],
+    };
+    expect(sandboxes.present!(value, { kind: "completed", value, stages: [] })).toBe(
       [
         "auditor (srt, private, headless)",
         "  $ cat *.txt",

@@ -9,7 +9,7 @@ import type {
   TurnOutcome,
 } from "./workflow/agents";
 import type { DecisionRecord, Question } from "./workflow/decisions";
-import type { StageSummary } from "./workflow/executable";
+import type { AttemptOutcome, StageSummary, UnfinishedOutcome } from "./workflow/executable";
 import type { JsonObject, JsonValue } from "./workflow/json";
 import type {
   Domain,
@@ -267,8 +267,7 @@ export type RunRecord = {
 
 export const ATTEMPT_RECORD_VERSION = 1 as const;
 
-/** How an attempt ended. `interrupted` is never written: it is an attempt with no ending and no process. */
-export type AttemptOutcome = "completed" | "stopped" | "failed" | "timed-out" | "cancelled";
+export type { AttemptOutcome, UnfinishedOutcome } from "./workflow/executable";
 
 /**
  * `attempts/{n}.json`: one `awf run` of a run. Written whole when the attempt claims its number, and
@@ -299,11 +298,14 @@ export type AttemptRecord = {
    * What it cost, as far as a run's total needs: `output.json` holds the last attempt's in full,
    * and turns carry no spend, so an earlier attempt's is kept here. Absent for an interrupted one.
    */
-  accounting?: Pick<
-    RunAccounting,
-    "basis" | "wallMs" | "billing" | "totals" | "byStage" | "unpriced"
-  >;
+  accounting?: AttemptAccounting;
 };
+
+/** What an attempt's file keeps of its accounting: what a run's total sums. */
+export type AttemptAccounting = Pick<
+  RunAccounting,
+  "basis" | "wallMs" | "grouping" | "billing" | "totals" | "byStage" | "unpriced"
+>;
 
 /** A stage an attempt entered, as its files record it: no value, which `stages/` holds. */
 export type AttemptStage = Omit<StageSummary, "value">;
@@ -360,8 +362,9 @@ export type TurnRecord = {
 export const OUTPUT_RECORD_VERSION = 5 as const;
 
 /**
- * A run, as the operator CLI keeps it in `output.json` and prints it with `--json`. A run that
- * failed, timed out or was cancelled keeps what it spent too; only a succeeded one has a value.
+ * An attempt, as the operator CLI keeps it in `output.json` and prints it with `--json`, in the
+ * words of its attempt file. One that didn't complete keeps what it spent too; only a completed one
+ * has a value.
  */
 export type OutputRecord = {
   version: typeof OUTPUT_RECORD_VERSION;
@@ -385,22 +388,14 @@ export type OutputRecord = {
   decisions?: SettledDecision[];
   /** Each stage the attempt entered, as its attempt file has them; absent when none. */
   stages?: AttemptStage[];
+  /** The workflow's Markdown report, when it wrote one. */
+  report?: string;
 } & (
+  | { outcome: "completed"; value: JsonValue }
   | {
-      outcome: "succeeded";
-      value: JsonValue;
-      /** The workflow's Markdown report, when it wrote one. */
-      report?: string;
-    }
-  | {
-      /**
-       * `cancelled` is the operator stopping the run, and wins over the others. `timed-out` is the
-       * run's own deadline ending it; a deadline the workflow set and let escape is `failed`.
-       * `stopped` is a stop: the workflow's, or a continue that can't go on as asked.
-       */
-      outcome: "stopped" | "failed" | "cancelled" | "timed-out";
-      error: string;
-      /** The stage the run ended in; absent when it ended between stages. */
+      outcome: UnfinishedOutcome;
+      reason: string;
+      /** The stage the attempt ended in; absent when it ended between stages. */
       stage?: string;
     }
 );

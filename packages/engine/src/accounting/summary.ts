@@ -1,5 +1,6 @@
 import type {
   AccountingFigures,
+  AttemptAccounting,
   DecisionFigures,
   ModelFigures,
   RunAccounting,
@@ -38,12 +39,12 @@ export function summarizeRun(
     usage.some((record) => record.stage !== undefined) ||
     decisions.some((record) => record.stage !== undefined);
   const stageOf = staged ? workflowStageOf : prefixStageOf;
-  const decisionStageOf = staged ? decisionWorkflowStageOf : decisionPrefixStageOf;
+  const decisionStageOf = staged ? workflowStageOf : decisionPrefixStageOf;
   const stages = unique([
     ...entered.map(({ stage }) => stage),
     ...usage.map(stageOf),
     ...decisions.map(decisionStageOf),
-  ]).sort((a, b) => Number(a === NO_STAGE) - Number(b === NO_STAGE));
+  ]).sort(noStageLast);
   const billings = unique(usage.map((record) => record.billing)).filter(
     (billing) => billing !== "unknown",
   );
@@ -204,10 +205,6 @@ function decisionModelOf(record: SettledDecision): string {
   return record.snapshot ?? record.model;
 }
 
-function decisionWorkflowStageOf(record: SettledDecision): string {
-  return record.stage ?? NO_STAGE;
-}
-
 function decisionPrefixStageOf(record: SettledDecision): string {
   return [...record.callPath, prefixOf(record.key)].join("/");
 }
@@ -247,6 +244,11 @@ function workflowStageOf(record: { stage?: string }): string {
   return record.stage ?? NO_STAGE;
 }
 
+/** A stable sort's order otherwise, with `(no stage)` last. */
+function noStageLast(a: string, b: string): number {
+  return Number(a === NO_STAGE) - Number(b === NO_STAGE);
+}
+
 function prefixStageOf(record: SettledOperation): string {
   return [...record.callPath, prefixOf(record.agent)].join("/");
 }
@@ -281,32 +283,37 @@ function unique<T>(values: readonly T[]): T[] {
   return [...new Set(values)];
 }
 
-/** A run's attempts summed: its total, and each stage's across the attempts that ran it. */
-export function sumAttempts(
-  attempts: readonly Pick<RunAccounting, "wallMs" | "totals" | "byStage">[],
-): Pick<RunAccounting, "totals" | "byStage"> & { wallMs: number } {
+/**
+ * A run's attempts summed, priced as the last was: its total, and each stage's across the attempts
+ * that ran it. Once any attempt grouped by stages, what another grouped by prefix, having failed
+ * before it entered one, ran between stages.
+ */
+export function sumAttempts(attempts: readonly AttemptAccounting[]): AttemptAccounting {
+  const grouping = attempts.some((attempt) => attempt.grouping === "stages") ? "stages" : "prefix";
   const byStage = new Map<string, RunAccounting["byStage"][number]>();
   for (const attempt of attempts) {
-    for (const stage of attempt.byStage) {
-      const before = byStage.get(stage.stage);
+    for (const row of attempt.byStage) {
+      const stage = grouping === attempt.grouping ? row.stage : NO_STAGE;
+      const before = byStage.get(stage);
       byStage.set(
-        stage.stage,
+        stage,
         before
-          ? {
-              ...addFigures(before, stage),
-              stage: stage.stage,
-              spanMs: before.spanMs + stage.spanMs,
-            }
-          : stage,
+          ? { ...addFigures(before, row), stage, spanMs: before.spanMs + row.spanMs }
+          : { ...row, stage },
       );
     }
   }
+  const billings = unique(attempts.map((attempt) => attempt.billing)).filter(
+    (billing) => billing !== "unknown",
+  );
   return {
+    basis: attempts.at(-1)?.basis ?? "",
     wallMs: attempts.reduce((sum, attempt) => sum + attempt.wallMs, 0),
+    grouping,
+    billing: billings.length === 0 ? "unknown" : billings.length === 1 ? billings[0]! : "mixed",
     totals: attempts.map((attempt) => attempt.totals).reduce(addFigures, ZERO),
-    byStage: [...byStage.values()].sort(
-      (a, b) => Number(a.stage === NO_STAGE) - Number(b.stage === NO_STAGE),
-    ),
+    byStage: [...byStage.values()].sort((a, b) => noStageLast(a.stage, b.stage)),
+    unpriced: unique(attempts.flatMap((attempt) => attempt.unpriced)).sort(),
   };
 }
 

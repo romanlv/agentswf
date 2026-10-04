@@ -50,7 +50,7 @@ export function cachedShare(operation: SettledOperation | undefined): number | u
 }
 
 export function problems(exitCode: number, record: OutputRecord | undefined): string[] {
-  if (exitCode !== 0 || record?.outcome !== "succeeded") {
+  if (exitCode !== 0 || record?.outcome !== "completed") {
     return [`run did not succeed: exit ${exitCode}, outcome ${record?.outcome ?? "missing"}`];
   }
   const { checks, ...args } = record.value as ForkResult;
@@ -104,7 +104,7 @@ if (import.meta.main) {
   );
   const record = output.length > 0 ? (JSON.parse(output.join("\n")) as OutputRecord) : undefined;
   const failed = problems(exitCode, record);
-  const succeeded = record?.outcome === "succeeded" ? (record.value as ForkResult).checks : [];
+  const succeeded = record?.outcome === "completed" ? (record.value as ForkResult).checks : [];
   console.log(
     JSON.stringify(
       {

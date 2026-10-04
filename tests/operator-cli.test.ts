@@ -15,9 +15,11 @@ import { OUTPUT_RECORD_VERSION } from "../packages/contract/src/records";
 import { DeadlineExceededError } from "../packages/contract/src/workflow/timing";
 import { PUBLISHED_PRICES } from "../packages/engine/src/accounting/prices";
 import { summarizeRun } from "../packages/engine/src/accounting/summary";
+import { attemptEnd, runOutcome } from "../packages/engine/src/attempt-ending";
 import { WorkflowCancelledError } from "../packages/engine/src/deadlines";
 import { createFakeDecisionProvider } from "../packages/engine/src/decisions/fake";
-import { runOperatorCli, runOutcome } from "../packages/engine/src/operator-cli";
+import { runOperatorCli } from "../packages/engine/src/operator-cli";
+import { WorkflowStopped } from "../packages/engine/src/stopped";
 import { createTempRunDirs, submit } from "../packages/engine/src/testing";
 import { WorkflowRunError } from "../packages/engine/src/workflow-runner";
 import type { AgentRuntimeConfig, AgentSessionAdapter } from "../packages/harness/src/adapter";
@@ -150,7 +152,7 @@ describe("awf run", () => {
       artifacts: string;
     };
     expect(result.version).toBe(OUTPUT_RECORD_VERSION);
-    expect(result).toMatchObject({ outcome: "succeeded" });
+    expect(result).toMatchObject({ outcome: "completed" });
     expect(result.workflow).toEqual({
       name: "review-loop",
       file: join(ROOT, "examples/minimum-review/review-loop.ts"),
@@ -639,7 +641,7 @@ describe("awf run", () => {
         "return null;",
         "return { total: 2 };",
         // biome-ignore lint/suspicious/noTemplateCurlyInString: workflow source text
-        "present(ending) { return `total ${ending.value.total}`; }, report(ending) { return `# ${ending.value.total} found`; },",
+        "present(result) { return `total ${result.total}`; }, report(result) { return `# ${result.total} found`; },",
       ),
     );
     let errors: string[] = [];
@@ -731,6 +733,14 @@ describe("awf run", () => {
     expect(reported).toContain("cleanup broke");
     // Stdout is withheld, so the failure has to say where the run's work ended up.
     expect(reported).toContain("its records are in");
+    // Every record follows the attempt's final ending, not the success before the cleanup.
+    const dir = recordsIn(reported);
+    const reason = "runtime cleanup failed: cleanup broke";
+    expect(attemptOf(dir)).toMatchObject({ outcome: "failed", reason });
+    const saved = JSON.parse(readFileSync(join(dir, "output.json"), "utf8"));
+    expect(saved).toMatchObject({ outcome: "failed", reason });
+    expect(saved).not.toHaveProperty("value");
+    expect(reported).toMatch(/^awf: to go on: awf run .*review-loop\.ts --continue \S+$/m);
   });
 
   test("fails an incomplete review instead of reporting successful review output", async () => {
@@ -790,7 +800,7 @@ describe("awf run", () => {
         workflow: { name: "review-loop" },
         accounting: { totals: { agents: 2, known: 2 } },
       });
-      expect(saved.error).toContain("review incomplete:");
+      expect(saved.reason).toContain("review incomplete:");
       expect(saved).not.toHaveProperty("value");
       expect(output).toEqual(json ? [JSON.stringify(saved, null, 2)] : []);
     }
@@ -870,7 +880,7 @@ describe("awf run", () => {
         adapter,
       );
       expect(ended.saved.outcome).toBe("failed");
-      expect(ended.saved.error).toContain("the turn timed-out");
+      expect(ended.saved.reason).toContain("the turn timed-out");
     });
 
     // Whichever fires first ends the body: a signal once the deadline has also passed still leaves
@@ -902,6 +912,25 @@ describe("awf run", () => {
         run,
       );
       expect(runOutcome(cleanupFailed, deadline)).toBe("timed-out");
+    });
+
+    test("a stop keeps its own reason, and what failed beside it is said apart", () => {
+      const times = { startedAt: "2026-09-27T00:00:00Z", finishedAt: "2026-09-27T00:00:01Z" };
+      const run = {
+        runId: "r",
+        endedIn: "qa",
+        usage: [],
+        ...times,
+        accounting: summarizeRun([], PUBLISHED_PRICES, times, []),
+      };
+      const stopped = new WorkflowRunError(
+        new AggregateError([new WorkflowStopped("no preview", "qa"), new Error("cleanup broke")]),
+        run,
+      );
+      const end = attemptEnd({ error: stopped }, { unixMilliseconds: 1_000 }, () => "awf run …");
+      expect(end.ending).toMatchObject({ kind: "stopped", stage: "qa", reason: "no preview" });
+      expect(end.alsoFailed).toBe("cleanup broke");
+      expect(end.exitCode).toBe(3);
     });
   });
 
@@ -954,7 +983,7 @@ describe("awf run", () => {
     const saved = JSON.parse(
       readFileSync(join(recordsIn(errors.join("\n")), "output.json"), "utf8"),
     );
-    expect(saved).toMatchObject({ outcome: "cancelled", error: "workflow cancelled by operator" });
+    expect(saved).toMatchObject({ outcome: "cancelled", reason: "workflow cancelled by operator" });
     expect(saved.accounting.totals.known).toBeGreaterThan(0);
   });
 
@@ -1017,7 +1046,7 @@ describe("awf run", () => {
       readFileSync(join(recordsIn(errors.join("\n")), "output.json"), "utf8"),
     );
     expect(saved.outcome).toBe("cancelled");
-    expect(saved.error).toContain("session close broke");
+    expect(saved.reason).toContain("session close broke");
   });
 
   test("a run root that can't be made refuses the run, naming it", async () => {
@@ -1327,7 +1356,7 @@ describe("awf run's stages", () => {
       "awf: nothing is recorded for qaa; the attempt stops if it never reaches it",
     );
     expect(stopped.stderr).toContain("awf: run stopped (fixture r1 · attempt 2)");
-    expect(stopped.record).toMatchObject({ outcome: "stopped", error: "never reached qaa" });
+    expect(stopped.record).toMatchObject({ outcome: "stopped", reason: "never reached qaa" });
     expect(attemptOf(runDir(cwd), 2)).toMatchObject({
       outcome: "stopped",
       reason: "never reached qaa",
@@ -1343,7 +1372,7 @@ describe("awf run's stages", () => {
     const misfit = await awf(cwd, ["flow.js", "--continue", "r1", "--from-stage", "qa"]);
     expect(misfit.exitCode).toBe(3);
     expect(misfit.record).toMatchObject({ outcome: "stopped", stage: "implement" });
-    expect(misfit.record.error).toStartWith("implement's record no longer fits:");
+    expect(misfit.record.reason).toStartWith("implement's record no longer fits:");
     expect(attemptOf(runDir(cwd), 3)).toMatchObject({ outcome: "stopped", stage: "implement" });
   });
 
@@ -1499,7 +1528,7 @@ describe("awf run's stages", () => {
     );
   });
 
-  test("present and report render a stop, with what its stages found", async () => {
+  test("a stop is awf's to print, and the report hands off what its stages found", async () => {
     const cwd = runDirs.tempRunDir();
     await Bun.write(
       join(cwd, "flow.js"),
@@ -1507,26 +1536,26 @@ describe("awf run's stages", () => {
         "return null;",
         `await workflow.stage("doc-review", { result: { type: "string" }, summary: (d) => d }, async () => "docs/a.md");
          return workflow.stop("the doc has open questions");`,
-        `present(ending) {
-           if (ending.kind === "completed") return undefined;
-           return ending.stages.map((s) => s.stage + ": " + s.value).join("\\n") + "\\n" + ending.reason + "\\n" + ending.continue;
-         },
-         report(ending) { return "# " + ending.kind + "\\n\\n" + ending.reason; },`,
+        `present() { throw new Error("present is for a completed run"); },
+         report(value, ending) {
+           return "# " + ending.kind + " " + value + "\\n\\n" + ending.stages.map((s) => s.stage + ": " + s.value).join("\\n") + "\\n\\n" + ending.reason;
+         },`,
       ),
     );
     const output: string[] = [];
+    const errors: string[] = [];
     const exitCode = await cli(["run", "--id", "r1", "flow.js"], {
       cwd,
       stdout: (text) => output.push(text),
-      stderr: () => undefined,
+      stderr: (text) => errors.push(text),
       installRuntime: emptyRuntime,
     });
     expect(exitCode).toBe(3);
-    expect(output).toEqual([
-      "doc-review: docs/a.md\nthe doc has open questions\nawf run flow.js --continue r1",
-    ]);
+    expect(output).toEqual([]);
+    expect(errors).toContain("awf: to go on: awf run flow.js --continue r1");
+    expect(errors.join("\n")).not.toContain("present");
     expect(readFileSync(join(cwd, ".awf/runs/fixture/r1/report.md"), "utf8")).toBe(
-      "# stopped\n\nthe doc has open questions\n",
+      "# stopped undefined\n\ndoc-review: docs/a.md\n\nthe doc has open questions\n",
     );
   });
 
@@ -1546,7 +1575,7 @@ describe("awf run's stages", () => {
     expect(failed.record).not.toHaveProperty("stage");
   });
 
-  test("a later attempt totals the run, naming an attempt with no record, and drops a stale report", async () => {
+  test("a later attempt totals the run, naming an attempt with no accounting, and drops a stale report", async () => {
     const cwd = runDirs.tempRunDir();
     const flow = (withReport: boolean) =>
       executableModule(
@@ -1578,7 +1607,7 @@ describe("awf run's stages", () => {
     await Bun.write(join(cwd, "fixed.js"), flow(false));
     const third = await awf(cwd, ["fixed.js", "--continue", "r1"]);
     expect(third.exitCode).toBe(0);
-    expect(third.stderr).toMatch(/^run r1, 3 attempts \(1 with no record\): 0 agents · /m);
+    expect(third.stderr).toMatch(/^run r1, 3 attempts \(1 with no accounting\): 0 agents · /m);
     expect(existsSync(join(dir, "report.md"))).toBe(false);
   });
 

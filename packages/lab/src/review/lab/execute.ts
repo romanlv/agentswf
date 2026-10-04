@@ -367,7 +367,7 @@ async function runTrial(
     const run = summaryOf(result);
     let findings: ReviewFinding[] = [];
     let failure: string | undefined;
-    if (result.record?.outcome === "succeeded") {
+    if (result.record?.outcome === "completed") {
       try {
         const returned = defined.read(result.record.value);
         if (returned === undefined) throw new Error("it returned nothing");
@@ -529,7 +529,7 @@ async function runScorer(
       runRoot: lab.workspace.runs,
     });
     const run = summaryOf(result);
-    if (result.record?.outcome !== "succeeded") {
+    if (result.record?.outcome !== "completed") {
       return {
         run,
         result: {

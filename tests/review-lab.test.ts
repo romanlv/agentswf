@@ -1041,7 +1041,7 @@ export default defineComparison({
       ({
         runId: "r1",
         outcome: "failed",
-        error,
+        reason: error,
         accounting: {
           wallMs: 5,
           billing: "unknown",
@@ -1113,7 +1113,7 @@ export default defineExecutableWorkflow({
         );
         const record = {
           runId: `proposer-${proposals}`,
-          outcome: "succeeded",
+          outcome: "completed",
           value: hypothesis,
           accounting: {
             wallMs: 1,
@@ -1231,7 +1231,7 @@ export default defineExecutableWorkflow({
       );
       const record = {
         runId: `proposer-${proposed.length}`,
-        outcome: "succeeded",
+        outcome: "completed",
         value: hypothesis,
         accounting: {
           wallMs: 1,

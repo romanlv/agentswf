@@ -165,16 +165,13 @@ const executable = defineExecutableWorkflow<Args, Result>({
     },
   },
   prepare: parseArgs,
-  present: (ending) => {
-    if (ending.kind !== "completed") return undefined;
-    const { built, set } = ending.value;
-    return [
+  present: ({ built, set }) =>
+    [
       ...built.map(
         (b) => `!${b.mr}: fixture ${b.fixture}, key ${b.key}${b.detail ? ` — ${b.detail}` : ""}`,
       ),
       set,
-    ].join("\n");
-  },
+    ].join("\n"),
 });
 
 function parseArgs(invocation: WorkflowInvocation): Args {

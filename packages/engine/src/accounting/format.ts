@@ -1,11 +1,15 @@
-import type { AccountingFigures, DecisionFigures, RunAccounting } from "@agentswf/contract/records";
+import type {
+  AccountingFigures,
+  AttemptAccounting,
+  DecisionFigures,
+} from "@agentswf/contract/records";
 import { PUBLISHED_PRICES } from "./prices";
 
 /**
  * The run in one line, its decisions in another when it asked any, then a line per stage when there
  * is more than one. Gaps are named, never shown as zero; what is complete is left to the record.
  */
-export function describeAccounting(accounting: RunAccounting): string[] {
+export function describeAccounting(accounting: AttemptAccounting): string[] {
   const { totals } = accounting;
   const basis = shortBasis(accounting.basis);
   const unpriced =

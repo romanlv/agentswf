@@ -125,10 +125,8 @@ const executable = defineExecutableWorkflow<CompactionArgs, CompactionResult>({
     },
   },
   prepare: parseArgs,
-  present: (ending) => {
-    if (ending.kind !== "completed") return undefined;
-    const { checks } = ending.value;
-    return checks
+  present: ({ checks }) =>
+    checks
       .map(
         (check) =>
           `${check.runtime}: compaction ${check.compacted}${check.reason ? ` (${check.reason})` : ""}, ${
@@ -137,8 +135,7 @@ const executable = defineExecutableWorkflow<CompactionArgs, CompactionResult>({
               : (check.problem ?? "")
           }`,
       )
-      .join("\n");
-  },
+      .join("\n"),
 });
 
 /** Filler the agent reads and forgets, so pi has history older than its last 20k tokens. */

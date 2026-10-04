@@ -154,17 +154,14 @@ const executable = defineExecutableWorkflow<ForkArgs, ForkResult>({
     }),
   },
   prepare: parseArgs,
-  present: (ending) => {
-    if (ending.kind !== "completed") return undefined;
-    const { checks } = ending.value;
-    return checks
+  present: ({ checks }) =>
+    checks
       .map((check) =>
         check.problem
           ? `${check.name}: ${check.problem}`
           : `${check.name}: the fork recalled ${check.fork?.codename} and ${check.fork?.release}, the worker ${check.worker?.codename} and ${check.worker?.release}`,
       )
-      .join("\n");
-  },
+      .join("\n"),
 });
 
 /** Filler the agent reads and forgets, so pi has history older than its last 20k tokens. */

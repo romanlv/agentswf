@@ -62,7 +62,7 @@ const DENIED: Record<SandboxEnvironmentKey, RegExp> = {
 
 export function problems(evidence: ProbeEvidence): string[] {
   const { environment, exitCode, record, planted, transcripts } = evidence;
-  if (exitCode !== 0 || record?.outcome !== "succeeded") {
+  if (exitCode !== 0 || record?.outcome !== "completed") {
     return [
       `${environment}: run did not succeed: exit ${exitCode}, ${record?.outcome ?? "no record"}`,
     ];

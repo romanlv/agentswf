@@ -211,7 +211,7 @@ async function evaluate(): Promise<{ failed: string[]; record?: OutputRecord }> 
       { stdout: (text) => output.push(text) },
     );
     const record = output.length > 0 ? (JSON.parse(output.join("\n")) as OutputRecord) : undefined;
-    if (exitCode !== 0 || record?.outcome !== "succeeded") {
+    if (exitCode !== 0 || record?.outcome !== "completed") {
       return {
         failed: [`run did not succeed: exit ${exitCode}, ${record?.outcome ?? "no record"}`],
         ...(record ? { record } : {}),

@@ -89,18 +89,15 @@ const executable = defineExecutableWorkflow<CallingSessionArgs, CallingSessionRe
     },
   },
   prepare: parseArgs,
-  present: (ending) => {
-    if (ending.kind !== "completed") return undefined;
-    const result = ending.value;
-    return [
+  present: (result) =>
+    [
       `${result.harness}: picked ${result.picked}, recalled ${result.recalled} (${result.picked === result.recalled ? "right" : "wrong"})`,
       ...(result.doubled === undefined
         ? []
         : [
             `helper doubled it to ${result.doubled}; the session ${result.agrees ? "agrees" : "disagrees"}`,
           ]),
-    ].join("\n");
-  },
+    ].join("\n"),
 });
 
 function parseArgs(invocation: WorkflowInvocation): CallingSessionArgs {

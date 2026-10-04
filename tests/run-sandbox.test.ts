@@ -45,7 +45,7 @@ function passing(provider: Provider = "srt"): Evidence {
       log: "",
       trial: { run: { outcome: "succeeded" }, sandbox: { [provider]: {} } } as unknown as Trial,
       record: {
-        outcome: "succeeded",
+        outcome: "completed",
         sandboxes: [box("run", ["prober", "reader"], ["/s/request.md"])],
         value: { results: [], firstLine: "# Change app-1" },
       } as unknown as OutputRecord,
@@ -57,7 +57,7 @@ function passing(provider: Provider = "srt"): Evidence {
       exitCode: 0,
       stderr: "",
       record: {
-        outcome: "succeeded",
+        outcome: "completed",
         sandboxes: [box("run", ["check:codex"], [])],
         value: {
           checks: [

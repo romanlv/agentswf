@@ -173,14 +173,10 @@ export function summaryOf(result: RunResult): RunSummary {
   const { totals } = record.accounting;
   // awf checks a harness's login as its first agent opens, inside the run: refused there, with no
   // agent opened, the run says nothing about the workflow, as one awf refused at the start.
-  if (
-    record.outcome !== "succeeded" &&
-    totals.agents === 0 &&
-    LOGIN_REFUSED.test(record.error ?? "")
-  ) {
+  if (record.outcome !== "completed" && totals.agents === 0 && LOGIN_REFUSED.test(record.reason)) {
     return {
       outcome: "failed",
-      error: record.error ?? "no login",
+      error: record.reason,
       models: [],
       ms: record.accounting.wallMs,
       estimate: 0,
@@ -194,11 +190,13 @@ export function summaryOf(result: RunResult): RunSummary {
     (!decisions || decisions.calls === 0 || decisions.estimate !== undefined);
   const charged = (totals.charged ?? 0) + (decisions?.charged ?? 0);
   return {
-    ...(record.outcome !== "succeeded" && CLEANUP_LATE.test(record.error ?? "")
+    ...(record.outcome !== "completed" && CLEANUP_LATE.test(record.reason)
       ? {}
       : { id: record.runId }),
-    outcome: record.outcome,
-    ...(record.outcome === "succeeded" ? {} : { error: record.error }),
+    // Stored scores say `succeeded` for a completed run, as awf did before attempts.
+    ...(record.outcome === "completed"
+      ? { outcome: "succeeded" as const }
+      : { outcome: record.outcome, error: record.reason }),
     models: record.accounting.byModel.map((model) => model.model),
     ms: record.accounting.wallMs,
     ...(priced ? { estimate: (totals.estimate ?? 0) + (decisions?.estimate ?? 0) } : {}),

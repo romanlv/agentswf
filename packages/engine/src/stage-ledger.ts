@@ -6,7 +6,7 @@ import {
 import type { JsonValue, StageSummary } from "@agentswf/contract/workflow";
 import { replaceStale, writeStageRecord } from "./runs";
 import { planStage } from "./stage-plan";
-import { WorkflowStopped } from "./stopped";
+import { primaryFailure, WorkflowStopped } from "./stopped";
 
 const STAGE_NAME = /^[a-z][a-z0-9-]*$/;
 
@@ -297,7 +297,7 @@ export class StageLedger {
    * one still open when it ended. Undefined when it ended between stages.
    */
   endedIn(failure: unknown): string | undefined {
-    const first = failure instanceof AggregateError ? failure.errors[0] : failure;
+    const first = primaryFailure(failure);
     if (first instanceof WorkflowStopped) return first.stage;
     return this.#failures.get(first) ?? this.#closedOpen;
   }

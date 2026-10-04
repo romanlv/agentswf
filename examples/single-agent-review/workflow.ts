@@ -101,15 +101,12 @@ const executable = defineExecutableWorkflow<SingleReviewArgs, SingleReviewResult
     },
   },
   prepare: parseArgs,
-  present: (ending) => {
-    if (ending.kind !== "completed") return undefined;
-    const { findings } = ending.value;
-    return findings.length === 0
+  present: ({ findings }) =>
+    findings.length === 0
       ? "no findings"
       : findings
           .map((f) => `${f.severity} ${f.file}${f.line ? `:${f.line}` : ""} — ${f.claim}`)
-          .join("\n");
-  },
+          .join("\n"),
 });
 
 /**

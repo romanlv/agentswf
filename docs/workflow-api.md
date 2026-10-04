@@ -70,10 +70,9 @@ export default defineExecutableWorkflow({
   // Turns the command line into args: `awf run summarize.ts -- src/index.ts`.
   prepare: ({ argv }) => ({ file: argv[0] ?? "README.md" }),
   // Optional: what a person sees at the terminal instead of the JSON.
-  present: (ending) => (ending.kind === "completed" ? ending.value.summary : undefined),
+  present: (result) => result.summary,
   // Optional: Markdown saved beside the run as report.md.
-  report: (ending) =>
-    ending.kind === "completed" ? `# Summary\n\n${ending.value.summary}\n` : undefined,
+  report: (result) => (result ? `# Summary\n\n${result.summary}\n` : undefined),
 });
 ```
 
@@ -84,16 +83,21 @@ export default defineExecutableWorkflow({
 - **`prepare`** turns the command line (`argv` after `--`, and `cwd`) into args.
 - **`id(args)`** is optional: the run's id, such as a ticket's key, which `--id` overrides
   ([Stages](#stages)).
-- **`present`** and **`report`** are optional, and take how the attempt ended: `completed` with its
-  `value`, or `stopped`, `failed`, `timed-out` or `cancelled` with its `stage`, `reason` and the
-  `continue` command; either way with its `stages`, each with its `summary` and `value`. So a
-  stopped run can report what its stages found. Returning `undefined`, or without `present`, `awf
-  run` prints its own: the full result as JSON, or the stage, the reason and the command that goes
-  on. `--json` always prints the record.
+- **`present(value, ending)`** is optional: what a person sees at the terminal for a completed
+  attempt. Returning `undefined`, or without it, `awf run` prints the full result as JSON; `--json`
+  always prints the record. An attempt that didn't complete is awf's to print: its stage, its
+  reason and the command that goes on.
+- **`report(value, ending)`** is optional, and called however the attempt ended, so a stopped run
+  can hand off what its stages found. `value` is the result, `undefined` unless the attempt
+  completed. `ending` is how it ended: `completed` with its `value`, or `stopped`, `failed`,
+  `timed-out` or `cancelled` with its `stage`, `reason` and the `continue` command; either way with
+  its `stages`, each with its `summary` and `value`. Returning `undefined` writes none.
 
-The result, every agent's usage, and why the run ended are kept in `output.json` in the run's
-folder, `.awf/runs/{workflow}/{id}` under the working directory. A run that fails or is cancelled
-keeps this record too, and `awf run {file} --continue {id}` runs it again as its next attempt.
+The result, every agent's usage, and how the attempt ended are kept in `output.json` in the run's
+folder, `.awf/runs/{workflow}/{id}` under the working directory. Its `outcome` is `completed`, with
+the `value`, or one of the others, with its `reason` and the `stage` it ended in. A run that fails
+or is cancelled keeps this record too, and `awf run {file} --continue {id}` runs it again as its
+next attempt.
 `workflow.runId` is the run's id, the same in every attempt, and `workflow.attempt` its number.
 
 ## Agents

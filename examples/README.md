@@ -50,7 +50,7 @@ otherwise, or with `--json`, the command prints the result as JSON. Either way t
 `output.json` in the run's folder, `.awf/runs/{workflow}/{id}` under `--cwd` unless `--run-root`
 says otherwise, and a workflow that writes a Markdown report has it saved there as `report.md`. A run
 that fails, times out or is cancelled once it has started still writes `output.json`, with `outcome` saying
-so, its `error`, and what its agents spent. A run directory without one is a run that never
+so, its `reason`, and what its agents spent. A run directory without one is a run that never
 started, or whose process was killed. A workflow file is trusted
 executable code: loading it gives the file the same filesystem and process authority as the
 operator.

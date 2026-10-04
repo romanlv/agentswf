@@ -62,7 +62,7 @@ function passing(): ProbeEvidence {
     tokens: { input: 10, output: 5, cacheRead: 0, cacheWrite: 0 },
   });
   const record = {
-    outcome: "succeeded",
+    outcome: "completed",
     value: {
       reports: [
         report("coder"),

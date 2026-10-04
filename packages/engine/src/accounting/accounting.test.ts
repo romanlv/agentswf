@@ -446,7 +446,30 @@ describe("byStage, from the workflow's stages", () => {
       TIMES,
       [],
     );
+    expect(summary.grouping).toBe("prefix");
     expect(summary.byStage.map(({ stage }) => stage)).toEqual(["lens", "verifier"]);
+  });
+
+  test("an attempt that failed before its first stage is summed as running between stages", () => {
+    const before = summarizeRun(
+      [record("lens:a", OPUS_SPEND(100_000))],
+      PUBLISHED_PRICES,
+      TIMES,
+      [],
+    );
+    const staged = summarizeRun(
+      [worker("qa", 100_000, 1), worker(undefined, 100_000, 2)],
+      PUBLISHED_PRICES,
+      TIMES,
+      [],
+      [{ stage: "qa", spanMs: 0 }],
+    );
+    const run = sumAttempts([before, staged]);
+    expect(run.grouping).toBe("stages");
+    expect(run.byStage.map(({ stage, agents, estimate }) => [stage, agents, estimate])).toEqual([
+      ["qa", 1, 2.5],
+      ["(no stage)", 2, 5],
+    ]);
   });
 
   test("a run across two attempts sums its totals, and each stage across the attempts that ran it", () => {
@@ -496,6 +519,6 @@ describe("byStage, from the workflow's stages", () => {
     );
     const run = sumAttempts([priced, unknown]);
     expect(run.totals).toMatchObject({ agents: 2, known: 1, priced: 1, estimate: 2.5 });
-    expect(describeAccounting({ ...priced, ...run, byStage: [] })[0]).toContain("usage known 1/2");
+    expect(describeAccounting({ ...run, byStage: [] })[0]).toContain("usage known 1/2");
   });
 });

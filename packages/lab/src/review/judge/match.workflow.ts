@@ -130,16 +130,13 @@ const executable = defineExecutableWorkflow<Args, ScorerResult>({
     },
   },
   prepare: parseArgs,
-  present: (ending) => {
-    if (ending.kind !== "completed") return undefined;
-    const judgement = ending.value;
-    return judgement.labels
+  present: (judgement) =>
+    judgement.labels
       .map(
         (label) =>
           `${label.finding}: ${label.label === "hit" ? `hit ${label.issue}` : label.label}`,
       )
-      .join("\n");
-  },
+      .join("\n"),
 });
 
 function parseArgs(invocation: WorkflowInvocation): Args {

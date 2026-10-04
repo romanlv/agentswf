@@ -22,11 +22,21 @@ export type StageSummary = {
   value?: JsonValue;
 };
 
-/** How an attempt ended, which `present` and `report` render. */
+/** How an attempt ended. `interrupted` is never written: it is an attempt with no ending and no process. */
+export type AttemptOutcome = "completed" | UnfinishedOutcome;
+
+/**
+ * How an attempt that didn't complete ended. `cancelled` is the operator stopping it, and wins over
+ * the others. `timed-out` is its own deadline ending it; a deadline the workflow set and let escape
+ * is `failed`. `stopped` is a stop: the workflow's, or a continue that can't go on as asked.
+ */
+export type UnfinishedOutcome = "stopped" | "failed" | "timed-out" | "cancelled";
+
+/** How an attempt ended, which `report` renders. */
 export type Ending<Result> =
   | { kind: "completed"; value: Result; stages: StageSummary[] }
   | {
-      kind: "stopped" | "failed" | "timed-out" | "cancelled";
+      kind: UnfinishedOutcome;
       /** The stage it ended in; absent between stages. */
       stage?: string;
       reason: string;
@@ -50,16 +60,17 @@ export interface ExecutableWorkflow<Args extends JsonValue, Result extends JsonV
    */
   id?(args: Args): string;
   /**
-   * Renders how the attempt ended for a person at a terminal: its value, or how it stopped with
-   * what its stages found. Undefined, or no `present`, and awf prints its own: the JSON, or the
-   * stage, the reason and the command that goes on.
+   * Renders a completed attempt's value for a person at a terminal. Undefined, or no `present`, and
+   * awf prints the JSON. An attempt that didn't complete is awf's to print: its stage, its reason
+   * and the command that goes on.
    */
-  present?(ending: Ending<Result>): string | undefined;
+  present?(value: Result, ending: Ending<Result>): string | undefined;
   /**
-   * A Markdown handoff of how the attempt ended for whoever acts on it; the operator saves it as
-   * report.md. Undefined writes none.
+   * A Markdown handoff of how the attempt ended for whoever acts on it, which the operator saves as
+   * report.md. Called for every ending, `value` only for a completed one, so a stopped attempt can
+   * hand off what its stages found. Undefined writes none.
    */
-  report?(ending: Ending<Result>): string | undefined;
+  report?(value: Result | undefined, ending: Ending<Result>): string | undefined;
 }
 
 type ExecutableWorkflowSpec<Args extends JsonValue, Result extends JsonValue> = Omit<

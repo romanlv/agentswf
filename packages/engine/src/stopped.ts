@@ -14,3 +14,8 @@ export class WorkflowStopped extends Error {
     this.name = "WorkflowStopped";
   }
 }
+
+/** The failure that ended an attempt: an aggregate's first, ahead of what cleanup added to it. */
+export function primaryFailure(failure: unknown): unknown {
+  return failure instanceof AggregateError ? failure.errors[0] : failure;
+}

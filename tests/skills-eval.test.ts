@@ -34,7 +34,7 @@ function honest() {
     };
   });
   const record = {
-    outcome: "succeeded",
+    outcome: "completed",
     value: { reports },
     skills: Object.entries(PROBE_OF).map(([agent, probe]) => ({
       callPath: [],
