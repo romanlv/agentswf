@@ -38,6 +38,7 @@ type Ending =
   | { kind: "waiting"; reason: string; timeoutMs?: number }
   | { kind: "silent" }
   | { kind: "blocked" | "failed" | "timed-out"; reason: string }
+  | { kind: "needs-login"; provider?: string }
   | { kind: "hang" }
   | { kind: "interrupted" };
 
@@ -89,6 +90,12 @@ export const reply = {
     ending({ kind: "blocked", reason }),
   /** The harness failed. */
   failed: (reason = "harness crashed"): Reply => ending({ kind: "failed", reason }),
+  /**
+   * The agent's harness cannot sign in, as with an expired login: the turn fails with `login` set,
+   * naming the agent's harness, `provider` where it logs in to several, and what to run.
+   */
+  needsLogin: (provider?: string): Reply =>
+    ending({ kind: "needs-login", ...(provider === undefined ? {} : { provider }) }),
   /** The harness reported the turn timed out; it ends at once. */
   timedOut: (reason = "turn timed out"): Reply => ending({ kind: "timed-out", reason }),
   /** Holds the turn until the engine cancels it. */

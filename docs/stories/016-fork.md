@@ -602,7 +602,7 @@ Manual or live evaluation:
   fixed and tested. The live run must check: the fork's path from `get_state`; its first request
   reads the cache; `pi:compact` compacts the same file; a pane parent forks from the path Herdr
   names; the parent's id still resolves to its own file afterwards.
-- Live, once pi's expired login was renewed (2026-10-03; [[expired-login]] records the failure
+- Live, once pi's expired login was renewed (2026-10-03; [[023-harness-login|story 023]] records the failure
   mode): pi, pi>pane, pi-pane, pi-pane>headless, pi:compact and pi+sandbox all passed. Each fork
   is a file under `sessions/awf-forks/{uuid}/` keeping its parent's id, and its first turn read
   0.91 of its prompt from the cache, 0.97 compacted. pi in a sandbox read nothing from the cache,

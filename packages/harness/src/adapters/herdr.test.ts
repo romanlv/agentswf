@@ -439,6 +439,68 @@ describe("createPaneAdapter", () => {
     expect(calls.filter((call) => verb(call) === "agent start")).toHaveLength(1);
   });
 
+  const loginScreen = (name: string) =>
+    readFileSync(join(import.meta.dir, "../harnesses/fixtures/login", name), "utf8");
+
+  test("a turn whose screen shows its harness cannot sign in fails, saying what to run", async () => {
+    const { run: baseRun } = operationStub();
+    const run: RunProcess = async (input) =>
+      verb(input) === "agent read"
+        ? { stdout: loginScreen("pi-refused.screen"), stderr: "", exitCode: 0, timedOut: false }
+        : baseRun(input);
+    const session = await createPaneAdapter(CONFIG, run).activate({
+      ...activation,
+      execution: { harness: "pi", model: "openai-codex/gpt-5.6" },
+    });
+    const turn = await session.start(
+      { id: "review", prompt: "review", deadline: activation.deadline },
+      firstBinding,
+    );
+
+    await expect(turn.settled).resolves.toMatchObject({
+      state: "failed",
+      detail: expect.stringContaining("pi needs a login for openai-codex"),
+      login: { harness: "pi", provider: "openai-codex" },
+    });
+  });
+
+  test("a launch that stops at its sign-in screen fails, saying what to run, and closes", async () => {
+    const { run: baseRun, calls } = operationStub();
+    const screen = loginScreen("codex-missing.screen");
+    const run: RunProcess = async (input) => {
+      if (verb(input) === "agent start") {
+        calls.push(input);
+        return {
+          stdout: "",
+          stderr: JSON.stringify({ error: { code: "agent_not_ready" } }),
+          exitCode: 1,
+          timedOut: false,
+        };
+      }
+      if (verb(input) === "agent read" || verb(input) === "pane read") {
+        calls.push(input);
+        return { stdout: screen, stderr: "", exitCode: 0, timedOut: false };
+      }
+      return baseRun(input);
+    };
+    const session = await createPaneAdapter(
+      { ...CONFIG, acceptWorkspaceTrust: true },
+      run,
+    ).activate({ ...activation, execution: { harness: "codex", model: "gpt-5.6-sol" } });
+    const turn = await session.start(
+      { id: "review", prompt: "review", deadline: activation.deadline },
+      firstBinding,
+    );
+
+    await expect(turn.settled).resolves.toMatchObject({
+      state: "failed",
+      detail: expect.stringContaining("codex needs a login: run `codex login`"),
+      login: { harness: "codex", run: "run `codex login`" },
+    });
+    expect(calls.filter((call) => verb(call) === "agent send-keys")).toHaveLength(0);
+    expect(calls.filter((call) => verb(call) === "workspace close")).toHaveLength(1);
+  });
+
   test("does not accept workspace trust after the operation deadline", async () => {
     const { run: baseRun, calls } = operationStub();
     const run: RunProcess = async (input) => {
@@ -2170,6 +2232,76 @@ describe("createHerdrRunHostFactory", () => {
     // The agent may still be working, so its pane and authority outlive the outcome; only the
     // engine's release or the run's cleanup takes them away.
     expect(base.calls.filter((call) => verb(call) === "tab close")).toHaveLength(0);
+    await host.close();
+  });
+
+  test("a stall whose screen shows the harness cannot sign in fails at once, saying so", async () => {
+    const base = hostStub();
+    const screen = readFileSync(
+      join(import.meta.dir, "../harnesses/fixtures/login/claude-missing.screen"),
+      "utf8",
+    );
+    const run: RunProcess = async (input) => {
+      if (verb(input) === "pane read") {
+        base.calls.push(input);
+        return { stdout: screen, stderr: "", exitCode: 0, timedOut: false };
+      }
+      if (verb(input) !== "agent prompt") return base.run(input);
+      base.calls.push(input);
+      return errorResult("agent_prompt_stalled");
+    };
+    const { host, turn } = await stalledReviewer(run, 30_000);
+
+    await expect(turn.settled).resolves.toMatchObject({
+      state: "failed",
+      detail: expect.stringContaining("claude needs a login"),
+      login: { harness: "claude" },
+    });
+    await host.close();
+  });
+
+  test("a run's pane that launches onto its sign-in screen fails, saying so, and closes", async () => {
+    const base = hostStub();
+    const screen = readFileSync(
+      join(import.meta.dir, "../harnesses/fixtures/login/codex-missing.screen"),
+      "utf8",
+    );
+    const run: RunProcess = async (input) => {
+      if (verb(input) === "agent start") {
+        base.calls.push(input);
+        return errorResult("agent_not_ready");
+      }
+      if (verb(input) === "pane read" || verb(input) === "agent read") {
+        base.calls.push(input);
+        return { stdout: screen, stderr: "", exitCode: 0, timedOut: false };
+      }
+      return base.run(input);
+    };
+    const host = await createHerdrRunHostFactory(
+      { ...CONFIG, acceptWorkspaceTrust: true },
+      run,
+    ).openRun({
+      runId: "run-1",
+      cwd: "/repo",
+      deadline: deadline(),
+    });
+    const session = await host.openAgent({
+      key: "worker",
+      cwd: "/repo",
+      deadline: deadline(),
+      execution: { harness: "codex", model: "gpt-5.6-sol" },
+    });
+    const turn = await session.start(
+      { id: "one", prompt: "work", deadline: deadline() },
+      binding("op-1"),
+    );
+
+    await expect(turn.settled).resolves.toMatchObject({
+      state: "failed",
+      login: { harness: "codex", run: "run `codex login`" },
+    });
+    expect(base.calls.filter((call) => verb(call) === "agent prompt")).toHaveLength(0);
+    expect(base.calls.filter((call) => verb(call) === "tab close")).toHaveLength(1);
     await host.close();
   });
 

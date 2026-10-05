@@ -13,6 +13,7 @@ import type {
   OutputSchema,
   RuntimeAliases,
   TurnId,
+  TurnLogin,
 } from "@agentswf/contract/workflow";
 import type { Occupant } from "@agentswf/sandbox";
 import type { AgentSkills } from "./capabilities/skills";
@@ -85,6 +86,8 @@ export type HarnessTurnOutcome = {
    * where it keeps it opaque, as codex does.
    */
   summary?: string;
+  /** On a failed turn whose harness showed it cannot sign in; see `HarnessSpec.login`. */
+  login?: TurnLogin;
 };
 
 export type HarnessReleaseDisposition =

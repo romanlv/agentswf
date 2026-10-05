@@ -1,6 +1,6 @@
 import type { OperationLivenessKind } from "@agentswf/contract/records";
 import type { JsonSchema } from "@agentswf/contract/schema";
-import type { AbsoluteDeadline } from "@agentswf/contract/workflow";
+import type { AbsoluteDeadline, TurnLogin } from "@agentswf/contract/workflow";
 import type {
   HarnessReleaseDisposition,
   HarnessTurn,
@@ -43,6 +43,8 @@ export type SupervisedOutcome = {
   charges: number[];
   deliveredAt?: number;
   settledAt: number;
+  /** A failed turn whose harness showed it cannot sign in. */
+  login?: TurnLogin;
 };
 
 export type OperationStop = { kind: "cancelled" | "timed-out"; reason: string };
@@ -359,10 +361,13 @@ export async function superviseOperation(options: Options): Promise<SupervisedOu
           native.state !== "completed" &&
           !(ignoredCancellation && native.state === "cancelled")
         ) {
-          result = terminal(
-            native.state === "timed-out" ? "timed-out" : native.state,
-            native.detail ?? `native turn ${native.state}`,
-          );
+          result = {
+            ...terminal(
+              native.state === "timed-out" ? "timed-out" : native.state,
+              native.detail ?? `native turn ${native.state}`,
+            ),
+            ...(native.login ? { login: native.login } : {}),
+          };
           break;
         }
         if (deliveryUntil !== undefined && at >= deliveryUntil) {

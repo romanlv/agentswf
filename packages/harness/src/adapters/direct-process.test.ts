@@ -1237,6 +1237,29 @@ describe("createHeadlessAdapter", () => {
     });
   });
 
+  test("a harness that cannot sign in fails the turn and says what to run, even on exit 0", async () => {
+    const fixture = (name: string) =>
+      readFileSync(join(import.meta.dir, "../harnesses/fixtures/login", name), "utf8");
+    const run: RunProcess = async () => ({
+      stdout: fixture("pi-refused.stdout"),
+      stderr: "",
+      exitCode: 0,
+      timedOut: false,
+    });
+    const session = await headless(
+      run,
+      {},
+      { ...activation, execution: { harness: "pi", model: "terra", placement: "headless" } },
+    );
+    const turn = await session.start(turnSpec, firstBinding);
+
+    await expect(turn.settled).resolves.toMatchObject({
+      state: "failed",
+      detail: expect.stringContaining("pi needs a login for openai-codex: run `pi`, then /login"),
+      login: { harness: "pi", provider: "openai-codex", run: "run `pi`, then /login" },
+    });
+  });
+
   test("runs only headless agents, and claude only when it is marked metered", async () => {
     const run: RunProcess = async () => {
       throw new Error("nothing should launch");

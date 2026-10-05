@@ -14,6 +14,7 @@ export {
 export { type AllowanceOptions, readAllowance } from "./allowance";
 export * from "./capabilities/skills";
 export * from "./command";
+export { loginFailure } from "./harnesses/login";
 export { createPlacementHostFactory } from "./placement-host";
 export { effortRefusal, headlessRefusal, settingsRefusal } from "./refusals";
 export { hostHome, sandboxNeeds, sandboxTokens } from "./sandbox-needs";

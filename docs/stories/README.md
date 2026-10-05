@@ -106,6 +106,9 @@ status is one of `todo`, `draft`, `ready`, `in-progress`, `blocked`, `awaiting-h
 - [`022` — Read what is left of each harness's plan, and let heavy work wait for it](022-plan-allowance.md) —
   `done` — `awf allowance` reads each subscription harness's plan windows from its own
   usage command as an `awf.allowance/1` record, and the lab's runs wait for a full window's reset.
+- [`023` — Say when an agent's harness needs a login, and let the workflow stop on it](023-harness-login.md) —
+  `awaiting-human-review` — a turn whose harness has no login or had it refused ends `failed` with `login`,
+  headless and in a pane, for every harness; it is never nudged, and the workflow decides to stop.
 
 - [[021-turn-liveness-and-limits|021 — Keep a waiting agent alive within fixed limits]] —
   `done` — Repeated cooperative check-ins share one deadline and result slot; an accepted

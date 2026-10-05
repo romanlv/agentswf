@@ -16,6 +16,7 @@ import {
   type LaunchSettings,
   type TurnPlan,
 } from "./define";
+import { claudeLogin } from "./login";
 import { after, lastJson, resuming } from "./shared";
 
 /** `Bash` has to be allowed or the agent cannot run `wf` at all. */
@@ -60,6 +61,7 @@ const CLAUDE = {
   herdrSessionIsOwn: true,
   sessionEnv: "CLAUDE_CODE_SESSION_ID",
   interrupted: "Interrupted · What should Claude do instead?",
+  login: claudeLogin,
   // `Bash` has to be allowed or the agent cannot run `wf` at all, which would measure the
   // permission prompt rather than the return channel.
   interactive: claudeInteractive,

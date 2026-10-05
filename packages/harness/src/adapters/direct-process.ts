@@ -9,6 +9,7 @@ import type {
 } from "../adapter";
 import { skillsLaunch } from "../capabilities/skills";
 import { type RunProcess, runProcess } from "../command";
+import { loginFailure } from "../harnesses/login";
 import { launchSettings } from "../harnesses/shared";
 import { headlessRefusal } from "../refusals";
 import { sandboxedArgs } from "../sandbox-needs";
@@ -276,6 +277,15 @@ export function createHeadlessAdapter(
               return {
                 state: "timed-out" as const,
                 detail: "timed out at operation deadline",
+                ...common,
+              };
+            }
+            // pi's refused login exits 0, so it is read before the exit code.
+            const login = spec.login?.headless(result.stdout, result.stderr);
+            if (spec.login && login) {
+              return {
+                state: "failed" as const,
+                ...loginFailure(harness, spec.login, login),
                 ...common,
               };
             }

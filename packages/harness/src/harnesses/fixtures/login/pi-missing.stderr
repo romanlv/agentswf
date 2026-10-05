@@ -1,0 +1,6 @@
+Warning: Model "gpt-5.4-mini" not found for provider "openai-codex". Using custom model id.
+No API key found for openai-codex.
+
+Use /login to log into a provider via OAuth or API key. See:
+  ~/.local/share/mise/installs/node/22.20.0/lib/node_modules/@earendil-works/pi-coding-agent/docs/providers.md
+  ~/.local/share/mise/installs/node/22.20.0/lib/node_modules/@earendil-works/pi-coding-agent/docs/models.md

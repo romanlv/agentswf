@@ -3,6 +3,7 @@ import type { Effort } from "@agentswf/contract/workflow";
 import type { Holding, RunProcess } from "../command";
 import type { AllowanceRead } from "../usage/allowance";
 import type { SessionRead } from "../usage/records";
+import type { LoginCheck } from "./login";
 
 export type TurnPlan = {
   argv: string[];
@@ -216,6 +217,11 @@ export type HarnessSpec = {
    * E8's follow-up). Absent, an interrupted turn looks like one that ended without answering.
    */
   interrupted?: string;
+  /**
+   * How its output shows it has no login or had it refused, and what the operator runs. A turn that
+   * shows it fails at once, unnudged: nothing the agent does signs it in.
+   */
+  login?: LoginCheck;
   /**
    * The summary of a session's last compaction, from the harness's own record, where it keeps one.
    * `session` is the session as the pane's harness names it: an id, or for pi its file's path.

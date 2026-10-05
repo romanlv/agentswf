@@ -10,6 +10,7 @@ import type {
 } from "../adapter";
 import { skillsLaunch } from "../capabilities/skills";
 import { type RunProcess, runProcess, withholding } from "../command";
+import { loginFailure, thisTurn } from "../harnesses/login";
 import { launchSettings } from "../harnesses/shared";
 import { parseRow, record } from "../json";
 import { sandboxedArgs } from "../sandbox-needs";
@@ -23,12 +24,12 @@ import { createSingleSessionHostFactory } from "../single-session-host";
 import {
   findHarness,
   HARNESS_NAMES,
-  type HarnessSpec,
   harnessSpec,
   knownHarness,
   PLACEMENT_HARNESSES,
 } from "../spec";
 import { harnessState } from "../state";
+import type { Harness } from "../types";
 import { createSessionAccounting } from "../usage/accounting";
 import { prepareClaudeReceipt } from "./claude-receipt";
 import { copySession, FORK_ACTIVATION_MS, forkCommand, forkDeadline, forkResult } from "./fork";
@@ -479,9 +480,12 @@ export function createPaneAdapter(
               if (controller.signal.aborted || started.cancelled) {
                 return localOutcome("cancelled", "pane operation cancelled");
               }
-              return localOutcome(
-                started.timedOut || remaining() <= 0 ? "timed-out" : "failed",
-                `agent start failed after ${started.attempts}: ${started.error}`,
+              return (
+                (await loginShown(herdr, harness, paneId, config, controller.signal)) ??
+                localOutcome(
+                  started.timedOut || remaining() <= 0 ? "timed-out" : "failed",
+                  `agent start failed after ${started.attempts}: ${started.error}`,
+                )
               );
             }
             if (remaining() <= 0) return localOutcome("timed-out", "operation deadline exceeded");
@@ -491,7 +495,20 @@ export function createPaneAdapter(
               waitMs + HERDR_REPORT_GRACE_MS,
               controller.signal,
             );
-            if (!sent.ok) return herdrFailure(sent, remaining());
+            if (!sent.ok) {
+              return (
+                (sent.cancelled
+                  ? undefined
+                  : await loginShown(
+                      herdr,
+                      harness,
+                      paneId,
+                      config,
+                      controller.signal,
+                      operation.binding?.operationId,
+                    )) ?? herdrFailure(sent, remaining())
+              );
+            }
             if (remaining() <= 0) return localOutcome("timed-out", "operation deadline exceeded");
             const read = await herdr(
               ["agent", "read", name, "--source", "detection"],
@@ -501,7 +518,7 @@ export function createPaneAdapter(
             if (!read.ok && read.cancelled) {
               return localOutcome("cancelled", "pane operation cancelled");
             }
-            const outcome = paneOutcome(spec, sent, read);
+            const outcome = paneOutcome(harness, sent, read, operation.binding?.operationId);
             if (outcome.sessionRef) identity.sessionId = outcome.sessionRef;
             return outcome;
           } finally {
@@ -1012,13 +1029,20 @@ export function createHerdrRunHostFactory(
                   signal,
                 );
             if (!started.ok) {
+              const login =
+                signal.aborted || started.cancelled
+                  ? undefined
+                  : await loginShown(herdr, harness, paneId, config, signal);
               await closeCurrentPane().catch(() => undefined);
               if (signal.aborted || started.cancelled) {
                 return localOutcome("cancelled", "pane operation cancelled");
               }
-              return localOutcome(
-                started.timedOut ? "timed-out" : "failed",
-                `agent start failed after ${started.attempts}: ${started.error}`,
+              return (
+                login ??
+                localOutcome(
+                  started.timedOut ? "timed-out" : "failed",
+                  `agent start failed after ${started.attempts}: ${started.error}`,
+                )
               );
             }
             return undefined;
@@ -1369,6 +1393,17 @@ export function createHerdrRunHostFactory(
                   if (sent.cancelled || controller.signal.aborted) {
                     return localOutcome("cancelled", "pane operation cancelled");
                   }
+                  // A harness that cannot sign in ends the turn before Herdr sees it working,
+                  // which Herdr calls a stall; waiting it out would spend the whole deadline.
+                  const login = await loginShown(
+                    herdr,
+                    harness,
+                    placement.paneId,
+                    config,
+                    controller.signal,
+                    operation.binding?.operationId,
+                  );
+                  if (login) return login;
                   if (hasHerdrErrorCode(sent.error, "agent_prompt_stalled")) {
                     // Herdr had already accepted the submission, so the turn may be running.
                     // Settling here would close the result slot under a live agent and arm the
@@ -1393,7 +1428,7 @@ export function createHerdrRunHostFactory(
                 if (!read.ok && read.cancelled) {
                   return localOutcome("cancelled", "pane operation cancelled");
                 }
-                const outcome = paneOutcome(spec, sent, read);
+                const outcome = paneOutcome(harness, sent, read, operation.binding?.operationId);
                 // A session named by its file, a pi fork's, keeps that name: the id Herdr reports
                 // for it is its parent's (F6), which a relaunch or a fork would resume instead.
                 if (operation.previousSessionRef && isAbsolute(operation.previousSessionRef)) {
@@ -1484,23 +1519,52 @@ export function createHerdrRunHostFactory(
  * harness spec can read out of the screen, and the native session Herdr names, when it does.
  */
 function paneOutcome(
-  spec: HarnessSpec,
+  harness: Harness,
   sent: Extract<HerdrResult, { ok: true }>,
   read: HerdrResult,
+  /** The operation's id, which its prompt carries. */
+  marker: string | undefined,
 ): NativeTurnOutcome {
+  const spec = harnessSpec(harness);
   const rawTranscript = read.ok && read.stdout.trim() !== "" ? read.stdout : null;
   const transcript = rawTranscript ? (spec.readTranscript?.(rawTranscript) ?? rawTranscript) : null;
   const agent = reportedAgent(sent.result);
   const nativeSession =
     (spec.herdrSessionIsOwn ? readSessionRef(agent) : undefined) ??
     (rawTranscript ? spec.readSessionId?.(rawTranscript) : undefined);
+  const login = rawTranscript ? spec.login?.screen(thisTurn(rawTranscript, marker)) : undefined;
   return {
-    ...settledOutcome(agent),
+    ...(spec.login && login
+      ? { state: "failed" as const, ...loginFailure(harness, spec.login, login) }
+      : settledOutcome(agent)),
     resultEvidence: transcript ? { kind: "transcript", text: transcript } : { kind: "unavailable" },
     ...(nativeSession ? { sessionRef: nativeSession } : {}),
     // The screen is no record of spend; the engine reads the session files when the run ends.
     chargesUsd: [],
   };
+}
+
+/**
+ * A launch that stopped at its harness's sign-in screen, or exited on a refused login, as codex and
+ * cursor do without one: the failed turn that says so. Undefined where the screen shows neither.
+ */
+async function loginShown(
+  herdr: HerdrCommand,
+  harness: Harness,
+  paneId: string,
+  config: HerdrConfig,
+  signal: AbortSignal,
+  /** The operation's id, where a prompt carrying it was sent. */
+  marker?: string,
+): Promise<NativeTurnOutcome | undefined> {
+  const check = harnessSpec(harness).login;
+  if (!check) return undefined;
+  const screen = await herdr(["pane", "read", paneId], config.commandTimeoutMs, signal);
+  if (signal.aborted || !screen.ok) return undefined;
+  const login = check.screen(thisTurn(readable(screen.stdout), marker));
+  return login
+    ? { ...localOutcome("failed", ""), ...loginFailure(harness, check, login) }
+    : undefined;
 }
 
 function asError(error: unknown): Error {

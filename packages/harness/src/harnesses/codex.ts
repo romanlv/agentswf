@@ -18,6 +18,7 @@ import {
   type LaunchSettings,
   type TurnPlan,
 } from "./define";
+import { codexLogin } from "./login";
 import { after, resuming } from "./shared";
 
 function codexInteractive(
@@ -61,6 +62,7 @@ const CODEX = {
   setPane: true,
   sessionEnv: "CODEX_SESSION_ID",
   interrupted: "Conversation interrupted",
+  login: codexLogin,
   localSockets:
     "codex's workspace-write sandbox blocks local sockets: start codex with -c sandbox_workspace_write.network_access=true, or approve running awf outside its sandbox",
   interactive: codexInteractive,
