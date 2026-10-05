@@ -34,7 +34,11 @@ export type ProcessInput = {
  * For a child that serves requests on stdin and exits when it closes, as codex's app-server and
  * pi's rpc mode do: stdin is held open until a line of stdout answers, then closed.
  */
-export type Holding = { holdStdinUntil?: (line: string) => boolean };
+export type Holding = {
+  holdStdinUntil?: (line: string) => boolean;
+  /** A headless answer admitted before expiry may extend its process through release grace. */
+  timeoutAt?: () => number;
+};
 
 /**
  * A `SandboxedCommand` runs as its own process group with exactly its `env`, and ends with its
@@ -119,10 +123,17 @@ export const runProcess: RunProcess = async (input) => {
     kill();
   };
   signal?.addEventListener("abort", abort, { once: true });
-  const timer = setTimeout(() => {
+  let timer: ReturnType<typeof setTimeout>;
+  const expire = () => {
+    const remaining = input.timeoutAt ? input.timeoutAt() - Date.now() : 0;
+    if (remaining > 0) {
+      timer = setTimeout(expire, Math.min(remaining, 2_147_483_647));
+      return;
+    }
     timedOut = true;
     kill();
-  }, timeoutMs);
+  };
+  timer = setTimeout(expire, Math.min(timeoutMs, 2_147_483_647));
 
   let answered: ReturnType<typeof setTimeout> | undefined;
   let onLine: ((line: string) => void) | undefined;

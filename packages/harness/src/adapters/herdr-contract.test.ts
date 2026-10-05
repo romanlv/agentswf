@@ -1,9 +1,24 @@
-import { describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { RunProcess } from "../command";
 import { createFakeHerdr } from "../testing/herdr-cli";
 import type { HerdrConfig } from "./herdr";
 import { createHerdrRunHostFactory, HERDR_VERSION } from "./herdr";
+
+let originalClaudeHome: string | undefined;
+let isolatedClaudeHome: string;
+beforeAll(() => {
+  originalClaudeHome = process.env.CLAUDE_CONFIG_DIR;
+  isolatedClaudeHome = mkdtempSync(join(tmpdir(), "awf-herdr-contract-claude-"));
+  process.env.CLAUDE_CONFIG_DIR = isolatedClaudeHome;
+});
+afterAll(() => {
+  if (originalClaudeHome === undefined) delete process.env.CLAUDE_CONFIG_DIR;
+  else process.env.CLAUDE_CONFIG_DIR = originalClaudeHome;
+  rmSync(isolatedClaudeHome, { recursive: true, force: true });
+});
 
 /**
  * The run host against a Herdr that behaves like 0.8.2 rather than one that answers whatever it is

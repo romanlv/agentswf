@@ -1,4 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { OutputRecord } from "../packages/contract/src/records";
 import type { Trial } from "../packages/lab/src/review/format/records";
 import {
@@ -10,6 +13,7 @@ import {
   type Provider,
   problems,
   REFUSED,
+  sandboxTranscripts,
 } from "./run-sandbox";
 
 /** What a run where every check holds leaves, in the shape `problems` reads. */
@@ -20,7 +24,7 @@ function passing(provider: Provider = "srt"): Evidence {
     diff: [COMMANDS.diff, 0, " src/app.ts | 2 +-"],
     key: ["cat /d/app-1/key/key.json", 1, `cat: /d/app-1/key/key.json: ${refused}`],
     clone: ["git -C /w/project log -1 --oneline", 128, "fatal: cannot change to '/w/project'"],
-    home: ["ls /Users/x", 1, `ls: /Users/x: ${refused}`],
+    home: ["ls /Users/x/.codex", 1, `ls: /Users/x/.codex: ${refused}`],
     gitlab: [COMMANDS.gitlab, 56, "curl: (56) CONNECT tunnel failed, response 403"],
     write: [COMMANDS.write, 1, "touch: probe-write: Read-only file system"],
   };
@@ -242,4 +246,40 @@ describe("run-sandbox eval's checks", () => {
     spoil(evidence);
     expect(problems(evidence).join("\n")).toContain(problem);
   });
+});
+
+test("sandbox evidence follows the recorded directory outside run artifacts", async () => {
+  const root = await mkdtemp(join(tmpdir(), "sandbox-evidence-"));
+  try {
+    const directory = join(root, "sandboxes", "box");
+    const home = join(directory, "homes", "agent", "sessions");
+    await mkdir(home, { recursive: true });
+    // Sanitized shape captured from Codex's 2026-10-05 SRT probe transcript.
+    const row = {
+      type: "event_msg",
+      payload: {
+        type: "item_completed",
+        item: {
+          type: "CommandExecution",
+          command: ["/bin/zsh", "-lc", "head -1 /s/request.md"],
+          status: "completed",
+          stdout: "# Change app-1\n",
+          stderr: "",
+          aggregated_output: "# Change app-1\n",
+          exit_code: 0,
+        },
+      },
+    };
+    await writeFile(join(home, "rollout.jsonl"), `${JSON.stringify(row)}\n`);
+    const record = { artifacts: join(root, "run"), sandboxes: [{ directory }] } as Pick<
+      OutputRecord,
+      "artifacts" | "sandboxes"
+    >;
+    expect(executionsOf(sandboxTranscripts(record))).toEqual([
+      { command: "head -1 /s/request.md", exitCode: 0, output: "# Change app-1\n" },
+    ]);
+    expect(sandboxTranscripts({ artifacts: root, sandboxes: [] })).toBe("");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });

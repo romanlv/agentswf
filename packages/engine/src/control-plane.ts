@@ -1,10 +1,6 @@
 import { chmod, mkdir, mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
-import {
-  decodeResultSubmitRequest,
-  type ResultSubmitResponse,
-  WIRE_VERSION,
-} from "@agentswf/contract/wire";
+import { type ControlResponse, decodeControlRequest, WIRE_VERSION } from "@agentswf/contract/wire";
 import { isCode } from "./files";
 import type { ResultSlotRegistry } from "./result-slots";
 
@@ -132,7 +128,7 @@ export async function startResultControlPlane(options: {
               // answer waits for the request's end, as one sent before it meets a closed socket.
               socket.data.refusal = rejected(
                 "internal-error",
-                "the control plane is at its connection limit; submit the same result again",
+                "the control plane is at its connection limit; retry the command later",
               );
               return;
             }
@@ -146,7 +142,7 @@ export async function startResultControlPlane(options: {
               socket.data.handled = true;
               queueResponse(
                 socket,
-                rejected("request-too-large", "result request exceeds the size limit"),
+                rejected("request-too-large", "control request exceeds the size limit"),
               );
               return;
             }
@@ -167,14 +163,17 @@ export async function startResultControlPlane(options: {
             // this, and an agent whose accepted result went unacknowledged submits it again.
             const { promise: written, resolve } = Promise.withResolvers<void>();
             socket.data.responded = resolve;
-            const handling = handleFrame(
-              Buffer.concat(socket.data.chunks).toString("utf8"),
-              options.slots,
-              agentId,
-              onSession,
-            )
+            const handling = Promise.race([
+              handleFrame(
+                Buffer.concat(socket.data.chunks).toString("utf8"),
+                options.slots,
+                agentId,
+                onSession,
+              ),
+              written.then(() => undefined),
+            ])
               .then((response) => {
-                if (socket.data.closed) return;
+                if (socket.data.closed || response === undefined) return;
                 queueResponse(socket, response);
               })
               .then(() => written)
@@ -253,7 +252,7 @@ type ConnectionState = {
   chunks: Buffer[];
   bytes: number;
   handled: boolean;
-  refusal?: ResultSubmitResponse;
+  refusal?: ControlResponse;
   outgoing?: Buffer;
   written: number;
   counted: boolean;
@@ -278,7 +277,7 @@ async function handleFrame(
   slots: ResultSlotRegistry,
   agentId: string,
   onSession: ((id: string) => void) | undefined,
-): Promise<ResultSubmitResponse> {
+): Promise<ControlResponse> {
   if (!frame.endsWith("\n") || frame.slice(0, -1).includes("\n")) {
     return rejected("invalid-request", "expected exactly one newline-delimited JSON request");
   }
@@ -289,12 +288,23 @@ async function handleFrame(
   } catch {
     return rejected("invalid-request", "request is not valid JSON");
   }
-  const decoded = decodeResultSubmitRequest(parsed);
+  const decoded = decodeControlRequest(parsed);
   if (!decoded.ok) return rejected(decoded.code, decoded.error);
   // Before the result is judged: a rejected submission still proves which session sent it.
   if (decoded.value.session) onSession?.(decoded.value.session);
 
   try {
+    if (decoded.value.command === "waiting") {
+      const grant = await slots.waiting({
+        operationId: decoded.value.operationId,
+        agentId,
+        reason: decoded.value.reason,
+        ...(decoded.value.timeoutMs === undefined ? {} : { timeoutMs: decoded.value.timeoutMs }),
+      });
+      return grant.kind === "waiting"
+        ? { version: WIRE_VERSION, ...grant }
+        : rejected(grant.code, grant.error);
+    }
     const result = await slots.submit({
       operationId: decoded.value.operationId,
       agentId,
@@ -305,18 +315,18 @@ async function handleFrame(
       ? { version: WIRE_VERSION, kind: "accepted" }
       : rejected(result.code, result.error);
   } catch {
-    return rejected("internal-error", "result submission failed internally");
+    return rejected("internal-error", "control request failed internally");
   }
 }
 
 function rejected(
-  code: Exclude<ResultSubmitResponse, { kind: "accepted" }>["code"],
+  code: Extract<ControlResponse, { kind: "rejected" }>["code"],
   error: string,
-): ResultSubmitResponse {
+): ControlResponse {
   return { version: WIRE_VERSION, kind: "rejected", code, error };
 }
 
-function queueResponse(socket: Bun.Socket<ConnectionState>, response: ResultSubmitResponse): void {
+function queueResponse(socket: Bun.Socket<ConnectionState>, response: ControlResponse): void {
   socket.data.outgoing = Buffer.from(`${JSON.stringify(response)}\n`);
   socket.data.written = 0;
   flushResponse(socket);

@@ -65,7 +65,6 @@ import type {
   AgentRuntimeConfig,
   AuthoredTurn,
   HarnessActivation,
-  HarnessAuthored,
   HarnessReleaseDisposition,
   HarnessSession,
   HarnessTurn,
@@ -88,7 +87,6 @@ import {
   assertDeadlineValue,
   deadlineWithin,
   earlierDeadline,
-  laterDeadline,
   runUntilStopped,
   scheduleAt,
   WorkflowCancelledError,
@@ -97,11 +95,9 @@ import {
 import { RunDecisions } from "./decisions/directory";
 import type { DecisionInstallation } from "./decisions/seam";
 import { messageOf } from "./errors";
-import {
-  createResultSlotRegistry,
-  type ResultSlotRegistry,
-  type ResultSlotSettlement,
-} from "./result-slots";
+import { createOperationEvents } from "./operation-events";
+import { type LivenessPolicy, type OperationStop, superviseOperation } from "./operation-liveness";
+import { createResultSlotRegistry, type ResultSlotRegistry } from "./result-slots";
 import { type AgentProgress, type GroupProgress, RunProgress } from "./run-progress";
 import {
   type AccountedAgent,
@@ -125,6 +121,8 @@ import { FromStageUnreached } from "./stopped";
 export { WorkflowCancelledError } from "./deadlines";
 
 export type RunWorkflowOptions = {
+  /** Internal timing policy; workflow authors use the operation deadline. */
+  livenessPolicy?: LivenessPolicy;
   runRoot: string;
   /** The run this is an attempt of, whose folder the operator claimed under `runRoot`. */
   run: {
@@ -304,7 +302,15 @@ export async function startWorkflow<Args extends JsonValue, Result extends JsonV
   // torn the last line an earlier attempt appended.
   const recorded = await readStageRecords(runDir);
   await endTurnsLine(runDir);
-  const slots = createResultSlotRegistry({ runDir });
+  const slots = createResultSlotRegistry({
+    runDir,
+    ...(options.livenessPolicy
+      ? {
+          waitMinimumMs: options.livenessPolicy.quietMs,
+          waitDefaultMs: Math.max(1, options.livenessPolicy.quietMs * 4),
+        }
+      : {}),
+  });
   const control = await startResultControlPlane({ slots });
   let host: AgentRunHost;
   const openingHost = Promise.resolve().then(() =>
@@ -386,7 +392,10 @@ export async function startWorkflow<Args extends JsonValue, Result extends JsonV
     ...(options.skillCache === undefined ? {} : { cacheRoot: options.skillCache }),
     environment,
   });
+  const fatal = Promise.withResolvers<never>();
+  void fatal.promise.catch(() => undefined);
   const owner = new WorkflowOwner({
+    failRun: (error) => fatal.reject(error),
     decisions,
     sandboxes,
     skills,
@@ -406,6 +415,7 @@ export async function startWorkflow<Args extends JsonValue, Result extends JsonV
     control,
     ledger,
     onLog: options.onLog,
+    livenessPolicy: options.livenessPolicy,
   });
   const stopped = new AbortController();
   // Aborted by a stop that comes after the body ended; the one that ended it does not cut short the
@@ -421,7 +431,7 @@ export async function startWorkflow<Args extends JsonValue, Result extends JsonV
     let failed = false;
     try {
       value = await runUntilStopped(
-        () => definition.run(owner.context, args),
+        () => Promise.race([definition.run(owner.context, args), fatal.promise]),
         signal,
         options.deadline,
       );
@@ -605,6 +615,7 @@ type AgentOpening = {
 };
 
 class WorkflowOwner {
+  readonly #cleanupFailures: Error[] = [];
   readonly context: WorkflowContext;
   readonly #agents = new Map<string, AgentEntry>();
   readonly #inFlight = new Set<Promise<unknown>>();
@@ -619,7 +630,9 @@ class WorkflowOwner {
     private readonly options: {
       sandboxes: RunSandboxes;
       skills: RunSkills;
+      failRun(error: Error): void;
       runDir: string;
+      livenessPolicy?: LivenessPolicy;
       locks: CredentialLocks;
       environment: Readonly<Record<string, string | undefined>>;
       decisions: RunDecisions;
@@ -671,7 +684,8 @@ class WorkflowOwner {
       },
       sandboxes: {
         open: (spec) => {
-          if (this.#closed) return Promise.reject(new Error("workflow context is closed"));
+          if (this.#closed || this.#cleanupFailures.length)
+            return Promise.reject(new Error("workflow context is closed"));
           try {
             this.options.stages.checkOperation();
           } catch (error) {
@@ -682,7 +696,8 @@ class WorkflowOwner {
       },
       decisions: {
         decide: (spec) => {
-          if (this.#closed) return Promise.reject(new Error("workflow context is closed"));
+          if (this.#closed || this.#cleanupFailures.length)
+            return Promise.reject(new Error("workflow context is closed"));
           const scope = scopes.getStore();
           try {
             scope?.assertAccepting();
@@ -693,7 +708,7 @@ class WorkflowOwner {
           const decided = this.track(
             options.decisions.decide(spec, {
               deadline: scope?.deadline ?? options.deadline,
-              ...(scope ? { add: (cancel) => scope.add(cancel) } : {}),
+              ...(scope ? { add: (cancel) => scope.add((stop) => cancel(stop.reason)) } : {}),
               ...(scope?.stage === undefined ? {} : { stage: scope.stage }),
             }),
           );
@@ -736,8 +751,19 @@ class WorkflowOwner {
   async close(deadline: AbsoluteDeadline): Promise<unknown[]> {
     this.#closing ??= (async (): Promise<unknown[]> => {
       this.#closed = true;
+      const stopping = [...this.#agents.values()].map((agent) =>
+        agent.state.then(
+          (state) =>
+            state.stopOperations({
+              kind:
+                Date.now() >= this.options.deadline.unixMilliseconds ? "timed-out" : "cancelled",
+              reason: "workflow closing",
+            }),
+          () => undefined,
+        ),
+      );
       const cleanup = Promise.all([
-        Promise.allSettled([this.options.host.close("workflow complete")]),
+        Promise.allSettled([this.options.host.close("workflow complete"), ...stopping]),
         // A call nobody awaited any more is cancelled and recorded, not left to its deadline.
         this.options.decisions.close().then(() => Promise.allSettled([...this.#inFlight])),
       ]).then(async ([settled]) => {
@@ -754,6 +780,7 @@ class WorkflowOwner {
           ...settled.flatMap((result) => (result.status === "rejected" ? [result.reason] : [])),
           ...released,
           ...closed,
+          ...this.#cleanupFailures,
         ];
       });
       try {
@@ -789,7 +816,7 @@ class WorkflowOwner {
       StageOptions<JsonValue> | undefined,
       unknown,
     ];
-    if (this.#closed) throw new Error("workflow context is closed");
+    if (this.#closed || this.#cleanupFailures.length) throw new Error("workflow context is closed");
     if (typeof work !== "function") throw new Error(`stage ${name} needs its work as a function`);
     // Before anything is spent on it.
     let result: JsonSchema | undefined;
@@ -816,7 +843,7 @@ class WorkflowOwner {
       parent?.group,
       name,
     );
-    const removeFromParent = parent?.add(() => scope.cancel());
+    const removeFromParent = parent?.add((stop) => scope.cancel(stop));
     try {
       const returned: unknown = await scopes.run(scope, () => work());
       scope.seal();
@@ -844,7 +871,7 @@ class WorkflowOwner {
   }
 
   private openAgent(spec: AgentOpenSpec): Promise<AgentRef> {
-    if (this.#closed) throw new Error("workflow context is closed");
+    if (this.#closed || this.#cleanupFailures.length) throw new Error("workflow context is closed");
     scopes.getStore()?.assertAccepting();
     if (this.#caller?.key === spec.key) {
       throw new Error(`agent ${spec.key} is the calling session; it is not opened`);
@@ -945,7 +972,7 @@ class WorkflowOwner {
    * answers through a launcher by path as any pane agent does (ADR 0010).
    */
   private caller(key: string): Promise<AgentRef | null> {
-    if (this.#closed) throw new Error("workflow context is closed");
+    if (this.#closed || this.#cleanupFailures.length) throw new Error("workflow context is closed");
     const scope = scopes.getStore();
     scope?.assertAccepting();
     const found = this.options.runtime.host.caller;
@@ -1217,6 +1244,7 @@ class WorkflowOwner {
   ): LogicalAgent {
     return new LogicalAgent({
       key,
+      runDir: this.options.runDir,
       execution,
       session,
       slots: this.options.slots,
@@ -1227,8 +1255,14 @@ class WorkflowOwner {
       progress: this.options.progress,
       recordTurn: this.options.recordTurn,
       track: (promise) => this.track(promise),
-      isRunClosing: () => this.#closed,
+      isRunClosing: () => this.#closed || this.#cleanupFailures.length > 0,
       checkOperation: () => this.options.stages.checkOperation(),
+      cleanupUnresolved: (reason) => {
+        const error = new Error(reason);
+        this.#cleanupFailures.push(error);
+        this.options.failRun(error);
+      },
+      livenessPolicy: this.options.livenessPolicy,
       fork: (spec, take, settings) => this.forkAgent(key, spec, take, settings),
       ...(seated
         ? {
@@ -1255,7 +1289,7 @@ class WorkflowOwner {
     /** The parent's settings once every `set` queued before the fork has run. */
     parentSettings: AgentExecution,
   ): Promise<AgentRef> {
-    if (this.#closed) throw new Error("workflow context is closed");
+    if (this.#closed || this.#cleanupFailures.length) throw new Error("workflow context is closed");
     const scope = scopes.getStore();
     scope?.assertAccepting();
     this.options.stages.checkOperation();
@@ -1425,6 +1459,7 @@ class WorkflowOwner {
 }
 
 class LogicalAgent implements AgentRef {
+  readonly #operationStops = new Set<(stop: OperationStop) => Promise<void>>();
   readonly #operations = new Map<
     string,
     {
@@ -1448,6 +1483,7 @@ class LogicalAgent implements AgentRef {
   constructor(
     private readonly options: {
       key: string;
+      runDir: string;
       execution: AgentExecution;
       session: HarnessSession;
       slots: ResultSlotRegistry;
@@ -1462,6 +1498,8 @@ class LogicalAgent implements AgentRef {
       isRunClosing(): boolean;
       /** Throws when no turn may start: the attempt is looking on for values it needs. */
       checkOperation(): void;
+      cleanupUnresolved(reason: string): void;
+      livenessPolicy?: LivenessPolicy;
       /** After each operation settles, whatever its outcome. */
       afterOperation?(): Promise<void>;
       /**
@@ -1524,6 +1562,11 @@ class LogicalAgent implements AgentRef {
     let deadline: AbsoluteDeadline;
     try {
       deadline = this.operationDeadline(spec, scope);
+      const recoveryDeadline = spec.nudge ? spec.nudge.deadline : undefined;
+      if (recoveryDeadline) {
+        assertDeadlineValue(recoveryDeadline);
+        deadline = earlierDeadline(deadline, recoveryDeadline);
+      }
     } catch (error) {
       const rejected = Promise.reject<RunResult<string | T>>(error);
       scope?.track(rejected);
@@ -1791,9 +1834,9 @@ class LogicalAgent implements AgentRef {
     // A pane's switch waits on its screen; a scope cancelled meanwhile closes the agent, as a
     // half-made switch leaves it at settings nobody knows. A headless one takes no time.
     const removeCanceller = pane
-      ? scope?.add(async (reason) => {
-          cancelled = reason;
-          await this.close(reason);
+      ? scope?.add(async (stop) => {
+          cancelled = stop.reason;
+          await this.close(stop.reason);
         })
       : undefined;
     try {
@@ -1827,6 +1870,7 @@ class LogicalAgent implements AgentRef {
 
   close(reason?: string): Promise<void> {
     this.#closed = true;
+    const stopped = this.stopOperations({ kind: "cancelled", reason: reason ?? "agent closed" });
     if (!this.#closePromise) {
       let attempt: Promise<void>;
       try {
@@ -1839,7 +1883,7 @@ class LogicalAgent implements AgentRef {
         if (this.#closePromise === attempt) this.#closePromise = undefined;
       });
     }
-    return this.#closePromise;
+    return Promise.all([this.#closePromise, stopped]).then(() => undefined);
   }
 
   /**
@@ -1847,6 +1891,10 @@ class LogicalAgent implements AgentRef {
    * from a turn that ended without answering: nudging it could be prompting an operator who just
    * stopped it (ADR 0010).
    */
+  async stopOperations(request: OperationStop): Promise<void> {
+    await Promise.all([...this.#operationStops].map((stop) => stop(request)));
+  }
+
   private defaultNudge(): Exclude<AgentRunTextSpec["nudge"], false> {
     const { execution } = this.options;
     return execution.caller && !findHarness(execution.harness)?.interrupted ? undefined : {};
@@ -1870,156 +1918,112 @@ class LogicalAgent implements AgentRef {
     const nudge = spec.nudge === false ? undefined : (spec.nudge ?? this.defaultNudge());
     scope?.assertActive();
     if (nudge?.deadline) assertDeadlineValue(nudge.deadline);
-    const ceiling = this.deadlineCeiling(scope);
-    const nudgeDeadline = nudge ? earlierDeadline(nudge.deadline ?? ceiling, ceiling) : undefined;
+    return this.executeWaitingOperation(spec, scope, operationDeadline, tags, nudge);
+  }
+
+  private async executeWaitingOperation(
+    spec: AgentRunTextSpec | AgentRunStructuredSpec<JsonValue>,
+    scope: ExecutionScope | undefined,
+    deadline: AbsoluteDeadline,
+    tags: OperationTags,
+    nudge: Exclude<AgentRunTextSpec["nudge"], false>,
+  ): Promise<RunResult<JsonValue>> {
     const operationId = randomUUID();
     const schema = resultSchema(spec.schema);
-    if (Date.now() >= operationDeadline.unixMilliseconds) {
-      const late = this.options.ledger.reserve(operationId, () => this.#execution, tags);
-      const usage = late.settle({ settledAt: operationDeadline.unixMilliseconds }, []);
-      return {
-        outcome: { kind: "timed-out", reason: "operation deadline exceeded", usage },
-      };
-    }
-    const slot = await this.options.slots.open({
+    const binding = { endpoint: this.options.endpoint, operationId };
+    const entry = this.options.ledger.reserve(operationId, () => this.#execution, tags);
+    const authored: AuthoredTurn = {
+      prompt: spec.prompt,
+      ...(spec.label === undefined ? {} : { label: spec.label }),
+      ...(tags.stage === undefined ? {} : { stage: tags.stage }),
+      ...(spec.schema ? { schema: spec.schema } : {}),
+    };
+    const waitingSupported = this.options.session.supportsWaiting === true;
+    const recoveryPrompt =
+      nudge?.prompt ??
+      (waitingSupported
+        ? "Report the result now, or use wf waiting with a reason if you still need time."
+        : "You finished without reporting the requested result. Report it now.");
+    const prompt = (text: string) =>
+      operationPrompt(text, schema, this.options.launcher, operationId) +
+      (waitingSupported
+        ? [
+            "",
+            "Finish or stop work needed for this answer before submitting the result.",
+            `If waiting for work to finish, report it now using: ${this.options.launcher} waiting ${operationId} --reason 'what you are waiting for' [--timeout 2m]`,
+            "Omit the square brackets when running the optional timeout flag. This command acknowledges your wait immediately; it does not sleep.",
+            `The fixed answer deadline is ${new Date(deadline.unixMilliseconds).toISOString()}. Waiting never extends it.`,
+          ].join("\n")
+        : "");
+    const events = createOperationEvents(this.options.runDir, operationId);
+    const outcome = await superviseOperation({
+      event: events.record,
       operationId,
-      agentId: this.options.key,
+      agentId: this.key,
       question: spec.prompt,
       schema,
-      deadline: nudgeDeadline ? laterDeadline(operationDeadline, nudgeDeadline) : operationDeadline,
-    });
-    const binding = { endpoint: this.options.endpoint, operationId };
-    const charges: number[] = [];
-    let later: Promise<HarnessTurnOutcome> | undefined;
-    const entry = this.options.ledger.reserve(operationId, () => this.#execution, tags);
-    /** The native turn this operation currently answers for; a nudge replaces it. */
-    const held: HeldTurn = {};
-    const finish = async (
-      native: HarnessTurnOutcome | "expired",
-      settlement?: ResultSlotSettlement,
-    ): Promise<RunResult<JsonValue>> => {
-      await this.options.slots.close(operationId);
-      const settled = settlement ?? (await slot.settled);
-      const usage = entry.settle(
-        {
-          ...(held.deliveredAt === undefined ? {} : { deliveredAt: held.deliveredAt }),
-          settledAt:
-            settled.kind === "accepted"
-              ? settled.acceptedAt
-              : held.ended === undefined
-                ? Math.min(Date.now(), operationDeadline.unixMilliseconds)
-                : // An attempt that ran past its deadline settled at it; the engine noticed later.
-                  Math.min(held.ended.at, held.ended.deadline.unixMilliseconds),
-        },
-        charges,
-        later,
-      );
-      return { outcome: reconcile<JsonValue>(native, settled, usage) };
-    };
-    let removeCanceller: (() => void) | undefined;
-    try {
-      scope?.assertActive();
-      if (Date.now() >= operationDeadline.unixMilliseconds) return await finish("expired");
-      const authored: AuthoredTurn = {
-        prompt: spec.prompt,
-        ...(spec.label === undefined ? {} : { label: spec.label }),
-        ...(tags.stage === undefined ? {} : { stage: tags.stage }),
-        ...(spec.schema === undefined ? {} : { schema: spec.schema }),
-      };
-      const turn: AgentTextTurnSpec & HarnessAuthored = {
-        id: spec.id!,
-        prompt: operationPrompt(spec.prompt, schema, this.options.launcher, operationId),
-        deadline: operationDeadline,
-        authored,
-      };
-      const outputSchema = spec.schema;
-      removeCanceller = scope?.add((reason) =>
-        held.turn ? releaseTurn(held.turn, reason) : Promise.resolve(),
-      );
-      const first = await this.attemptTurn(
-        () =>
-          outputSchema
-            ? this.options.session.start({ ...turn, schema: outputSchema }, binding)
-            : this.options.session.start(turn, binding),
-        operationDeadline,
-        slot.settled,
-        scope,
-        "turn",
-        held,
-      );
-      if (first.kind === "unacquired") {
-        const expiry = first.error instanceof DeadlineExceededError;
-        const native: HarnessTurnOutcome = {
-          state: expiry ? "timed-out" : "failed",
-          detail: expiry ? "operation deadline exceeded" : messageOf(first.error),
-          resultEvidence: { kind: "unavailable" },
-          chargesUsd: [],
+      deadline,
+      slots: this.options.slots,
+      waitingSupported,
+      nudge: nudge !== undefined,
+      policy: this.options.livenessPolicy,
+      start: () =>
+        this.options.session.start(
+          { id: spec.id!, prompt: prompt(spec.prompt), deadline, authored },
+          binding,
+        ),
+      successor: (turn, sequence, deliverySignal) =>
+        turn.nudge({
+          id: `${spec.id!}:check-in:${sequence}`,
+          deadline,
+          deliverySignal,
+          prompt: prompt(recoveryPrompt),
+          authored: { ...authored, prompt: recoveryPrompt },
+        }),
+      onStop: (stop) => {
+        this.#operationStops.add(stop);
+        const remove = scope?.add(stop);
+        return () => {
+          this.#operationStops.delete(stop);
+          remove?.();
         };
-        this.closeAfterFailure(native.detail ?? "harness operation failed");
-        return await finish(native);
-      }
-      if (first.kind === "abandoned") return await finish(first.native, first.settlement);
-      charges.push(...first.charges);
-      later = first.later;
-      let { native, settlement, releaseAttempted, releaseResolved } = first;
-      // Peek rather than wait: a slot that has not settled must not hold the operation open.
-      settlement ??= await Promise.race([slot.settled, Promise.resolve(undefined)]);
-      if (
-        settlement === undefined &&
-        native !== "expired" &&
-        native.state === "completed" &&
-        nudge &&
-        nudgeDeadline
-      ) {
-        const nudgePrompt =
-          nudge.prompt ?? "You finished without reporting the requested result. Report it now.";
-        try {
-          const again = await this.attemptTurn(
-            () =>
-              held.turn!.nudge({
-                id: `${spec.id!}:nudge`,
-                prompt: operationPrompt(nudgePrompt, schema, this.options.launcher, operationId),
-                deadline: nudgeDeadline,
-                authored: { ...authored, prompt: nudgePrompt },
-              }),
-            nudgeDeadline,
-            slot.settled,
-            scope,
-            "nudge",
-            held,
+      },
+      phase: (phase, reason, until) =>
+        this.options.progress.turnPhase(this.key, phase, reason, until),
+    })
+      .catch((error: unknown) => ({
+        kind: "failed" as const,
+        reason: messageOf(error),
+        cleanupUnresolved: true,
+        charges: [],
+        settledAt: Date.now(),
+        deliveredAt: undefined,
+        value: undefined,
+      }))
+      .then((outcome) => {
+        if (outcome.cleanupUnresolved) {
+          this.options.cleanupUnresolved(
+            `cleanup-unresolved: ${this.key} operation ${operationId}`,
           );
-          if (again.kind === "unacquired") throw again.error;
-          ({ native, settlement } = again);
-          if (again.kind === "abandoned") {
-            releaseAttempted = true;
-          } else {
-            ({ releaseAttempted, releaseResolved, later } = again);
-            charges.push(...again.charges);
-          }
-        } catch (error) {
-          native = {
-            state: error instanceof DeadlineExceededError ? "timed-out" : "failed",
-            detail: messageOf(error),
-            resultEvidence: { kind: "unavailable" },
-            chargesUsd: [],
-          };
+          this.closeAfterFailure("cleanup-unresolved");
         }
-      }
-      if (native === "expired" || (native.state !== "completed" && !releaseResolved)) {
-        const reason =
-          native === "expired"
-            ? "operation deadline exceeded"
-            : (native.detail ?? `native turn ${native.state}`);
-        if (!releaseAttempted) await releaseTurn(held.turn!, reason);
-        this.closeAfterFailure(reason);
-      }
-      return await finish(native, settlement);
-    } catch (error) {
-      await this.options.slots.close(operationId);
-      throw error;
-    } finally {
-      removeCanceller?.();
-    }
+        return outcome;
+      })
+      .finally(() => events.close());
+    if (outcome.kind === "timed-out" || outcome.kind === "failed")
+      this.closeAfterFailure(outcome.reason);
+    const usage = entry.settle(
+      {
+        ...(outcome.deliveredAt === undefined ? {} : { deliveredAt: outcome.deliveredAt }),
+        settledAt: outcome.settledAt,
+      },
+      outcome.charges,
+    );
+    if (outcome.kind === "answered")
+      return { outcome: { kind: "answered", value: outcome.value as JsonValue, usage } };
+    if (outcome.kind === "failed")
+      return { outcome: { kind: "failed", reason: outcome.reason, retryable: false, usage } };
+    return { outcome: { kind: outcome.kind, reason: outcome.reason, usage } };
   }
 
   /**
@@ -2062,7 +2066,7 @@ class LogicalAgent implements AgentRef {
             }
           : { kind: "answered", value: native.summary, usage };
       }
-      return reconcile<string>(native, { kind: "closed" }, usage);
+      return reconcile<string>(native, usage);
     };
     if (Date.now() >= deadline.unixMilliseconds) return settle("expired");
     let turn: HarnessTurn;
@@ -2092,7 +2096,7 @@ class LogicalAgent implements AgentRef {
       });
     }
     times.deliveredAt = Date.now();
-    const removeCanceller = scope?.add((reason) => releaseTurn(turn, reason));
+    const removeCanceller = scope?.add((stop) => releaseTurn(turn, stop.reason));
     try {
       let cancelTimer: (() => void) | undefined;
       const native = await Promise.race([
@@ -2116,88 +2120,6 @@ class LogicalAgent implements AgentRef {
     return disposition?.kind === "finishing" ? { later: turn.settled } : {};
   }
 
-  /**
-   * One attempt against the native turn — the opening dispatch or a nudge. `held` takes custody
-   * of a turn this operation keeps, so scope cancellation releases it. An error before acquisition
-   * comes back as `unacquired`, because the opening dispatch and a nudge diagnose it differently;
-   * an error after acquisition propagates.
-   */
-  private async attemptTurn(
-    begin: () => Promise<HarnessTurn>,
-    deadline: AbsoluteDeadline,
-    settled: Promise<ResultSlotSettlement>,
-    scope: ExecutionScope | undefined,
-    what: "turn" | "nudge",
-    held: HeldTurn,
-  ): Promise<TurnAttempt> {
-    let acquiring: Promise<HarnessTurn>;
-    let acquisition: TurnAcquisition;
-    const began = Date.now();
-    try {
-      acquiring = begin();
-      acquisition = await observeTurnAcquisition(acquiring, deadline, settled);
-    } catch (error) {
-      return { kind: "unacquired", error };
-    }
-    if (acquisition.kind !== "turn") {
-      const settlement = acquisition.kind === "result" ? acquisition.settlement : undefined;
-      // An answer proves the prompt arrived, even though the turn it came from was never held.
-      if (settlement?.kind === "accepted") held.deliveredAt ??= began;
-      this.abandonTurnAcquisition(
-        acquiring,
-        settlement?.kind === "accepted"
-          ? `result slot settled before native ${what} acquisition`
-          : `operation deadline exceeded before native ${what} acquisition`,
-      );
-      return {
-        kind: "abandoned",
-        native: settlement?.kind === "accepted" ? unresolvedReleaseOutcome() : "expired",
-        settlement,
-      };
-    }
-    const turn = acquisition.turn;
-    if (scope?.cancelled || Date.now() >= deadline.unixMilliseconds) {
-      this.abandonTurnAcquisition(
-        Promise.resolve(turn),
-        `operation deadline exceeded during native ${what} acquisition`,
-      );
-      return { kind: "abandoned", native: "expired", settlement: undefined };
-    }
-    held.turn = turn;
-    held.deliveredAt ??= Date.now();
-    const observed = await observeTurnAndResult(turn, deadline, settled);
-    // Before any release: its grace is cleanup, not the agent's time.
-    held.ended = { at: Date.now(), deadline };
-    const unreleased = {
-      kind: "observed",
-      releaseAttempted: false,
-      releaseResolved: false,
-    } as const;
-    if (observed.kind === "native") {
-      return {
-        ...unreleased,
-        native: observed.native,
-        settlement: undefined,
-        charges: observed.native === "expired" ? [] : observed.native.chargesUsd,
-      };
-    }
-    if (observed.settlement.kind !== "accepted") {
-      return { ...unreleased, native: "expired", settlement: observed.settlement, charges: [] };
-    }
-    const disposition = await releaseTurn(turn, "result slot settled", true);
-    const outcome = disposition?.kind === "released" ? disposition.outcome : undefined;
-    const finishing = disposition?.kind === "finishing";
-    return {
-      kind: "observed",
-      native: outcome ?? (finishing ? FINISHING_OUTCOME : unresolvedReleaseOutcome()),
-      settlement: observed.settlement,
-      charges: outcome?.chargesUsd ?? [],
-      releaseAttempted: true,
-      releaseResolved: outcome !== undefined || finishing,
-      ...(finishing ? { later: turn.settled } : {}),
-    };
-  }
-
   private abandonTurnAcquisition(acquiring: Promise<HarnessTurn>, reason: string): void {
     const lateRelease = acquiring.then(
       (turn) => releaseTurn(turn, reason),
@@ -2209,9 +2131,10 @@ class LogicalAgent implements AgentRef {
 }
 
 class ExecutionScope {
-  readonly #cancellers = new Set<(reason: string) => Promise<unknown>>();
+  readonly #cancellers = new Set<(stop: OperationStop) => Promise<unknown>>();
   readonly #owned = new Set<Promise<unknown>>();
   #cancelled = false;
+  #stop: OperationStop | undefined;
   #sealed = false;
   #cancellation: Promise<void> | undefined;
 
@@ -2238,11 +2161,13 @@ class ExecutionScope {
     if (this.#sealed) throw new Error("parallel execution scope is closed");
   }
 
-  add(cancel: (reason: string) => Promise<unknown>): () => void {
+  add(cancel: (stop: OperationStop) => Promise<unknown>): () => void {
     if (this.#cancelled) {
-      void Promise.resolve()
-        .then(() => cancel("parallel deadline exceeded"))
-        .catch(() => undefined);
+      try {
+        void cancel(this.#stop!).catch(() => undefined);
+      } catch {
+        // Late registration keeps the stop fence synchronous, including a throwing canceller.
+      }
       return () => undefined;
     }
     this.#cancellers.add(cancel);
@@ -2265,13 +2190,14 @@ class ExecutionScope {
     this.#sealed = true;
   }
 
-  cancel(): Promise<void> {
+  cancel(
+    stop: OperationStop = { kind: "cancelled", reason: "parallel execution cancelled" },
+  ): Promise<void> {
     if (this.#cancellation) return this.#cancellation;
     this.#cancelled = true;
+    this.#stop = stop;
     this.#cancellation = Promise.allSettled(
-      [...this.#cancellers].map((cancel) =>
-        Promise.resolve().then(() => cancel("parallel deadline exceeded")),
-      ),
+      [...this.#cancellers].map((cancel) => Promise.resolve().then(() => cancel(stop))),
     ).then(() => undefined);
     return this.#cancellation;
   }
@@ -2307,7 +2233,7 @@ async function executeParallel<Item, Result>(
 ): Promise<Result[]> {
   // An unlabelled parallel inside a labelled one stays part of it.
   const scope = new ExecutionScope(deadline, group ?? parent?.group, parent?.stage);
-  const removeFromParent = parent?.add(() => scope.cancel());
+  const removeFromParent = parent?.add((stop) => scope.cancel(stop));
   const results = new Array<Result>(items.length);
   let next = 0;
   const workers = Array.from({ length: Math.min(concurrency, items.length) }, async () => {
@@ -2333,13 +2259,15 @@ async function executeParallel<Item, Result>(
   let cancelTimer: (() => void) | undefined;
   const expiry = new Promise<never>((_resolve, reject) => {
     cancelTimer = scheduleAt(deadline, () => {
-      void scope.cancel().then(() => reject(new DeadlineExceededError(deadline)));
+      void scope
+        .cancel({ kind: "timed-out", reason: "parallel deadline exceeded" })
+        .then(() => reject(new DeadlineExceededError(deadline)));
     });
   });
   try {
     await Promise.race([completion, expiry]);
     if (scope.cancelled || Date.now() >= deadline.unixMilliseconds) {
-      await scope.cancel();
+      await scope.cancel({ kind: "timed-out", reason: "parallel deadline exceeded" });
       throw new DeadlineExceededError(deadline);
     }
     return results;
@@ -2354,83 +2282,9 @@ async function executeParallel<Item, Result>(
   }
 }
 
-type HeldTurn = {
-  turn?: HarnessTurn;
-  /** When the harness first accepted a turn for this operation. */
-  deliveredAt?: number;
-  /** When the last held attempt was seen to end, and the deadline it ran under. */
-  ended?: { at: number; deadline: AbsoluteDeadline };
-};
-
-type TurnAttempt =
-  | { kind: "unacquired"; error: unknown }
-  | {
-      /** No turn came under this operation; `abandonTurnAcquisition` releases any late one. */
-      kind: "abandoned";
-      native: HarnessTurnOutcome | "expired";
-      settlement: ResultSlotSettlement | undefined;
-    }
-  | {
-      kind: "observed";
-      native: HarnessTurnOutcome | "expired";
-      settlement: ResultSlotSettlement | undefined;
-      charges: readonly number[];
-      releaseAttempted: boolean;
-      releaseResolved: boolean;
-      /** The outcome of an answered turn the host left to finish, once it has. */
-      later?: Promise<HarnessTurnOutcome>;
-    };
-
-type TurnObservation =
-  | { kind: "native"; native: HarnessTurnOutcome | "expired" }
-  | { kind: "result"; settlement: ResultSlotSettlement };
-
-type TurnAcquisition =
-  | { kind: "turn"; turn: HarnessTurn }
-  | { kind: "result"; settlement: ResultSlotSettlement }
-  | { kind: "expired" };
-
-async function observeTurnAcquisition(
-  acquiring: Promise<HarnessTurn>,
-  deadline: AbsoluteDeadline,
-  settlement: Promise<ResultSlotSettlement>,
-): Promise<TurnAcquisition> {
-  let cancelTimer: (() => void) | undefined;
-  const expired = new Promise<TurnAcquisition>((resolve) => {
-    cancelTimer = scheduleAt(deadline, () => resolve({ kind: "expired" }));
-  });
-  try {
-    return await Promise.race([
-      acquiring.then((turn): TurnAcquisition => ({ kind: "turn", turn })),
-      settlement.then((value): TurnAcquisition => ({ kind: "result", settlement: value })),
-      expired,
-    ]);
-  } finally {
-    cancelTimer?.();
-  }
-}
-
-async function observeTurnAndResult(
-  turn: HarnessTurn,
-  deadline: AbsoluteDeadline,
-  settlement: Promise<ResultSlotSettlement>,
-): Promise<TurnObservation> {
-  let cancelTimer: (() => void) | undefined;
-  const expired = new Promise<"expired">((resolve) => {
-    cancelTimer = scheduleAt(deadline, () => resolve("expired"));
-  });
-  return Promise.race([
-    Promise.race([turn.settled, expired])
-      .finally(() => cancelTimer?.())
-      .then((native): TurnObservation => ({ kind: "native", native })),
-    settlement.then((value): TurnObservation => ({ kind: "result", settlement: value })),
-  ]);
-}
-
 /**
- * `undefined` when the host throws or does not answer within the cleanup grace. After an accepted
- * answer, a host whose session continues may leave the turn finishing, and the
- * operation returns at once rather than waiting out the agent's closing message.
+ * Compaction keeps its existing bounded release behavior. Structured operations use the
+ * supervisor, which requires confirmed native completion before returning an answer.
  */
 async function releaseTurn(
   turn: HarnessTurn,
@@ -2448,34 +2302,10 @@ async function releaseTurn(
   }
 }
 
-/** Stands in for an answered turn still finishing; an accepted answer is what the caller sees. */
-const FINISHING_OUTCOME: HarnessTurnOutcome = {
-  state: "completed",
-  detail: "left to finish after its answer was accepted",
-  resultEvidence: { kind: "unavailable" },
-  chargesUsd: [],
-};
-
-function unresolvedReleaseOutcome(): HarnessTurnOutcome {
-  return {
-    state: "cancelled",
-    detail: "native work was quarantined after result settlement",
-    resultEvidence: { kind: "unavailable" },
-    chargesUsd: [],
-  };
-}
-
 function reconcile<T extends JsonValue>(
-  native: HarnessTurnOutcome | "expired",
-  settlement: ResultSlotSettlement,
+  native: HarnessTurnOutcome,
   usage: OperationRecord,
 ): TurnOutcome<T> {
-  if (settlement.kind === "accepted") {
-    return { kind: "answered", value: settlement.value as T, usage };
-  }
-  if (native === "expired" || settlement.kind === "expired") {
-    return { kind: "timed-out", reason: "operation deadline exceeded", usage };
-  }
   switch (native.state) {
     case "completed":
       return { kind: "unanswered", reason: "agent settled without an accepted result", usage };

@@ -46,6 +46,7 @@ export async function submit(
     binding.endpoint,
     `${JSON.stringify({
       version: WIRE_VERSION,
+      command: "result",
       operationId: binding.operationId,
       raw: JSON.stringify(value),
       ...(session ? { session } : {}),

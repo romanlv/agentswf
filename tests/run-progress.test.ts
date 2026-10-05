@@ -469,3 +469,33 @@ describe("run progress", () => {
     ]);
   });
 });
+
+test("log progress records phase, renewed wait and reason changes without countdown noise", () => {
+  const snapshot = (phase: string, reason?: string, until?: number): WorkflowRunSnapshot => ({
+    state: "running",
+    stages: [],
+    groups: [],
+    upcoming: [],
+    agents: [agent("waiter", 0, { startedAt: 0, phase, waitingReason: reason, checkInAt: until })],
+  });
+  const working = snapshot("working");
+  const waiting = snapshot("waiting", "build\n\x1b[31mtests\x1b[0m", 60_000);
+  const view = { startedAt: 0, now: 10_000 };
+  expect(progressEvents(working, waiting, view)).toEqual([
+    "[0:10] … waiter · waiting (agent-reported): build tests · check-in at 1:00",
+  ]);
+  expect(progressEvents(waiting, waiting, { ...view, now: 20_000 })).toEqual([]);
+  const renewed = snapshot("waiting", "deploy", 90_000);
+  expect(progressEvents(waiting, renewed, view)[0]).toContain("deploy · check-in at 1:30");
+  expect(progressEvents(renewed, snapshot("waiting", "deploy", 120_000), view)[0]).toContain(
+    "check-in at 2:00",
+  );
+  expect(progressEvents(renewed, snapshot("waiting", "verify", 90_000), view)[0]).toContain(
+    "verify",
+  );
+  for (const phase of ["check-in-pending", "awaiting-reply", "releasing", "working"]) {
+    expect(progressEvents(waiting, snapshot(phase), view)).toEqual([
+      `[0:10] … waiter · ${phase.replaceAll("-", " ")}`,
+    ]);
+  }
+});

@@ -19,8 +19,9 @@ exists, the code is right, then this page.
 - While it runs, `awf run` shows its stages, each labelled `parallel` as a group, and its agents'
   turns: a block redrawn in place on a terminal, a line per change otherwise.
 - Each agent answers through `wf result`, over a socket the engine opened for that agent alone. At
-  most one result is accepted per operation, validated against its schema, with one nudge when an
-  agent goes quiet without answering.
+  most one result is accepted per operation, validated against its schema. Quiet agents receive
+  recovery prompts; supported Claude panes can declare waiting and take repeated check-ins within
+  the same deadline.
 - Every wait has a deadline. The run's default is thirty minutes.
 - Every attempt reports its wall time, and for each agent, stage and model its times, tokens, billing
   and a cost estimate at dated list prices, read from the harnesses' own session files when the run
@@ -183,6 +184,13 @@ The gates are defined in [`foundation.md`](foundation.md) §12.
   ([findings](findings/agent-effort.md)). The lab's contained-codex stopgap goes with
   [`loop-next`](stories/todo/loop-next.md).
 
+- [[021-turn-liveness-and-limits|021 — Turn liveness and limits]]: implementation verified,
+  human review pending (`in-progress`). Cooperative
+  `wf waiting` and repeated check-ins keep one fixed deadline and result slot. Host Claude and
+  SRT acceptance runs completed with two check-ins and a follow-up in the same session;
+  repository checks and targeted failure evaluations passed. All five tasks are verified; human
+  review remains open and Cursor-dependent full live matrices are blocked by authentication.
+
 The inbox of possible stories is [`stories/todo/`](stories/todo/).
 
 ## Next
@@ -196,11 +204,8 @@ with a long run:
    promising, cases up to a look in parallel, a resolution at 1 trial) and
    [`loop-next`](stories/todo/loop-next.md) (a proposer that thinks, spend a cut can't hide, a
    loop that outlives its shell, the scorer checked first).
-2. [[021-turn-liveness-and-limits|Story 021]]: draft, with research, independent design review and
-   bounded probes. The revised design uses `wf waiting`, repeated check-ins and one fixed
-   operation deadline, without native task discovery. Ready to start the delivery/compatibility
-   proof; production changes follow that gate. Live spend remains a separate
-   [[live-spend-limits|follow-up]].
+2. [[021-turn-liveness-and-limits|Story 021]] implements cooperative waiting and bounded
+   check-ins after the implement-ticket run lost its last step to premature settlement.
 
 Alongside: [story 018](stories/018-workflow-stages.md), stages and continuing a run, built and awaiting review;
 then [`stopped-run-recovery`](stories/todo/stopped-run-recovery.md) on top of 018 and liveness.

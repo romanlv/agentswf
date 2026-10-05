@@ -72,6 +72,7 @@ export function createFakeAdapter(
     script: (context: FakeAdapterTurnContext) => FakeAdapterTurn | Promise<FakeAdapterTurn>;
     harnesses?: readonly [string, ...string[]];
     clock?: ManualClock;
+    supportsWaiting?: boolean | ((activation: HarnessActivation) => boolean);
     /** A reason to refuse this agent, as a real adapter refuses one it cannot run. */
     refuse?: (activation: HarnessActivation) => string | undefined;
     /**
@@ -115,6 +116,13 @@ export function createFakeAdapter(
       const { model, effort } = activation.execution;
       let settings: SessionSettings = { model, ...(effort === undefined ? {} : { effort }) };
       return {
+        ...((
+          typeof options.supportsWaiting === "function"
+            ? options.supportsWaiting(activation)
+            : options.supportsWaiting
+        )
+          ? { confirmsDelivery: true as const }
+          : {}),
         identity: { sessionId, cwd: activation.cwd },
         ...(forks
           ? {
@@ -156,6 +164,11 @@ export function createFakeAdapter(
         promptedAt: () => firstPrompt,
         async execute(operation) {
           if (isClosed) throw new Error("fake session is closed");
+          if (operation.deliverySignal?.aborted) {
+            return { state: "cancelled", resultEvidence: { kind: "unavailable" }, chargesUsd: [] };
+          }
+          operation.onDispatched?.();
+          operation.onAccepted?.();
           firstPrompt ??= options.clock?.now() ?? Date.now();
           const controller = new AbortController();
           activeController = controller;
@@ -182,6 +195,8 @@ export function createFakeAdapter(
           try {
             const scripted = await options.script(context);
             await scripted.act?.(context);
+            // Script preparation and its response are one synthetic agent action.
+            operation.onReceived?.();
             options.clock?.advance(scripted.durationMs ?? 0);
             return {
               state: controller.signal.aborted ? "cancelled" : (scripted.state ?? "completed"),

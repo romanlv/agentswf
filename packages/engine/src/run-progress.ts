@@ -14,6 +14,9 @@ export type GroupProgress = {
 
 type TurnProgress = Pick<TurnRecord, "kind" | "stage" | "label"> & {
   startedAt: number;
+  phase?: string;
+  waitingReason?: string;
+  checkInAt?: number;
   settledAt?: number;
   /** Absent while the turn runs. */
   outcome?: TurnRecord["outcome"];
@@ -78,6 +81,14 @@ export class RunProgress {
     turn.settledAt = Date.now();
     turn.outcome = outcome;
     if (reason !== undefined) turn.reason = reason;
+  }
+
+  turnPhase(key: AgentKey, phase: string, reason?: string, until?: number): void {
+    const turn = this.#agents.get(key)?.turn;
+    if (!turn || turn.outcome) return;
+    turn.phase = phase;
+    turn.waitingReason = reason;
+    turn.checkInAt = until;
   }
 
   snapshot(): { groups: GroupProgress[]; agents: Map<AgentKey, AgentProgress> } {

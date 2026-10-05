@@ -23,7 +23,7 @@ import {
   type FakeFork,
   type FakeSet,
 } from "@agentswf/harness/testing";
-import { submitResult } from "@agentswf/wf/client";
+import { submitResult, submitWaiting } from "@agentswf/wf/client";
 import type { Scripts, Step, Turn, TurnOutcome } from "./script";
 
 /** A turn as the workflow wrote it, and how it ended. */
@@ -132,6 +132,7 @@ export function createScriptedHost(
             const { endpoint, operationId } = context.binding!;
             const response = await submitResult(endpoint, {
               version: WIRE_VERSION,
+              command: "result",
               operationId,
               raw: JSON.stringify(step.value),
             });
@@ -148,6 +149,22 @@ export function createScriptedHost(
       };
     }
     const { ending } = step;
+    if (ending.kind === "waiting") {
+      return {
+        act: async () => {
+          const { endpoint, operationId } = context.binding!;
+          const response = await submitWaiting(endpoint, {
+            version: WIRE_VERSION,
+            command: "waiting",
+            operationId,
+            reason: ending.reason,
+            ...(ending.timeoutMs === undefined ? {} : { timeoutMs: ending.timeoutMs }),
+          });
+          if (response.kind === "rejected") failTest(`waiting rejected: ${response.error}`);
+          end(record, "waiting");
+        },
+      };
+    }
     if (ending.kind === "hang") {
       return {
         act: async (turn) => {
@@ -224,6 +241,7 @@ export function createScriptedHost(
       return { summary: step.value };
     }
     const { ending } = step;
+    if (ending.kind === "waiting") return failTest("compaction cannot report waiting");
     if (ending.kind === "hang") {
       return {
         act: async (turn) => {
@@ -284,6 +302,10 @@ export function createScriptedHost(
     createSingleSessionHostFactory(
       createFakeAdapter({
         harnesses: PLACEMENT_HARNESSES[placement],
+        supportsWaiting: (activation) =>
+          placement === "pane" &&
+          activation.execution.harness === "claude" &&
+          !activation.execution.caller,
         placement,
         launchesInSandbox: true,
         givesSkills: true,

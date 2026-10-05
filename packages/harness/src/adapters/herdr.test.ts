@@ -1,11 +1,31 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  appendFileSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ProcessInput, ProcessResult, RunProcess } from "../command";
 import { HARNESSES } from "../spec";
 import { codexForkHome } from "../testing/codex-rollouts";
 import { createHerdrRunHostFactory, createPaneAdapter, type HerdrConfig } from "./herdr";
+
+let originalClaudeHome: string | undefined;
+let isolatedClaudeHome: string;
+beforeAll(() => {
+  originalClaudeHome = process.env.CLAUDE_CONFIG_DIR;
+  isolatedClaudeHome = mkdtempSync(join(tmpdir(), "awf-herdr-test-claude-"));
+  process.env.CLAUDE_CONFIG_DIR = isolatedClaudeHome;
+});
+afterAll(() => {
+  if (originalClaudeHome === undefined) delete process.env.CLAUDE_CONFIG_DIR;
+  else process.env.CLAUDE_CONFIG_DIR = originalClaudeHome;
+  rmSync(isolatedClaudeHome, { recursive: true, force: true });
+});
 
 const CONFIG: HerdrConfig = {
   session: "wf-lab",
@@ -713,6 +733,200 @@ describe("createHerdrRunHostFactory", () => {
     return { run, calls };
   }
 
+  for (const broken of [false, true]) {
+    test(
+      broken
+        ? "run-host receipt failure reaches delivery.failed instead of disappearing"
+        : "run-host receipt reaches onReceived and answered release proves native idle",
+      async () => {
+        const home = mkdtempSync(join(tmpdir(), "awf-native-receipt-"));
+        const project = join(home, "projects", "-repo");
+        mkdirSync(project, { recursive: true });
+        const base = hostStub();
+        let submitted = false;
+        const run: RunProcess = async (input) => {
+          if (verb(input) === "agent prompt") {
+            submitted = true;
+            const prompt = input.argv[6]!;
+            const rows = broken
+              ? [
+                  { type: "queue-operation", operation: "enqueue", content: prompt },
+                  ...Array.from({ length: 4097 }, (_, i) => ({ uuid: `row-${i}` })),
+                ]
+              : [
+                  { type: "user", uuid: "input", message: { role: "user", content: prompt } },
+                  {
+                    type: "assistant",
+                    uuid: "answer",
+                    parentUuid: "input",
+                    message: { role: "assistant", model: "claude", content: [] },
+                  },
+                ];
+            writeFileSync(
+              join(project, "native.jsonl"),
+              `${rows.map((row) => JSON.stringify(row)).join("\n")}\n`,
+            );
+          }
+          if (verb(input) === "agent wait" && submitted)
+            return commandResult({ agent: { agent_status: "idle" } });
+          return base.run(input);
+        };
+        const host = await createHerdrRunHostFactory(CONFIG, run).openRun({
+          runId: "receipt",
+          cwd: "/repo",
+          deadline: deadline(),
+        });
+        try {
+          const session = await host.openAgent({
+            key: "agent",
+            cwd: "/repo",
+            home,
+            deadline: deadline(),
+            execution: { harness: "claude", model: "opus" },
+          });
+          const turn = await session.start(
+            { id: "one", prompt: "respond", deadline: deadline() },
+            binding("receipt-op"),
+          );
+          await turn.settled;
+          const observed = await Promise.race([
+            broken ? turn.delivery!.failed : turn.delivery!.received,
+            new Promise<never>((_, reject) =>
+              setTimeout(() => reject(new Error("receipt evidence missing")), 1000),
+            ),
+          ]);
+          expect(observed).toEqual(
+            broken ? expect.stringContaining("ancestry exceeds") : expect.any(Number),
+          );
+          const release = await turn.release("admitted", deadline(), {
+            answered: true,
+            awaitCompletion: true,
+          });
+          expect(release.kind).toBe(broken ? "quarantined" : "released");
+          expect(base.calls.some((call) => verb(call) === "tab close")).toBe(false);
+        } finally {
+          await host.close();
+          rmSync(home, { recursive: true, force: true });
+        }
+      },
+    );
+  }
+
+  test("a known pane receives another turn after siblings accumulate since launch", async () => {
+    const home = mkdtempSync(join(tmpdir(), "awf-pane-receipt-horizon-"));
+    const project = join(home, "projects", "-repo");
+    mkdirSync(project, { recursive: true });
+    const base = hostStub();
+    let prompts = 0;
+    const run: RunProcess = async (input) => {
+      if (verb(input) === "agent prompt") {
+        prompts += 1;
+        const userId = `input-${prompts}`;
+        const rows = [
+          { type: "user", uuid: userId, message: { role: "user", content: input.argv[6]! } },
+          {
+            type: "assistant",
+            uuid: `answer-${prompts}`,
+            parentUuid: userId,
+            message: { role: "assistant", model: "claude", content: [] },
+          },
+        ];
+        appendFileSync(
+          join(project, `session-${input.argv[5]}.jsonl`),
+          `${rows.map((row) => JSON.stringify(row)).join("\n")}\n`,
+        );
+      }
+      if (verb(input) === "agent wait" && prompts > 0)
+        return commandResult({ agent: { agent_status: "idle" } });
+      return base.run(input);
+    };
+    const host = await createHerdrRunHostFactory(CONFIG, run).openRun({
+      runId: "receipt-horizon",
+      cwd: "/repo",
+      deadline: deadline(),
+    });
+    try {
+      const session = await host.openAgent({
+        key: "agent",
+        cwd: "/repo",
+        home,
+        deadline: deadline(),
+        execution: { harness: "claude", model: "opus" },
+      });
+      for (const id of ["first", "second"]) {
+        if (id === "second") {
+          // These are younger than pane launch, but older than this dispatch.
+          for (let i = 0; i < 260; i++) writeFileSync(join(project, `sibling-${i}.jsonl`), "");
+        }
+        const turn = await session.start(
+          { id, prompt: "respond", deadline: deadline() },
+          binding(`horizon-${id}`),
+        );
+        expect((await turn.settled).state).toBe("completed");
+        let timeout: ReturnType<typeof setTimeout> | undefined;
+        try {
+          const received = await Promise.race([
+            turn.delivery!.received,
+            turn.delivery!.failed.then((reason) => {
+              throw new Error(reason);
+            }),
+            new Promise<never>((_, reject) => {
+              timeout = setTimeout(() => reject(new Error("receipt evidence missing")), 1000);
+            }),
+          ]);
+          expect(received).toEqual(expect.any(Number));
+        } finally {
+          clearTimeout(timeout);
+        }
+        expect(
+          (
+            await turn.release("admitted", deadline(), {
+              answered: true,
+              awaitCompletion: true,
+            })
+          ).kind,
+        ).toBe("released");
+      }
+      expect(prompts).toBe(2);
+    } finally {
+      await host.close();
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  test("waiting requires a run-local transcript home for sandbox panes", async () => {
+    for (const home of [undefined, "/run/homes/claude"]) {
+      const { run } = hostStub();
+      const host = await createHerdrRunHostFactory(CONFIG, run).openRun({
+        runId: "waiting",
+        cwd: "/repo",
+        deadline: deadline(),
+      });
+      const session = await host.openAgent({
+        key: "waiter",
+        cwd: "/repo",
+        deadline: deadline(),
+        execution: { harness: "claude", model: "opus" },
+        ...(home ? { home } : {}),
+        occupant: {
+          launch: () => {
+            throw new Error("unused");
+          },
+          release: async () => {},
+          pane: async () => ({
+            herdr: "run",
+            prelude: "confined",
+            ready: "ready",
+            harness: "claude",
+          }),
+        },
+      });
+      expect(session.supportsWaiting).toBe(home ? true : undefined);
+      await session.close();
+      await host.close();
+    }
+  });
+
   test("gives each peer agent a tab of its own in one run workspace", async () => {
     const { run, calls } = hostStub();
     const host = await createHerdrRunHostFactory(CONFIG, run).openRun({
@@ -762,6 +976,60 @@ describe("createHerdrRunHostFactory", () => {
 
     await host.close();
     expect(calls.filter((call) => verb(call) === "workspace close")).toHaveLength(1);
+  });
+
+  test("cancelling an undispatched successor leaves the pane and permits another successor", async () => {
+    const base = hostStub();
+    let hold = false;
+    let entered!: () => void;
+    const waiting = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    const run: RunProcess = async (input) => {
+      if (hold && verb(input) === "agent wait") {
+        entered();
+        await new Promise<void>((resolve) => {
+          if (input.signal?.aborted) resolve();
+          else input.signal?.addEventListener("abort", () => resolve(), { once: true });
+        });
+        return { stdout: "", stderr: "", exitCode: 130, cancelled: true, timedOut: false };
+      }
+      return base.run(input);
+    };
+    const host = await createHerdrRunHostFactory(CONFIG, run).openRun({
+      runId: "cancel-dispatch",
+      cwd: "/repo",
+      deadline: deadline(),
+    });
+    const session = await host.openAgent({
+      key: "agent",
+      cwd: "/repo",
+      deadline: deadline(),
+      execution: { harness: "claude", model: "test" },
+    });
+    const initial = await session.start(
+      { id: "initial", prompt: "start", deadline: deadline() },
+      binding("operation"),
+    );
+    await initial.settled;
+    hold = true;
+    const controller = new AbortController();
+    const pending = await initial.nudge({
+      id: "pending",
+      prompt: "check",
+      deadline: deadline(),
+      deliverySignal: controller.signal,
+    });
+    await waiting;
+    controller.abort();
+    expect((await pending.settled).state).toBe("cancelled");
+    expect(base.calls.filter((call) => verb(call) === "agent prompt")).toHaveLength(1);
+    expect(base.calls.filter((call) => verb(call) === "tab close")).toHaveLength(0);
+    hold = false;
+    const next = await pending.nudge({ id: "next", prompt: "check later", deadline: deadline() });
+    expect((await next.settled).state).toBe("completed");
+    expect(base.calls.filter((call) => verb(call) === "agent prompt")).toHaveLength(2);
+    await host.close();
   });
 
   test("a nudge and a later operation stay in the agent's tab, the later one once it settles", async () => {
@@ -1001,7 +1269,9 @@ describe("createHerdrRunHostFactory", () => {
       return { host, session };
     };
     const prompted = (calls: ProcessInput[]) =>
-      calls.filter((call) => verb(call) === "agent prompt").map((call) => call.argv[6]);
+      calls
+        .filter((call) => verb(call) === "agent prompt")
+        .map((call) => call.argv[6]!.replace(/^\[awf-delivery:[^\]]+\] /, ""));
 
     test("claude is typed /compact with the focus, and the screen confirms it", async () => {
       const { run, calls } = showing(
@@ -1499,13 +1769,12 @@ describe("createHerdrRunHostFactory", () => {
 
       const started = calls.find((call) => verb(call) === "agent start")!;
       expect(started.argv).toEqual(expect.arrayContaining(["--resume", "fork-1"]));
-      // Claude shows a prompt Herdr pastes as pasted text, which it will not act on: one of
-      // several lines is typed, and a line of the operator's own submits it.
-      const typed = calls.find((call) => call.argv.slice(3, 5).join(" ") === "pane send-text")!;
-      expect(typed.argv.at(-1)).toBe("You write the tests.\n\ntest\n\n");
-      expect(calls.find((call) => verb(call) === "agent prompt")!.argv[6]).toBe(
-        "Do what the text above asks.",
+      const prompts = calls.filter((call) => verb(call) === "agent prompt");
+      expect(prompts).toHaveLength(1);
+      expect(prompts[0]!.argv[6]?.replace(/^\[awf-delivery:[^\]]+\] /, "")).toBe(
+        "You write the tests.\n\ntest",
       );
+      expect(calls.some((call) => verb(call) === "pane send-text")).toBe(false);
       await host.close();
     });
 

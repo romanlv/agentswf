@@ -198,6 +198,7 @@ export async function testWorkflow<Args extends JsonValue, Result extends JsonVa
   try {
     const result = await runWorkflow(definition, args, {
       runRoot,
+      livenessPolicy: { quietMs: 1, responseMs: 25, deliveryMs: 100, releaseMs: 1000 },
       run: {
         dir: run.dir,
         id: run.record.id,

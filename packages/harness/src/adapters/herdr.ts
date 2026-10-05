@@ -30,6 +30,7 @@ import {
 } from "../spec";
 import { harnessState } from "../state";
 import { createSessionAccounting } from "../usage/accounting";
+import { prepareClaudeReceipt } from "./claude-receipt";
 import { copySession, FORK_ACTIVATION_MS, forkCommand, forkDeadline, forkResult } from "./fork";
 import {
   abortableDelay,
@@ -826,6 +827,11 @@ export function createHerdrRunHostFactory(
           let instructed = false;
           let activeController: AbortController | undefined;
           let activeCompletion: Promise<void> | undefined;
+          // A run-local sandbox pane preserves the host cwd and seeded harness home.
+          const confirmsDelivery =
+            harness === "claude" &&
+            (!request.occupant || (terminal?.herdr === "run" && request.home !== undefined));
+          const receiptObservers = new Set<AbortController>();
 
           const closeCurrentPane = async (): Promise<void> => {
             if (!current) return;
@@ -1148,6 +1154,64 @@ export function createHerdrRunHostFactory(
           };
 
           const backend: ActivatedSessionBackend = {
+            ...(confirmsDelivery
+              ? {
+                  confirmsDelivery: true as const,
+                  async finishAnswered(deadline: {
+                    unixMilliseconds: number;
+                  }): Promise<NativeTurnOutcome> {
+                    const placement = current;
+                    const originalController = activeController;
+                    const originalCompletion = activeCompletion;
+                    const remaining = deadline.unixMilliseconds - Date.now();
+                    if (!placement || remaining <= 0)
+                      return localOutcome("timed-out", "release deadline exceeded");
+                    const observing = new AbortController();
+                    receiptObservers.add(observing);
+                    const timer = setTimeout(
+                      () => observing.abort(),
+                      Math.min(remaining, 2_147_483_647),
+                    );
+                    try {
+                      const ended = await herdr(
+                        ["agent", "wait", placement.agentName, "--timeout", String(remaining)],
+                        remaining,
+                        observing.signal,
+                      );
+                      if (!ended.ok)
+                        return herdrFailure(ended, deadline.unixMilliseconds - Date.now());
+                      const agent = reportedAgent(ended.result);
+                      const outcome = settledOutcome(agent);
+                      if (
+                        observing.signal.aborted ||
+                        current !== placement ||
+                        outcome.state !== "completed"
+                      ) {
+                        return localOutcome("failed", "native release was not confirmed");
+                      }
+                      originalController?.abort();
+                      await originalCompletion;
+                      const sessionRef =
+                        readSessionRef(agent) ??
+                        (await spec.findSession?.(
+                          placement.operationId,
+                          launchedAt,
+                          request.cwd,
+                          request.home,
+                        ));
+                      return {
+                        ...outcome,
+                        resultEvidence: { kind: "unavailable" },
+                        chargesUsd: [],
+                        ...(sessionRef ? { sessionRef } : {}),
+                      };
+                    } finally {
+                      clearTimeout(timer);
+                      receiptObservers.delete(observing);
+                    }
+                  },
+                }
+              : {}),
             identity: { sessionId: continued ?? randomUUID(), cwd: request.cwd },
             ...(spec.forkSession ? { fork: forkPane } : {}),
             ...(spec.setPane && spec.interactiveResume ? { set: relaunchAt } : {}),
@@ -1220,7 +1284,9 @@ export function createHerdrRunHostFactory(
                   const idle = await settle(
                     current.agentName,
                     operation.deadline,
-                    controller.signal,
+                    operation.deliverySignal
+                      ? AbortSignal.any([controller.signal, operation.deliverySignal])
+                      : controller.signal,
                   );
                   if (idle) return idle;
                 }
@@ -1232,7 +1298,7 @@ export function createHerdrRunHostFactory(
                 }
                 // Only once: a later prompt reaches an agent that has already read these, and
                 // sending them again reads as a new assignment rather than a reminder.
-                const prompt =
+                let prompt =
                   !instructed && request.instructions
                     ? `${request.instructions}\n\n${operation.prompt}`
                     : operation.prompt;
@@ -1242,12 +1308,60 @@ export function createHerdrRunHostFactory(
                   return localOutcome("timed-out", "operation deadline exceeded");
                 }
                 const waitMs = Math.max(1, remainingMs);
+                const marker = `[awf-delivery:${randomUUID()}]`;
+                let receipt: Awaited<ReturnType<typeof prepareClaudeReceipt>> | undefined;
+                try {
+                  receipt =
+                    confirmsDelivery && operation.onReceived
+                      ? await prepareClaudeReceipt(request.cwd, marker, request.home, {
+                          sessionRef: operation.previousSessionRef ?? continued,
+                          signal: operation.deliverySignal
+                            ? AbortSignal.any([operation.deliverySignal, controller.signal])
+                            : controller.signal,
+                        })
+                      : undefined;
+                } catch (error) {
+                  if (operation.deliverySignal?.aborted || controller.signal.aborted)
+                    return localOutcome("cancelled", "check-in cancelled before dispatch");
+                  const reason = error instanceof Error ? error.message : String(error);
+                  operation.onDeliveryFailed?.(reason);
+                  return localOutcome("failed", reason);
+                }
+                if (operation.deliverySignal?.aborted || controller.signal.aborted) {
+                  return localOutcome("cancelled", "check-in cancelled before dispatch");
+                }
+                if (Date.now() >= operation.deadline.unixMilliseconds) {
+                  return localOutcome("timed-out", "operation expired before dispatch");
+                }
+                if (receipt) {
+                  prompt = `${marker} ${prompt}`;
+                  const observing = new AbortController();
+                  receiptObservers.add(observing);
+                  const signal = AbortSignal.any([
+                    observing.signal,
+                    controller.signal,
+                    ...(operation.receiptSignal ? [operation.receiptSignal] : []),
+                  ]);
+                  void receipt
+                    .watch(
+                      signal,
+                      () => operation.onAccepted?.(),
+                      () => operation.onReceived?.(),
+                      undefined,
+                      operation.receiptDeadline ?? (() => operation.deadline.unixMilliseconds),
+                    )
+                    .catch((error: unknown) =>
+                      operation.onDeliveryFailed?.(
+                        error instanceof Error ? error.message : String(error),
+                      ),
+                    )
+                    .finally(() => receiptObservers.delete(observing));
+                }
+                operation.onDispatched?.();
                 const sent = await submitPrompt(
                   herdr,
                   placement.agentName,
-                  placement.paneId,
                   prompt,
-                  spec.pastesQuoted === true,
                   waitMs,
                   controller.signal,
                 );
@@ -1302,6 +1416,7 @@ export function createHerdrRunHostFactory(
               }
             },
             async cancel() {
+              for (const observer of receiptObservers) observer.abort();
               if (!activeController && !current) return false;
               activeController?.abort();
               await activeCompletion;
@@ -1310,6 +1425,7 @@ export function createHerdrRunHostFactory(
             },
             async close() {
               if (closed) return;
+              for (const observer of receiptObservers) observer.abort();
               activeController?.abort();
               await activeCompletion;
               await closeCurrentPane();

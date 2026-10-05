@@ -3,7 +3,7 @@ id: "021"
 title: Turn liveness and limits
 summary: Let an agent report waiting through wf, check in again when its wait expires, and bound the whole conversation with one fixed deadline.
 type: story
-status: draft
+status: in-progress
 priority: P0
 epic: long-runs
 discovered_in: "implement-ticket flow.ts live run, AIRS-1515, 2026-10-02"
@@ -34,8 +34,8 @@ wf result {id} '{"status":"deployed"}'
 `waiting` asks for time until the next check-in. `result` submits the answer. Waiting never
 counts as a result, and never extends the operation's deadline.
 
-awf acknowledges a waiting request with the granted interval, the next check-in time and the
-hard deadline. A check-in is a follow-up prompt asking for a result or another waiting request. If no answer
+awf acknowledges a waiting request with the granted check-in time and the hard deadline.
+A check-in is a follow-up prompt asking for a result or another waiting request. If no answer
 arrives, awf checks in again. A responsive agent can repeat this
 until the deadline. An agent that stops responding gets a shorter response window, then awf
 stops its work within the authority it has.
@@ -153,18 +153,26 @@ boundary or a measured provider queue. Recheck operation state before dispatch. 
 one delivery pending, and cancel an undispatched check-in if a fresh wait or result arrives.
 
 If the agent is already working when the wait expires, defer the check-in until delivery is
-supported. The hard deadline still applies. Start the shorter response window only when prompt
-delivery to the model is confirmed, not when a timer fires or a CLI reports success. A delivery
-attempt itself has a bound starting at actual dispatch; time spent waiting for a supported
-native boundary is bounded by the hard deadline. An uncertain delivery fails rather than being
-blindly resent. A waiting request or result received during confirmation satisfies that check-in
-directly, without waiting for another delivery signal.
+supported. After dispatch, allow 30 seconds to confirm that the provider accepted the input.
+A native queue entry ends that transport grace; queued input may then wait for model receipt
+under the fixed operation deadline. Start the two-minute response window only after linked
+model output confirms receipt, never from a timer, queue acceptance or CLI success. Input with
+unknown acceptance fails when its grace expires and is not blindly resent. A waiting request
+or result received during confirmation satisfies the check-in directly.
+
+Accepted input may wait under the hard deadline while the native turn is still running. If that
+check-in's native turn completes without confirmed receipt, allow a separate two-minute receipt
+confirmation grace, capped by the hard deadline. Failure to confirm receipt ends the operation
+as failed delivery. This grace does not imply model consumption, start a response window, or
+permit a second check-in. An explicit receipt-observer error also fails delivery promptly.
 
 An admitted waiting request or result satisfies the check-in. It cancels the response and
-delivery-confirmation timers and invalidates that cycle. Late confirmation cannot start another
-timer or fail an already satisfied check-in. Use internal generations for timer and delivery
-callbacks; these are not tokens the agent must supply. Ordinary prose, tool output and screen
-redraws do not satisfy a check-in. Ending the response turn without either command does not immediately
+delivery-confirmation timers and invalidates that cycle. Stale timers and late successful
+confirmations cannot restart or expire an already satisfied check-in. An actual receipt-observer
+failure still ends the operation: the delivery channel can no longer establish trustworthy
+receipt. An admitted answer instead remains subject to its bounded, honest release proof.
+Use internal generations for timer and delivery callbacks; these are not tokens the agent must
+supply. Ordinary prose, tool output and screen redraws do not satisfy a check-in. Ending the response turn without either command does not immediately
 close the slot: allow the rest of the response window for a late protocol reply. Do not send a
 second unanswered check-in. A responsive waiting request is what permits another cycle.
 
@@ -180,14 +188,15 @@ the bound for the **whole operation**, including all check-ins and waiting grant
 once before joining the agent queue, preserving the existing `run()` behavior: queue time
 consumes this budget. Waiting, activity and nudges never move it.
 
-Initial internal defaults to validate in task 1:
+Initial internal policy, with its evidence and limits in [[021-implementation-proof]]:
 
 | Interval | Default | Meaning |
 | --- | --- | --- |
 | Quiet interval / minimum check-in spacing | 30 seconds | Grace after native completion and a floor on requested waits to avoid rapid paid loops |
 | Waiting grant without `--timeout` | 2 minutes | Time until the next check-in is due |
 | Response window | 2 minutes | Time after confirmed check-in delivery to submit either command |
-| Delivery and release | Existing bounded adapter/engine graces | Reuse where suitable, measure before changing |
+| Receipt confirmation after native completion | 2 minutes | Bound an accepted, completed check-in whose model receipt remains unconfirmed; expiry fails delivery |
+| Unknown delivery acceptance / native release | 30 seconds each | Dispatch-to-acceptance grace; separate bounded natural release |
 
 These are internal policy values, injectable into deterministic tests, not new author knobs.
 Each interval is capped by the remaining operation time. Release after an on-time answer has
@@ -222,9 +231,12 @@ including quiet, waiting and response timers; do not wait for the write to finis
 its own finite bound. A stop during saving or release can still prevent
 workflow success. Late completion cannot change an already published terminal outcome.
 
-A saved answer is acknowledged immediately so the agent can finish its command and wrap up.
-The engine then allows bounded wrap-up and
-awaits release of the native turn before returning `answered`. `finishing` is an internal state,
+Admission starts bounded release handling immediately, so persistence crossing the answer
+deadline cannot retrospectively invalidate an on-time submission. A saved answer is acknowledged
+so the agent can finish its command and wrap up. Before returning `answered`, the engine awaits
+native release. If a check-in was already dispatched, its input must be received before fresh
+native completion can prove release; an earlier idle observation cannot discharge queued input.
+`finishing` is an internal state,
 not permission for the workflow to advance. If release cannot be confirmed in its grace, keep
 the saved answer as evidence, fail with `cleanup-unresolved`, stop starting new operations in this run and perform
 bounded teardown. Do not retry that operation automatically.
@@ -235,8 +247,10 @@ isolated containment, this is not proof that a dev server, detached child or rem
 has stopped. The prompt asks the agent to finish answer-related work before `wf result`; that
 is a cooperative obligation, not a machine-verified fact.
 
-- For a run-owned agent, use the existing harness and sandbox owner to stop what they own when
-  termination is needed. Prefer an owned process group or occupant boundary over task discovery.
+- For a run-owned agent, every non-success ends the owned native work, even if its foreground
+  turn already completed. Do not continue that pane or rely on a background watch surviving
+  `unanswered`, timeout or cancellation. Only a successful answer preserves natural continuity.
+  Prefer an owned process group or occupant boundary over task discovery.
 - Do not close a shared sandbox just to stop one operation. Occupants are per agent, and releasing
   one may also end that agent's ability to continue. Do not destroy session continuity on every
   successful answer. Task 1 records the actual guarantee for each placement.
@@ -273,9 +287,10 @@ the agent is healthy merely because it replied.
 
 Keep one terminal `turns.jsonl` record per operation, including its nudges. Record waiting grants
 and check-in delivery/replies separately from answer candidates and final turn outcomes. Include operation ID, check-in sequence, timestamps, effective bounds,
-stop cause and release disposition. Bound request sizes and event growth. Use the existing record
-versioning conventions; task 1 chooses the exact event format and reader compatibility before
-publishing it. Usage covers all native turns under the operation, with no double counting.
+stop cause and release disposition. The separate optional file
+`calls/{operationId}/liveness.jsonl` uses record version 1; existing turn and output versions stay
+unchanged. Cap diagnostic records, queued bytes and flush time. Dropped records and truncated
+reads are explicit informational gaps, never inputs to the control protocol. Usage covers all native turns under the operation, with no double counting.
 
 `TurnOutcome` remains terminal. No `waiting` result variant is added to workflow schemas or
 outcomes. OTel may export these events but is never required for operation progress.
@@ -287,21 +302,20 @@ outcomes. OTel may export these events but is never required for operation progr
 | `packages/contract/src/wire.ts` | Separate waiting request/acknowledgement and runtime decoding, with explicit version-3 compatibility |
 | `packages/wf/src/cli.ts`, `client.ts` | Parse waiting arguments, submit over the installed launcher, print the granted wait and report uncertain delivery |
 | `packages/engine/src/control-plane.ts`, `result-slots.ts` | Route using connection authority and serialize waiting, answer admission and closure |
-| `packages/engine/src/workflow-runner.ts` | Own the loop and fixed deadline, hold one slot across check-ins, await native release |
+| `packages/engine/src/workflow-runner.ts`, `operation-liveness.ts` | Own the loop and fixed deadline, hold one slot across check-ins, await native release |
+| `packages/engine/src/operation-events.ts` | Bound optional diagnostic writes; test/eval helpers read incomplete streams honestly |
 | `operationPrompt` in `packages/engine/src/workflow-runner.ts` | Include both commands in initial and recovery prompts |
 | `packages/harness/src/session-core.ts`, `adapter.ts`, adapters | Permit sequential successor check-ins, preserve binding and lifecycle, measure delivery and release |
 | `packages/contract/src/records.ts`, engine progress and workflow-testing | Record and script waiting/check-in events without changing final answer schemas |
 
-The current `HarnessTurn` exposes settlement, not a confirmed model-receipt signal. Its
-engine-side `deliveredAt` is an acquisition timestamp; `session.status()` is cached state and
-cannot establish that autonomous activity has stopped. Task 1 must establish the smallest
-normalized delivery confirmation and supported dispatch path. Do not build the response clock
-on either of those existing values.
+`HarnessTurn.delivery` now separates dispatched input, native acceptance and linked model
+receipt. Host Claude panes, SRT Claude panes and the fake currently advertise cooperative waiting.
+The Claude reader baselines transcripts before dispatch and keeps provider-specific ancestry
+inside the harness. Cached session status and acquisition timestamps are not receipt evidence.
 
-The current `HarnessTurn.nudge` allows only one nudge and refuses nudging a nudge. The smallest
-candidate change permits one successor per held native turn, including a successor of a nudge.
-The engine holds the newest handle and numbers attempts. Keep the per-handle duplicate guard.
-Do not repurpose `deliver()`, which currently throws, into an unmeasured messaging subsystem.
+Each native handle permits one successor, including a successor of a check-in. The engine holds
+the newest handle and numbers check-ins. The per-handle duplicate guard remains; `deliver()` is
+not repurposed into a generic messaging API.
 
 `AgentRef.enqueue` currently returns an unavailable error. It and manual `TurnRef.nudge` remain
 out of scope. Their declared future contracts must not be mistaken for implemented callers of
@@ -311,7 +325,7 @@ and consumer (ADR 0001).
 Use wire version 3 with explicitly discriminated result and waiting requests and their separate
 acknowledgements. Keep the `wf result` CLI signature unchanged. The engine installs its matching
 client and launcher; old clients receive an unsupported-version error rather than having their
-request guessed. Update both ends and the sandbox bundle together. Exact schemas land with task 2.
+request guessed. Both ends are implemented together; the installed SRT launcher and control forwarding have passed a complete workflow run.
 
 For future remote execution, waiting uses the same route as results. The engine need not inspect
 a remote process tree or read provider task files. Today the foundation keeps the engine beside
@@ -327,31 +341,41 @@ carry both commands and return the same acknowledgement semantics.
 - [[021-result-ordering-probe|Result ordering probe]] proved that a write admitted inside the slot
   transition can finish after a queued close. The design retains explicit admission ordering.
 
-These measurements support the problem and the race rules. They do not yet prove the new waiting
-command, repeated pane check-ins, sandbox forwarding or release behavior. Previous registry-based
-support requirements and reviews are superseded by this cooperative design.
+- [[021-implementation-proof|Implementation proof]] records five host-pane probes, exact UTC
+  timings, reported cost, the support boundary and focused test results. The intended 40-second
+  wait was blocked by Claude and is explicitly inconclusive for a long queue.
+
+Host and SRT complete `awf run` acceptance cases measured two check-ins, an answer and a
+same-session follow-up. Silence, hard timeout, cancellation and lost-result-route checks passed.
+Final minimum-review, host/SRT acceptance and Claude caller checks passed after the complete
+prompt-submission correction. Cursor-dependent
+full matrices remain blocked by authentication; earlier registry-based requirements are superseded.
 
 ## Tasks
 
 ### Tasks at a glance
 
-- [ ] 1. Prove delivery and settle the compatibility plan.
-- [ ] 2. Implement waiting from CLI to engine acknowledgement.
-- [ ] 3. Implement the bounded check-in loop.
-- [ ] 4. Finish release, records and progress.
-- [ ] 5. Prove the full workflow and publish placement support.
+- [x] 1. Prove delivery and settle the compatibility plan.
+- [x] 2. Implement waiting from CLI to engine acknowledgement.
+- [x] 3. Implement the bounded check-in loop.
+- [x] 4. Finish release, records and progress.
+- [x] 5. Prove the full workflow and publish placement support.
 
-### Open questions for task 1
+### Open questions
 
-- **Delivery:** can the existing pane path serialize a check-in with a native wake-up and expose
-  confirmed delivery without overlapping prompts? Which other placements pass the same test?
-- **Release:** what proves native release in each placement, and what remains outside its scope?
-- **Records:** where do bounded waiting/check-in events live, and how do existing readers handle
-  them? Wire version 3 is decided; the event format is not yet published.
-- **Intervals:** are the proposed 30-second floor and two-minute defaults suitable, and which
-  existing delivery/release graces apply?
+None. The implementation and compatibility choices are settled.
 
-These are implementation-entry proofs, not reasons to build a task registry.
+### Final handoff
+
+Tasks 1–5 passed focused verification and independent review. The final offline suite passed
+**1,387 tests**, with **2 skipped**, **0 failures** and **4,807 assertions**. Repository checks,
+including typecheck and package boundaries, passed. Live checks cover host/SRT repeated waiting,
+release before follow-up, silence, timeout, cancellation, lost result route, minimum-review and
+supported caller hand-back. [[021-implementation-proof]] records the commands, costs and artifacts.
+
+The global Cursor-dependent live matrices remain blocked by authentication. Those cases are
+not claimed as passes, and human approval remains outstanding. A live queue exceeding
+30 seconds remains unmeasured; deterministic tests cover that timing rule.
 
 ### 1. Prove the delivery seam and write the compatibility plan
 
@@ -447,10 +471,18 @@ fixture. Mermaid syntax in this document must also parse in the supported render
 - [[stopped-run-recovery]] may later reuse an open operation; it cannot reopen a closed slot.
 - [[live-spend-limits]] remains separate. [[018-workflow-stages]] is not a prerequisite.
 
-**Ready to start task 1.** The user has chosen the cooperative protocol and command signature.
-The background-registry architecture and its measurement gate are removed. Publishing the new
-wire/record contracts and enabling the loop still depend on task 1's delivery and compatibility
-proof. No production implementation has been made by this document revision.
+**Implementation and story verification are complete.** Tasks 1–5 passed their review gates.
+The story remains `in-progress` for human review and the explicitly incomplete global
+Cursor-dependent matrix. Exact results and limitations are in
+[[021-implementation-proof#Broader verification checkpoint]].
+
+Cooperative waiting is enabled for run-owned Claude panes on the host and in SRT, measured on
+Claude Code 2.1.289. There is no exact patch-version gate. Receipt observation fails explicitly
+when the transcript cannot establish delivery; an unknown format does not establish receipt.
+The fake follows the same placement rules.
+Caller and other providers retain their explicit restrictions.
+See [[021-implementation-proof#Current support boundary|the support table]] for the distinction
+between measured transport behavior and complete workflow support.
 
 ## Review record
 
@@ -467,10 +499,11 @@ The cooperative revision received read-only architecture, correctness and readab
 - Preserve caller interrupt restrictions and state the narrower native-release guarantee.
 - Keep task 1's open proofs visible, with a task checklist and an explicit readiness boundary.
 
-Final architecture and correctness review found no blocker to starting task 1. The Mermaid
-diagram parses with the installed Mermaid 11.16.1 parser, all wiki links resolve, story ID 021
-is unique, and the old todo path is absent. This revision changes documentation only; production
-tests and the new live workflow proof remain implementation tasks.
+Implementation reviews additionally caught cancellation/admission ordering, late-acquisition
+cleanup, receipt-before-release and exact admission-timestamp races. Accepted fixes and their
+focused evidence are recorded in [[021-implementation-proof#Review findings and dispositions]].
+The implementation proof separates completed story checks from Cursor-dependent full matrices
+blocked by authentication. Human approval has not been given; the story is not marked done.
 
 ## Human review
 

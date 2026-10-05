@@ -73,8 +73,8 @@ live runs.
   parallel, a resolution at 1 trial. The report's "3 hours and $24 for one try".
 - [[020-agent-effort]] — now story 020, ready: an agent opens at an effort, and `set` switches
   its model or effort mid-run, recorded. Its contract is settled.
-- [[021-turn-liveness-and-limits]] — now story 021, draft: cooperative waiting, repeated
-  check-ins and a fixed deadline; delivery proof is ready to start.
+- [[021-turn-liveness-and-limits]] — now story 021, in progress: cooperative waiting and
+  repeated check-ins within one deadline. Financial ceilings remain in [[live-spend-limits]].
 
 ### P1
 

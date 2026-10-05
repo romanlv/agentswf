@@ -23,6 +23,7 @@ must never import `@agentswf/engine` — the dependency runs the other way.
 | `single-session-host.ts` | one adapter behind the run-host seam: per-agent sessions and snapshots |
 | `placement-host.ts` | one run host over a pane host and a headless one, routing each agent and its accounting by placement |
 | `adapters/herdr.ts` | the Herdr run host (one workspace, a tab per agent), the isolated-pane adapter (exercised by tests only), and the command runner every Herdr path uses |
+| `adapters/claude-receipt.ts` | bounded native queue and model-receipt observation for measured Claude pane placements; provider details remain inside harness |
 | `adapters/herdr-protocol.ts` | reading Herdr answers, building its argv, and the outcomes every pane path shares |
 | `adapters/herdr-startup.ts` | answering the blocks an agent raises before it will accept a prompt |
 | `adapters/direct-process.ts` | the headless run host: one subprocess per headless operation |
@@ -40,12 +41,19 @@ Before editing:
   for the reason [`docs/design/README.md`](../../docs/design/README.md#what-an-agent-inside-a-session-sees)
   gives. A nudge is another delivery into the same operation — the same pane on Herdr, a resumed
   process headless — and a later operation never reuses the previous environment.
-- **A headless turn may outlive its operation.** Released as answered, it is left `finishing` to
-  write its closing message, so the session a follow-up resumes is whole. Session-core stops it
-  after `finishGraceMs` (30 s), a follow-up waits for it for at most half its own time, and close
-  ends it. The runner lets it end on its own for up to 10 s before closing the host, since a
-  request cut off by a kill is never logged. Its outcome arrives on the turn's `settled`, and only the newest turn sets the agent's
-  status.
+- **A saved answer is not native release.** Engine callers use answered release with
+  `awaitCompletion` and wait within its grace before returning workflow success. A queued
+  check-in must be received before fresh native completion can release it. Keep observer
+  cancellation distinct from native cancellation. Caller sessions never receive a stop-finishing
+  interrupt after an answer; uncertain release is quarantined and handed back.
+- **Receipt has three facts:** dispatched, accepted by the native queue, and received by the
+  model. The engine owns their timing policy; adapters expose only measured evidence. A quiet
+  screen and an exited prompt command are not receipt. Transcript baselines, bytes, rows and
+  cumulative tracked files are bounded. Do not add task registries or widen supported placements
+  from another placement's measurement.
+- **Low-level finishing is still bounded.** Standalone callers may use the older `finishing`
+  disposition; the engine's success path must request confirmed completion. Only the newest
+  native turn updates session status, and every observer ends on release or cancellation.
 - **A session adapter is not a provider.** Herdr, a future tmux integration, and direct subprocess
   execution are replaceable session adapters selected by operator configuration. Each serves one
   placement and refuses an agent asking for the other, so a direct caller of the headless adapter

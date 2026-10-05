@@ -408,3 +408,36 @@ export type OutputRecord = {
       needs?: StageNeed[];
     }
 );
+
+export const OPERATION_LIVENESS_RECORD_VERSION = 1 as const;
+
+export const OPERATION_LIVENESS_KINDS = [
+  "opened",
+  "waiting",
+  "admitted",
+  "persisted",
+  "dispatched",
+  "queue-accepted",
+  "received",
+  "check-in-due",
+  "releasing",
+  "release",
+  "terminal",
+] as const;
+export type OperationLivenessKind = (typeof OPERATION_LIVENESS_KINDS)[number];
+
+/** Optional diagnostics in calls/{operationId}/liveness.jsonl; never settlement authority. */
+export type OperationLivenessRecord = {
+  version: typeof OPERATION_LIVENESS_RECORD_VERSION;
+  operationId: string;
+  kind: OperationLivenessKind;
+  /** Unix milliseconds, sampled by the engine. */
+  at: number;
+  /** Check-in ordinal: zero is the initial prompt; several events share an ordinal. */
+  sequence: number;
+  reason?: string;
+  until?: number;
+  /** Events omitted since the previous successfully written record. */
+  dropped?: number;
+  truncated?: true;
+};
