@@ -133,6 +133,11 @@ describe("only what the harness printed of this turn counts", () => {
     );
   });
 
+  test("codex whose token looked valid exits at the turn's first request", () => {
+    const screen = thisTurn(fixture("codex-refused-running.screen"), "op-mid-1");
+    expect(check("codex").screen(screen)?.said).toContain("unauthorized (401)");
+  });
+
   test("claude's reason may come before its /login", () => {
     expect(check("claude").screen("❯ go\n⏺ Invalid API key · Please run /login\n")?.said).toBe(
       "Invalid API key · Please run /login",

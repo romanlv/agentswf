@@ -74,10 +74,14 @@ export const claudeLogin: LoginCheck = {
 // A refresh that failed for any other reason, as on the network, may yet succeed on a retry.
 const CODEX_REFRESH = /Failed to refresh token status=401|refresh_token_invalidated/;
 
+// Its TUI's sign-in screen; or, where its token looked valid at launch, the error it exits with at
+// the first request.
+const CODEX_SCREEN = /^(Finish signing in via your browser|Error: account\/read failed.*\b401\b)/;
+
 /**
  * codex-cli 0.160.1: a refused refresh is logged on stderr by its auth manager; no login, or a
- * refused token, fails the turn with a 401 after its retries. Its TUI does not start a session
- * without one: it shows its sign-in screen.
+ * refused token, fails the turn with a 401 after its retries. Its TUI shows its sign-in screen
+ * without one, and exits on a token refused once its prompt took a turn.
  */
 export const codexLogin: LoginCheck = {
   headless(stdout, stderr) {
@@ -93,7 +97,7 @@ export const codexLogin: LoginCheck = {
     return message && /\b401\b/.test(message) ? { said: said(message) } : undefined;
   },
   screen(screen) {
-    const line = drawn(screen, /^Finish signing in via your browser/);
+    const line = drawn(screen, CODEX_SCREEN);
     return line ? { said: said(line) } : undefined;
   },
   run: "run `codex login`",

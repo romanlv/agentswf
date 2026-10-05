@@ -240,6 +240,32 @@ describe("createCallerHostFactory", () => {
     expect((await next.settled).state).toBe("completed");
   });
 
+  test("a stalled prompt whose harness cannot sign in fails at once, not at the deadline", async () => {
+    const { session } = await open({ paneId: "w1:p1", harness: "pi", cwd: "/repo" }, (input) => {
+      if (verb(input) === "agent wait") return ok({ agent: { agent_status: "idle" } });
+      if (verb(input) === "agent prompt") {
+        return {
+          stdout: "",
+          stderr: JSON.stringify({ error: { code: "agent_prompt_stalled" } }),
+          exitCode: 1,
+          timedOut: false,
+        };
+      }
+      if (verb(input) === "agent read") {
+        return ok({}, "Plan op-1.\nError: OAuth refresh failed for openai-codex: 401");
+      }
+      return undefined;
+    });
+    const turn = await session.start(
+      { id: "t1", prompt: "Plan op-1.", deadline: deadline() },
+      binding,
+    );
+    expect(await turn.settled).toMatchObject({
+      state: "failed",
+      login: { harness: "pi", provider: "openai-codex" },
+    });
+  });
+
   test("cancelling interrupts the run's own turn while it works, and leaves the pane", async () => {
     const { session, calls } = await open(
       { paneId: "w1:p1", harness: "claude", cwd: "/repo" },

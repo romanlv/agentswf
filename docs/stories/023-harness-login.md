@@ -88,6 +88,10 @@ operator's logins was copied. Fixtures in `packages/harness/src/harnesses/fixtur
   on stderr, matching the refused capture.
 - Fact: a native `failed` turn is never nudged (`operation-liveness.ts`, non-completed native
   states end the operation); pi's refused login exits 0, which is why it was nudged.
+- Fact: a codex pane whose token looks valid until its first request (a made-up one that has not
+  expired) starts, takes the prompt, prints it back as an unsent draft, and exits:
+  `Error: account/read failed during TUI bootstrap: account/read failed: workspace routing
+  discovery unauthorized (401)` (`codex-refused-running.screen`).
 - Fact: codex and cursor TUIs open a browser tab at their sign-in screen.
 - Constraint: a pattern must not match the agent's own words: an agent reviewing this code prints
   "Please run /login". Headless reads only the CLI's envelope and stderr; a pane matches a line's
@@ -152,8 +156,8 @@ Manual or live:
   Herdr's `agent start` waits its full 120 s for an agent that never comes, and only then is the
   screen read. A turn deadline under that ends `timed-out`.
 - Known limit: a pane line that a tool printed in this turn, starting with a harness's own login
-  error, reads as a login: claude's `⎿` is both its tool output's glyph and its error's, and pi
-  draws its error with no glyph at all. Only a turn with no accepted answer is affected: an
+  error, reads as a login: claude's `⎿` and `⏺` mark its tool output and its replies as well as
+  its errors, and pi draws its error with no glyph at all. Only a turn with no accepted answer is affected: an
   answered turn never reads the native outcome.
 - Known limit: a failed launch is read whole, so a relaunch that resumes a session whose history
   shows an earlier login error, and then fails for another reason, reads as a login.
@@ -203,6 +207,11 @@ Manual or live:
   The branch was rebased on main, which settled a `review-lab` test that timed out on the old
   base. Each fix above has a test: the deeper read, cancellation during the read, a dotted
   provider.
+- Round 4: the calling session waited out a stalled prompt without reading its screen for a login
+  — it now reads it first, as the run's panes do. A codex token refused at the first request of a
+  running TUI was not recognised — captured live, and its exit line matched. The `⏺` glyph —
+  added to the recorded limit. Left as a nit: a release landing between a settled turn's read and
+  its login check can come back `failed` with `login`, as it came back settled before.
 - Round 3: the pane adapter's failed launch still checked cancellation before its screen read, not
   after — now after, as everywhere else, with tests for a stop during the launch read and during
   the run host's stall read. codex counted any `unauthorized` in a failed turn — now only a 401,

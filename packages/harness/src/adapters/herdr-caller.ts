@@ -260,6 +260,30 @@ export function createCallerHostFactory(
               if (sent.cancelled || controller.signal.aborted) {
                 return localOutcome("cancelled", "pane operation cancelled");
               }
+              // A harness that cannot sign in ends the turn before Herdr sees it working.
+              const shown = await herdr(
+                [
+                  "agent",
+                  "read",
+                  pane,
+                  "--source",
+                  "recent-unwrapped",
+                  "--lines",
+                  String(TURN_LINES),
+                ],
+                Math.max(1, deadline - Date.now()),
+                controller.signal,
+              );
+              if (controller.signal.aborted) {
+                return localOutcome("cancelled", "pane operation cancelled");
+              }
+              const login =
+                shown.ok &&
+                failedOnLogin(caller.harness, spec.login, (check) =>
+                  check.screen(thisTurn(readable(shown.stdout), operation.binding?.operationId)),
+                );
+              if (login)
+                return { ...login, resultEvidence: { kind: "unavailable" }, chargesUsd: [] };
               if (hasHerdrErrorCode(sent.error, "agent_prompt_stalled")) {
                 // Submitted, so the turn may be running: wait for its answer, not for a resend.
                 if (
