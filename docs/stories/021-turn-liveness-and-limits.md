@@ -3,7 +3,7 @@ id: "021"
 title: Turn liveness and limits
 summary: Let an agent report waiting through wf, check in again when its wait expires, and bound the whole conversation with one fixed deadline.
 type: story
-status: in-progress
+status: done
 priority: P0
 epic: long-runs
 discovered_in: "implement-ticket flow.ts live run, AIRS-1515, 2026-10-02"
@@ -475,8 +475,8 @@ fixture. Mermaid syntax in this document must also parse in the supported render
 - [[live-spend-limits]] remains separate. [[018-workflow-stages]] is not a prerequisite.
 
 **Implementation and story verification are complete.** Tasks 1–5 passed their review gates.
-The story remains `in-progress` for human review and the explicitly incomplete global
-Cursor-dependent matrix. Exact results and limitations are in
+The operator approved the story on 2026-10-05. The global Cursor-dependent matrix is still
+blocked by authentication and is not claimed as a pass. Exact results and limitations are in
 [[021-implementation-proof#Broader verification checkpoint]].
 
 Cooperative waiting is enabled for run-owned Claude panes on the host and in SRT, measured on
@@ -506,10 +506,12 @@ Implementation reviews additionally caught cancellation/admission ordering, late
 cleanup, receipt-before-release and exact admission-timestamp races. Accepted fixes and their
 focused evidence are recorded in [[021-implementation-proof#Review findings and dispositions]].
 The implementation proof separates completed story checks from Cursor-dependent full matrices
-blocked by authentication. Human approval has not been given; the story is not marked done.
+blocked by authentication. After review, the first prompt was reduced to `wf result` only;
+check-ins introduce `wf waiting`. A live run with no waiting instructions in the prompt saw the
+agent report waiting on its first check-in and answer when its background job finished.
 
 ## Human review
 
-- [ ] All implementation tasks and story-level verification pass.
-- [ ] Present the outcome, review findings, verification evidence and remaining limitations.
-- [ ] Mark `done` only after explicit human approval; update the index and status then.
+- [x] All implementation tasks and story-level verification pass.
+- [x] Present the outcome, review findings, verification evidence and remaining limitations.
+- [x] The operator approved it and marked it done (2026-10-05); index and status updated.

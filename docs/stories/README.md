@@ -105,7 +105,7 @@ status is one of `todo`, `draft`, `ready`, `in-progress`, `blocked`, `awaiting-h
   its session; cursor takes none, and every operation records its settings.
 
 - [[021-turn-liveness-and-limits|021 — Keep a waiting agent alive within fixed limits]] —
-  `in-progress` — Repeated cooperative check-ins share one deadline and result slot; an accepted
+  `done` — Repeated cooperative check-ins share one deadline and result slot; an accepted
   answer returns only after native release.
 
 This is the high-level index of numbered stories. Keep each entry to its title, status, and
