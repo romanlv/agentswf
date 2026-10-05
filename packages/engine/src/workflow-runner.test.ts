@@ -1141,7 +1141,6 @@ describe("runWorkflow", () => {
       return result.outcome.kind === "answered" ? result.outcome.value : result.outcome.kind;
     });
 
-    const started = performance.now();
     const runRoot = tempRunDir();
     const result = await failedRun(
       runNew(workflow, null, {
@@ -1161,10 +1160,14 @@ describe("runWorkflow", () => {
         result.usage[0]!.operationId,
       ),
     ).toEqual({ value: "accepted-before-hang" });
-    expect(performance.now() - started).toBeLessThan(200);
+    // The run's deadline is a minute off and the test's timeout five seconds: only the release
+    // bound ends the hang in time, and leaves its operation unresolved.
+    expect(String((result.cause as AggregateError).errors)).toContain(
+      "cleanup-unresolved: hanging",
+    );
     expect(operationSignal?.aborted).toBe(true);
     expect(adapter.closed).toEqual(["hanging"]);
-  });
+  }, 5_000);
 
   test("accepted-result quarantine prevents the logical queue from continuing", async () => {
     const fake = createFakeAdapter({
