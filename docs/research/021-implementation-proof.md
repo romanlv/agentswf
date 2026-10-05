@@ -361,3 +361,43 @@ This is one host measurement; no additional provider coverage is inferred.
 Round 2 offline verification passed: **1,421 tests, 2 skipped, 0 failures, 4,894 assertions
 across 104 files** (`bun test`). `bun run check` passed formatting, TypeScript and package
 boundaries. The final capability-fixture correction also passed its 13 focused lifecycle tests.
+
+## Round 3 follow-up review
+
+Receipt candidates are speculative until they show this operation's marker. The known session
+file and marker-bearing files remain authoritative: their loss, replacement or truncation fails receipt.
+Unrelated candidate churn is discarded, and candidate eviction leaves room for discovery with
+bounded buffering. Discovery must revisit overflowed notifications so a completed
+receipt can still be found without another filesystem event.
+
+The eager baseline for an unknown session is retained. Capturing file positions before dispatch
+lets the observer handle a transcript created during pane startup without reading its entire
+history or skipping a prompt that arrives before a later stat. The metadata limits remain
+100,000 filenames and 16 MiB of name bytes, with cancellation checks during discovery. The
+known-session path lists historical names but opens/stats only its own file.
+
+A free local benchmark on 2026-10-05 measured 20,000 empty transcript files in a temporary
+project directory. Metadata was warm after fixture creation; these are baseline setup times,
+not end-to-end receipt latency or a worst-case guarantee:
+
+| Session reference | Baseline time |
+| --- | --- |
+| Unknown | 1,210.0 ms |
+| Known | 13.2 ms |
+
+At the 100,000-file cap, linear scaling would suggest about six seconds for the unknown baseline,
+but that is an extrapolation, not a measured upper bound. The separate watcher scan also does
+I/O; the operation deadline continues to bound the whole exchange. Benchmark log:
+`/private/tmp/awf-021-round3-receipt-cost.log`.
+
+The launch-horizon regression now drives two operations through the actual Herdr adapter,
+creating 260 sibling transcripts between them. In an isolated archive of `da0068d`, the second
+operation fails with `Claude receipt file history exceeds its bound`; the current implementation
+confirms receipt and releases both operations. Evidence:
+`/private/tmp/awf-021-round3-s3-red.log` and `/private/tmp/awf-021-round3-s3-green.log`.
+
+Round 3 verification passed: **1,429 tests, 2 skipped, 0 failures, 4,908 assertions across
+104 files** (`bun test`). `bun run check` passed formatting, TypeScript and package boundaries.
+The receipt suite passed 21 focused tests, including unrelated corruption, saturation, heavy
+sibling traffic, split-marker recovery and protected-file damage. No additional paid live
+evaluations were run for this round.

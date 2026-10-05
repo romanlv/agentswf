@@ -88,7 +88,8 @@ test("ancestry is bounded and cycles cannot prove receipt", () => {
   reader.push({ uuid: "a", parentUuid: "b" });
   reader.push({ uuid: "b", parentUuid: "a" });
   expect(reader.push(assistant("a")).received).toBe(false);
-  for (let i = 0; i < 4093; i++) reader.push({ uuid: `row-${i}` });
+  reader.push(user());
+  for (let i = 0; i < 4095; i++) reader.push({ uuid: `row-${i}` });
   expect(() => reader.push({ uuid: "overflow" })).toThrow("ancestry exceeds");
 });
 
@@ -170,29 +171,36 @@ test("replaced or truncated baseline fails closed", async () => {
   }
 });
 
-test("new empty transcripts cannot grow receipt history without bound", async () => {
+test("empty transcript churn stays bounded without failing our receipt", async () => {
   const home = await mkdtemp(join(tmpdir(), "awf-receipt-"));
   const directory = join(home, "projects", "-probe");
   await mkdir(directory, { recursive: true });
+  const controller = new AbortController();
   try {
     const receipt = await prepareClaudeReceipt("/probe", marker, home);
     let generation = 0;
-    let previous = join(directory, "0.jsonl");
-    await writeFile(previous, "");
-    await expect(
-      receipt.watch(
-        new AbortController().signal,
-        () => {},
-        () => {},
-        async () => {
-          previous = join(directory, `${++generation}.jsonl`);
-          await writeFile(previous, "");
-          return true;
-        },
-      ),
-    ).rejects.toThrow("exceeds its bound");
-    expect(generation).toBeGreaterThanOrEqual(256);
+    let received = false;
+    await receipt.watch(
+      controller.signal,
+      () => {},
+      () => {
+        received = true;
+      },
+      async () => {
+        if (++generation > 340) return false;
+        if (generation <= 300) await writeFile(join(directory, `${generation}.jsonl`), "");
+        if (generation === 301)
+          await writeFile(
+            join(directory, "ours.jsonl"),
+            `${JSON.stringify(user())}\n${JSON.stringify(assistant("input"))}\n`,
+          );
+        await Bun.sleep(1);
+        return true;
+      },
+    );
+    expect(received).toBe(true);
   } finally {
+    controller.abort();
     await rm(home, { recursive: true, force: true });
   }
 });
@@ -268,7 +276,7 @@ test("historical cwd sessions do not exhaust the live receipt file budget", asyn
   }
 });
 
-test("known session ignores siblings accumulated since pane launch", async () => {
+test("known session receipt ignores preexisting siblings", async () => {
   const home = await mkdtemp(join(tmpdir(), "awf-receipt-"));
   const directory = join(home, "projects", "-probe");
   await mkdir(directory, { recursive: true });
@@ -324,3 +332,173 @@ test.each([true, false])(
     }
   },
 );
+
+test.each(["truncate", "replace", "delete"])(
+  "unrelated candidate %s cannot fail our receipt",
+  async (change) => {
+    const home = await mkdtemp(join(tmpdir(), "awf-receipt-"));
+    const directory = join(home, "projects", "-probe");
+    await mkdir(directory, { recursive: true });
+    const sibling = join(directory, "sibling.jsonl");
+    await writeFile(sibling, "");
+    const controller = new AbortController();
+    try {
+      const receipt = await prepareClaudeReceipt("/probe", marker, home);
+      await appendFile(sibling, `${JSON.stringify({ uuid: "unrelated" })}\n`);
+      let passes = 0;
+      let received = false;
+      await receipt.watch(
+        controller.signal,
+        () => {},
+        () => {
+          received = true;
+        },
+        async () => {
+          if (++passes > 50) return false;
+          if (passes !== 1) {
+            await Bun.sleep(20);
+            return true;
+          }
+          if (change === "delete" || change === "replace") await rm(sibling);
+          if (change !== "delete") await writeFile(sibling, "");
+          await writeFile(
+            join(directory, "ours.jsonl"),
+            `${JSON.stringify(user())}\n${JSON.stringify(assistant("input"))}\n`,
+          );
+          return true;
+        },
+      );
+      expect(received).toBe(true);
+    } finally {
+      controller.abort();
+      await rm(home, { recursive: true, force: true });
+    }
+  },
+);
+
+test("more than256 unrelated candidates leave room for our receipt", async () => {
+  const home = await mkdtemp(join(tmpdir(), "awf-receipt-"));
+  const directory = join(home, "projects", "-probe");
+  await mkdir(directory, { recursive: true });
+  const controller = new AbortController();
+  try {
+    const receipt = await prepareClaudeReceipt("/probe", marker, home);
+    for (let i = 0; i < 300; i++)
+      await writeFile(
+        join(directory, `sibling-${i}.jsonl`),
+        `${JSON.stringify({ uuid: `sibling-${i}` })}\n`,
+      );
+    await writeFile(
+      join(directory, "ours.jsonl"),
+      `${JSON.stringify(user())}\n${JSON.stringify(assistant("input"))}\n`,
+    );
+    let passes = 0;
+    let received = false;
+    await receipt.watch(
+      controller.signal,
+      () => {},
+      () => {
+        received = true;
+      },
+      async () => ++passes < 12,
+    );
+    expect(received).toBe(true);
+  } finally {
+    controller.abort();
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
+test("unread candidates survive the per-pass byte budget without later file events", async () => {
+  const home = await mkdtemp(join(tmpdir(), "awf-receipt-"));
+  const directory = join(home, "projects", "-probe");
+  await mkdir(directory, { recursive: true });
+  const controller = new AbortController();
+  try {
+    const receipt = await prepareClaudeReceipt("/probe", marker, home);
+    const unrelated = `${JSON.stringify({ text: "x".repeat(300 * 1024) })}\n`;
+    for (let i = 0; i < 70; i++) await writeFile(join(directory, `sibling-${i}.jsonl`), unrelated);
+    await writeFile(
+      join(directory, "zz-ours.jsonl"),
+      `${JSON.stringify(user())}\n${JSON.stringify(assistant("input"))}\n`,
+    );
+    let received = false;
+    await receipt.watch(
+      controller.signal,
+      () => {},
+      () => {
+        received = true;
+      },
+      async () => false,
+    );
+    expect(received).toBe(true);
+  } finally {
+    controller.abort();
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
+test("an evicted split marker is reread from its baseline", async () => {
+  const home = await mkdtemp(join(tmpdir(), "awf-receipt-"));
+  const directory = join(home, "projects", "-probe");
+  await mkdir(directory, { recursive: true });
+  const controller = new AbortController();
+  const path = join(directory, "000-ours.jsonl");
+  try {
+    const receipt = await prepareClaudeReceipt("/probe", marker, home);
+    const input = JSON.stringify(user());
+    await writeFile(path, input.slice(0, 35));
+    for (let i = 0; i < 300; i++) await writeFile(join(directory, `sibling-${i}.jsonl`), "");
+    let passes = 0;
+    let received = false;
+    await receipt.watch(
+      controller.signal,
+      () => {},
+      () => {
+        received = true;
+      },
+      async () => {
+        if (++passes > 50) return false;
+        if (passes === 1)
+          await appendFile(path, `${input.slice(35)}\n${JSON.stringify(assistant("input"))}\n`);
+        await Bun.sleep(20);
+        return true;
+      },
+    );
+    expect(received).toBe(true);
+  } finally {
+    controller.abort();
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
+test("a marker-bearing unknown transcript stays protected during sibling churn", async () => {
+  const home = await mkdtemp(join(tmpdir(), "awf-receipt-"));
+  const directory = join(home, "projects", "-probe");
+  await mkdir(directory, { recursive: true });
+  const controller = new AbortController();
+  const path = join(directory, "ours.jsonl");
+  try {
+    const receipt = await prepareClaudeReceipt("/probe", marker, home);
+    await writeFile(path, `${JSON.stringify(user())}\n`);
+    let accepted = false;
+    await expect(
+      receipt.watch(
+        controller.signal,
+        () => {
+          accepted = true;
+        },
+        () => {},
+        async () => {
+          expect(accepted).toBe(true);
+          for (let i = 0; i < 300; i++) await writeFile(join(directory, `sibling-${i}.jsonl`), "");
+          await writeFile(path, "");
+          return true;
+        },
+      ),
+    ).rejects.toThrow("truncated");
+  } finally {
+    controller.abort();
+    await rm(home, { recursive: true, force: true });
+  }
+});

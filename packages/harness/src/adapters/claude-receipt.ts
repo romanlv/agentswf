@@ -12,6 +12,7 @@ const MAX_ROWS = 4096;
 const MAX_BYTES = 8 * 1024 * 1024;
 const CHUNK_BYTES = 256 * 1024;
 const POLL_MS = 100;
+const SCAN_BATCH = 64;
 
 /** Only native prompt insertion and linked model output count; queued is not yet received. */
 export function createClaudeReceiptReducer(marker: string) {
@@ -46,6 +47,7 @@ export function createClaudeReceiptReducer(marker: string) {
       ) {
         accepted = true;
       }
+      if (!accepted) return { accepted, received };
       const uuid = text(row.uuid);
       if (uuid) {
         if (parents.has(uuid)) return { accepted, received };
@@ -79,6 +81,8 @@ export function createClaudeReceiptReducer(marker: string) {
 type Cursor = {
   inode: number;
   offset: number;
+  bytes: number;
+  protected: boolean;
   partial: Buffer;
   reducer: ReturnType<typeof createClaudeReceiptReducer>;
 };
@@ -107,10 +111,17 @@ export async function prepareClaudeReceipt(
     }
   };
   const cursorFor = (name: string, inode: number, offset: number) => {
-    if (cursors.size >= MAX_FILES) throw new Error("Claude receipt file history exceeds its bound");
+    if (cursors.size >= MAX_FILES) {
+      const discard = [...cursors].find(([, cursor]) => !cursor.protected)?.[0];
+      if (discard === undefined)
+        throw new Error("Claude protected receipt files exceed their bound");
+      cursors.delete(discard);
+    }
     const cursor = {
       inode,
       offset,
+      bytes: 0,
+      protected: name === known,
       partial: Buffer.alloc(0),
       reducer: createClaudeReceiptReducer(marker),
     };
@@ -127,7 +138,7 @@ export async function prepareClaudeReceipt(
     if (known && name !== known) continue;
     const file = await open(join(directory, name), constants.O_RDONLY | constants.O_NOFOLLOW).catch(
       (error: unknown) => {
-        if (record(error)?.code === "ENOENT") return undefined;
+        if (name !== known || record(error)?.code === "ENOENT") return undefined;
         throw error;
       },
     );
@@ -136,6 +147,8 @@ export async function prepareClaudeReceipt(
       const stat = await file.stat();
       baseline.set(name, { inode: stat.ino, offset: stat.size });
       if (name === known) cursorFor(name, stat.ino, stat.size);
+    } catch (error) {
+      if (name === known) throw error;
     } finally {
       await file.close();
     }
@@ -149,16 +162,21 @@ export async function prepareClaudeReceipt(
         abortableDelay(POLL_MS, signal),
       deadline: () => number = () => Number.POSITIVE_INFINITY,
     ) {
-      let bytes = 0;
       let reportedAcceptance = false;
       let watcher: FSWatcher | undefined;
       let watcherFailure: Error | undefined;
+      let rescanRequested = false;
+      let scan: AsyncGenerator<string> | undefined;
+      const protectedFile = (name: string) =>
+        name === known || cursors.get(name)?.protected === true;
       const dirty = new Set(cursors.keys());
       const enqueue = (name: string) => {
-        if (!name.endsWith(".jsonl") || !relevant(name)) return;
-        if (!dirty.has(name) && dirty.size >= MAX_FILES) {
-          watcherFailure = new Error("Claude receipt change queue exceeds its bound");
-          return;
+        if (!name.endsWith(".jsonl") || !relevant(name) || dirty.has(name)) return;
+        if (dirty.size >= MAX_FILES) {
+          rescanRequested = true;
+          const discard = [...dirty].find((candidate) => !protectedFile(candidate));
+          if (discard === undefined) return;
+          dirty.delete(discard);
         }
         dirty.add(name);
       };
@@ -168,80 +186,116 @@ export async function prepareClaudeReceipt(
             try {
               watcher = watchDirectory(directory, { persistent: false }, (_event, name) => {
                 if (name) enqueue(String(name));
-                else watcherFailure = new Error("Claude receipt directory change has no filename");
+                else rescanRequested = true;
               });
               watcher.on("error", (error) => {
                 watcherFailure = error;
               });
-              // Covers creation/appends between the baseline and subscribing to directory changes.
-              for await (const name of fileNames()) {
-                if (signal.aborted || Date.now() >= deadline()) return;
-                if (!relevant(name)) continue;
-                const before = baseline.get(name);
-                if (!before || name === known) {
-                  enqueue(name);
-                  continue;
-                }
-                const file = await open(
-                  join(directory, name),
-                  constants.O_RDONLY | constants.O_NOFOLLOW,
-                ).catch((error: unknown) => {
-                  if (record(error)?.code === "ENOENT") return undefined;
-                  throw error;
-                });
-                if (!file) continue;
-                try {
-                  const stat = await file.stat();
-                  if (stat.ino !== before.inode || stat.size !== before.offset) enqueue(name);
-                } finally {
-                  await file.close();
-                }
-              }
+              rescanRequested = true;
             } catch (error) {
               if (record(error)?.code !== "ENOENT") throw error;
             }
           }
           if (watcherFailure) throw watcherFailure;
-          for (const name of cursors.keys()) enqueue(name);
-          const pending = [...dirty];
+          // Event overflow resumes discovery fairly instead of discarding an unseen receipt.
+          if (!scan && rescanRequested && dirty.size < SCAN_BATCH) {
+            scan = fileNames();
+            rescanRequested = false;
+          }
+          if (scan && dirty.size < SCAN_BATCH) {
+            for (let count = 0; count < SCAN_BATCH; count++) {
+              if (signal.aborted || Date.now() >= deadline()) return;
+              const next = await scan.next();
+              if (next.done) {
+                scan = undefined;
+                break;
+              }
+              const name = next.value;
+              if (!relevant(name)) continue;
+              const before = baseline.get(name);
+              if (!before || name === known) {
+                enqueue(name);
+                continue;
+              }
+              const file = await open(
+                join(directory, name),
+                constants.O_RDONLY | constants.O_NOFOLLOW,
+              ).catch((error: unknown) => {
+                if (protectedFile(name)) throw error;
+                return undefined;
+              });
+              if (!file) continue;
+              try {
+                const stat = await file.stat();
+                if (stat.ino !== before.inode || stat.size !== before.offset) enqueue(name);
+              } catch (error) {
+                if (protectedFile(name)) throw error;
+              } finally {
+                await file.close();
+              }
+            }
+          }
+          for (const [name, cursor] of cursors) {
+            if (cursor.protected || (!scan && dirty.size < MAX_FILES)) enqueue(name);
+          }
+          const pending = [...dirty].sort(
+            (a, b) => Number(protectedFile(b)) - Number(protectedFile(a)),
+          );
           dirty.clear();
+          let passBytes = 0;
+          const again: string[] = [];
           for (const name of pending) {
-            if (signal.aborted) return;
+            if (signal.aborted || Date.now() >= deadline()) return;
+            if (passBytes >= MAX_BYTES) {
+              enqueue(name);
+              continue;
+            }
             const file = await open(
               join(directory, name),
               constants.O_RDONLY | constants.O_NOFOLLOW,
             ).catch((error: unknown) => {
-              if (record(error)?.code === "ENOENT" && !cursors.has(name)) return undefined;
-              throw error;
+              if (protectedFile(name)) throw error;
+              cursors.delete(name);
+              return undefined;
             });
             if (!file) continue;
             try {
               const stat = await file.stat();
               let cursor = cursors.get(name);
-              if (!cursor && !relevant(name)) continue;
               const before = baseline.get(name);
               cursor ??= cursorFor(name, before?.inode ?? stat.ino, before?.offset ?? 0);
-              if (cursor.inode !== stat.ino || stat.size < cursor.offset)
-                throw new Error("Claude receipt transcript was replaced or truncated");
+              if (cursor.inode !== stat.ino || stat.size < cursor.offset) {
+                if (cursor.protected)
+                  throw new Error("Claude receipt transcript was replaced or truncated");
+                cursors.delete(name);
+                cursor = cursorFor(name, stat.ino, 0);
+              }
               const size = Math.min(CHUNK_BYTES, stat.size - cursor.offset);
               if (size === 0) continue;
-              if (bytes + size > MAX_BYTES)
-                throw new Error("Claude receipt read exceeds its bound");
+              if (cursor.bytes + size > MAX_BYTES) {
+                if (cursor.protected) throw new Error("Claude receipt read exceeds its bound");
+                cursors.delete(name);
+                continue;
+              }
               const buffer = Buffer.alloc(size);
               const { bytesRead } = await file.read(buffer, 0, size, cursor.offset);
               if (signal.aborted) return;
-              bytes += bytesRead;
+              passBytes += bytesRead;
+              cursor.bytes += bytesRead;
               cursor.offset += bytesRead;
-              if (cursor.offset < stat.size) enqueue(name);
+              if (cursor.offset < stat.size) again.push(name);
               cursor.partial = Buffer.concat([cursor.partial, buffer.subarray(0, bytesRead)]);
               let newline = cursor.partial.indexOf(10);
               while (newline >= 0) {
                 const line = cursor.partial.subarray(0, newline).toString("utf8");
                 cursor.partial = cursor.partial.subarray(newline + 1);
                 const receipt = cursor.reducer.push(parseRow(line));
-                if (receipt.accepted && !reportedAcceptance) {
-                  reportedAcceptance = true;
-                  onAccepted();
+                if (receipt.accepted) {
+                  cursor.protected = true;
+                  if (!reportedAcceptance) {
+                    reportedAcceptance = true;
+                    onAccepted();
+                  }
                 }
                 if (receipt.received) {
                   onReceived();
@@ -249,14 +303,34 @@ export async function prepareClaudeReceipt(
                 }
                 newline = cursor.partial.indexOf(10);
               }
+              cursor.partial = Buffer.from(cursor.partial);
+              let partialBytes = [...cursors.values()].reduce(
+                (sum, entry) => sum + entry.partial.length,
+                0,
+              );
+              for (const [candidate, entry] of cursors) {
+                if (partialBytes <= MAX_BYTES) break;
+                if (!entry.protected) {
+                  cursors.delete(candidate);
+                  partialBytes -= entry.partial.length;
+                }
+              }
+              if (partialBytes > MAX_BYTES)
+                throw new Error("Claude receipt buffered data exceeds its bound");
+            } catch (error) {
+              if (protectedFile(name)) throw error;
+              cursors.delete(name);
             } finally {
               await file.close();
             }
           }
+          for (const name of again) enqueue(name);
+          if (scan || dirty.size > 0) continue;
           if (!(await pause(signal))) return;
         }
       } finally {
         watcher?.close();
+        await scan?.return(undefined);
       }
     },
   };

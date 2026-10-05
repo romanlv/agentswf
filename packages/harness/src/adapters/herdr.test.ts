@@ -1,5 +1,12 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  appendFileSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ProcessInput, ProcessResult, RunProcess } from "../command";
@@ -804,6 +811,88 @@ describe("createHerdrRunHostFactory", () => {
       },
     );
   }
+
+  test("a known pane receives another turn after siblings accumulate since launch", async () => {
+    const home = mkdtempSync(join(tmpdir(), "awf-pane-receipt-horizon-"));
+    const project = join(home, "projects", "-repo");
+    mkdirSync(project, { recursive: true });
+    const base = hostStub();
+    let prompts = 0;
+    const run: RunProcess = async (input) => {
+      if (verb(input) === "agent prompt") {
+        prompts += 1;
+        const userId = `input-${prompts}`;
+        const rows = [
+          { type: "user", uuid: userId, message: { role: "user", content: input.argv[6]! } },
+          {
+            type: "assistant",
+            uuid: `answer-${prompts}`,
+            parentUuid: userId,
+            message: { role: "assistant", model: "claude", content: [] },
+          },
+        ];
+        appendFileSync(
+          join(project, `session-${input.argv[5]}.jsonl`),
+          `${rows.map((row) => JSON.stringify(row)).join("\n")}\n`,
+        );
+      }
+      if (verb(input) === "agent wait" && prompts > 0)
+        return commandResult({ agent: { agent_status: "idle" } });
+      return base.run(input);
+    };
+    const host = await createHerdrRunHostFactory(CONFIG, run).openRun({
+      runId: "receipt-horizon",
+      cwd: "/repo",
+      deadline: deadline(),
+    });
+    try {
+      const session = await host.openAgent({
+        key: "agent",
+        cwd: "/repo",
+        home,
+        deadline: deadline(),
+        execution: { harness: "claude", model: "opus" },
+      });
+      for (const id of ["first", "second"]) {
+        if (id === "second") {
+          // These are younger than pane launch, but older than this dispatch.
+          for (let i = 0; i < 260; i++) writeFileSync(join(project, `sibling-${i}.jsonl`), "");
+        }
+        const turn = await session.start(
+          { id, prompt: "respond", deadline: deadline() },
+          binding(`horizon-${id}`),
+        );
+        expect((await turn.settled).state).toBe("completed");
+        let timeout: ReturnType<typeof setTimeout> | undefined;
+        try {
+          const received = await Promise.race([
+            turn.delivery!.received,
+            turn.delivery!.failed.then((reason) => {
+              throw new Error(reason);
+            }),
+            new Promise<never>((_, reject) => {
+              timeout = setTimeout(() => reject(new Error("receipt evidence missing")), 1000);
+            }),
+          ]);
+          expect(received).toEqual(expect.any(Number));
+        } finally {
+          clearTimeout(timeout);
+        }
+        expect(
+          (
+            await turn.release("admitted", deadline(), {
+              answered: true,
+              awaitCompletion: true,
+            })
+          ).kind,
+        ).toBe("released");
+      }
+      expect(prompts).toBe(2);
+    } finally {
+      await host.close();
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
 
   test("waiting requires a run-local transcript home for sandbox panes", async () => {
     for (const home of [undefined, "/run/homes/claude"]) {
