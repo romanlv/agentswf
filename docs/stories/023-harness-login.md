@@ -51,9 +51,10 @@ Each harness's definition says how its output shows a missing or refused login, 
 operator runs (`login`, beside `interrupted`). Headless, it reads what the CLI printed of itself:
 claude's `result` envelope, codex's `turn.failed` and its auth log on stderr, cursor's stderr, pi's
 `turn_end` error and stderr; never the agent's own words. In a pane it reads lines of the screen
-that begin with the harness's own error text. codex and cursor never reach a prompt without a
-login: their pane shows a sign-in screen at launch, which is recognised as the launch fails, and
-the pane is closed (a sandboxed one could not open the browser anyway).
+that begin with the harness's own error text. codex and cursor without a login never reach a
+prompt: their pane shows a sign-in screen at launch, which is recognised as the launch fails, and
+the pane is closed (a sandboxed one could not open the browser anyway). A codex whose token looks
+valid until its first request takes the prompt and exits with a 401, which is read the same way.
 
 ## Scope
 
@@ -79,7 +80,7 @@ operator's logins was copied. Fixtures in `packages/harness/src/harnesses/fixtur
 | harness | headless missing | headless refused | pane |
 | --- | --- | --- | --- |
 | claude | exit 1, `result: "Not logged in · Please run /login"`, `is_error` | exit 1, `api_error_status: 401`, `"Failed to authenticate. API Error: 401 OAuth access token is invalid."` | `⎿ Not logged in · Please run /login`; `⏺ Please run /login · API Error: 401 …` |
-| codex | exit 1 after ~10 retries, `turn.failed` `401 Unauthorized: Missing bearer…` | exit 1, `turn.failed` `… unauthorized (401)`; stderr `codex_login::auth::manager: Failed to refresh token … Please log out and sign in again.` | sign-in screen at launch: `Finish signing in via your browser` |
+| codex | exit 1 after ~10 retries, `turn.failed` `401 Unauthorized: Missing bearer…` | exit 1, `turn.failed` `… unauthorized (401)`; stderr `codex_login::auth::manager: Failed to refresh token … Please log out and sign in again.` | sign-in screen at launch: `Finish signing in via your browser`; a token refused only at the first request: exits with `Error: account/read failed … unauthorized (401)` |
 | cursor | exit 1, stderr `Authentication required. Please run 'agent login' first, or set CURSOR_API_KEY…` | exit 1, stderr `The provided API key is invalid.` | missing: sign-in screen at launch, `Signing in with the browser...`; refused: prints the stderr line and exits to the shell |
 | pi | exit 1, stderr `No API key found for {provider}.` | **exit 0**, `turn_end` `stopReason: "error"`, `errorMessage: "OAuth refresh failed for {provider}: …"` | `Error: No API key found for {provider}.`; `Error: OAuth refresh failed for {provider}: …` |
 
