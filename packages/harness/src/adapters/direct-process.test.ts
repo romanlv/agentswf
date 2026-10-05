@@ -12,7 +12,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Occupant, SandboxedCommand, SandboxProcess } from "@agentswf/sandbox";
 import type { HarnessActivation } from "../adapter";
-import type { ProcessInput, RunProcess } from "../command";
+import { type ProcessInput, type RunProcess, runProcess } from "../command";
 import { createSingleSessionHostFactory } from "../single-session-host";
 import { HARNESSES } from "../spec";
 import { codexForkHome } from "../testing/codex-rollouts";
@@ -62,6 +62,107 @@ describe("createHeadlessAdapter", () => {
     config: Partial<DirectProcessConfig> = {},
     request: typeof activation = activation,
   ) => createHeadlessAdapter(config, run).activate(request);
+
+  test("an admitted headless answer hands its process the release deadline", async () => {
+    let spawned!: () => void;
+    const ready = new Promise<void>((resolve) => {
+      spawned = resolve;
+    });
+    const deadline = { unixMilliseconds: Date.now() + 50 };
+    const session = await headless(
+      async (input) => {
+        spawned();
+        return runProcess({
+          ...input,
+          argv: [
+            process.execPath,
+            "-e",
+            'await Bun.sleep(150); console.log(JSON.stringify({result:"answer",session_id:"native"}))',
+          ],
+        });
+      },
+      {},
+      { ...activation, cwd: tmpdir(), deadline },
+    );
+    const turn = await session.start({ ...turnSpec, deadline }, firstBinding);
+    await ready;
+    const released = await turn.release(
+      "answer admitted",
+      { unixMilliseconds: Date.now() + 1000 },
+      { answered: true, awaitCompletion: true },
+    );
+    expect(released).toMatchObject({ kind: "released", outcome: { state: "completed" } });
+    expect((await turn.settled).state).toBe("completed");
+    await session.close();
+  });
+
+  test("eager admission observes the current process while launch setup is pending", async () => {
+    let calls = 0;
+    const session = await headless(
+      async () => ({
+        stdout: JSON.stringify({ type: "thread.started", thread_id: "thread-1" }),
+        stderr: "",
+        exitCode: calls++ === 0 ? 0 : 137,
+        timedOut: calls === 2,
+      }),
+      {},
+      {
+        ...activation,
+        execution: { harness: "codex", model: "gpt-6-luna", placement: "headless" },
+        skills: { names: [], directory: "/run/skills", ownHome: "/run/home", sandboxed: false },
+      },
+    );
+    const first = await session.start(turnSpec, firstBinding);
+    await first.settled;
+    const next = await session.start(
+      { ...turnSpec, id: "next" },
+      { ...firstBinding, operationId: "op-next" },
+    );
+    const released = await next.release(
+      "eager answer",
+      { unixMilliseconds: Date.now() + 1000 },
+      { answered: true, awaitCompletion: true },
+    );
+    expect(released.kind).toBe("quarantined");
+    expect(calls).toBe(2);
+    await session.close();
+  });
+
+  test("a deadline-killed process is never reported as natural answered completion", async () => {
+    let started!: () => void;
+    const running = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    let finish!: (result: Awaited<ReturnType<RunProcess>>) => void;
+    const ended = new Promise<Awaited<ReturnType<RunProcess>>>((resolve) => {
+      finish = resolve;
+    });
+    const session = await headless(async () => {
+      started();
+      return ended;
+    });
+    const turn = await session.start(turnSpec, firstBinding);
+    await running;
+    const releasing = turn.release(
+      "answer admitted",
+      { unixMilliseconds: Date.now() + 5000 },
+      { answered: true, awaitCompletion: true },
+    );
+    expect(await Promise.race([releasing.then(() => "released"), Promise.resolve("pending")])).toBe(
+      "pending",
+    );
+    finish({
+      stdout: JSON.stringify({ result: "answer", session_id: "session", total_cost_usd: 0.04 }),
+      stderr: "",
+      exitCode: 137,
+      timedOut: true,
+    });
+    expect(await releasing).toMatchObject({
+      kind: "quarantined",
+    });
+    expect((await turn.settled).state).toBe("timed-out");
+    await session.close();
+  });
 
   test("a nudge resumes the native session in a fresh process environment", async () => {
     const { run, calls } = stub([claudeOut("first"), claudeOut("second")]);

@@ -53,7 +53,6 @@ const CODEX = {
   settingsEnv: [],
   meteredCredentials: ["OPENAI_API_KEY", "OPENAI_BASE_URL", "CODEX_API_KEY"],
   herdrSessionIsOwn: false,
-  pastesQuoted: false,
   meteredHeadless: false,
   // The levels of the models awf runs, from `codex debug models`; each model takes some of them,
   // and one it does not fails its turn at the API (M5).

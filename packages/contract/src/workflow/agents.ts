@@ -102,7 +102,7 @@ export type AgentExecution = ExecutionConfig & {
 export interface AgentOpenSpec {
   /** Logical identity scoped to the current workflow run. */
   key: AgentKey;
-  /** Defaults to the current workflow scope deadline. */
+  /** Bounds this operation; defaults to the current workflow scope deadline. */
   deadline?: AbsoluteDeadline;
   /** Defaults to the workflow's working directory. */
   cwd?: string;
@@ -154,12 +154,15 @@ interface AgentRunBase {
   /** Idempotency key scoped to this agent. Generated when omitted. */
   id?: TurnId;
   prompt: string;
-  /** Defaults to the current workflow scope deadline. */
+  /** Fixed before queueing; defaults to the current scope and covers all automatic check-ins. */
   deadline?: AbsoluteDeadline;
-  /** Relative bound, capped by the current workflow scope deadline. */
+  /** Relative bound from invocation, capped by the current scope; waiting never extends it. */
   timeoutMs?: number;
   label?: string;
-  /** On `unanswered`, runs standard recovery by default; `false` disables it. */
+  /**
+   * Enables automatic recovery, with repeated check-ins where delivery is confirmed.
+   * `false` disables it. A supplied deadline can shorten the operation, never extend it.
+   */
   nudge?: false | (Omit<NudgeOptions, "deadline"> & { deadline?: AbsoluteDeadline });
 }
 
@@ -187,7 +190,7 @@ export type OperationRecord = {
   execution: AgentExecution;
   /** ISO time the harness accepted the first attempt; absent when none was made. */
   deliveredAt?: string;
-  /** ISO time the operation settled, after any nudge; its deadline when it expired. */
+  /** ISO time the operation settled, after any automatic check-ins; its deadline when it expired. */
   settledAt?: string;
   /** Every native session seen for this agent by the time this record was made. */
   sessions: NativeSessionRef[];
@@ -216,7 +219,7 @@ export function isAnswered<T extends JsonValue>(
 }
 
 export type RunResult<T extends JsonValue> = {
-  /** The nudge outcome when one ran; otherwise the initial outcome. */
+  /** The whole operation outcome, including automatic check-ins and bounded native release. */
   outcome: TurnOutcome<T>;
 };
 
@@ -239,9 +242,9 @@ export interface CompactSpec {
   id?: CompactionId;
   /** What the harness's own compaction keeps and drops, as an operator types after `/compact`. */
   prompt: string;
-  /** Defaults to the current workflow scope deadline. */
+  /** Bounds this operation; defaults to the current workflow scope deadline. */
   deadline?: AbsoluteDeadline;
-  /** Relative bound, capped by the current workflow scope deadline. */
+  /** Relative bound from invocation, capped by the current workflow scope deadline. */
   timeoutMs?: number;
 }
 
@@ -261,9 +264,9 @@ export interface SettingsSpec {
   /** Another model of the same harness. */
   model?: string;
   effort?: Effort;
-  /** Defaults to the current workflow scope deadline. */
+  /** Bounds this operation; defaults to the current workflow scope deadline. */
   deadline?: AbsoluteDeadline;
-  /** Relative bound, capped by the current workflow scope deadline. */
+  /** Relative bound from invocation, capped by the current workflow scope deadline. */
   timeoutMs?: number;
 }
 

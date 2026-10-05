@@ -145,31 +145,16 @@ export function herdrFailure(result: Extract<HerdrResult, { ok: false }>, remain
   return localOutcome("failed", result.error);
 }
 
-/** Submits a prompt typed into a pane: the operator's own words, which the agent acts on. */
-const SUBMIT_TYPED = "Do what the text above asks.";
-
-/**
- * Submits `prompt` to the agent in `pane`, as `agent prompt --wait` does. For a harness that
- * `pastesQuoted`, a prompt of several lines is typed into the pane first, and a line of the
- * operator's own submits it.
- */
+/** Herdr owns paste framing and writes Enter only after the text reaches the PTY. */
 export async function submitPrompt(
   herdr: HerdrCommand,
   target: string,
-  pane: string,
   prompt: string,
-  pastesQuoted: boolean,
   waitMs: number,
   signal: AbortSignal,
 ): Promise<HerdrResult> {
-  let submitted = prompt;
-  if (pastesQuoted && prompt.includes("\n")) {
-    const typed = await herdr(["pane", "send-text", pane, `${prompt}\n\n`], waitMs, signal);
-    if (!typed.ok) return typed;
-    submitted = SUBMIT_TYPED;
-  }
   return herdr(
-    ["agent", "prompt", target, submitted, "--wait", "--timeout", String(waitMs)],
+    ["agent", "prompt", target, prompt, "--wait", "--timeout", String(waitMs)],
     waitMs + HERDR_REPORT_GRACE_MS,
     signal,
   );

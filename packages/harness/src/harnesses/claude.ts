@@ -159,7 +159,6 @@ const CLAUDE = {
       return { sessionId: forked, ...(costTotal === undefined ? {} : { costTotal }) };
     },
   }),
-  pastesQuoted: true,
   compactPane: {
     prompts: (focus) => [`/compact ${focus}`],
     // The whole line, which an echoed focus would not hold.

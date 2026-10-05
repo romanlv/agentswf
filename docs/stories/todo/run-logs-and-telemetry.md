@@ -44,7 +44,7 @@ and the workflow's own log lines.
    and live usage, where today awf parses session files at run end. Then these all read one stream:
    - `awf logs`;
    - per-stage time and cost, and the progress view's cost per stage;
-   - a cost limit that needs usage during a turn (`turn-liveness-and-limits`);
+   - a cost limit that needs usage during a turn ([[live-spend-limits]]);
    - an external backend if the operator points one at it.
 
 ## Open questions
@@ -63,7 +63,8 @@ and the workflow's own log lines.
 
 - `operator-run-observation`: a status command and progress stream; logs are the detail behind them.
 - [story 018](../018-workflow-stages.md): stages as spans; per-stage cost.
-- `turn-liveness-and-limits`: live usage for cost limits; activity for no-progress limits.
+- [[021-turn-liveness-and-limits]]: agent-reported waits, check-ins and their effective limits.
+- [[live-spend-limits]]: live usage for observed spend thresholds.
 - Story 002: cost and time accounting.
 - `docs/reading.md:24-29`: the GenAI conventions and the harness OTel exports, with the note "we
   should standardise on OTel".

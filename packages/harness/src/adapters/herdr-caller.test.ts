@@ -241,6 +241,54 @@ describe("createCallerHostFactory", () => {
     expect(calls.map(verb).some((each) => /close/.test(each))).toBe(false);
   });
 
+  test("fresh caller release outlives an expired prompt observation without interrupting", async () => {
+    let prompted!: () => void;
+    const started = new Promise<void>((resolve) => {
+      prompted = resolve;
+    });
+    let expire!: (result: ProcessResult) => void;
+    const original = new Promise<ProcessResult>((resolve) => {
+      expire = resolve;
+    });
+    let finish!: (result: ProcessResult) => void;
+    const natural = new Promise<ProcessResult>((resolve) => {
+      finish = resolve;
+    });
+    let waits = 0;
+    const { host, session, calls } = await open(
+      { paneId: "w1:p1", harness: "claude", cwd: "/repo" },
+      (input) => {
+        if (verb(input) === "agent wait")
+          return ++waits === 1 ? ok({ agent: { agent_status: "idle" } }) : natural;
+        if (verb(input) === "agent prompt") {
+          prompted();
+          return original;
+        }
+        return undefined;
+      },
+    );
+    const turn = await session.start(
+      { id: "turn", prompt: "question", deadline: deadline() },
+      binding,
+    );
+    await started;
+    const releasing = turn.release("answer admitted", deadline(), {
+      answered: true,
+      awaitCompletion: true,
+    });
+    expire({ stdout: "", stderr: "observation expired", exitCode: 137, timedOut: true });
+    await turn.settled;
+    expect(await Promise.race([releasing.then(() => "released"), Promise.resolve("pending")])).toBe(
+      "pending",
+    );
+    finish(ok({ agent: { agent_status: "done" } }));
+    expect(await releasing).toMatchObject({ kind: "released", outcome: { state: "completed" } });
+    await host.close();
+    expect(calls.map(verb).some((command) => /send-keys|tab close|agent stop/.test(command))).toBe(
+      false,
+    );
+  });
+
   test("an answered turn left finishing is never interrupted", async () => {
     const { session, calls } = await open(
       { paneId: "w1:p1", harness: "claude", cwd: "/repo" },

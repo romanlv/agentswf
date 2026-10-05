@@ -26,6 +26,13 @@ import type {
 } from "./adapter";
 
 export type NativeTurnRequest = {
+  deliverySignal?: AbortSignal;
+  receiptSignal?: AbortSignal;
+  receiptDeadline?: () => number;
+  onDispatched?: () => void;
+  onAccepted?: () => void;
+  onReceived?: () => void;
+  onDeliveryFailed?: (reason: string) => void;
   id: string;
   prompt: string;
   deadline: AbsoluteDeadline;
@@ -54,6 +61,9 @@ type NativeSessionIdentity = {
 };
 
 export type ActivatedSessionBackend = {
+  readonly confirmsDelivery?: true;
+  /** Fresh natural-completion evidence after answer admission, beyond the prompt deadline. */
+  finishAnswered?(deadline: AbsoluteDeadline): Promise<NativeTurnOutcome>;
   readonly identity: NativeSessionIdentity;
   /** When it first prompted the agent, where it waits before prompting; see `HarnessSession`. */
   promptedAt?(): number | undefined;
@@ -255,12 +265,71 @@ function createSession(
       usedOperationIds.add(request.binding.operationId);
     }
     active = true;
+    const previousStatus = lastStatus;
     lastStatus = { state: "working" };
     const generation = ++turns;
     /** Set once this turn is answered and left to end on its own. */
     let leftFinishing = false;
+    const receiptObserver = new AbortController();
+    const dispatchController = new AbortController();
+    let receiptDeadline = request.deadline.unixMilliseconds;
+    let dispatched = false;
+    let resolveDispatched!: (at: number) => void;
+    let resolveAccepted!: (at: number) => void;
+    let resolveReceived!: (at: number) => void;
+    let resolveDeliveryFailed!: (reason: string) => void;
+    let deliveryFailure: string | undefined;
+    const delivery = native.confirmsDelivery
+      ? {
+          dispatched: new Promise<number>((resolve) => {
+            resolveDispatched = resolve;
+          }),
+          accepted: new Promise<number>((resolve) => {
+            resolveAccepted = resolve;
+          }),
+          received: new Promise<number>((resolve) => {
+            resolveReceived = resolve;
+          }),
+          failed: new Promise<string>((resolve) => {
+            resolveDeliveryFailed = resolve;
+          }),
+        }
+      : undefined;
     const settled = native
-      .execute({ ...request, ...(sessionRef ? { previousSessionRef: sessionRef } : {}) })
+      .execute({
+        ...request,
+        deliverySignal: request.deliverySignal
+          ? AbortSignal.any([request.deliverySignal, dispatchController.signal])
+          : dispatchController.signal,
+        ...(sessionRef ? { previousSessionRef: sessionRef } : {}),
+        ...(delivery
+          ? {
+              receiptSignal: receiptObserver.signal,
+              receiptDeadline: () => receiptDeadline,
+              onDispatched() {
+                if (!dispatched) {
+                  dispatched = true;
+                  resolveDispatched(now());
+                }
+              },
+              onAccepted() {
+                if (dispatched && deliveryFailure === undefined) resolveAccepted(now());
+              },
+              onReceived() {
+                if (dispatched && deliveryFailure === undefined) {
+                  resolveAccepted(now());
+                  resolveReceived(now());
+                }
+              },
+              onDeliveryFailed(reason) {
+                if (deliveryFailure === undefined) {
+                  deliveryFailure = reason;
+                  resolveDeliveryFailed(reason);
+                }
+              },
+            }
+          : {}),
+      })
       .catch(
         (error): NativeTurnOutcome => ({
           state: "failed",
@@ -294,7 +363,15 @@ function createSession(
         const reported = withoutSessionRef(outcome);
         if (!quarantined && generation === turns) {
           // An answered turn ending leaves the agent ready for the next operation.
-          lastStatus = leftFinishing ? { state: "idle" } : outcomeStatus(reported);
+          lastStatus = leftFinishing
+            ? { state: "idle" }
+            : delivery &&
+                request.kind === "nudge" &&
+                request.deliverySignal?.aborted &&
+                !dispatched &&
+                outcome.state === "cancelled"
+              ? previousStatus
+              : outcomeStatus(reported);
         }
         return reported;
       })
@@ -303,27 +380,82 @@ function createSession(
       });
 
     let nudged = false;
+    let releases = 0;
     return {
       settled,
+      ...(delivery ? { delivery } : {}),
       async deliver() {
         throw new Error("harness delivery is unavailable until messaging acknowledgement exists");
       },
       async nudge(spec: HarnessNudgeSpec) {
-        if (request.kind === "nudge") throw new Error("harness turn permits at most one nudge");
+        if (spec.deliverySignal?.aborted)
+          throw new DOMException("check-in cancelled before dispatch", "AbortError");
         if (nudged) throw new Error("harness turn has already been nudged");
         if (!request.binding) throw new Error("harness turn has no result authority to reuse");
-        nudged = true;
         await settled;
+        if (spec.deliverySignal?.aborted)
+          throw new DOMException("check-in cancelled before dispatch", "AbortError");
+        if (nudged) throw new Error("harness turn has already been nudged");
+        nudged = true;
+        receiptObserver.abort();
         return start({
           id: spec.id,
           prompt: spec.prompt ?? "Provide the requested result now.",
           deadline: spec.deadline,
           binding: request.binding,
           kind: "nudge",
+          ...(spec.deliverySignal ? { deliverySignal: spec.deliverySignal } : {}),
           ...(spec.authored ? { authored: spec.authored } : {}),
         });
       },
       async release(reason, deadline, options): Promise<HarnessReleaseDisposition> {
+        const releaseGeneration = ++releases;
+        const currentRelease = () =>
+          releaseGeneration === releases && generation === turns && !closed;
+        if (!dispatched) dispatchController.abort();
+        if (options?.answered && options.awaitCompletion) {
+          leftFinishing = true;
+          receiptDeadline = deadline.unixMilliseconds;
+          if (native.finishesAnswered) native.leftFinishing?.();
+          const natural = (async () => {
+            if (delivery && dispatched) {
+              const failed = await Promise.race([
+                delivery.received.then(() => undefined),
+                delivery.failed,
+              ]);
+              if (failed !== undefined) return localOutcome("failed", failed);
+            }
+            if (receiptObserver.signal.aborted || expired(deadline, now)) {
+              return localOutcome("timed-out", "release deadline exceeded");
+            }
+            return native.finishAnswered
+              ? native.finishAnswered(deadline).then(async (outcome) => {
+                  if (outcome.state === "completed") await settled;
+                  if (currentRelease() && outcome.sessionRef) {
+                    seen.add(outcome.sessionRef);
+                    sessionRef = outcome.sessionRef;
+                  }
+                  if (currentRelease() && outcome.state === "completed") hasRun = true;
+                  return withoutSessionRef(outcome);
+                })
+              : settled;
+          })();
+          const disposition = await releaseBefore(natural, deadline, now);
+          receiptObserver.abort();
+          if (disposition.kind === "released" && disposition.outcome.state === "completed") {
+            return disposition;
+          }
+          const reason =
+            disposition.kind === "quarantined"
+              ? disposition.reason
+              : (disposition.outcome.detail ?? "native completion was not confirmed");
+          if (currentRelease()) {
+            quarantined = true;
+            lastStatus = { state: "quarantined", detail: reason };
+          }
+          return { kind: "quarantined", reason };
+        }
+        receiptObserver.abort();
         if (options?.answered && native.finishesAnswered) {
           // Already ended: there is nothing to stop, and stopping a pane would close it.
           if (!active) return { kind: "released", outcome: await settled };
@@ -345,7 +477,7 @@ function createSession(
           .then(() => native.cancel?.(reason))
           .then(() => settled);
         const disposition = await releaseBefore(releasing, deadline, now);
-        if (disposition.kind === "quarantined") {
+        if (disposition.kind === "quarantined" && currentRelease()) {
           quarantined = true;
           lastStatus = { state: "quarantined", detail: disposition.reason };
         }
@@ -355,6 +487,7 @@ function createSession(
   };
 
   const session: HarnessSession = {
+    ...(native.confirmsDelivery ? { supportsWaiting: true as const } : {}),
     async status() {
       if (closed) return { state: "missing" };
       if (quarantined) return lastStatus;
@@ -417,7 +550,7 @@ async function releaseBefore(
   releasing: Promise<HarnessTurnOutcome>,
   deadline: AbsoluteDeadline,
   now: () => number,
-): Promise<HarnessReleaseDisposition> {
+): Promise<Exclude<HarnessReleaseDisposition, { kind: "finishing" }>> {
   const remaining = deadline.unixMilliseconds - now();
   if (remaining <= 0) return { kind: "quarantined", reason: "release deadline exceeded" };
   let timer: ReturnType<typeof setTimeout> | undefined;

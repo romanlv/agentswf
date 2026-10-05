@@ -1,4 +1,4 @@
-# Workflow interface map
+	# Workflow interface map
 
 This directory designs the interface; it does not specify an implementation. Stage 0 moved the
 source into `packages/`; what lives here is the map, not the code.

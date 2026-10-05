@@ -107,6 +107,10 @@ status is one of `todo`, `draft`, `ready`, `in-progress`, `blocked`, `awaiting-h
   `awaiting-human-review` — `awf allowance` reads each subscription harness's plan windows from its own
   usage command as an `awf.allowance/1` record, and the lab's runs wait for a full window's reset.
 
+- [[021-turn-liveness-and-limits|021 — Keep a waiting agent alive within fixed limits]] —
+  `in-progress` — Repeated cooperative check-ins share one deadline and result slot; an accepted
+  answer returns only after native release.
+
 This is the high-level index of numbered stories. Keep each entry to its title, status, and
 one-sentence summary; put code maps, research, design, tasks, and verification in the linked story.
 Todo items stay in [`todo/`](todo/) until selected for refinement.

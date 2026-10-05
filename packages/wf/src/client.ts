@@ -1,24 +1,50 @@
 import { createConnection, type Socket } from "node:net";
 import {
-  decodeResultSubmitResponse,
+  type ControlRequest,
+  type ControlResponse,
+  decodeControlResponse,
   type ResultSubmitRequest,
   type ResultSubmitResponse,
+  type WaitingRequest,
+  type WaitingResponse,
 } from "@agentswf/contract/wire";
 
 const MAX_RESPONSE_BYTES = 256 * 1024;
 
-export function submitResult(
+export async function submitResult(
   endpoint: string,
   request: ResultSubmitRequest,
   timeoutSeconds = 30,
   connect: (endpoint: string) => Socket = createConnection,
 ): Promise<ResultSubmitResponse> {
+  const response = await submitControl(endpoint, request, timeoutSeconds, connect);
+  if (response.kind === "waiting") throw new Error("unexpected waiting acknowledgement");
+  return response;
+}
+
+export async function submitWaiting(
+  endpoint: string,
+  request: WaitingRequest,
+  timeoutSeconds = 30,
+  connect: (endpoint: string) => Socket = createConnection,
+): Promise<WaitingResponse> {
+  const response = await submitControl(endpoint, request, timeoutSeconds, connect);
+  if (response.kind === "accepted") throw new Error("unexpected result acknowledgement");
+  return response;
+}
+
+export function submitControl(
+  endpoint: string,
+  request: ControlRequest,
+  timeoutSeconds = 30,
+  connect: (endpoint: string) => Socket = createConnection,
+): Promise<ControlResponse> {
   if (!Number.isFinite(timeoutSeconds) || timeoutSeconds <= 0) {
     return Promise.reject(new Error("control-plane timeout must be positive"));
   }
   const outgoing = Buffer.from(`${JSON.stringify(request)}\n`);
 
-  return new Promise<ResultSubmitResponse>((resolve, reject) => {
+  return new Promise<ControlResponse>((resolve, reject) => {
     const chunks: Buffer[] = [];
     let bytes = 0;
     let settled = false;
@@ -61,9 +87,16 @@ export function submitResult(
         fail(new Error("control plane returned invalid JSON"));
         return;
       }
-      const decoded = decodeResultSubmitResponse(parsed);
+      const decoded = decodeControlResponse(parsed);
       if (!decoded.ok) {
         fail(new Error(decoded.error));
+        return;
+      }
+      if (
+        decoded.value.kind !== "rejected" &&
+        decoded.value.kind !== (request.command === "waiting" ? "waiting" : "accepted")
+      ) {
+        fail(new Error("control plane returned an acknowledgement for a different command"));
         return;
       }
       settled = true;

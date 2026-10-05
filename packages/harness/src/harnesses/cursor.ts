@@ -65,7 +65,6 @@ const CURSOR = {
   meteredCredentials: [],
   // Herdr 0.9.1 names a cursor pane's chat, the id its shell's `CURSOR_CONVERSATION_ID` holds.
   herdrSessionIsOwn: true,
-  pastesQuoted: false,
   meteredHeadless: false,
   // A resume runs on the `--model` it is given, a model's other variant included (M1).
   setHeadless: true,

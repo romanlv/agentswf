@@ -2,7 +2,7 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { stat } from "node:fs/promises";
 import { createConnection } from "node:net";
 import { dirname } from "node:path";
-import { type ResultSubmitResponse, WIRE_VERSION } from "@agentswf/contract/wire";
+import { type ControlResponse, WIRE_VERSION } from "@agentswf/contract/wire";
 import { CONTROL_PLANE_ROOT, startResultControlPlane } from "./control-plane";
 import type { ResultSlotRegistry } from "./result-slots";
 import { createResultSlotRegistry } from "./result-slots";
@@ -87,6 +87,72 @@ describe("result control plane", () => {
     }
   });
 
+  test("routes waiting through the same authority and preserves the result slot", async () => {
+    const runDir = tempRunDir();
+    const slots = createResultSlotRegistry({ runDir });
+    const binding = await slots.open({
+      operationId: "op-1",
+      agentId: AGENT,
+      question: "q",
+      deadline: DEADLINE,
+      allowWaiting: true,
+    });
+    const control = await startResultControlPlane({ socketRoot: tempRunDir(), slots });
+    try {
+      const channel = await control.openChannel(AGENT);
+      const other = await control.openChannel("other");
+      const frame = `${JSON.stringify({ version: WIRE_VERSION, command: "waiting", operationId: "op-1", reason: "deploy", timeoutMs: 120_000 })}\n`;
+      await expect(rawRequest(other.endpoint, frame)).resolves.toMatchObject({
+        kind: "rejected",
+        code: "wrong-agent",
+      });
+      await expect(rawRequest(channel.endpoint, frame)).resolves.toEqual({
+        version: WIRE_VERSION,
+        kind: "waiting",
+        waitUntil: DEADLINE.unixMilliseconds,
+        deadline: DEADLINE.unixMilliseconds,
+      });
+      expect(await readAccepted(runDir, "op-1")).toBeNull();
+      await expect(
+        rawRequest(channel.endpoint, `${JSON.stringify(request("{}"))}\n`),
+      ).resolves.toMatchObject({ kind: "accepted" });
+      await expect(binding.settled).resolves.toMatchObject({ kind: "accepted" });
+      await expect(rawRequest(channel.endpoint, frame)).resolves.toMatchObject({
+        code: "closed-operation",
+      });
+    } finally {
+      await control.close();
+    }
+  });
+
+  test("a connection's lifetime bounds close even if semantic validation never returns", async () => {
+    const entered = Promise.withResolvers<void>();
+    const slots = createResultSlotRegistry({ runDir: tempRunDir() });
+    await slots.open({
+      operationId: "op-1",
+      agentId: AGENT,
+      question: "q",
+      deadline: DEADLINE,
+      semantic: async () => {
+        entered.resolve();
+        return new Promise(() => {});
+      },
+    });
+    const control = await startResultControlPlane({
+      socketRoot: tempRunDir(),
+      slots,
+      connectionLifetimeMs: 30,
+    });
+    const channel = await control.openChannel(AGENT);
+    const socket = createConnection(channel.endpoint);
+    socket.on("error", () => {});
+    socket.once("connect", () => socket.end(`${JSON.stringify(request("{}"))}\n`));
+    await entered.promise;
+    await control.close();
+    expect(await slots.close("op-1")).toBe(true);
+    socket.destroy();
+  });
+
   test("owns a private directory and removes socket state idempotently", async () => {
     const fixture = await setup();
     const directory = dirname(fixture.channel.endpoint);
@@ -111,13 +177,22 @@ describe("result control plane", () => {
       release = resolve;
     });
     const slots: ResultSlotRegistry = {
+      async waiting() {
+        throw new Error("unused");
+      },
       async open() {
         throw new Error("not used");
       },
       async submit() {
         entered();
         await gate;
-        return { kind: "accepted", value: {}, candidateRecorded: true, acceptedAt: 0 };
+        return {
+          kind: "accepted",
+          value: {},
+          candidateRecorded: true,
+          admittedAt: 0,
+          acceptedAt: 0,
+        };
       },
       async close() {
         return false;
@@ -208,9 +283,9 @@ async function setup(
 }
 
 function request(raw: string) {
-  return { version: WIRE_VERSION, operationId: "op-1", raw };
+  return { version: WIRE_VERSION, command: "result", operationId: "op-1", raw };
 }
 
-async function rawRequest(endpoint: string, frame: string): Promise<ResultSubmitResponse> {
-  return JSON.parse(await exchange(endpoint, frame)) as ResultSubmitResponse;
+async function rawRequest(endpoint: string, frame: string): Promise<ControlResponse> {
+  return JSON.parse(await exchange(endpoint, frame)) as ControlResponse;
 }

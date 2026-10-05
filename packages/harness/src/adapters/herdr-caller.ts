@@ -150,6 +150,7 @@ export function createCallerHostFactory(
       let closed = false;
       let activeController: AbortController | undefined;
       let activeCompletion: Promise<void> | undefined;
+      const releaseObservers = new Set<AbortController>();
       /**
        * The prompt of the run's turn whose answer is still awaited, by number: the one turn the
        * host may interrupt. Cleared as that turn ends, or is answered and left finishing.
@@ -184,6 +185,40 @@ export function createCallerHostFactory(
         // prompted once it has. Whatever works on past its grace may be the operator's own turn,
         // so the host stops waiting on it and never interrupts it.
         finishesAnswered: true,
+        async finishAnswered(deadline) {
+          const originalController = activeController;
+          const originalCompletion = activeCompletion;
+          const remaining = deadline.unixMilliseconds - Date.now();
+          if (remaining <= 0) return localOutcome("timed-out", "release deadline exceeded");
+          const controller = new AbortController();
+          releaseObservers.add(controller);
+          const timer = setTimeout(() => controller.abort(), Math.min(remaining, 2_147_483_647));
+          try {
+            const ended = await herdr(
+              ["agent", "wait", pane, "--timeout", String(remaining)],
+              remaining,
+              controller.signal,
+            );
+            if (!ended.ok) return herdrFailure(ended, deadline.unixMilliseconds - Date.now());
+            const agent = reportedAgent(ended.result);
+            const outcome = settledOutcome(agent);
+            if (controller.signal.aborted || outcome.state !== "completed") {
+              return localOutcome("failed", "caller native release was not confirmed");
+            }
+            originalController?.abort();
+            await originalCompletion;
+            const sessionRef = spec.herdrSessionIsOwn ? readSessionRef(agent) : undefined;
+            return {
+              ...outcome,
+              resultEvidence: { kind: "unavailable" },
+              chargesUsd: [],
+              ...(sessionRef ? { sessionRef } : {}),
+            };
+          } finally {
+            clearTimeout(timer);
+            releaseObservers.delete(controller);
+          }
+        },
         stopFinishing: stopWaiting,
         leftFinishing() {
           outstanding = undefined;
@@ -216,9 +251,7 @@ export function createCallerHostFactory(
             const sent = await submitPrompt(
               herdr,
               pane,
-              pane,
               operation.prompt,
-              spec.pastesQuoted === true,
               waitMs,
               controller.signal,
             );
@@ -266,6 +299,7 @@ export function createCallerHostFactory(
           }
         },
         async cancel() {
+          for (const observer of releaseObservers) observer.abort();
           if (!activeController) return false;
           await interrupt();
           await stopWaiting();
@@ -273,6 +307,7 @@ export function createCallerHostFactory(
         },
         async close() {
           if (closed) return;
+          for (const observer of releaseObservers) observer.abort();
           await interrupt();
           await stopWaiting();
           closed = true;

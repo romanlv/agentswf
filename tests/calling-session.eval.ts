@@ -78,6 +78,12 @@ if (import.meta.main) {
     console.log(JSON.stringify({ ok: true, skipped: true, reason: "not inside Herdr" }));
     process.exit(0);
   }
+  const selected =
+    process.argv.length > 2
+      ? (process.argv.slice(2) as Harness[])
+      : (Object.keys(SESSIONS) as Harness[]);
+  for (const name of selected)
+    if (!(name in SESSIONS)) throw new Error(`unknown caller harness: ${name}`);
   const signal = interruption();
   const workDir = await mkdtemp(join(tmpdir(), "awf-calling-session-"));
   const session = await herdrSession(runProcess, process.env);
@@ -180,7 +186,7 @@ if (import.meta.main) {
 
   const found = (
     await Promise.all(
-      (Object.keys(SESSIONS) as Harness[]).map((harness) =>
+      selected.map((harness) =>
         drive(harness).catch((error: unknown) => [`${harness}: ${String(error)}`]),
       ),
     )
@@ -196,7 +202,7 @@ if (import.meta.main) {
     }
   }
   await herdr(["workspace", "close", workspace]);
-  const estimates = (Object.keys(SESSIONS) as Harness[]).flatMap((harness) => {
+  const estimates = selected.flatMap((harness) => {
     const runRoot = join(workDir, `runs-${harness}`);
     return [...new Bun.Glob("*/*/output.json").scanSync({ cwd: runRoot })].map(
       (file) =>

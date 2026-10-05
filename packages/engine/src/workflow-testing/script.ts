@@ -35,6 +35,7 @@ export type Answer = {
 };
 
 type Ending =
+  | { kind: "waiting"; reason: string; timeoutMs?: number }
   | { kind: "silent" }
   | { kind: "blocked" | "failed" | "timed-out"; reason: string }
   | { kind: "hang" }
@@ -78,7 +79,10 @@ const ending = (value: Ending): Reply => ({ [ENTRY]: { kind: "reply", ending: va
 
 /** Ends a turn without an answer. A reply answers no question, so it takes no schema. */
 export const reply = {
-  /** Ends the turn without reporting a result; the engine nudges once. */
+  /** Reports a cooperative wait; later check-ins invoke the same answer function again. */
+  waiting: (reason: string, timeoutMs?: number): Reply =>
+    ending({ kind: "waiting", reason, ...(timeoutMs === undefined ? {} : { timeoutMs }) }),
+  /** Ends without a result; recovery follows the placement's production support. */
   silent: (): Reply => ending({ kind: "silent" }),
   /** The agent is stuck, as on a permission prompt. */
   blocked: (reason = "waiting on a permission prompt"): Reply =>

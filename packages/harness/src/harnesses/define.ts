@@ -187,11 +187,6 @@ export type HarnessSpec = {
     context: TurnContext,
   ): ForkPlan | Promise<ForkPlan>;
   /**
-   * Its pane shows a prompt of several lines Herdr pastes as pasted text, which its model will not
-   * act on without the operator's own words (claude 2.1.288), so such a prompt is typed instead.
-   */
-  pastesQuoted: boolean;
-  /**
    * What its pane shows once it takes input, where Herdr can report it idle before then: a prompt
    * typed sooner is lost (story 019).
    */

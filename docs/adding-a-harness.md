@@ -21,7 +21,7 @@ will quote.
 
 Fields of the spec the engine reads across every harness, so they are required rather than absent:
 `callingSessionEnv` (withheld from every agent), `meteredCredentials` (withheld, and refuse a run),
-`herdrSessionIsOwn`, `pastesQuoted`, `meteredHeadless`.
+`herdrSessionIsOwn`, `meteredHeadless`.
 
 A capability added to `HarnessSpec` as optional fails to compile until every harness gives it or
 says why not. A new per-harness table should be a `Record<Harness, X | Absent>` for the same
