@@ -401,3 +401,34 @@ Round 3 verification passed: **1,429 tests, 2 skipped, 0 failures, 4,908 asserti
 The receipt suite passed 21 focused tests, including unrelated corruption, saturation, heavy
 sibling traffic, split-marker recovery and protected-file damage. No additional paid live
 evaluations were run for this round.
+
+## Round 4 follow-up review
+
+Unmarked transcripts now use streaming marker discovery. Bounded metadata retains the inode,
+read offset, row start and a short marker overlap through active-cursor eviction. Unrelated row
+contents are skipped without buffering or parsing them. A complete row containing the raw
+marker is reread within the existing row-size bound and parsed; only confirmed native acceptance
+protects the file. A raw marker in tool output or a sidechain cannot confirm delivery. Known and
+confirmed files retain their byte, ancestry and corruption checks.
+
+Read work accumulates across discovery passes. The observer pauses at an 8 MiB threshold even
+when work remains queued; a bounded marker-row reread can exceed that threshold before the
+pause. Discovery rescans compare saved progress rather than restart at baseline offsets. This
+prevents eviction from repeatedly rebuilding the same large partial rows and preserves a marker
+after an unrelated row larger than one read chunk.
+
+The two T1 regressions failed before the fix: ten unmarked 2 MiB rows produced zero pauses in
+one second, and receipt after a 400 KiB row under 300-sibling traffic was not found within three
+seconds. The updated receipt suite passes 29 tests, including marker overlap across chunks,
+false marker hints, newline boundaries and same-chunk protected receipt.
+
+The reviewer's original host probes also pass: 12 tests, with the 10 × 2 MB delayed-receipt case
+using **51 ms process CPU**, **20 pauses**, and receipt at **1,044 ms** wall time. The deep-marker
+case received its result in **286 ms**. These are local measurements, not latency guarantees.
+Evidence: `/private/tmp/awf-021-round4-t1-red.log` and
+`/private/tmp/awf-021-round4-original-probes-unsandboxed.log`.
+
+Final verification: `bun test` — **1,437 pass, 2 skip, 0 fail**, 4,919 assertions;
+`bun run check` — format, lint, TypeScript and package boundaries pass. The empty-file churn
+fixture still introduces 300 distinct candidates over repeated observer pauses, in batches of
+ten, avoiding a test timeout caused by hundreds of sequential filesystem scans.

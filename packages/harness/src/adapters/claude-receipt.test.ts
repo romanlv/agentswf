@@ -187,9 +187,11 @@ test("empty transcript churn stays bounded without failing our receipt", async (
         received = true;
       },
       async () => {
-        if (++generation > 340) return false;
-        if (generation <= 300) await writeFile(join(directory, `${generation}.jsonl`), "");
-        if (generation === 301)
+        if (++generation > 70) return false;
+        if (generation <= 30)
+          for (let index = 0; index < 10; index++)
+            await writeFile(join(directory, `${generation}-${index}.jsonl`), "");
+        if (generation === 31)
           await writeFile(
             join(directory, "ours.jsonl"),
             `${JSON.stringify(user())}\n${JSON.stringify(assistant("input"))}\n`,
@@ -501,4 +503,145 @@ test("a marker-bearing unknown transcript stays protected during sibling churn",
     controller.abort();
     await rm(home, { recursive: true, force: true });
   }
+});
+
+test("large unmarked rows reach polling pauses without consuming a CPU core", async () => {
+  const home = await mkdtemp(join(tmpdir(), "awf-receipt-"));
+  const directory = join(home, "projects", "-probe");
+  await mkdir(directory, { recursive: true });
+  const controller = new AbortController();
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const receipt = await prepareClaudeReceipt("/probe", marker, home);
+    const unrelated = `${JSON.stringify({ text: "x".repeat(2 * 1024 * 1024) })}\n`;
+    for (let i = 0; i < 10; i++) await writeFile(join(directory, `sibling-${i}.jsonl`), unrelated);
+    let pauses = 0;
+    let accepted = false;
+    timeout = setTimeout(() => controller.abort(), 1000);
+    const before = process.cpuUsage();
+    await receipt.watch(
+      controller.signal,
+      () => {
+        accepted = true;
+      },
+      () => {},
+      async () => {
+        pauses += 1;
+        await Bun.sleep(50);
+        return true;
+      },
+    );
+    const cpu = process.cpuUsage(before);
+    expect(accepted).toBe(false);
+    expect(pauses).toBeGreaterThanOrEqual(3);
+    expect((cpu.user + cpu.system) / 1000).toBeLessThan(700);
+  } finally {
+    clearTimeout(timeout);
+    controller.abort();
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
+test("a receipt beyond one read chunk survives more than256 large siblings", async () => {
+  const home = await mkdtemp(join(tmpdir(), "awf-receipt-"));
+  const directory = join(home, "projects", "-probe");
+  await mkdir(directory, { recursive: true });
+  const controller = new AbortController();
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const receipt = await prepareClaudeReceipt("/probe", marker, home);
+    const unrelated = `${JSON.stringify({ text: "x".repeat(400 * 1024) })}\n`;
+    for (let i = 0; i < 300; i++) await writeFile(join(directory, `sibling-${i}.jsonl`), unrelated);
+    await writeFile(
+      join(directory, "zz-ours.jsonl"),
+      `${unrelated}${JSON.stringify(user())}\n${JSON.stringify(assistant("input"))}\n`,
+    );
+    let received = false;
+    timeout = setTimeout(() => controller.abort(), 3000);
+    await receipt.watch(
+      controller.signal,
+      () => {},
+      () => {
+        received = true;
+      },
+      async () => {
+        await Bun.sleep(10);
+        return true;
+      },
+    );
+    expect(received).toBe(true);
+  } finally {
+    clearTimeout(timeout);
+    controller.abort();
+    await rm(home, { recursive: true, force: true });
+  }
+}, 5000);
+
+async function scannedReceipt(contents: string) {
+  const home = await mkdtemp(join(tmpdir(), "awf-receipt-scanner-"));
+  const directory = join(home, "projects", "-probe");
+  await mkdir(directory, { recursive: true });
+  const controller = new AbortController();
+  try {
+    const receipt = await prepareClaudeReceipt("/probe", marker, home);
+    await writeFile(join(directory, "native.jsonl"), contents);
+    let accepted = false;
+    let received = false;
+    await receipt.watch(
+      controller.signal,
+      () => {
+        accepted = true;
+      },
+      () => {
+        received = true;
+      },
+      async () => false,
+    );
+    return { accepted, received };
+  } finally {
+    controller.abort();
+    await rm(home, { recursive: true, force: true });
+  }
+}
+
+test("the native receipt marker may cross a filesystem read boundary", async () => {
+  const row = { padding: "", ...user() };
+  const prefix = JSON.stringify(row).indexOf(marker);
+  row.padding = "x".repeat(256 * 1024 - prefix - 8);
+  expect(JSON.stringify(row).indexOf(marker)).toBe(256 * 1024 - 8);
+  expect(
+    await scannedReceipt(`${JSON.stringify(row)}\n${JSON.stringify(assistant("input"))}\n`),
+  ).toEqual({ accepted: true, received: true });
+});
+
+test.each([
+  { type: "user", uuid: "input", message: { content: [{ type: "tool_result", content: marker }] } },
+  { ...user(), isSidechain: true },
+  {
+    type: "assistant",
+    uuid: "input",
+    message: { role: "assistant", model: "claude", content: marker },
+  },
+])("a raw marker in a non-input native row is not delivery evidence (%j)", async (row) => {
+  expect(
+    await scannedReceipt(`${JSON.stringify(row)}\n${JSON.stringify(assistant("input"))}\n`),
+  ).toEqual({ accepted: false, received: false });
+});
+
+test("marker fragments on separate native rows cannot establish delivery", async () => {
+  const first = { type: "user", uuid: "input", message: { content: marker.slice(0, 8) } };
+  const second = { type: "user", uuid: "other", message: { content: marker.slice(8) } };
+  expect(
+    await scannedReceipt(
+      `${JSON.stringify(first)}\n${JSON.stringify(second)}\n${JSON.stringify(assistant("input"))}\n`,
+    ),
+  ).toEqual({ accepted: false, received: false });
+});
+
+test("a400KiB marked input is validated before the assistant in its final read chunk", async () => {
+  const input = user();
+  input.message.content += "x".repeat(400 * 1024);
+  expect(
+    await scannedReceipt(`${JSON.stringify(input)}\n${JSON.stringify(assistant("input"))}\n`),
+  ).toEqual({ accepted: true, received: true });
 });

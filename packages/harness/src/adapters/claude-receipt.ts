@@ -78,14 +78,40 @@ export function createClaudeReceiptReducer(marker: string) {
   };
 }
 
+class ReceiptCapacityError extends Error {}
+
 type Cursor = {
   inode: number;
   offset: number;
+  rowStart: number;
+  tail: Buffer;
+  matched: boolean;
   bytes: number;
   protected: boolean;
   partial: Buffer;
-  reducer: ReturnType<typeof createClaudeReceiptReducer>;
+  reducer?: ReturnType<typeof createClaudeReceiptReducer>;
 };
+
+function* markerRows(cursor: Cursor, data: Buffer, start: number, marker: Buffer) {
+  let position = 0;
+  while (position < data.length) {
+    const newline = data.indexOf(10, position);
+    const end = newline < 0 ? data.length : newline;
+    if (!cursor.matched) {
+      const search = Buffer.concat([cursor.tail, data.subarray(position, end)]);
+      cursor.matched = search.includes(marker);
+      cursor.tail = Buffer.from(search.subarray(Math.max(0, search.length - marker.length + 1)));
+    }
+    if (newline < 0) return;
+    const rowEnd = start + newline;
+    if (cursor.matched && rowEnd - cursor.rowStart <= MAX_BYTES)
+      yield { offset: cursor.rowStart, length: rowEnd - cursor.rowStart };
+    cursor.rowStart = rowEnd + 1;
+    cursor.tail = Buffer.alloc(0);
+    cursor.matched = false;
+    position = newline + 1;
+  }
+}
 
 /** Historical names are discovery metadata, not live receipt cursors. */
 export async function prepareClaudeReceipt(
@@ -97,8 +123,12 @@ export async function prepareClaudeReceipt(
   options.signal?.throwIfAborted();
   const directory = await claudeProjectDirectory(cwd, home);
   const known = options.sessionRef ? `${options.sessionRef}.jsonl` : undefined;
+  const markerBytes = Buffer.from(marker);
   const cursors = new Map<string, Cursor>();
+  const progress = new Map<string, Cursor>();
   const baseline = new Map<string, { inode: number; offset: number } | undefined>();
+  let discoveryNameBytes = 0;
+  let newNames = 0;
   const relevant = (name: string) => !known || name === known || !baseline.has(name);
   const fileNames = async function* () {
     const entries = await opendir(directory).catch((error: unknown) => {
@@ -111,28 +141,32 @@ export async function prepareClaudeReceipt(
     }
   };
   const cursorFor = (name: string, inode: number, offset: number) => {
-    if (cursors.size >= MAX_FILES) {
-      const discard = [...cursors].find(([, cursor]) => !cursor.protected)?.[0];
-      if (discard === undefined)
-        throw new Error("Claude protected receipt files exceed their bound");
-      cursors.delete(discard);
+    if (!baseline.has(name) && !progress.has(name)) {
+      discoveryNameBytes += Buffer.byteLength(name);
+      if (
+        baseline.size + ++newNames > MAX_BASELINE_FILES ||
+        discoveryNameBytes > MAX_BASELINE_NAME_BYTES
+      )
+        throw new ReceiptCapacityError("Claude receipt discovery history exceeds its bound");
     }
-    const cursor = {
+    const cursor: Cursor = {
       inode,
       offset,
+      rowStart: offset,
+      tail: Buffer.alloc(0),
+      matched: false,
       bytes: 0,
       protected: name === known,
       partial: Buffer.alloc(0),
-      reducer: createClaudeReceiptReducer(marker),
+      ...(name === known ? { reducer: createClaudeReceiptReducer(marker) } : {}),
     };
-    cursors.set(name, cursor);
+    progress.set(name, cursor);
     return cursor;
   };
-  let baselineNameBytes = 0;
   for await (const name of fileNames()) {
     options.signal?.throwIfAborted();
-    baselineNameBytes += Buffer.byteLength(name);
-    if (baseline.size >= MAX_BASELINE_FILES || baselineNameBytes > MAX_BASELINE_NAME_BYTES)
+    discoveryNameBytes += Buffer.byteLength(name);
+    if (baseline.size >= MAX_BASELINE_FILES || discoveryNameBytes > MAX_BASELINE_NAME_BYTES)
       throw new Error("Claude receipt discovery baseline exceeds its bound");
     baseline.set(name, undefined);
     if (known && name !== known) continue;
@@ -146,7 +180,7 @@ export async function prepareClaudeReceipt(
     try {
       const stat = await file.stat();
       baseline.set(name, { inode: stat.ino, offset: stat.size });
-      if (name === known) cursorFor(name, stat.ino, stat.size);
+      if (name === known) cursors.set(name, cursorFor(name, stat.ino, stat.size));
     } catch (error) {
       if (name === known) throw error;
     } finally {
@@ -163,12 +197,13 @@ export async function prepareClaudeReceipt(
       deadline: () => number = () => Number.POSITIVE_INFINITY,
     ) {
       let reportedAcceptance = false;
+      let workBytes = 0;
       let watcher: FSWatcher | undefined;
       let watcherFailure: Error | undefined;
       let rescanRequested = false;
       let scan: AsyncGenerator<string> | undefined;
       const protectedFile = (name: string) =>
-        name === known || cursors.get(name)?.protected === true;
+        name === known || progress.get(name)?.protected === true;
       const dirty = new Set(cursors.keys());
       const enqueue = (name: string) => {
         if (!name.endsWith(".jsonl") || !relevant(name) || dirty.has(name)) return;
@@ -179,6 +214,41 @@ export async function prepareClaudeReceipt(
           dirty.delete(discard);
         }
         dirty.add(name);
+      };
+      const track = (name: string, cursor: Cursor) => {
+        if (!cursors.has(name) && cursors.size >= MAX_FILES) {
+          const discard = [...cursors].find(([, entry]) => !entry.protected)?.[0];
+          if (discard === undefined)
+            throw new ReceiptCapacityError("Claude protected receipt files exceed their bound");
+          cursors.delete(discard);
+          rescanRequested = true;
+        }
+        cursors.set(name, cursor);
+      };
+      const protectedRows = (cursor: Cursor, data: Buffer): boolean => {
+        if (cursor.bytes + data.length > MAX_BYTES)
+          throw new Error("Claude receipt read exceeds its bound");
+        cursor.bytes += data.length;
+        cursor.partial = Buffer.concat([cursor.partial, data]);
+        let newline = cursor.partial.indexOf(10);
+        while (newline >= 0) {
+          const line = cursor.partial.subarray(0, newline).toString("utf8");
+          cursor.partial = cursor.partial.subarray(newline + 1);
+          const receipt = cursor.reducer!.push(parseRow(line));
+          if (receipt.accepted && !reportedAcceptance) {
+            reportedAcceptance = true;
+            onAccepted();
+          }
+          if (receipt.received) {
+            onReceived();
+            return true;
+          }
+          newline = cursor.partial.indexOf(10);
+        }
+        cursor.partial = Buffer.from(cursor.partial);
+        if ([...cursors.values()].reduce((sum, entry) => sum + entry.partial.length, 0) > MAX_BYTES)
+          throw new Error("Claude receipt buffered data exceeds its bound");
+        return false;
       };
       try {
         while (!signal.aborted && Date.now() < deadline()) {
@@ -197,7 +267,6 @@ export async function prepareClaudeReceipt(
             }
           }
           if (watcherFailure) throw watcherFailure;
-          // Event overflow resumes discovery fairly instead of discarding an unseen receipt.
           if (!scan && rescanRequested && dirty.size < SCAN_BATCH) {
             scan = fileNames();
             rescanRequested = false;
@@ -212,7 +281,7 @@ export async function prepareClaudeReceipt(
               }
               const name = next.value;
               if (!relevant(name)) continue;
-              const before = baseline.get(name);
+              const before = progress.get(name) ?? baseline.get(name);
               if (!before || name === known) {
                 enqueue(name);
                 continue;
@@ -235,18 +304,16 @@ export async function prepareClaudeReceipt(
               }
             }
           }
-          for (const [name, cursor] of cursors) {
+          for (const [name, cursor] of cursors)
             if (cursor.protected || (!scan && dirty.size < MAX_FILES)) enqueue(name);
-          }
           const pending = [...dirty].sort(
             (a, b) => Number(protectedFile(b)) - Number(protectedFile(a)),
           );
           dirty.clear();
-          let passBytes = 0;
           const again: string[] = [];
           for (const name of pending) {
             if (signal.aborted || Date.now() >= deadline()) return;
-            if (passBytes >= MAX_BYTES) {
+            if (workBytes >= MAX_BYTES) {
               enqueue(name);
               continue;
             }
@@ -261,71 +328,61 @@ export async function prepareClaudeReceipt(
             if (!file) continue;
             try {
               const stat = await file.stat();
-              let cursor = cursors.get(name);
               const before = baseline.get(name);
-              cursor ??= cursorFor(name, before?.inode ?? stat.ino, before?.offset ?? 0);
+              let cursor =
+                progress.get(name) ??
+                cursorFor(name, before?.inode ?? stat.ino, before?.offset ?? 0);
               if (cursor.inode !== stat.ino || stat.size < cursor.offset) {
                 if (cursor.protected)
                   throw new Error("Claude receipt transcript was replaced or truncated");
-                cursors.delete(name);
                 cursor = cursorFor(name, stat.ino, 0);
               }
+              track(name, cursor);
               const size = Math.min(CHUNK_BYTES, stat.size - cursor.offset);
               if (size === 0) continue;
-              if (cursor.bytes + size > MAX_BYTES) {
-                if (cursor.protected) throw new Error("Claude receipt read exceeds its bound");
-                cursors.delete(name);
-                continue;
-              }
               const buffer = Buffer.alloc(size);
-              const { bytesRead } = await file.read(buffer, 0, size, cursor.offset);
+              const start = cursor.offset;
+              const { bytesRead } = await file.read(buffer, 0, size, start);
               if (signal.aborted) return;
-              passBytes += bytesRead;
-              cursor.bytes += bytesRead;
+              workBytes += bytesRead;
               cursor.offset += bytesRead;
               if (cursor.offset < stat.size) again.push(name);
-              cursor.partial = Buffer.concat([cursor.partial, buffer.subarray(0, bytesRead)]);
-              let newline = cursor.partial.indexOf(10);
-              while (newline >= 0) {
-                const line = cursor.partial.subarray(0, newline).toString("utf8");
-                cursor.partial = cursor.partial.subarray(newline + 1);
-                const receipt = cursor.reducer.push(parseRow(line));
-                if (receipt.accepted) {
+              const data = buffer.subarray(0, bytesRead);
+              if (cursor.protected) {
+                if (protectedRows(cursor, data)) return;
+              } else {
+                for (const candidate of markerRows(cursor, data, start, markerBytes)) {
+                  const row = Buffer.alloc(candidate.length);
+                  const read = await file.read(row, 0, candidate.length, candidate.offset);
+                  workBytes += read.bytesRead;
+                  if (signal.aborted) return;
+                  if (read.bytesRead !== candidate.length) continue;
+                  const reducer = createClaudeReceiptReducer(marker);
+                  const receipt = reducer.push(parseRow(row.toString("utf8")));
+                  if (!receipt.accepted) continue;
                   cursor.protected = true;
+                  cursor.reducer = reducer;
+                  cursor.bytes = candidate.length;
+                  cursor.tail = Buffer.alloc(0);
                   if (!reportedAcceptance) {
                     reportedAcceptance = true;
                     onAccepted();
                   }
-                }
-                if (receipt.received) {
-                  onReceived();
-                  return;
-                }
-                newline = cursor.partial.indexOf(10);
-              }
-              cursor.partial = Buffer.from(cursor.partial);
-              let partialBytes = [...cursors.values()].reduce(
-                (sum, entry) => sum + entry.partial.length,
-                0,
-              );
-              for (const [candidate, entry] of cursors) {
-                if (partialBytes <= MAX_BYTES) break;
-                if (!entry.protected) {
-                  cursors.delete(candidate);
-                  partialBytes -= entry.partial.length;
+                  const after = candidate.offset + candidate.length + 1 - start;
+                  if (protectedRows(cursor, data.subarray(after))) return;
+                  break;
                 }
               }
-              if (partialBytes > MAX_BYTES)
-                throw new Error("Claude receipt buffered data exceeds its bound");
             } catch (error) {
-              if (protectedFile(name)) throw error;
+              if (protectedFile(name) || error instanceof ReceiptCapacityError) throw error;
               cursors.delete(name);
             } finally {
               await file.close();
             }
           }
           for (const name of again) enqueue(name);
-          if (scan || dirty.size > 0) continue;
+          if (workBytes < MAX_BYTES && (scan || dirty.size > 0)) continue;
+          workBytes = 0;
           if (!(await pause(signal))) return;
         }
       } finally {
