@@ -1390,6 +1390,39 @@ describe("awf run's stages", () => {
     const noStart = await awfRun(cwd, ["--values", "good.json", "flow.js"]);
     expect(noStart.exitCode).toBe(2);
     expect(noStart.stderr).toContain("--values goes with --from-stage");
+    const twice = ["--from-stage", "qa", "--values", "good.json", "--values", "good.json"];
+    expect((await awfRun(cwd, [...twice, "flow.js"])).stderr).toContain("--values given twice");
+  });
+
+  test("every value missing is named at once, a schema with branches a line each", async () => {
+    const cwd = await projectWith(
+      executableModule(
+        "return null;",
+        `const doc = await workflow.stage("doc", { result: { anyOf: [
+           { type: "object", properties: { path: { type: "string" } }, required: ["path"] },
+           { type: "null" } ] } }, async () => null);
+         await workflow.stage("mr", { result: { type: "integer", minimum: 1 } }, async () => 1);
+         await workflow.stage("qa", async () => {});
+         return doc;`,
+      ),
+    );
+    const stopped = await awfRun(cwd, ["--id", "r1", "--from-stage", "qa", "flow.js"]);
+    expect(stopped.exitCode).toBe(3);
+    expect(stopped.record.needs.map((need: { stage: string }) => need.stage)).toEqual([
+      "doc",
+      "mr",
+    ]);
+    expect(stopped.stderr).toContain(
+      [
+        "  needs    doc, one of:",
+        "             {path: string}",
+        "             null",
+        "           mr: integer ≥ 1",
+        "  go on    awf run flow.js --continue r1 --from-stage qa --values {file}",
+      ].join("\n"),
+    );
+    // Nothing is recorded for a value no one gave.
+    expect(existsSync(join(runDir(cwd), "stages"))).toBe(false);
   });
 
   test("a continue lists what is recorded, and a completed run is redone only from a stage", async () => {

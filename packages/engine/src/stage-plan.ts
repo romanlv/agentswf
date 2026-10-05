@@ -1,13 +1,13 @@
-import type { StageNeeds, StageRecord } from "@agentswf/contract/records";
-import { type JsonSchema, validate } from "@agentswf/contract/schema";
+import type { StageNeed, StageRecord } from "@agentswf/contract/records";
+import { type JsonSchema, type SchemaError, validate } from "@agentswf/contract/schema";
 import type { JsonValue } from "@agentswf/contract/workflow";
 
 /**
  * What a continue does with a stage it enters: until its start point, each is reused from its
  * record, provided, or stops the attempt; from the start point on, every stage runs. The start
  * point is `--from-stage`, or else the first stage entered with no succeeded record. Before a
- * `--from-stage`, a stage whose record can't be reused takes its value from `--values`, and one
- * that returns nothing is passed. Pure: the records, the values, the result and the version come
+ * `--from-stage`, a stage whose record can't be reused takes its value from `--values`, one that
+ * returns nothing is passed, and one with nothing recorded needs a value. Pure: the records, the values, the result and the version come
  * in, a decision goes out.
  */
 type StagePlanDecision =
@@ -16,8 +16,9 @@ type StagePlanDecision =
   | { kind: "provide"; value: JsonValue | undefined }
   /** `start` on the stage that is the start point, when the records it outdates are moved. */
   | { kind: "run"; start: boolean }
-  /** `needs` when `--values` would let the attempt go on. */
-  | { kind: "stop"; reason: string; needs?: StageNeeds };
+  | { kind: "stop"; reason: string }
+  /** Nothing recorded, and no value given that fits: `--values` lets the attempt go on. */
+  | { kind: "need"; reason: string; need: StageNeed };
 
 export type StagePlanState = {
   records: ReadonlyMap<string, StageRecord>;
@@ -52,29 +53,28 @@ export function planStage(
   if (state.fromStage === undefined) {
     return stale === undefined ? { kind: "run", start: true } : { kind: "stop", reason: stale };
   }
-  if (result === undefined) return { kind: "provide", value: undefined };
-  const needs = { stage, schema: result };
+  // A record there that failed or went stale is redone from its stage, as on any continue, unless
+  // a value given replaces it.
+  const redo = record && {
+    kind: "stop" as const,
+    reason: stale ?? `${stage} did not succeed in attempt ${record.attempt}`,
+  };
+  if (result === undefined) return redo ?? { kind: "provide", value: undefined };
+  const need = { stage, schema: result };
   const given = state.values?.get(stage);
-  if (given === undefined) {
-    const missing =
-      stale ??
-      (record
-        ? `${stage} did not succeed in attempt ${record.attempt}`
-        : `nothing recorded for ${stage}${unreached(state, stage)}`);
-    return { kind: "stop", reason: missing, needs };
+  if (given !== undefined) {
+    const errors = validate(result, given);
+    if (errors.length === 0) return { kind: "provide", value: given };
+    const misfit = problems(`${stage}'s value in --values does not fit its result:`, errors);
+    return redo ? { kind: "stop", reason: misfit } : { kind: "need", reason: misfit, need };
   }
-  const errors = validate(result, given);
-  if (errors.length > 0) {
-    return {
-      kind: "stop",
-      reason: [
-        `${stage}'s value in --values does not fit its result:`,
-        ...errors.map((error) => `  ${error.path}: ${error.message}`),
-      ].join("\n"),
-      needs,
-    };
-  }
-  return { kind: "provide", value: given };
+  return (
+    redo ?? {
+      kind: "need",
+      reason: `nothing recorded for ${stage}${unreached(state, stage)}`,
+      need,
+    }
+  );
 }
 
 /**
@@ -101,40 +101,14 @@ function unreusable(
     return `${stage}'s record holds no value, and the stage's result now expects one`;
   }
   const errors = validate(result, record.value);
-  if (errors.length === 0) return undefined;
-  return [
-    `${stage}'s record no longer fits its result schema:`,
-    ...errors.map((error) => `  ${error.path}: ${error.message}`),
-  ].join("\n");
+  return errors.length === 0
+    ? undefined
+    : problems(`${stage}'s record no longer fits its result schema:`, errors);
 }
 
-/**
- * A value its schema accepts, standing in for one not given while an attempt looks on for the
- * others it needs: the first branch, the least of each bound, required fields only.
- */
-export function placeholderOf(schema: JsonSchema): JsonValue {
-  if ("anyOf" in schema) return placeholderOf(schema.anyOf[0]!);
-  if (!("type" in schema)) return schema.enum[0]!;
-  switch (schema.type) {
-    case "string":
-      return schema.const ?? schema.enum?.[0] ?? "x".repeat(schema.minLength ?? 0);
-    case "number":
-    case "integer":
-      return schema.const ?? schema.minimum ?? schema.maximum ?? 0;
-    case "boolean":
-      return schema.const ?? false;
-    case "null":
-      return null;
-    case "array":
-      return Array.from({ length: schema.minItems ?? 0 }, () => placeholderOf(schema.items));
-    case "object":
-      return Object.fromEntries(
-        (schema.required ?? []).flatMap((key) => {
-          const property = schema.properties[key];
-          return property ? [[key, placeholderOf(property)]] : [];
-        }),
-      );
-  }
+/** A value's problems under what they are problems of, a line each. */
+function problems(heading: string, errors: readonly SchemaError[]): string {
+  return [heading, ...errors.map((error) => `  ${error.path}: ${error.message}`)].join("\n");
 }
 
 /** Recorded stages this attempt hasn't reached, which a rename in the code would leave behind. */

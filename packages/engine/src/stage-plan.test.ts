@@ -97,23 +97,22 @@ describe("the stage plan, before the start point", () => {
 });
 
 describe("the stage plan, before a --from-stage, for a stage with no record to reuse", () => {
-  test("with no value given, it stops for one, naming recorded stages not reached", () => {
+  test("with nothing recorded and no value given, it needs one, naming recorded stages not reached", () => {
     const records = [record("doc-review"), record("impl")];
     expect(
       planStage(state(records, { fromStage: "qa", entered: ["doc-review"] }), "implement", NUMBER),
     ).toEqual({
-      kind: "stop",
+      kind: "need",
       reason: "nothing recorded for implement (recorded and not reached: impl)",
-      needs: { stage: "implement", schema: NUMBER },
+      need: { stage: "implement", schema: NUMBER },
     });
   });
 
-  test("a record that did not succeed, or can't be reused, says so", () => {
+  test("a record that did not succeed, or can't be reused, stops to be redone, saying so", () => {
     const failed = record("implement", { outcome: "failed", attempt: 2 });
-    expect(planStage(state([failed], { fromStage: "qa" }), "implement", NUMBER)).toMatchObject({
+    expect(planStage(state([failed], { fromStage: "qa" }), "implement", NUMBER)).toEqual({
       kind: "stop",
       reason: "implement did not succeed in attempt 2",
-      needs: { stage: "implement" },
     });
     const old = record("implement", { value: 1, workflowVersion: "1.0.0" });
     expect(
@@ -129,13 +128,27 @@ describe("the stage plan, before a --from-stage, for a stage with no record to r
     expect(planStage(given, "implement", NUMBER)).toEqual({ kind: "provide", value: 7 });
   });
 
-  test("a value given that doesn't fit stops, with why and what it needs", () => {
-    const given = state([], { fromStage: "qa", values: values({ implement: "seven" }) });
-    expect(planStage(given, "implement", NUMBER)).toEqual({
+  test("a value given that doesn't fit still needs one, with why; over a record, it stops", () => {
+    const reason =
+      'implement\'s value in --values does not fit its result:\n  value: expected an integer; got a string "seven"';
+    const given = { fromStage: "qa", values: values({ implement: "seven" }) };
+    expect(planStage(state([], given), "implement", NUMBER)).toEqual({
+      kind: "need",
+      reason,
+      need: { stage: "implement", schema: NUMBER },
+    });
+    const failed = record("implement", { outcome: "failed" });
+    expect(planStage(state([failed], given), "implement", NUMBER)).toEqual({
       kind: "stop",
-      reason:
-        'implement\'s value in --values does not fit its result:\n  value: expected an integer; got a string "seven"',
-      needs: { stage: "implement", schema: NUMBER },
+      reason,
+    });
+  });
+
+  test("a stage that returns nothing is passed only with nothing recorded: a failed one is redone", () => {
+    const failed = record("notify", { outcome: "failed" });
+    expect(planStage(state([failed], { fromStage: "qa" }), "notify", undefined)).toEqual({
+      kind: "stop",
+      reason: "notify did not succeed in attempt 1",
     });
   });
 

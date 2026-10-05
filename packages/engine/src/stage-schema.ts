@@ -1,4 +1,5 @@
 import type { JsonSchema } from "@agentswf/contract/schema";
+import type { JsonValue } from "@agentswf/contract/workflow";
 
 /**
  * A schema as a person reads a type: `{iid: integer, url: string}`. A top-level `anyOf` is a line
@@ -39,5 +40,49 @@ function typeText(schema: JsonSchema): string {
       );
       return `{${fields.join(", ")}}`;
     }
+  }
+}
+
+/**
+ * A value its schema accepts, standing in for one not given while an attempt looks on for the
+ * others it needs: the first branch, the least of each bound, required fields only.
+ */
+export function placeholderOf(schema: JsonSchema): JsonValue {
+  if ("anyOf" in schema) return placeholderOf(schema.anyOf[0]!);
+  if (!("type" in schema)) return schema.enum[0]!;
+  switch (schema.type) {
+    case "string": {
+      const least = schema.minLength ?? 0;
+      return (
+        schema.const ??
+        schema.enum?.find((value) => value.length >= least) ??
+        schema.enum?.[0] ??
+        "x".repeat(least)
+      );
+    }
+    case "number":
+      return schema.const ?? schema.minimum ?? schema.maximum ?? 0;
+    case "integer":
+      return (
+        schema.const ??
+        (schema.minimum !== undefined
+          ? Math.ceil(schema.minimum)
+          : schema.maximum !== undefined
+            ? Math.floor(schema.maximum)
+            : 0)
+      );
+    case "boolean":
+      return schema.const ?? false;
+    case "null":
+      return null;
+    case "array":
+      return Array.from({ length: schema.minItems ?? 0 }, () => placeholderOf(schema.items));
+    case "object":
+      return Object.fromEntries(
+        (schema.required ?? []).flatMap((key) => {
+          const property = schema.properties[key];
+          return [[key, property ? placeholderOf(property) : null]];
+        }),
+      );
   }
 }

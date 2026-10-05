@@ -4,7 +4,7 @@ import { join } from "node:path";
 import {
   type SandboxRecord,
   STAGE_RECORD_VERSION,
-  type StageNeeds,
+  type StageNeed,
   type StageRecord,
 } from "@agentswf/contract/records";
 import {
@@ -107,7 +107,7 @@ export type TestRun<Result> = {
    */
   stages: StageRecord[];
   /** How the attempt stopped, apart from a failure, and the value it stopped for; absent when it didn't. */
-  stopped?: { reason: string; stage?: string; needs?: readonly StageNeeds[] };
+  stopped?: { reason: string; stage?: string; needs?: readonly StageNeed[] };
 };
 
 /**

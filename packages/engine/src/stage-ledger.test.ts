@@ -234,6 +234,78 @@ test("a stage with no value hands back a stand-in, and the start point stops for
   ]);
 });
 
+test("a stage provided is open while its record is written: none enters beside it", async () => {
+  const ledger = new StageLedger({
+    runDir: runDirs.tempRunDir(),
+    attempt: 1,
+    turns: () => [],
+    fromStage: "qa",
+    values: new Map([
+      ["plan", { path: "a" }],
+      ["notes", { path: "b" }],
+    ]),
+  });
+  const entry = { result: PATH, summary: () => undefined };
+  const [first, second] = await Promise.allSettled([
+    ledger.enter("plan", entry),
+    ledger.enter("notes", entry),
+  ]);
+  expect(first?.status).toBe("fulfilled");
+  expect(second).toMatchObject({ status: "rejected" });
+  expect(String((second as PromiseRejectedResult).reason)).toContain("while stage plan is open");
+});
+
+test("looking on, a caught stop doesn't end the look: every value missing is still named", async () => {
+  const ledger = new StageLedger({
+    runDir: runDirs.tempRunDir(),
+    attempt: 1,
+    turns: () => [],
+    fromStage: "qa",
+  });
+  const entry = { result: PATH, summary: () => undefined };
+  const plan = await ledger.enter("plan", entry);
+  if (plan.kind === "reuse") plan.release();
+  // A turn refused, its error caught by the workflow, which goes on to the next stage.
+  expect(() => ledger.checkOperation()).toThrow();
+  const notes = await ledger.enter("notes", entry);
+  if (notes.kind === "reuse") notes.release();
+  const stopped = await run(ledger, "qa").catch((error: unknown) => error);
+  expect(stopped).toMatchObject({ needs: [{ stage: "plan" }, { stage: "notes" }] });
+});
+
+test("a value given over a failed record keeps that record in replaced/", async () => {
+  const runDir = runDirs.tempRunDir();
+  const failed = {
+    version: 1 as const,
+    stage: "plan",
+    attempt: 1,
+    outcome: "failed" as const,
+    reason: "broke",
+    started: "2026-10-04T10:00:00Z",
+    ended: "2026-10-04T10:01:00Z",
+    sessions: [],
+  };
+  await mkdir(join(runDir, "stages"), { recursive: true });
+  await writeFile(join(runDir, "stages", "plan.json"), JSON.stringify(failed));
+  const ledger = new StageLedger({
+    runDir,
+    attempt: 2,
+    turns: () => [],
+    records: new Map([["plan", failed]]),
+    fromStage: "qa",
+    values: new Map([["plan", { path: "a" }]]),
+  });
+  const plan = await ledger.enter("plan", { result: PATH, summary: () => undefined });
+  if (plan.kind === "reuse") plan.release();
+  expect((await readStageRecords(runDir)).get("plan")).toMatchObject({
+    attempt: 2,
+    provided: true,
+  });
+  expect(JSON.parse(await Bun.file(join(runDir, "replaced", "plan.1.json")).text())).toEqual(
+    failed,
+  );
+});
+
 test("a reused stage shows the view when its record ended, without its value", async () => {
   const record = {
     version: 1 as const,

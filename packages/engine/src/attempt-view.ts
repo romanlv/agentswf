@@ -1,7 +1,7 @@
 import type {
   AttemptRecord,
   RunAccounting,
-  StageNeeds,
+  StageNeed,
   StageRecord,
 } from "@agentswf/contract/records";
 import type {
@@ -19,7 +19,7 @@ import { messageOf } from "./errors";
 import { ANSI, type Paint, PLAIN } from "./progress-view";
 import type { RunCommand } from "./run-command";
 import type { AttemptRefusal } from "./runs";
-import { schemaLines } from "./schema-text";
+import { schemaLines } from "./stage-schema";
 import { FromStageUnreached, type WorkflowStopped } from "./stopped";
 
 /**
@@ -110,7 +110,7 @@ function describeEnding(
     /** The recorded stages, a line each, one of which the go-on's `{stage}` needs. */
     choose?: readonly string[];
     /** The stages whose values `--values` gives, and their schemas. */
-    needs?: readonly StageNeeds[];
+    needs?: readonly StageNeed[];
     paint: Paint;
   },
 ): string[] {
@@ -149,7 +149,7 @@ function describeEnding(
  */
 function rows(
   goOn: readonly string[],
-  context: { records: string; report?: string; needs?: readonly StageNeeds[] },
+  context: { records: string; report?: string; needs?: readonly StageNeed[] },
 ): string[] {
   const row = (key: string, value: string) => `  ${key.padEnd(7)}  ${value}`;
   const under = (line: string) => `${" ".repeat(11)}${line}`;

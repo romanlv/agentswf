@@ -338,7 +338,7 @@ export type StageRecord = {
 };
 
 /** A stage a run can't start at a later stage without: its value, which `--values` gives. */
-export type StageNeeds = { stage: string; schema: JsonSchema };
+export type StageNeed = { stage: string; schema: JsonSchema };
 
 export const TURN_RECORD_VERSION = 1 as const;
 
@@ -405,6 +405,6 @@ export type OutputRecord = {
       /** The stage the attempt ended in; absent when it ended between stages. */
       stage?: string;
       /** The stages whose values it stopped for, to start at a later one, in the order reached. */
-      needs?: StageNeeds[];
+      needs?: StageNeed[];
     }
 );

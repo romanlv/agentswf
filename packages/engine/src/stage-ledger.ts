@@ -1,13 +1,14 @@
 import {
   STAGE_RECORD_VERSION,
-  type StageNeeds,
+  type StageNeed,
   type StageRecord,
   type TurnRecord,
 } from "@agentswf/contract/records";
 import type { JsonSchema } from "@agentswf/contract/schema";
 import type { JsonValue, StageOutcome, StageSummary } from "@agentswf/contract/workflow";
-import { replaceStale, stageNameProblem, writeStageRecord } from "./runs";
-import { placeholderOf, planStage } from "./stage-plan";
+import { replaceRecord, replaceStale, stageNameProblem, writeStageRecord } from "./runs";
+import { planStage } from "./stage-plan";
+import { placeholderOf } from "./stage-schema";
 import { primaryFailure, WorkflowStopped } from "./stopped";
 
 /** A stage entered and not yet ended; it ends once, whichever end comes first. */
@@ -39,7 +40,7 @@ export function withoutValue<Stage extends { value?: JsonValue }>(
 }
 
 /** What the ledger needs of a stage's options to enter it. */
-export type StageShape = {
+export type StageEntry = {
   /** Its `result` as JSON Schema; absent for a stage that returns nothing. */
   result?: JsonSchema;
   /** Its one line for a value given, as its `summary` gives it. */
@@ -77,8 +78,11 @@ export class StageLedger {
   /** The stage still open when the attempt ended. */
   #closedOpen: string | undefined;
   /** The values found missing, in order: once there is one, the attempt only looks on. */
-  readonly #missing: { needs: StageNeeds; reason: string }[] = [];
-  /** Stages entered while looking on, which the view leaves out. */
+  readonly #missing: { need: StageNeed; reason: string }[] = [];
+  /**
+   * Stages entered while looking on, apart from `#stages`: the view shows only the first missing,
+   * as where the attempt stopped. Kept so one isn't entered twice.
+   */
   readonly #looked = new Set<string>();
   #needed: WorkflowStopped | undefined;
 
@@ -160,7 +164,7 @@ export class StageLedger {
     if (this.#caught) return this.#caught;
     if (this.#sealed !== undefined) return new WorkflowStopped(reason, stage);
     // Looking on past stand-ins, the workflow's own checks see values no one gave.
-    const needed = this.needed();
+    const needed = this.#stopForNeeded();
     if (needed) return needed;
     this.#stopped ??= new WorkflowStopped(reason, stage);
     return this.#stopped;
@@ -183,8 +187,9 @@ export class StageLedger {
    * that fails the attempt. Reaching the start point, it moves the records it outdates to
    * `replaced/`.
    */
-  async enter(name: string, shape: StageShape): Promise<EnteredStage> {
-    const caught = this.caught();
+  async enter(name: string, entry: StageEntry): Promise<EnteredStage> {
+    // Looking on, a stop caught is the one for the values missing, which ends the attempt anyway.
+    const caught = this.#missing.length > 0 ? undefined : this.caught();
     if (caught) throw caught;
     this.#check(name);
     const at = this.#now().getTime();
@@ -200,61 +205,53 @@ export class StageLedger {
         entered: [...this.#stages.keys()],
       },
       name,
-      shape.result,
+      entry.result,
     );
-    const recorded = this.options.records?.has(name) === true;
-    const wanted = decision.kind === "stop" && decision.needs && !recorded ? decision : undefined;
     if (this.#missing.length > 0) {
-      // Looking on for the other values the start point needs: nothing runs or is recorded, and
-      // anything else ends the attempt with what was found.
+      // Looking on for the other values the start point needs: nothing runs or is recorded on
+      // disk, and anything else ends the attempt with what was found.
       this.#looked.add(name);
-      if (wanted?.needs) {
-        this.#missing.push({ needs: wanted.needs, reason: wanted.reason });
-        return this.#hold(name, placeholderOf(wanted.needs.schema));
+      if (decision.kind === "need") {
+        this.#missing.push({ need: decision.need, reason: decision.reason });
+        return this.#hold(name, placeholderOf(decision.need.schema));
       }
       if (decision.kind === "reuse" || decision.kind === "provide") {
         return this.#hold(name, decision.value);
       }
-      throw this.needed();
+      throw this.#stopForNeeded();
     }
-    if (wanted?.needs) {
-      // A value with nothing recorded: the attempt stops for it, once it has looked on, past a
-      // stand-in shaped by its schema, for the others the start point needs.
-      this.#missing.push({ needs: wanted.needs, reason: wanted.reason });
-      this.#stages.set(name, {
-        stage: name,
-        source: "ran",
-        outcome: "stopped",
-        attempt: this.options.attempt,
-        startedAt: at,
-        endedAt: at,
-      });
-      return this.#hold(name, placeholderOf(wanted.needs.schema));
+    if (decision.kind === "need") {
+      // The attempt stops for it once it has looked on, past a stand-in its schema accepts, for
+      // the other values the start point needs.
+      this.#missing.push({ need: decision.need, reason: decision.reason });
+      this.#stoppedAt(name, at);
+      return this.#hold(name, placeholderOf(decision.need.schema));
     }
     if (decision.kind === "stop") {
-      // A record that failed or went stale is redone from this stage, though `--values` could
-      // replace it too.
-      this.#stopped = new WorkflowStopped(
-        decision.reason,
-        name,
-        true,
-        decision.needs && [decision.needs],
-      );
-      this.#stages.set(name, {
-        stage: name,
-        source: "ran",
-        outcome: "stopped",
-        attempt: this.options.attempt,
-        startedAt: at,
-        endedAt: at,
-      });
+      this.#stopped = new WorkflowStopped(decision.reason, name, true);
+      this.#stoppedAt(name, at);
       throw this.#stopped;
     }
     if (decision.kind === "reuse" || decision.kind === "provide") {
-      const record =
-        decision.kind === "reuse"
-          ? decision.record
-          : await this.#provide(name, decision.value, shape, at);
+      const held = this.#hold(name, decision.value);
+      let record: StageRecord;
+      if (decision.kind === "reuse") record = decision.record;
+      else {
+        const written = this.#provide(name, decision.value, entry, at);
+        // Its failure is the stage's, thrown below.
+        this.#writes.add(
+          written.then(
+            () => undefined,
+            () => undefined,
+          ),
+        );
+        try {
+          record = await written;
+        } catch (error) {
+          held.release();
+          throw error;
+        }
+      }
       this.#reused.add(name);
       const { attempt, summary, provided } = record;
       this.#stages.set(name, {
@@ -268,7 +265,7 @@ export class StageLedger {
         ...(decision.value === undefined ? {} : { value: decision.value }),
         ...(provided ? { provided } : {}),
       });
-      return this.#hold(name, decision.value);
+      return held;
     }
     // Open while the records it outdates are moved, so no other stage enters beside it.
     const stage = this.#opened(name, at);
@@ -286,12 +283,24 @@ export class StageLedger {
     return { kind: "run", stage };
   }
 
+  /** A stage the plan stopped as it was entered: shown stopped, though it ran nothing. */
+  #stoppedAt(name: string, at: number): void {
+    this.#stages.set(name, {
+      stage: name,
+      source: "ran",
+      outcome: "stopped",
+      attempt: this.options.attempt,
+      startedAt: at,
+      endedAt: at,
+    });
+  }
+
   #now(): Date {
     return this.options.now?.() ?? new Date();
   }
 
   /** A stage handed back without running, open until it is, so none is entered beside it. */
-  #hold(name: string, value: JsonValue | undefined): EnteredStage {
+  #hold(name: string, value: JsonValue | undefined): Extract<EnteredStage, { kind: "reuse" }> {
     const held: OpenStage = {
       name,
       succeed: async () => undefined,
@@ -309,42 +318,54 @@ export class StageLedger {
   }
 
   /**
-   * The stop for every value the attempt found missing, the first stage's, in the order reached;
-   * undefined when none was. Its reason is the first's, and any value given that didn't fit.
+   * The stop for every value the attempt found missing, at the first stage's, in the order
+   * reached, which is from now on the attempt's stop; undefined when none was. Its reason is the
+   * first's, and any value given that didn't fit.
    */
-  needed(): WorkflowStopped | undefined {
+  #stopForNeeded(): WorkflowStopped | undefined {
     const [first, ...more] = this.#missing;
     if (!first) return undefined;
-    if (this.#needed) return this.#needed;
-    const given = more.filter(({ needs }) => this.options.values?.has(needs.stage));
-    this.#needed = new WorkflowStopped(
-      [first.reason, ...given.map(({ reason }) => reason)].join("\n"),
-      first.needs.stage,
-      false,
-      this.#missing.map(({ needs }) => needs),
-    );
-    this.#stopped = this.#needed;
+    // Built again as the look finds more: a stop thrown and caught earlier named fewer.
+    if (this.#needed?.needs?.length !== this.#missing.length) {
+      const given = more.filter(({ need }) => this.options.values?.has(need.stage));
+      this.#needed = new WorkflowStopped(
+        [first.reason, ...given.map(({ reason }) => reason)].join("\n"),
+        first.need.stage,
+        false,
+        this.#missing.map(({ need }) => need),
+      );
+      this.#stopped = this.#needed;
+    }
     return this.#needed;
   }
 
   /**
-   * Before a turn, compaction, switch or decision starts: while the attempt looks on for missing
+   * Before a turn, compaction, decision or sandbox starts: while the attempt looks on for missing
    * values, past stand-ins, none may, and the attempt stops with what it found.
    */
   checkOperation(): void {
-    const needed = this.needed();
+    const needed = this.#stopForNeeded();
     if (needed) throw needed;
+  }
+
+  /**
+   * What the attempt ends with, given how its body did: past stand-ins, what it went on to do,
+   * return or throw, isn't its own, and it stops for the values it found missing, unless it was
+   * `interrupted`, cancelled or out of time. Undefined for a body that returned on its own.
+   */
+  settle(failure: unknown, interrupted: boolean): unknown {
+    return (interrupted ? undefined : this.#stopForNeeded()) ?? failure;
   }
 
   /** Records a value given for a stage, or none for one that returns nothing: no turn ran it. */
   async #provide(
     name: string,
     value: JsonValue | undefined,
-    shape: StageShape,
+    entry: StageEntry,
     at: number,
   ): Promise<StageRecord> {
     const time = new Date(at).toISOString();
-    const summary = value === undefined ? undefined : shape.summary(value);
+    const summary = value === undefined ? undefined : entry.summary(value);
     const record: StageRecord = {
       version: STAGE_RECORD_VERSION,
       stage: name,
@@ -360,6 +381,8 @@ export class StageLedger {
       ...(value === undefined ? {} : { value }),
       provided: true,
     };
+    // A record it replaces, one that failed or went stale, is kept as a redone stage's is.
+    if (this.options.records?.has(name)) await replaceRecord(this.options.runDir, name);
     await writeStageRecord(this.options.runDir, record);
     return record;
   }

@@ -1,5 +1,5 @@
 import { constants } from "node:os";
-import type { StageNeeds, StageRecord } from "@agentswf/contract/records";
+import type { StageNeed, StageRecord } from "@agentswf/contract/records";
 import {
   type AbsoluteDeadline,
   type AttemptOutcome,
@@ -37,7 +37,7 @@ export type AttemptEnd = {
    */
   choose?: readonly StageRecord[];
   /** The stages whose values `--values` gives, to start at a later one. */
-  needs?: readonly StageNeeds[];
+  needs?: readonly StageNeed[];
 };
 
 /** What a started run came to: the result it returned, or what it threw. */

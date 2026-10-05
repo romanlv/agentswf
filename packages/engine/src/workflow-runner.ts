@@ -435,12 +435,13 @@ export async function startWorkflow<Args extends JsonValue, Result extends JsonV
       failed = true;
       failure = error;
     }
-    // Past stand-ins, what the body went on to do, a return or a throw, isn't its own: the attempt
-    // stops for the values it needs, unless it was cancelled or ran out of time.
-    const needed = stages.needed();
-    if (needed && !signal.aborted && !(failure instanceof DeadlineExceededError)) {
+    const ending = stages.settle(
+      failed ? failure : undefined,
+      signal.aborted || failure instanceof DeadlineExceededError,
+    );
+    if (ending !== undefined) {
       failed = true;
-      failure = needed;
+      failure = ending;
     }
     bodyEnded = true;
     // What the body left running enters no stage; one left open is failed once its turns settle.
@@ -671,6 +672,11 @@ class WorkflowOwner {
       sandboxes: {
         open: (spec) => {
           if (this.#closed) return Promise.reject(new Error("workflow context is closed"));
+          try {
+            this.options.stages.checkOperation();
+          } catch (error) {
+            return Promise.reject(error);
+          }
           return this.track(options.sandboxes.open(spec));
         },
       },
@@ -1252,6 +1258,7 @@ class WorkflowOwner {
     if (this.#closed) throw new Error("workflow context is closed");
     const scope = scopes.getStore();
     scope?.assertAccepting();
+    this.options.stages.checkOperation();
     if (this.#caller?.key === spec.key) {
       throw new Error(`agent ${spec.key} is the calling session; it is not opened`);
     }

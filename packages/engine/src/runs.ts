@@ -387,15 +387,17 @@ export async function replaceStale(
   const stale = [start, ...recorded.filter((name) => name !== start)].filter(
     (name) => recorded.includes(name) && !reused.has(name),
   );
-  if (stale.length === 0) return [];
+  for (const name of stale) await replaceRecord(runDir, name);
+  return stale;
+}
+
+/** Moves a stage's record, unchanged, to `replaced/{stage}.{attempt}.json`. */
+export async function replaceRecord(runDir: string, stage: string): Promise<void> {
+  const file = join(stagesDir(runDir), `${stage}.json`);
+  const record = await readRecord<StageRecord>(file, STAGE_RECORD_VERSION);
   const replaced = join(runDir, "replaced");
   await mkdir(replaced, { recursive: true, mode: 0o700 });
-  for (const name of stale) {
-    const file = join(dir, `${name}.json`);
-    const record = await readRecord<StageRecord>(file, STAGE_RECORD_VERSION);
-    await rename(file, join(replaced, `${name}.${record.attempt}.json`));
-  }
-  return stale;
+  await rename(file, join(replaced, `${stage}.${record.attempt}.json`));
 }
 
 /** Appends a settled turn to the run's `turns.jsonl`, which only the live attempt writes. */

@@ -506,14 +506,16 @@ awf run flow.ts --continue AIRS-1234 --from-stage qa-local --values v.json --jso
   `provided: true`: no turns, no sessions, zero cost. A later continue reuses it as any succeeded
   record. One that doesn't fit stops: "review's value in --values does not fit its result:
   {problems}".
-- A stage that returns nothing needs no value: it is passed, and recorded `provided` the same way.
-  That holds for a continue's `--from-stage` too: such a stage before it never stops it.
+- A stage that returns nothing needs no value: with nothing recorded, it is passed, and recorded
+  `provided` the same way, on a continue's `--from-stage` too. One whose record failed is redone,
+  as a stage with a result is: it may have done half its work.
 - A stage with no record and no value doesn't stop the attempt at once. It hands back a stand-in its
   schema accepts, the first branch and the least of each bound, and the attempt looks on: each later
   stage with no value is noted the same way, until the start point, where it stops. Nothing is
-  recorded while it looks on, no stage's work runs, and a turn, compaction or decision that would
-  start ends the look there, as does the workflow's own stop, a throw, or a return: the code between
-  stages is running on values no one gave.
+  written while it looks on, no stage's work runs, and a turn, compaction, decision or sandbox that
+  would start ends the look there, as does the workflow's own stop, a throw, or a return: the code
+  between stages is running on values no one gave. The view and the attempt's `stages` show the
+  first stage noted, stopped, as where the attempt stopped.
 - The stop has `needs`, each stage noted and its `result` as JSON Schema, in the order reached, in
   `output.json` and in the closing block, a line each as a type: `needs    review: {rounds: integer
   ≥ 1, ledger: string}`. Its `continue` keeps the start point and names `--values`, the file given
@@ -524,7 +526,7 @@ awf run flow.ts --continue AIRS-1234 --from-stage qa-local --values v.json --jso
   ticket or the repository, write the file, rerun.
 - `--values` is read only for stages with no record to reuse: one recorded and reusable ignores its
   entry. A record that failed or went stale still stops, going on with `--from-stage` that stage;
-  `--values` replaces it too, when it has an entry.
+  an entry in `--values` replaces it instead, and the old record moves to `replaced/`.
 - The refusals stay: `--continue` of an id with no run, and a new run on an id that exists.
 
 ### Stops and failures
