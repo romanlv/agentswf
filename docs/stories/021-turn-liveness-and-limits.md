@@ -133,8 +133,11 @@ write has a bounded failure path; it cannot hold shutdown indefinitely.
 
 ### 3. Check in without overlapping awf prompts
 
-The initial prompt and every check-in explain both commands, the operation ID and the fixed
-deadline. Check-ins say: submit the result, or report what you are waiting for and how long.
+The initial prompt explains only `wf result`, as before this story: waiting is the rare case,
+and every extra instruction costs the agent attention on every operation. Each check-in adds
+`wf waiting`, the operation ID and the fixed deadline. Check-ins say: submit the result, or
+report what you are waiting for and how long. An agent may still run `wf waiting` unprompted;
+the engine accepts it the same way.
 They also remind the agent to finish or stop work needed for its answer before submitting it.
 A custom nudge prompt is additional context; it cannot remove these protocol instructions.
 
@@ -244,7 +247,7 @@ bounded teardown. Do not retry that operation automatically.
 **Release confirms that the native turn finished or was stopped**, plus any execution scope
 actually stopped by its owner. Without task observation or
 isolated containment, this is not proof that a dev server, detached child or remote deployment
-has stopped. The prompt asks the agent to finish answer-related work before `wf result`; that
+has stopped. A check-in asks the agent to finish answer-related work before `wf result`; that
 is a cooperative obligation, not a machine-verified fact.
 
 - For a run-owned agent, every non-success ends the owned native work, even if its foreground
@@ -304,7 +307,7 @@ outcomes. OTel may export these events but is never required for operation progr
 | `packages/engine/src/control-plane.ts`, `result-slots.ts` | Route using connection authority and serialize waiting, answer admission and closure |
 | `packages/engine/src/workflow-runner.ts`, `operation-liveness.ts` | Own the loop and fixed deadline, hold one slot across check-ins, await native release |
 | `packages/engine/src/operation-events.ts` | Bound optional diagnostic writes; test/eval helpers read incomplete streams honestly |
-| `operationPrompt` in `packages/engine/src/workflow-runner.ts` | Include both commands in initial and recovery prompts |
+| `operationPrompt` in `packages/engine/src/workflow-runner.ts` | The initial prompt names `wf result` only; check-ins add `wf waiting` and the deadline |
 | `packages/harness/src/session-core.ts`, `adapter.ts`, adapters | Permit sequential successor check-ins, preserve binding and lifecycle, measure delivery and release |
 | `packages/contract/src/records.ts`, engine progress and workflow-testing | Record and script waiting/check-in events without changing final answer schemas |
 

@@ -273,6 +273,43 @@ describe("runWorkflow", () => {
     });
   }
 
+  test("the first prompt offers only wf result; a check-in adds wf waiting and the deadline", async () => {
+    const adapter = createFakeAdapter({
+      supportsWaiting: true,
+      script: (context) => ({
+        act: async () => {
+          if (context.kind === "nudge") await submit(context.binding!, { answer: "ready" });
+        },
+      }),
+    });
+    const workflow = workflowOf("check-in-prompt", async (context) => {
+      const agent = await openReviewer(context);
+      const { outcome } = await agent.run({
+        prompt: "Review the change.",
+        schema: ANSWER_SCHEMA,
+        deadline: future(),
+      });
+      return outcome.kind;
+    });
+
+    const result = await runNew(workflow, null, {
+      runRoot: tempRunDir(),
+      livenessPolicy: { quietMs: 1, responseMs: 5_000, deliveryMs: 5_000, releaseMs: 1_000 },
+      deadline: future(),
+      runtime: runtime(adapter),
+    });
+
+    expect(result.value).toBe("answered");
+    const [first, checkIn] = adapter.turns;
+    expect(first?.kind).toBe("turn");
+    expect(first?.prompt).toContain(" result ");
+    expect(first?.prompt).not.toContain(" waiting ");
+    expect(first?.prompt).not.toContain("deadline");
+    expect(checkIn?.kind).toBe("nudge");
+    expect(checkIn?.prompt).toContain(` waiting ${checkIn?.binding?.operationId} --reason`);
+    expect(checkIn?.prompt).toContain("The fixed answer deadline is");
+  });
+
   test("an adapter sees a text turn as the workflow wrote it, with no schema", async () => {
     const adapter = createFakeAdapter({
       script: (context) => ({

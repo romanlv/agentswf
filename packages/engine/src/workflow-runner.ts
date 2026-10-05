@@ -1944,7 +1944,9 @@ class LogicalAgent implements AgentRef {
       (waitingSupported
         ? "Report the result now, or use wf waiting with a reason if you still need time."
         : "You finished without reporting the requested result. Report it now.");
-    const prompt = (text: string) =>
+    // The first prompt carries only the result command; waiting is rare, so it is offered only
+    // once a check-in finds the agent idle without an answer.
+    const checkInPrompt = (text: string) =>
       operationPrompt(text, schema, this.options.launcher, operationId) +
       (waitingSupported
         ? [
@@ -1969,7 +1971,12 @@ class LogicalAgent implements AgentRef {
       policy: this.options.livenessPolicy,
       start: () =>
         this.options.session.start(
-          { id: spec.id!, prompt: prompt(spec.prompt), deadline, authored },
+          {
+            id: spec.id!,
+            prompt: operationPrompt(spec.prompt, schema, this.options.launcher, operationId),
+            deadline,
+            authored,
+          },
           binding,
         ),
       successor: (turn, sequence, deliverySignal) =>
@@ -1977,7 +1984,7 @@ class LogicalAgent implements AgentRef {
           id: `${spec.id!}:check-in:${sequence}`,
           deadline,
           deliverySignal,
-          prompt: prompt(recoveryPrompt),
+          prompt: checkInPrompt(recoveryPrompt),
           authored: { ...authored, prompt: recoveryPrompt },
         }),
       onStop: (stop) => {

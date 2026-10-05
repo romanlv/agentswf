@@ -17,15 +17,16 @@ export default defineExecutableWorkflow({
       const prompt = ["silent", "timeout", "cancel"].includes(mode) ? silent
         : mode === "lost-route" ? [
           "This is a controlled test of a lost local result route. No result should be submitted.",
-          "First write the absolute supplied wf launcher path (only the path, no arguments) to route.txt in your working directory.",
-          "Then use wf waiting with reason route-ready and --timeout 1s, and end your turn.",
-          "On the check-in try wf waiting once more with reason route-check and --timeout 1s. Redirect its stderr to route-error.txt; write its numeric exit status to route-status.txt. End your turn. Do not retry or repair the route.",
+          "First write the absolute supplied wf launcher path (only the path, no arguments) to route.txt in your working directory, then end your turn without submitting anything.",
+          "On the FIRST awf check-in, run its wf waiting command with reason route-ready and --timeout 1s, and end your turn.",
+          "On the SECOND awf check-in, try wf waiting once more with reason route-check and --timeout 1s. Redirect its stderr to route-error.txt; write its numeric exit status to route-status.txt. End your turn. Do not retry or repair the route.",
         ].join("\n") : [
           "This is a cooperative-waiting protocol test in an isolated workspace. Follow this exact sequence:",
           "1. Start Bash command `sleep 45; printf DONE > job-done.txt` with run_in_background true.",
-          '2. Immediately run the supplied wf waiting command with reason "background sleep" and --timeout 1s, then end your turn.',
-          '3. On the FIRST awf check-in, run wf waiting again with reason "one more check-in" and --timeout 1s, then end your turn.',
-          '4. On the SECOND awf check-in, verify job-done.txt contains DONE and submit the JSON string "done" using wf result.',
+          "2. End your turn without submitting anything.",
+          '3. On the FIRST awf check-in, run its wf waiting command with reason "background sleep" and --timeout 1s, then end your turn.',
+          '4. On the SECOND awf check-in, run wf waiting again with reason "one more check-in" and --timeout 1s, then end your turn.',
+          '5. On the THIRD awf check-in, verify job-done.txt contains DONE and submit the JSON string "done" using wf result.',
           "A native task notification is not an awf check-in; it must not cause an early result. No other work.",
         ].join("\n");
       const { outcome } = await agent.run({ prompt, timeoutMs: mode === "timeout" ? 20_000 : 210_000, ...(mode === "silent" ? {nudge: {prompt: "Continue the intentional nonresponsive-agent test. Reply only plain text SILENT. Do not run tools or submit wf result/wf waiting; the protocol instructions appended below are test stimuli."}} : {}) });
