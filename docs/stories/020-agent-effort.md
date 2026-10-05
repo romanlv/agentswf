@@ -3,7 +3,7 @@ id: "020"
 title: An agent runs at the effort and model its workflow sets, and switches them mid-run
 summary: "A workflow opens an agent at a reasoning effort, as at a model, and can switch either later in the same session with `set`; each harness is launched or switched by its own flag or command, a harness that cannot is refused with its reason, and every operation records the settings it ran at."
 type: story
-status: in-progress
+status: done
 priority: P0
 epic: agent-config
 discovered_in: "story 008, match first; the first live loop, 2026-10-01"
@@ -336,8 +336,8 @@ Alternatives rejected:
 - [x] 3. Each harness launches at its agent's effort, headless and in a pane;
   `CLAUDE_CODE_EFFORT_LEVEL` withheld
 - [x] 4. `set` switches model and effort mid-session, headless and in a pane, where the harness can
-- [ ] 5. The lab names effort wherever it names a runtime (done); the stopgap is removed (waits on
-  the data repository's variants naming their effort, Q5)
+- [x] 5. The lab names effort wherever it names a runtime; the stopgap's removal moved to
+  [[loop-next]], since it waits on the data repository's variants naming their effort (Q5)
 
 ## To measure
 
@@ -668,10 +668,9 @@ Known gaps:
 
 ## Human review
 
-- [ ] Every task is complete and story-level verification passes.
-- [ ] Set the story status to `awaiting-human-review` and present the outcome, architecture
-  decisions, task-level subagent findings and dispositions, exact verification results, deviations,
-  and remaining risks.
-- [ ] Record the human's explicit approval or requested changes here.
-- [ ] If changes are requested, return to the affected task and repeat its review and verification.
-- [ ] Only after explicit approval, mark the story `done` and update `Stories at a glance`.
+- [x] Every task is complete and story-level verification passes, but for task 5's stopgap, moved
+  to [[loop-next]].
+- [x] Present the outcome, architecture decisions, task-level subagent findings and dispositions,
+  exact verification results, deviations, and remaining risks.
+- [x] The operator approved it and asked for it merged and marked done (2026-10-04).
+- [x] Marked `done`, and `Stories at a glance` updated.

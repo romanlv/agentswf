@@ -171,6 +171,13 @@ The gates are defined in [`foundation.md`](foundation.md) §12.
   `CURSOR_API_KEY` and skills, live on 2026-10-04. srt reads macOS's `xcrun` cache, so git in a
   sandbox takes 0.1 s rather than 1.2 s, and a sandboxed pane waits until its harness has drawn.
   Awaiting the operator's review.
+- [020 — effort and `set`](stories/020-agent-effort.md): done, approved 2026-10-04. An agent opens
+  at a reasoning effort, from its alias or its own, and `agent.set({ model?, effort? })` switches
+  either for every later operation in the same session: headless by the next resume's flags, in a
+  pane by relaunching the harness on its session. claude, codex and pi, live in both placements;
+  cursor takes none, its variant being the model. Every operation records the settings it ran at
+  ([findings](findings/agent-effort.md)). The lab's contained-codex stopgap goes with
+  [`loop-next`](stories/todo/loop-next.md).
 
 The inbox of possible stories is [`stories/todo/`](stories/todo/).
 
@@ -185,11 +192,7 @@ with a long run:
    promising, cases up to a look in parallel, a resolution at 1 trial) and
    [`loop-next`](stories/todo/loop-next.md) (a proposer that thinks, spend a cut can't hide, a
    loop that outlives its shell, the scorer checked first).
-2. [Story 020](stories/020-agent-effort.md), in progress: an agent opens at an effort, and `set`
-   switches its model or effort mid-run, recorded on every operation; claude, codex and pi
-   switch headless and in a pane, cursor headless by model. Left: the data repository's contained
-   variants name their effort, and the lab's `hostReasoningEffort` stopgap goes.
-3. [`turn-liveness-and-limits`](stories/todo/turn-liveness-and-limits.md): an agent waiting on its
+2. [`turn-liveness-and-limits`](stories/todo/turn-liveness-and-limits.md): an agent waiting on its
    own background work isn't done; the implement-ticket run lost its last step to it.
 
 Alongside: [story 018](stories/018-workflow-stages.md), stages and continuing a run, in draft;

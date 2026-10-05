@@ -31,7 +31,7 @@ Where each finding of the report went:
 | 4. The proposer was told no resolution | [[comparison-efficiency]] |
 | 5. A cut loop lost its place | fixed (`f61911a`); its spend: here |
 | 6. Codex 0.157 refused `gpt-6.1-sol` | fixed: the image has 0.159.3 |
-| 7. Contained codex ran at low effort | stopgap in `execute.ts`; the fix is [[020-agent-effort]] |
+| 7. Contained codex ran at low effort | [[020-agent-effort]] lets a variant name it; the stopgap goes here |
 | 8. A finished review lost to a slow shutdown | fixed: the lab reruns it, its spend counted |
 | 9. The scorer needs `OPENROUTER_API_KEY` | here |
 
@@ -43,9 +43,8 @@ Where each finding of the report went:
    cap already does for finished tries, so a resume reads what the cut left.
 2. **A proposer that thinks.** It spent one minute, 50 reasoning tokens and $0.05. It is the
    cheapest step by far.
-   - High effort, or a stronger model, for the proposer only: `--proposer` names a harness and
-     model and no effort, so it needs [[020-agent-effort]]. Until then the contained home's copy of
-     the host's effort applies to it too.
+   - High effort, or a stronger model, for the proposer only: `--proposer codex/{model}:high`
+     ([[020-agent-effort]]).
    - Its answer cites the feedback it used: which cases' `missed` text, and what pattern across
      them. A hypothesis that cites nothing is refused, like a scope breach.
    - The prediction is held to the resolution: a predicted gain below what the try can resolve is
@@ -60,6 +59,12 @@ Where each finding of the report went:
    run's `cwd` (`openRouterKey`, `engine/src/operator-runtime.ts`), which for a loop is the data
    repository. `awf-lab run` and `loop` should fail before the first trial when the scorer can't
    reach its decision model, not after the review has spent.
+
+6. **Contained variants name their effort, then the stopgap goes.** The data repository's variants
+   parse `--runtime` themselves (`variants/air/workflow.ts`): read `harness/model:{effort}`, name an
+   effort in each contained variant's argv, version them (story 020, Q5), then remove
+   `hostReasoningEffort` from `packages/lab/src/review/lab/execute.ts`. Check: one contained codex
+   trial at `high` logs `high` in its rollout.
 
 ## Deferred from story 013
 
