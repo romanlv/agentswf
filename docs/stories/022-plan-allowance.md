@@ -3,7 +3,7 @@ id: "022"
 title: Read what is left of each harness's plan, and let heavy work wait for it
 summary: "`awf allowance` reads each subscription harness's plan windows from the harness's own usage command (claude `/usage`, codex's `/status` data, cursor `/usage` in a pane) as an `awf.allowance/1` record, and `awf-lab run` and `loop` admit a step only while the plan it draws on has room, waiting for the reset otherwise."
 type: story
-status: awaiting-human-review
+status: done
 priority: P1
 epic: loop
 discovered_in: "todo inbox, 2026-10-05: an API to see harness subscription allowance left"
@@ -332,5 +332,4 @@ Tasks 1–4 were reviewed together, on the whole diff, by two read-only subagent
 
 - [x] Every task is complete and story-level verification passes.
 - [x] Status `awaiting-human-review`, presented.
-- [ ] Explicit approval recorded.
-- [ ] Marked `done` and `Stories at a glance` updated.
+- [x] The operator approved it and marked it done (2026-10-05); index and status updated.

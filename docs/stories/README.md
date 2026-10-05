@@ -104,7 +104,7 @@ status is one of `todo`, `draft`, `ready`, `in-progress`, `blocked`, `awaiting-h
   the same session: headless by the next resume's flags, in a pane by relaunching the harness on
   its session; cursor takes none, and every operation records its settings.
 - [`022` — Read what is left of each harness's plan, and let heavy work wait for it](022-plan-allowance.md) —
-  `awaiting-human-review` — `awf allowance` reads each subscription harness's plan windows from its own
+  `done` — `awf allowance` reads each subscription harness's plan windows from its own
   usage command as an `awf.allowance/1` record, and the lab's runs wait for a full window's reset.
 
 - [[021-turn-liveness-and-limits|021 — Keep a waiting agent alive within fixed limits]] —
