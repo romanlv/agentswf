@@ -2,10 +2,18 @@
 import { existsSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, relative, resolve } from "node:path";
+import type { HarnessAllowance } from "@agentswf/contract/records";
 import type { JsonObject, JsonValue } from "@agentswf/contract/workflow";
-import { handBack, type RunProcess } from "@agentswf/harness";
+import { type Harness, handBack, type RunProcess } from "@agentswf/harness";
 import manifest from "../package.json" with { type: "json" };
 import { stageFigures } from "./accounting/format";
+import {
+  type AllowanceCommand,
+  allowanceUsage,
+  describeReport,
+  parseAllowanceCommand,
+  readReport,
+} from "./allowance-command";
 import {
   type AttemptEnd,
   cleanupFailed,
@@ -21,6 +29,7 @@ import { messageOf } from "./errors";
 import { type Caller, showOwnTab, startHere, takeCaller } from "./here";
 import { machinePaths, sandboxesDirOf } from "./machine";
 import {
+  allowanceReader,
   herdrConfig,
   installOperatorRuntime,
   type OperatorRuntimeInstallation,
@@ -55,6 +64,8 @@ export type OperatorEnvironment = {
   callerSearchMs?: number;
   signal?: AbortSignal;
   now?: () => number;
+  /** How `awf allowance` reads a harness's plan. */
+  readAllowance?: (harness: Harness) => Promise<HarnessAllowance>;
 };
 
 type Output = {
@@ -95,6 +106,9 @@ export async function runOperatorCli(
     return 0;
   }
   if (argv[0] === "test") return testCommand(argv.slice(1), environment, stdout, stderr);
+  if (argv[0] === "allowance") {
+    return allowanceCommand(argv.slice(1), environment, stdout, stderr);
+  }
   let command: RunCommand;
   try {
     command = parseCommand(argv, environment.cwd ?? process.cwd());
@@ -341,6 +355,32 @@ async function runAttempt(
   }
   await handOver(toldOf(end, kept));
   return close(end, kept, cleanupAlso);
+}
+
+/** `awf allowance`: what is left of each harness's plan. */
+async function allowanceCommand(
+  argv: readonly string[],
+  environment: OperatorEnvironment,
+  stdout: (text: string) => void,
+  stderr: (text: string) => void,
+): Promise<number> {
+  let command: AllowanceCommand;
+  try {
+    command = parseAllowanceCommand(argv);
+  } catch (error) {
+    stderr(`awf: ${messageOf(error)}\n\n${allowanceUsage}`);
+    return 2;
+  }
+  if (command === "help") {
+    stdout(allowanceUsage);
+    return 0;
+  }
+  const read =
+    environment.readAllowance ??
+    allowanceReader(environment.environment ?? process.env, undefined, environment.signal);
+  const report = await readReport(command.harnesses, read, (environment.now ?? Date.now)());
+  stdout(command.json ? JSON.stringify(report, null, 2) : describeReport(report));
+  return 0;
 }
 
 /** `awf test`: the workflow tests under the given paths, with Bun's test runner. */

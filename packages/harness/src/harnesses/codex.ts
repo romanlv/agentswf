@@ -1,6 +1,7 @@
 import { basename } from "node:path";
 import { jsonLines, parseRow, type Row, record, text } from "../json";
 import { harnessState } from "../state";
+import { readCodexAllowance } from "../usage/allowance";
 import { readCodexBilling } from "../usage/billing";
 import {
   codexRolloutId,
@@ -235,6 +236,7 @@ const CODEX = {
       .map((name) => basename(name))
       .sort()
       .flatMap((name) => codexRolloutId(name) ?? []),
+  readAllowance: ({ run }) => readCodexAllowance(run),
   // A ChatGPT login pays for OpenAI's models only; another provider bills on its own terms.
   billing: ({ provider, run }) =>
     provider && provider !== "openai" ? Promise.resolve("unknown") : readCodexBilling(run),
@@ -246,6 +248,7 @@ export const codex = defineHarness(CODEX, {
   readCharge: "codex prints no dollars; its tokens are priced from its rollouts",
   readCostTotal: "codex prints no dollars; its tokens are priced from its rollouts",
   readCompactSummary: "codex keeps its compaction's summary opaque",
+  allowancePane: "its app-server answers what `/status` shows, with no pane",
 });
 
 const CODEX_FOCUS_END = "Reply only: ok";

@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { ModelSpend, SettledOperation, TokenUsage } from "@agentswf/contract/records";
 import { describeAccounting, describeAttempts, stageFigures } from "./format";
+import { planPrice } from "./plans";
 import { costOf, type PriceTable, PUBLISHED_PRICES } from "./prices";
 import { sumAttempts, summarizeRun } from "./summary";
 import { addTokens, spendOf } from "./tokens";
@@ -550,5 +551,20 @@ describe("byStage, from the workflow's stages", () => {
     const run = sumAttempts([priced, unknown]);
     expect(run.totals).toMatchObject({ agents: 2, known: 1, priced: 1, estimate: 2.5 });
     expect(describeAccounting({ ...run, byStage: [] })[0]).toContain("usage known 1/2");
+  });
+});
+
+describe("plan prices", () => {
+  test("a plan as its harness names it, priced where the table lists it", () => {
+    expect(planPrice("claude", "max", "default_claude_max_20x")).toEqual({
+      name: "Max 20x",
+      usdPerMonth: 200,
+    });
+    expect(planPrice("claude", "max", "default_claude_max_5x")?.usdPerMonth).toBe(100);
+    expect(planPrice("claude", "max")).toEqual({ name: "Max" });
+    expect(planPrice("codex", "prolite")).toEqual({ name: "Pro 100", usdPerMonth: 100 });
+    expect(planPrice("codex", "enterprise")).toBeUndefined();
+    expect(planPrice("cursor", "Team")).toEqual({ name: "Team" });
+    expect(planPrice("pi", "anything")).toBeUndefined();
   });
 });

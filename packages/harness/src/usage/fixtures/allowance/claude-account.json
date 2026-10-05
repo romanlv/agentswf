@@ -1,0 +1,8 @@
+{
+  "oauthAccount": {
+    "billingType": "stripe_subscription",
+    "organizationType": "claude_max",
+    "organizationRateLimitTier": "default_claude_max_20x",
+    "userRateLimitTier": null
+  }
+}

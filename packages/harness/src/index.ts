@@ -11,6 +11,7 @@ export {
   searchCaller,
   startInNewTab,
 } from "./adapters/herdr-caller";
+export { type AllowanceOptions, readAllowance } from "./allowance";
 export * from "./capabilities/skills";
 export * from "./command";
 export { createPlacementHostFactory } from "./placement-host";
@@ -21,5 +22,6 @@ export * from "./spec";
 export { harnessState } from "./state";
 export * from "./types";
 export type { SessionAccounting } from "./usage/accounting";
+export type { AllowanceRead } from "./usage/allowance";
 export { readClaudeBilling, readCodexBilling, readCursorLogin } from "./usage/billing";
 export type { SessionRead, UsageRecord } from "./usage/records";

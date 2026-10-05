@@ -182,6 +182,11 @@ The gates are defined in [`foundation.md`](foundation.md) §12.
   cursor takes none, its variant being the model. Every operation records the settings it ran at
   ([findings](findings/agent-effort.md)). The lab's contained-codex stopgap goes with
   [`loop-next`](stories/todo/loop-next.md).
+- [022 — plan allowance](stories/022-plan-allowance.md): awaiting the operator's review. `awf allowance [--json]`
+  reads what is left of each harness's plan, as the harness shows it, with no model turn: claude's
+  `/usage`, codex's app-server (what `/status` shows), cursor's `/usage` in a Herdr pane; pi has
+  none. `awf-lab run` and `loop` hold a run while a plan window it draws on is at `--allowance`
+  (90%), until the window resets.
 
 - [[021-turn-liveness-and-limits|021 — Turn liveness and limits]]: done, approved 2026-10-05.
   An idle agent no longer ends its operation: check-ins offer `wf waiting`, and repeated

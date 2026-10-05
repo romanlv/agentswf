@@ -45,5 +45,11 @@ Two parts:
    forces on workflows and on `format/runtime.ts`, and correct the claims in `docs/testing.md`,
    `docs/foundation.md` §4, `examples/quick-check` and `examples/single-agent-review`.
 
+Evidence since (story 022, 2026-10-05): one headless `claude -p` turn on a subscription login
+printed a `rate_limit_event` with `isUsingOverage: false` and moved the plan's five-hour and
+seven-day windows, and `claude -p /usage` says "You are currently using your subscription to power
+your Claude Code usage". Both point to headless claude drawing on the plan. `awf allowance claude`
+before and after a turn is now the measurement part 2 asks for.
+
 Until then, spend is reported as list-price estimates, and headless claude's billing as
 unverified.

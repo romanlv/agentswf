@@ -41,6 +41,9 @@ Each of these is a live probe, recorded under `experiments/` and cited where it 
   `engine/src/accounting/prices.ts`.
 - **Billing.** What says subscription or metered (`billing`), and whether headless turns are billed
   per token whatever the login (`meteredHeadless`).
+- **Plan allowance.** The command that shows what is left of its plan without a model turn, headless
+  (`readAllowance`) or only in its TUI (`allowancePane`); its output recorded for the parser, and
+  whether a slash command sent headless goes to the model instead (story 022).
 - **Fork and its cache.** A fork with no model call, and whether the fork reads its parent's cache:
   what keys the provider's cache (`docs/findings/fork-cache.md`).
 - **Compaction.** Headless and in a pane, with a focus, and what shows it ran

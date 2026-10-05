@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
+import type { HarnessAllowance } from "@agentswf/contract/records";
 import type { SandboxEnvironmentKey } from "@agentswf/contract/workflow";
 import {
   type Absent,
@@ -14,6 +15,7 @@ import {
   harnessState,
   isAbsent,
   type RunProcess,
+  readAllowance,
   readClaudeBilling,
   readCodexBilling,
   readCursorLogin,
@@ -93,6 +95,28 @@ export async function installOperatorRuntime(
     // socket, and the control plane removes both when the run closes.
     cleanup: async () => undefined,
   };
+}
+
+/**
+ * How `awf allowance` reads each harness's plan: run as its agents are, so it reads the login they
+ * get, and a usage screen opens in the Herdr session their panes would.
+ */
+export function allowanceReader(
+  environment: Readonly<Record<string, string | undefined>> = process.env,
+  run: RunProcess = runProcess,
+  signal?: AbortSignal,
+): (harness: Harness) => Promise<HarnessAllowance> {
+  const unmetered = withholding(run, WITHHELD_ENVIRONMENT);
+  return (harness) =>
+    readAllowance(harness, {
+      run: unmetered,
+      now: Date.now,
+      herdr: async () => ({
+        ...herdrConfig(await herdrSession(run, environment)),
+        emptyEnvironment: WITHHELD_ENVIRONMENT,
+      }),
+      ...(signal ? { signal } : {}),
+    });
 }
 
 /** Herdr in session `session`, where awf's runs open their tabs. */

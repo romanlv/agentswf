@@ -1,5 +1,6 @@
 import { dirname, join } from "node:path";
 import { text } from "../json";
+import { cursorAllowance } from "../usage/allowance";
 import {
   cursorChatDirectory,
   cursorHomeSessions,
@@ -110,6 +111,17 @@ const CURSOR = {
   homeSessions: (home) => cursorHomeSessions(home),
   findSession: async (_marker, since, _cwd, home) =>
     home ? findCursorChat(since, home) : undefined,
+  // Typed whole, its Enter only picks the command in the menu `/` opens; a second Enter runs it.
+  allowancePane: {
+    steps: [
+      { type: "/usage" },
+      { await: "Show plan and on-demand usage" },
+      { key: "Enter" },
+      // Drawn last, below every row.
+      { await: "Esc to close" },
+    ],
+    read: cursorAllowance,
+  },
 } satisfies HarnessDefinition;
 
 const TRANSCRIPT_LOCATION = "Transcript location:";
@@ -140,6 +152,8 @@ export const cursor = defineHarness(CURSOR, {
   readCompactSummary: "cursor draws its summary on the screen only; its transcript keeps none (C7)",
   effort:
     "cursor names a model's effort in its id, as `gpt-5.6-luna-high`, or as a parameter whose key differs per model; a variant is chosen as the model (M3)",
+  readAllowance:
+    "only its TUI shows the plan: headless, `-p /usage` and `cursor-agent usage` go to the model as a prompt (2026.10.01)",
   setPane:
     "not measured: a cursor pane rewrites the operator's `~/.cursor/cli-config.json`, and one in a home of its own asks for the macOS keychain (M2)",
 });
