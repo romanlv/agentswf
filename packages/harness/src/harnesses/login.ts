@@ -90,7 +90,7 @@ export const codexLogin: LoginCheck = {
     }
     const failed = rows.findLast((row) => row.type === "turn.failed");
     const message = text(record(failed?.error)?.message);
-    return message && /\b401\b|unauthorized/i.test(message) ? { said: said(message) } : undefined;
+    return message && /\b401\b/.test(message) ? { said: said(message) } : undefined;
   },
   screen(screen) {
     const line = drawn(screen, /^Finish signing in via your browser/);

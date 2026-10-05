@@ -477,11 +477,14 @@ export function createPaneAdapter(
               controller.signal,
             );
             if (!started.ok) {
+              const login = started.cancelled
+                ? undefined
+                : await loginShown(herdr, harness, paneId, config, controller.signal);
               if (controller.signal.aborted || started.cancelled) {
                 return localOutcome("cancelled", "pane operation cancelled");
               }
               return (
-                (await loginShown(herdr, harness, paneId, config, controller.signal)) ??
+                login ??
                 localOutcome(
                   started.timedOut || remaining() <= 0 ? "timed-out" : "failed",
                   `agent start failed after ${started.attempts}: ${started.error}`,

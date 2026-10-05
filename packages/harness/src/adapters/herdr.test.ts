@@ -584,6 +584,46 @@ describe("createPaneAdapter", () => {
     expect(settled.login).toBeUndefined();
   });
 
+  test("a turn stopped while its failed launch's screen is read settles cancelled", async () => {
+    const { run: baseRun } = operationStub();
+    let reading!: () => void;
+    const read = new Promise<void>((resolve) => {
+      reading = resolve;
+    });
+    const run: RunProcess = async (input) => {
+      if (verb(input) === "agent start") {
+        return { stdout: "", stderr: "agent exited", exitCode: 1, timedOut: false };
+      }
+      if (verb(input) === "pane read") {
+        reading();
+        await new Promise<void>((resolve) =>
+          input.signal?.addEventListener("abort", () => resolve(), { once: true }),
+        );
+        return {
+          stdout: loginScreen("codex-missing.screen"),
+          stderr: "",
+          exitCode: 0,
+          timedOut: false,
+        };
+      }
+      return baseRun(input);
+    };
+    const session = await createPaneAdapter(CONFIG, run).activate({
+      ...activation,
+      execution: { harness: "codex", model: "gpt-5.6-sol" },
+    });
+    const turn = await session.start(
+      { id: "review", prompt: "review", deadline: activation.deadline },
+      firstBinding,
+    );
+    await read;
+    await turn.release("stop", activation.deadline);
+
+    const settled = await turn.settled;
+    expect(settled.state).toBe("cancelled");
+    expect(settled.login).toBeUndefined();
+  });
+
   test("a launch that stops at its sign-in screen fails, saying what to run, and closes", async () => {
     const { run: baseRun, calls } = operationStub();
     const screen = loginScreen("codex-missing.screen");
@@ -2377,6 +2417,31 @@ describe("createHerdrRunHostFactory", () => {
       detail: expect.stringContaining("claude needs a login"),
       login: { harness: "claude" },
     });
+    await host.close();
+  });
+
+  test("a stalled turn stopped while its screen is read for a login settles cancelled", async () => {
+    const base = hostStub();
+    let reading!: () => void;
+    const read = new Promise<void>((resolve) => {
+      reading = resolve;
+    });
+    const run: RunProcess = async (input) => {
+      if (verb(input) === "pane read") {
+        reading();
+        await new Promise<void>((resolve) =>
+          input.signal?.addEventListener("abort", () => resolve(), { once: true }),
+        );
+        return { stdout: "", stderr: "", exitCode: 137, timedOut: false, cancelled: true };
+      }
+      if (verb(input) !== "agent prompt") return base.run(input);
+      return errorResult("agent_prompt_stalled");
+    };
+    const { host, turn } = await stalledReviewer(run, 30_000);
+    await read;
+    await turn.release("stop", deadline());
+
+    await expect(turn.settled).resolves.toMatchObject({ state: "cancelled" });
     await host.close();
   });
 
