@@ -96,12 +96,8 @@ import { RunDecisions } from "./decisions/directory";
 import type { DecisionInstallation } from "./decisions/seam";
 import { messageOf } from "./errors";
 import { createOperationEvents } from "./operation-events";
-import { type LivenessPolicy, superviseOperation } from "./operation-liveness";
-import {
-  createResultSlotRegistry,
-  type ResultSlotRegistry,
-  type ResultSlotSettlement,
-} from "./result-slots";
+import { type LivenessPolicy, type OperationStop, superviseOperation } from "./operation-liveness";
+import { createResultSlotRegistry, type ResultSlotRegistry } from "./result-slots";
 import { type AgentProgress, type GroupProgress, RunProgress } from "./run-progress";
 import {
   type AccountedAgent,
@@ -695,7 +691,7 @@ class WorkflowOwner {
           const decided = this.track(
             options.decisions.decide(spec, {
               deadline: scope?.deadline ?? options.deadline,
-              ...(scope ? { add: (cancel) => scope.add(cancel) } : {}),
+              ...(scope ? { add: (cancel) => scope.add((stop) => cancel(stop.reason)) } : {}),
               ...(scope?.stage === undefined ? {} : { stage: scope.stage }),
             }),
           );
@@ -738,12 +734,19 @@ class WorkflowOwner {
   async close(deadline: AbsoluteDeadline): Promise<unknown[]> {
     this.#closing ??= (async (): Promise<unknown[]> => {
       this.#closed = true;
-      for (const agent of this.#agents.values())
-        void agent.state
-          .then((state) => state.stopOperations("workflow closing"))
-          .catch(() => undefined);
+      const stopping = [...this.#agents.values()].map((agent) =>
+        agent.state.then(
+          (state) =>
+            state.stopOperations({
+              kind:
+                Date.now() >= this.options.deadline.unixMilliseconds ? "timed-out" : "cancelled",
+              reason: "workflow closing",
+            }),
+          () => undefined,
+        ),
+      );
       const cleanup = Promise.all([
-        Promise.allSettled([this.options.host.close("workflow complete")]),
+        Promise.allSettled([this.options.host.close("workflow complete"), ...stopping]),
         // A call nobody awaited any more is cancelled and recorded, not left to its deadline.
         this.options.decisions.close().then(() => Promise.allSettled([...this.#inFlight])),
       ]).then(async ([settled]) => {
@@ -821,7 +824,7 @@ class WorkflowOwner {
       parent?.group,
       name,
     );
-    const removeFromParent = parent?.add(() => scope.cancel());
+    const removeFromParent = parent?.add((stop) => scope.cancel(stop));
     try {
       const returned: unknown = await scopes.run(scope, () => work());
       scope.seal();
@@ -1435,7 +1438,7 @@ class WorkflowOwner {
 }
 
 class LogicalAgent implements AgentRef {
-  readonly #operationStops = new Set<(reason: string) => void>();
+  readonly #operationStops = new Set<(stop: OperationStop) => Promise<void>>();
   readonly #operations = new Map<
     string,
     {
@@ -1806,9 +1809,9 @@ class LogicalAgent implements AgentRef {
     // A pane's switch waits on its screen; a scope cancelled meanwhile closes the agent, as a
     // half-made switch leaves it at settings nobody knows. A headless one takes no time.
     const removeCanceller = pane
-      ? scope?.add(async (reason) => {
-          cancelled = reason;
-          await this.close(reason);
+      ? scope?.add(async (stop) => {
+          cancelled = stop.reason;
+          await this.close(stop.reason);
         })
       : undefined;
     try {
@@ -1842,7 +1845,7 @@ class LogicalAgent implements AgentRef {
 
   close(reason?: string): Promise<void> {
     this.#closed = true;
-    for (const stop of this.#operationStops) stop(reason ?? "agent closed");
+    const stopped = this.stopOperations({ kind: "cancelled", reason: reason ?? "agent closed" });
     if (!this.#closePromise) {
       let attempt: Promise<void>;
       try {
@@ -1855,7 +1858,7 @@ class LogicalAgent implements AgentRef {
         if (this.#closePromise === attempt) this.#closePromise = undefined;
       });
     }
-    return this.#closePromise;
+    return Promise.all([this.#closePromise, stopped]).then(() => undefined);
   }
 
   /**
@@ -1863,8 +1866,8 @@ class LogicalAgent implements AgentRef {
    * from a turn that ended without answering: nudging it could be prompting an operator who just
    * stopped it (ADR 0010).
    */
-  stopOperations(reason: string): void {
-    for (const stop of this.#operationStops) stop(reason);
+  async stopOperations(request: OperationStop): Promise<void> {
+    await Promise.all([...this.#operationStops].map((stop) => stop(request)));
   }
 
   private defaultNudge(): Exclude<AgentRunTextSpec["nudge"], false> {
@@ -1954,7 +1957,7 @@ class LogicalAgent implements AgentRef {
         }),
       onStop: (stop) => {
         this.#operationStops.add(stop);
-        const remove = scope?.add(async (reason) => stop(reason));
+        const remove = scope?.add(stop);
         return () => {
           this.#operationStops.delete(stop);
           remove?.();
@@ -1963,6 +1966,15 @@ class LogicalAgent implements AgentRef {
       phase: (phase, reason, until) =>
         this.options.progress.turnPhase(this.key, phase, reason, until),
     })
+      .catch((error: unknown) => ({
+        kind: "failed" as const,
+        reason: messageOf(error),
+        cleanupUnresolved: true,
+        charges: [],
+        settledAt: Date.now(),
+        deliveredAt: undefined,
+        value: undefined,
+      }))
       .then((outcome) => {
         if (outcome.cleanupUnresolved) {
           this.options.cleanupUnresolved(
@@ -2029,7 +2041,7 @@ class LogicalAgent implements AgentRef {
             }
           : { kind: "answered", value: native.summary, usage };
       }
-      return reconcile<string>(native, { kind: "closed" }, usage);
+      return reconcile<string>(native, usage);
     };
     if (Date.now() >= deadline.unixMilliseconds) return settle("expired");
     let turn: HarnessTurn;
@@ -2059,7 +2071,7 @@ class LogicalAgent implements AgentRef {
       });
     }
     times.deliveredAt = Date.now();
-    const removeCanceller = scope?.add((reason) => releaseTurn(turn, reason));
+    const removeCanceller = scope?.add((stop) => releaseTurn(turn, stop.reason));
     try {
       let cancelTimer: (() => void) | undefined;
       const native = await Promise.race([
@@ -2094,9 +2106,10 @@ class LogicalAgent implements AgentRef {
 }
 
 class ExecutionScope {
-  readonly #cancellers = new Set<(reason: string) => Promise<unknown>>();
+  readonly #cancellers = new Set<(stop: OperationStop) => Promise<unknown>>();
   readonly #owned = new Set<Promise<unknown>>();
   #cancelled = false;
+  #stop: OperationStop | undefined;
   #sealed = false;
   #cancellation: Promise<void> | undefined;
 
@@ -2123,11 +2136,9 @@ class ExecutionScope {
     if (this.#sealed) throw new Error("parallel execution scope is closed");
   }
 
-  add(cancel: (reason: string) => Promise<unknown>): () => void {
+  add(cancel: (stop: OperationStop) => Promise<unknown>): () => void {
     if (this.#cancelled) {
-      void Promise.resolve()
-        .then(() => cancel("parallel deadline exceeded"))
-        .catch(() => undefined);
+      void cancel(this.#stop!).catch(() => undefined);
       return () => undefined;
     }
     this.#cancellers.add(cancel);
@@ -2150,13 +2161,14 @@ class ExecutionScope {
     this.#sealed = true;
   }
 
-  cancel(): Promise<void> {
+  cancel(
+    stop: OperationStop = { kind: "cancelled", reason: "parallel execution cancelled" },
+  ): Promise<void> {
     if (this.#cancellation) return this.#cancellation;
     this.#cancelled = true;
+    this.#stop = stop;
     this.#cancellation = Promise.allSettled(
-      [...this.#cancellers].map((cancel) =>
-        Promise.resolve().then(() => cancel("parallel deadline exceeded")),
-      ),
+      [...this.#cancellers].map((cancel) => Promise.resolve().then(() => cancel(stop))),
     ).then(() => undefined);
     return this.#cancellation;
   }
@@ -2192,7 +2204,7 @@ async function executeParallel<Item, Result>(
 ): Promise<Result[]> {
   // An unlabelled parallel inside a labelled one stays part of it.
   const scope = new ExecutionScope(deadline, group ?? parent?.group, parent?.stage);
-  const removeFromParent = parent?.add(() => scope.cancel());
+  const removeFromParent = parent?.add((stop) => scope.cancel(stop));
   const results = new Array<Result>(items.length);
   let next = 0;
   const workers = Array.from({ length: Math.min(concurrency, items.length) }, async () => {
@@ -2218,13 +2230,15 @@ async function executeParallel<Item, Result>(
   let cancelTimer: (() => void) | undefined;
   const expiry = new Promise<never>((_resolve, reject) => {
     cancelTimer = scheduleAt(deadline, () => {
-      void scope.cancel().then(() => reject(new DeadlineExceededError(deadline)));
+      void scope
+        .cancel({ kind: "timed-out", reason: "parallel deadline exceeded" })
+        .then(() => reject(new DeadlineExceededError(deadline)));
     });
   });
   try {
     await Promise.race([completion, expiry]);
     if (scope.cancelled || Date.now() >= deadline.unixMilliseconds) {
-      await scope.cancel();
+      await scope.cancel({ kind: "timed-out", reason: "parallel deadline exceeded" });
       throw new DeadlineExceededError(deadline);
     }
     return results;
@@ -2260,18 +2274,9 @@ async function releaseTurn(
 }
 
 function reconcile<T extends JsonValue>(
-  native: HarnessTurnOutcome | "expired",
-  settlement: ResultSlotSettlement,
+  native: HarnessTurnOutcome,
   usage: OperationRecord,
 ): TurnOutcome<T> {
-  if (settlement.kind === "failed")
-    return { kind: "failed", reason: settlement.reason, retryable: false, usage };
-  if (settlement.kind === "accepted") {
-    return { kind: "answered", value: settlement.value as T, usage };
-  }
-  if (native === "expired" || settlement.kind === "expired") {
-    return { kind: "timed-out", reason: "operation deadline exceeded", usage };
-  }
   switch (native.state) {
     case "completed":
       return { kind: "unanswered", reason: "agent settled without an accepted result", usage };

@@ -1,4 +1,4 @@
-import { constants } from "node:fs";
+import { constants, type FSWatcher, watch as watchDirectory } from "node:fs";
 import { open, opendir } from "node:fs/promises";
 import { join } from "node:path";
 import { parseRow, record, text } from "../json";
@@ -81,34 +81,50 @@ type Cursor = {
   reducer: ReturnType<typeof createClaudeReceiptReducer>;
 };
 
-/** Baseline before dispatch; a new file is read from its start, existing history is never proof. */
-export async function prepareClaudeReceipt(cwd: string, marker: string, home?: string) {
+/** Baseline only this launch's transcripts; historical cwd sessions consume no live budget. */
+export async function prepareClaudeReceipt(
+  cwd: string,
+  marker: string,
+  home?: string,
+  options: { since?: number; sessionRef?: string } = {},
+) {
   const directory = await claudeProjectDirectory(cwd, home);
+  const since = options.since ?? Date.now();
+  const known = options.sessionRef ? `${options.sessionRef}.jsonl` : undefined;
   const cursors = new Map<string, Cursor>();
-  const files = async () => {
-    const names: string[] = [];
+  const relevant = (name: string, born: number) => name === known || born >= since;
+  const fileNames = async function* () {
     const entries = await opendir(directory).catch((error: unknown) => {
       if (record(error)?.code === "ENOENT") return undefined;
       throw error;
     });
-    if (!entries) return names;
+    if (!entries) return;
     for await (const entry of entries) {
-      if (!entry.isFile() || !entry.name.endsWith(".jsonl")) continue;
-      if (names.length >= MAX_FILES) throw new Error("Claude receipt directory exceeds its bound");
-      names.push(entry.name);
+      if (entry.isFile() && entry.name.endsWith(".jsonl")) yield entry.name;
     }
-    return names;
   };
-  for (const name of await files()) {
-    const file = await open(join(directory, name), constants.O_RDONLY | constants.O_NOFOLLOW);
+  const cursorFor = (name: string, inode: number, offset: number) => {
+    if (cursors.size >= MAX_FILES) throw new Error("Claude receipt file history exceeds its bound");
+    const cursor = {
+      inode,
+      offset,
+      partial: Buffer.alloc(0),
+      reducer: createClaudeReceiptReducer(marker),
+    };
+    cursors.set(name, cursor);
+    return cursor;
+  };
+  for await (const name of fileNames()) {
+    const file = await open(join(directory, name), constants.O_RDONLY | constants.O_NOFOLLOW).catch(
+      (error: unknown) => {
+        if (record(error)?.code === "ENOENT") return undefined;
+        throw error;
+      },
+    );
+    if (!file) continue;
     try {
       const stat = await file.stat();
-      cursors.set(name, {
-        inode: stat.ino,
-        offset: stat.size,
-        partial: Buffer.alloc(0),
-        reducer: createClaudeReceiptReducer(marker),
-      });
+      if (relevant(name, stat.birthtimeMs)) cursorFor(name, stat.ino, stat.size);
     } finally {
       await file.close();
     }
@@ -124,55 +140,104 @@ export async function prepareClaudeReceipt(cwd: string, marker: string, home?: s
     ) {
       let bytes = 0;
       let reportedAcceptance = false;
-      while (!signal.aborted && Date.now() < deadline()) {
-        for (const name of await files()) {
-          if (signal.aborted) return;
-          const file = await open(join(directory, name), constants.O_RDONLY | constants.O_NOFOLLOW);
-          try {
-            const stat = await file.stat();
-            let cursor = cursors.get(name);
-            if (!cursor) {
-              if (cursors.size >= MAX_FILES)
-                throw new Error("Claude receipt file history exceeds its bound");
-              cursor = {
-                inode: stat.ino,
-                offset: 0,
-                partial: Buffer.alloc(0),
-                reducer: createClaudeReceiptReducer(marker),
-              };
-              cursors.set(name, cursor);
-            }
-            if (cursor.inode !== stat.ino || stat.size < cursor.offset)
-              throw new Error("Claude receipt transcript was replaced or truncated");
-            const size = Math.min(CHUNK_BYTES, stat.size - cursor.offset);
-            if (size === 0) continue;
-            if (bytes + size > MAX_BYTES) throw new Error("Claude receipt read exceeds its bound");
-            const buffer = Buffer.alloc(size);
-            const { bytesRead } = await file.read(buffer, 0, size, cursor.offset);
-            if (signal.aborted) return;
-            bytes += bytesRead;
-            cursor.offset += bytesRead;
-            cursor.partial = Buffer.concat([cursor.partial, buffer.subarray(0, bytesRead)]);
-            let newline = cursor.partial.indexOf(10);
-            while (newline >= 0) {
-              const line = cursor.partial.subarray(0, newline).toString("utf8");
-              cursor.partial = cursor.partial.subarray(newline + 1);
-              const receipt = cursor.reducer.push(parseRow(line));
-              if (receipt.accepted && !reportedAcceptance) {
-                reportedAcceptance = true;
-                onAccepted();
-              }
-              if (receipt.received) {
-                onReceived();
-                return;
-              }
-              newline = cursor.partial.indexOf(10);
-            }
-          } finally {
-            await file.close();
-          }
+      let watcher: FSWatcher | undefined;
+      let watcherFailure: Error | undefined;
+      const dirty = new Set(cursors.keys());
+      const enqueue = (name: string) => {
+        if (!name.endsWith(".jsonl")) return;
+        if (!dirty.has(name) && dirty.size >= MAX_FILES) {
+          watcherFailure = new Error("Claude receipt change queue exceeds its bound");
+          return;
         }
-        if (!(await pause(signal))) return;
+        dirty.add(name);
+      };
+      try {
+        while (!signal.aborted && Date.now() < deadline()) {
+          if (!watcher) {
+            try {
+              watcher = watchDirectory(directory, { persistent: false }, (_event, name) => {
+                if (name) enqueue(String(name));
+                else watcherFailure = new Error("Claude receipt directory change has no filename");
+              });
+              watcher.on("error", (error) => {
+                watcherFailure = error;
+              });
+              // Covers creation/appends between the baseline and subscribing to directory changes.
+              for await (const name of fileNames()) {
+                const file = await open(
+                  join(directory, name),
+                  constants.O_RDONLY | constants.O_NOFOLLOW,
+                ).catch((error: unknown) => {
+                  if (record(error)?.code === "ENOENT") return undefined;
+                  throw error;
+                });
+                if (!file) continue;
+                try {
+                  const stat = await file.stat();
+                  if (relevant(name, stat.birthtimeMs)) enqueue(name);
+                } finally {
+                  await file.close();
+                }
+              }
+            } catch (error) {
+              if (record(error)?.code !== "ENOENT") throw error;
+            }
+          }
+          if (watcherFailure) throw watcherFailure;
+          for (const name of cursors.keys()) enqueue(name);
+          const pending = [...dirty];
+          dirty.clear();
+          for (const name of pending) {
+            if (signal.aborted) return;
+            const file = await open(
+              join(directory, name),
+              constants.O_RDONLY | constants.O_NOFOLLOW,
+            ).catch((error: unknown) => {
+              if (record(error)?.code === "ENOENT" && !cursors.has(name)) return undefined;
+              throw error;
+            });
+            if (!file) continue;
+            try {
+              const stat = await file.stat();
+              let cursor = cursors.get(name);
+              if (!cursor && !relevant(name, stat.birthtimeMs)) continue;
+              cursor ??= cursorFor(name, stat.ino, 0);
+              if (cursor.inode !== stat.ino || stat.size < cursor.offset)
+                throw new Error("Claude receipt transcript was replaced or truncated");
+              const size = Math.min(CHUNK_BYTES, stat.size - cursor.offset);
+              if (size === 0) continue;
+              if (bytes + size > MAX_BYTES)
+                throw new Error("Claude receipt read exceeds its bound");
+              const buffer = Buffer.alloc(size);
+              const { bytesRead } = await file.read(buffer, 0, size, cursor.offset);
+              if (signal.aborted) return;
+              bytes += bytesRead;
+              cursor.offset += bytesRead;
+              if (cursor.offset < stat.size) enqueue(name);
+              cursor.partial = Buffer.concat([cursor.partial, buffer.subarray(0, bytesRead)]);
+              let newline = cursor.partial.indexOf(10);
+              while (newline >= 0) {
+                const line = cursor.partial.subarray(0, newline).toString("utf8");
+                cursor.partial = cursor.partial.subarray(newline + 1);
+                const receipt = cursor.reducer.push(parseRow(line));
+                if (receipt.accepted && !reportedAcceptance) {
+                  reportedAcceptance = true;
+                  onAccepted();
+                }
+                if (receipt.received) {
+                  onReceived();
+                  return;
+                }
+                newline = cursor.partial.indexOf(10);
+              }
+            } finally {
+              await file.close();
+            }
+          }
+          if (!(await pause(signal))) return;
+        }
+      } finally {
+        watcher?.close();
       }
     },
   };

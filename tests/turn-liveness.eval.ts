@@ -2,8 +2,8 @@ import { mkdir, mkdtemp, readFile, unlink } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import type { OutputRecord } from "../packages/contract/src/records";
-import { readOperationEvents } from "../packages/engine/src/operation-events";
 import { runOperatorCli } from "../packages/engine/src/operator-cli";
+import { readOperationEvents } from "../packages/engine/src/testing/operation-events";
 import { assertLiveOptIn, interruption } from "./live";
 import { type Evidence, MODES, type Mode, problems } from "./turn-liveness-evidence";
 

@@ -29,3 +29,45 @@ test("scripted waiting is acknowledged through the real control plane and preser
     [2, false, "answered"],
   ]);
 });
+
+test("an async check-in answer is not raced by a tiny real-time response window", async () => {
+  const run = await testWorkflow(workflow, null, {
+    agents: {
+      worker: [
+        answer(async (turn) => {
+          if (!turn.nudge) return reply.silent();
+          await Bun.sleep(75);
+          return "done";
+        }),
+        answer("next"),
+      ],
+    },
+  });
+  expect(run.value).toBe("done/next");
+});
+
+for (const runtime of ["codex", "pi", "claude-headless"]) {
+  test(`${runtime} scripted placement refuses cooperative waiting`, async () => {
+    const unsupported: WorkflowDefinition<null, string> = {
+      meta: { name: "unsupported-wait", description: "unsupported wait" },
+      async run(ctx) {
+        const agent = await ctx.agents.open({
+          key: "worker",
+          runtime:
+            runtime === "claude-headless"
+              ? { harness: "claude", model: "test", placement: "headless", metered: true }
+              : runtime,
+        });
+        return (await agent.run({ prompt: "work" })).outcome.kind;
+      },
+    };
+    await expect(
+      testWorkflow(unsupported, null, {
+        runtimes: {
+          pi: { harness: "pi", model: "test" },
+        },
+        agents: { worker: answer((turn) => (turn.nudge ? "done" : reply.waiting("job", 1))) },
+      }),
+    ).rejects.toThrow("waiting rejected");
+  });
+}

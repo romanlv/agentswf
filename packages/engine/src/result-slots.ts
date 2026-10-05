@@ -160,11 +160,13 @@ export function createResultSlotRegistry(options: ResultSlotRegistryOptions): Re
         } else slots.delete(spec.operationId);
         throw error;
       }
-      if (now() >= spec.deadline.unixMilliseconds) closeSlot(slot, "expired");
-      else
-        slot.cancelExpiry = schedule(spec.deadline.unixMilliseconds - now(), () => {
-          if (slot.state === "open") closeSlot(slot, "expired");
-        });
+      if (slot.state === "open") {
+        if (now() >= spec.deadline.unixMilliseconds) closeSlot(slot, "expired");
+        else
+          slot.cancelExpiry = schedule(spec.deadline.unixMilliseconds - now(), () => {
+            if (slot.state === "open") closeSlot(slot, "expired");
+          });
+      }
       return { operationId: spec.operationId, settled };
     },
 

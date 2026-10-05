@@ -259,7 +259,12 @@ one operation, slot and schema. On placements with measured receipt support, `wf
 permits repeated check-ins under one fixed deadline ([[021-turn-liveness-and-limits]]).
 The harness reports dispatch, native acceptance and model receipt; the engine owns the timers.
 An accepted native queue entry is not yet model receipt. Unsupported placements do not gain
-cooperative waiting by inference.
+cooperative waiting by inference. The Claude pane adapter is enabled without an exact patch-version
+gate (measured on 2.1.289); unrecognized receipt evidence fails explicitly rather than confirming
+delivery.
+Only successful answered operations preserve natural continuity of a run-owned pane. A
+non-success stops the owned native work even when its foreground turn is already complete;
+caller-session interruption authority remains restricted by ADR 0010.
 A later operation may resume native context only when the host has measured continuation support
 and terminal evidence; native session references never cross into workflow or engine-owned state
 as resume authority. They cross only as accounting evidence, so the engine can read what an agent

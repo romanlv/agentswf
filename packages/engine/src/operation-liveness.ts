@@ -1,7 +1,13 @@
+import type { OperationLivenessKind } from "@agentswf/contract/records";
 import type { JsonSchema } from "@agentswf/contract/schema";
 import type { AbsoluteDeadline } from "@agentswf/contract/workflow";
-import type { HarnessTurn, HarnessTurnOutcome } from "@agentswf/harness/adapter";
+import type {
+  HarnessReleaseDisposition,
+  HarnessTurn,
+  HarnessTurnOutcome,
+} from "@agentswf/harness/adapter";
 import { scheduleAt } from "./deadlines";
+import { messageOf } from "./errors";
 import type { ResultSlotEvent, ResultSlotRegistry, ResultSlotSettlement } from "./result-slots";
 
 export type LivenessPolicy = {
@@ -23,7 +29,7 @@ export type OperationPhase =
   | "awaiting-reply"
   | "releasing";
 export type LivenessEvent = {
-  kind: string;
+  kind: OperationLivenessKind;
   at: number;
   sequence: number;
   reason?: string;
@@ -39,6 +45,8 @@ export type SupervisedOutcome = {
   settledAt: number;
 };
 
+export type OperationStop = { kind: "cancelled" | "timed-out"; reason: string };
+
 type Options = {
   operationId: string;
   agentId: string;
@@ -50,7 +58,7 @@ type Options = {
   waitingSupported?: boolean;
   start(): Promise<HarnessTurn>;
   successor(turn: HarnessTurn, sequence: number, signal: AbortSignal): Promise<HarnessTurn>;
-  onStop(cancel: (reason: string) => void): () => void;
+  onStop(cancel: (stop: OperationStop) => Promise<void>): () => void;
   event?(event: LivenessEvent): void;
   phase?(phase: OperationPhase, reason?: string, until?: number): void;
   policy?: LivenessPolicy;
@@ -68,16 +76,18 @@ export async function superviseOperation(options: Options): Promise<SupervisedOu
   const deadline = options.deadline.unixMilliseconds;
   let wake = Promise.withResolvers<void>();
   const stopped = Promise.withResolvers<void>();
+  const released = Promise.withResolvers<void>();
   const changed = () => wake.resolve();
   let sequence = 0;
   let revision = 0;
   let admitted = false;
   let settlement: ResultSlotSettlement | undefined;
-  let stop: { kind: SupervisedOutcome["kind"]; reason: string } | undefined;
+  let stop: OperationStop | undefined;
   let waitUntil: number | undefined;
   let quietUntil: number | undefined;
   let responseUntil: number | undefined;
   let deliveryUntil: number | undefined;
+  let receiptUntil: number | undefined;
   let dispatched = false;
   let receiptSatisfied = false;
   let deliveredAt: number | undefined;
@@ -95,7 +105,7 @@ export async function superviseOperation(options: Options): Promise<SupervisedOu
     | undefined;
   let answerReleaseDeadline: number | undefined;
   const charges: number[] = [];
-  const emit = (kind: string, reason?: string, until?: number, at = now()) =>
+  const emit = (kind: OperationLivenessKind, reason?: string, until?: number, at = now()) =>
     options.event?.({
       kind,
       at,
@@ -104,7 +114,7 @@ export async function superviseOperation(options: Options): Promise<SupervisedOu
       ...(until === undefined ? {} : { until }),
     });
   const clearAnswerTimers = () => {
-    quietUntil = responseUntil = deliveryUntil = undefined;
+    quietUntil = responseUntil = deliveryUntil = receiptUntil = undefined;
   };
   const cancelPending = () => {
     if (!dispatched && controller) {
@@ -135,17 +145,14 @@ export async function superviseOperation(options: Options): Promise<SupervisedOu
     }
     changed();
   };
-  const removeStop = options.onStop((reason) => {
-    if (finished) return;
-    stop = {
-      kind:
-        reason.includes("deadline") || (!admitted && now() >= deadline) ? "timed-out" : "cancelled",
-      reason,
-    };
+  const removeStop = options.onStop((request) => {
+    if (finished) return released.promise;
+    stop ??= request;
     stopped.resolve();
     void options.slots.close(options.operationId);
     cancelPending();
     changed();
+    return released.promise;
   });
   let slot: Awaited<ReturnType<ResultSlotRegistry["open"]>>;
   try {
@@ -159,8 +166,10 @@ export async function superviseOperation(options: Options): Promise<SupervisedOu
       onEvent: onSlot,
     });
   } catch (error) {
+    finished = true;
     removeStop();
-    throw error;
+    released.resolve();
+    return terminal(stop?.kind ?? "failed", stop?.reason ?? messageOf(error));
   }
   emit("opened", undefined, deadline);
   if (stop) void options.slots.close(options.operationId);
@@ -172,6 +181,25 @@ export async function superviseOperation(options: Options): Promise<SupervisedOu
     acquiring = opening;
     const current = sequence;
     const grantRevision = revision;
+    let accepted = false;
+    let received = false;
+    receiptUntil = undefined;
+    const boundMissingReceipt = () => {
+      if (
+        result === undefined &&
+        check &&
+        waitingSupported &&
+        accepted &&
+        !received &&
+        native?.state === "completed" &&
+        !admitted &&
+        !receiptSatisfied &&
+        grantRevision === revision &&
+        receiptUntil === undefined
+      )
+        receiptUntil = Math.min(deadline, now() + policy.responseMs);
+    };
+    const priorNative = native;
     native = undefined;
     dispatched = false;
     receiptSatisfied = false;
@@ -194,6 +222,7 @@ export async function superviseOperation(options: Options): Promise<SupervisedOu
             native = outcome;
             charges.push(...outcome.chargesUsd);
             if (
+              result === undefined &&
               outcome.state === "completed" &&
               !admitted &&
               waitUntil === undefined &&
@@ -201,7 +230,9 @@ export async function superviseOperation(options: Options): Promise<SupervisedOu
               !check
             )
               quietUntil = now() + (waitingSupported ? policy.quietMs : 0);
-            if (!waitingSupported && check && outcome.state === "completed") responseUntil = now();
+            if (result === undefined && !waitingSupported && check && outcome.state === "completed")
+              responseUntil = now();
+            boundMissingReceipt();
             changed();
           },
           (error) => {
@@ -216,25 +247,45 @@ export async function superviseOperation(options: Options): Promise<SupervisedOu
             if (!valid()) return;
             dispatched = true;
             deliveredAt ??= at;
-            if (!admitted && !receiptSatisfied && grantRevision === revision)
+            if (
+              result === undefined &&
+              !admitted &&
+              !receiptSatisfied &&
+              grantRevision === revision
+            )
               deliveryUntil = Math.min(deadline, at + policy.deliveryMs);
             emit("dispatched", undefined, deliveryUntil);
             changed();
           });
           void turn.delivery.accepted.then(() => {
             if (!valid()) return;
+            accepted = true;
+            boundMissingReceipt();
             deliveryUntil = undefined;
             emit("queue-accepted");
             changed();
           });
           void turn.delivery.received.then((at) => {
             if (!valid()) return;
+            received = true;
+            receiptUntil = undefined;
             deliveryUntil = undefined;
-            if (check && !admitted && !receiptSatisfied && grantRevision === revision) {
+            if (
+              result === undefined &&
+              check &&
+              !admitted &&
+              !receiptSatisfied &&
+              grantRevision === revision
+            ) {
               responseUntil = Math.min(deadline, at + policy.responseMs);
               options.phase?.("awaiting-reply", undefined, responseUntil);
             }
             emit("received", undefined, responseUntil);
+            changed();
+          });
+          void turn.delivery.failed.then((reason) => {
+            if (!valid()) return;
+            acquisitionError = new Error(`delivery observation failed: ${reason}`);
             changed();
           });
         } else if (waitingSupported) {
@@ -246,8 +297,19 @@ export async function superviseOperation(options: Options): Promise<SupervisedOu
         changed();
       },
       (error) => {
+        if (finished || abandonedAcquisition) return;
         acquiring = undefined;
-        acquisitionError = error;
+        if (
+          ignoredCancellation &&
+          controller?.signal.aborted &&
+          error instanceof Error &&
+          error.name === "AbortError"
+        ) {
+          native = priorNative;
+        } else {
+          acquisitionError = error;
+        }
+        if (admitted) beginAnswerRelease();
         changed();
       },
     );
@@ -287,7 +349,7 @@ export async function superviseOperation(options: Options): Promise<SupervisedOu
         result = terminal("cancelled", "operation closed");
         break;
       }
-      if (acquisitionError) {
+      if (acquisitionError && !admitted) {
         result = terminal("failed", String(acquisitionError));
         break;
       }
@@ -305,6 +367,13 @@ export async function superviseOperation(options: Options): Promise<SupervisedOu
         }
         if (deliveryUntil !== undefined && at >= deliveryUntil) {
           result = terminal("failed", "prompt delivery could not be confirmed");
+          break;
+        }
+        if (receiptUntil !== undefined && at >= receiptUntil) {
+          result = terminal(
+            "failed",
+            "check-in receipt could not be confirmed after native completion",
+          );
           break;
         }
         if (responseUntil !== undefined && at >= responseUntil) {
@@ -337,7 +406,7 @@ export async function superviseOperation(options: Options): Promise<SupervisedOu
       }
       const candidates = admitted
         ? []
-        : [deadline, waitUntil, quietUntil, responseUntil, deliveryUntil].filter(
+        : [deadline, waitUntil, quietUntil, responseUntil, deliveryUntil, receiptUntil].filter(
             (v): v is number => v !== undefined && v > now(),
           );
       const signal = wake.promise;
@@ -363,34 +432,20 @@ export async function superviseOperation(options: Options): Promise<SupervisedOu
         acquired = await bounded(acquisition, releaseDeadline);
       }
       if (acquired) held = acquired;
-      else {
+      else if (acquiring === acquisition || !held) {
         abandonedAcquisition = true;
         result.cleanupUnresolved = true;
       }
     }
+    if (result.kind === "answered" && !held) result.cleanupUnresolved = true;
     if (held) {
       const stopping = stop !== undefined;
       if (stopping)
         releaseDeadline = Math.min(releaseDeadline, now() + Math.min(policy.releaseMs, 5000));
-      let release =
-        !stopping && result.kind === "answered" && answerRelease
-          ? await bounded(answerRelease, answerReleaseDeadline!, true)
-          : await bounded(
-              held.release(
-                stop?.reason ?? result.reason,
-                { unixMilliseconds: releaseDeadline },
-                !stopping && result.kind === "answered"
-                  ? { answered: true, awaitCompletion: true }
-                  : undefined,
-              ),
-              releaseDeadline,
-            );
-      if (stop && !stopping && result.kind === "answered") {
-        const stopDeadline = now() + Math.min(policy.releaseMs, 5000);
-        release = await bounded(
-          held.release(stop.reason, { unixMilliseconds: stopDeadline }),
-          stopDeadline,
-        );
+      const natural = !stopping && result.kind === "answered";
+      let release = await releaseHeld(natural, stop?.reason ?? result.reason, releaseDeadline);
+      if (stop && natural) {
+        release = await releaseHeld(false, stop.reason, now() + Math.min(policy.releaseMs, 5000));
       }
       emit("release", release?.kind ?? "unresolved");
       if (
@@ -416,9 +471,22 @@ export async function superviseOperation(options: Options): Promise<SupervisedOu
   } finally {
     finished = true;
     removeStop();
+    released.resolve();
+  }
+  async function releaseHeld(
+    answered: boolean,
+    reason: string,
+    until: number,
+  ): Promise<HarnessReleaseDisposition | undefined> {
+    if (!held) return undefined;
+    if (answered) {
+      beginAnswerRelease();
+      return answerRelease ? bounded(answerRelease, answerReleaseDeadline!, true) : undefined;
+    }
+    return bounded(held.release(reason, { unixMilliseconds: until }), until);
   }
   function beginAnswerRelease() {
-    if (!held || acquiring || answerRelease || stop) return;
+    if (finished || abandonedAcquisition || !held || acquiring || answerRelease || stop) return;
     answerReleaseDeadline = now() + policy.releaseMs;
     answerRelease = held.release(
       "answer admitted",

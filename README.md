@@ -70,7 +70,8 @@ labelled groups it shows live in the terminal, and stages a run continues from.
   `wf result` with JSON, which is validated before your code sees it, and TypeScript knows its
   shape. A turn ends `answered`, or `unanswered`, `blocked`, `timed-out`, `failed` or `cancelled`
   with a reason. It never ends with a silently missing answer or half-parsed prose, and an agent
-  that goes quiet gets one nudge.
+  that goes quiet gets a recovery prompt. Supported Claude panes can declare waiting and take
+  repeated check-ins within the same deadline.
 - **Long-lived sessions.** Talk to the same agent again and it continues its own session, keeping
   its context, and each turn can ask for a different kind of answer: a plan, then a patch
   summary, then a yes or no. When the context fills, `compact` runs the harness's own compaction

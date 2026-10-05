@@ -32,7 +32,7 @@ workflow.runId   workflow.attempt
 // In a test, from "agentswf/testing"; `awf test` runs it:
 testWorkflow(workflow, args, { agents?, decisions?, runtimes?, caller?, timeoutMs?, stallMs?, cwd?,
                               recorded?, fromStage? })  // → run
-answer(SCHEMA, value | (turn) => value)   answer("text")   reply.silent() | blocked() | failed() | timedOut() | hang() | interrupted()
+answer(SCHEMA, value | (turn) => value)   answer("text")   reply.waiting(reason, timeoutMs?) | silent() | blocked() | failed() | timedOut() | hang() | interrupted()
 ```
 
 | Concept | In one line |
@@ -192,6 +192,11 @@ turn that goes wrong is still a value:
 if (!isAnswered(outcome)) return { error: `${outcome.kind}: ${outcome.reason}` };
 outcome.value.findings; // typed
 ```
+
+A run-owned agent is stopped after an unsuccessful operation, even if its foreground turn
+already ended. A workflow must not rely on continuing that pane or on its background watch
+surviving an `unanswered`, timed-out or cancelled operation. Caller sessions retain their
+restricted interruption authority.
 
 ### Sessions: talk to the same agent again
 
@@ -569,9 +574,14 @@ test reports.
   answer. `hang` holds the turn until the engine cancels it, as `parallel` does when another item
   fails.
 
-A silent turn is nudged once, as a real one is. The nudge is met by the same entry, so `turnsOf`
-shows two records with the same `n`, the second with `nudge: true`; a function sees `turn.nudge`
-and can answer it.
+- **`reply.waiting(reason, timeoutMs?)`** declares a cooperative wait. It is supported for
+  run-owned Claude panes, matching production; other placements reject it. The next check-in
+  invokes the same script entry with `turn.nudge: true`. Waiting never extends the deadline.
+
+A silent turn receives recovery according to its placement's production support. Each check-in
+uses the same script entry and turn number `n`; a function sees `turn.nudge` and can answer or,
+on a supported placement, return another waiting declaration. Async script preparation and its
+reply are one synthetic action; test timeout and stall guards still apply.
 
 A script is one entry, which meets every turn that agent is asked, or a list, one entry per turn in
 order. A list is strict: a turn past its end, or an entry never reached, fails the test. A single
@@ -666,7 +676,8 @@ decisions: {
   `expect(() => run.value).toThrow("lens ids must be unique")`.
 - **`run.turnsOf(key)`** is one agent's turns in order, nudges included, each as the workflow
   wrote it: `prompt`, `schema`, `label`, `n`, `nudge`, the `model` and `effort` it ran at, and its
-  `outcome`. An agent never asked has
+  `outcome`, including `"waiting"` for a cooperative declaration. These are scripted deliveries,
+  so `"waiting"` is not a final `agent.run` outcome. An agent never asked has
   none: `expect(run.turnsOf("implementer")).toEqual([])`. **`run.turns`** has every agent's.
 - **`run.compactionsOf(key)`** is one agent's compactions in order, each with its `id`, `focus`
   and `outcome`. They are not turns, and take no entry in the agent's script: each answers `""`

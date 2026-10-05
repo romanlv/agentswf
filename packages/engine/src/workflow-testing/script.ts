@@ -82,7 +82,7 @@ export const reply = {
   /** Reports a cooperative wait; later check-ins invoke the same answer function again. */
   waiting: (reason: string, timeoutMs?: number): Reply =>
     ending({ kind: "waiting", reason, ...(timeoutMs === undefined ? {} : { timeoutMs }) }),
-  /** Ends the turn without reporting a result; the engine nudges once. */
+  /** Ends without a result; recovery follows the placement's production support. */
   silent: (): Reply => ending({ kind: "silent" }),
   /** The agent is stuck, as on a permission prompt. */
   blocked: (reason = "waiting on a permission prompt"): Reply =>

@@ -153,10 +153,12 @@ What they cover between them:
   prelude that sets their environment and loads their secret. 3 agents, ~50 s, ~$0.16. Fails,
   saying why, where docker cannot run.
 
-The whole suite, four at a time, took 2m 36s and ~$1.87 at list prices on 2026-10-01, the
+A historical suite, before story 021 added `turn-liveness`, ran four at a time and took 2m 36s and ~$1.87 at list prices on 2026-10-01, the
 compaction eval the dearest at ~$0.63: pi needs 20k tokens of history before it compacts, and the
 headless claude is metered. Run one by one, before the sandbox probes ran one script per agent,
-it took about 17 min.
+it took about 17 min. These are historical measurements, not the current full-suite budget.
+Story 021 measured its final host/SRT waiting pair at about $0.23; each scenario can take
+1–3 minutes. See [[021-implementation-proof]] for exact runs and the incomplete Cursor matrix.
 
 Not covered live, on purpose:
 
@@ -198,7 +200,7 @@ as story 002 did to check accounting against the session files.
   eval`, all of it — at the cost above there is no reason to pick. Record the date, outcome and cost in the
   story's Verification section.
 - **While working on one area:** the matching eval — `harnesses` for an adapter, liveness or usage
-  reader; `minimum-review` for panes, the control plane or the result channel; `failed-run` for run
+  reader; `turn-liveness` for waiting, repeated check-ins, receipt or release; `minimum-review` for panes, the control plane or the result channel; `failed-run` for run
   lifecycle, cancellation, accounting or `output.json`; `sandbox-srt` and `sandbox-docker` for
   `packages/sandbox`, a harness's sandbox needs, or the engine's sandboxes; `skills` for
   `engine/src/skills`, `harness/src/capabilities` or a harness's launch arguments; `sandbox-panes-srt` and

@@ -231,3 +231,18 @@ describe("a child held on stdin", () => {
     expect(Date.now() - started).toBeLessThan(10_000);
   }, 15_000);
 });
+
+test("answer admission can extend process expiry through its release grace", async () => {
+  let deadline = Date.now() + 20;
+  const input: ProcessInput & { timeoutAt: () => number } = {
+    argv: [process.execPath, "-e", 'await Bun.sleep(100); console.log("natural end")'],
+    timeoutMs: 20,
+    timeoutAt: () => deadline,
+  };
+  const running = runProcess(input);
+  deadline = Date.now() + 1000;
+  const result = await running;
+  expect(result.timedOut).toBe(false);
+  expect(result.exitCode).toBe(0);
+  expect(result.stdout).toContain("natural end");
+});

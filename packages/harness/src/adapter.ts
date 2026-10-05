@@ -103,6 +103,8 @@ export interface HarnessTurn {
     dispatched: Promise<number>;
     accepted: Promise<number>;
     received: Promise<number>;
+    /** Resolves if native delivery observation fails; it never rejects. */
+    failed: Promise<string>;
   };
   /** Native evidence only; the engine combines it with the atomically settled result slot. */
   readonly settled: Promise<HarnessTurnOutcome>;

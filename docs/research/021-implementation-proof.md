@@ -48,7 +48,9 @@ receipt. Herdr command completion is a later event and cannot start the response
 
 This supports three internal delivery facts: `dispatched`, `accepted` and `received`. Unknown
 acceptance gets a 30-second transport grace. After native acceptance, receipt can wait under the
-fixed operation deadline. A new waiting declaration or accepted result satisfies the check-in
+fixed operation deadline while the native turn is running. Round 1 adds a separate bounded
+confirmation grace after an accepted check-in completes without receipt; expiry fails delivery
+without pretending that the model consumed the prompt. A new waiting declaration or accepted result satisfies the check-in
 without waiting for a separate receipt callback. If an answer wins while a dispatched check-in
 is still queued, native release still waits for that check-in's receipt and subsequent completion.
 
@@ -86,11 +88,15 @@ seconds and candidate auditing to one second. Diagnostic flushing is bounded to 
 
 | Combination | Delivery and waiting status | Release guarantee |
 | --- | --- | --- |
-| Host Claude pane, 2.1.289 | Complete workflow measured with two check-ins, answer and same-session follow-up. | Latest dispatched input must be consumed, then fresh native completion must be observed. |
+| Host Claude pane, measured on 2.1.289 | Complete workflow measured with two check-ins, answer and same-session follow-up. | Latest dispatched input must be consumed, then fresh native completion must be observed. |
 | Fake/scripted host | Deterministic and workflow integration checks passed. | Scripted release through the same engine policy. |
 | Claude pane inside SRT | Installed launcher and control forwarding measured with two check-ins and same-session follow-up. | Same native-release boundary; no new process-tree containment claim. |
 | Other provider/placement combinations | Existing foreground behavior; cooperative waiting is refused where receipt support is absent. | Existing ownership restrictions apply; no inferred background-task coverage. |
 | Caller session | New receipt loop remains unsupported unless separately proved. | Existing caller authority remains: no pane kill, unrelated-task kill or stop-finishing interrupt after an accepted answer. |
+
+Waiting is enabled for run-owned Claude panes without an exact patch-version gate. The measured
+version is evidence, not a runtime whitelist. Receipt-observer failures must terminate delivery
+explicitly; unrecognized transcript formats cannot silently confirm receipt.
 
 Native release does not prove that detached children, development servers or remote deployments
 have stopped. The agent must finish answer-related work before submitting its result; stronger
@@ -280,3 +286,44 @@ Native transcripts are under `/Users/roman/.claude/projects/`, in the correspond
 
 Raw logs and provider-injected context remain local. These temporary paths are inspection
 artifacts, not durable repository fixtures or prerequisites for the offline test suite.
+
+## Round 1 follow-up review
+
+The follow-up review reversed one optimization: skipping native cancellation after an already
+completed, unsuccessful turn could leave a run-owned pane's background watch alive. Owned
+non-success now stops native work; only success preserves natural continuity. Caller authority
+is unchanged. This is narrower than a claim about every detached descendant or remote task.
+
+Scripted workflow receipt is emitted after the synthetic script response completes, so an async
+answer function does not race the test policy's short response window. Waiting support follows
+production placement: run-owned Claude panes, not every fake runtime. The operation deadline
+and test stall guard still bound hung scripts. A 75 ms async-check-in regression reproduced the
+old premature `unanswered`; unsupported Codex, pi and Claude-headless waiting is rejected.
+
+Version 1 diagnostic event kinds are now a literal union. The bounded reader has only tests and
+live-eval consumers, so it lives in `engine/src/testing/operation-events.ts`, not the production
+writer module. A compile-time fixture rejects unrecognized event names. Deadline comments for
+opening, compaction and settings no longer claim those operations have check-ins.
+
+Focused verification for these fixes passed **68 workflow-testing tests, 117 assertions** and
+**12 diagnostic/eval tests, 40 assertions**. The literal-kind type fixture failed before the
+change with an unused `@ts-expect-error`, then passed its constraint after the change. The
+three unsupported-placement tests also failed against the restored old unconditional flag and
+passed with the new placement gate. Package boundaries and focused formatting checks passed.
+
+The engine regressions also cover both orderings of receipt acceptance and native completion,
+answer persistence versus successor rejection, rejected initial acquisition without release
+proof, late callbacks after terminal cleanup, cancellation waiting for native termination,
+explicit stop causes, and slot-opening/closing failures. Headless release hands its grace to
+the actual process and cannot report a killed or failed process as completed. Receipt setup
+bounds live candidates rather than historical transcripts, and watcher failures now propagate
+instead of disappearing into silence.
+
+Final verification passed: **1,414 tests, 2 skipped, 0 failures, 4,880 assertions across 104
+files** (`bun test`). `bun run check` passed formatting, typechecking and package boundaries.
+The focused harness suite passed 285 tests, including free child-process checks and isolated
+transcript fixtures. No additional paid evaluations were run for this review round.
+
+Owned-pane and caller `finishAnswered` orchestration remain separate. Their ownership checks
+and session discovery differ; sharing that orchestration would obscure caller authority.
+Low-level settlement parsing remains shared.

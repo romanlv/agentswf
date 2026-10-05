@@ -102,7 +102,7 @@ export type AgentExecution = ExecutionConfig & {
 export interface AgentOpenSpec {
   /** Logical identity scoped to the current workflow run. */
   key: AgentKey;
-  /** Fixed before queueing; defaults to the current scope and covers all automatic check-ins. */
+  /** Bounds this operation; defaults to the current workflow scope deadline. */
   deadline?: AbsoluteDeadline;
   /** Defaults to the workflow's working directory. */
   cwd?: string;
@@ -242,9 +242,9 @@ export interface CompactSpec {
   id?: CompactionId;
   /** What the harness's own compaction keeps and drops, as an operator types after `/compact`. */
   prompt: string;
-  /** Fixed before queueing; defaults to the current scope and covers all automatic check-ins. */
+  /** Bounds this operation; defaults to the current workflow scope deadline. */
   deadline?: AbsoluteDeadline;
-  /** Relative bound from invocation, capped by the current scope; waiting never extends it. */
+  /** Relative bound from invocation, capped by the current workflow scope deadline. */
   timeoutMs?: number;
 }
 
@@ -264,9 +264,9 @@ export interface SettingsSpec {
   /** Another model of the same harness. */
   model?: string;
   effort?: Effort;
-  /** Fixed before queueing; defaults to the current scope and covers all automatic check-ins. */
+  /** Bounds this operation; defaults to the current workflow scope deadline. */
   deadline?: AbsoluteDeadline;
-  /** Relative bound from invocation, capped by the current scope; waiting never extends it. */
+  /** Relative bound from invocation, capped by the current workflow scope deadline. */
   timeoutMs?: number;
 }
 

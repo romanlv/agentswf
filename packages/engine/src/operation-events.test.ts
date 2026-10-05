@@ -1,13 +1,14 @@
 import { afterAll, expect, test } from "bun:test";
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { OperationLivenessRecord } from "@agentswf/contract/records";
-import { createOperationEvents, readOperationEvents } from "./operation-events";
+import type { OperationLivenessKind, OperationLivenessRecord } from "@agentswf/contract/records";
+import { createOperationEvents } from "./operation-events";
 import { createTempRunDirs } from "./testing";
+import { readOperationEvents } from "./testing/operation-events";
 
 const dirs = createTempRunDirs();
 afterAll(() => dirs.cleanup());
-const event = (kind: string, sequence = 0, reason?: string) => ({
+const event = (kind: OperationLivenessKind, sequence = 0, reason?: string) => ({
   kind,
   at: 1000 + sequence,
   sequence,

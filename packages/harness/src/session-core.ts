@@ -32,6 +32,7 @@ export type NativeTurnRequest = {
   onDispatched?: () => void;
   onAccepted?: () => void;
   onReceived?: () => void;
+  onDeliveryFailed?: (reason: string) => void;
   id: string;
   prompt: string;
   deadline: AbsoluteDeadline;
@@ -275,6 +276,8 @@ function createSession(
     let resolveDispatched!: (at: number) => void;
     let resolveAccepted!: (at: number) => void;
     let resolveReceived!: (at: number) => void;
+    let resolveDeliveryFailed!: (reason: string) => void;
+    let deliveryFailure: string | undefined;
     const delivery = native.confirmsDelivery
       ? {
           dispatched: new Promise<number>((resolve) => {
@@ -286,10 +289,11 @@ function createSession(
           received: new Promise<number>((resolve) => {
             resolveReceived = resolve;
           }),
+          failed: new Promise<string>((resolve) => {
+            resolveDeliveryFailed = resolve;
+          }),
         }
       : undefined;
-    let completedOutcome: HarnessTurnOutcome | undefined;
-    let received = false;
     const settled = native
       .execute({
         ...request,
@@ -308,13 +312,18 @@ function createSession(
                 }
               },
               onAccepted() {
-                if (dispatched) resolveAccepted(now());
+                if (dispatched && deliveryFailure === undefined) resolveAccepted(now());
               },
               onReceived() {
-                if (dispatched) {
-                  received = true;
+                if (dispatched && deliveryFailure === undefined) {
                   resolveAccepted(now());
                   resolveReceived(now());
+                }
+              },
+              onDeliveryFailed(reason) {
+                if (deliveryFailure === undefined) {
+                  deliveryFailure = reason;
+                  resolveDeliveryFailed(reason);
                 }
               },
             }
@@ -351,7 +360,6 @@ function createSession(
           sessionRef = outcome.sessionRef;
         }
         const reported = withoutSessionRef(outcome);
-        if (reported.state === "completed") completedOutcome = reported;
         if (!quarantined && generation === turns) {
           // An answered turn ending leaves the agent ready for the next operation.
           lastStatus = leftFinishing ? { state: "idle" } : outcomeStatus(reported);
@@ -371,10 +379,15 @@ function createSession(
         throw new Error("harness delivery is unavailable until messaging acknowledgement exists");
       },
       async nudge(spec: HarnessNudgeSpec) {
+        if (spec.deliverySignal?.aborted)
+          throw new DOMException("check-in cancelled before dispatch", "AbortError");
         if (nudged) throw new Error("harness turn has already been nudged");
         if (!request.binding) throw new Error("harness turn has no result authority to reuse");
-        nudged = true;
         await settled;
+        if (spec.deliverySignal?.aborted)
+          throw new DOMException("check-in cancelled before dispatch", "AbortError");
+        if (nudged) throw new Error("harness turn has already been nudged");
+        nudged = true;
         receiptObserver.abort();
         return start({
           id: spec.id,
@@ -396,22 +409,25 @@ function createSession(
           receiptDeadline = deadline.unixMilliseconds;
           if (native.finishesAnswered) native.leftFinishing?.();
           const natural = (async () => {
-            if (delivery && dispatched) await delivery.received;
+            if (delivery && dispatched) {
+              const failed = await Promise.race([
+                delivery.received.then(() => undefined),
+                delivery.failed,
+              ]);
+              if (failed !== undefined) return localOutcome("failed", failed);
+            }
             if (receiptObserver.signal.aborted || expired(deadline, now)) {
               return localOutcome("timed-out", "release deadline exceeded");
             }
             return native.finishAnswered
               ? native.finishAnswered(deadline).then(async (outcome) => {
-                  const original = outcome.state === "completed" ? await settled : undefined;
+                  if (outcome.state === "completed") await settled;
                   if (currentRelease() && outcome.sessionRef) {
                     seen.add(outcome.sessionRef);
                     sessionRef = outcome.sessionRef;
                   }
                   if (currentRelease() && outcome.state === "completed") hasRun = true;
-                  return {
-                    ...withoutSessionRef(outcome),
-                    ...(original ? { chargesUsd: original.chargesUsd } : {}),
-                  };
+                  return withoutSessionRef(outcome);
                 })
               : settled;
           })();
@@ -423,7 +439,7 @@ function createSession(
           const reason =
             disposition.kind === "quarantined"
               ? disposition.reason
-              : "native completion was not confirmed";
+              : (disposition.outcome.detail ?? "native completion was not confirmed");
           if (currentRelease()) {
             quarantined = true;
             lastStatus = { state: "quarantined", detail: reason };
@@ -431,9 +447,6 @@ function createSession(
           return { kind: "quarantined", reason };
         }
         receiptObserver.abort();
-        if (completedOutcome && (!delivery || received)) {
-          return { kind: "released", outcome: completedOutcome };
-        }
         if (options?.answered && native.finishesAnswered) {
           // Already ended: there is nothing to stop, and stopping a pane would close it.
           if (!active) return { kind: "released", outcome: await settled };
@@ -528,7 +541,7 @@ async function releaseBefore(
   releasing: Promise<HarnessTurnOutcome>,
   deadline: AbsoluteDeadline,
   now: () => number,
-): Promise<HarnessReleaseDisposition> {
+): Promise<Exclude<HarnessReleaseDisposition, { kind: "finishing" }>> {
   const remaining = deadline.unixMilliseconds - now();
   if (remaining <= 0) return { kind: "quarantined", reason: "release deadline exceeded" };
   let timer: ReturnType<typeof setTimeout> | undefined;

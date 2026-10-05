@@ -5,7 +5,7 @@ status: todo
 priority: P1
 epic: long-runs
 discovered_in: "implement-ticket flow.ts live runs, AIRS-1515, 2026-10-02"
-depends_on: [turn-liveness-and-limits, "018"]
+depends_on: ["021", "018"]
 ---
 
 # Going on from a stopped run
@@ -47,7 +47,7 @@ they do.
    - The pane stays open with the session live. A person can talk to the agent, finish the step, and
      have it submit the result with `wf result`, or answer it themselves.
    - The run waits on that open turn, and continues when an answer is accepted. It uses the same
-     open-turn mechanism `turn-liveness-and-limits` needs for background work, here answered by a
+     open-turn mechanism [[021-turn-liveness-and-limits]] needs for background work, here answered by a
      person.
    - Bounded by its own deadline, so a forgotten run ends and reports as in (1).
    - The progress view shows the run as waiting on a person, with the pane to go to.
@@ -71,7 +71,7 @@ they do.
 
 ## Related
 
-- `turn-liveness-and-limits`: the open turn and late answers.
+- [[021-turn-liveness-and-limits]]: the open turn and late answers.
 - [story 018](../018-workflow-stages.md): knowing which stage stopped; it leaves starting from a stage here.
 - `operator-run-observation`: where a stopped run's state would be read.
 - ADR 0010: the calling session as an agent.

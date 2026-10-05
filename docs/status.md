@@ -19,8 +19,9 @@ exists, the code is right, then this page.
 - While it runs, `awf run` shows its stages, each labelled `parallel` as a group, and its agents'
   turns: a block redrawn in place on a terminal, a line per change otherwise.
 - Each agent answers through `wf result`, over a socket the engine opened for that agent alone. At
-  most one result is accepted per operation, validated against its schema, with one nudge when an
-  agent goes quiet without answering.
+  most one result is accepted per operation, validated against its schema. Quiet agents receive
+  recovery prompts; supported Claude panes can declare waiting and take repeated check-ins within
+  the same deadline.
 - Every wait has a deadline. The run's default is thirty minutes.
 - Every attempt reports its wall time, and for each agent, stage and model its times, tokens, billing
   and a cost estimate at dated list prices, read from the harnesses' own session files when the run
@@ -203,7 +204,7 @@ with a long run:
    promising, cases up to a look in parallel, a resolution at 1 trial) and
    [`loop-next`](stories/todo/loop-next.md) (a proposer that thinks, spend a cut can't hide, a
    loop that outlives its shell, the scorer checked first).
-2. [[021-turn-liveness-and-limits|Story 021]] is implementing cooperative waiting and bounded
+2. [[021-turn-liveness-and-limits|Story 021]] implements cooperative waiting and bounded
    check-ins after the implement-ticket run lost its last step to premature settlement.
 
 Alongside: [story 018](stories/018-workflow-stages.md), stages and continuing a run, built and awaiting review;

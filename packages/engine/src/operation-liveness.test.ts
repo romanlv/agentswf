@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import type { HarnessTurn, HarnessTurnOutcome } from "@agentswf/harness/adapter";
-import { type LivenessPolicy, superviseOperation } from "./operation-liveness";
+import { type LivenessPolicy, type OperationStop, superviseOperation } from "./operation-liveness";
 import { createResultSlotRegistry } from "./result-slots";
 
 const completed: HarnessTurnOutcome = {
@@ -59,9 +59,10 @@ function setup(
     dispatch: ReturnType<typeof Promise.withResolvers<number>>;
     accepted: ReturnType<typeof Promise.withResolvers<number>>;
     received: ReturnType<typeof Promise.withResolvers<number>>;
+    failed: ReturnType<typeof Promise.withResolvers<string>>;
   }[] = [];
   let releases = 0;
-  let stops: (reason: string) => void = () => {};
+  let stops: (stop: OperationStop) => Promise<void> = async () => {};
   const events: string[] = [];
   const make = () => {
     const end = Promise.withResolvers<HarnessTurnOutcome>();
@@ -70,6 +71,7 @@ function setup(
       dispatch: Promise.withResolvers<number>(),
       accepted: Promise.withResolvers<number>(),
       received: Promise.withResolvers<number>(),
+      failed: Promise.withResolvers<string>(),
     };
     receipts.push(delivery);
     const turn: HarnessTurn = {
@@ -78,6 +80,7 @@ function setup(
         dispatched: delivery.dispatch.promise,
         accepted: delivery.accepted.promise,
         received: delivery.received.promise,
+        failed: delivery.failed.promise,
       },
       deliver: async () => {},
       nudge: async () => make(),
@@ -109,7 +112,7 @@ function setup(
     onStop: (cancel) => {
       stops = cancel;
       return () => {
-        stops = () => {};
+        stops = async () => {};
       };
     },
     event: (e) => events.push(e.kind),
@@ -133,7 +136,7 @@ function setup(
     native,
     receipts,
     events,
-    stop: (why = "stop") => stops(why),
+    stop: (why = "stop") => stops({ kind: "cancelled", reason: why }),
     releases: () => releases,
   };
 }
@@ -209,7 +212,13 @@ test("responsive waiting cannot move the hard deadline", async () => {
   await flush();
   s.receive(0);
   await s.waiting(1000);
-  await s.advance(100);
+  await s.advance(80);
+  expect(await s.waiting(10)).toMatchObject({ kind: "waiting", waitUntil: 90 });
+  await s.advance(15);
+  expect(await s.waiting(1000)).toMatchObject({ kind: "waiting", waitUntil: 100 });
+  await s.advance(4);
+  expect(await s.waiting(1000)).toMatchObject({ kind: "waiting", waitUntil: 100 });
+  await s.advance(1);
   expect((await s.run).kind).toBe("timed-out");
   expect((await s.answer()).kind).toBe("rejected");
 });
@@ -319,4 +328,61 @@ test("unconfirmed initial dispatch fails before another prompt is sent", async (
     reason: "prompt delivery could not be confirmed",
   });
   expect(s.native).toHaveLength(1);
+});
+
+for (const order of ["accepted-first", "completed-first"]) {
+  test(`completed check-in without receipt is bounded (${order})`, async () => {
+    const s = setup();
+    await flush();
+    s.receive(0);
+    s.native[0]!.resolve(completed);
+    await flush();
+    await s.advance(10);
+    s.receipts[1]!.dispatch.resolve(10);
+    if (order === "accepted-first") s.receipts[1]!.accepted.resolve(10);
+    s.native[1]!.resolve(completed);
+    await flush();
+    s.receipts[1]!.accepted.resolve(10);
+    await flush();
+    await s.advance(20);
+    expect(s.events).toContain("terminal");
+    expect(await s.run).toMatchObject({
+      kind: "failed",
+      reason: "check-in receipt could not be confirmed after native completion",
+    });
+    expect(s.native).toHaveLength(2);
+  });
+}
+
+test("receipt observation failure ends an accepted but unreceived prompt immediately", async () => {
+  const s = setup();
+  await flush();
+  s.receipts[0]!.dispatch.resolve(0);
+  s.receipts[0]!.accepted.resolve(0);
+  await flush();
+  s.receipts[0]!.failed.resolve("transcript was truncated");
+  await flush();
+  expect(s.events).toContain("terminal");
+  expect(await s.run).toMatchObject({
+    kind: "failed",
+    reason: "Error: delivery observation failed: transcript was truncated",
+  });
+});
+
+test("an admitted answer is not invalidated by an acquired handle missing delivery evidence", async () => {
+  const writing = Promise.withResolvers<boolean>();
+  let answer: ReturnType<ReturnType<typeof setup>["answer"]> | undefined;
+  const s = setup({
+    write: () => writing.promise,
+    start: async (turn) => {
+      answer = s.answer();
+      await flush();
+      return { ...turn, delivery: undefined };
+    },
+  });
+  await flush();
+  writing.resolve(true);
+  expect((await answer)?.kind).toBe("accepted");
+  expect(await s.run).toMatchObject({ kind: "answered", value: "done" });
+  expect(s.releases()).toBe(1);
 });

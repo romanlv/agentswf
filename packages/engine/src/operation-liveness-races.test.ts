@@ -4,7 +4,7 @@ import type {
   HarnessTurn,
   HarnessTurnOutcome,
 } from "@agentswf/harness/adapter";
-import { superviseOperation } from "./operation-liveness";
+import { type OperationStop, superviseOperation } from "./operation-liveness";
 import { createResultSlotRegistry } from "./result-slots";
 
 const completed: HarnessTurnOutcome = {
@@ -63,6 +63,7 @@ function turn(release?: HarnessTurn["release"]) {
       dispatched: dispatched.promise,
       accepted: accepted.promise,
       received: received.promise,
+      failed: new Promise(() => {}),
     },
     deliver: async () => {},
     nudge: async () => {
@@ -102,7 +103,8 @@ function fixture(
   const first = options.first ?? turn();
   const turns = [first];
   const events: string[] = [];
-  let stop = (_reason: string) => {};
+  const phases: string[] = [];
+  let stop: (stop: OperationStop) => Promise<void> = async () => {};
   const slots = createResultSlotRegistry({
     runDir: "/unused",
     now: time.now,
@@ -138,11 +140,14 @@ function fixture(
     onStop(cancel) {
       stop = cancel;
       return () => {
-        stop = () => {};
+        stop = async () => {};
       };
     },
     event(event) {
       events.push(event.kind);
+    },
+    phase(phase) {
+      phases.push(phase);
     },
   });
   return {
@@ -152,7 +157,8 @@ function fixture(
     first,
     slots,
     events,
-    stop: () => stop("operator stopped"),
+    phases,
+    stop: () => stop({ kind: "cancelled", reason: "operator stopped" }),
     answer: () =>
       slots.submit({ operationId: "op", agentId: "agent", raw: '"done"', source: "control-plane" }),
     wait: (timeoutMs = 20) =>
@@ -381,4 +387,121 @@ test("owner closure during failed native cleanup preserves the failure cause", a
     reason: "native transport failed",
     cleanupUnresolved: false,
   });
+});
+
+for (const persistedFirst of [false, true]) {
+  test(`an admitted answer survives successor rejection (persisted first: ${persistedFirst})`, async () => {
+    const writing = Promise.withResolvers<boolean>();
+    const successor = Promise.withResolvers<HarnessTurn>();
+    const s = fixture({ write: () => writing.promise, successor: () => successor.promise });
+    await flush();
+    s.first.receive(0);
+    s.first.end.resolve(completed);
+    await flush();
+    await s.time.advance(10);
+    const answer = s.answer();
+    await flush();
+    if (persistedFirst) {
+      writing.resolve(true);
+      await answer;
+      await flush();
+    }
+    successor.reject(new Error("successor cancelled after admission"));
+    await flush();
+    writing.resolve(true);
+    expect((await answer).kind).toBe("accepted");
+    expect(await s.run).toMatchObject({
+      kind: "answered",
+      value: "done",
+      cleanupUnresolved: false,
+    });
+    expect(s.first.releases.some((release) => release.answered)).toBe(true);
+  });
+}
+
+test("a renewed wait can cancel acquisition before dispatch without consuming its prior handle", async () => {
+  let attempts = 0;
+  const next = turn();
+  const s = fixture({
+    successor: async (_sequence, signal) => {
+      attempts++;
+      if (attempts > 1) return next.handle;
+      return new Promise((_resolve, reject) => {
+        signal.addEventListener(
+          "abort",
+          () => reject(new DOMException("cancelled", "AbortError")),
+          { once: true },
+        );
+      });
+    },
+  });
+  await flush();
+  s.first.receive(0);
+  s.first.end.resolve(completed);
+  await flush();
+  await s.time.advance(10);
+  await s.wait(20);
+  await flush();
+  expect(s.events).not.toContain("terminal");
+  await s.time.advance(30);
+  expect(attempts).toBe(2);
+  next.receive(30);
+  next.end.resolve(completed);
+  await s.answer();
+  expect((await s.run).kind).toBe("answered");
+});
+
+test("late successor rejection cannot restart release after cleanup is unresolved", async () => {
+  const successor = Promise.withResolvers<HarnessTurn>();
+  const s = fixture({ successor: () => successor.promise });
+  await flush();
+  s.first.receive(0);
+  s.first.end.resolve(completed);
+  await flush();
+  await s.time.advance(10);
+  await s.answer();
+  await flush();
+  await s.time.advance(35);
+  expect(await s.run).toMatchObject({ kind: "failed", cleanupUnresolved: true });
+  const releases = s.first.releases.length;
+  successor.reject(new Error("late successor failure"));
+  await flush();
+  expect(s.first.releases).toHaveLength(releases);
+});
+
+test("late receipt during cancellation release preserves releasing progress and final charges", async () => {
+  const release = Promise.withResolvers<HarnessReleaseDisposition>();
+  const next = turn(() => release.promise);
+  const s = fixture({ successor: async () => next.handle });
+  await flush();
+  s.first.receive(0);
+  s.first.end.resolve(completed);
+  await flush();
+  await s.time.advance(10);
+  const stopping = s.stop();
+  await flush();
+  expect(s.phases.at(-1)).toBe("releasing");
+  next.receive(11);
+  next.end.resolve({ ...completed, chargesUsd: [7] });
+  await flush();
+  expect(s.phases.at(-1)).toBe("releasing");
+  expect(s.events).toContain("received");
+  release.resolve({ kind: "released", outcome: completed });
+  await stopping;
+  expect(await s.run).toMatchObject({ kind: "cancelled", charges: [7] });
+});
+
+test("initial acquisition rejection before persistence completes cannot prove cleanup", async () => {
+  const acquisition = Promise.withResolvers<HarnessTurn>();
+  const write = Promise.withResolvers<boolean>();
+  const s = fixture({ start: () => acquisition.promise, write: () => write.promise });
+  await flush();
+  const submission = s.answer();
+  await flush();
+  acquisition.reject(new Error("initial launch failed after admission"));
+  await flush();
+  write.resolve(true);
+  await expect(submission).resolves.toMatchObject({ kind: "accepted" });
+  expect(await s.run).toMatchObject({ kind: "failed", cleanupUnresolved: true });
+  expect(s.first.releases).toHaveLength(0);
 });

@@ -352,7 +352,7 @@ test("an earlier answer cannot release an unconsumed queued check-in", async () 
   await session.close();
 });
 
-test("completed release preserves continuation, but an unreceived queued prompt still stops", async () => {
+test("non-success release stops owned work even after native completion and receipt", async () => {
   for (const receipt of [true, false]) {
     let stopped = 0;
     const adapter = createSessionAdapter({
@@ -388,7 +388,7 @@ test("completed release preserves continuation, but an unreceived queued prompt 
     );
     await turn.settled;
     expect((await turn.release("unanswered", deadline)).kind).toBe("released");
-    expect(stopped).toBe(receipt ? 0 : 1);
+    expect(stopped).toBe(1);
     if (receipt)
       expect(
         (
@@ -453,4 +453,80 @@ test("an abandoned natural release cannot quarantine a later operation", async (
   );
   expect((await third.settled).state).toBe("completed");
   await session.close();
+});
+
+test("a pre-aborted check-in does not change session state or consume the successor", async () => {
+  let executions = 0;
+  const adapter = createSessionAdapter({
+    harnesses: ["fake"],
+    async activate() {
+      return {
+        identity: { sessionId: "native", cwd: "/tmp" },
+        async execute(request) {
+          executions++;
+          return request.deliverySignal?.aborted
+            ? { ...completed, state: "cancelled" as const }
+            : { ...completed, sessionRef: "native" };
+        },
+        async close() {},
+      };
+    },
+  });
+  const deadline = { unixMilliseconds: Date.now() + 1000 };
+  const session = await adapter.activate({
+    key: "a",
+    cwd: "/tmp",
+    deadline,
+    execution: { harness: "fake", model: "fake" },
+  });
+  const turn = await session.start(
+    { id: "one", prompt: "one", deadline },
+    { endpoint: "/unused", operationId: "op" },
+  );
+  await turn.settled;
+  await expect(
+    turn.nudge({ id: "cancelled", deadline, deliverySignal: AbortSignal.abort() }),
+  ).rejects.toMatchObject({ name: "AbortError", message: "check-in cancelled before dispatch" });
+  expect(await session.status()).toEqual({ state: "idle" });
+  expect(executions).toBe(1);
+  await (await turn.nudge({ id: "two", deadline })).settled;
+  expect(executions).toBe(2);
+});
+
+test("receipt observer failure is explicit and ends answered release promptly", async () => {
+  let request!: NativeTurnRequest & { onDeliveryFailed?: (reason: string) => void };
+  const adapter = createSessionAdapter({
+    harnesses: ["fake"],
+    async activate() {
+      return {
+        identity: { sessionId: "native", cwd: "/tmp" },
+        confirmsDelivery: true,
+        async execute(next) {
+          request = next;
+          next.onDispatched?.();
+          next.onAccepted?.();
+          return completed;
+        },
+        async close() {},
+      };
+    },
+  });
+  const deadline = { unixMilliseconds: Date.now() + 60_000 };
+  const session = await adapter.activate({
+    key: "a",
+    cwd: "/tmp",
+    deadline,
+    execution: { harness: "fake", model: "fake" },
+  });
+  const turn = await session.start(
+    { id: "one", prompt: "one", deadline },
+    { endpoint: "/unused", operationId: "op" },
+  );
+  const delivery = turn.delivery as typeof turn.delivery & { failed?: Promise<string> };
+  expect(delivery?.failed).toBeInstanceOf(Promise);
+  request.onDeliveryFailed?.("Claude receipt transcript was replaced or truncated");
+  expect(await delivery!.failed).toContain("truncated");
+  expect(
+    await turn.release("admitted", deadline, { answered: true, awaitCompletion: true }),
+  ).toMatchObject({ kind: "quarantined", reason: expect.stringContaining("truncated") });
 });

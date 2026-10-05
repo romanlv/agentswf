@@ -302,7 +302,10 @@ export function createScriptedHost(
     createSingleSessionHostFactory(
       createFakeAdapter({
         harnesses: PLACEMENT_HARNESSES[placement],
-        supportsWaiting: true,
+        supportsWaiting: (activation) =>
+          placement === "pane" &&
+          activation.execution.harness === "claude" &&
+          !activation.execution.caller,
         placement,
         launchesInSandbox: true,
         givesSkills: true,

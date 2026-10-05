@@ -81,6 +81,11 @@ export function createHeadlessAdapter(
       let closed = false;
       let active: AbortController | undefined;
       let activeCompletion: Promise<void> | undefined;
+      type ActiveProcess = {
+        setDeadline(at: number): void;
+        result: Promise<Awaited<ReturnType<RunProcess>>>;
+      };
+      let activeProcess: Promise<ActiveProcess | undefined> | undefined;
       /** The harness's own fork of `sessionRef`, run where this agent's turns run. */
       const runFork = async (sessionRef: string, deadline: AbsoluteDeadline) => {
         const { env, context } = await launchContext();
@@ -116,154 +121,181 @@ export function createHeadlessAdapter(
         identity,
         // Each turn is a process of its own, and the next one resumes the session this one leaves.
         finishesAnswered: true,
-        async finishAnswered() {
-          // Completion includes the process exit, pipe draining, and any provider reap.
-          await activeCompletion;
+        async finishAnswered(deadline) {
+          const original = await activeProcess;
+          if (!original) return localOutcome("failed", "no native process completion to observe");
+          original.setDeadline(deadline.unixMilliseconds);
+          const result = await original.result;
+          if (result.timedOut)
+            return localOutcome("timed-out", "native process exceeded its release deadline");
+          if (result.cancelled) return localOutcome("cancelled", "native process was cancelled");
+          if (result.exitCode !== 0)
+            return localOutcome("failed", `native process exited with status ${result.exitCode}`);
           return { state: "completed", resultEvidence: { kind: "unavailable" }, chargesUsd: [] };
         },
         async execute(operation) {
-          if (closed) throw new Error("headless session is closed");
-          const remaining = operation.deadline.unixMilliseconds - Date.now();
-          if (remaining <= 0) {
-            return localOutcome("timed-out", "operation deadline exceeded");
-          }
-          if (hasExecuted && !operation.previousSessionRef) {
-            return localOutcome(
-              "failed",
-              `${harness} produced no resumable native session reference`,
-            );
-          }
-          if (operation.previousSessionRef && !spec.resumeTurn) {
-            return localOutcome(
-              "failed",
-              `${harness} has no confirmed headless resume, so the operation could not continue`,
-            );
-          }
-          if (operation.kind === "compact") {
-            if (!spec.compactHeadless) {
+          const processReady = Promise.withResolvers<ActiveProcess | undefined>();
+          activeProcess = processReady.promise;
+          try {
+            if (closed) throw new Error("headless session is closed");
+            const remaining = operation.deadline.unixMilliseconds - Date.now();
+            if (remaining <= 0) {
+              return localOutcome("timed-out", "operation deadline exceeded");
+            }
+            if (hasExecuted && !operation.previousSessionRef) {
               return localOutcome(
                 "failed",
-                `${harness} has no compaction of its own: ${spec.absent.compactHeadless}`,
+                `${harness} produced no resumable native session reference`,
               );
             }
-            if (!operation.previousSessionRef) {
-              return localOutcome("failed", "there is nothing to compact before the first turn");
+            if (operation.previousSessionRef && !spec.resumeTurn) {
+              return localOutcome(
+                "failed",
+                `${harness} has no confirmed headless resume, so the operation could not continue`,
+              );
             }
-          }
-          const prompt =
-            !instructed && operation.kind !== "compact" && request.instructions
-              ? `${request.instructions}\n\n${operation.prompt}`
-              : operation.prompt;
-          if (operation.kind !== "compact") instructed = true;
-          hasExecuted = true;
-          const { env, context } = await launchContext();
-          const compaction =
-            operation.kind === "compact"
-              ? spec.compactHeadless!(operation.prompt, operation.previousSessionRef!, context)
-              : undefined;
-          const plan =
-            compaction ??
-            (operation.previousSessionRef
-              ? spec.resumeTurn!(prompt, operation.previousSessionRef, context)
-              : spec.headlessTurn(prompt, context));
-          const controller = new AbortController();
-          active = controller;
-          const command = {
-            argv: plan.argv,
-            cwd: request.cwd,
-            env,
-            ...(plan.stdin === undefined ? {} : { stdin: plan.stdin }),
-            timeoutMs: Math.max(1, remaining),
-            signal: controller.signal,
-          };
-          const holding = compaction?.holdStdinUntil
-            ? { holdStdinUntil: compaction.holdStdinUntil }
-            : {};
-          // Every turn, a resumed one too, runs inside when the agent has a place there.
-          const running = run(
-            occupant ? { ...occupant.launch(command), ...holding } : { ...command, ...holding },
-          );
-          activeCompletion = running.then(
-            () => undefined,
-            () => undefined,
-          );
-          const result = await running.finally(() => {
-            if (active === controller) active = undefined;
-          });
-          const transcript = spec.readTranscript
-            ? spec.readTranscript(result.stdout)
-            : result.stdout;
-          // Never the id we generated unless the plan handed it over: resuming one the harness never
-          // saw fails as an opaque exit instead of saying no session came back. A handed-over id is
-          // dropped when the process failed on its own, which may be before it made a session:
-          // resuming it would silently start a new one without the agent's instructions. A turn we
-          // stopped, as after its answer, did run. A session the plan names, or the one resumed,
-          // wins over the one the output does: a pi fork, resumed by its file, prints its parent's
-          // id, which would point the next turn at the parent.
-          const failedToRun = result.exitCode !== 0 && !result.cancelled && !result.timedOut;
-          const nativeSession = failedToRun
-            ? (operation.previousSessionRef ?? spec.readSessionId?.(result.stdout))
-            : (plan.sessionId ??
-              spec.readSessionId?.(result.stdout) ??
-              operation.previousSessionRef);
-          if (nativeSession) identity.sessionId = nativeSession;
-          // What it printed of its usage is all there is of it; a turn's answer never waits on it.
-          if (nativeSession && !compaction) {
-            await spec
-              .keepTurnUsage?.(result.stdout, nativeSession, context)
-              .catch(() => undefined);
-          }
-          let charge = spec.readCharge?.(result.stdout);
-          const total = spec.readCostTotal?.(result.stdout);
-          if (total !== undefined) {
-            // A resume that started a session of its own, or a total below the last, is no running
-            // sum of the session before: all of it is this turn's.
-            const before =
-              nativeSession === operation.previousSessionRef || !operation.previousSessionRef
-                ? costTotal
-                : 0;
-            charge =
-              before === undefined ? undefined : total >= before ? roundUsd(total - before) : total;
-            costTotal = total;
-          }
-          const common = {
-            resultEvidence: transcript
-              ? ({ kind: "transcript", text: transcript } as const)
-              : ({ kind: "unavailable" } as const),
-            ...(nativeSession ? { sessionRef: nativeSession } : {}),
-            chargesUsd: charge === undefined ? [] : [charge],
-          };
-          // What the harness printed decides a compaction it answered, not how it was made to exit.
-          if (compaction && result.answered && !result.cancelled) {
-            const read = compaction.read(result.stdout);
-            if ("summary" in read) {
-              return { state: "completed" as const, ...common, summary: read.summary };
+            if (operation.kind === "compact") {
+              if (!spec.compactHeadless) {
+                return localOutcome(
+                  "failed",
+                  `${harness} has no compaction of its own: ${spec.absent.compactHeadless}`,
+                );
+              }
+              if (!operation.previousSessionRef) {
+                return localOutcome("failed", "there is nothing to compact before the first turn");
+              }
             }
-          }
-          if (result.cancelled) {
-            return { state: "cancelled" as const, detail: "agent process cancelled", ...common };
-          }
-          if (result.timedOut) {
-            return {
-              state: "timed-out" as const,
-              detail: "timed out at operation deadline",
-              ...common,
+            const prompt =
+              !instructed && operation.kind !== "compact" && request.instructions
+                ? `${request.instructions}\n\n${operation.prompt}`
+                : operation.prompt;
+            if (operation.kind !== "compact") instructed = true;
+            hasExecuted = true;
+            const { env, context } = await launchContext();
+            const compaction =
+              operation.kind === "compact"
+                ? spec.compactHeadless!(operation.prompt, operation.previousSessionRef!, context)
+                : undefined;
+            const plan =
+              compaction ??
+              (operation.previousSessionRef
+                ? spec.resumeTurn!(prompt, operation.previousSessionRef, context)
+                : spec.headlessTurn(prompt, context));
+            const controller = new AbortController();
+            active = controller;
+            const command = {
+              argv: plan.argv,
+              cwd: request.cwd,
+              env,
+              ...(plan.stdin === undefined ? {} : { stdin: plan.stdin }),
+              timeoutMs: Math.max(1, remaining),
+              signal: controller.signal,
             };
-          }
-          if (result.exitCode !== 0) {
-            return {
-              state: "failed" as const,
-              detail: `${plan.argv[0]} exited ${result.exitCode}: ${result.stderr.trim().slice(0, 400)}`,
-              ...common,
+            const holding = compaction?.holdStdinUntil
+              ? { holdStdinUntil: compaction.holdStdinUntil }
+              : {};
+            // Every turn, a resumed one too, runs inside when the agent has a place there.
+            let processDeadline = operation.deadline.unixMilliseconds;
+            const timeoutAt = () => processDeadline;
+            const running = run(
+              occupant
+                ? { ...occupant.launch(command), ...holding, timeoutAt }
+                : { ...command, ...holding, timeoutAt },
+            );
+            processReady.resolve({
+              setDeadline(at) {
+                processDeadline = at;
+              },
+              result: running,
+            });
+            activeCompletion = running.then(
+              () => undefined,
+              () => undefined,
+            );
+            const result = await running.finally(() => {
+              if (active === controller) active = undefined;
+            });
+            const transcript = spec.readTranscript
+              ? spec.readTranscript(result.stdout)
+              : result.stdout;
+            // Never the id we generated unless the plan handed it over: resuming one the harness never
+            // saw fails as an opaque exit instead of saying no session came back. A handed-over id is
+            // dropped when the process failed on its own, which may be before it made a session:
+            // resuming it would silently start a new one without the agent's instructions. A turn we
+            // stopped, as after its answer, did run. A session the plan names, or the one resumed,
+            // wins over the one the output does: a pi fork, resumed by its file, prints its parent's
+            // id, which would point the next turn at the parent.
+            const failedToRun = result.exitCode !== 0 && !result.cancelled && !result.timedOut;
+            const nativeSession = failedToRun
+              ? (operation.previousSessionRef ?? spec.readSessionId?.(result.stdout))
+              : (plan.sessionId ??
+                spec.readSessionId?.(result.stdout) ??
+                operation.previousSessionRef);
+            if (nativeSession) identity.sessionId = nativeSession;
+            // What it printed of its usage is all there is of it; a turn's answer never waits on it.
+            if (nativeSession && !compaction) {
+              await spec
+                .keepTurnUsage?.(result.stdout, nativeSession, context)
+                .catch(() => undefined);
+            }
+            let charge = spec.readCharge?.(result.stdout);
+            const total = spec.readCostTotal?.(result.stdout);
+            if (total !== undefined) {
+              // A resume that started a session of its own, or a total below the last, is no running
+              // sum of the session before: all of it is this turn's.
+              const before =
+                nativeSession === operation.previousSessionRef || !operation.previousSessionRef
+                  ? costTotal
+                  : 0;
+              charge =
+                before === undefined
+                  ? undefined
+                  : total >= before
+                    ? roundUsd(total - before)
+                    : total;
+              costTotal = total;
+            }
+            const common = {
+              resultEvidence: transcript
+                ? ({ kind: "transcript", text: transcript } as const)
+                : ({ kind: "unavailable" } as const),
+              ...(nativeSession ? { sessionRef: nativeSession } : {}),
+              chargesUsd: charge === undefined ? [] : [charge],
             };
+            // What the harness printed decides a compaction it answered, not how it was made to exit.
+            if (compaction && result.answered && !result.cancelled) {
+              const read = compaction.read(result.stdout);
+              if ("summary" in read) {
+                return { state: "completed" as const, ...common, summary: read.summary };
+              }
+            }
+            if (result.cancelled) {
+              return { state: "cancelled" as const, detail: "agent process cancelled", ...common };
+            }
+            if (result.timedOut) {
+              return {
+                state: "timed-out" as const,
+                detail: "timed out at operation deadline",
+                ...common,
+              };
+            }
+            if (result.exitCode !== 0) {
+              return {
+                state: "failed" as const,
+                detail: `${plan.argv[0]} exited ${result.exitCode}: ${result.stderr.trim().slice(0, 400)}`,
+                ...common,
+              };
+            }
+            if (compaction) {
+              const read = compaction.read(result.stdout);
+              return "error" in read
+                ? { state: "failed" as const, detail: read.error, ...common }
+                : { state: "completed" as const, ...common, summary: read.summary };
+            }
+            return { state: "completed" as const, ...common };
+          } finally {
+            processReady.resolve(undefined);
           }
-          if (compaction) {
-            const read = compaction.read(result.stdout);
-            return "error" in read
-              ? { state: "failed" as const, detail: read.error, ...common }
-              : { state: "completed" as const, ...common, summary: read.summary };
-          }
-          return { state: "completed" as const, ...common };
         },
         ...(spec.forkSession
           ? {

@@ -645,3 +645,30 @@ test("timed-out opening reserves its ID against a late call-record write", async
   gate.resolve();
   await expect(slots.submit(answer())).resolves.toMatchObject({ code: "closed-operation" });
 });
+
+test("close during call persistence does not install an expiry timer afterward", async () => {
+  const write = Promise.withResolvers<void>();
+  const timers = new Set<() => void>();
+  const registry = createResultSlotRegistry({
+    runDir: "/unused",
+    now: () => NOW,
+    schedule: (_ms, callback) => {
+      timers.add(callback);
+      return () => {
+        timers.delete(callback);
+      };
+    },
+    persistence: {
+      writeCall: () => write.promise,
+      writeAcceptedExclusive: async () => true,
+      recordCandidate: async () => {},
+    },
+  });
+  const opening = registry.open(call());
+  await Promise.resolve();
+  await registry.close("op-1");
+  write.resolve();
+  const slot = await opening;
+  expect(await slot.settled).toEqual({ kind: "closed" });
+  expect(timers.size).toBe(0);
+});

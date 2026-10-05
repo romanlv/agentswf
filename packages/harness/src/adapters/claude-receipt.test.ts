@@ -101,7 +101,7 @@ test("watch skips old history, buffers a partial UTF-8 row and stops at linked r
   const old = `${JSON.stringify(user("old"))}\n${JSON.stringify(assistant("old"))}\n`;
   await writeFile(path, old);
   try {
-    const receipt = await prepareClaudeReceipt(cwd, marker, home);
+    const receipt = await prepareClaudeReceipt(cwd, marker, home, { sessionRef: "session" });
     const controller = new AbortController();
     const input = JSON.stringify({ ...user("new"), message: { content: `${marker} café` } });
     const bytes = Buffer.from(input);
@@ -156,7 +156,7 @@ test("replaced or truncated baseline fails closed", async () => {
   const path = join(directory, "session.jsonl");
   try {
     await writeFile(path, `${JSON.stringify(user())}\n`);
-    const receipt = await prepareClaudeReceipt("/probe", marker, home);
+    const receipt = await prepareClaudeReceipt("/probe", marker, home, { sessionRef: "session" });
     await writeFile(path, "");
     await expect(
       receipt.watch(
@@ -170,7 +170,7 @@ test("replaced or truncated baseline fails closed", async () => {
   }
 });
 
-test("rotating empty files cannot grow receipt history without bound", async () => {
+test("new empty transcripts cannot grow receipt history without bound", async () => {
   const home = await mkdtemp(join(tmpdir(), "awf-receipt-"));
   const directory = join(home, "projects", "-probe");
   await mkdir(directory, { recursive: true });
@@ -185,14 +185,13 @@ test("rotating empty files cannot grow receipt history without bound", async () 
         () => {},
         () => {},
         async () => {
-          await rm(previous);
           previous = join(directory, `${++generation}.jsonl`);
           await writeFile(previous, "");
           return true;
         },
       ),
-    ).rejects.toThrow("file history exceeds");
-    expect(generation).toBe(256);
+    ).rejects.toThrow("exceeds its bound");
+    expect(generation).toBeGreaterThanOrEqual(256);
   } finally {
     await rm(home, { recursive: true, force: true });
   }
@@ -241,4 +240,30 @@ test("native bracketed paste wrapper preserves marker identity and ancestry", ()
   expect(reader.push(assistant("input")).received).toBe(true);
   const echo = createClaudeReceiptReducer(marker);
   expect(echo.push({ ...user(), message: { content: `quoted ${marker}` } }).accepted).toBe(false);
+});
+
+test("historical cwd sessions do not exhaust the live receipt file budget", async () => {
+  const home = await mkdtemp(join(tmpdir(), "awf-receipt-"));
+  const directory = join(home, "projects", "-probe");
+  await mkdir(directory, { recursive: true });
+  try {
+    for (let i = 0; i < 300; i++) await writeFile(join(directory, `old-${i}.jsonl`), "");
+    const receipt = await prepareClaudeReceipt("/probe", marker, home);
+    await writeFile(
+      join(directory, "new.jsonl"),
+      `${JSON.stringify(user())}\n${JSON.stringify(assistant("input"))}\n`,
+    );
+    let received = false;
+    await receipt.watch(
+      new AbortController().signal,
+      () => {},
+      () => {
+        received = true;
+      },
+      async () => false,
+    );
+    expect(received).toBe(true);
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
 });

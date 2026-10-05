@@ -1,8 +1,17 @@
 import { expect, test } from "bun:test";
-import type { OperationLivenessRecord, OutputRecord } from "../packages/contract/src/records";
+import type {
+  OperationLivenessKind,
+  OperationLivenessRecord,
+  OutputRecord,
+} from "../packages/contract/src/records";
 import { type Evidence, problems } from "./turn-liveness-evidence";
 
-function event(kind: string, sequence = 0, at = 1, reason?: string): OperationLivenessRecord {
+function event(
+  kind: OperationLivenessKind,
+  sequence = 0,
+  at = 1,
+  reason?: string,
+): OperationLivenessRecord {
   return { version: 1, operationId: "op", kind, sequence, at, ...(reason ? { reason } : {}) };
 }
 const output = (value: unknown, outcome = "completed") => ({ outcome, value }) as OutputRecord;
@@ -30,7 +39,7 @@ test("waiting proof requires all three deliveries and release before follow-up",
   const first: OperationLivenessRecord[] = [];
   for (const sequence of [0, 1, 2]) {
     if (sequence) first.push(event("check-in-due", sequence, sequence * 10));
-    for (const kind of ["dispatched", "queue-accepted", "received"])
+    for (const kind of ["dispatched", "queue-accepted", "received"] as const)
       first.push(event(kind, sequence, sequence * 10 + 1));
     if (sequence < 2) first.push(event("waiting", sequence, sequence * 10 + 2));
   }

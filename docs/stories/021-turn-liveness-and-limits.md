@@ -160,11 +160,19 @@ model output confirms receipt, never from a timer, queue acceptance or CLI succe
 unknown acceptance fails when its grace expires and is not blindly resent. A waiting request
 or result received during confirmation satisfies the check-in directly.
 
+Accepted input may wait under the hard deadline while the native turn is still running. If that
+check-in's native turn completes without confirmed receipt, allow a separate two-minute receipt
+confirmation grace, capped by the hard deadline. Failure to confirm receipt ends the operation
+as failed delivery. This grace does not imply model consumption, start a response window, or
+permit a second check-in. An explicit receipt-observer error also fails delivery promptly.
+
 An admitted waiting request or result satisfies the check-in. It cancels the response and
-delivery-confirmation timers and invalidates that cycle. Late confirmation cannot start another
-timer or fail an already satisfied check-in. Use internal generations for timer and delivery
-callbacks; these are not tokens the agent must supply. Ordinary prose, tool output and screen
-redraws do not satisfy a check-in. Ending the response turn without either command does not immediately
+delivery-confirmation timers and invalidates that cycle. Stale timers and late successful
+confirmations cannot restart or expire an already satisfied check-in. An actual receipt-observer
+failure still ends the operation: the delivery channel can no longer establish trustworthy
+receipt. An admitted answer instead remains subject to its bounded, honest release proof.
+Use internal generations for timer and delivery callbacks; these are not tokens the agent must
+supply. Ordinary prose, tool output and screen redraws do not satisfy a check-in. Ending the response turn without either command does not immediately
 close the slot: allow the rest of the response window for a late protocol reply. Do not send a
 second unanswered check-in. A responsive waiting request is what permits another cycle.
 
@@ -187,6 +195,7 @@ Initial internal policy, with its evidence and limits in [[021-implementation-pr
 | Quiet interval / minimum check-in spacing | 30 seconds | Grace after native completion and a floor on requested waits to avoid rapid paid loops |
 | Waiting grant without `--timeout` | 2 minutes | Time until the next check-in is due |
 | Response window | 2 minutes | Time after confirmed check-in delivery to submit either command |
+| Receipt confirmation after native completion | 2 minutes | Bound an accepted, completed check-in whose model receipt remains unconfirmed; expiry fails delivery |
 | Unknown delivery acceptance / native release | 30 seconds each | Dispatch-to-acceptance grace; separate bounded natural release |
 
 These are internal policy values, injectable into deterministic tests, not new author knobs.
@@ -238,8 +247,10 @@ isolated containment, this is not proof that a dev server, detached child or rem
 has stopped. The prompt asks the agent to finish answer-related work before `wf result`; that
 is a cooperative obligation, not a machine-verified fact.
 
-- For a run-owned agent, use the existing harness and sandbox owner to stop what they own when
-  termination is needed. Prefer an owned process group or occupant boundary over task discovery.
+- For a run-owned agent, every non-success ends the owned native work, even if its foreground
+  turn already completed. Do not continue that pane or rely on a background watch surviving
+  `unanswered`, timeout or cancellation. Only a successful answer preserves natural continuity.
+  Prefer an owned process group or occupant boundary over task discovery.
 - Do not close a shared sandbox just to stop one operation. Occupants are per agent, and releasing
   one may also end that agent's ability to continue. Do not destroy session continuity on every
   successful answer. Task 1 records the actual guarantee for each placement.
@@ -292,7 +303,7 @@ outcomes. OTel may export these events but is never required for operation progr
 | `packages/wf/src/cli.ts`, `client.ts` | Parse waiting arguments, submit over the installed launcher, print the granted wait and report uncertain delivery |
 | `packages/engine/src/control-plane.ts`, `result-slots.ts` | Route using connection authority and serialize waiting, answer admission and closure |
 | `packages/engine/src/workflow-runner.ts`, `operation-liveness.ts` | Own the loop and fixed deadline, hold one slot across check-ins, await native release |
-| `packages/engine/src/operation-events.ts` | Bound optional diagnostic writes and read incomplete streams honestly |
+| `packages/engine/src/operation-events.ts` | Bound optional diagnostic writes; test/eval helpers read incomplete streams honestly |
 | `operationPrompt` in `packages/engine/src/workflow-runner.ts` | Include both commands in initial and recovery prompts |
 | `packages/harness/src/session-core.ts`, `adapter.ts`, adapters | Permit sequential successor check-ins, preserve binding and lifecycle, measure delivery and release |
 | `packages/contract/src/records.ts`, engine progress and workflow-testing | Record and script waiting/check-in events without changing final answer schemas |
@@ -465,7 +476,10 @@ The story remains `in-progress` for human review and the explicitly incomplete g
 Cursor-dependent matrix. Exact results and limitations are in
 [[021-implementation-proof#Broader verification checkpoint]].
 
-The current support boundary is Claude 2.1.289 panes on the host and in SRT, plus the fake.
+Cooperative waiting is enabled for run-owned Claude panes on the host and in SRT, measured on
+Claude Code 2.1.289. There is no exact patch-version gate. Receipt observation fails explicitly
+when the transcript cannot establish delivery; an unknown format does not establish receipt.
+The fake follows the same placement rules.
 Caller and other providers retain their explicit restrictions.
 See [[021-implementation-proof#Current support boundary|the support table]] for the distinction
 between measured transport behavior and complete workflow support.

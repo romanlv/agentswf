@@ -1,6 +1,6 @@
 import { afterAll, describe, expect, test } from "bun:test";
 import { getEventListeners } from "node:events";
-import { readdir } from "node:fs/promises";
+import { readdir, writeFile } from "node:fs/promises";
 import { createConnection } from "node:net";
 import { join } from "node:path";
 import type { ResultSubmitResponse } from "@agentswf/contract/wire";
@@ -2477,3 +2477,148 @@ async function failedRun(result: Promise<unknown>): Promise<WorkflowRunError> {
   expect(String((error as WorkflowRunError).cause)).toContain("cleanup failed");
   return error as WorkflowRunError;
 }
+
+test("parallel rejection waits for native stop completion before workflow continuation", async () => {
+  const events: string[] = [];
+  const aborted = Promise.withResolvers<void>();
+  const finish = Promise.withResolvers<void>();
+  const adapter = createFakeAdapter({
+    script: async (context) => {
+      await new Promise<void>((resolve) =>
+        context.signal.addEventListener("abort", () => resolve(), { once: true }),
+      );
+      events.push("native aborted");
+      aborted.resolve();
+      await finish.promise;
+      events.push("native ended");
+      return {};
+    },
+  });
+  const workflow = workflowOf("scope-stop-proof", async (context) => {
+    const agent = await openReviewer(context);
+    await context
+      .parallel([null], () => agent.run({ prompt: "wait", deadline: future(), nudge: false }), {
+        deadline: future(30),
+      })
+      .catch(() => {
+        events.push("parallel rejected");
+      });
+    return null;
+  });
+  const running = runNew(workflow, null, {
+    runRoot: tempRunDir(),
+    deadline: future(),
+    runtime: runtime(adapter),
+  });
+  await aborted.promise;
+  await Bun.sleep(0);
+  try {
+    expect(events).toEqual(["native aborted"]);
+  } finally {
+    finish.resolve();
+    await running;
+  }
+  expect(events).toEqual(["native aborted", "native ended", "parallel rejected"]);
+});
+
+test("sibling failure cancels a turn even when its reason mentions a deadline", async () => {
+  const started = Promise.withResolvers<void>();
+  const adapter = createFakeAdapter({
+    script: async (context) => {
+      started.resolve();
+      await new Promise<void>((resolve) =>
+        context.signal.addEventListener("abort", () => resolve(), { once: true }),
+      );
+      return {};
+    },
+  });
+  const workflow = workflowOf("scope-stop-kind", async (context) => {
+    const agent = await openReviewer(context);
+    let pending!: Promise<RunResult<string>>;
+    await context
+      .parallel([0, 1], async (index) => {
+        if (index === 0) {
+          pending = agent.run({ prompt: "wait", nudge: false });
+          await pending;
+        } else {
+          await started.promise;
+          throw new Error("deadline report malformed");
+        }
+      })
+      .catch(() => undefined);
+    return (await pending).outcome.kind;
+  });
+  const result = await runNew(workflow, null, {
+    runRoot: tempRunDir(),
+    deadline: future(),
+    runtime: runtime(adapter),
+  });
+  expect(result.value).toBe("cancelled");
+});
+
+test("slot opening failure records the reserved operation and closes its logical agent", async () => {
+  const runRoot = tempRunDir();
+  const adapter = createFakeAdapter({ script: () => ({}) });
+  const workflow = workflowOf("slot-open-failure", async (context) => {
+    const agent = await openReviewer(context);
+    const [id] = await readdir(join(runRoot, "slot-open-failure"));
+    await writeFile(join(runRoot, "slot-open-failure", id!, "calls"), "blocks call persistence");
+    const first = await agent.run({ prompt: "never dispatched", nudge: false }).then(
+      (run) => run.outcome.kind,
+      () => "rejected",
+    );
+    const second = await agent.run({ prompt: "closed", nudge: false }).then(
+      () => "continued",
+      (error: unknown) => String(error),
+    );
+    return { first, second };
+  });
+  const result = await runNew(workflow, null, {
+    runRoot,
+    deadline: future(),
+    runtime: runtime(adapter),
+  });
+  expect(result.usage).toHaveLength(1);
+  expect(result.usage[0]!.settledAt).toBeDefined();
+  expect(result.usage[0]!.deliveredAt).toBeUndefined();
+  expect(result.value).toEqual({ first: "failed", second: "Error: logical agent is closed" });
+  expect(adapter.turns).toHaveLength(0);
+  expect(adapter.closed).toEqual(["reviewer"]);
+});
+
+test("an unexpected supervisor release throw fails the run instead of claiming cleanup", async () => {
+  const fake = createFakeAdapter({
+    script: (context) => ({
+      act: async () => {
+        await submit(context.binding!, "saved");
+      },
+    }),
+  });
+  const adapter = adapterWith(fake, (session) => ({
+    start: starting(async (turn, binding) => {
+      const native = await dispatch(session, turn, binding);
+      return {
+        ...native,
+        release: async () => ({
+          kind: "released" as const,
+          get outcome(): never {
+            throw new Error("unexpected native release evidence throw");
+          },
+        }),
+      };
+    }),
+  }));
+  const workflow = workflowOf("unexpected-release-throw", async (context) => {
+    const agent = await openReviewer(context);
+    return (await agent.run({ prompt: "answer", nudge: false })).outcome.kind;
+  });
+  const runRoot = tempRunDir();
+  const error = await failedRun(
+    runNew(workflow, null, { runRoot, deadline: future(), runtime: runtime(adapter) }),
+  );
+  expect(error.usage).toHaveLength(1);
+  expect((await readTurns(join(runRoot, workflow.meta.name, error.runId)))[0]?.outcome).toBe(
+    "failed",
+  );
+  expect(fake.closed).toEqual(["reviewer"]);
+});

@@ -1309,10 +1309,20 @@ export function createHerdrRunHostFactory(
                 }
                 const waitMs = Math.max(1, remainingMs);
                 const marker = `[awf-delivery:${randomUUID()}]`;
-                const receipt =
-                  confirmsDelivery && operation.onReceived
-                    ? await prepareClaudeReceipt(request.cwd, marker, request.home)
-                    : undefined;
+                let receipt: Awaited<ReturnType<typeof prepareClaudeReceipt>> | undefined;
+                try {
+                  receipt =
+                    confirmsDelivery && operation.onReceived
+                      ? await prepareClaudeReceipt(request.cwd, marker, request.home, {
+                          since: launchedAt,
+                          sessionRef: operation.previousSessionRef ?? continued,
+                        })
+                      : undefined;
+                } catch (error) {
+                  const reason = error instanceof Error ? error.message : String(error);
+                  operation.onDeliveryFailed?.(reason);
+                  return localOutcome("failed", reason);
+                }
                 if (operation.deliverySignal?.aborted || controller.signal.aborted) {
                   return localOutcome("cancelled", "check-in cancelled before dispatch");
                 }
@@ -1336,7 +1346,11 @@ export function createHerdrRunHostFactory(
                       undefined,
                       operation.receiptDeadline ?? (() => operation.deadline.unixMilliseconds),
                     )
-                    .catch(() => undefined)
+                    .catch((error: unknown) =>
+                      operation.onDeliveryFailed?.(
+                        error instanceof Error ? error.message : String(error),
+                      ),
+                    )
                     .finally(() => receiptObservers.delete(observing));
                 }
                 operation.onDispatched?.();

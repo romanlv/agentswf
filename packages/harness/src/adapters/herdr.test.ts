@@ -7,6 +7,19 @@ import { HARNESSES } from "../spec";
 import { codexForkHome } from "../testing/codex-rollouts";
 import { createHerdrRunHostFactory, createPaneAdapter, type HerdrConfig } from "./herdr";
 
+let originalClaudeHome: string | undefined;
+let isolatedClaudeHome: string;
+beforeAll(() => {
+  originalClaudeHome = process.env.CLAUDE_CONFIG_DIR;
+  isolatedClaudeHome = mkdtempSync(join(tmpdir(), "awf-herdr-test-claude-"));
+  process.env.CLAUDE_CONFIG_DIR = isolatedClaudeHome;
+});
+afterAll(() => {
+  if (originalClaudeHome === undefined) delete process.env.CLAUDE_CONFIG_DIR;
+  else process.env.CLAUDE_CONFIG_DIR = originalClaudeHome;
+  rmSync(isolatedClaudeHome, { recursive: true, force: true });
+});
+
 const CONFIG: HerdrConfig = {
   session: "wf-lab",
   workspaceLabel: "e2",
@@ -711,6 +724,85 @@ describe("createHerdrRunHostFactory", () => {
       return commandResult({});
     };
     return { run, calls };
+  }
+
+  for (const broken of [false, true]) {
+    test(
+      broken
+        ? "run-host receipt failure reaches delivery.failed instead of disappearing"
+        : "run-host receipt reaches onReceived and answered release proves native idle",
+      async () => {
+        const home = mkdtempSync(join(tmpdir(), "awf-native-receipt-"));
+        const project = join(home, "projects", "-repo");
+        mkdirSync(project, { recursive: true });
+        const base = hostStub();
+        let submitted = false;
+        const run: RunProcess = async (input) => {
+          if (verb(input) === "agent prompt") {
+            submitted = true;
+            const prompt = input.argv[6]!;
+            const rows = broken
+              ? [
+                  { type: "queue-operation", operation: "enqueue", content: prompt },
+                  ...Array.from({ length: 4097 }, (_, i) => ({ uuid: `row-${i}` })),
+                ]
+              : [
+                  { type: "user", uuid: "input", message: { role: "user", content: prompt } },
+                  {
+                    type: "assistant",
+                    uuid: "answer",
+                    parentUuid: "input",
+                    message: { role: "assistant", model: "claude", content: [] },
+                  },
+                ];
+            writeFileSync(
+              join(project, "native.jsonl"),
+              `${rows.map((row) => JSON.stringify(row)).join("\n")}\n`,
+            );
+          }
+          if (verb(input) === "agent wait" && submitted)
+            return commandResult({ agent: { agent_status: "idle" } });
+          return base.run(input);
+        };
+        const host = await createHerdrRunHostFactory(CONFIG, run).openRun({
+          runId: "receipt",
+          cwd: "/repo",
+          deadline: deadline(),
+        });
+        try {
+          const session = await host.openAgent({
+            key: "agent",
+            cwd: "/repo",
+            home,
+            deadline: deadline(),
+            execution: { harness: "claude", model: "opus" },
+          });
+          const turn = await session.start(
+            { id: "one", prompt: "respond", deadline: deadline() },
+            binding("receipt-op"),
+          );
+          await turn.settled;
+          const observed = await Promise.race([
+            broken ? turn.delivery!.failed : turn.delivery!.received,
+            new Promise<never>((_, reject) =>
+              setTimeout(() => reject(new Error("receipt evidence missing")), 1000),
+            ),
+          ]);
+          expect(observed).toEqual(
+            broken ? expect.stringContaining("ancestry exceeds") : expect.any(Number),
+          );
+          const release = await turn.release("admitted", deadline(), {
+            answered: true,
+            awaitCompletion: true,
+          });
+          expect(release.kind).toBe(broken ? "quarantined" : "released");
+          expect(base.calls.some((call) => verb(call) === "tab close")).toBe(false);
+        } finally {
+          await host.close();
+          rmSync(home, { recursive: true, force: true });
+        }
+      },
+    );
   }
 
   test("waiting requires a run-local transcript home for sandbox panes", async () => {
