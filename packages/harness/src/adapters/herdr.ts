@@ -1545,8 +1545,9 @@ function paneOutcome(
 }
 
 /**
- * A launch that stopped at its harness's sign-in screen, or exited on a refused login, as codex and
- * cursor do without one: the failed turn that says so. Undefined where the screen shows neither.
+ * The failed turn a pane's screen shows when its harness cannot sign in: at a launch that stopped
+ * at a sign-in screen or exited, as codex and cursor do, or after a prompt that failed or stalled,
+ * which pi's refused login does before Herdr sees it working. Undefined where it shows neither.
  */
 async function loginShown(
   herdr: HerdrCommand,
@@ -1563,7 +1564,12 @@ async function loginShown(
   if (signal.aborted || !screen.ok) return undefined;
   const login = check.screen(thisTurn(readable(screen.stdout), marker));
   return login
-    ? { ...localOutcome("failed", ""), ...loginFailure(harness, check, login) }
+    ? {
+        state: "failed",
+        ...loginFailure(harness, check, login),
+        resultEvidence: { kind: "unavailable" },
+        chargesUsd: [],
+      }
     : undefined;
 }
 

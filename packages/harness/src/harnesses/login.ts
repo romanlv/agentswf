@@ -1,5 +1,6 @@
 import type { TurnLogin } from "@agentswf/contract/workflow";
 import { jsonLines, record, text } from "../json";
+import { readable } from "../screen";
 import { lastJson } from "./shared";
 
 /**
@@ -18,7 +19,7 @@ export type LoginCheck = {
   /** Its pane's screen, at launch or after a turn: a line the harness drew, past its glyph. */
   screen(screen: string): LoginNeed | undefined;
   /** What the operator runs to log in again. */
-  run(provider?: string): string;
+  run: string;
 };
 
 const SAID_CHARS = 300;
@@ -28,22 +29,20 @@ function said(words: string): string {
   return line.length > SAID_CHARS ? `${line.slice(0, SAID_CHARS)}…` : line;
 }
 
-// biome-ignore lint/suspicious/noControlCharactersInRegex: a colour or cursor escape starts with ESC
-const ESCAPE = /\u001B\[[0-?]*[ -/]*[@-~]/g;
-
 /**
  * What a pane shows after the prompt that carried `marker`, an operation's id: an earlier turn's
- * lines are that turn's. All of it where the prompt has scrolled away, or carried none.
+ * lines are that turn's, which a stale login line would fail this one on. Nothing where the id is
+ * not drawn, as in a paste a harness folds away; all of it where no prompt was sent yet.
  */
 export function thisTurn(screen: string, marker: string | undefined): string {
-  const at = marker === undefined ? -1 : screen.lastIndexOf(marker);
-  return at === -1 ? screen : screen.slice(at);
+  if (marker === undefined) return screen;
+  const at = screen.lastIndexOf(marker);
+  return at === -1 ? "" : screen.slice(at);
 }
 
 /** The lines that start with one of `starts`, past its colour and the glyph the harness puts first. */
 function drawn(screen: string, starts: RegExp): string | undefined {
-  return screen
-    .replace(ESCAPE, "")
+  return readable(screen)
     .split("\n")
     .map((line) => line.replace(/^[^\p{L}\p{N}]+/u, ""))
     .findLast((line) => starts.test(line));
@@ -69,8 +68,7 @@ export const claudeLogin: LoginCheck = {
     const line = drawn(screen, CLAUDE_SCREEN);
     return line ? { said: said(line) } : undefined;
   },
-  run: () =>
-    "run `claude`, then /login; a sandboxed claude's CLAUDE_CODE_OAUTH_TOKEN comes from `claude setup-token`",
+  run: "run `claude`, then /login; a sandboxed claude's CLAUDE_CODE_OAUTH_TOKEN comes from `claude setup-token`",
 };
 
 // A refresh that failed for any other reason, as on the network, may yet succeed on a retry.
@@ -98,7 +96,7 @@ export const codexLogin: LoginCheck = {
     const line = drawn(screen, /^Finish signing in via your browser/);
     return line ? { said: said(line) } : undefined;
   },
-  run: () => "run `codex login`",
+  run: "run `codex login`",
 };
 
 const CURSOR_REFUSED =
@@ -120,11 +118,10 @@ export const cursorLogin: LoginCheck = {
     );
     return line ? { said: said(line) } : undefined;
   },
-  run: () =>
-    "run `cursor-agent login`; a sandboxed cursor's CURSOR_API_KEY comes from its dashboard",
+  run: "run `cursor-agent login`; a sandboxed cursor's CURSOR_API_KEY comes from its dashboard",
 };
 
-const PI_NO_KEY = /^(?:Error: )?No API key found for ([^\s.]+)\./;
+const PI_NO_KEY = /^(?:Error: )?No API key found for (\S+?)\.(?:\s|$)/;
 const PI_REFRESH = /^(?:Error: )?OAuth refresh failed for ([^\s:]+):/;
 
 /**
@@ -149,7 +146,7 @@ export const piLogin: LoginCheck = {
     const provider = line && (PI_NO_KEY.exec(line) ?? PI_REFRESH.exec(line))?.[1];
     return line ? { ...(provider ? { provider } : {}), said: said(line) } : undefined;
   },
-  run: () => "run `pi`, then /login",
+  run: "run `pi`, then /login",
 };
 
 /** The reason a turn that needs a login ends with, and what the workflow is told of it. */
@@ -158,10 +155,9 @@ export function loginFailure(
   check: LoginCheck,
   need: LoginNeed,
 ): { detail: string; login: TurnLogin } {
-  const run = check.run(need.provider);
   const whose = need.provider ? ` for ${need.provider}` : "";
   return {
-    detail: `${harness} needs a login${whose}: ${run} (${harness} said: ${need.said})`,
-    login: { harness, ...(need.provider ? { provider: need.provider } : {}), run },
+    detail: `${harness} needs a login${whose}: ${check.run} (${harness} said: ${need.said})`,
+    login: { harness, ...(need.provider ? { provider: need.provider } : {}), run: check.run },
   };
 }

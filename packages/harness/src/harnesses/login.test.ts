@@ -137,6 +137,9 @@ describe("only what the harness printed of this turn counts", () => {
   test("a pane's earlier turn is not this one", () => {
     const screen = `${fixture("claude-missing.screen")}\n❯ run op-2 and answer\n⏺ Done.\n`;
     expect(check("claude").screen(thisTurn(screen, "op-2"))).toBeUndefined();
-    expect(check("claude").screen(thisTurn(screen, "op-gone"))).toBeDefined();
+    // A prompt folded away leaves no telling which lines are this turn's.
+    expect(check("claude").screen(thisTurn(screen, "op-folded"))).toBeUndefined();
+    // A launch sends no prompt: all it shows is its own.
+    expect(check("claude").screen(thisTurn(screen, undefined))).toBeDefined();
   });
 });

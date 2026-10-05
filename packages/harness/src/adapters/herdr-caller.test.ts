@@ -214,6 +214,32 @@ describe("createCallerHostFactory", () => {
     expect((await next.settled).state).toBe("completed");
   });
 
+  test("a turn whose harness cannot sign in fails, saying so; one before it does not count", async () => {
+    const shown = "⎿  Not logged in · Please run /login";
+    const { session } = await open(
+      { paneId: "w1:p1", harness: "claude", cwd: "/repo" },
+      idle(`${shown}\nPlan op-1.\n${shown}`),
+    );
+    const turn = await session.start(
+      { id: "t1", prompt: "Plan op-1.", deadline: deadline() },
+      binding,
+    );
+    expect(await turn.settled).toMatchObject({
+      state: "failed",
+      detail: expect.stringContaining("claude needs a login"),
+      login: { harness: "claude" },
+    });
+    const { session: earlier } = await open(
+      { paneId: "w1:p1", harness: "claude", cwd: "/repo" },
+      idle(`${shown}\nPlan op-1.\nanswered`),
+    );
+    const next = await earlier.start(
+      { id: "t1", prompt: "Plan op-1.", deadline: deadline() },
+      binding,
+    );
+    expect((await next.settled).state).toBe("completed");
+  });
+
   test("cancelling interrupts the run's own turn while it works, and leaves the pane", async () => {
     const { session, calls } = await open(
       { paneId: "w1:p1", harness: "claude", cwd: "/repo" },

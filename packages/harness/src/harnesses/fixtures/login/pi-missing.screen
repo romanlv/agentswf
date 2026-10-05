@@ -10,9 +10,7 @@ work on  main
  Pi can explain its own features and look up its docs. Ask it how to use or extend Pi.
 
 [Skills]
-  agent-browser, ask-matt, bro, codebase-design, domain-modeling, find-docs, find-skills, grill-me, grill-with-docs, grilling, handoff, herdr, improve-codebase-architecture, plannotator-annotate, plannotator-compound,
-plannotator-last, plannotator-review, plannotator-setup-goal, plannotator-visual-explainer, research, show-me, tdd, teach, to-spec, twg, twg-agentic-search, twg-artifacts, twg-bench-lite, twg-code-review, twg-confluence,
-twg-context-discovery, twg-engineering-work, twg-jira, twg-jira-resolve-merged-work, twg-operational-health, twg-responsibility-routing, twg-space-creation, twg-status-rollups, wayfinder
+  {the operator's skills}
 
 
  fd not found. Downloading...

@@ -366,7 +366,7 @@ export async function superviseOperation(options: Options): Promise<SupervisedOu
               native.state === "timed-out" ? "timed-out" : native.state,
               native.detail ?? `native turn ${native.state}`,
             ),
-            ...(native.login ? { login: native.login } : {}),
+            ...(native.state === "failed" && native.login ? { login: native.login } : {}),
           };
           break;
         }

@@ -446,7 +446,12 @@ describe("createPaneAdapter", () => {
     const { run: baseRun } = operationStub();
     const run: RunProcess = async (input) =>
       verb(input) === "agent read"
-        ? { stdout: loginScreen("pi-refused.screen"), stderr: "", exitCode: 0, timedOut: false }
+        ? {
+            stdout: `review op-1\n${loginScreen("pi-refused.screen")}`,
+            stderr: "",
+            exitCode: 0,
+            timedOut: false,
+          }
         : baseRun(input);
     const session = await createPaneAdapter(CONFIG, run).activate({
       ...activation,
@@ -460,6 +465,44 @@ describe("createPaneAdapter", () => {
     await expect(turn.settled).resolves.toMatchObject({
       state: "failed",
       detail: expect.stringContaining("pi needs a login for openai-codex"),
+      login: { harness: "pi", provider: "openai-codex" },
+    });
+  });
+
+  test("a prompt that fails before Herdr sees pi working reads its screen for a login", async () => {
+    const { run: baseRun, calls } = operationStub();
+    const run: RunProcess = async (input) => {
+      if (verb(input) === "agent prompt") {
+        calls.push(input);
+        return {
+          stdout: "",
+          stderr: JSON.stringify({ error: { code: "agent_prompt_stalled" } }),
+          exitCode: 1,
+          timedOut: false,
+        };
+      }
+      if (verb(input) === "pane read") {
+        calls.push(input);
+        return {
+          stdout: `review op-1\n${loginScreen("pi-refused.screen")}`,
+          stderr: "",
+          exitCode: 0,
+          timedOut: false,
+        };
+      }
+      return baseRun(input);
+    };
+    const session = await createPaneAdapter(CONFIG, run).activate({
+      ...activation,
+      execution: { harness: "pi", model: "openai-codex/gpt-5.6" },
+    });
+    const turn = await session.start(
+      { id: "review", prompt: "review", deadline: activation.deadline },
+      firstBinding,
+    );
+
+    await expect(turn.settled).resolves.toMatchObject({
+      state: "failed",
       login: { harness: "pi", provider: "openai-codex" },
     });
   });
@@ -2237,10 +2280,10 @@ describe("createHerdrRunHostFactory", () => {
 
   test("a stall whose screen shows the harness cannot sign in fails at once, saying so", async () => {
     const base = hostStub();
-    const screen = readFileSync(
+    const screen = `review op-1\n${readFileSync(
       join(import.meta.dir, "../harnesses/fixtures/login/claude-missing.screen"),
       "utf8",
-    );
+    )}`;
     const run: RunProcess = async (input) => {
       if (verb(input) === "pane read") {
         base.calls.push(input);

@@ -97,8 +97,8 @@ operator's logins was copied. Fixtures in `packages/harness/src/harnesses/fixtur
 
 - `contract/src/workflow/agents.ts`: `TurnLogin = { harness: string; provider?: string; run: string }`;
   `failed` gains `login?: TurnLogin`.
-- `harness/src/harnesses/define.ts`: `login?: { headless(stdout, stderr); screen(screen); run(provider?) }`,
-  the first two returning `{ provider?: string } | undefined`. Each harness gives it.
+- `harness/src/harnesses/define.ts`: `login?: { headless(stdout, stderr); screen(screen); run: string }`,
+  the first two returning `{ provider?, said } | undefined`. Each harness gives it.
 - `HarnessTurnOutcome.login?: TurnLogin`, set by `direct-process` (any exit), `herdr`'s
   `paneOutcome` and launch failure, and `herdr-caller`'s `callerOutcome`; its `detail` is the
   reason.
@@ -151,9 +151,13 @@ Manual or live:
 - Known limit: cursor with a refused `CURSOR_API_KEY` prints its warning and exits to the shell;
   Herdr's `agent start` waits its full 120 s for an agent that never comes, and only then is the
   screen read. A turn deadline under that ends `timed-out`.
-- Known limit: a pane line that a tool printed, starting with a harness's own login error (claude's
-  `⎿` is both its tool output's glyph and its error's), reads as a login. Only a turn with no
-  accepted answer is affected: an answered turn never reads the native outcome.
+- Known limit: a pane line that a tool printed in this turn, starting with a harness's own login
+  error (claude's `⎿` is both its tool output's glyph and its error's), reads as a login. Only a
+  turn with no accepted answer is affected: an answered turn never reads the native outcome.
+- A pane turn is read from the prompt that carries its operation id. claude and pi draw it, a long
+  multi-line prompt included (checked live); a harness that folds a paste away, as cursor does,
+  shows none, and its screen after a prompt is then not read for a login. Its launch, which sends
+  no prompt, is read whole: cursor's and codex's login failures show there.
 - Codex and cursor TUIs open a browser tab at their sign-in screen; a pane is closed once it is
   recognised, and a docker box's cannot open one.
 - `examples/fork` checks each harness apart, so it does not stop on one harness's login; its
@@ -169,13 +173,22 @@ Manual or live:
   shape; documented as text to show, not parse. Whole-screen read in a run's pane — fixed: only
   what follows this turn's prompt (`thisTurn`), as the calling session already did. Testing label
   `needs-login` — kept (see notes). `examples/fork` not stopping — task reworded (see notes).
-  Unused `LoginCheck`/`LoginNeed` exports — removed. Optional `login` with a fallback in the test
-  host — kept: optional with an absence is how every capability is declared.
+  `LoginCheck`/`LoginNeed` — out of the package index; nothing outside harness uses them. Optional
+  `login` with a fallback in the test host — kept: optional with an absence is how every
+  capability is declared.
 - Correctness and proof: tool output starting with the phrase — a limit, recorded above. Stale
   lines and a stall under a live agent — fixed by `thisTurn`. A codex refresh that failed and
   recovered — fixed: only a 401 or `refresh_token_invalidated`, never on `turn.completed`. claude
   wordings with the reason first — matched (` · Please run /login` at a line's end). Cancellation
   during the screen read — fixed: the read takes the signal and an aborted one reads as no login.
+- Round 1 of the full review: `thisTurn` read the whole screen when the id was not drawn, so an
+  earlier turn's line could fail a later turn, or a stall under a live agent — fixed: a prompt's
+  id not on screen reads nothing. Screen cleanup duplicated `readable` and missed OSC — `readable`
+  moved to `harness/src/screen.ts`, shared. `run(provider?)` never read its argument — now a
+  string. `login` could ride on a timed-out supervised outcome — only a failed one keeps it. The
+  operator's skill list in the pi screen fixtures — replaced by a placeholder. Untested paths — the
+  calling session, the pane adapter's failed prompt, and headless cancel/timeout winning over a
+  login are now tested. A provider with a dot in pi's "No API key found" — matched.
 
 ## Human review
 
