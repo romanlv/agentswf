@@ -70,7 +70,7 @@ defineReviewScorer({ workflow: judge, argv: [], timeout: "20m" });
 // @ts-expect-error a review workflow does not return a ScorerResult.
 defineReviewScorer({ workflow: review, argv: [], timeout: "20m" });
 
-// A run's outcome, as a score keeps it, is exactly the one `output.json` records.
+// A run's outcome, as a score keeps it, is the one `output.json` records.
 type Same<A, B> =
   (<T>() => T extends A ? 1 : 2) extends <T>() => T extends B ? 1 : 2 ? true : false;
 const sameOutcomes: Same<RunSummary["outcome"], OutputRecord["outcome"]> = true;

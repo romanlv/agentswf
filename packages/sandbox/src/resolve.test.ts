@@ -9,6 +9,7 @@ import type { SandboxProvider, SandboxProviders } from "./seam";
 // Made before the tests are declared, which `test.each` does with these paths.
 const root = realpathSync(mkdtempSync(join(tmpdir(), "wf-resolve-")));
 const home = join(root, "home");
+const machineRoot = join(home, ".awf");
 const runRoot = join(root, "runs");
 const repo = join(home, "repo");
 
@@ -21,14 +22,27 @@ const providers: SandboxProviders = {
   default: "srt",
 };
 const harnessState = [join(home, ".claude"), join(home, ".codex"), join(home, ".pi", "agent")];
-const resolve = (spec: unknown, extra: { inline?: boolean; providers?: SandboxProviders } = {}) =>
-  resolveSandbox(spec, { key: "box", cwd: repo, runRoot, home, providers, harnessState, ...extra });
+const resolve = (
+  spec: unknown,
+  extra: { inline?: boolean; providers?: SandboxProviders; runRoot?: string } = {},
+) =>
+  resolveSandbox(spec, {
+    key: "box",
+    cwd: repo,
+    runRoot,
+    machineRoot,
+    home,
+    providers,
+    harnessState,
+    ...extra,
+  });
 
 beforeAll(async () => {
   await mkdir(join(repo, ".git", "worktrees", "feature"), { recursive: true });
   await mkdir(join(repo, "src"), { recursive: true });
   await mkdir(join(home, "notes"), { recursive: true });
   await mkdir(join(home, ".ssh"), { recursive: true });
+  await mkdir(join(home, ".awf", "sandboxes"), { recursive: true });
   await mkdir(join(home, ".orbstack", "ssh"), { recursive: true });
   await mkdir(join(home, "feature"), { recursive: true });
   await mkdir(runRoot, { recursive: true });
@@ -73,6 +87,7 @@ describe("resolveSandbox", () => {
       read: [join(home, "notes"), repo],
       write: [join(repo, "src")],
       network: ["registry.npmjs.org", "*.npmjs.org"],
+      hidden: [],
       // Read-only: `src` is writable, not the worktree whose history it holds.
       gitdirs: [{ path: join(repo, ".git"), writable: false }],
       environment: { name: "srt", raw: {} },
@@ -132,7 +147,7 @@ describe("resolveSandbox", () => {
     await mkdir(inside, { recursive: true });
     const { sandbox } = await resolveSandbox(
       { cwd: "src" },
-      { key: "box", cwd: repo, runRoot: inside, home, providers, harnessState },
+      { key: "box", cwd: repo, runRoot: inside, machineRoot, home, providers, harnessState },
     );
     expect(sandbox.gitdirs).toEqual([{ path: join(repo, ".git"), writable: false }]);
   });
@@ -145,6 +160,7 @@ describe("resolveSandbox", () => {
       key: "box",
       cwd: repo,
       runRoot,
+      machineRoot,
       home,
       providers,
       harnessState,
@@ -163,7 +179,15 @@ describe("resolveSandbox", () => {
     await expect(
       resolveSandbox(
         { read: ["~/notes"] },
-        { key: "box", cwd: repo, runRoot, home, providers, harnessState: [join(home, "notes")] },
+        {
+          key: "box",
+          cwd: repo,
+          runRoot,
+          machineRoot,
+          home,
+          providers,
+          harnessState: [join(home, "notes")],
+        },
       ),
     ).rejects.toThrow("would expose harness state");
   });
@@ -189,6 +213,8 @@ describe("resolveSandbox", () => {
     [{ read: ["~/.claude/projects"] }, "would expose harness state"],
     [{ read: ["~/.claude"] }, "would expose harness state"],
     [{ read: ["~/.ssh"] }, "would expose keys"],
+    [{ read: ["~/.awf"] }, "would expose"],
+    [{ write: ["~/.awf/sandboxes"] }, "would expose"],
     [{ docker: {}, read: ["~/.orbstack"] }, "would expose keys"],
     [{ read: ["~root"] }, "only ~ and ~/ expand"],
     [{ cwd: join(root, "crafted", "points-home") }, "would expose ~"],
@@ -205,6 +231,20 @@ describe("resolveSandbox", () => {
     [null, "must be an object"],
   ])("rejects %j", async (spec, reason) => {
     await expect(resolve(spec)).rejects.toThrow(reason);
+  });
+
+  test("a project holding the run root resolves, and its runs are still refused", async () => {
+    const projectRuns = join(repo, ".awf", "runs");
+    await mkdir(join(projectRuns, "flow", "r1"), { recursive: true });
+    const { sandbox } = await resolve({ write: ["."] }, { runRoot: projectRuns });
+    expect(sandbox.write).toEqual([repo]);
+    expect(sandbox.hidden).toEqual([projectRuns]);
+    const apart = await resolve({ read: [join(home, "notes")] }, { runRoot: projectRuns });
+    expect(apart.sandbox.hidden).toEqual([projectRuns]);
+    expect((await resolve({ cwd: join(home, "notes") })).sandbox.hidden).toEqual([]);
+    await expect(
+      resolve({ read: [join(projectRuns, "flow", "r1")] }, { runRoot: projectRuns }),
+    ).rejects.toThrow("would expose the run root");
   });
 
   test("tells `{ srt: undefined }` from an environment", async () => {

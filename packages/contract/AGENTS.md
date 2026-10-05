@@ -11,7 +11,7 @@ a call and an attempt; the engine owns the files.
 | --- | --- |
 | `.` | `CallResult`, the record formats, the schema subset, the semantic seam |
 | `./schema` | the supported JSON Schema subset, structural check, validation, description, and errors |
-| `./records` | `CallSpec`, `Attempt`, `OutputRecord` and its accounting — formats only |
+| `./records` | `CallSpec`, `Candidate`, `OutputRecord` and its accounting — formats only |
 | `./wire` | versioned, runtime-decodable control-plane messages |
 | `./workflow` | the author surface: `WorkflowContext`, `AgentRef`, sandboxes, decisions, messaging, composition |
 | `./testing` | fixtures shared by tests in other packages |

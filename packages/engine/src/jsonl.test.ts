@@ -9,7 +9,7 @@ afterAll(() => runDirs.cleanup());
 
 describe("JSONL persistence", () => {
   test("keeps concurrent large lines readable", async () => {
-    const path = join(tempRunDir(), "attempts.jsonl");
+    const path = join(tempRunDir(), "candidates.jsonl");
     const records = Array.from({ length: 12 }, (_, index) => ({
       index,
       raw: String(index).repeat(100_000),

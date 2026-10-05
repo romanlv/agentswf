@@ -20,10 +20,10 @@ import type {
 } from "../packages/contract/src/workflow";
 import {
   describeAccounting,
-  runWorkflow,
   WorkflowRunError,
   type WorkflowRunResult,
 } from "../packages/engine/src";
+import { runNew } from "../packages/engine/src/testing";
 import type {
   AgentRunHostFactory,
   AgentRuntimeConfig,
@@ -233,7 +233,7 @@ export async function runLiveEvaluation(signal?: AbortSignal) {
   const nativeOutcomes: NativeOutcomeEvidence[] = [];
   let observedResult: WorkflowRunResult<JsonValue> | undefined;
   try {
-    const result = await runWorkflow(
+    const result = await runNew(
       minimumReview,
       { target: "review-target.ts" },
       {

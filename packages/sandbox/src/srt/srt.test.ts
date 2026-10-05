@@ -30,6 +30,7 @@ const spec: ResolvedSandbox<unknown> = {
   read: ["/Users/op/notes", "/Users/op/repo/vendor"],
   write: ["/Users/op/repo"],
   network: ["registry.npmjs.org"],
+  hidden: [],
   gitdirs: [
     { path: "/Users/op/repo/.git", writable: true },
     { path: "/Users/op/other/.git", writable: false },
@@ -128,7 +129,7 @@ describe("srt profiles", () => {
     expect(profile.filesystem.denyWrite.at(-1)).toBe("/private/tmp/awf-x/a1");
     expect(profile.filesystem.allowWrite).toEqual(base.filesystem.allowWrite);
     // An install tree inside harness state passes; the base is untouched.
-    expect(() => checkProfile(profile, host, context)).not.toThrow();
+    expect(() => checkProfile(profile, host, context, spec)).not.toThrow();
     expect(base.network.allowUnixSockets).toEqual([]);
   });
 
@@ -153,7 +154,7 @@ describe("srt profiles", () => {
       shared,
       "/tmp",
     ]);
-    expect(() => checkProfile(profile, host, context)).not.toThrow();
+    expect(() => checkProfile(profile, host, context, spec)).not.toThrow();
     // Without a shared write under /tmp, the link stays denied with the rest.
     expect(agentProfile(base, agent, "/private/tmp/awf-short").filesystem.allowRead).not.toContain(
       "/tmp",
@@ -171,7 +172,7 @@ describe("srt profiles", () => {
     );
     expect(base.filesystem.allowRead).toContain(cache);
     expect(base.filesystem.allowWrite).not.toContain(cache);
-    expect(() => checkProfile(base, host, context)).not.toThrow();
+    expect(() => checkProfile(base, host, context, spec)).not.toThrow();
   });
 
   type Change = Partial<Record<"denyRead" | "allowRead" | "allowWrite", string[]>>;
@@ -183,7 +184,12 @@ describe("srt profiles", () => {
       { allowRead: [`${context.runRoot}/other`] },
       "reaches into the run root",
     ],
-    ["exposes the run root", { allowWrite: ["/Users/op/.awf"] }, "would expose the run root"],
+    ["exposes the run root", { allowWrite: ["/Users/op/.awf/runs"] }, "would expose the run root"],
+    [
+      "holds a run root it does not hide",
+      { allowRead: ["/Users/op/.awf"] },
+      "would expose the run root through /Users/op/.awf",
+    ],
     ["exposes harness state", { allowRead: ["/Users/op/.codex"] }, "would expose harness state"],
     [
       "writes harness state",
@@ -202,7 +208,51 @@ describe("srt profiles", () => {
         allowWrite: [...base.filesystem.allowWrite, ...(change.allowWrite ?? [])],
       },
     };
-    expect(() => checkProfile(bad, host, context)).toThrow(reason);
+    expect(() => checkProfile(bad, host, context, spec)).toThrow(reason);
+  });
+});
+
+describe("a run root inside the project", () => {
+  // As the engine lays them out: runs in the project, each sandbox's directory under ~/.awf.
+  const project: SandboxContext = {
+    ...context,
+    runRoot: "/Users/op/repo/.awf/runs",
+    directory: "/Users/op/.awf/sandboxes/s1",
+  };
+  const hiding = { ...spec, hidden: [project.runRoot] };
+
+  test("is denied for reads and writes inside the paths that hold it", () => {
+    const profile = baseProfile(hiding, project, host, `${project.directory}/tmp`, PROTECTED);
+    expect(profile.filesystem.denyRead).toContain(project.runRoot);
+    expect(profile.filesystem.denyWrite).toContain(project.runRoot);
+    expect(() => checkProfile(profile, host, project, hiding)).not.toThrow();
+  });
+
+  test("refuses a profile that holds it unhidden", () => {
+    const profile = baseProfile(spec, project, host, `${project.directory}/tmp`, PROTECTED);
+    expect(() => checkProfile(profile, host, project, spec)).toThrow(
+      "would expose the run root through /Users/op/repo",
+    );
+  });
+
+  test("refuses a profile that does not deny writes to it", () => {
+    const profile = baseProfile(hiding, project, host, `${project.directory}/tmp`, PROTECTED);
+    const bad = {
+      ...profile,
+      filesystem: {
+        ...profile.filesystem,
+        denyWrite: profile.filesystem.denyWrite.filter((path) => path !== project.runRoot),
+      },
+    };
+    expect(() => checkProfile(bad, host, project, hiding)).toThrow("does not hide");
+  });
+
+  test("refuses to hide it when this sandbox's directory is inside", () => {
+    const inside = { ...project, directory: `${project.runRoot}/i/r/sandboxes/s1` };
+    const profile = baseProfile(hiding, inside, host, `${inside.directory}/tmp`, PROTECTED);
+    expect(() => checkProfile(profile, host, inside, hiding)).toThrow(
+      "would hide its own directory",
+    );
   });
 });
 

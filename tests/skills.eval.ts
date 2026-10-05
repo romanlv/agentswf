@@ -45,7 +45,7 @@ export function problems(
   receipts: readonly Receipt[],
   operators: readonly string[],
 ): string[] {
-  if (exitCode !== 0 || record?.outcome !== "succeeded") {
+  if (exitCode !== 0 || record?.outcome !== "completed") {
     return [`run did not succeed: exit ${exitCode}, outcome ${record?.outcome ?? "missing"}`];
   }
   const found: string[] = [];
@@ -207,7 +207,7 @@ if (import.meta.main) {
       {
         ok: failed.length === 0,
         failed,
-        reports: (record?.outcome === "succeeded" ? record.value : undefined) ?? null,
+        reports: (record?.outcome === "completed" ? record.value : undefined) ?? null,
         receipts: receipts.map((receipt) => ({ ...receipt, path: receipt.path.slice(1) })),
         estimateUsd: record?.accounting.totals.estimate,
         artifacts: record?.artifacts,

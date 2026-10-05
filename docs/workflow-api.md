@@ -23,10 +23,15 @@ workflow.parallel(items, (item, i) => …, { concurrency?, label?, deadline? }) 
 workflow.sandboxes.open({ key, write?, read?, network?, srt? | docker? })        // → pass as { sandbox }
 workflow.decisions.decide({ key, model: "jev", state, questions })              // → { answers } in ~200 ms
 
-workflow.log(message, fields?)   workflow.usage()   workflow.deadline   workflow.cwd   workflow.runId
+workflow.stage(name, { result, summary? }?, async () => …)  // → its value; reused on a continue
+workflow.stop(reason)                                         // ends the attempt stopped
+
+workflow.log(message, fields?)   workflow.usage()   workflow.deadline   workflow.cwd
+workflow.runId   workflow.attempt
 
 // In a test, from "agentswf/testing"; `awf test` runs it:
-testWorkflow(workflow, args, { agents?, decisions?, runtimes?, caller?, timeoutMs?, stallMs?, cwd? })  // → run
+testWorkflow(workflow, args, { agents?, decisions?, runtimes?, caller?, timeoutMs?, stallMs?, cwd?,
+                              recorded?, fromStage? })  // → run
 answer(SCHEMA, value | (turn) => value)   answer("text")   reply.silent() | blocked() | failed() | timedOut() | hang() | interrupted()
 ```
 
@@ -39,6 +44,8 @@ answer(SCHEMA, value | (turn) => value)   answer("text")   reply.silent() | bloc
 | **Deadline** | Every wait has one. A child's deadline can be earlier than its parent's, never later. |
 | **Sandbox** | What agents inside it can read, write and reach. They share it or get a private one. |
 | **Decision** | Closed questions to a decision model (Jev). It returns probabilities, and no agent is involved. |
+| **Run** | One piece of work, with an id. Each `awf run` of it is an attempt; `--continue` adds one. |
+| **Stage** | A named step of a run. A continue reuses what stages succeeded and runs the rest. |
 
 ## A workflow file
 
@@ -66,18 +73,35 @@ export default defineExecutableWorkflow({
   // Optional: what a person sees at the terminal instead of the JSON.
   present: (result) => result.summary,
   // Optional: Markdown saved beside the run as report.md.
-  report: (result) => `# Summary\n\n${result.summary}\n`,
+  report: (result) => (result ? `# Summary\n\n${result.summary}\n` : undefined),
 });
 ```
 
 - **`definition`** is the workflow: `meta` and `run(workflow, args)`. Its args and result must
-  be JSON.
+  be JSON. `meta.name` names the folder its runs are kept in, so it is letters, digits, `.`, `_`
+  and `-`; the file may move or be copied and stay the same workflow. An optional `meta.version`
+  is semver ([Stages](#stages) says what it guards).
 - **`prepare`** turns the command line (`argv` after `--`, and `cwd`) into args.
-- **`present`** and **`report`** are optional. Without `present`, `awf run` prints the full result
-  as JSON. `--json` always prints it.
+- **`id(args)`** is optional: the run's id, such as a ticket's key, which `--id` overrides
+  ([Stages](#stages)).
+- **`present(value, ending)`** is optional: what a person sees at the terminal for a completed
+  attempt. Returning `undefined`, or without it, `awf run` prints the full result as JSON; `--json`
+  always prints the record. An attempt that didn't complete is awf's to print: its stage, its
+  reason and the command that goes on.
+- **`report(value, ending)`** is optional, and called however the attempt ended, so a stopped run
+  can hand off what its stages found. `value` is the result, `undefined` unless the attempt
+  completed. `ending` is how it ended: `completed` with its `value`, or `stopped`, `failed`,
+  `timed-out` or `cancelled` with its `stage`, `reason` and the `continue` command; either way with
+  its `stages`, each with its `summary` and `value`. Returning `undefined` writes none. A
+  `--from-stage` the attempt never reached has no one command that goes on: its `continue` ends
+  `--from-stage {stage}`, for whoever reads it to choose one of the run's stages, and isn't runnable
+  as is.
 
-The result, every agent's usage, and why the run ended are kept in `output.json` under
-`~/.awf/runs/{run}`. A run that fails or is cancelled keeps this record too.
+The result, every agent's usage, and how the attempt ended are kept in `output.json` in the run's
+folder, `.awf/runs/{workflow}/{id}` under the working directory. Its `outcome` is `completed`, with
+the `value`, or one of the others, with its `reason` and the `stage` it ended in. A run that fails
+or is cancelled keeps this record too, and `awf run {file} --continue {id}` runs it again as its
+next attempt.
 
 ## Agents
 
@@ -93,7 +117,7 @@ const reviewer = await workflow.agents.open({
 
 | Field | What it does |
 | --- | --- |
-| `key` | The agent's name in this run. Opening the same key again returns the same agent. The part before `:` is its **stage** in the cost summary, so `review:security` and `review:style` both add up under `review`. |
+| `key` | The agent's name in this run. Opening the same key again returns the same agent. In a run without stages, the part before `:` is its **group** in the cost summary, so `review:security` and `review:style` both add up under `review`. |
 | `runtime` | Which harness and model to use. You can pass an alias (`"claude"` or `"codex"`), or `{ harness, model, effort?, placement?, metered? }`, or `{ alias, … }` to constrain an alias. |
 | `effort` | How hard it thinks, in the harness's own words: claude's `low` to `max`, codex's `low` to `ultra`, pi's `off` to `max`. A level the harness doesn't list is refused; codex's levels differ per model, and one its model lacks fails its turn. cursor takes none: name the variant as the model (`gpt-5.6-luna-high`). Left out, awf passes none and the harness uses its default or its own config. An alias may name one; yours replaces it. |
 | `placement` | `"pane"` (the default) opens a terminal pane in [Herdr](https://herdr.dev) that you can watch and type into. `"headless"` runs a process per turn. |
@@ -299,13 +323,57 @@ const reviews = await workflow.parallel(
 ```
 
 - **`concurrency`** defaults to all items at once.
-- **`label`** names the stage in `awf`'s live progress ("review 2/3").
+- **`label`** names the group in `awf`'s live progress ("review 2/3").
 - **`deadline`** can only make it earlier than the enclosing one.
 - **It's fail-fast.** If one item throws, the others are cancelled (their agents' turns end as
   `cancelled`) and `parallel` rejects with that error. Outcomes other than `answered` don't throw,
   so in the usual pattern above one bad agent never stops the rest.
-- **Nesting works.** A `parallel` inside another is cancelled with it. Two stages in a row are just
+- **Nesting works.** A `parallel` inside another is cancelled with it. Two steps in a row are just
   two `await`s, and a fan-out that verifies each finding is a `parallel` inside a `parallel`.
+
+## Stages
+
+A run is one piece of work, kept in `.awf/runs/{workflow}/{id}` under its working directory. Each
+`awf run` of it is an attempt. A stage is a named step whose result the run keeps, so that a later
+attempt, `awf run file.ts --continue {id}`, reuses what succeeded and runs the rest: after a fix,
+it picks up at the stage that failed.
+
+```ts
+const doc = await workflow.stage("doc-review", { result: DOC, summary: (d) => d.path }, async () => {
+  const doc = await ask(worker, DOC, `Review the ticket doc for ${ticket}`);
+  if (doc.kind === "no-doc") workflow.stop(doc.reason); // inside: a continue redoes doc-review
+  return doc;
+});
+await workflow.stage("notify", async () => {          // no result: it only has to happen
+  await postToSlack(`${ticket}: reviewed`);
+});
+```
+
+- **`workflow.stage(name, options?, work)`** runs `work`, records how it ended, and returns its
+  value. With `result`, the value goes through JSON and must fit the schema, now and when a continue
+  reuses it; without, `work` returns nothing. `summary(value)` is a line for the view.
+- **A reused stage isn't run.** Its work isn't called and no agent is asked anything: `stage`
+  returns the recorded value. A stage's only output is its return value, so a variable assigned
+  inside it stays unset when it is reused.
+- **Code between stages runs on every attempt**, reused stages or not, so it must be safe to
+  repeat: compute from values, check facts. Push, post, compact or create inside a stage.
+- **One stage at a time, each name once per attempt.** A name is lowercase letters, digits and
+  `-`, starting with a letter. Parallel work and loops go inside a stage. A turn between stages is allowed, and runs again on
+  every attempt.
+- **`workflow.stop(reason)`** ends the attempt `stopped` (exit 3), apart from failed. Inside a stage
+  the stage is recorded stopped, and a continue redoes it; between stages nothing changes, and a
+  continue checks again. A workflow that catches it and returns fails, "stop was caught", and so
+  does a stage that catches it. Write `return workflow.stop(reason)` where TypeScript should know
+  the code after it isn't reached: `workflow`, typed by its context, doesn't narrow on a bare call.
+- **`id(args)`**, beside `prepare`, names the run from its args, such as a ticket's key; `--id`
+  overrides it, and without either an id is generated. `workflow.runId` is that id in every attempt,
+  and `workflow.attempt` the attempt's number.
+- **`meta.version`**, semver, is recorded with each attempt and stage. A record from another major
+  (under `0.x`, another minor), or one whose value no longer fits, stops a continue at that stage rather than rerunning it: `--from-stage
+  {stage}` redoes from there.
+
+The model, and what happens when the code changes between attempts, is in
+[`design/runs-and-stages.md`](design/runs-and-stages.md).
 
 ## Deadlines
 
@@ -376,7 +444,7 @@ billed once per call, however many questions you ask, so ask them all together.
 import { choice, score, yesNo } from "agentswf/workflow";
 
 const { answers } = await workflow.decisions.decide({
-  key: "triage:42",   // the part before ":" is its cost stage
+  key: "triage:42",   // the part before ":" is its cost group, for a run without stages
   model: "jev",
   state: { title, body },
   questions: {
@@ -408,9 +476,12 @@ workflow.log("reviewed", { findings: 12 }); // a line in awf's live progress
 workflow.usage();                            // this scope's finished operations: times and sessions
 ```
 
-Costs aren't counted inside the run. After the run, `awf` prices every agent's tokens and prints the
-total, and a line per stage when there are several (stages come from key prefixes, as above). `output.json` keeps the tokens and the
-price table it used.
+Costs aren't counted inside the run. After the run, `awf` prices every agent's tokens: each stage's
+line in the progress view gains what its agents cost, and one summary closes the run: how it ended,
+the attempt's time and total, and the command that goes on when it did not complete. A run without
+stages lists the agent keys' prefixes under its total instead, when there are several. A later
+attempt adds the run's attempts and their total time. `output.json` keeps the tokens, each stage's
+share, and the price table it used.
 
 ## Testing a workflow
 
@@ -487,10 +558,11 @@ const args = {
 };
 const doc = "docs/ABC-1.md";
 const ready = (summary: string) => answer(VERDICT, { kind: "ready", summary });
+const planned = { docPath: doc, summary: "plan", decisions: [] };
 
 /** Every agent does its part at once: the doc is approved, then the code. */
 const happyPath: Record<string, Script> = {
-  planner: answer(WORK, { docPath: doc, summary: "plan", decisions: [] }),
+  planner: answer(WORK, planned),
   reviewer: ready("ok"),
   implementer: answer(WORK, { docPath: doc, summary: "built", decisions: ["LRU"] }),
 };
@@ -504,7 +576,7 @@ const run = await testWorkflow(featureDelivery, args, {
   agents: {
     ...happyPath,
     planner: [
-      answer(WORK, { docPath: doc, summary: "plan", decisions: [] }),
+      answer(WORK, planned),
       answer(WORK, { docPath: doc, summary: "plan v2", decisions: ["name the cache"] }),
     ],
     reviewer: [
@@ -579,6 +651,9 @@ decisions: {
   `labels`, `skills`, and `sandbox`, absent for an agent on the host. **`run.agents`** lists them
   all.
 - **`run.decisions`** and **`run.logs`** are each decision asked and each `workflow.log` line.
+- **`run.stages`** is each stage's record in the order entered: `stage`, `attempt`, `outcome`
+  (`succeeded`, `stopped` or `failed`), `reason`, `summary` and `value`. A turn's `stage` says which
+  it ran in. **`run.stopped`** is `{ reason, stage? }` when the attempt stopped rather than failed.
 
 An agent's `sandbox` is the sandbox as the run's record keeps it: its `key` (`agent:{key}` for an
 agent's own), its `provider`, its settings in `spec` (`read`, `write`, `network`, `cwd` and the
@@ -626,6 +701,22 @@ const run = await testWorkflow(minimumReview, args, {
 ```
 
 Run one after the other, correctness would wait forever, and the test fails as stalled.
+
+### Continuing over recorded stages
+
+`recorded` runs the workflow as a continue of a run whose earlier attempt recorded those stages,
+each by its value, or `undefined` for one that returns nothing. They are reused without calling
+their work, as `awf run --continue` would; `fromStage` starts at a stage, as `--from-stage` does.
+Each is recorded as succeeded in attempt 1, with no `meta.version`, so no version check applies.
+It is how a test catches code that only works on a first attempt:
+
+```ts
+const run = await testWorkflow(flow, args, {
+  recorded: { "doc-review": { path: "docs/a.md" }, implement: { branch: "feat/a" } },
+  agents: { worker: answer(QA, { preview: "ok" }) },
+});
+expect(run.compactions).toEqual([]); // a compaction inside implement isn't repeated
+```
 
 ### What fails the test, not the workflow
 

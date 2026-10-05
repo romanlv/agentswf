@@ -3,12 +3,7 @@ import { mkdtempSync, realpathSync } from "node:fs";
 import { chmod, mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import type {
-  AgentOpenSpec,
-  JsonValue,
-  WorkflowContext,
-  WorkflowDefinition,
-} from "@agentswf/contract/workflow";
+import type { AgentOpenSpec, JsonValue, WorkflowContext } from "@agentswf/contract/workflow";
 import { DeadlineExceededError } from "@agentswf/contract/workflow";
 import { createHeadlessRunHostFactory } from "@agentswf/harness";
 import type {
@@ -26,13 +21,8 @@ import {
 } from "@agentswf/sandbox/testing";
 import { installSandboxes } from "./operator-runtime";
 import { RunSandboxes } from "./sandboxes";
-import { createTempRunDirs, future } from "./testing";
-import {
-  runWorkflow,
-  startWorkflow,
-  WorkflowCancelledError,
-  WorkflowRunError,
-} from "./workflow-runner";
+import { createTempRunDirs, future, runNew, startNew, workflowOf } from "./testing";
+import { WorkflowCancelledError, WorkflowRunError } from "./workflow-runner";
 
 // A codex that answers through the launcher its prompt names, as a real one would, and keeps what
 // it was started with in its home. Asked to wait, it waits; asked to peek, it tries to read a file.
@@ -123,21 +113,20 @@ function setup(
   };
   const logs: string[] = [];
   const run = <Result extends JsonValue>(body: (context: WorkflowContext) => Promise<Result>) =>
-    runWorkflow(workflowOf(body), null, {
+    runNew(workflowOf(body, { name: "sandboxes" }), null, {
       runRoot: runDirs.tempRunDir(),
       runtime,
       deadline: future(),
       cwd: work,
-      sandboxes: { providers, ...(runSpec === undefined ? {} : { run: runSpec }) },
+      sandboxes: {
+        providers,
+        sandboxesDir: runDirs.tempRunDir(),
+        machineRoot: runDirs.tempRunDir(),
+        ...(runSpec === undefined ? {} : { run: runSpec }),
+      },
       onLog: (message) => logs.push(message),
     });
   return { events: fake.events, run, providers, runtime, logs };
-}
-
-function workflowOf<Result extends JsonValue>(
-  body: (context: WorkflowContext) => Promise<Result>,
-): WorkflowDefinition<null, Result> {
-  return { meta: { name: "sandboxes", description: "test" }, run: (context) => body(context) };
 }
 
 const kinds = (events: FakeSandboxEvent[], sandbox?: string) =>
@@ -470,7 +459,7 @@ describe("sandboxed agents", () => {
 
   test("a cancelled run releases its agents and closes their sandboxes, leaving nothing", async () => {
     const { events, providers, runtime } = setup();
-    const handle = await startWorkflow(
+    const handle = await startNew(
       workflowOf(async (context) => {
         const agent = await open(context, { sandbox: {} });
         await agent.run({ prompt: "wait for it", nudge: false });
@@ -482,7 +471,11 @@ describe("sandboxed agents", () => {
         runtime,
         deadline: future(),
         cwd: work,
-        sandboxes: { providers },
+        sandboxes: {
+          providers,
+          sandboxesDir: runDirs.tempRunDir(),
+          machineRoot: runDirs.tempRunDir(),
+        },
       },
     );
     for (let tries = 0; tries < 100 && !kinds(events).includes("launch"); tries++) {
@@ -644,7 +637,7 @@ describe("the operator's sandbox for the whole run", () => {
       },
     };
     const controller = new AbortController();
-    const failure = runWorkflow(
+    const failure = runNew(
       workflowOf(async () => null),
       null,
       {
@@ -653,7 +646,12 @@ describe("the operator's sandbox for the whole run", () => {
         deadline: how === "timed out" ? future(50) : future(),
         cwd: work,
         signal: controller.signal,
-        sandboxes: { providers: { installed: { srt: slow }, default: "srt" }, run: {} },
+        sandboxes: {
+          providers: { installed: { srt: slow }, default: "srt" },
+          sandboxesDir: runDirs.tempRunDir(),
+          machineRoot: runDirs.tempRunDir(),
+          run: {},
+        },
       },
     ).catch((error: unknown) => error);
     await opening.promise;
@@ -682,7 +680,7 @@ describe.skipIf(!installed.installed.srt)("a sandboxed agent under srt", () => {
     const canary = join(realpathSync(homedir()), `.awf-engine-canary-${crypto.randomUUID()}`);
     await writeFile(canary, "canary-in-home");
     try {
-      const result = await runWorkflow(
+      const result = await runNew(
         workflowOf(async (context) => {
           const agent = await open(context, { sandbox: { srt: {} } });
           const { outcome } = await agent.run({ prompt: `peek: ${canary}`, nudge: false });
@@ -697,7 +695,11 @@ describe.skipIf(!installed.installed.srt)("a sandboxed agent under srt", () => {
           },
           deadline: future(),
           cwd: work,
-          sandboxes: { providers: installed },
+          sandboxes: {
+            providers: installed,
+            sandboxesDir: runDirs.tempRunDir(),
+            machineRoot: runDirs.tempRunDir(),
+          },
         },
       );
       expect(result.value).toBe("answered");
@@ -732,8 +734,11 @@ describe("a run's sandboxes, opening as the run ends", () => {
       },
     };
     const sandboxes = new RunSandboxes({
-      sandboxes: { providers: { installed: { srt: provider }, default: "srt" } },
-      runDir: runDirs.tempRunDir(),
+      sandboxes: {
+        providers: { installed: { srt: provider }, default: "srt" },
+        sandboxesDir: runDirs.tempRunDir(),
+        machineRoot: runDirs.tempRunDir(),
+      },
       runRoot: runDirs.tempRunDir(),
       cwd: work,
       deadline: future(),

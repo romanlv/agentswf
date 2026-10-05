@@ -11,6 +11,11 @@ export type RunRequest = {
   /** The workflow's own arguments, after `--`. */
   argv: readonly string[];
   runRoot: string;
+  /**
+   * The run's id: `awf run --id`. The lab finds a run by its id alone, across workflows, so it gives
+   * each one an id unique among all of them.
+   */
+  id: string;
   /** A sandbox spec file every agent of the run is put in: `awf run --sandbox`. */
   sandbox?: string;
   /** The whole run in a container instead, with only these paths mounted, each where it is. */
@@ -49,6 +54,8 @@ export function awfArgv(request: RunRequest): string[] {
     request.timeout,
     "--run-root",
     request.runRoot,
+    "--id",
+    request.id,
     "--cwd",
     request.cwd,
     ...(request.sandbox ? ["--sandbox", request.sandbox] : []),
@@ -162,7 +169,7 @@ export function summaryOf(result: RunResult): RunSummary {
     const said = result.stderr.trim().split("\n").slice(-3).join(" ").trim();
     return {
       outcome: "failed",
-      error: `awf run exited ${result.exitCode} without a record${said ? `: ${said}` : ""}`,
+      reason: `awf run exited ${result.exitCode} without a record${said ? `: ${said}` : ""}`,
       models: [],
       ms: result.ms,
       estimate: 0,
@@ -173,14 +180,10 @@ export function summaryOf(result: RunResult): RunSummary {
   const { totals } = record.accounting;
   // awf checks a harness's login as its first agent opens, inside the run: refused there, with no
   // agent opened, the run says nothing about the workflow, as one awf refused at the start.
-  if (
-    record.outcome !== "succeeded" &&
-    totals.agents === 0 &&
-    LOGIN_REFUSED.test(record.error ?? "")
-  ) {
+  if (record.outcome !== "completed" && totals.agents === 0 && LOGIN_REFUSED.test(record.reason)) {
     return {
       outcome: "failed",
-      error: record.error ?? "no login",
+      reason: record.reason,
       models: [],
       ms: record.accounting.wallMs,
       estimate: 0,
@@ -194,11 +197,11 @@ export function summaryOf(result: RunResult): RunSummary {
     (!decisions || decisions.calls === 0 || decisions.estimate !== undefined);
   const charged = (totals.charged ?? 0) + (decisions?.charged ?? 0);
   return {
-    ...(record.outcome !== "succeeded" && CLEANUP_LATE.test(record.error ?? "")
+    ...(record.outcome !== "completed" && CLEANUP_LATE.test(record.reason)
       ? {}
       : { id: record.runId }),
     outcome: record.outcome,
-    ...(record.outcome === "succeeded" ? {} : { error: record.error }),
+    ...(record.outcome === "completed" ? {} : { reason: record.reason }),
     models: record.accounting.byModel.map((model) => model.model),
     ms: record.accounting.wallMs,
     ...(priced ? { estimate: (totals.estimate ?? 0) + (decisions?.estimate ?? 0) } : {}),

@@ -1,106 +1,50 @@
 #!/usr/bin/env -S bun --no-env-file
-import { randomBytes, randomUUID } from "node:crypto";
-import {
-  existsSync,
-  linkSync,
-  mkdirSync,
-  readFileSync,
-  realpathSync,
-  rmSync,
-  statSync,
-  writeFileSync,
-} from "node:fs";
-import { mkdir, writeFile } from "node:fs/promises";
-import { constants, homedir } from "node:os";
-import { basename, join, resolve } from "node:path";
-import { OUTPUT_RECORD_VERSION, type OutputRecord } from "@agentswf/contract/records";
-import {
-  type AbsoluteDeadline,
-  DeadlineExceededError,
-  type ExecutableWorkflow,
-  type JsonObject,
-  type JsonValue,
-} from "@agentswf/contract/workflow";
-import {
-  type CallerPane,
-  focusTab,
-  HARNESSES,
-  handBack,
-  herdrReachable,
-  type RunProcess,
-  runProcess,
-  searchCaller,
-  startInNewTab,
-} from "@agentswf/harness";
+import { existsSync, realpathSync } from "node:fs";
+import { homedir } from "node:os";
+import { join, relative, resolve } from "node:path";
+import type { JsonObject, JsonValue } from "@agentswf/contract/workflow";
+import { handBack, type RunProcess } from "@agentswf/harness";
 import manifest from "../package.json" with { type: "json" };
-import { describeAccounting } from "./accounting/format";
-import { parseDuration } from "./duration";
+import { stageFigures } from "./accounting/format";
+import {
+  type AttemptEnd,
+  cleanupFailed,
+  decideEnding,
+  endedBeforeStart,
+  type Finished,
+  type GoOn,
+  signalExitCode,
+} from "./attempt-ending";
+import { type Kept, keepRecords } from "./attempt-output";
+import { continueCommand, printEnding, toldOf } from "./attempt-view";
 import { messageOf } from "./errors";
+import { type Caller, showOwnTab, startHere, takeCaller } from "./here";
+import { machinePaths, sandboxesDirOf } from "./machine";
 import {
   herdrConfig,
-  herdrSession,
   installOperatorRuntime,
   type OperatorRuntimeInstallation,
 } from "./operator-runtime";
-import { ANSI, PLAIN, progressEvents, renderProgress } from "./progress-view";
+import { ANSI, type Terminal, watchProgress } from "./progress-view";
+import { parseCommand, type RunCommand, usage } from "./run-command";
+import { claimNext, loadAndPrepare, type PreparedRun, workspaceLabel } from "./run-prepare";
+import { type Attempt, createRun, discardRun, type Run, RunRefused } from "./runs";
 import { parseTestCommand, runWorkflowTests, type TestCommand, testUsage } from "./test-command";
-import { assertJsonValue, loadWorkflowFile } from "./workflow-loader";
-import {
-  type SettledRun,
-  startWorkflow,
-  WorkflowCancelledError,
-  WorkflowRunError,
-  type WorkflowRunHandle,
-  type WorkflowRunSnapshot,
-} from "./workflow-runner";
+import type { LoadedWorkflow } from "./workflow-loader";
+import { startWorkflow, WorkflowCancelledError, type WorkflowRunHandle } from "./workflow-runner";
 
-const DEFAULT_TIMEOUT_MILLISECONDS = 30 * 60_000;
-
-const usage = [
-  "usage: awf run [options] <workflow-file> [options] [-- workflow arguments...]",
-  "       awf test [paths...] [-t <pattern>] [--watch] [--timeout <duration>]",
-  "       awf --version",
-  "run options: --timeout <duration>, --run-root <directory>, --cwd <directory>, --sandbox <file>,",
-  "             --json, --no-watch, --here",
-  "",
-  "The deadline defaults to 30m. Run artifacts go to ~/.awf/runs unless --run-root says otherwise.",
-  "A workflow that knows how to present its result prints that; --json prints the full result instead.",
-  "Either way the full result is kept as output.json among the run's artifacts, beside report.md",
-  "when the workflow writes one. A run that fails or is cancelled once its agents have started keeps",
-  "output.json too, with what it spent and why it ended; --json prints it. A second Ctrl-C stops",
-  "awf at once, without it.",
-  "--cwd sets the directory the workflow and its agents work in; it defaults to the current one.",
-  "--sandbox puts every agent of the run in one sandbox, working in --cwd; the file is a JSON spec",
-  'such as {"read": ["/data/request.md"], "srt": {}}, whose relative paths are from --cwd. A',
-  "workflow that opens a sandbox of its own is refused.",
-  "A sandbox with its own Herdr, as a docker box has, gets a tab in the run's workspace showing its",
-  "panes; --no-watch leaves it out, and awf still prints the command that shows them.",
-  "--here, run by an agent in a Herdr pane, starts the run in a new tab and has it take that agent's",
-  "session over as one of its agents, from its next turn until the run ends. It prints a line for",
-  "the agent to end its turn with, which is how the run finds the session.",
-  "",
-  "Examples:",
-  "  awf run examples/minimum-review/review-loop.ts",
-  "  awf run --timeout 20m examples/minimum-review/review-loop.ts",
-  "  awf run examples/minimum-review/review-loop.ts -- packages/engine/src",
-  "  awf run examples/minimum-review/review-loop.ts --cwd ../other-repo",
-  "",
-  "Workflow files are trusted code and run with your filesystem and process authority.",
-].join("\n");
-
-type OperatorEnvironment = {
+/** What the CLI reaches the machine through; each is the real one when absent. */
+export type OperatorEnvironment = {
   cwd?: string;
   home?: string;
-  now?: () => number;
   stdout?: (text: string) => void;
   stderr?: (text: string) => void;
   installRuntime?: (
     timeoutMilliseconds: number,
-    options: { watchSandboxes: boolean; caller?: { pane: CallerPane; session: string } },
+    options: { watchSandboxes: boolean; caller?: Caller },
   ) => Promise<OperatorRuntimeInstallation>;
-  signal?: AbortSignal;
   /** Given, progress is redrawn in place on it; otherwise each change is a line on stderr. */
-  terminal?: { write(text: string): void; color: boolean };
+  terminal?: Terminal;
   bunVersion?: string;
   /** Runs `herdr` for `--here` and `--session`. */
   herdr?: RunProcess;
@@ -109,6 +53,17 @@ type OperatorEnvironment = {
   self?: readonly string[];
   /** How long `--session` looks for the pane showing its code. */
   callerSearchMs?: number;
+  signal?: AbortSignal;
+  now?: () => number;
+};
+
+type Output = {
+  stdout: (text: string) => void;
+  stderr: (text: string) => void;
+  /** For what awf says beside a problem rather than about one, which is never painted. */
+  notice: (text: string) => void;
+  terminal: Terminal | undefined;
+  now: () => number;
 };
 
 export async function runOperatorCli(
@@ -116,11 +71,11 @@ export async function runOperatorCli(
   environment: OperatorEnvironment = {},
 ): Promise<number> {
   const stdout = environment.stdout ?? ((text) => console.log(text));
+  const write = (text: string) => void process.stderr.write(text);
   const stderr =
     environment.stderr ??
-    stderrLines((text) => void process.stderr.write(text), {
-      color: process.stderr.isTTY && !process.env.NO_COLOR,
-    });
+    stderrLines(write, { color: process.stderr.isTTY && !process.env.NO_COLOR });
+  const notice = environment.stderr ?? ((text: string) => write(`${text}\n`));
   const terminal =
     environment.terminal ??
     (!environment.stderr && process.stderr.isTTY
@@ -129,6 +84,7 @@ export async function runOperatorCli(
           color: !process.env.NO_COLOR,
         }
       : undefined);
+  const now = environment.now ?? Date.now;
   const tooOld = bunProblem(environment.bunVersion ?? Bun.version);
   if (tooOld) {
     stderr(`awf: ${tooOld}`);
@@ -138,314 +94,277 @@ export async function runOperatorCli(
     stdout(describeVersion());
     return 0;
   }
-  if (argv[0] === "test") {
-    let tests: TestCommand | "help";
-    try {
-      tests = parseTestCommand(argv.slice(1), environment.cwd ?? process.cwd());
-    } catch (error) {
-      stderr(`awf: ${messageOf(error)}\n\n${testUsage}`);
-      return 2;
-    }
-    if (tests === "help") {
-      stdout(testUsage);
-      return 0;
-    }
-    const captured = environment.stdout || environment.stderr ? { stdout, stderr } : undefined;
-    return runWorkflowTests(tests, environment.cwd ?? process.cwd(), {
-      ...(environment.signal ? { signal: environment.signal } : {}),
-      ...(captured ? { output: captured } : {}),
-    });
-  }
+  if (argv[0] === "test") return testCommand(argv.slice(1), environment, stdout, stderr);
   let command: RunCommand;
   try {
-    command = parseCommand(argv, environment.cwd ?? process.cwd(), environment.home ?? homedir());
+    command = parseCommand(argv, environment.cwd ?? process.cwd());
   } catch (error) {
     stderr(`awf: ${messageOf(error)}\n\n${usage}`);
     return 2;
   }
-
-  if (command.here) return startHere(argv, command, environment, stdout, stderr);
-
-  let loaded: Awaited<ReturnType<typeof loadWorkflowFile>>;
-  try {
-    loaded = await loadWorkflowFile(command.workflowFile, command.shellCwd);
-  } catch (error) {
-    stderr(`awf: load: ${messageOf(error)}`);
-    return 2;
+  if (command.here) return startHere(argv, command, environment, stdout, stderr, notice);
+  // The session that started a `--session` run waits on it, and its tab opened unfocused: until the
+  // run takes the session over, a refusal is said where the operator will look.
+  const unstarted = async (exitCode: number) => {
+    if (command.session !== undefined) await showOwnTab(environment);
+    return exitCode;
+  };
+  const home = environment.home ?? homedir();
+  const { sandboxes, callers } = machinePaths(home);
+  if (!relative(command.runRoot, sandboxes).startsWith("..")) {
+    stderr(
+      `awf: --run-root ${command.runRoot} holds ${sandboxes}, which every sandbox must reach and none may reach the run root`,
+    );
+    return unstarted(2);
   }
-
-  let args: JsonValue;
-  try {
-    args = loaded.executable.prepare({
-      argv: command.workflowArgs,
-      cwd: command.cwd,
-    });
-    assertJsonValue(args, `${loaded.executable.definition.meta.name} arguments`);
-  } catch (error) {
-    stderr(`awf: prepare: ${messageOf(error)}`);
-    return 2;
+  const ready = await loadAndPrepare(command, now());
+  if ("refused" in ready) {
+    stderr(`awf: ${ready.refused}`);
+    return unstarted(2);
   }
+  for (const line of ready.prepared.continued?.warnings ?? []) notice(line);
 
-  // Loading the workflow imports operator-supplied code, and installing the runtime probes two
-  // subscription logins. Both run before anything is listening to the signal, so a Ctrl-C in that
-  // window would otherwise be swallowed and have to be pressed again.
-  if (environment.signal?.aborted) return interrupted(environment.signal, stderr);
-
-  let caller: { pane: CallerPane; session: string } | undefined;
-  let releaseCaller: () => void = () => undefined;
+  // Loading the workflow imports operator-supplied code before anything listens to the signal, so
+  // a Ctrl-C in it would otherwise be swallowed and have to be pressed again.
+  if (environment.signal?.aborted) {
+    return unstarted(cancelledBeforeStart(environment.signal, stderr));
+  }
+  let calling: { caller: Caller; release: () => void } | undefined;
   if (command.session !== undefined) {
-    const found = await findCaller(command.session, environment);
-    if (found.kind === "refused") {
-      stderr(`awf: --session: ${found.reason}`);
-      // The session that started this waits on a run that will not come, and this tab opened
-      // unfocused: it is the one place that says why.
-      await showOwnTab(environment);
+    const taken = await takeCaller(command.session, callers, environment);
+    if (typeof taken === "string") {
+      stderr(`awf: --session: ${taken}`);
       return 1;
     }
-    const claim = claimCaller(command.runRoot, found.caller.pane.paneId);
-    if (typeof claim === "string") {
-      stderr(`awf: --session: ${claim}`);
-      await showOwnTab(environment);
-      return 1;
-    }
-    releaseCaller = claim;
-    caller = found.caller;
+    calling = taken;
     if (environment.signal?.aborted) {
-      releaseCaller();
-      return interrupted(environment.signal, stderr);
+      calling.release();
+      return cancelledBeforeStart(environment.signal, stderr);
     }
   }
-  // Timed from here: finding the calling session can take minutes the run itself never had.
-  const startedAt = (environment.now ?? Date.now)();
-  const deadline = { unixMilliseconds: startedAt + command.timeoutMilliseconds };
+  return runAttempt(command, ready, calling, environment, home, {
+    stdout,
+    stderr,
+    notice,
+    terminal,
+    now,
+  });
+}
+
+/**
+ * Claims the run, new or continued, and its next attempt, runs it, and keeps its records; then
+ * hands the calling session, if one was taken, back.
+ */
+async function runAttempt(
+  command: RunCommand,
+  { loaded, prepared }: { loaded: LoadedWorkflow; prepared: PreparedRun },
+  calling: { caller: Caller; release: () => void } | undefined,
+  environment: OperatorEnvironment,
+  home: string,
+  output: Output,
+): Promise<number> {
+  const { stdout, stderr, notice, terminal, now } = output;
+  const { executable } = loaded;
+  const { meta } = executable.definition;
+  /** The run, once it is claimed. */
+  let run: Run | undefined;
   // Once the run has taken the session over, however it ends, the session gets it back.
   const handOver = async (ended: string) => {
-    if (!caller) return;
-    releaseCaller();
-    const name = loaded.executable.definition.meta.name;
+    if (!calling) return;
+    calling.release();
     const failed = await handBack(
-      herdrConfig(caller.session),
-      caller.pane.paneId,
-      `[awf] The workflow ${name} ${ended}. The run is over and this session is yours; nothing here needs an answer.`,
+      herdrConfig(calling.caller.session),
+      calling.caller.pane.paneId,
+      `[awf] The workflow ${meta.name}${run ? `, run ${run.record.id},` : ""} ${ended}. The run is over and this session is yours; nothing here needs an answer.`,
       environment.herdr,
     );
     if (failed) stderr(`awf: the calling session was not told the run ended: ${failed}`);
   };
 
+  const refuse = async (why: string) => {
+    stderr(`awf: ${why}`);
+    await handOver(`did not start: ${why}`);
+    return 2;
+  };
+  try {
+    run =
+      prepared.continued?.run ??
+      (await createRun(command.runRoot, {
+        ...(prepared.id === undefined ? {} : { id: prepared.id }),
+        workflow: meta.name,
+        argv: command.workflowArgs,
+        cwd: command.cwd,
+        sandbox: (command.sandbox ?? null) as JsonValue,
+      }));
+  } catch (error) {
+    return refuse(
+      `${error instanceof RunRefused ? "" : `${command.runRoot}: `}${messageOf(error)}`,
+    );
+  }
+  let attempt: Attempt;
+  try {
+    attempt = await claimNext(run, loaded, command, notice, now());
+  } catch (error) {
+    // A run this call created and never ran is not left to hold its id.
+    if (!prepared.continued) await discardRun(run).catch(() => undefined);
+    return refuse(messageOf(error));
+  }
+  const { id, cwd } = run.record;
+  const sandbox = run.record.sandbox ?? undefined;
+  const n = attempt.record.attempt;
+  const goOn: GoOn = (stop, entered) => continueCommand(command, id, stop, entered);
+  const records = { attempt, executable, workflow: { name: meta.name, file: loaded.file }, stderr };
+  const close = (end: AttemptEnd, kept: Kept, cleanupAlso?: string) =>
+    printEnding(end, kept, {
+      executable,
+      run: { id, dir: run.dir },
+      n,
+      earlier: prepared.continued?.attempts ?? [],
+      json: command.json,
+      fromStage: command.fromStage !== undefined,
+      now: now(),
+      shellCwd: command.shellCwd,
+      home,
+      ...(cleanupAlso === undefined ? {} : { cleanupAlso }),
+      ...(terminal ? { terminal } : {}),
+      stdout,
+      stderr,
+      notice,
+    });
+  // Timed from here: finding the calling session can take minutes the run itself never had.
+  const startedAt = now();
+  // Every way out from here writes the attempt's ending, before the hand-back: a session told the
+  // run is over may continue it at once. One that never does is interrupted. A new run that never
+  // started is not kept at all, so the same command starts it again, unless another attempt has
+  // claimed it since: then its records are kept as a continued run's are.
+  const deadline = { unixMilliseconds: startedAt + command.timeoutMilliseconds };
+  const endUnstarted = async (error: unknown, cleanupAlso?: string) => {
+    const end = endedBeforeStart(error, deadline, { runId: id, startedAt, endedAt: now() }, goOn);
+    const cancelled = end.ending.kind === "cancelled";
+    if (!prepared.continued && (await discardRun(run, attempt).catch(() => false))) {
+      if (cleanupAlso) stderr(`awf: runtime cleanup also failed: ${cleanupAlso}`);
+      const said = cancelled
+        ? "run cancelled before it started"
+        : `${end.ending.reason}; the run did not start`;
+      stderr(`awf: ${said}, and nothing of it is kept`);
+      await handOver(`did not start: ${cancelled ? "cancelled" : end.ending.reason}`);
+      return end.exitCode;
+    }
+    const kept = await keepRecords(end, records);
+    await handOver(toldOf(end, kept));
+    return close(end, kept, cleanupAlso);
+  };
   let installed: OperatorRuntimeInstallation;
   try {
     installed = await (environment.installRuntime ?? installOperatorRuntime)(
       command.timeoutMilliseconds,
-      { watchSandboxes: command.watch, ...(caller ? { caller } : {}) },
+      { watchSandboxes: command.watch, ...(calling ? { caller: calling.caller } : {}) },
     );
   } catch (error) {
-    stderr(`awf: runtime: ${messageOf(error)}`);
-    await handOver(`did not start: ${messageOf(error)}`);
-    return 1;
+    return endUnstarted(new Error(`runtime: ${messageOf(error)}`));
   }
+  const cleanUp = () =>
+    installed.cleanup().then(
+      () => undefined,
+      (error: unknown) => messageOf(error),
+    );
+  // Installing the runtime probes two subscription logins, with nothing listening to the signal
+  // either.
   if (environment.signal?.aborted) {
-    await installed.cleanup().catch(() => undefined);
-    await handOver("was cancelled before it started");
-    return interrupted(environment.signal, stderr);
+    return endUnstarted(new WorkflowCancelledError(environment.signal.reason), await cleanUp());
   }
 
-  const invocationRoot = join(command.runRoot, `invocation-${randomUUID()}`);
-  let invocationRootCreated = false;
-  let output: string | undefined;
-  let runError: unknown;
-  let outcome: Exclude<OutputRecord["outcome"], "succeeded"> = "failed";
-  let failedRecord: string | undefined;
-  let footer: string[] = [];
-  /** Where the run's record is, once it has one. */
-  let artifactsOf: string | undefined;
-  const recordOf = (run: SettledRun) => ({
-    version: OUTPUT_RECORD_VERSION,
-    runId: run.runId,
-    workflow: {
-      name: loaded.executable.definition.meta.name,
-      file: loaded.file,
-    },
-    accounting: run.accounting,
-    usage: run.usage,
-    artifacts: join(invocationRoot, run.runId),
-    ...(run.sandboxes ? { sandboxes: run.sandboxes } : {}),
-    ...(run.skills ? { skills: run.skills } : {}),
-    ...(run.decisions ? { decisions: run.decisions } : {}),
+  const progress = watchProgress(`${meta.name} ${id}${n > 1 ? ` · attempt ${n}` : ""}`, startedAt, {
+    stderr,
+    terminal,
+    now,
   });
+  let handle: WorkflowRunHandle<JsonValue>;
   try {
-    await mkdir(invocationRoot, { recursive: true });
-    invocationRootCreated = true;
-    const progress = watchProgress(loaded.executable.definition.meta.name, startedAt, {
-      stderr,
-      terminal,
-      now: environment.now ?? Date.now,
+    handle = await startWorkflow(executable.definition, prepared.args, {
+      runRoot: run.root,
+      run: {
+        dir: run.dir,
+        id,
+        attempt: n,
+        label: workspaceLabel(meta.name, id, n),
+        ...(command.fromStage === undefined ? {} : { fromStage: command.fromStage }),
+      },
+      runtime: installed.config,
+      sandboxes: {
+        providers: installed.sandboxes ?? { installed: {} },
+        sandboxesDir: sandboxesDirOf(home, run.record),
+        machineRoot: machinePaths(home).root,
+        ...(sandbox === undefined ? {} : { run: sandbox }),
+      },
+      ...(installed.decisions ? { decisions: installed.decisions } : {}),
+      deadline,
+      cwd,
+      ...(environment.signal ? { signal: environment.signal } : {}),
+      onLog: (logMessage, fields?: JsonObject) =>
+        progress.log(fields ? `${logMessage} ${JSON.stringify(fields)}` : logMessage),
     });
-    let result: Awaited<WorkflowRunHandle<JsonValue>["result"]>;
-    try {
-      const handle = await startWorkflow(loaded.executable.definition, args, {
-        runRoot: invocationRoot,
-        runtime: installed.config,
-        // Every run under the run root is out of each sandbox's reach, not only this one.
-        sandboxes: {
-          providers: installed.sandboxes ?? { installed: {} },
-          runRoot: command.runRoot,
-          ...(command.sandbox === undefined ? {} : { run: command.sandbox }),
-        },
-        ...(installed.decisions ? { decisions: installed.decisions } : {}),
-        deadline,
-        cwd: command.cwd,
-        ...(environment.signal ? { signal: environment.signal } : {}),
-        onLog: (logMessage, fields?: JsonObject) =>
-          progress.log(fields ? `${logMessage} ${JSON.stringify(fields)}` : logMessage),
-      });
-      progress.watch(handle);
-      result = await handle.result;
-    } finally {
-      progress.stop();
-    }
-    const artifacts = join(invocationRoot, result.runId);
-    const report = await writeReport(loaded.executable, result.value, artifacts, stderr);
-    const record: OutputRecord = {
-      ...recordOf(result),
-      outcome: "succeeded",
-      value: result.value,
-      ...(report ? { report } : {}),
-    };
-    const json = JSON.stringify(record, null, 2);
-    await writeFile(join(artifacts, "output.json"), `${json}\n`);
-    artifactsOf = artifacts;
-    // After the result and beside it rather than in it: stdout stays the workflow's report or the
-    // JSON.
-    footer = [
-      "",
-      ...describeAccounting(result.accounting),
-      ...(report ? [`Report: ${tilde(report)}`] : []),
-      `Records: ${tilde(artifacts)}`,
-    ];
-    output = command.json ? json : (present(loaded.executable, result.value, stderr) ?? json);
   } catch (error) {
-    runError = error;
-    outcome = runOutcome(error, deadline);
-    if (error instanceof WorkflowRunError) {
-      const record: OutputRecord = {
-        ...recordOf(error),
-        outcome,
-        error: errorDetail(error),
-      };
-      failedRecord = JSON.stringify(record, null, 2);
-      try {
-        await writeFile(join(record.artifacts, "output.json"), `${failedRecord}\n`);
-        artifactsOf = record.artifacts;
-      } catch (writeError) {
-        stderr(`awf: output.json: ${messageOf(writeError)}`);
-      }
-      for (const line of ["", ...describeAccounting(error.accounting)]) stderr(line);
-    }
+    progress.stop();
+    return endUnstarted(error, await cleanUp());
   }
-  let cleanupError: unknown;
+  let finished: Finished;
+  progress.watch(handle);
   try {
-    await installed.cleanup();
+    finished = { result: await handle.result };
   } catch (error) {
-    cleanupError = error;
+    finished = { error };
   }
-  const record = artifactsOf ? `; its record is ${join(artifactsOf, "output.json")}` : "";
-  await handOver(
-    runError === undefined
-      ? `succeeded${record}`
-      : `${ENDINGS[outcome].told}${record}: ${errorDetail(runError)}`,
-  );
-  if (runError !== undefined) {
-    const cancellation = findCancellation(runError);
-    const { ended } = ENDINGS[outcome];
-    stderr(
-      invocationRootCreated
-        ? `awf: ${ended}; artifacts retained under ${invocationRoot}: ${errorDetail(runError)}`
-        : `awf: ${ended}; artifacts were not created at ${invocationRoot}: ${errorDetail(runError)}`,
-    );
-    if (cleanupError !== undefined)
-      stderr(`awf: runtime cleanup also failed: ${messageOf(cleanupError)}`);
-    // The record says the run did not succeed, so a caller that asked for it gets it either way.
-    if (command.json && failedRecord !== undefined) stdout(failedRecord);
-    if (cancellation) {
-      return signalExitCode(cancellation.reason);
+
+  let end = decideEnding(finished, deadline, goOn);
+  progress.stop(end.settled ? stageFigures(end.settled.accounting) : undefined);
+  let kept: Kept;
+  let cleanupAlso: string | undefined;
+  if (end.ending.kind === "completed") {
+    // Cleaned up before it is ended, as a failed cleanup fails it: ended, it lets the next attempt
+    // start, whose records this one's would otherwise overwrite.
+    try {
+      await installed.cleanup();
+    } catch (error) {
+      end = cleanupFailed(end, error, goOn(undefined, end.ending.stages));
     }
-    return 1;
+    kept = await keepRecords(end, records);
+  } else {
+    // Ended before cleanup, so a second Ctrl-C during it leaves the attempt ended.
+    kept = await keepRecords(end, records);
+    try {
+      await installed.cleanup();
+    } catch (error) {
+      cleanupAlso = messageOf(error);
+    }
   }
-  if (cleanupError !== undefined) {
-    for (const line of footer) stderr(line);
-    // Stdout stays empty: it is the result of a run whose teardown did not finish, and a caller
-    // reading it without checking the exit code would take that for a clean one. The artifacts
-    // are named instead, so the work is still reachable.
-    stderr(
-      `awf: runtime cleanup failed; artifacts retained under ${invocationRoot}: ${messageOf(cleanupError)}`,
-    );
-    return 1;
-  }
-  stdout(output as string);
-  for (const line of footer) stderr(line);
-  return 0;
+  await handOver(toldOf(end, kept));
+  return close(end, kept, cleanupAlso);
 }
 
-/**
- * Polls the run's snapshot. On a terminal it keeps one block redrawn under the log; elsewhere it
- * writes a line per change, so a log file or a calling agent reads what happened and when.
- */
-function watchProgress(
-  name: string,
-  startedAt: number,
-  output: {
-    stderr: (text: string) => void;
-    terminal: OperatorEnvironment["terminal"];
-    now: () => number;
-  },
-) {
-  const { stderr, terminal, now } = output;
-  let handle: WorkflowRunHandle<JsonValue> | undefined;
-  let last: WorkflowRunSnapshot | undefined;
-  let drawn = 0;
-  const clear = () => {
-    if (terminal && drawn > 0) terminal.write(`\x1b[${drawn}F\x1b[0J`);
-    drawn = 0;
-  };
-  const tick = (final = false) => {
-    if (!handle) return;
-    const snapshot = handle.inspect();
-    if (terminal) {
-      const lines = renderProgress(snapshot, {
-        name,
-        startedAt,
-        now: now(),
-        paint: terminal.color ? ANSI : PLAIN,
-      });
-      // The header's name and clock are the command's and the accounting's once the run is over.
-      if (final) lines.shift();
-      clear();
-      if (lines.length > 0) terminal.write(`${lines.join("\n")}\n`);
-      drawn = lines.length;
-    } else {
-      for (const line of progressEvents(last, snapshot, { startedAt, now: now() })) stderr(line);
-    }
-    last = snapshot;
-  };
-  // Lines too long for the terminal are clipped rather than wrapped, so the redraw stays exact.
-  terminal?.write("\x1b[?25l\x1b[?7l");
-  const timer = setInterval(() => tick(), terminal ? 100 : 1000);
-  return {
-    watch(started: WorkflowRunHandle<JsonValue>) {
-      handle = started;
-      tick();
-    },
-    log(text: string) {
-      clear();
-      stderr(text);
-      if (terminal) tick();
-    },
-    stop() {
-      clearInterval(timer);
-      tick(true);
-      terminal?.write("\x1b[?7h\x1b[?25h");
-    },
-  };
+/** `awf test`: the workflow tests under the given paths, with Bun's test runner. */
+async function testCommand(
+  argv: readonly string[],
+  environment: OperatorEnvironment,
+  stdout: (text: string) => void,
+  stderr: (text: string) => void,
+): Promise<number> {
+  let tests: TestCommand | "help";
+  try {
+    tests = parseTestCommand(argv, environment.cwd ?? process.cwd());
+  } catch (error) {
+    stderr(`awf: ${messageOf(error)}\n\n${testUsage}`);
+    return 2;
+  }
+  if (tests === "help") {
+    stdout(testUsage);
+    return 0;
+  }
+  const captured = environment.stdout || environment.stderr ? { stdout, stderr } : undefined;
+  return runWorkflowTests(tests, environment.cwd ?? process.cwd(), {
+    ...(environment.signal ? { signal: environment.signal } : {}),
+    ...(captured ? { output: captured } : {}),
+  });
 }
 
 /**
@@ -463,36 +382,10 @@ export function stderrLines(
   };
 }
 
-function interrupted(signal: AbortSignal, stderr: (line: string) => void): number {
+function cancelledBeforeStart(signal: AbortSignal, stderr: (line: string) => void): number {
   stderr("awf: run cancelled before it started");
   return signalExitCode(signal.reason);
 }
-
-/** A shell's code for a process ended by `reason`, as if the signal had killed it. */
-function signalExitCode(reason: unknown): number {
-  const number = constants.signals[reason as keyof typeof constants.signals];
-  return 128 + (number ?? constants.signals.SIGINT);
-}
-
-type RunCommand = {
-  /** Where paths typed on the command line resolve. */
-  shellCwd: string;
-  /** Where the workflow and its agents work. */
-  cwd: string;
-  workflowFile: string;
-  workflowArgs: string[];
-  timeoutMilliseconds: number;
-  runRoot: string;
-  json: boolean;
-  /** Whether each sandbox with its own Herdr gets a tab attached to it in the run's workspace. */
-  watch: boolean;
-  /** The sandbox every agent runs in, as `--sandbox`'s file gave it. */
-  sandbox?: unknown;
-  /** Started from an agent's shell: start the run in a tab and take that session over. */
-  here: boolean;
-  /** The code the calling session replies with, which the run finds it by. */
-  session?: string;
-};
 
 /** Why this Bun can't run awf, against the engine's `engines.bun`; undefined when it can. */
 function bunProblem(running: string, required: string = manifest.engines.bun) {
@@ -518,371 +411,6 @@ function describeVersion(): string {
     inTop !== undefined && existsSync(inTop) && realpathSync(inTop) === realpathSync(engine);
   const commit = clone ? git("rev-parse", "--short", "HEAD") : undefined;
   return commit ? `awf ${manifest.version} (${commit})` : `awf ${manifest.version}`;
-}
-
-function parseCommand(argv: readonly string[], cwd: string, home: string): RunCommand {
-  if (argv[0] !== "run") throw new Error("expected the run command");
-  let timeoutMilliseconds = DEFAULT_TIMEOUT_MILLISECONDS;
-  // Not under the working directory: that is usually the repository the workflow is looking at.
-  let runRoot = join(home, ".awf/runs");
-  let json = false;
-  let watch = true;
-  let workCwd = cwd;
-  let sandbox: unknown;
-  let here = false;
-  let session: string | undefined;
-  let workflowFile: string | undefined;
-  // awf's own options may come before or after the workflow file; only `--` ends them.
-  let index = 1;
-  for (; index < argv.length && argv[index] !== "--"; index += 1) {
-    const option = argv[index]!;
-    if (!option.startsWith("--")) {
-      if (workflowFile !== undefined) throw new Error("put -- before workflow arguments");
-      workflowFile = option;
-      continue;
-    }
-    if (option === "--json") {
-      json = true;
-      continue;
-    }
-    if (option === "--no-watch") {
-      watch = false;
-      continue;
-    }
-    if (option === "--here") {
-      here = true;
-      continue;
-    }
-    const value = argv[index + 1];
-    if (option === "--timeout") {
-      if (!value) throw new Error("--timeout needs a duration such as 30m");
-      timeoutMilliseconds = parseDuration(value);
-    } else if (option === "--run-root") {
-      if (!value) throw new Error("--run-root needs a directory");
-      runRoot = resolve(cwd, value);
-    } else if (option === "--cwd") {
-      if (!value) throw new Error("--cwd needs a directory");
-      workCwd = resolve(cwd, value);
-      if (!statSync(workCwd, { throwIfNoEntry: false })?.isDirectory()) {
-        throw new Error(`--cwd: not a directory: ${workCwd}`);
-      }
-    } else if (option === "--session") {
-      if (!value || !SESSION_CODE.test(value))
-        throw new Error("--session needs the code --here printed");
-      session = value;
-    } else if (option === "--sandbox") {
-      if (!value) throw new Error("--sandbox needs a JSON file");
-      if (sandbox !== undefined) throw new Error("--sandbox given twice");
-      sandbox = readSandboxSpec(resolve(cwd, value));
-    } else {
-      throw new Error(`unknown option: ${option}; put workflow arguments after --`);
-    }
-    index += 1;
-  }
-  if (!workflowFile) throw new Error("run needs one workflow file");
-  if (here && session !== undefined) throw new Error("--here and --session do not go together");
-  const workflowArgs = argv.slice(index + 1);
-  return {
-    shellCwd: cwd,
-    cwd: workCwd,
-    workflowFile,
-    workflowArgs,
-    timeoutMilliseconds,
-    runRoot,
-    json,
-    watch,
-    here,
-    ...(session === undefined ? {} : { session }),
-    ...(sandbox === undefined ? {} : { sandbox }),
-  };
-}
-
-const SESSION_CODE = /^awf-here-[0-9a-f]{8}$/;
-const CALLER_SEARCH_MS = 120_000;
-
-/**
- * `awf run --here`, in an agent's shell: checks the session can be driven, then has Herdr start the
- * run in a new tab, outside this shell and any sandbox it is in, and prints the code the agent ends
- * its turn with (ADR 0010). Nothing is started when a check fails.
- */
-async function startHere(
-  argv: readonly string[],
-  command: RunCommand,
-  environment: OperatorEnvironment,
-  stdout: (text: string) => void,
-  stderr: (text: string) => void,
-): Promise<number> {
-  const env = environment.environment ?? process.env;
-  const run = environment.herdr ?? runProcess;
-  const refuse = (why: string, instead: string) => {
-    stderr(`awf: --here: ${why}. ${instead}`);
-    return 1;
-  };
-  const workspace = env.HERDR_WORKSPACE_ID;
-  if (env.HERDR_ENV !== "1" || !workspace) {
-    return refuse(
-      "this session is not in a Herdr pane, so a run cannot drive it",
-      "Start the agent in a Herdr pane, or run the workflow from a shell with awf run and no --here.",
-    );
-  }
-  const file = resolve(command.shellCwd, command.workflowFile);
-  if (!statSync(file, { throwIfNoEntry: false })?.isFile()) {
-    return refuse(`no workflow file at ${file}`, "Name it by a path from this directory.");
-  }
-  let session: string;
-  try {
-    session = await herdrSession(run, env);
-  } catch (error) {
-    return refuse(`Herdr did not answer: ${messageOf(error)}`, sandboxFix(env));
-  }
-  const unreachable = await herdrReachable(herdrConfig(session), run);
-  if (unreachable) {
-    return refuse(`this session cannot reach Herdr: ${unreachable.trim()}`, sandboxFix(env));
-  }
-  // In this shell, before any tab opens: a workflow that will not load fails here, where the agent
-  // reads it, and not in a tab nobody is looking at.
-  try {
-    const loaded = await loadWorkflowFile(command.workflowFile, command.shellCwd);
-    assertJsonValue(
-      loaded.executable.prepare({ argv: command.workflowArgs, cwd: command.cwd }),
-      `${loaded.executable.definition.meta.name} arguments`,
-    );
-  } catch (error) {
-    return refuse(`the workflow cannot start: ${messageOf(error)}`, "Fix it, then run this again.");
-  }
-  const code = `awf-here-${randomBytes(4).toString("hex")}`;
-  const end = argv.indexOf("--");
-  const options = (end === -1 ? argv.slice(1) : argv.slice(1, end)).filter(
-    (arg) => arg !== "--here",
-  );
-  const rest = end === -1 ? [] : argv.slice(end);
-  const self = environment.self ?? [process.execPath, "--no-env-file", process.argv[1]!];
-  const started = await startInNewTab(
-    herdrConfig(session),
-    {
-      // Under codex this can be another pane's workspace (E8); the run's tab still works from it.
-      workspace,
-      cwd: command.shellCwd,
-      label: `awf ${basename(file)}`,
-      argv: [...self, "run", "--session", code, ...options, ...rest],
-    },
-    run,
-  );
-  if (!started.ok) {
-    return refuse(
-      `Herdr did not open the run's tab: ${started.error}`,
-      "Run the workflow from a shell with awf run instead.",
-    );
-  }
-  stdout(
-    [
-      `awf: ${basename(file)} is starting in Herdr tab ${started.tabId}. Once this turn ends it takes this session over: each of its steps arrives here as a prompt, and a last message hands the session back.`,
-      "",
-      "End your turn now by replying with only this line, exactly:",
-      code,
-    ].join("\n"),
-  );
-  return 0;
-}
-
-/**
- * What lets a sandboxed session reach Herdr's socket, which `--here` and every `wf` call need: its
- * harness's own advice, for the harness whose session variable this shell has.
- */
-function sandboxFix(env: Readonly<Record<string, string | undefined>>): string {
-  const harness = Object.values(HARNESSES).find(
-    (spec) => spec.sessionEnv && env[spec.sessionEnv] && spec.localSockets,
-  );
-  return harness?.localSockets
-    ? `${harness.localSockets}.`
-    : "If this session runs in a sandbox, let it reach Herdr's socket and local sockets, or run the workflow from a shell with awf run.";
-}
-
-/**
- * Marks `paneId` as driven by this process until the returned release, under the run root every
- * run of this operator shares: a second run started from a driven session is refused, as ADR 0010
- * allows one at a time. A mark whose process is gone is taken over. The reason when refused.
- */
-function claimCaller(runRoot: string, paneId: string): (() => void) | string {
-  const marks = join(runRoot, "callers");
-  const mark = join(marks, `${paneId.replace(/[^A-Za-z0-9_-]/g, "_")}.pid`);
-  mkdirSync(marks, { recursive: true });
-  // Linked into place whole, so a run reading the mark never sees it without its pid.
-  const pending = `${mark}.${process.pid}`;
-  try {
-    writeFileSync(pending, String(process.pid));
-    for (let attempt = 0; attempt < 2; attempt += 1) {
-      try {
-        linkSync(pending, mark);
-        return () => rmSync(mark, { force: true });
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== "EEXIST") return messageOf(error);
-        const holder = Number(readFileSync(mark, "utf8"));
-        if (alive(holder)) {
-          return `another run (process ${holder}) is already driving the session in ${paneId}; one run drives a session at a time`;
-        }
-        rmSync(mark, { force: true });
-      }
-    }
-    return `could not mark the session in ${paneId} as driven`;
-  } catch (error) {
-    return messageOf(error);
-  } finally {
-    rmSync(pending, { force: true });
-  }
-}
-
-function alive(pid: number): boolean {
-  if (!Number.isSafeInteger(pid) || pid <= 0) return false;
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (error) {
-    return (error as NodeJS.ErrnoException).code === "EPERM";
-  }
-}
-
-/** Brings the tab this process runs in forward, where Herdr says which one that is. */
-async function showOwnTab(environment: OperatorEnvironment): Promise<void> {
-  const env = environment.environment ?? process.env;
-  if (!env.HERDR_TAB_ID) return;
-  const session = await herdrSession(environment.herdr ?? runProcess, env).catch(() => undefined);
-  if (session) await focusTab(herdrConfig(session), env.HERDR_TAB_ID, environment.herdr);
-}
-
-/** The pane showing `code`, in the Herdr session awf runs in, for `--session`. */
-async function findCaller(
-  code: string,
-  environment: OperatorEnvironment,
-): Promise<
-  | { kind: "found"; caller: { pane: CallerPane; session: string } }
-  | { kind: "refused"; reason: string }
-> {
-  const run = environment.herdr ?? runProcess;
-  let session: string;
-  try {
-    session = await herdrSession(run, environment.environment ?? process.env);
-  } catch (error) {
-    return { kind: "refused", reason: messageOf(error) };
-  }
-  const found = await searchCaller(
-    herdrConfig(session),
-    code,
-    {
-      by: Date.now() + (environment.callerSearchMs ?? CALLER_SEARCH_MS),
-      ...(environment.signal ? { signal: environment.signal } : {}),
-    },
-    run,
-  );
-  return found.kind === "found" ? { kind: "found", caller: { pane: found.pane, session } } : found;
-}
-
-/** `--sandbox`'s file: an inline sandbox spec, whose working directory is the run's. */
-function readSandboxSpec(file: string): object {
-  let spec: unknown;
-  try {
-    spec = JSON.parse(readFileSync(file, "utf8"));
-  } catch (error) {
-    throw new Error(`--sandbox: ${messageOf(error)}`);
-  }
-  if (typeof spec !== "object" || spec === null || Array.isArray(spec)) {
-    throw new Error(`--sandbox: ${file} must hold a JSON object, a sandbox spec`);
-  }
-  for (const [field, why] of Object.entries(NOT_IN_A_RUN_SANDBOX)) {
-    if (field in spec) throw new Error(`--sandbox: the run's sandbox names no ${field}; ${why}`);
-  }
-  return spec;
-}
-
-const NOT_IN_A_RUN_SANDBOX = {
-  cwd: "it works in --cwd",
-  key: "the run's record keys it run",
-  provider: 'its provider is its setting, such as "srt": {}',
-};
-
-function present(
-  executable: ExecutableWorkflow<JsonValue, JsonValue>,
-  value: JsonValue,
-  stderr: (text: string) => void,
-): string | undefined {
-  if (!executable.present) return undefined;
-  try {
-    return executable.present(value).trimEnd();
-  } catch (error) {
-    stderr(`awf: present: ${messageOf(error)}; printing the full result instead`);
-    return undefined;
-  }
-}
-
-function tilde(path: string): string {
-  const home = homedir();
-  return path.startsWith(`${home}/`) ? `~${path.slice(home.length)}` : path;
-}
-
-async function writeReport(
-  executable: ExecutableWorkflow<JsonValue, JsonValue>,
-  value: JsonValue,
-  artifacts: string,
-  stderr: (text: string) => void,
-): Promise<string | undefined> {
-  if (!executable.report) return undefined;
-  // The result is still in output.json; a report that cannot be rendered or saved should not fail
-  // the run, nor cost it its record.
-  try {
-    const markdown = executable.report(value);
-    const file = join(artifacts, "report.md");
-    await writeFile(file, `${markdown.trimEnd()}\n`);
-    return file;
-  } catch (error) {
-    stderr(`awf: report: ${messageOf(error)}; see output.json instead`);
-    return undefined;
-  }
-}
-
-function errorDetail(error: unknown): string {
-  if (error instanceof WorkflowRunError) return errorDetail(error.cause);
-  return error instanceof AggregateError
-    ? error.errors.map(errorDetail).join("; ")
-    : messageOf(error);
-}
-
-function findCancellation(error: unknown): WorkflowCancelledError | undefined {
-  if (error instanceof WorkflowCancelledError) return error;
-  if (error instanceof WorkflowRunError) return findCancellation(error.cause);
-  if (!(error instanceof AggregateError)) return undefined;
-  for (const nested of error.errors) {
-    const cancellation = findCancellation(nested);
-    if (cancellation) return cancellation;
-  }
-  return undefined;
-}
-
-/** Each outcome in words: as the calling session is told it, and as awf reports it. */
-const ENDINGS = {
-  cancelled: { told: "was cancelled", ended: "run cancelled" },
-  "timed-out": { told: "timed out", ended: "run timed out" },
-  failed: { told: "failed", ended: "run failed" },
-} as const satisfies Record<
-  Exclude<OutputRecord["outcome"], "succeeded">,
-  { told: string; ended: string }
->;
-
-/**
- * How a run that did not succeed ended. The operator cancelling wins. It timed out when its own
- * deadline ended it: the body's failure, or the first error of its aggregate, is a deadline error
- * carrying the run's deadline. A deadline the workflow set and let escape is its own failure.
- */
-export function runOutcome(
-  error: unknown,
-  deadline: AbsoluteDeadline,
-): Exclude<OutputRecord["outcome"], "succeeded"> {
-  if (findCancellation(error)) return "cancelled";
-  const cause = error instanceof WorkflowRunError ? error.cause : error;
-  const failure = cause instanceof AggregateError ? cause.errors[0] : cause;
-  return failure instanceof DeadlineExceededError &&
-    failure.deadline.unixMilliseconds === deadline.unixMilliseconds
-    ? "timed-out"
-    : "failed";
 }
 
 /** How soon a repeated signal is the copy `bun awf` forwards, not the operator pressing again. */

@@ -12,8 +12,7 @@ import type {
   JsonObject,
   JsonValue,
 } from "../packages/contract/src/workflow";
-import { runWorkflow } from "../packages/engine/src";
-import { createTempRunDirs, future, submit } from "../packages/engine/src/testing";
+import { createTempRunDirs, future, runNew, submit } from "../packages/engine/src/testing";
 import type {
   AgentRuntimeConfig,
   AgentSessionAdapter,
@@ -67,7 +66,7 @@ describe("minimum two-agent review", () => {
     };
     const startedAt = Date.now();
 
-    await runWorkflow(
+    await runNew(
       createMinimumReview(
         { correctness: "correctness", maintainability: "maintainability" },
         firstTurnMs,
@@ -90,7 +89,7 @@ describe("minimum two-agent review", () => {
     ]);
 
     const cappedWorkflowDeadline = future(10 * 60_000);
-    await runWorkflow(
+    await runNew(
       createMinimumReview(
         { correctness: "correctness", maintainability: "maintainability" },
         20 * 60_000,
@@ -124,7 +123,7 @@ describe("minimum two-agent review", () => {
       }),
     });
 
-    const result = await runWorkflow(minimumReview, args(), {
+    const result = await runNew(minimumReview, args(), {
       runRoot: tempRunDir(),
       runtime: runtime(adapter),
       deadline: future(),

@@ -6,7 +6,7 @@ import { type ResultSubmitResponse, WIRE_VERSION } from "@agentswf/contract/wire
 import { CONTROL_PLANE_ROOT, startResultControlPlane } from "./control-plane";
 import type { ResultSlotRegistry } from "./result-slots";
 import { createResultSlotRegistry } from "./result-slots";
-import { readAccepted } from "./run-dir";
+import { readAccepted } from "./runs";
 import { COUNT_SCHEMA, createTempRunDirs, exchange } from "./testing";
 
 const runDirs = createTempRunDirs();
@@ -117,7 +117,7 @@ describe("result control plane", () => {
       async submit() {
         entered();
         await gate;
-        return { kind: "accepted", value: {}, attemptRecorded: true, acceptedAt: 0 };
+        return { kind: "accepted", value: {}, candidateRecorded: true, acceptedAt: 0 };
       },
       async close() {
         return false;

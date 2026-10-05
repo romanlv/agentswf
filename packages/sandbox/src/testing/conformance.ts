@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdtempSync, realpathSync } from "node:fs";
 import { chmod, mkdir, mkdtemp, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
 import { createServer, type Server } from "node:net";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { resolveSandbox } from "../resolve";
 import {
@@ -50,17 +50,20 @@ export function sandboxConformance(name: string, setup: ConformanceSetup | undef
     const cwd = join(root, "work");
     const outside = join(root, "outside");
     const shared = join(root, "shared");
+    // A project keeping its runs inside it, as `.awf/runs`: a sandbox writing it holds them.
+    const project = join(root, "project");
+    const projectRuns = join(project, ".awf", "runs");
     const servers: Server[] = [];
     const doors: string[] = [];
     const sandboxes: OpenedSandbox[] = [];
-    const agents: Record<"a1" | "a2" | "a3" | "b1", Agent> = {} as never;
+    const agents: Record<"a1" | "a2" | "a3" | "b1" | "p1", Agent> = {} as never;
     const running = (pattern: string, agent: Agent) =>
       setup.running ? setup.running(pattern, agent.occupant) : hostRunning(pattern);
-    const sh = (agent: Agent, script: string, extra: { timeoutMs?: number } = {}) =>
+    const sh = (agent: Agent, script: string, extra: { timeoutMs?: number; cwd?: string } = {}) =>
       runCommand(
         agent.occupant.launch({
           argv: ["/bin/sh", "-c", script],
-          cwd,
+          cwd: extra.cwd ?? cwd,
           env: { AWF_CONFORMANCE_OVERLAY: "overlay" },
           timeoutMs: extra.timeoutMs ?? 30_000,
         }),
@@ -75,18 +78,29 @@ export function sandboxConformance(name: string, setup: ConformanceSetup | undef
       await writeFile(join(outside, "canary.txt"), "canary-outside\n");
       await mkdir(join(runRoot, "other-run"), { recursive: true });
       await writeFile(join(runRoot, "other-run", "canary.txt"), "canary-other-run\n");
-      const open = async (key: string) => {
+      await mkdir(join(projectRuns, "other-run"), { recursive: true });
+      await writeFile(join(projectRuns, "other-run", "canary.txt"), "canary-project-run\n");
+      const open = async (
+        key: string,
+        reach: { cwd: string; runRoot: string; read: string[]; write: string[] } = {
+          cwd,
+          runRoot,
+          read: [shared],
+          write: ["out"],
+        },
+      ) => {
         const environment = setup.environment;
         const { sandbox } = await resolveSandbox(
           {
-            read: [shared],
-            write: ["out"],
+            read: reach.read,
+            write: reach.write,
             ...(environment ? { [environment.key]: environment.settings } : {}),
           },
           {
             key,
-            cwd,
-            runRoot,
+            cwd: reach.cwd,
+            runRoot: reach.runRoot,
+            machineRoot: join(homedir(), ".awf"),
             harnessState: [],
             providers: {
               installed: { [environment?.key ?? "srt"]: setup.provider },
@@ -94,10 +108,11 @@ export function sandboxConformance(name: string, setup: ConformanceSetup | undef
             },
           },
         );
-        const directory = join(runRoot, "run", key);
+        // Outside every run root, as the engine keeps them under `~/.awf/sandboxes`.
+        const directory = join(root, "sandboxes", key);
         await mkdir(join(directory, "homes"), { recursive: true });
         const opened = await setup.provider.open(sandbox, {
-          runRoot,
+          runRoot: reach.runRoot,
           directory,
           deadline: { unixMilliseconds: Date.now() + 120_000 },
         });
@@ -107,12 +122,13 @@ export function sandboxConformance(name: string, setup: ConformanceSetup | undef
       const admit = async (
         box: { opened: OpenedSandbox; directory: string },
         name: string,
+        at = cwd,
       ): Promise<Agent> => {
         const home = join(box.directory, "homes", name);
         await mkdir(home, { recursive: true });
         const door = await openDoor(servers, doors);
         const occupant = await box.opened.admit({
-          cwd,
+          cwd: at,
           home,
           door,
           harness: {
@@ -135,6 +151,8 @@ export function sandboxConformance(name: string, setup: ConformanceSetup | undef
       agents.a2 = await admit(a, "a2");
       agents.a3 = await admit(a, "a3");
       agents.b1 = await admit(b, "b1");
+      const p = await open("p", { cwd: project, runRoot: projectRuns, read: [], write: ["."] });
+      agents.p1 = await admit(p, "p1", project);
     }, TEST_TIMEOUT_MS);
 
     afterAll(async () => {
@@ -245,6 +263,30 @@ export function sandboxConformance(name: string, setup: ConformanceSetup | undef
         expect(result.stdout).toContain("denied-run");
         expect(result.stdout).toContain("denied-write");
         expect(await readFile(join(cwd, "in.txt"), "utf8")).toBe("readable\n");
+      },
+      TEST_TIMEOUT_MS,
+    );
+
+    test(
+      "hides the run root a writable project holds",
+      async () => {
+        const result = await sh(
+          agents.p1,
+          `echo written > written; ` +
+            `cat "${projectRuns}/other-run/canary.txt" || echo denied-read; ` +
+            `echo forged > "${projectRuns}/other-run/canary.txt" || echo denied-write; ` +
+            `echo planted > "${projectRuns}/planted" || echo denied-plant`,
+          { cwd: project },
+        );
+        expect(await readFile(join(project, "written"), "utf8")).toBe("written\n");
+        if (!setup.confines) return;
+        expect(result.stdout).not.toContain("canary-project-run");
+        expect(result.stdout).toContain("denied-read");
+        // Inside, docker's empty tmpfs may take the plant; the host's run root never sees it.
+        expect(await readFile(join(projectRuns, "other-run", "canary.txt"), "utf8")).toBe(
+          "canary-project-run\n",
+        );
+        expect(await stat(join(projectRuns, "planted")).catch(() => undefined)).toBeUndefined();
       },
       TEST_TIMEOUT_MS,
     );

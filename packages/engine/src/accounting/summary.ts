@@ -1,5 +1,6 @@
 import type {
   AccountingFigures,
+  AttemptAccounting,
   DecisionFigures,
   ModelFigures,
   RunAccounting,
@@ -12,22 +13,38 @@ import { addTokens } from "./tokens";
 
 const NONE: TokenUsage = { input: 0, cacheRead: 0, cacheWrite: 0, output: 0 };
 
+/** What ran between a run's stages, as a row of `byStage`. */
+export const NO_STAGE = "(no stage)";
+
 /**
  * What a run cost and how long it took, from its usage and decision records alone, so a finished
- * run can be priced again with another table.
+ * run can be priced again with another table. `entered` are the workflow stages entered, in order:
+ * each is a row timed by its own span, a reused one at zero; without them, a row per call path and
+ * key prefix, timed by what ran in it.
  */
 export function summarizeRun(
   usage: readonly SettledOperation[],
   prices: PriceTable,
   times: { startedAt: string; finishedAt: string },
   decisions: readonly SettledDecision[],
+  entered: readonly { stage: string; spanMs: number }[] = [],
 ): RunAccounting {
   const spends = usage.flatMap((record) => record.spend ?? []);
   const agentModels = unique(spends.map((spend) => spend.model));
   const decisionModels = unique(decisions.filter((record) => record.tokens).map(decisionModelOf));
   const models = unique([...agentModels, ...decisionModels]).sort();
   const agentIds = unique(usage.map(agentOf));
-  const stages = unique([...usage.map(stageOf), ...decisions.map(decisionStageOf)]);
+  const staged =
+    entered.length > 0 ||
+    usage.some((record) => record.stage !== undefined) ||
+    decisions.some((record) => record.stage !== undefined);
+  const stageOf = staged ? workflowStageOf : prefixStageOf;
+  const decisionStageOf = staged ? workflowStageOf : decisionPrefixStageOf;
+  const stages = unique([
+    ...entered.map(({ stage }) => stage),
+    ...usage.map(stageOf),
+    ...decisions.map(decisionStageOf),
+  ]).sort(noStageLast);
   const billings = unique(usage.map((record) => record.billing)).filter(
     (billing) => billing !== "unknown",
   );
@@ -44,12 +61,14 @@ export function summarizeRun(
     startedAt: times.startedAt,
     finishedAt: times.finishedAt,
     wallMs: Date.parse(times.finishedAt) - Date.parse(times.startedAt),
+    grouping: staged ? "stages" : "prefix",
     billing: billings.length === 0 ? "unknown" : billings.length === 1 ? billings[0]! : "mixed",
     totals: figures(usage, decisions),
     byStage: stages.map((stage) => {
       const records = usage.filter((record) => stageOf(record) === stage);
       const asked = decisions.filter((record) => decisionStageOf(record) === stage);
-      return { stage, ...figures(records, asked), spanMs: spanOf(records, asked) };
+      const spanMs = entered.find((one) => one.stage === stage)?.spanMs ?? spanOf(records, asked);
+      return { stage, ...figures(records, asked), spanMs };
     }),
     byModel: models.map((model) => {
       const agents = modelFigures(model, usage, prices);
@@ -64,7 +83,6 @@ export function summarizeRun(
       return {
         callPath: first.callPath,
         agent: first.agent,
-        stage: stageOf(first),
         execution: first.execution,
         billing: first.billing,
         ...figures(records),
@@ -187,7 +205,7 @@ function decisionModelOf(record: SettledDecision): string {
   return record.snapshot ?? record.model;
 }
 
-function decisionStageOf(record: SettledDecision): string {
+function decisionPrefixStageOf(record: SettledDecision): string {
   return [...record.callPath, prefixOf(record.key)].join("/");
 }
 
@@ -222,7 +240,16 @@ function agentOf(record: SettledOperation): string {
   return JSON.stringify([record.callPath, record.agent]);
 }
 
-function stageOf(record: SettledOperation): string {
+function workflowStageOf(record: { stage?: string }): string {
+  return record.stage ?? NO_STAGE;
+}
+
+/** A stable sort's order otherwise, with `(no stage)` last. */
+function noStageLast(a: string, b: string): number {
+  return Number(a === NO_STAGE) - Number(b === NO_STAGE);
+}
+
+function prefixStageOf(record: SettledOperation): string {
   return [...record.callPath, prefixOf(record.agent)].join("/");
 }
 
@@ -254,4 +281,105 @@ function spanOf(
 
 function unique<T>(values: readonly T[]): T[] {
   return [...new Set(values)];
+}
+
+/** What an attempt's record keeps of its run's accounting: the totals and stages, not who spent it. */
+export function attemptAccounting({
+  basis,
+  wallMs,
+  grouping,
+  billing,
+  totals,
+  byStage,
+  unpriced,
+}: RunAccounting): AttemptAccounting {
+  return { basis, wallMs, grouping, billing, totals, byStage, unpriced };
+}
+
+/**
+ * A run's attempts summed, each estimate as its attempt recorded it, under the last one's basis:
+ * its total, and each stage's across the attempts that ran it. Once any attempt grouped by stages, what another grouped by prefix, having failed
+ * before it entered one, ran between stages.
+ */
+export function sumAttempts(attempts: readonly AttemptAccounting[]): AttemptAccounting {
+  const grouping = attempts.some((attempt) => attempt.grouping === "stages") ? "stages" : "prefix";
+  const byStage = new Map<string, RunAccounting["byStage"][number]>();
+  for (const attempt of attempts) {
+    for (const row of attempt.byStage) {
+      const stage = grouping === attempt.grouping ? row.stage : NO_STAGE;
+      const before = byStage.get(stage);
+      byStage.set(
+        stage,
+        before
+          ? { ...addFigures(before, row), stage, spanMs: before.spanMs + row.spanMs }
+          : { ...row, stage },
+      );
+    }
+  }
+  const billings = unique(attempts.map((attempt) => attempt.billing)).filter(
+    (billing) => billing !== "unknown",
+  );
+  return {
+    basis: attempts.at(-1)?.basis ?? "",
+    wallMs: attempts.reduce((sum, attempt) => sum + attempt.wallMs, 0),
+    grouping,
+    billing: billings.length === 0 ? "unknown" : billings.length === 1 ? billings[0]! : "mixed",
+    totals: attempts.map((attempt) => attempt.totals).reduce(addFigures, ZERO),
+    byStage: [...byStage.values()].sort((a, b) => noStageLast(a.stage, b.stage)),
+    unpriced: unique(attempts.flatMap((attempt) => attempt.unpriced)).sort(),
+  };
+}
+
+const ZERO: AccountingFigures = {
+  agents: 0,
+  agentMs: 0,
+  tokens: NONE,
+  delegated: NONE,
+  known: 0,
+  priced: 0,
+  billed: 0,
+};
+
+function addFigures(left: AccountingFigures, right: AccountingFigures): AccountingFigures {
+  const decisions =
+    left.decisions && right.decisions
+      ? addDecisions(left.decisions, right.decisions)
+      : (left.decisions ?? right.decisions);
+  return {
+    agents: left.agents + right.agents,
+    agentMs: left.agentMs + right.agentMs,
+    tokens: addTokens(left.tokens, right.tokens),
+    delegated: addTokens(left.delegated, right.delegated),
+    ...addOptional("estimate", left, right),
+    ...addOptional("charged", left, right),
+    known: left.known + right.known,
+    priced: left.priced + right.priced,
+    billed: left.billed + right.billed,
+    ...(decisions ? { decisions } : {}),
+  };
+}
+
+function addDecisions(left: DecisionFigures, right: DecisionFigures): DecisionFigures {
+  return {
+    calls: left.calls + right.calls,
+    attempts: left.attempts + right.attempts,
+    tokens: {
+      input: left.tokens.input + right.tokens.input,
+      output: left.tokens.output + right.tokens.output,
+    },
+    ...addOptional("estimate", left, right),
+    ...addOptional("charged", left, right),
+    known: left.known + right.known,
+    priced: left.priced + right.priced,
+  };
+}
+
+/** A sum of what either side knows; absent only when neither does. */
+function addOptional<K extends "estimate" | "charged">(
+  field: K,
+  left: { [P in K]?: number },
+  right: { [P in K]?: number },
+): { [P in K]?: number } {
+  if (left[field] === undefined && right[field] === undefined) return {};
+  return { [field]: (left[field] ?? 0) + (right[field] ?? 0) } as { [P in K]?: number };
 }

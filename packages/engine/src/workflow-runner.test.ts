@@ -28,13 +28,9 @@ import type {
 } from "@agentswf/harness/adapter";
 import { createFakeAdapter } from "@agentswf/harness/testing";
 import { CONTROL_PLANE_ROOT } from "./control-plane";
-import { createTempRunDirs, future, submit } from "./testing";
-import {
-  runWorkflow,
-  startWorkflow,
-  WorkflowCancelledError,
-  WorkflowRunError,
-} from "./workflow-runner";
+import { openRun } from "./runs";
+import { createTempRunDirs, future, runNew, startNew, submit } from "./testing";
+import { WorkflowCancelledError, WorkflowRunError } from "./workflow-runner";
 
 const runDirs = createTempRunDirs();
 const { tempRunDir } = runDirs;
@@ -78,7 +74,7 @@ describe("runWorkflow", () => {
       );
       return null;
     });
-    const handle = await startWorkflow(workflow, null, {
+    const handle = await startNew(workflow, null, {
       runRoot: tempRunDir(),
       runtime: runtime(adapter),
       deadline: future(),
@@ -108,7 +104,7 @@ describe("runWorkflow", () => {
     });
 
     await expect(
-      runWorkflow(workflow, null, {
+      runNew(workflow, null, {
         runRoot: tempRunDir(),
         runtime: emptyRuntime(),
         deadline: future(),
@@ -130,7 +126,7 @@ describe("runWorkflow", () => {
 
     expect(
       await causeOf(
-        runWorkflow(workflow, null, {
+        runNew(workflow, null, {
           runRoot: tempRunDir(),
           runtime: emptyRuntime(),
           deadline,
@@ -149,7 +145,7 @@ describe("runWorkflow", () => {
     const workflow = workflowOf("run-signal", async () => {
       return await new Promise<never>(() => undefined);
     });
-    const running = runWorkflow(workflow, null, {
+    const running = runNew(workflow, null, {
       runRoot: tempRunDir(),
       runtime: emptyRuntime(),
       deadline,
@@ -188,7 +184,7 @@ describe("runWorkflow", () => {
     const workflow = workflowOf("late-host", async () => {
       return null;
     });
-    const running = runWorkflow(workflow, null, {
+    const running = runNew(workflow, null, {
       runRoot: tempRunDir(),
       runtime,
       deadline: { unixMilliseconds: Date.now() + 20 },
@@ -210,7 +206,7 @@ describe("runWorkflow", () => {
       return [good.status, bad.status === "rejected" ? String(bad.reason) : "fulfilled"];
     });
 
-    const result = await runWorkflow(workflow, null, {
+    const result = await runNew(workflow, null, {
       runRoot: tempRunDir(),
       deadline: future(),
       runtime: runtime(adapter),
@@ -240,7 +236,7 @@ describe("runWorkflow", () => {
         return outcome.kind;
       });
 
-      const result = await runWorkflow(workflow, null, {
+      const result = await runNew(workflow, null, {
         runRoot: tempRunDir(),
         deadline: future(),
         runtime: {
@@ -284,7 +280,7 @@ describe("runWorkflow", () => {
       return outcome.kind;
     });
 
-    const result = await runWorkflow(workflow, null, {
+    const result = await runNew(workflow, null, {
       runRoot: tempRunDir(),
       deadline: future(),
       runtime: {
@@ -353,7 +349,7 @@ describe("runWorkflow", () => {
       return kinds;
     });
 
-    const result = await runWorkflow(workflow, null, {
+    const result = await runNew(workflow, null, {
       runRoot: tempRunDir(),
       deadline: future(),
       runtime: { aliases: { review: { harness: "fake", model: "fake" } }, host },
@@ -466,7 +462,7 @@ describe("runWorkflow", () => {
       });
 
       const began = Date.now();
-      const result = await runWorkflow(workflow, null, {
+      const result = await runNew(workflow, null, {
         runRoot: tempRunDir(),
         deadline: future(endsOnItsOwn ? 60_000 : 1_000),
         runtime: { aliases: { review: { harness: "fake", model: "fake" } }, host },
@@ -512,7 +508,7 @@ describe("runWorkflow", () => {
       ];
     });
 
-    const result = await runWorkflow(workflow, null, {
+    const result = await runNew(workflow, null, {
       runRoot: tempRunDir(),
       deadline: future(),
       runtime: {
@@ -559,7 +555,7 @@ describe("runWorkflow", () => {
       },
     };
 
-    const running = runWorkflow(
+    const running = runNew(
       workflowOf("sync-host-failure", async () => null),
       null,
       { runRoot, runtime, deadline: future() },
@@ -603,7 +599,7 @@ describe("runWorkflow", () => {
 
     expect(
       await causeOf(
-        runWorkflow(workflow, null, {
+        runNew(workflow, null, {
           runRoot,
           runtime: runtime(adapter),
           deadline: { unixMilliseconds: Date.now() + 30 },
@@ -645,7 +641,7 @@ describe("runWorkflow", () => {
       return null;
     });
     const startedAt = Date.now();
-    const result = runWorkflow(workflow, null, {
+    const result = runNew(workflow, null, {
       runRoot: tempRunDir(),
       runtime: runtime(adapter),
       deadline: { unixMilliseconds: Date.now() + 30 },
@@ -697,7 +693,7 @@ describe("runWorkflow", () => {
       return result.outcome.kind;
     });
 
-    const result = await runWorkflow(workflow, null, {
+    const result = await runNew(workflow, null, {
       runRoot: tempRunDir(),
       deadline: future(),
       runtime: runtime(adapter),
@@ -733,7 +729,7 @@ describe("runWorkflow", () => {
       return result.outcome.value;
     });
 
-    const result = await runWorkflow(workflow, null, {
+    const result = await runNew(workflow, null, {
       runRoot: tempRunDir(),
       deadline: future(),
       runtime: runtime(adapter),
@@ -772,7 +768,7 @@ describe("runWorkflow", () => {
       return result.outcome.kind;
     });
 
-    const result = await runWorkflow(workflow, null, {
+    const result = await runNew(workflow, null, {
       runRoot: tempRunDir(),
       deadline: future(),
       runtime: runtime(adapter),
@@ -803,7 +799,7 @@ describe("runWorkflow", () => {
       return result.outcome.kind;
     });
 
-    const result = await runWorkflow(workflow, null, {
+    const result = await runNew(workflow, null, {
       runRoot: tempRunDir(),
       deadline: future(),
       runtime: runtime(adapter),
@@ -834,7 +830,7 @@ describe("runWorkflow", () => {
       return null;
     });
 
-    const result = await runWorkflow(workflow, null, {
+    const result = await runNew(workflow, null, {
       runRoot: tempRunDir(),
       deadline: future(),
       runtime: runtime(adapter),
@@ -862,7 +858,7 @@ describe("runWorkflow", () => {
       return result.outcome.kind;
     });
 
-    const result = await runWorkflow(workflow, null, {
+    const result = await runNew(workflow, null, {
       runRoot: tempRunDir(),
       deadline: future(),
       runtime: runtime(adapter),
@@ -892,7 +888,7 @@ describe("runWorkflow", () => {
       return result.outcome.kind;
     });
 
-    const result = await runWorkflow(workflow, null, {
+    const result = await runNew(workflow, null, {
       runRoot: tempRunDir(),
       deadline: future(),
       runtime: runtime(adapter),
@@ -941,7 +937,7 @@ describe("runWorkflow", () => {
       return null;
     });
 
-    await runWorkflow(workflow, null, {
+    await runNew(workflow, null, {
       runRoot: tempRunDir(),
       deadline,
       runtime: { aliases: { review: { harness: "fake", model: "fake" } }, host },
@@ -959,7 +955,7 @@ describe("runWorkflow", () => {
       return await outcomesOf([refused, both]);
     });
 
-    const result = await runWorkflow(workflow, null, {
+    const result = await runNew(workflow, null, {
       runRoot: tempRunDir(),
       deadline: future(),
       runtime: runtime(adapter),
@@ -980,7 +976,7 @@ describe("runWorkflow", () => {
       return (await agent.run({ prompt: "Review.", deadline })).outcome.kind;
     });
 
-    const result = await runWorkflow(workflow, null, {
+    const result = await runNew(workflow, null, {
       runRoot: tempRunDir(),
       deadline: future(),
       runtime: runtime(adapter),
@@ -1008,7 +1004,7 @@ describe("runWorkflow", () => {
       return null;
     });
 
-    const result = await runWorkflow(workflow, null, {
+    const result = await runNew(workflow, null, {
       runRoot: tempRunDir(),
       deadline: future(),
       runtime: runtime(adapter),
@@ -1063,7 +1059,7 @@ describe("runWorkflow", () => {
       );
     });
 
-    const result = await runWorkflow(workflow, null, {
+    const result = await runNew(workflow, null, {
       runRoot: tempRunDir(),
       deadline: future(),
       runtime: runtime(adapter),
@@ -1104,7 +1100,7 @@ describe("runWorkflow", () => {
       return result.outcome.kind;
     });
 
-    const result = await runWorkflow(workflow, null, {
+    const result = await runNew(workflow, null, {
       runRoot: tempRunDir(),
       deadline: future(),
       runtime: runtime(adapter),
@@ -1139,7 +1135,7 @@ describe("runWorkflow", () => {
     });
 
     const started = performance.now();
-    const result = await runWorkflow(workflow, null, {
+    const result = await runNew(workflow, null, {
       runRoot: tempRunDir(),
       deadline: future(),
       runtime: runtime(adapter),
@@ -1188,7 +1184,7 @@ describe("runWorkflow", () => {
       return [first.outcome.kind, second];
     });
 
-    const result = await runWorkflow(workflow, null, {
+    const result = await runNew(workflow, null, {
       runRoot: tempRunDir(),
       deadline: future(),
       runtime: runtime(adapter),
@@ -1230,7 +1226,7 @@ describe("runWorkflow", () => {
       );
     });
 
-    const result = await runWorkflow(workflow, null, {
+    const result = await runNew(workflow, null, {
       runRoot: tempRunDir(),
       deadline: future(),
       runtime: runtime(adapter),
@@ -1253,7 +1249,7 @@ describe("runWorkflow", () => {
       return result.outcome.kind;
     });
 
-    const result = await runWorkflow(workflow, null, {
+    const result = await runNew(workflow, null, {
       runRoot: tempRunDir(),
       deadline: future(),
       runtime: runtime(adapter),
@@ -1297,7 +1293,7 @@ describe("runWorkflow", () => {
       return result.outcome.kind === "answered" ? result.outcome.value : result.outcome.kind;
     });
 
-    const result = await runWorkflow(workflow, null, {
+    const result = await runNew(workflow, null, {
       runRoot: tempRunDir(),
       deadline: future(),
       runtime: runtime(adapter),
@@ -1321,7 +1317,7 @@ describe("runWorkflow", () => {
       return result.outcome.kind === "answered" ? result.outcome.value : result.outcome.kind;
     });
 
-    const result = await runWorkflow(workflow, null, {
+    const result = await runNew(workflow, null, {
       runRoot: tempRunDir(),
       deadline: future(),
       runtime: runtime(adapter),
@@ -1351,7 +1347,7 @@ describe("runWorkflow", () => {
       return outcomesOf([first, second]);
     });
 
-    const result = await runWorkflow(workflow, null, {
+    const result = await runNew(workflow, null, {
       runRoot: tempRunDir(),
       deadline: future(),
       runtime: runtime(adapter),
@@ -1389,7 +1385,7 @@ describe("runWorkflow", () => {
       return { sameAgent: agent === reopened, sameTurn: first === duplicate, conflict };
     });
 
-    const result = await runWorkflow(workflow, null, {
+    const result = await runNew(workflow, null, {
       runRoot: tempRunDir(),
       deadline: future(),
       runtime: configured,
@@ -1429,7 +1425,7 @@ describe("runWorkflow", () => {
       }
     });
 
-    const result = await runWorkflow(workflow, null, {
+    const result = await runNew(workflow, null, {
       runRoot: tempRunDir(),
       deadline: future(),
       runtime: runtime(adapter),
@@ -1471,7 +1467,7 @@ describe("runWorkflow", () => {
       }
     });
 
-    const result = await runWorkflow(workflow, null, {
+    const result = await runNew(workflow, null, {
       runRoot: tempRunDir(),
       deadline: future(),
       runtime: runtime(adapter),
@@ -1525,7 +1521,7 @@ describe("runWorkflow", () => {
       return outcome;
     });
 
-    const result = await runWorkflow(workflow, null, {
+    const result = await runNew(workflow, null, {
       runRoot: tempRunDir(),
       deadline: future(),
       runtime: runtime(adapter),
@@ -1587,7 +1583,7 @@ describe("runWorkflow", () => {
       return outcome;
     });
 
-    const result = await runWorkflow(workflow, null, {
+    const result = await runNew(workflow, null, {
       runRoot: tempRunDir(),
       deadline: future(),
       runtime: runtime(adapter),
@@ -1621,7 +1617,7 @@ describe("runWorkflow", () => {
 
     expect(
       await causeOf(
-        runWorkflow(workflow, null, {
+        runNew(workflow, null, {
           runRoot: tempRunDir(),
           runtime: runtime(adapter),
           deadline: future(),
@@ -1643,7 +1639,7 @@ describe("runWorkflow", () => {
 
     expect(
       await causeOf(
-        runWorkflow(workflow, null, {
+        runNew(workflow, null, {
           runRoot: tempRunDir(),
           runtime: runtime(adapter),
           deadline: future(),
@@ -1677,7 +1673,7 @@ describe("runWorkflow", () => {
 
     expect(
       await causeOf(
-        runWorkflow(workflow, null, {
+        runNew(workflow, null, {
           runRoot: tempRunDir(),
           runtime: runtime(adapter),
           deadline: future(),
@@ -1719,7 +1715,7 @@ describe("runWorkflow", () => {
     });
 
     await expect(
-      runWorkflow(workflow, null, {
+      runNew(workflow, null, {
         runRoot: tempRunDir(),
         runtime: runtime(adapter),
         deadline: future(),
@@ -1751,7 +1747,7 @@ describe("runWorkflow", () => {
       return activated;
     });
 
-    const result = await runWorkflow(workflow, null, {
+    const result = await runNew(workflow, null, {
       runRoot: tempRunDir(),
       deadline: future(),
       runtime: runtime(adapter),
@@ -1789,7 +1785,7 @@ describe("runWorkflow", () => {
       return late;
     });
 
-    const result = await runWorkflow(workflow, null, {
+    const result = await runNew(workflow, null, {
       runRoot: tempRunDir(),
       deadline: future(),
       runtime: runtime(adapter),
@@ -1819,7 +1815,7 @@ describe("runWorkflow", () => {
       return nestedFinished;
     });
 
-    const result = await runWorkflow(workflow, null, {
+    const result = await runNew(workflow, null, {
       runRoot: tempRunDir(),
       deadline: future(),
       runtime: runtime(createFakeAdapter({ script: () => ({}) })),
@@ -1861,7 +1857,7 @@ describe("runWorkflow", () => {
       return late;
     });
 
-    const result = await runWorkflow(workflow, null, {
+    const result = await runNew(workflow, null, {
       runRoot: tempRunDir(),
       deadline: future(),
       runtime: runtime(createFakeAdapter({ script: () => ({}) })),
@@ -1889,7 +1885,7 @@ describe("runWorkflow", () => {
       return result.outcome.kind;
     });
 
-    const result = await runWorkflow(workflow, null, {
+    const result = await runNew(workflow, null, {
       runRoot: tempRunDir(),
       deadline: future(),
       runtime: runtime(adapter),
@@ -1929,7 +1925,7 @@ describe("runWorkflow", () => {
       return result.outcome.kind;
     });
 
-    const result = await runWorkflow(workflow, null, {
+    const result = await runNew(workflow, null, {
       runRoot: tempRunDir(),
       deadline: future(),
       runtime: runtime(adapter),
@@ -1968,7 +1964,7 @@ describe("runWorkflow", () => {
       return result.outcome.kind;
     });
 
-    const result = await runWorkflow(workflow, null, {
+    const result = await runNew(workflow, null, {
       runRoot: tempRunDir(),
       deadline: future(),
       runtime: runtime(adapter),
@@ -2007,7 +2003,7 @@ describe("runWorkflow", () => {
       return outcomesOf([first, second]);
     });
 
-    const result = await runWorkflow(workflow, null, {
+    const result = await runNew(workflow, null, {
       runRoot: tempRunDir(),
       deadline: future(),
       runtime: runtime(adapter),
@@ -2041,7 +2037,7 @@ describe("runWorkflow", () => {
       return outcomesOf([first, second]);
     });
 
-    const result = await runWorkflow(workflow, null, {
+    const result = await runNew(workflow, null, {
       runRoot: tempRunDir(),
       deadline: future(),
       runtime: runtime(adapter),
@@ -2080,7 +2076,7 @@ describe("runWorkflow", () => {
       return outcomesOf([first, second]);
     });
 
-    const result = await runWorkflow(workflow, null, {
+    const result = await runNew(workflow, null, {
       runRoot: tempRunDir(),
       deadline: future(),
       runtime: runtime(adapter),
@@ -2128,7 +2124,7 @@ describe("runWorkflow", () => {
       return result.outcome.kind;
     });
 
-    const result = await runWorkflow(workflow, null, {
+    const result = await runNew(workflow, null, {
       runRoot: tempRunDir(),
       deadline: future(),
       runtime: runtime(adapter),
@@ -2181,7 +2177,7 @@ describe("runWorkflow", () => {
       return false;
     });
 
-    const result = await runWorkflow(workflow, null, {
+    const result = await runNew(workflow, null, {
       runRoot: tempRunDir(),
       deadline: future(),
       runtime: runtime(adapter),
@@ -2213,14 +2209,15 @@ describe("runWorkflow", () => {
     });
     const runRoot = tempRunDir();
 
-    const result = await runWorkflow(workflow, null, {
+    const result = await runNew(workflow, null, {
       runRoot,
       runtime: runtime(adapter),
       deadline: future(),
     });
 
     expect(adapter.turns).toHaveLength(1);
-    expect(await readdir(join(runRoot, result.runId, "calls"))).toHaveLength(1);
+    const { dir } = await openRun(runRoot, workflow.meta.name, result.runId);
+    expect(await readdir(join(dir, "calls"))).toHaveLength(1);
   });
 
   test("adapter activation failure still closes earlier sessions and the endpoint", async () => {
@@ -2248,7 +2245,7 @@ describe("runWorkflow", () => {
     });
 
     await expect(
-      runWorkflow(workflow, null, {
+      runNew(workflow, null, {
         runRoot: tempRunDir(),
         runtime: runtime(adapter),
         deadline: future(),
@@ -2273,7 +2270,7 @@ describe("runWorkflow", () => {
     });
     const started = performance.now();
 
-    const result = await runWorkflow(workflow, null, {
+    const result = await runNew(workflow, null, {
       runRoot: tempRunDir(),
       deadline: future(),
       runtime: runtime(adapter),

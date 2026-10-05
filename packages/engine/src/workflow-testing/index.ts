@@ -1,7 +1,11 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { SandboxRecord } from "@agentswf/contract/records";
+import {
+  type SandboxRecord,
+  STAGE_RECORD_VERSION,
+  type StageRecord,
+} from "@agentswf/contract/records";
 import {
   EXECUTABLE_WORKFLOW_KIND,
   type ExecutableWorkflow,
@@ -14,7 +18,9 @@ import { type Harness, sandboxTokens } from "@agentswf/harness";
 import { createFakeSandboxProvider } from "@agentswf/sandbox/testing/fake";
 import { messageOf } from "../errors";
 import { OPERATOR_ALIASES } from "../operator-aliases";
-import { runWorkflow, WorkflowRunError } from "../workflow-runner";
+import { createRun, readStageRecords, writeStageRecord } from "../runs";
+import { primaryFailure, WorkflowStopped } from "../stopped";
+import { runWorkflow, type SettledRun, WorkflowRunError } from "../workflow-runner";
 import { createScriptedDecisions, type DecisionRequest, type DecisionScript } from "./decisions";
 import {
   type AgentSandbox,
@@ -53,6 +59,14 @@ export type TestOptions = {
    * workflow gives it.
    */
   caller?: { harness: Harness };
+  /**
+   * Stages an earlier attempt recorded, by name: each value, or `undefined` for a stage that
+   * returns nothing. Given, the run is that run's continue, reusing them without calling their
+   * work, as `awf run --continue` would.
+   */
+  recorded?: Readonly<Record<string, JsonValue | undefined>>;
+  /** The stage the continue starts at, as `--from-stage`; it needs `recorded`. */
+  fromStage?: string;
 };
 
 /** What the run did. Under `parallel`, what started first is scheduling: read by key. */
@@ -81,6 +95,13 @@ export type TestRun<Result> = {
   agentOf(key: string): OpenedAgent;
   decisions: DecisionRequest[];
   logs: { message: string; fields?: JsonObject }[];
+  /**
+   * Each stage's record in the order entered, as the run wrote it to disk: sessions, times and
+   * reason included, which the run's own summaries leave out.
+   */
+  stages: StageRecord[];
+  /** How the attempt stopped, apart from a failure; absent when it didn't. */
+  stopped?: { reason: string; stage?: string };
 };
 
 /**
@@ -99,6 +120,9 @@ export async function testWorkflow<Args extends JsonValue, Result extends JsonVa
     noun: "compaction",
     option: "compactions",
   });
+  if (options.fromStage !== undefined && options.recorded === undefined) {
+    throw new Error("fromStage continues a run: give the stages it recorded as `recorded`");
+  }
   const stopping = new AbortController();
   const problems: string[] = [];
   const stallMs = options.stallMs ?? 2_000;
@@ -143,10 +167,37 @@ export async function testWorkflow<Args extends JsonValue, Result extends JsonVa
 
   let settled: { value: Result } | { error: unknown };
   let sandboxOf = new Map<string, AgentSandbox>();
+  let stages: StageRecord[] = [];
+  const runRoot = directory();
+  const run = await createRun(runRoot, {
+    id: "test",
+    workflow: definition.meta.name,
+    argv: [],
+    cwd,
+    sandbox: null,
+  }).catch((error: unknown) => {
+    for (const path of temporary) rmSync(path, { recursive: true, force: true });
+    throw error;
+  });
+  if (options.recorded) await recordEarlierAttempt(run.dir, options.recorded);
+  const recordedStages = async ({ stages: entered = [] }: SettledRun) => {
+    const records = await readStageRecords(run.dir);
+    // A stage the plan stopped has no record of this attempt's: the one there is an earlier one's.
+    return entered.flatMap(({ stage, attempt }) => {
+      const record = records.get(stage);
+      return record?.attempt === attempt ? [record] : [];
+    });
+  };
   events.onActivity();
   try {
     const result = await runWorkflow(definition, args, {
-      runRoot: directory(),
+      runRoot,
+      run: {
+        dir: run.dir,
+        id: run.record.id,
+        attempt: options.recorded ? 2 : 1,
+        ...(options.fromStage === undefined ? {} : { fromStage: options.fromStage }),
+      },
       cwd,
       deadline: { unixMilliseconds: Date.now() + (options.timeoutMs ?? 30 * 60_000) },
       signal: stopping.signal,
@@ -156,6 +207,8 @@ export async function testWorkflow<Args extends JsonValue, Result extends JsonVa
           installed: { srt: sandboxes.provider, docker: sandboxes.provider },
           default: "srt",
         },
+        sandboxesDir: directory(),
+        machineRoot: directory(),
         // A sandbox here launches nothing, so no harness's login is needed: a stand-in for each.
         environment: {
           ...process.env,
@@ -170,9 +223,13 @@ export async function testWorkflow<Args extends JsonValue, Result extends JsonVa
     });
     settled = { value: result.value };
     sandboxOf = sandboxesOf(result.sandboxes);
+    stages = await recordedStages(result);
   } catch (caught) {
     settled = { error: caught instanceof WorkflowRunError ? caught.cause : caught };
-    if (caught instanceof WorkflowRunError) sandboxOf = sandboxesOf(caught.sandboxes);
+    if (caught instanceof WorkflowRunError) {
+      sandboxOf = sandboxesOf(caught.sandboxes);
+      stages = await recordedStages(caught);
+    }
   } finally {
     clearTimeout(stall);
     for (const path of temporary) rmSync(path, { recursive: true, force: true });
@@ -210,7 +267,34 @@ export async function testWorkflow<Args extends JsonValue, Result extends JsonVa
     },
     decisions: decisions.asked,
     logs,
+    stages,
+    ...stoppedOf(settled),
   };
+}
+
+/**
+ * Writes `recorded` as attempt 1's succeeded stages into a run's folder, a second apart in the order
+ * given: a continue orders what is recorded by when each stage started.
+ */
+async function recordEarlierAttempt(
+  dir: string,
+  recorded: Readonly<Record<string, JsonValue | undefined>>,
+): Promise<void> {
+  let at = Date.now() - Object.keys(recorded).length * 1_000;
+  for (const [stage, value] of Object.entries(recorded)) {
+    const time = new Date(at).toISOString();
+    at += 1_000;
+    await writeStageRecord(dir, {
+      version: STAGE_RECORD_VERSION,
+      stage,
+      attempt: 1,
+      outcome: "succeeded",
+      started: time,
+      ended: time,
+      sessions: [],
+      ...(value === undefined ? {} : { value }),
+    });
+  }
 }
 
 function isExecutable<Args extends JsonValue, Result extends JsonValue>(
@@ -225,4 +309,16 @@ function sandboxesOf(sandboxes: readonly SandboxRecord[] | undefined): Map<strin
       agents.map(({ agent }) => [agent, { key, provider, spec, domains }] as const),
     ),
   );
+}
+
+/** Decided as `awf run` decides it: a stop is the run's first failure, whatever failed beside it. */
+function stoppedOf(
+  settled: { value: unknown } | { error: unknown },
+): Partial<Pick<TestRun<unknown>, "stopped">> {
+  if (!("error" in settled)) return {};
+  const stop = primaryFailure(settled.error);
+  if (!(stop instanceof WorkflowStopped)) return {};
+  return {
+    stopped: { reason: stop.reason, ...(stop.stage === undefined ? {} : { stage: stop.stage }) },
+  };
 }

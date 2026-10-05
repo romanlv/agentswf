@@ -1,6 +1,14 @@
 import type { JsonSchema } from "./schema";
-import type { AgentExecution, OperationRecord, SkillSource } from "./workflow/agents";
+import type {
+  AgentExecution,
+  AgentKey,
+  HarnessKind,
+  OperationRecord,
+  SkillSource,
+  TurnOutcome,
+} from "./workflow/agents";
 import type { DecisionRecord, Question } from "./workflow/decisions";
+import type { AttemptOutcome, StageSummary, UnfinishedOutcome } from "./workflow/executable";
 import type { JsonObject, JsonValue } from "./workflow/json";
 import type {
   Domain,
@@ -9,6 +17,7 @@ import type {
   SandboxKey,
   SandboxSpec,
 } from "./workflow/sandboxes";
+import type { StageOutcome } from "./workflow/workflow";
 
 /** What the run directory records about one call. The format only; the engine does the I/O. */
 export type CallSpec = {
@@ -19,14 +28,14 @@ export type CallSpec = {
 
 /**
  * Which channel carried a candidate value — `control-plane` in production. A string, because
- * attempts recorded by the archived experiments name channels of their own.
+ * candidates recorded by the archived experiments name channels of their own.
  */
-export type AttemptSource = string;
+export type CandidateSource = string;
 
 /** Every candidate value, accepted or not. A rejection is evidence, so it is never dropped. */
-export type Attempt = {
+export type Candidate = {
   at: string;
-  source: AttemptSource;
+  source: CandidateSource;
   accepted: boolean;
   raw: string;
   error?: string;
@@ -157,16 +166,24 @@ export type RunAccounting = {
   startedAt: string;
   finishedAt: string;
   wallMs: number;
+  /**
+   * What `byStage` groups by: the workflow's stages, or, for a run without any, the call path and
+   * key prefix.
+   */
+  grouping: "stages" | "prefix";
   /** `mixed` when agents whose billing is known disagree; `unknown` when none is known. */
   billing: Billing | "mixed";
   totals: AccountingFigures;
-  /** A stage is the call path and the agent or decision key's prefix before `:`, joined with `/`. */
+  /**
+   * Each workflow stage entered, in order, a reused one at zero, then `(no stage)` for what ran
+   * between stages. A run without stages groups by the call path and the agent or decision key's
+   * prefix before `:`, joined with `/`.
+   */
   byStage: (AccountingFigures & { stage: string; spanMs: number })[];
   byModel: ModelFigures[];
   byAgent: (Omit<AccountingFigures, "decisions"> & {
     callPath: string[];
     agent: string;
-    stage: string;
     execution: AgentExecution;
     billing: Billing;
   })[];
@@ -226,19 +243,138 @@ export type AgentSkillsRecord = {
   home?: string;
 };
 
-export const OUTPUT_RECORD_VERSION = 4 as const;
+export const RUN_RECORD_VERSION = 1 as const;
 
 /**
- * A run, as the operator CLI keeps it in `output.json` and prints it with `--json`. A run that
- * failed, timed out or was cancelled keeps what it spent too; only a succeeded one has a value.
+ * `run.json`: what a run is, written once as its folder is claimed. A run's status, current stage
+ * and last attempt are read off its other files, so none of them is here to go stale.
+ */
+export type RunRecord = {
+  version: typeof RUN_RECORD_VERSION;
+  /** Unique within its workflow; its folder's name. */
+  id: string;
+  /** The workflow's `meta.name`, never its file. */
+  workflow: string;
+  /** As given, not as parsed: a continue prepares it again with the code as it is then. */
+  argv: string[];
+  /** Where every attempt works. */
+  cwd: string;
+  /** `awf run --sandbox`'s spec, as its file gave it, which every attempt runs in. */
+  sandbox: JsonValue | null;
+  created: string;
+};
+
+export const ATTEMPT_RECORD_VERSION = 1 as const;
+
+/**
+ * `attempts/{attempt}.json`: one `awf run` of a run. Written whole when the attempt claims its number, and
+ * again when it ends, with its ending.
+ */
+export type AttemptRecord = {
+  version: typeof ATTEMPT_RECORD_VERSION;
+  attempt: number;
+  /** The file it ran, for the record; never identity. */
+  file: string;
+  /** The workflow's `meta.version`, when it gives one. */
+  workflowVersion?: string;
+  flags: { timeout: string; fromStage?: string };
+  /** With `processStart`, what makes the attempt checkably live: a pid alone may be reused. */
+  pid: number;
+  /** As `ps -o lstart=` gives it, as an ISO time to the second. */
+  processStart: string;
+  started: string;
+  ended?: string;
+  outcome?: AttemptOutcome;
+  /** The stage the attempt ended in; absent when it ended between stages. */
+  stage?: string;
+  /** Why it did not complete. */
+  reason?: string;
+  /** Each stage it entered that ran or was reused, in order. */
+  stages?: AttemptStage[];
+  /**
+   * What it cost, as far as a run's total needs: `output.json` holds the last attempt's in full,
+   * and turns carry no spend, so an earlier attempt's is kept here. Absent for an interrupted one.
+   */
+  accounting?: AttemptAccounting;
+};
+
+/** What an attempt's file keeps of its accounting: what a run's total sums. */
+export type AttemptAccounting = Pick<
+  RunAccounting,
+  "basis" | "wallMs" | "grouping" | "billing" | "totals" | "byStage" | "unpriced"
+>;
+
+/** A stage an attempt entered, as its files record it: no value, which `stages/` holds. */
+export type AttemptStage = Omit<StageSummary, "value">;
+
+export const STAGE_RECORD_VERSION = 1 as const;
+
+/**
+ * `stages/{stage}.json`: the run's current record of a stage, written whole when the stage ends,
+ * by the attempt that ran it.
+ */
+export type StageRecord = {
+  version: typeof STAGE_RECORD_VERSION;
+  stage: string;
+  /** The attempt that ran it. */
+  attempt: number;
+  outcome: StageOutcome;
+  /** Why it did not succeed. */
+  reason?: string;
+  started: string;
+  ended: string;
+  workflowVersion?: string;
+  /** The agents' native sessions its turns used. */
+  sessions: { agent: AgentKey; harness: HarnessKind; session: string }[];
+  /** The stage's own one line, from its `summary`. */
+  summary?: string;
+  /** As returned, after a JSON round trip; absent for a stage that returns nothing. */
+  value?: JsonValue;
+};
+
+export const TURN_RECORD_VERSION = 1 as const;
+
+/** What a line of `turns.jsonl` keeps of its operation's record. */
+export const TURN_OPERATION_FIELDS = [
+  "agent",
+  "operationId",
+  "execution",
+  "stage",
+  "label",
+  "deliveredAt",
+  "settledAt",
+  "sessions",
+] as const satisfies readonly (keyof OperationRecord)[];
+
+/**
+ * A line of `turns.jsonl`: a turn, nudges included, or a compaction, as it settled, with the attempt
+ * it was in. Its `sessions` are its agent's as of then: the last is the one it ran on. What it spent
+ * is read from its sessions once the attempt ends, so a line has none.
+ */
+export type TurnRecord = {
+  version: typeof TURN_RECORD_VERSION;
+  attempt: number;
+  kind: "turn" | "compact";
+  outcome: TurnOutcome<JsonValue>["kind"];
+} & Pick<OperationRecord, (typeof TURN_OPERATION_FIELDS)[number]>;
+
+export const OUTPUT_RECORD_VERSION = 5 as const;
+
+/**
+ * An attempt, as the operator CLI keeps it in `output.json` and prints it with `--json`, in the
+ * words of its attempt file. One that didn't complete keeps what it spent too; only a completed one
+ * has a value.
  */
 export type OutputRecord = {
   version: typeof OUTPUT_RECORD_VERSION;
+  /** The run's id, the same in every attempt. */
   runId: string;
+  /** The attempt that wrote this record: `output.json` is the last ended attempt's. */
+  attempt: number;
   workflow: { name: string; file: string };
   accounting: RunAccounting;
   usage: SettledOperation[];
-  /** The run's artifact directory. */
+  /** The run's folder. */
   artifacts: string;
   /**
    * Each sandbox the run opened, once. Absent when it opened none. Readers must not switch
@@ -249,19 +385,16 @@ export type OutputRecord = {
   skills?: AgentSkillsRecord[];
   /** Every decision the run asked, in the order asked. Absent when it asked none. */
   decisions?: SettledDecision[];
+  /** Each stage the attempt entered, as its attempt file has them; absent when none. */
+  stages?: AttemptStage[];
+  /** The workflow's Markdown report, when it wrote one. */
+  report?: string;
 } & (
+  | { outcome: "completed"; value: JsonValue }
   | {
-      outcome: "succeeded";
-      value: JsonValue;
-      /** The workflow's Markdown report, when it wrote one. */
-      report?: string;
-    }
-  | {
-      /**
-       * `cancelled` is the operator stopping the run, and wins over the others. `timed-out` is the
-       * run's own deadline ending it; a deadline the workflow set and let escape is `failed`.
-       */
-      outcome: "failed" | "cancelled" | "timed-out";
-      error: string;
+      outcome: UnfinishedOutcome;
+      reason: string;
+      /** The stage the attempt ended in; absent when it ended between stages. */
+      stage?: string;
     }
 );

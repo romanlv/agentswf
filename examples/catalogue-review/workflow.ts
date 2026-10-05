@@ -312,7 +312,7 @@ export function defineCatalogueReview(
       };
     },
     present: presentCatalogueResult,
-    report: reportCatalogueResult,
+    report: (result) => (result === undefined ? undefined : reportCatalogueResult(result)),
   });
 }
 

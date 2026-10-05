@@ -41,9 +41,9 @@ agentswf keeps the workflow in code you own, and moves the unreliable parts into
 ```
 
 A workflow is a TypeScript module with a default export. `awf run ./workflow.ts` loads it, runs
-it, prints its result and keeps everything under `~/.awf/runs`. Control flow is yours: `for`,
-`if`, `Promise.all`, whatever. The engine gives you agents, sandboxes, and `parallel` with
-labelled stages it shows live in the terminal.
+it, prints its result and keeps everything in the project's `.awf/runs`. Control flow is yours: `for`,
+`if`, `Promise.all`, whatever. The engine gives you agents, sandboxes, `parallel` with
+labelled groups it shows live in the terminal, and stages a run continues from.
 
 **A few words used below:**
 
@@ -146,7 +146,8 @@ cd ~/workflows && awf run ./hello.ts
 
 It prints the result as JSON, with the agent's answer, `{ "answer": 391 }`, under `value`, and a
 line on time, tokens and estimated cost. The run's full record, including `output.json`, stays
-under `~/.awf/runs` (`--run-root` moves it).
+in `.awf/runs/{workflow}/{id}` under the working directory (`--run-root` moves it), and
+`--continue {id}` runs it again with the arguments it was started with.
 
 ### Things to know
 
@@ -304,7 +305,8 @@ it sooner). Claude, codex and pi compact, in a pane or headless; cursor refuses,
 is left as it was.
 
 [`examples/feature-delivery`](examples/feature-delivery/) is the bigger design: plan, implement,
-review and revise. It typechecks but hasn't run yet.
+review and revise, each a stage, so a step that stops is redone by `--continue` and the ones before
+it are reused. It typechecks and its tests run, but it hasn't run live yet.
 
 ### Put agents in a sandbox, with exactly the skills they need
 
@@ -425,7 +427,7 @@ Herdr pane, or when its sandbox cannot reach Herdr. Under codex's default sandbo
 | [`triage`](examples/triage/) | typed decisions with probabilities | `awf run examples/triage/workflow.ts` |
 | [`compaction`](examples/compaction/) | an agent compacted with a focus, then asked what it kept, per harness | `awf run examples/compaction/workflow.ts -- claude pi` |
 | [`calling-session`](examples/calling-session/) | a workflow driving the session it was started from | `awf run --here examples/calling-session/workflow.ts`, from an agent |
-| [`feature-delivery`](examples/feature-delivery/) | plan, implement, review, revise | a design that typechecks; it hasn't run yet |
+| [`feature-delivery`](examples/feature-delivery/) | plan, implement, review, revise, as stages | tests run; not yet run live |
 
 [`examples/README.md`](examples/README.md) has the details of each. The rest of the folder is test
 apparatus and a shared helper.
@@ -458,7 +460,7 @@ have types in the API already, and calling them fails with a clear "unavailable"
 ## Names
 
 The project is **agentswf**. **`awf`** is the command you run, and what it owns keeps that
-name (`~/.awf/runs`, `AWF_*`). **`wf`** is the command an agent runs inside its session to answer.
+name (`.awf/runs`, `AWF_*`). **`wf`** is the command an agent runs inside its session to answer.
 A workflow imports **`agentswf/workflow`**. The packages here are **`@agentswf/*`**.
 
 ## Contributing and design docs

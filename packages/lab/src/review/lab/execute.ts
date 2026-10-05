@@ -311,8 +311,16 @@ const identityOf = (subject: Subject<unknown>): Identity => ({
   commit: subject.commit,
 });
 
-function trialId(now: Date): string {
-  const stamp = now
+function clock(lab: Lab): Date {
+  return (lab.now ?? (() => new Date()))();
+}
+
+/**
+ * An id for a trial and its run, or any other run the lab starts: unique among all of them, as the
+ * lab finds a run by its id alone.
+ */
+export function newRunId(lab: Lab): string {
+  const stamp = clock(lab)
     .toISOString()
     .replace(/[-:]/g, "")
     .replace(/\.\d+Z$/, "Z");
@@ -356,7 +364,9 @@ async function runTrial(
     // The dataset's folder, so a control that reads the key names no absolute path in its argv.
     const folder = dirname(info.dir);
     const argv = fill(defined.argv, { base, head, request, dataset: folder });
+    const id = newRunId(lab);
     const result = await runIsolated(lab, scratch, {
+      id,
       workflow: file,
       cwd: code,
       timeout: defined.timeout,
@@ -367,7 +377,7 @@ async function runTrial(
     const run = summaryOf(result);
     let findings: ReviewFinding[] = [];
     let failure: string | undefined;
-    if (result.record?.outcome === "succeeded") {
+    if (result.record?.outcome === "completed") {
       try {
         const returned = defined.read(result.record.value);
         if (returned === undefined) throw new Error("it returned nothing");
@@ -378,11 +388,11 @@ async function runTrial(
       } catch (error) {
         failure = `the variant's read failed: ${String(error)}`;
       }
-    } else failure = `the run ${run.outcome}: ${run.error ?? "no detail"}`;
-    const now = (lab.now ?? (() => new Date()))();
+    } else failure = `the run ${run.outcome}: ${run.reason ?? "no detail"}`;
+    const now = clock(lab);
     const trial: Trial = {
       format: TRIAL_FORMAT,
-      id: trialId(now),
+      id,
       at: now.toISOString(),
       variant: identityOf(variant),
       dataset,
@@ -470,10 +480,18 @@ async function runIsolated(
     });
   } finally {
     try {
-      for (const entry of readdirSync(runRoot)) renameSync(join(runRoot, entry), join(runs, entry));
+      // Each run is `{workflow}/{id}`, its id the trial's, which no other run has.
+      for (const workflow of readdirSync(runRoot).filter((name) => !name.startsWith("."))) {
+        mkdirSync(join(runs, workflow), { recursive: true });
+        for (const id of readdirSync(join(runRoot, workflow))) {
+          if (!id.startsWith("."))
+            renameSync(join(runRoot, workflow, id), join(runs, workflow, id));
+        }
+      }
       rmSync(runRoot, { recursive: true, force: true });
-    } catch {
-      // Left where it is, still found by its id; the run's own error is the one to report.
+    } catch (error) {
+      // The run's own error is the one to report; its records are said to be where show won't look.
+      lab.log(`the contained run stays in ${runRoot}, not moved into ${runs}: ${String(error)}`);
     }
   }
 }
@@ -516,6 +534,7 @@ async function runScorer(
       argv.push("--settled", file);
     }
     const result = await lab.runner({
+      id: newRunId(lab),
       workflow: file,
       cwd: code,
       timeout: defined.timeout,
@@ -523,13 +542,13 @@ async function runScorer(
       runRoot: lab.workspace.runs,
     });
     const run = summaryOf(result);
-    if (result.record?.outcome !== "succeeded") {
+    if (result.record?.outcome !== "completed") {
       return {
         run,
         result: {
           status: "failed",
           reason: `the run ${run.outcome}`,
-          problems: run.error ? [run.error] : [],
+          problems: run.reason ? [run.reason] : [],
         },
       };
     }
@@ -642,9 +661,9 @@ async function scoreChosen(
   // A run that failed before any agent ran is the scorer refusing its arguments, `--settled` most
   // likely: it cost nothing and says nothing about the findings, so it is reported, not kept. Labels
   // that fail their check are a result, and are kept.
-  if (scored.run?.outcome !== "succeeded" && (scored.run?.models.length ?? 0) === 0) {
+  if (scored.run?.outcome !== "completed" && (scored.run?.models.length ?? 0) === 0) {
     throw new Error(
-      `${scorer.label} failed before any agent ran, so it may not take --settled: ${scored.run?.error ?? "no detail"}`,
+      `${scorer.label} failed before any agent ran, so it may not take --settled: ${scored.run?.reason ?? "no detail"}`,
     );
   }
   const partial: PartialScore = {

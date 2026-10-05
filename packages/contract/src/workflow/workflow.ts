@@ -12,9 +12,12 @@ export type StepId = string;
 export type SignalId = string;
 
 export interface WorkflowMeta {
+  /** What its runs are kept under; a file may move or be copied and stay the same workflow. */
   name: string;
   description: string;
   whenToUse?: string;
+  /** Semver, recorded with each attempt. */
+  version?: string;
 }
 
 export interface StepSpec {
@@ -54,8 +57,24 @@ export interface Signals {
   receive<T extends JsonValue>(spec: SignalSpec, schema: OutputSchema<T>): Promise<T>;
 }
 
+/**
+ * A stage's end: `stopped` is `workflow.stop` inside it; `failed` covers a throw, a value its
+ * schema rejects, and a cancellation.
+ */
+export type StageOutcome = "succeeded" | "stopped" | "failed";
+
+export interface StageOptions<T extends JsonValue> {
+  /** Checks the value when the stage records it, and whenever a continue reuses it. */
+  result: OutputSchema<T>;
+  /** One line about the value, for the view and the record. */
+  summary?: (value: T) => string;
+}
+
 export interface WorkflowContext {
+  /** The run's id, the same in every attempt of it. */
   readonly runId: WorkflowRunId;
+  /** Which `awf run` of the run this is: 1, then one more for each continue. */
+  readonly attempt: number;
   /** Working directory and hard bound for this invocation, supplied and enforced by the engine. */
   readonly cwd: string;
   readonly deadline: AbsoluteDeadline;
@@ -72,6 +91,26 @@ export interface WorkflowContext {
     operation: (item: Item, index: number) => Promise<Result>,
     options?: ParallelOptions,
   ): Promise<Result[]>;
+
+  /**
+   * A named step of the run, recorded when it ends. One stage is open at a time, and a name is
+   * entered once per attempt; parallel work goes inside a stage. A stage with `result` returns a
+   * value it accepts; one without returns nothing.
+   */
+  stage(name: string, work: () => Promise<void>): Promise<void>;
+  stage<T extends JsonValue>(
+    name: string,
+    options: StageOptions<T>,
+    work: () => Promise<T>,
+  ): Promise<T>;
+
+  /**
+   * Ends the attempt `stopped`, apart from failed: in the stage it is called from, which a continue
+   * then redoes, or between stages, where a continue checks again. Caught, it fails the stage that
+   * caught it, or the attempt when the workflow returns. `return workflow.stop(…)` narrows where a
+   * bare call doesn't.
+   */
+  stop(reason: string): never;
 
   call<Args extends JsonValue, Result extends JsonValue>(
     spec: WorkflowCallSpec<Args, Result>,

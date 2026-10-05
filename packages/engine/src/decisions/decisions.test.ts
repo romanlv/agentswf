@@ -9,7 +9,6 @@ import {
   type JsonValue,
   score,
   type WorkflowContext,
-  type WorkflowDefinition,
   yesNo,
 } from "@agentswf/contract/workflow";
 import { createSingleSessionHostFactory } from "@agentswf/harness";
@@ -17,9 +16,10 @@ import type { AgentRuntimeConfig } from "@agentswf/harness/adapter";
 import { createFakeAdapter } from "@agentswf/harness/testing";
 import { describeAccounting } from "../accounting/format";
 import { PUBLISHED_PRICES } from "../accounting/prices";
-import { summarizeRun } from "../accounting/summary";
-import { createTempRunDirs, future } from "../testing";
-import { runWorkflow, startWorkflow, WorkflowRunError } from "../workflow-runner";
+import { sumAttempts, summarizeRun } from "../accounting/summary";
+import { openRun } from "../runs";
+import { createTempRunDirs, future, runNew, startNew, workflowOf } from "../testing";
+import { WorkflowRunError } from "../workflow-runner";
 import { digestOf, RunDecisions } from "./directory";
 import { confidentResponse, createFakeDecisionProvider } from "./fake";
 import { type DecisionInstallation, DecisionProviderError, type ProviderAnswer } from "./seam";
@@ -103,7 +103,10 @@ describe("decisions.decide", () => {
     expect(record!.error).toBeUndefined();
 
     const artifact = JSON.parse(
-      await readFile(join(runRoot, result.runId, record!.artifact), "utf8"),
+      await readFile(
+        join((await openRun(runRoot, "decisions", result.runId)).dir, record!.artifact),
+        "utf8",
+      ),
     );
     expect(artifact).toEqual({
       record,
@@ -308,7 +311,7 @@ describe("decisions.decide", () => {
           signal.addEventListener("abort", () => reject(signal.reason), { once: true });
         }),
     ]);
-    const handle = await startWorkflow(
+    const handle = await startNew(
       workflowOf(async (context) => {
         await context.decisions.decide({
           key: "held",
@@ -403,7 +406,7 @@ describe("decisions.decide", () => {
     expect(provider.requests).toEqual([]);
     expect(result.decisions).toBeUndefined();
 
-    const none = await runWorkflow(
+    const none = await runNew(
       workflowOf((context) =>
         context.decisions.decide({ key: "k", model: "jev", state: "s", questions: TRIAGE }).then(
           () => "answered",
@@ -581,6 +584,23 @@ describe("decision accounting", () => {
   });
   const TIMES = { startedAt: "2026-09-23T10:00:00.000Z", finishedAt: "2026-09-23T10:00:05.000Z" };
 
+  test("decisions asked in a stage count there, and one between stages under (no stage)", () => {
+    const summary = summarizeRun(
+      [],
+      PUBLISHED_PRICES,
+      TIMES,
+      [decision({ stage: "triage" }), decision({ key: "match:f2" })],
+      [{ stage: "triage", spanMs: 0 }],
+    );
+    expect(summary.grouping).toBe("stages");
+    expect(summary.byStage.map(({ stage, decisions }) => [stage, decisions?.calls])).toEqual([
+      ["triage", 1],
+      ["(no stage)", 1],
+    ]);
+    const twice = sumAttempts([summary, summary]);
+    expect(twice.totals.decisions).toMatchObject({ calls: 4, known: 4 });
+  });
+
   test("an unpriced decision model is named, and its calls are not priced", () => {
     const summary = summarizeRun([], PUBLISHED_PRICES, TIMES, [
       decision({}),
@@ -650,7 +670,7 @@ function run<Result extends JsonValue>(
   runRoot: string,
   body: (context: WorkflowContext) => Promise<Result>,
 ) {
-  return runWorkflow(workflowOf(body), null, options(provider, runRoot));
+  return runNew(workflowOf(body, { name: "decisions" }), null, options(provider, runRoot));
 }
 
 function options(provider: ReturnType<typeof createFakeDecisionProvider>, runRoot: string) {
@@ -666,12 +686,6 @@ function emptyRuntime(): AgentRuntimeConfig {
     aliases: {},
     host: createSingleSessionHostFactory(createFakeAdapter({ script: () => ({}) })),
   };
-}
-
-function workflowOf<Result extends JsonValue>(
-  run: (context: WorkflowContext) => Promise<Result>,
-): WorkflowDefinition<null, Result> {
-  return { meta: { name: "decisions", description: "decisions" }, run };
 }
 
 function unexpected(): never {

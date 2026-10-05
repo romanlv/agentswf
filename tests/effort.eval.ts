@@ -24,7 +24,7 @@ export async function problems(
   record: OutputRecord | undefined,
   logged: (check: EffortCheck) => Promise<Ran[] | undefined> = harnessLog,
 ): Promise<string[]> {
-  if (exitCode !== 0 || record?.outcome !== "succeeded") {
+  if (exitCode !== 0 || record?.outcome !== "completed") {
     return [`run did not succeed: exit ${exitCode}, outcome ${record?.outcome ?? "missing"}`];
   }
   const { checks, word } = record.value as EffortResult;
@@ -161,7 +161,7 @@ if (import.meta.main) {
       {
         ok: failed.length === 0,
         failed,
-        checks: record?.outcome === "succeeded" ? (record.value as EffortResult).checks : undefined,
+        checks: record?.outcome === "completed" ? (record.value as EffortResult).checks : undefined,
         estimateUsd: record?.accounting.totals.estimate,
         artifacts: record?.artifacts,
       },

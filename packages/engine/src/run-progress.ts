@@ -1,7 +1,8 @@
-import type { AgentKey, JsonValue, TurnOutcome } from "@agentswf/contract/workflow";
+import type { TurnRecord } from "@agentswf/contract/records";
+import type { AgentKey, OperationRecord } from "@agentswf/contract/workflow";
 
 /** One labelled `parallel` call. Its label need not be unique; its position is. */
-export type StageProgress = {
+export type GroupProgress = {
   label: string;
   total: number;
   /** Items handed to the operation so far; the rest wait for a free slot. */
@@ -11,17 +12,17 @@ export type StageProgress = {
   endedAt?: number;
 };
 
-export type TurnProgress = {
+type TurnProgress = Pick<TurnRecord, "kind" | "stage" | "label"> & {
   startedAt: number;
   settledAt?: number;
   /** Absent while the turn runs. */
-  outcome?: TurnOutcome<JsonValue>["kind"];
+  outcome?: TurnRecord["outcome"];
   reason?: string;
 };
 
 export type AgentProgress = {
-  /** Index into `stages` of the stage that opened the agent. */
-  stage?: number;
+  /** Index into `groups` of the labelled `parallel` that opened the agent. */
+  group?: number;
   turns: number;
   /** The agent it was forked from. */
   forkedFrom?: AgentKey;
@@ -29,21 +30,24 @@ export type AgentProgress = {
   turn?: TurnProgress;
 };
 
-/** What the engine knows about a run's progress beyond each agent's harness state. */
+/**
+ * What the engine knows about a run's progress beyond each agent's harness state and the stages,
+ * which the stage ledger keeps.
+ */
 export class RunProgress {
-  readonly #stages: StageProgress[] = [];
+  readonly #groups: GroupProgress[] = [];
   readonly #agents = new Map<AgentKey, AgentProgress>();
 
-  stage(label: string, total: number): StageProgress {
-    const stage = { label, total, started: 0, done: 0, startedAt: Date.now() };
-    this.#stages.push(stage);
-    return stage;
+  group(label: string, total: number): GroupProgress {
+    const group = { label, total, started: 0, done: 0, startedAt: Date.now() };
+    this.#groups.push(group);
+    return group;
   }
 
-  agentOpened(key: AgentKey, stage: StageProgress | undefined): void {
+  agentOpened(key: AgentKey, group: GroupProgress | undefined): void {
     if (this.#agents.has(key)) return;
-    const index = stage ? this.#stages.indexOf(stage) : -1;
-    this.#agents.set(key, { turns: 0, ...(index >= 0 ? { stage: index } : {}) });
+    const index = group ? this.#groups.indexOf(group) : -1;
+    this.#agents.set(key, { turns: 0, ...(index >= 0 ? { group: index } : {}) });
   }
 
   /** A fork that was not made, whose key is free again. */
@@ -57,11 +61,15 @@ export class RunProgress {
     if (agent) agent.forkedFrom = from;
   }
 
-  turnStarted(key: AgentKey): void {
+  turnStarted(
+    key: AgentKey,
+    tags: Pick<OperationRecord, "stage" | "label"> = {},
+    kind: TurnRecord["kind"] = "turn",
+  ): void {
     const agent = this.#agents.get(key);
     if (!agent) return;
     agent.turns += 1;
-    agent.turn = { startedAt: Date.now() };
+    agent.turn = { kind, startedAt: Date.now(), ...tags };
   }
 
   turnSettled(key: AgentKey, outcome: TurnProgress["outcome"], reason?: string): void {
@@ -72,7 +80,7 @@ export class RunProgress {
     if (reason !== undefined) turn.reason = reason;
   }
 
-  snapshot(): { stages: StageProgress[]; agents: Map<AgentKey, AgentProgress> } {
-    return { stages: structuredClone(this.#stages), agents: structuredClone(this.#agents) };
+  snapshot(): { groups: GroupProgress[]; agents: Map<AgentKey, AgentProgress> } {
+    return { groups: structuredClone(this.#groups), agents: structuredClone(this.#agents) };
   }
 }

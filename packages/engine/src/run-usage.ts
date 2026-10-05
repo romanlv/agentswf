@@ -37,7 +37,7 @@ export type AccountedAgent = {
 };
 
 /** One operation's place in the run, held from before its dispatch so records keep that order. */
-export type OperationEntry = {
+type OperationEntry = {
   /**
    * Records what is known when the operation settles; spend and billing wait for the run's end.
    * `finishing` is an answered turn the host left finishing, whose charges are added when it ends.
@@ -49,10 +49,17 @@ export type OperationEntry = {
   ): OperationRecord;
 };
 
+/** Where an operation ran: its workflow stage, absent between stages, and its turn's label. */
+export type OperationTags = Pick<OperationRecord, "stage" | "label">;
+
 /** One agent's part of the run's ledger. */
 export type AgentLedger = {
   /** `execution` is read as the operation settles: the agent's settings it ran at. */
-  reserve(operationId: string, execution: () => AgentExecution): OperationEntry;
+  reserve(
+    operationId: string,
+    execution: () => AgentExecution,
+    tags?: OperationTags,
+  ): OperationEntry;
 };
 
 export type RunLedger = {
@@ -103,7 +110,7 @@ export function createRunLedger({
     agent(agent) {
       agents.push(agent);
       return {
-        reserve(operationId, execution) {
+        reserve(operationId, execution, tags = {}) {
           const operation: Operation = { agent, costs: [] };
           operations.push(operation);
           return {
@@ -117,6 +124,8 @@ export function createRunLedger({
                   ? {}
                   : { deliveredAt: new Date(times.deliveredAt).toISOString() }),
                 settledAt: new Date(times.settledAt).toISOString(),
+                ...(tags.stage === undefined ? {} : { stage: tags.stage }),
+                ...(tags.label === undefined ? {} : { label: tags.label }),
               };
               operation.costs = [...charges];
               if (finishing) {

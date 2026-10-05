@@ -12,7 +12,7 @@ import { digestOf } from "../../fixtures/seal";
 import { checkSchema, describeProblems } from "../../format/validate";
 import type { ScorerSettings, VariantSettings } from "../../format/variant";
 import { runAgainst } from "../against";
-import { type CaseInfo, type Lab, type Subject, statesOf } from "../execute";
+import { type CaseInfo, type Lab, newRunId, type Subject, statesOf } from "../execute";
 import { currentTrials } from "../plan";
 import type { ReportComparison } from "../report";
 import { summaryOf } from "../runner";
@@ -176,6 +176,7 @@ export async function runLoop(setting: LoopSetting, request: LoopRequest): Promi
       const spec = join(tryDir, "sandbox.json");
       writeFileSync(spec, JSON.stringify({ srt: {}, write: [candidateDir] }));
       const proposed = await lab.runner({
+        id: newRunId(lab),
         workflow: PROPOSER,
         cwd: tryDir,
         timeout: "30m",
@@ -191,15 +192,16 @@ export async function runLoop(setting: LoopSetting, request: LoopRequest): Promi
       if (priced === undefined)
         lab.log(`try ${n}: the proposer's run is unpriced; counted as $${proposer.toFixed(2)}`);
       if (priced !== undefined && priced > 0) proposers.push(priced);
-      const value = proposed.record?.outcome === "succeeded" ? proposed.record.value : undefined;
+      const { record } = proposed;
+      const value = record?.outcome === "completed" ? record.value : undefined;
       const checked = checkSchema(HypothesisSchema, value);
       if (!checked.ok) {
         decided({
           decision: "failed",
           why:
-            proposed.record?.outcome === "succeeded"
+            record?.outcome === "completed"
               ? describeProblems("the proposer's answer", checked.problems)
-              : `the proposer's run ${proposed.record?.outcome ?? "never started"}: ${proposed.record?.error ?? proposed.stderr.trim().split("\n").at(-1) ?? ""}`,
+              : `the proposer's run ${record?.outcome ?? "never started"}: ${record?.reason ?? proposed.stderr.trim().split("\n").at(-1) ?? ""}`,
           spend: { proposer, trials: 0 },
         });
         continue;

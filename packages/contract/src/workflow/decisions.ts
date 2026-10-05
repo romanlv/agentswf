@@ -122,6 +122,8 @@ export interface DecisionSpec<Q extends Record<string, Question> = Record<string
 export type DecisionRecord = {
   callPath: string[];
   key: string;
+  /** The workflow stage it was asked in; absent between stages. */
+  stage?: string;
   /** The alias the workflow asked for. */
   alias: DecisionAliasName;
   provider: string;

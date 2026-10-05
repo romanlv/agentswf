@@ -14,6 +14,8 @@ export type Turn = {
   /** Absent for a turn that asks for text. */
   schema?: OutputSchema;
   label?: string;
+  /** The workflow stage it runs in; absent between stages. */
+  stage?: string;
   cwd: string;
   /** The model the agent ran this turn at: as opened, then as its last `set` left it. */
   model: string;

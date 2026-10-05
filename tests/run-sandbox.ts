@@ -95,7 +95,7 @@ export function problems(evidence: Evidence): string[] {
   const { lab } = evidence;
   if (lab.exitCode !== 0) found.push(`awf-lab run exited ${lab.exitCode}: ${lab.log}`);
   const trial = lab.trial;
-  if (trial?.run.outcome !== "succeeded") {
+  if (trial?.run.outcome !== "completed") {
     found.push(
       `the trial did not succeed: ${trial?.run.outcome ?? "no trial"} ${trial?.failure ?? ""}`,
     );
@@ -142,14 +142,14 @@ export function problems(evidence: Evidence): string[] {
     found.push("the reader never read the request");
   }
   if (!lab.keyOnHost) found.push("the key is not on the host, so its refusal proves nothing");
-  const value = lab.record?.outcome === "succeeded" ? lab.record.value : undefined;
+  const value = lab.record?.outcome === "completed" ? lab.record.value : undefined;
   if (`${lab.transcripts}${JSON.stringify(value ?? {})}`.includes(KEY_TEXT)) {
     found.push("the key reached an agent");
   }
 
   const { quickCheck } = evidence;
   const checks =
-    quickCheck.record?.outcome === "succeeded"
+    quickCheck.record?.outcome === "completed"
       ? (quickCheck.record.value as QuickCheckResult).checks
       : [];
   const right = checks.flatMap((c) => c.answers).filter((a) => a.answer === a.expected).length;

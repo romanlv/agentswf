@@ -1,17 +1,17 @@
 ---
 title: Runs, attempts and stages
 type: design
-status: draft
 story: "[[018-workflow-stages]]"
 ---
 
 # Runs, attempts and stages
 
 How a workflow run is identified, kept on disk, continued, and broken down into stages, as one
-model. [[018-workflow-stages|Story 018]] builds it. This page is the model; the story is the plan.
+model. Decided in [[0011-a-run-continues-from-its-stages|ADR 0011]], built by
+[[018-workflow-stages|story 018]]. This page is the model; the ADR is the decision and its reasons.
 
 Read in order: the picture, the author API, the files, then one attempt from start to end. The rest
-is what breaks it, what stays, and what was decided.
+is what breaks it, what stays, and what comes later.
 
 ## The model in one picture
 
@@ -65,8 +65,8 @@ What a workflow sees. Everything else in this page is awf's.
 ```ts
 // packages/contract/src/workflow/executable.ts, beside prepare
 id?(args: Args): string;                       // the run's id, unless --id gives one
-present?(ending: Ending<Result>): string;      // was (result: Result)
-report?(ending: Ending<Result>): string;
+present?(value: Result, ending: Ending<Result>): string | undefined;           // a completed attempt's
+report?(value: Result | undefined, ending: Ending<Result>): string | undefined; // every attempt's
 
 // packages/contract/src/workflow/workflow.ts, on WorkflowContext
 readonly runId: string;                        // the run's id, the same in every attempt
@@ -77,7 +77,7 @@ stop(reason: string): never;
 
 type StageOptions<T> = {
   result: OutputSchema<T>;                     // checks the value when recorded and when reused
-  summary?: (value: T) => string;              // one line for the view and the reuse listing
+  summary?: (value: T) => string;              // one line for the view and the records listed
 };
 
 type Ending<Result> =
@@ -86,7 +86,7 @@ type Ending<Result> =
       stages: StageSummary[]; continue: string }; // continue: the command to go on
 
 type StageSummary = { stage: string; source: "ran" | "reused"; outcome: StageOutcome;
-                      attempt: number; summary?: string; value?: JsonValue };
+                      attempt: number; spanMs: number; summary?: string; value?: JsonValue };
 ```
 
 - **`stage`** runs `work` once, or reuses its record without calling it ([[#The stage plan]]). A
@@ -98,8 +98,10 @@ type StageSummary = { stage: string; source: "ran" | "reused"; outcome: StageOut
 - **Errors in the author's use**, each failing the attempt with a message naming the stage:
   - a name not matching `/^[a-z][a-z0-9-]*$/`;
   - entering a stage name a second time in one attempt;
-  - entering a stage while another is open (nested, or two at once from `parallel`);
-  - a stage inside a `call`'s child workflow.
+  - entering a stage while another is open (nested, or two at once from `parallel`).
+
+  A stage inside a `call`'s child workflow is ruled out too, but not checked: `call` isn't
+  available in the runner yet.
 - **`id(args)`** must return a valid id ([[#Ids]]); otherwise the run is refused (exit 2) before
   anything is created.
 
@@ -154,8 +156,8 @@ one just returned. Three things follow:
    recorded stages, so a test catches it.
 3. **Agent turns between stages run again on every attempt,** and an agent remembers nothing of
    reused stages. Opening an agent between stages is cheap; a turn there is paid for again on each
-   continue. awf allows it and tags the turn `(no stage)`; whether to put turns between stages is
-   the workflow's call. A lint rule may flag it later.
+   continue. awf allows it: the turn has no `stage`, and accounting counts it in a `(no stage)` row.
+   Whether to put turns between stages is the workflow's call. A lint rule may flag it later.
 
 ## State on disk
 
@@ -163,7 +165,7 @@ one just returned. Three things follow:
 
 State lives in the project, as Terraform's does: `.awf/` in the run's working directory (`--cwd`,
 else the shell's). `--run-root {dir}` replaces `.awf/runs` with `{dir}`, and lab uses it for bulk
-runs. Today's default, `~/.awf/runs`, goes; runs already there are not moved. awf writes
+runs. Runs from before, in `~/.awf/runs`, are not moved. awf writes
 `.awf/runs/.gitignore` containing `*` on first use, as pytest, mypy and ruff do for their caches,
 so no run is committed by accident, while a settings file beside it ([[operator-settings]]) can be.
 Git worktrees each have their own `.awf/`, as they do `.terraform/`.
@@ -193,15 +195,14 @@ so restarting a run twenty times adds twenty small files.
         replaced/
           qa.1.json            a record a later attempt redid, moved here: {stage}.{attempt that ran it}
         turns.jsonl            every turn, tagged with its attempt and stage; appended
-        calls/{callId}/        as today: call.json, candidates.jsonl, result.json
-        sandboxes/{uuid}/      as today: each sandbox's homes and quarantine
+        calls/{callId}/        call.json, candidates.jsonl, result.json
         output.json            the last ended attempt's: what `--json` prints
         report.md              the last ended attempt's, when the workflow writes one
 ```
 
-Today a run is `~/.awf/runs/invocation-{uuid}/{runId}/`, holding `calls/`, `sandboxes/`,
-`output.json` and `report.md`. Those stay as they are, one level up, shared by the run's attempts:
-calls and sandboxes are keyed by uuid, so attempts never collide.
+Calls, the output and the report are shared by the run's attempts: calls are keyed by uuid, so
+attempts never collide. Sandboxes live outside the project, in
+`~/.awf/sandboxes/{workflow}/{id}/{uuid}/` ([[#Sandboxes]]).
 
 ### Each file
 
@@ -226,24 +227,27 @@ calls and sandboxes are keyed by uuid, so attempts never collide.
 - No status, no current stage, no last attempt: all are read off the other files, so they can't go
   stale.
 
-**`attempts/{n}.json`**: one attempt: the claim that makes it the live one, then its ending.
+**`attempts/{attempt}.json`**: one attempt: the claim that makes it the live one, then its ending.
 
 ```json
 {
   "version": 1,
-  "n": 2,
+  "attempt": 2,
   "file": "/Users/roman/dev/braintrust/agent/workflows/implement-ticket/flow.ts",
   "workflowVersion": "1.2.1",
-  "flags": { "fromStage": null, "timeout": "10h" },
+  "flags": { "timeout": "10h" },
   "pid": 48211,
   "processStart": "2026-10-02T22:08:40Z",
   "started": "2026-10-02T22:08:41Z",
   "ended": "2026-10-02T22:41:09Z",
   "outcome": "completed",
   "stages": [
-    { "stage": "doc-review", "source": "reused", "attempt": 1, "summary": "docs/AIRS-1515.md" },
-    { "stage": "qa", "source": "ran", "outcome": "succeeded", "summary": "preview ok" }
-  ]
+    { "stage": "doc-review", "source": "reused", "outcome": "succeeded", "attempt": 1,
+      "spanMs": 0, "summary": "docs/AIRS-1515.md" },
+    { "stage": "qa", "source": "ran", "outcome": "succeeded", "attempt": 2,
+      "spanMs": 1712000, "summary": "preview ok" }
+  ],
+  "accounting": { … }
 }
 ```
 
@@ -251,15 +255,21 @@ Written twice, each time whole, and only by its own attempt:
 
 1. **At start**, without the ending. Creating it is the claim ([[#Why it is shaped like this]]).
 2. **At the end**, with `ended`, `outcome`, `stage` and `reason` (for any outcome but `completed`),
-   and `stages`: each stage entered, `ran` or `reused`, with its outcome and summary.
+   `stages`: each stage entered, `ran` or `reused`, with its outcome and summary (a stage the plan
+   stops as it is entered is there, `stopped`, as the view shows it, though it ran nothing and has
+   no record), and `accounting`:
+   its totals and `byStage`, which a run's total sums. `output.json` holds only the last attempt's,
+   and a turn's line has no spend to add up, so each attempt keeps its own.
 
-- `file`: the path it ran, for the record and the message when a run is continued from another
-  file. Not identity.
-- `workflowVersion`: compared with each record's on a continue.
+- `file`: the path it ran, for the record. Not identity.
+- `workflowVersion`: the workflow's `meta.version`, when it gives one; compared with each
+  record's on a continue.
+- `flags.fromStage`: only when `--from-stage` was given.
 - `pid` and `processStart` make liveness checkable without a lock file: the attempt is live while it
   has no `ended` and that process, started at that time, exists. A pid alone could be another
-  process after a reboot. Both sides read the start time the same way, `ps -o lstart= -p {pid}`
-  (macOS and Linux), and compare it to the second.
+  process after a reboot. Both sides read the start time the same way, `ps -o lstart= -p {pid}` in
+  UTC (macOS and Linux), and start times within one second match, since Linux derives `lstart`
+  from the boot time.
 
 **`stages/{stage}.json`**: the run's current record of a stage.
 
@@ -291,25 +301,34 @@ Written twice, each time whole, and only by its own attempt:
 - `sessions`: the agents' native sessions the stage used, for [[stopped-run-recovery]] and for
   reading what happened.
 
-**`turns.jsonl`**: each turn, as it settles.
+**`turns.jsonl`**: each turn, nudges included, and each compaction, as it settles; `kind` tells
+them apart.
 
 ```json
-{"version":1,"attempt":2,"at":"2026-10-02T22:15:02Z","stage":"qa","agent":"worker","label":null,"outcome":"answered","session":"5dbd8155-…","usage":{…}}
+{"version":1,"attempt":2,"kind":"turn","agent":"worker","operationId":"…","execution":{…},"stage":"qa","label":"preview","deliveredAt":"…","settledAt":"…","outcome":"answered","sessions":[{"harness":"claude","id":"5dbd8155-…"}]}
 ```
 
-- Appended by the live attempt, a line per turn. A crash keeps every turn that settled, so an
-  `interrupted` attempt still has its cost and sessions.
+- `stage` is absent for a turn between stages.
+- Appended by the live attempt, a line per turn or compaction. A crash keeps every turn that
+  settled, so an `interrupted` attempt still has its sessions. Not its cost: what a turn spent is
+  read from its sessions once the attempt ends, and an interrupted attempt has no end. Reading it
+  from the sessions later is [[stopped-run-recovery]]'s.
 - A line that doesn't parse is skipped wherever it is: a crash can tear the last line, and the next
   attempt appends after it.
 
-**`output.json`**: today's record, version 5, what `--json` prints. Replaced by each attempt that
-ends, so it may be an earlier attempt's than the last; its `attempt` says which. Adds `run` and
-`attempt`; `outcome` gains `stopped`, with `stage` (absent between stages) and
-`reason`; `stages`, as in the attempt file, with time and cost; `byStage` from stages with a
-`(no stage)` row. `byAgent.stage` goes.
+**`output.json`**: version 5, what `--json` prints. Replaced by each attempt that ends, so it may
+be an earlier attempt's than the last; its `attempt` says which.
 
-**`calls/`, `sandboxes/`, `report.md`**: as today. A call's `attempts.jsonl` becomes
-`candidates.jsonl`, with the type it holds ([[#What else changes]]).
+- `runId` (the run's id) and `attempt`.
+- `outcome` in the attempt file's words: `completed` with its `value`, or `stopped`, `failed`,
+  `timed-out` or `cancelled` with `reason` and `stage` (absent between stages).
+- `stages`, as in the attempt file, and `report`, whatever the outcome.
+- `accounting` in full: `byStage` has a row per stage entered, a reused one at zero, then
+  `(no stage)`; `grouping` says whether its rows are stages or, for a run without stages, key
+  prefixes.
+
+**`calls/{callId}/`**: a call's `call.json`, `candidates.jsonl` and `result.json`.
+**`report.md`**: the last ended attempt's report; removed when an attempt writes none.
 
 ### Why it is shaped like this
 
@@ -333,9 +352,9 @@ ends, so it may be an earlier attempt's than the last; its `attempt` says which.
   and the folder renamed to `{id}`. Renaming onto a folder that exists and isn't empty fails, so the
   first to rename holds the id, and a claimed folder always has its `run.json`. There is no index
   of names to keep in step.
-- **The attempt claim is one `link`.** The first version of `attempts/{n}.json` is written to a temp
+- **The attempt claim is one `link`.** The first version of `attempts/{attempt}.json` is written to a temp
   file and linked into place; `link` fails if the name exists (as `writeAcceptedExclusive` does for
-  `result.json` today). `n` is one more than the highest attempt file; a failed link tries `n + 1`.
+  `result.json`). `n` is one more than the highest attempt file; a failed link tries `n + 1`.
   Having claimed `n`, the attempt reads attempts `1 … n-1`; if one is live, it deletes its own file
   and refuses. Of two racing attempts, the later always sees the earlier, since it could only pick a
   higher `n` once the earlier file existed. No lock file means no stale lock and no takeover race.
@@ -343,7 +362,7 @@ ends, so it may be an earlier attempt's than the last; its `attempt` says which.
   removed when older than a day.
 - **Grouped by workflow, then id.** A run is one path; a workflow's runs are one folder; an id is
   unique within its workflow, which is where a person names them.
-- **`version` in every file,** as `output.json` has today. A reader refuses a version newer than it
+- **`version` in every file,** as `output.json` has. A reader refuses a version newer than it
   knows rather than misread it; migrating is decided when a format first changes.
 - **Mode 0600.** Records hold prompts' values and paths; secrets come from the environment, never
   argv or stage values.
@@ -357,7 +376,7 @@ ends, so it may be an earlier attempt's than the last; its `attempt` says which.
 | The run's status | the highest attempt: `running` if live; its `outcome` if ended; else `interrupted`, as is a run with no attempt file |
 | What a continue reuses | the succeeded records in `stages/`, through the stage plan |
 | The current stage | from outside, the stage of the live attempt's last turn; its own view knows exactly |
-| The run's cost | `turns.jsonl`, summed, by attempt or in total |
+| The run's cost | each attempt file's `accounting`, summed; an interrupted attempt has none, and `turns.jsonl` holds turns and sessions, no spend |
 | A stage's history | `replaced/{stage}.*.json` and `stages/{stage}.json`, ordered by attempt; the attempt files say which attempt reused what |
 | A workflow's runs | `runs/{workflow}/*/run.json` |
 
@@ -370,17 +389,22 @@ random hex digits: `20261004-1532-a7f3`.
 
 ### Sandboxes
 
-A sandbox may contain `.awf/`; its provider hides it, but for the sandbox's own folder under
-`sandboxes/`, as today:
+A sandbox may contain the run root; its provider hides it. Each sandbox's own folder, its homes
+and quarantine, is `~/.awf/sandboxes/{workflow}/{id}/{uuid}/`, outside the project: srt on macOS
+emits a deny nested in an allowed path after the allow, so a run root inside the project, denied,
+would hide a sandbox folder under it too. No sandbox reaches into `~/.awf`, and a run root holding
+its sandboxes is refused.
 
-- srt lists the run root in `denyRead` already (`srt/profile.ts:62`) and gains a write deny for it.
-- docker mounts an empty tmpfs over `.awf/`; the sandbox's own `homes` and `quarantine` binds
-  (`docker/args.ts`) are deeper paths, so docker mounts them on top.
-- `resolve.ts`'s `forbidden()` (line 85) stops refusing a path that contains the run root, since
-  the provider now hides it; a path inside the run root is still refused.
+- `resolveSandbox` allows a path that contains the run root, and decides once whether to hide
+  it: `ResolvedSandbox.hidden` holds the run root when an allowed path holds it. A path
+  inside the run root is still refused.
+- Each provider renders `hidden`: srt denies each path for reads and writes, and its
+  `checkProfile` refuses an allowed path holding the run root unless it is hidden; docker mounts
+  an empty tmpfs over each.
 
 Agents outside a sandbox can reach `.awf/`, and `git clean -xfd` deletes it, as with
-`.terraform/`.
+`.terraform/`. Only the run's own root is hidden: a sandbox that reads a folder holding other
+projects reaches their `.awf/runs`, as it reaches their source.
 
 ## One attempt, start to end
 
@@ -393,21 +417,32 @@ awf run flow.ts [--id I | --continue I] [--from-stage S] -- argv
                   claim runs/{workflow}/{id} with its run.json (taken → refuse: "AIRS-1515
                   exists; --continue it, or --id another to start over").
       --continue  read runs/{meta.name}/{id}/run.json (missing → look under the other workflows
-                  and say where it is, or refuse "no run AIRS-1515").
+                  and say where it is, or refuse "no run AIRS-1515 of implement-ticket in
+                  {root}; a run is kept under the directory it works in, which --cwd names").
                   argv, cwd and sandbox come from it; flags giving others are refused.
                   prepare(argv) → args with the code as it is now (fails → refuse: "the
-                  recorded argv no longer parses: {error}; start a new run").
-                  The last attempt completed and no --from-stage → refuse: "AIRS-1515 completed;
-                  --from-stage {stage} to redo from there".
- 3. claim attempt n (another attempt live → refuse, naming it). An earlier attempt that reads
-    interrupted is named, with its Herdr workspace if one with its label is still open.
- 4. print what stages/ holds: each stage, the attempt that ran it, how old, its summary
- 5. run the workflow; each stage entered goes through the stage plan
- 6. write the attempt's ending, output.json and report.md; exit with the ending's code
+                  recorded argv of AIRS-1515 no longer parses with {file}: {error}; start a
+                  new run").
+                  The last attempt completed and no --from-stage → refuse: "AIRS-1515
+                  completed; to redo from a stage, --from-stage one of:", then a line per
+                  record: its stage, summary, attempt and age. With no records: "AIRS-1515
+                  completed; there is nothing to continue".
+ 3. claim attempt n (another attempt live → refuse, naming it). Each earlier attempt that reads
+    interrupted is named, with the stage of its last turn and the Herdr workspace its panes may
+    still be open in, "awf implement-ticket AIRS-1515 #1"; awf names it without asking Herdr.
+ 4. run the workflow; each stage entered goes through the stage plan. The view shows each reused
+    stage as ↺ with its summary and the attempt that ran it, and its age once over an hour, as a
+    guard against reusing a stale record; and the stages recorded but not yet reached, dim
+ 5. write report.md, output.json, then the attempt's ending, last: an ended attempt lets the next
+    start, whose files this one's must not overwrite. Exit with the ending's code
 ```
 
 A refusal exits 2 and leaves nothing behind: a new run's folder is the last thing step 2 does, and
-an attempt refused in step 3 deletes its own file.
+an attempt refused in step 3 deletes its own file. A new run whose attempt ends before it starts, its
+runtime failing to install, its host or sandbox failing to open, or the operator cancelling it,
+leaves nothing either: its folder goes,
+so the same command starts it again. A continued run keeps such an attempt, ended with what it
+cost, which is nothing, and the command that goes on.
 
 ### The stage plan
 
@@ -419,10 +454,13 @@ no outline, and a stage in a branch not taken costs nothing.
 | A stage entered before the start point | Decision |
 | --- | --- |
 | a succeeded record whose value the `result` schema accepts, or no value and no `result` | reuse |
-| a succeeded record from another major `meta.version` | stop: "review was recorded by 1.x; this is 2.0; --from-stage review" |
-| a succeeded record that no longer fits: its schema rejects the value, or a value where none is expected, or none where one is | stop: "doc-review's record no longer fits: {error}; --from-stage doc-review" |
-| no succeeded record, with `--from-stage` given | stop: "nothing recorded for review; --from-stage review" |
+| a succeeded record from another major `meta.version` (under `0.x`, another minor) | stop: "review was recorded by 1.4.0; this is 2.0.0" |
+| a succeeded record that no longer fits: its schema rejects the value, or a value where none is expected, or none where one is | stop: "doc-review's record no longer fits its result schema: {problems}" |
+| no succeeded record, with `--from-stage` given | stop: "nothing recorded for review" |
 | no succeeded record, plain continue | this is the start point: run |
+
+Each of these stops goes on with `--from-stage` that stage, which the ending's command to go on
+carries, so the reason doesn't repeat it.
 
 - **Reuse** checks the value against the current schema and returns it; `work` is never called, so
   nothing inside a reused stage runs, compactions included.
@@ -441,7 +479,11 @@ no outline, and a stage in a branch not taken costs nothing.
   picks up after the last thing that ran; rerunning a 3-hour stage and everything after it is the
   operator's choice, made by typing `--from-stage`.
 - A `--from-stage` stage never entered (a typo, a branch not taken) ends the attempt `stopped`:
-  "never reached qaa". A `--from-stage` with no record is warned about at the start.
+  "never reached qaa". No one command goes on from it: its `continue` ends `--from-stage {stage}`,
+  literally, and the closing block lists the recorded stages to choose from under it, as the
+  refusal of a completed run does. A `--from-stage` with no record is
+  warned about at the start. An attempt that ends before it reaches its `--from-stage` for any
+  other reason goes on with the same `--from-stage`, so the redo isn't dropped.
 
 ### Stops and failures
 
@@ -465,24 +507,27 @@ named is the last one reused before the stop.
 | Outcome | When | Exit code |
 | --- | --- | --- |
 | `completed` | the workflow returned | 0 |
-| `stopped` | `workflow.stop`, a `--from-stage` never reached | 3 |
+| `stopped` | `workflow.stop`, or the stage plan: a record from another major version, a record that no longer fits, nothing recorded after `--from-stage`, a `--from-stage` never reached | 3 |
 | `failed` | an exception | 1 |
 | `timed-out` | the attempt's deadline (`--timeout`) | 1 |
 | `cancelled` | a signal | 128 + signal |
 | `interrupted` | read off the files: an attempt with no `ended` and no live process | none |
 
-A refusal (the id taken, an attempt live, argv on a continue) exits 2, as usage errors do today.
+A refusal (the id taken, an attempt live, argv on a continue) exits 2, as usage errors do.
 
-`present` and `report` take the `Ending` ([[#The author API]]), so a stopped run can report what
-its stages found. Without `present`, awf prints the value for `completed`, and otherwise the
-stage, the reason and `continue`: `awf run {file} --continue {id}`, plus `--from-stage {stage}`
-when a plain continue wouldn't start there.
+`report` is called for every ending, with the `Ending` ([[#The author API]]), so a stopped run
+can hand off what its stages found. `present` renders a completed attempt's value, and without it
+awf prints the JSON. An attempt that didn't complete is awf's to print: the stage, the reason and
+`continue`: `awf run {file} --continue {id}`, plus `--from-stage {stage}` when a plain continue
+wouldn't start there. A completed attempt whose runtime then fails to clean up ends `failed`, and
+every record of it says so.
 
 ## Workflow version
 
 `meta.version` is optional semver, and awf doesn't hash code. Every attempt and stage record stores
-it. A record from another major version stops a continue at that stage (the table above). Without a
-version, the schemas alone guard a continue. The continue prints each reused stage's version.
+it. A record from another major version stops a continue at that stage (the table above); under
+`0.x` the minor must match too, as semver has it. Without a version, the schemas alone guard a
+continue. A version that stops a continue is named in its stop.
 
 A minor change, a prompt reworded, still reuses: whether this run should redo a stage after a fix
 is the operator's call, made with `--from-stage`, and most often the fix is for later runs. A major
@@ -493,18 +538,18 @@ version says "records from before this mean something else".
 **The workflow file is renamed, moved or copied.** Nothing breaks. A run belongs to `meta.name`,
 the operator names the file on every `awf run`, and each attempt records its path for the record
 only. Two copies are one workflow: a run started from `flow.ts` continues from `flow2.ts`, which is
-how a fix gets tried; the continue says the last attempt ran another file.
+how a fix gets tried.
 
 **`meta.name` changes.** Old runs stay under the old name. A continue that finds nothing looks the
 id up under the other workflows: "AIRS-1515 is a run of implement-ticket-old; move
 runs/implement-ticket-old/AIRS-1515 to runs/implement-ticket to continue it here".
 
 **The code changes between attempts.** Expected: restarting after a fix is the main use. The
-continue prints what it reuses, from which attempt and version.
+continue shows what it reuses, and from which attempt.
 
 **The code's types change.** The defences, from coarse to fine:
-1. **Args.** A continue runs the current `prepare` on the recorded argv, and prints how the args
-   differ from the last attempt's. argv that no longer parses refuses the continue.
+1. **Args.** A continue runs the current `prepare` on the recorded argv. argv that no longer
+   parses refuses the continue.
 2. **The major version.** Records from another major stop the continue.
 3. **Stage values.** A value is reused only if the current schema accepts it.
 4. **A stage renamed or added.** It has no record: a plain continue starts there; after
@@ -518,10 +563,11 @@ means redoing that stage.
 **An attempt dies** (`kill -9`, a crash, the Mac's power). Its file has no `ended` and its process
 is gone, so it reads as `interrupted`. Its finished stages were written as they ended. The stage it
 was in has no record, and the records after it were moved to `replaced/` when it reached its start point, so a
-continue starts there. Its turns, sessions and cost are in `turns.jsonl`. Its panes and sandboxes
-may still be alive, so the next attempt names it and its Herdr workspace, labelled with the attempt
-(`awf implement-ticket AIRS-1515 #2`), and leaves it open: a person may be in it. Headless children
-are [[headless-orphans]].
+continue starts there. Its turns and sessions are in `turns.jsonl`; it has no cost, which reading
+its sessions afterwards is [[stopped-run-recovery]]'s. Its panes and sandboxes may still be alive,
+so the next attempt names it, the stage of its last turn and its Herdr workspace, labelled with the
+attempt (`awf implement-ticket AIRS-1515 #2`), without asking Herdr whether it is still open, and
+leaves it: a person may be in it. Headless children are [[headless-orphans]].
 
 **Two `awf run`s at once.** The same run: the attempt claim refuses the second. The same new id:
 the run claim refuses it. Different runs run side by side.
@@ -531,8 +577,8 @@ stage runs on the next plain continue. An attempt file: the next attempt may reu
 file that doesn't parse, or has a newer `version`, refuses a continue, naming the file.
 
 **The world changed since a stage was recorded** (the worktree moved, the MR closed). Not detected.
-The continue prints each reused stage with its age, and a check between stages can stop on what it
-can see. A `fresh` check per stage is later.
+The continue shows each reused stage with the attempt that ran it, a completed run's refusal lists
+each with its age, and a check between stages can stop on what it can see. A `fresh` check per stage is later.
 
 **The harness, model or environment changes.** Records stay valid: only `meta.version`'s major
 invalidates them. A stage that should be redone under a new model is `--from-stage`.
@@ -550,8 +596,8 @@ Migrating old runs is decided when a format first changes.
   time: parallel work, including child workflows run with `call`, goes inside a stage. The rules
   awf enforces are under [[#The author API]]; stages in child workflows can come later.
 - A stage's type comes from `work`. A TypeBox schema doesn't carry its static type through
-  `OutputSchema<T>` today, so `result` checks the value but doesn't type it; a type test proves the
-  example compiles.
+  `OutputSchema<T>`, so `result` checks the value but doesn't type it; `examples/feature-delivery`
+  compiles under `tsc` with its stages.
 
 ## Where things are deliberately simple
 
@@ -565,36 +611,14 @@ Migrating old runs is decided when a format first changes.
 - **No rule against turns between stages.** It's the workflow's call.
 - **No fork yet.** Continue the same run.
 - **No liveness takeover race.** An attempt is live by its process, and a claim is exclusive.
+- **No check that the project changed** since a reused stage, such as its git HEAD. Workflows are
+  generic; a stage's own values (a commit, a branch) are where that belongs.
 
 ## What stays as it is
 
 - A plain `awf run flow.ts -- argv` is a run with one attempt and a generated id. Lab, autoresearch
   and fire-and-forget use pay nothing extra.
-- A workflow that marks no stages runs as today. A continue of it reruns everything.
-
-## What else changes
-
-- **`WorkflowContext.runId`** is the run's id, the same across attempts, beside an `attempt`
-  number. A workflow that keys a branch on `runId` keeps it across a continue.
-- **The run root.** `~/.awf/runs` and `invocation-{uuid}/` go; `operator-cli.ts`'s default and its
-  help text, and AGENTS.md's mention, change with them.
-- **`output.json` goes to version 5**, as under [[#Each file]]; `byAgent.stage` goes, since an
-  agent now works in several stages.
-- **The word "attempt".** The result-slot candidate `Attempt` in
-  `packages/contract/src/records.ts`, whose doc already calls it a candidate, becomes `Candidate`,
-  before `AttemptRecord` is published, and the call's `attempts.jsonl` (`run-dir.ts`) becomes
-  `candidates.jsonl`.
-- **lab.** `RUN_OUTCOMES` (`packages/lab/.../format/scoring.ts`) gains `stopped`; contained runs
-  move `runs/*`; `tests/calling-session.eval.ts` and lab's reference stop expecting `invocation-*`.
-- **The caller claim** (`claimCaller` in `operator-cli.ts`) moves to one machine-wide path, since
-  per-project run roots would split it.
-- **`--here` with `--continue`** resolves the run first and prepares the recorded argv.
-- **Workflow tests:** `runId` becomes an input to `startWorkflow`, `TestRun` gains `stopped`, and
-  `testWorkflow(…, { fromStage, recorded })` reuses recorded stages without calling their work.
-- **ADR 0011** states how `stage` and the unbuilt `steps` relate: a step is a durable unit inside a
-  stage. `Steps` stays.
-- **ADR 0001:** each task adds its use to the in-repo example, so no published type lands without a
-  consumer.
+- A workflow that marks no stages runs as before. A continue of it reruns everything.
 
 ## Later, on the same model
 
@@ -608,7 +632,7 @@ Each is a reader of the same files, or a row in the stage plan:
 - `--set qa=file.json`: edit a recorded value, checked by its schema, then continue (LangGraph's
   `updateState`, Inngest's rerun with new input).
 - Fork: a new run seeded with another run's records, with `forkedFrom` in `run.json` (DBOS's
-  `forkWorkflow`).
+  `forkWorkflow`), likely as `--from`, which is why stage flags say `-stage`.
 - Stops worth retrying (the provider down, out of credits, a usage limit), with
   [[turn-liveness-and-limits]]: `stop` records whether a retry could help, as Restate's
   `TerminalError` and Temporal's `nonRetryable` do.
@@ -631,78 +655,22 @@ The prototype's `flow.ts`, its two live runs on AIRS-1515 and their run notes, t
   doc-review, implement, review and mr are reused, qa runs. ✓
 - **Run 2's compaction bug** (compactions between stages ran again) can't happen inside a stage,
   and the rule for code between stages is written down. ✓
-- **qa's ~27m local half reran** because qa is one stage with two turns. Splitting it into
-  `qa-local` and `qa-mr` is the workflow's choice. ✓
+- **qa's ~27m local half reran** because qa was one stage with two turns. It is two now,
+  `qa-local` and `qa-mr`, so a continue after a failed qa-mr keeps the local half. ✓
 - **Review runs codex and Opus in parallel** inside one stage. ✓
 - **doc-review was `always`.** It becomes a plain stage whose doc path, branch and worktree are
   reused, which removes the run notes' risk of a rerun naming another worktree. ✓
 - **Three stops on a stage's value** (no doc, a branch without a preview environment, review
   stopped) move inside their stages. ✓, one edit each.
-- **`not-ready` ends completed;** after answering the questions, `--continue AIRS-1515
-  --from-stage doc-review`. ✓
+- **`not-ready` stops in doc-review;** after answering the questions, a plain `--continue
+  AIRS-1515` redoes it. ✓
 - **Every stage returns a value**, so each gets a schema; review's needs writing. ✓
-- **The prototype's `stopped()`** built its result from the stages done; the ending value's
-  `stages` gives `present` the same. ✓
+- **The prototype's `stopped()`** built its result from the stages done; the ending's `stages`
+  gives `report` the same. ✓
 - **The record lived beside the ticket doc, keyed by ticket.** Here it lives in `.awf/`, keyed by
   the run's id, which the workflow's `id(args)` makes the ticket.
 - **`--timeout 10h`** is per attempt; a continue takes its own or none.
 
-## Settled in the second pass
+## Decisions
 
-Settled by reasoning on 2026-10-04, from the review's questions. Each is in the model above; veto
-any here.
-
-- **Stale records:** at its start point an attempt moves every record it hasn't reused to
-  `replaced/`. A crash mid-stage then leaves no later records to reuse.
-- **A record that is there but doesn't fit stops**, naming `--from-stage`. A completed run needs
-  `--from-stage` to continue.
-- **Stops:** inside a stage, the stage reruns; between stages, nothing is invalidated and the check
-  runs again. A repeated stop between stages says to move the check.
-- **Versioning:** `meta.version`'s major, as decided. No per-stage version: a minor change is
-  reused, and redoing a stage for this run is `--from-stage`. The reviewers' "too coarse" holds
-  only if a major is bumped for a minor change.
-- **`default` cut** until `--skip-stage`, and `--from-stage` on a new run refused.
-- **No separate lock file:** the attempt claim is the lock, live by pid and process start time.
-- **Exit codes:** `stopped` 3, refusals 2, as in the endings table.
-- **`interrupted`** is read off the files, never written.
-- **The result-slot `Attempt` becomes `Candidate`.**
-- **A dead attempt's panes and sandboxes are listed, not closed:** a person may be in one.
-- **Claims:** a run by renaming a prepared folder into place, an attempt by linking its file.
-- **Generated ids** use local time.
-- **Dropped from the review's proposals:** warning when the project's git HEAD changed since a
-  reused stage. Workflows are generic, and a stage's own values (a commit, a branch) are where
-  that belongs.
-
-## Decided
-
-- **State lives in the project:** `.awf/` in the working directory, as Terraform's; `--run-root`
-  overrides it. A sandbox may contain it, and its provider hides it. (2026-10-04)
-- **One folder per run, holding its current state.** Attempts are files in it; `stages/` holds one
-  record per stage; a redone stage's old record moves to `replaced/`. (2026-10-04)
-- **"Reused", not "replayed".** A reused stage's work is not called; its recorded value is
-  returned. (2026-10-04)
-- **Turns between stages are allowed,** tagged `(no stage)`; a lint rule may flag them later.
-  (2026-10-04)
-- **No code hashing:** an optional `meta.version` (semver); its major decides compatibility.
-  (2026-10-04)
-- **`--id`, no names.** A run's id is given with `--id` or generated, unique within its workflow;
-  runs live at `runs/{workflow}/{id}/`, and creating that folder claims the id. (2026-10-04)
-- **Stage flags say they're about stages:** `--from-stage`, later `--to-stage`, `--only-stage`,
-  `--skip-stage`. Run flags stay `--id` and `--continue`, leaving a bare `--from` for a fork.
-  (2026-10-04)
-- **`result` is optional.** A stage returns nothing, or a value its schema checks. (2026-10-04)
-- **No `always`.** A check on every attempt is code between stages. (2026-10-04)
-- **One stage at a time.** Parallel work, including child workflows with `call`, goes inside a
-  stage. (2026-10-04)
-- **`runId`** is the run's id, the same across attempts, with a separate `attempt` number.
-  (2026-10-04)
-- **`stopped`** is its own outcome, apart from `failed`. (2026-10-04)
-- **awf provides the API; wrappers ship in a workflow's boilerplate.** awf gains `stage`, `stop`,
-  `id(args)` and a stage's `summary`. `ask` (a turn that stops without an answer), `md` and
-  duration strings stay in the boilerplate, over `run` and `stop`; whether `timeoutMs` becomes a
-  duration in awf's API is [[readable-workflows]]. (2026-10-04)
-- **The workflow derives the id:** an optional `id(args)` in its definition, beside `prepare`. awf
-  calls it after `prepare` and before creating the run; `--id` overrides it; a taken id refuses
-  ("AIRS-1515 exists; --continue it, or --id another to start over"). (2026-10-04)
-- **A stage may give a one-line `summary(value)`** for the view and the reuse listing
-  (`mr ↺ attempt 1 · !2329`). (2026-10-04)
+What was decided and why is [[0011-a-run-continues-from-its-stages|ADR 0011]].

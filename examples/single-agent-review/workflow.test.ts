@@ -49,7 +49,7 @@ describe("single-agent-review", () => {
     expect(run.turns[0]!.prompt).not.toContain("title and description are in");
     // No skill named is none at all, not the operator's.
     expect(run.agentOf("reviewer").skills).toEqual([]);
-    expect(review.present!(run.value)).toBe(
+    expect(review.present!(run.value, { kind: "completed", value: run.value, stages: [] })).toBe(
       "must-fix src/a.ts:3 — The retry charges the card twice.",
     );
   });
@@ -70,7 +70,9 @@ describe("single-agent-review", () => {
       agents: { reviewer: answer(FINDINGS_SCHEMA, { findings: [] }) },
     });
     expect(run.turns[0]!.prompt).toContain("title and description are in /work/pr.md");
-    expect(review.present!(run.value)).toBe("no findings");
+    expect(review.present!(run.value, { kind: "completed", value: run.value, stages: [] })).toBe(
+      "no findings",
+    );
   });
 
   test("a review that never comes fails the run with why", async () => {

@@ -54,6 +54,7 @@ import { answerStartupBlocks } from "./herdr-startup";
 export type HerdrConfig = {
   /** The Herdr session agents open in; `awf run` picks the one it runs in. */
   session: string;
+  /** Names the workspace each operation of a pane adapter opens; a run's is named by the run. */
   workspaceLabel: string;
   commandTimeoutMs: number;
   /** Names forced to an empty value in every workspace. Values never cross the Herdr argv. */
@@ -679,7 +680,7 @@ export function createHerdrRunHostFactory(
     accounting: createSessionAccounting(withholding(run, config.emptyEnvironment ?? [])),
     async openRun(runSpec) {
       const remaining = () => runSpec.deadline.unixMilliseconds - Date.now();
-      const label = `${config.workspaceLabel} ${runSpec.runId}`;
+      const label = runSpec.label ?? runSpec.runId;
       type Topology = Awaited<ReturnType<typeof openTopology>>;
       // Opened at the first tab it needs, so a run whose panes are all in boxes, unwatched, leaves
       // no empty workspace in the operator's Herdr.

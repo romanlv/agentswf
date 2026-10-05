@@ -7,11 +7,11 @@ import {
 } from "./result-slots";
 import {
   readAccepted,
-  readAttempts,
-  recordAttempt,
+  readCandidates,
+  recordCandidate,
   writeAcceptedExclusive,
   writeCall,
-} from "./run-dir";
+} from "./runs";
 import { COUNT_SCHEMA, createTempRunDirs } from "./testing";
 
 const runDirs = createTempRunDirs();
@@ -39,7 +39,7 @@ function answer(raw = "{}", overrides: { operationId?: string; agentId?: string 
 }
 
 function persistenceWith(overrides: Partial<TestPersistence>): TestPersistence {
-  return { writeCall, recordAttempt, writeAcceptedExclusive, ...overrides };
+  return { writeCall, recordCandidate, writeAcceptedExclusive, ...overrides };
 }
 
 describe("result slots", () => {
@@ -67,14 +67,14 @@ describe("result slots", () => {
     expect(
       submissions.filter((item) => item.kind === "rejected" && item.code === "closed-operation"),
     ).toHaveLength(11);
-    const attempts = await readAttempts(runDir, "op-1");
-    expect(attempts.filter((attempt) => attempt.accepted)).toHaveLength(1);
-    expect(attempts.filter((attempt) => !attempt.accepted)).toHaveLength(11);
+    const candidates = await readCandidates(runDir, "op-1");
+    expect(candidates.filter((candidate) => candidate.accepted)).toHaveLength(1);
+    expect(candidates.filter((candidate) => !candidate.accepted)).toHaveLength(11);
     const persisted = await readAccepted(runDir, "op-1");
     await expect(binding.settled).resolves.toEqual({
       kind: "accepted",
       value: persisted?.value,
-      attemptRecorded: true,
+      candidateRecorded: true,
       acceptedAt: expect.any(Number),
     });
   });
@@ -182,7 +182,7 @@ describe("result slots", () => {
     await expect(slots.open(call())).resolves.toMatchObject({ operationId: "op-1" });
   });
 
-  test("schema and semantic failures remain field-level rejected attempts", async () => {
+  test("schema and semantic failures remain field-level rejected candidates", async () => {
     const runDir = tempRunDir();
     const slots = createResultSlotRegistry({ runDir, now: () => NOW });
     await slots.open(
@@ -202,7 +202,9 @@ describe("result slots", () => {
     );
     expect(semantic.kind === "rejected" ? semantic.error : "").toContain("wrong source text");
     expect(await readAccepted(runDir, "op-1")).toBeNull();
-    expect((await readAttempts(runDir, "op-1")).every((attempt) => !attempt.accepted)).toBe(true);
+    expect((await readCandidates(runDir, "op-1")).every((candidate) => !candidate.accepted)).toBe(
+      true,
+    );
   });
 
   test("closing during semantic validation prevents the late value from settling", async () => {
@@ -315,15 +317,15 @@ describe("result slots", () => {
     await expect(slots.submit(answer())).rejects.toThrow("disk unavailable");
     fail = false;
     await expect(slots.submit(answer())).resolves.toMatchObject({ kind: "accepted" });
-    expect((await readAttempts(runDir, "op-1")).filter((attempt) => attempt.accepted)).toHaveLength(
-      1,
-    );
+    expect(
+      (await readCandidates(runDir, "op-1")).filter((candidate) => candidate.accepted),
+    ).toHaveLength(1);
   });
 
-  test("attempt-log failure after atomic settlement cannot turn acceptance into rejection", async () => {
+  test("candidate-log failure after atomic settlement cannot turn acceptance into rejection", async () => {
     const persistence = persistenceWith({
-      async recordAttempt() {
-        throw new Error("attempt log unavailable");
+      async recordCandidate() {
+        throw new Error("candidate log unavailable");
       },
     });
     const runDir = tempRunDir();
@@ -335,13 +337,13 @@ describe("result slots", () => {
     expect(outcome).toEqual({
       kind: "accepted",
       value: {},
-      attemptRecorded: false,
+      candidateRecorded: false,
       acceptedAt: NOW,
     });
     await expect(binding.settled).resolves.toEqual({
       kind: "accepted",
       value: {},
-      attemptRecorded: false,
+      candidateRecorded: false,
       acceptedAt: NOW,
     });
     expect(await readAccepted(runDir, "op-1")).toEqual({ value: {} });
@@ -353,9 +355,9 @@ describe("result slots", () => {
       release = resolve;
     });
     const persistence = persistenceWith({
-      async recordAttempt(...args) {
+      async recordCandidate(...args) {
         await gate;
-        return recordAttempt(...args);
+        return recordCandidate(...args);
       },
     });
     const slots = createResultSlotRegistry({
@@ -377,13 +379,13 @@ describe("result slots", () => {
     await expect(submission).resolves.toEqual({
       kind: "accepted",
       value: {},
-      attemptRecorded: true,
+      candidateRecorded: true,
       acceptedAt: expect.any(Number),
     });
     await expect(binding.settled).resolves.toEqual({
       kind: "accepted",
       value: {},
-      attemptRecorded: true,
+      candidateRecorded: true,
       acceptedAt: expect.any(Number),
     });
   });

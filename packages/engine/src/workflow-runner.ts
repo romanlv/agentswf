@@ -10,7 +10,17 @@ import type {
   SettledDecision,
   SettledOperation,
 } from "@agentswf/contract/records";
-import { type JsonSchema, parseJsonSchema } from "@agentswf/contract/schema";
+import {
+  TURN_OPERATION_FIELDS,
+  TURN_RECORD_VERSION,
+  type TurnRecord,
+} from "@agentswf/contract/records";
+import {
+  formatErrors,
+  type JsonSchema,
+  parseJsonSchema,
+  validate,
+} from "@agentswf/contract/schema";
 import {
   type AbsoluteDeadline,
   type AgentExecution,
@@ -36,6 +46,8 @@ import {
   type RuntimeSelection,
   type SettingsSpec,
   type SkillSource,
+  type StageOptions,
+  type StageSummary,
   type TurnOutcome,
   type WorkflowContext,
   type WorkflowDefinition,
@@ -90,14 +102,15 @@ import {
   type ResultSlotRegistry,
   type ResultSlotSettlement,
 } from "./result-slots";
-import { createRunDir } from "./run-dir";
-import { type AgentProgress, RunProgress, type StageProgress } from "./run-progress";
+import { type AgentProgress, type GroupProgress, RunProgress } from "./run-progress";
 import {
   type AccountedAgent,
   type AgentLedger,
   createRunLedger,
+  type OperationTags,
   type RunLedger,
 } from "./run-usage";
+import { appendTurn, endTurnsLine, readStageRecords } from "./runs";
 import { type CredentialLocks, placeCarried, seedHome } from "./sandbox-homes";
 import {
   RUN_SANDBOX_ONLY,
@@ -106,11 +119,23 @@ import {
   type SeatedAgent,
 } from "./sandboxes";
 import { placeSkills, RunSkills, readSkillSources } from "./skills/run-skills";
+import { StageLedger, type StageProgress } from "./stage-ledger";
+import { FromStageUnreached } from "./stopped";
 
 export { WorkflowCancelledError } from "./deadlines";
 
 export type RunWorkflowOptions = {
   runRoot: string;
+  /** The run this is an attempt of, whose folder the operator claimed under `runRoot`. */
+  run: {
+    dir: string;
+    id: string;
+    attempt: number;
+    /** How the attempt is named to a person: its Herdr workspace's label. */
+    label?: string;
+    /** `--from-stage`: the stage this attempt starts at, reusing those before it. */
+    fromStage?: string;
+  };
   runtime: AgentRuntimeConfig;
   deadline: AbsoluteDeadline;
   cwd?: string;
@@ -127,6 +152,10 @@ export type RunWorkflowOptions = {
 /** What a run is known by once it has ended, whether or not it succeeded. */
 export type SettledRun = {
   runId: string;
+  /** The stages entered, in order, each run or reused; absent when none was. */
+  stages?: StageSummary[];
+  /** The stage a run that didn't complete ended in; absent between stages. */
+  endedIn?: string;
   /** Every operation's record, completed with the spend read when the run ended. */
   usage: SettledOperation[];
   /** ISO times the run started and its own work, cleanup included, ended. */
@@ -153,6 +182,8 @@ export type WorkflowRunResult<Result extends JsonValue> = SettledRun & { value: 
  */
 export class WorkflowRunError extends Error implements SettledRun {
   readonly runId: string;
+  readonly stages?: StageSummary[];
+  readonly endedIn?: string;
   readonly usage: SettledOperation[];
   readonly startedAt: string;
   readonly finishedAt: string;
@@ -165,6 +196,8 @@ export class WorkflowRunError extends Error implements SettledRun {
     super(messageOf(cause), { cause });
     this.name = "WorkflowRunError";
     this.runId = run.runId;
+    if (run.stages) this.stages = run.stages;
+    if (run.endedIn !== undefined) this.endedIn = run.endedIn;
     this.usage = run.usage;
     this.startedAt = run.startedAt;
     this.finishedAt = run.finishedAt;
@@ -185,7 +218,11 @@ export type WorkflowRunHandle<Result extends JsonValue> = {
 export type WorkflowRunSnapshot = {
   state: "starting" | "running" | "closing" | "closed";
   /** Labelled `parallel` calls, in the order they began. */
+  groups: readonly GroupProgress[];
+  /** The workflow stages this attempt entered, in order. */
   stages: readonly StageProgress[];
+  /** Stages an earlier attempt recorded that this one hasn't entered yet. */
+  upcoming: readonly string[];
   agents: readonly (Partial<AgentProgress> & {
     key: AgentKey;
     execution: AgentExecution;
@@ -246,6 +283,11 @@ export async function runWorkflow<Args extends JsonValue, Result extends JsonVal
   return (await startWorkflow(definition, args, options)).result;
 }
 
+/**
+ * Opens the run and starts the workflow's body. It throws only when the run never started: it was
+ * cancelled, or its records, host or sandbox did not open; from the body on, every failure is the
+ * handle's `result`'s.
+ */
 export async function startWorkflow<Args extends JsonValue, Result extends JsonValue>(
   definition: WorkflowDefinition<Args, Result>,
   args: Args,
@@ -253,16 +295,20 @@ export async function startWorkflow<Args extends JsonValue, Result extends JsonV
 ): Promise<WorkflowRunHandle<Result>> {
   assertDeadline(options.deadline);
   if (options.signal?.aborted) throw new WorkflowCancelledError(options.signal.reason);
-  const runId = randomUUID();
+  const { dir: runDir, id: runId, attempt } = options.run;
   const startedAt = Date.now();
-  const runDir = await createRunDir(options.runRoot, runId);
+  const cwd = options.cwd ?? process.cwd();
+  // Before anything opens: a record this awf can't read refuses the attempt, and a crash may have
+  // torn the last line an earlier attempt appended.
+  const recorded = await readStageRecords(runDir);
+  await endTurnsLine(runDir);
   const slots = createResultSlotRegistry({ runDir });
   const control = await startResultControlPlane({ slots });
-  const cwd = options.cwd ?? process.cwd();
   let host: AgentRunHost;
   const openingHost = Promise.resolve().then(() =>
     options.runtime.host.openRun({
       runId,
+      ...(options.run.label === undefined ? {} : { label: options.run.label }),
       cwd,
       deadline: options.deadline,
     }),
@@ -276,7 +322,33 @@ export async function startWorkflow<Args extends JsonValue, Result extends JsonV
     await control.close();
     throw error;
   }
+  // Each turn as it settles, so an attempt that dies keeps the sessions and times of its turns.
+  const turns: TurnRecord[] = [];
+  const turnWrites: Promise<void>[] = [];
   const ledger = createRunLedger({ accounting: options.runtime.host.accounting, startedAt });
+  const recordTurn: RecordTurn = (outcome, kind) => {
+    const turn: TurnRecord = {
+      version: TURN_RECORD_VERSION,
+      attempt,
+      kind,
+      outcome: outcome.kind,
+      ...pick(outcome.usage, TURN_OPERATION_FIELDS),
+    };
+    turns.push(turn);
+    turnWrites.push(
+      appendTurn(runDir, turn).catch((error) =>
+        options.onLog?.(`awf: a turn was not recorded in turns.jsonl: ${messageOf(error)}`),
+      ),
+    );
+  };
+  const stages = new StageLedger({
+    runDir,
+    attempt,
+    records: recorded,
+    ...(options.run.fromStage === undefined ? {} : { fromStage: options.run.fromStage }),
+    ...(definition.meta.version === undefined ? {} : { workflowVersion: definition.meta.version }),
+    turns: () => turns,
+  });
   const progress = new RunProgress();
   // Shared by sandboxed agents' homes and a host agent's own: they may copy one credential.
   const locks: CredentialLocks = new Map();
@@ -284,7 +356,6 @@ export async function startWorkflow<Args extends JsonValue, Result extends JsonV
   const sandboxes = new RunSandboxes({
     ...(options.sandboxes ? { sandboxes: options.sandboxes } : {}),
     locks,
-    runDir,
     runRoot: options.runRoot,
     cwd,
     deadline: options.deadline,
@@ -320,7 +391,10 @@ export async function startWorkflow<Args extends JsonValue, Result extends JsonV
     locks,
     environment,
     progress,
+    recordTurn,
+    stages,
     runId,
+    attempt,
     cwd,
     deadline: options.deadline,
     runtime: options.runtime,
@@ -349,11 +423,18 @@ export async function startWorkflow<Args extends JsonValue, Result extends JsonV
         options.deadline,
       );
       if (!isJsonValue(value)) throw new Error("workflow result must contain only JSON values");
+      const caught = stages.caught();
+      if (caught) throw caught;
+      if (stages.fromStageUnreached !== undefined) {
+        throw new FromStageUnreached(stages.fromStageUnreached, stages.recorded);
+      }
     } catch (error) {
       failed = true;
       failure = error;
     }
     bodyEnded = true;
+    // What the body left running enters no stage; one left open is failed once its turns settle.
+    stages.seal(failed ? messageOf(failure) : "the workflow returned before the stage ended");
     const cutReading = () => reading.abort();
     if (!signal.aborted) signal.addEventListener("abort", cutReading, { once: true });
 
@@ -384,17 +465,26 @@ export async function startWorkflow<Args extends JsonValue, Result extends JsonV
 
     // Before the wait for session files, which is bookkeeping rather than the run's own time.
     const finishedAt = new Date().toISOString();
+    await stages
+      .close()
+      .catch((error) =>
+        options.onLog?.(`awf: a stage record was not written: ${messageOf(error)}`),
+      );
+    await Promise.all(turnWrites);
     const usage = await ledger.settle(reading.signal);
     signal.removeEventListener("abort", cutReading);
     const times = { startedAt: new Date(startedAt).toISOString(), finishedAt };
     const opened = sandboxes.records();
     const given = skills.records();
     const asked = decisions.records();
+    const endedIn = failed ? stages.endedIn(failure) : undefined;
     const settled: SettledRun = {
       runId,
+      ...(endedIn === undefined ? {} : { endedIn }),
+      ...(stages.summaries.length > 0 ? { stages: stages.summaries } : {}),
       usage,
       ...times,
-      accounting: summarizeRun(usage, PUBLISHED_PRICES, times, asked),
+      accounting: summarizeRun(usage, PUBLISHED_PRICES, times, asked, stages.summaries),
       ...(opened.length > 0 ? { sandboxes: opened } : {}),
       ...(given.length > 0 ? { skills: given } : {}),
       ...(asked.length > 0 ? { decisions: asked } : {}),
@@ -424,7 +514,8 @@ export async function startWorkflow<Args extends JsonValue, Result extends JsonV
       const known = progress.snapshot();
       return {
         state,
-        stages: known.stages,
+        groups: known.groups,
+        ...stages.progress(),
         agents: agents.map((agent) => ({ ...known.agents.get(agent.key), ...agent })),
       };
     },
@@ -521,7 +612,9 @@ class WorkflowOwner {
       locks: CredentialLocks;
       environment: Readonly<Record<string, string | undefined>>;
       decisions: RunDecisions;
+      stages: StageLedger;
       runId: string;
+      attempt: number;
       cwd: string;
       deadline: AbsoluteDeadline;
       runtime: AgentRuntimeConfig;
@@ -530,11 +623,13 @@ class WorkflowOwner {
       control: ResultControlPlane;
       ledger: RunLedger;
       progress: RunProgress;
+      recordTurn: RecordTurn;
       onLog?: RunWorkflowOptions["onLog"];
     },
   ) {
     this.context = {
       runId: options.runId,
+      attempt: options.attempt,
       cwd: options.cwd,
       deadline: options.deadline,
       agents: {
@@ -582,6 +677,7 @@ class WorkflowOwner {
             options.decisions.decide(spec, {
               deadline: scope?.deadline ?? options.deadline,
               ...(scope ? { add: (cancel) => scope.add(cancel) } : {}),
+              ...(scope?.stage === undefined ? {} : { stage: scope.stage }),
             }),
           );
           scope?.track(decided);
@@ -605,9 +701,15 @@ class WorkflowOwner {
           : inherited;
         const label = parallelOptions?.label;
         return runParallel(items, operation, deadline, parallelOptions?.concurrency, () =>
-          label === undefined ? undefined : options.progress.stage(label, items.length),
+          label === undefined ? undefined : options.progress.group(label, items.length),
         );
       },
+      stop: (reason: string): never => {
+        // The stage it is called in, by scope: not whichever one is open beside it.
+        throw this.options.stages.stop(String(reason), scopes.getStore()?.stage);
+      },
+      stage: ((name: string, ...rest: unknown[]) =>
+        this.runStage(name, rest)) as WorkflowContext["stage"],
       call: () => unavailable("call"),
       usage: () => options.ledger.records(),
       log: (message, fields) => options.onLog?.(message, fields),
@@ -661,6 +763,67 @@ class WorkflowOwner {
     return this.#closing;
   }
 
+  /**
+   * Runs one stage's work in a scope of its own, which cancels what is still open in it when the
+   * work fails, then writes the stage's record.
+   */
+  private async runStage(name: string, rest: unknown[]): Promise<JsonValue | undefined> {
+    const [options, work] = (rest.length === 1 ? [undefined, rest[0]] : rest) as [
+      StageOptions<JsonValue> | undefined,
+      unknown,
+    ];
+    if (this.#closed) throw new Error("workflow context is closed");
+    if (typeof work !== "function") throw new Error(`stage ${name} needs its work as a function`);
+    // Before anything is spent on it.
+    if (options) {
+      try {
+        parseJsonSchema(options.result);
+      } catch (error) {
+        throw new Error(`stage ${name}'s result: ${messageOf(error)}`);
+      }
+    }
+    const parent = scopes.getStore();
+    parent?.assertAccepting();
+    const entered = await this.options.stages.enter(name, (recorded) =>
+      recordMisfit(options, recorded),
+    );
+    if (entered.kind === "reuse") {
+      entered.release();
+      return entered.value;
+    }
+    const open = entered.stage;
+    const scope = new ExecutionScope(
+      parent?.deadline ?? this.options.deadline,
+      parent?.group,
+      name,
+    );
+    const removeFromParent = parent?.add(() => scope.cancel());
+    try {
+      const returned: unknown = await scopes.run(scope, () => work());
+      scope.seal();
+      await scope.settleOwned();
+      if (this.options.stages.stopped?.stage === name) throw this.options.stages.caught();
+      const value = stageValue(name, options, returned);
+      await open.succeed(value, summaryOf(name, options, value, this.options.onLog));
+      return value;
+    } catch (error) {
+      // Its turns settle once cancelled, so its record names the sessions they ran on.
+      await scope.cancel();
+      await waitForDeadline(scope.settleOwned(), {
+        unixMilliseconds: Date.now() + CLEANUP_GRACE_MILLISECONDS,
+      }).catch(() => undefined);
+      const stopped = this.options.stages.stopped;
+      if (stopped && error === stopped && stopped.stage === name) await open.stop(stopped.reason);
+      else {
+        this.options.stages.failedIn(name, error);
+        await open.fail(messageOf(error));
+      }
+      throw error;
+    } finally {
+      removeFromParent?.();
+    }
+  }
+
   private openAgent(spec: AgentOpenSpec): Promise<AgentRef> {
     if (this.#closed) throw new Error("workflow context is closed");
     scopes.getStore()?.assertAccepting();
@@ -701,7 +864,7 @@ class WorkflowOwner {
       return attached;
     }
 
-    this.options.progress.agentOpened(spec.key, scope?.stage);
+    this.options.progress.agentOpened(spec.key, scope?.group);
     // Opened before the session so registration below stays synchronous: two concurrent `agent()`
     // calls for one key must not each build an agent.
     const sessions: AgentSessions = { launcher: new Set(), forks: [] };
@@ -779,7 +942,7 @@ class WorkflowOwner {
     if (this.#agents.has(key))
       throw new Error(`agent ${key} is already open; the caller needs a key of its own`);
     const execution: AgentExecution = { harness: found.harness, model: "", caller: true };
-    this.options.progress.agentOpened(key, scope?.stage);
+    this.options.progress.agentOpened(key, scope?.group);
     const sessions: AgentSessions = { launcher: new Set(), forks: [] };
     const accounted: AccountedAgent = {
       key,
@@ -1043,6 +1206,7 @@ class WorkflowOwner {
       deadline: this.options.deadline,
       ledger,
       progress: this.options.progress,
+      recordTurn: this.options.recordTurn,
       track: (promise) => this.track(promise),
       isRunClosing: () => this.#closed,
       fork: (spec, take, settings) => this.forkAgent(key, spec, take, settings),
@@ -1113,7 +1277,7 @@ class WorkflowOwner {
       forkedFrom: { parent: parentKey, spec: forkSpec },
     };
 
-    this.options.progress.agentOpened(spec.key, scope?.stage);
+    this.options.progress.agentOpened(spec.key, scope?.group);
     const sessions: AgentSessions = { launcher: new Set(), forks: [], parent: opening.sessions };
     opening.sessions.forks.push(sessions);
     const accounted: AccountedAgent = {
@@ -1272,6 +1436,7 @@ class LogicalAgent implements AgentRef {
       deadline: AbsoluteDeadline;
       ledger: AgentLedger;
       progress: RunProgress;
+      recordTurn: RecordTurn;
       track<T>(promise: Promise<T>): Promise<T>;
       isRunClosing(): boolean;
       /** After each operation settles, whatever its outcome. */
@@ -1345,15 +1510,14 @@ class LogicalAgent implements AgentRef {
         throw new Error("logical agent is closed");
       }
       scope?.assertActive();
-      const { progress, key } = this.options;
-      progress.turnStarted(key);
+      const tags = tagsOf(scope, completeSpec.label);
+      this.options.progress.turnStarted(this.key, tags);
       try {
-        const settled = await this.executeOperation(completeSpec, scope, deadline);
-        const { outcome } = settled;
-        progress.turnSettled(key, outcome.kind, "reason" in outcome ? outcome.reason : undefined);
+        const settled = await this.executeOperation(completeSpec, scope, deadline, tags);
+        this.turnEnded(settled.outcome, "turn");
         return settled;
       } catch (error) {
-        progress.turnSettled(key, "failed", messageOf(error));
+        this.options.progress.turnSettled(this.key, "failed", messageOf(error));
         throw error;
       } finally {
         await this.options.afterOperation?.();
@@ -1400,14 +1564,14 @@ class LogicalAgent implements AgentRef {
         throw new Error("logical agent is closed");
       }
       scope?.assertActive();
-      const { progress, key } = this.options;
-      progress.turnStarted(key);
+      const tags = tagsOf(scope);
+      this.options.progress.turnStarted(this.key, tags, "compact");
       try {
-        const outcome = await this.executeCompaction(id, spec.prompt, deadline, scope);
-        progress.turnSettled(key, outcome.kind, "reason" in outcome ? outcome.reason : undefined);
+        const outcome = await this.executeCompaction(id, spec.prompt, deadline, scope, tags);
+        this.turnEnded(outcome, "compact");
         return outcome;
       } catch (error) {
-        progress.turnSettled(key, "failed", messageOf(error));
+        this.options.progress.turnSettled(this.key, "failed", messageOf(error));
         throw error;
       } finally {
         await this.options.afterOperation?.();
@@ -1468,6 +1632,13 @@ class LogicalAgent implements AgentRef {
     scope?.track(tracked);
     this.#sets.set(id, { spec: completeSpec, result: tracked });
     return tracked;
+  }
+
+  /** A turn or compaction that settled, as the view shows it and `turns.jsonl` keeps it. */
+  private turnEnded(outcome: TurnOutcome<JsonValue>, kind: TurnRecord["kind"]): void {
+    const reason = "reason" in outcome ? outcome.reason : undefined;
+    this.options.progress.turnSettled(this.key, outcome.kind, reason);
+    this.options.recordTurn(outcome, kind);
   }
 
   fork(spec: AgentForkSpec): Promise<AgentRef> {
@@ -1583,7 +1754,7 @@ class LogicalAgent implements AgentRef {
     deadline: AbsoluteDeadline,
     scope: ExecutionScope | undefined,
   ): Promise<TurnOutcome<null>> {
-    const entry = this.options.ledger.reserve(randomUUID(), () => this.#execution);
+    const entry = this.options.ledger.reserve(randomUUID(), () => this.#execution, tagsOf(scope));
     const usage = () =>
       entry.settle({ settledAt: Math.min(Date.now(), deadline.unixMilliseconds) }, []);
     if (Date.now() >= deadline.unixMilliseconds) {
@@ -1669,6 +1840,7 @@ class LogicalAgent implements AgentRef {
     spec: AgentRunTextSpec | AgentRunStructuredSpec<JsonValue>,
     scope: ExecutionScope | undefined,
     operationDeadline: AbsoluteDeadline,
+    tags: OperationTags,
   ): Promise<RunResult<JsonValue>> {
     const nudge = spec.nudge === false ? undefined : (spec.nudge ?? this.defaultNudge());
     scope?.assertActive();
@@ -1678,9 +1850,8 @@ class LogicalAgent implements AgentRef {
     const operationId = randomUUID();
     const schema = resultSchema(spec.schema);
     if (Date.now() >= operationDeadline.unixMilliseconds) {
-      const usage = this.options.ledger
-        .reserve(operationId, () => this.#execution)
-        .settle({ settledAt: operationDeadline.unixMilliseconds }, []);
+      const late = this.options.ledger.reserve(operationId, () => this.#execution, tags);
+      const usage = late.settle({ settledAt: operationDeadline.unixMilliseconds }, []);
       return {
         outcome: { kind: "timed-out", reason: "operation deadline exceeded", usage },
       };
@@ -1695,7 +1866,7 @@ class LogicalAgent implements AgentRef {
     const binding = { endpoint: this.options.endpoint, operationId };
     const charges: number[] = [];
     let later: Promise<HarnessTurnOutcome> | undefined;
-    const entry = this.options.ledger.reserve(operationId, () => this.#execution);
+    const entry = this.options.ledger.reserve(operationId, () => this.#execution, tags);
     /** The native turn this operation currently answers for; a nudge replaces it. */
     const held: HeldTurn = {};
     const finish = async (
@@ -1727,6 +1898,7 @@ class LogicalAgent implements AgentRef {
       const authored: AuthoredTurn = {
         prompt: spec.prompt,
         ...(spec.label === undefined ? {} : { label: spec.label }),
+        ...(tags.stage === undefined ? {} : { stage: tags.stage }),
         ...(spec.schema === undefined ? {} : { schema: spec.schema }),
       };
       const turn: AgentTextTurnSpec & HarnessAuthored = {
@@ -1835,8 +2007,9 @@ class LogicalAgent implements AgentRef {
     prompt: string,
     deadline: AbsoluteDeadline,
     scope: ExecutionScope | undefined,
+    tags: OperationTags,
   ): Promise<TurnOutcome<string>> {
-    const entry = this.options.ledger.reserve(randomUUID(), () => this.#execution);
+    const entry = this.options.ledger.reserve(randomUUID(), () => this.#execution, tags);
     const times: { deliveredAt?: number } = {};
     const settle = (
       native: HarnessTurnOutcome | "expired",
@@ -2019,7 +2192,10 @@ class ExecutionScope {
 
   constructor(
     readonly deadline: AbsoluteDeadline,
-    readonly stage?: StageProgress,
+    /** The labelled `parallel` it runs in, for progress. */
+    readonly group?: GroupProgress,
+    /** The workflow stage everything in this scope runs in. */
+    readonly stage?: string,
   ) {}
 
   get cancelled(): boolean {
@@ -2081,7 +2257,7 @@ function runParallel<Item, Result>(
   operation: (item: Item, index: number) => Promise<Result>,
   deadline: AbsoluteDeadline,
   requestedConcurrency?: number,
-  openStage?: () => StageProgress | undefined,
+  openGroup?: () => GroupProgress | undefined,
 ): Promise<Result[]> {
   assertDeadline(deadline);
   const concurrency = requestedConcurrency ?? Math.max(1, items.length);
@@ -2091,7 +2267,7 @@ function runParallel<Item, Result>(
   const parent = scopes.getStore();
   parent?.assertAccepting();
   if (items.length === 0) return Promise.resolve([]);
-  const execution = executeParallel(items, operation, deadline, concurrency, parent, openStage?.());
+  const execution = executeParallel(items, operation, deadline, concurrency, parent, openGroup?.());
   parent?.track(execution);
   return execution;
 }
@@ -2102,10 +2278,10 @@ async function executeParallel<Item, Result>(
   deadline: AbsoluteDeadline,
   concurrency: number,
   parent: ExecutionScope | undefined,
-  stage?: StageProgress,
+  group?: GroupProgress,
 ): Promise<Result[]> {
-  // An unlabelled parallel inside a stage stays part of it.
-  const scope = new ExecutionScope(deadline, stage ?? parent?.stage);
+  // An unlabelled parallel inside a labelled one stays part of it.
+  const scope = new ExecutionScope(deadline, group ?? parent?.group, parent?.stage);
   const removeFromParent = parent?.add(() => scope.cancel());
   const results = new Array<Result>(items.length);
   let next = 0;
@@ -2116,11 +2292,11 @@ async function executeParallel<Item, Result>(
         next += 1;
         if (index >= items.length) return;
         scope.assertActive();
-        if (stage) stage.started += 1;
+        if (group) group.started += 1;
         try {
           results[index] = await operation(items[index]!, index);
         } finally {
-          if (stage) stage.done += 1;
+          if (group) group.done += 1;
         }
       }
     });
@@ -2147,7 +2323,7 @@ async function executeParallel<Item, Result>(
     completion.catch(() => undefined);
     throw error;
   } finally {
-    if (stage) stage.endedAt = Date.now();
+    if (group) group.endedAt = Date.now();
     cancelTimer?.();
     removeFromParent?.();
   }
@@ -2292,6 +2468,89 @@ function reconcile<T extends JsonValue>(
     case "cancelled":
       return { kind: "cancelled", reason: native.detail ?? "operation cancelled", usage };
   }
+}
+
+/** A stage's one line, which a summary that throws leaves out rather than failing the stage. */
+function summaryOf(
+  name: string,
+  options: StageOptions<JsonValue> | undefined,
+  value: JsonValue | undefined,
+  log: RunWorkflowOptions["onLog"],
+): string | undefined {
+  if (!options?.summary || value === undefined) return undefined;
+  try {
+    return String(options.summary(value));
+  } catch (error) {
+    log?.(`awf: stage ${name}'s summary failed: ${messageOf(error)}`);
+    return undefined;
+  }
+}
+
+/** A settled turn or compaction, kept in the run's `turns.jsonl`. */
+type RecordTurn = (outcome: TurnOutcome<JsonValue>, kind: TurnRecord["kind"]) => void;
+
+function pick<T extends object, K extends keyof T>(value: T, keys: readonly K[]): Pick<T, K> {
+  return Object.fromEntries(
+    keys.flatMap((key) => (value[key] === undefined ? [] : [[key, value[key]]])),
+  ) as Pick<T, K>;
+}
+
+function tagsOf(scope: ExecutionScope | undefined, label?: string): OperationTags {
+  return {
+    ...(scope?.stage === undefined ? {} : { stage: scope.stage }),
+    ...(label === undefined ? {} : { label }),
+  };
+}
+
+/**
+ * A stage's value as it is recorded and handed back: through JSON, as a continue reads it, and
+ * checked by its `result`. A stage without one returns nothing.
+ */
+function stageValue(
+  name: string,
+  options: StageOptions<JsonValue> | undefined,
+  value: unknown,
+): JsonValue | undefined {
+  if (!options) {
+    if (value === undefined) return undefined;
+    throw new Error(
+      `stage ${name} has no result schema, so it returns nothing, and it returned a value`,
+    );
+  }
+  let text: string | undefined;
+  try {
+    text = value === undefined ? undefined : JSON.stringify(value);
+  } catch (error) {
+    throw new Error(`stage ${name}'s value is not JSON: ${messageOf(error)}`);
+  }
+  if (text === undefined) {
+    throw new Error(`stage ${name} returned nothing; its result expects a value`);
+  }
+  const recorded = JSON.parse(text) as JsonValue;
+  const errors = validate(parseJsonSchema(options.result), recorded);
+  if (errors.length > 0) {
+    throw new Error(`stage ${name}'s value does not fit its result: ${formatErrors(errors)}`);
+  }
+  return recorded;
+}
+
+/** How a recorded value no longer fits its stage's `result`, after `{stage}'s record`; undefined when it fits. */
+function recordMisfit(
+  options: StageOptions<JsonValue> | undefined,
+  recorded: JsonValue | undefined,
+): string | undefined {
+  if (!options) {
+    return recorded === undefined
+      ? undefined
+      : "holds a value, and the stage no longer has a result";
+  }
+  if (recorded === undefined) return "holds no value, and the stage's result now expects one";
+  const errors = validate(parseJsonSchema(options.result), recorded);
+  if (errors.length === 0) return undefined;
+  return [
+    "no longer fits its result schema:",
+    ...errors.map((error) => `  ${error.path}: ${error.message}`),
+  ].join("\n");
 }
 
 function resultSchema<T extends JsonValue>(schema: OutputSchema<T> | undefined): JsonSchema {

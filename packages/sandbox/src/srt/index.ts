@@ -23,6 +23,7 @@ import { contains, repositoryOf } from "../resolve";
 import type {
   OpenedSandbox,
   PaneTerminal,
+  ResolvedSandbox,
   SandboxContext,
   SandboxedCommand,
   SandboxProvider,
@@ -88,16 +89,17 @@ export function createSrtProvider(options: SrtOptions): SandboxProvider<SrtEnvir
       }
       const temp = join(context.directory, "tmp");
       const base = baseProfile(spec, context, options, temp, await protectedPaths(spec));
-      checkProfile(base, options, context);
+      checkProfile(base, options, context, spec);
       if (options.probe !== false) await probed(context);
       await mkdir(join(temp, "npm"), { recursive: true, mode: 0o700 });
       await mkdir(join(context.directory, "profiles"), { recursive: true, mode: 0o700 });
-      return openSandbox(context, options, base, temp);
+      return openSandbox(spec, context, options, base, temp);
     },
   };
 }
 
 function openSandbox(
+  spec: ResolvedSandbox<unknown>,
   context: SandboxContext,
   options: SrtOptions,
   base: SrtSettings,
@@ -121,7 +123,7 @@ function openSandbox(
       if (short) shorts.push(short);
       for (const shared of agent.harness.sharedWrites ?? []) await sharedDirectory(shared);
       const settings = agentProfile(base, agent, short);
-      checkProfile(settings, options, context);
+      checkProfile(settings, options, context, spec);
       const profile = join(profiles, `${randomUUID()}.json`);
       await writeFile(profile, JSON.stringify(settings, null, 2), { mode: 0o600 });
       // git refuses an unreadable `~/.gitconfig`; this one is empty (X4). Made anew, never through
@@ -245,6 +247,7 @@ async function probe(options: SrtOptions, context: SandboxContext): Promise<void
       read: [],
       write: [],
       network: [],
+      hidden: [],
       gitdirs: [],
       environment: {},
     },

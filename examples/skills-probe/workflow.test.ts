@@ -70,7 +70,7 @@ describe("skills-probe", () => {
       { ...plan, agents: ["host-pi", "box-pi"] },
       { agents: { "host-pi": found, "box-pi": reply.failed("pi crashed") } },
     );
-    expect(probe.present!(run.value)).toBe(
+    expect(probe.present!(run.value, { kind: "completed", value: run.value, stages: [] })).toBe(
       ["host-pi: stamp -, seal seal-host-pi; probe-b", "box-pi: failed: pi crashed"].join("\n"),
     );
   });

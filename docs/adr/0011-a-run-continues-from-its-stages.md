@@ -27,9 +27,10 @@ narrower case, a run continued from its stages, and leaves the journal shelved.
 - **Stage names are durable keys.** A renamed stage has no record, so a continue reruns it, or
   stops after `--from-stage`; the message lists recorded stages the code never reached.
 - **`stop` and `stopped`.** `workflow.stop(reason)` ends an attempt `stopped`, apart from `failed`.
-- **A breaking change to the author API:** `present` and `report` take the ending (`completed` with
-  its value, or how it stopped, with its stages) instead of the result, so a stopped run can report
-  what its stages found. Every workflow with `present` or `report` changes with it.
+- **A breaking change to the author API:** `present` and `report` take the ending as well as the
+  value. `present(value, ending)` renders a completed attempt only; `report(value, ending)` is
+  called for every ending, `value` undefined unless it completed, so a stopped run can report what
+  its stages found. Every workflow with `present` or `report` changes with it.
 
 ## Why this isn't the shelved journal
 
@@ -52,8 +53,8 @@ Stages answer each by not replaying calls at all:
   stage name, so a clock in a prompt and fan-out order don't arise, and stages can't run in
   parallel.
 - **A stale world isn't detected, as with the journal.** A reused value can name a worktree a fresh
-  sandbox or `git clean` removed, which is E6's lost agent side effect. The continue lists what it
-  reuses with its age, and a check between stages can stop on what it can see.
+  sandbox or `git clean` removed, which is E6's lost agent side effect. The continue shows what it
+  reuses and from which attempt, and a check between stages can stop on what it can see.
 - **Persistence** is the run folder above: written by one attempt at a time, each record replaced
   whole and turns appended. Claiming the run's folder and each attempt's file, each one system
   call, are the only locks.

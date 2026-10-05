@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import type { ModelSpend, SettledOperation, TokenUsage } from "@agentswf/contract/records";
-import { describeAccounting } from "./format";
+import { describeAccounting, describeAttempts, stageFigures } from "./format";
 import { costOf, type PriceTable, PUBLISHED_PRICES } from "./prices";
-import { summarizeRun } from "./summary";
+import { sumAttempts, summarizeRun } from "./summary";
 import { addTokens, spendOf } from "./tokens";
 
 const OPUS = PUBLISHED_PRICES.rate("claude-opus-5")!;
@@ -256,9 +256,9 @@ describe("summarizeRun", () => {
     expect(summary.wallMs).toBe(845_000);
     expect(summary.totals.agentMs).toBe(60_000 + 90_000);
     expect(summary.byStage[0]!.spanMs).toBe(120_000);
-    expect(summary.byAgent.map(({ agent, stage, agentMs }) => [agent, stage, agentMs])).toEqual([
-      ["lens:a", "lens", 60_000],
-      ["lens:b", "lens", 90_000],
+    expect(summary.byAgent.map(({ agent, agentMs }) => [agent, agentMs])).toEqual([
+      ["lens:a", 60_000],
+      ["lens:b", 90_000],
     ]);
   });
 
@@ -327,6 +327,29 @@ describe("describeAccounting", () => {
       "  lens      2 agents · 1m 00s · ~$1.38 · usage known 1/2",
       "  verifier  1 agent · 1m 00s · 1k tokens · fully priced 0/1",
     ]);
+    // A run without stages keeps its groups where a view shows the stages.
+    expect(describeAccounting(summary, { stages: false })).toEqual(describeAccounting(summary));
+    expect(stageFigures(summary)).toEqual(new Map());
+  });
+
+  test("a run that opened no agent shows no agent figures, and several attempts are summed in brief", () => {
+    const none = summarizeRun([], PUBLISHED_PRICES, TIMES, []);
+    expect(describeAccounting(none)).toEqual(["14m 05s"]);
+    const one = summarizeRun(
+      [record("lens:a", [spent("claude-opus-5", { output: 100_000 })])],
+      PUBLISHED_PRICES,
+      TIMES,
+      [],
+    );
+    expect(describeAttempts(sumAttempts([none, one]), 3, { interrupted: 1, ended: 0 })).toBe(
+      "run: 3 attempts (1 interrupted, cost unknown), 28m 10s, ~$2.50",
+    );
+    expect(describeAttempts(sumAttempts([none, one]), 4, { interrupted: 1, ended: 1 })).toBe(
+      "run: 4 attempts (1 interrupted, 1 ended without a cost record, cost unknown), 28m 10s, ~$2.50",
+    );
+    expect(describeAttempts(sumAttempts([none, none]), 2, { interrupted: 0, ended: 0 })).toBe(
+      "run: 2 attempts, 28m 10s",
+    );
   });
 });
 
@@ -373,5 +396,159 @@ describe("token arithmetic", () => {
       { model: "m", delegated: false, tokens: tokens({ output: 3 }) },
     ];
     expect(spendOf(records)).toEqual([spent("m", { output: 4 }), spent("m", { output: 2 }, true)]);
+  });
+});
+
+describe("byStage, from the workflow's stages", () => {
+  const OPUS_SPEND = (output: number) => [spent("claude-opus-5", { output })];
+  const worker = (stage: string | undefined, output: number, n: number) =>
+    record("worker", OPUS_SPEND(output), {
+      operationId: `worker#${n}`,
+      ...(stage === undefined ? {} : { stage }),
+    });
+
+  test("one agent across three stages is split by stage, with what ran between them last", () => {
+    const summary = summarizeRun(
+      [
+        worker("doc-review", 100_000, 1),
+        worker(undefined, 50_000, 2),
+        worker("implement", 200_000, 3),
+        worker("qa", 300_000, 4),
+      ],
+      PUBLISHED_PRICES,
+      TIMES,
+      [],
+      [
+        { stage: "doc-review", spanMs: 0 },
+        { stage: "implement", spanMs: 0 },
+        { stage: "qa", spanMs: 0 },
+      ],
+    );
+    expect(summary.byStage.map(({ stage, agents, estimate }) => [stage, agents, estimate])).toEqual(
+      [
+        ["doc-review", 1, 2.5],
+        ["implement", 1, 5],
+        ["qa", 1, 7.5],
+        ["(no stage)", 1, 1.25],
+      ],
+    );
+    expect(summary.grouping).toBe("stages");
+    expect(summary.byAgent).toHaveLength(1);
+    expect(summary.byAgent[0]).not.toHaveProperty("stage");
+  });
+
+  test("a reused stage is a row at zero, each stage is timed by its own span, and one that spent nothing is not shown", () => {
+    const summary = summarizeRun(
+      [worker("qa", 100_000, 1)],
+      PUBLISHED_PRICES,
+      TIMES,
+      [],
+      [
+        { stage: "implement", spanMs: 0 },
+        { stage: "qa", spanMs: 90_000 },
+        { stage: "notify", spanMs: 3_000 },
+      ],
+    );
+    expect(
+      summary.byStage.map(({ stage, agents, estimate, spanMs }) => [
+        stage,
+        agents,
+        estimate,
+        spanMs,
+      ]),
+    ).toEqual([
+      ["implement", 0, undefined, 0],
+      ["qa", 1, 2.5, 90_000],
+      ["notify", 0, undefined, 3_000],
+    ]);
+    expect(stageFigures(summary)).toEqual(new Map([["qa", "1 agent · 100k tokens · ~$2.50"]]));
+    expect(describeAccounting(summary)).toEqual([
+      "1 agent · 14m 05s · 100k tokens · ~$2.50 at list prices · subscription",
+      "  qa  1 agent · 1m 30s · ~$2.50",
+    ]);
+    expect(describeAccounting(summary, { stages: false })).toHaveLength(1);
+  });
+
+  test("a run with no stages keeps the key prefix", () => {
+    const summary = summarizeRun(
+      [record("lens:a", OPUS_SPEND(1)), record("verifier:0", OPUS_SPEND(1))],
+      PUBLISHED_PRICES,
+      TIMES,
+      [],
+    );
+    expect(summary.grouping).toBe("prefix");
+    expect(summary.byStage.map(({ stage }) => stage)).toEqual(["lens", "verifier"]);
+  });
+
+  test("an attempt that failed before its first stage is summed as running between stages", () => {
+    const before = summarizeRun(
+      [record("lens:a", OPUS_SPEND(100_000))],
+      PUBLISHED_PRICES,
+      TIMES,
+      [],
+    );
+    const staged = summarizeRun(
+      [worker("qa", 100_000, 1), worker(undefined, 100_000, 2)],
+      PUBLISHED_PRICES,
+      TIMES,
+      [],
+      [{ stage: "qa", spanMs: 0 }],
+    );
+    const run = sumAttempts([before, staged]);
+    expect(run.grouping).toBe("stages");
+    expect(run.byStage.map(({ stage, agents, estimate }) => [stage, agents, estimate])).toEqual([
+      ["qa", 1, 2.5],
+      ["(no stage)", 2, 5],
+    ]);
+  });
+
+  test("a run across two attempts sums its totals, and each stage across the attempts that ran it", () => {
+    const first = summarizeRun(
+      [worker("implement", 200_000, 1), worker("qa", 100_000, 2)],
+      PUBLISHED_PRICES,
+      TIMES,
+      [],
+      [
+        { stage: "implement", spanMs: 0 },
+        { stage: "qa", spanMs: 0 },
+      ],
+    );
+    const second = summarizeRun(
+      [worker("qa", 300_000, 3)],
+      PUBLISHED_PRICES,
+      TIMES,
+      [],
+      [
+        { stage: "implement", spanMs: 0 },
+        { stage: "qa", spanMs: 0 },
+      ],
+    );
+    const run = sumAttempts([first, second]);
+    expect(run.totals).toMatchObject({ agents: 2, estimate: 15 });
+    expect(run.wallMs).toBe(2 * 845_000);
+    expect(run.byStage.map(({ stage, agents, estimate }) => [stage, agents, estimate])).toEqual([
+      ["implement", 1, 5],
+      ["qa", 2, 10],
+    ]);
+  });
+
+  test("an attempt whose usage is unknown keeps the sum's gap named", () => {
+    const priced = summarizeRun(
+      [worker("qa", 100_000, 1)],
+      PUBLISHED_PRICES,
+      TIMES,
+      [],
+      [{ stage: "qa", spanMs: 0 }],
+    );
+    const unknown = summarizeRun(
+      [worker("qa", 0, 2)].map(({ spend: _spend, ...rest }) => rest),
+      PUBLISHED_PRICES,
+      TIMES,
+      [],
+      [{ stage: "qa", spanMs: 0 }],
+    );
+    const run = sumAttempts([priced, unknown]);
+    expect(run.totals).toMatchObject({ agents: 2, known: 1, priced: 1, estimate: 2.5 });
+    expect(describeAccounting({ ...run, byStage: [] })[0]).toContain("usage known 1/2");
   });
 });

@@ -12,13 +12,17 @@ exists, the code is right, then this page.
   panes (pi since story 017); codex and pi run headless. A headless claude needs `metered: true`,
   as `claude -p` bills per token even on a subscription login. A pane agent keeps its pane for all its turns (ADR 0008). Pane agents open in the Herdr session `awf run` is started
   from (`AWF_HERDR_SESSION` overrides it), and `--cwd` sets the directory the workflow works in.
-- While it runs, `awf run` shows each labelled `parallel` stage and its agents' turns: a block
-  redrawn in place on a terminal, a line per change otherwise.
+- A run is one piece of work with an id, kept in `.awf/runs/{workflow}/{id}` under its working
+  directory; each `awf run` of it is an attempt (story 018, ADR 0011). A workflow marks stages with
+  `workflow.stage`, and `awf run {file} --continue {id}` reuses the stages that succeeded and runs
+  the rest, or redoes from one with `--from-stage`. `workflow.stop` ends an attempt `stopped`.
+- While it runs, `awf run` shows its stages, each labelled `parallel` as a group, and its agents'
+  turns: a block redrawn in place on a terminal, a line per change otherwise.
 - Each agent answers through `wf result`, over a socket the engine opened for that agent alone. At
   most one result is accepted per operation, validated against its schema, with one nudge when an
   agent goes quiet without answering.
 - Every wait has a deadline. The run's default is thirty minutes.
-- Every run reports its wall time, and for each agent, stage and model its times, tokens, billing
+- Every attempt reports its wall time, and for each agent, stage and model its times, tokens, billing
   and a cost estimate at dated list prices, read from the harnesses' own session files when the run
   ends. `awf run` prints it and writes it to `output.json` (story 002), for a run that failed, timed
   out or was cancelled too; `runWorkflow` then rejects with a `WorkflowRunError` carrying it (story
@@ -55,7 +59,7 @@ exists, the code is right, then this page.
   agent has exactly those, on the host or in a sandbox, under claude, codex and pi (story 007).
   Each agent gets a checked copy; a public skill is pinned to a commit in a cache shared by runs.
   `output.json` records each agent's skills. An agent named none keeps the operator's on the host.
-- `feature-delivery` is a typechecked design and has never run.
+- `feature-delivery` runs on stages and its tests pass; it has never run live.
 - `bun run eval` checks every supported feature against the live harnesses, on their cheapest
   models; [`testing.md`](testing.md) says what each eval takes and when to run it.
 
@@ -161,9 +165,9 @@ The gates are defined in [`foundation.md`](foundation.md) §12.
   pasted text and will not act on.
 - [017 — pi in panes](stories/017-pi-pane-agent.md): done, approved 2026-10-01. pi runs in a Herdr
   pane, on the host and in srt and docker sandboxes, and compacts there with a focus.
-- [018 — workflow stages](stories/018-workflow-stages.md): draft, from the implement-ticket live
-  runs. Runs with ids and attempts, stages marked inline, a continue that reuses what
-  succeeded; the model is `design/runs-and-stages.md`, an ADR amending §10's plan is pending.
+- [018 — workflow stages](stories/018-workflow-stages.md): in progress. Runs with ids and attempts,
+  stages marked inline, a continue that reuses what succeeded; the model is
+  `design/runs-and-stages.md`, and ADR 0011 amends §10's plan.
 - [019 — cursor as a full harness](stories/019-cursor-harness.md): awaiting the operator's review. Each harness is
   one file whose every capability is given or absent with a reason tsc checks
   ([adding a harness](adding-a-harness.md)). cursor runs in a pane, compacts there, forks into
@@ -195,7 +199,7 @@ with a long run:
 2. [`turn-liveness-and-limits`](stories/todo/turn-liveness-and-limits.md): an agent waiting on its
    own background work isn't done; the implement-ticket run lost its last step to it.
 
-Alongside: [story 018](stories/018-workflow-stages.md), stages and continuing a run, in draft;
+Alongside: [story 018](stories/018-workflow-stages.md), stages and continuing a run, built and awaiting review;
 then [`stopped-run-recovery`](stories/todo/stopped-run-recovery.md) on top of 018 and liveness.
 [`second-case-kind`](stories/todo/second-case-kind.md) waits behind the loop, by the user's choice
 (2026-09-30).

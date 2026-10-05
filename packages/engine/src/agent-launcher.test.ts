@@ -4,7 +4,7 @@ import { dirname } from "node:path";
 import { installAgentLauncher } from "./agent-launcher";
 import { startResultControlPlane } from "./control-plane";
 import { createResultSlotRegistry } from "./result-slots";
-import { readAccepted } from "./run-dir";
+import { readAccepted } from "./runs";
 import { COUNT_SCHEMA, createTempRunDirs } from "./testing";
 
 const runDirs = createTempRunDirs();
@@ -123,7 +123,7 @@ describe("the launcher an agent is told to run", () => {
       expect(stolen.stderr).toContain("another agent's call");
       expect(await readAccepted(fixture.runDir, "op-1")).toBeNull();
       // The refused value is not written into the owner's history: it came from somebody else.
-      const attempts = Bun.file(`${fixture.runDir}/calls/op-1/attempts.jsonl`);
+      const attempts = Bun.file(`${fixture.runDir}/calls/op-1/candidates.jsonl`);
       expect(await attempts.exists()).toBe(false);
     } finally {
       await fixture.control.close();

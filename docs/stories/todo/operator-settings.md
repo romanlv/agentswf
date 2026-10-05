@@ -18,7 +18,7 @@ operator can turn off, per machine or per project, and it is not the only such c
 are spread out and mostly fixed:
 
 - in code: the runtime aliases (`OPERATOR_ALIASES`, `packages/engine/src/operator-aliases.ts`), the
-  30-minute default deadline, `~/.awf/runs` as the run root;
+  30-minute default deadline, `.awf/runs` under the working directory as the run root;
 - on the command line, per run: `--timeout`, `--run-root`;
 - in the environment: `AWF_HERDR_SESSION`, and `OPENROUTER_API_KEY` from the shell or `.env`.
 

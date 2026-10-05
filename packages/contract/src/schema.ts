@@ -234,7 +234,7 @@ function check(schema: JsonSchema, value: unknown, path: string): SchemaError[] 
             const known = Object.keys(schema.properties).map(quote).join(", ");
             errors.push({
               path: `${path}.${key}`,
-              message: `unexpected property; this call accepts only ${known}`,
+              message: `unexpected property; the schema accepts only ${known}`,
             });
           }
           continue;

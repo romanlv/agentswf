@@ -17,7 +17,7 @@ const QUICK_CHECK = join(import.meta.dir, "../examples/quick-check/workflow.ts")
 const HARNESSES = ["codex", "pi", "pi-pane", "claude", "cursor", "cursor-pane"] as const;
 
 export function problems(exitCode: number, record: OutputRecord | undefined): string[] {
-  if (exitCode !== 0 || record?.outcome !== "succeeded") {
+  if (exitCode !== 0 || record?.outcome !== "completed") {
     return [`run did not succeed: exit ${exitCode}, outcome ${record?.outcome ?? "missing"}`];
   }
   const { checks } = record.value as QuickCheckResult;

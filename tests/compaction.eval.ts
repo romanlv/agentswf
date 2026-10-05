@@ -20,7 +20,7 @@ const COMPACTION = join(import.meta.dir, "../examples/compaction/workflow.ts");
 const SHOWS_SUMMARY = new Set(["claude", "claude-headless", "pi", "pi-pane"]);
 
 export function problems(exitCode: number, record: OutputRecord | undefined): string[] {
-  if (exitCode !== 0 || record?.outcome !== "succeeded") {
+  if (exitCode !== 0 || record?.outcome !== "completed") {
     return [`run did not succeed: exit ${exitCode}, outcome ${record?.outcome ?? "missing"}`];
   }
   const { checks, codename, colour } = record.value as CompactionResult;
@@ -75,7 +75,7 @@ if (import.meta.main) {
       {
         ok: failed.length === 0,
         failed,
-        checks: (record?.outcome === "succeeded"
+        checks: (record?.outcome === "completed"
           ? (record.value as CompactionResult)
           : undefined
         )?.checks.map((check) => ({

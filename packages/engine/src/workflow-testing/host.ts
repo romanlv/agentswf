@@ -261,6 +261,7 @@ export function createScriptedHost(
       prompt: authored.prompt,
       ...(authored.schema === undefined ? {} : { schema: authored.schema }),
       ...(authored.label === undefined ? {} : { label: authored.label }),
+      ...(authored.stage === undefined ? {} : { stage: authored.stage }),
       cwd: activation.cwd,
       model: context.settings.model,
       ...(context.settings.effort === undefined ? {} : { effort: context.settings.effort }),

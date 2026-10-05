@@ -93,7 +93,7 @@ status is one of `todo`, `draft`, `ready`, `in-progress`, `blocked`, `awaiting-h
   `done` — a pi agent may take placement pane, on the host and in sandboxes, with
   turns, continuation and compaction there.
 - [`018` — Run a workflow as named stages, and continue it from one](018-workflow-stages.md) —
-  `draft` — a run has an id and numbered attempts; stages are marked inline, and a continue reuses
+  `in-progress` — a run has an id and numbered attempts; stages are marked inline, and a continue reuses
   the stages that succeeded and runs the rest; awf gains `stage` and `stop`.
 - [`019` — Cursor as a full harness, and a harness definition that cannot be half-added](019-cursor-harness.md) —
   `awaiting-human-review` — cursor runs in a pane, compacts, records its tokens, takes skills and

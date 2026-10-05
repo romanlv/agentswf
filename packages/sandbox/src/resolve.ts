@@ -17,8 +17,13 @@ export type ResolveOptions = {
   key: string;
   /** What a relative `cwd` resolves against, and the sandbox's `cwd` when the spec names none. */
   cwd: string;
-  /** Every run's directory: no sandbox path may be, contain or lie inside it. */
+  /** Every run's directory: no sandbox path may be or lie inside it, and one holding it hides it. */
   runRoot: string;
+  /**
+   * What awf keeps per machine, `~/.awf`: every sandbox's homes, with their copied credentials, and
+   * the sessions runs drive. No sandbox path may lie inside it.
+   */
+  machineRoot: string;
   providers: SandboxProviders;
   /** An agent's private spec, which may not carry `key` or `cwd`. */
   inline?: boolean;
@@ -73,6 +78,7 @@ export async function resolveSandbox(
 
   const home = await realpath(options.home ?? homedir());
   const runRoot = await realpath(options.runRoot);
+  const machine = await realpath(options.machineRoot).catch(() => options.machineRoot);
   const controlRoot =
     options.controlRoot === undefined
       ? undefined
@@ -82,7 +88,8 @@ export async function resolveSandbox(
   );
   const forbidden = (path: string, field: string) => {
     if (contains(path, home)) throw new Error(`sandbox ${field} ${path} would expose ~`);
-    if (contains(path, runRoot) || contains(runRoot, path)) {
+    // A path within the run root would be another run's. One holding it is `hidden`.
+    if (contains(runRoot, path)) {
       throw new Error(`sandbox ${field} ${path} would expose the run root`);
     }
     // Code the host runs and every past transcript (story 004, "A fresh harness home").
@@ -92,6 +99,8 @@ export async function resolveSandbox(
       (root) => contains(path, root) || contains(root, path),
     );
     if (keys) throw new Error(`sandbox ${field} ${path} would expose keys in ${keys}`);
+    if (contains(machine, path))
+      throw new Error(`sandbox ${field} ${path} would expose ${machine}`);
     if (controlRoot && (contains(path, controlRoot) || insideDoors(controlRoot, path))) {
       throw new Error(`sandbox ${field} ${path} would expose the engine's doors`);
     }
@@ -152,6 +161,11 @@ export async function resolveSandbox(
       add(repository, nested);
     }
   }
+  // A project keeps its runs in `.awf/runs`: a sandbox holding the project is not refused, and
+  // every provider hides the run root inside it.
+  const holdsRunRoot = [cwd, ...read, ...write, ...gitdirs.keys()].some((path) =>
+    contains(path, runRoot),
+  );
   return {
     provider,
     sandbox: {
@@ -160,6 +174,7 @@ export async function resolveSandbox(
       read,
       write,
       network,
+      hidden: holdsRunRoot ? [runRoot] : [],
       gitdirs: [...gitdirs].map(([path, { own, linked }]): Gitdir => {
         // A submodule's gitdir is in its superproject's `modules`, which is guarded whole: it is
         // committed in under no provider, whether that superproject is in reach or not.

@@ -1,7 +1,7 @@
 import { afterAll, expect, test } from "bun:test";
 import { createFakeAdapter } from "@agentswf/harness/testing";
 import { createResultSlotRegistry } from "./result-slots";
-import { readAccepted } from "./run-dir";
+import { readAccepted } from "./runs";
 import { COUNT_SCHEMA, createTempRunDirs } from "./testing";
 
 const runDirs = createTempRunDirs();

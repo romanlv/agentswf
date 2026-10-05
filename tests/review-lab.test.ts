@@ -68,6 +68,8 @@ function inProcess(options: { spend?: number } = {}) {
     const started = Date.now();
     const exitCode = await runOperatorCli(awfArgv(request), {
       cwd: request.cwd,
+      // Sandboxes go under `~/.awf`: the test workspace's, never the operator's.
+      home: dirname(request.runRoot),
       stdout: (text) => output.push(text),
       stderr: (text) => errors.push(text),
       installRuntime: async () => ({
@@ -150,7 +152,7 @@ describe("awf-lab", () => {
     });
     const runs = inProcess();
     const first = await lab(ws, ["run", "canned"], runs.runner);
-    expect(first.stderr).toContain("app-1: trial succeeded, 3 findings");
+    expect(first.stderr).toContain("app-1: trial completed, 3 findings");
     expect(first.exitCode).toBe(0);
     // Every trial, then every score, in the seeded order: a scorer never runs beside a trial.
     expect(runs.calls.map(stepOf)).toEqual([TRIAL, TRIAL, SCORE, SCORE]);
@@ -889,7 +891,7 @@ export default defineComparison({
       "other:app-1",
     ]);
     expect(
-      both.steps.every((s) => s.trial.outcome === "succeeded" && s.score.status === "scored"),
+      both.steps.every((s) => s.trial.outcome === "completed" && s.score.status === "scored"),
     ).toBe(true);
     expect(both.outcome).toEqual({ exitCode: 0, listPrice: 0, stopped: false });
     expect((await lab(ws, ["run", "canned", "canned"])).exitCode).toBe(2);
@@ -948,6 +950,26 @@ export default defineComparison({
     given.length = 0;
     expect((await lab(ws, ["run", "canned", "--cases", "app-2"], recording)).exitCode).toBe(0);
     expect(given[0]!.spec).toEqual({ read: [given[0]!.request], docker: { image: "awf-review" } });
+  });
+
+  test("each run, a trial's and its scorer's, goes to awf under an id of its own, which finds it", async () => {
+    await ws.variant("canned");
+    await answer(ws, { "app-1": [finding(mechanism("app-1", 1))], "app-2": [] });
+    const runs = inProcess();
+    expect((await lab(ws, ["run", "canned", "--cases", "app-1"], runs.runner)).exitCode).toBe(0);
+    expect(runs.calls.map(stepOf)).toEqual([TRIAL, SCORE]);
+    const found = await Promise.all(
+      runs.calls.map(async (call) => {
+        const argv = awfArgv(call);
+        expect(argv[argv.indexOf("--id") + 1]).toBe(call.id);
+        const dir = await runDirOf(call.runRoot, call.id);
+        expect(await Bun.file(join(dir!, "run.json")).json()).toMatchObject({ id: call.id });
+        return dir!;
+      }),
+    );
+    // Two workflows, two ids: the scorer's run is never taken for the trial's.
+    expect(new Set(runs.calls.map((call) => call.id)).size).toBe(2);
+    expect(new Set(found.map((dir) => basename(dirname(dir)))).size).toBe(2);
   });
 
   test("a contained trial mounts awf, the variant's folder, the checkout and the request, never the data", async () => {
@@ -1039,7 +1061,7 @@ export default defineComparison({
       ({
         runId: "r1",
         outcome: "failed",
-        error,
+        reason: error,
         accounting: {
           wallMs: 5,
           billing: "unknown",
@@ -1111,7 +1133,7 @@ export default defineExecutableWorkflow({
         );
         const record = {
           runId: `proposer-${proposals}`,
-          outcome: "succeeded",
+          outcome: "completed",
           value: hypothesis,
           accounting: {
             wallMs: 1,
@@ -1229,7 +1251,7 @@ export default defineExecutableWorkflow({
       );
       const record = {
         runId: `proposer-${proposed.length}`,
-        outcome: "succeeded",
+        outcome: "completed",
         value: hypothesis,
         accounting: {
           wallMs: 1,

@@ -1,8 +1,9 @@
 import type { WorkUpdate } from "./schema";
 
+/** What is reviewed. Each names its ticket: on a continue, the agent asked starts fresh. */
 export type ReviewSubject =
   | { kind: "ticket-doc"; ticket: string }
-  | { kind: "implementation"; focus?: string[] };
+  | { kind: "implementation"; ticket: string; focus?: string[] };
 
 export function reviewPrompt(subject: ReviewSubject, work: WorkUpdate): string {
   if (subject.kind === "ticket-doc") {
@@ -13,7 +14,11 @@ export function reviewPrompt(subject: ReviewSubject, work: WorkUpdate): string {
   }
 
   return [
-    `Review the implementation described by ${work.docPath}.`,
+    `Review the implementation of ${subject.ticket} described by ${work.docPath}.`,
+    `Its author says: ${work.summary}`,
+    ...(work.decisions.length > 0
+      ? ["Decisions it recorded:", ...work.decisions.map((item) => `- ${item}`)]
+      : []),
     "Inspect the actual changes and return ready only when they are correct and complete.",
     ...(subject.focus && subject.focus.length > 0
       ? [
@@ -36,7 +41,7 @@ export function revisionPrompt(
         "Recheck the affected claims before returning.",
       ].join("\n")
     : [
-        "Apply this review feedback:",
+        `Apply this review feedback to your implementation of ${subject.ticket}:`,
         ...feedback.map((item) => `- ${item}`),
         `Update ${work.docPath} with any resulting decisions or deviations.`,
       ].join("\n");

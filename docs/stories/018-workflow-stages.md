@@ -3,7 +3,7 @@ id: "018"
 title: Run a workflow as named stages, and continue it from one
 summary: A run is one piece of work with an id, given or generated, and numbered attempts; a workflow marks its stages inline; the run keeps each stage's current record, and a continue reuses the ones that succeeded and runs the rest. The view, costs and endings read by stage. awf gains `stage` and `stop`; the prototype's ask, durations and md are left to the boilerplate and the next story.
 type: story
-status: draft
+status: in-progress
 discovered_in: implement-ticket flow.ts live runs, AIRS-1515, 2026-10-02
 depends_on: []
 ---
@@ -137,6 +137,8 @@ Out of scope:
 
 ## Context and evidence
 
+The facts are as found before this story.
+
 - **Fact: "stage" means two unrelated things in the engine today.**
   - Accounting: `stageOf` in `packages/engine/src/accounting/summary.ts` is the agent key's prefix.
   - Progress: `StageProgress` in `packages/engine/src/run-progress.ts` is a labelled `parallel`. An
@@ -192,24 +194,26 @@ Out of scope:
   - `context.stage` and `context.stop`;
   - `ExecutionScope` carries the stage;
   - progress per turn, not per open.
-- `run-dir.ts`: an attempt's own files, under `runs.ts`.
+- `run-dir.ts` (before this story) goes: the layout is `runs.ts`'s, and whole-file writes are
+  `files.ts`'s.
 - `run-progress.ts` and `progress-view.ts`: stages, the run's id and attempt.
 - `run-usage.ts`: copies `stage` and `label`.
 - `accounting/`: `stageOf` from stages; a run's total across attempts.
 - `operator-cli.ts`:
   - `--id`, `--continue` and `--from-stage`;
   - the workspace label;
-  - `ENDINGS` for `stopped` and `interrupted`;
   - `watchProgress`, `handOver`.
+- `attempt-ending.ts`: `ENDINGS` gains `stopped`. `interrupted` is never an ending; it is read off
+  the files.
 - `workflow-testing/`: `testWorkflow(…, { fromStage, recorded })`, `run.stages`, `run.stopped`, and
   `stage` on turn and compaction records.
 
 ### sandbox
 
-- `resolve.ts`: a sandbox may contain the run root (`./.awf`); the check that a sandbox path isn't
-  inside the run root stays.
-- `srt/profile.ts`: the run root denied for writes as well as reads.
-- `docker/`: an empty tmpfs over the run root inside the container.
+- `resolve.ts`: a sandbox may contain the run root (`./.awf`), which `ResolvedSandbox.hidden`
+  then holds; a sandbox path inside the run root is still refused.
+- Each provider renders `hidden`: srt denies it for reads and writes, docker mounts an empty tmpfs
+  over it.
 
 ### Checked, no change
 
@@ -224,37 +228,23 @@ Out of scope:
 
 ## Tasks at a glance
 
-- [ ] 1. Decisions and the ADR: the open questions below and in [[runs-and-stages]]; ADR 0011
+- [x] 1. Decisions and the ADR: the open questions below and in [[runs-and-stages]]; ADR 0011
   "A run continues from its stages".
-- [ ] 2. Runs and attempts: `runs.ts`, `run.json`, attempts, id and attempt claims, `--id`,
+- [x] 2. Runs and attempts: `runs.ts`, `run.json`, attempts, id and attempt claims, `--id`,
   `--continue`, labels.
-- [ ] 3. Stages recorded: `workflow.stage`, the ledger, tagging, stage records, test support.
-- [ ] 4. Continue from a stage: the stage plan, `--from-stage`, removing stale records, schemas, test
+- [x] 3. Stages recorded: `workflow.stage`, the ledger, tagging, stage records, test support.
+- [x] 4. Continue from a stage: the stage plan, `--from-stage`, removing stale records, schemas, test
   support.
-- [ ] 5. The author surface: `stop`, `id(args)` and `summary`, documented, with the boilerplate's
+- [x] 5. The author surface: `stop`, `id(args)` and `summary`, documented, with the boilerplate's
   `ask` and `md` over them.
-- [ ] 6. The view by stage.
-- [ ] 7. Accounting and endings by stage.
+- [x] 6. The view by stage.
+- [x] 7. Accounting and endings by stage.
 - [ ] 8. Consumers: an example with stages, and implement-ticket on awf's stages, run live.
 
 ## Open questions
 
-The design's questions are settled ([[runs-and-stages#Decided]]);
-[[runs-and-stages#Settled in the second pass]] lists what was settled by reasoning, to veto. The
-design doc's "Checked against implement-ticket" walks the live runs through the model. What is
-left is task 1: the operator accepting [ADR 0011](../adr/0011-a-run-continues-from-its-stages.md).
-
-Decided:
-
-- **One stage at a time.** Parallel work goes inside a stage, including child workflows run with
-  `call`, which can run in parallel. (2026-10-04)
-- **`feature-delivery` carries the in-repo proof** (task 8). (2026-10-04)
-- **awf provides the API; wrappers ship in the boilerplate.** `ask`, `md` and durations leave
-  this story. (2026-10-04)
-- **The view shows each agent's placement and pane id.** The view is for the operator, not portable
-  workflow state, so [[operator-run-observation]]'s line holds. (2026-10-04, second pass)
-- **`byStage` per attempt and summed per run;** no per-agent split within a stage yet.
-  `turns.jsonl` keeps the data for one. (2026-10-04, second pass)
+None. The decisions are [ADR 0011](../adr/0011-a-run-continues-from-its-stages.md), accepted by the
+operator asking for the implementation (2026-10-04); the model is [[runs-and-stages]].
 
 ## Task execution rule
 
@@ -285,7 +275,7 @@ what it rules out.
 
 Done when:
 - One subagent has read the ADR against E6's findings. Done 2026-10-04; its findings are folded in.
-- The operator has accepted it.
+- The operator has accepted it: by asking for the implementation, 2026-10-04.
 - [[#Readiness]] holds.
 
 ### 2. Runs and attempts
@@ -303,11 +293,51 @@ Done when `runs.ts` tests cover, against a temp root:
 - a live attempt refusing, and a dead one (no `ended`, no process) read as `interrupted`;
 - two attempts claimed at once: exactly one runs, and the refused one leaves no file;
 - leftover `.tmp-*` and `.new-*` temp files and folders ignored;
-- a torn `turns.jsonl` line skipped, with a later attempt's lines after it;
 - a continue after `meta.name` changed, pointing at the old folder;
 - a deleted run dir freeing its id;
 - a newer `version` refused;
 - writes that leave no partial file.
+
+Plan (2026-10-04):
+- **contract.** `RunRecord` and `AttemptRecord` in `records.ts`, each with its `version`;
+  `WorkflowMeta.version`; `WorkflowContext.attempt`. The call's `Attempt` becomes `Candidate`, and
+  `attempts.jsonl` becomes `candidates.jsonl`. `OutputRecord` goes to version 5, with `attempt`;
+  `runId` is the run's id.
+- **engine `runs.ts`.** The only module that knows the layout:
+  - `createRun` claims the id by renaming `.new-{random}/` into place, and writes `.gitignore`;
+  - `openRun` finds a run, or the workflow it is under;
+  - `claimAttempt` links its file and refuses when an earlier attempt is live;
+  - `endAttempt` rewrites the attempt file with its ending;
+  - `runStatus` reads the status off the attempt files;
+  - `writeJson` writes a file whole, mode 0600.
+  
+  `RunRefused` carries every refusal, which exits 2. Liveness goes through a probe that tests can
+  replace.
+- **runner.** `RunWorkflowOptions.run` passes `{ dir, id, attempt }` in. Without it, the runner
+  makes `runRoot/{uuid}` as today, for tests and `workflow-testing`. `label` names the Herdr
+  workspace (`awf {workflow} {id} #{n}`), through the harness's `HarnessRunSpec.label`.
+- **operator-cli.**
+  - The run root is `.awf/runs` under `--cwd`.
+  - `--id` and `--continue` are added. A continue takes argv, `cwd` and `sandbox` from `run.json`,
+    and refuses others.
+  - The run and the attempt are claimed before the runtime is installed, so a refusal exits 2 at
+    once.
+  - Every later exit ends the attempt.
+  - `output.json` and `report.md` go in the run's folder.
+  - The caller claim moves to `~/.awf/callers`.
+  - `--here --continue` prepares the recorded argv.
+- **sandboxes. Deviation from the design.** A sandbox's folder is
+  `~/.awf/sandboxes/{workflow}/{id}/{uuid}`, not under the run. On macOS, srt emits a deny nested in an allowed path after the allow. With
+  `.awf/runs` inside the project, which is allowed, the deny would also cover a sandbox folder
+  under it. Linux's tmpfs-and-rebind doesn't have this problem.
+  - `RunSandboxOptions.directory` sets where sandbox folders go.
+  - `forbidden()` allows a path that contains the run root, and still refuses one inside it.
+  - `ResolvedSandbox.hidden` holds the run root when an allowed path holds it. srt denies each
+    hidden path for reads and writes, and its `checkProfile` refuses an allowed path holding the
+    run root unless it is hidden; docker mounts an empty tmpfs over each.
+- **lab.** A contained run moves `{workflow}/{id}` into `runs/`. `stopped` comes with task 5.
+- **Moved to task 3:** `turns.jsonl` and its torn-line test, since turns are written with their
+  stage.
 
 ### 3. Stages recorded
 
@@ -321,7 +351,33 @@ Done when runner tests cover:
 - an agent's turns in two stages;
 - a failed, stopped and cancelled stage;
 - a value its schema rejects;
-- a workflow without stages, unchanged.
+- a workflow without stages, unchanged;
+- a torn `turns.jsonl` line skipped, with a later attempt's lines after it (moved from task 2).
+
+Plan (2026-10-04):
+- **contract.**
+  - `StageRecord` and `TurnRecord` in `records.ts`.
+  - `OperationRecord` gains `stage` and `label`, and `DecisionRecord` gains `stage`.
+  - `WorkflowContext.stage` has two overloads, with `StageOptions` (`result`, `summary`).
+  - The harness's `AuthoredTurn` gains `stage`, so a host sees it.
+- **engine.**
+  - `stage-ledger.ts` owns the rules: a name, one stage open at a time, at most once each. It
+    writes each stage's record when the stage ends.
+  - The runner's `ExecutionScope` carries the workflow stage. A stage runs in a scope of its own,
+    which it cancels on failure.
+  - A stage's value goes through JSON and is then checked by its schema; a stage without `result`
+    returns nothing.
+  - The ledger tags each operation with its stage and its turn's label, and appends it to
+    `turns.jsonl` as it settles.
+  - A stage left open when the body ends is recorded `failed`.
+- **workflow-testing.** `run.stages`, and `stage` on each turn.
+- **Deviations.**
+  - A `stopped` stage comes with `stop`, in task 5. Until then, cancellation and a throw are
+    `failed`, with their reason.
+  - `stage` on compaction records is deferred: a compaction reaches the harness as positional
+    arguments, and no test needs it yet. Its operation record and `turns.jsonl` line carry the
+    stage.
+  - A stage inside a `call`'s child isn't checked: `call` is unavailable in the runner.
 
 ### 4. Continue from a stage
 
@@ -333,13 +389,34 @@ Done when:
 - Stale records: reaching the start point moves every record not reused to `replaced/`, the start
   stage's first; an attempt that stops before its start point moves nothing; after a crash
   mid-stage or mid-move, a continue starts at that stage.
-- Stops: inside a stage the continue redoes it; between stages it checks again; the same stop
-  twice says to move the check.
 - A continue with no `--from-stage` from the first unrecorded stage, a `--from-stage` never
   reached, a completed run refused without `--from-stage`, and a stage renamed in the code.
 - `testWorkflow(…, { fromStage, recorded })` reuses recorded stages without calling their work.
   That is the live run's compaction-on-continue bug, as a test, and it catches a variable assigned
   inside a stage.
+
+Plan (2026-10-04):
+- **`stage-plan.ts`.** Pure: given the records, `--from-stage`, the version and whether the start
+  point was reached, it decides reuse, run (marking the start) or stop, with the design's
+  messages. A stop after `--from-stage` lists the recorded stages not yet reached, so a rename is
+  plain.
+- **The ledger.** `StageLedger.enter` asks the plan, checking a recorded value with the same
+  `stageValue` that checks a new one. At the start point, `runs.ts`'s `replaceStale` moves every
+  record not reused, the start stage's first, each by one rename.
+- **`WorkflowStopped`.** Engine-private, it ends an attempt `stopped`: a plan's stop, or a
+  `--from-stage` never reached. `AttemptOutcome` and `OutputRecord` gain `stopped` and the stage
+  it stopped at, its exit code is 3, and lab's outcomes gain it. `workflow.stop` publishes it in
+  task 5.
+- **CLI.**
+  - `--from-stage` requires `--continue`, and is recorded in the attempt's flags.
+  - A completed run continues only with `--from-stage`; the refusal lists its records, each with
+    its summary, attempt and age.
+  - A continue warns about a `--from-stage` with no record. Its reused stages show in the view
+    (task 6), not as a list up front.
+- **`testWorkflow(…, { recorded, fromStage })`.** It writes `recorded` as attempt 1's records and
+  runs attempt 2.
+- **Moved to task 5:** the stop rows ("inside a stage the continue redoes it…", "the same stop
+  twice"), which need `workflow.stop`.
 
 ### 5. The author surface
 
@@ -348,7 +425,29 @@ Outcome: `stop`, `id(args)` and a stage's `summary` are published and documented
 awf's `stop`.
 
 Done when there are tests for `stop` inside a stage, between stages and before any, `id(args)`
-deriving the id and `--id` overriding it, and `bun run check` passes.
+deriving the id and `--id` overriding it, and `bun run check` passes. From task 4, the stop rows:
+inside a stage, the continue redoes it; between stages, it checks again; the same stop twice
+says to move the check. `docs/workflow-api.md` documents `testWorkflow`'s `recorded`,
+`fromStage` and `run.stopped`.
+
+Plan (2026-10-04):
+- **contract.**
+  - `WorkflowContext.stop(reason): never`.
+  - `ExecutableWorkflow.id?(args)`.
+  - `StageOutcome` gains `stopped`.
+- **The ledger.**
+  - `stop` keeps the first stop, with the stage open now, or none between stages.
+  - Inside a stage, the stage is recorded `stopped`. A stop caught inside a stage that then
+    returns fails that stage as "stop was caught".
+  - `SettledRun.stages` gives each stage entered with its source, ran or reused.
+- **CLI.**
+  - A new run's id is `--id`, else `id(args)`, checked like any id, else generated.
+  - After a plain continue that ran no stage and stopped between stages with the attempt
+    before's reason, it adds "the same stop as attempt {n}; if a stage's value caused it,
+    --from-stage {last reused}, and move the check into that stage".
+- **Docs.** `docs/workflow-api.md` gains a Stages section and the testing options.
+- **Moved to task 8:** implement-ticket's boilerplate `ask` calling awf's `stop` changes with the
+  flow that uses it, outside this repository.
 
 ### 6. The view by stage
 
@@ -364,17 +463,59 @@ Outcome:
 Done when progress-view tests render a continued run mid-stage, the same run as non-TTY events,
 and a run without stages, which is unchanged.
 
+Plan (2026-10-04):
+- **`run-progress.ts`.** The labelled `parallel`s become groups (`GroupProgress`, `group`), so
+  "stage" means one thing. Workflow stages are tracked as entered (ran or reused, with the attempt
+  a reused one came from, the outcome and the summary). The stages an earlier attempt recorded
+  are listed as still to come, and each turn's progress carries its stage and label.
+- **`progress-view.ts`.**
+  - The header names the current stage.
+  - The stage block comes first:
+    - reused stages `↺` with their attempt;
+    - finished stages collapsed, with their time, outcome and summary;
+    - the current stage with each agent working in it: its model, placement, turn label and time,
+      and `waiting` once its turn is answered;
+    - the stages still to come, dim.
+  - Then the groups and loose agents, as before, without the current stage's agents.
+  - Without a terminal, stages are entered, reused and ended as lines.
+- **Deviation:** the view shows each agent's placement but not its pane id. The harness's agent
+  snapshot doesn't carry one, and adding it reaches into the session core of every host; it is
+  left for [[operator-run-observation]].
+
 ### 7. Accounting and endings by stage
 
 Outcome:
 - `byStage` comes from stages, per attempt and summed per run.
 - A stopped, failed, cancelled or interrupted attempt prints its stage, its reason, and
   `awf run {file} --continue {id}`.
-- `present` and `report` can render a stop.
+- `report` can hand off a stop; `present` renders a completed attempt only.
 
 Done when `accounting.test.ts` covers an agent across three stages, a reused stage at zero cost,
 a run across two attempts and the key-prefix fallback, and `tests/operator-cli.test.ts` covers
 each ending.
+
+Plan (2026-10-04):
+- **contract.**
+  - `Ending` and `StageSummary` sit beside `prepare`, and `StageOutcome` moves to the workflow
+    types.
+  - `present(value, ending)` renders a completed attempt; `report(value, ending)` is called for
+    every ending, `value` undefined unless it completed. Either may return `undefined` for awf's
+    own rendering: a breaking change, made in every example and lab workflow.
+  - `AttemptRecord` gains its `stages` (without values) and its `accounting`.
+  - `OutputRecord` gains `stages`.
+  - `byAgent.stage` goes.
+- **Accounting.**
+  - `summarizeRun` takes the stages entered. Each is a row, a reused one at zero, then
+    `(no stage)`, and a run without stages keeps the key prefix.
+  - `sumAttempts` adds attempts' accountings, totals and stage by stage.
+  - A later attempt's closing block adds a "run: {n} attempts, …" segment from the attempt files.
+- **Endings.**
+  - An attempt that didn't complete prints the stage it ended in: the stop's, or else the last
+    stage that failed or stopped.
+  - Its closing block has a `go on` row, `awf run [--run-root …] [--cwd …] {file} --continue {id}`,
+    with `--from-stage` after a record that didn't fit.
+  - `report.md` is written for it; `present` isn't called, and awf prints the ending.
+  - An interrupted attempt is named with the stage of its last turn.
 
 ### 8. Consumers
 
@@ -404,7 +545,234 @@ Manual or live evaluation:
 
 - ADR review:
 
-### Tasks 2–8
+### Task 2
+
+Two subagents, 2026-10-04. Resolved:
+- **Blocking, `~/.awf` no longer refused.** The old run root, `~/.awf/runs`, covered it, and the
+  move into the project uncovered every sandbox's homes. `forbidden()` now refuses a path inside
+  `~/.awf`, with a test.
+- **Sandbox folders orphaned.** They go under `~/.awf/sandboxes/{workflow}/{id}/{uuid}`, found
+  by their run. `runs.ts` builds the `~/.awf` paths, `machinePaths` and `sandboxesDirOf`.
+- **`meta.name` and `meta.version` unchecked.** The loader refuses a name that can't be a folder
+  and a version that isn't semver, with tests.
+- **A continue from elsewhere.** "No run" now says a run is kept under its working directory,
+  which `--cwd` names.
+- **Refusals left a run behind.** A new run whose first attempt claim fails is discarded. Only
+  ids differing in case are refused before the rename, so the rename claims every exact id and
+  the race test exercises it.
+- **Liveness.** `ps` runs in UTC, and start times a second apart match (Linux derives `lstart`
+  from the boot time).
+- **The ending is written before cleanup and the hand-back.** It is rewritten as `failed` only
+  if cleanup fails.
+- **`--here` refusing late.** `prepareRun` refuses a taken `--id` and a live attempt, so the tab
+  never opens for one.
+- **Races.** An attempt file gone between listing and reading is skipped. A completed run is
+  refused at the attempt claim too, not only before it.
+- **`label`** moved into `run`, and the runner refuses a `run.dir` outside `runRoot`. A run
+  root holding `~/.awf/sandboxes` is refused. `report.md` is written whole.
+- **Tests added:**
+  - recorded argv that no longer parses;
+  - a working directory that is gone;
+  - `--sandbox` on a continue;
+  - a refused new run leaving the root unchanged;
+  - a fresh `.new-*` folder invisible;
+  - liveness a second apart.
+
+Accepted, not changed:
+- **Other projects' runs.** A sandbox reading `~/dev` reaches every other project's
+  `.awf/runs`, as it reaches their source. Recorded in [[runs-and-stages#Sandboxes]].
+- **Interrupted attempts.** The message names an interrupted attempt's workspace without asking
+  Herdr whether it is still open.
+- **The completed-run refusal's text.** Task 4 adds "`--from-stage {stage}` to redo from there".
+- **Case on Linux.** On a case-sensitive filesystem, two ids differing only in case and claimed
+  at the same instant can both succeed.
+- **Sandbox comparison.** `checkContinue` compares sandbox specs by their JSON text, so key order
+  counts. The message says to leave `--sandbox` out.
+- **The write-failure test** proves that the old file stays whole and the temp file is removed,
+  not that a crash mid-write is safe; renaming the temp file into place is what makes that hold.
+- **Untested:**
+  - `--here --continue` has no test of its own; it runs the same `prepareRun` the tests cover;
+  - Linux `ps`.
+
+### Task 3
+
+Two subagents, 2026-10-04. Resolved:
+- **Blocking: a torn `turns.jsonl` line swallowing the next attempt's first line.** Each attempt
+  ends a torn last line before it appends. The test now runs two real attempts with the torn
+  line between them.
+- **`TurnRecord`.** It has its own fields, no longer `OperationRecord`'s, and gains `outcome`,
+  reported through the ledger entry's new `ended`. A line has no cost, since spend is read from
+  sessions once the attempt ends; task 7 sums it from there.
+- **A stage's `sessions`.** They are the session each of its turns ran on, the last one its agent
+  had when the turn settled, not every session the agent had.
+- **Records written once, before the result.** The ledger is sealed when the body ends, so
+  nothing the body left running enters a stage. It is closed after the agents close: a stage
+  still open is failed, and every write in flight is awaited. A stage that throws cancels its
+  scope and waits a grace for its turns to settle before its record.
+- **The result schema** is parsed before the work runs, with the stage named.
+- **`run.stages`** follows the order of entry, now on `SettledRun.stages`.
+- **Tests added:**
+  - a stage's own cancellation, seen by the turn's signal before the run ends;
+  - a run stopped mid-stage;
+  - the deadline's reason and sessions;
+  - a compaction carrying its stage;
+  - two stages at once, recording only the first;
+  - ledger unit tests for the races.
+
+Accepted, not changed:
+- **Naming.** `ExecutionScope.stage`, a labelled `parallel`'s progress, sits beside
+  `workflowStage`. The view's rework in task 6 renames it.
+- **Cancellation reasons.** A cancelled turn's reason doesn't name the stage, and `readTurns`
+  doesn't check `version`.
+- **Untracked stages.** A `void workflow.stage(…)` isn't tracked by its parent scope.
+
+### Task 4
+
+Two subagents, 2026-10-04. Resolved:
+- **A caught stop.** A stop the workflow catches went on, and a later stage became the start
+  point and moved the stopped stage's record. The ledger now latches the stop: every later stage
+  throws it again, and a body that returns after catching it fails "stop was caught: {reason}",
+  as the design says of `stop`.
+- **Two stages at once** passed on a continue when the first was reused. A reused stage counts as
+  open until its value is handed back.
+- **Records read after the claim.** A record awf couldn't read left a claimed attempt with no
+  ending. `prepareRun` reads the records before the claim.
+- **Messages.**
+  - The completed-run refusal names the stages: "to redo from a stage, --from-stage one of: …".
+  - A record that failed reads "{stage} did not succeed in attempt {n}".
+  - The not-reached list leaves out the `--from-stage` stage.
+  - The version stop names both versions.
+  - `--from-stage` checks the stage's name.
+- **Versions under 1.0.** Under `0.x`, the minor must match too, as semver has it.
+- **`stage` on the attempt and in `output.json`** is documented as the stage the attempt ended in,
+  for every outcome. Only a stop fills it for now; task 7 fills it for a failure.
+- **`run.stopped`** tells a stop from a failure in `testWorkflow`.
+- **The stop rows** moved into task 5's "Done when", along with the testing surface's docs.
+- **Tests added:**
+  - a caught stop;
+  - parallel stages on a continue;
+  - the start stage's record moving first (a failed second move leaves the rest);
+  - a misfit stop's `stage` in `output.json` and the attempt;
+  - a bad `--from-stage` name;
+  - versions under 1.0;
+  - a record that did not succeed.
+
+Accepted, not changed:
+- **The open-then-move order.** The ledger opens the start stage before moving records, so a
+  stage entered beside it is refused during the moves. A failed move leaves the stage open,
+  failed by `close()`.
+- **`replaceStale`'s names and overwrites.** It names records by their file and reads each again
+  for its attempt. A rename onto an existing `replaced/` file overwrites it, which can't happen
+  while a stage runs once per attempt.
+
+### Task 5
+
+Two subagents, 2026-10-04. Resolved:
+- **A stop named the wrong stage.** It named whichever stage was open, not the scope it was
+  called in. It now takes the scope's stage, so a stop beside an open stage is between stages.
+- **A caught stop came back as `stopped`.** Once a stop is found caught, by a stage that returns
+  or a body that returns, that "stop was caught" error is what every later stage and stop
+  throws.
+- **A stop after the body ended** latches nothing.
+- **The repeated-stop hint** is given only when a stage was reused and none ran.
+- **Narrowing.** The docs say to write `return workflow.stop(…)` where TypeScript should narrow:
+  a contextually typed `workflow` doesn't narrow on a bare call.
+- **The caught-stop wording.** It is exact now: catching it fails the stage that caught it, or
+  the attempt when the body returns.
+- **Smaller fixes.**
+  - The loader checks `id` is a function.
+  - An `id(args)` returning a non-string is refused by its type.
+  - `docs/workflow-api.md` lists `id` among the workflow's parts.
+  - `StageSource` is named once.
+- **Tests added:**
+  - a stopped stage rerun by the next attempt;
+  - a stop beside a stage;
+  - two stops;
+  - a stage after a caught stop;
+  - the hint's negatives;
+  - `id(args)` failing.
+
+Accepted, not changed:
+- **A stage the body didn't await.** If it stops before the body's end is checked, the attempt
+  fails as "stop was caught". A stage the body didn't await is already a misuse.
+- **The hint's reason match** compares whole reasons, which a cleanup failure joined onto the
+  earlier attempt's reason would defeat.
+
+### Task 6
+
+Two subagents, 2026-10-04. Resolved:
+- **Stage progress could stay open.** A stage that the ledger's `close()` ended, when a
+  cancellation left its work hanging, kept spinning, and a stage whose record failed to write
+  showed ✓. The ledger now reports every stage it enters and ends to the view, after the record
+  is written, so the view matches the records. A plan's stop shows its stage as stopped.
+- **Events out of order.** Without a terminal, a known stage's end now comes before a new one's
+  start, and a stage entered and ended between two ticks ends after its turns.
+- **Leftover stages.** Stages still to come are hidden once the run closes.
+- **Display.** Agents in a stage line up; a stopped stage is `■` in both views; the groups loop
+  says `group`.
+- **Tests added:** a continue's snapshot (reused with attempt and summary, failed, nothing left to
+  come), and a stage ended by the run's stop.
+
+Accepted: a compaction turn is labelled `compact` in the view only; its operation record has no
+label.
+
+### Task 7
+
+Two subagents, 2026-10-04. Resolved:
+- **Record formats.**
+  - The attempt file's stages are `AttemptStage`, a record type of its own, no longer the author
+    API's `StageSummary` minus `value`.
+  - The attempt file keeps only the accounting a run's total sums: `basis`, `wallMs`, `billing`,
+    `totals`, `byStage` and `unpriced`.
+  - `RunAccounting.grouping` says whether `byStage` is stages or key prefixes.
+  - The design's "Each file" records all three.
+- **The stage an attempt ended in.** It was "the last stage that didn't succeed", which named a
+  caught stage's for a failure thrown later. The ledger now records which stage each failure was
+  thrown from, and the stage still open when the attempt ended.
+- **`report.md`.** For an attempt that didn't complete, it is written before the ending, so the
+  next attempt's report isn't overwritten by a late one. An earlier attempt's is removed when this
+  one writes none.
+- **The run total.** It counts every attempt and names those with no record. It merges billing and
+  unpriced models across attempts, and shows the summed stages.
+- **The command that goes on** is shell-quoted. The workflow file is given absolute unless it is
+  under the shell's directory.
+- **Smaller fixes.**
+  - A stage whose record failed to write is summarized `failed`.
+  - A `present` that throws on a stop no longer promises the full result.
+  - `docs/workflow-api.md` describes `byStage` by stage.
+- **Tests added:**
+  - a failure between stages, which names no stage;
+  - the timed-out ending's command;
+  - a run total with an interrupted attempt, and a stale report dropped;
+  - decisions by stage, with `(no stage)`;
+  - an unknown usage keeping the summed gap.
+
+Accepted, not changed:
+- **An interrupted attempt has no cost.** A turn's line carries no spend, and reading it from the
+  sessions afterwards is [[stopped-run-recovery]]'s. Recorded in the design.
+- **`--timeout` isn't repeated in the command that goes on.** A continue takes its own deadline,
+  or the default.
+
+### Task 8
+
+feature-delivery, one subagent covering both lenses, 2026-10-04. Resolved:
+- **The continue hint.** The example's comment promised `--continue {ticket}` though it has no
+  `id(args)`; it now names the run's id.
+- **Fresh agents on a continue.**
+  - A fresh reviewer is told the ticket, the author's summary and its decisions.
+  - A fresh implementer is told the ticket.
+  - A test continues into the additional reviews alone and checks their prompts.
+- **Smaller fixes.**
+  - The new schemas are in the contract-subset check.
+  - `ReviewPass` says `not-ready`.
+  - additional-review has a summary.
+  - README and status agree.
+- **The behaviour change, recorded:** a deferral that completed with exit 0 and a `docPath` is now a
+  stop, exit 3, whose doc path is in `stages/ticket-doc.json`.
+
+Left: implement-ticket on awf's stages, its live run, and the cheap `examples/` runs side by side.
+Its files in `~/dev/braintrust/agent/workflows` are untracked, and moving them onto the new API
+breaks them under main's awf until this branch is merged, so it waits for the operator.
 
 - Architecture and scope:
 - Correctness and proof:
@@ -414,12 +782,13 @@ Manual or live evaluation:
 - [x] Outcome and boundaries are concrete.
 - [x] Relevant implementation, callers, and tests are mapped.
 - [x] Evidence and research support the proposed design.
-- [ ] Expensive interface, record-format, and stage-gate decisions are settled: ADR 0011 drafted,
-  awaiting the operator's acceptance.
+- [x] Expensive interface, record-format, and stage-gate decisions are settled: ADR 0011.
 - [x] Tasks are ordered, coherent, and independently verifiable.
 - [x] Open questions are resolved or explicitly moved out of scope.
 
 ## Implementation notes
+
+- Todo found: [[flaky-turn-deadline-test]], a wall-clock test that failed once under full-suite load.
 
 ## Human review
 
@@ -431,3 +800,4 @@ Manual or live evaluation:
 - [ ] If changes are requested, return to the affected task and repeat its review and verification.
 - [ ] Only after explicit approval, mark the story `done` and update `Stories at a glance`.
 - [ ] review state file, as it might need changes
+

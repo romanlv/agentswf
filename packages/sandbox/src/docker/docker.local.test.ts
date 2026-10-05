@@ -67,6 +67,7 @@ describe.skipIf(!provider)("docker on this machine", () => {
         key: "local",
         cwd: work,
         runRoot,
+        machineRoot: join(otherHome, ".awf"),
         harnessState: [],
         providers: { installed: { docker: provider as SandboxProvider<unknown> } },
         home: otherHome,

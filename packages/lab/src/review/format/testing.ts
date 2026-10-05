@@ -132,7 +132,7 @@ const DIGEST = `sha256:${"0".repeat(64)}`;
 
 export const EXAMPLE_RUN: RunSummary = {
   id: "run-1",
-  outcome: "succeeded",
+  outcome: "completed",
   models: ["claude-sonnet-5"],
   ms: 60_000,
   estimate: 0.5,
