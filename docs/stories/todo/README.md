@@ -86,7 +86,6 @@ live runs.
 - [[expired-login]] — stop and say which harness to log in again.
 - [[agent-permission-mode]] — host claude runs in auto mode, a classifier on every command.
 - [[readable-workflows]] — durations a person writes; the ticket workflow as its process.
-- [[headless-orphans]] — a stopped headless turn's commands keep running (bug).
 - [[run-through-sleep]] — keep the machine awake for a run; record time slept through.
 - [[review-shapes-and-models]] — the research program once the loop is cheap.
 

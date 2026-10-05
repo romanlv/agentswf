@@ -41,10 +41,11 @@ export type Holding = {
 };
 
 /**
- * A `SandboxedCommand` runs as its own process group with exactly its `env`, and ends with its
- * group killed and its `reap` awaited for up to `REAP_GRACE_MS`, however it ended; a reap that
- * fails is its provider's to report. Anything else runs as a child of this process, in its
- * environment.
+ * Every command runs as its own process group, so a stop or deadline ends what it started too. A
+ * `SandboxedCommand` gets exactly its `env`, and ends with its group killed and its `reap` awaited
+ * for up to `REAP_GRACE_MS`, however it ended; a reap that fails is its provider's to report.
+ * Anything else gets this process's environment, and keeps what it started when it exits on its
+ * own.
  */
 export type RunProcess = (
   input: ProcessInput | (SandboxedCommand & Holding),
@@ -93,8 +94,8 @@ export const runProcess: RunProcess = async (input) => {
       cwd,
       env: sandboxed ? { ...input.env } : childEnvironment(input.env),
       // `setsid`: the group is everything the command starts, which killing it alone would leave
-      // running (story 004, X1).
-      detached: sandboxed,
+      // running (story 004, X1). Out of the terminal's group, Ctrl-C reaches it through `signal`.
+      detached: true,
       stdin: holdStdinUntil
         ? "pipe"
         : stdin === undefined
@@ -108,14 +109,8 @@ export const runProcess: RunProcess = async (input) => {
     return reaped({ stdout: "", stderr: reason, exitCode: 127, timedOut: false });
   }
 
-  const kill = () => {
-    if (!sandboxed) return void child.kill("SIGKILL");
-    try {
-      process.kill(-child.pid, "SIGKILL");
-    } catch {
-      // The group is already empty.
-    }
-  };
+  const kill = () => killGroup(child.pid);
+  running.add(child.pid);
   let timedOut = false;
   let cancelled = false;
   const abort = () => {
@@ -155,8 +150,8 @@ export const runProcess: RunProcess = async (input) => {
     const err = capture(child.stderr);
     const exitCode = await child.exited;
     // What a sandboxed or ended command left running goes before its pipes are read. An
-    // unsandboxed one that exited on its own is left its descendants: they are not in a group of
-    // ours, though one may still hold its pipes.
+    // unsandboxed one that exited on its own is left its descendants, though one may still hold
+    // its pipes.
     if (sandboxed || answered || cancelled || timedOut) kill();
     const drained = await Promise.race([
       Promise.all([out.text, err.text]).then(() => true),
@@ -173,12 +168,27 @@ export const runProcess: RunProcess = async (input) => {
       ...(answered ? { answered: true } : {}),
     };
   } finally {
+    running.delete(child.pid);
     clearTimeout(timer);
     clearTimeout(answered);
     signal?.removeEventListener("abort", abort);
   }
   return reaped(result);
 };
+
+/** The groups of commands still running, which an exit that skips their cleanup must not leave. */
+const running = new Set<number>();
+process.on("exit", () => {
+  for (const pid of running) killGroup(pid);
+});
+
+function killGroup(pid: number): void {
+  try {
+    process.kill(-pid, "SIGKILL");
+  } catch {
+    // The group is already empty.
+  }
+}
 
 /** How long a held child has to exit once its stdin is closed. */
 const HELD_EXIT_GRACE_MS = 5_000;

@@ -30,7 +30,8 @@ repository's `runs/`):
   deadline. `finishedAt` waits at most the owner's and control plane's 5 s graces, and 10 s more
   for turns left finishing after a body that returned; `output.json` then waits for the usage read,
   at most 20 s plus the status command's 10 s and 2 s of slack.
-- Found on the way: [[headless-orphans]].
+- Found on the way: a stopped headless turn left its commands running; each command now runs as
+  its own process group, killed with it.
 
 Decide:
 

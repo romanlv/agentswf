@@ -90,11 +90,11 @@ describe("a sandboxed command", () => {
     }
   });
 
-  test("an unsandboxed process stopped returns at once, though what it started holds its output", async () => {
-    const seconds = marker();
+  test("an unsandboxed process stopped or timed out ends with everything it started", async () => {
+    const [aborted, timeout] = [marker(), marker()];
     const controller = new AbortController();
     const cancelling = runProcess({
-      argv: ["/bin/sh", "-c", `sleep ${seconds} & wait`],
+      argv: ["/bin/sh", "-c", `sleep ${aborted} & wait`],
       timeoutMs: 30_000,
       signal: controller.signal,
     });
@@ -104,6 +104,32 @@ describe("a sandboxed command", () => {
     try {
       expect((await cancelling).cancelled).toBe(true);
       expect(Date.now() - started).toBeLessThan(2_000);
+      const timedOut = await runProcess({
+        argv: ["/bin/sh", "-c", `sleep ${timeout} & wait`],
+        timeoutMs: 300,
+      });
+      expect(timedOut.timedOut).toBe(true);
+      await Bun.sleep(100);
+      expect([running(aborted), running(timeout)]).toEqual(["", ""]);
+    } finally {
+      Bun.spawnSync(["pkill", "-f", `sleep ${aborted}`]);
+      Bun.spawnSync(["pkill", "-f", `sleep ${timeout}`]);
+    }
+  });
+
+  test("a process that exits without its cleanup takes every running command's group with it", async () => {
+    const seconds = marker();
+    const script = `
+      import { runProcess } from ${JSON.stringify(`${import.meta.dir}/command.ts`)};
+      void runProcess({ argv: ["/bin/sh", "-c", "sleep ${seconds} & wait"], timeoutMs: 30_000 });
+      await Bun.sleep(200);
+      process.exit(130);
+    `;
+    try {
+      const exited = Bun.spawnSync([process.execPath, "-e", script]);
+      expect(exited.exitCode).toBe(130);
+      await Bun.sleep(100);
+      expect(running(seconds)).toBe("");
     } finally {
       Bun.spawnSync(["pkill", "-f", `sleep ${seconds}`]);
     }
