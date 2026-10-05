@@ -41,7 +41,12 @@ export async function keepRecords(
   const ended =
     ending.kind === "completed"
       ? { outcome: "completed" as const, value: ending.value }
-      : { outcome: ending.kind, reason: ending.reason, ...at };
+      : {
+          outcome: ending.kind,
+          reason: ending.reason,
+          ...at,
+          ...(end.needs ? { needs: [...end.needs] } : {}),
+        };
   const kept: Kept = report ? { report } : {};
   const output = outputFile(dir);
   if (!settled) {

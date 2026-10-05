@@ -104,11 +104,12 @@ export async function runAttempt<Result extends JsonValue>(
     runRoot: string;
     attempt?: number;
     fromStage?: string;
+    values?: Record<string, JsonValue>;
     adapter?: AgentSessionAdapter;
     signal?: AbortSignal;
   },
 ) {
-  const { runRoot, attempt = 1, fromStage, adapter = answering(), signal } = options;
+  const { runRoot, attempt = 1, fromStage, values, adapter = answering(), signal } = options;
   const name = workflow.meta.name;
   const run = existsSync(join(runRoot, name, "r1"))
     ? await openRun(runRoot, name, "r1")
@@ -126,6 +127,7 @@ export async function runAttempt<Result extends JsonValue>(
       id: run.record.id,
       attempt,
       ...(fromStage === undefined ? {} : { fromStage }),
+      ...(values === undefined ? {} : { values: new Map(Object.entries(values)) }),
     },
     runtime: { aliases: OPERATOR_ALIASES, host: createSingleSessionHostFactory(adapter) },
     deadline: future(),

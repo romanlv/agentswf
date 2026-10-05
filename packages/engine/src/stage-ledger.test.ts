@@ -2,6 +2,7 @@ import { afterAll, expect, test } from "bun:test";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { TurnRecord } from "@agentswf/contract/records";
+import type { JsonSchema } from "@agentswf/contract/schema";
 import { readStageRecords } from "./runs";
 import { type OpenStage, StageLedger } from "./stage-ledger";
 
@@ -12,10 +13,16 @@ afterAll(() => runDirs.cleanup());
 
 /** Enters `name` to run it, as a stage with nothing recorded is. */
 async function run(ledger: StageLedger, name: string): Promise<OpenStage> {
-  const entered = await ledger.enter(name, () => undefined);
+  const entered = await ledger.enter(name, { summary: () => undefined });
   if (entered.kind !== "run") throw new Error(`${name} was reused`);
   return entered.stage;
 }
+
+const PATH: JsonSchema = {
+  type: "object",
+  properties: { path: { type: "string" } },
+  required: ["path"],
+};
 
 const turn = (stage: string | undefined, session: string): TurnRecord => ({
   version: 1,
@@ -143,7 +150,9 @@ test("a stage the plan stops as it is entered shows stopped, in the view as in t
     records: new Map([["qa", record]]),
     fromStage: "mr",
   });
-  await expect(run(ledger, "qa")).rejects.toThrow("qa did not succeed in attempt 1");
+  await expect(ledger.enter("qa", { result: PATH, summary: () => undefined })).rejects.toThrow(
+    "qa did not succeed in attempt 1",
+  );
   expect(ledger.summaries).toEqual([
     { stage: "qa", source: "ran", outcome: "stopped", attempt: 2, spanMs: 0 },
   ]);
@@ -151,6 +160,78 @@ test("a stage the plan stops as it is entered shows stopped, in the view as in t
     stages: [expect.objectContaining({ stage: "qa", outcome: "stopped" })],
     upcoming: [],
   });
+});
+
+test("a value given is recorded as provided, handed back, and kept at the start point", async () => {
+  const runDir = runDirs.tempRunDir();
+  const ledger = new StageLedger({
+    runDir,
+    attempt: 1,
+    turns: () => [],
+    fromStage: "qa",
+    values: new Map([["plan", { path: "docs/a.md" }]]),
+  });
+  const shape = { result: PATH, summary: (value: unknown) => (value as { path: string }).path };
+  const plan = await ledger.enter("plan", shape);
+  expect(plan).toMatchObject({ kind: "reuse", value: { path: "docs/a.md" } });
+  if (plan.kind === "reuse") plan.release();
+  // One with no result is passed without a value.
+  const notify = await ledger.enter("notify", { summary: () => undefined });
+  if (notify.kind === "reuse") notify.release();
+  await (await run(ledger, "qa")).succeed(undefined);
+  await ledger.close();
+  const records = await readStageRecords(runDir);
+  expect(records.get("plan")).toMatchObject({
+    attempt: 1,
+    outcome: "succeeded",
+    summary: "docs/a.md",
+    value: { path: "docs/a.md" },
+    provided: true,
+    sessions: [],
+  });
+  expect(records.get("notify")).toMatchObject({ outcome: "succeeded", provided: true });
+  expect(records.get("notify")).not.toHaveProperty("value");
+  expect(
+    ledger.summaries.map(({ stage, source, provided }) => ({ stage, source, provided })),
+  ).toEqual([
+    { stage: "plan", source: "reused", provided: true },
+    { stage: "notify", source: "reused", provided: true },
+    { stage: "qa", source: "ran", provided: undefined },
+  ]);
+});
+
+test("a stage with no value hands back a stand-in, and the start point stops for every one missing", async () => {
+  const ledger = new StageLedger({
+    runDir: runDirs.tempRunDir(),
+    attempt: 1,
+    turns: () => [],
+    fromStage: "qa",
+  });
+  const plan = await ledger.enter("plan", { result: PATH, summary: () => undefined });
+  expect(plan).toMatchObject({ kind: "reuse", value: { path: "" } });
+  if (plan.kind === "reuse") plan.release();
+  const count = await ledger.enter("count", {
+    result: { type: "integer", minimum: 2 },
+    summary: () => undefined,
+  });
+  expect(count).toMatchObject({ kind: "reuse", value: 2 });
+  if (count.kind === "reuse") count.release();
+  const stopped = await run(ledger, "qa").catch((error: unknown) => error);
+  expect(stopped).toMatchObject({
+    reason: "nothing recorded for plan",
+    stage: "plan",
+    redo: false,
+    needs: [
+      { stage: "plan", schema: PATH },
+      { stage: "count", schema: { type: "integer", minimum: 2 } },
+    ],
+  });
+  // Nor may a turn start once it has looked on: the same stop.
+  expect(() => ledger.checkOperation()).toThrow(stopped as Error);
+  // The first is shown stopped; the rest were only looked at.
+  expect(ledger.summaries.map(({ stage, outcome }) => [stage, outcome])).toEqual([
+    ["plan", "stopped"],
+  ]);
 });
 
 test("a reused stage shows the view when its record ended, without its value", async () => {
@@ -171,7 +252,7 @@ test("a reused stage shows the view when its record ended, without its value", a
     records: new Map([["plan", record]]),
     fromStage: "mr",
   });
-  const entered = await ledger.enter("plan", () => undefined);
+  const entered = await ledger.enter("plan", { result: PATH, summary: () => undefined });
   expect(entered).toMatchObject({ kind: "reuse", value: { path: "docs/a.md" } });
   if (entered.kind === "reuse") entered.release();
   const [shown] = ledger.progress().stages;

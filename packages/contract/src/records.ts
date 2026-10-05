@@ -330,7 +330,15 @@ export type StageRecord = {
   summary?: string;
   /** As returned, after a JSON round trip; absent for a stage that returns nothing. */
   value?: JsonValue;
+  /**
+   * Its value was given to start the run at a later stage, `awf run --values`, or it returns
+   * nothing and was passed: no turn ran it. Reused as a succeeded stage is.
+   */
+  provided?: true;
 };
+
+/** A stage a run can't start at a later stage without: its value, which `--values` gives. */
+export type StageNeeds = { stage: string; schema: JsonSchema };
 
 export const TURN_RECORD_VERSION = 1 as const;
 
@@ -396,5 +404,7 @@ export type OutputRecord = {
       reason: string;
       /** The stage the attempt ended in; absent when it ended between stages. */
       stage?: string;
+      /** The stages whose values it stopped for, to start at a later one, in the order reached. */
+      needs?: StageNeeds[];
     }
 );

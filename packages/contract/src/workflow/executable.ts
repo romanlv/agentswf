@@ -20,6 +20,8 @@ export type StageSummary = {
   summary?: string;
   /** Its value, for a stage that returns one and succeeded. */
   value?: JsonValue;
+  /** Reused from a value given rather than one a turn produced; see `StageRecord.provided`. */
+  provided?: true;
 };
 
 /** How an attempt ended. `interrupted` is never written: it is an attempt with no ending and no process. */

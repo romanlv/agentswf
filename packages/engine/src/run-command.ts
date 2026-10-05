@@ -1,5 +1,6 @@
 import { readFileSync, statSync } from "node:fs";
 import { resolve } from "node:path";
+import type { JsonValue } from "@agentswf/contract/workflow";
 import { parseDuration } from "./duration";
 import { messageOf } from "./errors";
 import { SESSION_CODE } from "./here";
@@ -12,13 +13,16 @@ export const usage = [
   "       awf run [options] <workflow-file> --continue <id>",
   "       awf test [paths...] [-t <pattern>] [--watch] [--timeout <duration>]",
   "       awf --version",
-  "run options: --id <id>, --continue <id>, --from-stage <stage>, --timeout <duration>,",
-  "             --run-root <directory>, --cwd <directory>, --sandbox <file>, --json, --no-watch,",
-  "             --here",
+  "run options: --id <id>, --continue <id>, --from-stage <stage>, --values <file>,",
+  "             --timeout <duration>, --run-root <directory>, --cwd <directory>, --sandbox <file>,",
+  "             --json, --no-watch, --here",
   "",
   "Each awf run is an attempt of a run: a new run, with --id's id or a generated one, or the run",
   "--continue names, with the arguments, --cwd and --sandbox it was started with. A continue reuses",
   "the stages that succeeded, up to the first with no record or to --from-stage, and runs the rest.",
+  "A new run with --from-stage starts there. A stage before it with no record to reuse takes its",
+  "value from --values, a JSON object by stage name, checked by its result; one that returns",
+  "nothing is passed. Without one the attempt stops, naming the stage and its schema.",
   "A stop exits 3. A run is kept in .awf/runs/<workflow>/<id> under --cwd, unless --run-root names",
   "another folder for .awf/runs.",
   "The deadline defaults to 30m, per attempt.",
@@ -65,8 +69,10 @@ export type RunCommand = {
   id?: string;
   /** The run `--continue` adds an attempt to. */
   continueId?: string;
-  /** The stage a continue starts at, reusing those before it. */
+  /** The stage the attempt starts at, reusing those before it. */
   fromStage?: string;
+  /** `--values`: its file, and each stage's value in it. */
+  values?: { file: string; stages: ReadonlyMap<string, JsonValue> };
   json: boolean;
   /** Whether each sandbox with its own Herdr gets a tab attached to it in the run's workspace. */
   watch: boolean;
@@ -86,6 +92,7 @@ export function parseCommand(argv: readonly string[], cwd: string): RunCommand {
   let id: string | undefined;
   let continueId: string | undefined;
   let fromStage: string | undefined;
+  let values: RunCommand["values"];
   let cwdGiven = false;
   let json = false;
   let watch = true;
@@ -141,6 +148,10 @@ export function parseCommand(argv: readonly string[], cwd: string): RunCommand {
       const problem = stageNameProblem(value);
       if (problem) throw new Error(`--from-stage: ${problem}`);
       fromStage = value;
+    } else if (option === "--values") {
+      if (!value) throw new Error("--values needs a JSON file");
+      if (values !== undefined) throw new Error("--values given twice");
+      values = readValues(resolve(cwd, value));
     } else if (option === "--session") {
       if (!value || !SESSION_CODE.test(value))
         throw new Error("--session needs the code --here printed");
@@ -159,8 +170,8 @@ export function parseCommand(argv: readonly string[], cwd: string): RunCommand {
   if (id !== undefined && continueId !== undefined) {
     throw new Error("--id names a new run and --continue an existing one; give one");
   }
-  if (fromStage !== undefined && continueId === undefined) {
-    throw new Error("--from-stage goes with --continue: a new run has nothing to reuse");
+  if (values !== undefined && fromStage === undefined) {
+    throw new Error("--values goes with --from-stage: it gives the stages before it");
   }
   const workflowArgs = argv.slice(index + 1);
   return {
@@ -176,12 +187,31 @@ export function parseCommand(argv: readonly string[], cwd: string): RunCommand {
     ...(id === undefined ? {} : { id }),
     ...(continueId === undefined ? {} : { continueId }),
     ...(fromStage === undefined ? {} : { fromStage }),
+    ...(values === undefined ? {} : { values }),
     json,
     watch,
     here,
     ...(session === undefined ? {} : { session }),
     ...(sandbox === undefined ? {} : { sandbox }),
   };
+}
+
+/** `--values`'s file: a JSON object of stage values, by stage name. */
+function readValues(file: string): NonNullable<RunCommand["values"]> {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(readFileSync(file, "utf8"));
+  } catch (error) {
+    throw new Error(`--values: ${messageOf(error)}`);
+  }
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    throw new Error(`--values: ${file} must hold a JSON object, each stage's value by its name`);
+  }
+  for (const stage of Object.keys(parsed)) {
+    const problem = stageNameProblem(stage);
+    if (problem) throw new Error(`--values: ${problem}`);
+  }
+  return { file, stages: new Map(Object.entries(parsed as Record<string, JsonValue>)) };
 }
 
 /** `--sandbox`'s file: an inline sandbox spec, whose working directory is the run's. */

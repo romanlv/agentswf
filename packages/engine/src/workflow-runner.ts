@@ -135,6 +135,8 @@ export type RunWorkflowOptions = {
     label?: string;
     /** `--from-stage`: the stage this attempt starts at, reusing those before it. */
     fromStage?: string;
+    /** `--values`: the values of stages before `fromStage` that have no record to reuse. */
+    values?: ReadonlyMap<string, JsonValue>;
   };
   runtime: AgentRuntimeConfig;
   deadline: AbsoluteDeadline;
@@ -346,6 +348,7 @@ export async function startWorkflow<Args extends JsonValue, Result extends JsonV
     attempt,
     records: recorded,
     ...(options.run.fromStage === undefined ? {} : { fromStage: options.run.fromStage }),
+    ...(options.run.values === undefined ? {} : { values: options.run.values }),
     ...(definition.meta.version === undefined ? {} : { workflowVersion: definition.meta.version }),
     turns: () => turns,
   });
@@ -431,6 +434,13 @@ export async function startWorkflow<Args extends JsonValue, Result extends JsonV
     } catch (error) {
       failed = true;
       failure = error;
+    }
+    // Past stand-ins, what the body went on to do, a return or a throw, isn't its own: the attempt
+    // stops for the values it needs, unless it was cancelled or ran out of time.
+    const needed = stages.needed();
+    if (needed && !signal.aborted && !(failure instanceof DeadlineExceededError)) {
+      failed = true;
+      failure = needed;
     }
     bodyEnded = true;
     // What the body left running enters no stage; one left open is failed once its turns settle.
@@ -670,6 +680,7 @@ class WorkflowOwner {
           const scope = scopes.getStore();
           try {
             scope?.assertAccepting();
+            this.options.stages.checkOperation();
           } catch (error) {
             return Promise.reject(error);
           }
@@ -775,18 +786,20 @@ class WorkflowOwner {
     if (this.#closed) throw new Error("workflow context is closed");
     if (typeof work !== "function") throw new Error(`stage ${name} needs its work as a function`);
     // Before anything is spent on it.
+    let result: JsonSchema | undefined;
     if (options) {
       try {
-        parseJsonSchema(options.result);
+        result = parseJsonSchema(options.result);
       } catch (error) {
         throw new Error(`stage ${name}'s result: ${messageOf(error)}`);
       }
     }
     const parent = scopes.getStore();
     parent?.assertAccepting();
-    const entered = await this.options.stages.enter(name, (recorded) =>
-      recordMisfit(options, recorded),
-    );
+    const entered = await this.options.stages.enter(name, {
+      ...(result === undefined ? {} : { result }),
+      summary: (value) => summaryOf(name, options, value, this.options.onLog),
+    });
     if (entered.kind === "reuse") {
       entered.release();
       return entered.value;
@@ -1209,6 +1222,7 @@ class WorkflowOwner {
       recordTurn: this.options.recordTurn,
       track: (promise) => this.track(promise),
       isRunClosing: () => this.#closed,
+      checkOperation: () => this.options.stages.checkOperation(),
       fork: (spec, take, settings) => this.forkAgent(key, spec, take, settings),
       ...(seated
         ? {
@@ -1439,6 +1453,8 @@ class LogicalAgent implements AgentRef {
       recordTurn: RecordTurn;
       track<T>(promise: Promise<T>): Promise<T>;
       isRunClosing(): boolean;
+      /** Throws when no turn may start: the attempt is looking on for values it needs. */
+      checkOperation(): void;
       /** After each operation settles, whatever its outcome. */
       afterOperation?(): Promise<void>;
       /**
@@ -1478,6 +1494,7 @@ class LogicalAgent implements AgentRef {
     const scope = scopes.getStore();
     try {
       scope?.assertAccepting();
+      this.options.checkOperation();
     } catch (error) {
       return Promise.reject(error);
     }
@@ -1534,6 +1551,7 @@ class LogicalAgent implements AgentRef {
     const scope = scopes.getStore();
     try {
       scope?.assertAccepting();
+      this.options.checkOperation();
     } catch (error) {
       return Promise.reject(error);
     }
@@ -2532,25 +2550,6 @@ function stageValue(
     throw new Error(`stage ${name}'s value does not fit its result: ${formatErrors(errors)}`);
   }
   return recorded;
-}
-
-/** How a recorded value no longer fits its stage's `result`, after `{stage}'s record`; undefined when it fits. */
-function recordMisfit(
-  options: StageOptions<JsonValue> | undefined,
-  recorded: JsonValue | undefined,
-): string | undefined {
-  if (!options) {
-    return recorded === undefined
-      ? undefined
-      : "holds a value, and the stage no longer has a result";
-  }
-  if (recorded === undefined) return "holds no value, and the stage's result now expects one";
-  const errors = validate(parseJsonSchema(options.result), recorded);
-  if (errors.length === 0) return undefined;
-  return [
-    "no longer fits its result schema:",
-    ...errors.map((error) => `  ${error.path}: ${error.message}`),
-  ].join("\n");
 }
 
 function resultSchema<T extends JsonValue>(schema: OutputSchema<T> | undefined): JsonSchema {

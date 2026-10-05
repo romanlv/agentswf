@@ -95,8 +95,11 @@ async function prepareRun(
   const refused = attemptRefusal(attempts, records, { fromStage: command.fromStage !== undefined });
   if (refused) throw new RunRefused(refusalMessage(id, refused, now));
   const { fromStage } = command;
+  // Once per start point: a run started at a stage goes on to it attempt after attempt.
   const unrecorded =
-    fromStage !== undefined && !records.has(fromStage)
+    fromStage !== undefined &&
+    !records.has(fromStage) &&
+    attempts.at(-1)?.flags.fromStage !== fromStage
       ? [`awf: nothing is recorded for ${fromStage}; the attempt stops if it never reaches it`]
       : [];
   return { args, continued: { run, attempts, warnings: unrecorded } };

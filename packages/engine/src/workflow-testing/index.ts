@@ -4,6 +4,7 @@ import { join } from "node:path";
 import {
   type SandboxRecord,
   STAGE_RECORD_VERSION,
+  type StageNeeds,
   type StageRecord,
 } from "@agentswf/contract/records";
 import {
@@ -65,8 +66,13 @@ export type TestOptions = {
    * work, as `awf run --continue` would.
    */
   recorded?: Readonly<Record<string, JsonValue | undefined>>;
-  /** The stage the continue starts at, as `--from-stage`; it needs `recorded`. */
+  /**
+   * The stage the attempt starts at, as `--from-stage`: a continue of `recorded`, or a new run
+   * started there.
+   */
   fromStage?: string;
+  /** Values of stages before `fromStage` with no record to reuse, as `awf run --values` gives them. */
+  values?: Readonly<Record<string, JsonValue>>;
 };
 
 /** What the run did. Under `parallel`, what started first is scheduling: read by key. */
@@ -100,8 +106,8 @@ export type TestRun<Result> = {
    * reason included, which the run's own summaries leave out.
    */
   stages: StageRecord[];
-  /** How the attempt stopped, apart from a failure; absent when it didn't. */
-  stopped?: { reason: string; stage?: string };
+  /** How the attempt stopped, apart from a failure, and the value it stopped for; absent when it didn't. */
+  stopped?: { reason: string; stage?: string; needs?: readonly StageNeeds[] };
 };
 
 /**
@@ -120,8 +126,8 @@ export async function testWorkflow<Args extends JsonValue, Result extends JsonVa
     noun: "compaction",
     option: "compactions",
   });
-  if (options.fromStage !== undefined && options.recorded === undefined) {
-    throw new Error("fromStage continues a run: give the stages it recorded as `recorded`");
+  if (options.values !== undefined && options.fromStage === undefined) {
+    throw new Error("values give the stages before fromStage: give fromStage too");
   }
   const stopping = new AbortController();
   const problems: string[] = [];
@@ -197,6 +203,9 @@ export async function testWorkflow<Args extends JsonValue, Result extends JsonVa
         id: run.record.id,
         attempt: options.recorded ? 2 : 1,
         ...(options.fromStage === undefined ? {} : { fromStage: options.fromStage }),
+        ...(options.values === undefined
+          ? {}
+          : { values: new Map(Object.entries(options.values)) }),
       },
       cwd,
       deadline: { unixMilliseconds: Date.now() + (options.timeoutMs ?? 30 * 60_000) },
@@ -319,6 +328,10 @@ function stoppedOf(
   const stop = primaryFailure(settled.error);
   if (!(stop instanceof WorkflowStopped)) return {};
   return {
-    stopped: { reason: stop.reason, ...(stop.stage === undefined ? {} : { stage: stop.stage }) },
+    stopped: {
+      reason: stop.reason,
+      ...(stop.stage === undefined ? {} : { stage: stop.stage }),
+      ...(stop.needs === undefined ? {} : { needs: stop.needs }),
+    },
   };
 }

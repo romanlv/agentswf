@@ -1,11 +1,13 @@
 import {
   STAGE_RECORD_VERSION,
+  type StageNeeds,
   type StageRecord,
   type TurnRecord,
 } from "@agentswf/contract/records";
+import type { JsonSchema } from "@agentswf/contract/schema";
 import type { JsonValue, StageOutcome, StageSummary } from "@agentswf/contract/workflow";
 import { replaceStale, stageNameProblem, writeStageRecord } from "./runs";
-import { planStage } from "./stage-plan";
+import { placeholderOf, planStage } from "./stage-plan";
 import { primaryFailure, WorkflowStopped } from "./stopped";
 
 /** A stage entered and not yet ended; it ends once, whichever end comes first. */
@@ -36,10 +38,18 @@ export function withoutValue<Stage extends { value?: JsonValue }>(
   return rest;
 }
 
-/** A stage entered: reused from its record without running, or run. */
+/** What the ledger needs of a stage's options to enter it. */
+export type StageShape = {
+  /** Its `result` as JSON Schema; absent for a stage that returns nothing. */
+  result?: JsonSchema;
+  /** Its one line for a value given, as its `summary` gives it. */
+  summary(value: JsonValue): string | undefined;
+};
+
+/** A stage entered: reused from its record or a value given without running, or run. */
 type EnteredStage =
   /** `release` once the value is handed back: until then the stage counts as open. */
-  | { kind: "reuse"; record: StageRecord; value: JsonValue | undefined; release(): void }
+  | { kind: "reuse"; value: JsonValue | undefined; release(): void }
   | { kind: "run"; stage: OpenStage };
 
 /**
@@ -66,6 +76,11 @@ export class StageLedger {
   readonly #failures = new Map<unknown, string>();
   /** The stage still open when the attempt ended. */
   #closedOpen: string | undefined;
+  /** The values found missing, in order: once there is one, the attempt only looks on. */
+  readonly #missing: { needs: StageNeeds; reason: string }[] = [];
+  /** Stages entered while looking on, which the view leaves out. */
+  readonly #looked = new Set<string>();
+  #needed: WorkflowStopped | undefined;
 
   constructor(
     private readonly options: {
@@ -78,6 +93,8 @@ export class StageLedger {
       records?: ReadonlyMap<string, StageRecord>;
       /** `--from-stage`: the stage the attempt starts at. */
       fromStage?: string;
+      /** `--values`: the values of stages before `fromStage` that have no record to reuse. */
+      values?: ReadonlyMap<string, JsonValue>;
       now?: () => Date;
     },
   ) {}
@@ -142,6 +159,9 @@ export class StageLedger {
   stop(reason: string, stage: string | undefined): Error {
     if (this.#caught) return this.#caught;
     if (this.#sealed !== undefined) return new WorkflowStopped(reason, stage);
+    // Looking on past stand-ins, the workflow's own checks see values no one gave.
+    const needed = this.needed();
+    if (needed) return needed;
     this.#stopped ??= new WorkflowStopped(reason, stage);
     return this.#stopped;
   }
@@ -157,14 +177,13 @@ export class StageLedger {
   }
 
   /**
-   * Enters `name`: reused when the plan says so, its value checked by `misfit`, or opened to run.
-   * Throws why it can't be: a bad name, a second entry, another one open, or a record that stops
-   * the attempt. Entered after a stop, the stop was caught, and that fails the attempt. Reaching the start point, it moves the records it outdates to `replaced/`.
+   * Enters `name`: reused or provided when the plan says so, or opened to run. A value provided is
+   * recorded before it is handed back. Throws why it can't be: a bad name, a second entry, another
+   * one open, or a record that stops the attempt. Entered after a stop, the stop was caught, and
+   * that fails the attempt. Reaching the start point, it moves the records it outdates to
+   * `replaced/`.
    */
-  async enter(
-    name: string,
-    misfit: (value: JsonValue | undefined) => string | undefined,
-  ): Promise<EnteredStage> {
+  async enter(name: string, shape: StageShape): Promise<EnteredStage> {
     const caught = this.caught();
     if (caught) throw caught;
     this.#check(name);
@@ -173,6 +192,7 @@ export class StageLedger {
       {
         records: this.options.records ?? new Map(),
         ...(this.options.fromStage === undefined ? {} : { fromStage: this.options.fromStage }),
+        ...(this.options.values === undefined ? {} : { values: this.options.values }),
         ...(this.options.workflowVersion === undefined
           ? {}
           : { workflowVersion: this.options.workflowVersion }),
@@ -180,10 +200,46 @@ export class StageLedger {
         entered: [...this.#stages.keys()],
       },
       name,
-      misfit,
+      shape.result,
     );
+    const recorded = this.options.records?.has(name) === true;
+    const wanted = decision.kind === "stop" && decision.needs && !recorded ? decision : undefined;
+    if (this.#missing.length > 0) {
+      // Looking on for the other values the start point needs: nothing runs or is recorded, and
+      // anything else ends the attempt with what was found.
+      this.#looked.add(name);
+      if (wanted?.needs) {
+        this.#missing.push({ needs: wanted.needs, reason: wanted.reason });
+        return this.#hold(name, placeholderOf(wanted.needs.schema));
+      }
+      if (decision.kind === "reuse" || decision.kind === "provide") {
+        return this.#hold(name, decision.value);
+      }
+      throw this.needed();
+    }
+    if (wanted?.needs) {
+      // A value with nothing recorded: the attempt stops for it, once it has looked on, past a
+      // stand-in shaped by its schema, for the others the start point needs.
+      this.#missing.push({ needs: wanted.needs, reason: wanted.reason });
+      this.#stages.set(name, {
+        stage: name,
+        source: "ran",
+        outcome: "stopped",
+        attempt: this.options.attempt,
+        startedAt: at,
+        endedAt: at,
+      });
+      return this.#hold(name, placeholderOf(wanted.needs.schema));
+    }
     if (decision.kind === "stop") {
-      this.#stopped = new WorkflowStopped(decision.reason, name, true);
+      // A record that failed or went stale is redone from this stage, though `--values` could
+      // replace it too.
+      this.#stopped = new WorkflowStopped(
+        decision.reason,
+        name,
+        true,
+        decision.needs && [decision.needs],
+      );
       this.#stages.set(name, {
         stage: name,
         source: "ran",
@@ -194,9 +250,13 @@ export class StageLedger {
       });
       throw this.#stopped;
     }
-    if (decision.kind === "reuse") {
+    if (decision.kind === "reuse" || decision.kind === "provide") {
+      const record =
+        decision.kind === "reuse"
+          ? decision.record
+          : await this.#provide(name, decision.value, shape, at);
       this.#reused.add(name);
-      const { attempt, summary } = decision.record;
+      const { attempt, summary, provided } = record;
       this.#stages.set(name, {
         stage: name,
         source: "reused",
@@ -206,23 +266,9 @@ export class StageLedger {
         endedAt: at,
         ...(summary === undefined ? {} : { summary }),
         ...(decision.value === undefined ? {} : { value: decision.value }),
+        ...(provided ? { provided } : {}),
       });
-      // Open until handed back, so a stage entered beside it is refused as on a fresh attempt.
-      const held: OpenStage = {
-        name,
-        succeed: async () => undefined,
-        stop: async () => undefined,
-        fail: async () => undefined,
-      };
-      this.#open = held;
-      return {
-        kind: "reuse",
-        record: decision.record,
-        value: decision.value,
-        release: () => {
-          if (this.#open === held) this.#open = undefined;
-        },
-      };
+      return this.#hold(name, decision.value);
     }
     // Open while the records it outdates are moved, so no other stage enters beside it.
     const stage = this.#opened(name, at);
@@ -244,6 +290,80 @@ export class StageLedger {
     return this.options.now?.() ?? new Date();
   }
 
+  /** A stage handed back without running, open until it is, so none is entered beside it. */
+  #hold(name: string, value: JsonValue | undefined): EnteredStage {
+    const held: OpenStage = {
+      name,
+      succeed: async () => undefined,
+      stop: async () => undefined,
+      fail: async () => undefined,
+    };
+    this.#open = held;
+    return {
+      kind: "reuse",
+      value,
+      release: () => {
+        if (this.#open === held) this.#open = undefined;
+      },
+    };
+  }
+
+  /**
+   * The stop for every value the attempt found missing, the first stage's, in the order reached;
+   * undefined when none was. Its reason is the first's, and any value given that didn't fit.
+   */
+  needed(): WorkflowStopped | undefined {
+    const [first, ...more] = this.#missing;
+    if (!first) return undefined;
+    if (this.#needed) return this.#needed;
+    const given = more.filter(({ needs }) => this.options.values?.has(needs.stage));
+    this.#needed = new WorkflowStopped(
+      [first.reason, ...given.map(({ reason }) => reason)].join("\n"),
+      first.needs.stage,
+      false,
+      this.#missing.map(({ needs }) => needs),
+    );
+    this.#stopped = this.#needed;
+    return this.#needed;
+  }
+
+  /**
+   * Before a turn, compaction, switch or decision starts: while the attempt looks on for missing
+   * values, past stand-ins, none may, and the attempt stops with what it found.
+   */
+  checkOperation(): void {
+    const needed = this.needed();
+    if (needed) throw needed;
+  }
+
+  /** Records a value given for a stage, or none for one that returns nothing: no turn ran it. */
+  async #provide(
+    name: string,
+    value: JsonValue | undefined,
+    shape: StageShape,
+    at: number,
+  ): Promise<StageRecord> {
+    const time = new Date(at).toISOString();
+    const summary = value === undefined ? undefined : shape.summary(value);
+    const record: StageRecord = {
+      version: STAGE_RECORD_VERSION,
+      stage: name,
+      attempt: this.options.attempt,
+      outcome: "succeeded",
+      started: time,
+      ended: time,
+      ...(this.options.workflowVersion === undefined
+        ? {}
+        : { workflowVersion: this.options.workflowVersion }),
+      sessions: [],
+      ...(summary === undefined ? {} : { summary }),
+      ...(value === undefined ? {} : { value }),
+      provided: true,
+    };
+    await writeStageRecord(this.options.runDir, record);
+    return record;
+  }
+
   #check(name: string): void {
     const problem = stageNameProblem(name);
     if (problem) throw new Error(`stage ${problem}`);
@@ -255,7 +375,7 @@ export class StageLedger {
         `stage ${name} was entered while stage ${this.#open.name} is open; one stage runs at a time, and parallel work goes inside one`,
       );
     }
-    if (this.#stages.has(name)) {
+    if (this.#stages.has(name) || this.#looked.has(name)) {
       throw new Error(`stage ${name} was entered twice; a loop goes inside one stage`);
     }
   }

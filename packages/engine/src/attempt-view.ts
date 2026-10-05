@@ -1,4 +1,9 @@
-import type { AttemptRecord, RunAccounting, StageRecord } from "@agentswf/contract/records";
+import type {
+  AttemptRecord,
+  RunAccounting,
+  StageNeeds,
+  StageRecord,
+} from "@agentswf/contract/records";
 import type {
   Ending,
   ExecutableWorkflow,
@@ -14,6 +19,7 @@ import { messageOf } from "./errors";
 import { ANSI, type Paint, PLAIN } from "./progress-view";
 import type { RunCommand } from "./run-command";
 import type { AttemptRefusal } from "./runs";
+import { schemaLines } from "./schema-text";
 import { FromStageUnreached, type WorkflowStopped } from "./stopped";
 
 /**
@@ -68,6 +74,7 @@ export function printEnding(
     records: pathFrom(shellCwd, context.run.dir, { home: context.home }),
     ...(kept.report ? { report: pathFrom(shellCwd, kept.report, { home: context.home }) } : {}),
     ...(end.choose?.length ? { choose: listRecorded(end.choose, context.now) } : {}),
+    ...(end.needs ? { needs: end.needs } : {}),
     paint: context.terminal?.color ? ANSI : PLAIN,
   });
   for (const line of ["", ...lines]) stderr(line);
@@ -86,8 +93,8 @@ export function toldOf(end: AttemptEnd, kept: Kept): string {
 /**
  * How an attempt ended, once, after its stages: the outcome, where and why; the run and what the
  * attempt cost, and for a later attempt the whole run, counting the attempts whose cost is
- * unknown; then the command that goes on, or the stages to choose from, and where the records
- * are. `stages` lists what each stage cost, where no view beside them did.
+ * unknown; then the value it stopped for, the command that goes on, or the stages to choose from,
+ * and where the records are. `stages` lists what each stage cost, where no view beside them did.
  */
 function describeEnding(
   ending: Ending<JsonValue>,
@@ -102,6 +109,8 @@ function describeEnding(
     report?: string;
     /** The recorded stages, a line each, one of which the go-on's `{stage}` needs. */
     choose?: readonly string[];
+    /** The stages whose values `--values` gives, and their schemas. */
+    needs?: readonly StageNeeds[];
     paint: Paint;
   },
 ): string[] {
@@ -134,13 +143,28 @@ function describeEnding(
   ];
 }
 
-/** The rows under an ending: the command that goes on, its lines given, the report, the records. */
-function rows(goOn: readonly string[], context: { records: string; report?: string }): string[] {
+/**
+ * The rows under an ending: the value it stopped for, the command that goes on, its lines given,
+ * the report, the records.
+ */
+function rows(
+  goOn: readonly string[],
+  context: { records: string; report?: string; needs?: readonly StageNeeds[] },
+): string[] {
   const row = (key: string, value: string) => `  ${key.padEnd(7)}  ${value}`;
+  const under = (line: string) => `${" ".repeat(11)}${line}`;
   const [command, ...choices] = goOn;
+  // A stage a line, and a schema with branches a line per branch under it.
+  const [first, ...needs] = (context.needs ?? []).flatMap(({ stage, schema }) => {
+    const [only, ...more] = schemaLines(schema);
+    return more.length === 0
+      ? [`${stage}: ${only}`]
+      : [`${stage}, one of:`, ...[only!, ...more].map((line) => `  ${line}`)];
+  });
   return [
+    ...(first === undefined ? [] : [row("needs", first), ...needs.map(under)]),
     ...(command === undefined ? [] : [row("go on", command)]),
-    ...choices.map((line) => `${" ".repeat(11)}${line}`),
+    ...choices.map(under),
     ...(context.report ? [row("report", context.report)] : []),
     row("records", context.records),
   ];
@@ -228,6 +252,7 @@ function listRecorded(records: readonly StageRecord[], now: number): string[] {
  * `--from-stage` when a plain continue would stop at the same record again, or would drop the redo
  * this attempt asked for and never reached. A `--from-stage` the body returned without reaching
  * has no one command: it names `{stage}`, for one of the run's stages, and isn't runnable as is.
+ * Going on from that start point repeats `--values`, or names `{file}` for a value it stopped for.
  */
 export function continueCommand(
   command: RunCommand,
@@ -244,6 +269,14 @@ export function continueCommand(
         : fromStage !== undefined && !entered.some(({ stage }) => stage === fromStage)
           ? fromStage
           : undefined;
+  const values =
+    redo === undefined || redo !== fromStage
+      ? undefined
+      : command.values
+        ? pathFrom(command.shellCwd, command.values.file)
+        : stop?.needs
+          ? FILE
+          : undefined;
   return [
     "awf",
     "run",
@@ -253,13 +286,16 @@ export function continueCommand(
     "--continue",
     id,
     ...(redo === undefined ? [] : ["--from-stage", redo]),
+    ...(values === undefined ? [] : ["--values", values]),
   ]
-    .map((word) => (word === STAGE ? word : shellWord(word)))
+    .map((word) => (word === STAGE || word === FILE ? word : shellWord(word)))
     .join(" ");
 }
 
 /** The placeholder a go-on names when the operator chooses the stage. */
 const STAGE = "{stage}";
+/** The placeholder for the file of values a go-on needs and none was given. */
+const FILE = "{file}";
 
 function shellWord(word: string): string {
   return /^[\w@%+=:,./-]+$/.test(word) ? word : `'${word.replaceAll("'", `'\\''`)}'`;

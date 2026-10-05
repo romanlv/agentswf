@@ -1324,13 +1324,72 @@ describe("awf run's stages", () => {
   const project = () => projectWith(staged());
   const runDir = (cwd: string) => join(cwd, ".awf", "runs", "fixture", "r1");
 
-  test("--from-stage needs --continue", async () => {
+  test("a new run starts at --from-stage: it stops for the value it needs, which --values gives", async () => {
     const cwd = await project();
-    const refused = await awfRun(cwd, ["--from-stage", "qa", "flow.js"]);
-    expect(refused.exitCode).toBe(2);
-    expect(refused.stderr).toContain(
-      "--from-stage goes with --continue: a new run has nothing to reuse",
+    const stopped = await awfRun(cwd, ["--id", "r1", "--from-stage", "qa", "flow.js"]);
+    expect(stopped.exitCode).toBe(3);
+    expect(stopped.record).toMatchObject({
+      outcome: "stopped",
+      stage: "implement",
+      reason: "nothing recorded for implement",
+      needs: [{ stage: "implement", schema: { type: "string" } }],
+    });
+    expect(stopped.stderr).toContain(
+      "  needs    implement: string\n  go on    awf run flow.js --continue r1 --from-stage qa --values {file}\n",
     );
+
+    await Bun.write(join(cwd, "values.json"), JSON.stringify({ implement: "feat/b" }));
+    const given = ["--continue", "r1", "--from-stage", "qa", "--values", "values.json"];
+    const done = await awfRun(cwd, ["flow.js", ...given]);
+    expect(done.exitCode).toBe(0);
+    expect(done.record.value).toBe(2);
+    expect(done.stderr).toContain("↺ stage implement · feat/b · provided · attempt 2");
+    // The start point it goes on to is the same: its missing record was said once.
+    expect(done.stderr).not.toContain("awf: nothing is recorded");
+    expect(
+      JSON.parse(readFileSync(join(runDir(cwd), "stages", "implement.json"), "utf8")),
+    ).toMatchObject({
+      attempt: 2,
+      outcome: "succeeded",
+      value: "feat/b",
+      provided: true,
+      sessions: [],
+    });
+  });
+
+  test("a value that doesn't fit stops, and the go-on repeats --values", async () => {
+    const cwd = await project();
+    await Bun.write(join(cwd, "values.json"), JSON.stringify({ implement: 7 }));
+    const misfit = await awfRun(cwd, [
+      "--id",
+      "r1",
+      "--from-stage",
+      "qa",
+      "--values",
+      "values.json",
+      "flow.js",
+    ]);
+    expect(misfit.exitCode).toBe(3);
+    expect(misfit.record.reason).toBe(
+      "implement's value in --values does not fit its result:\n  value: expected a string; got a number 7",
+    );
+    expect(misfit.stderr).toContain(
+      "  go on    awf run flow.js --continue r1 --from-stage qa --values values.json",
+    );
+  });
+
+  test("--values needs --from-stage, and a JSON object of stage names", async () => {
+    const cwd = await project();
+    await Bun.write(join(cwd, "list.json"), "[]");
+    await Bun.write(join(cwd, "named.json"), JSON.stringify({ Implement: "a" }));
+    const alone = await awfRun(cwd, ["--values", "list.json", "flow.js"]);
+    expect(alone.stderr).toContain("must hold a JSON object");
+    const withoutStage = await awfRun(cwd, ["--values", "named.json", "flow.js"]);
+    expect(withoutStage.stderr).toContain('"Implement" is not a stage\'s name');
+    await Bun.write(join(cwd, "good.json"), "{}");
+    const noStart = await awfRun(cwd, ["--values", "good.json", "flow.js"]);
+    expect(noStart.exitCode).toBe(2);
+    expect(noStart.stderr).toContain("--values goes with --from-stage");
   });
 
   test("a continue lists what is recorded, and a completed run is redone only from a stage", async () => {

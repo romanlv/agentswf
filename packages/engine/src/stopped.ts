@@ -1,4 +1,4 @@
-import type { StageRecord } from "@agentswf/contract/records";
+import type { StageNeeds, StageRecord } from "@agentswf/contract/records";
 
 /**
  * Ends an attempt `stopped`, apart from `failed`: the workflow's `stop`, or a continue that can't
@@ -11,6 +11,8 @@ export class WorkflowStopped extends Error {
     readonly stage?: string,
     /** Whether going on takes `--from-stage {stage}`: a record a continue can't reuse. */
     readonly redo = false,
+    /** The stages whose values, given with `--values`, let the attempt start at a later one. */
+    readonly needs?: readonly StageNeeds[],
   ) {
     super(reason);
     this.name = "WorkflowStopped";

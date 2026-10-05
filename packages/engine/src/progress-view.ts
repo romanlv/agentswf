@@ -151,7 +151,7 @@ export function progressEvents(
         add(
           stage.startedAt,
           "stage start",
-          `↺ stage ${[stage.stage, ...summaryOf(stage), `attempt ${stage.attempt}`].join(" · ")}`,
+          `↺ stage ${[stage.stage, ...summaryOf(stage), ...providedOf(stage), `attempt ${stage.attempt}`].join(" · ")}`,
         );
       }
       return;
@@ -188,8 +188,8 @@ type Rank = (typeof RANKS)[number];
 
 /**
  * The stages, a row each in columns: the time; the summary; and what its agents cost once the run
- * is over, or for a reused one, marked `↺`, the attempt that ran it, and how long ago once that is
- * over an hour. The current one lists each agent working in it; those an earlier attempt recorded
+ * is over, or for a reused one, marked `↺`, whether its value was given, the attempt that ran it,
+ * and how long ago once that is over an hour. The current one lists each agent working in it; those an earlier attempt recorded
  * still to come are dim. Once the run is over, what ran between stages has a row of its own, so the
  * stages add up. None for a run without stages. A stage that did not succeed shows only its mark:
  * why is said once, where the run's ending is.
@@ -268,10 +268,18 @@ const GAP = "   ";
 
 const HOUR_MS = 60 * 60_000;
 
-/** The attempt that ran a reused stage, and its record's age once that may make it stale. */
+/** The attempt that recorded a reused stage, and its record's age once that may make it stale. */
 function reusedTail(stage: StageProgress, now: number): string {
   const age = stage.recordedAt === undefined ? 0 : now - stage.recordedAt;
-  return [`attempt ${stage.attempt}`, ...(age > HOUR_MS ? [ago(age)] : [])].join(" · ");
+  return [
+    ...providedOf(stage),
+    `attempt ${stage.attempt}`,
+    ...(age > HOUR_MS ? [ago(age)] : []),
+  ].join(" · ");
+}
+
+function providedOf(stage: StageProgress): string[] {
+  return stage.provided ? ["provided"] : [];
 }
 
 /** A finished stage's mark. */

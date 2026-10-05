@@ -264,7 +264,8 @@ Written twice, each time whole, and only by its own attempt:
 - `file`: the path it ran, for the record. Not identity.
 - `workflowVersion`: the workflow's `meta.version`, when it gives one; compared with each
   record's on a continue.
-- `flags.fromStage`: only when `--from-stage` was given.
+- `flags.fromStage`: only when `--from-stage` was given. `--values` isn't kept here: each value
+  it gave is in its stage's record.
 - `pid` and `processStart` make liveness checkable without a lock file: the attempt is live while it
   has no `ended` and that process, started at that time, exists. A pid alone could be another
   process after a reboot. Both sides read the start time the same way, `ps -o lstart= -p {pid}` in
@@ -300,6 +301,9 @@ Written twice, each time whole, and only by its own attempt:
   trip, and checked again by the current schema whenever it is reused.
 - `sessions`: the agents' native sessions the stage used, for [[stopped-run-recovery]] and for
   reading what happened.
+- `provided: true`: no turn ran it; its value came from `--values`, or it returns nothing and was
+  passed ([[#Starting at a stage]]). Its `attempt` is the one it was given in. It is `succeeded`,
+  and reused as any other.
 
 **`turns.jsonl`**: each turn, nudges included, and each compaction, as it settles; `kind` tells
 them apart.
@@ -409,11 +413,10 @@ projects reaches their `.awf/runs`, as it reaches their source.
 ## One attempt, start to end
 
 ```
-awf run flow.ts [--id I | --continue I] [--from-stage S] -- argv
+awf run flow.ts [--id I | --continue I] [--from-stage S [--values F]] -- argv
  1. load flow.ts → meta.name, meta.version, id(args)?
  2. resolve the run
-      new run     --from-stage → refuse: there is nothing to reuse.
-                  prepare(argv) → args; id = --id, else id(args), else generated;
+      new run     prepare(argv) → args; id = --id, else id(args), else generated;
                   claim runs/{workflow}/{id} with its run.json (taken → refuse: "AIRS-1515
                   exists; --continue it, or --id another to start over").
       --continue  read runs/{meta.name}/{id}/run.json (missing → look under the other workflows
@@ -456,11 +459,12 @@ no outline, and a stage in a branch not taken costs nothing.
 | a succeeded record whose value the `result` schema accepts, or no value and no `result` | reuse |
 | a succeeded record from another major `meta.version` (under `0.x`, another minor) | stop: "review was recorded by 1.4.0; this is 2.0.0" |
 | a succeeded record that no longer fits: its schema rejects the value, or a value where none is expected, or none where one is | stop: "doc-review's record no longer fits its result schema: {problems}" |
-| no succeeded record, with `--from-stage` given | stop: "nothing recorded for review" |
+| no succeeded record, with `--from-stage` given | its value from `--values`, else stop: "nothing recorded for review" |
 | no succeeded record, plain continue | this is the start point: run |
 
 Each of these stops goes on with `--from-stage` that stage, which the ending's command to go on
-carries, so the reason doesn't repeat it.
+carries, so the reason doesn't repeat it. One with nothing recorded is the exception: it goes on with
+the same `--from-stage` and a value ([[#Starting at a stage]]).
 
 - **Reuse** checks the value against the current schema and returns it; `work` is never called, so
   nothing inside a reused stage runs, compactions included.
@@ -485,6 +489,44 @@ carries, so the reason doesn't repeat it.
   warned about at the start. An attempt that ends before it reaches its `--from-stage` for any
   other reason goes on with the same `--from-stage`, so the redo isn't dropped.
 
+### Starting at a stage
+
+A new run can start at `--from-stage` too, with nothing recorded before it: qa for a ticket built by
+hand. A later stage reads the values of earlier ones, so each stage before the start point that has
+no record to reuse needs its value, and `--values {file}` gives them, a JSON object by stage name:
+
+```
+awf run flow.ts --from-stage qa-local --json -- AIRS-1234
+→ stopped in doc-review, needs: [{stage: "doc-review", schema: {…}}, {stage: "review", …}, {stage: "mr", …}]
+awf run flow.ts --continue AIRS-1234 --from-stage qa-local --values v.json --json
+→ qa-local runs
+```
+
+- A value is checked against the stage's `result`, as a recorded one is, and recorded with
+  `provided: true`: no turns, no sessions, zero cost. A later continue reuses it as any succeeded
+  record. One that doesn't fit stops: "review's value in --values does not fit its result:
+  {problems}".
+- A stage that returns nothing needs no value: it is passed, and recorded `provided` the same way.
+  That holds for a continue's `--from-stage` too: such a stage before it never stops it.
+- A stage with no record and no value doesn't stop the attempt at once. It hands back a stand-in its
+  schema accepts, the first branch and the least of each bound, and the attempt looks on: each later
+  stage with no value is noted the same way, until the start point, where it stops. Nothing is
+  recorded while it looks on, no stage's work runs, and a turn, compaction or decision that would
+  start ends the look there, as does the workflow's own stop, a throw, or a return: the code between
+  stages is running on values no one gave.
+- The stop has `needs`, each stage noted and its `result` as JSON Schema, in the order reached, in
+  `output.json` and in the closing block, a line each as a type: `needs    review: {rounds: integer
+  ≥ 1, ledger: string}`. Its `continue` keeps the start point and names `--values`, the file given
+  or `{file}`. So one stop usually names every value, and one more attempt starts at the stage.
+- Stages are only found as the run reaches them, so the list is what the stand-ins led to. A real
+  value can take another branch, or code between stages can start a turn, and the next attempt
+  stops for what it then finds. The loop is meant for an agent: read `needs`, find the values in the
+  ticket or the repository, write the file, rerun.
+- `--values` is read only for stages with no record to reuse: one recorded and reusable ignores its
+  entry. A record that failed or went stale still stops, going on with `--from-stage` that stage;
+  `--values` replaces it too, when it has an entry.
+- The refusals stay: `--continue` of an id with no run, and a new run on an id that exists.
+
 ### Stops and failures
 
 Where a stop happens decides what a continue redoes:
@@ -507,7 +549,7 @@ named is the last one reused before the stop.
 | Outcome | When | Exit code |
 | --- | --- | --- |
 | `completed` | the workflow returned | 0 |
-| `stopped` | `workflow.stop`, or the stage plan: a record from another major version, a record that no longer fits, nothing recorded after `--from-stage`, a `--from-stage` never reached | 3 |
+| `stopped` | `workflow.stop`, or the stage plan: a record from another major version, a record that no longer fits, nothing recorded after `--from-stage` and no value given, a `--from-stage` never reached | 3 |
 | `failed` | an exception | 1 |
 | `timed-out` | the attempt's deadline (`--timeout`) | 1 |
 | `cancelled` | a signal | 128 + signal |

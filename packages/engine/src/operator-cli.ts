@@ -289,6 +289,7 @@ async function runAttempt(
         attempt: n,
         label: workspaceLabel(meta.name, id, n),
         ...(command.fromStage === undefined ? {} : { fromStage: command.fromStage }),
+        ...(command.values === undefined ? {} : { values: command.values.stages }),
       },
       runtime: installed.config,
       sandboxes: {

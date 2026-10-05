@@ -31,7 +31,7 @@ workflow.runId   workflow.attempt
 
 // In a test, from "agentswf/testing"; `awf test` runs it:
 testWorkflow(workflow, args, { agents?, decisions?, runtimes?, caller?, timeoutMs?, stallMs?, cwd?,
-                              recorded?, fromStage? })  // → run
+                              recorded?, fromStage?, values? })  // → run
 answer(SCHEMA, value | (turn) => value)   answer("text")   reply.silent() | blocked() | failed() | timedOut() | hang() | interrupted()
 ```
 
@@ -653,7 +653,7 @@ decisions: {
 - **`run.decisions`** and **`run.logs`** are each decision asked and each `workflow.log` line.
 - **`run.stages`** is each stage's record in the order entered: `stage`, `attempt`, `outcome`
   (`succeeded`, `stopped` or `failed`), `reason`, `summary` and `value`. A turn's `stage` says which
-  it ran in. **`run.stopped`** is `{ reason, stage? }` when the attempt stopped rather than failed.
+  it ran in. **`run.stopped`** is `{ reason, stage?, needs? }` when the attempt stopped rather than failed.
 
 An agent's `sandbox` is the sandbox as the run's record keeps it: its `key` (`agent:{key}` for an
 agent's own), its `provider`, its settings in `spec` (`read`, `write`, `network`, `cwd` and the
@@ -706,7 +706,9 @@ Run one after the other, correctness would wait forever, and the test fails as s
 
 `recorded` runs the workflow as a continue of a run whose earlier attempt recorded those stages,
 each by its value, or `undefined` for one that returns nothing. They are reused without calling
-their work, as `awf run --continue` would; `fromStage` starts at a stage, as `--from-stage` does.
+their work, as `awf run --continue` would; `fromStage` starts at a stage, as `--from-stage` does,
+and `values` gives the stages before it that have none, as `--values` does: without `recorded`, the
+run is a new one started at `fromStage`, and `run.stopped.needs` lists the stages it stopped for.
 Each is recorded as succeeded in attempt 1, with no `meta.version`, so no version check applies.
 It is how a test catches code that only works on a first attempt:
 

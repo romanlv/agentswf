@@ -20,6 +20,24 @@ const never =
     throw new Error(`${stage}'s work was called`);
   };
 
+/** doc-review, implement with no result, review, then qa, which reads the values before it. */
+const startable = workflowOf(async (workflow) => {
+  const doc = await workflow.stage(
+    "doc-review",
+    { result: DOC, summary: (value) => value.path },
+    never<{ path: string }>("doc-review"),
+  );
+  await workflow.stage("implement", never<void>("implement"));
+  const impl = await workflow.stage(
+    "review",
+    { result: BRANCH },
+    never<{ branch: string }>("review"),
+  );
+  return await workflow.stage("qa", { result: DOC }, async () => ({
+    path: `${doc.path} on ${impl.branch}`,
+  }));
+});
+
 describe("testWorkflow over recorded stages", () => {
   test("recorded stages are reused without calling their work, and the rest run", async () => {
     const run = await testWorkflow(
@@ -120,11 +138,11 @@ describe("testWorkflow over recorded stages", () => {
   test("a stage renamed in the code runs on a plain continue, and stops after --from-stage", async () => {
     const renamed = workflowOf(async (workflow) => {
       await workflow.stage("doc-review", never<void>("doc-review"));
-      await workflow.stage("implement", async () => {});
+      await workflow.stage("implement", { result: { type: "string" } }, async () => "done");
       await workflow.stage("qa", async () => {});
       return null;
     });
-    const recorded = { "doc-review": undefined, impl: undefined, qa: undefined };
+    const recorded = { "doc-review": undefined, impl: "done", qa: undefined };
     const plain = await testWorkflow(renamed, null, { recorded });
     expect(plain.value).toBeNull();
     const from = await testWorkflow(renamed, null, { recorded, fromStage: "qa" });
@@ -220,13 +238,88 @@ describe("testWorkflow over recorded stages", () => {
   });
 });
 
+describe("a new run started at a stage", () => {
+  test("stops naming every stage the start point needs a value for, with its schema", async () => {
+    const run = await testWorkflow(startable, null, { fromStage: "qa" });
+    expect(run.stopped).toEqual({
+      reason: "nothing recorded for doc-review",
+      stage: "doc-review",
+      needs: [
+        { stage: "doc-review", schema: DOC },
+        { stage: "review", schema: BRANCH },
+      ],
+    });
+    // Looking on past a stand-in records nothing, not even the stage that returns nothing.
+    expect(run.stages).toEqual([]);
+  });
+
+  test("looking on starts no turn: the attempt stops there with what it found", async () => {
+    const run = await testWorkflow(
+      workflowOf(async (workflow) => {
+        const worker = await workflow.agents.open({ key: "worker", runtime: "codex" });
+        const doc = await workflow.stage(
+          "doc-review",
+          { result: DOC },
+          never<{ path: string }>("doc-review"),
+        );
+        await worker.run({ prompt: `Read ${doc.path}` });
+        await workflow.stage("review", { result: BRANCH }, never<{ branch: string }>("review"));
+        await workflow.stage("qa", async () => {});
+        return null;
+      }),
+      null,
+      { fromStage: "qa" },
+    );
+    expect(run.stopped?.needs?.map(({ stage }) => stage)).toEqual(["doc-review"]);
+    expect(run.turns).toEqual([]);
+  });
+
+  test("a stage that returns nothing is passed, and the next stops for its value", async () => {
+    const run = await testWorkflow(startable, null, {
+      fromStage: "qa",
+      values: { "doc-review": { path: "docs/a.md" } },
+    });
+    expect(run.stopped).toMatchObject({ stage: "review", needs: [{ stage: "review" }] });
+    expect(run.stages.map(({ stage, provided, summary }) => [stage, provided, summary])).toEqual([
+      ["doc-review", true, "docs/a.md"],
+      ["implement", true, undefined],
+    ]);
+  });
+
+  test("with every value given, they are provided without calling their work, and the rest run", async () => {
+    const run = await testWorkflow(startable, null, {
+      fromStage: "qa",
+      values: { "doc-review": { path: "docs/a.md" }, review: { branch: "feat/a" } },
+    });
+    expect(run.value).toEqual({ path: "docs/a.md on feat/a" });
+    expect(run.stages.map(({ stage, provided }) => [stage, provided ?? false])).toEqual([
+      ["doc-review", true],
+      ["implement", true],
+      ["review", true],
+      ["qa", false],
+    ]);
+  });
+
+  test("a value that doesn't fit its stage's result stops, with why", async () => {
+    const run = await testWorkflow(startable, null, {
+      fromStage: "qa",
+      values: { "doc-review": { file: "docs/a.md" } },
+    });
+    expect(run.stopped?.reason).toStartWith(
+      "doc-review's value in --values does not fit its result:",
+    );
+    expect(run.stopped?.needs?.map(({ stage }) => stage)).toEqual(["doc-review", "review"]);
+  });
+});
+
 describe("a continue's records", () => {
   const attempt = (
     root: string,
     n: number,
     workflow: WorkflowDefinition<null, JsonValue>,
     fromStage?: string,
-  ) => runAttempt(workflow, { runRoot: root, attempt: n, fromStage });
+    values?: Record<string, JsonValue>,
+  ) => runAttempt(workflow, { runRoot: root, attempt: n, fromStage, values });
   const outcomes = async (root: string) =>
     [...(await readStageRecords(join(root, "staged", "r1"))).values()]
       .map(({ stage, attempt, outcome }) => `${stage}:${attempt}:${outcome}`)
@@ -279,7 +372,7 @@ describe("a continue's records", () => {
     const versioned = (version: string) =>
       workflowOf(
         async (workflow) => {
-          await workflow.stage("doc-review", async () => {});
+          await workflow.stage("doc-review", { result: { type: "string" } }, async () => "a.md");
           await workflow.stage("qa", async () => {});
           return null;
         },
@@ -293,6 +386,20 @@ describe("a continue's records", () => {
     expect(String(cause)).toContain("doc-review was recorded by 1.2.0; this is 2.0.0");
     expect(await outcomes(root)).toEqual(before);
     expect(await replaced(root)).toEqual([]);
+  });
+
+  test("a continue reuses what was provided, and takes values for the rest", async () => {
+    const root = runDirs.tempRunDir();
+    const first = attempt(root, 1, startable, "qa", { "doc-review": { path: "docs/a.md" } });
+    await expect(first).rejects.toBeInstanceOf(WorkflowRunError);
+    const second = await attempt(root, 2, startable, "qa", { review: { branch: "feat/a" } });
+    expect(second.value).toEqual({ path: "docs/a.md on feat/a" });
+    expect(await outcomes(root)).toEqual([
+      "doc-review:1:succeeded",
+      "implement:1:succeeded",
+      "qa:2:succeeded",
+      "review:2:succeeded",
+    ]);
   });
 
   test("after a crash mid-stage, or mid-move, a continue starts at that stage", async () => {
