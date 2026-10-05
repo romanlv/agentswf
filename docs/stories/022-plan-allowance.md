@@ -159,7 +159,7 @@ Probed live on 2026-10-05 (claude 2.1.289, codex-cli 0.160.0, cursor-agent 2026.
 export const ALLOWANCE_VERSION = "awf.allowance/1";
 export type AllowanceReport = { version: typeof ALLOWANCE_VERSION; readAt: string; harnesses: HarnessAllowance[] };
 export type HarnessAllowance =
-  | { harness: HarnessKind; read: "plan"; source: string; plan?: string; windows: AllowanceWindow[] }
+  | { harness: HarnessKind; read: "plan"; source: string; plan?: string; tier?: string; windows: AllowanceWindow[] }
   | { harness: HarnessKind; read: "none"; reason: string };
 export type AllowanceWindow = {
   id: string;            // from the harness's wording, unique within it: "session", "week", "included"
@@ -173,6 +173,15 @@ export type AllowanceWindow = {
 - `read: "none"` covers a harness that has no reader, is not logged in, or is logged in with a key
   (no plan), each with its reason. A read that failed is `none` too: the lab treats it as unknown
   and does not wait on it, but logs it once.
+- `plan` and `tier` are as the harness names them: claude's `subscriptionType` from
+  `claude auth status` and `organizationRateLimitTier` from `~/.claude.json` (`max`,
+  `default_claude_max_20x`); codex's `planType` (`prolite`); cursor's `/usage` header (`Team`).
+- A plan's monthly price is policy, not observation (foundation §8): a dated table,
+  `engine/src/accounting/plans.ts` (`plans 2026-10-05`), maps the names to what people call them
+  and their list price: Max 20x $200, Max 5x $100, Pro $20; codex `prolite` Pro 100 $100, `pro`
+  Pro 200, `promax` Pro 500, Plus $20, Go $8. `awf allowance` shows it; `--json` carries no price.
+  cursor's Team is Standard ($40 a seat) or Premium ($120), which nothing it shows tells apart, so
+  it has no price.
 - The parsers are pure functions of the harness's output and the time of the read; the readers run
   them on what a process or a pane printed.
 
@@ -201,6 +210,10 @@ Decided with the operator, 2026-10-05:
 - Q2. Use each harness's own usage command, not claude's status line.
 - Q3. The lab's check is in this story, not [[loop-next]].
 - Q4. Priority P1, epic loop.
+- Q5. Show the plan and what it costs, so a percent of a $200 plan and of a $20 one can be told
+  apart (2026-10-05). awf may read `~/.claude.json` for claude's Max tier.
+- Q6. What a percent is worth in dollars changes over time, so it is measured, not stored: filed as
+  [[plan-percent-value]].
 
 Open: none.
 
@@ -289,6 +302,10 @@ Tasks 1–4 were reviewed together, on the whole diff, by two read-only subagent
 
 ## Implementation notes
 
+- Plan and price (Q5), after the first review: `awf allowance` on this machine shows
+  `claude  Max 20x ($200/mo)`, `codex  Pro 100 ($100/mo)`, `cursor  Team`. `prolite` is Pro 100 by
+  OpenAI's own product names, as other tools found when it appeared (openai/codex#18805,
+  steipete/CodexBar#691); Claude's prices are Pro $20, Max 5x $100, Max 20x $200.
 - Probing cost two cursor turns: `cursor-agent -p "/usage"` and `cursor-agent usage` both went to the
   model. Hence the `readAllowance` absence for cursor.
 - The lab's wait sleeps in naps of at most ten minutes, measured on the wall clock, so a machine

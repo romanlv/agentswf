@@ -429,8 +429,10 @@ export type HarnessAllowance =
       read: "plan";
       /** What was read: `claude /usage`, `codex account/rateLimits/read`, `cursor /usage`. */
       source: string;
-      /** The plan's name, as the harness words it. */
+      /** The plan's name, as the harness words it: `max`, `prolite`, `Team`. */
       plan?: string;
+      /** Its tier within the plan, where the harness tells one apart: `default_claude_max_20x`. */
+      tier?: string;
       windows: AllowanceWindow[];
     }
   | { harness: HarnessKind; read: "none"; reason: string };

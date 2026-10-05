@@ -10,6 +10,8 @@ const READS: Record<string, HarnessAllowance> = {
     harness: "claude",
     read: "plan",
     source: "claude /usage",
+    plan: "max",
+    tier: "default_claude_max_20x",
     windows: [
       { id: "session", label: "session", usedPercent: 37, resetsAt: "2026-10-05T21:19:00.000Z" },
       {
@@ -20,6 +22,13 @@ const READS: Record<string, HarnessAllowance> = {
         models: ["Fable"],
       },
     ],
+  },
+  codex: {
+    harness: "codex",
+    read: "plan",
+    source: "codex account/rateLimits/read",
+    plan: "prolite",
+    windows: [{ id: "week", label: "week", usedPercent: 93 }],
   },
   cursor: {
     harness: "cursor",
@@ -49,13 +58,14 @@ describe("awf allowance", () => {
 
   test("a line per harness, a reset said once for the windows that share it", async () => {
     const report = await readReport(
-      ["claude", "cursor", "pi"],
+      ["claude", "codex", "cursor", "pi"],
       async (harness) => READS[harness]!,
       NOW,
     );
     expect(describeReport(report, "America/Toronto")).toBe(
       [
-        "claude  session 37%, resets 17:19 · week (Fable) 12.5%, resets Oct 8 12:00",
+        "claude  Max 20x ($200/mo) · session 37%, resets 17:19 · week (Fable) 12.5%, resets Oct 8 12:00",
+        "codex   Pro 100 ($100/mo) · week 93%",
         "cursor  Team · Included 1%, Auto 1%, resets Oct 21",
         "pi      no allowance: pi has no plan usage command",
       ].join("\n"),

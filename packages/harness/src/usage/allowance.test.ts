@@ -4,7 +4,9 @@ import { join } from "node:path";
 import type { ProcessInput, RunProcess } from "../command";
 import { parseRow } from "../json";
 import {
+  claudeAccountFile,
   claudeAllowance,
+  claudePlan,
   claudeReset,
   codexAllowance,
   cursorAllowance,
@@ -100,21 +102,50 @@ describe("claude's /usage", () => {
     });
   });
 
-  test("is run with no session kept", async () => {
+  test("is run with no session kept, and names the plan and its tier", async () => {
     const asked: ProcessInput[] = [];
     const run: RunProcess = async (input) => {
+      const { argv } = input as ProcessInput;
       asked.push(input as ProcessInput);
-      return { stdout: fixture("claude-usage.json"), stderr: "", exitCode: 0, timedOut: false };
+      const stdout =
+        argv[1] === "auth"
+          ? JSON.stringify({ loggedIn: true, subscriptionType: "max" })
+          : fixture("claude-usage.json");
+      return { stdout, stderr: "", exitCode: 0, timedOut: false };
     };
-    expect((await readClaudeAllowance(run, RECORDED)).read).toBe("plan");
-    expect(asked[0]?.argv).toEqual([
-      "claude",
-      "-p",
-      "/usage",
-      "--output-format",
-      "json",
-      "--no-session-persistence",
+    const account = join(import.meta.dir, "fixtures/allowance/claude-account.json");
+    const read = await readClaudeAllowance(run, RECORDED, account);
+    expect(read.read === "plan" && [read.plan, read.tier]).toEqual([
+      "max",
+      "default_claude_max_20x",
     ]);
+    expect(asked.map((input) => input.argv)).toEqual([
+      ["claude", "-p", "/usage", "--output-format", "json", "--no-session-persistence"],
+      ["claude", "auth", "status", "--json"],
+    ]);
+    const missing = await readClaudeAllowance(run, RECORDED, join(FIXTURES, "none.json"));
+    expect(missing.read === "plan" && [missing.plan, missing.tier]).toEqual(["max", undefined]);
+  });
+
+  test("a plan is what auth status names; a tier, the organization's, else the user's", () => {
+    expect(claudePlan('{"subscriptionType":"pro"}', "")).toEqual({ plan: "pro" });
+    expect(
+      claudePlan(
+        "",
+        JSON.stringify({
+          oauthAccount: {
+            organizationRateLimitTier: null,
+            userRateLimitTier: "default_claude_max_5x",
+          },
+        }),
+      ),
+    ).toEqual({ tier: "default_claude_max_5x" });
+    expect(claudePlan("not json", "not json")).toEqual({});
+  });
+
+  test("its account is in the home directory, or beside its moved state", () => {
+    expect(claudeAccountFile({ HOME: "/h" })).toBe("/h/.claude.json");
+    expect(claudeAccountFile({ HOME: "/h", CLAUDE_CONFIG_DIR: "/c" })).toBe("/c/.claude.json");
   });
 });
 

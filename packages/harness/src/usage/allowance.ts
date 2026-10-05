@@ -1,6 +1,9 @@
+import { homedir } from "node:os";
+import { join } from "node:path";
 import type { AllowanceWindow, HarnessAllowance } from "@agentswf/contract/records";
 import type { RunProcess } from "../command";
 import { jsonLines, parseRow, type Row, record, reported, text } from "../json";
+import { STATUS_TIMEOUT_MS } from "./billing";
 
 /** A harness's allowance before it is named: what its reader saw. */
 export type AllowanceRead = HarnessAllowance extends infer A
@@ -17,13 +20,52 @@ const none = (reason: string): AllowanceRead => ({ read: "none", reason });
  * `claude -p /usage`: claude runs the command itself, with no model turn, and prints what its TUI
  * shows. Its runs are not kept, so nothing is added to the operator's session list.
  */
-export async function readClaudeAllowance(run: RunProcess, now: number): Promise<AllowanceRead> {
-  const result = await run({
-    argv: ["claude", "-p", "/usage", "--output-format", "json", "--no-session-persistence"],
-    timeoutMs: READ_TIMEOUT_MS,
-  });
+export async function readClaudeAllowance(
+  run: RunProcess,
+  now: number,
+  accountFile = claudeAccountFile(),
+): Promise<AllowanceRead> {
+  const [result, status, account] = await Promise.all([
+    run({
+      argv: ["claude", "-p", "/usage", "--output-format", "json", "--no-session-persistence"],
+      timeoutMs: READ_TIMEOUT_MS,
+    }),
+    run({ argv: ["claude", "auth", "status", "--json"], timeoutMs: STATUS_TIMEOUT_MS }),
+    Bun.file(accountFile)
+      .text()
+      .catch(() => ""),
+  ]);
   if (result.timedOut) return none("`claude -p /usage` did not answer in time");
-  return claudeAllowance(result.stdout, now, `exited ${result.exitCode}: ${result.stderr.trim()}`);
+  const read = claudeAllowance(
+    result.stdout,
+    now,
+    `exited ${result.exitCode}: ${result.stderr.trim()}`,
+  );
+  if (read.read === "none") return read;
+  const { plan, tier } = claudePlan(status.exitCode === 0 ? status.stdout : "", account);
+  return { ...read, ...(plan ? { plan } : {}), ...(tier ? { tier } : {}) };
+}
+
+/**
+ * Where claude keeps its account, beside its state when `CLAUDE_CONFIG_DIR` moves it, else in the
+ * home directory itself: `~/.claude.json`, not under `~/.claude`.
+ */
+export function claudeAccountFile(
+  environment: Readonly<Record<string, string | undefined>> = process.env,
+): string {
+  const moved = environment.CLAUDE_CONFIG_DIR?.trim();
+  return moved ? join(moved, ".claude.json") : join(environment.HOME ?? homedir(), ".claude.json");
+}
+
+/**
+ * The plan `claude auth status` names, `pro` or `max`, and its tier, which only the account claude
+ * keeps tells: `default_claude_max_20x`. The account's format is claude's own and undocumented.
+ */
+export function claudePlan(status: string, account: string): { plan?: string; tier?: string } {
+  const plan = text(parseRow(status)?.subscriptionType);
+  const oauth = record(parseRow(account)?.oauthAccount);
+  const tier = text(oauth?.organizationRateLimitTier) ?? text(oauth?.userRateLimitTier);
+  return { ...(plan ? { plan } : {}), ...(tier ? { tier } : {}) };
 }
 
 const CLAUDE_WINDOW = /^Current (.+?): (\d+(?:\.\d+)?)% used(?: · resets (.+))?$/;

@@ -5,6 +5,7 @@ import {
   type HarnessAllowance,
 } from "@agentswf/contract/records";
 import { HARNESS_NAMES, type Harness } from "@agentswf/harness";
+import { PLAN_BASIS, planPrice } from "./accounting/plans";
 
 export const allowanceUsage = [
   "usage: awf allowance [harness...] [--json]",
@@ -13,9 +14,12 @@ export const allowanceUsage = [
   "/status, and cursor's /usage, read in a Herdr pane. Nothing asks a model. Every harness when",
   `none is named: ${HARNESS_NAMES.join(", ")}.`,
   "",
-  `--json prints an ${ALLOWANCE_VERSION} record, the interface for scripts; what it prints`,
-  "otherwise is for reading. A harness that could not be read says why. Exits 0 once every",
-  "harness was asked, 2 on a usage error.",
+  "A plan's monthly price is the vendor's list price as of the table's date, not what was",
+  `charged: ${PLAN_BASIS}.`,
+  "",
+  `--json prints an ${ALLOWANCE_VERSION} record, the interface for scripts, with the plan as the`,
+  "harness names it and no price; what it prints otherwise is for reading. A harness that could",
+  "not be read says why. Exits 0 once every harness was asked, 2 on a usage error.",
 ].join("\n");
 
 export type AllowanceCommand = { harnesses: Harness[]; json: boolean } | "help";
@@ -56,7 +60,7 @@ export function describeReport(report: AllowanceReport, timeZone?: string): stri
         each.read === "none"
           ? `no allowance: ${each.reason}`
           : [
-              ...(each.plan ? [each.plan] : []),
+              ...(each.plan ? [describePlan(each.harness, each.plan, each.tier)] : []),
               ...sharingReset(each.windows).map((windows) => {
                 const used = windows.map((w) => `${w.label} ${w.usedPercent}%`).join(", ");
                 const resetsAt = windows[0]?.resetsAt;
@@ -68,6 +72,15 @@ export function describeReport(report: AllowanceReport, timeZone?: string): stri
       return `${each.harness.padEnd(width)}${said}`;
     })
     .join("\n");
+}
+
+/** The plan as people name it and its price, else as the harness words it. */
+function describePlan(harness: string, plan: string, tier?: string): string {
+  const listed = planPrice(harness, plan, tier);
+  if (!listed) return tier ? `${plan} (${tier})` : plan;
+  return listed.usdPerMonth === undefined
+    ? listed.name
+    : `${listed.name} ($${listed.usdPerMonth}/mo)`;
 }
 
 /** Runs of windows, in order, that reset at the same time. */
