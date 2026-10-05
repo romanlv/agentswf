@@ -83,6 +83,9 @@ labelled groups it shows live in the terminal, and stages a run continues from.
 - **Fast decisions with Jev.** For routing, triage and gating, ask [Jev](#fast-decisions-with-jev),
   a decision model, closed questions and get a probability for every answer in about 200 ms, with
   no coding agent involved. It needs an OpenRouter key.
+- **Runs that continue.** Mark steps as [stages](#runs-stages-and-continuing) and a stopped run
+  picks up at the step that stopped, reusing what succeeded. A new run can start at any stage,
+  given the earlier stages' values.
 - **Deadlines and cleanup.** Every wait has a deadline, and every agent is cleaned up when the run
   ends, however it ends.
 - **Watch or run headless.** An agent runs in a terminal pane you can watch and type into
@@ -190,6 +193,86 @@ so write your home directory out:
 ```
 
 </details>
+
+## Runs, stages and continuing
+
+A workflow that runs for an hour shouldn't start over because its last step failed. awf keeps
+every run on disk, and a workflow marks the steps worth keeping as stages.
+
+- **Run:** one piece of work, such as a ticket, kept in `.awf/runs/{workflow}/{id}`. Its id comes
+  from `--id`, from the workflow's own `id(args)` (a ticket's key, say), or is generated.
+- **Attempt:** one `awf run` of a run. `awf run flow.ts --continue {id}` starts the next one with
+  the same arguments, after you've fixed the code, a prompt or the environment. An attempt that
+  crashed or was killed reads `interrupted`, and continues the same way.
+- **Stage:** a named step whose value the run records, checked against a schema.
+
+```ts
+const plan = await workflow.stage("plan", { result: PLAN, summary: (p) => p.title }, async () => {
+  const { outcome } = await planner.run({ prompt: `Plan ${ticket}.`, schema: PLAN });
+  return isAnswered(outcome) ? outcome.value : workflow.stop(outcome.reason); // a continue redoes plan
+});
+const built = await workflow.stage("implement", { result: BUILT }, () => implement(plan));
+await workflow.stage("qa", { result: QA }, () => qa(built));
+```
+
+On a continue, a stage that succeeded before is **reused**: its work isn't called, no agent is
+asked anything, and `stage` returns the recorded value. The first stage with no succeeded record
+runs, and so does everything after it:
+
+```
+↺ plan        Add --dry-run    attempt 1 · 2h ago
+↺ implement                    attempt 1
+✓ qa          4m 12s
+```
+
+What to know when writing one:
+
+- **A stage's value is its only output.** Agents start fresh in every attempt, so a stage returns
+  what later stages need: a branch, a doc path, a list of findings.
+- **Code between stages runs on every attempt,** reused stages or not. Keep it repeatable; push,
+  post and create inside a stage.
+- **A stop says how to go on.** `workflow.stop(reason)` or a throw inside a stage records it
+  stopped or failed, and the closing block names the command that redoes it:
+
+  ```
+  ■ stopped in qa: the mr environment never came up
+    ticket AIRS-1515 · attempt 1 · 52m 10s · …
+    go on    awf run ticket.ts --continue AIRS-1515
+    records  .awf/runs/ticket/AIRS-1515
+  ```
+
+- **`--from-stage {stage}` redoes from a stage** on purpose, with the ones before it reused. The
+  records it replaces move to `replaced/` rather than being deleted.
+- **A changed workflow doesn't silently reuse old results.** A record from another major
+  `meta.version`, or one whose value no longer fits the stage's schema, stops the continue at that
+  stage, and `--from-stage` it redoes from there.
+
+### Starting at a stage
+
+A new run can start part-way through, for example at qa for a ticket you built by hand. Later stages
+read earlier stages' values, so awf asks for them. It finds every stage the run needs a value for
+and stops once, naming each with its schema:
+
+```
+$ awf run ticket.ts --from-stage qa -- AIRS-1234
+■ stopped in plan: nothing recorded for plan
+  ticket AIRS-1234 · 0s
+  needs    plan: {title: string, steps: string[]}
+           implement: {branch: string}
+  go on    awf run ticket.ts --continue AIRS-1234 --from-stage qa --values {file}
+  records  .awf/runs/ticket/AIRS-1234
+```
+
+Write the values to a JSON file keyed by stage name, `{"plan": {…}, "implement": {…}}`, and run
+the `go on` command. Each value is checked against its stage's schema and recorded as `provided`,
+with no agent turns and no cost; a stage that returns nothing needs no entry. With `--json`, the stop's
+`needs` holds each full JSON Schema. The loop is meant for an agent: read `needs`, find the values in
+the ticket or the repository, write the file, rerun.
+
+A workflow's tests can do the same without agents: `testWorkflow` takes `recorded`, `fromStage`
+and `values`, as [the workflow API](docs/workflow-api.md#continuing-over-recorded-stages) shows.
+The full model, with what's on disk and why, is in
+[`docs/design/runs-and-stages.md`](docs/design/runs-and-stages.md).
 
 ## Examples
 
@@ -453,7 +536,8 @@ its mistakes before anything runs. And it reads plainly: agents, prompts, schema
 ## Not yet
 
 Deliberately left out until something real needs them: agents messaging each other mid-turn,
-calling one workflow from another, human checkpoints, and resuming a crashed run. Some of these
+calling one workflow from another, human checkpoints, and reopening a stopped run's agent sessions
+(a continue redoes the stage with fresh agents). Some of these
 have types in the API already, and calling them fails with a clear "unavailable" error.
 [`docs/status.md`](docs/status.md) has what runs today and what's next.
 
