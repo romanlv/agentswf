@@ -121,6 +121,7 @@ export function waitingOnAllowance(
       once("allowance: a run that names no harness/model is not waited on");
       return runner(request);
     }
+    let behind = 0;
     for (;;) {
       const report = await reportFor(harnesses);
       if (!report) {
@@ -136,10 +137,14 @@ export function waitingOnAllowance(
       const resets = full.map(({ window }) =>
         window.resetsAt ? Date.parse(window.resetsAt) : Number.NaN,
       );
-      // A reset already behind the read is a screen not yet redrawn: looked at again shortly.
+      const after = Math.max(...resets) + AFTER_RESET_MS;
+      // A reset already behind the read is a screen not yet redrawn, or a reset shown only to the
+      // day: looked at again shortly, then less often, up to the poll.
       const until = resets.some(Number.isNaN)
         ? now() + POLL_MS
-        : Math.max(now() + RECHECK_MS, Math.max(...resets) + AFTER_RESET_MS);
+        : after > now() + RECHECK_MS
+          ? after
+          : now() + Math.min(RECHECK_MS * 2 ** behind++, POLL_MS);
       const which = full
         .map(({ harness, window }) => `${harness}'s ${window.label} is ${window.usedPercent}%`)
         .join(", ");

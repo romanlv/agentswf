@@ -134,6 +134,15 @@ describe("a runner that waits on the allowance", () => {
     expect(asked).toHaveLength(2);
   });
 
+  test("a window still full past its reset is read again less often, up to the poll", async () => {
+    const past = "2026-10-05T15:00:00.000Z";
+    const full = () => report(codex(95, past));
+    const { gated, slept } = setup([full(), full(), full(), full(), full(), report(codex(10))]);
+    await gated(request("codex/gpt-6.1-sol"));
+    // Five minutes, then ten, twenty, and the half-hour poll from then on.
+    expect(slept.reduce((a, b) => a + b, 0)).toBe((5 + 10 + 20 + 30 + 30) * 60_000);
+  });
+
   test("runs at once share one read in flight", async () => {
     const { gated, asked, ran } = setup([report(codex(10))]);
     await Promise.all([gated(request("codex/gpt-6.1-sol")), gated(request("codex/gpt-6.1-sol"))]);

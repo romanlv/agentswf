@@ -224,6 +224,15 @@ Open: none.
 - A path argument shaped like `claude/notes.md` is taken for a runtime, and the run waits on
   claude's plan; a runtime inside a JSON argument is not seen.
 - Windows' ids are slugged from the harness's wording: a reworded claude `/usage` renames them.
+- cursor shows its reset to the day, and the record gives it as local midnight with nothing saying
+  so: a window still full then is read again with backoff, five minutes up to the half-hour poll.
+- Ctrl-C reaches the pane read only: a claude or codex read runs out its 30 s timeout.
+- A Herdr abort that kills `workspace create` after Herdr made the workspace leaves it open, since
+  no id came back to close.
+- `claude -p /usage` is trusted to stay a local command (`num_turns: 0` today); nothing refuses
+  its output if a future claude sends it to the model.
+- cursor's usage pane starts as its interactive launch does, with `--force`; the steps await the
+  menu entry before Enter, so the text is never submitted as a prompt while the menu is unchanged.
 
 ## Task execution rule
 
@@ -290,6 +299,12 @@ Tasks 1–4 were reviewed together, on the whole diff, by two read-only subagent
   the lab's `awf allowance` — three minutes; `--runtime=` missed — read; cursor's `Sept` and rows
   not yet drawn — read, and the pane waits for `Esc to close`. Left as known gaps: pi's plans,
   path false positives, a create that names no workspace, a DST-gap time an hour early.
+- Pre-merge review, on the whole diff after main was merged in: no blockers. A stale cursor screen
+  put its reset a year ahead, where the lab would wait — now the nearest year, tested; a reset
+  shown to the day re-read every five minutes until it passed — re-reads back off to the poll,
+  tested; claude's `Sept` dropped the reset — read, tested. Left as known gaps: claude and codex
+  reads ignore Ctrl-C, an aborted workspace create, `/usage` trusted not to reach the model,
+  cursor's pane at `--force`, and pi's plans.
 
 ## Readiness
 

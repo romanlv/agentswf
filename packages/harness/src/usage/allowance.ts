@@ -104,7 +104,7 @@ export function claudeAllowance(stdout: string, now: number, failed = ""): Allow
 }
 
 const CLAUDE_RESET =
-  /^(?:([A-Z][a-z]{2}) (\d{1,2})(?:,? at |, | ))?(\d{1,2})(?::(\d{2}))?\s*(am|pm)(?: \((.+)\))?$/i;
+  /^(?:([A-Z][a-z]{2,3}) (\d{1,2})(?:,? at |, | ))?(\d{1,2})(?::(\d{2}))?\s*(am|pm)(?: \((.+)\))?$/i;
 
 /**
  * `Oct 5 at 5:19pm (America/Toronto)`, or a time alone. A time alone is the next one: today's, or
@@ -257,15 +257,13 @@ function cursorReset(month: string, day: number, now: number): string | undefine
   const monthIndex = MONTHS.indexOf(month.toLowerCase());
   if (monthIndex < 0) return undefined;
   const { year } = partsIn(now, timeZone);
-  for (const candidate of [year, year + 1]) {
-    const at = zonedTime(candidate, monthIndex, day, 0, 0, timeZone);
-    if (at >= now - DAY_MS) return new Date(at).toISOString();
-  }
-  return undefined;
+  const nearest = [year - 1, year, year + 1]
+    .map((each) => zonedTime(each, monthIndex, day, 0, 0, timeZone))
+    .reduce((best, each) => (Math.abs(each - now) < Math.abs(best - now) ? each : best));
+  return new Date(nearest).toISOString();
 }
 
 const MONTHS = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
-const DAY_MS = 86_400_000;
 const MINUTE_MS = 60_000;
 
 function partsIn(at: number, timeZone: string) {

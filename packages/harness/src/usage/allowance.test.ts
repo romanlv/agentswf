@@ -82,6 +82,7 @@ describe("claude's /usage", () => {
     expect(claudeReset("5pm (UTC)", december)).toBe("2027-01-01T17:00:00.000Z");
     expect(claudeReset("9pm (UTC)", december)).toBe("2026-12-31T21:00:00.000Z");
     expect(claudeReset("8pm (UTC)", december + 30_000)).toBe("2026-12-31T20:00:00.000Z");
+    expect(claudeReset("Sept 5 at 3am (UTC)", december)).toBe("2026-09-05T03:00:00.000Z");
     expect(claudeReset("soon", december)).toBeUndefined();
     expect(claudeReset("Oct 5 at 5pm (Nowhere/Else)", december)).toBeUndefined();
   });
@@ -244,6 +245,13 @@ describe("cursor's /usage", () => {
     expect(new Date(reset!).getDate()).toBe(21);
     expect(new Date(reset!).getHours()).toBe(0);
     expect(read.read === "plan" && read.windows[0]?.usedPercent).toBe(1);
+    // A stale screen read days after its reset keeps the reset behind it, not a year ahead.
+    const late = cursorAllowance(
+      fixture("cursor-usage.screen"),
+      Date.parse("2026-10-24T12:00:00Z"),
+    );
+    const stale = late.read === "plan" ? late.windows[0]?.resetsAt : undefined;
+    expect(new Date(stale!).getFullYear()).toBe(2026);
   });
 
   test("a screen without the panel is none, with its last line", () => {
