@@ -196,8 +196,11 @@ with a long run:
    promising, cases up to a look in parallel, a resolution at 1 trial) and
    [`loop-next`](stories/todo/loop-next.md) (a proposer that thinks, spend a cut can't hide, a
    loop that outlives its shell, the scorer checked first).
-2. [`turn-liveness-and-limits`](stories/todo/turn-liveness-and-limits.md): an agent waiting on its
-   own background work isn't done; the implement-ticket run lost its last step to it.
+2. [[021-turn-liveness-and-limits|Story 021]]: draft, with research, independent design review and
+   bounded probes. The revised design uses `wf waiting`, repeated check-ins and one fixed
+   operation deadline, without native task discovery. Ready to start the delivery/compatibility
+   proof; production changes follow that gate. Live spend remains a separate
+   [[live-spend-limits|follow-up]].
 
 Alongside: [story 018](stories/018-workflow-stages.md), stages and continuing a run, built and awaiting review;
 then [`stopped-run-recovery`](stories/todo/stopped-run-recovery.md) on top of 018 and liveness.

@@ -104,6 +104,10 @@ status is one of `todo`, `draft`, `ready`, `in-progress`, `blocked`, `awaiting-h
   the same session: headless by the next resume's flags, in a pane by relaunching the harness on
   its session; cursor takes none, and every operation records its settings.
 
+- [[021-turn-liveness-and-limits|021 — Turn liveness and limits]] —
+  `draft` — cooperative `wf waiting`, repeated check-ins and one fixed operation deadline;
+  ready to begin the delivery and compatibility proof.
+
 This is the high-level index of numbered stories. Keep each entry to its title, status, and
 one-sentence summary; put code maps, research, design, tasks, and verification in the linked story.
 Todo items stay in [`todo/`](todo/) until selected for refinement.

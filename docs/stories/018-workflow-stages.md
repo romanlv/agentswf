@@ -87,8 +87,9 @@ Why now:
   - the agent that did everything was one cost line;
   - a restart worked only because the workflow kept its own record;
   - the restart came after a code fix, so attempts on changed code are the normal case.
-- [[stopped-run-recovery]], [[run-logs-and-telemetry]] and [[turn-liveness-and-limits]] wait on
-  stages.
+- [[stopped-run-recovery]] and stage-specific telemetry and limits need stages.
+  [[021-turn-liveness-and-limits]] can fix operation liveness independently;
+  [[live-spend-limits]] depends on stages only for stage budgets and continued-run semantics.
 - Changing the published surface and the run dir is cheapest now.
 
 ## The author surface
@@ -121,6 +122,7 @@ today, and what this story does about each:
 In scope:
 - runs, attempts and their claims, laid out as in [[runs-and-stages]];
 - `--id`, `--continue` and `--from-stage`;
+- a new run that starts at a stage, given the earlier stages' values (task 9);
 - stages, their records and the stage plan;
 - the author surface marked **now**;
 - the view, accounting and endings by stage;
@@ -131,7 +133,8 @@ Out of scope:
   `--only-stage`, `--skip-stage`, `fresh`, fork, a status the workflow sets.
 - Reopening agents' sessions on a continue, and debug mode ([[stopped-run-recovery]]).
 - Live cost during a run, `awf logs` and OTel ([[run-logs-and-telemetry]]).
-- Per-stage limits and pending background work ([[turn-liveness-and-limits]]).
+- Per-stage limits remain separate; operation waiting and check-ins are in
+  [[021-turn-liveness-and-limits]].
 - A status command for a live run ([[operator-run-observation]]).
 - Red log lines: fixed already (commit 4f54d32).
 
@@ -240,11 +243,20 @@ The facts are as found before this story.
 - [x] 6. The view by stage.
 - [x] 7. Accounting and endings by stage.
 - [ ] 8. Consumers: an example with stages, and implement-ticket on awf's stages, run live.
+- [x] 9. Start at a stage: a new run starts at `--from-stage` with no records before it, the
+  earlier stages' values supplied from a file, for an agent to drive.
 
 ## Open questions
 
-None. The decisions are [ADR 0011](../adr/0011-a-run-continues-from-its-stages.md), accepted by the
-operator asking for the implementation (2026-10-04); the model is [[runs-and-stages]].
+Tasks 1–8: none. The decisions are [ADR 0011](../adr/0011-a-run-continues-from-its-stages.md),
+accepted by the operator asking for the implementation (2026-10-04); the model is [[runs-and-stages]].
+
+Task 9:
+
+- Q1: how a provided stage record is told apart from a succeeded one. **Settled 2026-10-04:**
+  `outcome: "succeeded"` with `provided: true`.
+- Q2: whether a stage with no `result` needs an entry in the values file. **Settled 2026-10-04:**
+  no, it is passed without one, on a continue's `--from-stage` too.
 
 ## Task execution rule
 
@@ -526,6 +538,54 @@ Outcome:
 
 Done when the tests pass and the live notes are in [[#Implementation notes]].
 
+### 9. Start at a stage
+
+Outcome: a new run can start at a stage when nothing is recorded before it. Today only a run that
+recorded the earlier stages can: to run implement-ticket's qa for a ticket built by hand, there is
+no way, since qa reads doc-review's `worktree` and `docPath` and mr's `iid`, and records are the
+only place they come from. The values come from a file instead, each checked against its stage's
+`result`.
+
+The operator is an agent, not a person at a prompt, so nothing is interactive. The agent stops,
+supplies a value, and reruns until the start point is reached:
+
+```
+awf run flow.ts --from-stage qa-local --json -- AIRS-1234
+→ stopped, needs: [{stage: "doc-review", schema: {…}}, {stage: "review", …}, {stage: "mr", …}]
+awf run flow.ts --continue AIRS-1234 --from-stage qa-local --values v.json --json
+→ qa-local runs
+```
+
+Settled in discussion (2026-10-04):
+- **`--from-stage` without `--continue`** starts a new run at that stage. The combination is refused
+  today, so giving it a meaning changes nothing else. Both refusals stay: `--continue` of an id with
+  no run, and a new run whose id exists. No further flag.
+- **`--values {file}`**: a JSON object keyed by stage name. A stage before the start point with no
+  succeeded record takes its entry, checked against its `result` and recorded. An entry that doesn't
+  fit stops the run with the validation errors.
+- **`needs: {stage, schema}`** in the ending: the first stage with no record and no value, its
+  `result` as JSON Schema. The human ending says the same in a line, and `continue` names
+  `--values`.
+- **A provided stage record**: no turns, zero cost, reused by later continues like a succeeded one
+  (Q1).
+- Every missing value in one stop, so they can be given at once (the operator, 2026-10-05). Stages
+  are only found as the run reaches them, so past a missing value the attempt looks on with a
+  stand-in its schema accepts, recording nothing and starting no turn or decision, and stops at
+  the start point listing each. A real value can lead elsewhere, and the next attempt stops for
+  what it then finds.
+- Every stage reached before the start point needs a value, including ones the start stage never
+  reads. A workflow whose later stages read a few plain fields is cheaper to start midway.
+- Agents start fresh at the start point, as on any continue.
+
+Done when:
+- A new run with `--from-stage` and no values stops at the first stage with `needs` and its schema,
+  in `--json` and in the human ending; the run exists, and its `continue` works.
+- `--values` supplies stages, records them as provided, and a later continue reuses them; an entry
+  that doesn't fit its `result` stops with the errors; a stage already recorded ignores its entry.
+- The refusals for `--continue` of an unknown id and a new run on an existing id are unchanged.
+- [[runs-and-stages]] and `docs/workflow-api.md` describe it; implement-ticket is started at
+  `qa-local` this way by an agent, as a check.
+
 ## Verification
 
 Automated:
@@ -788,6 +848,11 @@ breaks them under main's awf until this branch is merged, so it waits for the op
 
 ## Implementation notes
 
+- Task 9 (76a069a, d6174e4): built as settled, every missing value named in one stop. Its two
+  reviews' findings are fixed in d6174e4, except one left: a `--from-stage` never reached on a new run
+  lists no stages to choose from, since the run's records are read as the attempt began, before
+  any it provided. The live check by an agent on implement-ticket is still to do.
+
 - Todo found: [[flaky-turn-deadline-test]], a wall-clock test that failed once under full-suite load.
 
 ## Human review
@@ -801,3 +866,14 @@ breaks them under main's awf until this branch is merged, so it waits for the op
 - [ ] Only after explicit approval, mark the story `done` and update `Stories at a glance`.
 - [ ] review state file, as it might need changes
 
+
+%% 
+does it have cli to see workflows in progress, completed  etc... to see the status of things ? 
+
+
+it also needs some kind of management controls to be able to clean or do any of that things, keep in mind,
+it should not make it harder to use if stages/ids/states are not required, like if workflow executed as a program 
+
+in fact, i'm kind of worried what would happen if i just want to run it multiple times even with stages ON 
+this deserves proper thinking, experimenting  
+%%
