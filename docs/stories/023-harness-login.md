@@ -207,17 +207,17 @@ Manual or live:
   The branch was rebased on main, which settled a `review-lab` test that timed out on the old
   base. Each fix above has a test: the deeper read, cancellation during the read, a dotted
   provider.
-- Round 4: the calling session waited out a stalled prompt without reading its screen for a login
-  — it now reads it first, as the run's panes do. A codex token refused at the first request of a
-  running TUI was not recognised — captured live, and its exit line matched. The `⏺` glyph —
-  added to the recorded limit. Left as a nit: a release landing between a settled turn's read and
-  its login check can come back `failed` with `login`, as it came back settled before.
 - Round 3: the pane adapter's failed launch still checked cancellation before its screen read, not
   after — now after, as everywhere else, with tests for a stop during the launch read and during
   the run host's stall read. codex counted any `unauthorized` in a failed turn — now only a 401,
   which both captures carry. Left as nits: a read after a deadline is bounded by Herdr's command
   timeout, not the turn's, and session-core makes it `timed-out` anyway; a failed detection read
   is not read again for a login, which can only miss one.
+- Round 4: the calling session waited out a stalled prompt without reading its screen for a login
+  — it now reads it first, as the run's panes do. A codex token refused at the first request of a
+  running TUI was not recognised — captured live, and its exit line matched. The `⏺` glyph —
+  added to the recorded limit. Left as a nit: a release landing between a settled turn's read and
+  its login check can come back `failed` with `login`, as it came back settled before.
 
 ## Human review
 
