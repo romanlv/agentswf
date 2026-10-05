@@ -1,5 +1,10 @@
 import { basename, dirname, join } from "node:path";
-import { OUTPUT_RECORD_VERSION, type OutputRecord } from "@agentswf/contract/records";
+import {
+  ALLOWANCE_VERSION,
+  type AllowanceReport,
+  OUTPUT_RECORD_VERSION,
+  type OutputRecord,
+} from "@agentswf/contract/records";
 import type { RunSummary } from "../format/scoring";
 
 export type RunRequest = {
@@ -139,6 +144,24 @@ export function awfRunner(): Runner {
     ]);
     return { exitCode, stderr, ms: Date.now() - started, ...parseRecord(stdout) };
   };
+}
+
+/** `awf allowance --json`, as the operator's own login reads it; undefined when it printed none. */
+export async function awfAllowance(
+  harnesses: readonly string[],
+): Promise<AllowanceReport | undefined> {
+  // A pane read takes up to 90 s; past three minutes awf is stuck, and the run goes ahead.
+  const child = Bun.spawn(
+    [process.execPath, "--no-env-file", AWF, "allowance", "--json", ...harnesses],
+    { stdout: "pipe", stderr: "ignore", stdin: "ignore", timeout: 180_000 },
+  );
+  const [stdout] = await Promise.all([new Response(child.stdout).text(), child.exited]);
+  try {
+    const report = JSON.parse(stdout) as AllowanceReport;
+    return report.version === ALLOWANCE_VERSION ? report : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /** `awf run --json` prints the record, success or not; usage errors print none. */

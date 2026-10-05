@@ -23,6 +23,7 @@ import { categoryOf } from "../judge/panel";
 import { agreement } from "../metrics/metrics";
 import { type Address, formatAddress, parseAddress } from "./address";
 import { reportSubject, runAgainst, standing } from "./against";
+import { type AllowanceSource, waitingOnAllowance } from "./allowance";
 import { buildCheck, checkLines, renderCheck } from "./check";
 import {
   type CaseInfo,
@@ -66,7 +67,7 @@ import {
   renderMarkdown,
   renderReport,
 } from "./report";
-import { awfRunner, type Runner } from "./runner";
+import { awfAllowance, awfRunner, type Runner } from "./runner";
 import { selectCases } from "./selection";
 import { buildShow, renderShow } from "./show";
 import { inventory, runDirOf, scoresBy } from "./store";
@@ -127,7 +128,13 @@ selection, the same on every command:
 A variant or scorer is a name, a file, or {name}@{version} for a stored version: 1.2, or 1.
 --jobs runs that many steps at a time: every trial, then every score; with --baseline, one
 case's at a time.
+--allowance {percent}|off: a run waits while a plan window it draws on, as \`awf allowance\`
+reads it, is this used, 90 by default, until the window resets; its harnesses are the
+{harness}/{model} among its arguments; a run that names none is not waited on.
 exit: 0 done, 1 a failure, 2 a usage error, 3 stopped by the budget, 4 the plan was declined`;
+
+/** The percent of a plan window at which a run waits: room for the runs already going. */
+const DEFAULT_ALLOWANCE = 90;
 
 class UsageError extends Error {}
 class HelpRequested extends Error {}
@@ -165,6 +172,8 @@ type Options = {
   proposer?: string;
   final: boolean;
   jobs?: number;
+  /** The percent of a plan window at which a run waits for its reset. */
+  allowance?: number | "off";
   categories?: Category[];
   dryRun: boolean;
   yes: boolean;
@@ -177,6 +186,11 @@ export type LabEnvironment = {
   stdout?: (text: string) => void;
   stderr?: (text: string) => void;
   runner?: Runner;
+  /**
+   * What a run waits on before it starts. Absent, `awf allowance`, unless a runner is given: that
+   * one is a test's, or a caller's that answers for its own plans.
+   */
+  allowance?: AllowanceSource;
   /** Asked before a run spends; absent, a run on a terminal asks the operator. */
   confirm?: (plan: string) => Promise<boolean>;
 };
@@ -249,6 +263,15 @@ function parse(argv: readonly string[]): { command: string; names: string[]; opt
           throw new UsageError("--budget is a sum in USD");
         }
         options.budget = usd;
+        break;
+      }
+      case "--allowance": {
+        const text = value(arg);
+        const percent = Number(text);
+        if (text !== "off" && (text.trim() === "" || !(percent > 0 && percent <= 100))) {
+          throw new UsageError("--allowance is a percent, above 0 and up to 100, or off");
+        }
+        options.allowance = text === "off" ? "off" : percent;
         break;
       }
       case "--jobs":
@@ -1629,7 +1652,17 @@ export async function runLab(
       return 0;
     }
     const workspace = await openWorkspace(findConfig(cwd, options.config));
-    const lab: Lab = { workspace, runner: environment.runner ?? awfRunner(), log: stderr };
+    const source = environment.allowance ?? (environment.runner ? undefined : awfAllowance);
+    const limit = options.allowance ?? DEFAULT_ALLOWANCE;
+    const runner = environment.runner ?? awfRunner();
+    const lab: Lab = {
+      workspace,
+      runner:
+        source && limit !== "off"
+          ? waitingOnAllowance(runner, source, { limit, log: stderr })
+          : runner,
+      log: stderr,
+    };
     const dataset = options.dataset ?? workspace.config.dataset;
     let stored: Promise<Inventory> | undefined;
     const inventoryOnce = () => {

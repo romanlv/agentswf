@@ -12,6 +12,7 @@ export const usage = [
   "usage: awf run [options] <workflow-file> [options] [-- workflow arguments...]",
   "       awf run [options] <workflow-file> --continue <id>",
   "       awf test [paths...] [-t <pattern>] [--watch] [--timeout <duration>]",
+  "       awf allowance [harness...] [--json]",
   "       awf --version",
   "run options: --id <id>, --continue <id>, --from-stage <stage>, --values <file>,",
   "             --timeout <duration>, --run-root <directory>, --cwd <directory>, --sandbox <file>,",

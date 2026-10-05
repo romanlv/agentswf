@@ -1,0 +1,8 @@
+{
+  "type": "result",
+  "subtype": "success",
+  "is_error": false,
+  "num_turns": 0,
+  "total_cost_usd": 0,
+  "result": "You are currently using your subscription to power your Claude Code usage\n\nCurrent session: 0% used \u00b7 resets Oct 5 at 5:19pm (America/Toronto)\nCurrent week (all models): 0% used \u00b7 resets Oct 6 at 2:59am (America/Toronto)\nCurrent week (Fable): 0% used \u00b7 resets Oct 6 at 3am (America/Toronto)\n\nWhat's contributing to your limits usage?\n(trimmed)"
+}

@@ -1,5 +1,6 @@
 import { basename } from "node:path";
 import { count, jsonLines, record, reported, text } from "../json";
+import { readClaudeAllowance } from "../usage/allowance";
 import { readClaudeBilling } from "../usage/billing";
 import {
   claudeProjectsDirectory,
@@ -180,6 +181,7 @@ const CLAUDE = {
   effort: ["low", "medium", "high", "xhigh", "max"],
   setHeadless: true,
   setPane: true,
+  readAllowance: ({ run, now }) => readClaudeAllowance(run, now),
   billing: ({ run }) => readClaudeBilling(run),
 } satisfies HarnessDefinition;
 
@@ -188,4 +190,5 @@ export const claude = defineHarness(CLAUDE, {
   keepTurnUsage: "claude logs each request in its session files",
   readCharge: "claude prints its session's running total, which readCostTotal reads (F9)",
   localSockets: "only codex's own sandbox was found blocking local sockets (E8)",
+  allowancePane: "`claude -p /usage` prints what its TUI's `/usage` shows, with no pane",
 });

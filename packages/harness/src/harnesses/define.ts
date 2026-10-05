@@ -1,6 +1,7 @@
 import type { Billing } from "@agentswf/contract/records";
 import type { Effort } from "@agentswf/contract/workflow";
 import type { Holding, RunProcess } from "../command";
+import type { AllowanceRead } from "../usage/allowance";
 import type { SessionRead } from "../usage/records";
 
 export type TurnPlan = {
@@ -36,6 +37,12 @@ export type BillingContext = {
   /** The operator's own session, whose model awf never learns (ADR 0010). */
   caller: boolean;
 };
+
+/** What reading a plan's allowance is given. */
+export type AllowanceContext = { run: RunProcess; now: number };
+
+/** One step of driving a fresh pane: text typed, a key pressed, or text awaited on its screen. */
+export type PaneStep = { type: string } | { key: string } | { await: string };
 
 /** The model and effort a launch passes; each absent, the harness's own. */
 export type LaunchSettings = {
@@ -150,6 +157,19 @@ export type HarnessSpec = {
    * nobody when it never calls `wf` (story 004, "Panes").
    */
   homeSessions?(home: string): Promise<string[]>;
+  /**
+   * What is left of the plan its login draws on, by a command of its own that asks no model; `none`
+   * with why where there is no plan to read.
+   */
+  readAllowance?(context: AllowanceContext): Promise<AllowanceRead>;
+  /**
+   * Its plan's usage screen, where only its TUI shows one: what to do in a fresh pane of it, in
+   * order, and how to read the screen once the last step is done.
+   */
+  allowancePane?: {
+    steps: readonly PaneStep[];
+    read(screen: string, now: number): AllowanceRead;
+  };
   /** Whether this agent's tokens are charged, which is not always what its login says. */
   billing?(context: BillingContext): Promise<Billing>;
   /**
