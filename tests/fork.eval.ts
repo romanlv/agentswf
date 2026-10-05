@@ -35,7 +35,13 @@ export const CASES = [
 ];
 
 /** A pane's cursor prints no usage, so its fork's cache cannot be read (story 019). */
-const UNREAD = new Set(["cursor", "cursor:compact", "cursor-headless>pane"]);
+function unread(name: string): boolean {
+  const into = /[>](pane|headless)/.exec(name)?.[1];
+  return (
+    name.startsWith("cursor") &&
+    (into ?? (name.startsWith("cursor-headless") ? "headless" : "pane")) === "pane"
+  );
+}
 
 /** A fork reads at least this share of its first operation's prompt from the cache. */
 const CACHED = 0.5;
@@ -68,7 +74,7 @@ export function problems(exitCode: number, record: OutputRecord | undefined): st
     if (worker && (worker.codename !== args.codename || worker.release !== args.release)) {
       found.push(`${check.name}: the worker recalled ${worker.codename} and ${worker.release}`);
     }
-    if (UNREAD.has(check.name)) continue;
+    if (unread(check.name)) continue;
     const first = record.usage.find((usage) => usage.agent === `fork:${check.name}`);
     const share = cachedShare(first);
     if (share === undefined || share < CACHED) {

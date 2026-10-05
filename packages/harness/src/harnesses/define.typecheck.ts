@@ -1,5 +1,10 @@
 import { cursor } from "./cursor";
-import { type Absences, defineHarness, type HarnessDefinition } from "./define";
+import {
+  type Absences,
+  type DefinedHarness,
+  defineHarness,
+  type HarnessDefinition,
+} from "./define";
 
 const bare = {
   callingSessionEnv: [],
@@ -29,3 +34,12 @@ defineHarness(forkless, { ...lacking, forkSession: "none", readTranscript: "none
 
 // @ts-expect-error An absence that names no capability.
 defineHarness(bare, { ...lacking, forkSession: "none", readTranscript: "none", interactive: "" });
+
+// @ts-expect-error A spec typed as the definition gives nothing, so every capability needs a reason.
+defineHarness(bare as HarnessDefinition, {});
+
+// @ts-expect-error A capability given as undefined is not given.
+defineHarness({ ...bare, readTranscript: undefined }, { ...lacking, forkSession: "none" });
+
+// @ts-expect-error A spec built without `defineHarness` is no harness the table holds.
+export const unmade: DefinedHarness = { ...bare, absent: {} };

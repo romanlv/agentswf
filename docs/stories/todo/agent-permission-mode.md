@@ -1,13 +1,18 @@
 ---
 title: Choose an agent's permission mode
-summary: awf fixes each harness's permission handling in code, so a host claude now runs in Claude Code's auto mode, a classifier call on every shell command and `wf result` too, and no workflow or operator can choose otherwise.
 type: story
 status: todo
+priority: P1
+epic: agent-config
 discovered_in: "eval timing, 2026-10-01; [[permissions]]"
 depends_on: []
 ---
 
 # Choose an agent's permission mode
+
+awf fixes each harness's permission handling in code, so a host claude now runs in Claude Code's
+auto mode, a classifier call on every shell command and `wf result` too, and no workflow or operator
+can choose otherwise.
 
 Why it matters: an agent's permission mode changes its time, what it may do unasked, and whether a
 turn stalls on a prompt nobody answers, and awf neither chooses nor records it. Each harness's
@@ -26,7 +31,7 @@ as an unanswered turn.
 
 Notes:
 
-- A choice per agent, beside `effort` ([[runtime-effort]]) in `ExecutionConfig`, is a published
+- A choice per agent, beside `effort` ([[020-agent-effort]]) in `ExecutionConfig`, is a published
   type change: decide its values (one awf vocabulary mapped per harness, or each harness's own),
   which a harness without the concept rejects, and whether the operator may override a workflow's.
 - The mapping: claude `--permission-mode` (`default`, `acceptEdits`, `auto`, `dontAsk`,

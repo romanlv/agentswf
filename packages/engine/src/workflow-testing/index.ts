@@ -14,7 +14,7 @@ import {
   type RuntimeAliases,
   type WorkflowDefinition,
 } from "@agentswf/contract/workflow";
-import type { Harness } from "@agentswf/harness";
+import { type Harness, sandboxTokens } from "@agentswf/harness";
 import { createFakeSandboxProvider } from "@agentswf/sandbox/testing/fake";
 import { messageOf } from "../errors";
 import { OPERATOR_ALIASES } from "../operator-aliases";
@@ -204,6 +204,11 @@ export async function testWorkflow<Args extends JsonValue, Result extends JsonVa
         },
         sandboxesDir: directory(),
         machineRoot: directory(),
+        // A sandbox here launches nothing, so no harness's login is needed: a stand-in for each.
+        environment: {
+          ...process.env,
+          ...Object.fromEntries(sandboxTokens().map((name) => [name, "workflow-test"])),
+        },
       },
       decisions: {
         providers: { scripted: decisions.provider },

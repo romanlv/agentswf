@@ -186,6 +186,18 @@ export type HarnessSandboxNeeds = {
   /** Model domains, for this agent's model and provider. */
   domains: readonly Domain[];
   /**
+   * A variable the provider sets to a directory of this agent's alone whose path is short, for a
+   * harness that binds a socket under it: a socket's path holds at most 104 bytes, and a sandbox's
+   * homes lie deep. cursor's worker binds one there.
+   */
+  shortDirectory?: string;
+  /**
+   * Host directories this agent writes outside its sandbox's own, shared with whatever else uses
+   * them: cursor's resume locks, at a path its code fixes in `/tmp`. The provider makes each, 0700,
+   * where it is missing. A box's `/tmp` is its own, so docker needs none of them.
+   */
+  sharedWrites?: readonly string[];
+  /**
    * The executable's name: `launch` receives it as `argv[0]`. Docker finds it on the image's `PATH`.
    */
   command: string;

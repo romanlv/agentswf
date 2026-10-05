@@ -184,7 +184,9 @@ describe("sandboxNeeds", () => {
       CURSOR_API_KEY: "key",
     });
     expect({ ...needs, defaults: needs.defaults("/repo") }).toEqual({
-      env: { HOME: agentHome, CURSOR_CONFIG_DIR: agentHome, CURSOR_DATA_DIR: agentHome },
+      env: { HOME: agentHome, CURSOR_CONFIG_DIR: agentHome, AGENT_CLI_CREDENTIAL_STORE: "memory" },
+      shortDirectory: "CURSOR_DATA_DIR",
+      sharedWrites: [`/private/tmp/cursor-agent-persist-${process.getuid?.()}`],
       seed: [],
       defaults: [],
       secrets: { CURSOR_API_KEY: "key" },

@@ -1,6 +1,17 @@
 import { randomUUID } from "node:crypto";
 import { constants } from "node:fs";
-import { mkdir, open, readdir, realpath, rm, stat, symlink, writeFile } from "node:fs/promises";
+import {
+  lstat,
+  mkdir,
+  mkdtemp,
+  open,
+  readdir,
+  realpath,
+  rm,
+  stat,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import type { SrtEnvironment } from "@agentswf/contract/workflow";
@@ -41,6 +52,9 @@ const VERSION_MS = 10_000;
 
 /** The system's own directories, last on every agent's `PATH`; srt needs `bash` there (H6). */
 const SYSTEM_PATH = ["/usr/bin", "/bin", "/usr/sbin", "/sbin"];
+
+/** Where an agent's short directory is made: `/tmp` by its real path, which srt matches. */
+const SHORT_ROOT = "/private/tmp";
 
 /**
  * Anthropic's sandbox-runtime on this machine. A sandbox is a base profile; each admitted agent
@@ -93,6 +107,8 @@ function openSandbox(
 ): OpenedSandbox {
   const profiles = join(context.directory, "profiles");
   const launched: LaunchedGroups[] = [];
+  /** Outside the sandbox's directory, so its close removes them by name. */
+  const shorts: string[] = [];
   return {
     record: { toolchain: [...options.toolchain] },
     panes: true,
@@ -100,7 +116,13 @@ function openSandbox(
       if (!contains(context.directory, agent.home)) {
         throw new Error(`srt: ${agent.home} is not one of this sandbox's homes`);
       }
-      const settings = agentProfile(base, agent);
+      // `mkdtemp` makes it 0700, by a name no co-tenant can guess ahead.
+      const short = agent.harness.shortDirectory
+        ? await mkdtemp(join(SHORT_ROOT, "awf-"))
+        : undefined;
+      if (short) shorts.push(short);
+      for (const shared of agent.harness.sharedWrites ?? []) await sharedDirectory(shared);
+      const settings = agentProfile(base, agent, short);
       checkProfile(settings, options, context, spec);
       const profile = join(profiles, `${randomUUID()}.json`);
       await writeFile(profile, JSON.stringify(settings, null, 2), { mode: 0o600 });
@@ -128,6 +150,7 @@ function openSandbox(
         GIT_CONFIG_GLOBAL: gitconfig,
         npm_config_cache: join(temp, "npm"),
         ...agent.harness.env,
+        ...(agent.harness.shortDirectory && short ? { [agent.harness.shortDirectory]: short } : {}),
       };
       const agentId = randomUUID();
       const groups = new LaunchedGroups(join(context.directory, "pids", agentId));
@@ -185,6 +208,7 @@ function openSandbox(
         async release() {
           released = true;
           await groups.killAll();
+          if (short) await rm(short, { recursive: true, force: true });
           // A pane whose shell never took its prelude.
           await Promise.all(unread.map((path) => rm(path, { force: true })));
         },
@@ -197,6 +221,7 @@ function openSandbox(
         rm(profiles, { recursive: true, force: true }),
         rm(temp, { recursive: true, force: true }),
         rm(join(context.directory, "bin"), { recursive: true, force: true }),
+        ...shorts.map((short) => rm(short, { recursive: true, force: true })),
         removeSecrets(context),
       ]);
     },
@@ -331,13 +356,39 @@ export async function findSrt(
   }
   // The rest of `PATH` that a sandbox can read: outside `~` and the temp directories.
   const outside = real.filter((entry) => !DENIED.some((root) => contains(root, entry)));
+  const xcrunCache = await findXcrunCache();
   return {
     command: [node, cli],
     home,
     harnessState: state,
+    ...(xcrunCache ? { xcrunCache } : {}),
     toolchain: outermost([...bins, ...trees]),
     path: [...bins, ...outside].filter((entry) => !SYSTEM_PATH.includes(entry)),
   };
+}
+
+/**
+ * `path` as a directory of this user's, 0700, made where it is missing: never through a link, nor
+ * one another user made, as anyone may write `/tmp`.
+ */
+async function sharedDirectory(path: string): Promise<void> {
+  await mkdir(path, { recursive: true, mode: 0o700 });
+  for (let at = path; at !== SHORT_ROOT && at !== dirname(at); at = dirname(at)) {
+    const found = await lstat(at);
+    if (!found.isDirectory() || found.uid !== process.getuid?.()) {
+      throw new Error(`srt: ${at} is not a directory of this user's`);
+    }
+  }
+}
+
+/** The operator's `xcrun` cache, where macOS keeps one: `DARWIN_USER_TEMP_DIR/xcrun_db`. */
+async function findXcrunCache(): Promise<string | undefined> {
+  if (process.platform !== "darwin") return undefined;
+  const temp = Bun.spawnSync({ cmd: ["getconf", "DARWIN_USER_TEMP_DIR"], stdout: "pipe" });
+  const directory = temp.stdout.toString().trim();
+  if (temp.exitCode !== 0 || !directory) return undefined;
+  const cache = await realpath(join(directory, "xcrun_db")).catch(() => undefined);
+  return cache && (await stat(cache)).isFile() ? cache : undefined;
 }
 
 /** Each path once, and none inside another. */

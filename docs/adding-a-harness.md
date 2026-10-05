@@ -51,6 +51,10 @@ Each of these is a live probe, recorded under `experiments/` and cited where it 
 - **A sandbox.** Under srt and docker: the domains its model needs, the files its login lives in or
   the token that stands in, what reads under `HOME` that its state variable does not move, the
   arguments that turn off web tools and plugins, and its own sandbox, which must be off inside ours.
+  Every path it writes that ignores `TMPDIR` and its state variables, as cursor's `/tmp` paths do
+  (story 019), and every socket it binds: a socket's path holds at most 104 bytes, and a sandbox's
+  homes lie deep, which `shortDirectory` answers. Its first prompt in a sandboxed pane, which a
+  slow start can lose (`paneReady`).
 - **Skills.** Every root it reads skills from, on the host and in a fresh home, and how to point it
   at one directory and away from the operator's.
 - **An expired login.** What it prints, headless and in a pane ([[expired-login]]).

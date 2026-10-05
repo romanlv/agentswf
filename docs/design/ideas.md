@@ -61,6 +61,10 @@ Maybe instead of pre-defined components, there should be logical blocks, that ar
 
 and this related to collaboration strategies as well
 
+## Recipes 
+section on recipes, common use cases and how to implement those 
+- important one, have a an agent that watches your workflow and fixes it automatically
+
 ## Sandboxing
 
 Built for agents: a workflow opens sandboxes and puts agents in them (story 004). Running the
@@ -73,9 +77,18 @@ Self-documenting and self-cleaning; maybe some kind of skills for now.
 ## Events driven 
 agent session itself can generate events that other elements of the workflow can react to, so the agent keeps focusing on the task, but other parts of the workflow can be notified, to do other things. 
 Ideally it should be a context (meaning triggered) but not sure if it's possible or how to do it
+### state machine 
+it is a state machine or graph engineering now 
 
-## Resumable workflows 
+### Resumable workflows 
 if workflow died on specific step, it should be able to resume it from that step, without repeating from the start
+
+
+## Integrations with other systems 
+related to loops 
+just needs some patterns or boilerplates to follow, does not need a separate component, most likely
+
+
 
 ## Ready for loops 
 First class support to integrate with the loops (loop graphs). See where it stands
@@ -112,3 +125,17 @@ doing all that research and investigation, and after that there is a todo plan, 
 in general having good template for the work or ticket is golden, it is worth figuring it out and sharing with the world
 
 markdown linting is very useful here
+
+
+## chat to workflow 
+describe your workflow in markdown file, agent will go through it and clarify things 
+later it can codify it, if you update the doc, the diff is analyzed and changes applied back 
+
+
+
+
+## Value prop 
+build workflow with frontier model, run with cheap and fast
+make your workflow deterministic , add checks and balances
+
+follow the process, remind users or do something in background on their behalf...

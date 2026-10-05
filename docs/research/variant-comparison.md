@@ -1,7 +1,7 @@
 # Comparing two variants on a few costly cases
 
 Checked 2026-09-29 for [`variant-matrix-runner`](../stories/011-compare-variants.md) and
-[`autoresearch-loop`](../stories/todo/autoresearch-loop.md); taken into [[011-compare-variants]]. We read Miller's error-bars paper,
+[story 013](../stories/013-autoresearch-loop.md); taken into [[011-compare-variants]]. We read Miller's error-bars paper,
 Hesterberg on the bootstrap, Field & Welsh and Saravanan et al. on hierarchical resampling, Cameron
 & Miller on few clusters, Bowyer et al. on small LLM evals, and the papers on confidence sequences,
 e-values, mSPRT and group-sequential bounds. We read the source of Inspect AI's `EarlyStopping`,

@@ -1,13 +1,17 @@
 ---
 title: A workflow reads as its process, not as its plumbing
-summary: The operator's ticket workflow spends its lines on timeouts, millisecond durations and helpers; make the author surface let a workflow read as the steps a person would take.
 type: story
 status: todo
+priority: P1
+epic: authoring
 discovered_in: "story 015, the operator's review, 2026-10-01"
 depends_on: []
 ---
 
 # A workflow reads as its process, not as its plumbing
+
+The operator's ticket workflow spends its lines on timeouts, millisecond durations and helpers; make
+the author surface let a workflow read as the steps a person would take.
 
 Why it matters: the operator's review of the ticket workflow
 (`~/dev/braintrust/agent/workflows/implement-ticket/workflow.ts`):
@@ -28,6 +32,11 @@ const outcome = await run.worker.compact({
 > try to make this workflow more readable, so human can focus on the process and not the code
 
 What to settle:
+
+- A principle from story 018 (2026-10-04): awf provides the API, and convenience wrappers ship in
+  a workflow's boilerplate, copied and changed by its author. The prototype's `ask` (a turn that
+  stops without an answer) and `md` live there, over `run` and awf's `stop`. What's left here is
+  what belongs in the API itself, such as a duration a person writes.
 
 - Done: `compact({ prompt })` takes `run`'s defaults, a generated id and the workflow's deadline,
   with `timeoutMs` to bound it (ADR 0007, amended). The ticket workflow's helper now calls

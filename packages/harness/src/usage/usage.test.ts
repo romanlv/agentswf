@@ -5,6 +5,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  renameSync,
   rmSync,
   symlinkSync,
   writeFileSync,
@@ -20,6 +21,7 @@ import {
   cursorHomeSessions,
   cursorSessionFiles,
   dropCursorUsage,
+  findCursorChat,
   keepCursorTurnUsage,
   readCursorUsage,
 } from "./cursor";
@@ -739,8 +741,6 @@ describe("cursor chats", () => {
     const { home } = chatHome();
     await keepCursorTurnUsage(printed("r-1", 40), "chat-1", "composer-2.5", home);
     await keepCursorTurnUsage(printed("r-2", 12), "chat-1", "composer-2.5", home);
-    // A turn that printed no usage, as one cut off, keeps nothing.
-    await keepCursorTurnUsage("", "chat-1", "composer-2.5", home);
     const read = await readCursorUsage(["chat-1"], home);
     expect(read?.open).toBe(false);
     expect(
@@ -760,6 +760,9 @@ describe("cursor chats", () => {
       },
     ]);
     expect(await readCursorUsage(["chat-2", "../chat-1"], home)).toBeUndefined();
+    // A turn that printed no usage, as one cut off, spent what nobody knows.
+    await keepCursorTurnUsage("", "chat-1", "composer-2.5", home);
+    expect(await readCursorUsage(["chat-1"], home)).toBeUndefined();
   });
 
   test("a home's chats, and a chat's own files without the usage awf kept", async () => {
@@ -773,6 +776,22 @@ describe("cursor chats", () => {
     await dropCursorUsage("chat-1", home);
     // With none kept, as for a pane, its usage is unknown.
     expect(await readCursorUsage(["chat-1"], home)).toBeUndefined();
+  });
+
+  test("a sandboxed pane's chat is the earliest begun in its home since it launched", async () => {
+    const { home } = chatHome();
+    const begin = (chat: string, createdAtMs: number) => {
+      mkdirSync(join(home, "chats", "workspace", chat), { recursive: true });
+      writeFileSync(
+        join(home, "chats", "workspace", chat, "meta.json"),
+        JSON.stringify({ createdAtMs }),
+      );
+    };
+    writeFileSync(join(home, "chats", "workspace", "chat-1", "meta.json"), '{"createdAtMs":100}');
+    begin("chat-3", 300);
+    begin("chat-2", 200);
+    expect(await findCursorChat(150, home)).toBe("chat-2");
+    expect(await findCursorChat(400, home)).toBeUndefined();
   });
 
   test("nothing is written through a link an agent put in its home", async () => {
@@ -790,6 +809,24 @@ describe("cursor chats", () => {
       keepCursorTurnUsage(printed("r-1", 40), "chat-1", undefined, home),
     ).rejects.toThrow();
     expect(readFileSync(target, "utf8")).toBe("");
+    // Nor is a usage file read through one: the operator's chats counted as the agent's.
+    writeFileSync(target, `${JSON.stringify({ key: "x", at: "t", tokens: { input: 1 } })}\n`);
+    expect(await readCursorUsage(["chat-1"], home)).toBeUndefined();
+  });
+
+  test("nothing is read or written where an agent swapped its home for a link", async () => {
+    const { home } = chatHome();
+    const swapped = `${home}-swapped`;
+    roots.push(swapped);
+    await keepCursorTurnUsage(printed("r-1", 40), "chat-1", undefined, home);
+    renameSync(home, swapped);
+    symlinkSync(swapped, home);
+    await keepCursorTurnUsage(printed("r-2", 40), "chat-1", undefined, home);
+    expect(
+      readFileSync(join(swapped, "chats", "workspace", "chat-1", "awf-usage.jsonl"), "utf8"),
+    ).not.toContain("r-2");
+    expect(await readCursorUsage(["chat-1"], home)).toBeUndefined();
+    expect(await cursorHomeSessions(home)).toEqual([]);
   });
 });
 

@@ -1,13 +1,17 @@
 ---
 title: Run the packages on Node.js
-summary: What it takes for the published packages to run under Node as well as Bun, measured 2026-09-28, cheapest part first.
 type: story
 status: todo
+priority: P3
+epic: launch
 discovered_in: "story 009 review, 2026-09-28"
 depends_on: ["009"]
 ---
 
 # Run the packages on Node.js
+
+What it takes for the published packages to run under Node as well as Bun, measured 2026-09-28,
+cheapest part first.
 
 Why it matters: [[009-publish-agentswf]] publishes TypeScript source for Bun. Someone who wants
 to build on a package from a Node program can't import it at all, whether to read run records,

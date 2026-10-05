@@ -1,13 +1,17 @@
 ---
 title: Evaluate a second kind of workflow, and make the lab's case side generic
-summary: Build a dataset of triage tickets with known routes, and turn awf-lab's review-only dataset, restore and variant into a case kind that both reviews and triage implement.
 type: story
 status: todo
+priority: P2
+epic: loop
 discovered_in: "story 011, decision 1, 2026-09-30"
 depends_on: ["011"]
 ---
 
 # Evaluate a second kind of workflow, and make the lab's case side generic
+
+Build a dataset of triage tickets with known routes, and turn awf-lab's review-only dataset, restore
+and variant into a case kind that both reviews and triage implement.
 
 Why it matters: story 011 makes the scorer and the comparison generic, so any workflow's per-case
 numbers can be compared. What a case is, how its environment is restored, and how a variant is

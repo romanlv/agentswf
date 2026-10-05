@@ -37,7 +37,10 @@ describe("skills-probe", () => {
     for (const name of names) {
       const agent = run.agentOf(name);
       expect(agent.skills).toEqual([`probe-${AGENTS[name].probe}`]);
-      if (AGENTS[name].sandboxed) {
+      const { sandboxed } = AGENTS[name];
+      if (sandboxed === "alone") {
+        expect(agent.sandbox).toMatchObject({ key: `agent:${name}`, provider: "srt" });
+      } else if (sandboxed) {
         expect(agent.sandbox).toMatchObject({ key: "box", provider: "srt" });
       } else {
         expect(agent.sandbox).toBeUndefined();

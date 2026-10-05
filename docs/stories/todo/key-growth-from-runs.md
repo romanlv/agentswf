@@ -1,13 +1,18 @@
 ---
 title: Grow an answer key from what scored runs find
-summary: Graders from other model families vote on a scored run's `new` and `wrong` findings; confirmed ones join the key's `issues` or `refuted`, copied into its evidence, with the revision bumped and earlier runs re-scored.
 type: story
 status: todo
+priority: P2
+epic: loop
 discovered_in: "story 008 refinement, 2026-09-26"
 depends_on: ["008"]
 ---
 
 # Grow an answer key from what scored runs find
+
+Graders from other model families vote on a scored run's `new` and `wrong` findings; confirmed ones
+join the key's `issues` or `refuted`, copied into its evidence, with the revision bumped and earlier
+runs re-scored.
 
 Why it matters: a key drafted from one earlier reviewer's comments under-counts what a better
 reviewer finds, so its `new` findings look like noise to recall. Adding the real ones makes later

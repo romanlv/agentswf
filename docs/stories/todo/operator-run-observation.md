@@ -1,13 +1,16 @@
 ---
 title: Expose operator run progress
-summary: Let an operator observe an active workflow without coupling the CLI to Herdr internals.
 type: story
 status: todo
+priority: P2
+epic: observability
 discovered_in: "001 Task 8 audit"
 depends_on: []
 ---
 
 # Expose operator run progress
+
+Let an operator observe an active workflow without coupling the CLI to Herdr internals.
 
 Why it matters: `startWorkflow` exposes an inspectable and stoppable run handle. `awf run` shows
 its progress live on standard error (`progress-view.ts`), redrawn in place on a terminal and a line
@@ -32,3 +35,5 @@ Open questions:
   querying a running command a demonstrated requirement?
 - Which snapshot fields are durable operator semantics, and which remain best-effort diagnostics?
 - How should progress output coexist with machine-readable final JSON and shell interruption?
+- Across runs: [[runs-and-stages]] plans `awf status` over a workflow's runs, with a status read off
+  each run's attempts. Is that the same command, or another one?

@@ -111,7 +111,8 @@ What they cover between them:
   no secret or process behind; processes are found by their environment, where a pane's carry the
   run's path. 3 agents, ~50 s, ~$0.12; claude in a pane is on its subscription.
 - `skills` — agents given one of two probe skills and using it (story 007): codex, pi and a
-  claude pane on the host, and codex and pi sharing one srt sandbox with different probes. The
+  claude pane on the host, codex and pi sharing one srt sandbox with different probes, and cursor
+  in one of its own, as co-tenants read each other's homes. The
   prompt never mentions skills; it asks for a build's release stamp and audit seal, each claimed by
   one probe's description and made only by a script inside it, from a secret no `SKILL.md` holds.
   Each agent must make its own probe's value for its own build id and not the other's, leave the

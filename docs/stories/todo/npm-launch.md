@@ -1,13 +1,17 @@
 ---
 title: Launch agents.wf on npm
-summary: Make the repository public and publish every package as `@agentswf/*` under `agentswf`, researched in story 009 and deferred from it, 2026-09-28.
 type: story
 status: todo
+priority: P3
+epic: launch
 discovered_in: "story 009, 2026-09-28"
 depends_on: ["009"]
 ---
 
 # Launch agents.wf on npm
+
+Make the repository public and publish every package as `@agentswf/*` under `agentswf`, researched
+in story 009 and deferred from it, 2026-09-28.
 
 Why it matters: [[009-publish-agentswf]] runs agents.wf on the operator's second machine from a
 clone. A stranger can't do that: the repository is private, and nothing is on npm. A launch happens

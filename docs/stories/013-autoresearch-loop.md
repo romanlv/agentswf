@@ -4,7 +4,7 @@ title: Let an agent propose review workflows and keep the better ones
 summary: "`awf-lab loop` has a codex agent write one changed review workflow per try from the tuning cases' feedback, runs it in a container against the incumbent with story 011's comparison, keeps it only on `better`, logs every try as a tree, stops at a spend cap, and checks the final incumbent once on a holdout fixed before the first proposal."
 type: story
 status: in-progress
-discovered_in: "docs/stories/todo/autoresearch-loop.md, 2026-09-30"
+discovered_in: "the autoresearch-loop todo, 2026-09-23, refined 2026-09-30; its notes are folded in here and in todo/loop-next.md"
 depends_on: ["011"]
 ---
 

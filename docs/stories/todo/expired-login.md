@@ -1,13 +1,17 @@
 ---
 title: Stop and tell the operator when a harness's login has expired
-summary: An agent whose harness cannot sign in fails as an unanswered turn, is nudged, and the run goes on; awf should recognise an expired login, stop, and say which harness to log in again.
 type: story
 status: todo
+priority: P1
+epic: long-runs
 discovered_in: "story 016, task 4's live run, 2026-10-03"
 depends_on: []
 ---
 
 # Stop and tell the operator when a harness's login has expired
+
+An agent whose harness cannot sign in fails as an unanswered turn, is nudged, and the run goes on;
+awf should recognise an expired login, stop, and say which harness to log in again.
 
 Why it matters: an expired login is a common failure, and awf reports it as something else. On
 2026-10-03 pi's OpenAI Codex refresh token had been invalidated. Every pi agent in `examples/fork`,

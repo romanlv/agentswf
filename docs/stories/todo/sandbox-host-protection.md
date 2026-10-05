@@ -1,13 +1,17 @@
 ---
 title: Keep a sandboxed agent's writes from running on the host
-summary: Close what story 004's protected paths cannot, starting with docker's read-only mounts, which a case variant of a name gets past on macOS.
 type: story
 status: todo
+priority: P2
+epic: sandbox
 discovered_in: "story 004, human review, 2026-09-26"
 depends_on: ["004"]
 ---
 
 # Keep a sandboxed agent's writes from running on the host
+
+Close what story 004's protected paths cannot, starting with docker's read-only mounts, which a case
+variant of a name gets past on macOS.
 
 Why it matters: [[004-sandboxed-agents]] gives an agent a writable worktree and keeps read-only
 what the host's git and tools run from it: hooks, config, `.git` pointers, `.claude/settings.json`

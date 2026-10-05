@@ -133,6 +133,48 @@ describe("srt profiles", () => {
     expect(base.network.allowUnixSockets).toEqual([]);
   });
 
+  test("an agent's short directory and shared writes: its own to bind in, and the /tmp link alone", () => {
+    const base = baseProfile(spec, context, host, `${context.directory}/tmp`, PROTECTED);
+    const shared = "/private/tmp/cursor-agent-persist-501";
+    const profile = agentProfile(
+      base,
+      { ...agent, harness: { ...agent.harness, sharedWrites: [shared] } },
+      "/private/tmp/awf-short",
+    );
+    expect(profile.network.allowUnixSockets).toEqual([
+      agent.door.endpoint,
+      "/private/tmp/awf-short",
+    ]);
+    expect(profile.filesystem.allowWrite.slice(base.filesystem.allowWrite.length)).toEqual([
+      "/private/tmp/awf-short",
+      shared,
+    ]);
+    expect(profile.filesystem.allowRead.slice(-3)).toEqual([
+      "/private/tmp/awf-short",
+      shared,
+      "/tmp",
+    ]);
+    expect(() => checkProfile(profile, host, context, spec)).not.toThrow();
+    // Without a shared write under /tmp, the link stays denied with the rest.
+    expect(agentProfile(base, agent, "/private/tmp/awf-short").filesystem.allowRead).not.toContain(
+      "/tmp",
+    );
+  });
+
+  test("macOS's xcrun cache, read alone where the host has one", () => {
+    const cache = "/private/var/folders/x/T/xcrun_db";
+    const base = baseProfile(
+      spec,
+      context,
+      { ...host, xcrunCache: cache },
+      `${context.directory}/tmp`,
+      PROTECTED,
+    );
+    expect(base.filesystem.allowRead).toContain(cache);
+    expect(base.filesystem.allowWrite).not.toContain(cache);
+    expect(() => checkProfile(base, host, context, spec)).not.toThrow();
+  });
+
   type Change = Partial<Record<"denyRead" | "allowRead" | "allowWrite", string[]>>;
   test.each<[string, Change, string]>([
     ["re-allows ~", { allowRead: [home] }, "would expose ~"],

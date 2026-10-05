@@ -490,7 +490,21 @@ async function admitAgent(
   const agentId = randomUUID();
   const relay = await startRelay(client, box, agent.door.endpoint, `/run/awf-relay/${agentId}`);
   const pids = `${BOX_PIDS}/${agentId}`;
-  const env: Record<string, string> = { HOME: agent.home, ...agent.harness.env };
+  // A box's `/tmp` is its own; its co-tenants share the agent's uid, as they share everything.
+  const short = agent.harness.shortDirectory ? `/tmp/awf-${agentId.slice(0, 8)}` : undefined;
+  if (short) {
+    const made = await client.run(["exec", box, "mkdir", "-m", "700", short], {
+      timeoutMs: COMMAND_MS,
+    });
+    if (made.exitCode !== 0) {
+      throw new Error(`docker: making ${short} failed in the box: ${made.stderr.trim()}`);
+    }
+  }
+  const env: Record<string, string> = {
+    HOME: agent.home,
+    ...agent.harness.env,
+    ...(agent.harness.shortDirectory && short ? { [agent.harness.shortDirectory]: short } : {}),
+  };
   const clientEnvironment = { ...client.environment, ...agent.harness.secrets };
   let released: Promise<void> | undefined;
   const unread: string[] = [];
@@ -560,6 +574,7 @@ async function admitAgent(
         if (unread.length > 0) {
           await client.run(["exec", box, "rm", "-f", ...unread], { timeoutMs: CLEANUP_MS });
         }
+        if (short) await client.run(["exec", box, "rm", "-rf", short], { timeoutMs: CLEANUP_MS });
         await guard();
       })();
       return released;

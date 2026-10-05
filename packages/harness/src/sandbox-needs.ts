@@ -28,6 +28,10 @@ type SandboxedHarness = {
   hostHome: true | Absent;
   /** What points it at `home`; absent, its state variable alone. */
   env?(home: string): Record<string, string>;
+  /** The variable the provider sets to a short directory of the agent's own; see the seam. */
+  shortDirectory?: string;
+  /** Host directories it writes outside its home, shared; see the seam. */
+  sharedWrites?(): string[];
   /** What its executable needs beside itself, where `installReads` cannot tell. */
   reads?(executable: string): string[];
 };
@@ -156,9 +160,20 @@ const SANDBOXED: Readonly<Record<Harness, SandboxedHarness | Absent>> = {
     seed: [],
     token: { env: "CURSOR_API_KEY", from: "a Cursor API key, from its dashboard" },
     domains: () => CURSOR,
-    // Its config and data directories hold its chats, its login and its trust; skills, rules, MCP
-    // servers and hooks it reads under `HOME/.cursor` whatever moves them, so `HOME` moves too.
-    env: (home) => ({ HOME: home, CURSOR_CONFIG_DIR: home, CURSOR_DATA_DIR: home }),
+    // Its config directory holds its chats and settings; skills, rules, MCP servers and hooks it
+    // reads under `HOME/.cursor` whatever moves them, so `HOME` moves too.
+    // Its key is kept in memory: it would otherwise try to save it to the keychain, and warn.
+    env: (home) => ({ HOME: home, CURSOR_CONFIG_DIR: home, AGENT_CLI_CREDENTIAL_STORE: "memory" }),
+    // Its data directory holds its worker's socket, its transcripts and its trust, none of which
+    // outlives the agent: where its path passes 84 characters, as a sandbox home's does, the socket
+    // falls back to the shared `/tmp/.cursor` (cursor-agent 2026.10.01).
+    shortDirectory: "CURSOR_DATA_DIR",
+    // A resume takes a lock under `/tmp/cursor-agent-persist-{uid}`, which nothing moves, and makes
+    // that directory first, which srt denies though it exists. The operator's own cursor and every
+    // sandboxed one share it: its locks, and the bindings `agent persist` writes.
+    sharedWrites: () => [
+      join("/private/tmp", `cursor-agent-persist-${process.getuid?.() ?? "user"}`),
+    ],
     // Its own sandbox, inside ours, is off. Its web tools stay, as the operator chose (story 019):
     // its search runs on cursor's servers, and a fetch reaches only the sandbox's domains.
     args: ["--sandbox", "disabled"],
@@ -215,6 +230,13 @@ function ownHome(
   };
 }
 
+/** The variables a sandboxed harness's login is read from, every harness's. */
+export function sandboxTokens(): string[] {
+  return Object.values(SANDBOXED).flatMap((needs) =>
+    !isAbsent(needs) && needs.token ? [needs.token.env] : [],
+  );
+}
+
 /** Whether a harness can run in a sandbox at all. */
 export function sandboxable(harness: string): boolean {
   return !isAbsent(sandboxed(harness));
@@ -253,6 +275,8 @@ export async function sandboxNeeds(
     ...ownHome(harness as Harness, needs, home, environment),
     secrets: needs.token && tokenValue ? { [needs.token.env]: tokenValue } : {},
     domains,
+    ...(needs.shortDirectory ? { shortDirectory: needs.shortDirectory } : {}),
+    ...(needs.sharedWrites ? { sharedWrites: needs.sharedWrites() } : {}),
     command,
     executable,
     reads: needs.reads?.(executable) ?? (await installReads(executable, environment)),

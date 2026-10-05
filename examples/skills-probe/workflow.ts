@@ -19,6 +19,7 @@ import { outputSchema } from "../output-schema";
 const CODEX = { harness: "codex", model: "gpt-6-luna", placement: "headless" } as const;
 const PI = { harness: "pi", model: "openai-codex/gpt-5.6-terra", placement: "headless" } as const;
 const CLAUDE = { harness: "claude", model: "claude-sonnet-5-5" } as const;
+const CURSOR = { harness: "cursor", model: "composer-2.5", placement: "headless" } as const;
 
 /** Which probe makes which value. */
 export const PROBE_FIELD = { a: "stamp", b: "seal" } as const;
@@ -29,9 +30,12 @@ export const AGENTS = {
   "host-claude": { runtime: CLAUDE, probe: "a", sandboxed: false },
   "box-codex": { runtime: CODEX, probe: "b", sandboxed: true },
   "box-pi": { runtime: PI, probe: "a", sandboxed: true },
+  // Alone in its sandbox: co-tenants read each other's homes, and cursor, asked for a stamp it had no
+  // skill for, searched the filesystem and ran box-pi's (story 019).
+  "box-cursor": { runtime: CURSOR, probe: "b", sandboxed: "alone" },
 } as const satisfies Record<
   string,
-  { runtime: ExecutionConfig; probe: "a" | "b"; sandboxed: boolean }
+  { runtime: ExecutionConfig; probe: "a" | "b"; sandboxed: boolean | "alone" }
 >;
 
 export type AgentName = keyof typeof AGENTS;
@@ -86,7 +90,11 @@ const executable = defineExecutableWorkflow<SkillsPlan, { reports: SkillsReport[
             key: name,
             runtime: given.runtime,
             skills: [plan.probes[given.probe]],
-            ...(given.sandboxed ? { sandbox: box } : {}),
+            ...(given.sandboxed === "alone"
+              ? { sandbox: { srt: {} } }
+              : given.sandboxed
+                ? { sandbox: box }
+                : {}),
           });
           const build = plan.builds[name];
           if (!build) throw new Error(`no build id for ${name}`);
