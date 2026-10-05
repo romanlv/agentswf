@@ -10,10 +10,11 @@ import type {
 } from "../adapter";
 import { skillsLaunch } from "../capabilities/skills";
 import { type RunProcess, runProcess, withholding } from "../command";
-import { loginFailure, thisTurn } from "../harnesses/login";
+import { failedOnLogin, thisTurn } from "../harnesses/login";
 import { launchSettings } from "../harnesses/shared";
 import { parseRow, record } from "../json";
 import { sandboxedArgs } from "../sandbox-needs";
+import { readable } from "../screen";
 import {
   type ActivatedSessionBackend,
   createSessionAdapter,
@@ -41,7 +42,6 @@ import {
   type HerdrResult,
   hasHerdrErrorCode,
   herdrFailure,
-  readable,
   readId,
   readPaneId,
   readSessionRef,
@@ -496,18 +496,20 @@ export function createPaneAdapter(
               controller.signal,
             );
             if (!sent.ok) {
-              return (
-                (sent.cancelled
-                  ? undefined
-                  : await loginShown(
-                      herdr,
-                      harness,
-                      paneId,
-                      config,
-                      controller.signal,
-                      operation.binding?.operationId,
-                    )) ?? herdrFailure(sent, remaining())
-              );
+              const login = sent.cancelled
+                ? undefined
+                : await loginShown(
+                    herdr,
+                    harness,
+                    paneId,
+                    config,
+                    controller.signal,
+                    operation.binding?.operationId,
+                  );
+              if (sent.cancelled || controller.signal.aborted) {
+                return localOutcome("cancelled", "pane operation cancelled");
+              }
+              return login ?? herdrFailure(sent, remaining());
             }
             if (remaining() <= 0) return localOutcome("timed-out", "operation deadline exceeded");
             const read = await herdr(
@@ -518,7 +520,20 @@ export function createPaneAdapter(
             if (!read.ok && read.cancelled) {
               return localOutcome("cancelled", "pane operation cancelled");
             }
-            const outcome = paneOutcome(harness, sent, read, operation.binding?.operationId);
+            const outcome = paneOutcome(
+              harness,
+              sent,
+              read,
+              await loginShown(
+                herdr,
+                harness,
+                paneId,
+                config,
+                controller.signal,
+                operation.binding?.operationId,
+                read.ok ? read.stdout : "",
+              ),
+            );
             if (outcome.sessionRef) identity.sessionId = outcome.sessionRef;
             return outcome;
           } finally {
@@ -1403,6 +1418,9 @@ export function createHerdrRunHostFactory(
                     controller.signal,
                     operation.binding?.operationId,
                   );
+                  if (controller.signal.aborted) {
+                    return localOutcome("cancelled", "pane operation cancelled");
+                  }
                   if (login) return login;
                   if (hasHerdrErrorCode(sent.error, "agent_prompt_stalled")) {
                     // Herdr had already accepted the submission, so the turn may be running.
@@ -1428,7 +1446,20 @@ export function createHerdrRunHostFactory(
                 if (!read.ok && read.cancelled) {
                   return localOutcome("cancelled", "pane operation cancelled");
                 }
-                const outcome = paneOutcome(harness, sent, read, operation.binding?.operationId);
+                const outcome = paneOutcome(
+                  harness,
+                  sent,
+                  read,
+                  await loginShown(
+                    herdr,
+                    harness,
+                    placement.paneId,
+                    config,
+                    controller.signal,
+                    operation.binding?.operationId,
+                    read.ok ? read.stdout : "",
+                  ),
+                );
                 // A session named by its file, a pi fork's, keeps that name: the id Herdr reports
                 // for it is its parent's (F6), which a relaunch or a fork would resume instead.
                 if (operation.previousSessionRef && isAbsolute(operation.previousSessionRef)) {
@@ -1522,8 +1553,8 @@ function paneOutcome(
   harness: Harness,
   sent: Extract<HerdrResult, { ok: true }>,
   read: HerdrResult,
-  /** The operation's id, which its prompt carries. */
-  marker: string | undefined,
+  /** What the screen shows of a login the harness lacks; see `loginShown`. */
+  login: NativeTurnOutcome | undefined,
 ): NativeTurnOutcome {
   const spec = harnessSpec(harness);
   const rawTranscript = read.ok && read.stdout.trim() !== "" ? read.stdout : null;
@@ -1532,10 +1563,9 @@ function paneOutcome(
   const nativeSession =
     (spec.herdrSessionIsOwn ? readSessionRef(agent) : undefined) ??
     (rawTranscript ? spec.readSessionId?.(rawTranscript) : undefined);
-  const login = rawTranscript ? spec.login?.screen(thisTurn(rawTranscript, marker)) : undefined;
   return {
-    ...(spec.login && login
-      ? { state: "failed" as const, ...loginFailure(harness, spec.login, login) }
+    ...(login
+      ? { state: login.state, detail: login.detail, login: login.login }
       : settledOutcome(agent)),
     resultEvidence: transcript ? { kind: "transcript", text: transcript } : { kind: "unavailable" },
     ...(nativeSession ? { sessionRef: nativeSession } : {}),
@@ -1544,10 +1574,15 @@ function paneOutcome(
   };
 }
 
+/** Enough of a pane's scrollback to hold a turn's prompt, its schema included, and what followed. */
+const LOGIN_READ_LINES = 400;
+
 /**
  * The failed turn a pane's screen shows when its harness cannot sign in: at a launch that stopped
- * at a sign-in screen or exited, as codex and cursor do, or after a prompt that failed or stalled,
- * which pi's refused login does before Herdr sees it working. Undefined where it shows neither.
+ * at a sign-in screen or exited, as codex and cursor do, after a prompt that failed or stalled,
+ * which pi's refused login does before Herdr sees it working, or after a settled turn. `shown`, a
+ * read already made, settles it unless it shows a login line and not the prompt carrying `marker`,
+ * which a long schema can push out of it: then the scrollback is read.
  */
 async function loginShown(
   herdr: HerdrCommand,
@@ -1557,20 +1592,27 @@ async function loginShown(
   signal: AbortSignal,
   /** The operation's id, where a prompt carrying it was sent. */
   marker?: string,
+  shown?: string,
 ): Promise<NativeTurnOutcome | undefined> {
   const check = harnessSpec(harness).login;
   if (!check) return undefined;
-  const screen = await herdr(["pane", "read", paneId], config.commandTimeoutMs, signal);
-  if (signal.aborted || !screen.ok) return undefined;
-  const login = check.screen(thisTurn(readable(screen.stdout), marker));
-  return login
-    ? {
-        state: "failed",
-        ...loginFailure(harness, check, login),
-        resultEvidence: { kind: "unavailable" },
-        chargesUsd: [],
-      }
-    : undefined;
+  const failed = (screen: string): NativeTurnOutcome | undefined => {
+    const login = failedOnLogin(harness, check, (it) => it.screen(thisTurn(screen, marker)));
+    return login && { ...login, resultEvidence: { kind: "unavailable" }, chargesUsd: [] };
+  };
+  if (shown !== undefined) {
+    const screen = readable(shown);
+    if (marker === undefined || screen.includes(marker) || !check.screen(screen)) {
+      return failed(screen);
+    }
+  }
+  const read = await herdr(
+    ["pane", "read", paneId, "--source", "recent-unwrapped", "--lines", String(LOGIN_READ_LINES)],
+    config.commandTimeoutMs,
+    signal,
+  );
+  if (signal.aborted || !read.ok) return undefined;
+  return failed(readable(read.stdout));
 }
 
 function asError(error: unknown): Error {

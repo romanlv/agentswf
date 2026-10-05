@@ -507,6 +507,83 @@ describe("createPaneAdapter", () => {
     });
   });
 
+  test("a login shown without the prompt that placed it is read again, deeper, to place it", async () => {
+    for (const [scrollback, state] of [
+      [`review op-1\n${loginScreen("claude-refused.screen")}`, "failed"],
+      [`${loginScreen("claude-refused.screen")}\nreview op-1\nanswered`, "completed"],
+    ] as const) {
+      const { run: baseRun, calls } = operationStub();
+      const run: RunProcess = async (input) => {
+        if (verb(input) === "agent read") {
+          return {
+            stdout: loginScreen("claude-refused.screen"),
+            stderr: "",
+            exitCode: 0,
+            timedOut: false,
+          };
+        }
+        if (verb(input) === "pane read") {
+          calls.push(input);
+          return { stdout: scrollback, stderr: "", exitCode: 0, timedOut: false };
+        }
+        return baseRun(input);
+      };
+      const session = await createPaneAdapter(CONFIG, run).activate(activation);
+      const turn = await session.start(
+        { id: "review", prompt: "review", deadline: activation.deadline },
+        firstBinding,
+      );
+
+      expect((await turn.settled).state).toBe(state);
+      expect(calls.filter((call) => verb(call) === "pane read")).toHaveLength(1);
+    }
+  });
+
+  test("a turn stopped while its screen is read for a login settles cancelled", async () => {
+    const { run: baseRun } = operationStub();
+    let reading!: () => void;
+    const read = new Promise<void>((resolve) => {
+      reading = resolve;
+    });
+    const run: RunProcess = async (input) => {
+      if (verb(input) === "agent prompt") {
+        return {
+          stdout: "",
+          stderr: JSON.stringify({ error: { code: "agent_prompt_stalled" } }),
+          exitCode: 1,
+          timedOut: false,
+        };
+      }
+      if (verb(input) === "pane read") {
+        reading();
+        await new Promise<void>((resolve) =>
+          input.signal?.addEventListener("abort", () => resolve(), { once: true }),
+        );
+        return {
+          stdout: `review op-1\n${loginScreen("pi-refused.screen")}`,
+          stderr: "",
+          exitCode: 0,
+          timedOut: false,
+        };
+      }
+      return baseRun(input);
+    };
+    const session = await createPaneAdapter(CONFIG, run).activate({
+      ...activation,
+      execution: { harness: "pi", model: "openai-codex/gpt-5.6" },
+    });
+    const turn = await session.start(
+      { id: "review", prompt: "review", deadline: activation.deadline },
+      firstBinding,
+    );
+    await read;
+    await turn.release("stop", activation.deadline);
+
+    const settled = await turn.settled;
+    expect(settled.state).toBe("cancelled");
+    expect(settled.login).toBeUndefined();
+  });
+
   test("a launch that stops at its sign-in screen fails, saying what to run, and closes", async () => {
     const { run: baseRun, calls } = operationStub();
     const screen = loginScreen("codex-missing.screen");

@@ -152,8 +152,14 @@ Manual or live:
   Herdr's `agent start` waits its full 120 s for an agent that never comes, and only then is the
   screen read. A turn deadline under that ends `timed-out`.
 - Known limit: a pane line that a tool printed in this turn, starting with a harness's own login
-  error (claude's `⎿` is both its tool output's glyph and its error's), reads as a login. Only a
-  turn with no accepted answer is affected: an answered turn never reads the native outcome.
+  error, reads as a login: claude's `⎿` is both its tool output's glyph and its error's, and pi
+  draws its error with no glyph at all. Only a turn with no accepted answer is affected: an
+  answered turn never reads the native outcome.
+- Known limit: a failed launch is read whole, so a relaunch that resumes a session whose history
+  shows an earlier login error, and then fails for another reason, reads as a login.
+- A settled pane turn is read from Herdr's detection snapshot, about one screen. A long schema can
+  push the prompt's id out of it; a login line shown without the id is read again from 400 lines
+  of scrollback to place it. Nothing else reads more than before.
 - A pane turn is read from the prompt that carries its operation id. claude and pi draw it, a long
   multi-line prompt included (checked live); a harness that folds a paste away, as cursor does,
   shows none, and its screen after a prompt is then not read for a login. Its launch, which sends
@@ -189,6 +195,14 @@ Manual or live:
   operator's skill list in the pi screen fixtures — replaced by a placeholder. Untested paths — the
   calling session, the pane adapter's failed prompt, and headless cancel/timeout winning over a
   login are now tested. A provider with a dot in pi's "No API key found" — matched.
+- Round 2: the detection snapshot can lose a long schema's prompt — a login line without its id is
+  read again from the scrollback. A turn released while its screen was read for a login came back
+  `failed` — cancellation now wins after the read, in both hosts. pi's glyphless lines — recorded
+  as a limit, and the quoting test now covers pi. `readable` reached through two import paths —
+  one, `../screen`. The "spec.login && login" narrowing in three adapters — one `failedOnLogin`.
+  The branch was rebased on main, which settled a `review-lab` test that timed out on the old
+  base. Each fix above has a test: the deeper read, cancellation during the read, a dotted
+  provider.
 
 ## Human review
 

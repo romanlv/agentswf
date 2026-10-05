@@ -3,8 +3,6 @@ import { parseRow, record, text } from "../json";
 import { localOutcome, type NativeTurnOutcome } from "../session-core";
 import type { SettledState } from "../types";
 
-export { ANSI_SEQUENCE, readable } from "../screen";
-
 export type HerdrResult =
   | { ok: true; result: Record<string, unknown>; stdout: string }
   | { ok: false; error: string; timedOut: boolean; cancelled: boolean };

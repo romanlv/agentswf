@@ -2,17 +2,12 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type RunProcess, runProcess } from "../command";
+import { readable } from "../screen";
 import { harnessSpec } from "../spec";
 import type { Harness } from "../types";
 import type { AllowanceRead } from "../usage/allowance";
 import { createHerdrCommands, type HerdrConfig } from "./herdr";
-import {
-  emptyEnvironmentArgs,
-  readable,
-  readId,
-  readPaneId,
-  safeAgentName,
-} from "./herdr-protocol";
+import { emptyEnvironmentArgs, readId, readPaneId, safeAgentName } from "./herdr-protocol";
 
 /** Starting the harness and showing its usage took about ten seconds for cursor. */
 const PANE_READ_MS = 90_000;

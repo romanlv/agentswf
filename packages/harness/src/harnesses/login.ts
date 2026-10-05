@@ -149,6 +149,16 @@ export const piLogin: LoginCheck = {
   run: "run `pi`, then /login",
 };
 
+/** The failed turn `read` finds in what the harness printed; undefined where it finds no login. */
+export function failedOnLogin(
+  harness: string,
+  check: LoginCheck | undefined,
+  read: (check: LoginCheck) => LoginNeed | undefined,
+): { state: "failed"; detail: string; login: TurnLogin } | undefined {
+  const need = check && read(check);
+  return check && need ? { state: "failed", ...loginFailure(harness, check, need) } : undefined;
+}
+
 /** The reason a turn that needs a login ends with, and what the workflow is told of it. */
 export function loginFailure(
   harness: string,

@@ -1,8 +1,9 @@
 import { randomUUID } from "node:crypto";
 import type { AgentRunHostFactory } from "../adapter";
 import { type RunProcess, runProcess, withholding } from "../command";
-import { loginFailure, thisTurn } from "../harnesses/login";
+import { failedOnLogin, thisTurn } from "../harnesses/login";
 import { record, text } from "../json";
+import { readable } from "../screen";
 import { createSessionAdapter, localOutcome, type NativeTurnOutcome } from "../session-core";
 import { createSingleSessionHostFactory } from "../single-session-host";
 import { findHarness, HARNESS_NAMES, harnessSpec } from "../spec";
@@ -15,7 +16,6 @@ import {
   type HerdrResult,
   hasHerdrErrorCode,
   herdrFailure,
-  readable,
   readId,
   readPaneId,
   readSessionRef,
@@ -342,12 +342,14 @@ function callerOutcome(
     operationId !== undefined &&
     interruptedAfter(screen, operationId, marker);
   const spec = harnessSpec(harness);
-  const login = spec.login?.screen(thisTurn(screen, operationId));
+  const login = failedOnLogin(harness, spec.login, (check) =>
+    check.screen(thisTurn(screen, operationId)),
+  );
   // Where Herdr's report is another pane's, the launcher reports this one's own.
   const session = spec.herdrSessionIsOwn ? readSessionRef(agent) : undefined;
   return {
-    ...(spec.login && login
-      ? { state: "failed" as const, ...loginFailure(harness, spec.login, login) }
+    ...(login
+      ? login
       : interrupted
         ? { state: "cancelled", detail: "interrupted by the operator" }
         : settled),

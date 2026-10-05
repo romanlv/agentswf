@@ -1,11 +1,10 @@
+import { ANSI_SEQUENCE, readable } from "../screen";
 import { type Absent, type Harness, isAbsent } from "../types";
 import {
-  ANSI_SEQUENCE,
   abortableDelay,
   HERDR_REPORT_GRACE_MS,
   type HerdrCommand,
   type HerdrResult,
-  readable,
   reportedAgent,
   settledState,
 } from "./herdr-protocol";

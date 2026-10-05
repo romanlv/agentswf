@@ -103,11 +103,10 @@ describe("an agent quoting a login error is not one", () => {
   });
 
   test("on a screen, where it does not start its line", () => {
-    const screen = `❯ say hi\n⏺ ${quoted}\n  Error: No API key found for x. is what pi says\n`;
-    for (const harness of ["claude", "codex", "cursor"] as const) {
+    const screen = `❯ say hi\n⏺ ${quoted}\n  pi says Error: No API key found for x.\n`;
+    for (const harness of ["claude", "codex", "cursor", "pi"] as const) {
       expect(check(harness).screen(screen)).toBeUndefined();
     }
-    expect(check("pi").screen(`❯ say hi\n ${quoted}\n`)).toBeUndefined();
   });
 });
 
@@ -125,6 +124,12 @@ describe("only what the harness printed of this turn counts", () => {
       '2026-09-25T22:58:47.504570Z ERROR codex_login::auth::manager: Failed to refresh token status=401 Unauthorized detail=TokenErrorDetail { error_code: Some("refresh_token_invalidated"), error_message: Some("Your refresh token has been invalidated. Please try signing in again."), .. }';
     expect(check("codex").headless("", stderr)?.said).toBe(
       "Your refresh token has been invalidated. Please try signing in again.",
+    );
+  });
+
+  test("pi's provider is named whole, a dot in it included", () => {
+    expect(check("pi").headless("", "No API key found for my.gateway.\n")?.provider).toBe(
+      "my.gateway",
     );
   });
 
