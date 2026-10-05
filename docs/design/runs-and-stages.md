@@ -655,15 +655,15 @@ The prototype's `flow.ts`, its two live runs on AIRS-1515 and their run notes, t
   doc-review, implement, review and mr are reused, qa runs. ✓
 - **Run 2's compaction bug** (compactions between stages ran again) can't happen inside a stage,
   and the rule for code between stages is written down. ✓
-- **qa's ~27m local half reran** because qa is one stage with two turns. Splitting it into
-  `qa-local` and `qa-mr` is the workflow's choice. ✓
+- **qa's ~27m local half reran** because qa was one stage with two turns. It is two now,
+  `qa-local` and `qa-mr`, so a continue after a failed qa-mr keeps the local half. ✓
 - **Review runs codex and Opus in parallel** inside one stage. ✓
 - **doc-review was `always`.** It becomes a plain stage whose doc path, branch and worktree are
   reused, which removes the run notes' risk of a rerun naming another worktree. ✓
 - **Three stops on a stage's value** (no doc, a branch without a preview environment, review
   stopped) move inside their stages. ✓, one edit each.
-- **`not-ready` ends completed;** after answering the questions, `--continue AIRS-1515
-  --from-stage doc-review`. ✓
+- **`not-ready` stops in doc-review;** after answering the questions, a plain `--continue
+  AIRS-1515` redoes it. ✓
 - **Every stage returns a value**, so each gets a schema; review's needs writing. ✓
 - **The prototype's `stopped()`** built its result from the stages done; the ending's `stages`
   gives `report` the same. ✓
