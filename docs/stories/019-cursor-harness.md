@@ -3,7 +3,7 @@ id: "019"
 title: Cursor as a full harness, and a harness definition that cannot be half-added
 summary: "Cursor runs in a pane, compacts, records its tokens, is given skills and runs in a sandbox, as claude, codex and pi do; each harness is one file whose every capability is either built or absent with a reason, which tsc checks."
 type: story
-status: awaiting-human-review
+status: done
 discovered_in: "the operator's review after story 016, 2026-10-04"
 depends_on: []
 ---
@@ -119,3 +119,8 @@ skipped in each.
   from the run root, which `fork.eval.ts`'s own does not allow a sandbox. `sandbox-srt`,
   `sandbox-panes-srt`, `sandbox-docker` and `sandbox-panes-docker` passed after the srt profile
   changed. The sandbox probe evals do not include cursor.
+
+## Human review
+
+- [x] The operator approved it and marked it done (2026-10-05).
+- [x] Marked `done`, and `Stories at a glance` updated.

@@ -3,7 +3,7 @@ id: "018"
 title: Run a workflow as named stages, and continue it from one
 summary: A run is one piece of work with an id, given or generated, and numbered attempts; a workflow marks its stages inline; the run keeps each stage's current record, and a continue reuses the ones that succeeded and runs the rest. The view, costs and endings read by stage. awf gains `stage` and `stop`; the prototype's ask, durations and md are left to the boilerplate and the next story.
 type: story
-status: in-progress
+status: done
 discovered_in: implement-ticket flow.ts live runs, AIRS-1515, 2026-10-02
 depends_on: []
 ---
@@ -857,13 +857,11 @@ breaks them under main's awf until this branch is merged, so it waits for the op
 
 ## Human review
 
-- [ ] Every task is complete and story-level verification passes.
-- [ ] Set the story status to `awaiting-human-review` and present the outcome, architecture
-  decisions, task-level subagent findings and dispositions, exact verification results, deviations,
-  and remaining risks.
-- [ ] Record the human's explicit approval or requested changes here.
-- [ ] If changes are requested, return to the affected task and repeat its review and verification.
-- [ ] Only after explicit approval, mark the story `done` and update `Stories at a glance`.
+- [x] Every task is complete and story-level verification passes.
+- [x] Present the outcome, architecture decisions, task-level subagent findings and dispositions,
+  exact verification results, deviations, and remaining risks.
+- [x] The operator approved it and marked it done (2026-10-05).
+- [x] Marked `done`, and `Stories at a glance` updated.
 - [ ] review state file, as it might need changes
 
 

@@ -166,16 +166,15 @@ The gates are defined in [`foundation.md`](foundation.md) §12.
   pasted text and will not act on.
 - [017 — pi in panes](stories/017-pi-pane-agent.md): done, approved 2026-10-01. pi runs in a Herdr
   pane, on the host and in srt and docker sandboxes, and compacts there with a focus.
-- [018 — workflow stages](stories/018-workflow-stages.md): in progress. Runs with ids and attempts,
+- [018 — workflow stages](stories/018-workflow-stages.md): done, approved 2026-10-05. Runs with ids and attempts,
   stages marked inline, a continue that reuses what succeeded; the model is
   `design/runs-and-stages.md`, and ADR 0011 amends §10's plan.
-- [019 — cursor as a full harness](stories/019-cursor-harness.md): awaiting the operator's review. Each harness is
+- [019 — cursor as a full harness](stories/019-cursor-harness.md): done, approved 2026-10-05. Each harness is
   one file whose every capability is given or absent with a reason tsc checks
   ([adding a harness](adding-a-harness.md)). cursor runs in a pane, compacts there, forks into
   either placement, records its tokens headless, and runs in srt and docker sandboxes with
   `CURSOR_API_KEY` and skills, live on 2026-10-04. srt reads macOS's `xcrun` cache, so git in a
   sandbox takes 0.1 s rather than 1.2 s, and a sandboxed pane waits until its harness has drawn.
-  Awaiting the operator's review.
 - [020 — effort and `set`](stories/020-agent-effort.md): done, approved 2026-10-04. An agent opens
   at a reasoning effort, from its alias or its own, and `agent.set({ model?, effort? })` switches
   either for every later operation in the same session: headless by the next resume's flags, in a
@@ -207,8 +206,7 @@ with a long run:
 2. [[021-turn-liveness-and-limits|Story 021]] implements cooperative waiting and bounded
    check-ins after the implement-ticket run lost its last step to premature settlement.
 
-Alongside: [story 018](stories/018-workflow-stages.md), stages and continuing a run, built and awaiting review;
-then [`stopped-run-recovery`](stories/todo/stopped-run-recovery.md) on top of 018 and liveness.
+Alongside: [`stopped-run-recovery`](stories/todo/stopped-run-recovery.md) on top of story 018 and liveness.
 [`second-case-kind`](stories/todo/second-case-kind.md) waits behind the loop, by the user's choice
 (2026-09-30).
 
