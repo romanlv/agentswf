@@ -2138,7 +2138,11 @@ class ExecutionScope {
 
   add(cancel: (stop: OperationStop) => Promise<unknown>): () => void {
     if (this.#cancelled) {
-      void cancel(this.#stop!).catch(() => undefined);
+      try {
+        void cancel(this.#stop!).catch(() => undefined);
+      } catch {
+        // Late registration keeps the stop fence synchronous, including a throwing canceller.
+      }
       return () => undefined;
     }
     this.#cancellers.add(cancel);

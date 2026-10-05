@@ -530,3 +530,50 @@ test("receipt observer failure is explicit and ends answered release promptly", 
     await turn.release("admitted", deadline, { answered: true, awaitCompletion: true }),
   ).toMatchObject({ kind: "quarantined", reason: expect.stringContaining("truncated") });
 });
+
+test.each([true, false])(
+  "a check-in aborted during preparation restores only confirmed undispatched status (%s)",
+  async (confirmsDelivery) => {
+    const preparing = deferred<void>();
+    const resume = deferred<void>();
+    const adapter = createSessionAdapter({
+      harnesses: ["fake"],
+      async activate() {
+        return {
+          identity: { sessionId: "native", cwd: "/tmp" },
+          ...(confirmsDelivery ? { confirmsDelivery: true as const } : {}),
+          async execute(request) {
+            if (request.kind === "nudge") {
+              preparing.resolve();
+              await resume.promise;
+            }
+            return request.deliverySignal?.aborted
+              ? { ...completed, state: "cancelled" as const }
+              : { ...completed, sessionRef: "native" };
+          },
+          async close() {},
+        };
+      },
+    });
+    const deadline = { unixMilliseconds: Date.now() + 1000 };
+    const session = await adapter.activate({
+      key: "a",
+      cwd: "/tmp",
+      deadline,
+      execution: { harness: "fake", model: "fake" },
+    });
+    const turn = await session.start(
+      { id: "one", prompt: "one", deadline },
+      { endpoint: "/unused", operationId: "op" },
+    );
+    await turn.settled;
+    const controller = new AbortController();
+    const successor = await turn.nudge({ id: "two", deadline, deliverySignal: controller.signal });
+    await preparing.promise;
+    controller.abort();
+    resume.resolve();
+    expect((await successor.settled).state).toBe("cancelled");
+    expect(await session.status()).toEqual({ state: confirmsDelivery ? "idle" : "dormant" });
+    await session.close();
+  },
+);

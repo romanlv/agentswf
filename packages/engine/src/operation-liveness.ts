@@ -468,6 +468,15 @@ export async function superviseOperation(options: Options): Promise<SupervisedOu
     if (deliveredAt !== undefined) result.deliveredAt = deliveredAt;
     emit("terminal", result.reason);
     return result;
+  } catch (error) {
+    clearAnswerTimers();
+    cancelPending();
+    try {
+      await options.slots.close(options.operationId);
+    } catch {
+      // Cleanup is already unresolved; retain the original failure and observed usage.
+    }
+    return { ...terminal("failed", messageOf(error)), cleanupUnresolved: true };
   } finally {
     finished = true;
     removeStop();
@@ -480,6 +489,16 @@ export async function superviseOperation(options: Options): Promise<SupervisedOu
   ): Promise<HarnessReleaseDisposition | undefined> {
     if (!held) return undefined;
     if (answered) {
+      if (abandonedAcquisition) {
+        return bounded(
+          held.release(
+            reason,
+            { unixMilliseconds: until },
+            { answered: true, awaitCompletion: true },
+          ),
+          until,
+        );
+      }
       beginAnswerRelease();
       return answerRelease ? bounded(answerRelease, answerReleaseDeadline!, true) : undefined;
     }

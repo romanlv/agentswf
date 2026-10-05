@@ -267,3 +267,60 @@ test("historical cwd sessions do not exhaust the live receipt file budget", asyn
     await rm(home, { recursive: true, force: true });
   }
 });
+
+test("known session ignores siblings accumulated since pane launch", async () => {
+  const home = await mkdtemp(join(tmpdir(), "awf-receipt-"));
+  const directory = join(home, "projects", "-probe");
+  await mkdir(directory, { recursive: true });
+  try {
+    for (let i = 0; i < 300; i++) await writeFile(join(directory, `sibling-${i}.jsonl`), "");
+    const path = join(directory, "known.jsonl");
+    await writeFile(path, "");
+    const receipt = await prepareClaudeReceipt("/probe", marker, home, { sessionRef: "known" });
+    await appendFile(path, `${JSON.stringify(user())}\n${JSON.stringify(assistant("input"))}\n`);
+    let received = false;
+    await receipt.watch(
+      new AbortController().signal,
+      () => {},
+      () => {
+        received = true;
+      },
+      async () => false,
+    );
+    expect(received).toBe(true);
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
+test.each([true, false])(
+  "receipt selection ignores file timestamps (already exists: %s)",
+  async (exists) => {
+    const home = await mkdtemp(join(tmpdir(), "awf-receipt-"));
+    const directory = join(home, "projects", "-probe");
+    await mkdir(directory, { recursive: true });
+    const path = join(directory, "native.jsonl");
+    const originalNow = Date.now;
+    try {
+      if (exists) await writeFile(path, "");
+      // Clock skew models coarse or unavailable birthtime: native creation predates this clock.
+      Date.now = () => originalNow() + 60_000;
+      const receipt = await prepareClaudeReceipt("/probe", marker, home);
+      Date.now = originalNow;
+      await appendFile(path, `${JSON.stringify(user())}\n${JSON.stringify(assistant("input"))}\n`);
+      let received = false;
+      await receipt.watch(
+        new AbortController().signal,
+        () => {},
+        () => {
+          received = true;
+        },
+        async () => false,
+      );
+      expect(received).toBe(true);
+    } finally {
+      Date.now = originalNow;
+      await rm(home, { recursive: true, force: true });
+    }
+  },
+);

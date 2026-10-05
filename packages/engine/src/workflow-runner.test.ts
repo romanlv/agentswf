@@ -1,4 +1,4 @@
-import { afterAll, describe, expect, test } from "bun:test";
+import { afterAll, describe, expect, spyOn, test } from "bun:test";
 import { getEventListeners } from "node:events";
 import { readdir, writeFile } from "node:fs/promises";
 import { createConnection } from "node:net";
@@ -28,6 +28,7 @@ import type {
 } from "@agentswf/harness/adapter";
 import { createFakeAdapter } from "@agentswf/harness/testing";
 import { CONTROL_PLANE_ROOT } from "./control-plane";
+import { type DecisionScope, RunDecisions } from "./decisions/directory";
 import { openRun, readAccepted, readTurns } from "./runs";
 import { createTempRunDirs, future, runNew, startNew, submit } from "./testing";
 import { WorkflowCancelledError, WorkflowRunError } from "./workflow-runner";
@@ -2589,6 +2590,7 @@ test("slot opening failure records the reserved operation and closes its logical
 test("an unexpected supervisor release throw fails the run instead of claiming cleanup", async () => {
   const fake = createFakeAdapter({
     script: (context) => ({
+      chargesUsd: [0.75],
       act: async () => {
         await submit(context.binding!, "saved");
       },
@@ -2599,12 +2601,15 @@ test("an unexpected supervisor release throw fails the run instead of claiming c
       const native = await dispatch(session, turn, binding);
       return {
         ...native,
-        release: async () => ({
-          kind: "released" as const,
-          get outcome(): never {
-            throw new Error("unexpected native release evidence throw");
-          },
-        }),
+        release: async () => {
+          await native.settled;
+          return {
+            kind: "released" as const,
+            get outcome(): never {
+              throw new Error("unexpected native release evidence throw");
+            },
+          };
+        },
       };
     }),
   }));
@@ -2612,13 +2617,68 @@ test("an unexpected supervisor release throw fails the run instead of claiming c
     const agent = await openReviewer(context);
     return (await agent.run({ prompt: "answer", nudge: false })).outcome.kind;
   });
+  const configured = runtime(adapter);
+  configured.host = {
+    ...configured.host,
+    accounting: {
+      pollMs: 5,
+      stalledMs: 50,
+      statusMs: 50,
+      read: async () => ({ records: [], open: false }),
+      billing: async () => "metered",
+    },
+  };
   const runRoot = tempRunDir();
   const error = await failedRun(
-    runNew(workflow, null, { runRoot, deadline: future(), runtime: runtime(adapter) }),
+    runNew(workflow, null, { runRoot, deadline: future(), runtime: configured }),
   );
   expect(error.usage).toHaveLength(1);
+  expect(error.usage[0]?.charged).toEqual({ amount: 0.75, currency: "USD" });
+  expect(error.usage[0]?.deliveredAt).toBeDefined();
   expect((await readTurns(join(runRoot, workflow.meta.name, error.runId)))[0]?.outcome).toBe(
     "failed",
   );
   expect(fake.closed).toEqual(["reviewer"]);
+});
+
+test("a late scope canceller is invoked synchronously and its throw is contained", async () => {
+  let add: DecisionScope["add"];
+  const decide = spyOn(RunDecisions.prototype, "decide").mockImplementation((_spec, scope) => {
+    add = scope.add;
+    return Promise.reject(new Error("decision failed"));
+  });
+  let invoked = false;
+  try {
+    const workflow = workflowOf("late-canceller", async (context) => {
+      await context
+        .parallel(
+          [null],
+          async () => {
+            await context.decisions.decide({
+              key: "q",
+              model: "test",
+              state: "test",
+              questions: {},
+            });
+          },
+          { deadline: future() },
+        )
+        .catch(() => undefined);
+      const remove = add!(() => {
+        invoked = true;
+        throw new Error("stop callback failed");
+      });
+      expect(invoked).toBe(true);
+      remove();
+      return "continued";
+    });
+    const result = await runNew(workflow, null, {
+      runRoot: tempRunDir(),
+      deadline: future(),
+      runtime: runtime(createFakeAdapter({ script: () => ({}) })),
+    });
+    expect(result.value).toBe("continued");
+  } finally {
+    decide.mockRestore();
+  }
 });

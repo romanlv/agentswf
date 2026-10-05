@@ -265,6 +265,7 @@ function createSession(
       usedOperationIds.add(request.binding.operationId);
     }
     active = true;
+    const previousStatus = lastStatus;
     lastStatus = { state: "working" };
     const generation = ++turns;
     /** Set once this turn is answered and left to end on its own. */
@@ -362,7 +363,15 @@ function createSession(
         const reported = withoutSessionRef(outcome);
         if (!quarantined && generation === turns) {
           // An answered turn ending leaves the agent ready for the next operation.
-          lastStatus = leftFinishing ? { state: "idle" } : outcomeStatus(reported);
+          lastStatus = leftFinishing
+            ? { state: "idle" }
+            : delivery &&
+                request.kind === "nudge" &&
+                request.deliverySignal?.aborted &&
+                !dispatched &&
+                outcome.state === "cancelled"
+              ? previousStatus
+              : outcomeStatus(reported);
         }
         return reported;
       })

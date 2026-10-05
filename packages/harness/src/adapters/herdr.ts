@@ -1314,11 +1314,15 @@ export function createHerdrRunHostFactory(
                   receipt =
                     confirmsDelivery && operation.onReceived
                       ? await prepareClaudeReceipt(request.cwd, marker, request.home, {
-                          since: launchedAt,
                           sessionRef: operation.previousSessionRef ?? continued,
+                          signal: operation.deliverySignal
+                            ? AbortSignal.any([operation.deliverySignal, controller.signal])
+                            : controller.signal,
                         })
                       : undefined;
                 } catch (error) {
+                  if (operation.deliverySignal?.aborted || controller.signal.aborted)
+                    return localOutcome("cancelled", "check-in cancelled before dispatch");
                   const reason = error instanceof Error ? error.message : String(error);
                   operation.onDeliveryFailed?.(reason);
                   return localOutcome("failed", reason);

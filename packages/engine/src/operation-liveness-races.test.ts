@@ -56,7 +56,7 @@ function turn(release?: HarnessTurn["release"]) {
   const dispatched = Promise.withResolvers<number>();
   const accepted = Promise.withResolvers<number>();
   const received = Promise.withResolvers<number>();
-  const releases: { answered: boolean; reason: string }[] = [];
+  const releases: { answered: boolean; reason: string; deadline: number }[] = [];
   const handle: HarnessTurn = {
     settled: end.promise,
     delivery: {
@@ -70,7 +70,11 @@ function turn(release?: HarnessTurn["release"]) {
       throw new Error("fixture must supply successor");
     },
     async release(reason, deadline, options) {
-      releases.push({ answered: options?.answered === true, reason });
+      releases.push({
+        answered: options?.answered === true,
+        reason,
+        deadline: deadline.unixMilliseconds,
+      });
       return release
         ? release(reason, deadline, options)
         : { kind: "released", outcome: completed };
@@ -348,7 +352,9 @@ test("stop during answered acquisition releases the acquired turn as stopped, ne
   s.stop();
   acquisition.resolve(acquired.handle);
   await flush();
-  expect(acquired.releases).toEqual([{ answered: false, reason: "operator stopped" }]);
+  expect(acquired.releases).toEqual([
+    { answered: false, reason: "operator stopped", deadline: 25 },
+  ]);
   expect(await s.run).toMatchObject({ kind: "cancelled", cleanupUnresolved: false });
 });
 
@@ -463,6 +469,8 @@ test("late successor rejection cannot restart release after cleanup is unresolve
   await flush();
   await s.time.advance(35);
   expect(await s.run).toMatchObject({ kind: "failed", cleanupUnresolved: true });
+  expect(s.first.releases).toHaveLength(1);
+  expect(s.first.releases[0]).toMatchObject({ answered: true, deadline: 35 });
   const releases = s.first.releases.length;
   successor.reject(new Error("late successor failure"));
   await flush();
@@ -504,4 +512,25 @@ test("initial acquisition rejection before persistence completes cannot prove cl
   await expect(submission).resolves.toMatchObject({ kind: "accepted" });
   expect(await s.run).toMatchObject({ kind: "failed", cleanupUnresolved: true });
   expect(s.first.releases).toHaveLength(0);
+});
+
+test("unexpected release evidence errors retain observed charges and delivery", async () => {
+  const first = turn(async () => ({
+    kind: "released",
+    get outcome(): never {
+      throw new Error("release evidence failed");
+    },
+  }));
+  const s = fixture({ first });
+  await flush();
+  first.receive(4);
+  first.end.resolve({ ...completed, chargesUsd: [0.75] });
+  await flush();
+  await s.answer();
+  expect(await s.run).toMatchObject({
+    kind: "failed",
+    cleanupUnresolved: true,
+    charges: [0.75],
+    deliveredAt: 4,
+  });
 });

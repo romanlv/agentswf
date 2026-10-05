@@ -6,6 +6,8 @@ import { claudeProjectDirectory } from "../usage/claude";
 import { abortableDelay } from "./herdr-protocol";
 
 const MAX_FILES = 256;
+const MAX_BASELINE_FILES = 100_000;
+const MAX_BASELINE_NAME_BYTES = 16 * 1024 * 1024;
 const MAX_ROWS = 4096;
 const MAX_BYTES = 8 * 1024 * 1024;
 const CHUNK_BYTES = 256 * 1024;
@@ -81,18 +83,19 @@ type Cursor = {
   reducer: ReturnType<typeof createClaudeReceiptReducer>;
 };
 
-/** Baseline only this launch's transcripts; historical cwd sessions consume no live budget. */
+/** Historical names are discovery metadata, not live receipt cursors. */
 export async function prepareClaudeReceipt(
   cwd: string,
   marker: string,
   home?: string,
-  options: { since?: number; sessionRef?: string } = {},
+  options: { sessionRef?: string; signal?: AbortSignal } = {},
 ) {
+  options.signal?.throwIfAborted();
   const directory = await claudeProjectDirectory(cwd, home);
-  const since = options.since ?? Date.now();
   const known = options.sessionRef ? `${options.sessionRef}.jsonl` : undefined;
   const cursors = new Map<string, Cursor>();
-  const relevant = (name: string, born: number) => name === known || born >= since;
+  const baseline = new Map<string, { inode: number; offset: number } | undefined>();
+  const relevant = (name: string) => !known || name === known || !baseline.has(name);
   const fileNames = async function* () {
     const entries = await opendir(directory).catch((error: unknown) => {
       if (record(error)?.code === "ENOENT") return undefined;
@@ -114,7 +117,14 @@ export async function prepareClaudeReceipt(
     cursors.set(name, cursor);
     return cursor;
   };
+  let baselineNameBytes = 0;
   for await (const name of fileNames()) {
+    options.signal?.throwIfAborted();
+    baselineNameBytes += Buffer.byteLength(name);
+    if (baseline.size >= MAX_BASELINE_FILES || baselineNameBytes > MAX_BASELINE_NAME_BYTES)
+      throw new Error("Claude receipt discovery baseline exceeds its bound");
+    baseline.set(name, undefined);
+    if (known && name !== known) continue;
     const file = await open(join(directory, name), constants.O_RDONLY | constants.O_NOFOLLOW).catch(
       (error: unknown) => {
         if (record(error)?.code === "ENOENT") return undefined;
@@ -124,7 +134,8 @@ export async function prepareClaudeReceipt(
     if (!file) continue;
     try {
       const stat = await file.stat();
-      if (relevant(name, stat.birthtimeMs)) cursorFor(name, stat.ino, stat.size);
+      baseline.set(name, { inode: stat.ino, offset: stat.size });
+      if (name === known) cursorFor(name, stat.ino, stat.size);
     } finally {
       await file.close();
     }
@@ -144,7 +155,7 @@ export async function prepareClaudeReceipt(
       let watcherFailure: Error | undefined;
       const dirty = new Set(cursors.keys());
       const enqueue = (name: string) => {
-        if (!name.endsWith(".jsonl")) return;
+        if (!name.endsWith(".jsonl") || !relevant(name)) return;
         if (!dirty.has(name) && dirty.size >= MAX_FILES) {
           watcherFailure = new Error("Claude receipt change queue exceeds its bound");
           return;
@@ -164,6 +175,13 @@ export async function prepareClaudeReceipt(
               });
               // Covers creation/appends between the baseline and subscribing to directory changes.
               for await (const name of fileNames()) {
+                if (signal.aborted || Date.now() >= deadline()) return;
+                if (!relevant(name)) continue;
+                const before = baseline.get(name);
+                if (!before || name === known) {
+                  enqueue(name);
+                  continue;
+                }
                 const file = await open(
                   join(directory, name),
                   constants.O_RDONLY | constants.O_NOFOLLOW,
@@ -174,7 +192,7 @@ export async function prepareClaudeReceipt(
                 if (!file) continue;
                 try {
                   const stat = await file.stat();
-                  if (relevant(name, stat.birthtimeMs)) enqueue(name);
+                  if (stat.ino !== before.inode || stat.size !== before.offset) enqueue(name);
                 } finally {
                   await file.close();
                 }
@@ -200,8 +218,9 @@ export async function prepareClaudeReceipt(
             try {
               const stat = await file.stat();
               let cursor = cursors.get(name);
-              if (!cursor && !relevant(name, stat.birthtimeMs)) continue;
-              cursor ??= cursorFor(name, stat.ino, 0);
+              if (!cursor && !relevant(name)) continue;
+              const before = baseline.get(name);
+              cursor ??= cursorFor(name, before?.inode ?? stat.ino, before?.offset ?? 0);
               if (cursor.inode !== stat.ino || stat.size < cursor.offset)
                 throw new Error("Claude receipt transcript was replaced or truncated");
               const size = Math.min(CHUNK_BYTES, stat.size - cursor.offset);

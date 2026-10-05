@@ -327,3 +327,37 @@ transcript fixtures. No additional paid evaluations were run for this review rou
 Owned-pane and caller `finishAnswered` orchestration remain separate. Their ownership checks
 and session discovery differ; sharing that orchestration would obscure caller authority.
 Low-level settlement parsing remains shared.
+
+## Round 2 follow-up review
+
+Receipt discovery now takes a baseline immediately before dispatch, using filenames and file
+positions instead of filesystem timestamps. A known session tracks its own transcript and new
+names; an unknown session can observe a transcript already created during pane startup. A
+rescan after subscribing covers changes between the baseline and watcher startup. Historical
+metadata has a separate limit of 100,000 names and 16 MiB of name bytes; live cursors retain
+the 256-file limit. Cancellation is checked during discovery as well as observation.
+
+The remaining lifecycle fixes release a prior handle even when successor acquisition was
+abandoned, preserve observed delivery and charges on unexpected supervisor failure, contain
+throwing late cancellation callbacks, and retain the previous session status for a positively
+undispatched check-in. Releasing an admitted caller answer remains noninterrupting. Contract
+tests now isolate Claude configuration, including under a hostile fake home.
+
+The requested single host eval passed on **2026-10-05**, using the unchanged
+`claude-sonnet-5-5` pane fixture (the repository's established reliable low-cost Claude choice).
+`AWF_LIVE_EVAL=1 bun tests/turn-liveness.eval.ts host` returned exit 0 with no evidence problems.
+It recorded two waiting declarations, two check-ins, confirmed receipt for all three inputs,
+a saved answer, native release, and a successful same-session follow-up with its own receipt
+and release. This exercises both initial discovery and the known-session path after the change.
+
+| Run | Time (UTC) | Wall time | Known list-price estimate | Billing |
+| --- | --- | --- | --- | --- |
+| `20261005-1024-218a` | 14:24:08.596–14:25:31.668 | 83.072 seconds | $0.1354924 | Subscription |
+
+Live log: `/private/tmp/awf-021-round2-host-live.log`. Artifacts:
+`/var/folders/4g/s95glx9x6n71bq4hc08ly2gm0000gn/T/awf-liveness-gpul2h/runs/turn-liveness-proof/20261005-1024-218a`.
+This is one host measurement; no additional provider coverage is inferred.
+
+Round 2 offline verification passed: **1,421 tests, 2 skipped, 0 failures, 4,894 assertions
+across 104 files** (`bun test`). `bun run check` passed formatting, TypeScript and package
+boundaries. The final capability-fixture correction also passed its 13 focused lifecycle tests.
