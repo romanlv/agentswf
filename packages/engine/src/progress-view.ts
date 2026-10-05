@@ -132,6 +132,21 @@ export function progressEvents(
     const fresh = earlier?.turns !== agent.turns;
     if (fresh && turn.outcome === undefined)
       add(turn.startedAt, "agent start", `▶ ${agent.key} · ${agent.execution.model}`);
+    if (
+      turn.outcome === undefined &&
+      turn.phase &&
+      (fresh
+        ? turn.phase !== "working"
+        : turn.phase !== earlier?.turn?.phase ||
+          turn.waitingReason !== earlier?.turn?.waitingReason ||
+          turn.checkInAt !== earlier?.turn?.checkInAt)
+    ) {
+      const note =
+        turn.phase === "waiting"
+          ? `waiting (agent-reported): ${oneLine(turn.waitingReason ?? "")}${turn.checkInAt === undefined ? "" : ` · check-in at ${clock(turn.checkInAt - view.startedAt)}`}`
+          : oneLine(turn.phase.replaceAll("-", " "));
+      add(view.now, "agent phase", `… ${oneLine(agent.key)} · ${note}`);
+    }
     if (turn.outcome !== undefined && (fresh || earlier?.turn?.outcome === undefined)) {
       const settledAt = turn.settledAt ?? view.now;
       const took = duration(settledAt - turn.startedAt);
@@ -182,6 +197,7 @@ const RANKS = [
   "group start",
   "fork",
   "agent start",
+  "agent phase",
   "zero-length end",
 ] as const;
 type Rank = (typeof RANKS)[number];
@@ -304,7 +320,16 @@ function agentState(agent: Agent, now: number, paint: Paint): [string, string] {
       ? [paint.bad("✗"), paint.bad(oneLine(agent.detail ?? agent.state))]
       : [paint.dim("·"), paint.dim(agent.state)];
   }
-  if (turn.outcome === undefined) return [paint.busy(spin(now)), ""];
+  if (turn.outcome === undefined) {
+    const phase = turn.phase;
+    const note =
+      phase === "waiting"
+        ? `waiting (agent-reported): ${oneLine(turn.waitingReason ?? "")}${turn.checkInAt === undefined ? "" : ` · check-in in ${duration(Math.max(0, turn.checkInAt - now))}`}`
+        : phase && phase !== "working"
+          ? phase.replaceAll("-", " ")
+          : "";
+    return [paint.busy(spin(now)), note];
+  }
   if (turn.outcome === "answered") return [paint.ok("✓"), ""];
   return [
     paint.bad("✗"),
@@ -326,7 +351,12 @@ function spin(now: number): string {
 }
 
 function oneLine(text: string): string {
-  const line = text.replace(/\s+/g, " ").trim();
+  const line = text
+    // biome-ignore lint/suspicious/noControlCharactersInRegex: strip agent-supplied terminal styling from log lines.
+    .replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "")
+    // biome-ignore lint/suspicious/noControlCharactersInRegex: untrusted reasons must not contain terminal controls.
+    .replace(/[\x00-\x1f\x7f-\x9f\s]+/g, " ")
+    .trim();
   return line.length > 80 ? `${line.slice(0, 79)}…` : line;
 }
 

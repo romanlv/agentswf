@@ -116,6 +116,11 @@ export function createHeadlessAdapter(
         identity,
         // Each turn is a process of its own, and the next one resumes the session this one leaves.
         finishesAnswered: true,
+        async finishAnswered() {
+          // Completion includes the process exit, pipe draining, and any provider reap.
+          await activeCompletion;
+          return { state: "completed", resultEvidence: { kind: "unavailable" }, chargesUsd: [] };
+        },
         async execute(operation) {
           if (closed) throw new Error("headless session is closed");
           const remaining = operation.deadline.unixMilliseconds - Date.now();

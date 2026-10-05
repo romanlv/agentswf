@@ -63,6 +63,43 @@ describe("createHeadlessAdapter", () => {
     request: typeof activation = activation,
   ) => createHeadlessAdapter(config, run).activate(request);
 
+  test("an on-time answer waits for process completion even when the process deadline ends it", async () => {
+    let started!: () => void;
+    const running = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    let finish!: (result: Awaited<ReturnType<RunProcess>>) => void;
+    const ended = new Promise<Awaited<ReturnType<RunProcess>>>((resolve) => {
+      finish = resolve;
+    });
+    const session = await headless(async () => {
+      started();
+      return ended;
+    });
+    const turn = await session.start(turnSpec, firstBinding);
+    await running;
+    const releasing = turn.release(
+      "answer admitted",
+      { unixMilliseconds: Date.now() + 5000 },
+      { answered: true, awaitCompletion: true },
+    );
+    expect(await Promise.race([releasing.then(() => "released"), Promise.resolve("pending")])).toBe(
+      "pending",
+    );
+    finish({
+      stdout: JSON.stringify({ result: "answer", session_id: "session", total_cost_usd: 0.04 }),
+      stderr: "",
+      exitCode: 137,
+      timedOut: true,
+    });
+    expect(await releasing).toMatchObject({
+      kind: "released",
+      outcome: { state: "completed", chargesUsd: [0.04] },
+    });
+    expect((await turn.settled).state).toBe("timed-out");
+    await session.close();
+  });
+
   test("a nudge resumes the native session in a fresh process environment", async () => {
     const { run, calls } = stub([claudeOut("first"), claudeOut("second")]);
     const session = await headless(run, { newSessionId: () => "chosen" });

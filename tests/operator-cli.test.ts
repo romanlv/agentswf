@@ -123,7 +123,8 @@ describe("awf run", () => {
 
     expect(exitCode).toBe(0);
     // Sonnet 5 at $2/$0.20/$10 and gpt-5.6-sol at $4/$0.40/$20 per million: $0.0088 + $0.0176.
-    expect(errors).toEqual([
+    // Parallel completions may arrive in either order; the result below remains lens-ordered.
+    expect([errors[0], ...errors.slice(1, 3).sort(), ...errors.slice(3)]).toEqual([
       "[0:00] ▶ Minimum review (2)",
       "[0:00] ✓ reviewer:correctness · 0s",
       "[0:00] ✓ reviewer:maintainability · 0s",

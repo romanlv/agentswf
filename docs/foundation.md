@@ -254,17 +254,28 @@ host never starts, closes or cleans it up
 ([ADR 0010](adr/0010-the-calling-session-is-an-agent.md)). Logical-agent handles own continuity;
 each distinct operation receives fresh result authority. A pane agent keeps one pane for all its
 operations, and each later one is prompted into it once the agent has settled
-([ADR 0008](adr/0008-a-pane-agent-continues-in-its-pane.md)). An initial prompt and its one nudge
-are delivery attempts for the same operation, slot, and schema.
+([ADR 0008](adr/0008-a-pane-agent-continues-in-its-pane.md)). Initial prompts and check-ins share
+one operation, slot and schema. On placements with measured receipt support, `wf waiting`
+permits repeated check-ins under one fixed deadline ([[021-turn-liveness-and-limits]]).
+The harness reports dispatch, native acceptance and model receipt; the engine owns the timers.
+An accepted native queue entry is not yet model receipt. Unsupported placements do not gain
+cooperative waiting by inference.
 A later operation may resume native context only when the host has measured continuation support
 and terminal evidence; native session references never cross into workflow or engine-owned state
 as resume authority. They cross only as accounting evidence, so the engine can read what an agent
 spent from the harness's own files, and nothing resumes from them
 ([story 002](stories/002-cost-and-time-accounting.md)).
-Durable result acceptance, client acknowledgement, and native release are distinct facts. An
-accepted result may determine the author-visible answer, but the next operation is not admitted
-until the prior turn has ended or been stopped, or continuation is explicitly severed and failed
-closed.
+Result admission, durable publication, client acknowledgement and native release are distinct
+facts. The engine acknowledges a saved answer so the agent can finish its command, but returns
+`answered` only after bounded native release. A dispatched check-in must be consumed before
+its native completion proves release. Unresolved release retains the answer as evidence, fails
+closed and prevents dependent work. This does not prove detached children or remote jobs ended.
+The caller is never killed or given a stop-finishing interrupt after acceptance (ADR 0010).
+
+An operation's deadline is computed once before queueing and includes all check-ins and waits.
+Legacy `nudge.deadline` participates in that same minimum: it can shorten the whole operation,
+never extend it. An on-time admitted answer has bounded saving and release beyond that answer
+deadline; scope/run cancellation still prevents success.
 
 A socket per agent provides routing for cooperative-but-fallible agents. The engine installs a
 launcher that holds the socket and names its path in the prompt, so the connection says who is
@@ -281,7 +292,7 @@ fake host satisfy the run-host interface; provider variation is internal composi
 choice exposed to workflows or the engine.
 
 **`wf`** — the command the in-session agent is told to run, through a launcher the engine
-installs per agent. `wf result`, and later `wf peers` / `wf send`. It *compiles* against `contract`
+installs per agent. `wf result` and `wf waiting`, and later `wf peers` / `wf send`. It *compiles* against `contract`
 alone, and at runtime it talks to the engine over the local control plane described in section 7.
 It never links the engine and never touches the run directory itself.
 
@@ -724,9 +735,10 @@ Each stage is a gate phrased as something to prove. Which are open is in [`statu
   is a small general-purpose command that drives one harness through `harness` alone.
 - **Stage 2 — minimum engine and the control plane.** `agents.open/run`, `parallel`, result slots,
   `wf`, the local endpoint and the workflow loader, proven against a fake and then live. An
-  ambiguous Herdr `idle` decides nothing author-visible and authorizes no continuation: it reads as
-  `unanswered` and arms the one measured nudge. Proving native pane release, and the continuation
-  that would depend on it, is deferred measurement, not a claim this stage makes.
+  ambiguous Herdr `idle` is not an answer or proof that background work ended. The original
+  stage used one measured nudge; [[021-turn-liveness-and-limits]] adds cooperative waiting and
+  repeated check-ins only on placements with measured receipt support. Native release is bounded
+  and required before success; detached-child isolation and crash recovery remain separate proofs.
 - **Stage 3 — measure and run something real.** Evals from E2/E5, a real workflow on the engine,
   accounting for every run, then **E4** — the one question never answered, and the only remaining
   measurement that changes the engine rather than confirming it.

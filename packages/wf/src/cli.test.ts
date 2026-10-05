@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
-  type ResultSubmitRequest,
+  type ControlRequest,
   type ResultSubmitResponse,
   WIRE_VERSION,
 } from "@agentswf/contract/wire";
@@ -11,7 +11,7 @@ const at = (...args: readonly string[]) => ["--at", ENDPOINT, ...args];
 
 describe("wf result", () => {
   test("submits an exact argument request", async () => {
-    const seen: Array<{ endpoint: string; request: ResultSubmitRequest }> = [];
+    const seen: Array<{ endpoint: string; request: ControlRequest }> = [];
     const outcome = await runCli(
       at("result", "op-1", '{"count":3}'),
       null,
@@ -27,6 +27,7 @@ describe("wf result", () => {
         endpoint: ENDPOINT,
         request: {
           version: WIRE_VERSION,
+          command: "result",
           operationId: "op-1",
           raw: '{"count":3}',
         },
@@ -36,7 +37,7 @@ describe("wf result", () => {
 
   test("passes on the session the launcher expanded, and omits an empty one", async () => {
     const sessions: Array<string | undefined> = [];
-    const submit = async (_endpoint: string, request: ResultSubmitRequest) => {
+    const submit = async (_endpoint: string, request: ControlRequest) => {
       sessions.push(request.session);
       return { version: WIRE_VERSION, kind: "accepted" } as const;
     };
@@ -60,7 +61,7 @@ describe("wf result", () => {
       at("result", "op-1"),
       '{"count":3}\n',
       async (_endpoint, request) => {
-        raw = request.raw;
+        if (request.command === "result") raw = request.raw;
         return { version: WIRE_VERSION, kind: "accepted" };
       },
     );
@@ -167,3 +168,114 @@ describe("wf result", () => {
 function stream(text: string): ReadableStream<Uint8Array> {
   return new Response(text).body!;
 }
+
+describe("wf waiting", () => {
+  test("submits the timeout in milliseconds and prints the actual capped grant", async () => {
+    let seen: ControlRequest | undefined;
+    const result = await runCli(
+      at("--session", "native", "waiting", "op-1", "--reason", "Deploy", "--timeout", "2m"),
+      null,
+      async (_endpoint, request) => {
+        seen = request;
+        return { version: WIRE_VERSION, kind: "waiting", waitUntil: 1050, deadline: 1100 };
+      },
+    );
+    expect(seen).toEqual({
+      version: WIRE_VERSION,
+      command: "waiting",
+      operationId: "op-1",
+      reason: "Deploy",
+      timeoutMs: 120000,
+      session: "native",
+    });
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain("1050");
+    expect(result.stdout).toContain("1100");
+  });
+
+  test("omits an unspecified timeout and never reads stdin", async () => {
+    const unreadable = new Proxy({} as ReadableStream<Uint8Array>, {
+      get() {
+        throw new Error("stdin read");
+      },
+    });
+    const args = at("waiting", "op-1", "--reason", "Deploy");
+    expect(await readCliStdin(args, false, unreadable)).toBeNull();
+    await runCli(args, null, async (_endpoint, request) => {
+      expect(request).not.toHaveProperty("timeoutMs");
+      return { version: WIRE_VERSION, kind: "waiting", waitUntil: 1000, deadline: 2000 };
+    });
+  });
+
+  test("rejects invalid arguments before connecting", async () => {
+    let called = 0;
+    const submit = async () => {
+      called++;
+      return { version: WIRE_VERSION, kind: "waiting", waitUntil: 1000, deadline: 2000 } as const;
+    };
+    const badFlags = [
+      [],
+      ["--reason"],
+      ["--reason", " "],
+      ["--reason", "😀".repeat(513)],
+      ["--reason", "ok", "--reason", "again"],
+      ["--unknown", "value"],
+      ["--reason", "ok", "--timeout", "1s", "--timeout", "2s"],
+      ...["0s", "-1s", "1.5s", "Infinityh", "9007199254740991h", "1", "2d"].map((v) => [
+        "--reason",
+        "ok",
+        "--timeout",
+        v,
+      ]),
+    ];
+    for (const flags of badFlags)
+      expect((await runCli(at("waiting", "op-1", ...flags), null, submit)).exitCode).toBe(2);
+    expect(called).toBe(0);
+  });
+
+  test("accepts every duration unit", async () => {
+    for (const [duration, milliseconds] of [
+      ["1ms", 1],
+      ["2s", 2000],
+      ["3m", 180000],
+      ["4h", 14400000],
+    ] as const) {
+      await runCli(
+        at("waiting", "op-1", "--reason", "ok", "--timeout", duration),
+        null,
+        async (_endpoint, request) => {
+          expect(request).toMatchObject({ timeoutMs: milliseconds });
+          return { version: WIRE_VERSION, kind: "waiting", waitUntil: 1000, deadline: 2000 };
+        },
+      );
+    }
+  });
+
+  test("lost acknowledgement reports uncertainty and does not retry", async () => {
+    let calls = 0;
+    const result = await runCli(at("waiting", "op-1", "--reason", "Deploy"), null, async () => {
+      calls++;
+      throw new Error("socket closed");
+    });
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("uncertain");
+    expect(result.stderr).toContain("No retry");
+    expect(calls).toBe(1);
+  });
+
+  test("unsupported placement and wrong-command acknowledgement are clear failures", async () => {
+    const args = at("waiting", "op-1", "--reason", "Deploy");
+    const rejected = await runCli(args, null, async () => ({
+      version: WIRE_VERSION,
+      kind: "rejected",
+      code: "unsupported-command",
+      error: "waiting unsupported for this placement",
+    }));
+    expect(rejected.stderr).toContain("unsupported-command");
+    const crossed = await runCli(args, null, async () => ({
+      version: WIRE_VERSION,
+      kind: "accepted",
+    }));
+    expect(crossed.exitCode).toBe(1);
+  });
+});

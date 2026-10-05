@@ -35,8 +35,8 @@ const minimumReview = createMinimumReview({
 // What the review does with its answers is tested beside it, in examples/minimum-review; these
 // check what the engine does for it.
 describe("minimum two-agent review", () => {
-  test("the initial turn has its own bound while nudge retains the workflow deadline", async () => {
-    const firstTurnMs = 60_000;
+  test("the initial turn and its nudge share one deadline capped by the workflow", async () => {
+    const operationTimeoutMs = 60_000;
     const workflowDeadline = future(10 * 60_000);
     const initialDeadlines: number[] = [];
     const nudgeDeadlines: number[] = [];
@@ -69,7 +69,7 @@ describe("minimum two-agent review", () => {
     await runNew(
       createMinimumReview(
         { correctness: "correctness", maintainability: "maintainability" },
-        firstTurnMs,
+        operationTimeoutMs,
       ),
       args(),
       {
@@ -81,12 +81,16 @@ describe("minimum two-agent review", () => {
     );
 
     expect(initialDeadlines).toHaveLength(2);
-    expect(initialDeadlines.every((deadline) => deadline >= startedAt + firstTurnMs)).toBe(true);
-    expect(initialDeadlines.every((deadline) => deadline <= Date.now() + firstTurnMs)).toBe(true);
-    expect(nudgeDeadlines).toEqual([
-      workflowDeadline.unixMilliseconds,
-      workflowDeadline.unixMilliseconds,
-    ]);
+    expect(initialDeadlines.every((deadline) => deadline >= startedAt + operationTimeoutMs)).toBe(
+      true,
+    );
+    expect(initialDeadlines.every((deadline) => deadline <= Date.now() + operationTimeoutMs)).toBe(
+      true,
+    );
+    expect(nudgeDeadlines).toEqual(initialDeadlines);
+    expect(nudgeDeadlines.every((deadline) => deadline < workflowDeadline.unixMilliseconds)).toBe(
+      true,
+    );
 
     const cappedWorkflowDeadline = future(10 * 60_000);
     await runNew(
@@ -106,6 +110,7 @@ describe("minimum two-agent review", () => {
       cappedWorkflowDeadline.unixMilliseconds,
       cappedWorkflowDeadline.unixMilliseconds,
     ]);
+    expect(nudgeDeadlines.slice(2)).toEqual(initialDeadlines.slice(2));
   });
 
   test("a result attributed to the other lens is rejected and remains incomplete", async () => {

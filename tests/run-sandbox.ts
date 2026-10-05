@@ -89,6 +89,21 @@ export function executionsOf(transcript: string): Execution[] {
   });
 }
 
+/** Sandbox homes are recorded separately from run artifacts; old records used the run directory. */
+export function sandboxTranscripts(record: Pick<OutputRecord, "artifacts" | "sandboxes">): string {
+  const directories = new Set(
+    (record.sandboxes ?? []).map((box) => box.directory ?? join(record.artifacts, "sandboxes")),
+  );
+  return [...directories]
+    .filter(existsSync)
+    .flatMap((directory) =>
+      readdirSync(directory, { recursive: true, withFileTypes: true })
+        .filter((entry) => entry.isFile() && entry.name.endsWith(".jsonl"))
+        .map((entry) => readFileSync(join(entry.parentPath, entry.name), "utf8")),
+    )
+    .join("\n");
+}
+
 /** What went wrong, from what the runner gathered; empty when every check held. */
 export function problems(evidence: Evidence): string[] {
   const found: string[] = [];
@@ -205,7 +220,10 @@ export async function gather(
     JSON.stringify({ ...JSON.parse(readFileSync(config, "utf8")), sandbox: settings }),
   );
   const clone = join(ws.root, "project");
-  const home = await realpath(homedir());
+  // Docker creates mount ancestors under the host home; probe a real, unmounted entry instead.
+  const home = join(await realpath(homedir()), ".codex");
+  if (!existsSync(home))
+    throw new Error("sandbox eval requires an existing host ~/.codex directory");
   const keyOnHost = existsSync(join(ws.root, "datasets", "first", CASE, "key", "key.json"));
   const commands = Object.values(COMMANDS).map((command) =>
     command.replace("CLONE", clone).replace("HOME", home),
@@ -248,14 +266,7 @@ export default defineReviewVariant({
   const record = [...new Bun.Glob("*/*/output.json").scanSync({ cwd: runs })]
     .map((file) => JSON.parse(readFileSync(join(runs, file), "utf8")) as OutputRecord)
     .find((candidate) => candidate.workflow.name === "run-sandbox-probe");
-  const sandboxes = record ? join(record.artifacts, "sandboxes") : undefined;
-  const transcripts =
-    sandboxes && existsSync(sandboxes)
-      ? readdirSync(sandboxes, { recursive: true, withFileTypes: true })
-          .filter((entry) => entry.isFile() && entry.name.endsWith(".jsonl"))
-          .map((entry) => readFileSync(join(entry.parentPath, entry.name), "utf8"))
-          .join("\n")
-      : "";
+  const transcripts = record ? sandboxTranscripts(record) : "";
 
   const dir = await realpath(await mkdtemp(join(tmpdir(), "awf-run-sandbox-")));
   // Apart from the runs: a sandbox refuses to reach the run root.

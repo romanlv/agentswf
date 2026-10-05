@@ -4,6 +4,9 @@
 engine did not start is a messaging participant only, which never answers `result` and which the
 engine has no operation to run; for one session, the one the run was started from.
 
+**Amended:** 2026-10-05, [[021-turn-liveness-and-limits|story 021]]: a saved answer waits for
+bounded natural release before success; caller interrupt authority is unchanged.
+
 ## What was decided
 
 - **Only the calling session.** A run started with `awf run --here` from an agent session in a
@@ -22,7 +25,8 @@ engine has no operation to run; for one session, the one the run was started fro
 - **Its ref has the `AgentRef` type, but five behaviours differ from an opened agent's.** They are
   listed on `caller` in `agents.ts`:
   - `compact` settles `failed`, not retryable, because the context belongs to the operator.
-  - A turn that fails, is cancelled or times out leaves the agent usable. The pane is never closed.
+  - A turn that fails, is cancelled or times out leaves the agent usable when native release is
+    confirmed. Unresolved cleanup ends automated use in this run. The pane is never closed.
   - An operator's interrupt settles a turn `cancelled`.
   - Where that interrupt cannot be recognised, an unanswered turn is not nudged by default.
   - `execution.model` is `""`.
@@ -47,8 +51,13 @@ engine has no operation to run; for one session, the one the run was started fro
     agent's own socket. It is validated against the turn's schema and bounded by its deadline.
   - A separate Herdr backend serves it. That backend has no close: it never starts, closes,
     compacts or kills the pane, and the run's final cleanup leaves the pane alone.
-  - An answered turn is left to finish. The caller never gets the host's "stop finishing" Esc,
-    because once the run's turn is answered, the work in the pane may be the operator's.
+  - A saved answer is acknowledged, then the engine waits for bounded natural completion before
+    returning success. The caller never gets the host's "stop finishing" Esc, because once the
+    run's turn is answered, the work in the pane may be the operator's. If natural release cannot
+    be proved, preserve the answer, fail the operation and hand back control. Ending the host's
+    observer is not native release.
+  - Repeated `wf waiting` recovery requires separately measured receipt support. Host-pane
+    evidence does not automatically enable it for the caller; unsupported requests are refused.
   - `TurnRef.cancel`, a turn's deadline, and the run stopping each send the harness's interrupt
     once, but only while the agent is working on that turn. The turn then settles `cancelled` or
     `timed-out`, and the next operation waits for the session to settle as usual.

@@ -28,12 +28,18 @@ import type {
 } from "@agentswf/harness/adapter";
 import { createFakeAdapter } from "@agentswf/harness/testing";
 import { CONTROL_PLANE_ROOT } from "./control-plane";
-import { openRun } from "./runs";
+import { openRun, readAccepted, readTurns } from "./runs";
 import { createTempRunDirs, future, runNew, startNew, submit } from "./testing";
 import { WorkflowCancelledError, WorkflowRunError } from "./workflow-runner";
 
 const runDirs = createTempRunDirs();
 const { tempRunDir } = runDirs;
+const shortReleasePolicy = {
+  quietMs: 30_000,
+  responseMs: 120_000,
+  deliveryMs: 30_000,
+  releaseMs: 40,
+};
 afterAll(() => runDirs.cleanup());
 
 type Answer = { answer: string };
@@ -360,125 +366,78 @@ describe("runWorkflow", () => {
     expect(releases).toEqual([true]);
   });
 
-  for (const endsOnItsOwn of [true, false]) {
-    test(`an answered turn left finishing returns at once; the run waits for it ${endsOnItsOwn ? "to end" : "until its deadline"} before closing, and records what it charged`, async () => {
-      const adapter = createFakeAdapter({
-        script: (context) => ({
-          act: async () => {
-            if (context.id === "answers") await submit(context.binding!, { answer: "ready" });
-            if (context.id === "hangs") await Bun.sleep(300);
-          },
-        }),
-      });
-      const events: string[] = [];
-      let endTurn!: () => void;
-      const turnEnded = new Promise<void>((resolve) => {
-        endTurn = () => {
-          events.push("turn ended");
-          resolve();
-        };
-      });
-      const releases: Array<boolean | undefined> = [];
-      const inner = createSingleSessionHostFactory(adapter);
-      const host: AgentRunHostFactory = {
-        accounting: {
-          pollMs: 5,
-          stalledMs: 50,
-          statusMs: 50,
-          read: async () => ({ records: [], open: false }),
-          billing: async () => "metered",
-        },
-        async openRun(spec) {
-          const run = await inner.openRun(spec);
-          return {
-            ...run,
-            // Closing the host kills a turn still finishing, a little after close itself returns.
-            async close(reason) {
-              events.push("host closed");
-              setTimeout(endTurn, 20);
-              await run.close(reason);
-            },
-            async openAgent(request) {
-              const session = await run.openAgent(request);
-              const start = session.start.bind(session) as (
-                ...args: Parameters<HarnessSession["start"]>
-              ) => Promise<HarnessTurn>;
-              return {
-                ...session,
-                start: (async (...args: Parameters<HarnessSession["start"]>) => {
-                  const turn = await start(...args);
-                  let decide!: (finishing: boolean) => void;
-                  const decided = new Promise<boolean>((resolve) => {
-                    decide = resolve;
-                  });
-                  // Every turn here is released. One left finishing ends, with what it charged,
-                  // only when the test ends it.
-                  const settled = turn.settled.then(async (outcome) => {
-                    if (!(await decided)) return outcome;
-                    await turnEnded;
-                    return {
-                      ...outcome,
-                      chargesUsd: [0.25],
-                    };
-                  });
-                  const observed: HarnessTurn = {
-                    ...turn,
-                    settled,
-                    async release(reason, deadline, options) {
-                      releases.push(options?.answered);
-                      decide(options?.answered === true);
-                      if (!options?.answered) return turn.release(reason, deadline, options);
-                      return { kind: "finishing" };
-                    },
-                  };
-                  return observed;
-                }) as HarnessSession["start"],
-              };
-            },
-          };
-        },
-      };
-      let returnedWhileFinishing = false;
-      const workflow = workflowOf("finishing", async (context) => {
-        const agent = await openReviewer(context);
-        const kinds: string[] = [];
-        for (const [id, deadline] of [
-          ["answers", future()],
-          ["hangs", future(100)],
-        ] as const) {
-          const { outcome } = await agent.run({
-            id,
-            prompt: id,
-            schema: ANSWER_SCHEMA,
-            deadline,
-            nudge: false,
-          });
-          kinds.push(outcome.kind);
-          // Returning at all shows the operation did not wait for the turn to end.
-          if (id === "answers") returnedWhileFinishing = true;
-        }
-        if (endsOnItsOwn) setTimeout(endTurn, 50);
-        return kinds;
-      });
-
-      const began = Date.now();
-      const result = await runNew(workflow, null, {
-        runRoot: tempRunDir(),
-        deadline: future(endsOnItsOwn ? 60_000 : 1_000),
-        runtime: { aliases: { review: { harness: "fake", model: "fake" } }, host },
-      });
-
-      expect(returnedWhileFinishing).toBe(true);
-      expect(result.value).toEqual(["answered", "timed-out"]);
-      // A release after a timeout is not answered, so it stops the turn rather than waiting.
-      expect(releases).toEqual([true, undefined]);
-      expect(events).toEqual(
-        endsOnItsOwn ? ["turn ended", "host closed"] : ["host closed", "turn ended"],
-      );
-      if (endsOnItsOwn) expect(Date.now() - began).toBeLessThan(5_000);
-      expect(result.usage[0]?.charged).toEqual({ amount: 0.25, currency: "USD" });
+  test("an answer waits for natural release before workflow continuation and records its charge", async () => {
+    const events: string[] = [];
+    let finish!: () => void;
+    const finished = new Promise<void>((resolve) => {
+      finish = resolve;
     });
-  }
+    let releasing!: () => void;
+    const releaseStarted = new Promise<void>((resolve) => {
+      releasing = resolve;
+    });
+    const fake = createFakeAdapter({
+      script: (context) => ({
+        act: async () => {
+          await submit(context.binding!, "ready");
+        },
+      }),
+    });
+    const adapter = adapterWith(fake, (session) => ({
+      start: starting(async (turn, binding) => {
+        const native = await dispatch(session, turn, binding);
+        const settled = native.settled.then(async (outcome) => {
+          await finished;
+          return { ...outcome, chargesUsd: [0.25] };
+        });
+        return {
+          ...native,
+          settled,
+          async release(reason, deadline, options) {
+            expect(options).toMatchObject({ answered: true, awaitCompletion: true });
+            events.push("release started");
+            releasing();
+            await finished;
+            const outcome = await settled;
+            events.push("released");
+            await native.release(reason, deadline, options);
+            return { kind: "released" as const, outcome };
+          },
+        };
+      }),
+    }));
+    const workflow = workflowOf("finishing", async (context) => {
+      const agent = await openReviewer(context);
+      const result = await agent.run({ prompt: "Answer.", deadline: future(), nudge: false });
+      events.push("workflow continued");
+      return result.outcome.kind;
+    });
+    const configured = runtime(adapter);
+    configured.host = {
+      ...configured.host,
+      accounting: {
+        pollMs: 5,
+        stalledMs: 50,
+        statusMs: 50,
+        read: async () => ({ records: [], open: false }),
+        billing: async () => "metered",
+      },
+    };
+    const running = runNew(workflow, null, {
+      runRoot: tempRunDir(),
+      deadline: future(),
+      runtime: configured,
+    });
+    await releaseStarted;
+    await Bun.sleep(0);
+    expect(events).toEqual(["release started"]);
+    finish();
+    const result = await running;
+    expect(result.value).toBe("answered");
+    expect(events).toEqual(["release started", "released", "workflow continued"]);
+    expect(result.usage[0]?.charged).toEqual({ amount: 0.25, currency: "USD" });
+    expect(fake.closed).toEqual(["reviewer"]);
+  });
 
   test("placement is the agent's: added to an alias, a pane left unsaid, and kept on reopening", async () => {
     const adapter = createFakeAdapter({ script: () => ({}) });
@@ -674,11 +633,16 @@ describe("runWorkflow", () => {
             stdout: "pipe",
             stderr: "pipe",
           });
-          const [exitCode, stdout] = await Promise.all([
+          const [exitCode, stdout, stderr] = await Promise.all([
             child.exited,
             new Response(child.stdout).text(),
+            new Response(child.stderr).text(),
           ]);
-          expect({ exitCode, stdout }).toEqual({ exitCode: 0, stdout: "result accepted\n" });
+          expect({ exitCode, stdout, stderr }).toEqual({
+            exitCode: 0,
+            stdout: "wf: result accepted\n",
+            stderr: "",
+          });
         },
       }),
     });
@@ -748,23 +712,25 @@ describe("runWorkflow", () => {
     expect(adapter.closed).toEqual(["reviewer"]);
   });
 
-  test("a nudged operation is timed from its first delivery to its nudge's answer", async () => {
-    const attempts: Array<{ began: number; ended: number }> = [];
+  test("a nudged operation is timed from first delivery through natural answer release", async () => {
+    const attempts: Array<{ began: number; answered: number; ended: number }> = [];
+    let continuedAt = 0;
     const adapter = createFakeAdapter({
       script: (context) => ({
         act: async () => {
           const began = Date.now();
           await Bun.sleep(15);
           if (context.kind === "nudge") await submit(context.binding!, { answer: "late" });
-          attempts.push({ began, ended: Date.now() });
-          // Work after the answer is not the operation's: it settled when the answer was taken.
+          const answered = Date.now();
           await Bun.sleep(20);
+          attempts.push({ began, answered, ended: Date.now() });
         },
       }),
     });
     const workflow = workflowOf("nudged-times", async (context) => {
       const agent = await openReviewer(context);
       const result = await agent.run({ prompt: "Review.", schema: ANSWER_SCHEMA });
+      continuedAt = Date.now();
       return result.outcome.kind;
     });
 
@@ -778,8 +744,10 @@ describe("runWorkflow", () => {
     const [first, nudge] = attempts;
     const { deliveredAt, settledAt } = result.usage[0]!;
     expect(Date.parse(deliveredAt!)).toBeLessThanOrEqual(first!.began);
-    expect(Date.parse(settledAt!)).toBeGreaterThanOrEqual(nudge!.began);
-    expect(Date.parse(settledAt!)).toBeLessThanOrEqual(nudge!.ended);
+    expect(attempts).toHaveLength(2);
+    expect(nudge!.ended).toBeGreaterThan(nudge!.answered);
+    expect(Date.parse(settledAt!)).toBeGreaterThanOrEqual(nudge!.ended);
+    expect(Date.parse(settledAt!)).toBeLessThanOrEqual(continuedAt);
   });
 
   test("a timed-out operation settles at its deadline, not when the engine noticed", async () => {
@@ -841,14 +809,12 @@ describe("runWorkflow", () => {
     expect(Date.parse(second!.deliveredAt!)).toBeGreaterThanOrEqual(Date.parse(first!.settledAt!));
   });
 
-  test("an unanswered attempt settles when it ended, even past a nudge deadline", async () => {
+  test("an earlier legacy nudge deadline caps the initial attempt", async () => {
     const nudgeDeadline = future(10);
-    let ended = 0;
     const adapter = createFakeAdapter({
       script: () => ({
         act: async () => {
           await Bun.sleep(40);
-          ended = Date.now();
         },
       }),
     });
@@ -865,7 +831,10 @@ describe("runWorkflow", () => {
     });
 
     const { deliveredAt, settledAt } = result.usage[0]!;
-    expect(Date.parse(settledAt!)).toBeGreaterThanOrEqual(ended);
+    expect(result.value).toBe("timed-out");
+    expect(Date.parse(settledAt!)).toBe(nudgeDeadline.unixMilliseconds);
+    expect(adapter.turns).toHaveLength(1);
+    expect(adapter.closed).toEqual(["reviewer"]);
     expect(Date.parse(settledAt!)).toBeGreaterThan(Date.parse(deliveredAt!));
   });
 
@@ -1111,7 +1080,7 @@ describe("runWorkflow", () => {
     await expect(connect(endpoint)).rejects.toBeDefined();
   });
 
-  test("an accepted result cannot disable the native turn deadline", async () => {
+  test("an accepted result with no natural release fails within the release bound", async () => {
     let operationSignal: AbortSignal | undefined;
     const adapter = createFakeAdapter({
       script: async (context) => {
@@ -1135,13 +1104,25 @@ describe("runWorkflow", () => {
     });
 
     const started = performance.now();
-    const result = await runNew(workflow, null, {
-      runRoot: tempRunDir(),
-      deadline: future(),
-      runtime: runtime(adapter),
-    });
+    const runRoot = tempRunDir();
+    const result = await failedRun(
+      runNew(workflow, null, {
+        runRoot,
+        livenessPolicy: shortReleasePolicy,
+        deadline: future(),
+        runtime: runtime(adapter),
+      }),
+    );
 
-    expect(result.value).toBe("accepted-before-hang");
+    expect((await readTurns(join(runRoot, workflow.meta.name, result.runId)))[0]?.outcome).toBe(
+      "failed",
+    );
+    expect(
+      await readAccepted(
+        join(runRoot, workflow.meta.name, result.runId),
+        result.usage[0]!.operationId,
+      ),
+    ).toEqual({ value: "accepted-before-hang" });
     expect(performance.now() - started).toBeLessThan(200);
     expect(operationSignal?.aborted).toBe(true);
     expect(adapter.closed).toEqual(["hanging"]);
@@ -1184,13 +1165,25 @@ describe("runWorkflow", () => {
       return [first.outcome.kind, second];
     });
 
-    const result = await runNew(workflow, null, {
-      runRoot: tempRunDir(),
-      deadline: future(),
-      runtime: runtime(adapter),
-    });
+    const runRoot = tempRunDir();
+    const result = await failedRun(
+      runNew(workflow, null, {
+        runRoot,
+        livenessPolicy: shortReleasePolicy,
+        deadline: future(),
+        runtime: runtime(adapter),
+      }),
+    );
 
-    expect(result.value).toEqual(["answered", "logical agent is closed"]);
+    expect((await readTurns(join(runRoot, workflow.meta.name, result.runId)))[0]?.outcome).toBe(
+      "failed",
+    );
+    expect(
+      await readAccepted(
+        join(runRoot, workflow.meta.name, result.runId),
+        result.usage[0]!.operationId,
+      ),
+    ).toEqual({ value: "accepted" });
     expect(fake.turns).toHaveLength(1);
   });
 
@@ -1259,11 +1252,16 @@ describe("runWorkflow", () => {
     expect(adapter.turns.map((turn) => turn.kind)).toEqual(["turn"]);
   });
 
-  test("an accepted result wins while native nudge acquisition is still pending", async () => {
+  test("an accepted result waits for pending native acquisition and release", async () => {
     let closeNudge!: () => void;
     const nudgeClosed = new Promise<void>((resolve) => {
       closeNudge = resolve;
     });
+    let submitted!: () => void;
+    const accepted = new Promise<void>((resolve) => {
+      submitted = resolve;
+    });
+    let returned = false;
     const fake = createFakeAdapter({ script: () => ({}) });
     const adapter = adapterWith(fake, (session) => ({
       start: starting(async (turn, binding) => {
@@ -1272,6 +1270,7 @@ describe("runWorkflow", () => {
           ...native,
           async nudge() {
             await submit(binding, "accepted-during-nudge-start");
+            submitted();
             await nudgeClosed;
             return native;
           },
@@ -1290,20 +1289,27 @@ describe("runWorkflow", () => {
         deadline: future(),
         nudge: { deadline: future() },
       });
+      returned = true;
       return result.outcome.kind === "answered" ? result.outcome.value : result.outcome.kind;
     });
 
-    const result = await runNew(workflow, null, {
+    const running = runNew(workflow, null, {
       runRoot: tempRunDir(),
       deadline: future(),
       runtime: runtime(adapter),
     });
 
+    await accepted;
+    await Bun.sleep(0);
+    expect(returned).toBe(false);
+    closeNudge();
+    const result = await running;
+    expect(returned).toBe(true);
     expect(result.value).toBe("accepted-during-nudge-start");
     expect(fake.closed).toEqual(["reviewer"]);
   });
 
-  test("an accepted result survives rejection of native turn acquisition", async () => {
+  test("an accepted artifact survives acquisition rejection without workflow success", async () => {
     const fake = createFakeAdapter({ script: () => ({}) });
     const adapter = adapterWith(fake, () => ({
       start: starting(async (_turn, binding) => {
@@ -1317,13 +1323,25 @@ describe("runWorkflow", () => {
       return result.outcome.kind === "answered" ? result.outcome.value : result.outcome.kind;
     });
 
-    const result = await runNew(workflow, null, {
-      runRoot: tempRunDir(),
-      deadline: future(),
-      runtime: runtime(adapter),
-    });
+    const runRoot = tempRunDir();
+    const result = await failedRun(
+      runNew(workflow, null, {
+        runRoot,
+        livenessPolicy: shortReleasePolicy,
+        deadline: future(),
+        runtime: runtime(adapter),
+      }),
+    );
 
-    expect(result.value).toBe("accepted-before-start-rejection");
+    expect((await readTurns(join(runRoot, workflow.meta.name, result.runId)))[0]?.outcome).toBe(
+      "failed",
+    );
+    expect(
+      await readAccepted(
+        join(runRoot, workflow.meta.name, result.runId),
+        result.usage[0]!.operationId,
+      ),
+    ).toEqual({ value: "accepted-before-start-rejection" });
     expect(fake.closed).toEqual(["reviewer"]);
   });
 
@@ -1347,13 +1365,25 @@ describe("runWorkflow", () => {
       return outcomesOf([first, second]);
     });
 
-    const result = await runNew(workflow, null, {
-      runRoot: tempRunDir(),
-      deadline: future(),
-      runtime: runtime(adapter),
-    });
+    const runRoot = tempRunDir();
+    const result = await failedRun(
+      runNew(workflow, null, {
+        runRoot,
+        livenessPolicy: shortReleasePolicy,
+        deadline: future(),
+        runtime: runtime(adapter),
+      }),
+    );
 
-    expect(result.value).toEqual(["answered", "logical agent is closed"]);
+    expect((await readTurns(join(runRoot, workflow.meta.name, result.runId)))[0]?.outcome).toBe(
+      "failed",
+    );
+    expect(
+      await readAccepted(
+        join(runRoot, workflow.meta.name, result.runId),
+        result.usage[0]!.operationId,
+      ),
+    ).toEqual({ value: "accepted-before-stuck-release" });
     expect(fake.turns).toHaveLength(1);
     expect(fake.closed).toEqual(["reviewer"]);
   }, 6_500);
@@ -1521,13 +1551,19 @@ describe("runWorkflow", () => {
       return outcome;
     });
 
-    const result = await runNew(workflow, null, {
-      runRoot: tempRunDir(),
-      deadline: future(),
-      runtime: runtime(adapter),
-    });
+    const runRoot = tempRunDir();
+    const result = await failedRun(
+      runNew(workflow, null, {
+        runRoot,
+        livenessPolicy: shortReleasePolicy,
+        deadline: future(),
+        runtime: runtime(adapter),
+      }),
+    );
 
-    expect(["timed-out", "deadline-exceeded"]).toContain(result.value);
+    expect((await readTurns(join(runRoot, workflow.meta.name, result.runId)))[0]?.outcome).toBe(
+      "timed-out",
+    );
     expect(acquiredAfterScope).toBe(0);
     expect(fake.turns).toHaveLength(0);
     expect(fake.closed).toEqual(["reviewer"]);
@@ -1583,13 +1619,19 @@ describe("runWorkflow", () => {
       return outcome;
     });
 
-    const result = await runNew(workflow, null, {
-      runRoot: tempRunDir(),
-      deadline: future(),
-      runtime: runtime(adapter),
-    });
+    const runRoot = tempRunDir();
+    const result = await failedRun(
+      runNew(workflow, null, {
+        runRoot,
+        livenessPolicy: shortReleasePolicy,
+        deadline: future(),
+        runtime: runtime(adapter),
+      }),
+    );
 
-    expect(["timed-out", "deadline-exceeded"]).toContain(result.value);
+    const turns = await readTurns(join(runRoot, workflow.meta.name, result.runId));
+    expect(turns).toHaveLength(1);
+    expect(["timed-out", "cancelled"]).toContain(turns[0]!.outcome);
     expect(lateReleases).toBe(1);
     expect(fake.closed).toEqual(["reviewer"]);
   });
@@ -1867,7 +1909,7 @@ describe("runWorkflow", () => {
     expect(nestedRan).toBe(false);
   });
 
-  test("deadline expiry while native start is pending resolves as timed-out", async () => {
+  test("deadline expiry during unresolved native start records timeout and fails the run", async () => {
     const fake = createFakeAdapter({ script: () => ({}) });
     const adapter = adapterWith(fake, (session) => ({
       start: starting(async (turn, binding) => {
@@ -1885,13 +1927,19 @@ describe("runWorkflow", () => {
       return result.outcome.kind;
     });
 
-    const result = await runNew(workflow, null, {
-      runRoot: tempRunDir(),
-      deadline: future(),
-      runtime: runtime(adapter),
-    });
+    const runRoot = tempRunDir();
+    const result = await failedRun(
+      runNew(workflow, null, {
+        runRoot,
+        livenessPolicy: shortReleasePolicy,
+        deadline: future(),
+        runtime: runtime(adapter),
+      }),
+    );
 
-    expect(result.value).toBe("timed-out");
+    expect((await readTurns(join(runRoot, workflow.meta.name, result.runId)))[0]?.outcome).toBe(
+      "timed-out",
+    );
     expect(fake.closed).toEqual(["starting"]);
   });
 
@@ -1925,14 +1973,20 @@ describe("runWorkflow", () => {
       return result.outcome.kind;
     });
 
-    const result = await runNew(workflow, null, {
-      runRoot: tempRunDir(),
-      deadline: future(),
-      runtime: runtime(adapter),
-    });
+    const runRoot = tempRunDir();
+    const result = await failedRun(
+      runNew(workflow, null, {
+        runRoot,
+        livenessPolicy: shortReleasePolicy,
+        deadline: future(),
+        runtime: runtime(adapter),
+      }),
+    );
 
-    expect(result.value).toBe("timed-out");
-    expect(JSON.stringify(result)).not.toContain("cancel failed");
+    expect((await readTurns(join(runRoot, workflow.meta.name, result.runId)))[0]?.outcome).toBe(
+      "timed-out",
+    );
+    expect(String(result.cause)).toContain("cleanup failed");
     expect(fake.closed).toEqual(["rejecting-cancel"]);
   });
 
@@ -1964,13 +2018,19 @@ describe("runWorkflow", () => {
       return result.outcome.kind;
     });
 
-    const result = await runNew(workflow, null, {
-      runRoot: tempRunDir(),
-      deadline: future(),
-      runtime: runtime(adapter),
-    });
+    const runRoot = tempRunDir();
+    const result = await failedRun(
+      runNew(workflow, null, {
+        runRoot,
+        livenessPolicy: shortReleasePolicy,
+        deadline: future(),
+        runtime: runtime(adapter),
+      }),
+    );
 
-    expect(result.value).toBe("timed-out");
+    expect((await readTurns(join(runRoot, workflow.meta.name, result.runId)))[0]?.outcome).toBe(
+      "timed-out",
+    );
     expect(fake.closed).toEqual(["stuck-cancel"]);
   }, 8_000);
 
@@ -2003,13 +2063,19 @@ describe("runWorkflow", () => {
       return outcomesOf([first, second]);
     });
 
-    const result = await runNew(workflow, null, {
-      runRoot: tempRunDir(),
-      deadline: future(),
-      runtime: runtime(adapter),
-    });
+    const runRoot = tempRunDir();
+    const result = await failedRun(
+      runNew(workflow, null, {
+        runRoot,
+        livenessPolicy: shortReleasePolicy,
+        deadline: future(),
+        runtime: runtime(adapter),
+      }),
+    );
 
-    expect(result.value).toEqual(["timed-out", "logical agent is closed"]);
+    expect((await readTurns(join(runRoot, workflow.meta.name, result.runId)))[0]?.outcome).toBe(
+      "timed-out",
+    );
     expect(fake.turns).toHaveLength(1);
     expect(fake.closed).toEqual(["terminal"]);
   });
@@ -2076,13 +2142,25 @@ describe("runWorkflow", () => {
       return outcomesOf([first, second]);
     });
 
-    const result = await runNew(workflow, null, {
-      runRoot: tempRunDir(),
-      deadline: future(),
-      runtime: runtime(adapter),
-    });
+    const runRoot = tempRunDir();
+    const result = await failedRun(
+      runNew(workflow, null, {
+        runRoot,
+        livenessPolicy: shortReleasePolicy,
+        deadline: future(),
+        runtime: runtime(adapter),
+      }),
+    );
 
-    expect(result.value).toEqual(["answered", "logical agent is closed"]);
+    expect((await readTurns(join(runRoot, workflow.meta.name, result.runId)))[0]?.outcome).toBe(
+      "failed",
+    );
+    expect(
+      await readAccepted(
+        join(runRoot, workflow.meta.name, result.runId),
+        result.usage[0]!.operationId,
+      ),
+    ).toEqual({ value: "accepted-at-native-timeout" });
     expect(fake.turns).toHaveLength(1);
     expect(fake.closed).toEqual(["terminal"]);
   });
@@ -2124,13 +2202,19 @@ describe("runWorkflow", () => {
       return result.outcome.kind;
     });
 
-    const result = await runNew(workflow, null, {
-      runRoot: tempRunDir(),
-      deadline: future(),
-      runtime: runtime(adapter),
-    });
+    const runRoot = tempRunDir();
+    const result = await failedRun(
+      runNew(workflow, null, {
+        runRoot,
+        livenessPolicy: shortReleasePolicy,
+        deadline: future(),
+        runtime: runtime(adapter),
+      }),
+    );
 
-    expect(result.value).toBe("timed-out");
+    expect((await readTurns(join(runRoot, workflow.meta.name, result.runId)))[0]?.outcome).toBe(
+      "timed-out",
+    );
     expect(closeAttempts).toBe(2);
     expect(fake.closed).toEqual(["retry-close"]);
   });
@@ -2382,4 +2466,14 @@ async function outcomesOf(runs: readonly Promise<RunResult<JsonValue>>[]): Promi
         ? item.reason.message
         : String(item.reason),
   );
+}
+
+async function failedRun(result: Promise<unknown>): Promise<WorkflowRunError> {
+  const error = await result.then(
+    () => undefined,
+    (reason: unknown) => reason,
+  );
+  expect(error).toBeInstanceOf(WorkflowRunError);
+  expect(String((error as WorkflowRunError).cause)).toContain("cleanup failed");
+  return error as WorkflowRunError;
 }

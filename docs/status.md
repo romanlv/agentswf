@@ -183,6 +183,13 @@ The gates are defined in [`foundation.md`](foundation.md) §12.
   ([findings](findings/agent-effort.md)). The lab's contained-codex stopgap goes with
   [`loop-next`](stories/todo/loop-next.md).
 
+- [[021-turn-liveness-and-limits|021 — Turn liveness and limits]]: implementation verified,
+  human review pending (`in-progress`). Cooperative
+  `wf waiting` and repeated check-ins keep one fixed deadline and result slot. Host Claude and
+  SRT acceptance runs completed with two check-ins and a follow-up in the same session;
+  repository checks and targeted failure evaluations passed. All five tasks are verified; human
+  review remains open and Cursor-dependent full live matrices are blocked by authentication.
+
 The inbox of possible stories is [`stories/todo/`](stories/todo/).
 
 ## Next
@@ -196,8 +203,8 @@ with a long run:
    promising, cases up to a look in parallel, a resolution at 1 trial) and
    [`loop-next`](stories/todo/loop-next.md) (a proposer that thinks, spend a cut can't hide, a
    loop that outlives its shell, the scorer checked first).
-2. [`turn-liveness-and-limits`](stories/todo/turn-liveness-and-limits.md): an agent waiting on its
-   own background work isn't done; the implement-ticket run lost its last step to it.
+2. [[021-turn-liveness-and-limits|Story 021]] is implementing cooperative waiting and bounded
+   check-ins after the implement-ticket run lost its last step to premature settlement.
 
 Alongside: [story 018](stories/018-workflow-stages.md), stages and continuing a run, built and awaiting review;
 then [`stopped-run-recovery`](stories/todo/stopped-run-recovery.md) on top of 018 and liveness.

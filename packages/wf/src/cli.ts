@@ -1,14 +1,16 @@
 #!/usr/bin/env -S bun --no-env-file
 import {
-  type ResultSubmitRequest,
-  type ResultSubmitResponse,
+  type ControlRequest,
+  type ControlResponse,
+  validWaitingReason,
   WIRE_VERSION,
 } from "@agentswf/contract/wire";
-import { submitResult } from "./client";
+import { submitControl } from "./client";
 
 const usage = [
   "usage: wf result <call-id> '<json>'",
   "       wf result <call-id> < result.json",
+  "       wf waiting <call-id> --reason <text> [--timeout <duration>]",
   "",
   "The call id is the one named in the request. Pass JSON as one argument; with no argument,",
   "JSON is read from standard input.",
@@ -21,10 +23,7 @@ export type CliOutcome = { exitCode: number; stdout: string; stderr: string };
 export async function runCli(
   argv: readonly string[],
   stdin: string | null,
-  submit: (
-    endpoint: string,
-    request: ResultSubmitRequest,
-  ) => Promise<ResultSubmitResponse> = submitResult,
+  submit: (endpoint: string, request: ControlRequest) => Promise<ControlResponse> = submitControl,
 ): Promise<CliOutcome> {
   // The launcher the engine installs supplies `--at`; the socket is an address, not a secret.
   const {
@@ -35,6 +34,7 @@ export async function runCli(
   if (!endpoint) {
     return usageError("wf must be run through the launcher the workflow engine installed");
   }
+  if (command === "waiting") return runWaiting(endpoint, session, args, submit);
   if (command !== "result") return usageError(usage);
   const [operationId, ...rest] = args;
   if (!operationId) return usageError("wf result needs the call id it is answering");
@@ -50,10 +50,11 @@ export async function runCli(
   const raw = rest[0] ?? stdin ?? "";
   if (raw.trim() === "") return usageError("wf result input cannot be empty");
 
-  let response: ResultSubmitResponse;
+  let response: ControlResponse;
   try {
     response = await submit(endpoint, {
       version: WIRE_VERSION,
+      command: "result",
       operationId,
       raw,
       ...(session ? { session } : {}),
@@ -66,7 +67,77 @@ export async function runCli(
   if (response.kind === "rejected") {
     return { exitCode: 1, stdout: "", stderr: `wf: ${rejection(response, operationId)}` };
   }
+  if (response.kind !== "accepted")
+    return { exitCode: 1, stdout: "", stderr: "wf: unexpected waiting acknowledgement for result" };
   return { exitCode: 0, stdout: "wf: result accepted", stderr: "" };
+}
+
+async function runWaiting(
+  endpoint: string,
+  session: string | undefined,
+  args: readonly string[],
+  submit: (endpoint: string, request: ControlRequest) => Promise<ControlResponse>,
+): Promise<CliOutcome> {
+  const [operationId, ...flags] = args;
+  if (!operationId?.trim() || operationId.startsWith("--"))
+    return usageError("wf waiting needs the call id it is waiting on");
+  const values = new Map<string, string>();
+  for (let i = 0; i < flags.length; i += 2) {
+    const flag = flags[i]!;
+    const value = flags[i + 1];
+    if ((flag !== "--reason" && flag !== "--timeout") || values.has(flag) || value === undefined)
+      return usageError("wf waiting accepts --reason once and optional --timeout once");
+    values.set(flag, value);
+  }
+  const reason = values.get("--reason");
+  if (!validWaitingReason(reason))
+    return usageError("wf waiting --reason must be non-blank and at most 2048 UTF-8 bytes");
+  const duration = values.get("--timeout");
+  let timeoutMs: number | undefined;
+  if (duration !== undefined) {
+    const match = /^([0-9]+)(ms|s|m|h)$/.exec(duration);
+    if (!match)
+      return usageError("wf waiting --timeout must be a positive integer with ms, s, m or h");
+    const factor = { ms: 1, s: 1000, m: 60_000, h: 3_600_000 }[match[2]!]!;
+    timeoutMs = Number(match[1]) * factor;
+    if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0)
+      return usageError("wf waiting --timeout must fit a positive safe integer in milliseconds");
+  }
+  let response: ControlResponse;
+  try {
+    response = await submit(endpoint, {
+      version: WIRE_VERSION,
+      command: "waiting",
+      operationId,
+      reason,
+      ...(timeoutMs === undefined ? {} : { timeoutMs }),
+      ...(session ? { session } : {}),
+    });
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    return {
+      exitCode: 1,
+      stdout: "",
+      stderr: `wf: waiting acknowledgement is uncertain; the engine may have granted the wait. No retry was sent.\n${detail}`,
+    };
+  }
+  if (response.kind === "rejected")
+    return {
+      exitCode: 1,
+      stdout: "",
+      stderr: `wf: waiting rejected (${response.code}).\n${response.error}`,
+    };
+  if (response.kind !== "waiting")
+    return {
+      exitCode: 1,
+      stdout: "",
+      stderr: "wf: unexpected result acknowledgement for waiting; wait is uncertain",
+    };
+  return {
+    exitCode: 0,
+    stdout: `wf: waiting granted until ${response.waitUntil}; operation deadline ${response.deadline} (Unix milliseconds)`,
+    stderr: "",
+  };
 }
 
 /**
@@ -75,7 +146,7 @@ export async function runCli(
  * attempts, a bare refusal in 2.90 to 4.95.
  */
 function rejection(
-  response: Extract<ResultSubmitResponse, { kind: "rejected" }>,
+  response: Extract<ControlResponse, { kind: "rejected" }>,
   operationId: string,
 ): string {
   switch (response.code) {

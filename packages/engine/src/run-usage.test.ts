@@ -389,8 +389,10 @@ describe("usage read when the run ends", () => {
     expect(result.usage[0]!.spend![0]!.tokens.output).toBe(3);
   });
 
-  test("an answer that came before its turn was held still marks where its spend begins", async () => {
+  test("an early answer keeps its acquisition spend and waits for remaining native spend", async () => {
     const files = sessionFiles();
+    let secondNativeFinished = false;
+    let eagerAnswer: unknown;
     const adapter = createFakeAdapter({
       script: (context) => ({
         act: async () => {
@@ -398,6 +400,7 @@ describe("usage read when the run ends", () => {
           await Bun.sleep(5);
           await submit(context.binding!, { answer: "ok" });
           await Bun.sleep(5);
+          if (context.turn === 2) secondNativeFinished = true;
         },
       }),
     });
@@ -415,7 +418,8 @@ describe("usage read when the run ends", () => {
             if (starts === 2) {
               await Bun.sleep(5);
               files.log("s-eager", 6);
-              await submit(binding, { answer: "ok" });
+              eagerAnswer = await submit(binding, { answer: "ok" });
+              await Bun.sleep(5);
             }
             return (session.start as (t: never, b: typeof binding) => unknown)(turn, binding);
           }) as typeof session.start,
@@ -427,11 +431,14 @@ describe("usage read when the run ends", () => {
       const agent = await open(context, "eager");
       await agent.run({ prompt: "First.", schema: ANSWER });
       await agent.run({ prompt: "Second.", schema: ANSWER });
+      expect(secondNativeFinished).toBe(true);
       return null;
     });
 
+    expect(eagerAnswer).toMatchObject({ kind: "accepted" });
+    expect(adapter.turns).toHaveLength(2);
     expect(result.usage[1]!.deliveredAt).toBeDefined();
-    expect(result.usage.map((usage) => usage.spend?.[0]?.tokens.output)).toEqual([4, 6]);
+    expect(result.usage.map((usage) => usage.spend?.[0]?.tokens.output)).toEqual([4, 10]);
   });
 
   test("which of two agents keeps a request they both name follows the order they were opened", async () => {

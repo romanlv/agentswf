@@ -120,11 +120,14 @@ describe("minimum-review", () => {
     });
   });
 
-  test("a first turn's bound must be a positive whole number of milliseconds", () => {
-    for (const firstTurnMs of [0, -1, 1.5]) {
+  test("an operation's bound must be a positive whole number of milliseconds", () => {
+    for (const operationTimeoutMs of [0, -1, 1.5]) {
       expect(() =>
-        createMinimumReview({ correctness: "claude", maintainability: "codex" }, firstTurnMs),
-      ).toThrow("first-turn duration must be a positive safe integer");
+        createMinimumReview(
+          { correctness: "claude", maintainability: "codex" },
+          operationTimeoutMs,
+        ),
+      ).toThrow("operation duration must be a positive safe integer");
     }
   });
 

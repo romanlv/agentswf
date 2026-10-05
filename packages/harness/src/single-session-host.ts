@@ -153,6 +153,7 @@ function observeSession(
     },
   });
   return {
+    ...(session.supportsWaiting ? { supportsWaiting: true as const } : {}),
     async status() {
       const status = await session.status();
       record(status);

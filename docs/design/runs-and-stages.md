@@ -634,7 +634,7 @@ Each is a reader of the same files, or a row in the stage plan:
 - Fork: a new run seeded with another run's records, with `forkedFrom` in `run.json` (DBOS's
   `forkWorkflow`), likely as `--from`, which is why stage flags say `-stage`.
 - Stops worth retrying (the provider down, out of credits, a usage limit), with
-  [[turn-liveness-and-limits]]: `stop` records whether a retry could help, as Restate's
+  [[021-turn-liveness-and-limits]]: `stop` records whether a retry could help, as Restate's
   `TerminalError` and Temporal's `nonRetryable` do.
 - A status the workflow sets (parked, 2026-10-04): "waiting on CI", "MR open", where the work is in
   the workflow's words. Likely a declared `meta.statuses` with a typed `workflow.status(…)`, shown

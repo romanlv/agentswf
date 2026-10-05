@@ -713,6 +713,39 @@ describe("createHerdrRunHostFactory", () => {
     return { run, calls };
   }
 
+  test("waiting requires a run-local transcript home for sandbox panes", async () => {
+    for (const home of [undefined, "/run/homes/claude"]) {
+      const { run } = hostStub();
+      const host = await createHerdrRunHostFactory(CONFIG, run).openRun({
+        runId: "waiting",
+        cwd: "/repo",
+        deadline: deadline(),
+      });
+      const session = await host.openAgent({
+        key: "waiter",
+        cwd: "/repo",
+        deadline: deadline(),
+        execution: { harness: "claude", model: "opus" },
+        ...(home ? { home } : {}),
+        occupant: {
+          launch: () => {
+            throw new Error("unused");
+          },
+          release: async () => {},
+          pane: async () => ({
+            herdr: "run",
+            prelude: "confined",
+            ready: "ready",
+            harness: "claude",
+          }),
+        },
+      });
+      expect(session.supportsWaiting).toBe(home ? true : undefined);
+      await session.close();
+      await host.close();
+    }
+  });
+
   test("gives each peer agent a tab of its own in one run workspace", async () => {
     const { run, calls } = hostStub();
     const host = await createHerdrRunHostFactory(CONFIG, run).openRun({
@@ -762,6 +795,60 @@ describe("createHerdrRunHostFactory", () => {
 
     await host.close();
     expect(calls.filter((call) => verb(call) === "workspace close")).toHaveLength(1);
+  });
+
+  test("cancelling an undispatched successor leaves the pane and permits another successor", async () => {
+    const base = hostStub();
+    let hold = false;
+    let entered!: () => void;
+    const waiting = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    const run: RunProcess = async (input) => {
+      if (hold && verb(input) === "agent wait") {
+        entered();
+        await new Promise<void>((resolve) => {
+          if (input.signal?.aborted) resolve();
+          else input.signal?.addEventListener("abort", () => resolve(), { once: true });
+        });
+        return { stdout: "", stderr: "", exitCode: 130, cancelled: true, timedOut: false };
+      }
+      return base.run(input);
+    };
+    const host = await createHerdrRunHostFactory(CONFIG, run).openRun({
+      runId: "cancel-dispatch",
+      cwd: "/repo",
+      deadline: deadline(),
+    });
+    const session = await host.openAgent({
+      key: "agent",
+      cwd: "/repo",
+      deadline: deadline(),
+      execution: { harness: "claude", model: "test" },
+    });
+    const initial = await session.start(
+      { id: "initial", prompt: "start", deadline: deadline() },
+      binding("operation"),
+    );
+    await initial.settled;
+    hold = true;
+    const controller = new AbortController();
+    const pending = await initial.nudge({
+      id: "pending",
+      prompt: "check",
+      deadline: deadline(),
+      deliverySignal: controller.signal,
+    });
+    await waiting;
+    controller.abort();
+    expect((await pending.settled).state).toBe("cancelled");
+    expect(base.calls.filter((call) => verb(call) === "agent prompt")).toHaveLength(1);
+    expect(base.calls.filter((call) => verb(call) === "tab close")).toHaveLength(0);
+    hold = false;
+    const next = await pending.nudge({ id: "next", prompt: "check later", deadline: deadline() });
+    expect((await next.settled).state).toBe("completed");
+    expect(base.calls.filter((call) => verb(call) === "agent prompt")).toHaveLength(2);
+    await host.close();
   });
 
   test("a nudge and a later operation stay in the agent's tab, the later one once it settles", async () => {
@@ -1001,7 +1088,9 @@ describe("createHerdrRunHostFactory", () => {
       return { host, session };
     };
     const prompted = (calls: ProcessInput[]) =>
-      calls.filter((call) => verb(call) === "agent prompt").map((call) => call.argv[6]);
+      calls
+        .filter((call) => verb(call) === "agent prompt")
+        .map((call) => call.argv[6]!.replace(/^\[awf-delivery:[^\]]+\] /, ""));
 
     test("claude is typed /compact with the focus, and the screen confirms it", async () => {
       const { run, calls } = showing(
@@ -1499,13 +1588,12 @@ describe("createHerdrRunHostFactory", () => {
 
       const started = calls.find((call) => verb(call) === "agent start")!;
       expect(started.argv).toEqual(expect.arrayContaining(["--resume", "fork-1"]));
-      // Claude shows a prompt Herdr pastes as pasted text, which it will not act on: one of
-      // several lines is typed, and a line of the operator's own submits it.
-      const typed = calls.find((call) => call.argv.slice(3, 5).join(" ") === "pane send-text")!;
-      expect(typed.argv.at(-1)).toBe("You write the tests.\n\ntest\n\n");
-      expect(calls.find((call) => verb(call) === "agent prompt")!.argv[6]).toBe(
-        "Do what the text above asks.",
+      const prompts = calls.filter((call) => verb(call) === "agent prompt");
+      expect(prompts).toHaveLength(1);
+      expect(prompts[0]!.argv[6]?.replace(/^\[awf-delivery:[^\]]+\] /, "")).toBe(
+        "You write the tests.\n\ntest",
       );
+      expect(calls.some((call) => verb(call) === "pane send-text")).toBe(false);
       await host.close();
     });
 

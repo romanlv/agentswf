@@ -398,3 +398,21 @@ export type OutputRecord = {
       stage?: string;
     }
 );
+
+export const OPERATION_LIVENESS_RECORD_VERSION = 1 as const;
+
+/** Optional diagnostics in calls/{operationId}/liveness.jsonl; never settlement authority. */
+export type OperationLivenessRecord = {
+  version: typeof OPERATION_LIVENESS_RECORD_VERSION;
+  operationId: string;
+  kind: string;
+  /** Unix milliseconds, sampled by the engine. */
+  at: number;
+  /** Check-in ordinal: zero is the initial prompt; several events share an ordinal. */
+  sequence: number;
+  reason?: string;
+  until?: number;
+  /** Events omitted since the previous successfully written record. */
+  dropped?: number;
+  truncated?: true;
+};

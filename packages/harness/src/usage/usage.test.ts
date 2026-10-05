@@ -5,6 +5,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  realpathSync,
   renameSync,
   rmSync,
   symlinkSync,
@@ -594,6 +595,26 @@ describe("codex sessions", () => {
 });
 
 describe("a claude pane's session in a sandbox, which Herdr does not name", () => {
+  test("canonicalizes a symlink cwd before finding an unanswered session", async () => {
+    const home = mkdtempSync(join(tmpdir(), "claude-find-"));
+    const target = join(home, "work");
+    const alias = join(home, "alias");
+    mkdirSync(target);
+    symlinkSync(target, alias);
+    const directory = join(home, "projects", realpathSync(target).replace(/[^A-Za-z0-9]/g, "-"));
+    mkdirSync(directory, { recursive: true });
+    const since = Date.now() - 1000;
+    writeFileSync(
+      join(directory, "silent.jsonl"),
+      `${JSON.stringify({ timestamp: new Date().toISOString(), message: { role: "user", content: "wf result unanswered-op" } })}\n`,
+    );
+    try {
+      expect(await findClaudeSession("unanswered-op", since, alias, home)).toBe("silent");
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
   test("is the earliest started since its launch, in its directory, whose transcript holds its operation's id", async () => {
     const home = mkdtempSync(join(tmpdir(), "claude-find-"));
     const directory = join(home, "projects", "-repo");

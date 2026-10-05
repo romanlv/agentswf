@@ -152,10 +152,27 @@ const { outcome } = await reviewer.run<Type.Static<typeof FINDINGS>>({
 - **Without a schema**, the answer is a string.
 - **The type argument** (`run<Type.Static<typeof X>>`) is how the answer gets its TypeScript type.
   A plain TypeBox schema doesn't carry one on its own.
-- **`timeoutMs`** bounds this turn. It can't go past the enclosing deadline (see
-  [Deadlines](#deadlines)).
-- **`nudge`**: if the agent stops without answering, the engine asks once more by default.
-  `nudge: false` turns this off, and `nudge: { prompt }` sets what the engine says.
+- **`timeoutMs`** bounds the whole operation from queue entry, including every check-in and
+  waiting interval. It cannot go past the enclosing deadline (see [Deadlines](#deadlines)).
+- **`nudge`** controls automatic recovery. On placements with cooperative waiting support, the
+  engine can check in repeatedly when the agent declares another wait. A check-in without a
+  protocol reply ends `unanswered` after its response window. Other placements retain their
+  measured foreground recovery. `nudge: false` disables automatic check-ins; `nudge: { prompt }`
+  adds context without removing the result/waiting instructions.
+
+On a supported placement, the agent can report a wait using the same call ID as its answer:
+
+```sh
+wf waiting {call-id} --reason "Deploy is still running" --timeout 2m
+wf result {call-id} '{"status":"deployed"}'
+```
+
+The reason is required. Timeout is optional and accepts a positive integer followed by `ms`, `s`,
+`m` or `h`. The engine acknowledges the actual grant and fixed deadline; the command returns
+immediately. Waiting does not count as an answer and cannot move that deadline. It is the agent's
+report, not proof that background work exists or is useful. An uncertain acknowledgement is not
+automatically retried. Unsupported placements reject waiting explicitly; see
+[[021-implementation-proof#Current support boundary|the measured support table]].
 
 ### Outcomes
 
@@ -164,11 +181,11 @@ turn that goes wrong is still a value:
 
 | `kind` | Meaning |
 | --- | --- |
-| `answered` | `outcome.value` is the checked answer. |
-| `unanswered` | The agent finished its turn without answering, even after the nudge. |
+| `answered` | `outcome.value` is the checked answer, and native release was confirmed. |
+| `unanswered` | Recovery ended without an accepted answer or a fresh waiting declaration. |
 | `blocked` | The agent is showing a question only a person can answer, such as a permission prompt. |
 | `timed-out` | The turn's deadline passed. |
-| `failed` | The harness failed. `retryable` says whether trying again might help. |
+| `failed` | Execution, delivery or cleanup failed. `retryable` says whether trying again might help; unresolved cleanup is not retried. |
 | `cancelled` | The run or an enclosing scope was stopped. |
 
 ```ts
@@ -389,7 +406,17 @@ run deadline (--timeout)
 A deadline is `{ unixMilliseconds }`. Agents get it as `deadline` and turns take `timeoutMs` as a
 shortcut. When a deadline passes, the turns under it end as `timed-out`, while waits without an
 outcome (`parallel`, `decide`) reject with `DeadlineExceededError`. When the run ends for any
-reason, every agent is closed and every sandbox torn down.
+reason, every run-owned agent is closed and every sandbox torn down; the caller's pane remains
+with its operator.
+
+**Migration:** `nudge.deadline` no longer adds a later recovery window. It participates in the
+minimum deadline computed before queueing: an earlier value shortens the entire operation and
+a later value cannot extend it. Increase `timeoutMs` explicitly when more total time is needed.
+
+A result admitted before the answer deadline may finish saving and native wrap-up within separate
+bounded graces. Scope/run cancellation can still prevent success. The workflow receives its answer
+only after native release; failure to prove release keeps the answer as evidence and fails closed.
+This does not certify that detached processes or remote jobs have stopped.
 
 ## Sandboxes
 

@@ -54,6 +54,8 @@ export type AuthoredTurn = {
 /** `prompt` is the wrapped prompt the agent is sent. */
 export interface HarnessNudgeSpec extends NudgeOptions, HarnessAuthored {
   id: TurnId;
+  /** Cancels only a successor still waiting to dispatch, never submitted native work. */
+  deliverySignal?: AbortSignal;
 }
 
 /**
@@ -96,6 +98,12 @@ export type HarnessReleaseDisposition =
   | { kind: "quarantined"; reason: string };
 
 export interface HarnessTurn {
+  /** Native delivery evidence; absent when this host cannot observe model receipt. */
+  readonly delivery?: {
+    dispatched: Promise<number>;
+    accepted: Promise<number>;
+    received: Promise<number>;
+  };
   /** Native evidence only; the engine combines it with the atomically settled result slot. */
   readonly settled: Promise<HarnessTurnOutcome>;
   /** Continues this operation and resolves once the prompt is presented to the model. */
@@ -114,6 +122,8 @@ export interface HarnessTurn {
 }
 
 export type HarnessReleaseOptions = {
+  /** Await natural completion within the release deadline, without an observer-only stop. */
+  awaitCompletion?: true;
   /**
    * The operation's result is in, or nothing waits on it any more without ending the session, as
    * for a compaction past its deadline. A host whose next operation resumes this session may answer
@@ -123,6 +133,8 @@ export type HarnessReleaseOptions = {
 };
 
 export interface HarnessSession {
+  /** This session can confirm delivery for repeated cooperative check-ins. */
+  readonly supportsWaiting?: true;
   status(): Promise<HarnessSessionStatus>;
   /** `turn.prompt` is the wrapped prompt the agent is sent. */
   start(

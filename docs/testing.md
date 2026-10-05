@@ -57,6 +57,16 @@ printed instead of run, a skill listed but not used), 2026-10-01.
 
 What they cover between them:
 
+- `turn-liveness` — story 021's cooperative `wf waiting` path through `awf run`, repeated check-ins,
+  final answer and a dependent operation in one Claude pane. `bun run eval turn-liveness` runs
+  the host case. With explicit live opt-in, `AWF_LIVE_EVAL=1 bun tests/turn-liveness.eval.ts {mode}`
+  selects `host`, `srt`, `silent`, `timeout`, `cancel` or `lost-route`. Each invocation has a five-minute outer
+  deadline; initial cost guidance is under $1 list price per scenario, not a measured suite total.
+  Host/SRT acceptance, failure cases and the final offline suite passed; Cursor-dependent full
+  live matrices remain blocked by authentication. Exact results are in
+  [[021-implementation-proof]].
+  Inspect native receipt evidence and persisted waiting events, not merely agent prose or exit code.
+
 - `harnesses` — quick-check across codex, pi and cursor headless and claude, pi and cursor in a
   Herdr pane, through `awf run`. Every answer must be right, each including a follow-up in the same
   session, and every agent's spend known and billed to its subscription, but cursor's: its billing
@@ -154,8 +164,9 @@ Not covered live, on purpose:
   subscription. The sandbox evals run it, as a sandboxed claude has no other way to run headless;
   `compaction` runs it, as headless compaction is what it checks; and `review-judge` runs it, as
   the panel runs its judges headless.
-- Deadlines, nudges, parallel limits and cleanup: the offline suite drives them through fakes, and
-  a live run adds only a slower clock.
+- Combinatorial deadline, admission, check-in and cleanup races stay in deterministic offline
+  tests. `turn-liveness` exercises their provider integration; it does not replace fake-clock
+  coverage or establish every provider's receipt/cleanup behavior.
 
 Each eval prints a JSON summary on stdout, with `ok` and `estimateUsd` — a failed one too — and the
 run's accounting on stderr. It exits non-zero when an assertion fails and keeps its artifacts under

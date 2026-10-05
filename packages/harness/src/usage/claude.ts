@@ -1,3 +1,4 @@
+import { realpath } from "node:fs/promises";
 import { join, relative } from "node:path";
 import { count, parseRow, type Row, record, text } from "../json";
 import { harnessState } from "../state";
@@ -7,6 +8,14 @@ import type { SessionRead, UsageRecord } from "./records";
 /** Under `home`, the harness's home: the operator's unless an agent was given its own. */
 export function claudeProjectsDirectory(home = harnessState().claude): string {
   return join(home, "projects");
+}
+
+export async function claudeProjectDirectory(cwd: string, home?: string): Promise<string> {
+  const nativeCwd = await realpath(cwd).catch((error: unknown) => {
+    if (record(error)?.code === "ENOENT") return cwd;
+    throw error;
+  });
+  return join(claudeProjectsDirectory(home), nativeCwd.replace(/[^A-Za-z0-9]/g, "-"));
 }
 
 /**
@@ -122,8 +131,7 @@ export async function findClaudeSession(
   cwd: string,
   home?: string,
 ): Promise<string | undefined> {
-  const projects = claudeProjectsDirectory(home);
-  const directory = join(projects, cwd.replace(/[^A-Za-z0-9]/g, "-"));
+  const directory = await claudeProjectDirectory(cwd, home);
   let found: { id: string; started: number } | undefined;
   for (const name of await entries(directory)) {
     if (!name.endsWith(".jsonl")) continue;

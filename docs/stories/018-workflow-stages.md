@@ -87,7 +87,7 @@ Why now:
   - the agent that did everything was one cost line;
   - a restart worked only because the workflow kept its own record;
   - the restart came after a code fix, so attempts on changed code are the normal case.
-- [[stopped-run-recovery]], [[run-logs-and-telemetry]] and [[turn-liveness-and-limits]] wait on
+- [[stopped-run-recovery]], [[run-logs-and-telemetry]] and [[021-turn-liveness-and-limits]] wait on
   stages.
 - Changing the published surface and the run dir is cheapest now.
 
@@ -131,7 +131,7 @@ Out of scope:
   `--only-stage`, `--skip-stage`, `fresh`, fork, a status the workflow sets.
 - Reopening agents' sessions on a continue, and debug mode ([[stopped-run-recovery]]).
 - Live cost during a run, `awf logs` and OTel ([[run-logs-and-telemetry]]).
-- Per-stage limits and pending background work ([[turn-liveness-and-limits]]).
+- Per-stage limits and pending background work ([[021-turn-liveness-and-limits]]).
 - A status command for a live run ([[operator-run-observation]]).
 - Red log lines: fixed already (commit 4f54d32).
 

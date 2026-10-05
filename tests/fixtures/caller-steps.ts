@@ -47,7 +47,7 @@ export default defineExecutableWorkflow<null, CallerSteps>({
         timeoutMs,
       });
       const { outcome: recalled } = await author.run({
-        prompt: "What number did you pick two steps ago? Answer from memory.",
+        prompt: "The previous essay step was cancelled. Do not resume or complete it. What number did you pick two steps ago? Answer from memory using wf result, then end your turn immediately. No other work.",
         schema: RECALLED,
         timeoutMs,
       });

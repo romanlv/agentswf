@@ -49,7 +49,7 @@ function terminalKind(outcome: TurnOutcome<string>): string {
 }
 
 function rejectedShapes(): void {
-  // @ts-expect-error A nudge is a separately bounded operation, not a boolean toggle.
+  // @ts-expect-error Automatic recovery accepts options or false, never true.
   const unboundedNudge: AgentRunTextSpec = { prompt: "Review", deadline, nudge: true };
   // @ts-expect-error Enqueued turns are bounded even when not immediately awaited.
   agentRef.enqueue({ id: "review", prompt: "Review" });

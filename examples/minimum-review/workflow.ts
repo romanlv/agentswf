@@ -61,17 +61,17 @@ export type ReviewRuntimes = Readonly<Record<ReviewLens, RuntimeSelection>>;
 
 export type ReviewWorkflowConfig = WorkflowMeta & {
   reviewers: ReviewRuntimes;
-  firstTurnMs?: number;
+  operationTimeoutMs?: number;
 };
 
-const DEFAULT_FIRST_TURN_MS = 5 * 60 * 1_000;
+const DEFAULT_OPERATION_TIMEOUT_MS = 5 * 60 * 1_000;
 
 export function createMinimumReview(
   runtimes: ReviewRuntimes,
-  firstTurnMs = DEFAULT_FIRST_TURN_MS,
+  operationTimeoutMs = DEFAULT_OPERATION_TIMEOUT_MS,
 ): WorkflowDefinition<MinimumReviewArgs, MinimumReviewResult> {
-  if (!Number.isSafeInteger(firstTurnMs) || firstTurnMs <= 0) {
-    throw new Error("first-turn duration must be a positive safe integer");
+  if (!Number.isSafeInteger(operationTimeoutMs) || operationTimeoutMs <= 0) {
+    throw new Error("operation duration must be a positive safe integer");
   }
   return {
     meta: {
@@ -91,7 +91,7 @@ export function createMinimumReview(
             labels: { lens },
           });
           const { outcome } = await reviewer.run({
-            timeoutMs: firstTurnMs,
+            timeoutMs: operationTimeoutMs,
             prompt: `Review target ${JSON.stringify(args.target)} using only the ${lens} lens.`,
             schema: reviewSchema(lens),
           });
@@ -120,8 +120,8 @@ export function createMinimumReview(
 export function defineReviewWorkflow(
   config: ReviewWorkflowConfig,
 ): ExecutableWorkflow<MinimumReviewArgs, MinimumReviewResult> {
-  const { reviewers, firstTurnMs, ...meta } = config;
-  const minimumReview = createMinimumReview(reviewers, firstTurnMs);
+  const { reviewers, operationTimeoutMs, ...meta } = config;
+  const minimumReview = createMinimumReview(reviewers, operationTimeoutMs);
   const definition: WorkflowDefinition<MinimumReviewArgs, MinimumReviewResult> = {
     meta,
     async run(workflow, args) {

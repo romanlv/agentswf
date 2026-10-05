@@ -72,6 +72,7 @@ export function createFakeAdapter(
     script: (context: FakeAdapterTurnContext) => FakeAdapterTurn | Promise<FakeAdapterTurn>;
     harnesses?: readonly [string, ...string[]];
     clock?: ManualClock;
+    supportsWaiting?: boolean;
     /** A reason to refuse this agent, as a real adapter refuses one it cannot run. */
     refuse?: (activation: HarnessActivation) => string | undefined;
     /**
@@ -115,6 +116,7 @@ export function createFakeAdapter(
       const { model, effort } = activation.execution;
       let settings: SessionSettings = { model, ...(effort === undefined ? {} : { effort }) };
       return {
+        ...(options.supportsWaiting ? { confirmsDelivery: true as const } : {}),
         identity: { sessionId, cwd: activation.cwd },
         ...(forks
           ? {
@@ -156,6 +158,12 @@ export function createFakeAdapter(
         promptedAt: () => firstPrompt,
         async execute(operation) {
           if (isClosed) throw new Error("fake session is closed");
+          if (operation.deliverySignal?.aborted) {
+            return { state: "cancelled", resultEvidence: { kind: "unavailable" }, chargesUsd: [] };
+          }
+          operation.onDispatched?.();
+          operation.onAccepted?.();
+          operation.onReceived?.();
           firstPrompt ??= options.clock?.now() ?? Date.now();
           const controller = new AbortController();
           activeController = controller;
