@@ -345,7 +345,8 @@ const style = await lead.fork({ key: "style", layout: { beside: "security", side
   workspace if it has one, else the run's, and never fails: a
   `beside` an agent not open, headless, sandboxed or with its pane gone; a split that would leave a
   pane under 1/8 of the tab; an `"origin"`, session or workspace that can't be used. The run's
-  closing lines say which agent fell back and why.
+  closing lines say which agent fell back and why, and `output.json`'s `panes` records where every
+  pane went.
 - **`keepPane`** keeps the pane when the agent is done, `"on-failure"` when its last operation was
   not answered. Its harness is left running, released from the run: it can't answer any more, and
   what you type into it is yours. The run's closing lines say where each kept pane is.

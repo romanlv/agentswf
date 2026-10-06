@@ -4,6 +4,7 @@ import { mkdir, realpath, rm } from "node:fs/promises";
 import { dirname, join, relative } from "node:path";
 import { isDeepStrictEqual } from "node:util";
 import type {
+  AgentPaneRecord,
   AgentSkillsRecord,
   RunAccounting,
   SandboxRecord,
@@ -178,6 +179,8 @@ export type SettledRun = {
   sandboxes?: SandboxRecord[];
   /** Each agent's skills; absent when no agent opened. */
   skills?: AgentSkillsRecord[];
+  /** Where each pane agent's pane went; absent when the run placed none. */
+  panes?: AgentPaneRecord[];
   /** Every decision the run asked, in the order asked; absent when it asked none. */
   decisions?: SettledDecision[];
 };
@@ -198,6 +201,7 @@ export class WorkflowRunError extends Error implements SettledRun {
   readonly accounting: RunAccounting;
   readonly sandboxes?: SandboxRecord[];
   readonly skills?: AgentSkillsRecord[];
+  readonly panes?: AgentPaneRecord[];
   readonly decisions?: SettledDecision[];
 
   constructor(cause: unknown, run: SettledRun) {
@@ -212,6 +216,7 @@ export class WorkflowRunError extends Error implements SettledRun {
     this.accounting = run.accounting;
     if (run.sandboxes) this.sandboxes = run.sandboxes;
     if (run.skills) this.skills = run.skills;
+    if (run.panes) this.panes = run.panes;
     if (run.decisions) this.decisions = run.decisions;
   }
 }
@@ -508,6 +513,7 @@ export async function startWorkflow<Args extends JsonValue, Result extends JsonV
     const times = { startedAt: new Date(startedAt).toISOString(), finishedAt };
     const opened = sandboxes.records();
     const given = skills.records();
+    const placed = owner.panes();
     const asked = decisions.records();
     const endedIn = failed ? stages.endedIn(failure) : undefined;
     const settled: SettledRun = {
@@ -519,6 +525,7 @@ export async function startWorkflow<Args extends JsonValue, Result extends JsonV
       accounting: summarizeRun(usage, PUBLISHED_PRICES, times, asked, stages.summaries),
       ...(opened.length > 0 ? { sandboxes: opened } : {}),
       ...(given.length > 0 ? { skills: given } : {}),
+      ...(placed.length > 0 ? { panes: placed } : {}),
       ...(asked.length > 0 ? { decisions: asked } : {}),
     };
     if (failed) {
@@ -1522,6 +1529,24 @@ class WorkflowOwner {
         () => undefined,
         () => `${target} did not open`,
       );
+  }
+
+  /** Where each pane agent's pane went, as its host reported it, in the order opened. */
+  panes(): AgentPaneRecord[] {
+    return [...this.#agents].flatMap(([agent, entry]) => {
+      const placed = entry.opening?.sessions.harness?.pane?.();
+      if (!placed) return [];
+      const { layout, keepPane } = entry.identity;
+      return [
+        {
+          callPath: [],
+          agent,
+          ...(layout === undefined ? {} : { layout }),
+          ...(keepPane === undefined ? {} : { keepPane }),
+          placed,
+        },
+      ];
+    });
   }
 
   /** A reopened agent names the sandbox it runs in, or none: a different one is a conflict. */

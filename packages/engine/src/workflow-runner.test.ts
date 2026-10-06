@@ -2406,6 +2406,42 @@ describe("runWorkflow", () => {
   });
 });
 
+describe("pane records", () => {
+  test("the run records where each pane agent's pane went, with its layout as written", async () => {
+    const adapter = adapterWith(createFakeAdapter({ script: () => ({}) }), () => ({
+      pane: () => ({
+        session: "awf",
+        workspace: "run" as const,
+        tab: "lens",
+        fallback: "lead is not open",
+      }),
+    }));
+    const workflow = workflowOf("panes", async (context) => {
+      await context.agents.open({
+        key: "lens",
+        runtime: "review",
+        layout: { beside: "lead", side: "right" },
+        keepPane: "on-failure",
+      });
+      return null;
+    });
+    const result = await runNew(workflow, null, {
+      runRoot: tempRunDir(),
+      runtime: runtime(adapter),
+      deadline: future(),
+    });
+    expect(result.panes).toEqual([
+      {
+        callPath: [],
+        agent: "lens",
+        layout: { beside: "lead", side: "right" },
+        keepPane: "on-failure",
+        placed: { session: "awf", workspace: "run", tab: "lens", fallback: "lead is not open" },
+      },
+    ]);
+  });
+});
+
 function runtime(adapter: AgentSessionAdapter): AgentRuntimeConfig {
   return {
     aliases: {

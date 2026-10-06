@@ -79,7 +79,10 @@ export async function markWorkspace(
   let current = mark;
   // One write at a time, each of the mark as it is then: a later one never lands before an earlier.
   let writing = Promise.resolve();
+  /** Once released, nothing writes it again: a late write would bring a removed mark back. */
+  let released = false;
   const write = (next: WorkspaceMark) => {
+    if (released) return writing;
     current = next;
     writing = writing.then(() => writeWhole(file, current).catch(() => undefined));
     return writing;
@@ -89,16 +92,19 @@ export async function markWorkspace(
     panes: (session, panes) =>
       write({ ...current, panes: { ...current.panes, [session]: [...panes] } }),
     release: async () => {
+      if (released) return writing;
       const kept = Object.fromEntries(
         Object.entries(current.panes ?? {})
           .map(([session, panes]) => [session, panes.filter((pane) => pane.kept)] as const)
           .filter(([, panes]) => panes.length > 0),
       );
       if (Object.keys(kept).length === 0) {
+        released = true;
         await writing;
         return removeMark(file);
       }
       await write({ ...current, panes: kept, ended: true });
+      released = true;
     },
   };
 }

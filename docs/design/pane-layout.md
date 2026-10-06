@@ -345,7 +345,7 @@ workspace, an older awf with a stale server sees neither, and may restart the `a
 that run's open then fails as any open on a restarting server does. Running two awf versions at once
 is the only way to meet it.
 
-A version 2 mark names each pane and tab the run created, with its session, its id, and its
+A version 2 mark names each pane the run created, with its session, its id, and its
 terminal's id (`terminal_id`), and which are kept. Herdr's pane ids are short counters that repeat
 after a session restarts; the terminal id does not, so the sweep acts on a pane only when both match.
 
@@ -359,8 +359,9 @@ its start too. For each mark whose run is no longer running:
 - **Its panes that are not kept are closed**, in whatever session they are in, `"origin"` included.
   Without this, an awf killed mid-run would leave harnesses in the operator's workspace that nothing
   ever stops.
-- **A session that is gone** (not listed, or not answering) took its panes with it: they leave the
-  mark.
+- **A session that is gone** (not running) took its panes with it: they leave the mark. One that
+  doesn't answer, or a pane recorded without its terminal, is left in the mark for the next sweep,
+  never closed; a kept pane there still keeps its workspace open.
 - **Kept panes are left, and listed**, with the run that kept them. A pane gone from Herdr leaves the
   mark; a mark with nothing left is removed.
 - **Its `awf` workspace** closes once nothing in it is kept, not before.

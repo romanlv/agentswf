@@ -3,7 +3,9 @@ import type {
   AgentExecution,
   AgentKey,
   HarnessKind,
+  KeepPane,
   OperationRecord,
+  PaneLayout,
   PaneWorkspace,
   SkillSource,
   TurnOutcome,
@@ -234,6 +236,15 @@ export type PanePlacement = {
   notKept?: string;
 };
 
+/** Where a pane agent's pane went: its layout as the workflow wrote it, and where it was placed. */
+export type AgentPaneRecord = {
+  callPath: string[];
+  agent: string;
+  layout?: PaneLayout;
+  keepPane?: KeepPane;
+  placed: PanePlacement;
+};
+
 /** One skill an agent was given, as it was copied to it. */
 export type SkillRecord = {
   /** The name in its `SKILL.md`, and the directory it was copied to. */
@@ -409,6 +420,8 @@ export type OutputRecord = {
   sandboxes?: SandboxRecord[];
   /** Each agent's skills, once per agent, including one that never completed a turn. */
   skills?: AgentSkillsRecord[];
+  /** Where each pane agent's pane went, once per agent. Absent when the run placed none. */
+  panes?: AgentPaneRecord[];
   /** Every decision the run asked, in the order asked. Absent when it asked none. */
   decisions?: SettledDecision[];
   /** Each stage the attempt entered, as its attempt file has them; absent when none. */

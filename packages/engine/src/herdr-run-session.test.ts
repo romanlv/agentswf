@@ -613,4 +613,92 @@ describe("marks of every pane a run made", () => {
     expect(result.closed).toEqual(["awf review r1 #1"]);
     expect(await readAll(d.home)).toEqual([]);
   });
+
+  async function writeMark(home: string, mark: object) {
+    const file = join(marksDir(home, "awf"), `${Math.random().toString(16).slice(2)}.json`);
+    await mkdir(dirname(file), { recursive: true });
+    await writeFile(file, JSON.stringify(mark));
+    return file;
+  }
+
+  test("a killed run's panes are closed and its workspace with them; its mark goes", async () => {
+    const herdr = fakeHerdr({
+      running: true,
+      workspaces: [{ workspace_id: "w1", label: "awf review r1 #1" }],
+      panes: { awf: [{ pane_id: "w1:p1", terminal_id: "t1", workspace_id: "w1" }] },
+    });
+    const d = { ...(await deps(herdr)), probe, exists };
+    await writeMark(d.home, {
+      version: 2,
+      label: "awf review r1 #1",
+      pid: DEAD,
+      processStart: STARTED,
+      workspaceId: "w1",
+      panes: { awf: [{ paneId: "w1:p1", terminalId: "t1", workspaceId: "w1" }] },
+    });
+    const result = await ensureRunSession("awf", d);
+    expect(herdr.calls).toContain("herdr --session awf pane close w1:p1");
+    expect(result.closed).toEqual(["awf review r1 #1"]);
+    expect(await readAll(d.home)).toEqual([]);
+  });
+
+  test("a pane list it can't read leaves the panes, and a kept one's workspace stays open", async () => {
+    const herdr = fakeHerdr({
+      running: true,
+      workspaces: [{ workspace_id: "w1", label: "awf review r1 #1" }],
+    });
+    const d = { ...(await deps(herdr)), probe, exists };
+    const kept = { paneId: "w1:p2", terminalId: "t2", workspaceId: "w1", kept: true };
+    await writeMark(d.home, {
+      version: 2,
+      label: "awf review r1 #1",
+      pid: DEAD,
+      processStart: STARTED,
+      workspaceId: "w1",
+      ended: true,
+      panes: { awf: [kept] },
+    });
+    const result = await ensureRunSession("awf", d);
+    expect(result.closed).toEqual([]);
+    expect(herdr.workspaces).toHaveLength(1);
+    expect((await readAll(d.home))[0].panes).toEqual({ awf: [kept] });
+  });
+
+  test("a pane recorded without its terminal is never closed, and stays in the mark", async () => {
+    const herdr = fakeHerdr({
+      running: true,
+      workspaces: [],
+      panes: { default: [{ pane_id: "w7:p3", terminal_id: "t3", workspace_id: "w7" }] },
+    });
+    const d = { ...(await deps(herdr)), probe, exists };
+    await writeMark(d.home, {
+      version: 2,
+      label: "awf review r1 #1",
+      pid: DEAD,
+      processStart: STARTED,
+      panes: { default: [{ paneId: "w7:p3", workspaceId: "w7" }] },
+    });
+    await ensureRunSession("awf", d);
+    expect(herdr.calls).not.toContain("herdr --session default pane close w7:p3");
+    expect((await readAll(d.home))[0].panes).toEqual({
+      default: [{ paneId: "w7:p3", workspaceId: "w7" }],
+    });
+  });
+
+  test("a live run's panes are not touched, and nothing writes a mark once it is released", async () => {
+    const herdr = fakeHerdr({
+      running: true,
+      workspaces: [{ workspace_id: "w1", label: "awf review r1 #1" }],
+      panes: { awf: [{ pane_id: "w1:p1", terminal_id: "t1", workspace_id: "w1" }] },
+    });
+    const d = { ...(await deps(herdr)), probe, exists };
+    const held = await markWorkspace(d.home, "awf", "awf review r1 #1", probe);
+    await held.bind("w1");
+    await held.panes("awf", [{ paneId: "w1:p1", terminalId: "t1", workspaceId: "w1" }]);
+    await ensureRunSession("awf", d);
+    expect(herdr.calls.some((call) => call.includes("pane close"))).toBe(false);
+    await held.release();
+    await held.panes("awf", [{ paneId: "w1:p9", terminalId: "t9", workspaceId: "w1" }]);
+    expect(await readAll(d.home)).toEqual([]);
+  });
 });

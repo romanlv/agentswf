@@ -78,7 +78,7 @@ Out of scope: what that design lists under "Not in this design"; placing a sandb
 - [x] 2. Panes placed at open in the run session: tabs, `beside`, fallbacks, in-place relaunch
 - [x] 3. `keepPane`: a done agent's pane kept with its harness released
 - [x] 4. Named sessions, named workspaces and `"origin"`
-- [ ] 5. Marks version 2: every pane a run made, swept in any session
+- [x] 5. Marks version 2: every pane a run made, swept in any session
 - [ ] 6. Records and output: `output.json` `panes`, fallbacks and kept panes in the closing block
 
 ## Open questions
@@ -214,6 +214,21 @@ Live:
   - Deviation, recorded in the design: `"origin"` is resolved once a run, at its first use, not
     as the run starts; a run that never uses it never asks Herdr.
   - Unproven by tests, left to the live check: an `awf-…` session started for a layout.
+
+### Task 5
+
+- Architecture and scope, correctness and proof (one reviewer, both lenses): the format holds.
+  - A pane listing that couldn't be read left a kept pane's workspace to be closed. Every kept pane
+    a mark still names now keeps its workspace open, whatever was read.
+  - A pane recorded without its terminal id was silently dropped; it now stays in the mark, never
+    closed.
+  - A dead run's workspace emptied pane by pane was then closed from a stale list; the list is read
+    again after panes close.
+  - A write after release could bring a removed mark back; a released mark is written no more.
+  - The design now says a session not answering keeps its panes in the mark, and that a mark names
+    panes, not tabs.
+  - Tests added for each, and for a killed run's panes and workspace closing, and a live run's
+    left alone.
 
 ## Implementation notes
 
