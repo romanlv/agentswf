@@ -521,7 +521,7 @@ against. Four things follow, all cheap now and expensive later.
 
 **Everything it varies must be injectable, with workload and provisioning kept distinct.** An
 optimizer supplies runtime aliases and run policy programmatically. Harness, model, placement
-(pane or headless), settings, skills, and tools are workload parameters. Terminal host/topology,
+(pane or headless), settings, skills, and tools are workload parameters. The terminal host,
 authentication route, funding pool, and admission are operator provisioning and accounting policy.
 A workflow's `metered: true` only consents to the funding consequence of a placement; the route and
 the pool stay the operator's. Both may vary per run without letting workflow code choose

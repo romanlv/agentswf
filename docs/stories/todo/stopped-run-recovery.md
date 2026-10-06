@@ -50,6 +50,8 @@ they do.
      open-turn mechanism [[021-turn-liveness-and-limits]] needs for background work, here answered by a
      person.
    - Bounded by its own deadline, so a forgotten run ends and reports as in (1).
+   - Story 026's `keepPane: "on-failure"` already leaves such a pane open after the run, its
+     harness released and its result channel closed. What (2) adds is the run waiting on it.
    - The progress view shows the run as waiting on a person, with the pane to go to.
 3. **Continue from a stage**: [[018-workflow-stages|story 018]] builds the continue with fresh
    agents (`--continue {run} --from-stage {stage}`, [[runs-and-stages]]). What's left here:

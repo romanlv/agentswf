@@ -129,9 +129,11 @@ state with an actual reported result.
 ### Session adapters, not a Herdr dependency
 
 `pane | headless` is an agent's `placement`, which a workflow chooses per agent (story 002): `pane`
-keeps an interactive terminal session, `headless` runs the harness as a process per turn. It is the
-only provider detail a workflow sees. Which terminal host serves a pane, and how, stays behind the
-run host.
+keeps an interactive terminal session, `headless` runs the harness as a process per turn. A pane
+agent's `layout` and `keepPane` say where its pane appears and whether it stays
+([`pane-layout.md`](pane-layout.md), story 026), in the words every terminal multiplexer shares:
+session, workspace, tab, beside. Those are the only provider details a workflow sees. Which terminal
+host serves a pane, and how, stays behind the run host.
 
 Herdr is the first and default terminal host because the experiments exercised its lifecycle and
 liveness behavior. It is not an engine dependency or a workflow capability. Operator configuration

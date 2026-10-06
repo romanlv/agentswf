@@ -72,10 +72,6 @@ timeout. A single `agent read --source detection` before returning would give a 
 no longer depends on it: story 002 reads a pane agent's session files when the run ends, as it does
 a headless agent's.
 
-Also here because it is the same area: `host.close` sets `topologyOpen = false` only after awaiting
-the session close, so a concurrent `execute` can still split a pane that the imminent
-`workspace close` then orphans. Pre-existing and narrow, but it belongs with release evidence.
-
 Two constraints on whatever lands here: do not add a retry until delivery is provably absent, and
 do not promote a heuristic to author-facing semantics without an explicit design decision.
 

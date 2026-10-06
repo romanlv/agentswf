@@ -348,11 +348,14 @@ const style = await lead.fork({ key: "style", layout: { beside: "security", side
   closing lines say which agent fell back and why, and `output.json`'s `panes` records where every
   pane went.
 - **`keepPane`** keeps the pane when the agent is done, `"on-failure"` when its last operation was
-  not answered. Its harness is left running, released from the run: it can't answer any more, and
-  what you type into it is yours. The run's closing lines say where each kept pane is.
+  not answered. Its harness is left running, interrupted first if it was mid-turn, and released
+  from the run: it can't answer any more, and what you type into it is yours. The run's closing
+  lines say where each kept pane is. awf never closes a kept pane; `awf run` lists the ones still
+  open until you close them.
 - **Reopening** a key compares `layout` and `keepPane` as written: left out, they don't constrain.
-- **In a test**, `agentOf(key).layout` and `.keepPane` are as the workflow wrote them, and
-  `.layoutFallback` says why a `beside` fell back where the engine already knew.
+- **In a test**, `agentOf(key).layout` and `.keepPane` are as the workflow wrote them,
+  `.layoutFallback` says why a `beside` fell back where the engine already knew, and `.keptPane`
+  is true for an agent whose pane would stay.
 
 ### The calling session
 

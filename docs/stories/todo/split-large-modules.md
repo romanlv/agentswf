@@ -34,8 +34,9 @@ Notes:
     and selections; then one file per command (run and score, run against a baseline, loop, report,
     show, check, list), `list`'s rendering beside `renderCheck` and `renderShow`.
   - `packages/harness/src/adapters/herdr.ts` (1,141): `createHerdrCommands` with `startAgent`,
-    `adoptAgent`, `typeInto` → `herdr-commands.ts`; `openTopology` → `herdr-topology.ts`;
-    `compactInPane` and `paneOutcome` beside them. `createPaneAdapter`, about 150 lines, is used
+    `adoptAgent`, `typeInto` → `herdr-commands.ts`; `compactInPane` and `paneOutcome` beside them.
+    Story 026 moved placement out to `herdr-layout.ts` (691) and grew the file to 1,693, the pane's
+    release and keeping now inside its run host. `createPaneAdapter`, about 150 lines, is used
     only by tests: move it under `testing/` or point the conformance test at the run host.
   - `packages/engine/src/operator-cli.ts` (901) is split already, now 558: the `--here`/`--session`
     code (`startHere`, `claimCaller`, `findCaller`, `showOwnTab`, `SESSION_CODE`) is in `here.ts`,

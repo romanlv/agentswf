@@ -144,6 +144,12 @@ Each example that spans more than one file has a folder of its own, with its wor
 - `fork/` forks one worker per harness and placement, compacted or not, then asks the fork what it
   knew and the worker what it learned after: the apparatus of story 016's fork eval, runnable by
   hand, `bun awf run examples/fork/workflow.ts -- claude-headless claude-headless:compact`.
+- `effort/` opens one agent per harness at an effort, switches its effort, then its model, and
+  asks each what it ran at: the apparatus of `tests/effort.eval.ts` (story 020).
+- `pane-layout/` opens a lead in a tab of the workspace you typed `awf run` in, and two reviewers
+  forked from it stacked right of its pane; the lead's pane stays once the run ends (story 026).
+  Run it from a Herdr pane, `bun awf run examples/pane-layout/workflow.ts`, or pass `-- run` or
+  `-- {workspace name}` to put the tab elsewhere. Three cheap codex agents.
 - `quick-check/` is the smoke test above.
 - `sandboxes/` is the sandbox tour above.
 - `triage/` is the decision model example above.
@@ -161,8 +167,8 @@ path, `bun test examples/feature-delivery`; outside this repository, `awf test` 
 `quick-check` and `sandbox-probe` have none, as they exist to watch real agents.
 [The workflow API](../docs/workflow-api.md#testing-a-workflow) says how to write one.
 
-Only `minimum-review/review-loop.ts`, `calling-session/workflow.ts`, `compaction/workflow.ts`, `fork/workflow.ts`,
-`quick-check/workflow.ts`, `sandboxes/workflow.ts`, `sandbox-probe/workflow.ts`,
+Only `minimum-review/review-loop.ts`, `calling-session/workflow.ts`, `compaction/workflow.ts`, `effort/workflow.ts`,
+`fork/workflow.ts`, `pane-layout/workflow.ts`, `quick-check/workflow.ts`, `sandboxes/workflow.ts`, `sandbox-probe/workflow.ts`,
 `skills-probe/workflow.ts`, `triage/workflow.ts` and `single-agent-review/workflow.ts` have the
 executable default export required by `awf run`.
 A catalogue review's entry point lives beside the catalogue it reads, outside this package, because

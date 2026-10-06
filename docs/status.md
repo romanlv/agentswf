@@ -1,13 +1,13 @@
 # Status
 
-Where awf stands, as of 2026-10-04. [`foundation.md`](foundation.md) is the argument and changes
+Where awf stands, as of 2026-10-06. [`foundation.md`](foundation.md) is the argument and changes
 slowly; this page is the state and changes with every story. When the two disagree about what
 exists, the code is right, then this page.
 
 ## What runs today
 
 - `awf run {workflow.ts}` loads a trusted local workflow and runs it. Each agent's placement is set
-  in the workflow: a pane agent gets a tab in the run's one Herdr workspace, and a headless agent
+  in the workflow: a pane agent gets a tab in the run's Herdr workspace by default, and a headless agent
   runs as a subprocess per turn that resumes one native session. claude, codex and pi run in
   panes (pi since story 017); codex and pi run headless. A headless claude needs `metered: true`,
   as `claude -p` bills per token even on a subscription login. A pane agent keeps its pane for all its turns (ADR 0008). Pane agents open in a headless Herdr session of
@@ -15,7 +15,8 @@ exists, the code is right, then this page.
   environment and a quiet config, not in the operator's (story 024); `--cwd` sets the directory the workflow works in. A workflow
   may place each pane agent's pane with `layout`, in a tab of the run's workspace, a named one, a
   named session or the one `awf run` was typed in, or beside another agent's pane, and keep it once
-  the agent is done with `keepPane` (story 026).
+  the agent is done with `keepPane` (story 026). A kept pane's harness is released from the run; every
+  other pane closes when its agent does, and a later run closes what a killed run left, in any session.
 - A run is one piece of work with an id, kept in `.awf/runs/{workflow}/{id}` under its working
   directory; each `awf run` of it is an attempt (story 018, ADR 0011). A workflow marks stages with
   `workflow.stage`, and `awf run {file} --continue {id}` reuses the stages that succeeded and runs
@@ -38,7 +39,7 @@ exists, the code is right, then this page.
     outside this repository (see [`examples/README.md`](../examples/README.md)).
 - `awf test` runs a workflow's tests, in any folder, with nothing installed there (story 012):
   `testWorkflow` from `agentswf/testing` runs the workflow through the real engine with each agent
-  and decision model scripted, typed by the schema each turn asks for. Nine examples have theirs
+  and decision model scripted, typed by the schema each turn asks for. Twelve examples have theirs
   beside them.
 - `agent.compact({ prompt })` runs the harness's own compaction with the workflow's focus (story
   015, ADR 0007), within the workflow's deadline unless `timeoutMs` bounds it: every harness in a
@@ -197,6 +198,10 @@ The gates are defined in [`foundation.md`](foundation.md) §12.
   check-ins keep one fixed deadline and result slot; an answer returns only after the native
   turn is released. Host Claude and SRT acceptance runs passed; Cursor-dependent full live
   matrices remain blocked by authentication.
+
+Built and awaiting human review: [023 — harness login](stories/023-harness-login.md),
+[024 — a Herdr session of the run's own](stories/024-herdr-run-session.md) and
+[026 — pane layout](stories/026-pane-layout.md).
 
 The inbox of possible stories is [`stories/todo/`](stories/todo/).
 

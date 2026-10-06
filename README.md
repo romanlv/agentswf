@@ -49,7 +49,7 @@ labelled groups it shows live in the terminal, and stages a run continues from.
 
 - **Harness:** the agent CLI that does the work: `claude`, `codex`, `pi` or `cursor`. A runtime
   is a harness plus a model.
-- **Placement:** where the agent runs. A **pane** is a terminal tab in
+- **Placement:** where the agent runs. A **pane** is a terminal pane in
   [Herdr](https://herdr.dev), a terminal multiplexer for agents, where you can watch it and type
   to it; panes are the default. **Headless** runs the CLI as a subprocess, with no terminal.
 - **Sandbox:** a boundary around agents, from docker or **srt** (Anthropic's sandbox-runtime),
@@ -88,9 +88,12 @@ labelled groups it shows live in the terminal, and stages a run continues from.
   picks up at the step that stopped, reusing what succeeded. A new run can start at any stage,
   given the earlier stages' values.
 - **Deadlines and cleanup.** Every wait has a deadline, and every agent is cleaned up when the run
-  ends, however it ends.
+  ends, however it ends. Only a pane the workflow asked to keep stays open.
 - **Watch or run headless.** An agent runs in a terminal pane you can watch and type into
-  (through [Herdr](https://herdr.dev)), or headless as a subprocess.
+  (through [Herdr](https://herdr.dev)), or headless as a subprocess. The workflow says where each
+  pane appears: a tab of its own, beside another agent's pane, or in the workspace you typed
+  `awf run` in. It also says whether a pane stays open once its agent is done, always or only when
+  the agent failed.
 
 ## Quick start
 
@@ -509,6 +512,7 @@ Herdr pane, or when its sandbox cannot reach Herdr. Under codex's default sandbo
 | [`catalogue-review`](examples/catalogue-review/) | many lenses, a verifier per finding, a Markdown report | an entry point beside your lens catalogue |
 | [`sandboxes`](examples/sandboxes/) | a shared docker sandbox and a private srt one | `awf run --cwd "$(mktemp -d)" examples/sandboxes/workflow.ts` |
 | [`triage`](examples/triage/) | typed decisions with probabilities | `awf run examples/triage/workflow.ts` |
+| [`pane-layout`](examples/pane-layout/) | a lead and two reviewers in one tab where you typed `awf run`, the lead's pane kept | `awf run examples/pane-layout/workflow.ts`, from a Herdr pane |
 | [`compaction`](examples/compaction/) | an agent compacted with a focus, then asked what it kept, per harness | `awf run examples/compaction/workflow.ts -- claude pi` |
 | [`calling-session`](examples/calling-session/) | a workflow driving the session it was started from | `awf run --here examples/calling-session/workflow.ts`, from an agent |
 | [`feature-delivery`](examples/feature-delivery/) | plan, implement, review, revise, as stages | tests run; not yet run live |
