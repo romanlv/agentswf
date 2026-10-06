@@ -521,7 +521,12 @@ closing block; say once that the session exists; stale server after an update; o
 - [x] Set the story status to `awaiting-human-review` and present the outcome, architecture
   decisions, task-level subagent findings and dispositions, exact verification results, deviations,
   and remaining risks.
-- [ ] Record the human's explicit approval or requested changes here.
+- [x] Record the human's explicit approval or requested changes here. 2026-10-06: the operator had
+  the checks run live and approved merging "if all good". Passed: `awf` stopped, then started by a
+  run, the agent in it, the operator's workspaces untouched; a run killed with `-9` left its
+  workspace and the next run closed it; an unmarked `awf …` workspace named and kept;
+  `AWF_HERDR_SESSION=awf-review` started with its line, `journal` refused with its command. Not
+  run: the restart after `herdr update`, which Herdr refuses inside one of its sessions; M1 by ear.
 - [ ] If changes are requested, return to the affected task and repeat its review and verification.
 - [ ] Only after explicit approval, mark the story `done` and update `Stories at a glance`.
 - `bun test`: 1555 pass, 0 fail after the review fixes; `bun run check` clean.

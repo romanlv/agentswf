@@ -109,6 +109,10 @@ status is one of `todo`, `draft`, `ready`, `in-progress`, `blocked`, `awaiting-h
 - [`023` — Say when an agent's harness needs a login, and let the workflow stop on it](023-harness-login.md) —
   `awaiting-human-review` — a turn whose harness has no login or had it refused ends `failed` with `login`,
   headless and in a pane, for every harness; it is never nudged, and the workflow decides to stop.
+- [`024` — A run's agents open in a Herdr session of their own](024-herdr-run-session.md) —
+  `awaiting-human-review` — pane agents open in a headless session awf starts and owns, `awf`, not
+  the operator's, so they set off no notifications there; `awf run` says where they are and which
+  is blocked; the session is restarted on a Herdr update and dead runs' workspaces closed.
 
 - [[021-turn-liveness-and-limits|021 — Keep a waiting agent alive within fixed limits]] —
   `done` — Repeated cooperative check-ins share one deadline and result slot; an accepted
