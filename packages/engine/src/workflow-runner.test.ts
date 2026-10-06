@@ -2406,6 +2406,66 @@ describe("runWorkflow", () => {
   });
 });
 
+describe("pane records", () => {
+  test("a run that fails still records where its panes went", async () => {
+    const adapter = adapterWith(createFakeAdapter({ script: () => ({}) }), () => ({
+      pane: () => ({ session: "awf", workspace: "run" as const, tab: "lens", kept: true as const }),
+    }));
+    const workflow = workflowOf("panes-failed", async (context) => {
+      await context.agents.open({ key: "lens", runtime: "review", keepPane: "always" });
+      throw new Error("the workflow gave up");
+    });
+    const failed = await runNew(workflow, null, {
+      runRoot: tempRunDir(),
+      runtime: runtime(adapter),
+      deadline: future(),
+    }).catch((error: unknown) => error);
+    expect(failed).toBeInstanceOf(WorkflowRunError);
+    expect((failed as WorkflowRunError).panes).toEqual([
+      {
+        callPath: [],
+        agent: "lens",
+        keepPane: "always",
+        placed: { session: "awf", workspace: "run", tab: "lens", kept: true },
+      },
+    ]);
+  });
+
+  test("the run records where each pane agent's pane went, with its layout as written", async () => {
+    const adapter = adapterWith(createFakeAdapter({ script: () => ({}) }), () => ({
+      pane: () => ({
+        session: "awf",
+        workspace: "run" as const,
+        tab: "lens",
+        fallback: "lead is not open",
+      }),
+    }));
+    const workflow = workflowOf("panes", async (context) => {
+      await context.agents.open({
+        key: "lens",
+        runtime: "review",
+        layout: { beside: "lead", side: "right" },
+        keepPane: "on-failure",
+      });
+      return null;
+    });
+    const result = await runNew(workflow, null, {
+      runRoot: tempRunDir(),
+      runtime: runtime(adapter),
+      deadline: future(),
+    });
+    expect(result.panes).toEqual([
+      {
+        callPath: [],
+        agent: "lens",
+        layout: { beside: "lead", side: "right" },
+        keepPane: "on-failure",
+        placed: { session: "awf", workspace: "run", tab: "lens", fallback: "lead is not open" },
+      },
+    ]);
+  });
+});
+
 function runtime(adapter: AgentSessionAdapter): AgentRuntimeConfig {
   return {
     aliases: {

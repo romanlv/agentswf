@@ -4,6 +4,7 @@ import { mkdir, realpath, rm } from "node:fs/promises";
 import { dirname, join, relative } from "node:path";
 import { isDeepStrictEqual } from "node:util";
 import type {
+  AgentPaneRecord,
   AgentSkillsRecord,
   RunAccounting,
   SandboxRecord,
@@ -38,8 +39,10 @@ import {
   isJsonValue,
   type JsonObject,
   type JsonValue,
+  type KeepPane,
   type OperationRecord,
   type OutputSchema,
+  type PaneLayout,
   type PlacementChoice,
   placementOf,
   type RunResult,
@@ -102,6 +105,7 @@ import {
   type SupervisedOutcome,
   superviseOperation,
 } from "./operation-liveness";
+import { besideOf, checkPaneOptions, keepsPane, storedLayout } from "./pane-layout";
 import { createResultSlotRegistry, type ResultSlotRegistry } from "./result-slots";
 import { type AgentProgress, type GroupProgress, RunProgress } from "./run-progress";
 import {
@@ -175,6 +179,8 @@ export type SettledRun = {
   sandboxes?: SandboxRecord[];
   /** Each agent's skills; absent when no agent opened. */
   skills?: AgentSkillsRecord[];
+  /** Where each pane agent's pane went; absent when the run placed none. */
+  panes?: AgentPaneRecord[];
   /** Every decision the run asked, in the order asked; absent when it asked none. */
   decisions?: SettledDecision[];
 };
@@ -195,6 +201,7 @@ export class WorkflowRunError extends Error implements SettledRun {
   readonly accounting: RunAccounting;
   readonly sandboxes?: SandboxRecord[];
   readonly skills?: AgentSkillsRecord[];
+  readonly panes?: AgentPaneRecord[];
   readonly decisions?: SettledDecision[];
 
   constructor(cause: unknown, run: SettledRun) {
@@ -209,6 +216,7 @@ export class WorkflowRunError extends Error implements SettledRun {
     this.accounting = run.accounting;
     if (run.sandboxes) this.sandboxes = run.sandboxes;
     if (run.skills) this.skills = run.skills;
+    if (run.panes) this.panes = run.panes;
     if (run.decisions) this.decisions = run.decisions;
   }
 }
@@ -273,6 +281,9 @@ type AgentIdentity = {
   labels?: AgentOpenSpec["labels"];
   /** The agent it was forked from, and the spec it was forked with. */
   forkedFrom?: { parent: AgentKey; spec: AgentForkSpec };
+  /** As written; a reopen compares them so, never where the pane ended up. */
+  layout?: PaneLayout;
+  keepPane?: KeepPane;
 };
 
 const CLEANUP_GRACE_MILLISECONDS = 5_000;
@@ -502,6 +513,7 @@ export async function startWorkflow<Args extends JsonValue, Result extends JsonV
     const times = { startedAt: new Date(startedAt).toISOString(), finishedAt };
     const opened = sandboxes.records();
     const given = skills.records();
+    const placed = owner.panes();
     const asked = decisions.records();
     const endedIn = failed ? stages.endedIn(failure) : undefined;
     const settled: SettledRun = {
@@ -513,6 +525,7 @@ export async function startWorkflow<Args extends JsonValue, Result extends JsonV
       accounting: summarizeRun(usage, PUBLISHED_PRICES, times, asked, stages.summaries),
       ...(opened.length > 0 ? { sandboxes: opened } : {}),
       ...(given.length > 0 ? { skills: given } : {}),
+      ...(placed.length > 0 ? { panes: placed } : {}),
       ...(asked.length > 0 ? { decisions: asked } : {}),
     };
     if (failed) {
@@ -617,6 +630,11 @@ type AgentOpening = {
    * `forked`, is placed in this agent's home before it is admitted, in the parent's sandbox.
    */
   carried?: { parent: AgentKey; forked: Promise<unknown>; copy: string };
+  /**
+   * Settles before the host places the pane: once a `beside` target has opened, with why the
+   * layout can't be used where the engine knows already.
+   */
+  layoutFallback?: Promise<string | undefined>;
 };
 
 class WorkflowOwner {
@@ -756,19 +774,26 @@ class WorkflowOwner {
   async close(deadline: AbsoluteDeadline): Promise<unknown[]> {
     this.#closing ??= (async (): Promise<unknown[]> => {
       this.#closed = true;
+      // Each agent is closed by itself first, which knows whether its pane stays; then the host,
+      // which closes whatever is left.
       const stopping = [...this.#agents.values()].map((agent) =>
         agent.state.then(
           (state) =>
-            state.stopOperations({
-              kind:
-                Date.now() >= this.options.deadline.unixMilliseconds ? "timed-out" : "cancelled",
-              reason: "workflow closing",
-            }),
+            state
+              .stopOperations({
+                kind:
+                  Date.now() >= this.options.deadline.unixMilliseconds ? "timed-out" : "cancelled",
+                reason: "workflow closing",
+              })
+              .then(() => state.close("workflow complete")),
           () => undefined,
         ),
       );
       const cleanup = Promise.all([
-        Promise.allSettled([this.options.host.close("workflow complete"), ...stopping]),
+        Promise.allSettled(stopping).then(async (stopped) => [
+          ...stopped,
+          ...(await Promise.allSettled([this.options.host.close("workflow complete")])),
+        ]),
         // A call nobody awaited any more is cancelled and recorded, not left to its deadline.
         this.options.decisions.close().then(() => Promise.allSettled([...this.#inFlight])),
       ]).then(async ([settled]) => {
@@ -795,6 +820,9 @@ class WorkflowOwner {
           // A session that would not close still must not outlive its sandbox: its agents are
           // released and the sandboxes closed, which ends everything inside, on a grace of their own.
           const sandboxes = this.options.sandboxes;
+          // A slow agent close may be what overran: the host still closes what it made, though
+          // nothing waits on it here, as an agent that never closes would hold it too.
+          void this.options.host.close("workflow complete").catch(() => undefined);
           const closed = await waitForDeadline(
             sandboxes
               .release()
@@ -888,6 +916,11 @@ class WorkflowOwner {
     const execution = existing
       ? constrainExistingExecution(spec.runtime, existing.identity.execution)
       : withKnownEffort(resolveExecution(spec.runtime, this.options.runtime));
+    checkPaneOptions(spec.key, spec, {
+      headless: placementOf(execution) === "headless",
+      sandboxed:
+        spec.sandbox !== undefined || existing?.identity.sandbox !== undefined || inRunSandbox,
+    });
     const identity: AgentIdentity = {
       execution,
       cwd: spec.cwd ?? this.options.cwd,
@@ -895,6 +928,8 @@ class WorkflowOwner {
       ...(spec.labels === undefined ? {} : { labels: structuredClone(spec.labels) }),
       ...(spec.sandbox === undefined ? {} : { sandbox: spec.sandbox }),
       ...(spec.skills === undefined ? {} : { skills: readSkillSources(spec.skills) }),
+      ...(spec.layout === undefined ? {} : { layout: storedLayout(spec.layout) }),
+      ...(spec.keepPane === undefined ? {} : { keepPane: spec.keepPane }),
     };
     const scope = scopes.getStore();
     const inheritedDeadline = scope?.deadline ?? this.options.deadline;
@@ -942,7 +977,9 @@ class WorkflowOwner {
         ...(occupant ? { occupant } : {}),
         ...(skills ? { skills } : {}),
         ...(home ? { home } : {}),
+        ...paneOptions(identity),
       }),
+      layoutFallback: this.besideFallback(identity.layout, effectiveDeadline)(),
     };
     let skills: Promise<PlacedSkills | undefined> = Promise.resolve(undefined);
     let opened: { state: Promise<LogicalAgent>; channel: Promise<ResultChannel> };
@@ -1045,7 +1082,7 @@ class WorkflowOwner {
    * agent before it holds anything, then its channel and session together.
    */
   private openHostAgent(
-    { spec, execution, sessions, ledger, activation }: AgentOpening,
+    { spec, execution, sessions, ledger, activation, layoutFallback }: AgentOpening,
     cwd: string,
     accounted: AccountedAgent,
     placed: Promise<PlacedSkills | undefined>,
@@ -1070,11 +1107,13 @@ class WorkflowOwner {
     // An open socket authorizes an agent until something closes it, so every failure path does.
     const closeChannel = () => opened.then((channel) => channel.close()).catch(() => undefined);
     const state = placed
-      .then((skills) =>
-        this.options.host.openAgent(
-          activation(cwd, undefined, skills?.given, skills?.given.ownHome),
-        ),
-      )
+      .then(async (skills) => {
+        const fallback = await layoutFallback;
+        return this.options.host.openAgent({
+          ...activation(cwd, undefined, skills?.given, skills?.given.ownHome),
+          ...(fallback === undefined ? {} : { layoutFallback: fallback }),
+        });
+      })
       .catch(async (error: unknown) => {
         await closeChannel();
         throw error;
@@ -1269,6 +1308,13 @@ class WorkflowOwner {
       },
       livenessPolicy: this.options.livenessPolicy,
       fork: (spec, take, settings) => this.forkAgent(key, spec, take, settings),
+      keepPane: () => this.#agents.get(key)?.identity.keepPane,
+      // Its socket is its authority: a kept agent's harness lives on, and must not answer.
+      revoke: () =>
+        this.#agents
+          .get(key)
+          ?.channel.then((channel) => channel?.close())
+          .catch(() => undefined),
       ...(seated
         ? {
             // A turn may have refreshed the agent's credential; the operator's copy follows it.
@@ -1302,6 +1348,7 @@ class WorkflowOwner {
       throw new Error(`agent ${spec.key} is the calling session; it is not opened`);
     }
     const forkSpec = structuredClone(spec);
+    if (forkSpec.layout !== undefined) forkSpec.layout = storedLayout(forkSpec.layout);
     const deadline = scope?.deadline ?? this.options.deadline;
     assertDeadline(deadline);
     const existing = this.#agents.get(spec.key);
@@ -1327,6 +1374,10 @@ class WorkflowOwner {
         ? join(this.options.runDir, "forks", randomUUID())
         : undefined;
     const execution = withKnownEffort(forkExecution(parentSettings, forkSpec));
+    checkPaneOptions(spec.key, forkSpec, {
+      headless: placementOf(execution) === "headless",
+      sandboxed,
+    });
     const identity: AgentIdentity = {
       execution,
       cwd: parent.identity.cwd,
@@ -1335,6 +1386,8 @@ class WorkflowOwner {
       ...(parent.identity.skills ? { skills: parent.identity.skills } : {}),
       ...(parent.identity.sandbox === undefined ? {} : { sandbox: parent.identity.sandbox }),
       forkedFrom: { parent: parentKey, spec: forkSpec },
+      ...(forkSpec.layout === undefined ? {} : { layout: forkSpec.layout }),
+      ...(forkSpec.keepPane === undefined ? {} : { keepPane: forkSpec.keepPane }),
     };
 
     this.options.progress.agentOpened(spec.key, scope?.group);
@@ -1346,6 +1399,7 @@ class WorkflowOwner {
       cwd: identity.cwd,
       sessions: () => reportedSessions(sessions),
     };
+    const besideAtFork = this.besideFallback(identity.layout, deadline);
     let continues: NativeFork | undefined;
     // The fork is asked for now, in the parent's queue; the child opens once it is made. One that
     // was not made leaves nothing behind: its key may be forked again, after the parent's turn.
@@ -1389,7 +1443,10 @@ class WorkflowOwner {
         ...(given ? { skills: given } : {}),
         ...(home ? { home } : {}),
         ...(continues ? { continues } : {}),
+        ...paneOptions(identity),
       }),
+      // The target as it stands when `fork` is called, waited for once the fork is made.
+      layoutFallback: forked.then(besideAtFork, () => undefined),
     };
     let skills: Promise<PlacedSkills | undefined> = Promise.resolve(undefined);
     let opened: { state: Promise<LogicalAgent>; channel: Promise<ResultChannel> };
@@ -1445,6 +1502,53 @@ class WorkflowOwner {
     return building;
   }
 
+  /**
+   * Why a pane can't go beside the agent `layout` names, where the engine knows: that agent
+   * is not open now, or has no pane awf places. The wait it returns waits for a target still
+   * opening, so its pane is there to split.
+   */
+  private besideFallback(
+    layout: PaneLayout | undefined,
+    deadline: AbsoluteDeadline,
+  ): () => Promise<string | undefined> {
+    const known = (reason: string | undefined) => () => Promise.resolve(reason);
+    const target = besideOf(layout);
+    if (target === undefined) return known(undefined);
+    if (this.#caller?.key === target) {
+      return known(`${target} is the calling session, whose pane is the operator's`);
+    }
+    const entry = this.#agents.get(target);
+    if (!entry) return known(`${target} is not open`);
+    if (placementOf(entry.identity.execution) === "headless") return known(`${target} is headless`);
+    if (entry.identity.sandbox !== undefined) {
+      return known(`${target} runs in a sandbox, whose panes are in its own Herdr`);
+    }
+    // Registered before this agent, so it can't be waiting on this one in turn.
+    return () =>
+      waitForDeadline(entry.state, deadline).then(
+        () => undefined,
+        () => `${target} did not open`,
+      );
+  }
+
+  /** Where each pane agent's pane went, as its host reported it, in the order opened. */
+  panes(): AgentPaneRecord[] {
+    return [...this.#agents].flatMap(([agent, entry]) => {
+      const placed = entry.opening?.sessions.harness?.pane?.();
+      if (!placed) return [];
+      const { layout, keepPane } = entry.identity;
+      return [
+        {
+          callPath: [],
+          agent,
+          ...(layout === undefined ? {} : { layout }),
+          ...(keepPane === undefined ? {} : { keepPane }),
+          placed,
+        },
+      ];
+    });
+  }
+
   /** A reopened agent names the sandbox it runs in, or none: a different one is a conflict. */
   private async assertSameSandbox(
     key: string,
@@ -1482,6 +1586,8 @@ class LogicalAgent implements AgentRef {
   /** What each `set` queued and not yet settled changes, in queue order. */
   readonly #pendingSets: SettingsChange[] = [];
   #tail: Promise<void> = Promise.resolve();
+  /** How its last operation ended, which `keepPane: "on-failure"` reads. */
+  #last: TurnOutcome<never>["kind"] | undefined;
   #closed = false;
   #closePromise: Promise<void> | undefined;
 
@@ -1516,6 +1622,10 @@ class LogicalAgent implements AgentRef {
         take: ((into?: SessionCopy) => Promise<NativeFork>) | string,
         settings: AgentExecution,
       ): Promise<AgentRef>;
+      /** As the workflow wrote it; decides, at close, whether its pane stays. */
+      keepPane(): KeepPane | undefined;
+      /** Closes its result channel, once its pane is kept. */
+      revoke(): Promise<void> | undefined;
     },
   ) {
     this.#execution = options.execution;
@@ -1696,7 +1806,9 @@ class LogicalAgent implements AgentRef {
           throw new Error("logical agent is closed");
         }
         scope?.assertActive();
-        return await this.executeSet(change, deadline, scope);
+        const outcome = await this.executeSet(change, deadline, scope);
+        this.#last = outcome.kind;
+        return outcome;
       } finally {
         this.#pendingSets.splice(this.#pendingSets.indexOf(change), 1);
       }
@@ -1709,6 +1821,7 @@ class LogicalAgent implements AgentRef {
 
   /** A turn or compaction that settled, as the view shows it and `turns.jsonl` keeps it. */
   private turnEnded(outcome: TurnOutcome<JsonValue>, kind: TurnRecord["kind"]): void {
+    this.#last = outcome.kind;
     const reason = "reason" in outcome ? outcome.reason : undefined;
     this.options.progress.turnSettled(this.key, outcome.kind, reason);
     this.options.recordTurn(outcome, kind);
@@ -1841,6 +1954,7 @@ class LogicalAgent implements AgentRef {
     const removeCanceller = pane
       ? scope?.add(async (stop) => {
           cancelled = stop.reason;
+          this.#last = "cancelled";
           await this.close(stop.reason);
         })
       : undefined;
@@ -1852,7 +1966,12 @@ class LogicalAgent implements AgentRef {
     } catch (error) {
       const expired = error instanceof DeadlineExceededError;
       const reason = cancelled ?? (expired ? "settings deadline exceeded" : messageOf(error));
-      if (pane) this.closeAfterFailure(reason);
+      if (pane) {
+        this.closeAfterFailure(
+          reason,
+          cancelled !== undefined ? "cancelled" : expired ? "timed-out" : "failed",
+        );
+      }
       if (cancelled !== undefined) return { kind: "cancelled", reason, usage: usage() };
       return expired
         ? { kind: "timed-out", reason, usage: usage() }
@@ -1868,18 +1987,27 @@ class LogicalAgent implements AgentRef {
    * An operation that failed, was cancelled or timed out ends a session the run owns. The calling
    * session is the operator's and goes on: its next turn waits for it to settle (ADR 0010).
    */
-  private closeAfterFailure(reason: string): void {
+  private closeAfterFailure(reason: string, ended: TurnOutcome<never>["kind"] = "failed"): void {
     if (this.options.execution.caller) return;
+    // Before its outcome is recorded: whether its pane stays turns on how this one ended.
+    this.#last = ended;
     void this.close(reason).catch(() => undefined);
   }
 
   close(reason?: string): Promise<void> {
     this.#closed = true;
+    // An operation still going is cancelled by this close.
+    const keep = keepsPane(
+      this.options.keepPane(),
+      this.#operationStops.size > 0 ? "cancelled" : this.#last,
+    );
     const stopped = this.stopOperations({ kind: "cancelled", reason: reason ?? "agent closed" });
     if (!this.#closePromise) {
       let attempt: Promise<void>;
       try {
-        attempt = Promise.resolve(this.options.session.close(reason));
+        attempt = Promise.resolve(
+          this.options.session.close(reason, keep ? { keep: true } : undefined),
+        ).then(() => (keep ? this.options.revoke() : undefined));
       } catch (error) {
         attempt = Promise.reject(error);
       }
@@ -1897,6 +2025,8 @@ class LogicalAgent implements AgentRef {
    * stopped it (ADR 0010).
    */
   async stopOperations(request: OperationStop): Promise<void> {
+    // Before they settle, which records it later than a close that follows reads it.
+    if (this.#operationStops.size > 0 || this.#pendingSets.length > 0) this.#last = request.kind;
     await Promise.all([...this.#operationStops].map((stop) => stop(request)));
   }
 
@@ -2023,7 +2153,7 @@ class LogicalAgent implements AgentRef {
       })
       .finally(() => events.close());
     if (outcome.kind === "timed-out" || outcome.kind === "failed")
-      this.closeAfterFailure(outcome.reason);
+      this.closeAfterFailure(outcome.reason, outcome.kind);
     const usage = entry.settle(
       {
         ...(outcome.deliveredAt === undefined ? {} : { deliveredAt: outcome.deliveredAt }),
@@ -2575,11 +2705,21 @@ function assertCompatibleAgent(
   if (spec.skills !== undefined && !isDeepStrictEqual(existing.skills, requested.skills)) {
     conflict(key, "skills");
   }
-  for (const field of ["instructions", "labels"] as const) {
+  for (const field of ["instructions", "labels", "layout", "keepPane"] as const) {
     if (spec[field] !== undefined && !isDeepStrictEqual(existing[field], requested[field])) {
       conflict(key, field);
     }
   }
+}
+
+function paneOptions({
+  layout,
+  keepPane,
+}: AgentIdentity): Pick<HarnessActivation, "layout" | "keepPane"> {
+  return {
+    ...(layout === undefined ? {} : { layout }),
+    ...(keepPane === undefined ? {} : { keepPane }),
+  };
 }
 
 function conflict(key: string, field: string): never {

@@ -197,8 +197,9 @@ function observeSession(
       : {}),
     ...(session.sessions ? { sessions: () => session.sessions!() } : {}),
     ...(session.promptedAt ? { promptedAt: () => session.promptedAt!() } : {}),
-    async close(reason) {
-      await session.close(reason);
+    ...(session.pane ? { pane: () => session.pane!() } : {}),
+    async close(reason, options) {
+      await session.close(reason, options);
       record({ state: "missing" });
       closed = true;
     },

@@ -1169,3 +1169,315 @@ describe("testWorkflow forks", () => {
     });
   });
 });
+
+describe("testWorkflow layouts", () => {
+  test("each agent's layout and keepPane are recorded as written; a fork inherits neither", async () => {
+    const review = workflowOf<null, null>(async (workflow) => {
+      const lead = await workflow.agents.open({
+        key: "lead",
+        runtime: "claude",
+        layout: { workspace: "origin", tab: "review" },
+        keepPane: "on-failure",
+      });
+      await lead.run({ prompt: "Plan the review.", schema: PLAN });
+      await lead.fork({
+        key: "security",
+        layout: { beside: "lead", side: "right" },
+      });
+      await lead.fork({
+        key: "style",
+        layout: { beside: "security", side: "below", share: 0.4 },
+        keepPane: "always",
+      });
+      await lead.fork({ key: "plain" });
+      return null;
+    });
+    const run = await testWorkflow(review, null, {
+      agents: { lead: [answer(PLAN, { steps: ["a"] })] },
+    });
+    expect(run.agentOf("lead")).toMatchObject({
+      layout: { workspace: "origin", tab: "review" },
+      keepPane: "on-failure",
+    });
+    expect(run.agentOf("security").layout).toEqual({ beside: "lead", side: "right" });
+    expect(run.agentOf("security")).not.toHaveProperty("keepPane");
+    expect(run.agentOf("security")).not.toHaveProperty("layoutFallback");
+    expect(run.agentOf("style")).toMatchObject({
+      layout: { beside: "security", side: "below", share: 0.4 },
+      keepPane: "always",
+    });
+    expect(run.agentOf("plain")).not.toHaveProperty("layout");
+  });
+
+  test("a reopen compares them as written: omitted they don't constrain, different rejects", async () => {
+    const reopening = workflowOf<null, string[]>(async (workflow) => {
+      const open = (extra: object) =>
+        workflow.agents
+          .open({ key: "lead", runtime: "claude", ...extra })
+          .then(() => "ok")
+          .catch((error: Error) => error.message);
+      return [
+        await open({ layout: { tab: "review" }, keepPane: "always" }),
+        await open({}),
+        await open({ layout: { tab: "review" } }),
+        await open({ layout: { tab: "other" } }),
+        await open({ keepPane: "never" }),
+      ];
+    });
+    const run = await testWorkflow(reopening, null, { agents: {} });
+    expect(run.value).toEqual([
+      "ok",
+      "ok",
+      "ok",
+      "agent lead is already open with different layout",
+      "agent lead is already open with different keepPane",
+    ]);
+  });
+
+  test("refused at open: a layout on a headless agent, or beside itself", async () => {
+    const refused = workflowOf<null, string[]>(async (workflow) => {
+      const open = (spec: Parameters<typeof workflow.agents.open>[0]) =>
+        workflow.agents
+          .open(spec)
+          .then(() => "ok")
+          .catch((error: Error) => error.message);
+      return [
+        await open({
+          key: "a",
+          runtime: { alias: "codex", placement: "headless" },
+          keepPane: "always",
+        }),
+        await open({ key: "b", runtime: "claude", layout: { beside: "b", side: "right" } }),
+      ];
+    });
+    const run = await testWorkflow(refused, null, { agents: {} });
+    expect(run.value).toEqual([
+      "agent a: layout and keepPane place a pane, and a headless agent has none",
+      "agent b: a pane cannot be placed beside itself",
+    ]);
+    expect(run.agents).toEqual([]);
+  });
+
+  test("beside an agent with no pane, or not open, falls back and says why", async () => {
+    const besides = workflowOf<null, null>(async (workflow) => {
+      await workflow.agents.open({
+        key: "quiet",
+        runtime: { alias: "codex", placement: "headless" },
+      });
+      await workflow.agents.open({
+        key: "a",
+        runtime: "claude",
+        layout: { beside: "quiet", side: "right" },
+      });
+      await workflow.agents.open({
+        key: "b",
+        runtime: "claude",
+        layout: { beside: "later", side: "below" },
+      });
+      return null;
+    });
+    const run = await testWorkflow(besides, null, { agents: {} });
+    expect(run.agentOf("a").layoutFallback).toBe("quiet is headless");
+    expect(run.agentOf("b").layoutFallback).toBe("later is not open");
+  });
+
+  test("beside a sibling opening in the same parallel waits for it, if it began first", async () => {
+    const siblings = workflowOf<null, null>(async (workflow) => {
+      await Promise.all([
+        workflow.agents.open({ key: "a", runtime: "claude" }),
+        workflow.agents.open({
+          key: "b",
+          runtime: "claude",
+          layout: { beside: "a", side: "right" },
+        }),
+        workflow.agents.open({
+          key: "c",
+          runtime: "claude",
+          layout: { beside: "d", side: "right" },
+        }),
+        workflow.agents.open({ key: "d", runtime: "claude" }),
+      ]);
+      return null;
+    });
+    const run = await testWorkflow(siblings, null, { agents: {} });
+    expect(run.agents.map((agent) => agent.key).indexOf("b")).toBeGreaterThan(
+      run.agents.map((agent) => agent.key).indexOf("a"),
+    );
+    expect(run.agentOf("b")).not.toHaveProperty("layoutFallback");
+    expect(run.agentOf("c").layoutFallback).toBe("d is not open");
+  });
+
+  test("two forks beside each other: the first, whose target was not yet open, falls back", async () => {
+    const crossed = workflowOf<null, null>(async (workflow) => {
+      const lead = await workflow.agents.open({ key: "lead", runtime: "claude" });
+      await lead.run({ prompt: "Plan the review.", schema: PLAN });
+      await Promise.all([
+        lead.fork({ key: "x", layout: { beside: "y", side: "right" } }),
+        lead.fork({ key: "y", layout: { beside: "x", side: "below" } }),
+      ]);
+      return null;
+    });
+    const run = await testWorkflow(crossed, null, {
+      agents: { lead: [answer(PLAN, { steps: ["a"] })] },
+    });
+    expect(run.agentOf("x").layoutFallback).toBe("y is not open");
+    expect(run.agentOf("y")).not.toHaveProperty("layoutFallback");
+  });
+
+  test("a layout given with an undefined field reopens as one without it", async () => {
+    const reopening = workflowOf<null, string>(async (workflow) => {
+      const share: number | undefined = undefined;
+      await workflow.agents.open({ key: "a", runtime: "claude" });
+      await workflow.agents.open({
+        key: "b",
+        runtime: "claude",
+        layout: { beside: "a", side: "right", share },
+      });
+      await workflow.agents.open({
+        key: "b",
+        runtime: "claude",
+        layout: { beside: "a", side: "right" },
+      });
+      return "ok";
+    });
+    const run = await testWorkflow(reopening, null, { agents: {} });
+    expect(run.value).toBe("ok");
+    expect(run.agentOf("b").layout).toEqual({ beside: "a", side: "right" });
+  });
+
+  test("a fork made headless, or an agent in a sandbox, is refused a layout", async () => {
+    const refused = workflowOf<null, string[]>(async (workflow) => {
+      const lead = await workflow.agents.open({ key: "lead", runtime: "claude" });
+      await lead.run({ prompt: "Plan.", schema: PLAN });
+      const message = (opening: Promise<unknown>) =>
+        opening.then(() => "ok").catch((error: Error) => error.message);
+      return [
+        await message(
+          lead.fork({
+            key: "quiet",
+            placement: "headless",
+            metered: true,
+            layout: { tab: "q" },
+          }),
+        ),
+        await message(
+          workflow.agents.open({
+            key: "boxed",
+            runtime: "codex",
+            sandbox: { srt: {} },
+            keepPane: "always",
+          }),
+        ),
+      ];
+    });
+    const run = await testWorkflow(refused, null, {
+      agents: { lead: [answer(PLAN, { steps: ["a"] })] },
+    });
+    expect(run.value).toEqual([
+      "agent quiet: layout and keepPane place a pane, and a headless agent has none",
+      "agent boxed: layout and keepPane are not yet for an agent in a sandbox, whose pane is in its own Herdr",
+    ]);
+  });
+
+  test("a fork re-attached with another layout or keepPane conflicts", async () => {
+    const twice = workflowOf<null, string[]>(async (workflow) => {
+      const lead = await workflow.agents.open({ key: "lead", runtime: "claude" });
+      await lead.run({ prompt: "Plan.", schema: PLAN });
+      await lead.fork({ key: "x", layout: { beside: "lead", side: "right" } });
+      const again = (spec: Parameters<typeof lead.fork>[0]) =>
+        lead
+          .fork(spec)
+          .then(() => "ok")
+          .catch((error: Error) => error.message);
+      return [
+        await again({ key: "x", layout: { beside: "lead", side: "right", share: undefined } }),
+        await again({ key: "x", layout: { beside: "lead", side: "below" } }),
+        await again({ key: "x", layout: { beside: "lead", side: "right" }, keepPane: "always" }),
+      ];
+    });
+    const run = await testWorkflow(twice, null, {
+      agents: { lead: [answer(PLAN, { steps: ["a"] })] },
+    });
+    expect(run.value).toEqual([
+      "ok",
+      "agent x is already open, not as this fork of lead",
+      "agent x is already open, not as this fork of lead",
+    ]);
+  });
+
+  test("beside the calling session, or an agent in a sandbox, falls back", async () => {
+    const besides = workflowOf<null, null>(async (workflow) => {
+      await workflow.agents.caller({ key: "author" });
+      await workflow.agents.open({ key: "boxed", runtime: "codex", sandbox: { srt: {} } });
+      await workflow.agents.open({
+        key: "a",
+        runtime: "claude",
+        layout: { beside: "author", side: "right" },
+      });
+      await workflow.agents.open({
+        key: "b",
+        runtime: "claude",
+        layout: { beside: "boxed", side: "right" },
+      });
+      return null;
+    });
+    const run = await testWorkflow(besides, null, { agents: {}, caller: { harness: "claude" } });
+    expect(run.agentOf("a").layoutFallback).toBe(
+      "author is the calling session, whose pane is the operator's",
+    );
+    expect(run.agentOf("b").layoutFallback).toBe(
+      "boxed runs in a sandbox, whose panes are in its own Herdr",
+    );
+  });
+
+  test("a pane is kept as keepPane says, by how the agent's last operation ended", async () => {
+    const keeping = workflowOf<null, null>(async (workflow) => {
+      const agents = await Promise.all(
+        (
+          [
+            ["kept-failed", "on-failure"],
+            ["closed-answered", "on-failure"],
+            ["kept-always", "always"],
+            ["closed-never", "never"],
+            ["closed-default", undefined],
+          ] as const
+        ).map(([key, keepPane]) =>
+          workflow.agents.open({ key, runtime: "claude", ...(keepPane ? { keepPane } : {}) }),
+        ),
+      );
+      for (const agent of agents) await agent.run({ prompt: "Plan.", schema: PLAN, nudge: false });
+      return null;
+    });
+    const run = await testWorkflow(keeping, null, {
+      agents: {
+        "kept-failed": [reply.failed()],
+        "closed-answered": [answer(PLAN, { steps: [] })],
+        "kept-always": [answer(PLAN, { steps: [] })],
+        "closed-never": [reply.failed()],
+        "closed-default": [reply.failed()],
+      },
+    });
+    expect(run.agents.filter((agent) => agent.keptPane).map((agent) => agent.key)).toEqual([
+      "kept-failed",
+      "kept-always",
+    ]);
+  });
+
+  test("an operation the run's end cancels counts as a failure: on-failure keeps the pane", async () => {
+    const leaving = workflowOf<null, null>(async (workflow) => {
+      const agent = await workflow.agents.open({
+        key: "left",
+        runtime: "claude",
+        keepPane: "on-failure",
+      });
+      await agent.run({ prompt: "Plan.", schema: PLAN, nudge: false });
+      void agent.run({ prompt: "Go on.", nudge: false }).catch(() => undefined);
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      return null;
+    });
+    const run = await testWorkflow(leaving, null, {
+      agents: { left: [answer(PLAN, { steps: [] }), reply.hang()] },
+    });
+    expect(run.agentOf("left").keptPane).toBe(true);
+  });
+});

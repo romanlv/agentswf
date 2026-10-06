@@ -1,7 +1,7 @@
 ---
 title: Pane layout
 type: design
-story: "[[herdr-layout-policy]]"
+story: "[[026-pane-layout]]"
 ---
 
 # Pane layout
@@ -23,7 +23,7 @@ session, and the tab closes when the agent is done. That is readable but fixed:
 - A pane that failed is gone before anyone could read it.
 
 A first sibling-panes layout stopped being readable at five agents, because each split halved the
-root ([[herdr-layout-policy]]). The answer here is not a smarter automatic layout: the workflow,
+root ([[001-multi-agent-review]]). The answer here is not a smarter automatic layout: the workflow,
 which knows which agents belong together, says so, one pane at a time.
 
 ## The model in one picture
@@ -290,14 +290,14 @@ are several; made when there is none, under a lock per session and name in `~/.a
 runs opening it at once make one.
 
 A named workspace is shared: by later runs, and by whatever the operator puts in it. So awf treats it
-as it treats `"origin"`: it only adds tabs, labelled `{run} {tab}`; never closes the workspace, or a
+as it treats `"origin"`: it only adds tabs, labelled `{tab} · {run id}`; never closes the workspace, or a
 pane it didn't create. It needs no owner: Herdr closes a workspace with its last pane (measured), so
 it goes when the last pane in it does.
 
 ### `"origin"`
 
 `"origin"` is the Herdr workspace `awf run` was typed in: what makes "show this agent here"
-possible. It is resolved **once, when the run starts**. If any step fails, every `"origin"` in the run
+possible. It is resolved **once a run**, at the first agent that names it, from the environment `awf run` started with, so a run that never uses it never asks Herdr. If any step fails, every `"origin"` in the run
 falls back to the run's workspace, said once in the output:
 
 1. **Which pane.** For `awf run --here`, the calling session's pane, as `--here` already finds it
@@ -316,8 +316,9 @@ falls back to the run's workspace, said once in the output:
 
 In `"origin"`, awf only adds: new tabs, and splits beside its own agents' panes. It never closes the
 workspace, never splits or closes a pane it didn't create, and never takes focus. A tab it opens
-there is labelled `{run} {tab}`, where `{run}` is the run's label, as its `awf` workspace is named,
-then cut to 32 characters, so the operator can tell which run made it. Two runs in one workspace each
+there is labelled `{tab} · {run id}`, cut to 32 characters, so the operator can tell which run made
+it. The tab comes first: a run's label, `awf {workflow} {id} #{attempt}`, fills 32 characters on its
+own. Two runs in one workspace each
 get their own tabs, even with the same `tab`.
 
 Not even the calling session's pane is split. ADR 0010 has the engine drive it but never own it;
@@ -344,7 +345,7 @@ workspace, an older awf with a stale server sees neither, and may restart the `a
 that run's open then fails as any open on a restarting server does. Running two awf versions at once
 is the only way to meet it.
 
-A version 2 mark names each pane and tab the run created, with its session, its id, and its
+A version 2 mark names each pane the run created, with its session, its id, and its
 terminal's id (`terminal_id`), and which are kept. Herdr's pane ids are short counters that repeat
 after a session restarts; the terminal id does not, so the sweep acts on a pane only when both match.
 
@@ -358,8 +359,9 @@ its start too. For each mark whose run is no longer running:
 - **Its panes that are not kept are closed**, in whatever session they are in, `"origin"` included.
   Without this, an awf killed mid-run would leave harnesses in the operator's workspace that nothing
   ever stops.
-- **A session that is gone** (not listed, or not answering) took its panes with it: they leave the
-  mark.
+- **A session that is gone** (not running) took its panes with it: they leave the mark. One that
+  doesn't answer, or a pane recorded without its terminal, is left in the mark for the next sweep,
+  never closed; a kept pane there still keeps its workspace open.
 - **Kept panes are left, and listed**, with the run that kept them. A pane gone from Herdr leaves the
   mark; a mark with nothing left is removed.
 - **Its `awf` workspace** closes once nothing in it is kept, not before.
@@ -373,10 +375,11 @@ back. Placing the attached tab is cheap to add later.
 
 ## What the run records
 
-Each agent's usage record gains its layout as written and where it was placed: the session, the
-workspace (`run`, `origin`, or its name), its tab label or the key it went beside, and a fallback's
-reason. The run's closing
-output lists fallbacks and kept panes, once each.
+`output.json` gains `panes`, one entry per pane agent: its layout and `keepPane` as written, and
+where it was placed: the session, the workspace (`run`, `origin`, or its name), its tab label or
+the key it went beside, a fallback's reason, and whether it was kept, or why a pane asked to be kept
+was closed instead. The run's closing lines name each fallback, each pane closed instead of kept,
+and each kept pane with how to reach it, once each.
 
 ## What changes elsewhere
 
@@ -419,4 +422,6 @@ Each waits for a workflow that needs it:
 - **M1.** How long a harness takes to settle after an interrupt, to bound releasing a kept pane.
 - **M2.** That a `pane close` from awf, and a session restart, never reuse a `terminal_id`.
 - **M3.** That `pane process-info` names the pane's shell, so an ancestor check finds the pane
-  `awf run` was typed in, under each harness's shell and a plain one.
+  `awf run` was typed in, under each harness's shell and a plain one. *Measured 2026-10-06 under
+  claude: its `shell_pid` is an ancestor of a command the harness runs; a run started detached,
+  whose parent is then pid 1, is refused, and falls back.* Under codex, still to measure.

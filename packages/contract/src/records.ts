@@ -3,7 +3,10 @@ import type {
   AgentExecution,
   AgentKey,
   HarnessKind,
+  KeepPane,
   OperationRecord,
+  PaneLayout,
+  PaneWorkspace,
   SkillSource,
   TurnOutcome,
 } from "./workflow/agents";
@@ -216,6 +219,32 @@ export type SandboxRecord = {
   agents: { callPath: string[]; agent: string; home: string }[];
 };
 
+/** Where a pane agent's pane was placed, and why not where its layout said, for the record. */
+export type PanePlacement = {
+  /** The terminal session it is in. */
+  session: string;
+  workspace: PaneWorkspace;
+  /** The new tab's label; absent for a pane beside another. */
+  tab?: string;
+  /** The agent whose pane it split. */
+  beside?: string;
+  /** Why its layout was not used, where it wasn't. */
+  fallback?: string;
+  /** Left open when the agent was done, its harness running. */
+  kept?: true;
+  /** Why a pane asked to be kept was closed instead. */
+  notKept?: string;
+};
+
+/** Where a pane agent's pane went: its layout as the workflow wrote it, and where it was placed. */
+export type AgentPaneRecord = {
+  callPath: string[];
+  agent: string;
+  layout?: PaneLayout;
+  keepPane?: KeepPane;
+  placed: PanePlacement;
+};
+
 /** One skill an agent was given, as it was copied to it. */
 export type SkillRecord = {
   /** The name in its `SKILL.md`, and the directory it was copied to. */
@@ -391,6 +420,8 @@ export type OutputRecord = {
   sandboxes?: SandboxRecord[];
   /** Each agent's skills, once per agent, including one that never completed a turn. */
   skills?: AgentSkillsRecord[];
+  /** Where each pane agent's pane went, once per agent. Absent when the run placed none. */
+  panes?: AgentPaneRecord[];
   /** Every decision the run asked, in the order asked. Absent when it asked none. */
   decisions?: SettledDecision[];
   /** Each stage the attempt entered, as its attempt file has them; absent when none. */

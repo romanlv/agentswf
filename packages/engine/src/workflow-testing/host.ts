@@ -5,6 +5,8 @@ import {
   type AgentPlacement,
   type Effort,
   type JsonObject,
+  type KeepPane,
+  type PaneLayout,
   placementOf,
 } from "@agentswf/contract/workflow";
 import {
@@ -63,6 +65,16 @@ export type OpenedAgent = {
   sandbox?: AgentSandbox;
   /** The agent it was forked from, and how many of that agent's turns its copy holds. */
   forkedFrom?: { key: string; turns: number };
+  /**
+   * Its pane's layout as the workflow wrote it; this host has no screen, so nothing says where a
+   * pane landed or whether a `beside` fell back.
+   */
+  layout?: PaneLayout;
+  /** Why the engine already knew `layout` could not be used: a `beside` an agent with no pane. */
+  layoutFallback?: string;
+  keepPane?: KeepPane;
+  /** Its pane was kept when it was done: `keepPane` asked, and how its last operation ended let it. */
+  keptPane?: true;
 };
 
 /** The sandbox an agent ran in, as the run's record keeps it. */
@@ -362,7 +374,7 @@ export function createScriptedHost(
           close: (reason) => run.close(reason),
           async openAgent(request) {
             const session = await run.openAgent(request);
-            agents.push({
+            const opened: OpenedAgent = {
               key: request.key,
               execution: request.execution,
               ...(request.instructions ? { instructions: request.instructions } : {}),
@@ -371,8 +383,18 @@ export function createScriptedHost(
               ...(request.continues && forks.has(request.continues.sessionRef)
                 ? { forkedFrom: forks.get(request.continues.sessionRef)! }
                 : {}),
-            });
-            return session;
+              ...(request.layout ? { layout: request.layout } : {}),
+              ...(request.layoutFallback ? { layoutFallback: request.layoutFallback } : {}),
+              ...(request.keepPane ? { keepPane: request.keepPane } : {}),
+            };
+            agents.push(opened);
+            return {
+              ...session,
+              close(reason, options) {
+                if (options?.keep) opened.keptPane = true;
+                return session.close(reason, options);
+              },
+            };
           },
         };
       },

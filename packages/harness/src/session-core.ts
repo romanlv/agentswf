@@ -11,6 +11,7 @@ import {
 import type {
   AgentSessionAdapter,
   AuthoredTurn,
+  CloseOptions,
   HarnessActivation,
   HarnessAuthored,
   HarnessNudgeSpec,
@@ -21,6 +22,7 @@ import type {
   HarnessTurn,
   HarnessTurnOutcome,
   NativeFork,
+  PanePlacement,
   SessionCopy,
   SessionSettings,
 } from "./adapter";
@@ -67,6 +69,7 @@ export type ActivatedSessionBackend = {
   readonly identity: NativeSessionIdentity;
   /** When it first prompted the agent, where it waits before prompting; see `HarnessSession`. */
   promptedAt?(): number | undefined;
+  pane?(): PanePlacement | undefined;
   execute(request: NativeTurnRequest): Promise<NativeTurnOutcome>;
   /** The harness's own fork of `sessionRef`, or its copy `into` another home; absent where none. */
   fork?(sessionRef: string, deadline: AbsoluteDeadline, into?: SessionCopy): Promise<NativeFork>;
@@ -75,7 +78,7 @@ export type ActivatedSessionBackend = {
    * where it cannot. See `HarnessSession.set`.
    */
   set?(settings: SessionSettings, deadline: AbsoluteDeadline, sessionRef?: string): Promise<void>;
-  close(reason?: string): Promise<void>;
+  close(reason?: string, options?: CloseOptions): Promise<void>;
 } & (
   | { cancel?(reason?: string): Promise<boolean>; readonly finishesAnswered?: false }
   | {
@@ -518,10 +521,11 @@ function createSession(
       : {}),
     sessions: () => [...seen],
     ...(native.promptedAt ? { promptedAt: () => native.promptedAt!() } : {}),
-    async close(reason?: string) {
+    ...(native.pane ? { pane: () => native.pane!() } : {}),
+    async close(reason?: string, options?: CloseOptions) {
       if (closed) return;
       closeAttempt ??= native
-        .close(reason)
+        .close(reason, options)
         .catch((error: unknown) => {
           throw new Error(reasonOf(error));
         })

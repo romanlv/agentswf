@@ -1,3 +1,4 @@
+import type { PanePlacement } from "@agentswf/contract/records";
 import type {
   AbsoluteDeadline,
   AgentExecution,
@@ -9,8 +10,10 @@ import type {
   HarnessKind,
   JsonObject,
   JsonValue,
+  KeepPane,
   NudgeOptions,
   OutputSchema,
+  PaneLayout,
   RuntimeAliases,
   TurnId,
   TurnLogin,
@@ -164,7 +167,11 @@ export interface HarnessSession {
    * own first turn and where its harness cannot.
    */
   fork?(deadline: AbsoluteDeadline, into?: SessionCopy): Promise<NativeFork>;
-  close(reason?: string): Promise<void>;
+  /**
+   * Ends the agent. With `keep`, a host whose agent has a pane of its own leaves it open, its
+   * harness released from the run; one that can't, or whose harness won't settle, closes it.
+   */
+  close(reason?: string, options?: CloseOptions): Promise<void>;
   /** Every native session id the adapter has seen for this agent, in the order first seen. */
   sessions?(): readonly string[];
   /**
@@ -172,7 +179,13 @@ export interface HarnessSession {
    * the calling session's, which may still be the operator's own turn until then (ADR 0010).
    */
   promptedAt?(): number | undefined;
+  /** Where its pane was placed, for a host that places panes; see `PanePlacement`. */
+  pane?(): PanePlacement | undefined;
 }
+
+export type { PanePlacement };
+
+export type CloseOptions = { keep?: boolean };
 
 /** The settings a session runs at, whole: an absent effort is the harness's default. */
 export type SessionSettings = { model: string; effort?: Effort };
@@ -227,6 +240,15 @@ export interface HarnessActivation {
    * host. Absent, the operator's.
    */
   home?: string;
+  /** Where a pane agent's pane goes, as the workflow wrote it; a host with no panes ignores it. */
+  layout?: PaneLayout;
+  /**
+   * Why `layout` can't be used, where the engine already knows: a `beside` naming an agent with no
+   * pane. The host then places the pane as if there were no layout, and says this.
+   */
+  layoutFallback?: string;
+  /** As the workflow wrote it, for a host that records it; never decided on: the engine decides at close. */
+  keepPane?: KeepPane;
 }
 
 /** An opaque locator for a session the engine did not start; only the adapter interprets it. */

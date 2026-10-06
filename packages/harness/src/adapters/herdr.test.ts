@@ -929,6 +929,10 @@ describe("createHerdrRunHostFactory", () => {
           root_pane: { pane_id: `w1:p${panes}` },
         });
       }
+      if (command === "pane split") {
+        panes += 1;
+        return commandResult({ pane: { pane_id: `w1:p${panes}` } });
+      }
       if (command === "agent prompt") {
         return commandResult({
           agent: {
@@ -1025,7 +1029,7 @@ describe("createHerdrRunHostFactory", () => {
             awaitCompletion: true,
           });
           expect(release.kind).toBe(broken ? "quarantined" : "released");
-          expect(base.calls.some((call) => verb(call) === "tab close")).toBe(false);
+          expect(base.calls.some((call) => verb(call) === "pane close")).toBe(false);
         } finally {
           await host.close();
           rmSync(home, { recursive: true, force: true });
@@ -1246,7 +1250,7 @@ describe("createHerdrRunHostFactory", () => {
     controller.abort();
     expect((await pending.settled).state).toBe("cancelled");
     expect(base.calls.filter((call) => verb(call) === "agent prompt")).toHaveLength(1);
-    expect(base.calls.filter((call) => verb(call) === "tab close")).toHaveLength(0);
+    expect(base.calls.filter((call) => verb(call) === "pane close")).toHaveLength(0);
     hold = false;
     const next = await pending.nudge({ id: "next", prompt: "check later", deadline: deadline() });
     expect((await next.settled).state).toBe("completed");
@@ -1298,7 +1302,7 @@ describe("createHerdrRunHostFactory", () => {
     ]);
     expect(calls.filter((call) => verb(call) === "tab create")).toHaveLength(1);
     expect(calls.filter((call) => verb(call) === "agent start")).toHaveLength(1);
-    expect(calls.filter((call) => verb(call) === "tab close")).toHaveLength(0);
+    expect(calls.filter((call) => verb(call) === "pane close")).toHaveLength(0);
     await host.close();
   });
 
@@ -1346,7 +1350,7 @@ describe("createHerdrRunHostFactory", () => {
     await expect(first.settled).resolves.toMatchObject({ state: "completed" });
     await expect((await starting).settled).resolves.toMatchObject({ state: "completed" });
     expect(prompts).toBe(2);
-    expect(base.calls.filter((call) => verb(call) === "tab close")).toHaveLength(0);
+    expect(base.calls.filter((call) => verb(call) === "pane close")).toHaveLength(0);
     await host.close();
   });
 
@@ -1393,7 +1397,7 @@ describe("createHerdrRunHostFactory", () => {
     await expect(second.settled).resolves.toMatchObject({ state: "completed" });
     const keys = base.calls.filter((call) => verb(call) === "agent send-keys");
     expect(keys.map((call) => call.argv.at(-1))).toEqual(["esc"]);
-    expect(base.calls.filter((call) => verb(call) === "tab close")).toHaveLength(0);
+    expect(base.calls.filter((call) => verb(call) === "pane close")).toHaveLength(0);
     expect(prompts).toBe(2);
     await host.close();
   });
@@ -1658,7 +1662,7 @@ describe("createHerdrRunHostFactory", () => {
       await host.close();
     });
 
-    test("a compaction before the agent's first turn opens no tab", async () => {
+    test("a compaction before the agent's first turn starts no harness in its pane", async () => {
       const { run, calls } = showing("");
       const { host, session } = await opened(run, "claude");
       const compact = await session.compact("c-1", "Keep the path.", deadline());
@@ -1666,7 +1670,8 @@ describe("createHerdrRunHostFactory", () => {
         state: "failed",
         detail: "there is nothing to compact before the first turn",
       });
-      expect(calls.filter((call) => verb(call) === "tab create")).toHaveLength(0);
+      expect(calls.filter((call) => verb(call) === "tab create")).toHaveLength(1);
+      expect(calls.filter((call) => verb(call) === "agent start")).toHaveLength(0);
       await host.close();
     });
   });
@@ -1717,7 +1722,7 @@ describe("createHerdrRunHostFactory", () => {
           "high",
         ]),
       );
-      expect(calls.filter((call) => verb(call) === "tab close")).toHaveLength(1);
+      expect(calls.filter((call) => verb(call) === "pane close")).toHaveLength(1);
       const order = calls.map(verb);
       const relaunched = order.lastIndexOf("agent start");
       expect(order.slice(0, relaunched)).toContain("agent wait");
@@ -2101,14 +2106,17 @@ describe("createHerdrRunHostFactory", () => {
     await host.close();
   });
 
-  test("releasing a turn while its tab is still being created reports it cancelled", async () => {
+  test("releasing a turn while its pane is being placed again reports it cancelled", async () => {
     const { run: base } = hostStub();
+    let tabs = 0;
     let creating!: () => void;
     const creationStarted = new Promise<void>((resolve) => {
       creating = resolve;
     });
     const run: RunProcess = async (input) => {
-      if (verb(input) !== "tab create") return base(input);
+      // Its first start fails, which closes the pane placed at open.
+      if (verb(input) === "agent start" && tabs === 1) return errorResult("agent_failed");
+      if (verb(input) !== "tab create" || ++tabs === 1) return base(input);
       creating();
       await new Promise<void>((resolve) =>
         input.signal?.addEventListener("abort", () => resolve(), { once: true }),
@@ -2132,9 +2140,14 @@ describe("createHerdrRunHostFactory", () => {
       deadline: deadline(),
       execution: { harness: "claude", model: "opus" },
     });
-    const turn = await session.start(
+    const first = await session.start(
       { id: "one", prompt: "review", deadline: deadline() },
       binding("op-1"),
+    );
+    await expect(first.settled).resolves.toMatchObject({ state: "failed" });
+    const turn = await session.start(
+      { id: "two", prompt: "review", deadline: deadline() },
+      binding("op-2"),
     );
     await creationStarted;
 
@@ -2221,7 +2234,7 @@ describe("createHerdrRunHostFactory", () => {
       kind: "released",
       outcome: { state: "cancelled" },
     });
-    expect(base.calls.filter((call) => verb(call) === "tab close")).toHaveLength(1);
+    expect(base.calls.filter((call) => verb(call) === "pane close")).toHaveLength(1);
     for (const id of ["op-2", "op-3"] as const) {
       const later = await session.start({ id, prompt: "again", deadline: deadline() }, binding(id));
       await expect(later.settled).resolves.toMatchObject({
@@ -2391,7 +2404,7 @@ describe("createHerdrRunHostFactory", () => {
     expect(base.calls.filter((call) => verb(call) === "agent prompt")).toHaveLength(1);
     // The agent may still be working, so its pane and authority outlive the outcome; only the
     // engine's release or the run's cleanup takes them away.
-    expect(base.calls.filter((call) => verb(call) === "tab close")).toHaveLength(0);
+    expect(base.calls.filter((call) => verb(call) === "pane close")).toHaveLength(0);
     await host.close();
   });
 
@@ -2486,7 +2499,7 @@ describe("createHerdrRunHostFactory", () => {
       login: { harness: "codex", run: "run `codex login`" },
     });
     expect(base.calls.filter((call) => verb(call) === "agent prompt")).toHaveLength(0);
-    expect(base.calls.filter((call) => verb(call) === "tab close")).toHaveLength(1);
+    expect(base.calls.filter((call) => verb(call) === "pane close")).toHaveLength(1);
     await host.close();
   });
 
@@ -2532,15 +2545,15 @@ describe("createHerdrRunHostFactory", () => {
     await host.close();
   });
 
-  test("an operation whose tab never opened does not consume the agent", async () => {
+  test("an open whose tab never opens rejects, and a later one opens", async () => {
     const base = hostStub();
-    let splits = 0;
+    let tabs = 0;
     const run: RunProcess = async (input) => {
       if (verb(input) !== "tab create") return base.run(input);
       base.calls.push(input);
-      splits += 1;
-      return splits === 1
-        ? errorResult("pane_split_failed")
+      tabs += 1;
+      return tabs === 1
+        ? errorResult("tab_create_failed")
         : commandResult({ tab: { tab_id: "w1:t2" }, root_pane: { pane_id: "w1:p2" } });
     };
     const host = await createHerdrRunHostFactory(CONFIG, run).openRun({
@@ -2548,23 +2561,21 @@ describe("createHerdrRunHostFactory", () => {
       cwd: "/repo",
       deadline: deadline(),
     });
-    const session = await host.openAgent({
-      key: "reviewer",
-      cwd: "/repo",
-      deadline: deadline(),
-      execution: { harness: "claude", model: "opus" },
-    });
-    await expect(
-      (await session.start({ id: "one", prompt: "review", deadline: deadline() }, binding("op-1")))
-        .settled,
-    ).resolves.toMatchObject({ state: "failed", detail: expect.stringContaining("tab create") });
-
-    const second = await session.start(
-      { id: "two", prompt: "review", deadline: deadline() },
-      binding("op-2"),
+    const open = (key: string) =>
+      host.openAgent({
+        key,
+        cwd: "/repo",
+        deadline: deadline(),
+        execution: { harness: "claude", model: "opus" },
+      });
+    await expect(open("reviewer")).rejects.toThrow("tab create");
+    const session = await open("another");
+    const turn = await session.start(
+      { id: "one", prompt: "review", deadline: deadline() },
+      binding("op-1"),
     );
-    await expect(second.settled).resolves.toMatchObject({ state: "completed" });
-    expect(splits).toBe(2);
+    await expect(turn.settled).resolves.toMatchObject({ state: "completed" });
+    expect(tabs).toBe(2);
     await host.close();
   });
 });

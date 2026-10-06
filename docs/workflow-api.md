@@ -11,11 +11,11 @@ to, and [`examples/`](../examples) has complete workflows.
 ## At a glance
 
 ```ts
-workflow.agents.open({ key, runtime, instructions?, skills?, sandbox?, cwd? })  // → agent
+workflow.agents.open({ key, runtime, instructions?, skills?, sandbox?, cwd?, layout?, keepPane? })  // → agent
 agent.run({ prompt, schema?, timeoutMs?, label?, nudge? })  // → { outcome }; the same agent keeps its session
 agent.compact({ prompt })                                    // → outcome; the harness's own compaction, with a focus
 agent.set({ model?, effort? })                               // → outcome; later turns run at these, in the same session
-agent.fork({ key, placement?, effort?, instructions? })      // → a new agent on a copy of this one's session
+agent.fork({ key, placement?, effort?, instructions?, layout?, keepPane? })  // → a new agent on a copy of this one's session
 workflow.agents.caller({ key })                              // → the session `awf run --here` was typed in, or null
 isAnswered(outcome)                                          // narrows to { kind: "answered", value }
 
@@ -126,6 +126,8 @@ const reviewer = await workflow.agents.open({
 | `skills` | Exactly the skills this agent gets: `{ path }` for a directory holding a `SKILL.md`, or `{ repo: "owner/repo", skill, ref? }`. Each agent gets its own copy. |
 | `sandbox` | A sandbox from `workflow.sandboxes.open`, or an inline spec for a private one. Leave it out to run unsandboxed. |
 | `cwd` | Where the agent works. Defaults to the workflow's working directory, `workflow.cwd`, which `awf run --cwd` sets. |
+| `layout` | Where a pane agent's pane appears: a new tab, or beside another agent's pane. See [Where panes go](#where-panes-go-layout-and-keeppane). |
+| `keepPane` | `"never"` (the default), `"on-failure"` or `"always"`: whether its pane stays once it is done. |
 
 A harness is the coding-agent CLI (`claude`, `codex`, `pi`, `cursor`). Your existing login for
 each one is used. Each runs in a pane or headless.
@@ -309,6 +311,48 @@ const [security, tests] = await Promise.all([
   rejects.
 - **A test** scripts a fork by its own key like any agent, and `agentOf(key).forkedFrom` names the
   agent it copied and how many of its turns came before.
+- **`layout` and `keepPane`** are never its parent's: a fork without them gets a tab of its own.
+
+### Where panes go: `layout` and `keepPane`
+
+Each pane agent gets a tab of its own in the run's workspace, in the `awf` Herdr session, closed
+once it is done. A workflow can place it elsewhere, one pane at a time, as it opens
+([design](design/pane-layout.md)):
+
+```ts
+const lead = await workflow.agents.open({
+  key: "lead",
+  runtime: "claude",
+  layout: { workspace: "origin", tab: "review" },  // a tab where `awf run` was typed
+  keepPane: "on-failure",
+});
+await lead.run({ prompt: "Read the change and plan the review." });
+const security = await lead.fork({ key: "security", layout: { beside: "lead", side: "right" } });
+const style = await lead.fork({ key: "style", layout: { beside: "security", side: "below" } });
+```
+
+- **A new tab**: `{ session?, workspace?, tab? }`. `workspace` is `"run"` (the default), `"origin"`,
+  the workspace `awf run` was typed in, or `{ name }`, the workspace with that label, made if there
+  is none. `session` names a Herdr session other than the run's: one named `awf-…` is started if
+  down; any other is used only if it is running. `tab` is the label; it defaults to the key.
+- **Beside another agent**: `{ beside: key, side: "right" | "below", share? }` splits that agent's
+  pane. `share` is the new pane's part, 0.2 to 0.8, 0.5 by default.
+- **A pane is placed when its agent opens**, so it shows a shell until its first turn, and any open
+  agent can be a `beside` target.
+- **Refused at open**: `beside` its own key, a `share` out of range, an empty label, a `session`
+  Herdr can't name, a `session` with `"origin"`, and either option on a headless or sandboxed agent.
+- **Where the layout can't be used**, the agent gets a tab of its own instead, in its target's
+  workspace if it has one, else the run's, and never fails: a
+  `beside` an agent not open, headless, sandboxed or with its pane gone; a split that would leave a
+  pane under 1/8 of the tab; an `"origin"`, session or workspace that can't be used. The run's
+  closing lines say which agent fell back and why, and `output.json`'s `panes` records where every
+  pane went.
+- **`keepPane`** keeps the pane when the agent is done, `"on-failure"` when its last operation was
+  not answered. Its harness is left running, released from the run: it can't answer any more, and
+  what you type into it is yours. The run's closing lines say where each kept pane is.
+- **Reopening** a key compares `layout` and `keepPane` as written: left out, they don't constrain.
+- **In a test**, `agentOf(key).layout` and `.keepPane` are as the workflow wrote them, and
+  `.layoutFallback` says why a `beside` fell back where the engine already knew.
 
 ### The calling session
 
@@ -696,7 +740,7 @@ decisions: {
 - **`run.setsOf(key)`** is one agent's switches in order, each with the `model` and `effort` it
   switched to. A switch answers wherever its harness can make it, and is refused where it can't.
 - **`run.agentOf(key)`** is what an agent was opened with: `execution`, `instructions`,
-  `labels`, `skills`, and `sandbox`, absent for an agent on the host. **`run.agents`** lists them
+  `labels`, `skills`, `layout`, `keepPane`, `layoutFallback`, and `sandbox`, absent for an agent on the host. **`run.agents`** lists them
   all.
 - **`run.decisions`** and **`run.logs`** are each decision asked and each `workflow.log` line.
 - **`run.stages`** is each stage's record in the order entered: `stage`, `attempt`, `outcome`

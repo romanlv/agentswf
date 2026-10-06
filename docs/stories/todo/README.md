@@ -101,5 +101,5 @@ live runs.
 
 - [[npm-launch]], [[scrub-private-references]], [[node-runtime]], [[live-eval-disclosure]] — the
   launch.
-- [[judge-opus-voter]], [[herdr-layout-policy]], [[workflow-test-generated-answers]],
+- [[judge-opus-voter]], [[workflow-test-generated-answers]],
   [[workflow-test-virtual-time]].

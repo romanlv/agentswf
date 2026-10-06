@@ -65,6 +65,7 @@ export async function keepRecords(
       artifacts: dir,
       ...(settled.sandboxes ? { sandboxes: settled.sandboxes } : {}),
       ...(settled.skills ? { skills: settled.skills } : {}),
+      ...(settled.panes ? { panes: settled.panes } : {}),
       ...(settled.decisions ? { decisions: settled.decisions } : {}),
       ...(stages ? { stages } : {}),
       ...(report ? { report } : {}),

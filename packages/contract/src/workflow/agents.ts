@@ -121,7 +121,53 @@ export interface AgentOpenSpec {
    * for a private one. Absent, the agent runs unsandboxed.
    */
   sandbox?: SandboxRef | InlineSandboxSpec;
+  /** Where its pane appears; absent, a tab of its own in the run's workspace. Pane agents only. */
+  layout?: PaneLayout;
+  /** Whether its pane stays once it is done; absent, `never`. Pane agents only. */
+  keepPane?: KeepPane;
 }
+
+/**
+ * Where a pane agent's pane is placed, once, as it opens: a new tab, or beside the pane of an agent
+ * already open, which it splits. Where it can't be used, the agent gets a tab of its own instead,
+ * and the run says why; it never fails the agent. See `docs/design/pane-layout.md`.
+ */
+export type PaneLayout =
+  | {
+      /** The terminal session; absent, the run's. One awf does not start is used only if running. */
+      session?: string;
+      /** Where the new tab opens in it; absent, `"run"`. */
+      workspace?: PaneWorkspace;
+      /** The new tab's label; absent, the agent's key. Every `tab` is a new tab. */
+      tab?: string;
+      beside?: never;
+      side?: never;
+      share?: never;
+    }
+  | {
+      /** Another agent of this run, whose pane this one splits. */
+      beside: AgentKey;
+      /** The side of that pane the new one goes on. */
+      side: "right" | "below";
+      /** The new pane's part of the space it splits, 0.2 to 0.8; absent, 0.5. */
+      share?: number;
+      session?: never;
+      workspace?: never;
+      tab?: never;
+    };
+
+/**
+ * The run's own workspace, the one `awf run` was typed in, or the one with this label, found or
+ * made.
+ */
+export type PaneWorkspace = "run" | "origin" | { name: string };
+
+/**
+ * Whether a pane stays once its agent is done; `on-failure`, when its last operation was not
+ * answered. A kept pane keeps its harness running, released from the run: its result channel is
+ * closed, and it is the operator's from then on.
+ */
+export type KeepPane = "never" | "on-failure" | "always";
 
 interface AgentTurnBase {
   prompt: string;
@@ -274,6 +320,10 @@ export interface AgentForkSpec extends PlacementChoice {
   labels?: JsonObject;
   /** Absent, the fork takes its parent's effort when it is taken, as it takes its model. */
   effort?: Effort;
+  /** Never its parent's: absent, a tab of its own. */
+  layout?: PaneLayout;
+  /** Never its parent's: absent, `never`. */
+  keepPane?: KeepPane;
 }
 
 export interface SettingsSpec {
