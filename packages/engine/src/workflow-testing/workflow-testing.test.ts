@@ -1169,3 +1169,158 @@ describe("testWorkflow forks", () => {
     });
   });
 });
+
+describe("testWorkflow layouts", () => {
+  test("each agent's layout and keepPane are recorded as written; a fork inherits neither", async () => {
+    const review = workflowOf<null, null>(async (workflow) => {
+      const lead = await workflow.agents.open({
+        key: "lead",
+        runtime: "claude",
+        layout: { workspace: "origin", tab: "review" },
+        keepPane: "on-failure",
+      });
+      await lead.run({ prompt: "Plan the review.", schema: PLAN });
+      await lead.fork({
+        key: "security",
+        layout: { beside: "lead", side: "right" },
+      });
+      await lead.fork({
+        key: "style",
+        layout: { beside: "security", side: "below", share: 0.4 },
+        keepPane: "always",
+      });
+      await lead.fork({ key: "plain" });
+      return null;
+    });
+    const run = await testWorkflow(review, null, {
+      agents: { lead: [answer(PLAN, { steps: ["a"] })] },
+    });
+    expect(run.agentOf("lead")).toMatchObject({
+      layout: { workspace: "origin", tab: "review" },
+      keepPane: "on-failure",
+    });
+    expect(run.agentOf("security").layout).toEqual({ beside: "lead", side: "right" });
+    expect(run.agentOf("security")).not.toHaveProperty("keepPane");
+    expect(run.agentOf("security")).not.toHaveProperty("layoutFallback");
+    expect(run.agentOf("style")).toMatchObject({
+      layout: { beside: "security", side: "below", share: 0.4 },
+      keepPane: "always",
+    });
+    expect(run.agentOf("plain")).not.toHaveProperty("layout");
+  });
+
+  test("a reopen compares them as written: omitted they don't constrain, different rejects", async () => {
+    const reopening = workflowOf<null, string[]>(async (workflow) => {
+      const open = (extra: object) =>
+        workflow.agents
+          .open({ key: "lead", runtime: "claude", ...extra })
+          .then(() => "ok")
+          .catch((error: Error) => error.message);
+      return [
+        await open({ layout: { tab: "review" }, keepPane: "always" }),
+        await open({}),
+        await open({ layout: { tab: "review" } }),
+        await open({ layout: { tab: "other" } }),
+        await open({ keepPane: "never" }),
+      ];
+    });
+    const run = await testWorkflow(reopening, null, { agents: {} });
+    expect(run.value).toEqual([
+      "ok",
+      "ok",
+      "ok",
+      "agent lead is already open with different layout",
+      "agent lead is already open with different keepPane",
+    ]);
+  });
+
+  test("refused at open: a layout on a headless agent, or beside itself", async () => {
+    const refused = workflowOf<null, string[]>(async (workflow) => {
+      const open = (spec: Parameters<typeof workflow.agents.open>[0]) =>
+        workflow.agents
+          .open(spec)
+          .then(() => "ok")
+          .catch((error: Error) => error.message);
+      return [
+        await open({
+          key: "a",
+          runtime: { alias: "codex", placement: "headless" },
+          keepPane: "always",
+        }),
+        await open({ key: "b", runtime: "claude", layout: { beside: "b", side: "right" } }),
+      ];
+    });
+    const run = await testWorkflow(refused, null, { agents: {} });
+    expect(run.value).toEqual([
+      "agent a: layout and keepPane place a pane, and a headless agent has none",
+      "agent b: a pane cannot be placed beside itself",
+    ]);
+    expect(run.agents).toEqual([]);
+  });
+
+  test("beside an agent with no pane, or not open, falls back and says why", async () => {
+    const besides = workflowOf<null, null>(async (workflow) => {
+      await workflow.agents.open({
+        key: "quiet",
+        runtime: { alias: "codex", placement: "headless" },
+      });
+      await workflow.agents.open({
+        key: "a",
+        runtime: "claude",
+        layout: { beside: "quiet", side: "right" },
+      });
+      await workflow.agents.open({
+        key: "b",
+        runtime: "claude",
+        layout: { beside: "later", side: "below" },
+      });
+      return null;
+    });
+    const run = await testWorkflow(besides, null, { agents: {} });
+    expect(run.agentOf("a").layoutFallback).toBe("quiet is headless");
+    expect(run.agentOf("b").layoutFallback).toBe("later is not open");
+  });
+
+  test("beside a sibling opening in the same parallel waits for it, if it began first", async () => {
+    const siblings = workflowOf<null, null>(async (workflow) => {
+      await Promise.all([
+        workflow.agents.open({ key: "a", runtime: "claude" }),
+        workflow.agents.open({
+          key: "b",
+          runtime: "claude",
+          layout: { beside: "a", side: "right" },
+        }),
+        workflow.agents.open({
+          key: "c",
+          runtime: "claude",
+          layout: { beside: "d", side: "right" },
+        }),
+        workflow.agents.open({ key: "d", runtime: "claude" }),
+      ]);
+      return null;
+    });
+    const run = await testWorkflow(siblings, null, { agents: {} });
+    expect(run.agents.map((agent) => agent.key).indexOf("b")).toBeGreaterThan(
+      run.agents.map((agent) => agent.key).indexOf("a"),
+    );
+    expect(run.agentOf("b")).not.toHaveProperty("layoutFallback");
+    expect(run.agentOf("c").layoutFallback).toBe("d is not open");
+  });
+
+  test("two forks beside each other don't wait on each other: the second falls back", async () => {
+    const crossed = workflowOf<null, null>(async (workflow) => {
+      const lead = await workflow.agents.open({ key: "lead", runtime: "claude" });
+      await lead.run({ prompt: "Plan the review.", schema: PLAN });
+      await Promise.all([
+        lead.fork({ key: "x", layout: { beside: "y", side: "right" } }),
+        lead.fork({ key: "y", layout: { beside: "x", side: "below" } }),
+      ]);
+      return null;
+    });
+    const run = await testWorkflow(crossed, null, {
+      agents: { lead: [answer(PLAN, { steps: ["a"] })] },
+    });
+    expect(run.agentOf("y").layoutFallback).toBe("x is itself waiting to open beside y");
+    expect(run.agentOf("x")).not.toHaveProperty("layoutFallback");
+  });
+});

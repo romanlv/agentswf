@@ -38,8 +38,10 @@ import {
   isJsonValue,
   type JsonObject,
   type JsonValue,
+  type KeepPane,
   type OperationRecord,
   type OutputSchema,
+  type PaneLayout,
   type PlacementChoice,
   placementOf,
   type RunResult,
@@ -102,6 +104,7 @@ import {
   type SupervisedOutcome,
   superviseOperation,
 } from "./operation-liveness";
+import { besideOf, checkPaneOptions } from "./pane-layout";
 import { createResultSlotRegistry, type ResultSlotRegistry } from "./result-slots";
 import { type AgentProgress, type GroupProgress, RunProgress } from "./run-progress";
 import {
@@ -273,6 +276,9 @@ type AgentIdentity = {
   labels?: AgentOpenSpec["labels"];
   /** The agent it was forked from, and the spec it was forked with. */
   forkedFrom?: { parent: AgentKey; spec: AgentForkSpec };
+  /** As written; a reopen compares them so, never where the pane ended up. */
+  layout?: PaneLayout;
+  keepPane?: KeepPane;
 };
 
 const CLEANUP_GRACE_MILLISECONDS = 5_000;
@@ -617,6 +623,11 @@ type AgentOpening = {
    * `forked`, is placed in this agent's home before it is admitted, in the parent's sandbox.
    */
   carried?: { parent: AgentKey; forked: Promise<unknown>; copy: string };
+  /**
+   * Settles before the host places the pane: once a `beside` target has opened, with why the
+   * layout can't be used where the engine knows already.
+   */
+  layoutFallback?: Promise<string | undefined>;
 };
 
 class WorkflowOwner {
@@ -630,6 +641,8 @@ class WorkflowOwner {
   #bundle: Promise<string> | undefined;
   /** The calling session, once the workflow has asked for it (ADR 0010). */
   #caller: { key: string; state: Promise<LogicalAgent> } | undefined;
+  /** Each agent waiting for the agent its pane goes beside to open, by key. */
+  readonly #besideWaits = new Map<string, string>();
 
   constructor(
     private readonly options: {
@@ -888,6 +901,10 @@ class WorkflowOwner {
     const execution = existing
       ? constrainExistingExecution(spec.runtime, existing.identity.execution)
       : withKnownEffort(resolveExecution(spec.runtime, this.options.runtime));
+    checkPaneOptions(spec.key, spec, {
+      headless: placementOf(execution) === "headless",
+      sandboxed: spec.sandbox !== undefined || inRunSandbox,
+    });
     const identity: AgentIdentity = {
       execution,
       cwd: spec.cwd ?? this.options.cwd,
@@ -895,6 +912,8 @@ class WorkflowOwner {
       ...(spec.labels === undefined ? {} : { labels: structuredClone(spec.labels) }),
       ...(spec.sandbox === undefined ? {} : { sandbox: spec.sandbox }),
       ...(spec.skills === undefined ? {} : { skills: readSkillSources(spec.skills) }),
+      ...(spec.layout === undefined ? {} : { layout: structuredClone(spec.layout) }),
+      ...(spec.keepPane === undefined ? {} : { keepPane: spec.keepPane }),
     };
     const scope = scopes.getStore();
     const inheritedDeadline = scope?.deadline ?? this.options.deadline;
@@ -942,7 +961,9 @@ class WorkflowOwner {
         ...(occupant ? { occupant } : {}),
         ...(skills ? { skills } : {}),
         ...(home ? { home } : {}),
+        ...paneOptions(identity),
       }),
+      layoutFallback: this.besideFallback(spec.key, identity.layout, effectiveDeadline),
     };
     let skills: Promise<PlacedSkills | undefined> = Promise.resolve(undefined);
     let opened: { state: Promise<LogicalAgent>; channel: Promise<ResultChannel> };
@@ -1045,7 +1066,7 @@ class WorkflowOwner {
    * agent before it holds anything, then its channel and session together.
    */
   private openHostAgent(
-    { spec, execution, sessions, ledger, activation }: AgentOpening,
+    { spec, execution, sessions, ledger, activation, layoutFallback }: AgentOpening,
     cwd: string,
     accounted: AccountedAgent,
     placed: Promise<PlacedSkills | undefined>,
@@ -1070,11 +1091,13 @@ class WorkflowOwner {
     // An open socket authorizes an agent until something closes it, so every failure path does.
     const closeChannel = () => opened.then((channel) => channel.close()).catch(() => undefined);
     const state = placed
-      .then((skills) =>
-        this.options.host.openAgent(
-          activation(cwd, undefined, skills?.given, skills?.given.ownHome),
-        ),
-      )
+      .then(async (skills) => {
+        const fallback = await layoutFallback;
+        return this.options.host.openAgent({
+          ...activation(cwd, undefined, skills?.given, skills?.given.ownHome),
+          ...(fallback === undefined ? {} : { layoutFallback: fallback }),
+        });
+      })
       .catch(async (error: unknown) => {
         await closeChannel();
         throw error;
@@ -1327,6 +1350,10 @@ class WorkflowOwner {
         ? join(this.options.runDir, "forks", randomUUID())
         : undefined;
     const execution = withKnownEffort(forkExecution(parentSettings, forkSpec));
+    checkPaneOptions(spec.key, forkSpec, {
+      headless: placementOf(execution) === "headless",
+      sandboxed,
+    });
     const identity: AgentIdentity = {
       execution,
       cwd: parent.identity.cwd,
@@ -1335,6 +1362,8 @@ class WorkflowOwner {
       ...(parent.identity.skills ? { skills: parent.identity.skills } : {}),
       ...(parent.identity.sandbox === undefined ? {} : { sandbox: parent.identity.sandbox }),
       forkedFrom: { parent: parentKey, spec: forkSpec },
+      ...(forkSpec.layout === undefined ? {} : { layout: forkSpec.layout }),
+      ...(forkSpec.keepPane === undefined ? {} : { keepPane: forkSpec.keepPane }),
     };
 
     this.options.progress.agentOpened(spec.key, scope?.group);
@@ -1389,7 +1418,12 @@ class WorkflowOwner {
         ...(given ? { skills: given } : {}),
         ...(home ? { home } : {}),
         ...(continues ? { continues } : {}),
+        ...paneOptions(identity),
       }),
+      layoutFallback: forked.then(
+        () => this.besideFallback(spec.key, identity.layout, deadline),
+        () => undefined,
+      ),
     };
     let skills: Promise<PlacedSkills | undefined> = Promise.resolve(undefined);
     let opened: { state: Promise<LogicalAgent>; channel: Promise<ResultChannel> };
@@ -1443,6 +1477,45 @@ class WorkflowOwner {
       if (this.#bundle === building) this.#bundle = undefined;
     });
     return building;
+  }
+
+  /**
+   * Why `key`'s pane can't go beside the agent its layout names, where the engine knows: that agent
+   * is not open, or has no pane awf places. A target still opening is waited for, so its pane is
+   * there to split, unless it waits, through others, on `key` itself.
+   */
+  private async besideFallback(
+    key: string,
+    layout: PaneLayout | undefined,
+    deadline: AbsoluteDeadline,
+  ): Promise<string | undefined> {
+    const target = besideOf(layout);
+    if (target === undefined) return undefined;
+    if (this.#caller?.key === target) {
+      return `${target} is the calling session, whose pane is the operator's`;
+    }
+    const entry = this.#agents.get(target);
+    if (!entry) return `${target} is not open`;
+    if (placementOf(entry.identity.execution) === "headless") return `${target} is headless`;
+    if (entry.identity.sandbox !== undefined || this.options.sandboxes.hasRunSandbox) {
+      return `${target} runs in a sandbox, whose panes are in its own Herdr`;
+    }
+    for (
+      let next: string | undefined = target;
+      next !== undefined;
+      next = this.#besideWaits.get(next)
+    ) {
+      if (next === key) return `${target} is itself waiting to open beside ${key}`;
+    }
+    this.#besideWaits.set(key, target);
+    try {
+      await waitForDeadline(entry.state, deadline);
+      return undefined;
+    } catch {
+      return `${target} did not open`;
+    } finally {
+      this.#besideWaits.delete(key);
+    }
   }
 
   /** A reopened agent names the sandbox it runs in, or none: a different one is a conflict. */
@@ -2575,11 +2648,21 @@ function assertCompatibleAgent(
   if (spec.skills !== undefined && !isDeepStrictEqual(existing.skills, requested.skills)) {
     conflict(key, "skills");
   }
-  for (const field of ["instructions", "labels"] as const) {
+  for (const field of ["instructions", "labels", "layout", "keepPane"] as const) {
     if (spec[field] !== undefined && !isDeepStrictEqual(existing[field], requested[field])) {
       conflict(key, field);
     }
   }
+}
+
+function paneOptions({
+  layout,
+  keepPane,
+}: AgentIdentity): Pick<HarnessActivation, "layout" | "keepPane"> {
+  return {
+    ...(layout === undefined ? {} : { layout }),
+    ...(keepPane === undefined ? {} : { keepPane }),
+  };
 }
 
 function conflict(key: string, field: string): never {

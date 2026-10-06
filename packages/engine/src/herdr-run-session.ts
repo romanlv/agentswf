@@ -12,7 +12,7 @@ import type { ProcessProbe } from "./runs";
 const DEFAULT_RUN_SESSION = "awf";
 
 /** Herdr makes `sessions/{name}` from it; a leading `-` reads as an option, a long one overflows the socket path. */
-const SESSION_NAME = /^[a-z0-9][a-z0-9-]{0,31}$/;
+export const SESSION_NAME = /^[a-z0-9][a-z0-9-]{0,31}$/;
 
 /** What may start: the shared session is awf's by its name, since which run created it is not knowable. */
 const OWN_SESSION = /^awf(-|$)/;

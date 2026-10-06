@@ -9,8 +9,10 @@ import type {
   HarnessKind,
   JsonObject,
   JsonValue,
+  KeepPane,
   NudgeOptions,
   OutputSchema,
+  PaneLayout,
   RuntimeAliases,
   TurnId,
   TurnLogin,
@@ -227,6 +229,15 @@ export interface HarnessActivation {
    * host. Absent, the operator's.
    */
   home?: string;
+  /** Where a pane agent's pane goes, as the workflow wrote it; a host with no panes ignores it. */
+  layout?: PaneLayout;
+  /**
+   * Why `layout` can't be used, where the engine already knows: a `beside` naming an agent with no
+   * pane. The host then places the pane as if there were no layout, and says this.
+   */
+  layoutFallback?: string;
+  /** As the workflow wrote it, for a host that records it; the engine decides keeping at close. */
+  keepPane?: KeepPane;
 }
 
 /** An opaque locator for a session the engine did not start; only the adapter interprets it. */
