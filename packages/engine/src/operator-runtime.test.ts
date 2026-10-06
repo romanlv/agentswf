@@ -350,7 +350,12 @@ describe("operator runtime", () => {
       return authenticated(input);
     };
     // No PATH, so the down session can't be started and nothing real is.
-    const installed = await installOperatorRuntime(60_000, { run, environment: {} });
+    const told: unknown[] = [];
+    const installed = await installOperatorRuntime(60_000, {
+      run,
+      environment: {},
+      onRunSession: (session) => told.push(session),
+    });
     const lists = () => calls.filter((call) => call.argv.join(" ") === "herdr session list --json");
     const workspaces = () =>
       calls.filter((call) => call.argv.slice(3, 5).join(" ") === "workspace create");
@@ -368,13 +373,48 @@ describe("operator runtime", () => {
       const failed = await open("run-1");
       await expect(pane(failed, "first")).rejects.toThrow("herdr is not on PATH");
       expect(workspaces()).toEqual([]);
+      expect(told).toEqual([]);
       await failed.close().catch(() => undefined);
       // A host opened later asks again: the failure was not kept.
       down = false;
       const host = await open("run-2");
       await Promise.all(["second", "third"].map((key) => pane(host, key).catch(() => undefined)));
       expect(lists()).toHaveLength(2);
+      expect(told).toEqual([{ name: "awf", started: false }]);
       expect(workspaces().length).toBeGreaterThan(0);
+      await host.close().catch(() => undefined);
+    } finally {
+      await installed.cleanup();
+    }
+  });
+
+  test("the run session is told once, and a teller that throws fails no agent", async () => {
+    const calls: ProcessInput[] = [];
+    const told: unknown[] = [];
+    const installed = await installOperatorRuntime(60_000, {
+      run: subscriptionRunner(calls),
+      environment: {},
+      onRunSession: (session) => {
+        told.push(session);
+        throw new Error("stderr closed");
+      },
+    });
+    try {
+      const deadline = { unixMilliseconds: Date.now() + 60_000 };
+      const host = await installed.config.host.openRun({ runId: "run-1", cwd: "/repo", deadline });
+      const pane = (key: string) =>
+        host.openAgent({
+          key,
+          cwd: "/repo",
+          deadline,
+          execution: { harness: "codex", model: "m" },
+        });
+      await Promise.all(["first", "second"].map((key) => pane(key).catch(() => undefined)));
+      expect(told).toEqual([{ name: "awf", started: false }]);
+      // Past the session: the pane side opened its workspace.
+      expect(calls.some((call) => call.argv.slice(3, 5).join(" ") === "workspace create")).toBe(
+        true,
+      );
       await host.close().catch(() => undefined);
     } finally {
       await installed.cleanup();

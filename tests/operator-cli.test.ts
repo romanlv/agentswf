@@ -229,6 +229,59 @@ describe("awf run", () => {
     expect(accounting[1]).toStartWith("  records  ");
   });
 
+  test("says once where its pane agents are, as the first opens", async () => {
+    const adapter = createFakeAdapter({
+      harnesses: ["pi"],
+      script: (context) => ({
+        act: async () => {
+          await submit(context.binding!, { answer: context.prompt.includes("Add 9") ? 400 : 391 });
+        },
+      }),
+    });
+    const errors: string[] = [];
+    const exitCode = await cli(
+      [
+        "run",
+        "--run-root",
+        runDirs.tempRunDir(),
+        "examples/quick-check/workflow.ts",
+        "--",
+        "pi-pane",
+      ],
+      {
+        cwd: ROOT,
+        environment: { HERDR_ENV: "1" },
+        stdout: () => undefined,
+        stderr: (text) => errors.push(text),
+        installRuntime: async (_timeout, options) => {
+          const config = runtime(adapter);
+          return {
+            config: {
+              ...config,
+              host: {
+                ...config.host,
+                async openRun(spec) {
+                  // As the operator runtime does when the first pane agent's session is ready.
+                  options.onRunSession?.({ name: "awf", started: true });
+                  return config.host.openRun(spec);
+                },
+              },
+            },
+            cleanup: async () => undefined,
+          };
+        },
+      },
+    );
+    expect(exitCode).toBe(0);
+    const said = errors.filter((line) => /^(agents|started) /.test(line));
+    expect(said).toEqual([
+      "started herdr session awf, headless; stop it with herdr session stop awf",
+      expect.stringMatching(
+        /^agents {3}herdr session awf · workspace "awf quick-check \S+ #1" · HERDR_DISABLE_SOUND=1 herdr session attach awf from a terminal outside Herdr$/,
+      ),
+    ]);
+  });
+
   test("quick-check refuses a runtime it does not know", async () => {
     const errors: string[] = [];
     const exitCode = await cli(["run", "examples/quick-check/workflow.ts", "--", "aider"], {

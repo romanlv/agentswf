@@ -19,8 +19,8 @@ starts and owns, `awf` unless `AWF_HERDR_SESSION` names another, running headles
 attached. An agent finishing or waiting there plays no sound and shows no toast, and the operator's
 sidebar holds only their own work.
 
-Muting the noise must not hide the signal. `awf run` says where its agents are, once when the first
-opens and again in the closing block, and shows an agent that is blocked on a prompt in its stage
+Muting the noise must not hide the signal. `awf run` says where its agents are, once, as the first
+opens, and shows an agent that is blocked on a prompt in its stage
 list, since no sound will. The session is awf's to look after: it starts from a minimal environment,
 not from whichever shell happened to start it, it is restarted when Herdr updates and nothing is
 running in it, and workspaces left by runs that died are closed.
@@ -82,7 +82,7 @@ In scope:
 - Starting the run session when down, only an `awf` or `awf-*` name; its quiet Herdr config; its
   minimal environment.
 - A name check: `^[a-z0-9][a-z0-9-]{0,31}$`, for `AWF_HERDR_SESSION` too.
-- `awf run` output: where the agents are (first pane, and the closing block); a pane agent blocked
+- `awf run` output: where the agents are, once, as the first pane agent opens; a pane agent blocked
   on a prompt, in the stage list; the first time awf starts the session, how to stop it.
 - Restarting the session when its server's version differs from the CLI's and no workspace is open
   in it; otherwise saying so once.
@@ -159,9 +159,9 @@ awf today:
 - `runHere()`, `showOwnTab()`, `findCaller()` call `callerSession()`. `runHere` passes
   `AWF_HERDR_SESSION`, when set, into the inner run's tab with `--env`.
 
-### `packages/engine/src/progress-view.ts` and the run's closing block
+### `packages/engine/src/progress-view.ts` and `operator-cli.ts`
 
-- The agents' location, once and in the closing block; a blocked pane agent in the stage list; the
+- The agents' location, once; a blocked pane agent in the stage list; the
   first-start line.
 
 ### `packages/harness/src/adapters/herdr.ts`
@@ -224,8 +224,8 @@ started Herdr; this is narrower than that, and the same for every run.
 
 ### Output
 
-When its first pane agent opens, `awf run` prints one line and repeats it in the closing block,
-since the stage list redraws in place:
+When its first pane agent opens, `awf run` prints one line above the progress, where it stays as
+the stage list redraws; not in the closing block, since the workspace closes with the run:
 
 ```
 agents   herdr session awf · workspace "awf run implement-ticket a1" · HERDR_DISABLE_SOUND=1 herdr session attach awf
@@ -256,7 +256,7 @@ Alternatives rejected:
 ## Tasks at a glance
 
 - [x] 1. Agents open in a session awf owns and starts (M1 by ear outstanding)
-- [ ] 2. `awf run` says where the agents are, and which is blocked
+- [x] 2. `awf run` says where the agents are, and which is blocked
 - [ ] 3. The session is kept: restarted on a Herdr update, orphans closed
 
 ## Open questions
@@ -330,16 +330,16 @@ Done when:
 
 ### 2. `awf run` says where the agents are, and which is blocked
 
-Outcome: the operator reads where to watch, in the run's output and its closing block, and sees a
+Outcome: the operator reads where to watch, in the run's output, and sees a
 blocked pane agent without a sound.
 
 Execution:
 
-- [ ] Plan: inspect the relevant code and tests and record the architecture and focused proof.
-- [ ] Implement: make only this task's coherent change and add focused tests with it.
-- [ ] Review: obtain architecture/scope and correctness/proof subagent reviews of the actual diff.
-- [ ] Resolve: disposition findings and obtain targeted re-review after material design changes.
-- [ ] Verify: satisfy every `Done when` item before checking this task.
+- [x] Plan: inspect the relevant code and tests and record the architecture and focused proof.
+- [x] Implement: make only this task's coherent change and add focused tests with it.
+- [x] Review: obtain architecture/scope and correctness/proof subagent reviews of the actual diff.
+- [x] Resolve: disposition findings and obtain targeted re-review after material design changes.
+- [x] Verify: satisfy every `Done when` item before checking this task.
 
 Work:
 
@@ -347,8 +347,8 @@ Work:
 
 Done when:
 
-- Progress-view tests: the `agents` line once and in the closing block; the first-start line only
-  when awf started the session; a blocked pane agent in the stage list.
+- Progress-view tests: the `agents` line once; the first-start line only when awf started the
+  session; a blocked pane agent in the stage list, naming the session while the run is on.
 
 ### 3. The session is kept: restarted on a Herdr update, orphans closed
 
@@ -422,8 +422,16 @@ closing block; say once that the session exists; stale server after an update; o
 
 ### Task 2
 
-- Architecture and scope:
-- Correctness and proof:
+- Architecture and scope: the callback seam, `describeRunSession`'s home and the deviation held.
+  Fixed: a teller that throws fails no agent; the final frame names no session, its workspace
+  closed; the story's Output and Done when amended to the deviation; the ordering `placed` relies on
+  said. Kept: the blocked suffix names only the session, the full command being in the `agents`
+  line; `herdrSession` threaded through the view's helpers.
+- Correctness and proof: fixed: a session ready after the run ended (a cancel while it starts)
+  writes nothing under the closing block, `watchProgress` ignoring `log` and `placedIn` once
+  stopped; the calling session gets no hint. Tests added: told once across two pane agents, never
+  for a failed start, once on the retry; a blocked agent in an open stage's line; the log path for
+  headless and calling agents; the CLI line inside Herdr.
 
 ### Task 3
 
@@ -464,6 +472,25 @@ closing block; say once that the session exists; stale server after an update; o
   ~$0.13 at list prices on the subscription. M1 awaits the operator's ear.
 - `bun test`: 1551 pass, 0 fail after the review fixes; `bun run check` clean.
 
+### Task 2, 2026-10-06
+
+- The runtime tells `onRunSession` once, when the first pane agent's session is ready; `awf run`
+  logs `describeRunSession`'s lines above the progress and tells the view the session's name
+  (`placedIn`), which a blocked pane agent's line then names: `✗ blocked: {reason} · herdr session
+  attach awf`, in the stage list and in the log.
+- M4: no adapter change. Herdr reading a pane as blocked settles the turn at once as `blocked`
+  (`settleAgent`), so the turn's end is the moment it is blocked.
+- M6, live: `herdr session attach awf` inside a Herdr pane fails, "nested herdr is disabled by
+  default", and Herdr 0.9 has no session switch inside a client. When awf runs in a Herdr pane the
+  line adds "from a terminal outside Herdr".
+- Deviation: the `agents` line is not repeated in the closing block. The run's workspace closes
+  with the run (checked live: `awf` held no workspace after it), so there it would point at nothing;
+  the log line stays above the redrawn progress.
+- Live: the line printed as designed. That run's claude turn ended `unanswered`, the model
+  declining a prompt Claude Code showed as `<pasted_content>`; the first run's was pasted too and
+  answered. Not this story's: `a053a7a` dropped story 016's typed submit for multi-line claude
+  prompts, while `docs/status.md` still says they are typed.
+
 ## Human review
 
 - [ ] Every task is complete and story-level verification passes.
@@ -473,3 +500,4 @@ closing block; say once that the session exists; stale server after an update; o
 - [ ] Record the human's explicit approval or requested changes here.
 - [ ] If changes are requested, return to the affected task and repeat its review and verification.
 - [ ] Only after explicit approval, mark the story `done` and update `Stories at a glance`.
+- `bun test`: 1555 pass, 0 fail after the review fixes; `bun run check` clean.

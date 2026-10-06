@@ -37,6 +37,9 @@ import {
   type RunSession,
   runSessionName,
 } from "./herdr-run-session";
+
+export type { RunSession } from "./herdr-run-session";
+
 import { OPERATOR_ALIASES } from "./operator-aliases";
 
 export type OperatorRuntimeInstallation = {
@@ -57,6 +60,8 @@ export type OperatorRuntimeOptions = {
   caller?: { pane: CallerPane; session: string };
   /** The operator's home. */
   home?: string;
+  /** Told once, when the first pane agent's session is ready. */
+  onRunSession?: (session: RunSession) => void;
 };
 
 /**
@@ -73,12 +78,13 @@ export async function installOperatorRuntime(
     watchSandboxes = true,
     caller,
     home = homedir(),
+    onRunSession,
   } = options;
   const unmetered = withholding(run, WITHHELD_ENVIRONMENT);
   refuseMeteredCredentials(environment);
   // Checked now, before any stage spends anything; made ready only for the first pane agent.
   const name = runSessionName(environment);
-  const session = runSessionOnce(() => name, { run, environment, home });
+  const session = runSessionOnce(() => name, { run, environment, home }, onRunSession);
   const runConfig = (session: string): HerdrConfig => ({
     ...herdrConfig(session),
     commandTimeoutMs: Math.min(timeoutMilliseconds, 150_000),
@@ -225,11 +231,19 @@ export function installDecisions(
 function runSessionOnce(
   name: () => string,
   deps: Parameters<typeof ensureRunSession>[1],
+  onReady?: (session: RunSession) => void,
 ): () => Promise<RunSession> {
   let ready: Promise<RunSession> | undefined;
   return () => {
     ready ??= Promise.resolve()
       .then(() => ensureRunSession(name(), deps))
+      .then((session) => {
+        // Saying where the agents are must never fail the agent.
+        try {
+          onReady?.(session);
+        } catch {}
+        return session;
+      })
       .catch((error: unknown) => {
         ready = undefined;
         throw error;

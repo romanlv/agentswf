@@ -33,8 +33,9 @@ import {
   herdrConfig,
   installOperatorRuntime,
   type OperatorRuntimeInstallation,
+  type RunSession,
 } from "./operator-runtime";
-import { ANSI, type Terminal, watchProgress } from "./progress-view";
+import { ANSI, describeRunSession, type Terminal, watchProgress } from "./progress-view";
 import { parseCommand, type RunCommand, usage } from "./run-command";
 import { claimNext, loadAndPrepare, type PreparedRun, workspaceLabel } from "./run-prepare";
 import { type Attempt, createRun, discardRun, type Run, RunRefused } from "./runs";
@@ -50,7 +51,12 @@ export type OperatorEnvironment = {
   stderr?: (text: string) => void;
   installRuntime?: (
     timeoutMilliseconds: number,
-    options: { watchSandboxes: boolean; caller?: Caller },
+    options: {
+      watchSandboxes: boolean;
+      caller?: Caller;
+      home?: string;
+      onRunSession?: (session: RunSession) => void;
+    },
   ) => Promise<OperatorRuntimeInstallation>;
   /** Given, progress is redrawn in place on it; otherwise each change is a line on stderr. */
   terminal?: Terminal;
@@ -268,11 +274,19 @@ async function runAttempt(
     await handOver(toldOf(end, kept));
     return close(end, kept, cleanupAlso);
   };
+  // Relied on: the session is told only from a pane agent's `openRun`, inside `startWorkflow`, by
+  // when `placed` says it on the progress.
+  let placed: (session: RunSession) => void = () => undefined;
   let installed: OperatorRuntimeInstallation;
   try {
     installed = await (environment.installRuntime ?? installOperatorRuntime)(
       command.timeoutMilliseconds,
-      { watchSandboxes: command.watch, home, ...(calling ? { caller: calling.caller } : {}) },
+      {
+        watchSandboxes: command.watch,
+        home,
+        onRunSession: (session) => placed(session),
+        ...(calling ? { caller: calling.caller } : {}),
+      },
     );
   } catch (error) {
     return endUnstarted(new Error(`runtime: ${messageOf(error)}`));
@@ -293,6 +307,12 @@ async function runAttempt(
     terminal,
     now,
   });
+  placed = (session) => {
+    progress.placedIn(session.name);
+    const label = workspaceLabel(meta.name, id, n);
+    const insideHerdr = (environment.environment ?? process.env).HERDR_ENV === "1";
+    for (const line of describeRunSession(session, label, insideHerdr)) progress.log(line);
+  };
   let handle: WorkflowRunHandle<JsonValue>;
   try {
     handle = await startWorkflow(executable.definition, prepared.args, {
