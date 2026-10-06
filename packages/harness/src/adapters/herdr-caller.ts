@@ -421,7 +421,13 @@ export function searchCaller(
  */
 export async function startInNewTab(
   config: HerdrConfig,
-  tab: { workspace: string; cwd: string; label: string; argv: readonly string[] },
+  tab: {
+    workspace: string;
+    cwd: string;
+    label: string;
+    argv: readonly string[];
+    env?: Readonly<Record<string, string>>;
+  },
   run: RunProcess = runProcess,
 ): Promise<{ ok: true; tabId: string; paneId: string } | { ok: false; error: string }> {
   const commands = createHerdrCommands(config, run);
@@ -434,6 +440,7 @@ export async function startInNewTab(
     tab.cwd,
     "--label",
     tab.label,
+    ...Object.entries(tab.env ?? {}).flatMap(([key, value]) => ["--env", `${key}=${value}`]),
     "--no-focus",
   ]);
   if (!created.ok) return { ok: false, error: created.error };

@@ -13,8 +13,9 @@ import {
 } from "@agentswf/harness";
 import { messageOf } from "./errors";
 import { linkNew } from "./files";
+import { runSessionName } from "./herdr-run-session";
 import type { OperatorEnvironment } from "./operator-cli";
-import { herdrConfig, herdrSession } from "./operator-runtime";
+import { callerSession, herdrConfig } from "./operator-runtime";
 import type { RunCommand } from "./run-command";
 import { loadAndPrepare } from "./run-prepare";
 import { processStart, sameProcess } from "./runs";
@@ -65,9 +66,16 @@ export async function startHere(
       "Start the agent in a Herdr pane, or run the workflow from a shell with awf run and no --here.",
     );
   }
+  try {
+    // Said in this shell: the run's own tab would find it only after taking the session over.
+    runSessionName(env);
+  } catch (error) {
+    stderr(`awf: --here: ${messageOf(error)}`);
+    return 2;
+  }
   let session: string;
   try {
-    session = await herdrSession(run, env);
+    session = await callerSession(run, env);
   } catch (error) {
     return refuse(`Herdr did not answer: ${messageOf(error)}`, sandboxFix(env));
   }
@@ -93,6 +101,9 @@ export async function startHere(
         command.continueId ?? ready.prepared.id,
       ),
       argv: [...self, "run", "--session", code, ...options, ...rest],
+      // The tab takes the Herdr server's environment, not this shell's: the operator's choice of
+      // where the run's agents open is passed on.
+      ...(env.AWF_HERDR_SESSION ? { env: { AWF_HERDR_SESSION: env.AWF_HERDR_SESSION } } : {}),
     },
     run,
   );
@@ -196,11 +207,11 @@ async function readMark(file: string): Promise<CallerMark | undefined> {
 export async function showOwnTab(environment: HereEnvironment): Promise<void> {
   const env = environment.environment ?? process.env;
   if (!env.HERDR_TAB_ID) return;
-  const session = await herdrSession(environment.herdr ?? runProcess, env).catch(() => undefined);
+  const session = await callerSession(environment.herdr ?? runProcess, env).catch(() => undefined);
   if (session) await focusTab(herdrConfig(session), env.HERDR_TAB_ID, environment.herdr);
 }
 
-/** The pane showing `code`, in the Herdr session awf runs in, for `--session`. */
+/** The pane showing `code`, in the Herdr session this run's tab is in, for `--session`. */
 async function findCaller(
   code: string,
   environment: HereEnvironment,
@@ -208,7 +219,7 @@ async function findCaller(
   const run = environment.herdr ?? runProcess;
   let session: string;
   try {
-    session = await herdrSession(run, environment.environment ?? process.env);
+    session = await callerSession(run, environment.environment ?? process.env);
   } catch (error) {
     return { kind: "refused", reason: messageOf(error) };
   }

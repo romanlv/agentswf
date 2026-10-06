@@ -1,4 +1,5 @@
 import { readFile } from "node:fs/promises";
+import { homedir } from "node:os";
 import { join } from "node:path";
 import type { HarnessAllowance } from "@agentswf/contract/records";
 import type { SandboxEnvironmentKey } from "@agentswf/contract/workflow";
@@ -9,6 +10,7 @@ import {
   createHeadlessRunHostFactory,
   createHerdrRunHostFactory,
   createPlacementHostFactory,
+  createSessionAccounting,
   HARNESSES,
   type Harness,
   type HerdrConfig,
@@ -29,6 +31,12 @@ import { createSrtProvider, findSrt } from "@agentswf/sandbox/srt";
 import { createOpenRouterProvider } from "./decisions/openrouter";
 import type { DecisionInstallation } from "./decisions/seam";
 import { messageOf } from "./errors";
+import {
+  ensureRunSession,
+  parseSessions,
+  type RunSession,
+  runSessionName,
+} from "./herdr-run-session";
 import { OPERATOR_ALIASES } from "./operator-aliases";
 
 export type OperatorRuntimeInstallation = {
@@ -47,6 +55,8 @@ export type OperatorRuntimeOptions = {
   watchSandboxes?: boolean;
   /** The session `awf run --here` was started from, found in the Herdr session named (ADR 0010). */
   caller?: { pane: CallerPane; session: string };
+  /** The operator's home. */
+  home?: string;
 };
 
 /**
@@ -57,26 +67,34 @@ export async function installOperatorRuntime(
   timeoutMilliseconds: number,
   options: OperatorRuntimeOptions = {},
 ): Promise<OperatorRuntimeInstallation> {
-  const { run = runProcess, environment = process.env, watchSandboxes = true, caller } = options;
+  const {
+    run = runProcess,
+    environment = process.env,
+    watchSandboxes = true,
+    caller,
+    home = homedir(),
+  } = options;
   const unmetered = withholding(run, WITHHELD_ENVIRONMENT);
   refuseMeteredCredentials(environment);
+  // Checked now, before any stage spends anything; made ready only for the first pane agent.
+  const name = runSessionName(environment);
+  const session = runSessionOnce(() => name, { run, environment, home });
   const runConfig = (session: string): HerdrConfig => ({
     ...herdrConfig(session),
     commandTimeoutMs: Math.min(timeoutMilliseconds, 150_000),
-    emptyEnvironment: WITHHELD_ENVIRONMENT,
+    emptyEnvironment: PANE_WITHHELD_ENVIRONMENT,
     acceptWorkspaceTrust: true,
     watchSandboxes,
   });
-  const panes = (session: string) => createHerdrRunHostFactory(runConfig(session), run);
-  const { accounting } = panes("default");
   const host = loginChecked(
     unmetered,
     createPlacementHostFactory({
-      // The session is looked up when the first pane agent opens, so an all-headless run never
+      // The session is made ready when the first pane agent opens, so an all-headless run never
       // calls Herdr.
       pane: {
-        ...(accounting ? { accounting } : {}),
-        openRun: async (spec) => panes(await herdrSession(run, environment)).openRun(spec),
+        accounting: createSessionAccounting(unmetered),
+        openRun: async (spec) =>
+          createHerdrRunHostFactory(runConfig((await session()).name), run).openRun(spec),
       },
       headless: createHeadlessRunHostFactory({}, unmetered),
       ...(caller
@@ -105,15 +123,17 @@ export function allowanceReader(
   environment: Readonly<Record<string, string | undefined>> = process.env,
   run: RunProcess = runProcess,
   signal?: AbortSignal,
+  home: string = homedir(),
 ): (harness: Harness) => Promise<HarnessAllowance> {
   const unmetered = withholding(run, WITHHELD_ENVIRONMENT);
+  const session = runSessionOnce(() => runSessionName(environment), { run, environment, home });
   return (harness) =>
     readAllowance(harness, {
       run: unmetered,
       now: Date.now,
       herdr: async () => ({
-        ...herdrConfig(await herdrSession(run, environment)),
-        emptyEnvironment: WITHHELD_ENVIRONMENT,
+        ...herdrConfig((await session()).name),
+        emptyEnvironment: PANE_WITHHELD_ENVIRONMENT,
       }),
       ...(signal ? { signal } : {}),
     });
@@ -199,29 +219,43 @@ export function installDecisions(
 }
 
 /**
- * `AWF_HERDR_SESSION` when set; otherwise the session of the pane awf runs in, so its agents open
- * beside it; `default` outside Herdr.
+ * The run session, made ready once for everything that asks. A failure is not kept: a run host
+ * opened later, or the next harness's usage screen, asks again.
  */
-export async function herdrSession(
+function runSessionOnce(
+  name: () => string,
+  deps: Parameters<typeof ensureRunSession>[1],
+): () => Promise<RunSession> {
+  let ready: Promise<RunSession> | undefined;
+  return () => {
+    ready ??= Promise.resolve()
+      .then(() => ensureRunSession(name(), deps))
+      .catch((error: unknown) => {
+        ready = undefined;
+        throw error;
+      });
+    return ready;
+  };
+}
+
+/**
+ * The Herdr session this process's pane is in, which `awf run --here` drives: the one owning
+ * `$HERDR_SOCKET_PATH`. Never `AWF_HERDR_SESSION`, which places a run's agents, not its caller.
+ */
+export async function callerSession(
   run: RunProcess,
   environment: Readonly<Record<string, string | undefined>>,
 ): Promise<string> {
-  if (environment.AWF_HERDR_SESSION) return environment.AWF_HERDR_SESSION;
   const socket = environment.HERDR_SOCKET_PATH;
-  if (!socket) return "default";
+  if (!socket) throw new Error("not in a Herdr pane: HERDR_SOCKET_PATH is not set");
   const listed = await run({ argv: ["herdr", "session", "list", "--json"], timeoutMs: 10_000 });
-  let sessions: { name?: unknown; socket_path?: unknown }[] = [];
-  if (listed.exitCode === 0) {
-    try {
-      sessions = JSON.parse(listed.stdout).sessions ?? [];
-    } catch {}
+  if (listed.exitCode !== 0) {
+    throw new Error(`herdr session list failed: ${(listed.stderr || listed.stdout).trim()}`);
   }
-  const name = sessions.find((session) => session.socket_path === socket)?.name;
-  // Falling back to `default` would put the agents in a session nobody is looking at.
-  if (typeof name !== "string") {
-    throw new Error(
-      `no Herdr session owns ${socket} (\`herdr session list --json\`); set AWF_HERDR_SESSION`,
-    );
+  const name = parseSessions(listed.stdout).find((session) => session.socketPath === socket)?.name;
+  // Guessing would drive a session nobody is looking at.
+  if (name === undefined) {
+    throw new Error(`no Herdr session owns ${socket} (\`herdr session list --json\`)`);
   }
   return name;
 }
@@ -247,6 +281,12 @@ const WITHHELD_ENVIRONMENT = [
   "OPENROUTER_API_KEY",
   ...CALLING_SESSION_ENVIRONMENT,
 ];
+
+/**
+ * Unset in a run's panes besides: the config the run session's server starts with, which a `herdr`
+ * started in a pane would otherwise read in place of the operator's.
+ */
+const PANE_WITHHELD_ENVIRONMENT = [...WITHHELD_ENVIRONMENT, "HERDR_CONFIG_PATH"];
 
 function refuseMeteredCredentials(environment: Readonly<Record<string, string | undefined>>): void {
   const configured = METERED_CREDENTIAL_ENVIRONMENT.filter((name) => environment[name]?.trim());

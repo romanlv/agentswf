@@ -22,7 +22,7 @@ export { createSingleSessionHostFactory } from "./single-session-host";
 export * from "./spec";
 export { harnessState } from "./state";
 export * from "./types";
-export type { SessionAccounting } from "./usage/accounting";
+export { createSessionAccounting, type SessionAccounting } from "./usage/accounting";
 export type { AllowanceRead } from "./usage/allowance";
 export { readClaudeBilling, readCodexBilling, readCursorLogin } from "./usage/billing";
 export type { SessionRead, UsageRecord } from "./usage/records";

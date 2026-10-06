@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ProcessInput, ProcessResult, RunProcess } from "@agentswf/harness";
 import {
-  herdrSession,
+  callerSession,
   installDecisions,
   installOperatorRuntime,
   installSandboxes,
@@ -110,7 +110,7 @@ describe("operator runtime", () => {
     }
   });
 
-  test("agents open in the Herdr session awf runs in, unless AWF_HERDR_SESSION names one", async () => {
+  test("the caller's session is the one owning its socket, whatever AWF_HERDR_SESSION says", async () => {
     const listed = JSON.stringify({
       sessions: [
         { name: "default", socket_path: "/h/herdr.sock" },
@@ -124,12 +124,22 @@ describe("operator runtime", () => {
     };
     const inPane = { HERDR_SOCKET_PATH: "/h/sessions/review-loop/herdr.sock" };
 
-    expect(await herdrSession(run, inPane)).toBe("review-loop");
+    expect(await callerSession(run, inPane)).toBe("review-loop");
     expect(calls).toEqual(["herdr session list --json"]);
-    expect(await herdrSession(run, { ...inPane, AWF_HERDR_SESSION: "wf-lab" })).toBe("wf-lab");
-    expect(await herdrSession(run, {})).toBe("default");
-    expect(calls).toHaveLength(1);
-    await expect(herdrSession(run, { HERDR_SOCKET_PATH: "/elsewhere.sock" })).rejects.toThrow(
+    expect(await callerSession(run, { ...inPane, AWF_HERDR_SESSION: "wf-lab" })).toBe(
+      "review-loop",
+    );
+    await expect(callerSession(run, {})).rejects.toThrow("not in a Herdr pane");
+    const denied: RunProcess = async () => ({
+      stdout: "",
+      stderr: "permission denied",
+      exitCode: 1,
+      timedOut: false,
+    });
+    await expect(callerSession(denied, inPane)).rejects.toThrow(
+      "herdr session list failed: permission denied",
+    );
+    await expect(callerSession(run, { HERDR_SOCKET_PATH: "/elsewhere.sock" })).rejects.toThrow(
       "no Herdr session owns /elsewhere.sock",
     );
   });
@@ -179,6 +189,8 @@ describe("operator runtime", () => {
         (call) => call.argv.slice(3, 5).join(" ") === "workspace create",
       );
       expect(workspace?.argv.join(" ")).toContain("OPENROUTER_API_KEY");
+      // A herdr started in a pane reads the operator's config, not the run session's quiet one.
+      expect(workspace?.argv.join(" ")).toContain("HERDR_CONFIG_PATH");
       expect(calls.some((call) => call.argv.join(" ").includes("sk-or-test"))).toBe(false);
     } finally {
       await installed.cleanup();
@@ -326,17 +338,71 @@ describe("operator runtime", () => {
     expect(codexOnly.calls.filter((c) => c === "codex login status")).toHaveLength(1);
   });
 
-  test("the herdr session name comes from the injected environment", async () => {
+  test("the run session is made ready once for concurrent pane agents, and again after a failure", async () => {
+    const calls: ProcessInput[] = [];
+    const authenticated = subscriptionRunner([]);
+    let down = true;
+    const run: RunProcess = async (input) => {
+      calls.push(input);
+      if (down && input.argv.join(" ") === "herdr session list --json") {
+        return success(JSON.stringify({ sessions: [{ name: "awf", running: false }] }));
+      }
+      return authenticated(input);
+    };
+    // No PATH, so the down session can't be started and nothing real is.
+    const installed = await installOperatorRuntime(60_000, { run, environment: {} });
+    const lists = () => calls.filter((call) => call.argv.join(" ") === "herdr session list --json");
+    const workspaces = () =>
+      calls.filter((call) => call.argv.slice(3, 5).join(" ") === "workspace create");
+    try {
+      const deadline = { unixMilliseconds: Date.now() + 60_000 };
+      const open = (runId: string) =>
+        installed.config.host.openRun({ runId, cwd: "/repo", deadline });
+      const pane = (host: Awaited<ReturnType<typeof open>>, key: string) =>
+        host.openAgent({
+          key,
+          cwd: "/repo",
+          deadline,
+          execution: { harness: "codex", model: "m" },
+        });
+      const failed = await open("run-1");
+      await expect(pane(failed, "first")).rejects.toThrow("herdr is not on PATH");
+      expect(workspaces()).toEqual([]);
+      await failed.close().catch(() => undefined);
+      // A host opened later asks again: the failure was not kept.
+      down = false;
+      const host = await open("run-2");
+      await Promise.all(["second", "third"].map((key) => pane(host, key).catch(() => undefined)));
+      expect(lists()).toHaveLength(2);
+      expect(workspaces().length).toBeGreaterThan(0);
+      await host.close().catch(() => undefined);
+    } finally {
+      await installed.cleanup();
+    }
+  });
+
+  test("a run session name Herdr can't use refuses the run before anything starts", async () => {
+    const calls: ProcessInput[] = [];
+    await expect(
+      installOperatorRuntime(60_000, {
+        run: subscriptionRunner(calls),
+        environment: { AWF_HERDR_SESSION: "-oops" },
+      }),
+    ).rejects.toThrow("not a Herdr session name");
+    expect(calls).toEqual([]);
+  });
+
+  test.each([
+    [{ HERDR_SOCKET_PATH: "/h/herdr.sock" }, "awf"],
+    [{ HERDR_SOCKET_PATH: "/h/herdr.sock", AWF_HERDR_SESSION: "wf-lab" }, "wf-lab"],
+  ])("pane agents open in the run session, not the caller's: %o", async (environment, session) => {
     const calls: ProcessInput[] = [];
     const authenticated = subscriptionRunner([]);
     const run: RunProcess = async (input) => {
       calls.push(input);
       return authenticated(input);
     };
-    const installed = await installOperatorRuntime(60_000, {
-      run,
-      environment: { AWF_HERDR_SESSION: "wf-lab" },
-    });
+    const installed = await installOperatorRuntime(60_000, { run, environment });
     try {
       const deadline = { unixMilliseconds: Date.now() + 60_000 };
       const host = await installed.config.host.openRun({ runId: "run-1", cwd: "/repo", deadline });
@@ -351,11 +417,9 @@ describe("operator runtime", () => {
         .catch(() => undefined);
       await host.close().catch(() => undefined);
 
-      expect(calls.find((call) => call.argv[0] === "herdr")?.argv.slice(0, 3)).toEqual([
-        "herdr",
-        "--session",
-        "wf-lab",
-      ]);
+      const driven = calls.filter((call) => call.argv[1] === "--session");
+      expect(driven.length).toBeGreaterThan(0);
+      expect(new Set(driven.map((call) => call.argv[2]))).toEqual(new Set([session]));
     } finally {
       await installed.cleanup();
     }
@@ -374,6 +438,17 @@ function subscriptionRunner(calls: ProcessInput[]): RunProcess {
     if (input.argv.join(" ") === "codex login status") {
       return success("Logged in using ChatGPT");
     }
+    if (input.argv.join(" ") === "herdr session list --json") {
+      return success(
+        JSON.stringify({
+          sessions: ["default", "awf", "wf-lab"].map((name) => ({
+            name,
+            running: true,
+            socket_path: name === "default" ? "/h/herdr.sock" : `/h/sessions/${name}/herdr.sock`,
+          })),
+        }),
+      );
+    }
     if (input.argv.slice(3, 5).join(" ") === "workspace create") {
       return success(
         JSON.stringify({
@@ -384,6 +459,9 @@ function subscriptionRunner(calls: ProcessInput[]): RunProcess {
           },
         }),
       );
+    }
+    if (input.argv.slice(3, 5).join(" ") === "workspace list") {
+      return success(JSON.stringify({ result: { workspaces: [] } }));
     }
     if (input.argv.slice(3, 5).join(" ") === "workspace close") {
       return success(JSON.stringify({ result: {} }));

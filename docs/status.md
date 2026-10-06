@@ -10,8 +10,9 @@ exists, the code is right, then this page.
   in the workflow: a pane agent gets a tab in the run's one Herdr workspace, and a headless agent
   runs as a subprocess per turn that resumes one native session. claude, codex and pi run in
   panes (pi since story 017); codex and pi run headless. A headless claude needs `metered: true`,
-  as `claude -p` bills per token even on a subscription login. A pane agent keeps its pane for all its turns (ADR 0008). Pane agents open in the Herdr session `awf run` is started
-  from (`AWF_HERDR_SESSION` overrides it), and `--cwd` sets the directory the workflow works in.
+  as `claude -p` bills per token even on a subscription login. A pane agent keeps its pane for all its turns (ADR 0008). Pane agents open in a headless Herdr session of
+  their own, `awf` (`AWF_HERDR_SESSION` names another), which awf starts when down from a minimal
+  environment and a quiet config, not in the operator's (story 024); `--cwd` sets the directory the workflow works in.
 - A run is one piece of work with an id, kept in `.awf/runs/{workflow}/{id}` under its working
   directory; each `awf run` of it is an attempt (story 018, ADR 0011). A workflow marks stages with
   `workflow.stage`, and `awf run {file} --continue {id}` reuses the stages that succeeded and runs

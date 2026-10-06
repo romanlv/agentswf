@@ -272,7 +272,7 @@ async function runAttempt(
   try {
     installed = await (environment.installRuntime ?? installOperatorRuntime)(
       command.timeoutMilliseconds,
-      { watchSandboxes: command.watch, ...(calling ? { caller: calling.caller } : {}) },
+      { watchSandboxes: command.watch, home, ...(calling ? { caller: calling.caller } : {}) },
     );
   } catch (error) {
     return endUnstarted(new Error(`runtime: ${messageOf(error)}`));
@@ -377,7 +377,12 @@ async function allowanceCommand(
   }
   const read =
     environment.readAllowance ??
-    allowanceReader(environment.environment ?? process.env, undefined, environment.signal);
+    allowanceReader(
+      environment.environment ?? process.env,
+      undefined,
+      environment.signal,
+      environment.home ?? homedir(),
+    );
   const report = await readReport(command.harnesses, read, (environment.now ?? Date.now)());
   stdout(command.json ? JSON.stringify(report, null, 2) : describeReport(report));
   return 0;
