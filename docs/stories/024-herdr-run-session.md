@@ -3,7 +3,7 @@ id: "024"
 title: A run's agents open in a Herdr session of their own
 summary: "Pane agents open in a headless Herdr session awf starts and owns (`awf` by default), not the operator's, so they set off no notifications there; `awf run` says where they are and when one is stuck, and the session starts from a minimal environment, is restarted when Herdr updates, and drops workspaces no live run owns."
 type: story
-status: draft
+status: awaiting-human-review
 priority: P2
 epic: observability
 discovered_in: "Herdr notifications from runs, 2026-10-05"
@@ -388,18 +388,18 @@ implementation without changing their outcomes, order, or the story's scope.
 
 Automated:
 
-- [ ] The focused tests under each task.
-- [ ] `bun test`
-- [ ] `bunx tsc --noEmit`
-- [ ] `bun run scripts/check-boundaries.ts`
-- [ ] `bun run check`
+- [x] The focused tests under each task.
+- [x] `bun test`: 1572 pass, 0 fail
+- [x] `bunx tsc --noEmit`
+- [x] `bun run scripts/check-boundaries.ts`
+- [x] `bun run check`
 
 Manual or live evaluation:
 
-- [ ] Task 1's live run: one claude pane agent on a cheap model, a few cents at list prices; needs
-  Herdr 0.9.1 and a claude login. M1 by ear and by the operator's sidebar.
-- [ ] `tests/calling-session.eval.ts`: the caller is found in the operator's session while the run's
-  agents open in `awf` (`docs/testing.md` has its cost).
+- [x] Task 1's live run: one claude pane agent on a cheap model, a few cents at list prices; needs
+  Herdr 0.9.1 and a claude login. By the sidebar: nothing in the operator's workspaces. M1 by ear
+  is the operator's.
+- [x] `tests/calling-session.eval.ts`: passed, 38 s, ~$0.07 at list prices.
 
 ## Review record
 
@@ -517,8 +517,8 @@ closing block; say once that the session exists; stale server after an update; o
 
 ## Human review
 
-- [ ] Every task is complete and story-level verification passes.
-- [ ] Set the story status to `awaiting-human-review` and present the outcome, architecture
+- [x] Every task is complete and story-level verification passes.
+- [x] Set the story status to `awaiting-human-review` and present the outcome, architecture
   decisions, task-level subagent findings and dispositions, exact verification results, deviations,
   and remaining risks.
 - [ ] Record the human's explicit approval or requested changes here.
