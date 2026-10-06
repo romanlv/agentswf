@@ -74,7 +74,7 @@ Out of scope: what that design lists under "Not in this design"; placing a sandb
 
 ## Tasks at a glance
 
-- [ ] 1. The author surface: `layout` and `keepPane` refused, compared and passed as the design says
+- [x] 1. The author surface: `layout` and `keepPane` refused, compared and passed as the design says
 - [ ] 2. Panes placed at open in the run session: tabs, `beside`, fallbacks, in-place relaunch
 - [ ] 3. `keepPane`: a done agent's pane kept with its harness released
 - [ ] 4. Named sessions, named workspaces and `"origin"`
@@ -153,6 +153,20 @@ Live:
   reviewers stacked right of it, one kept; then the sweep after killing a run.
 
 ## Review record
+
+### Task 1
+
+- Architecture and scope: no blocker. The session-name rule moved from `herdr-run-session.ts` into
+  the pure `pane-layout.ts`, so the runner no longer loads the run session's code. A fork's layout
+  is cloned. An unreachable run-sandbox check is gone. The API doc names where a fallen-back pane
+  goes. Kept by choice: `HarnessActivation.keepPane`, documented as record-only; `layoutFallback`
+  reason text on the testing surface, the same text task 6 records; `keepsPane`, used in task 3;
+  the docs, true once the branch merges whole.
+- Correctness and proof: a layout given with an `undefined` field didn't reopen as one without it,
+  so layouts are now stored without undefined fields. `workspace: { name }` refuses other fields. A
+  fork's `beside` target is taken when `fork` is called, as an open's is. That made a wait cycle
+  impossible, so the cycle check went. Added tests for a headless fork and a sandboxed agent
+  refused, a fork re-attached with another layout, and `beside` the caller or a sandboxed agent.
 
 ## Implementation notes
 

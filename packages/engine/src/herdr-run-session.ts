@@ -6,13 +6,11 @@ import type { RunProcess } from "@agentswf/harness";
 import { messageOf } from "./errors";
 import { liveness, readMarks, removeMark, type WorkspaceMark } from "./herdr-workspace-marks";
 import { machinePaths } from "./machine";
+import { SESSION_NAME } from "./pane-layout";
 import type { ProcessProbe } from "./runs";
 
 /** Where a run's pane agents open when `AWF_HERDR_SESSION` names nowhere else. */
 const DEFAULT_RUN_SESSION = "awf";
-
-/** Herdr makes `sessions/{name}` from it; a leading `-` reads as an option, a long one overflows the socket path. */
-export const SESSION_NAME = /^[a-z0-9][a-z0-9-]{0,31}$/;
 
 /** What may start: the shared session is awf's by its name, since which run created it is not knowable. */
 const OWN_SESSION = /^awf(-|$)/;

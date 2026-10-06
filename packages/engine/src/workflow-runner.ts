@@ -104,7 +104,7 @@ import {
   type SupervisedOutcome,
   superviseOperation,
 } from "./operation-liveness";
-import { besideOf, checkPaneOptions } from "./pane-layout";
+import { besideOf, checkPaneOptions, storedLayout } from "./pane-layout";
 import { createResultSlotRegistry, type ResultSlotRegistry } from "./result-slots";
 import { type AgentProgress, type GroupProgress, RunProgress } from "./run-progress";
 import {
@@ -641,8 +641,6 @@ class WorkflowOwner {
   #bundle: Promise<string> | undefined;
   /** The calling session, once the workflow has asked for it (ADR 0010). */
   #caller: { key: string; state: Promise<LogicalAgent> } | undefined;
-  /** Each agent waiting for the agent its pane goes beside to open, by key. */
-  readonly #besideWaits = new Map<string, string>();
 
   constructor(
     private readonly options: {
@@ -903,7 +901,8 @@ class WorkflowOwner {
       : withKnownEffort(resolveExecution(spec.runtime, this.options.runtime));
     checkPaneOptions(spec.key, spec, {
       headless: placementOf(execution) === "headless",
-      sandboxed: spec.sandbox !== undefined || inRunSandbox,
+      sandboxed:
+        spec.sandbox !== undefined || existing?.identity.sandbox !== undefined || inRunSandbox,
     });
     const identity: AgentIdentity = {
       execution,
@@ -912,7 +911,7 @@ class WorkflowOwner {
       ...(spec.labels === undefined ? {} : { labels: structuredClone(spec.labels) }),
       ...(spec.sandbox === undefined ? {} : { sandbox: spec.sandbox }),
       ...(spec.skills === undefined ? {} : { skills: readSkillSources(spec.skills) }),
-      ...(spec.layout === undefined ? {} : { layout: structuredClone(spec.layout) }),
+      ...(spec.layout === undefined ? {} : { layout: storedLayout(spec.layout) }),
       ...(spec.keepPane === undefined ? {} : { keepPane: spec.keepPane }),
     };
     const scope = scopes.getStore();
@@ -963,7 +962,7 @@ class WorkflowOwner {
         ...(home ? { home } : {}),
         ...paneOptions(identity),
       }),
-      layoutFallback: this.besideFallback(spec.key, identity.layout, effectiveDeadline),
+      layoutFallback: this.besideFallback(identity.layout, effectiveDeadline)(),
     };
     let skills: Promise<PlacedSkills | undefined> = Promise.resolve(undefined);
     let opened: { state: Promise<LogicalAgent>; channel: Promise<ResultChannel> };
@@ -1325,6 +1324,7 @@ class WorkflowOwner {
       throw new Error(`agent ${spec.key} is the calling session; it is not opened`);
     }
     const forkSpec = structuredClone(spec);
+    if (forkSpec.layout !== undefined) forkSpec.layout = storedLayout(forkSpec.layout);
     const deadline = scope?.deadline ?? this.options.deadline;
     assertDeadline(deadline);
     const existing = this.#agents.get(spec.key);
@@ -1375,6 +1375,7 @@ class WorkflowOwner {
       cwd: identity.cwd,
       sessions: () => reportedSessions(sessions),
     };
+    const besideAtFork = this.besideFallback(identity.layout, deadline);
     let continues: NativeFork | undefined;
     // The fork is asked for now, in the parent's queue; the child opens once it is made. One that
     // was not made leaves nothing behind: its key may be forked again, after the parent's turn.
@@ -1420,10 +1421,8 @@ class WorkflowOwner {
         ...(continues ? { continues } : {}),
         ...paneOptions(identity),
       }),
-      layoutFallback: forked.then(
-        () => this.besideFallback(spec.key, identity.layout, deadline),
-        () => undefined,
-      ),
+      // The target as it stands when `fork` is called, waited for once the fork is made.
+      layoutFallback: forked.then(besideAtFork, () => undefined),
     };
     let skills: Promise<PlacedSkills | undefined> = Promise.resolve(undefined);
     let opened: { state: Promise<LogicalAgent>; channel: Promise<ResultChannel> };
@@ -1480,42 +1479,32 @@ class WorkflowOwner {
   }
 
   /**
-   * Why `key`'s pane can't go beside the agent its layout names, where the engine knows: that agent
-   * is not open, or has no pane awf places. A target still opening is waited for, so its pane is
-   * there to split, unless it waits, through others, on `key` itself.
+   * Why a pane can't go beside the agent `layout` names, where the engine knows: that agent
+   * is not open now, or has no pane awf places. The wait it returns waits for a target still
+   * opening, so its pane is there to split.
    */
-  private async besideFallback(
-    key: string,
+  private besideFallback(
     layout: PaneLayout | undefined,
     deadline: AbsoluteDeadline,
-  ): Promise<string | undefined> {
+  ): () => Promise<string | undefined> {
+    const known = (reason: string | undefined) => () => Promise.resolve(reason);
     const target = besideOf(layout);
-    if (target === undefined) return undefined;
+    if (target === undefined) return known(undefined);
     if (this.#caller?.key === target) {
-      return `${target} is the calling session, whose pane is the operator's`;
+      return known(`${target} is the calling session, whose pane is the operator's`);
     }
     const entry = this.#agents.get(target);
-    if (!entry) return `${target} is not open`;
-    if (placementOf(entry.identity.execution) === "headless") return `${target} is headless`;
-    if (entry.identity.sandbox !== undefined || this.options.sandboxes.hasRunSandbox) {
-      return `${target} runs in a sandbox, whose panes are in its own Herdr`;
+    if (!entry) return known(`${target} is not open`);
+    if (placementOf(entry.identity.execution) === "headless") return known(`${target} is headless`);
+    if (entry.identity.sandbox !== undefined) {
+      return known(`${target} runs in a sandbox, whose panes are in its own Herdr`);
     }
-    for (
-      let next: string | undefined = target;
-      next !== undefined;
-      next = this.#besideWaits.get(next)
-    ) {
-      if (next === key) return `${target} is itself waiting to open beside ${key}`;
-    }
-    this.#besideWaits.set(key, target);
-    try {
-      await waitForDeadline(entry.state, deadline);
-      return undefined;
-    } catch {
-      return `${target} did not open`;
-    } finally {
-      this.#besideWaits.delete(key);
-    }
+    // Registered before this agent, so it can't be waiting on this one in turn.
+    return () =>
+      waitForDeadline(entry.state, deadline).then(
+        () => undefined,
+        () => `${target} did not open`,
+      );
   }
 
   /** A reopened agent names the sandbox it runs in, or none: a different one is a conflict. */

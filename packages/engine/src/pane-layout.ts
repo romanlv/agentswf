@@ -1,5 +1,7 @@
 import type { KeepPane, PaneLayout, TurnOutcome } from "@agentswf/contract/workflow";
-import { SESSION_NAME } from "./herdr-run-session";
+
+/** A terminal session's name: Herdr makes `sessions/{name}` from it, and a leading `-` reads as an option. */
+export const SESSION_NAME = /^[a-z0-9][a-z0-9-]{0,31}$/;
 
 const SHARE = { min: 0.2, max: 0.8 };
 const NEW_TAB_FIELDS = new Set(["session", "workspace", "tab"]);
@@ -81,12 +83,24 @@ export function checkPaneOptions(
     !(
       typeof workspace === "object" &&
       workspace !== null &&
+      !Array.isArray(workspace) &&
+      Object.keys(workspace).join() === "name" &&
       nonEmpty((workspace as { name?: unknown }).name)
     )
   ) {
     refuse(`workspace is "run", "origin" or { name }, not ${JSON.stringify(workspace)}`);
   }
   if (tab !== undefined && !nonEmpty(tab)) refuse(`tab is a label, not ${JSON.stringify(tab)}`);
+}
+
+/**
+ * A checked layout as it is kept and compared: fields given as `undefined` dropped, so a reopen
+ * that leaves one out matches.
+ */
+export function storedLayout(layout: PaneLayout): PaneLayout {
+  return Object.fromEntries(
+    Object.entries(structuredClone(layout)).filter(([, value]) => value !== undefined),
+  ) as PaneLayout;
 }
 
 function nonEmpty(value: unknown): value is string {

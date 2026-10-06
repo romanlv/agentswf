@@ -341,7 +341,8 @@ const style = await lead.fork({ key: "style", layout: { beside: "security", side
   agent can be a `beside` target.
 - **Refused at open**: `beside` its own key, a `share` out of range, an empty label, a `session`
   Herdr can't name, a `session` with `"origin"`, and either option on a headless or sandboxed agent.
-- **Where the layout can't be used**, the agent gets a tab of its own instead, and never fails: a
+- **Where the layout can't be used**, the agent gets a tab of its own instead, in its target's
+  workspace if it has one, else the run's, and never fails: a
   `beside` an agent not open, headless, sandboxed or with its pane gone; a split that would leave a
   pane under 1/8 of the tab; an `"origin"`, session or workspace that can't be used. The run's
   closing lines say which agent fell back and why.
@@ -738,7 +739,7 @@ decisions: {
 - **`run.setsOf(key)`** is one agent's switches in order, each with the `model` and `effort` it
   switched to. A switch answers wherever its harness can make it, and is refused where it can't.
 - **`run.agentOf(key)`** is what an agent was opened with: `execution`, `instructions`,
-  `labels`, `skills`, `layout`, `keepPane`, and `sandbox`, absent for an agent on the host. **`run.agents`** lists them
+  `labels`, `skills`, `layout`, `keepPane`, `layoutFallback`, and `sandbox`, absent for an agent on the host. **`run.agents`** lists them
   all.
 - **`run.decisions`** and **`run.logs`** are each decision asked and each `workflow.log` line.
 - **`run.stages`** is each stage's record in the order entered: `stage`, `attempt`, `outcome`

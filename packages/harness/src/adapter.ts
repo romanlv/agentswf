@@ -236,7 +236,7 @@ export interface HarnessActivation {
    * pane. The host then places the pane as if there were no layout, and says this.
    */
   layoutFallback?: string;
-  /** As the workflow wrote it, for a host that records it; the engine decides keeping at close. */
+  /** As the workflow wrote it, for a host that records it; never decided on: the engine decides at close. */
   keepPane?: KeepPane;
 }
 
