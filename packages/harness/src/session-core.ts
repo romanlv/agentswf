@@ -21,6 +21,7 @@ import type {
   HarnessTurn,
   HarnessTurnOutcome,
   NativeFork,
+  PanePlacement,
   SessionCopy,
   SessionSettings,
 } from "./adapter";
@@ -67,6 +68,7 @@ export type ActivatedSessionBackend = {
   readonly identity: NativeSessionIdentity;
   /** When it first prompted the agent, where it waits before prompting; see `HarnessSession`. */
   promptedAt?(): number | undefined;
+  pane?(): PanePlacement | undefined;
   execute(request: NativeTurnRequest): Promise<NativeTurnOutcome>;
   /** The harness's own fork of `sessionRef`, or its copy `into` another home; absent where none. */
   fork?(sessionRef: string, deadline: AbsoluteDeadline, into?: SessionCopy): Promise<NativeFork>;
@@ -518,6 +520,7 @@ function createSession(
       : {}),
     sessions: () => [...seen],
     ...(native.promptedAt ? { promptedAt: () => native.promptedAt!() } : {}),
+    ...(native.pane ? { pane: () => native.pane!() } : {}),
     async close(reason?: string) {
       if (closed) return;
       closeAttempt ??= native

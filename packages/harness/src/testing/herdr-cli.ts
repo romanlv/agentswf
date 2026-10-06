@@ -62,7 +62,16 @@ export type FakePane = {
   typed: string[];
   /** A harness typed in and not yet detected: its kind, and the renames it has answered. */
   typedHarness?: { kind: string; polls: number };
+  terminalId: string;
+  /** Where it is in its tab; a closed neighbour's space is not given back. */
+  rect: Rect;
+  label?: string;
 };
+
+type Rect = { x: number; y: number; width: number; height: number };
+
+/** Rows a tab has, beside `rootColumns`. */
+const ROOT_ROWS = 50;
 
 export type FakeHerdr = {
   run: RunProcess;
@@ -125,14 +134,25 @@ export function createFakeHerdr(options: FakeHerdrOptions = {}): FakeHerdr {
   const agents = new Map<string, FakeAgent>();
   const detectionPolls = options.detectionPolls ?? 2;
   const panes = new Map<string, FakePane>();
-  const newPane = (env: Record<string, string>, tab: string): FakePane => ({
+  let terminalCount = 0;
+  const newPane = (
+    env: Record<string, string>,
+    tab: string,
+    rect: Rect = { x: 0, y: 0, width: rootColumns, height: ROOT_ROWS },
+  ): FakePane => ({
     env,
-    columns: rootColumns,
+    columns: rect.width,
     tab,
     // A login shell's prompt, which may look like the confined shell's.
     screen: ["user@host ~ % "],
     typed: [],
+    terminalId: `term_${++terminalCount}`,
+    rect,
   });
+  const paneInfo = (paneId: string) => {
+    const pane = panes.get(paneId)!;
+    return { pane_id: paneId, tab_id: pane.tab, terminal_id: pane.terminalId };
+  };
   const workspaces = new Set<string>();
   const answeredAt = new Map<string, number>();
   let workspaceCount = 0;
@@ -166,7 +186,7 @@ export function createFakeHerdr(options: FakeHerdrOptions = {}): FakeHerdr {
         return ok({
           workspace: { workspace_id: workspaceId },
           tab: { tab_id: tabId },
-          root_pane: { pane_id: paneId },
+          root_pane: paneInfo(paneId),
         });
       }
       case "tab create": {
@@ -180,7 +200,7 @@ export function createFakeHerdr(options: FakeHerdrOptions = {}): FakeHerdr {
         const tabId = `${workspaceId}:t${tabCount}`;
         // Only this command's own `--env`: the tab is a separately launched process.
         panes.set(paneId, newPane(readEnv(argv), tabId));
-        return ok({ tab: { tab_id: tabId }, root_pane: { pane_id: paneId } });
+        return ok({ tab: { tab_id: tabId }, root_pane: paneInfo(paneId) });
       }
       case "tab rename": {
         return [...panes.values()].some((pane) => pane.tab === target)
@@ -190,6 +210,47 @@ export function createFakeHerdr(options: FakeHerdrOptions = {}): FakeHerdr {
       case "tab close": {
         for (const [paneId, pane] of panes) if (pane.tab === target) panes.delete(paneId);
         return ok({});
+      }
+      case "pane split": {
+        const pane = panes.get(target);
+        if (!pane) return fail("pane_not_found", `pane ${target} not found`);
+        // The ratio is the part the split pane keeps.
+        const ratio = Number(readOption(argv, "--ratio") ?? "0.5");
+        const right = readOption(argv, "--direction") === "right";
+        const { x, y, width, height } = pane.rect;
+        const kept = Math.round((right ? width : height) * ratio);
+        pane.rect = right ? { x, y, width: kept, height } : { x, y, width, height: kept };
+        pane.columns = pane.rect.width;
+        const rect = right
+          ? { x: x + kept, y, width: width - kept, height }
+          : { x, y: y + kept, width, height: height - kept };
+        paneCount += 1;
+        const paneId = `${target.split(":")[0]}:p${paneCount}`;
+        panes.set(paneId, newPane(readEnv(argv), pane.tab, rect));
+        return ok({ pane: paneInfo(paneId) });
+      }
+      case "pane close": {
+        if (!panes.delete(target)) return fail("pane_not_found", `pane ${target} not found`);
+        return ok({});
+      }
+      case "pane rename": {
+        const pane = panes.get(target);
+        if (!pane) return fail("pane_not_found", `pane ${target} not found`);
+        pane.label = argv[6] ?? "";
+        return ok({ pane: paneInfo(target) });
+      }
+      case "pane layout": {
+        const pane = panes.get(readOption(argv, "--pane") ?? "");
+        if (!pane) return fail("pane_not_found", "pane not found");
+        return ok({
+          layout: {
+            area: { x: 0, y: 0, width: rootColumns, height: ROOT_ROWS },
+            tab_id: pane.tab,
+            panes: [...panes]
+              .filter(([, other]) => other.tab === pane.tab)
+              .map(([paneId, other]) => ({ pane_id: paneId, rect: other.rect })),
+          },
+        });
       }
       case "pane get": {
         return panes.has(target)

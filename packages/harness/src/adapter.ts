@@ -174,7 +174,22 @@ export interface HarnessSession {
    * the calling session's, which may still be the operator's own turn until then (ADR 0010).
    */
   promptedAt?(): number | undefined;
+  /** Where its pane was placed, for a host that places panes; see `PanePlacement`. */
+  pane?(): PanePlacement | undefined;
 }
+
+/** Where a pane agent's pane was placed, and why not where its layout said, for the record. */
+export type PanePlacement = {
+  /** The terminal session it is in. */
+  session: string;
+  workspace: "run" | "origin" | { name: string };
+  /** The new tab's label; absent for a pane beside another. */
+  tab?: string;
+  /** The agent whose pane it split. */
+  beside?: string;
+  /** Why its layout was not used, where it wasn't. */
+  fallback?: string;
+};
 
 /** The settings a session runs at, whole: an absent effort is the harness's default. */
 export type SessionSettings = { model: string; effort?: Effort };
