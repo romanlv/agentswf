@@ -1,6 +1,7 @@
 import { type JsonValue, placementOf, type StageOutcome } from "@agentswf/contract/workflow";
 import { ago, duration } from "./accounting/format";
 import { NO_STAGE } from "./accounting/summary";
+import type { RunSession } from "./herdr-run-session";
 import type { StageProgress } from "./stage-ledger";
 import type { WorkflowRunHandle, WorkflowRunSnapshot } from "./workflow-runner";
 
@@ -379,17 +380,32 @@ function whereBlocked(agent: Agent, herdrSession: string | undefined): string {
  * A client inside Herdr can't attach to another session, so from there it says where to.
  */
 export function describeRunSession(
-  session: { name: string; started: boolean },
+  session: RunSession,
   workspace: string,
   insideHerdr: boolean,
 ): string[] {
-  const attach = `HERDR_DISABLE_SOUND=1 herdr session attach ${session.name}`;
+  const { name, stale, closed, unclaimed, restartedFrom } = session;
+  const attach = `HERDR_DISABLE_SOUND=1 herdr session attach ${name}`;
   return [
-    ...(session.started
+    ...(restartedFrom !== undefined
+      ? [`restarted herdr session ${name}, which ran herdr ${restartedFrom}, on the one installed`]
+      : session.started
+        ? [`started herdr session ${name}, headless; stop it with herdr session stop ${name}`]
+        : []),
+    ...(stale
       ? [
-          `started herdr session ${session.name}, headless; stop it with herdr session stop ${session.name}`,
+          `herdr session ${name} runs herdr ${stale.server}, not the ${stale.installed} installed; restart it with herdr session stop ${name} once no run is using it`,
         ]
       : []),
+    ...(closed.length > 0
+      ? [
+          `closed in herdr session ${name}, their runs over: ${closed.map((label) => `"${label}"`).join(", ")}`,
+        ]
+      : []),
+    ...unclaimed.map(
+      ({ id, label }) =>
+        `left "${label}" in herdr session ${name}, as no run of it is known; close it with herdr --session ${name} workspace close ${id}`,
+    ),
     `agents   herdr session ${session.name} · workspace "${workspace}" · ${attach}${insideHerdr ? " from a terminal outside Herdr" : ""}`,
   ];
 }

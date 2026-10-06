@@ -86,7 +86,8 @@ In scope:
   on a prompt, in the stage list; the first time awf starts the session, how to stop it.
 - Restarting the session when its server's version differs from the CLI's and no workspace is open
   in it; otherwise saying so once.
-- Closing `awf run` workspaces in the session whose run is not live.
+- Closing `awf …` workspaces in the session whose run is not live, by a mark each run keeps on
+  its workspace.
 - `AWF_HERDR_SESSION` reaching a `--here` run's inner `awf run`.
 
 Out of scope:
@@ -197,12 +198,18 @@ awf today:
 4. Poll `workspace list` every 200 ms for up to 10 s. A start that lost a race to a concurrent run
    fails to bind; the poll finds the winner's server (M2). Not answering: the attempt fails before
    any agent opens, naming the session, its server log and `herdr session attach {name}`.
-5. Version: the server's (`herdr status server`) against the CLI's (`herdr --version`). Different,
-   an `awf` or `awf-…` session, and no workspace open: stop and start it, back to 3. Different otherwise: one
-   line saying so and how to restart; carry on (M3).
-6. Orphans: each `awf run …` workspace whose run is not live, by the run's mark (the pid and process
-   start time `runs.ts` already keeps), is closed. A workspace whose run can't be found is left
-   alone and named.
+5. Orphans: each run marks its workspace before creating it, a file per process under
+   `~/.awf/herdr/sessions/{session}/workspaces/` holding the label, its pid and process start
+   (`herdr-workspace-marks.ts`, version 1), and adds the workspace's id once Herdr made it (the
+   harness's `onRunWorkspace`, before any agent opens); the mark is removed once the workspace
+   closes. A workspace is closed only when marks naming its id are all dead: a label is unique only
+   within a project. Dead means the pid is gone, or another process holds it; a `ps` that can't see
+   is unknown, which keeps it. A dead mark naming no open workspace is removed. An `awf …`
+   workspace no mark names, by id or by label while its run is opening, is left, and named.
+6. Version: Herdr's own `status server --json` says the server is stale. Stale, an `awf` or
+   `awf-…` session, no workspace open, and on a second look just before, still none and no mark
+   that isn't dead: stop and start it, back to 3. Otherwise: one line saying so and how to restart;
+   carry on (M3).
 
 The name is the whole ownership rule: no record of who started the session, which a shared session
 could not keep true anyway. An operator who names their own session in `AWF_HERDR_SESSION` keeps it
@@ -257,7 +264,7 @@ Alternatives rejected:
 
 - [x] 1. Agents open in a session awf owns and starts (M1 by ear outstanding)
 - [x] 2. `awf run` says where the agents are, and which is blocked
-- [ ] 3. The session is kept: restarted on a Herdr update, orphans closed
+- [x] 3. The session is kept: restarted on a Herdr update, orphans closed
 
 ## Open questions
 
@@ -357,11 +364,11 @@ workspace behind for long.
 
 Execution:
 
-- [ ] Plan: inspect the relevant code and tests and record the architecture and focused proof.
-- [ ] Implement: make only this task's coherent change and add focused tests with it.
-- [ ] Review: obtain architecture/scope and correctness/proof subagent reviews of the actual diff.
-- [ ] Resolve: disposition findings and obtain targeted re-review after material design changes.
-- [ ] Verify: satisfy every `Done when` item before checking this task.
+- [x] Plan: inspect the relevant code and tests and record the architecture and focused proof.
+- [x] Implement: make only this task's coherent change and add focused tests with it.
+- [x] Review: obtain architecture/scope and correctness/proof subagent reviews of the actual diff.
+- [x] Resolve: disposition findings and obtain targeted re-review after material design changes.
+- [x] Verify: satisfy every `Done when` item before checking this task.
 
 Work:
 
@@ -435,8 +442,25 @@ closing block; say once that the session exists; stale server after an update; o
 
 ### Task 3
 
-- Architecture and scope:
-- Correctness and proof:
+- Architecture and scope: high: a label is unique only within a project, and keying the mark by
+  it let one project's dead run close another's live workspace. Fixed: one mark per process, the
+  label inside; closed only when every mark for a label is dead and they cover its workspaces. Also
+  fixed: the mark in its own module with a version, its folder in `machinePaths`; released only
+  once its workspace closed; `ensureRunSession` split into `runningSession`, `sweepWorkspaces` and
+  the version step; a restart said as one (`restartedFrom`); a failed stop leaves it named stale.
+  Kept: `RunSession` carries what the CLI says, flat, for its one reader.
+- Correctness and proof: high, the same collision. Fixed: a `ps` that can't see reads as unknown,
+  not dead (`kill(pid, 0)` first); a second look at workspaces and marks just before a restart;
+  writing or removing a mark never fails a run. Tests added: a reused pid, an unseen one, shared
+  labels both ways, a close that fails keeping its mark, a run marking before the stop, a failed
+  stop, the mark written before the workspace, a home that can't hold one.
+- Targeted re-review of the redesign: high: a dead mark with no workspace of its own (a run killed
+  before its first pane) still let a count by label close another project's unmarked workspace.
+  Fixed by binding each mark to its workspace's id through a harness hook, `onRunWorkspace` on
+  `HerdrConfig`, called before any agent opens; a mark closes only the id it names. Low, fixed: a
+  mark written whole, by rename, so a reader never skips a half-written live one. Low, accepted: a
+  run between its session being ready and its mark being written is invisible to another run's
+  restart; the window is a few file operations.
 
 ## Readiness
 
@@ -501,3 +525,28 @@ closing block; say once that the session exists; stale server after an update; o
 - [ ] If changes are requested, return to the affected task and repeat its review and verification.
 - [ ] Only after explicit approval, mark the story `done` and update `Stories at a glance`.
 - `bun test`: 1555 pass, 0 fail after the review fixes; `bun run check` clean.
+
+### Task 3, 2026-10-06
+
+- M3: `herdr --session {name} status server --json` says itself whether the server is stale:
+  `server_binary_stale` and `restart_needed`, beside its `version`. awf reads those rather than
+  comparing versions, and `herdr --version` only to name the installed one. An actual
+  `herdr update` under a running session is not yet seen.
+- Deviation: a run's liveness is a machine-wide mark, not its attempt record. The session is shared
+  by every project's runs, and an attempt record lives under its own project's `.awf/runs`, which a
+  run elsewhere can't find; so it would name every other project's workspace as unknown. Steps 5
+  and 6 above are as built.
+- Orphans are closed before the version check, so a stale session left with only dead runs'
+  workspaces is restarted. A workspace list that can't be read closes nothing and restarts nothing.
+  Two runs both finding a stale session empty may both restart it; the second look shortly before
+  the stop narrows, but cannot close, the window in which the second's stop ends the first's new
+  server and fails its first pane agent. Rare: only just after an update, with runs starting
+  together. Accepted.
+- Live: in `awf`, a workspace with a dead run's mark was closed and the mark removed; one with none
+  was named and left. Herdr writes `release-notes.json` beside the config it is given, so
+  `~/.awf/herdr/` holds one too.
+- After review, the mark was redesigned twice (see the review record): one file per process,
+  version 1, its own module; then bound to its workspace's id.
+- Live: during a quick-check run its mark held `workspaceId` `w5`; after, it was gone. Right twice,
+  14 s, ~$0.13 at list prices.
+- `bun test`: 1572 pass, 0 fail; `bun run check` clean.

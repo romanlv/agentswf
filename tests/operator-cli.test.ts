@@ -262,7 +262,7 @@ describe("awf run", () => {
                 ...config.host,
                 async openRun(spec) {
                   // As the operator runtime does when the first pane agent's session is ready.
-                  options.onRunSession?.({ name: "awf", started: true });
+                  options.onRunSession?.({ name: "awf", started: true, closed: [], unclaimed: [] });
                   return config.host.openRun(spec);
                 },
               },

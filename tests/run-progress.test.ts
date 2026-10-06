@@ -572,12 +572,54 @@ describe("where pane agents are", () => {
     );
   });
 
+  test("a restart says what it replaced, in place of the first start's line", () => {
+    expect(
+      describeRunSession(
+        { name: "awf", started: true, restartedFrom: "0.9.1", closed: [], unclaimed: [] },
+        "awf review r4 #1",
+        false,
+      )[0],
+    ).toBe("restarted herdr session awf, which ran herdr 0.9.1, on the one installed");
+  });
+
+  test("a stale server, the workspaces closed and those left are each said once", () => {
+    expect(
+      describeRunSession(
+        {
+          name: "awf",
+          started: false,
+          stale: { server: "0.9.1", installed: "0.9.3" },
+          closed: ["awf review r1 #1", "awf fix r2 #3"],
+          unclaimed: [{ id: "w3", label: "awf review r3 #1" }],
+        },
+        "awf review r4 #1",
+        false,
+      ).slice(0, 3),
+    ).toEqual([
+      "herdr session awf runs herdr 0.9.1, not the 0.9.3 installed; restart it with herdr session stop awf once no run is using it",
+      'closed in herdr session awf, their runs over: "awf review r1 #1", "awf fix r2 #3"',
+      'left "awf review r3 #1" in herdr session awf, as no run of it is known; close it with herdr --session awf workspace close w3',
+    ]);
+  });
+
   test("said once: the session, the workspace and how to watch it, and how to stop it only when this run started it", () => {
     const workspace = "awf review 20261006-1054-2eee #1";
-    expect(describeRunSession({ name: "awf", started: false }, workspace, false)).toEqual([
+    expect(
+      describeRunSession(
+        { name: "awf", started: false, closed: [], unclaimed: [] },
+        workspace,
+        false,
+      ),
+    ).toEqual([
       `agents   herdr session awf · workspace "${workspace}" · HERDR_DISABLE_SOUND=1 herdr session attach awf`,
     ]);
-    expect(describeRunSession({ name: "awf-review", started: true }, workspace, true)).toEqual([
+    expect(
+      describeRunSession(
+        { name: "awf-review", started: true, closed: [], unclaimed: [] },
+        workspace,
+        true,
+      ),
+    ).toEqual([
       "started herdr session awf-review, headless; stop it with herdr session stop awf-review",
       `agents   herdr session awf-review · workspace "${workspace}" · HERDR_DISABLE_SOUND=1 herdr session attach awf-review from a terminal outside Herdr`,
     ]);

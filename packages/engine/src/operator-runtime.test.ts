@@ -1,5 +1,5 @@
 import { afterAll, describe, expect, test } from "bun:test";
-import { readdirSync } from "node:fs";
+import { mkdtempSync, readdirSync, readFileSync } from "node:fs";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -12,6 +12,10 @@ import {
   openRouterKey,
 } from "./operator-runtime";
 
+/** Where workspace marks go, never the operator's own `~/.awf`. */
+const HOME = mkdtempSync(join(tmpdir(), "awf-runtime-home-"));
+afterAll(() => rm(HOME, { recursive: true, force: true }));
+
 describe("operator runtime", () => {
   const before = new Set(readdirSync(tmpdir()).filter((name) => name.startsWith("awf-agent-bin-")));
   afterAll(() => {
@@ -22,6 +26,7 @@ describe("operator runtime", () => {
   test("keeps placement out of aliases and installs one run-owned host", async () => {
     const calls: ProcessInput[] = [];
     const installed = await installOperatorRuntime(60_000, {
+      home: HOME,
       run: subscriptionRunner(calls),
       environment: {},
     });
@@ -51,6 +56,7 @@ describe("operator runtime", () => {
   test("each agent runs where its placement says, and an all-headless run never starts Herdr", async () => {
     const calls: ProcessInput[] = [];
     const installed = await installOperatorRuntime(60_000, {
+      home: HOME,
       run: subscriptionRunner(calls),
       // Inside a Herdr pane, where a pane agent would look its session up.
       environment: { HERDR_SOCKET_PATH: "/h/herdr.sock" },
@@ -153,6 +159,7 @@ describe("operator runtime", () => {
     });
     const calls: ProcessInput[] = [];
     const installed = await installOperatorRuntime(60_000, {
+      home: HOME,
       run: subscriptionRunner(calls),
       environment: { OPENROUTER_API_KEY: "sk-or-test" },
     });
@@ -200,6 +207,7 @@ describe("operator runtime", () => {
   test("no agent inherits the markers of a Claude Code session awf runs inside", async () => {
     const calls: ProcessInput[] = [];
     const installed = await installOperatorRuntime(60_000, {
+      home: HOME,
       run: subscriptionRunner(calls),
       environment: {},
     });
@@ -271,7 +279,11 @@ describe("operator runtime", () => {
       return success("");
     };
     await expect(
-      installOperatorRuntime(60_000, { run, environment: { OPENAI_API_KEY: "metered" } }),
+      installOperatorRuntime(60_000, {
+        home: HOME,
+        run,
+        environment: { OPENAI_API_KEY: "metered" },
+      }),
     ).rejects.toThrow(
       "subscription runtime refused metered credential environment: OPENAI_API_KEY",
     );
@@ -287,7 +299,11 @@ describe("operator runtime", () => {
           ? success(JSON.stringify({ loggedIn: true, ...claude }))
           : success(codex);
       };
-      const installed = await installOperatorRuntime(60_000, { run, environment: {} });
+      const installed = await installOperatorRuntime(60_000, {
+        home: HOME,
+        run,
+        environment: {},
+      });
       const deadline = { unixMilliseconds: Date.now() + 60_000 };
       const host = await installed.config.host.openRun({ runId: "run-1", cwd: "/repo", deadline });
       const open = () =>
@@ -352,6 +368,7 @@ describe("operator runtime", () => {
     // No PATH, so the down session can't be started and nothing real is.
     const told: unknown[] = [];
     const installed = await installOperatorRuntime(60_000, {
+      home: HOME,
       run,
       environment: {},
       onRunSession: (session) => told.push(session),
@@ -380,7 +397,7 @@ describe("operator runtime", () => {
       const host = await open("run-2");
       await Promise.all(["second", "third"].map((key) => pane(host, key).catch(() => undefined)));
       expect(lists()).toHaveLength(2);
-      expect(told).toEqual([{ name: "awf", started: false }]);
+      expect(told).toEqual([{ name: "awf", started: false, closed: [], unclaimed: [] }]);
       expect(workspaces().length).toBeGreaterThan(0);
       await host.close().catch(() => undefined);
     } finally {
@@ -392,6 +409,7 @@ describe("operator runtime", () => {
     const calls: ProcessInput[] = [];
     const told: unknown[] = [];
     const installed = await installOperatorRuntime(60_000, {
+      home: HOME,
       run: subscriptionRunner(calls),
       environment: {},
       onRunSession: (session) => {
@@ -410,7 +428,7 @@ describe("operator runtime", () => {
           execution: { harness: "codex", model: "m" },
         });
       await Promise.all(["first", "second"].map((key) => pane(key).catch(() => undefined)));
-      expect(told).toEqual([{ name: "awf", started: false }]);
+      expect(told).toEqual([{ name: "awf", started: false, closed: [], unclaimed: [] }]);
       // Past the session: the pane side opened its workspace.
       expect(calls.some((call) => call.argv.slice(3, 5).join(" ") === "workspace create")).toBe(
         true,
@@ -421,10 +439,55 @@ describe("operator runtime", () => {
     }
   });
 
+  test("a run's workspace is marked as its own while its host is open", async () => {
+    const marks = join(HOME, ".awf", "herdr", "sessions", "awf", "workspaces");
+    const listed = () => readdirSync(marks, { withFileTypes: false }) as string[];
+    const answer = subscriptionRunner([]);
+    let markedBeforeCreate: number | undefined;
+    const installed = await installOperatorRuntime(60_000, {
+      home: HOME,
+      run: async (input) => {
+        if (input.argv.slice(3, 5).join(" ") === "workspace create") {
+          markedBeforeCreate = listed().length;
+        }
+        return answer(input);
+      },
+      environment: {},
+    });
+    try {
+      const deadline = { unixMilliseconds: Date.now() + 60_000 };
+      const host = await installed.config.host.openRun({
+        runId: "run-mark",
+        label: "awf review run-mark #1",
+        cwd: "/repo",
+        deadline,
+      });
+      await host
+        .openAgent({
+          key: "pane",
+          cwd: "/repo",
+          deadline,
+          execution: { harness: "codex", model: "m" },
+        })
+        .catch(() => undefined);
+      // Written before the workspace, so a sweep never sees one of a live run without it.
+      expect(markedBeforeCreate).toBe(1);
+      expect(listed()).toHaveLength(1);
+      // And given its id once it exists, before any agent opens in it.
+      const [file] = listed();
+      expect(JSON.parse(readFileSync(join(marks, file!), "utf8")).workspaceId).toBe("w1");
+      await host.close().catch(() => undefined);
+      expect(listed()).toEqual([]);
+    } finally {
+      await installed.cleanup();
+    }
+  });
+
   test("a run session name Herdr can't use refuses the run before anything starts", async () => {
     const calls: ProcessInput[] = [];
     await expect(
       installOperatorRuntime(60_000, {
+        home: HOME,
         run: subscriptionRunner(calls),
         environment: { AWF_HERDR_SESSION: "-oops" },
       }),
@@ -442,7 +505,11 @@ describe("operator runtime", () => {
       calls.push(input);
       return authenticated(input);
     };
-    const installed = await installOperatorRuntime(60_000, { run, environment });
+    const installed = await installOperatorRuntime(60_000, {
+      home: HOME,
+      run,
+      environment,
+    });
     try {
       const deadline = { unixMilliseconds: Date.now() + 60_000 };
       const host = await installed.config.host.openRun({ runId: "run-1", cwd: "/repo", deadline });
@@ -502,6 +569,9 @@ function subscriptionRunner(calls: ProcessInput[]): RunProcess {
     }
     if (input.argv.slice(3, 5).join(" ") === "workspace list") {
       return success(JSON.stringify({ result: { workspaces: [] } }));
+    }
+    if (input.argv.slice(3).join(" ") === "status server --json") {
+      return success(JSON.stringify({ version: "0.9.1", server_binary_stale: false }));
     }
     if (input.argv.slice(3, 5).join(" ") === "workspace close") {
       return success(JSON.stringify({ result: {} }));

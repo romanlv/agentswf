@@ -38,6 +38,8 @@ import {
   runSessionName,
 } from "./herdr-run-session";
 
+import { markWorkspace } from "./herdr-workspace-marks";
+
 export type { RunSession } from "./herdr-run-session";
 
 import { OPERATOR_ALIASES } from "./operator-aliases";
@@ -99,8 +101,28 @@ export async function installOperatorRuntime(
       // calls Herdr.
       pane: {
         accounting: createSessionAccounting(unmetered),
-        openRun: async (spec) =>
-          createHerdrRunHostFactory(runConfig((await session()).name), run).openRun(spec),
+        openRun: async (spec) => {
+          const { name } = await session();
+          const mark = await markWorkspace(home, name, spec.label ?? spec.runId);
+          const config = { ...runConfig(name), onRunWorkspace: mark.bind };
+          const host = await createHerdrRunHostFactory(config, run)
+            .openRun(spec)
+            .catch(async (error: unknown) => {
+              await mark.release();
+              throw error;
+            });
+          // Kept when the workspace would not close: a dead run's mark is what lets a later run
+          // close it.
+          const close: typeof host.close = async (reason) => {
+            await host.close(reason);
+            await mark.release();
+          };
+          return {
+            openAgent: (request) => host.openAgent(request),
+            inspect: () => host.inspect(),
+            close,
+          };
+        },
       },
       headless: createHeadlessRunHostFactory({}, unmetered),
       ...(caller
