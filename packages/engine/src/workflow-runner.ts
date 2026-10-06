@@ -96,7 +96,12 @@ import { RunDecisions } from "./decisions/directory";
 import type { DecisionInstallation } from "./decisions/seam";
 import { messageOf } from "./errors";
 import { createOperationEvents } from "./operation-events";
-import { type LivenessPolicy, type OperationStop, superviseOperation } from "./operation-liveness";
+import {
+  type LivenessPolicy,
+  type OperationStop,
+  type SupervisedOutcome,
+  superviseOperation,
+} from "./operation-liveness";
 import { createResultSlotRegistry, type ResultSlotRegistry } from "./result-slots";
 import { type AgentProgress, type GroupProgress, RunProgress } from "./run-progress";
 import {
@@ -1998,15 +2003,15 @@ class LogicalAgent implements AgentRef {
       phase: (phase, reason, until) =>
         this.options.progress.turnPhase(this.key, phase, reason, until),
     })
-      .catch((error: unknown) => ({
-        kind: "failed" as const,
-        reason: messageOf(error),
-        cleanupUnresolved: true,
-        charges: [],
-        settledAt: Date.now(),
-        deliveredAt: undefined,
-        value: undefined,
-      }))
+      .catch(
+        (error: unknown): SupervisedOutcome => ({
+          kind: "failed",
+          reason: messageOf(error),
+          cleanupUnresolved: true,
+          charges: [],
+          settledAt: Date.now(),
+        }),
+      )
       .then((outcome) => {
         if (outcome.cleanupUnresolved) {
           this.options.cleanupUnresolved(
@@ -2028,8 +2033,12 @@ class LogicalAgent implements AgentRef {
     );
     if (outcome.kind === "answered")
       return { outcome: { kind: "answered", value: outcome.value as JsonValue, usage } };
-    if (outcome.kind === "failed")
-      return { outcome: { kind: "failed", reason: outcome.reason, retryable: false, usage } };
+    if (outcome.kind === "failed") {
+      const login = outcome.login ? { login: outcome.login } : {};
+      return {
+        outcome: { kind: "failed", reason: outcome.reason, retryable: false, ...login, usage },
+      };
+    }
     return { outcome: { kind: outcome.kind, reason: outcome.reason, usage } };
   }
 

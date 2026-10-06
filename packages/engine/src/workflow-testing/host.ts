@@ -12,6 +12,7 @@ import {
   createSingleSessionHostFactory,
   findHarness,
   headlessRefusal,
+  loginFailure,
   PLACEMENT_HARNESSES,
   settingsRefusal,
 } from "@agentswf/harness";
@@ -184,7 +185,7 @@ export function createScriptedHost(
       return { state: "cancelled", detail: "interrupted by the operator" };
     }
     end(record, ending.kind);
-    return ending.kind === "silent" ? {} : { state: ending.kind, detail: ending.reason };
+    return ended(ending, context.activation.execution.harness);
   };
 
   const compact = async (context: FakeAdapterTurnContext): Promise<FakeAdapterTurn> => {
@@ -256,7 +257,7 @@ export function createScriptedHost(
       );
     }
     done(ending.kind);
-    return ending.kind === "silent" ? {} : { state: ending.kind, detail: ending.reason };
+    return ended(ending, activation.execution.harness);
   };
 
   const script = async (context: FakeAdapterTurnContext): Promise<FakeAdapterTurn> => {
@@ -413,4 +414,27 @@ function refusedCompaction(activation: HarnessActivation, hasRun: boolean): stri
   }
   if (!hasRun) return "there is nothing to compact before the first turn";
   return undefined;
+}
+
+type Ended = Exclude<
+  Extract<Step, { kind: "reply" }>["ending"],
+  { kind: "waiting" | "hang" | "interrupted" }
+>;
+
+/** A scripted ending as the agent's harness reports it. */
+function ended(ending: Ended, harness: string): FakeAdapterTurn {
+  if (ending.kind === "silent") return {};
+  if (ending.kind !== "needs-login") return { state: ending.kind, detail: ending.reason };
+  const check = findHarness(harness)?.login;
+  const provider = ending.provider === undefined ? {} : { provider: ending.provider };
+  return check
+    ? {
+        state: "failed",
+        ...loginFailure(harness, check, { ...provider, said: "reply.needsLogin()" }),
+      }
+    : {
+        state: "failed",
+        detail: `${harness} needs a login`,
+        login: { harness, ...provider, run: "log in" },
+      };
 }

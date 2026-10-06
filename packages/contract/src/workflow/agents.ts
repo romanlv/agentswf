@@ -200,12 +200,30 @@ export type OperationRecord = {
   label?: string;
 };
 
+/** A harness that needs the operator to log in again. */
+export type TurnLogin = {
+  harness: string;
+  /** The provider whose login it is, where the harness logs in to several, as pi does. */
+  provider?: string;
+  /** What the operator runs, in words to show, not parse: "run `pi`, then /login". */
+  run: string;
+};
+
 export type TurnOutcome<T extends JsonValue> = (
   | { kind: "answered"; value: T }
   | { kind: "unanswered"; reason: string }
   | { kind: "blocked"; reason: string }
   | { kind: "timed-out"; reason: string }
-  | { kind: "failed"; reason: string; retryable: boolean }
+  | {
+      kind: "failed";
+      reason: string;
+      retryable: boolean;
+      /**
+       * Set when the agent's harness has no login, or its login was refused: every agent on it
+       * fails the same way until the operator logs in, so a workflow may stop here.
+       */
+      login?: TurnLogin;
+    }
   | { kind: "cancelled"; reason: string }
 ) & {
   /** Times and sessions across every delivery attempt made to settle this operation. */

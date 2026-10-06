@@ -32,7 +32,7 @@ workflow.runId   workflow.attempt
 // In a test, from "agentswf/testing"; `awf test` runs it:
 testWorkflow(workflow, args, { agents?, decisions?, runtimes?, caller?, timeoutMs?, stallMs?, cwd?,
                               recorded?, fromStage?, values? })  // → run
-answer(SCHEMA, value | (turn) => value)   answer("text")   reply.waiting(reason, timeoutMs?) | silent() | blocked() | failed() | timedOut() | hang() | interrupted()
+answer(SCHEMA, value | (turn) => value)   answer("text")   reply.waiting(reason, timeoutMs?) | silent() | blocked() | failed() | needsLogin(provider?) | timedOut() | hang() | interrupted()
 ```
 
 | Concept | In one line |
@@ -185,12 +185,20 @@ turn that goes wrong is still a value:
 | `unanswered` | Recovery ended without an accepted answer or a fresh waiting declaration. |
 | `blocked` | The agent is showing a question only a person can answer, such as a permission prompt. |
 | `timed-out` | The turn's deadline passed. |
-| `failed` | Execution, delivery or cleanup failed. `retryable` says whether trying again might help; unresolved cleanup is not retried. |
+| `failed` | Execution, delivery or cleanup failed. `retryable` says whether trying again might help; unresolved cleanup is not retried. `login` is set when the agent's harness has no login or had it refused: `{ harness, provider?, run }`, where `run` says in words what the operator runs: text to show, not to parse. |
 | `cancelled` | The run or an enclosing scope was stopped. |
 
 ```ts
 if (!isAnswered(outcome)) return { error: `${outcome.kind}: ${outcome.reason}` };
 outcome.value.findings; // typed
+```
+
+A turn whose harness cannot sign in is never nudged, and the run goes on: every other agent on
+that harness will fail the same way, so a workflow that should not spend the rest stops on it.
+
+```ts
+if (outcome.kind === "failed" && outcome.login) workflow.stop(outcome.reason);
+// "pi needs a login for openai-codex: run `pi`, then /login (pi said: OAuth refresh failed …)"
 ```
 
 A run-owned agent is stopped after an unsuccessful operation, even if its foreground turn
@@ -573,6 +581,8 @@ test reports.
 - **`reply.silent()`, `blocked()`, `failed()`, `timedOut()`, `hang()`** end a turn without an
   answer. `hang` holds the turn until the engine cancels it, as `parallel` does when another item
   fails.
+- **`reply.needsLogin(provider?)`** fails a turn as the agent's harness does when it cannot sign
+  in: `login` names the agent's harness, the provider, and what to run.
 
 - **`reply.waiting(reason, timeoutMs?)`** declares a cooperative wait. It is supported for
   run-owned Claude panes, matching production; other placements reject it. The next check-in

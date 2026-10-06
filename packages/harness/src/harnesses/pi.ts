@@ -10,6 +10,7 @@ import {
   readPiUsage,
 } from "../usage/pi";
 import { defineHarness, type HarnessDefinition, type LaunchSettings } from "./define";
+import { piLogin } from "./login";
 
 const PI = {
   callingSessionEnv: ["PI_SESSION_ID"],
@@ -23,6 +24,7 @@ const PI = {
   setPane: true,
   sessionEnv: "PI_SESSION_ID",
   interrupted: "Operation aborted",
+  login: piLogin,
   interactive: (settings = {}, launchArgs = []) => ({
     argv: ["pi", ...piSettings(settings), ...launchArgs],
   }),

@@ -162,6 +162,36 @@ describe("testWorkflow", () => {
       ]);
     });
 
+    test("needsLogin: the turn fails with login set, unnudged, and the workflow can stop on it", async () => {
+      const run = await testWorkflow(
+        workflowOf<null, JsonValue>(async (workflow) => {
+          const agent = await workflow.agents.open({ key: "solo", runtime: "codex" });
+          const { outcome } = await agent.run({ prompt: "Review.", schema: VERDICT });
+          if (outcome.kind === "failed" && outcome.login) workflow.stop(outcome.reason);
+          return outcome.kind;
+        }),
+        null,
+        { agents: { solo: reply.needsLogin() } },
+      );
+      expect(run.turns.map((turn) => [turn.nudge, turn.outcome])).toEqual([[false, "needs-login"]]);
+      expect(run.stopped?.reason).toStartWith("codex needs a login: run `codex login`");
+
+      const seen = await testWorkflow(
+        workflowOf<null, JsonValue>(async (workflow) => {
+          const agent = await workflow.agents.open({ key: "solo", runtime: "codex" });
+          const { outcome } = await agent.run({ prompt: "Review." });
+          return outcome.kind === "failed" ? (outcome.login ?? null) : null;
+        }),
+        null,
+        { agents: { solo: reply.needsLogin("openai") } },
+      );
+      expect(seen.value).toEqual({
+        harness: "codex",
+        provider: "openai",
+        run: "run `codex login`",
+      });
+    });
+
     test("hang holds the turn until the engine cancels it: parallel's fail-fast", async () => {
       const cancelled: string[] = [];
       // A barrier: the fast lens fails only once the slow one is under way.

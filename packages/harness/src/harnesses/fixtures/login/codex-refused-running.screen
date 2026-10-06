@@ -1,0 +1,11 @@
+
+work on  main
+❯ {launch}
+
+Unsent draft:
+say hi op-mid-1
+
+Error: account/read failed during TUI bootstrap: account/read failed: workspace routing discovery unauthorized (401) (code -32603)
+
+work on  main took 4s
+❯

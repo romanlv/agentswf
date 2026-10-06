@@ -17,6 +17,7 @@ import {
   type TurnContext,
   type TurnPlan,
 } from "./define";
+import { cursorLogin } from "./login";
 import { lastJson, resuming } from "./shared";
 
 /**
@@ -69,6 +70,7 @@ const CURSOR = {
   // A resume runs on the `--model` it is given, a model's other variant included (M1).
   setHeadless: true,
   interactive: cursorInteractive,
+  login: cursorLogin,
   // Herdr reports it idle about 3.5 s after it starts, drawn or not; under srt it drew 2.5 s later.
   // Its status line names the mode `--force` sets.
   paneReady: "Run Everything",

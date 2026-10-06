@@ -1,0 +1,13 @@
+{launch}
+
+work on  main
+❯ {launch}
+⚠ Warning: The provided API key is invalid.
+The API key was loaded from the CURSOR_API_KEY environment variable.
+Please check you have the right key, create a new one, or authenticate without it.
+
+work on  main
+❯ say hi
+
+work on  main
+❯

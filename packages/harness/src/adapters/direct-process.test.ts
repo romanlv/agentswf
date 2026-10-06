@@ -1237,6 +1237,57 @@ describe("createHeadlessAdapter", () => {
     });
   });
 
+  test("a harness that cannot sign in fails the turn and says what to run, even on exit 0", async () => {
+    const fixture = (name: string) =>
+      readFileSync(join(import.meta.dir, "../harnesses/fixtures/login", name), "utf8");
+    const run: RunProcess = async () => ({
+      stdout: fixture("pi-refused.stdout"),
+      stderr: "",
+      exitCode: 0,
+      timedOut: false,
+    });
+    const session = await headless(
+      run,
+      {},
+      { ...activation, execution: { harness: "pi", model: "terra", placement: "headless" } },
+    );
+    const turn = await session.start(turnSpec, firstBinding);
+
+    await expect(turn.settled).resolves.toMatchObject({
+      state: "failed",
+      detail: expect.stringContaining("pi needs a login for openai-codex: run `pi`, then /login"),
+      login: { harness: "pi", provider: "openai-codex", run: "run `pi`, then /login" },
+    });
+  });
+
+  test("a turn stopped or out of time stays so, whatever its harness printed of a login", async () => {
+    const stdout = readFileSync(
+      join(import.meta.dir, "../harnesses/fixtures/login/pi-refused.stdout"),
+      "utf8",
+    );
+    for (const [ended, state] of [
+      [{ cancelled: true }, "cancelled"],
+      [{ timedOut: true }, "timed-out"],
+    ] as const) {
+      const run: RunProcess = async () => ({
+        stdout,
+        stderr: "",
+        exitCode: 0,
+        timedOut: false,
+        ...ended,
+      });
+      const session = await headless(
+        run,
+        {},
+        { ...activation, execution: { harness: "pi", model: "terra", placement: "headless" } },
+      );
+      const turn = await session.start(turnSpec, firstBinding);
+      const settled = await turn.settled;
+      expect(settled.state).toBe(state);
+      expect(settled.login).toBeUndefined();
+    }
+  });
+
   test("runs only headless agents, and claude only when it is marked metered", async () => {
     const run: RunProcess = async () => {
       throw new Error("nothing should launch");

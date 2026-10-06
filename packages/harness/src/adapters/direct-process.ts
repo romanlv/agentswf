@@ -9,6 +9,7 @@ import type {
 } from "../adapter";
 import { skillsLaunch } from "../capabilities/skills";
 import { type RunProcess, runProcess } from "../command";
+import { failedOnLogin } from "../harnesses/login";
 import { launchSettings } from "../harnesses/shared";
 import { headlessRefusal } from "../refusals";
 import { sandboxedArgs } from "../sandbox-needs";
@@ -279,6 +280,11 @@ export function createHeadlessAdapter(
                 ...common,
               };
             }
+            // pi's refused login exits 0, so it is read before the exit code.
+            const login = failedOnLogin(harness, spec.login, (check) =>
+              check.headless(result.stdout, result.stderr),
+            );
+            if (login) return { ...login, ...common };
             if (result.exitCode !== 0) {
               return {
                 state: "failed" as const,

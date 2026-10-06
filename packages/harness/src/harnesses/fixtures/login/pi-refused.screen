@@ -1,0 +1,47 @@
+{launch}
+
+work on  main
+❯ {launch}
+
+ pi v0.87.1
+ escape interrupt · ctrl+c/ctrl+d clear/exit · / commands · ! bash · ctrl+o more
+ Press ctrl+o to show full startup help and loaded resources.
+
+ Pi can explain its own features and look up its docs. Ask it how to use or extend Pi.
+
+[Skills]
+  {the operator's skills}
+
+
+ fd not found. Downloading...
+ ripgrep not found. Downloading...
+ fd installed to /scratch/pi-bogus/bin/fd
+ ripgrep installed to /scratch/pi-bogus/bin/rg
+
+ Warning: Model "gpt-5.4-mini" not found for provider "openai-codex". Using custom model id.
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ Update Available
+ New version 1.0.3 is available. Run pi update
+ Changelog: https://pi.dev/changelog
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+ say hi
+
+
+ Error: OAuth refresh failed for openai-codex: OpenAI Codex token refresh failed (401): {
+   "error": {
+     "message": "Could not validate your token. Please try signing in again.",
+     "type": "invalid_request_error",
+     "param": null,
+     "code": "token_expired"
+   }
+ }
+ If this looks like a pi bug, /bug sends a report to the developers.
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+/work (main)
+$0.000 (sub) 1.5%/272k (auto)                                                                                                                                                                        (openai-codex) gpt-5.4-mini • medium

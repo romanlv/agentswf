@@ -65,7 +65,8 @@ Each of these is a live probe, recorded under `experiments/` and cited where it 
   slow start can lose (`paneReady`).
 - **Skills.** Every root it reads skills from, on the host and in a fresh home, and how to point it
   at one directory and away from the operator's.
-- **An expired login.** What it prints, headless and in a pane ([[expired-login]]).
+- **A login it lacks.** What it prints with no credential and with a made-up one, headless and in a
+  pane, at launch and after a prompt, captured in a throwaway home as fixtures (`login`; story 023).
 
 ## What else to change
 

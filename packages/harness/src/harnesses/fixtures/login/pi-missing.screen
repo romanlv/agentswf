@@ -1,0 +1,39 @@
+{launch}
+
+work on  main
+❯ {launch}
+
+ pi v0.87.1
+ escape interrupt · ctrl+c/ctrl+d clear/exit · / commands · ! bash · ctrl+o more
+ Press ctrl+o to show full startup help and loaded resources.
+
+ Pi can explain its own features and look up its docs. Ask it how to use or extend Pi.
+
+[Skills]
+  {the operator's skills}
+
+
+ fd not found. Downloading...
+ ripgrep not found. Downloading...
+ ripgrep installed to /scratch/pi-none/bin/rg
+ fd installed to /scratch/pi-none/bin/fd
+
+ Warning: Model "gpt-5.4-mini" not found for provider "openai-codex". Using custom model id.
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ Update Available
+ New version 1.0.3 is available. Run pi update
+ Changelog: https://pi.dev/changelog
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+ Error: No API key found for openai-codex.
+
+ Use /login to log into a provider via OAuth or API key. See:
+   ~/.local/share/mise/installs/node/22.20.0/lib/node_modules/@earendil-works/pi-coding-agent/docs/providers.md
+   ~/.local/share/mise/installs/node/22.20.0/lib/node_modules/@earendil-works/pi-coding-agent/docs/models.md
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+/work (main)
+0.0%/272k (auto)                                                                                                                                                                                                    gpt-5.4-mini • medium

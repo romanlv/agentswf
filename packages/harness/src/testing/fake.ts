@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { mkdir } from "node:fs/promises";
+import type { TurnLogin } from "@agentswf/contract/workflow";
 import type {
   AgentSessionAdapter,
   AuthoredTurn,
@@ -45,6 +46,8 @@ export type FakeAdapterTurn = {
   chargesUsd?: readonly number[];
   /** A compaction's summary: set, the harness confirmed it compacted. */
   summary?: string;
+  /** On a failed turn: its harness showed it cannot sign in. */
+  login?: TurnLogin;
   durationMs?: number;
   act?: (context: FakeAdapterTurnContext) => void | Promise<void>;
 };
@@ -214,6 +217,7 @@ export function createFakeAdapter(
               ...(scripted.summary === undefined || controller.signal.aborted
                 ? {}
                 : { summary: scripted.summary }),
+              ...(scripted.login && !controller.signal.aborted ? { login: scripted.login } : {}),
             };
           } finally {
             if (activeController === controller) activeController = undefined;
