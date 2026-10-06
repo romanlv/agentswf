@@ -406,6 +406,10 @@ export function describeRunSession(
       ({ id, label }) =>
         `left "${label}" in herdr session ${name}, as no run of it is known; close it with herdr --session ${name} workspace close ${id}`,
     ),
+    ...(session.kept ?? []).map(
+      ({ run, session: where, paneId }) =>
+        `kept by "${run}": pane ${paneId} in herdr session ${where}; close it with herdr --session ${where} pane close ${paneId}`,
+    ),
     `agents   herdr session ${session.name} · workspace "${workspace}" · ${attach}${insideHerdr ? " from a terminal outside Herdr" : ""}`,
   ];
 }

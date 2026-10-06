@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { machinePaths } from "./machine";
 import { type ProcessProbe, processStart, sameProcess } from "./runs";
 
-export const WORKSPACE_MARK_VERSION = 1;
+export const WORKSPACE_MARK_VERSION = 2;
 
 /**
  * A run's claim on its workspace in a shared Herdr session: the run's process, and when that
@@ -13,18 +13,31 @@ export const WORKSPACE_MARK_VERSION = 1;
  * closed by it, as a label is unique only within its project's runs.
  */
 export type WorkspaceMark = {
-  version: typeof WORKSPACE_MARK_VERSION;
+  /** 1 names only the workspace; an older awf reads only 1, and leaves a newer run's alone. */
+  version: 1 | typeof WORKSPACE_MARK_VERSION;
   label: string;
   pid: number;
   processStart: string;
   workspaceId?: string;
+  /**
+   * Every pane the run made and has not closed, by the session it is in, its own workspace's
+   * included: a pane closes by id and terminal id both, as Herdr's pane ids repeat.
+   */
+  panes?: Record<string, MarkedPane[]>;
+  /** The run ended, leaving the panes it kept: this mark outlives it until they are gone. */
+  ended?: true;
 };
+
+export type MarkedPane = { paneId: string; terminalId?: string; workspaceId: string; kept?: true };
 
 export type Liveness = "live" | "dead" | "unknown";
 
 export type HeldMark = {
   /** The workspace this run created. */
   bind(workspaceId: string): Promise<void>;
+  /** Every pane the run has made in `session` and not closed. */
+  panes(session: string, panes: readonly MarkedPane[]): Promise<void>;
+  /** At the run's end: removed, or, where it kept panes, rewritten to name only those. */
   release(): Promise<void>;
 };
 
@@ -42,7 +55,11 @@ export async function markWorkspace(
   label: string,
   probe: ProcessProbe = processStart,
 ): Promise<HeldMark> {
-  const unmarked: HeldMark = { bind: async () => undefined, release: async () => undefined };
+  const unmarked: HeldMark = {
+    bind: async () => undefined,
+    panes: async () => undefined,
+    release: async () => undefined,
+  };
   const started = probe(process.pid);
   if (started === undefined) return unmarked;
   const dir = marksDir(home, session);
@@ -59,9 +76,30 @@ export async function markWorkspace(
   } catch {
     return unmarked;
   }
+  let current = mark;
+  // One write at a time, each of the mark as it is then: a later one never lands before an earlier.
+  let writing = Promise.resolve();
+  const write = (next: WorkspaceMark) => {
+    current = next;
+    writing = writing.then(() => writeWhole(file, current).catch(() => undefined));
+    return writing;
+  };
   return {
-    bind: (workspaceId) => writeWhole(file, { ...mark, workspaceId }).catch(() => undefined),
-    release: () => removeMark(file),
+    bind: (workspaceId) => write({ ...current, workspaceId }),
+    panes: (session, panes) =>
+      write({ ...current, panes: { ...current.panes, [session]: [...panes] } }),
+    release: async () => {
+      const kept = Object.fromEntries(
+        Object.entries(current.panes ?? {})
+          .map(([session, panes]) => [session, panes.filter((pane) => pane.kept)] as const)
+          .filter(([, panes]) => panes.length > 0),
+      );
+      if (Object.keys(kept).length === 0) {
+        await writing;
+        return removeMark(file);
+      }
+      await write({ ...current, panes: kept, ended: true });
+    },
   };
 }
 
@@ -88,7 +126,7 @@ export async function readMarks(
     try {
       const mark = JSON.parse(await readFile(file, "utf8"));
       if (
-        mark?.version === WORKSPACE_MARK_VERSION &&
+        (mark?.version === 1 || mark?.version === WORKSPACE_MARK_VERSION) &&
         typeof mark.label === "string" &&
         typeof mark.pid === "number" &&
         typeof mark.processStart === "string" &&
@@ -99,6 +137,26 @@ export async function readMarks(
     } catch {}
   }
   return marks;
+}
+
+/** Every session's marks, by the session whose directory holds them. */
+export async function readAllMarks(
+  home: string,
+): Promise<(WorkspaceMark & { file: string; session: string })[]> {
+  const sessions = await readdir(join(machinePaths(home).herdr, "sessions")).catch(
+    () => [] as string[],
+  );
+  const all = await Promise.all(
+    sessions.map(async (session) =>
+      (await readMarks(home, session)).map((mark) => ({ ...mark, session })),
+    ),
+  );
+  return all.flat();
+}
+
+/** Rewrites a mark read from `file`, as one sweep leaves it. */
+export function rewriteMark(file: string, mark: WorkspaceMark): Promise<void> {
+  return writeWhole(file, mark).catch(() => undefined);
 }
 
 export function removeMark(file: string): Promise<void> {

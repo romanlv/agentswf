@@ -231,8 +231,10 @@ export function createPaneScreen(options: {
       const workspaceId = readId(created.result.workspace, "workspace_id");
       const paneId = readPaneId(created.result);
       const tabId = readId(created.result.tab, "tab_id");
-      if (!workspaceId || !paneId)
+      if (!workspaceId || !paneId) {
+        if (workspaceId) await herdr(["workspace", "close", workspaceId]);
         throw new Error("workspace create returned no workspace or pane");
+      }
       const terminalId = readId(created.result.root_pane, "terminal_id");
       remember({ paneId, workspaceId, ...(terminalId ? { terminalId } : {}) });
       if (tabId) await herdr(["tab", "rename", tabId, labelled(label)]);
@@ -467,13 +469,13 @@ type Destination = {
 /**
  * Every agent's pane in a run, across the Herdr sessions it uses: placed as each agent's layout
  * says or, where that can't be used, in a tab of its own, with why. A new tab in a workspace the
- * run shares with others is labelled `{run} {tab}`, so the operator can tell runs apart.
+ * run shares with others is labelled `{tab} · {run id}`, so the operator can tell runs apart.
  */
 export function createPaneLayout(options: {
   /** The run session's screen, where every fallback ends. */
   run: PaneScreen;
-  /** The run's label, which a tab in a shared workspace starts with. */
-  runLabel: string;
+  /** The run's id, which a tab in a shared workspace ends with: its label would crowd the tab out. */
+  runId: string;
   /** The screen for the session a layout names; why not, where it can't be used. */
   session?: (name: string) => Promise<PaneScreen | string>;
   /** `"origin"`'s screen and workspace; why not, where it can't be used. */
@@ -519,7 +521,7 @@ export function createPaneLayout(options: {
   const tabAt = (to: Destination, base: string, request: PaneRequest): Promise<Made> =>
     to.screen.mutate(async () => {
       if (!to.screen.isOpen()) throw new Error("Herdr run topology is closing");
-      const label = to.workspace === "run" ? base : `${options.runLabel} ${base}`;
+      const label = to.workspace === "run" ? base : `${base} · ${options.runId}`;
       if (to.name !== undefined) {
         const named = await to.screen.namedWorkspace(to.name, label, request);
         if ("pane" in named) return named.pane;
@@ -554,8 +556,9 @@ export function createPaneLayout(options: {
         const share = (layout as { share?: number }).share ?? DEFAULT_SHARE;
         // Read in the queue: a relaunch before it may have replaced the target's pane.
         const made = await screen.mutate(async () => {
+          if (!screen.isOpen()) throw new Error("Herdr run topology is closing");
           const now = panes.get(besideKey);
-          if (!now) return `${besideKey}'s pane is closed`;
+          if (!now || now.screen !== screen) return `${besideKey}'s pane is closed`;
           return screen.split(now, side, share, request);
         });
         if (typeof made === "string") fallback = made;
@@ -590,7 +593,7 @@ export function createPaneLayout(options: {
         to = { screen: run, workspace: "run" };
         made = await tabAt(to, base, request);
       }
-      const label = to.workspace === "run" ? base : `${options.runLabel} ${base}`;
+      const label = to.workspace === "run" ? base : `${base} · ${options.runId}`;
       placed = {
         made,
         screen: to.screen,

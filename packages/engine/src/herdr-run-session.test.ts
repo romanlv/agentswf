@@ -50,6 +50,8 @@ function fakeHerdr(options: {
   stopFails?: boolean;
   /** Called on each workspace list, after the first: another run acting meanwhile. */
   onRelist?: () => Promise<void>;
+  /** Each session's panes, by the session's name. */
+  panes?: Record<string, { pane_id: string; terminal_id: string; workspace_id: string }[]>;
 }) {
   const calls: string[] = [];
   const starts: { argv: readonly string[]; cwd: string; env: Record<string, string> }[] = [];
@@ -81,7 +83,17 @@ function fakeHerdr(options: {
       return result("stopped session awf");
     }
     if (command === "herdr --version") return result("herdr 0.9.3\n");
-    const [, , , ...args] = input.argv;
+    const [, , session, ...args] = input.argv;
+    const panes = options.panes?.[session!];
+    if (args.join(" ") === "pane list") {
+      return panes ? result(JSON.stringify({ result: { panes } })) : result("", "no session", 1);
+    }
+    if (args[0] === "pane" && args[1] === "close") {
+      const at = panes?.findIndex((pane) => pane.pane_id === args[2]) ?? -1;
+      if (at < 0) return result("", "pane_not_found", 1);
+      panes!.splice(at, 1);
+      return result("{}");
+    }
     if (args.join(" ") === "status server --json") {
       return result(
         JSON.stringify({ version: stale ? "0.9.1" : "0.9.3", server_binary_stale: stale }),
@@ -463,7 +475,7 @@ describe("keeping the run session", () => {
       const [file] = await readdir(marksDir(d.home, "awf"));
       return JSON.parse(await readFile(join(marksDir(d.home, "awf"), file!), "utf8"));
     };
-    const mark = { version: 1, label: "awf review r1 #1", pid: process.pid, processStart: STARTED };
+    const mark = { version: 2, label: "awf review r1 #1", pid: process.pid, processStart: STARTED };
     expect(await read()).toEqual(mark);
     await held.bind("w7");
     expect(await read()).toEqual({ ...mark, workspaceId: "w7" });
@@ -481,3 +493,124 @@ describe("keeping the run session", () => {
 function result(stdout: string, stderr = "", exitCode = 0): ProcessResult {
   return { stdout, stderr, exitCode, timedOut: false };
 }
+
+describe("marks of every pane a run made", () => {
+  const DEAD = 202;
+  const STARTED = new Date(1_000_000).toISOString();
+  const probe = (pid: number) => (pid === process.pid ? STARTED : undefined);
+  const exists = (pid: number) => pid !== DEAD;
+  const readAll = async (home: string) => {
+    const dir = marksDir(home, "awf");
+    const files = (await readdir(dir).catch(() => [])).filter((file) => file.endsWith(".json"));
+    return Promise.all(
+      files.map(async (file) => JSON.parse(await readFile(join(dir, file), "utf8"))),
+    );
+  };
+
+  test("a run's mark names its panes, and at its end only those it kept, outliving it", async () => {
+    const d = await deps(fakeHerdr({}));
+    const held = await markWorkspace(d.home, "awf", "awf review r1 #1", probe);
+    await held.bind("w1");
+    await held.panes("awf", [
+      { paneId: "w1:p1", terminalId: "t1", workspaceId: "w1" },
+      { paneId: "w1:p2", terminalId: "t2", workspaceId: "w1", kept: true },
+    ]);
+    await held.panes("default", [{ paneId: "w7:p3", terminalId: "t3", workspaceId: "w7" }]);
+    expect((await readAll(d.home))[0].panes).toEqual({
+      awf: [
+        { paneId: "w1:p1", terminalId: "t1", workspaceId: "w1" },
+        { paneId: "w1:p2", terminalId: "t2", workspaceId: "w1", kept: true },
+      ],
+      default: [{ paneId: "w7:p3", terminalId: "t3", workspaceId: "w7" }],
+    });
+    await held.release();
+    expect(await readAll(d.home)).toEqual([
+      expect.objectContaining({
+        version: 2,
+        ended: true,
+        panes: { awf: [{ paneId: "w1:p2", terminalId: "t2", workspaceId: "w1", kept: true }] },
+      }),
+    ]);
+  });
+
+  test("a dead run's panes are closed in every session, by id and terminal; kept ones are listed and left", async () => {
+    const herdr = fakeHerdr({
+      running: true,
+      workspaces: [{ workspace_id: "w1", label: "awf review r1 #1" }],
+      panes: {
+        awf: [
+          { pane_id: "w1:p1", terminal_id: "t1", workspace_id: "w1" },
+          { pane_id: "w1:p2", terminal_id: "t2", workspace_id: "w1" },
+        ],
+        default: [
+          { pane_id: "w7:p3", terminal_id: "t3", workspace_id: "w7" },
+          // The same id after a restart, another terminal: not the run's.
+          { pane_id: "w7:p4", terminal_id: "t-new", workspace_id: "w7" },
+        ],
+      },
+    });
+    const d = { ...(await deps(herdr)), probe, exists };
+    const file = join(marksDir(d.home, "awf"), "202-x.json");
+    await mkdir(dirname(file), { recursive: true });
+    await writeFile(
+      file,
+      JSON.stringify({
+        version: 2,
+        label: "awf review r1 #1",
+        pid: DEAD,
+        processStart: STARTED,
+        workspaceId: "w1",
+        panes: {
+          awf: [
+            { paneId: "w1:p1", terminalId: "t1", workspaceId: "w1" },
+            { paneId: "w1:p2", terminalId: "t2", workspaceId: "w1", kept: true },
+          ],
+          default: [
+            { paneId: "w7:p3", terminalId: "t3", workspaceId: "w7" },
+            { paneId: "w7:p4", terminalId: "t4", workspaceId: "w7" },
+          ],
+          // A session that is gone took its panes with it.
+          journal: [{ paneId: "w9:p1", terminalId: "t9", workspaceId: "w9" }],
+        },
+      }),
+    );
+    const result = await ensureRunSession("awf", d);
+    expect(result.kept).toEqual([{ run: "awf review r1 #1", session: "awf", paneId: "w1:p2" }]);
+    expect(herdr.calls).toContain("herdr --session awf pane close w1:p1");
+    expect(herdr.calls).toContain("herdr --session default pane close w7:p3");
+    expect(herdr.calls).not.toContain("herdr --session default pane close w7:p4");
+    // Its workspace holds the kept pane, so it stays.
+    expect(result.closed).toEqual([]);
+    expect(herdr.workspaces).toHaveLength(1);
+    expect((await readAll(d.home))[0].panes).toEqual({
+      awf: [{ paneId: "w1:p2", terminalId: "t2", workspaceId: "w1", kept: true }],
+    });
+  });
+
+  test("once its kept panes are gone, an ended run's mark goes, and its workspace with it", async () => {
+    const herdr = fakeHerdr({
+      running: true,
+      workspaces: [{ workspace_id: "w1", label: "awf review r1 #1" }],
+      panes: { awf: [] },
+    });
+    const d = { ...(await deps(herdr)), probe, exists };
+    const file = join(marksDir(d.home, "awf"), "kept.json");
+    await mkdir(dirname(file), { recursive: true });
+    await writeFile(
+      file,
+      JSON.stringify({
+        version: 2,
+        label: "awf review r1 #1",
+        pid: process.pid,
+        processStart: STARTED,
+        workspaceId: "w1",
+        ended: true,
+        panes: { awf: [{ paneId: "w1:p2", terminalId: "t2", workspaceId: "w1", kept: true }] },
+      }),
+    );
+    const result = await ensureRunSession("awf", d);
+    expect(result.kept).toBeUndefined();
+    expect(result.closed).toEqual(["awf review r1 #1"]);
+    expect(await readAll(d.home)).toEqual([]);
+  });
+});

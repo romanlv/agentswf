@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { mkdir, rmdir, stat } from "node:fs/promises";
+import { mkdir, rename, rmdir, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { HERDR_VERSION, type RunProcess } from "@agentswf/harness";
 import { messageOf } from "./errors";
@@ -9,7 +9,8 @@ import { machinePaths } from "./machine";
 /** Where a layout may open a session awf does not otherwise use: one named `awf-…` it starts. */
 const OWN_SESSION = /^awf(-|$)/;
 const LOCK_POLL_MS = 100;
-const LOCK_WAIT_MS = 10_000;
+/** Held inside a session's queue: a short wait, then made anyway. */
+const LOCK_WAIT_MS = 5_000;
 /** A lock older than this was left by a run that died holding it. */
 const LOCK_STALE_MS = 30_000;
 
@@ -160,7 +161,17 @@ export function workspaceLock(home: string) {
         () => undefined,
       );
       if (made !== undefined && Date.now() - made > LOCK_STALE_MS) {
-        await rmdir(lock).catch(() => undefined);
+        // Moved aside first: of two waiters that saw it stale, only one moves it, and neither
+        // removes a lock the other has just taken.
+        const aside = `${lock}.${process.pid}.${Date.now()}`;
+        if (
+          await rename(lock, aside).then(
+            () => true,
+            () => false,
+          )
+        ) {
+          await rmdir(aside).catch(() => undefined);
+        }
         continue;
       }
       // Taking it anyway makes at worst a second workspace of the name, which is still usable.

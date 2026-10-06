@@ -77,7 +77,7 @@ Out of scope: what that design lists under "Not in this design"; placing a sandb
 - [x] 1. The author surface: `layout` and `keepPane` refused, compared and passed as the design says
 - [x] 2. Panes placed at open in the run session: tabs, `beside`, fallbacks, in-place relaunch
 - [x] 3. `keepPane`: a done agent's pane kept with its harness released
-- [ ] 4. Named sessions, named workspaces and `"origin"`
+- [x] 4. Named sessions, named workspaces and `"origin"`
 - [ ] 5. Marks version 2: every pane a run made, swept in any session
 - [ ] 6. Records and output: `output.json` `panes`, fallbacks and kept panes in the closing block
 
@@ -122,7 +122,7 @@ Done when: engine and host tests cover never, on-failure and always, and the rel
 Work: the operator runtime resolves a named session (an `awf-…` one started), checks version, and
 falls back; a named workspace is found by label or made under a lock; `"origin"` is resolved from
 `--here` or `HERDR_PANE_ID` with the ancestor check, by socket, version and the pane's workspace;
-tabs there are labelled `{run} {tab}`, and the withheld variables emptied.
+tabs there are labelled `{tab} · {run id}`, and the withheld variables emptied.
 
 Done when: tests cover each resolution and fallback, and a live run places a pane in `"origin"`.
 
@@ -197,6 +197,23 @@ Live:
     Escape, which opens codex's history.
   - `keep` says whether it kept, so a report never claims a keep the screen didn't make.
   - Kept by choice: a successful `set` counts as the last operation, answered.
+
+### Task 4
+
+- Architecture and scope, correctness and proof (one reviewer, both lenses):
+  - A real run's label (`awf {workflow} {id} #{n}`) fills 32 characters, so `{run} {tab}` lost
+    the tab. A tab in a shared workspace is now `{tab} · {run id}`, and the design says so.
+  - A close failing in another session was dropped. It now fails the host's close, which can try
+    again; a test covers it.
+  - A `beside` split into another session's screen now checks that screen is still open, and that
+    the target's pane is still in it.
+  - A named workspace made without a pane is closed again.
+  - A stale lock is moved aside before it is removed, so two waiters never both take it; the
+    wait is 5s.
+  - Panes outside the run session were unmarked until task 5, which lands with this.
+  - Deviation, recorded in the design: `"origin"` is resolved once a run, at its first use, not
+    as the run starts; a run that never uses it never asks Herdr.
+  - Unproven by tests, left to the live check: an `awf-…` session started for a layout.
 
 ## Implementation notes
 

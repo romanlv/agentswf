@@ -290,14 +290,14 @@ are several; made when there is none, under a lock per session and name in `~/.a
 runs opening it at once make one.
 
 A named workspace is shared: by later runs, and by whatever the operator puts in it. So awf treats it
-as it treats `"origin"`: it only adds tabs, labelled `{run} {tab}`; never closes the workspace, or a
+as it treats `"origin"`: it only adds tabs, labelled `{tab} · {run id}`; never closes the workspace, or a
 pane it didn't create. It needs no owner: Herdr closes a workspace with its last pane (measured), so
 it goes when the last pane in it does.
 
 ### `"origin"`
 
 `"origin"` is the Herdr workspace `awf run` was typed in: what makes "show this agent here"
-possible. It is resolved **once, when the run starts**. If any step fails, every `"origin"` in the run
+possible. It is resolved **once a run**, at the first agent that names it, from the environment `awf run` started with, so a run that never uses it never asks Herdr. If any step fails, every `"origin"` in the run
 falls back to the run's workspace, said once in the output:
 
 1. **Which pane.** For `awf run --here`, the calling session's pane, as `--here` already finds it
@@ -316,8 +316,9 @@ falls back to the run's workspace, said once in the output:
 
 In `"origin"`, awf only adds: new tabs, and splits beside its own agents' panes. It never closes the
 workspace, never splits or closes a pane it didn't create, and never takes focus. A tab it opens
-there is labelled `{run} {tab}`, where `{run}` is the run's label, as its `awf` workspace is named,
-then cut to 32 characters, so the operator can tell which run made it. Two runs in one workspace each
+there is labelled `{tab} · {run id}`, cut to 32 characters, so the operator can tell which run made
+it. The tab comes first: a run's label, `awf {workflow} {id} #{attempt}`, fills 32 characters on its
+own. Two runs in one workspace each
 get their own tabs, even with the same `tab`.
 
 Not even the calling session's pane is split. ADR 0010 has the engine drive it but never own it;

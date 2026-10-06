@@ -441,7 +441,11 @@ describe("operator runtime", () => {
 
   test("a run's workspace is marked as its own while its host is open", async () => {
     const marks = join(HOME, ".awf", "herdr", "sessions", "awf", "workspaces");
-    const listed = () => readdirSync(marks, { withFileTypes: false }) as string[];
+    // A write in flight leaves its temporary file beside the mark, which no reader reads.
+    const listed = () =>
+      (readdirSync(marks, { withFileTypes: false }) as string[]).filter((file) =>
+        file.endsWith(".json"),
+      );
     const answer = subscriptionRunner([]);
     let markedBeforeCreate: number | undefined;
     const installed = await installOperatorRuntime(60_000, {

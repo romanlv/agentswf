@@ -4,7 +4,15 @@ import { link, mkdir, unlink, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import type { RunProcess } from "@agentswf/harness";
 import { messageOf } from "./errors";
-import { liveness, readMarks, removeMark, type WorkspaceMark } from "./herdr-workspace-marks";
+import {
+  liveness,
+  type MarkedPane,
+  readAllMarks,
+  readMarks,
+  removeMark,
+  rewriteMark,
+  type WorkspaceMark,
+} from "./herdr-workspace-marks";
 import { machinePaths } from "./machine";
 import { SESSION_NAME } from "./pane-layout";
 import type { ProcessProbe } from "./runs";
@@ -75,7 +83,11 @@ export type RunSession = {
   closed: string[];
   /** `awf` workspaces no run's mark names, made by hand or by an older awf, left open. */
   unclaimed: { id: string; label: string }[];
+  /** Panes runs that ended kept, still open, in whatever session they are in. */
+  kept?: KeptPane[];
 };
+
+export type KeptPane = { run: string; session: string; paneId: string };
 
 /** `AWF_HERDR_SESSION`, else `awf`; refused when Herdr could not use it as a session name. */
 export function runSessionName(environment: Readonly<Record<string, string | undefined>>): string {
@@ -97,21 +109,23 @@ export function runSessionName(environment: Readonly<Record<string, string | und
  */
 export async function ensureRunSession(name: string, deps: RunSessionDeps): Promise<RunSession> {
   const { started, workspaces, sessionDir } = await runningSession(name, deps);
+  const panes = await sweepPanes(deps);
+  const kept = panes.kept.length > 0 ? { kept: panes.kept } : {};
   // A list that can't be read is no session found empty: nothing is closed or restarted.
   const swept = workspaces
-    ? await sweepWorkspaces(name, workspaces, deps)
+    ? await sweepWorkspaces(name, workspaces, deps, panes.keptIn)
     : { closed: [], unclaimed: [], open: Number.POSITIVE_INFINITY };
   const { closed, unclaimed } = swept;
   const version = await serverVersion(name, deps);
-  if (!version?.stale) return { name, started, closed, unclaimed };
+  if (!version?.stale) return { name, started, closed, unclaimed, ...kept };
   const stale = { server: version.server, installed: version.installed };
   if (!OWN_SESSION.test(name) || swept.open > 0 || !(await stillUnused(name, deps))) {
-    return { name, started, stale, closed, unclaimed };
+    return { name, started, stale, closed, unclaimed, ...kept };
   }
   const stopped = await deps.run({ argv: ["herdr", "session", "stop", name], timeoutMs: 10_000 });
-  if (stopped.exitCode !== 0) return { name, started, stale, closed, unclaimed };
+  if (stopped.exitCode !== 0) return { name, started, stale, closed, unclaimed, ...kept };
   await startServer(name, sessionDir, deps);
-  return { name, started: true, restartedFrom: version.server, closed, unclaimed };
+  return { name, started: true, restartedFrom: version.server, closed, unclaimed, ...kept };
 }
 
 /** `name`'s server, answering: started if down and awf's; its workspaces, if they could be read. */
@@ -161,9 +175,15 @@ async function sweepWorkspaces(
   name: string,
   workspaces: readonly ListedWorkspace[],
   deps: RunSessionDeps,
+  /** Workspaces, as `{session}/{id}`, that hold a pane a run kept. */
+  keptIn: ReadonlySet<string>,
 ): Promise<{ closed: string[]; unclaimed: { id: string; label: string }[]; open: number }> {
   const marks = await readMarks(deps.home, name);
-  const dead = (mark: WorkspaceMark) => liveness(mark, deps.probe, deps.exists) === "dead";
+  const dead = (mark: WorkspaceMark) =>
+    mark.ended === true || liveness(mark, deps.probe, deps.exists) === "dead";
+  /** A mark that still names a pane outlives the workspace it named. */
+  const holds = (mark: WorkspaceMark) =>
+    Object.values(mark.panes ?? {}).some((panes) => panes.length > 0);
   const closed: string[] = [];
   const unclaimed: { id: string; label: string }[] = [];
   let open = 0;
@@ -175,7 +195,7 @@ async function sweepWorkspaces(
     );
     if (own.length === 0 && !opening && workspace.label.startsWith("awf "))
       unclaimed.push(workspace);
-    if (own.length === 0 || !own.every(dead)) {
+    if (own.length === 0 || !own.every(dead) || keptIn.has(`${name}/${workspace.id}`)) {
       open += 1;
       continue;
     }
@@ -188,14 +208,121 @@ async function sweepWorkspaces(
       continue;
     }
     closed.push(workspace.label);
-    for (const mark of own) await removeMark(mark.file);
+    for (const mark of own) {
+      if (!holds(mark)) await removeMark(mark.file);
+    }
   }
   const listed = new Set(workspaces.map((workspace) => workspace.id));
   for (const mark of marks) {
     const named = mark.workspaceId !== undefined && listed.has(mark.workspaceId);
-    if (!named && dead(mark)) await removeMark(mark.file);
+    if (!named && dead(mark) && !holds(mark)) await removeMark(mark.file);
   }
   return { closed, unclaimed, open };
+}
+
+/**
+ * Closes the panes of every run that ended, in each session its mark names, and leaves those it
+ * kept, listed. A pane is closed only when its id and its terminal's both match, as Herdr's pane
+ * ids repeat after a restart; one not there any more, or in a session gone, leaves its mark. A
+ * session whose panes can't be read leaves them for the next sweep.
+ */
+async function sweepPanes(
+  deps: RunSessionDeps,
+): Promise<{ kept: KeptPane[]; keptIn: Set<string> }> {
+  const kept: KeptPane[] = [];
+  const keptIn = new Set<string>();
+  const marks = (await readAllMarks(deps.home)).filter(
+    (mark) =>
+      mark.panes !== undefined &&
+      (mark.ended === true || liveness(mark, deps.probe, deps.exists) === "dead"),
+  );
+  if (marks.length === 0) return { kept, keptIn };
+  const sessions = await deps.run({
+    argv: ["herdr", "session", "list", "--json"],
+    timeoutMs: 10_000,
+  });
+  // A list that can't be read is no session found gone.
+  if (sessions.exitCode !== 0) return { kept, keptIn };
+  const running = new Set(
+    parseSessions(sessions.stdout)
+      .filter((session) => session.running)
+      .map((session) => session.name),
+  );
+  const listings = new Map<string, Promise<ListedPane[] | undefined>>();
+  const listed = (session: string) => {
+    let listing = listings.get(session);
+    if (!listing) {
+      listing = deps
+        .run({ argv: ["herdr", "--session", session, "pane", "list"], timeoutMs: 10_000 })
+        .then((result) => (result.exitCode === 0 ? parsePanes(result.stdout) : undefined));
+      listings.set(session, listing);
+    }
+    return listing;
+  };
+  for (const mark of marks) {
+    const left: Record<string, MarkedPane[]> = {};
+    for (const [session, panes] of Object.entries(mark.panes ?? {})) {
+      if (!running.has(session)) continue;
+      const open = await listed(session);
+      if (!open) {
+        left[session] = panes;
+        continue;
+      }
+      const still: MarkedPane[] = [];
+      for (const pane of panes) {
+        const live = open.find(
+          (candidate) =>
+            candidate.id === pane.paneId &&
+            pane.terminalId !== undefined &&
+            candidate.terminalId === pane.terminalId,
+        );
+        if (!live) continue;
+        if (pane.kept) {
+          still.push(pane);
+          kept.push({ run: mark.label, session, paneId: pane.paneId });
+          keptIn.add(`${session}/${live.workspaceId ?? pane.workspaceId}`);
+          continue;
+        }
+        const closing = await deps.run({
+          argv: ["herdr", "--session", session, "pane", "close", pane.paneId],
+          timeoutMs: 10_000,
+        });
+        if (closing.exitCode !== 0) still.push(pane);
+      }
+      if (still.length > 0) left[session] = still;
+    }
+    if (JSON.stringify(left) !== JSON.stringify(mark.panes)) {
+      const { file, session: _session, ...rest } = mark;
+      const cleared = { ...rest, panes: left };
+      mark.panes = left;
+      await rewriteMark(file, cleared);
+    }
+  }
+  return { kept, keptIn };
+}
+
+type ListedPane = { id: string; terminalId?: string; workspaceId?: string };
+
+/** `pane list`'s panes, undefined when unreadable. */
+function parsePanes(stdout: string): ListedPane[] | undefined {
+  let panes: unknown;
+  try {
+    panes = JSON.parse(stdout).result?.panes;
+  } catch {
+    return undefined;
+  }
+  if (!Array.isArray(panes)) return undefined;
+  return panes.flatMap((pane) =>
+    typeof pane?.pane_id === "string"
+      ? [
+          {
+            id: pane.pane_id,
+            ...(typeof pane.terminal_id === "string" ? { terminalId: pane.terminal_id } : {}),
+            ...(typeof pane.workspace_id === "string" ? { workspaceId: pane.workspace_id } : {}),
+          },
+        ]
+      : [],
+  );
 }
 
 /**

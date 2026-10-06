@@ -116,6 +116,7 @@ export async function installOperatorRuntime(
                 ...(caller ? { callerPane: caller.pane.paneId } : {}),
               }),
             lockWorkspace: workspaceLock(home),
+            onPanes: (session, panes) => void mark.panes(session, panes),
           };
           const host = await createHerdrRunHostFactory(config, run)
             .openRun(spec)

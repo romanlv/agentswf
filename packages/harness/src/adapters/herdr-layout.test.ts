@@ -417,7 +417,7 @@ describe("sessions and workspaces", () => {
     expect(a.pane?.()).toEqual({
       session: "awf",
       workspace: { name: "review" },
-      tab: "awf review r1 a",
+      tab: "a · r1",
       fallback: "session work can't be used: it is not running",
     });
     expect(fakes.awf!.workspaceLabels()).toEqual(["review"]);
@@ -446,7 +446,7 @@ describe("sessions and workspaces", () => {
     expect(a.pane?.()).toEqual({
       session: "awf",
       workspace: { name: "review" },
-      tab: "awf review r1 lens",
+      tab: "lens · r1",
     });
     expect(locks).toEqual(["awf/review"]);
     expect(calls(awf, "tab create")[0]!.argv).toContain("w1");
@@ -467,7 +467,7 @@ describe("sessions and workspaces", () => {
     const a = await open(host, "a", { workspace: { name: "review" } });
     expect(labelOf(awf, "workspace create")).toEqual(["review"]);
     expect(calls(awf, "tab create")).toHaveLength(0);
-    expect(calls(awf, "tab rename").at(-1)?.argv.at(-1)).toBe("awf review r1 a");
+    expect(calls(awf, "tab rename").at(-1)?.argv.at(-1)).toBe("a · r1");
     expect(a.pane?.()?.workspace).toEqual({ name: "review" });
     await host.close();
     expect(awf.workspaceLabels()).toEqual(["review"]);
@@ -490,7 +490,7 @@ describe("sessions and workspaces", () => {
     expect(lead.pane?.()).toEqual({
       session: "default",
       workspace: "origin",
-      tab: "awf review r1 review",
+      tab: "review · r1",
     });
     expect(side.pane?.()).toEqual({ session: "default", workspace: "origin", beside: "lead" });
     expect(calls(operator, "pane split")).toHaveLength(1);
@@ -544,5 +544,28 @@ describe("sessions and workspaces", () => {
     expect(paneOf(operator, "kept")).toBeDefined();
     expect(paneOf(operator, "idle")).toBeUndefined();
     expect(operator.openWorkspaces()).toEqual(["w1"]);
+  });
+
+  test("a pane in another session that won't close fails the host's close, which can retry", async () => {
+    const { fakes, run } = sessions("awf", "default");
+    const operator = fakes.default!;
+    await operator.run({
+      argv: ["herdr", "--session", "default", "workspace", "create", "--label", "mine"],
+      timeoutMs: 1,
+    });
+    let refuse = true;
+    const refusing: FakeHerdr["run"] = async (input) =>
+      refuse && input.argv[2] === "default" && input.argv.slice(3, 5).join(" ") === "pane close"
+        ? { stdout: "", stderr: "busy", exitCode: 1, timedOut: false }
+        : run(input);
+    const host = await createHerdrRunHostFactory(
+      { ...CONFIG, origin: async () => ({ session: "default", workspaceId: "w1" }) },
+      refusing,
+    ).openRun({ runId: "r1", cwd: "/repo", deadline: deadline() });
+    await open(host, "a", { workspace: "origin" });
+    await expect(host.close()).rejects.toThrow();
+    refuse = false;
+    await host.close();
+    expect(paneOf(operator, "a")).toBeUndefined();
   });
 });

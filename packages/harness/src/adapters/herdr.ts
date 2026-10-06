@@ -660,7 +660,7 @@ export function createHerdrRunHostFactory(
       let origin: Promise<{ screen: PaneScreen; workspaceId: string } | string> | undefined;
       const runLayout = createPaneLayout({
         run: runScreen,
-        runLabel: label,
+        runId: runSpec.runId,
         session: async (name) => {
           if (name === config.session) return runScreen;
           let answer = usable.get(name);
@@ -728,7 +728,7 @@ export function createHerdrRunHostFactory(
               boxed: true,
             });
             if (config.watchSandboxes && via.watch) watch(via.key, via.watch, cwd);
-            return { screen, layout: createPaneLayout({ run: screen, runLabel: label }) };
+            return { screen, layout: createPaneLayout({ run: screen, runId: runSpec.runId }) };
           })();
           boxes.set(via.key, opening);
           const failed = opening;
@@ -1593,10 +1593,13 @@ export function createHerdrRunHostFactory(
               ),
             );
             // Another session's panes are closed one by one; a session gone took them with it.
-            await Promise.all([...screens.values()].map((screen) => screen.closeAll()));
+            const others = await Promise.all(
+              [...screens.values()].map((screen) => screen.closeAll()),
+            );
+            for (const failed of others) if (failed) failures.push(new Error(failed));
             const failed = await runScreen.closeAll();
             if (failed) failures.push(new Error(failed));
-            else {
+            if (failures.length === 0) {
               workspaceClosed = true;
               hostState = "closed";
             }
