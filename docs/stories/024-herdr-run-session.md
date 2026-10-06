@@ -99,7 +99,7 @@ Out of scope:
   agent can drive every pane in its session through `$HERDR_SOCKET_PATH`; today that is the
   operator's own session, so one `awf` session is a narrowing, not a new reach. Sandboxed agents
   have no Herdr socket (srt `allowUnixSockets: []`, no docker mount).
-- Layout of agents inside the session ([[herdr-layout-policy]]).
+- Layout of agents inside the session ([[026-pane-layout]]).
 
 ## Context and evidence
 

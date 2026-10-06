@@ -211,7 +211,7 @@ Follow-ups in [`todo/`](todo/):
   observer, pane continuation, and pane usage.
 - `pane-agent-start-readiness` — durable redacted start diagnostics; folded into
   [`herdr-pane-settlement.md`](todo/herdr-pane-settlement.md).
-- [`herdr-layout-policy.md`](todo/herdr-layout-policy.md) — operator control over tabs and panes.
+- [`026`](026-pane-layout.md) — where each pane agent appears, said by the workflow.
 - [`operator-run-observation.md`](todo/operator-run-observation.md) — operator progress and status.
 - [`live-eval-disclosure.md`](todo/live-eval-disclosure.md) — explicit live-evaluation disclosure.
 - `schema-in-prompt.md` — send the schema, not a rendering of it; done in

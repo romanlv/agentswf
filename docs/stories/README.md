@@ -113,6 +113,10 @@ status is one of `todo`, `draft`, `ready`, `in-progress`, `blocked`, `awaiting-h
   `awaiting-human-review` — pane agents open in a headless session awf starts and owns, `awf`, not
   the operator's, so they set off no notifications there; `awf run` says where they are and which
   is blocked; the session is restarted on a Herdr update and dead runs' workspaces closed.
+- [`026` — A workflow says where each pane agent appears, and which panes stay](026-pane-layout.md) —
+  `awaiting-human-review` — `layout` places a pane in a tab (the run's workspace, a named one, a
+  named session, or where `awf run` was typed) or beside another agent's; `keepPane` keeps it
+  after the agent is done; marks let a later run close what a killed run left in any session.
 
 - [[021-turn-liveness-and-limits|021 — Keep a waiting agent alive within fixed limits]] —
   `done` — Repeated cooperative check-ins share one deadline and result slot; an accepted

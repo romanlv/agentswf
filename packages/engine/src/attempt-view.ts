@@ -77,6 +77,8 @@ export function printEnding(
     ...(end.choose?.length ? { choose: listRecorded(end.choose, context.now) } : {}),
     ...(end.needs ? { needs: end.needs } : {}),
     ...(settled?.panes ? { panes: settled.panes } : {}),
+    // As the run's Herdr workspace is labelled.
+    runWorkspace: `awf ${context.executable.definition.meta.name} ${context.run.id} #${context.n}`,
     paint: context.terminal?.color ? ANSI : PLAIN,
   });
   for (const line of ["", ...lines]) stderr(line);
@@ -114,6 +116,7 @@ function describeEnding(
     /** The stages whose values `--values` gives, and their schemas. */
     needs?: readonly StageNeed[];
     panes?: readonly AgentPaneRecord[];
+    runWorkspace: string;
     paint: Paint;
   },
 ): string[] {
@@ -157,6 +160,7 @@ function rows(
     report?: string;
     needs?: readonly StageNeed[];
     panes?: readonly AgentPaneRecord[];
+    runWorkspace: string;
   },
 ): string[] {
   const row = (key: string, value: string) => `  ${key.padEnd(7)}  ${value}`;
@@ -173,7 +177,7 @@ function rows(
     ...(first === undefined ? [] : [row("needs", first), ...needs.map(under)]),
     ...(command === undefined ? [] : [row("go on", command)]),
     ...choices.map(under),
-    ...paneRows(context.panes ?? []).map(([key, value]) => row(key, value)),
+    ...paneRows(context.panes ?? [], context.runWorkspace).map(([key, value]) => row(key, value)),
     ...(context.report ? [row("report", context.report)] : []),
     row("records", context.records),
   ];
@@ -183,7 +187,11 @@ function rows(
  * Each pane that fell back from its layout, and why, and each kept one, with where to find it:
  * once each, as nothing else says them.
  */
-export function paneRows(panes: readonly AgentPaneRecord[]): [string, string][] {
+export function paneRows(
+  panes: readonly AgentPaneRecord[],
+  /** The run's own workspace's label. */
+  runWorkspace: string,
+): [string, string][] {
   return panes.flatMap(({ agent, placed }): [string, string][] => [
     ...(placed.fallback === undefined
       ? []
@@ -191,22 +199,25 @@ export function paneRows(panes: readonly AgentPaneRecord[]): [string, string][] 
     ...(placed.notKept === undefined
       ? []
       : [["pane", `${agent} closed, not kept: ${placed.notKept}`] as [string, string]]),
-    ...(placed.kept ? [["kept", `${agent} · ${whereKept(placed)}`] as [string, string]] : []),
+    ...(placed.kept
+      ? [["kept", `${agent} · ${whereKept(placed, runWorkspace)}`] as [string, string]]
+      : []),
   ]);
 }
 
-function whereKept({ session, workspace, tab }: AgentPaneRecord["placed"]): string {
-  const where =
-    workspace === "origin"
-      ? "where awf run was typed"
-      : workspace === "run"
-        ? `this run's workspace in herdr session ${session}`
-        : `workspace "${workspace.name}" in herdr session ${session}`;
-  return [
-    tab === undefined ? where : `tab "${tab}", ${where}`,
-    // awf starts its own sessions headless: attached to from a terminal outside Herdr.
-    ...(workspace === "origin" ? [] : [`herdr session attach ${session}`]),
-  ].join(" · ");
+/** Sessions awf starts, headless, and an operator attaches to from a terminal outside Herdr. */
+const OWN_SESSION = /^awf(-|$)/;
+
+function whereKept(
+  { session, workspace, tab, beside }: AgentPaneRecord["placed"],
+  runWorkspace: string,
+): string {
+  const pane = beside === undefined ? `tab "${tab}"` : `beside ${beside}`;
+  if (workspace === "origin") return `${pane}, where awf run was typed`;
+  const label = workspace === "run" ? runWorkspace : workspace.name;
+  return OWN_SESSION.test(session)
+    ? `${pane} in workspace "${label}" · herdr session attach ${session}`
+    : `${pane} in workspace "${label}" of herdr session ${session}`;
 }
 
 function runTotal(n: number, current: RunAccounting, earlier: readonly AttemptRecord[]): string {

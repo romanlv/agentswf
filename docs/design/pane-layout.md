@@ -1,7 +1,7 @@
 ---
 title: Pane layout
 type: design
-story: "[[herdr-layout-policy]]"
+story: "[[026-pane-layout]]"
 ---
 
 # Pane layout
@@ -23,7 +23,7 @@ session, and the tab closes when the agent is done. That is readable but fixed:
 - A pane that failed is gone before anyone could read it.
 
 A first sibling-panes layout stopped being readable at five agents, because each split halved the
-root ([[herdr-layout-policy]]). The answer here is not a smarter automatic layout: the workflow,
+root ([[001-multi-agent-review]]). The answer here is not a smarter automatic layout: the workflow,
 which knows which agents belong together, says so, one pane at a time.
 
 ## The model in one picture
@@ -375,10 +375,11 @@ back. Placing the attached tab is cheap to add later.
 
 ## What the run records
 
-Each agent's usage record gains its layout as written and where it was placed: the session, the
-workspace (`run`, `origin`, or its name), its tab label or the key it went beside, and a fallback's
-reason. The run's closing
-output lists fallbacks and kept panes, once each.
+`output.json` gains `panes`, one entry per pane agent: its layout and `keepPane` as written, and
+where it was placed: the session, the workspace (`run`, `origin`, or its name), its tab label or
+the key it went beside, a fallback's reason, and whether it was kept, or why a pane asked to be kept
+was closed instead. The run's closing lines name each fallback, each pane closed instead of kept,
+and each kept pane with how to reach it, once each.
 
 ## What changes elsewhere
 
@@ -421,4 +422,6 @@ Each waits for a workflow that needs it:
 - **M1.** How long a harness takes to settle after an interrupt, to bound releasing a kept pane.
 - **M2.** That a `pane close` from awf, and a session restart, never reuse a `terminal_id`.
 - **M3.** That `pane process-info` names the pane's shell, so an ancestor check finds the pane
-  `awf run` was typed in, under each harness's shell and a plain one.
+  `awf run` was typed in, under each harness's shell and a plain one. *Measured 2026-10-06 under
+  claude: its `shell_pid` is an ancestor of a command the harness runs; a run started detached,
+  whose parent is then pid 1, is refused, and falls back.* Under codex, still to measure.

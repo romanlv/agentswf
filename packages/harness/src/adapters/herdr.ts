@@ -260,7 +260,7 @@ export function createHerdrCommands(
   };
 
   /**
-   * Types `text` into a fresh tab's login shell once it has settled, every call ending by `by`.
+   * Types `text` into a fresh pane's login shell once it has settled, every call ending by `by`.
    * Undefined once cancelled.
    */
   const typeInto = async (paneId: string, text: string, by: number, signal?: AbortSignal) => {
@@ -277,7 +277,7 @@ export function createHerdrCommands(
     return call(["pane", "run", paneId, text]);
   };
 
-  /** Types `argv`, quoted, into a fresh tab's login shell. */
+  /** Types `argv`, quoted, into a fresh pane's login shell. */
   const typeCommand = (paneId: string, argv: readonly string[], by: number, signal: AbortSignal) =>
     typeInto(paneId, argv.map(shellQuote).join(" "), by, signal);
 
@@ -600,15 +600,15 @@ export function createPaneAdapter(
   });
 }
 
-/** The production host: one run workspace, with a tab for each agent. */
+/** The production host: a pane for each agent, placed as its layout says. */
 export function createHerdrRunHostFactory(
   config: HerdrConfig,
   run: RunProcess = runProcess,
 ): AgentRunHostFactory {
   /**
-   * Every tab launches its own process, so the workspace's environment does not reach it and the
+   * Every pane launches its own process, so the workspace's environment does not reach it and the
    * metered credentials this run promises to withhold would survive in an agent pane. Nothing the
-   * return channel needs is repeated here: a tab inherits its `PATH` from the login shell Herdr
+   * return channel needs is repeated here: a pane inherits its `PATH` from the login shell Herdr
    * starts, and the launcher the agent is told to run is named by absolute path regardless.
    */
   const paneEnvironment = emptyEnvironmentArgs(config.emptyEnvironment);

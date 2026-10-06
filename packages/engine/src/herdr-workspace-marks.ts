@@ -28,6 +28,7 @@ export type WorkspaceMark = {
   ended?: true;
 };
 
+/** As the Herdr host reports a pane it made (`MadePane`); kept apart, as this is the record. */
 export type MarkedPane = { paneId: string; terminalId?: string; workspaceId: string; kept?: true };
 
 export type Liveness = "live" | "dead" | "unknown";

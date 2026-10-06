@@ -450,8 +450,6 @@ export function createPaneScreen(options: {
     takeRoot,
     watchTab,
     closeAll,
-    /** The panes this run made here and has not closed. */
-    made: () => [...made.values()],
   };
 }
 

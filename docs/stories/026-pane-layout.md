@@ -3,7 +3,7 @@ id: "026"
 title: A workflow says where each pane agent appears, and which panes stay
 summary: "`agents.open` and `fork` take `layout` (a new tab, in the run's workspace, a named one, a named session or the operator's own, or beside another agent's pane) and `keepPane`; panes open at open, a relaunch keeps its place, a kept pane outlives its run, and marks find what a dead run left in any session."
 type: story
-status: in-progress
+status: awaiting-human-review
 priority: P2
 epic: observability
 discovered_in: "Herdr layout policy, 2026-10-06"
@@ -79,7 +79,7 @@ Out of scope: what that design lists under "Not in this design"; placing a sandb
 - [x] 3. `keepPane`: a done agent's pane kept with its harness released
 - [x] 4. Named sessions, named workspaces and `"origin"`
 - [x] 5. Marks version 2: every pane a run made, swept in any session
-- [ ] 6. Records and output: `output.json` `panes`, fallbacks and kept panes in the closing block
+- [x] 6. Records and output: `output.json` `panes`, fallbacks and kept panes in the closing block
 
 ## Open questions
 
@@ -143,14 +143,23 @@ Done when: a run test asserts the record and the output lines.
 
 Automated:
 
-- [ ] `bun test`
-- [ ] `bunx tsc --noEmit`
-- [ ] `bun run check`
+- [x] `bun test`: 1630 pass, 0 fail.
+- [x] `bun run check`: Biome, tsc and the boundaries clean.
 
-Live:
+Live, 2026-10-06, Herdr 0.9.1, codex `gpt-6-luna` panes, `examples/pane-layout`, run from a pane
+in the operator's `default` session:
 
-- [ ] A workflow with the design's example layout, run from a Herdr pane: lead in `"origin"`, two
-  reviewers stacked right of it, one kept; then the sweep after killing a run.
+- [x] The lead opened in a new tab, `review · {run id}`, in the operator's workspace. `security`
+  split it right and `style` split `security` below, all in that tab. The reviewers' panes closed
+  when they were done; the lead's was kept with its codex, and the closing block said
+  `kept     lead · tab "review · …", where awf run was typed`. `output.json` `panes` held all three.
+- [x] Started detached (parent pid 1), the same run's `HERDR_PANE_ID` failed the ancestor check:
+  the lead fell back to the run's workspace in `awf`, and the closing block said why.
+- [x] A run killed with SIGKILL mid-way left its three panes in the operator's workspace, named by
+  its mark. The next run's start closed all three and removed the mark; an ended run's mark whose
+  kept pane the operator had closed was removed too.
+- [ ] Not run live: an `awf-…` session a layout names being started; a named workspace; M1, M2,
+  and M3 under codex's shell.
 
 ## Review record
 
@@ -231,6 +240,37 @@ Live:
     left alone.
 
 ## Implementation notes
+
+### Task 6 and the branch, 2026-10-06
+
+- Review (both lenses, with a pass over the whole branch): the record shape follows `skills` and
+  `sandboxes`, needs no version bump, and reaches a failed run's record (a test added). The kept
+  line now names its session once, gives the run workspace's label, says `beside`, and offers
+  `herdr session attach` only for a session awf starts. Fixed: the design's "What the run records"
+  (the placement is in `output.json`'s `panes`, not usage records); stale "tab" comments in
+  `herdr.ts`; an unused screen accessor. `MadePane` (harness) and `MarkedPane` (the mark) stay two
+  types, the second the record.
+
+### Deviations from the design
+
+- The types are `PaneLayout`, `PaneWorkspace` and `KeepPane`; the record is `AgentPaneRecord` with
+  `PanePlacement`, in `output.json`'s `panes`, not in usage records.
+- A tab in a shared workspace is `{tab} · {run id}`: a run's label fills 32 characters alone.
+- `"origin"` is resolved once a run, at its first use.
+- The testing host records `layout`, `keepPane`, the engine's own `layoutFallback`, and
+  `keptPane`; it has no screen, so the host's fallbacks are not simulated.
+- A first start that fails closes its pane, and the next operation places a new one, as a failed
+  tab allocation did before.
+- A kept harness gets 3s to settle after an interrupt (M1 unmeasured), inside the run's 5s close
+  grace.
+
+### Follow-ups
+
+- `awf run` prints the `agents   herdr session awf · workspace …` line when the run session is
+  ready, even when every pane goes elsewhere and that workspace is never made.
+- The sweep closes a dead run's panes outside the run session silently; only its workspaces are
+  said.
+- M1, M2, M3 under codex.
 
 ## Human review
 
