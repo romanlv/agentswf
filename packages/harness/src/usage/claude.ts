@@ -1,4 +1,4 @@
-import { realpath } from "node:fs/promises";
+import { lstat, realpath, rename, writeFile } from "node:fs/promises";
 import { join, relative } from "node:path";
 import { count, parseRow, type Row, record, text } from "../json";
 import { harnessState } from "../state";
@@ -172,16 +172,60 @@ export async function readClaudeCompactSummary(
 }
 
 /**
+ * Drops from fork `fork` of session `parent` the rows the command that wrote it added: claude
+ * records a local command and its output as a turn, which the fork's pane would replay and its
+ * model read; `/cost` prints the plan's usage since 2.1.291. A row copied from the parent keeps
+ * its uuid, so a row the parent lacks is the command's, and a leaf naming one names the row it
+ * followed.
+ */
+export async function dropClaudeForkCommand(
+  parent: string,
+  fork: string,
+  projects = claudeProjectsDirectory(),
+): Promise<void> {
+  if (!safeId(parent) || !safeId(fork)) return;
+  const directory = await projectDirectory(projects, undefined, parent);
+  if (directory === undefined) return;
+  const path = join(directory, `${fork}.jsonl`);
+  if (!(await lstat(path).catch(() => undefined))?.isFile()) return;
+  const kept = new Set((await jsonRows(join(directory, `${parent}.jsonl`))).map((row) => row.uuid));
+  const lines = (await Bun.file(path).text()).split("\n");
+  const rows = lines.map((line) => parseRow(line.trim()));
+  const follows = new Map<unknown, unknown>();
+  for (const row of rows) {
+    if (row && typeof row.uuid === "string" && !kept.has(row.uuid))
+      follows.set(row.uuid, row.parentUuid);
+  }
+  if (follows.size === 0) return;
+  const keptAncestor = (uuid: unknown) => {
+    let at = uuid;
+    while (follows.has(at)) at = follows.get(at);
+    return at;
+  };
+  const written = lines.flatMap((line, at) => {
+    const row = rows[at];
+    if (!row) return [line];
+    if (follows.has(row.uuid)) return [];
+    if (!follows.has(row.leafUuid)) return [line];
+    return [JSON.stringify({ ...row, leafUuid: keptAncestor(row.leafUuid) })];
+  });
+  // A rename replaces the name, so a link put in the transcript's place is never written through.
+  const staged = `${path}.awf-${process.pid}`;
+  await writeFile(staged, written.join("\n"));
+  await rename(staged, path);
+}
+
+/**
  * The directory is named for the session's cwd, but the encoding is the harness's to change, so
  * the derived name is only a fast guess; a miss finds the session by its id, which is unique.
  */
 async function projectDirectory(
   projects: string,
-  cwd: string,
+  cwd: string | undefined,
   id: string,
 ): Promise<string | undefined> {
-  const guess = join(projects, cwd.replace(/[^A-Za-z0-9]/g, "-"));
-  if (await isFile(join(guess, `${id}.jsonl`))) return guess;
+  const guess = cwd === undefined ? undefined : join(projects, cwd.replace(/[^A-Za-z0-9]/g, "-"));
+  if (guess && (await isFile(join(guess, `${id}.jsonl`)))) return guess;
   for (const name of await entries(projects)) {
     if (await isFile(join(projects, name, `${id}.jsonl`))) return join(projects, name);
   }

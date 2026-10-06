@@ -5,6 +5,7 @@ import { readClaudeBilling } from "../usage/billing";
 import {
   claudeProjectsDirectory,
   claudeSessionFiles,
+  dropClaudeForkCommand,
   findClaudeSession,
   readClaudeCompactSummary,
   readClaudeUsage,
@@ -134,7 +135,7 @@ const CLAUDE = {
   }),
   // `/cost` is a local command: the fork is written and its cost printed, and nothing is sent.
   // A turn means the model was asked after all, and the copy holds more than it was given.
-  forkSession: (sessionId, newSessionId, { model, launchArgs = [] }) => ({
+  forkSession: (sessionId, newSessionId, { model, launchArgs = [], home }) => ({
     argv: [
       "claude",
       "-p",
@@ -160,6 +161,7 @@ const CLAUDE = {
       const costTotal = reported(row?.total_cost_usd);
       return { sessionId: forked, ...(costTotal === undefined ? {} : { costTotal }) };
     },
+    finish: (forked) => dropClaudeForkCommand(sessionId, forked, claudeProjectsDirectory(home)),
   }),
   compactPane: {
     prompts: (focus) => [`/compact ${focus}`],

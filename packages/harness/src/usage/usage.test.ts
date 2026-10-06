@@ -16,7 +16,7 @@ import { join } from "node:path";
 import type { TokenUsage } from "@agentswf/contract/records";
 import { createSessionAccounting } from "./accounting";
 import { claudeBilling, codexBilling, piBilling, readCodexBilling } from "./billing";
-import { findClaudeSession, readClaudeUsage as readClaude } from "./claude";
+import { dropClaudeForkCommand, findClaudeSession, readClaudeUsage as readClaude } from "./claude";
 import { findCodexSession, inheritCodexSessionId, readCodexUsage as readCodex } from "./codex";
 import {
   cursorHomeSessions,
@@ -256,6 +256,58 @@ describe("claude sessions", () => {
     const root = projects({ [`${PROJECT}/${SESSION}.jsonl`]: [assistant({ requestId: "r" })] });
     expect(await read(root, ["missing"])).toBeUndefined();
     expect(await read(root, [`../${PROJECT}/${SESSION}`])).toBeUndefined();
+  });
+
+  // As `claude -p --resume … --fork-session` wrote them for `/cost` on 2.1.291.
+  test("a fork keeps its parent's rows and none of the command that wrote it", async () => {
+    const line = (row: Record<string, unknown>) => JSON.stringify(row);
+    const parent = [
+      line({ type: "user", uuid: "u1", parentUuid: null, message: { content: "Read the change" } }),
+      line({ type: "assistant", uuid: "a1", parentUuid: "u1", message: { content: "Read." } }),
+      line({ type: "last-prompt", leafUuid: "a1" }),
+    ];
+    const command = [
+      line({
+        type: "user",
+        uuid: "c1",
+        parentUuid: "a1",
+        isMeta: true,
+        message: { content: "<local-command-caveat>" },
+      }),
+      line({
+        type: "user",
+        uuid: "c2",
+        parentUuid: "c1",
+        message: { content: "<command-name>/usage</command-name>" },
+      }),
+      line({
+        type: "system",
+        subtype: "local_command",
+        uuid: "c3",
+        parentUuid: "c2",
+        content: "<local-command-stdout>14% used</local-command-stdout>",
+      }),
+    ];
+    const root = projects({
+      [`${PROJECT}/${SESSION}.jsonl`]: parent,
+      [`${PROJECT}/fork.jsonl`]: [
+        ...parent.slice(0, 2),
+        ...command,
+        line({ type: "last-prompt", leafUuid: "c3" }),
+        line({ type: "cost-state" }),
+      ],
+    });
+    await dropClaudeForkCommand(SESSION, "fork", root);
+    const fork = readFileSync(join(root, PROJECT, "fork.jsonl"), "utf8");
+    expect(fork).not.toContain("/usage");
+    expect(fork.trim().split("\n")).toEqual([
+      ...parent.slice(0, 2),
+      line({ type: "last-prompt", leafUuid: "a1" }),
+      line({ type: "cost-state" }),
+    ]);
+    // A fork with nothing of its own, or no parent to tell by, is left as it is.
+    await dropClaudeForkCommand("missing", "fork", root);
+    expect(readFileSync(join(root, PROJECT, "fork.jsonl"), "utf8")).toBe(fork);
   });
 });
 
