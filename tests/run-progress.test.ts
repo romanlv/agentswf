@@ -1,6 +1,11 @@
 import { afterAll, describe, expect, test } from "bun:test";
 import type { WorkflowDefinition } from "../packages/contract/src/workflow";
-import { PLAIN, progressEvents, renderProgress } from "../packages/engine/src/progress-view";
+import {
+  describeRunSession,
+  PLAIN,
+  progressEvents,
+  renderProgress,
+} from "../packages/engine/src/progress-view";
 import { createRun, writeStageRecord } from "../packages/engine/src/runs";
 import { createTempRunDirs, future, startNew, submit } from "../packages/engine/src/testing";
 import { startWorkflow, type WorkflowRunSnapshot } from "../packages/engine/src/workflow-runner";
@@ -498,4 +503,125 @@ test("log progress records phase, renewed wait and reason changes without countd
       `[0:10] … waiter · ${phase.replaceAll("-", " ")}`,
     ]);
   }
+});
+
+describe("where pane agents are", () => {
+  const BLOCKED: WorkflowRunSnapshot = {
+    state: "running",
+    stages: [],
+    upcoming: [],
+    groups: [{ label: "Fix", total: 2, started: 2, done: 2, startedAt: 0 }],
+    agents: [
+      agent("fixer", 0, {
+        startedAt: 0,
+        settledAt: 30_000,
+        outcome: "blocked",
+        reason: "approval prompt",
+      }),
+      {
+        ...agent("checker", 0, {
+          startedAt: 0,
+          settledAt: 30_000,
+          outcome: "blocked",
+          reason: "approval prompt",
+        }),
+        execution: { ...SOL, placement: "headless" },
+      },
+      {
+        ...agent("caller", 0, {
+          startedAt: 0,
+          settledAt: 30_000,
+          outcome: "blocked",
+          reason: "approval prompt",
+        }),
+        execution: { harness: "claude", model: "", caller: true },
+      },
+    ],
+  };
+
+  test("a blocked pane agent names the session to attach to; a headless one, or one before any session, does not", () => {
+    const view = { name: "flow", startedAt: 0, now: 40_000, paint: PLAIN };
+    const lines = renderProgress(BLOCKED, { ...view, herdrSession: "awf" });
+    expect(lines.find((line) => line.includes("fixer"))).toEndWith(
+      "blocked: approval prompt · herdr session attach awf",
+    );
+    expect(lines.find((line) => line.includes("checker"))).toEndWith("blocked: approval prompt");
+    // The calling session is in the operator's own Herdr session, not the run's.
+    expect(lines.find((line) => line.includes(" caller "))).toEndWith("blocked: approval prompt");
+    expect(renderProgress(BLOCKED, view).join("\n")).not.toContain("attach");
+    const events = progressEvents(undefined, BLOCKED, {
+      startedAt: 0,
+      now: 40_000,
+      herdrSession: "awf",
+    });
+    expect(events).toContain(
+      "[0:30] ✗ fixer · 30s · blocked: approval prompt · herdr session attach awf",
+    );
+    expect(events).toContain("[0:30] ✗ checker · 30s · blocked: approval prompt");
+    expect(events).toContain("[0:30] ✗ caller · 30s · blocked: approval prompt");
+    // In an open stage, the agent's line is the stage's.
+    const inStage: WorkflowRunSnapshot = {
+      ...BLOCKED,
+      groups: [],
+      stages: [{ stage: "fix", source: "ran", attempt: 1, startedAt: 0 }],
+      agents: BLOCKED.agents.map((a) => ({ ...a, turn: { ...a.turn!, stage: "fix" } })),
+    };
+    const staged = renderProgress(inStage, { ...view, herdrSession: "awf" });
+    expect(staged.find((line) => line.includes("fixer"))).toEndWith(
+      "blocked: approval prompt · herdr session attach awf",
+    );
+  });
+
+  test("a restart says what it replaced, in place of the first start's line", () => {
+    expect(
+      describeRunSession(
+        { name: "awf", started: true, restartedFrom: "0.9.1", closed: [], unclaimed: [] },
+        "awf review r4 #1",
+        false,
+      )[0],
+    ).toBe("restarted herdr session awf, which ran herdr 0.9.1, on the one installed");
+  });
+
+  test("a stale server, the workspaces closed and those left are each said once", () => {
+    expect(
+      describeRunSession(
+        {
+          name: "awf",
+          started: false,
+          stale: { server: "0.9.1", installed: "0.9.3" },
+          closed: ["awf review r1 #1", "awf fix r2 #3"],
+          unclaimed: [{ id: "w3", label: "awf review r3 #1" }],
+        },
+        "awf review r4 #1",
+        false,
+      ).slice(0, 3),
+    ).toEqual([
+      "herdr session awf runs herdr 0.9.1, not the 0.9.3 installed; restart it with herdr session stop awf once no run is using it",
+      'closed in herdr session awf, their runs over: "awf review r1 #1", "awf fix r2 #3"',
+      'left "awf review r3 #1" in herdr session awf, as no run of it is known; close it with herdr --session awf workspace close w3',
+    ]);
+  });
+
+  test("said once: the session, the workspace and how to watch it, and how to stop it only when this run started it", () => {
+    const workspace = "awf review 20261006-1054-2eee #1";
+    expect(
+      describeRunSession(
+        { name: "awf", started: false, closed: [], unclaimed: [] },
+        workspace,
+        false,
+      ),
+    ).toEqual([
+      `agents   herdr session awf · workspace "${workspace}" · HERDR_DISABLE_SOUND=1 herdr session attach awf`,
+    ]);
+    expect(
+      describeRunSession(
+        { name: "awf-review", started: true, closed: [], unclaimed: [] },
+        workspace,
+        true,
+      ),
+    ).toEqual([
+      "started herdr session awf-review, headless; stop it with herdr session stop awf-review",
+      `agents   herdr session awf-review · workspace "${workspace}" · HERDR_DISABLE_SOUND=1 herdr session attach awf-review from a terminal outside Herdr`,
+    ]);
+  });
 });

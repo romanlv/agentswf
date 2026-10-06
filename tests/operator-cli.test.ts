@@ -229,6 +229,59 @@ describe("awf run", () => {
     expect(accounting[1]).toStartWith("  records  ");
   });
 
+  test("says once where its pane agents are, as the first opens", async () => {
+    const adapter = createFakeAdapter({
+      harnesses: ["pi"],
+      script: (context) => ({
+        act: async () => {
+          await submit(context.binding!, { answer: context.prompt.includes("Add 9") ? 400 : 391 });
+        },
+      }),
+    });
+    const errors: string[] = [];
+    const exitCode = await cli(
+      [
+        "run",
+        "--run-root",
+        runDirs.tempRunDir(),
+        "examples/quick-check/workflow.ts",
+        "--",
+        "pi-pane",
+      ],
+      {
+        cwd: ROOT,
+        environment: { HERDR_ENV: "1" },
+        stdout: () => undefined,
+        stderr: (text) => errors.push(text),
+        installRuntime: async (_timeout, options) => {
+          const config = runtime(adapter);
+          return {
+            config: {
+              ...config,
+              host: {
+                ...config.host,
+                async openRun(spec) {
+                  // As the operator runtime does when the first pane agent's session is ready.
+                  options.onRunSession?.({ name: "awf", started: true, closed: [], unclaimed: [] });
+                  return config.host.openRun(spec);
+                },
+              },
+            },
+            cleanup: async () => undefined,
+          };
+        },
+      },
+    );
+    expect(exitCode).toBe(0);
+    const said = errors.filter((line) => /^(agents|started) /.test(line));
+    expect(said).toEqual([
+      "started herdr session awf, headless; stop it with herdr session stop awf",
+      expect.stringMatching(
+        /^agents {3}herdr session awf · workspace "awf quick-check \S+ #1" · HERDR_DISABLE_SOUND=1 herdr session attach awf from a terminal outside Herdr$/,
+      ),
+    ]);
+  });
+
   test("quick-check refuses a runtime it does not know", async () => {
     const errors: string[] = [];
     const exitCode = await cli(["run", "examples/quick-check/workflow.ts", "--", "aider"], {
@@ -1784,12 +1837,25 @@ describe("awf run's stages", () => {
 
 describe("awf run --here", () => {
   const WORKFLOW = "examples/calling-session/workflow.ts";
-  const inHerdr = { HERDR_ENV: "1", HERDR_WORKSPACE_ID: "w1", AWF_HERDR_SESSION: "default" };
+  const inHerdr = { HERDR_ENV: "1", HERDR_WORKSPACE_ID: "w1", HERDR_SOCKET_PATH: "/h/herdr.sock" };
+  /** `herdr session list --json`, where the caller's session is found by its socket. */
+  const sessionList = {
+    stdout: JSON.stringify({
+      sessions: [
+        { name: "default", running: true, socket_path: "/h/herdr.sock" },
+        { name: "awf", running: true, socket_path: "/h/sessions/awf/herdr.sock" },
+      ],
+    }),
+    stderr: "",
+    exitCode: 0,
+    timedOut: false,
+  };
 
-  /** A Herdr whose panes show what `screens` says, recording every call. */
+  /** A Herdr whose panes show what `screens` says, recording every call but the session list. */
   function fakeHerdr(screens: Record<string, { agent?: string; screen: string }> = {}) {
     const calls: string[][] = [];
     const run: RunProcess = async (input) => {
+      if (input.argv[1] === "session") return sessionList;
       const args = input.argv.slice(3);
       calls.push(args);
       const ok = (result: unknown, stdout?: string) => ({
@@ -1841,12 +1907,11 @@ describe("awf run --here", () => {
     const exitCode = await cli(["run", "--here", WORKFLOW], {
       cwd: ROOT,
       environment: { ...inHerdr, CODEX_SESSION_ID: "t-1" },
-      herdr: async () => ({
-        stdout: "",
-        stderr: "Error: PermissionDenied",
-        exitCode: 1,
-        timedOut: false,
-      }),
+      // The session list reads files; the socket is what the sandbox denies.
+      herdr: async (input) =>
+        input.argv[1] === "session"
+          ? sessionList
+          : { stdout: "", stderr: "Error: PermissionDenied", exitCode: 1, timedOut: false },
       stderr: (text) => errors.push(text),
     });
     expect(exitCode).toBe(1);
@@ -1952,6 +2017,40 @@ describe("awf run --here", () => {
         .map((arg) => `'${arg}'`)
         .join(" "),
     ]);
+  });
+
+  test("an AWF_HERDR_SESSION Herdr can't use is refused in the caller's shell, before any tab", async () => {
+    const herdr = fakeHerdr();
+    const errors: string[] = [];
+    const exitCode = await cli(["run", "--here", WORKFLOW], {
+      cwd: ROOT,
+      environment: { ...inHerdr, AWF_HERDR_SESSION: "Mine" },
+      herdr: herdr.run,
+      stderr: (text) => errors.push(text),
+    });
+    expect(exitCode).toBe(2);
+    expect(errors.join("\n")).toContain('AWF_HERDR_SESSION "Mine" is not a Herdr session name');
+    expect(herdr.calls).toEqual([]);
+  });
+
+  test("the run's tab is told AWF_HERDR_SESSION, which its own environment would not have", async () => {
+    const herdr = fakeHerdr();
+    const sessions = new Set<string>();
+    const exitCode = await cli(["run", "--here", WORKFLOW], {
+      cwd: ROOT,
+      environment: { ...inHerdr, AWF_HERDR_SESSION: "awf-review" },
+      herdr: (input) => {
+        if (input.argv[1] === "--session") sessions.add(input.argv[2]!);
+        return herdr.run(input);
+      },
+      self: ["awf"],
+      stdout: () => undefined,
+    });
+    expect(exitCode).toBe(0);
+    const created = herdr.calls.find((call) => call[0] === "tab" && call[1] === "create");
+    expect(created).toContain("AWF_HERDR_SESSION=awf-review");
+    // The tab opens beside the caller, in the caller's session.
+    expect([...sessions]).toEqual(["default"]);
   });
 
   test("a run whose code no pane shows refuses before it starts", async () => {

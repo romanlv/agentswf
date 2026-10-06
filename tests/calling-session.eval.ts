@@ -3,7 +3,7 @@ import { mkdir, mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { OutputRecord } from "../packages/contract/src/records";
-import { herdrSession } from "../packages/engine/src/operator-runtime";
+import { callerSession } from "../packages/engine/src/operator-runtime";
 import { createHerdrCommands, type HerdrConfig } from "../packages/harness/src/adapters/herdr";
 import { runProcess } from "../packages/harness/src/command";
 import { harnessSpec } from "../packages/harness/src/spec";
@@ -86,7 +86,7 @@ if (import.meta.main) {
     if (!(name in SESSIONS)) throw new Error(`unknown caller harness: ${name}`);
   const signal = interruption();
   const workDir = await mkdtemp(join(tmpdir(), "awf-calling-session-"));
-  const session = await herdrSession(runProcess, process.env);
+  const session = await callerSession(runProcess, process.env);
   const config: HerdrConfig = {
     session,
     workspaceLabel: "awf eval",

@@ -73,6 +73,11 @@ export type HerdrConfig = {
    * own Herdr, so its panes show beside the run's.
    */
   watchSandboxes?: boolean;
+  /**
+   * Told the run's workspace id once it exists, before any agent opens in it, so an engine can
+   * tell its workspace from another of the same label.
+   */
+  onRunWorkspace?: (workspaceId: string) => Promise<void>;
 };
 
 const AGENT_START_WAIT_MS = 120_000;
@@ -623,6 +628,7 @@ export function createHerdrRunHostFactory(
       }
       throw new Error(incomplete);
     }
+    if (!boxed) await config.onRunWorkspace?.(workspaceId);
 
     let topologyOpen = true;
     let topologyTail = Promise.resolve();

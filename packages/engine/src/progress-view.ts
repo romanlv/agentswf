@@ -1,6 +1,7 @@
 import { type JsonValue, placementOf, type StageOutcome } from "@agentswf/contract/workflow";
 import { ago, duration } from "./accounting/format";
 import { NO_STAGE } from "./accounting/summary";
+import type { RunSession } from "./herdr-run-session";
 import type { StageProgress } from "./stage-ledger";
 import type { WorkflowRunHandle, WorkflowRunSnapshot } from "./workflow-runner";
 
@@ -39,6 +40,8 @@ export function renderProgress(
     paint: Paint;
     /** Once the run is over: what each stage's agents cost, by stage. */
     figures?: ReadonlyMap<string, string>;
+    /** The Herdr session pane agents opened in, once one has. */
+    herdrSession?: string;
   },
 ): string[] {
   const { now, paint } = view;
@@ -47,11 +50,11 @@ export function renderProgress(
   const lines = [
     `${view.name}${current ? ` · ${current.stage}` : ""} ${paint.dim(`· ${duration(now - view.startedAt)}`)}${working ? paint.dim(` · ${working} working`) : ""}`,
   ];
-  lines.push(...stageLines(snapshot, now, paint, view.figures ?? new Map()));
+  lines.push(...stageLines(snapshot, now, paint, view.figures ?? new Map(), view.herdrSession));
   const width = Math.max(...snapshot.agents.map((agent) => agent.key.length), 0);
   const model = Math.max(...snapshot.agents.map((agent) => agent.execution.model.length), 0);
   const agentLine = (agent: Agent) => {
-    const [mark, note] = agentState(agent, now, paint);
+    const [mark, note] = agentState(agent, now, paint, view.herdrSession);
     const took = agent.turn ? duration((agent.turn.settledAt ?? now) - agent.turn.startedAt) : "";
     return `    ${mark} ${agent.key.padEnd(width)}  ${paint.dim(agent.execution.model.padEnd(model))}  ${took.padStart(6)}${note ? `  ${note}` : ""}`;
   };
@@ -99,7 +102,7 @@ export function renderProgress(
 export function progressEvents(
   before: WorkflowRunSnapshot | undefined,
   after: WorkflowRunSnapshot,
-  view: { startedAt: number; now: number },
+  view: { startedAt: number; now: number; herdrSession?: string },
 ): string[] {
   // Each stamped and ordered by when it happened; at the same instant, what ends goes before what
   // starts, and the inner before the outer as each ends, the outer before the inner as each starts.
@@ -155,7 +158,7 @@ export function progressEvents(
         settledAt === turn.startedAt ? "zero-length end" : "agent end",
         turn.outcome === "answered"
           ? `✓ ${agent.key} · ${took}`
-          : `✗ ${agent.key} · ${took} · ${turn.outcome}${turn.reason ? `: ${oneLine(turn.reason)}` : ""}`,
+          : `✗ ${agent.key} · ${took} · ${turn.outcome}${turn.reason ? `: ${oneLine(turn.reason)}` : ""}${whereBlocked(agent, view.herdrSession)}`,
       );
     }
   }
@@ -215,6 +218,7 @@ function stageLines(
   now: number,
   paint: Paint,
   figures: ReadonlyMap<string, string>,
+  herdrSession: string | undefined,
 ): string[] {
   // Once the run is closing, what it never reached isn't coming.
   const upcoming =
@@ -271,7 +275,7 @@ function stageLines(
       lines.push(`${mark} ${name.padEnd(width)}${GAP}${paint.dim(cells[0])}`);
       const agents = snapshot.agents.filter((agent) => agent.turn?.stage === stage.stage);
       const keys = Math.max(...agents.map((agent) => agent.key.length), 0);
-      lines.push(...agents.map((agent) => stageAgentLine(agent, keys, now, paint)));
+      lines.push(...agents.map((agent) => stageAgentLine(agent, keys, now, paint, herdrSession)));
       continue;
     }
     lines.push(`${mark} ${line}`);
@@ -309,19 +313,30 @@ function summaryOf(stage: StageProgress): string[] {
 }
 
 /** An agent in the current stage: its placement, its turn's label and time; done, it waits. */
-function stageAgentLine(agent: Agent, keys: number, now: number, paint: Paint): string {
+function stageAgentLine(
+  agent: Agent,
+  keys: number,
+  now: number,
+  paint: Paint,
+  herdrSession: string | undefined,
+): string {
   const turn = agent.turn!;
   const [mark, note] =
     turn.outcome === "answered"
       ? [paint.dim("·"), paint.dim("waiting")]
-      : agentState(agent, now, paint);
+      : agentState(agent, now, paint, herdrSession);
   const took = duration((turn.settledAt ?? now) - turn.startedAt);
   const label = turn.label ?? (turn.kind === "turn" ? undefined : turn.kind);
   const labelled = label ? `  ${label}` : "";
   return `    ${mark} ${agent.key.padEnd(keys)}  ${paint.dim(`${agent.execution.model} · ${placementOf(agent.execution)}`)}${labelled}  ${took}${note ? `  ${note}` : ""}`;
 }
 
-function agentState(agent: Agent, now: number, paint: Paint): [string, string] {
+function agentState(
+  agent: Agent,
+  now: number,
+  paint: Paint,
+  herdrSession?: string,
+): [string, string] {
   const turn = agent.turn;
   if (!turn) {
     return agent.state === "missing" || agent.state === "quarantined"
@@ -341,7 +356,57 @@ function agentState(agent: Agent, now: number, paint: Paint): [string, string] {
   if (turn.outcome === "answered") return [paint.ok("✓"), ""];
   return [
     paint.bad("✗"),
-    paint.bad(`${turn.outcome}${turn.reason ? `: ${oneLine(turn.reason)}` : ""}`),
+    paint.bad(
+      `${turn.outcome}${turn.reason ? `: ${oneLine(turn.reason)}` : ""}${whereBlocked(agent, herdrSession)}`,
+    ),
+  ];
+}
+
+/**
+ * Where to see a pane agent Herdr read as blocked on a prompt: its session plays no sound, so this
+ * is the one sign. Not the calling session's, which is the operator's own pane.
+ */
+function whereBlocked(agent: Agent, herdrSession: string | undefined): string {
+  return agent.turn?.outcome === "blocked" &&
+    herdrSession !== undefined &&
+    placementOf(agent.execution) === "pane" &&
+    !agent.execution.caller
+    ? ` · herdr session attach ${herdrSession}`
+    : "";
+}
+
+/**
+ * Where a run's pane agents are, said once as the first opens; the workspace closes with the run.
+ * A client inside Herdr can't attach to another session, so from there it says where to.
+ */
+export function describeRunSession(
+  session: RunSession,
+  workspace: string,
+  insideHerdr: boolean,
+): string[] {
+  const { name, stale, closed, unclaimed, restartedFrom } = session;
+  const attach = `HERDR_DISABLE_SOUND=1 herdr session attach ${name}`;
+  return [
+    ...(restartedFrom !== undefined
+      ? [`restarted herdr session ${name}, which ran herdr ${restartedFrom}, on the one installed`]
+      : session.started
+        ? [`started herdr session ${name}, headless; stop it with herdr session stop ${name}`]
+        : []),
+    ...(stale
+      ? [
+          `herdr session ${name} runs herdr ${stale.server}, not the ${stale.installed} installed; restart it with herdr session stop ${name} once no run is using it`,
+        ]
+      : []),
+    ...(closed.length > 0
+      ? [
+          `closed in herdr session ${name}, their runs over: ${closed.map((label) => `"${label}"`).join(", ")}`,
+        ]
+      : []),
+    ...unclaimed.map(
+      ({ id, label }) =>
+        `left "${label}" in herdr session ${name}, as no run of it is known; close it with herdr --session ${name} workspace close ${id}`,
+    ),
+    `agents   herdr session ${session.name} · workspace "${workspace}" · ${attach}${insideHerdr ? " from a terminal outside Herdr" : ""}`,
   ];
 }
 
@@ -388,6 +453,10 @@ export function watchProgress(
   const { stderr, terminal, now } = output;
   let handle: WorkflowRunHandle<JsonValue> | undefined;
   let last: WorkflowRunSnapshot | undefined;
+  let herdrSession: string | undefined;
+  // A pane agent's session can be ready after the run has ended, as a cancel lands while it starts:
+  // nothing is said under the closing block.
+  let stopped = false;
   let drawn = 0;
   const clear = () => {
     if (terminal && drawn > 0) terminal.write(`\x1b[${drawn}F\x1b[0J`);
@@ -403,6 +472,8 @@ export function watchProgress(
         now: now(),
         paint: terminal.color ? ANSI : PLAIN,
         ...(figures ? { figures } : {}),
+        // The run's workspace closes with it: once over, there is nothing to attach to.
+        ...(herdrSession && !final ? { herdrSession } : {}),
       });
       // The header's name and clock are the command's and the accounting's once the run is over.
       if (final) lines.shift();
@@ -410,7 +481,8 @@ export function watchProgress(
       if (lines.length > 0) terminal.write(`${lines.join("\n")}\n`);
       drawn = lines.length;
     } else {
-      for (const line of progressEvents(last, snapshot, { startedAt, now: now() })) stderr(line);
+      const view = { startedAt, now: now(), ...(herdrSession ? { herdrSession } : {}) };
+      for (const line of progressEvents(last, snapshot, view)) stderr(line);
     }
     last = snapshot;
   };
@@ -423,12 +495,19 @@ export function watchProgress(
       tick();
     },
     log(text: string) {
+      if (stopped) return;
       clear();
       stderr(text);
       if (terminal) tick();
     },
+    /** The Herdr session pane agents opened in, which a blocked one's line names. */
+    placedIn(session: string) {
+      if (!stopped) herdrSession = session;
+    },
     /** `figures`, what each stage's agents cost, once the run's usage is read. */
     stop(figures?: ReadonlyMap<string, string>) {
+      if (stopped) return;
+      stopped = true;
       clearInterval(timer);
       tick(true, figures);
       terminal?.write("\x1b[?7h\x1b[?25h");
