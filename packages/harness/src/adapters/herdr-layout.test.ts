@@ -205,4 +205,169 @@ describe("pane layout in the run's Herdr", () => {
     expect(calls(herdr, "pane split").at(-1)?.argv[5]).toBe(after);
     await host.close();
   });
+
+  test("a pane placed and never run is closed with its agent, the workspace left open", async () => {
+    const herdr = createFakeHerdr({ startupBlocks: [] });
+    const host = await openRun(herdr);
+    const idle = await open(host, "idle");
+    const [paneId] = paneOf(herdr, "idle")!;
+    await idle.close();
+    expect(calls(herdr, "pane close").map((call) => call.argv[5])).toEqual([paneId]);
+    expect(herdr.openWorkspaces()).toHaveLength(1);
+    await host.close();
+  });
+
+  test("a first start that fails closes its pane; the next operation places another and runs", async () => {
+    const herdr = createFakeHerdr({ startupBlocks: [] });
+    let starts = 0;
+    const failingOnce: typeof herdr.run = async (input) =>
+      input.argv.slice(3, 5).join(" ") === "agent start" && ++starts === 1
+        ? { stdout: "", stderr: '{"error":{"code":"boom"}}', exitCode: 1, timedOut: false }
+        : herdr.run(input);
+    const host = await createHerdrRunHostFactory(CONFIG, failingOnce).openRun({
+      runId: "r1",
+      cwd: "/repo",
+      deadline: deadline(),
+    });
+    await open(host, "lead");
+    const side = await open(host, "side", { beside: "lead", side: "right" });
+    const [first] = paneOf(herdr, "side")!;
+    const turn = (id: string) =>
+      side
+        .start(
+          { id, prompt: "work", deadline: deadline() },
+          { endpoint: "/e.sock", operationId: id },
+        )
+        .then((started) => started.settled);
+    await expect(turn("one")).resolves.toMatchObject({ state: "failed" });
+    expect(herdr.panes.has(first)).toBe(false);
+    await expect(turn("two")).resolves.toMatchObject({ state: "completed" });
+    expect(calls(herdr, "pane split")).toHaveLength(2);
+    expect(side.pane?.()?.beside).toBe("lead");
+    await host.close();
+  });
+
+  test("a relaunch whose split fails closes the old pane, and the agent is not driven again", async () => {
+    const herdr = createFakeHerdr({ startupBlocks: [] });
+    let refuse = false;
+    const refusing: typeof herdr.run = async (input) =>
+      refuse && input.argv.slice(3, 5).join(" ") === "pane split"
+        ? { stdout: "", stderr: "no room", exitCode: 1, timedOut: false }
+        : herdr.run(input);
+    const host = await createHerdrRunHostFactory(CONFIG, refusing).openRun({
+      runId: "r1",
+      cwd: "/repo",
+      deadline: deadline(),
+    });
+    const worker = await open(host, "worker");
+    const turn = (id: string) =>
+      worker
+        .start(
+          { id, prompt: "work", deadline: deadline() },
+          { endpoint: "/e.sock", operationId: id },
+        )
+        .then((started) => started.settled);
+    await turn("one");
+    const [old] = paneOf(herdr, "worker")!;
+    refuse = true;
+    await expect(worker.set?.({ model: "sonnet" }, deadline())).rejects.toThrow("no room");
+    expect(herdr.panes.has(old)).toBe(false);
+    await expect(turn("two")).resolves.toMatchObject({
+      state: "failed",
+      detail: expect.stringContaining("pane was closed"),
+    });
+    await host.close();
+  });
+});
+
+describe("keeping a pane", () => {
+  const turn = (session: Awaited<ReturnType<typeof open>>, id: string) =>
+    session
+      .start({ id, prompt: "work", deadline: deadline() }, { endpoint: "/e.sock", operationId: id })
+      .then((started) => started.settled);
+
+  test("a kept pane outlives its run; the rest of the run's panes close around it", async () => {
+    const herdr = createFakeHerdr({ startupBlocks: [] });
+    const host = await openRun(herdr);
+    const lead = await open(host, "lead");
+    const other = await open(host, "other");
+    await turn(lead, "one");
+    await turn(other, "two");
+    await lead.close("done", { keep: true });
+    await other.close("done");
+    expect(lead.pane?.()).toMatchObject({ kept: true });
+    await host.close();
+    expect(herdr.openWorkspaces()).toHaveLength(1);
+    expect(herdr.openPanes()).toEqual([paneOf(herdr, "lead")![0]]);
+    expect(calls(herdr, "workspace close")).toHaveLength(0);
+  });
+
+  test("a pane whose harness never started is closed, not kept, and says why", async () => {
+    const herdr = createFakeHerdr({ startupBlocks: [] });
+    const host = await openRun(herdr);
+    const idle = await open(host, "idle");
+    await idle.close("done", { keep: true });
+    expect(idle.pane?.()).toMatchObject({ notKept: "its harness never started" });
+    expect(paneOf(herdr, "idle")).toBeUndefined();
+    await host.close();
+    expect(herdr.openWorkspaces()).toEqual([]);
+  });
+
+  test("a working harness is interrupted before it is kept, and closed if it won't settle", async () => {
+    const herdr = createFakeHerdr({ startupBlocks: [] });
+    let busy = false;
+    const working: typeof herdr.run = async (input) => {
+      const verb = input.argv.slice(3, 5).join(" ");
+      if (busy && verb === "agent wait") {
+        return { stdout: "", stderr: "wait timed out", exitCode: 1, timedOut: true };
+      }
+      if (busy && verb === "agent get") {
+        return {
+          stdout: JSON.stringify({ result: { agent: { agent_status: "working" } } }),
+          stderr: "",
+          exitCode: 0,
+          timedOut: false,
+        };
+      }
+      return herdr.run(input);
+    };
+    const host = await createHerdrRunHostFactory(CONFIG, working).openRun({
+      runId: "r1",
+      cwd: "/repo",
+      deadline: deadline(),
+    });
+    const lead = await open(host, "lead");
+    await turn(lead, "one");
+    busy = true;
+    await lead.close("done", { keep: true });
+    expect(calls(herdr, "agent send-keys").map((call) => call.argv.at(-1))).toEqual(["esc"]);
+    expect(lead.pane?.()?.notKept).toContain("did not settle after an interrupt");
+    expect(paneOf(herdr, "lead")).toBeUndefined();
+    await host.close();
+  });
+
+  test("a cancel leaves a pane that may be kept for close, and the agent runs no more", async () => {
+    const herdr = createFakeHerdr({ startupBlocks: [] });
+    const host = await openRun(herdr);
+    const lead = await host.openAgent({
+      key: "lead",
+      cwd: "/repo",
+      deadline: deadline(),
+      execution: { harness: "claude", model: "opus" },
+      keepPane: "on-failure",
+    });
+    const started = await lead.start(
+      { id: "one", prompt: "work", deadline: deadline() },
+      { endpoint: "/e.sock", operationId: "one" },
+    );
+    await started.release("stop", deadline());
+    expect(paneOf(herdr, "lead")).toBeDefined();
+    await expect(turn(lead, "two")).resolves.toMatchObject({
+      state: "failed",
+      detail: expect.stringContaining("was cancelled"),
+    });
+    await lead.close("done", { keep: true });
+    expect(lead.pane?.()?.kept).toBe(true);
+    await host.close();
+  });
 });

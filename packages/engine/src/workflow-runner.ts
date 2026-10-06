@@ -104,7 +104,7 @@ import {
   type SupervisedOutcome,
   superviseOperation,
 } from "./operation-liveness";
-import { besideOf, checkPaneOptions, storedLayout } from "./pane-layout";
+import { besideOf, checkPaneOptions, keepsPane, storedLayout } from "./pane-layout";
 import { createResultSlotRegistry, type ResultSlotRegistry } from "./result-slots";
 import { type AgentProgress, type GroupProgress, RunProgress } from "./run-progress";
 import {
@@ -767,19 +767,26 @@ class WorkflowOwner {
   async close(deadline: AbsoluteDeadline): Promise<unknown[]> {
     this.#closing ??= (async (): Promise<unknown[]> => {
       this.#closed = true;
+      // Each agent is closed by itself first, which knows whether its pane stays; then the host,
+      // which closes whatever is left.
       const stopping = [...this.#agents.values()].map((agent) =>
         agent.state.then(
           (state) =>
-            state.stopOperations({
-              kind:
-                Date.now() >= this.options.deadline.unixMilliseconds ? "timed-out" : "cancelled",
-              reason: "workflow closing",
-            }),
+            state
+              .stopOperations({
+                kind:
+                  Date.now() >= this.options.deadline.unixMilliseconds ? "timed-out" : "cancelled",
+                reason: "workflow closing",
+              })
+              .then(() => state.close("workflow complete")),
           () => undefined,
         ),
       );
       const cleanup = Promise.all([
-        Promise.allSettled([this.options.host.close("workflow complete"), ...stopping]),
+        Promise.allSettled(stopping).then(async (stopped) => [
+          ...stopped,
+          ...(await Promise.allSettled([this.options.host.close("workflow complete")])),
+        ]),
         // A call nobody awaited any more is cancelled and recorded, not left to its deadline.
         this.options.decisions.close().then(() => Promise.allSettled([...this.#inFlight])),
       ]).then(async ([settled]) => {
@@ -1291,6 +1298,13 @@ class WorkflowOwner {
       },
       livenessPolicy: this.options.livenessPolicy,
       fork: (spec, take, settings) => this.forkAgent(key, spec, take, settings),
+      keepPane: () => this.#agents.get(key)?.identity.keepPane,
+      // Its socket is its authority: a kept agent's harness lives on, and must not answer.
+      revoke: () =>
+        this.#agents
+          .get(key)
+          ?.channel.then((channel) => channel?.close())
+          .catch(() => undefined),
       ...(seated
         ? {
             // A turn may have refreshed the agent's credential; the operator's copy follows it.
@@ -1544,6 +1558,8 @@ class LogicalAgent implements AgentRef {
   /** What each `set` queued and not yet settled changes, in queue order. */
   readonly #pendingSets: SettingsChange[] = [];
   #tail: Promise<void> = Promise.resolve();
+  /** How its last operation ended, which `keepPane: "on-failure"` reads. */
+  #last: TurnOutcome<never>["kind"] | undefined;
   #closed = false;
   #closePromise: Promise<void> | undefined;
 
@@ -1578,6 +1594,10 @@ class LogicalAgent implements AgentRef {
         take: ((into?: SessionCopy) => Promise<NativeFork>) | string,
         settings: AgentExecution,
       ): Promise<AgentRef>;
+      /** As the workflow wrote it; decides, at close, whether its pane stays. */
+      keepPane(): KeepPane | undefined;
+      /** Closes its result channel, once its pane is kept. */
+      revoke(): Promise<void> | undefined;
     },
   ) {
     this.#execution = options.execution;
@@ -1758,7 +1778,9 @@ class LogicalAgent implements AgentRef {
           throw new Error("logical agent is closed");
         }
         scope?.assertActive();
-        return await this.executeSet(change, deadline, scope);
+        const outcome = await this.executeSet(change, deadline, scope);
+        this.#last = outcome.kind;
+        return outcome;
       } finally {
         this.#pendingSets.splice(this.#pendingSets.indexOf(change), 1);
       }
@@ -1771,6 +1793,7 @@ class LogicalAgent implements AgentRef {
 
   /** A turn or compaction that settled, as the view shows it and `turns.jsonl` keeps it. */
   private turnEnded(outcome: TurnOutcome<JsonValue>, kind: TurnRecord["kind"]): void {
+    this.#last = outcome.kind;
     const reason = "reason" in outcome ? outcome.reason : undefined;
     this.options.progress.turnSettled(this.key, outcome.kind, reason);
     this.options.recordTurn(outcome, kind);
@@ -1903,6 +1926,7 @@ class LogicalAgent implements AgentRef {
     const removeCanceller = pane
       ? scope?.add(async (stop) => {
           cancelled = stop.reason;
+          this.#last = "cancelled";
           await this.close(stop.reason);
         })
       : undefined;
@@ -1914,7 +1938,12 @@ class LogicalAgent implements AgentRef {
     } catch (error) {
       const expired = error instanceof DeadlineExceededError;
       const reason = cancelled ?? (expired ? "settings deadline exceeded" : messageOf(error));
-      if (pane) this.closeAfterFailure(reason);
+      if (pane) {
+        this.closeAfterFailure(
+          reason,
+          cancelled !== undefined ? "cancelled" : expired ? "timed-out" : "failed",
+        );
+      }
       if (cancelled !== undefined) return { kind: "cancelled", reason, usage: usage() };
       return expired
         ? { kind: "timed-out", reason, usage: usage() }
@@ -1930,18 +1959,27 @@ class LogicalAgent implements AgentRef {
    * An operation that failed, was cancelled or timed out ends a session the run owns. The calling
    * session is the operator's and goes on: its next turn waits for it to settle (ADR 0010).
    */
-  private closeAfterFailure(reason: string): void {
+  private closeAfterFailure(reason: string, ended: TurnOutcome<never>["kind"] = "failed"): void {
     if (this.options.execution.caller) return;
+    // Before its outcome is recorded: whether its pane stays turns on how this one ended.
+    this.#last = ended;
     void this.close(reason).catch(() => undefined);
   }
 
   close(reason?: string): Promise<void> {
     this.#closed = true;
+    // An operation still going is cancelled by this close.
+    const keep = keepsPane(
+      this.options.keepPane(),
+      this.#operationStops.size > 0 ? "cancelled" : this.#last,
+    );
     const stopped = this.stopOperations({ kind: "cancelled", reason: reason ?? "agent closed" });
     if (!this.#closePromise) {
       let attempt: Promise<void>;
       try {
-        attempt = Promise.resolve(this.options.session.close(reason));
+        attempt = Promise.resolve(
+          this.options.session.close(reason, keep ? { keep: true } : undefined),
+        ).then(() => (keep ? this.options.revoke() : undefined));
       } catch (error) {
         attempt = Promise.reject(error);
       }
@@ -2085,7 +2123,7 @@ class LogicalAgent implements AgentRef {
       })
       .finally(() => events.close());
     if (outcome.kind === "timed-out" || outcome.kind === "failed")
-      this.closeAfterFailure(outcome.reason);
+      this.closeAfterFailure(outcome.reason, outcome.kind);
     const usage = entry.settle(
       {
         ...(outcome.deliveredAt === undefined ? {} : { deliveredAt: outcome.deliveredAt }),

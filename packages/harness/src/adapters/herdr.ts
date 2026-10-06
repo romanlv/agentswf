@@ -5,6 +5,7 @@ import type {
   AgentRunHostFactory,
   AgentSessionAdapter,
   NativeFork,
+  PanePlacement,
   SessionCopy,
   SessionSettings,
 } from "../adapter";
@@ -87,6 +88,8 @@ export type HerdrConfig = {
 };
 
 const AGENT_START_WAIT_MS = 120_000;
+/** How long an interrupted harness may take to settle before its pane is closed, not kept (M1). */
+const KEEP_SETTLE_MS = 10_000;
 /** How often a pane parent's session is read, while its last turn is still being written. */
 const FORK_SETTLE_POLL_MS = 500;
 
@@ -766,6 +769,41 @@ export function createHerdrRunHostFactory(
             | undefined;
           let closed = false;
           let hasExecuted = false;
+          /**
+           * Why it is done though its pane is open: a cancel left a pane that may be kept for
+           * `close` to decide on. It is not driven again (ADR 0008).
+           */
+          let done: string | undefined;
+          const mayKeep = request.keepPane === "always" || request.keepPane === "on-failure";
+          /** Whether its pane was kept when it was done, or why not. */
+          let fate: Pick<PanePlacement, "kept" | "notKept"> = {};
+
+          /** Interrupts its harness if it is working, as an answered turn left too long is. */
+          const interrupt = async (agentName: string): Promise<boolean> => {
+            const got = await herdr(["agent", "get", agentName]);
+            if (!got.ok) return false;
+            if (reportedAgent(got.result).agent_status === "working") {
+              await herdr(["agent", "send-keys", agentName, "esc"]);
+            }
+            return true;
+          };
+
+          /**
+           * Readies its harness to be left in a kept pane: interrupted if working, and settled, so a
+           * kept agent goes on editing nothing. Why not, where it is gone or would not settle.
+           */
+          const release = async (agentName: string): Promise<string | undefined> => {
+            if (!(await interrupt(agentName))) return "its harness is gone";
+            const busy = await settleAgent(
+              herdr,
+              agentName,
+              Date.now() + KEEP_SETTLE_MS,
+              AbortSignal.timeout(KEEP_SETTLE_MS + HERDR_REPORT_GRACE_MS),
+            );
+            return busy && busy.state !== "blocked"
+              ? `its harness did not settle after an interrupt: ${busy.detail ?? busy.state}`
+              : undefined;
+          };
           /** When its harness was launched: a session it names to nobody started since. */
           let launchedAt = Date.now();
           /** The workflow's instructions go with the first prompt the pane's agent is sent. */
@@ -962,6 +1000,8 @@ export function createHerdrRunHostFactory(
                   ? undefined
                   : await loginShown(herdr, harness, paneId, config, signal);
               await closeCurrentPane().catch(() => undefined);
+              // A pane that would not close holds no agent to drive.
+              current = undefined;
               if (signal.aborted || started.cancelled) {
                 return localOutcome("cancelled", "pane operation cancelled");
               }
@@ -1007,6 +1047,7 @@ export function createHerdrRunHostFactory(
             sessionRef?: string,
           ): Promise<void> => {
             if (closed) throw new Error("Herdr run session is closed");
+            if (done) throw new Error(done);
             if (!current) {
               if (hasExecuted) {
                 throw new Error("this agent's pane was closed, so its session cannot be switched");
@@ -1045,7 +1086,13 @@ export function createHerdrRunHostFactory(
               current = undefined;
               pane = undefined;
               // In the old pane's place, which closes with the harness in it.
-              pane = await screen.replace(old, paneRequest(deadline, controller.signal));
+              try {
+                pane = await screen.replace(old, paneRequest(deadline, controller.signal));
+              } catch (error) {
+                // One whose old pane would not close keeps it, for close to try again.
+                pane = screen.paneOf(request.key);
+                throw error;
+              }
               settings = launchSettings(next);
               const failed = await launchPane(sessionRef, operationId, deadline, controller.signal);
               if (failed) throw new Error(failed.detail ?? "its harness did not start again");
@@ -1074,6 +1121,7 @@ export function createHerdrRunHostFactory(
             into?: SessionCopy,
           ): Promise<NativeFork> => {
             if (closed) throw new Error("Herdr run session is closed");
+            if (done) throw new Error(done);
             if (!current) {
               throw new Error("this agent's pane was closed, so its session cannot be forked");
             }
@@ -1169,7 +1217,10 @@ export function createHerdrRunHostFactory(
                 }
               : {}),
             identity: { sessionId: continued ?? randomUUID(), cwd: request.cwd },
-            pane: () => pane?.report ?? placement,
+            // A box's pane is placed by its sandbox, not by a layout.
+            ...(terminal && terminal.herdr !== "run"
+              ? {}
+              : { pane: () => ({ ...(pane?.report ?? placement), ...fate }) }),
             ...(spec.forkSession ? { fork: forkPane } : {}),
             ...(spec.setPane && spec.interactiveResume ? { set: relaunchAt } : {}),
             // The pane's agent is the session: an answered turn is left to end in it, and the next
@@ -1192,6 +1243,7 @@ export function createHerdrRunHostFactory(
             },
             async execute(operation) {
               if (closed) throw new Error("Herdr run session is closed");
+              if (done) return localOutcome("failed", done);
               const controller = new AbortController();
               activeController = controller;
               let finish!: () => void;
@@ -1404,14 +1456,32 @@ export function createHerdrRunHostFactory(
               if (!activeController && !current) return false;
               activeController?.abort();
               await activeCompletion;
+              // One that may be kept is left for `close`, which knows whether it is.
+              if (mayKeep && current && pane) {
+                await interrupt(current.agentName);
+                done = "this agent's operation was cancelled, so its session cannot be continued";
+                return true;
+              }
               await closeCurrentPane();
               return true;
             },
-            async close() {
+            async close(_reason, options) {
               if (closed) return;
               for (const observer of receiptObservers) observer.abort();
               activeController?.abort();
               await activeCompletion;
+              if (options?.keep) {
+                const kept = pane;
+                const why =
+                  current && kept ? await release(current.agentName) : "its harness never started";
+                if (!why && kept && pane === kept) {
+                  await screen.keep(kept);
+                  fate = { kept: true };
+                  closed = true;
+                  return;
+                }
+                fate = { notKept: why ?? "its pane closed" };
+              }
               await closeCurrentPane();
               closed = true;
             },

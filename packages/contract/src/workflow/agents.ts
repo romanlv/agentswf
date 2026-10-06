@@ -136,11 +136,8 @@ export type PaneLayout =
   | {
       /** The terminal session; absent, the run's. One awf does not start is used only if running. */
       session?: string;
-      /**
-       * Where the new tab opens in it: the run's own workspace, the one `awf run` was typed in, or
-       * the one with this label, found or made. Absent, `"run"`.
-       */
-      workspace?: "run" | "origin" | { name: string };
+      /** Where the new tab opens in it; absent, `"run"`. */
+      workspace?: PaneWorkspace;
       /** The new tab's label; absent, the agent's key. Every `tab` is a new tab. */
       tab?: string;
       beside?: never;
@@ -158,6 +155,12 @@ export type PaneLayout =
       workspace?: never;
       tab?: never;
     };
+
+/**
+ * The run's own workspace, the one `awf run` was typed in, or the one with this label, found or
+ * made.
+ */
+export type PaneWorkspace = "run" | "origin" | { name: string };
 
 /**
  * Whether a pane stays once its agent is done; `on-failure`, when its last operation was not

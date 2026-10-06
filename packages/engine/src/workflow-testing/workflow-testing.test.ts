@@ -1429,4 +1429,37 @@ describe("testWorkflow layouts", () => {
       "boxed runs in a sandbox, whose panes are in its own Herdr",
     );
   });
+
+  test("a pane is kept as keepPane says, by how the agent's last operation ended", async () => {
+    const keeping = workflowOf<null, null>(async (workflow) => {
+      const agents = await Promise.all(
+        (
+          [
+            ["kept-failed", "on-failure"],
+            ["closed-answered", "on-failure"],
+            ["kept-always", "always"],
+            ["closed-never", "never"],
+            ["closed-default", undefined],
+          ] as const
+        ).map(([key, keepPane]) =>
+          workflow.agents.open({ key, runtime: "claude", ...(keepPane ? { keepPane } : {}) }),
+        ),
+      );
+      for (const agent of agents) await agent.run({ prompt: "Plan.", schema: PLAN, nudge: false });
+      return null;
+    });
+    const run = await testWorkflow(keeping, null, {
+      agents: {
+        "kept-failed": [reply.failed()],
+        "closed-answered": [answer(PLAN, { steps: [] })],
+        "kept-always": [answer(PLAN, { steps: [] })],
+        "closed-never": [reply.failed()],
+        "closed-default": [reply.failed()],
+      },
+    });
+    expect(run.agents.filter((agent) => agent.keptPane).map((agent) => agent.key)).toEqual([
+      "kept-failed",
+      "kept-always",
+    ]);
+  });
 });

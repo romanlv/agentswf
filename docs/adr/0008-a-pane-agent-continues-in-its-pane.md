@@ -22,8 +22,11 @@ before returning workflow success and permit bounded cooperative check-ins.
 - **Cooperative waits stay inside one operation.** On measured placements, `wf waiting` permits
   another check-in under the fixed deadline. Native queue acceptance and model receipt are
   separate signals. Unsupported combinations retain their explicit limitations.
-- **A pane that was closed is not reopened.** Cancelling an operation or failing to start the
-  agent closes the pane, and a later operation on that agent fails: the session went with it.
+- **A pane agent that is done is not driven again.** Cancelling an operation once its harness
+  runs, or a relaunch that does not start, ends it, and a later operation on that agent fails. Its pane is closed, or, where the
+  workflow's `keepPane` says, left open with its harness released from the run
+  ([pane layout](../design/pane-layout.md), 2026-10-06); either way the session is no longer the
+  run's.
 - **Each operation still has fresh result authority**: its own call id, slot and schema.
 
 ## Why

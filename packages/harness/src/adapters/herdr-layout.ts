@@ -102,7 +102,7 @@ export function createPaneScreen(options: {
         options.cwd,
         "--no-focus",
       ],
-      Math.max(1, options.remaining()),
+      Math.max(1, Math.min(options.commandTimeoutMs, options.remaining())),
     );
     if (!created.ok) throw new Error(`run workspace create failed: ${created.error}`);
     const id = readId(created.result.workspace, "workspace_id");
@@ -221,8 +221,8 @@ export function createPaneScreen(options: {
   };
 
   /** Labels a pane with its agent's key, so a tab of several says who is who. Best effort. */
-  const name = (paneId: string, key: string) =>
-    herdr(["pane", "rename", paneId, labelled(key)]).then(
+  const name = (paneId: string, key: string, deadlineUnixMs: number) =>
+    herdr(["pane", "rename", paneId, labelled(key)], timeout(deadlineUnixMs)).then(
       () => undefined,
       () => undefined,
     );
@@ -230,6 +230,9 @@ export function createPaneScreen(options: {
   const place = (request: PaneRequest): Promise<PlacedPane> =>
     mutate(async () => {
       if (!open) throw new Error("Herdr run topology is closing");
+      if (request.deadlineUnixMs <= Date.now()) {
+        throw new Error("deadline exceeded before the pane was placed");
+      }
       const { key, layout } = request;
       const besideKey = layout && "beside" in layout ? layout.beside : undefined;
       let fallback = request.fallback;
@@ -281,7 +284,7 @@ export function createPaneScreen(options: {
       const pane: PlacedPane = { key, ...placed, report: report! };
       panes.set(key, pane);
       closed.delete(key);
-      await name(pane.paneId, key);
+      await name(pane.paneId, key, request.deadlineUnixMs);
       return pane;
     });
 
@@ -325,19 +328,22 @@ export function createPaneScreen(options: {
         timeout(request.deadlineUnixMs),
         request.signal,
       );
-      const closing = await herdr(["pane", "close", pane.paneId]);
-      panes.delete(pane.key);
       const paneId = made.ok ? readPaneId(made.result) : null;
-      if (!made.ok || !paneId) {
+      const closing = await herdr(["pane", "close", pane.paneId]);
+      const gone = closing.ok || hasHerdrErrorCode(closing.error, "pane_not_found");
+      // An old pane that would not close stays this agent's, for its close to try again.
+      if (gone) {
+        panes.delete(pane.key);
         closed.set(pane.key, pane);
+      }
+      if (!paneId) {
         throw new Error(`its pane could not be replaced: ${made.ok ? "no pane" : made.error}`);
       }
-      if (!closing.ok && !hasHerdrErrorCode(closing.error, "pane_not_found")) {
+      if (!gone) {
         await herdr(["pane", "close", paneId]);
-        closed.set(pane.key, pane);
         throw new Error(`its old pane would not close: ${closing.error}`);
       }
-      const terminalId = readId(record(made.result.pane), "terminal_id");
+      const terminalId = made.ok ? readId(record(made.result.pane), "terminal_id") : undefined;
       const next: PlacedPane = {
         key: pane.key,
         paneId,
@@ -347,7 +353,7 @@ export function createPaneScreen(options: {
         ...(terminalId ? { terminalId } : {}),
       };
       panes.set(pane.key, next);
-      await name(paneId, pane.key);
+      await name(paneId, pane.key, request.deadlineUnixMs);
       return next;
     });
 
@@ -361,34 +367,69 @@ export function createPaneScreen(options: {
     const made = await runWorkspace();
     if (rootTaken || !open) return undefined;
     rootTaken = true;
-    if (made.rootTabId) await herdr(["tab", "rename", made.rootTabId, label]);
+    watching.push(made.rootPaneId);
+    if (made.rootTabId) await herdr(["tab", "rename", made.rootTabId, labelled(label)]);
     return made.rootPaneId;
   };
+
+  /** Sandboxes' watch panes, closed with the run whatever it keeps. */
+  const watching: string[] = [];
+  /** Agents' panes left open when they were done, by key. */
+  const kept = new Map<string, PlacedPane>();
+
+  /** Leaves `pane` open when its agent is done; the run's end closes the rest around it. */
+  const keep = (pane: PlacedPane): Promise<void> =>
+    mutate(async () => {
+      if (panes.get(pane.key) === pane) kept.set(pane.key, pane);
+    });
 
   /** A tab of its own in the run's workspace, for a sandbox's watch. */
   const watchTab = (label: string, cwd: string, deadlineUnixMs: number, signal: AbortSignal) =>
     mutate(async () => {
       if (!open) throw new Error("Herdr run topology is closing");
       const run = await runWorkspace();
-      return (await newTab(run.id, label, { key: label, cwd, deadlineUnixMs, signal })).paneId;
+      const { paneId } = await newTab(run.id, label, { key: label, cwd, deadlineUnixMs, signal });
+      watching.push(paneId);
+      return paneId;
     });
 
   let shut = false;
-  /** Stops new panes and closes the run's workspace; the error when it could not. */
-  const closeAll = async (): Promise<string | undefined> => {
-    if (shut) return undefined;
-    open = false;
-    const made = await opening?.catch(() => undefined);
-    if (!made) {
+  /**
+   * Stops new panes and closes what the run made and did not keep: the run's workspace whole, or,
+   * where it holds a kept pane, every other pane awf made in it. The error when it could not.
+   */
+  const closeAll = (): Promise<string | undefined> =>
+    mutate(async () => {
+      if (shut) return undefined;
+      open = false;
+      const made = await opening?.catch(() => undefined);
+      if (!made) {
+        shut = true;
+        return undefined;
+      }
+      if (![...kept.values()].some((pane) => pane.workspaceId === made.id)) {
+        const closing = await herdr(["workspace", "close", made.id]);
+        if (!closing.ok) return `run workspace close failed: ${closing.error}`;
+        panes.clear();
+        shut = true;
+        return undefined;
+      }
+      const leftover = [
+        ...[...panes.values()].filter((pane) => !kept.has(pane.key)).map((pane) => pane.paneId),
+        ...watching,
+        ...(rootTaken ? [] : [made.rootPaneId]),
+      ];
+      const failed: string[] = [];
+      for (const paneId of leftover) {
+        const closing = await herdr(["pane", "close", paneId]);
+        if (!closing.ok && !hasHerdrErrorCode(closing.error, "pane_not_found")) {
+          failed.push(`${paneId}: ${closing.error}`);
+        }
+      }
+      if (failed.length > 0) return `run panes close failed: ${failed.join("; ")}`;
       shut = true;
       return undefined;
-    }
-    const closing = await herdr(["workspace", "close", made.id]);
-    if (!closing.ok) return `run workspace close failed: ${closing.error}`;
-    panes.clear();
-    shut = true;
-    return undefined;
-  };
+    });
 
   return {
     commands: options.commands,
@@ -398,6 +439,11 @@ export function createPaneScreen(options: {
     takeRoot,
     watchTab,
     closeAll,
+    keep,
+    /** The agent's pane now, if it has one open. */
+    paneOf: (key: string) => panes.get(key),
+    /** The panes left open for the operator, once their agents were done. */
+    kept: () => [...kept.values()],
     /** The run's workspace, once made. */
     workspace: () => workspace,
   };

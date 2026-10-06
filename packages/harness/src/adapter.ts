@@ -1,3 +1,4 @@
+import type { PanePlacement } from "@agentswf/contract/records";
 import type {
   AbsoluteDeadline,
   AgentExecution,
@@ -166,7 +167,11 @@ export interface HarnessSession {
    * own first turn and where its harness cannot.
    */
   fork?(deadline: AbsoluteDeadline, into?: SessionCopy): Promise<NativeFork>;
-  close(reason?: string): Promise<void>;
+  /**
+   * Ends the agent. With `keep`, a host whose agent has a pane of its own leaves it open, its
+   * harness released from the run; one that can't, or whose harness won't settle, closes it.
+   */
+  close(reason?: string, options?: CloseOptions): Promise<void>;
   /** Every native session id the adapter has seen for this agent, in the order first seen. */
   sessions?(): readonly string[];
   /**
@@ -178,18 +183,9 @@ export interface HarnessSession {
   pane?(): PanePlacement | undefined;
 }
 
-/** Where a pane agent's pane was placed, and why not where its layout said, for the record. */
-export type PanePlacement = {
-  /** The terminal session it is in. */
-  session: string;
-  workspace: "run" | "origin" | { name: string };
-  /** The new tab's label; absent for a pane beside another. */
-  tab?: string;
-  /** The agent whose pane it split. */
-  beside?: string;
-  /** Why its layout was not used, where it wasn't. */
-  fallback?: string;
-};
+export type { PanePlacement };
+
+export type CloseOptions = { keep?: boolean };
 
 /** The settings a session runs at, whole: an absent effort is the harness's default. */
 export type SessionSettings = { model: string; effort?: Effort };

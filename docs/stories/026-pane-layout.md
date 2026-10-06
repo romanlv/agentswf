@@ -75,7 +75,7 @@ Out of scope: what that design lists under "Not in this design"; placing a sandb
 ## Tasks at a glance
 
 - [x] 1. The author surface: `layout` and `keepPane` refused, compared and passed as the design says
-- [ ] 2. Panes placed at open in the run session: tabs, `beside`, fallbacks, in-place relaunch
+- [x] 2. Panes placed at open in the run session: tabs, `beside`, fallbacks, in-place relaunch
 - [ ] 3. `keepPane`: a done agent's pane kept with its harness released
 - [ ] 4. Named sessions, named workspaces and `"origin"`
 - [ ] 5. Marks version 2: every pane a run made, swept in any session
@@ -167,6 +167,22 @@ Live:
   fork's `beside` target is taken when `fork` is called, as an open's is. That made a wait cycle
   impossible, so the cycle check went. Added tests for a headless fork and a sandboxed agent
   refused, a fork re-attached with another layout, and `beside` the caller or a sandboxed agent.
+
+### Task 2
+
+- Architecture and scope: no blocker. `PanePlacement` moved to the contract (`records.ts`), where
+  task 6 records it, with its workspace type `PaneWorkspace` shared with `PaneLayout`; it gained
+  `kept`/`notKept` in task 3. A box's panes report no placement. A root tab's label is cut at 32.
+  The run's end is queued and keep-aware (task 3). Left to their tasks: screens per session and a
+  key registry across them (task 4); an inventory of every pane made, watch and root included
+  (task 5).
+- Correctness and proof: a relaunch whose split or old-pane close failed could leave a harness in
+  a pane nothing tracked. Now an old pane that won't close stays the agent's, for its close to
+  retry, and a start that fails clears `current` even if its pane won't close. A placement checks
+  its deadline once it leaves the queue. `workspace create` and `pane rename` are bounded by the
+  command timeout. Added tests: a pane never run closes with its agent; a failed first start
+  places a new pane, beside its target, and runs; a relaunch whose split fails closes the old
+  pane, and the agent runs no more.
 
 ## Implementation notes
 

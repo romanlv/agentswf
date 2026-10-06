@@ -4,6 +4,7 @@ import type {
   AgentKey,
   HarnessKind,
   OperationRecord,
+  PaneWorkspace,
   SkillSource,
   TurnOutcome,
 } from "./workflow/agents";
@@ -214,6 +215,23 @@ export type SandboxRecord = {
   provided?: JsonObject;
   /** Every agent admitted, including one whose turns never completed. */
   agents: { callPath: string[]; agent: string; home: string }[];
+};
+
+/** Where a pane agent's pane was placed, and why not where its layout said, for the record. */
+export type PanePlacement = {
+  /** The terminal session it is in. */
+  session: string;
+  workspace: PaneWorkspace;
+  /** The new tab's label; absent for a pane beside another. */
+  tab?: string;
+  /** The agent whose pane it split. */
+  beside?: string;
+  /** Why its layout was not used, where it wasn't. */
+  fallback?: string;
+  /** Left open when the agent was done, its harness running. */
+  kept?: true;
+  /** Why a pane asked to be kept was closed instead. */
+  notKept?: string;
 };
 
 /** One skill an agent was given, as it was copied to it. */
