@@ -80,6 +80,7 @@ export type FakeHerdr = {
   agents: Map<string, FakeAgent>;
   openPanes(): string[];
   openWorkspaces(): string[];
+  workspaceLabels(): string[];
 };
 
 /** `\u001b[1m…\u001b[0m` is the bold both TUIs put on the option the cursor is sitting on. */
@@ -153,7 +154,8 @@ export function createFakeHerdr(options: FakeHerdrOptions = {}): FakeHerdr {
     const pane = panes.get(paneId)!;
     return { pane_id: paneId, tab_id: pane.tab, terminal_id: pane.terminalId };
   };
-  const workspaces = new Set<string>();
+  /** Open workspaces, by id, to their labels. */
+  const workspaces = new Map<string, string>();
   const answeredAt = new Map<string, number>();
   let workspaceCount = 0;
   let paneCount = 0;
@@ -177,7 +179,7 @@ export function createFakeHerdr(options: FakeHerdrOptions = {}): FakeHerdr {
       case "workspace create": {
         workspaceCount += 1;
         const workspaceId = `w${workspaceCount}`;
-        workspaces.add(workspaceId);
+        workspaces.set(workspaceId, readOption(argv, "--label") ?? String(workspaceCount));
         paneCount += 1;
         tabCount += 1;
         const paneId = `${workspaceId}:p${paneCount}`;
@@ -201,6 +203,11 @@ export function createFakeHerdr(options: FakeHerdrOptions = {}): FakeHerdr {
         // Only this command's own `--env`: the tab is a separately launched process.
         panes.set(paneId, newPane(readEnv(argv), tabId));
         return ok({ tab: { tab_id: tabId }, root_pane: paneInfo(paneId) });
+      }
+      case "workspace list": {
+        return ok({
+          workspaces: [...workspaces].map(([id, label]) => ({ workspace_id: id, label })),
+        });
       }
       case "tab rename": {
         return [...panes.values()].some((pane) => pane.tab === target)
@@ -402,7 +409,8 @@ export function createFakeHerdr(options: FakeHerdrOptions = {}): FakeHerdr {
     calls,
     agents,
     openPanes: () => [...panes.keys()],
-    openWorkspaces: () => [...workspaces],
+    openWorkspaces: () => [...workspaces.keys()],
+    workspaceLabels: () => [...workspaces.values()],
   };
 }
 

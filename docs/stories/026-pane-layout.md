@@ -76,7 +76,7 @@ Out of scope: what that design lists under "Not in this design"; placing a sandb
 
 - [x] 1. The author surface: `layout` and `keepPane` refused, compared and passed as the design says
 - [x] 2. Panes placed at open in the run session: tabs, `beside`, fallbacks, in-place relaunch
-- [ ] 3. `keepPane`: a done agent's pane kept with its harness released
+- [x] 3. `keepPane`: a done agent's pane kept with its harness released
 - [ ] 4. Named sessions, named workspaces and `"origin"`
 - [ ] 5. Marks version 2: every pane a run made, swept in any session
 - [ ] 6. Records and output: `output.json` `panes`, fallbacks and kept panes in the closing block
@@ -183,6 +183,20 @@ Live:
   command timeout. Added tests: a pane never run closes with its agent; a failed first start
   places a new pane, beside its target, and runs; a relaunch whose split fails closes the old
   pane, and the agent runs no more.
+
+### Task 3
+
+- Architecture and scope, correctness and proof (one reviewer, both lenses):
+  - An `on-failure` agent whose operation the run's end cancelled was not kept: its outcome was
+    recorded after its close read it. `stopOperations` now records the stop's kind first; a test
+    covers it, and fails without the fix.
+  - The host's close could be skipped when an agent's keep release outlasted the 5s cleanup grace.
+    The release now waits at most 3s, and the grace path starts the host's close.
+  - A cancel left an agent that may be kept merely interrupted until the run's end. It is now
+    released at the cancel, and closed if it won't settle; a released one is not sent a second
+    Escape, which opens codex's history.
+  - `keep` says whether it kept, so a report never claims a keep the screen didn't make.
+  - Kept by choice: a successful `set` counts as the last operation, answered.
 
 ## Implementation notes
 

@@ -36,7 +36,10 @@ import { createSessionAccounting } from "../usage/accounting";
 import { prepareClaudeReceipt } from "./claude-receipt";
 import { copySession, FORK_ACTIVATION_MS, forkCommand, forkDeadline, forkResult } from "./fork";
 import {
+  createPaneLayout,
   createPaneScreen,
+  type MadePane,
+  type PaneLayoutHost,
   type PaneRequest,
   type PaneScreen,
   type PlacedPane,
@@ -85,11 +88,25 @@ export type HerdrConfig = {
    * tell its workspace from another of the same label.
    */
   onRunWorkspace?: (workspaceId: string) => Promise<void>;
+  /**
+   * Whether a session a layout names can be used: undefined when it can, else why not. Absent,
+   * none but the run's can.
+   */
+  sessionFor?: (session: string) => Promise<string | undefined>;
+  /** The workspace `awf run` was typed in, and its session; why not, where it can't be used. */
+  origin?: () => Promise<{ session: string; workspaceId: string } | string | undefined>;
+  /** Held while a named workspace is looked for and made, so two runs make one. */
+  lockWorkspace?: (session: string, name: string) => Promise<() => Promise<void>>;
+  /** Told every pane the run has made in a session and not closed, kept ones marked. */
+  onPanes?: (session: string, panes: readonly MadePane[]) => void;
 };
 
 const AGENT_START_WAIT_MS = 120_000;
-/** How long an interrupted harness may take to settle before its pane is closed, not kept (M1). */
-const KEEP_SETTLE_MS = 10_000;
+/**
+ * How long an interrupted harness may take to settle before its pane is closed, not kept (M1): well
+ * inside the engine's grace for closing a run.
+ */
+const KEEP_SETTLE_MS = 3_000;
 /** How often a pane parent's session is read, while its last turn is still being written. */
 const FORK_SETTLE_POLL_MS = 500;
 
@@ -607,19 +624,68 @@ export function createHerdrRunHostFactory(
       const label = runSpec.label ?? runSpec.runId;
       // Its workspace is made at the first tab it needs, so a run whose panes are all in boxes,
       // unwatched, leaves no empty workspace in the run's Herdr.
-      const runScreen = createPaneScreen({
-        commands: runCommands,
-        session: config.session,
-        label,
-        cwd: runSpec.cwd,
-        environment: paneEnvironment,
-        commandTimeoutMs: config.commandTimeoutMs,
-        remaining,
-        ...(config.onRunWorkspace ? { onRunWorkspace: config.onRunWorkspace } : {}),
+      const screenIn = (session: string, commands: HerdrCommands) =>
+        createPaneScreen({
+          commands,
+          session,
+          label,
+          cwd: runSpec.cwd,
+          environment: paneEnvironment,
+          commandTimeoutMs: config.commandTimeoutMs,
+          remaining,
+          ...(config.onRunWorkspace && session === config.session
+            ? { onRunWorkspace: config.onRunWorkspace }
+            : {}),
+          ...(config.onPanes
+            ? { onPanes: (panes: readonly MadePane[]) => config.onPanes!(session, panes) }
+            : {}),
+          ...(config.lockWorkspace
+            ? { lockWorkspace: (name: string) => config.lockWorkspace!(session, name) }
+            : {}),
+        });
+      const runScreen = screenIn(config.session, runCommands);
+      /** The other sessions this run's panes open in, by name: named ones, and `"origin"`'s. */
+      const screens = new Map<string, PaneScreen>();
+      const sessionScreen = (session: string) => {
+        if (session === config.session) return runScreen;
+        let screen = screens.get(session);
+        if (!screen) {
+          screen = screenIn(session, createHerdrCommands({ ...config, session }, run));
+          screens.set(session, screen);
+        }
+        return screen;
+      };
+      /** Each named session's answer, asked once a run. */
+      const usable = new Map<string, Promise<string | undefined>>();
+      let origin: Promise<{ screen: PaneScreen; workspaceId: string } | string> | undefined;
+      const runLayout = createPaneLayout({
+        run: runScreen,
+        runLabel: label,
+        session: async (name) => {
+          if (name === config.session) return runScreen;
+          let answer = usable.get(name);
+          if (!answer) {
+            answer = config.sessionFor
+              ? config.sessionFor(name).catch((error: unknown) => asError(error).message)
+              : Promise.resolve(`session ${name} is not one this host can use`);
+            usable.set(name, answer);
+          }
+          const why = await answer;
+          return why === undefined ? sessionScreen(name) : `session ${name} can't be used: ${why}`;
+        },
+        origin: () => {
+          origin ??= (async () => {
+            const found = await config.origin?.().catch((error: unknown) => asError(error).message);
+            if (found === undefined) return "this run was not started in a Herdr pane";
+            if (typeof found === "string") return `"origin" can't be used: ${found}`;
+            return { screen: sessionScreen(found.session), workspaceId: found.workspaceId };
+          })();
+          return origin;
+        },
       });
       // A sandbox's own Herdr, by its key: opened at its first pane agent, closed with the run.
       // A box's Herdr holds no host credential, so its panes need no variables emptied.
-      const boxes = new Map<string, Promise<PaneScreen>>();
+      const boxes = new Map<string, Promise<{ screen: PaneScreen; layout: PaneLayoutHost }>>();
       /** Tabs attached to a box's Herdr, finished before the run's workspace closes. */
       const watching = new Set<Promise<unknown>>();
       // Aborted as the host closes: a watch not yet typed has nothing left to show.
@@ -638,8 +704,8 @@ export function createHerdrRunHostFactory(
         watching.add(attached);
         attached.finally(() => watching.delete(attached));
       };
-      const screenFor = (terminal: PaneTerminal | undefined, cwd: string): Promise<PaneScreen> => {
-        if (!terminal || terminal.herdr === "run") return Promise.resolve(runScreen);
+      const layoutFor = (terminal: PaneTerminal | undefined, cwd: string) => {
+        if (!terminal || terminal.herdr === "run") return Promise.resolve(runLayout);
         const via = terminal.herdr;
         let opening = boxes.get(via.key);
         if (!opening) {
@@ -662,7 +728,7 @@ export function createHerdrRunHostFactory(
               boxed: true,
             });
             if (config.watchSandboxes && via.watch) watch(via.key, via.watch, cwd);
-            return screen;
+            return { screen, layout: createPaneLayout({ run: screen, runLabel: label }) };
           })();
           boxes.set(via.key, opening);
           const failed = opening;
@@ -670,7 +736,7 @@ export function createHerdrRunHostFactory(
             if (boxes.get(via.key) === failed) boxes.delete(via.key);
           });
         }
-        return opening;
+        return opening.then((box) => box.layout);
       };
 
       const adapter = createSessionAdapter({
@@ -738,8 +804,7 @@ export function createHerdrRunHostFactory(
           // A prelude loads its secrets once and removes them: a start after a failed one needs
           // a terminal of its own.
           let typed = false;
-          const screen = await screenFor(terminal, request.cwd);
-          const { herdr, startAgent, adoptAgent } = screen.commands;
+          const placing = await layoutFor(terminal, request.cwd);
           const skills = request.skills ? await skillsLaunch(harness, request.skills) : undefined;
           const paneRequest = (
             deadline: { unixMilliseconds: number },
@@ -757,7 +822,12 @@ export function createHerdrRunHostFactory(
            * Its pane, placed now so the workflow's order is the screen's, and any agent open is
            * there to split; absent once closed.
            */
-          let pane: PlacedPane | undefined = await screen.place(paneRequest(request.deadline));
+          let pane: PlacedPane | undefined = await placing.place(paneRequest(request.deadline));
+          // The session its pane is in, which a pane placed again may change.
+          let commands = pane.screen.commands;
+          const herdr: HerdrCommand = (...args) => commands.herdr(...args);
+          const startAgent: HerdrCommands["startAgent"] = (...args) => commands.startAgent(...args);
+          const adoptAgent: HerdrCommands["adoptAgent"] = (...args) => commands.adoptAgent(...args);
           /** Where it was placed: kept once its pane closes, for the record. */
           let placement = pane.report;
           let current:
@@ -792,7 +862,10 @@ export function createHerdrRunHostFactory(
            * Readies its harness to be left in a kept pane: interrupted if working, and settled, so a
            * kept agent goes on editing nothing. Why not, where it is gone or would not settle.
            */
+          /** Its harness was released by a cancel already: a second Escape opens codex's history. */
+          let released = false;
           const release = async (agentName: string): Promise<string | undefined> => {
+            if (released) return undefined;
             if (!(await interrupt(agentName))) return "its harness is gone";
             const busy = await settleAgent(
               herdr,
@@ -819,7 +892,7 @@ export function createHerdrRunHostFactory(
           const closeCurrentPane = async (): Promise<void> => {
             const closing = pane;
             if (!closing) return;
-            await screen.close(closing);
+            await placing.close(closing);
             if (pane === closing) {
               pane = undefined;
               current = undefined;
@@ -949,8 +1022,9 @@ export function createHerdrRunHostFactory(
             // A first start that failed closed its pane; one never started may be placed again.
             if (!pane) {
               try {
-                pane = await screen.place(paneRequest(deadline, signal));
+                pane = await placing.place(paneRequest(deadline, signal));
                 placement = pane.report;
+                commands = pane.screen.commands;
               } catch (error) {
                 if (signal.aborted) {
                   return localOutcome("cancelled", "pane operation cancelled");
@@ -1087,10 +1161,10 @@ export function createHerdrRunHostFactory(
               pane = undefined;
               // In the old pane's place, which closes with the harness in it.
               try {
-                pane = await screen.replace(old, paneRequest(deadline, controller.signal));
+                pane = await placing.replace(old, paneRequest(deadline, controller.signal));
               } catch (error) {
                 // One whose old pane would not close keeps it, for close to try again.
-                pane = screen.paneOf(request.key);
+                pane = placing.paneOf(request.key);
                 throw error;
               }
               settings = launchSettings(next);
@@ -1458,8 +1532,13 @@ export function createHerdrRunHostFactory(
               await activeCompletion;
               // One that may be kept is left for `close`, which knows whether it is.
               if (mayKeep && current && pane) {
-                await interrupt(current.agentName);
                 done = "this agent's operation was cancelled, so its session cannot be continued";
+                // Released now, not at its close: it must not go on working meanwhile.
+                const why = await release(current.agentName);
+                if (why) {
+                  fate = { notKept: why };
+                  await closeCurrentPane();
+                } else released = true;
                 return true;
               }
               await closeCurrentPane();
@@ -1473,9 +1552,11 @@ export function createHerdrRunHostFactory(
               if (options?.keep) {
                 const kept = pane;
                 const why =
-                  current && kept ? await release(current.agentName) : "its harness never started";
-                if (!why && kept && pane === kept) {
-                  await screen.keep(kept);
+                  fate.notKept ??
+                  (current && kept
+                    ? await release(current.agentName)
+                    : "its harness never started");
+                if (!why && kept && pane === kept && (await placing.keep(kept))) {
                   fate = { kept: true };
                   closed = true;
                   return;
@@ -1508,9 +1589,11 @@ export function createHerdrRunHostFactory(
             // so failing to close its workspace leaves nothing behind.
             await Promise.all(
               [...boxes.values()].map((opening) =>
-                opening.then((box) => box.closeAll()).catch(() => undefined),
+                opening.then((box) => box.screen.closeAll()).catch(() => undefined),
               ),
             );
+            // Another session's panes are closed one by one; a session gone took them with it.
+            await Promise.all([...screens.values()].map((screen) => screen.closeAll()));
             const failed = await runScreen.closeAll();
             if (failed) failures.push(new Error(failed));
             else {

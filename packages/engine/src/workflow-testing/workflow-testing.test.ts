@@ -1462,4 +1462,22 @@ describe("testWorkflow layouts", () => {
       "kept-always",
     ]);
   });
+
+  test("an operation the run's end cancels counts as a failure: on-failure keeps the pane", async () => {
+    const leaving = workflowOf<null, null>(async (workflow) => {
+      const agent = await workflow.agents.open({
+        key: "left",
+        runtime: "claude",
+        keepPane: "on-failure",
+      });
+      await agent.run({ prompt: "Plan.", schema: PLAN, nudge: false });
+      void agent.run({ prompt: "Go on.", nudge: false }).catch(() => undefined);
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      return null;
+    });
+    const run = await testWorkflow(leaving, null, {
+      agents: { left: [answer(PLAN, { steps: [] }), reply.hang()] },
+    });
+    expect(run.agentOf("left").keptPane).toBe(true);
+  });
 });

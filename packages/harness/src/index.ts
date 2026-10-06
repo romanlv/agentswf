@@ -1,7 +1,7 @@
 export type { DirectProcessConfig } from "./adapters/direct-process";
 export { createHeadlessRunHostFactory } from "./adapters/direct-process";
 export type { HerdrConfig } from "./adapters/herdr";
-export { createHerdrRunHostFactory } from "./adapters/herdr";
+export { createHerdrRunHostFactory, HERDR_VERSION } from "./adapters/herdr";
 export {
   type CallerPane,
   createCallerHostFactory,

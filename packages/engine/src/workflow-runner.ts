@@ -813,6 +813,9 @@ class WorkflowOwner {
           // A session that would not close still must not outlive its sandbox: its agents are
           // released and the sandboxes closed, which ends everything inside, on a grace of their own.
           const sandboxes = this.options.sandboxes;
+          // A slow agent close may be what overran: the host still closes what it made, though
+          // nothing waits on it here, as an agent that never closes would hold it too.
+          void this.options.host.close("workflow complete").catch(() => undefined);
           const closed = await waitForDeadline(
             sandboxes
               .release()
@@ -1997,6 +2000,8 @@ class LogicalAgent implements AgentRef {
    * stopped it (ADR 0010).
    */
   async stopOperations(request: OperationStop): Promise<void> {
+    // Before they settle, which records it later than a close that follows reads it.
+    if (this.#operationStops.size > 0 || this.#pendingSets.length > 0) this.#last = request.kind;
     await Promise.all([...this.#operationStops].map((stop) => stop(request)));
   }
 

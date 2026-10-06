@@ -31,13 +31,13 @@ import { createSrtProvider, findSrt } from "@agentswf/sandbox/srt";
 import { createOpenRouterProvider } from "./decisions/openrouter";
 import type { DecisionInstallation } from "./decisions/seam";
 import { messageOf } from "./errors";
+import { findOrigin, namedSession, workspaceLock } from "./herdr-placement";
 import {
   ensureRunSession,
   parseSessions,
   type RunSession,
   runSessionName,
 } from "./herdr-run-session";
-
 import { markWorkspace } from "./herdr-workspace-marks";
 
 export type { RunSession } from "./herdr-run-session";
@@ -104,7 +104,19 @@ export async function installOperatorRuntime(
         openRun: async (spec) => {
           const { name } = await session();
           const mark = await markWorkspace(home, name, spec.label ?? spec.runId);
-          const config = { ...runConfig(name), onRunWorkspace: mark.bind };
+          const config: HerdrConfig = {
+            ...runConfig(name),
+            onRunWorkspace: mark.bind,
+            sessionFor: (named) => namedSession(named, { run, environment, home }),
+            origin: () =>
+              findOrigin({
+                run,
+                environment,
+                runSession: name,
+                ...(caller ? { callerPane: caller.pane.paneId } : {}),
+              }),
+            lockWorkspace: workspaceLock(home),
+          };
           const host = await createHerdrRunHostFactory(config, run)
             .openRun(spec)
             .catch(async (error: unknown) => {
