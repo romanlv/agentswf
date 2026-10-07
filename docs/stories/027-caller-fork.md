@@ -176,7 +176,7 @@ Alternatives rejected:
 - [x] 1. Forking a found session in the harness: by id, model and directory from its file
 - [x] 2. The session from `awf run`'s environment and from `--here`; `forkCaller`
 - [x] 3. Testing surface, the lab, the `awf-run` skill, ADR 0010's amendment, `workflow-api.md`
-- [ ] 4. Live: M1–M6; M2–M4 done on claude
+- [ ] 4. Live: M1–M6 run on claude, codex and pi; two findings below wait on a decision
 
 ## Verification
 
@@ -192,7 +192,25 @@ the session's own directory was the main checkout.
 - [x] It said what the session was working on, in its own words, on the session's model; 34 s,
   ~$0.26 at list prices on the subscription, and again after the review's fixes, 16 s. Its spend was its own requests only, 748k tokens read
   from the cache and 12k written: the copied rows stayed the session's, and the cache held.
-- [ ] M1, M5, M6, and codex and pi end to end.
+
+Live, 2026-10-07, each caller started in a Herdr pane at its harness's defaults, given a codename,
+then told to run the example and wait:
+
+- [x] codex 0.160.1, two sessions at once (HERON, OSPREY), on `gpt-6.1-sol`: each fork named its
+  own session's codename, 14 s and 17 s. M1 passed.
+- [x] pi 0.87.1 (KESTREL): the fork ran on `openai-codex/gpt-6-sol`, the provider kept, 12 s.
+- [ ] M5: inside codex's default sandbox (`workspace-write`, no network) `awf run` stops before
+  any fork, at its run lock's `ps` (`runs.ts`, `processStart`): `awf: EPERM: operation not
+  permitted, posix_spawn 'ps'`. Every `awf run` does, fork or not. Codex then asked to run it outside
+  the sandbox, its reviewer approved, and the run passed. The refusal names neither the sandbox nor
+  `--here`.
+- [ ] claude on `claude-opus-5-5[1m]` (WREN): the first turn's run answered `null`, "files … name no
+  model". Claude writes a request's row only once its tool call ends, so during a session's first
+  turn its file holds no assistant row at all; the second turn's run passed, 20 s. The same timing
+  leaves the current turn's tool call out of every claude fork: the copy ends at the prompt.
+- [x] M6: the session's rows say `claude-opus-5-5`, and its fork ran on that, at the default
+  context, not 1M. Overflow past 200K tokens not run.
+
 
 ## Review record
 
