@@ -24,7 +24,7 @@ const executable = defineExecutableWorkflow<null, ForkCallerResult>({
     async run(workflow) {
       const fork = await workflow.agents.forkCaller({ key: "fork" });
       if (!fork) {
-        throw new Error("no session to fork: run this with awf run from an agent's shell");
+        throw new Error("no session to fork; the run's output says why");
       }
       const { outcome } = await fork.run({
         prompt:

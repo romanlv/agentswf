@@ -130,7 +130,7 @@ export function createScriptedHost(
   const calling =
     caller &&
     (caller.model === undefined
-      ? `${caller.harness}'s files for the calling session name no model it ran on`
+      ? `${caller.harness} session fake-calling has nothing to fork: its files hold no request naming a model, as in its first turn`
       : createFakeCallingSession({
           harness: caller.harness,
           cwd: caller.cwd,

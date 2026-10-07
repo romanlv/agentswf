@@ -109,7 +109,7 @@ describe("operator runtime", () => {
     test("is none where its files name no model to fork it on", async () => {
       const home = await claudeHome({ s2: [1_000, false] });
       expect(await callingOf({ ...home, CLAUDE_CODE_SESSION_ID: "s2" }, "/work")).toBe(
-        "claude's files for session s2 name no model it ran on, so a fork of it has none to run on",
+        "claude session s2 has nothing to fork: its files hold no request naming a model, as in its first turn",
       );
     });
 

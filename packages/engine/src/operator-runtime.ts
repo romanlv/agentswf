@@ -228,9 +228,12 @@ async function startedFrom(
   );
 }
 
-/** Why a session whose files name no model, as an operator's cursor chat's do not, is not forked. */
+/**
+ * Why a session whose files name no model is not forked: in its first turn it holds only the prompt
+ * that ran awf, and an operator's cursor chat records none.
+ */
 function noModel(harness: Harness, session: string): string {
-  return `${harness}'s files for session ${session} name no model it ran on, so a fork of it has none to run on`;
+  return `${harness} session ${session} has nothing to fork: its files hold no request naming a model, as in its first turn`;
 }
 
 /** The id and directory of the session `--here` handed over, where `--here` passed its id. */

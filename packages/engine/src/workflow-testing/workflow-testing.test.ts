@@ -1095,7 +1095,7 @@ describe("testWorkflow with a calling session", () => {
     expect(run.value).toBe("no session");
     expect(run.agents).toEqual([]);
     expect(run.logs.map((log) => log.message)).toContainEqual(
-      "awf: forkCaller: no session to fork: codex's files for the calling session name no model it ran on",
+      "awf: forkCaller: no session to fork: codex session fake-calling has nothing to fork: its files hold no request naming a model, as in its first turn",
     );
   });
 

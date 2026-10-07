@@ -176,7 +176,7 @@ Alternatives rejected:
 - [x] 1. Forking a found session in the harness: by id, model and directory from its file
 - [x] 2. The session from `awf run`'s environment and from `--here`; `forkCaller`
 - [x] 3. Testing surface, the lab, the `awf-run` skill, ADR 0010's amendment, `workflow-api.md`
-- [ ] 4. Live: M1–M6 run on claude, codex and pi; two findings below wait on a decision
+- [ ] 4. Live: M1–M6 run on claude, codex and pi; M5's refusal waits on a decision
 
 ## Verification
 
@@ -204,9 +204,10 @@ then told to run the example and wait:
   permitted, posix_spawn 'ps'`. Every `awf run` does, fork or not. Codex then asked to run it outside
   the sandbox, its reviewer approved, and the run passed. The refusal names neither the sandbox nor
   `--here`.
-- [ ] claude on `claude-opus-5-5[1m]` (WREN): the first turn's run answered `null`, "files … name no
-  model". Claude writes a request's row only once its tool call ends, so during a session's first
-  turn its file holds no assistant row at all; the second turn's run passed, 20 s. The same timing
+- [x] claude on `claude-opus-5-5[1m]` (WREN): the first turn's run answered `null`. Claude had not
+  yet written that turn's request to the file, so it held only the prompt that ran awf. Decided
+  (2026-10-07): that is right, since a session with nothing in it has nothing to fork; the reason now
+  says so. The second turn's run passed, 20 s. The same timing
   leaves the current turn's tool call out of every claude fork: the copy ends at the prompt.
 - [x] M6: the session's rows say `claude-opus-5-5`, and its fork ran on that, at the default
   context, not 1M. Overflow past 200K tokens not run.
