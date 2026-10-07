@@ -80,9 +80,12 @@ Ideally it should be a context (meaning triggered) but not sure if it's possible
 ### state machine 
 it is a state machine or graph engineering now 
 
+## time intervals
+workflow can have cron schedule, and fake up later, to have a script to get some signals
+
 ### Resumable workflows 
 if workflow died on specific step, it should be able to resume it from that step, without repeating from the start
-
+%% done %%
 
 ## Integrations with other systems 
 related to loops 
@@ -126,11 +129,15 @@ in general having good template for the work or ticket is golden, it is worth fi
 
 markdown linting is very useful here
 
+## long running workflows 
+
 
 ## chat to workflow 
 describe your workflow in markdown file, agent will go through it and clarify things 
 later it can codify it, if you update the doc, the diff is analyzed and changes applied back 
 
+
+## run workflow with live agent 
 
 
 
@@ -139,3 +146,10 @@ build workflow with frontier model, run with cheap and fast
 make your workflow deterministic , add checks and balances
 
 follow the process, remind users or do something in background on their behalf...
+
+## workflow router
+using a router for workflows, via single interface, like OpenClaw, which routes signals/events to proper workflow 
+
+
+## workflow stats 
+part of the lab, what if running and testing workflows is the part of your everyday work, what if you have an idea on how to improve workflow, and you are testing it agianst a baseline, all data is recorded, you can run and compare, and this case can become future test case, part of the eval
