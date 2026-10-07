@@ -2406,6 +2406,91 @@ describe("runWorkflow", () => {
   });
 });
 
+describe("agents.stop", () => {
+  test("ends an agent before the run does, and its key is not opened again", async () => {
+    let endpoint = "";
+    const adapter = createFakeAdapter({
+      script: () => ({
+        act: async (context) => {
+          endpoint = context.binding!.endpoint;
+          await submit(context.binding!, { answer: "done" });
+        },
+      }),
+    });
+    const workflow = workflowOf("stop", async (context) => {
+      const agent = await openReviewer(context);
+      await agent.run({ id: "review", prompt: "Review.", schema: ANSWER_SCHEMA });
+      const stopped = await context.agents.stop("reviewer", "answered");
+      const closedAtStop = [...adapter.closed];
+      const again = await context.agents.stop("reviewer");
+      const unknown = await context.agents.stop("nobody");
+      const reopened = await openReviewer(context).then(
+        () => "opened",
+        (error: Error) => error.message,
+      );
+      const ran = await agent.run({ id: "after", prompt: "More." }).then(
+        () => "ran",
+        (error: Error) => error.message,
+      );
+      return { stopped, closedAtStop, again, unknown, reopened, ran };
+    });
+
+    const result = await runNew(workflow, null, {
+      runRoot: tempRunDir(),
+      deadline: future(),
+      runtime: runtime(adapter),
+    });
+
+    expect(result.value).toEqual({
+      stopped: true,
+      closedAtStop: ["reviewer"],
+      again: false,
+      unknown: false,
+      reopened: "agent reviewer was stopped (answered); its key is not opened again",
+      ran: "logical agent is closed",
+    });
+    await expect(connect(endpoint)).rejects.toBeDefined();
+  });
+
+  test("cancels the turn it is running, and keeps its pane where keepPane says", async () => {
+    const keeps: (boolean | undefined)[] = [];
+    const fake = createFakeAdapter({
+      script: async (context) => {
+        await new Promise<void>((resolve) =>
+          context.signal.addEventListener("abort", () => resolve(), { once: true }),
+        );
+        return {};
+      },
+    });
+    const adapter = adapterWith(fake, (session) => ({
+      close: (reason, options) => {
+        keeps.push(options?.keep);
+        return session.close(reason, options);
+      },
+    }));
+    const workflow = workflowOf("stop-busy", async (context) => {
+      const agent = await context.agents.open({
+        key: "lens",
+        runtime: "review",
+        keepPane: "always",
+      });
+      const turn = agent.run({ id: "wait", prompt: "Wait." });
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      await context.agents.stop("lens", "no longer needed");
+      return (await turn).outcome.kind;
+    });
+
+    const result = await runNew(workflow, null, {
+      runRoot: tempRunDir(),
+      deadline: future(),
+      runtime: runtime(adapter),
+    });
+
+    expect(result.value).toBe("cancelled");
+    expect(keeps[0]).toBe(true);
+  });
+});
+
 describe("pane records", () => {
   test("a run that fails still records where its panes went", async () => {
     const adapter = adapterWith(createFakeAdapter({ script: () => ({}) }), () => ({

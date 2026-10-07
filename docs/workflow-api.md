@@ -16,6 +16,7 @@ agent.run({ prompt, schema?, timeoutMs?, label?, nudge? })  // → { outcome }; 
 agent.compact({ prompt })                                    // → outcome; the harness's own compaction, with a focus
 agent.set({ model?, effort? })                               // → outcome; later turns run at these, in the same session
 agent.fork({ key, placement?, effort?, instructions?, layout?, keepPane? })  // → a new agent on a copy of this one's session
+workflow.agents.stop(key, reason?)                          // → true; the agent is done, its pane closed or kept
 workflow.agents.caller({ key })                              // → the session `awf run --here` was typed in, or null
 workflow.agents.forkCaller({ key, placement?, effort?, instructions?, layout?, keepPane? })  // → a new agent on a copy of the session awf run was started from, or null
 isAnswered(outcome)                                          // narrows to { kind: "answered", value }
@@ -208,6 +209,14 @@ A run-owned agent is stopped after an unsuccessful operation, even if its foregr
 already ended. A workflow must not rely on continuing that pane or on its background watch
 surviving an `unanswered`, timed-out or cancelled operation. Caller sessions retain their
 restricted interruption authority.
+
+An agent the workflow has no more use for can end before the run does, with
+`workflow.agents.stop(key, reason?)`: a lens that has answered, say, so its process and pane don't
+sit idle until the end. It is done as a failed operation leaves it: a turn it is running settles
+`cancelled`, its pane is closed, or kept where `keepPane` says, and it can't answer any more. Its
+ref refuses later turns and forks, and its key is not opened again. It resolves `true` once the
+agent is done, and `false` for a key that was never opened, was already stopped, or did not open.
+Stopping the calling session releases it from the run; the session itself is the operator's.
 
 ### Sessions: talk to the same agent again
 
@@ -870,8 +879,7 @@ time passes needs virtual time, which isn't built.
 ## Not built yet
 
 These calls are in the types and throw `unavailable` today: `agents.attach`, except for the calling
-session's key, and `agents.stop`,
-`agent.enqueue`, `steps` (durable steps and sleep), `signals` (waiting for
+session's key, `agent.enqueue`, `steps` (durable steps and sleep), `signals` (waiting for
 outside input), `participants` and `messages` (agents talking to each other), and `call` (one
 workflow calling another). [`docs/status.md`](status.md) says what's next.
 

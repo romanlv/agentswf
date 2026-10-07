@@ -393,7 +393,11 @@ export interface AgentDirectory {
   open(spec: AgentOpenSpec): Promise<AgentRef>;
   /** Returns null when absent; rejects when an existing agent conflicts with the requirements. */
   attach(key: AgentKey, runtime?: RuntimeSelection): Promise<AgentRef | null>;
-  /** Returns false when the logical agent does not exist or is already stopped. */
+  /**
+   * Ends the agent before the run does: a turn it is running is cancelled, and its pane closed or,
+   * where `keepPane` says, kept and released (ADR 0008). Its key is not opened again. Resolves
+   * false when the agent was never opened, did not open, or is already stopped.
+   */
   stop(key: AgentKey, reason?: string): Promise<boolean>;
   /**
    * The session `awf run --here` was started from, as an agent under `spec.key`; `null` when the

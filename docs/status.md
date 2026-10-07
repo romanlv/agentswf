@@ -16,7 +16,7 @@ exists, the code is right, then this page.
   may place each pane agent's pane with `layout`, in a tab of the run's workspace, a named one, a
   named session or the one `awf run` was typed in, or beside another agent's pane, and keep it once
   the agent is done with `keepPane` (story 026). A kept pane's harness is released from the run; every
-  other pane closes when its agent does, and a later run closes what a killed run left, in any session.
+  other pane closes when its agent does, at the run's end or earlier with `agents.stop`, and a later run closes what a killed run left, in any session.
 - `awf run` typed in an agent's tool call, or with `--here`, lets the workflow fork that session:
   `agents.forkCaller` opens an agent on a copy of it, on the model its files show, or answers `null`
   (story 027). The session waits on the run as on any command.

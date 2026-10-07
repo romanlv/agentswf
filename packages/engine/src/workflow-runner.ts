@@ -261,6 +261,8 @@ type AgentEntry = {
    * `undefined` when the channel never opened; the agent state carries the reason.
    */
   channel: Promise<ResultChannel | undefined>;
+  /** Why `agents.stop` ended it; its key is not opened again. */
+  stopped?: string;
   /** How it was opened, or found for the calling session, which its forks reuse. */
   opening?: {
     sessions: AgentSessions;
@@ -700,7 +702,13 @@ class WorkflowOwner {
           }
           return this.#caller.state;
         },
-        stop: () => unavailable("agents.stop"),
+        stop: (key, reason) => {
+          try {
+            return this.stopAgent(key, reason);
+          } catch (error) {
+            return Promise.reject(error);
+          }
+        },
         caller: (spec) => {
           try {
             return this.caller(spec.key);
@@ -925,6 +933,7 @@ class WorkflowOwner {
     if (inRunSandbox && spec.sandbox !== undefined)
       throw new Error(`agent ${spec.key}: ${RUN_SANDBOX_ONLY}`);
     const existing = this.#agents.get(spec.key);
+    if (existing?.stopped !== undefined) throw stoppedError(spec.key, existing.stopped);
     const execution = existing
       ? constrainExistingExecution(spec.runtime, existing.identity.execution)
       : withKnownEffort(resolveExecution(spec.runtime, this.options.runtime));
@@ -1021,6 +1030,22 @@ class WorkflowOwner {
   }
 
   /**
+   * Ends an agent the workflow has no more use for, as an operation that fails ends it: what it
+   * is running is cancelled, and its pane closed or, where `keepPane` says, kept and released.
+   */
+  private async stopAgent(key: string, reason?: string): Promise<boolean> {
+    if (this.#closed || this.#cleanupFailures.length) throw new Error("workflow context is closed");
+    const entry = this.#agents.get(key);
+    if (!entry || entry.stopped !== undefined) return false;
+    entry.stopped = reason ?? "stopped by the workflow";
+    const state = await this.track(entry.state).catch(() => undefined);
+    if (!state) return false;
+    await this.track(state.close(entry.stopped));
+    await entry.channel.then((channel) => channel?.close());
+    return true;
+  }
+
+  /**
    * The session the run was started from, under the key the workflow names: `null` when there is
    * none. It is found, not opened: its harness, directory and skills are the operator's, and it
    * answers through a launcher by path as any pane agent does (ADR 0010).
@@ -1037,6 +1062,8 @@ class WorkflowOwner {
           `the calling session is already agent ${this.#caller.key}; it cannot also be ${key}`,
         );
       }
+      const stopped = this.#agents.get(key)?.stopped;
+      if (stopped !== undefined) throw stoppedError(key, stopped);
       return this.#caller.state;
     }
     if (this.#agents.has(key))
@@ -2794,6 +2821,10 @@ function paneOptions({
 
 function conflict(key: string, field: string): never {
   throw new Error(`agent ${key} is already open with different ${field}`);
+}
+
+function stoppedError(key: string, reason: string): Error {
+  return new Error(`agent ${key} was stopped (${reason}); its key is not opened again`);
 }
 
 function unavailable(name: string): Promise<never> {
