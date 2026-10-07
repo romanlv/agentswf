@@ -143,6 +143,7 @@ function cursorCompactionFocus(focus: string): string {
 }
 
 export const cursor = defineHarness(CURSOR, {
+  launchModel: "cursor's files log no model for a session awf did not start",
   readCharge: "cursor prints no dollars, which E1 also found",
   readCostTotal: "cursor prints no dollars, which E1 also found",
   billing:

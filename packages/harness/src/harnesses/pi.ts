@@ -152,6 +152,8 @@ const PI = {
   readCompactSummary: (session) => readPiCompactSummary(session),
   readSessionUsage: (sessions, _cwd, home) => readPiUsage(sessions, home),
   sessionFiles: (home, session) => piSessionFiles(home, session),
+  // pi logs the provider apart from the model, and names a model `provider/model`.
+  launchModel: ({ model, provider }) => (provider ? `${provider}/${model}` : model),
   homeSessions: async (home) => {
     const root = join(home, "sessions");
     return (await ownFiles(home, root))

@@ -67,6 +67,11 @@ export type ActivatedSessionBackend = {
   /** Fresh natural-completion evidence after answer admission, beyond the prompt deadline. */
   finishAnswered?(deadline: AbsoluteDeadline): Promise<NativeTurnOutcome>;
   readonly identity: NativeSessionIdentity;
+  /**
+   * The native session this host found rather than started: the calling session's, whose turns ran
+   * before the run, so it may be forked before any of the run's.
+   */
+  readonly found?: string;
   /** When it first prompted the agent, where it waits before prompting; see `HarnessSession`. */
   promptedAt?(): number | undefined;
   pane?(): PanePlacement | undefined;
@@ -183,16 +188,16 @@ function createSession(
   let quarantined = false;
   let closeAttempt: Promise<void> | undefined;
   let lastStatus: HarnessSessionStatus = { state: "idle" };
-  let sessionRef = continued;
+  let sessionRef = continued ?? native.found;
   /** Its own turn has run, so its session holds what it was told; only then may it be forked. */
-  let hasRun = false;
+  let hasRun = native.found !== undefined;
   /** An answered turn left to end on its own; the next start waits for it. */
   let finishing: { settled: Promise<unknown>; stop(reason: string): Promise<boolean> } | undefined;
   /** Only the newest turn's end may set the session's status. */
   let turns = 0;
   /** Starts waiting for a finishing turn to end: the session is working on their behalf. */
   let waiting = 0;
-  const seen = new Set<string>(continued ? [continued] : []);
+  const seen = new Set<string>(sessionRef ? [sessionRef] : []);
   const usedOperationIds = new Set<string>();
 
   /**

@@ -401,7 +401,15 @@ export interface AgentDirectory {
    * operator's session, so it differs from an opened agent: `compact` fails; a turn that fails, is
    * cancelled or times out leaves it usable rather than closed; the operator interrupting a turn
    * settles it `cancelled`; where the harness's interrupt cannot be recognised, an unanswered turn
-   * is not nudged by default; and its `execution.model` is `""`.
+   * is not nudged by default; and its `execution.model` is `""`. Its `fork` is `forkCaller`'s.
    */
   caller(spec: CallerSpec): Promise<AgentRef | null>;
+  /**
+   * A new agent on a copy of the session `awf run` was started from: one waiting on the command,
+   * or handed over with `--here`, whose copy is then taken after the run's turns to it. `null` when
+   * the run has none to fork; the run's output says why. The fork runs on the model the session's
+   * files show it last ran, in its directory, as an agent of the run; what it copied stays the
+   * session's spend. Root scope only (story 027).
+   */
+  forkCaller(spec: AgentForkSpec): Promise<AgentRef | null>;
 }

@@ -261,7 +261,7 @@ type AgentEntry = {
    * `undefined` when the channel never opened; the agent state carries the reason.
    */
   channel: Promise<ResultChannel | undefined>;
-  /** How it was opened, which its forks reuse; absent for the calling session. */
+  /** How it was opened, or found for the calling session, which its forks reuse. */
   opening?: {
     sessions: AgentSessions;
     accounted: AccountedAgent;
@@ -287,6 +287,8 @@ type AgentIdentity = {
 };
 
 const CLEANUP_GRACE_MILLISECONDS = 5_000;
+/** What a fork of the session the run was started from names as its parent. */
+const CALLING = "the calling session";
 /** A fork asks no model: it copies a session file, in seconds (F7). */
 const FORK_TIMEOUT_MS = 60_000;
 const scopes = new AsyncLocalStorage<ExecutionScope>();
@@ -648,6 +650,8 @@ class WorkflowOwner {
   #bundle: Promise<string> | undefined;
   /** The calling session, once the workflow has asked for it (ADR 0010). */
   #caller: { key: string; state: Promise<LogicalAgent> } | undefined;
+  /** Stops a fork of the session the run was started from, whose process is not an agent's. */
+  readonly #closingRun = new AbortController();
 
   constructor(
     private readonly options: {
@@ -700,6 +704,13 @@ class WorkflowOwner {
         caller: (spec) => {
           try {
             return this.caller(spec.key);
+          } catch (error) {
+            return Promise.reject(error);
+          }
+        },
+        forkCaller: (spec) => {
+          try {
+            return this.forkCaller(spec);
           } catch (error) {
             return Promise.reject(error);
           }
@@ -774,6 +785,7 @@ class WorkflowOwner {
   async close(deadline: AbsoluteDeadline): Promise<unknown[]> {
     this.#closing ??= (async (): Promise<unknown[]> => {
       this.#closed = true;
+      this.#closingRun.abort();
       // Each agent is closed by itself first, which knows whether its pane stays; then the host,
       // which closes whatever is left.
       const stopping = [...this.#agents.values()].map((agent) =>
@@ -1066,6 +1078,7 @@ class WorkflowOwner {
     this.#caller = { key, state: owned };
     this.#agents.set(key, {
       identity: { execution, cwd: found.cwd },
+      opening: { sessions, accounted, skills: Promise.resolve(undefined) },
       state: owned,
       channel: opened.then(
         (channel) => channel,
@@ -1075,6 +1088,47 @@ class WorkflowOwner {
     const ready = this.track(waitForDeadline(owned, scope?.deadline ?? this.options.deadline));
     scope?.track(ready);
     return ready;
+  }
+
+  /**
+   * A fork of the session the run was started from (story 027). Handed over and held as the caller,
+   * it is that agent's own fork, taken in its queue; otherwise it is taken now, from a parent the
+   * run never opened. `null`, and the reason logged, where there is none to fork.
+   */
+  private forkCaller(spec: AgentForkSpec): Promise<AgentRef | null> {
+    if (this.#closed || this.#cleanupFailures.length) throw new Error("workflow context is closed");
+    const scope = scopes.getStore();
+    scope?.assertAccepting();
+    this.options.stages.checkOperation();
+    const calling = this.options.runtime.host.calling;
+    if (calling === undefined || typeof calling === "string") {
+      this.options.onLog?.(
+        `awf: forkCaller: no session to fork${calling === undefined ? "" : `: ${calling}`}`,
+      );
+      return Promise.resolve(null);
+    }
+    if (this.#caller) return this.#caller.state.then((caller) => caller.fork(spec));
+    const execution: AgentExecution = { harness: calling.harness, model: "", caller: true };
+    const parent: AgentEntry = {
+      identity: { execution, cwd: calling.cwd },
+      opening: {
+        sessions: { launcher: new Set(), forks: [] },
+        accounted: { key: CALLING, execution, cwd: calling.cwd, sessions: () => [calling.session] },
+        skills: Promise.resolve(undefined),
+      },
+      state: Promise.reject(new Error("the calling session is not an agent of this run")),
+      channel: Promise.resolve(undefined),
+    };
+    parent.state.catch(() => undefined);
+    const deadline = scope?.deadline ?? this.options.deadline;
+    return this.forkAgent(
+      CALLING,
+      spec,
+      (into) =>
+        calling.fork(deadlineWithin(FORK_TIMEOUT_MS, deadline), into, this.#closingRun.signal),
+      execution,
+      parent,
+    );
   }
 
   /**
@@ -1339,6 +1393,8 @@ class WorkflowOwner {
     take: ((into?: SessionCopy) => Promise<NativeFork>) | string,
     /** The parent's settings once every `set` queued before the fork has run. */
     parentSettings: AgentExecution,
+    /** A parent the run never opened: the session it was started from. */
+    unopened?: AgentEntry,
   ): Promise<AgentRef> {
     if (this.#closed || this.#cleanupFailures.length) throw new Error("workflow context is closed");
     const scope = scopes.getStore();
@@ -1351,20 +1407,20 @@ class WorkflowOwner {
     if (forkSpec.layout !== undefined) forkSpec.layout = storedLayout(forkSpec.layout);
     const deadline = scope?.deadline ?? this.options.deadline;
     assertDeadline(deadline);
+    // A fork of the calling session is one whichever way it was asked for.
+    const from = unopened || this.#caller?.key === parentKey ? CALLING : parentKey;
     const existing = this.#agents.get(spec.key);
     if (existing) {
-      const from = existing.identity.forkedFrom;
-      if (from?.parent !== parentKey || !isDeepStrictEqual(from.spec, forkSpec)) {
-        throw new Error(`agent ${spec.key} is already open, not as this fork of ${parentKey}`);
+      const forked = existing.identity.forkedFrom;
+      if (forked?.parent !== from || !isDeepStrictEqual(forked.spec, forkSpec)) {
+        throw new Error(`agent ${spec.key} is already open, not as this fork of ${from}`);
       }
       const attached = this.track(waitForDeadline(existing.state, deadline));
       scope?.track(attached);
       return attached;
     }
-    const parent = this.#agents.get(parentKey)!;
-    const { opening } = parent;
-    if (!opening)
-      throw new Error(`agent ${parentKey} is the calling session, which a run does not fork`);
+    const parent = unopened ?? this.#agents.get(parentKey)!;
+    const opening = parent.opening!;
     if (typeof take === "string") throw new Error(take);
     const sandboxed = parent.identity.sandbox !== undefined || this.options.sandboxes.hasRunSandbox;
     // A parent with a harness home of its own has its session copied out, and the fork made in the
@@ -1374,6 +1430,10 @@ class WorkflowOwner {
         ? join(this.options.runDir, "forks", randomUUID())
         : undefined;
     const execution = withKnownEffort(forkExecution(parentSettings, forkSpec));
+    // A fork of the calling session is an agent the run opened, on the model the session's files
+    // show, which the fork reads: `""` until then (ADR 0010).
+    const ofCaller = execution.caller === true;
+    delete execution.caller;
     checkPaneOptions(spec.key, forkSpec, {
       headless: placementOf(execution) === "headless",
       sandboxed,
@@ -1385,7 +1445,7 @@ class WorkflowOwner {
       ...(forkSpec.labels === undefined ? {} : { labels: forkSpec.labels }),
       ...(parent.identity.skills ? { skills: parent.identity.skills } : {}),
       ...(parent.identity.sandbox === undefined ? {} : { sandbox: parent.identity.sandbox }),
-      forkedFrom: { parent: parentKey, spec: forkSpec },
+      forkedFrom: { parent: from, spec: forkSpec },
       ...(forkSpec.layout === undefined ? {} : { layout: forkSpec.layout }),
       ...(forkSpec.keepPane === undefined ? {} : { keepPane: forkSpec.keepPane }),
     };
@@ -1393,11 +1453,13 @@ class WorkflowOwner {
     this.options.progress.agentOpened(spec.key, scope?.group);
     const sessions: AgentSessions = { launcher: new Set(), forks: [], parent: opening.sessions };
     opening.sessions.forks.push(sessions);
+    let forkedAt: number | undefined;
     const accounted: AccountedAgent = {
       key: spec.key,
       execution,
       cwd: identity.cwd,
       sessions: () => reportedSessions(sessions),
+      forkedAt: () => forkedAt,
     };
     const besideAtFork = this.besideFallback(identity.layout, deadline);
     let continues: NativeFork | undefined;
@@ -1405,8 +1467,14 @@ class WorkflowOwner {
     // was not made leaves nothing behind: its key may be forked again, after the parent's turn.
     const forked = take(copy === undefined ? undefined : { directory: copy })
       .then((fork) => {
+        if (ofCaller) {
+          if (!fork.model) throw new Error(`agent ${parentKey}'s fork named no model to run on`);
+          // The one object its identity, ledger and activation all hold, before it activates.
+          execution.model = fork.model;
+        }
         continues = fork;
-        this.options.progress.agentForked(spec.key, parentKey);
+        forkedAt = Date.now();
+        this.options.progress.agentForked(spec.key, from);
         return fork;
       })
       .catch((error: unknown) => {
@@ -1838,7 +1906,9 @@ class LogicalAgent implements AgentRef {
       try {
         return this.options.fork(
           spec,
-          `agent ${this.key} cannot be forked: ${execution.harness} ${placementOf(execution)} agents have no fork yet`,
+          execution.caller
+            ? `agent ${this.key} is the calling session, which this run cannot fork; forkCaller answers null and the run's output says why`
+            : `agent ${this.key} cannot be forked: ${execution.harness} ${placementOf(execution)} agents have no fork yet`,
           settings,
         );
       } catch (error) {

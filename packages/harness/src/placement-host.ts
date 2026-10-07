@@ -1,5 +1,10 @@
 import { type AgentExecution, type AgentPlacement, placementOf } from "@agentswf/contract/workflow";
-import type { AgentRunHost, AgentRunHostFactory, HarnessRunSnapshot } from "./adapter";
+import type {
+  AgentRunHost,
+  AgentRunHostFactory,
+  CallingSession,
+  HarnessRunSnapshot,
+} from "./adapter";
 import type { SessionAccounting } from "./usage/accounting";
 
 type Side = AgentPlacement | "caller";
@@ -17,13 +22,20 @@ export function createPlacementHostFactory(
   hosts: Readonly<Record<AgentPlacement, AgentRunHostFactory>> & {
     /** The calling session's host, for the agent whose execution says `caller` (ADR 0010). */
     caller?: AgentRunHostFactory;
+    /**
+     * The session the run was started from, where the caller's host does not give it: one waiting
+     * on `awf run`, or why there is none to fork; see `AgentRunHostFactory.calling`.
+     */
+    calling?: CallingSession | string;
   },
 ): AgentRunHostFactory {
   const accounting = placedAccounting(hosts);
   const caller = hosts.caller?.caller;
+  const calling = hosts.caller?.calling ?? hosts.calling;
   return {
     ...(accounting ? { accounting } : {}),
     ...(caller ? { caller } : {}),
+    ...(calling ? { calling } : {}),
     async openRun(spec) {
       const opening = new Map<Side, Promise<AgentRunHost>>();
       const opened: AgentRunHost[] = [];

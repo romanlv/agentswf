@@ -150,6 +150,10 @@ Each example that spans more than one file has a folder of its own, with its wor
   forked from it stacked right of its pane; the lead's pane stays once the run ends (story 026).
   Run it from a Herdr pane, `bun awf run examples/pane-layout/workflow.ts`, or pass `-- run` or
   `-- {workspace name}` to put the tab elsewhere. Three cheap codex agents.
+- `fork-caller/` forks the agent session `awf run` was started from and asks the fork what that
+  session was working on, which only a copy of its context can say (story 027). Have a claude,
+  codex or pi session run `bun awf run examples/fork-caller/workflow.ts`, without `--here`, and
+  wait on it.
 - `quick-check/` is the smoke test above.
 - `sandboxes/` is the sandbox tour above.
 - `triage/` is the decision model example above.
@@ -168,7 +172,7 @@ path, `bun test examples/feature-delivery`; outside this repository, `awf test` 
 [The workflow API](../docs/workflow-api.md#testing-a-workflow) says how to write one.
 
 Only `minimum-review/review-loop.ts`, `calling-session/workflow.ts`, `compaction/workflow.ts`, `effort/workflow.ts`,
-`fork/workflow.ts`, `pane-layout/workflow.ts`, `quick-check/workflow.ts`, `sandboxes/workflow.ts`, `sandbox-probe/workflow.ts`,
+`fork/workflow.ts`, `fork-caller/workflow.ts`, `pane-layout/workflow.ts`, `quick-check/workflow.ts`, `sandboxes/workflow.ts`, `sandbox-probe/workflow.ts`,
 `skills-probe/workflow.ts`, `triage/workflow.ts` and `single-agent-review/workflow.ts` have the
 executable default export required by `awf run`.
 A catalogue review's entry point lives beside the catalogue it reads, outside this package, because

@@ -102,8 +102,12 @@ export async function startHere(
       ),
       argv: [...self, "run", "--session", code, ...options, ...rest],
       // The tab takes the Herdr server's environment, not this shell's: the operator's choice of
-      // where the run's agents open is passed on.
-      ...(env.AWF_HERDR_SESSION ? { env: { AWF_HERDR_SESSION: env.AWF_HERDR_SESSION } } : {}),
+      // where the run's agents open is passed on, and the session's own id, which only this shell
+      // has, for a fork of it.
+      env: {
+        ...(env.AWF_HERDR_SESSION ? { AWF_HERDR_SESSION: env.AWF_HERDR_SESSION } : {}),
+        ...callerSessions(env),
+      },
     },
     run,
   );
@@ -146,6 +150,36 @@ export async function takeCaller(
   // unfocused: it is the one place that says why.
   await showOwnTab(environment);
   return refused;
+}
+
+/** Carries the calling session's ids, by harness, from `--here`'s shell to the run's tab. */
+const CALLER_SESSIONS = "AWF_CALLER_SESSIONS";
+
+/**
+ * Each harness's session variable this shell has, which a harness sets in its own tool calls'
+ * shells: the session's native id, by harness, since which harness the pane runs is found later.
+ */
+function callerSessions(env: Readonly<Record<string, string | undefined>>): Record<string, string> {
+  const sessions = Object.fromEntries(
+    Object.entries(HARNESSES).flatMap(([harness, spec]) => {
+      const id = spec.sessionEnv ? env[spec.sessionEnv]?.trim() : undefined;
+      return id ? [[harness, id]] : [];
+    }),
+  );
+  return Object.keys(sessions).length ? { [CALLER_SESSIONS]: JSON.stringify(sessions) } : {};
+}
+
+/** The calling session's id `--here` passed on for `harness`, where it had one. */
+function passedSession(
+  env: Readonly<Record<string, string | undefined>>,
+  harness: string,
+): string | undefined {
+  try {
+    const id = JSON.parse(env[CALLER_SESSIONS] ?? "{}")?.[harness];
+    return typeof id === "string" && id ? id : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /**
@@ -232,7 +266,12 @@ async function findCaller(
     },
     run,
   );
-  return found.kind === "found" ? { kind: "found", caller: { pane: found.pane, session } } : found;
+  if (found.kind !== "found") return found;
+  const id = passedSession(environment.environment ?? process.env, found.pane.harness);
+  return {
+    kind: "found",
+    caller: { pane: { ...found.pane, ...(id ? { session: id } : {}) }, session },
+  };
 }
 
 /** The run's tab, named as its Herdr workspace is, but for the attempt, which isn't claimed yet. */

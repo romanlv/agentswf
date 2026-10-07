@@ -34,6 +34,8 @@ export type AccountedAgent = {
   sessions(): readonly string[];
   /** When its host first prompted it, where that waits on the agent first; see `window`. */
   promptedAt?(): number | undefined;
+  /** When a fork's session was made: what it holds from before is its parent's (ADR 0009). */
+  forkedAt?(): number | undefined;
 };
 
 /** One operation's place in the run, held from before its dispatch so records keep that order. */
@@ -263,6 +265,10 @@ function window(
   agent: AccountedAgent,
   options: { startedAt: number; endedAt: number },
 ): { from: number; until: number } {
+  // Copied rows are its parent's even when the parent does not claim them: a calling session
+  // never asked anything, or asked only after them.
+  const forkedAt = agent.forkedAt?.();
+  if (forkedAt !== undefined) return { from: forkedAt, until: Number.POSITIVE_INFINITY };
   if (!agent.execution.caller) return { from: options.startedAt, until: Number.POSITIVE_INFINITY };
   return { from: agent.promptedAt?.() ?? Number.POSITIVE_INFINITY, until: options.endedAt };
 }

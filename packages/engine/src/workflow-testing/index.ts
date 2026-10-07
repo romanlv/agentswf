@@ -55,11 +55,13 @@ export type TestOptions = {
   /** Where the agents work; by default a temporary directory, removed afterwards. */
   cwd?: string;
   /**
-   * The session the run is started from, as `awf run --here` finds one, by its harness; absent,
-   * `agents.caller` answers `null`. Its turns are answered from the script under the key the
-   * workflow gives it.
+   * The session the run is started from, by its harness; absent, `agents.caller` and
+   * `agents.forkCaller` answer `null`. It is handed over, as `awf run --here` hands one over, and its
+   * turns are answered from the script under the key the workflow gives it; with `here: false` it
+   * waits on the run, and `agents.caller` answers `null`. A fork of it runs on `model`, the model its
+   * files show; without one, `forkCaller` answers `null`, as it does where they name none.
    */
-  caller?: { harness: Harness };
+  caller?: { harness: Harness; model?: string; here?: boolean };
   /**
    * Stages an earlier attempt recorded, by name: each value, or `undefined` for a stage that
    * returns nothing. Given, the run is that run's continue, reusing them without calling their
@@ -164,7 +166,7 @@ export async function testWorkflow<Args extends JsonValue, Result extends JsonVa
     scripts,
     compactionScripts,
     events,
-    options.caller ? { harness: options.caller.harness, cwd } : undefined,
+    options.caller ? { ...options.caller, cwd } : undefined,
   );
   const decisions = createScriptedDecisions(options.decisions ?? {}, events);
   const logs: TestRun<Result>["logs"] = [];

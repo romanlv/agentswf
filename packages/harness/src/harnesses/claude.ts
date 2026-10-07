@@ -189,6 +189,7 @@ const CLAUDE = {
 } satisfies HarnessDefinition;
 
 export const claude = defineHarness(CLAUDE, {
+  launchModel: "claude names a model as it logs it",
   paneReady: "Herdr's idle has followed its screen, in a sandbox too",
   keepTurnUsage: "claude logs each request in its session files",
   readCharge: "claude prints its session's running total, which readCostTotal reads (F9)",

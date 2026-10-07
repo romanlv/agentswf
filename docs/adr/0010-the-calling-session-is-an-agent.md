@@ -6,6 +6,8 @@ engine has no operation to run; for one session, the one the run was started fro
 
 **Amended:** 2026-10-05, [[021-turn-liveness-and-limits|story 021]]: a saved answer waits for
 bounded natural release before success; caller interrupt authority is unchanged.
+2026-10-06, [[027-caller-fork|story 027]]: `forkCaller` forks the session a run was started from,
+handed over or waiting on it, which replaces "a run does not fork it".
 
 ## What was decided
 
@@ -81,6 +83,35 @@ bounded natural release before success; caller interrupt authority is unchanged.
     own output names the run's tab, which shows how the run ended.
   - `agents.stop` is not built. When it is, stop on the caller's key sends the hand-back then,
     nothing is sent at run end, and every later call on that key rejects.
+- **A workflow can fork the session that started the run, and only by asking** (story 027).
+  `agents.forkCaller(spec)` opens a new agent on a copy of it, as ADR 0009's fork does, or answers
+  `null`. `caller()` is unchanged: the session as an agent of the run, which needs it handed over.
+  - **Either start.** The session may be handed over with `--here`, or waiting on an `awf run` it
+    started as a command. Only the first is ever driven. A workflow that never calls `forkCaller`
+    behaves the same whichever way it was started.
+  - **Found from the session's own variable.** Each harness sets it in its tool calls' shells
+    (`CLAUDE_CODE_SESSION_ID`, `CODEX_SESSION_ID`, `PI_SESSION_ID`, `CURSOR_CONVERSATION_ID`).
+    `--here` passes it to the run's tab; a run started as a command has it in its own environment.
+    A session whose file was not written in the last few minutes is not taken: an inherited
+    variable can name one long gone. Agents never get the operator's variables; an agent's own
+    `awf run` finds that agent.
+  - **No turn of the run's first.** The session holds what it knows already, so ADR 0009's refusal
+    before an agent's first turn does not apply. Under `--here` the copy is taken once its pane has
+    settled and, once the workflow holds `caller()`, in the caller's queue, so `caller().fork()` is
+    the same copy. A waiting session is mid-turn, on the command that started
+    the run; its copy holds the session up to that call.
+  - **Its model and directory are read from the session's file**: its last request's model, as the
+    usage reader finds it, and the directory it records. A resume without a model takes the
+    harness's default, and the cache is per model. Where the file names none, as an operator's
+    cursor chat's does not, `forkCaller` answers `null`, so a workflow can open an agent instead. The effort is the harness's default unless the fork names
+    one: no harness logs it.
+  - **It runs where awf opens agents**, with awf's launch flags and environment, not the operator's
+    settings or MCP servers its context was built with; its skills are the operator's. Under
+    `--here` the run is outside the session's sandbox; started as a command, it is the session's
+    child, inside it.
+
+  Spend follows ADR 0009: what the fork copied stays the session's, so a fork's requests are
+  counted only from when it was made. Its own turns are the run's.
 - **No first turn of instructions, and no declaration.**
   - The caller is not opened, so it has no `instructions`. What it needs goes in its turn prompts.
   - A workflow does not declare that it needs a calling session: `caller()` returning `null` is
@@ -143,3 +174,5 @@ the operator's session to what they can see happen: turns in their pane.
   interrupt then reaches the operator's turn. Not measured; ADR 0008 has the same gap.
 - Whether a child workflow can ever be given the caller; until then `caller` rejects there.
 - Sessions outside Herdr, through a hook or extension instead of pane delivery.
+- A caller fork's model when the session's files name it differently from how it was chosen, such
+  as a context-size variant, and its effort, which no harness logs.

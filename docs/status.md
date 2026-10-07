@@ -17,6 +17,9 @@ exists, the code is right, then this page.
   named session or the one `awf run` was typed in, or beside another agent's pane, and keep it once
   the agent is done with `keepPane` (story 026). A kept pane's harness is released from the run; every
   other pane closes when its agent does, and a later run closes what a killed run left, in any session.
+- `awf run` typed in an agent's tool call, or with `--here`, lets the workflow fork that session:
+  `agents.forkCaller` opens an agent on a copy of it, on the model its files show, or answers `null`
+  (story 027). The session waits on the run as on any command.
 - A run is one piece of work with an id, kept in `.awf/runs/{workflow}/{id}` under its working
   directory; each `awf run` of it is an attempt (story 018, ADR 0011). A workflow marks stages with
   `workflow.stage`, and `awf run {file} --continue {id}` reuses the stages that succeeded and runs
@@ -200,8 +203,9 @@ The gates are defined in [`foundation.md`](foundation.md) §12.
   matrices remain blocked by authentication.
 
 Built and awaiting human review: [023 — harness login](stories/023-harness-login.md),
-[024 — a Herdr session of the run's own](stories/024-herdr-run-session.md) and
-[026 — pane layout](stories/026-pane-layout.md).
+[024 — a Herdr session of the run's own](stories/024-herdr-run-session.md),
+[026 — pane layout](stories/026-pane-layout.md) and
+[027 — a run forks the session that started it](stories/027-caller-fork.md).
 
 The inbox of possible stories is [`stories/todo/`](stories/todo/).
 
