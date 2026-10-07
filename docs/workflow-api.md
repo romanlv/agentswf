@@ -17,6 +17,7 @@ agent.compact({ prompt })                                    // → outcome; the
 agent.set({ model?, effort? })                               // → outcome; later turns run at these, in the same session
 agent.fork({ key, placement?, effort?, instructions?, layout?, keepPane? })  // → a new agent on a copy of this one's session
 workflow.agents.caller({ key })                              // → the session `awf run --here` was typed in, or null
+workflow.agents.forkCaller({ key, placement?, effort?, instructions?, layout?, keepPane? })  // → a new agent on a copy of the session awf run was started from, or null
 isAnswered(outcome)                                          // narrows to { kind: "answered", value }
 
 workflow.parallel(items, (item, i) => …, { concurrency?, label?, deadline? })  // → results in item order
@@ -305,7 +306,8 @@ const [security, tests] = await Promise.all([
   `placement` (with `metered`), `effort`, `instructions`, which go with its first turn, and
   `labels`.
 - **It rejects**, as `agents.open` does, before the agent's own first turn, once the agent is
-  closed, and where its host cannot fork. Every harness forks, in a pane or headless, into either,
+  closed, and where its host cannot fork. The session the run was started from is the exception to
+  the first: `forkCaller` forks it before any turn of the run's (below). Every harness forks, in a pane or headless, into either,
   in a sandbox too, where the fork shares its parent's sandbox.
 - **The same key** with the same parent and spec returns the same agent; anything else under it
   rejects.
@@ -379,6 +381,39 @@ const { outcome } = await author.run({ prompt: "Pick a number and remember it.",
 - **In a test**, `caller: { harness }` gives the run one, scripted under its key like any agent;
   `reply.interrupted()` is the operator stopping a turn.
   [`examples/calling-session`](../examples/calling-session) has both.
+
+### Forking the session that started the run
+
+`forkCaller` opens an agent that starts knowing what the session `awf run` was started from knows,
+without spending that session's context on the work. The session can wait on `awf run` as an
+ordinary command, and read the run's presented result as its output; with `--here`, it is handed
+over as above.
+
+```ts
+const fixer =
+  (await workflow.agents.forkCaller({ key: "fixer", layout: { workspace: "origin" } })) ??
+  (await workflow.agents.open({ key: "fixer", runtime: "claude" }));
+```
+
+- **`null`** means there is no session to fork, and the run's output says why: `awf run` was not
+  started from an agent's shell, the session its variable names has not been written lately, or
+  its files name no model, as an operator's cursor chat's do not. Only a workflow that calls it
+  touches the session.
+- **The fork is an agent of the run**, as any fork is: awf's launch flags, its own layout, the
+  operator's skills, and not the operator's settings or MCP servers. It runs on the model the
+  session's files show it last ran, in the directory they record. Its effort is the harness's
+  default unless it names one.
+- **The copy** holds the session up to the command that started the run. Handed over with
+  `--here`, it is taken once the session has settled; once the workflow holds `caller()`, after the
+  run's turns to it, and `caller({ key }).fork(spec)` is the same copy. Either fork's progress line
+  says it was forked from the calling session.
+- **Spend.** What it copied is the session's; its own turns are the run's.
+- **Started as a command**, the run is the session's child, inside its sandbox: under codex's
+  default sandbox, pane agents cannot reach Herdr. The `awf-run` skill says how each harness waits
+  on a long run.
+- **In a test**, `caller: { harness, model, here: false }` is a session waiting on the run: `caller`
+  is `null` and `forkCaller` forks it on `model`, and `agentOf(key).forkedFrom` is
+  `{ caller: true, turns }`. Without `model`, forking it rejects.
 
 ## `parallel`
 

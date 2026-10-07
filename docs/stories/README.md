@@ -117,6 +117,9 @@ status is one of `todo`, `draft`, `ready`, `in-progress`, `blocked`, `awaiting-h
   `awaiting-human-review` — `layout` places a pane in a tab (the run's workspace, a named one, a
   named session, or where `awf run` was typed) or beside another agent's; `keepPane` keeps it
   after the agent is done; marks let a later run close what a killed run left in any session.
+- [`027` — A run forks the session that started it](027-caller-fork.md) —
+  `awaiting-human-review` — `agents.forkCaller` opens an agent on a copy of the session `awf run` was started from,
+  waiting on it or handed over with `--here`, on the model its files show; `null` when there is none.
 
 - [[021-turn-liveness-and-limits|021 — Keep a waiting agent alive within fixed limits]] —
   `done` — Repeated cooperative check-ins share one deadline and result slot; an accepted

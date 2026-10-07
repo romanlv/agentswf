@@ -6,11 +6,13 @@ import type { SandboxEnvironmentKey } from "@agentswf/contract/workflow";
 import {
   type Absent,
   type CallerPane,
+  callingSession,
   createCallerHostFactory,
   createHeadlessRunHostFactory,
   createHerdrRunHostFactory,
   createPlacementHostFactory,
   createSessionAccounting,
+  findSession,
   HARNESSES,
   type Harness,
   type HerdrConfig,
@@ -24,7 +26,11 @@ import {
   runProcess,
   withholding,
 } from "@agentswf/harness";
-import type { AgentRunHostFactory, AgentRuntimeConfig } from "@agentswf/harness/adapter";
+import type {
+  AgentRunHostFactory,
+  AgentRuntimeConfig,
+  CallingSession,
+} from "@agentswf/harness/adapter";
 import type { SandboxProviders } from "@agentswf/sandbox";
 import { createDockerProvider, findDocker } from "@agentswf/sandbox/docker";
 import { createSrtProvider, findSrt } from "@agentswf/sandbox/srt";
@@ -60,6 +66,11 @@ export type OperatorRuntimeOptions = {
   watchSandboxes?: boolean;
   /** The session `awf run --here` was started from, found in the Herdr session named (ADR 0010). */
   caller?: { pane: CallerPane; session: string };
+  /**
+   * Where `awf run` was typed: without `--here`, the session it was started from is looked for in
+   * its environment, for a workflow to fork (story 027).
+   */
+  shellCwd?: string;
   /** The operator's home. */
   home?: string;
   /** Told once, when the first pane agent's session is ready. */
@@ -79,6 +90,7 @@ export async function installOperatorRuntime(
     environment = process.env,
     watchSandboxes = true,
     caller,
+    shellCwd,
     home = homedir(),
     onRunSession,
   } = options;
@@ -94,6 +106,14 @@ export async function installOperatorRuntime(
     acceptWorkspaceTrust: true,
     watchSandboxes,
   });
+  const found = caller && (await handedOver(caller.pane, environment));
+  const calling = caller
+    ? typeof found === "string"
+      ? found
+      : undefined
+    : shellCwd === undefined
+      ? undefined
+      : await startedFrom(environment, shellCwd, unmetered);
   const host = loginChecked(
     unmetered,
     createPlacementHostFactory({
@@ -139,8 +159,16 @@ export async function installOperatorRuntime(
       },
       headless: createHeadlessRunHostFactory({}, unmetered),
       ...(caller
-        ? { caller: createCallerHostFactory(runConfig(caller.session), caller.pane, run) }
+        ? {
+            caller: createCallerHostFactory(
+              runConfig(caller.session),
+              caller.pane,
+              run,
+              typeof found === "object" ? found : undefined,
+            ),
+          }
         : {}),
+      ...(calling === undefined ? {} : { calling }),
     }),
   );
   return {
@@ -154,6 +182,67 @@ export async function installOperatorRuntime(
     // socket, and the control plane removes both when the run closes.
     cleanup: async () => undefined,
   };
+}
+
+/** A session file written longer ago than this names a session that is not the one waiting. */
+const CALLING_QUIET_MS = 10 * 60_000;
+
+/**
+ * The session `awf run` was started from, as a tool call of an agent's: each harness's session
+ * variable this process has, kept where that session's file was written lately, since a terminal
+ * or a Herdr server started from an agent's shell passes on a variable long after its session.
+ * The newest, where more than one is; why none, where none is.
+ */
+async function startedFrom(
+  environment: Readonly<Record<string, string | undefined>>,
+  shellCwd: string,
+  run: RunProcess,
+): Promise<CallingSession | string> {
+  const named = (Object.keys(HARNESSES) as Harness[]).flatMap((harness) => {
+    const variable = HARNESSES[harness].sessionEnv;
+    const session = variable ? environment[variable]?.trim() : undefined;
+    return variable && session ? [{ harness, session, variable }] : [];
+  });
+  if (named.length === 0) return "awf run was not started from an agent's shell";
+  const found = await Promise.all(
+    named.map(async (each) => ({
+      ...each,
+      file: await findSession(each.harness, each.session, shellCwd, environment),
+    })),
+  );
+  const live = found
+    .flatMap(({ file, ...each }) =>
+      file && Date.now() - file.writtenAt <= CALLING_QUIET_MS ? [{ ...each, file }] : [],
+    )
+    .sort((left, right) => right.file.writtenAt - left.file.writtenAt)[0];
+  if (!live) {
+    const names = named.map(({ variable, session }) => `${variable}=${session}`).join(", ");
+    return `no session ${names} names was written in the last ${CALLING_QUIET_MS / 60_000} minutes`;
+  }
+  if (!live.file.model) return noModel(live.harness, live.session);
+  return callingSession(
+    { harness: live.harness, session: live.session, cwd: live.file.cwd },
+    run,
+    undefined,
+    environment,
+  );
+}
+
+/** Why a session whose files name no model, as an operator's cursor chat's do not, is not forked. */
+function noModel(harness: Harness, session: string): string {
+  return `${harness}'s files for session ${session} name no model it ran on, so a fork of it has none to run on`;
+}
+
+/** The id and directory of the session `--here` handed over, where `--here` passed its id. */
+async function handedOver(
+  pane: CallerPane,
+  environment: Readonly<Record<string, string | undefined>>,
+): Promise<{ session: string; cwd: string } | string> {
+  if (!pane.session) return "awf run --here passed no id for the calling session";
+  const file = await findSession(pane.harness, pane.session, pane.cwd, environment);
+  if (!file) return `${pane.harness} has no session ${pane.session} in the operator's home`;
+  if (!file.model) return noModel(pane.harness, pane.session);
+  return { session: pane.session, cwd: file.cwd };
 }
 
 /**
@@ -322,13 +411,14 @@ const CALLING_SESSION_ENVIRONMENT = [
 
 /**
  * Unset for every agent: the metered credentials, which also refuse the run, the engine's own,
- * which a harness such as pi would otherwise bill against, the calling session's markers, and what
- * would override the settings an agent is launched at.
+ * which a harness such as pi would otherwise bill against, the calling session's markers and the
+ * ids `--here` passed on, and what would override the settings an agent is launched at.
  */
 const WITHHELD_ENVIRONMENT = [
   ...METERED_CREDENTIAL_ENVIRONMENT,
   "OPENROUTER_API_KEY",
   ...CALLING_SESSION_ENVIRONMENT,
+  "AWF_CALLER_SESSIONS",
 ];
 
 /**

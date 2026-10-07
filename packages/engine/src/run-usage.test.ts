@@ -13,7 +13,11 @@ import {
   type UsageRecord,
 } from "@agentswf/harness";
 import type { AgentRuntimeConfig, AgentSessionAdapter } from "@agentswf/harness/adapter";
-import { createFakeAdapter, type FakeAdapterTurnContext } from "@agentswf/harness/testing";
+import {
+  createFakeAdapter,
+  createFakeCallingSession,
+  type FakeAdapterTurnContext,
+} from "@agentswf/harness/testing";
 import { createRunLedger } from "./run-usage";
 import { createTempRunDirs, future, runNew, startNew, submit } from "./testing";
 import { WorkflowCancelledError, WorkflowRunError } from "./workflow-runner";
@@ -387,6 +391,73 @@ describe("usage read when the run ends", () => {
 
     expect(result.usage[0]!.execution).toEqual({ harness: "fake", model: "", caller: true });
     expect(result.usage[0]!.spend![0]!.tokens.output).toBe(3);
+  });
+
+  test("a fork of the session the run was started from is charged only its own", async () => {
+    const files = sessionFiles();
+    const adapter = createFakeAdapter({
+      continues: true,
+      script: (context) => ({
+        act: async () => {
+          await Bun.sleep(5);
+          files.log(context.previousSessionRef!, 10);
+          await submit(context.binding!, { answer: "ok" });
+        },
+      }),
+    });
+    const runtime: AgentRuntimeConfig = {
+      aliases: ALIASES,
+      host: {
+        ...createSingleSessionHostFactory(adapter, files.accounting()),
+        calling: createFakeCallingSession({
+          harness: "fake",
+          cwd: "/repo",
+          model: "model-a",
+          session: "s-main",
+          onFork: (sessionRef) => files.fork("s-main", sessionRef),
+        }),
+      },
+    };
+    const result = await runNew(
+      workflow(async (context) => {
+        // The session's turn that started the run, which the fork copies.
+        files.log("s-main", 20);
+        files.log("s-main", 30);
+        await Bun.sleep(5);
+        const fixer = await context.agents.forkCaller({ key: "fixer" });
+        await fixer!.run({ prompt: "Fix.", schema: ANSWER });
+        return null;
+      }),
+      null,
+      { runRoot: runDirs.tempRunDir(), deadline: future(), runtime },
+    );
+
+    expect(result.usage.map((usage) => usage.agent)).toEqual(["fixer"]);
+    expect(result.usage[0]!.execution).toEqual({ harness: "fake", model: "model-a" });
+    expect(result.usage[0]!.spend!.map((spend) => spend.tokens.output)).toEqual([10]);
+  });
+
+  test("handed over with no id to fork it by, forkCaller is null even once the caller is held", async () => {
+    const runtime: AgentRuntimeConfig = {
+      aliases: ALIASES,
+      host: {
+        ...createSingleSessionHostFactory(
+          createFakeAdapter({ script: () => ({}) }),
+          sessionFiles().accounting(),
+        ),
+        caller: { harness: "fake", cwd: "/repo" },
+        calling: "awf run --here passed no id for the calling session",
+      },
+    };
+    const result = await runNew(
+      workflow(async (context) => {
+        await context.agents.caller({ key: "author" });
+        return (await context.agents.forkCaller({ key: "fixer" })) === null ? "null" : "forked";
+      }),
+      null,
+      { runRoot: runDirs.tempRunDir(), deadline: future(), runtime },
+    );
+    expect(result.value).toBe("null");
   });
 
   test("an early answer keeps its acquisition spend and waits for remaining native spend", async () => {

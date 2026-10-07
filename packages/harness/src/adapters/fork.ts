@@ -1,10 +1,13 @@
+import { randomUUID } from "node:crypto";
 import { constants } from "node:fs";
-import { lstat, mkdir, open, writeFile } from "node:fs/promises";
+import { lstat, mkdir, open, stat, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, join, sep } from "node:path";
 import { type AbsoluteDeadline, DeadlineExceededError } from "@agentswf/contract/workflow";
-import type { NativeFork, SessionCopy } from "../adapter";
-import type { ProcessInput, ProcessResult } from "../command";
+import type { CallingSession, NativeFork, SessionCopy } from "../adapter";
+import type { ProcessInput, ProcessResult, RunProcess } from "../command";
+import { record, text } from "../json";
 import { type ForkPlan, harnessSpec } from "../spec";
+import { harnessState } from "../state";
 import type { Harness } from "../types";
 
 /** A fork asks no model: it copies a session file, in seconds (F7). */
@@ -110,4 +113,115 @@ export async function copySession(
     }
   }
   return { harness, sessionRef: session, copied: true };
+}
+
+/**
+ * Session `session` of `harness`, as the operator's home holds it: the directory its file last
+ * records, falling back to `cwd`; when it was last written; and the model its last request ran on,
+ * where its files name one. Undefined where it is not there.
+ */
+export async function findSession(
+  harness: Harness,
+  session: string,
+  cwd: string,
+  environment?: Readonly<Record<string, string | undefined>>,
+): Promise<{ cwd: string; writtenAt: number; model?: string } | undefined> {
+  const home = harnessState(environment)[harness];
+  const files = await harnessSpec(harness).sessionFiles?.(home, session, cwd);
+  if (!files?.length) return undefined;
+  const written = await Promise.all(
+    files.map((file) =>
+      stat(join(home, file)).then(
+        ({ mtimeMs }) => mtimeMs,
+        () => 0,
+      ),
+    ),
+  );
+  const at = (await recordedCwd(join(home, files[0]!))) ?? cwd;
+  const model = await lastModel(harness, session, at, home);
+  return { cwd: at, writtenAt: Math.max(...written), ...(model ? { model } : {}) };
+}
+
+/**
+ * The working directory the last row of a session's file that names one records: each row of
+ * claude's, codex's `session_meta` and `turn_context`, pi's header.
+ */
+async function recordedCwd(file: string): Promise<string | undefined> {
+  let content: string;
+  try {
+    content = await Bun.file(file).text();
+  } catch {
+    return undefined;
+  }
+  let found: string | undefined;
+  for (const line of content.split("\n")) {
+    if (!line.includes('"cwd"')) continue;
+    try {
+      const row = record(JSON.parse(line));
+      found = text(row?.cwd) ?? text(record(row?.payload)?.cwd) ?? found;
+    } catch {}
+  }
+  return found;
+}
+
+/**
+ * The session a run was started from, which it forks but never started (story 027): in the
+ * operator's home, with the operator's skills, and with none of the run's own place.
+ */
+export function callingSession(
+  found: { harness: Harness; session: string; cwd: string },
+  run: RunProcess,
+  /** Waits for the session to settle first, where the run drives it; absent, it is read as is. */
+  settle?: (deadline: AbsoluteDeadline, signal: AbortSignal) => Promise<void>,
+  environment?: Readonly<Record<string, string | undefined>>,
+): CallingSession {
+  const { harness, session, cwd } = found;
+  const spec = harnessSpec(harness);
+  const home = harnessState(environment)[harness];
+  return {
+    harness,
+    session,
+    cwd,
+    async fork(deadline, into, stop) {
+      const signal = AbortSignal.any([
+        AbortSignal.timeout(Math.max(1, deadline.unixMilliseconds - Date.now())),
+        ...(stop ? [stop] : []),
+      ]);
+      await settle?.(deadline, signal);
+      const model = await lastModel(harness, session, cwd, home);
+      if (!model) {
+        throw new Error(
+          `the calling session's files name no model it ran on (${harness} session ${session}), so its fork has none to run on`,
+        );
+      }
+      if (signal.aborted) throw new Error("the fork was cancelled");
+      if (into) {
+        const copied = await copySession(harness, home, session, cwd, into);
+        return { ...copied, model };
+      }
+      if (!spec.forkSession) throw new Error(`${harness} cannot fork`);
+      const plan = await spec.forkSession(session, randomUUID(), { model, sessionHint: session });
+      const command = forkCommand(plan, { cwd, env: {}, deadline, signal });
+      return { ...(await forkResult(harness, plan, await run(command), deadline)), model };
+    },
+  };
+}
+
+/**
+ * The model `session`'s last request ran on, read once: the operator chose it, and awf learns it
+ * only from the session's files. A session waiting on the run is mid-turn until the run ends.
+ */
+async function lastModel(
+  harness: Harness,
+  session: string,
+  cwd: string,
+  home: string,
+): Promise<string | undefined> {
+  const spec = harnessSpec(harness);
+  const read = await spec.readSessionUsage?.([session], cwd, home).catch(() => undefined);
+  const last = read?.records
+    .filter((each) => !each.delegated && each.model !== "unknown")
+    .sort((left, right) => Date.parse(left.at) - Date.parse(right.at))
+    .at(-1);
+  return last && (spec.launchModel?.(last) ?? last.model);
 }

@@ -21,6 +21,7 @@ import {
 import type { AgentRunHostFactory, HarnessActivation } from "@agentswf/harness/adapter";
 import {
   createFakeAdapter,
+  createFakeCallingSession,
   type FakeAdapterTurn,
   type FakeAdapterTurnContext,
   type FakeFork,
@@ -63,8 +64,11 @@ export type OpenedAgent = {
   skills?: readonly string[];
   /** The sandbox it ran in; absent on the host. */
   sandbox?: AgentSandbox;
-  /** The agent it was forked from, and how many of that agent's turns its copy holds. */
-  forkedFrom?: { key: string; turns: number };
+  /**
+   * The agent it was forked from, or the session the run was started from, and how many of its
+   * turns in this run the copy holds.
+   */
+  forkedFrom?: { key: string; turns: number } | { caller: true; turns: number };
   /**
    * Its pane's layout as the workflow wrote it; this host has no screen, so nothing says where a
    * pane landed or whether a `beside` fell back.
@@ -105,8 +109,11 @@ export function createScriptedHost(
     /** The script could not meet a turn: the test fails. */
     onScriptError(message: string): void;
   },
-  /** The session the run is started from, as `awf run --here` finds one (ADR 0010). */
-  caller?: { harness: string; cwd: string },
+  /**
+   * The session the run is started from, as `awf run --here` finds one, and the model its files
+   * show, which a fork of it runs on (ADR 0010).
+   */
+  caller?: { harness: string; cwd: string; model?: string; here?: boolean },
 ): ScriptedHost {
   const turns: TurnRecord[] = [];
   const compactions: CompactionRecord[] = [];
@@ -116,7 +123,24 @@ export function createScriptedHost(
   const open = new Set<TurnRecord>();
   const counts = new Map<string, number>();
   /** Each fork's session, by the agent it copied and that agent's turns so far. */
-  const forks = new Map<string, { key: string; turns: number }>();
+  const forks = new Map<string, NonNullable<OpenedAgent["forkedFrom"]>>();
+  /** The calling session's key, once the workflow has it as an agent. */
+  let callerKey: string | undefined;
+  // As a real run has it: a session whose files name no model is none to fork.
+  const calling =
+    caller &&
+    (caller.model === undefined
+      ? `${caller.harness}'s files for the calling session name no model it ran on`
+      : createFakeCallingSession({
+          harness: caller.harness,
+          cwd: caller.cwd,
+          model: caller.model,
+          onFork: (sessionRef) =>
+            forks.set(sessionRef, {
+              caller: true,
+              turns: callerKey === undefined ? 0 : (counts.get(callerKey) ?? 0),
+            }),
+        }));
   const end = (record: TurnRecord, outcome: TurnOutcome) => {
     record.outcome = outcome;
     open.delete(record);
@@ -351,22 +375,34 @@ export function createScriptedHost(
   const placed = createPlacementHostFactory({
     pane: side("pane"),
     headless: side("headless"),
-    ...(caller
+    ...(caller && caller.here !== false
       ? {
           caller: {
-            caller,
+            caller: { harness: caller.harness, cwd: caller.cwd },
+            calling,
             openRun: (spec) =>
               createSingleSessionHostFactory(
-                createFakeAdapter({ harnesses: [caller.harness], placement: "pane", script }),
+                createFakeAdapter({
+                  harnesses: [caller.harness],
+                  placement: "pane",
+                  script: (context) => {
+                    callerKey = context.activation.key;
+                    return script(context);
+                  },
+                  ...(typeof calling === "object" ? { found: calling } : {}),
+                }),
               ).openRun(spec),
           },
         }
-      : {}),
+      : calling
+        ? { calling }
+        : {}),
   });
 
   return {
     factory: {
       ...(placed.caller ? { caller: placed.caller } : {}),
+      ...(placed.calling ? { calling: placed.calling } : {}),
       async openRun(spec) {
         const run = await placed.openRun(spec);
         return {

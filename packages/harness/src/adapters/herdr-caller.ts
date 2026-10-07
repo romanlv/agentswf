@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
-import type { AgentRunHostFactory } from "../adapter";
+import type { AbsoluteDeadline } from "@agentswf/contract/workflow";
+import type { AgentRunHostFactory, SessionCopy } from "../adapter";
 import { type RunProcess, runProcess, withholding } from "../command";
 import { failedOnLogin, thisTurn } from "../harnesses/login";
 import { record, text } from "../json";
@@ -9,6 +10,7 @@ import { createSingleSessionHostFactory } from "../single-session-host";
 import { findHarness, HARNESS_NAMES, harnessSpec } from "../spec";
 import type { Harness } from "../types";
 import { createSessionAccounting } from "../usage/accounting";
+import { callingSession } from "./fork";
 import { createHerdrCommands, type HerdrConfig } from "./herdr";
 import {
   abortableDelay,
@@ -27,13 +29,18 @@ import {
 
 /**
  * The session `awf run --here` was started from (ADR 0010): the one agent pane whose screen showed
- * the run's code, the harness Herdr detected in it, and the directory it works in.
+ * the run's code, the harness Herdr detected in it, and the directory it works in. `session` is its
+ * native id, as its harness's session variable gave it to the `--here` command, which the run forks.
  */
-export type CallerPane = { paneId: string; harness: Harness; cwd: string };
+export type CallerPane = { paneId: string; harness: Harness; cwd: string; session?: string };
+
+/** The handed-over session's id and directory, as its file was found, for a fork of it. */
+export type FoundCaller = { session: string; cwd: string };
 
 type CallerSearch = { kind: "found"; pane: CallerPane } | { kind: "refused"; reason: string };
 
 const SEARCH_POLL_MS = 1_000;
+
 /** Bounds the interrupt's calls, so a slow Herdr cannot outlast the engine's release grace. */
 const INTERRUPT_MS = 2_000;
 /** Lines of each pane read for the code: the agent's reply is the last thing on its screen. */
@@ -139,8 +146,22 @@ export function createCallerHostFactory(
   config: HerdrConfig,
   caller: CallerPane,
   run: RunProcess = runProcess,
+  found?: FoundCaller,
 ): AgentRunHostFactory {
   const { herdr } = createHerdrCommands(config, run);
+  // Forked once the pane has settled, so the copy holds the turn that ended last, and run as its
+  // pane agents are: without the emptied variables.
+  const calling =
+    found &&
+    callingSession(
+      { harness: caller.harness, ...found },
+      withholding(run, config.emptyEnvironment ?? []),
+      async (deadline, signal) => {
+        const busy = await settleAgent(herdr, caller.paneId, deadline.unixMilliseconds, signal);
+        if (busy)
+          throw new Error(`the calling session did not settle before its fork: ${busy.detail}`);
+      },
+    );
   const adapter = createSessionAdapter({
     harnesses: [caller.harness],
     placement: "pane",
@@ -182,6 +203,13 @@ export function createCallerHostFactory(
       };
       return {
         identity: { sessionId: randomUUID(), cwd: caller.cwd },
+        ...(calling
+          ? {
+              found: calling.session,
+              fork: (_session: string, deadline: AbsoluteDeadline, into?: SessionCopy) =>
+                calling.fork(deadline, into),
+            }
+          : {}),
         // The session is the operator's: an answered turn ends on its own, and the next is
         // prompted once it has. Whatever works on past its grace may be the operator's own turn,
         // so the host stops waiting on it and never interrupts it.
@@ -345,6 +373,7 @@ export function createCallerHostFactory(
     // The operator's session gets whatever its harness has; nothing was withheld from it.
     accounting: createSessionAccounting(withholding(run, config.emptyEnvironment ?? [])),
     caller: { harness: caller.harness, cwd: caller.cwd },
+    ...(calling ? { calling } : {}),
     openRun: (spec) => host.openRun(spec),
   };
 }

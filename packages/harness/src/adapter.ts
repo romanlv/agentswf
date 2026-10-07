@@ -199,7 +199,8 @@ export type SessionCopy = { directory: string };
 
 /**
  * A session the harness forked, for a new agent to continue. The engine hands it from the parent's
- * `fork` to the child's activation and never reads it: everything native about a fork stays here.
+ * `fork` to the child's activation and reads only its `model`: everything native about a fork stays
+ * here.
  */
 export type NativeFork = {
   readonly harness: HarnessKind;
@@ -211,6 +212,11 @@ export type NativeFork = {
    * harness forks it in when it is activated, through its own place.
    */
   readonly copied?: true;
+  /**
+   * The model the parent's files show it last ran, for a parent whose model awf did not choose:
+   * the calling session's (ADR 0010). The new agent runs on it, as a fork runs on its parent's.
+   */
+  readonly model?: string;
 };
 
 export interface HarnessActivation {
@@ -312,7 +318,26 @@ export interface AgentRunHostFactory {
    * whose execution says `caller` is that session, and a run whose host has none has no caller.
    */
   readonly caller?: { harness: HarnessKind; cwd: string };
+  /**
+   * The session the run was started from, which a workflow may fork (story 027): handed over with
+   * `--here`, or waiting on `awf run`. A string says why there is none to fork; absent, the host
+   * looks for none.
+   */
+  readonly calling?: CallingSession | string;
 }
+
+/** A session the run was started from and did not start, which it may fork. */
+export type CallingSession = {
+  readonly harness: HarnessKind;
+  readonly session: string;
+  /** Where it works, as its file records it. */
+  readonly cwd: string;
+  /**
+   * The harness's own fork of it, or its copy `into` another home, on its last request's model;
+   * `stop` ends it early, as the run closing does.
+   */
+  fork(deadline: AbsoluteDeadline, into?: SessionCopy, stop?: AbortSignal): Promise<NativeFork>;
+};
 
 /** Engine-owned configuration assembled once, outside workflow definitions. */
 export interface AgentRuntimeConfig {

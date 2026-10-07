@@ -136,6 +136,7 @@ export function awfRunner(): Runner {
       stdout: "pipe",
       stderr: "pipe",
       stdin: "ignore",
+      env: withoutCallingSession(process.env),
     });
     const [stdout, stderr, exitCode] = await Promise.all([
       new Response(child.stdout).text(),
@@ -144,6 +145,26 @@ export function awfRunner(): Runner {
     ]);
     return { exitCode, stderr, ms: Date.now() - started, ...parseRecord(stdout) };
   };
+}
+
+/**
+ * Each harness's session variable, its spec's `sessionEnv`: a case's run started with one would
+ * find the operator's session and let its workflow fork it (story 027).
+ */
+const SESSION_VARIABLES = [
+  "CLAUDE_CODE_SESSION_ID",
+  "CODEX_SESSION_ID",
+  "PI_SESSION_ID",
+  "CURSOR_CONVERSATION_ID",
+];
+
+/** `environment` without the session `awf-lab` was started from, if it was started from one. */
+export function withoutCallingSession(
+  environment: Readonly<Record<string, string | undefined>>,
+): Record<string, string | undefined> {
+  return Object.fromEntries(
+    Object.entries(environment).filter(([name]) => !SESSION_VARIABLES.includes(name)),
+  );
 }
 
 /** `awf allowance --json`, as the operator's own login reads it; undefined when it printed none. */

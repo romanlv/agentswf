@@ -285,7 +285,7 @@ async function runAttempt(
         watchSandboxes: command.watch,
         home,
         onRunSession: (session) => placed(session),
-        ...(calling ? { caller: calling.caller } : {}),
+        ...(calling ? { caller: calling.caller } : { shellCwd: command.shellCwd }),
       },
     );
   } catch (error) {

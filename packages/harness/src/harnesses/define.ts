@@ -2,7 +2,7 @@ import type { Billing } from "@agentswf/contract/records";
 import type { Effort } from "@agentswf/contract/workflow";
 import type { Holding, RunProcess } from "../command";
 import type { AllowanceRead } from "../usage/allowance";
-import type { SessionRead } from "../usage/records";
+import type { SessionRead, UsageRecord } from "../usage/records";
 import type { LoginCheck } from "./login";
 
 export type TurnPlan = {
@@ -142,6 +142,11 @@ export type HarnessSpec = {
    * home is not its parent's. Undefined where the session cannot be found there.
    */
   sessionFiles?(home: string, session: string, cwd: string): Promise<string[] | undefined>;
+  /**
+   * The model a launch names for a request its files logged, where that is not the model as
+   * logged: a fork of a session awf did not start runs on its last request's (story 027).
+   */
+  launchModel?(record: UsageRecord): string;
   /**
    * The session that logged `marker` since `since`, for a pane whose harness names its session to
    * nobody: the operation's id, which every turn's prompt carries, finds it in the harness's files.

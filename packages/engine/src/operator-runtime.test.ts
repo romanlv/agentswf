@@ -1,6 +1,6 @@
 import { afterAll, describe, expect, test } from "bun:test";
 import { mkdtempSync, readdirSync, readFileSync } from "node:fs";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ProcessInput, ProcessResult, RunProcess } from "@agentswf/harness";
@@ -51,6 +51,105 @@ describe("operator runtime", () => {
     } finally {
       await installed.cleanup();
     }
+  });
+
+  describe("the session awf run was started from", () => {
+    /** A claude home holding each session, on a model unless `false`, last written `ago` ms ago. */
+    async function claudeHome(sessions: Record<string, [ago: number, model?: false]>) {
+      const home = await mkdtemp(join(HOME, "claude-"));
+      const directory = join(home, "projects", "-work");
+      await mkdir(directory, { recursive: true });
+      for (const [id, [ago, model]] of Object.entries(sessions)) {
+        const file = join(directory, `${id}.jsonl`);
+        const rows: object[] = [{ type: "user", cwd: "/work", sessionId: id }];
+        if (model !== false) {
+          rows.push({
+            type: "assistant",
+            cwd: "/work",
+            sessionId: id,
+            requestId: `r-${id}`,
+            timestamp: new Date().toISOString(),
+            message: { model: "claude-opus-5-5", usage: { input_tokens: 1, output_tokens: 1 } },
+          });
+        }
+        await writeFile(file, rows.map((row) => JSON.stringify(row)).join("\n"));
+        const at = new Date(Date.now() - ago);
+        await utimes(file, at, at);
+      }
+      return { CLAUDE_CONFIG_DIR: home };
+    }
+
+    const callingOf = async (environment: Record<string, string>, shellCwd?: string) => {
+      const installed = await installOperatorRuntime(60_000, {
+        home: HOME,
+        run: subscriptionRunner([]),
+        environment,
+        ...(shellCwd === undefined ? {} : { shellCwd }),
+      });
+      await installed.cleanup();
+      const { calling } = installed.config.host;
+      return typeof calling === "object" ? { session: calling.session, cwd: calling.cwd } : calling;
+    };
+
+    test("is its harness's session variable, in the directory its file records", async () => {
+      const home = await claudeHome({ s1: [1_000] });
+      expect(await callingOf({ ...home, CLAUDE_CODE_SESSION_ID: "s1" }, "/work/sub")).toEqual({
+        session: "s1",
+        cwd: "/work",
+      });
+    });
+
+    test("is none where its file has gone quiet, as an inherited variable's has", async () => {
+      const home = await claudeHome({ s1: [60 * 60_000] });
+      expect(await callingOf({ ...home, CLAUDE_CODE_SESSION_ID: "s1" }, "/work")).toBe(
+        "no session CLAUDE_CODE_SESSION_ID=s1 names was written in the last 10 minutes",
+      );
+    });
+
+    test("is none where its files name no model to fork it on", async () => {
+      const home = await claudeHome({ s2: [1_000, false] });
+      expect(await callingOf({ ...home, CLAUDE_CODE_SESSION_ID: "s2" }, "/work")).toBe(
+        "claude's files for session s2 name no model it ran on, so a fork of it has none to run on",
+      );
+    });
+
+    test("is the most recently written, where a variable of another harness is live too", async () => {
+      const claude = await claudeHome({ s1: [5 * 60_000] });
+      const pi = await mkdtemp(join(HOME, "pi-"));
+      const directory = join(pi, "sessions", "--work--");
+      await mkdir(directory, { recursive: true });
+      const rows = [
+        { type: "session", id: "p1", cwd: "/work/pi", timestamp: new Date().toISOString() },
+        {
+          type: "message",
+          id: "m1",
+          timestamp: new Date().toISOString(),
+          message: {
+            role: "assistant",
+            provider: "openai-codex",
+            model: "gpt-5.6-terra",
+            usage: { input: 1, output: 1 },
+          },
+        },
+      ];
+      await writeFile(
+        join(directory, "2026-10-06T12-00-00_p1.jsonl"),
+        rows.map((row) => JSON.stringify(row)).join("\n"),
+      );
+      const environment = {
+        ...claude,
+        CLAUDE_CODE_SESSION_ID: "s1",
+        PI_CODING_AGENT_DIR: pi,
+        PI_SESSION_ID: "p1",
+      };
+      expect(await callingOf(environment, "/work")).toEqual({ session: "p1", cwd: "/work/pi" });
+    });
+
+    test("is none outside an agent's shell, and not looked for without a shell", async () => {
+      expect(await callingOf({}, "/work")).toBe("awf run was not started from an agent's shell");
+      const home = await claudeHome({ s1: [1_000] });
+      expect(await callingOf({ ...home, CLAUDE_CODE_SESSION_ID: "s1" })).toBeUndefined();
+    });
   });
 
   test("each agent runs where its placement says, and an all-headless run never starts Herdr", async () => {

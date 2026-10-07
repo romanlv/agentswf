@@ -1,5 +1,9 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { ProcessInput, ProcessResult, RunProcess } from "../command";
+import { claudeProjectDirectory } from "../usage/claude";
 import type { HerdrConfig } from "./herdr";
 import { createHerdrCommands } from "./herdr";
 import {
@@ -127,9 +131,13 @@ describe("createCallerHostFactory", () => {
   const binding = { endpoint: "/private/engine.sock", operationId: "op-1" };
   const deadline = () => ({ unixMilliseconds: Date.now() + 60_000 });
 
-  async function open(caller: CallerPane, answer: (input: ProcessInput) => Answer) {
+  async function open(
+    caller: CallerPane,
+    answer: (input: ProcessInput) => Answer,
+    found?: { session: string; cwd: string },
+  ) {
     const { run, calls } = herdrWith([], answer);
-    const factory = createCallerHostFactory(CONFIG, caller, run);
+    const factory = createCallerHostFactory(CONFIG, caller, run, found);
     const host = await factory.openRun({ runId: "run-1", cwd: "/repo", deadline: deadline() });
     const session = await host.openAgent({
       key: "author",
@@ -390,6 +398,87 @@ describe("createCallerHostFactory", () => {
     expect(session.promptedAt?.()).toBeNumber();
     await session.close("workflow complete");
     expect(calls.filter((call) => verb(call) === "agent send-keys")).toHaveLength(0);
+  });
+
+  describe("fork", () => {
+    const saved = process.env.CLAUDE_CONFIG_DIR;
+    let home: string | undefined;
+    afterEach(async () => {
+      if (saved === undefined) delete process.env.CLAUDE_CONFIG_DIR;
+      else process.env.CLAUDE_CONFIG_DIR = saved;
+      if (home) await rm(home, { recursive: true, force: true });
+    });
+
+    /** The operator's claude home, holding `session` logged at these models, in order. */
+    async function operatorSession(session: string, rows: { model: string; sidechain?: true }[]) {
+      home = await mkdtemp(join(tmpdir(), "awf-caller-fork-"));
+      process.env.CLAUDE_CONFIG_DIR = home;
+      const directory = await claudeProjectDirectory(home);
+      await mkdir(directory, { recursive: true });
+      const lines = rows.map(({ model, sidechain }, at) =>
+        JSON.stringify({
+          type: "assistant",
+          uuid: `u${at}`,
+          requestId: `r${at}`,
+          timestamp: new Date(Date.UTC(2026, 9, 6, 12, at)).toISOString(),
+          ...(sidechain ? { isSidechain: true } : {}),
+          message: { model, usage: { input_tokens: 1, output_tokens: 1 } },
+        }),
+      );
+      await writeFile(join(directory, `${session}.jsonl`), lines.join("\n"));
+      return home;
+    }
+
+    const forking = (input: ProcessInput) =>
+      input.argv[0] === "claude"
+        ? ok({}, JSON.stringify({ session_id: "forked-1", num_turns: 0, total_cost_usd: 0 }))
+        : idle("")(input);
+
+    test("forks the operator's session before any turn, once it settles, on its last model", async () => {
+      const cwd = await operatorSession("sess-1", [
+        { model: "claude-sonnet-5-5" },
+        { model: "claude-opus-5-5" },
+        { model: "claude-haiku-4-5", sidechain: true },
+      ]);
+      const { session, calls } = await open(
+        { paneId: "w1:p1", harness: "claude", cwd, session: "sess-1" },
+        forking,
+        { session: "sess-1", cwd },
+      );
+      expect(session.sessions?.()).toEqual(["sess-1"]);
+      expect(await session.fork!(deadline())).toEqual({
+        harness: "claude",
+        sessionRef: "forked-1",
+        costTotal: 0,
+        model: "claude-opus-5-5",
+      });
+      expect(calls.map(verb)[0]).toBe("agent wait");
+      const fork = calls.find((input) => input.argv[0] === "claude")!;
+      expect(fork.argv).toEqual(expect.arrayContaining(["--resume", "sess-1", "--fork-session"]));
+      expect(fork.argv.slice(-2)).toEqual(["--model", "claude-opus-5-5"]);
+      expect(fork.cwd).toBe(cwd);
+    });
+
+    test("refuses a session whose files name no model it ran on", async () => {
+      const cwd = await operatorSession("sess-1", []);
+      const { session, calls } = await open(
+        { paneId: "w1:p1", harness: "claude", cwd, session: "sess-1" },
+        forking,
+        { session: "sess-1", cwd },
+      );
+      await expect(session.fork!(deadline())).rejects.toThrow(
+        "the calling session's files name no model it ran on (claude session sess-1)",
+      );
+      expect(calls.some((input) => input.argv[0] === "claude")).toBe(false);
+    });
+
+    test("has no fork without the session's id", async () => {
+      const { session } = await open(
+        { paneId: "w1:p1", harness: "claude", cwd: "/repo" },
+        idle(""),
+      );
+      expect(session.fork).toBeUndefined();
+    });
   });
 
   test("compaction is refused before anything is sent", async () => {

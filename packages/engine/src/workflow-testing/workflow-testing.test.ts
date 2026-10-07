@@ -1049,6 +1049,102 @@ describe("testWorkflow with a calling session", () => {
     expect(run.sets).toEqual([]);
   });
 
+  /** Forks the session the run was started from, and runs the fork once. */
+  const fixing = workflowOf<null, JsonValue>(async (workflow) => {
+    const fixer = await workflow.agents.forkCaller({
+      key: "fixer",
+      layout: { workspace: "origin" },
+      keepPane: "always",
+    });
+    if (!fixer) return "no session";
+    const { outcome } = await fixer.run({ prompt: "Fix the findings." });
+    return outcome.kind === "answered" ? outcome.value : outcome.kind;
+  });
+
+  test("forkCaller forks a session waiting on the run: an agent the run opened, on its files' model", async () => {
+    const run = await testWorkflow(fixing, null, {
+      caller: { harness: "claude", model: "claude-opus-5-5", here: false },
+      agents: { fixer: answer("fixed") },
+    });
+    expect(run.value).toBe("fixed");
+    expect(run.agentOf("fixer")).toMatchObject({
+      execution: { harness: "claude", model: "claude-opus-5-5" },
+      forkedFrom: { caller: true, turns: 0 },
+      layout: { workspace: "origin" },
+      keptPane: true,
+    });
+    expect(run.agentOf("fixer").execution).not.toHaveProperty("caller");
+    expect(run.agents.map((agent) => agent.key)).toEqual(["fixer"]);
+  });
+
+  test("a session waiting on the run is no agent of it: caller is null, forkCaller is not", async () => {
+    const run = await testWorkflow(
+      workflowOf<null, JsonValue>(async (workflow) => ({
+        caller: (await workflow.agents.caller({ key: "main" }))?.key ?? null,
+        fork: (await workflow.agents.forkCaller({ key: "fixer" }))?.key ?? null,
+      })),
+      null,
+      { caller: { harness: "pi", model: "openai-codex/gpt-5.6-terra", here: false } },
+    );
+    expect(run.value).toEqual({ caller: null, fork: "fixer" });
+  });
+
+  test("forkCaller is null with no session, and where its files name no model, saying why", async () => {
+    expect((await testWorkflow(fixing, null)).value).toBe("no session");
+    const run = await testWorkflow(fixing, null, { caller: { harness: "codex", here: false } });
+    expect(run.value).toBe("no session");
+    expect(run.agents).toEqual([]);
+    expect(run.logs.map((log) => log.message)).toContainEqual(
+      "awf: forkCaller: no session to fork: codex's files for the calling session name no model it ran on",
+    );
+  });
+
+  test("forkCaller again under its key is the same fork; under another spec it conflicts", async () => {
+    const run = await testWorkflow(
+      workflowOf<null, JsonValue>(async (workflow) => {
+        const first = await workflow.agents.forkCaller({ key: "fixer" });
+        const again = await workflow.agents.forkCaller({ key: "fixer" });
+        const other = await workflow.agents.forkCaller({ key: "fixer", instructions: "else" }).then(
+          () => "forked",
+          (error: Error) => error.message,
+        );
+        return { same: first === again, other };
+      }),
+      null,
+      { caller: { harness: "claude", model: "claude-opus-5-5", here: false } },
+    );
+    expect(run.value).toEqual({
+      same: true,
+      other: "agent fixer is already open, not as this fork of the calling session",
+    });
+  });
+
+  test("handed over, forkCaller and caller().fork() take one copy, after the run's turns to it", async () => {
+    const run = await testWorkflow(
+      workflowOf<null, JsonValue>(async (workflow) => {
+        const author = await workflow.agents.caller({ key: "author" });
+        await author!.run({ prompt: "Plan." });
+        const first = await workflow.agents.forkCaller({ key: "fixer" });
+        const again = await author!.fork({ key: "fixer" });
+        const other = await author!.fork({ key: "fixer", instructions: "else" }).then(
+          () => "forked",
+          (error: Error) => error.message,
+        );
+        return { same: first === again, other };
+      }),
+      null,
+      {
+        caller: { harness: "claude", model: "claude-opus-5-5" },
+        agents: { author: answer("planned") },
+      },
+    );
+    expect(run.value).toEqual({
+      same: true,
+      other: "agent fixer is already open, not as this fork of the calling session",
+    });
+    expect(run.agentOf("fixer").forkedFrom).toEqual({ caller: true, turns: 1 });
+  });
+
   test("one key: the same returns the same ref, another rejects, and so do open and compact", async () => {
     const run = await testWorkflow(
       workflowOf<null, JsonValue>(async (workflow) => {

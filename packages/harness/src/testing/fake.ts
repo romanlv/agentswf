@@ -1,9 +1,10 @@
 import { randomUUID } from "node:crypto";
 import { mkdir } from "node:fs/promises";
-import type { TurnLogin } from "@agentswf/contract/workflow";
+import type { AbsoluteDeadline, HarnessKind, TurnLogin } from "@agentswf/contract/workflow";
 import type {
   AgentSessionAdapter,
   AuthoredTurn,
+  CallingSession,
   HarnessActivation,
   HarnessOperationBinding,
   NativeFork,
@@ -85,6 +86,11 @@ export function createFakeAdapter(
     forks?: (activation: HarnessActivation) => boolean;
     onFork?: (fork: FakeFork) => void;
     /**
+     * Its session is found, not opened, as a handed-over calling session's is: forked by `found`'s
+     * own fork, before any turn.
+     */
+    found?: CallingSession;
+    /**
      * Whether this agent switches its model and effort, as its real host would; absent, none
      * does. Given, it is asked for each switch and refuses with the reason it returns.
      */
@@ -115,6 +121,7 @@ export function createFakeAdapter(
       const sessionId = activation.continues
         ? `${activation.continues.sessionRef}${activation.continues.copied ? "/forked" : ""}`
         : `fake-${activation.key}`;
+      const { found } = options;
       const forks = options.forks?.(activation) ?? false;
       const { model, effort } = activation.execution;
       let settings: SessionSettings = { model, ...(effort === undefined ? {} : { effort }) };
@@ -127,6 +134,13 @@ export function createFakeAdapter(
           ? { confirmsDelivery: true as const }
           : {}),
         identity: { sessionId, cwd: activation.cwd },
+        ...(found
+          ? {
+              found: found.session,
+              fork: (_session: string, deadline: AbsoluteDeadline, into?: SessionCopy) =>
+                found.fork(deadline, into),
+            }
+          : {}),
         ...(forks
           ? {
               async fork(sessionRef: string, _deadline, into?: SessionCopy): Promise<NativeFork> {
@@ -241,4 +255,35 @@ export function createFakeAdapter(
     },
   });
   return Object.assign(adapter, { activations, turns, closed });
+}
+
+/**
+ * A session a run was started from, as the fake has it: its fork carries `model`, the model its
+ * files show; without one it rejects, as a real one does where they name none (story 027).
+ */
+export function createFakeCallingSession(options: {
+  harness: HarnessKind;
+  cwd: string;
+  model?: string;
+  session?: string;
+  onFork?: (sessionRef: string) => void;
+}): CallingSession {
+  const session = options.session ?? "fake-calling";
+  return {
+    harness: options.harness,
+    session,
+    cwd: options.cwd,
+    async fork(_deadline, into) {
+      if (!options.model) throw new Error("the calling session's files name no model it ran on");
+      if (into) await mkdir(into.directory, { recursive: true });
+      const sessionRef = `${session}/${into ? "copy" : "fork"}-${randomUUID()}`;
+      options.onFork?.(sessionRef);
+      return {
+        harness: options.harness,
+        sessionRef,
+        ...(into ? { copied: true as const } : {}),
+        model: options.model,
+      };
+    },
+  };
 }

@@ -2053,6 +2053,20 @@ describe("awf run --here", () => {
     expect([...sessions]).toEqual(["default"]);
   });
 
+  test("the run's tab is told the session's own id, by harness, for a fork of it", async () => {
+    const herdr = fakeHerdr();
+    const exitCode = await cli(["run", "--here", WORKFLOW], {
+      cwd: ROOT,
+      environment: { ...inHerdr, CLAUDE_CODE_SESSION_ID: "sess-1" },
+      herdr: herdr.run,
+      self: ["awf"],
+      stdout: () => undefined,
+    });
+    expect(exitCode).toBe(0);
+    const created = herdr.calls.find((call) => call[0] === "tab" && call[1] === "create");
+    expect(created).toContain(`AWF_CALLER_SESSIONS=${JSON.stringify({ claude: "sess-1" })}`);
+  });
+
   test("a run whose code no pane shows refuses before it starts", async () => {
     const herdr = fakeHerdr({ "w1:p1": { agent: "claude", screen: "something else" } });
     const errors: string[] = [];
