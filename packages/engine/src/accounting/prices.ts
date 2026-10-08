@@ -32,13 +32,14 @@ function openai(input: number, cached: number, output: number, write = input * 1
 }
 
 /**
- * List prices, read on 2026-09-23 (Claude Sonnet 5.5 on 2026-09-29, GPT-6.1 Sol on 2026-10-01) from https://platform.claude.com/docs/en/about-claude/pricing
+ * List prices, read on 2026-09-23 (Claude Sonnet 5.5 on 2026-09-29, GPT-6.1 Sol on 2026-10-01, Claude Haiku 5.5 on 2026-10-07) from https://platform.claude.com/docs/en/about-claude/pricing
  * and https://developers.openai.com/api/docs/pricing, and on 2026-09-26 from OpenRouter for Jev. A subscription is not charged per token,
  * but its allowance is drawn down roughly in proportion to these, so they price any run the same
  * way whoever pays for it.
  *
  * Not modelled: OpenAI's long-context rates (2x input and 1.5x output, on gpt-5.6 and gpt-6 past
- * a threshold, and on gpt-5.5 past 272K), so a very long codex session is under-estimated.
+ * a threshold, and on gpt-5.5 past 272K), and Claude Haiku 5.5's 5x rate on prompts past 100K, so
+ * a very long session on either is under-estimated.
  */
 const RATES: Record<string, ModelRate> = {
   "claude-fable-5-1": anthropic(10, 50, 0.025),
@@ -53,6 +54,7 @@ const RATES: Record<string, ModelRate> = {
   "claude-sonnet-5": anthropic(2, 10),
   "claude-sonnet-4-6": anthropic(3, 15),
   "claude-sonnet-4-5": anthropic(3, 15),
+  "claude-haiku-5-5": anthropic(0.1, 0.5),
   "claude-haiku-4-5": anthropic(1, 5),
   "gpt-6-astra": openai(10, 1, 50),
   "gpt-6.1-sol": openai(2, 0.1, 10),
