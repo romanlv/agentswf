@@ -50,7 +50,7 @@ const RATES: Record<string, ModelRate> = {
   "claude-opus-4-7": anthropic(5, 25),
   "claude-opus-4-6": anthropic(5, 25),
   "claude-opus-4-5": anthropic(5, 25),
-  "claude-sonnet-5-5": anthropic(2, 10),
+  "claude-sonnet-5-5": anthropic(2, 10, 0.05),
   "claude-sonnet-5": anthropic(2, 10),
   "claude-sonnet-4-6": anthropic(3, 15),
   "claude-sonnet-4-5": anthropic(3, 15),

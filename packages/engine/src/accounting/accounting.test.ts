@@ -113,7 +113,7 @@ describe("published prices", () => {
     expect(PUBLISHED_PRICES.rate("claude-opus-5-5[1m]")).toMatchObject({ input: 4 });
     expect(PUBLISHED_PRICES.rate("claude-sonnet-5-5")).toMatchObject({
       input: 2,
-      cacheRead: 0.2,
+      cacheRead: 0.1,
       output: 10,
     });
     expect(PUBLISHED_PRICES.rate("gpt-6-sol")).toMatchObject({
