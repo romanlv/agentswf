@@ -393,7 +393,8 @@ is left as it was.
 
 [`examples/feature-delivery`](examples/feature-delivery/) is the bigger design: plan, implement,
 review and revise, each a stage, so a step that stops is redone by `--continue` and the ones before
-it are reused. It typechecks and its tests run, but it hasn't run live yet.
+it are reused. `awf run --run-root {elsewhere} examples/feature-delivery/workflow.ts -- {ticket}`
+runs it; it has run live once, on a small ticket.
 
 ### Put agents in a sandbox, with exactly the skills they need
 
@@ -515,7 +516,7 @@ Herdr pane, or when its sandbox cannot reach Herdr. Under codex's default sandbo
 | [`pane-layout`](examples/pane-layout/) | a lead and two reviewers in one tab where you typed `awf run`, the lead's pane kept | `awf run examples/pane-layout/workflow.ts`, from a Herdr pane |
 | [`compaction`](examples/compaction/) | an agent compacted with a focus, then asked what it kept, per harness | `awf run examples/compaction/workflow.ts -- claude pi` |
 | [`calling-session`](examples/calling-session/) | a workflow driving the session it was started from | `awf run --here examples/calling-session/workflow.ts`, from an agent |
-| [`feature-delivery`](examples/feature-delivery/) | plan, implement, review, revise, as stages | tests run; not yet run live |
+| [`feature-delivery`](examples/feature-delivery/) | plan, implement, review, revise, as stages | `awf run --run-root /tmp/awf-runs examples/feature-delivery/workflow.ts -- ABC-1` |
 
 [`examples/README.md`](examples/README.md) has the details of each. The rest of the folder is test
 apparatus and a shared helper.

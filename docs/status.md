@@ -68,7 +68,9 @@ exists, the code is right, then this page.
   agent has exactly those, on the host or in a sandbox, under claude, codex and pi (story 007).
   Each agent gets a checked copy; a public skill is pinned to a commit in a cache shared by runs.
   `output.json` records each agent's skills. An agent named none keeps the operator's on the host.
-- `feature-delivery` runs on stages and its tests pass; it has never run live.
+- `feature-delivery` runs on stages, `awf run` takes it with `-- {ticket}`, and its tests pass. It ran
+  live once (2026-10-10), all five stages on a small ticket in a scratch repo, and a continue from
+  `additional-review` reused the four before it.
 - `bun run eval` checks every supported feature against the live harnesses, on their cheapest
   models; [`testing.md`](testing.md) says what each eval takes and when to run it.
 

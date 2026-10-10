@@ -1,285 +1,124 @@
+// One ticket from plan to approved change:
+//
+// ticket-doc ─▶ doc-review ⟲ ─▶ implementation ─▶ implementation-review ⟲ ─▶ additional-review
+//  planner       reviewer asks,     implementer      reviewer asks,              with --reviewer: more
+//  writes it     planner revises    builds it        implementer revises         reviewers at once; the
+//                                                                                implementer fixes what
+//                                                                                they ask, reviewer ⟲
+//
+// The reviewer runs on another model than the planner. The run stops when an agent gives no
+// answer, an author moves the ticket doc, a reviewer can't decide, or a review still wants changes
+// after `--revisions` revisions (3 by default). `--continue {ticket}` keeps the stages that finished
+// and redoes the one that stopped, with fresh agents: each stage's value carries what later stages
+// need, and each prompt says all its agent needs to know.
+//
+// awf run --run-root {outside the repo} examples/feature-delivery/workflow.ts -- ABC-1
+//   [--revisions 3] [--reviewer security=claude]…
+// The planner's skill is copied into the run's records, and claude takes no skill from inside its
+// working directory, so the records go outside the repo.
+import { defineExecutableWorkflow, type WorkflowContext } from "@agentswf/contract/workflow";
+import { parseArgs } from "./cli";
+import { md } from "./prompt";
 import {
-  type AgentRef,
-  isAnswered,
-  type RuntimeSelection,
-  type SkillRef,
-  type WorkflowContext,
-  type WorkflowDefinition,
-} from "@agentswf/contract/workflow";
-import { type ReviewSubject, reviewPrompt, revisionPrompt } from "./prompts";
-import {
-  ADDITIONAL_SCHEMA,
-  type CompletedAdditionalReview,
-  REVIEW_VERDICT_SCHEMA,
-  REVIEWED_SCHEMA,
-  type Reviewed,
-  type ReviewVerdict,
-  WORK_UPDATE_SCHEMA,
-  type WorkUpdate,
-} from "./schema";
+  additionalReviews,
+  implementation,
+  requestedChanges,
+  reviewLoop,
+  tally,
+  ticketDoc,
+  workOn,
+} from "./reviews";
+import { ADDITIONAL, type FeatureArgs, type Handoff, REVIEWED, WORK } from "./schema";
+import { openTeam } from "./team";
 
-const ROLE_CONFIG = {
-  planner: {
-    instructions:
-      "Own the ticket document. Verify current behavior and keep the document implementation-ready.",
-    skills: [{ path: new URL("./skills/ticket-doc", import.meta.url) }],
-  },
-  implementer: {
-    instructions: "Implement the approved ticket doc and keep it current as the decision record.",
-  },
-  reviewer: {
-    instructions:
-      "Gate both the ticket doc and implementation. Be specific when requesting changes.",
-  },
-} satisfies Record<string, { instructions: string; skills?: SkillRef[] }>;
-
-type PrimaryRole = keyof typeof ROLE_CONFIG;
-type AdditionalReviewer = { name: string; runtime: RuntimeSelection };
-type FeatureRuntimes = Record<PrimaryRole, RuntimeSelection> & {
-  additionalReviewers: AdditionalReviewer[];
-};
-
-type FeatureArgs = {
-  ticket: string;
-  runtimes: FeatureRuntimes;
-  maxRevisionRounds?: number;
-};
-
-type Handoff = {
-  docPath: string;
-  summary: string;
-  decisions: string[];
-  review: {
-    primary: string;
-    additional: CompletedAdditionalReview[];
-  };
-};
-
-type ConcludedVerdict = Exclude<ReviewVerdict, { kind: "inconclusive" }>;
-
-export const featureDelivery: WorkflowDefinition<FeatureArgs, Handoff> = {
-  meta: {
-    name: "feature-delivery",
-    description: "Plan, implement, review, and prepare a feature for human review.",
-    whenToUse: "Use when a ticket needs a verified plan before implementation begins.",
-    version: "1.0.0",
-  },
-
-  run: (workflow, args) => deliverFeature(workflow, args),
-};
-
-/**
- * Each step is a stage, so a continue picks up at the one that stopped: a step that can't go on
- * stops inside its stage, with why, and `--continue` with the run's id redoes it. Each stage's
- * value carries what later ones need, since the agents start fresh in every attempt.
- */
 async function deliverFeature(workflow: WorkflowContext, args: FeatureArgs): Promise<Handoff> {
-  const maxRevisions = Math.max(0, Math.floor(args.maxRevisionRounds ?? 3));
-  const reviewerNames = args.runtimes.additionalReviewers.map((reviewer) => reviewer.name);
-  if (new Set(reviewerNames).size !== reviewerNames.length) {
-    throw new Error("feature-delivery: additional reviewer names must be unique");
-  }
+  const { ticket } = args;
+  const team = await openTeam(workflow, args);
+  const { planner, reviewer } = team;
+  const reviewUntilApproved = reviewLoop(workflow, reviewer, args.maxRevisions);
 
-  // Opening an agent between stages is cheap; each attempt opens them afresh.
-  const planner = await openFeatureAgent(workflow, args, "planner");
-  const reviewer = await openFeatureAgent(workflow, args, "reviewer");
-  if (reviewer.execution.model === planner.execution.model) {
-    throw new Error("feature-delivery: the planner and primary reviewer must use different models");
-  }
-
-  const planned = await workflow.stage(
+  const plan = await workflow.stage(
     "ticket-doc",
-    { result: WORK_UPDATE_SCHEMA, summary: (work) => work.docPath },
-    async () => {
-      const { outcome } = await planner.run({
+    { result: WORK, summary: (work) => work.docPath },
+    () =>
+      planner.ask(WORK, {
         label: "Create ticket doc",
-        prompt: `Create an implementation-ready ticket doc for ${args.ticket}.`,
-        schema: WORK_UPDATE_SCHEMA,
-      });
-      return isAnswered(outcome) ? outcome.value : workflow.stop(outcome.reason);
-    },
+        prompt: md`Create an implementation-ready ticket doc for ${ticket}.`,
+      }),
   );
 
-  const docReview = await workflow.stage(
+  const approvedPlan = await workflow.stage(
     "doc-review",
-    { result: REVIEWED_SCHEMA, summary: (reviewed) => reviewed.summary },
-    () =>
-      reviewUntilReady(workflow, reviewer, planner, planned, maxRevisions, {
-        kind: "ticket-doc",
-        ticket: args.ticket,
-      }),
+    { result: REVIEWED, summary: (review) => review.summary },
+    () => reviewUntilApproved(planner, plan, ticketDoc(ticket)),
   );
-  const docPath = docReview.work.docPath;
+  const { docPath } = approvedPlan.work;
 
-  const implementer = await openFeatureAgent(workflow, args, "implementer");
-  const implemented = await workflow.stage(
+  const implementer = await team.implementer();
+  const built = await workflow.stage(
     "implementation",
-    { result: WORK_UPDATE_SCHEMA, summary: (work) => work.summary },
-    async () => {
-      const { outcome } = await implementer.run({
+    { result: WORK, summary: (work) => work.summary },
+    () =>
+      workOn(implementer, docPath, {
         label: "Implement feature",
-        prompt: [
-          `Implement ${args.ticket} from ${docPath}.`,
-          "Update that document with the decisions made and any deviations from the plan.",
-        ].join("\n"),
-        schema: WORK_UPDATE_SCHEMA,
-      });
-      if (!isAnswered(outcome)) return workflow.stop(outcome.reason);
-      return sameDoc(workflow, outcome.value, docPath, "implementer");
-    },
+        prompt: md`
+          Implement ${ticket} from ${docPath}.
+          Update that document with the decisions made and any deviations from the plan.
+        `,
+      }),
   );
 
-  const implementationReview = await workflow.stage(
+  const approvedBuild = await workflow.stage(
     "implementation-review",
-    { result: REVIEWED_SCHEMA, summary: (reviewed) => reviewed.summary },
-    () =>
-      reviewUntilReady(workflow, reviewer, implementer, implemented, maxRevisions, {
-        kind: "implementation",
-        ticket: args.ticket,
-      }),
+    { result: REVIEWED, summary: (review) => review.summary },
+    () => reviewUntilApproved(implementer, built, implementation(ticket)),
   );
 
   const { final, additional } = await workflow.stage(
     "additional-review",
-    {
-      result: ADDITIONAL_SCHEMA,
-      summary: ({ additional }) => `${additional.length} additional reviews`,
-    },
+    { result: ADDITIONAL, summary: ({ additional }) => tally(additional) },
     async () => {
-      const reviews = await reviewWithAdditionalAgents(
+      const additional = await additionalReviews(
         workflow,
-        args.runtimes.additionalReviewers,
-        args.ticket,
-        implementationReview.work,
+        args,
+        team.additionalReviewer,
+        approvedBuild.work,
       );
-      const additional: CompletedAdditionalReview[] = [];
-      for (const { reviewer, verdict } of reviews) {
-        if (verdict.kind === "inconclusive") return workflow.stop(`${reviewer}: ${verdict.reason}`);
-        additional.push(completedAdditionalReview(reviewer, verdict));
-      }
-      const feedback = additional.flatMap((review) =>
-        review.kind === "changes-addressed"
-          ? review.feedback.map((line) => `${review.reviewer}: ${line}`)
-          : [],
-      );
-      if (feedback.length === 0) return { final: implementationReview, additional };
+      const asked = requestedChanges(additional);
+      if (asked.length === 0) return { final: approvedBuild, additional };
 
-      const subject: ReviewSubject = { kind: "implementation", ticket: args.ticket };
-      const revised = await implementer.run({
+      const fixed = await workOn(implementer, docPath, {
         label: "Apply additional review",
-        prompt: revisionPrompt(subject, implementationReview.work, feedback),
-        schema: WORK_UPDATE_SCHEMA,
+        prompt: implementation(ticket).revise(approvedBuild.work, asked),
       });
-      if (!isAnswered(revised.outcome)) return workflow.stop(revised.outcome.reason);
-      const work = sameDoc(workflow, revised.outcome.value, docPath, "implementer");
-      const final = await reviewUntilReady(workflow, reviewer, implementer, work, maxRevisions, {
-        ...subject,
-        focus: feedback,
-      });
+      const final = await reviewUntilApproved(implementer, fixed, implementation(ticket, asked));
       return { final, additional };
     },
   );
 
   return {
-    docPath: final.work.docPath,
+    docPath,
     summary: final.work.summary,
     decisions: final.work.decisions,
     review: { primary: final.summary, additional },
   };
 }
 
-/** Reviews and revises until the reviewer approves, or stops with why it couldn't. */
-async function reviewUntilReady(
-  workflow: WorkflowContext,
-  reviewer: AgentRef,
-  author: AgentRef,
-  initial: WorkUpdate,
-  maxRevisions: number,
-  subject: ReviewSubject,
-): Promise<Reviewed> {
-  let work = initial;
-  const name = subject.kind === "ticket-doc" ? "ticket doc" : "implementation";
-  const authorRole = subject.kind === "ticket-doc" ? "planner" : "implementer";
-
-  for (let revision = 0; ; revision += 1) {
-    const review = await reviewer.run({
-      label: `Review ${name}`,
-      prompt: reviewPrompt(subject, work),
-      schema: REVIEW_VERDICT_SCHEMA,
-    });
-    if (!isAnswered(review.outcome)) return workflow.stop(review.outcome.reason);
-    const verdict = review.outcome.value;
-    if (verdict.kind === "ready") return { summary: verdict.summary, work };
-    if (verdict.kind === "inconclusive") return workflow.stop(verdict.reason);
-    if (revision === maxRevisions) return workflow.stop(`${name} revision limit reached`);
-
-    const revised = await author.run({
-      label: `Revise ${name}`,
-      prompt: revisionPrompt(subject, work, verdict.feedback),
-      schema: WORK_UPDATE_SCHEMA,
-    });
-    if (!isAnswered(revised.outcome)) return workflow.stop(revised.outcome.reason);
-    work = sameDoc(workflow, revised.outcome.value, work.docPath, authorRole);
-  }
-}
-
-function sameDoc(
-  workflow: WorkflowContext,
-  work: WorkUpdate,
-  docPath: string,
-  role: PrimaryRole,
-): WorkUpdate {
-  return work.docPath === docPath
-    ? work
-    : workflow.stop(`The ${role} updated a different ticket document`);
-}
-
-async function reviewWithAdditionalAgents(
-  workflow: WorkflowContext,
-  reviewers: AdditionalReviewer[],
-  ticket: string,
-  work: WorkUpdate,
-) {
-  return workflow.parallel(
-    reviewers,
-    async (candidate) => {
-      const reviewer = await workflow.agents.open({
-        key: `additional-reviewer:${candidate.name}`,
-        instructions:
-          "Independently review the implementation. Do not defer judgment to prior reviewers.",
-        runtime: candidate.runtime,
-        labels: { role: "additional-reviewer", reviewer: candidate.name },
-      });
-      const { outcome } = await reviewer.run({
-        label: `Review implementation: ${candidate.name}`,
-        prompt: reviewPrompt({ kind: "implementation", ticket }, work),
-        schema: REVIEW_VERDICT_SCHEMA,
-      });
-      const verdict: ReviewVerdict = isAnswered(outcome)
-        ? outcome.value
-        : { kind: "inconclusive", reason: outcome.reason };
-      return { reviewer: candidate.name, verdict };
+const executable = defineExecutableWorkflow<FeatureArgs, Handoff>({
+  definition: {
+    meta: {
+      name: "feature-delivery",
+      description: "Plan, implement, review, and prepare a feature for human review.",
+      whenToUse: "Use when a ticket needs a verified plan before implementation begins.",
+      version: "1.0.0",
     },
-    { label: "Additional implementation reviews", concurrency: 4 },
-  );
-}
+    run: deliverFeature,
+  },
+  prepare: ({ argv }) => parseArgs(argv),
+  id: (args) => args.ticket,
+  present: ({ docPath, summary, review }) =>
+    [summary, docPath, tally(review.additional)].join("\n"),
+});
 
-function openFeatureAgent(workflow: WorkflowContext, args: FeatureArgs, role: PrimaryRole) {
-  const config = ROLE_CONFIG[role];
-  return workflow.agents.open({
-    key: role,
-    instructions: config.instructions,
-    runtime: args.runtimes[role],
-    ...("skills" in config ? { skills: config.skills } : {}),
-    labels: { role, ticket: args.ticket },
-  });
-}
-
-function completedAdditionalReview(
-  reviewer: string,
-  verdict: ConcludedVerdict,
-): CompletedAdditionalReview {
-  return verdict.kind === "ready"
-    ? { reviewer, kind: "ready", summary: verdict.summary }
-    : { reviewer, kind: "changes-addressed", feedback: verdict.feedback };
-}
+export const featureDelivery = executable.definition;
+export default executable;

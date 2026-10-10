@@ -1,11 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import { answer, reply, type Script, testWorkflow } from "@agentswf/engine/workflow-testing";
-import { REVIEW_VERDICT_SCHEMA as VERDICT, WORK_UPDATE_SCHEMA as WORK } from "./schema";
-import { featureDelivery } from "./workflow";
+import { VERDICT, WORK } from "./schema";
+import feature, { featureDelivery } from "./workflow";
 
 const args = {
   ticket: "ABC-1",
-  runtimes: { planner: "claude", implementer: "codex", reviewer: "codex", additionalReviewers: [] },
+  runtimes: { planner: "claude", implementer: "codex", reviewer: "codex" },
 };
 const doc = "docs/ABC-1.md";
 const ready = (summary: string) => answer(VERDICT, { kind: "ready", summary });
@@ -48,6 +48,38 @@ describe("feature-delivery", () => {
     ]);
   });
 
+  test("the reviewer sends the code back once, and the implementer revises it", async () => {
+    const built = { docPath: doc, summary: "built", decisions: ["LRU"] };
+    const run = await testWorkflow(featureDelivery, args, {
+      agents: {
+        ...happyPath,
+        reviewer: [
+          ready("doc ok"),
+          answer(VERDICT, { kind: "changes-requested", feedback: ["handle a miss"] }),
+          ready("code ok"),
+        ],
+        implementer: [answer(WORK, built), answer(WORK, { ...built, summary: "handles misses" })],
+      },
+    });
+    expect(run.value).toMatchObject({ summary: "handles misses", review: { primary: "code ok" } });
+    expect(run.turnsOf("reviewer")[1]!.prompt).toBe(
+      [
+        `Review the implementation of ABC-1 described by ${doc}.`,
+        "Its author says: built",
+        "Decisions it recorded:",
+        "- LRU",
+        "Inspect the actual changes and return ready only when they are correct and complete.",
+      ].join("\n"),
+    );
+    expect(run.turnsOf("implementer")[1]!.prompt).toBe(
+      [
+        "Apply this review feedback to your implementation of ABC-1:",
+        "- handle a miss",
+        `Update ${doc} with any resulting decisions or deviations.`,
+      ].join("\n"),
+    );
+  });
+
   test("a full run records each stage with its summary", async () => {
     const run = await testWorkflow(featureDelivery, args, { agents: happyPath });
     expect(run.stages.map(({ stage, outcome, summary }) => [stage, outcome, summary])).toEqual([
@@ -55,8 +87,15 @@ describe("feature-delivery", () => {
       ["doc-review", "succeeded", "ok"],
       ["implementation", "succeeded", "built"],
       ["implementation-review", "succeeded", "ok"],
-      ["additional-review", "succeeded", "0 additional reviews"],
+      ["additional-review", "succeeded", "no additional reviewers"],
     ]);
+  });
+
+  test("a finished run closes with what was built, its doc, and the extra reviews", async () => {
+    const run = await testWorkflow(featureDelivery, args, { agents: happyPath });
+    expect(feature.present?.(run.value, undefined as never)).toBe(
+      `built\n${doc}\nno additional reviewers`,
+    );
   });
 
   test("a continue after the implementation stopped reuses the plan and redoes the rest", async () => {
@@ -87,13 +126,7 @@ describe("feature-delivery", () => {
     const built = { docPath: doc, summary: "built an LRU cache", decisions: ["LRU"] };
     const run = await testWorkflow(
       featureDelivery,
-      {
-        ...args,
-        runtimes: {
-          ...args.runtimes,
-          additionalReviewers: [{ name: "security", runtime: "claude" }],
-        },
-      },
+      { ...args, additionalReviewers: [{ name: "security", runtime: "claude" }] },
       {
         recorded: {
           "ticket-doc": planned,
@@ -138,7 +171,7 @@ describe("feature-delivery", () => {
   test("a reviewer that never approves hits the revision limit", async () => {
     const run = await testWorkflow(
       featureDelivery,
-      { ...args, maxRevisionRounds: 2 },
+      { ...args, maxRevisions: 2 },
       {
         agents: {
           planner: answer(WORK, (turn) => ({
@@ -152,16 +185,36 @@ describe("feature-delivery", () => {
     );
     expect(run.stopped).toEqual({
       stage: "doc-review",
-      reason: "ticket doc revision limit reached",
+      reason: "ticket doc: still not approved after 2 revisions",
     });
     // The first plan and two revisions, each reviewed.
     expect(run.turnsOf("planner")).toHaveLength(3);
     expect(run.turnsOf("reviewer")).toHaveLength(3);
   });
 
+  test("a limit no revision count can equal still stops the review", async () => {
+    const run = await testWorkflow(
+      featureDelivery,
+      { ...args, maxRevisions: -1 },
+      {
+        agents: {
+          ...happyPath,
+          reviewer: answer(VERDICT, { kind: "changes-requested", feedback: ["more detail"] }),
+        },
+      },
+    );
+    expect(run.stopped).toEqual({
+      stage: "doc-review",
+      reason: "ticket doc: still not approved after 0 revisions",
+    });
+  });
+
   test("a planner that goes quiet is nudged once, then the delivery stops", async () => {
     const run = await testWorkflow(featureDelivery, args, { agents: { planner: reply.silent() } });
-    expect(run.stopped).toMatchObject({ stage: "ticket-doc" });
+    expect(run.stopped).toMatchObject({
+      stage: "ticket-doc",
+      reason: expect.stringMatching(/^planner: /),
+    });
     expect(run.turnsOf("planner").map((turn) => turn.nudge)).toEqual([false, true]);
   });
 
@@ -172,7 +225,7 @@ describe("feature-delivery", () => {
         reviewer: answer(VERDICT, { kind: "inconclusive", reason: "cannot open the doc" }),
       },
     });
-    expect(run.stopped).toEqual({ stage: "doc-review", reason: "cannot open the doc" });
+    expect(run.stopped).toEqual({ stage: "doc-review", reason: "reviewer: cannot open the doc" });
   });
 
   test("the planner and the reviewer on one model are refused", async () => {
@@ -197,7 +250,7 @@ describe("feature-delivery", () => {
       });
       expect(run.stopped).toEqual({
         stage: "doc-review",
-        reason: "The planner updated a different ticket document",
+        reason: "planner: updated a different ticket document",
       });
     });
 
@@ -210,7 +263,7 @@ describe("feature-delivery", () => {
       });
       expect(run.stopped).toEqual({
         stage: "implementation",
-        reason: "The implementer updated a different ticket document",
+        reason: "implementer: updated a different ticket document",
       });
     });
   });
@@ -218,13 +271,10 @@ describe("feature-delivery", () => {
   describe("additional reviewers", () => {
     const withExtras = {
       ...args,
-      runtimes: {
-        ...args.runtimes,
-        additionalReviewers: [
-          { name: "security", runtime: "claude" },
-          { name: "perf", runtime: "claude" },
-        ],
-      },
+      additionalReviewers: [
+        { name: "security", runtime: "claude" },
+        { name: "perf", runtime: "claude" },
+      ],
     };
 
     test("their feedback is applied, then the primary reviewer checks it", async () => {
@@ -246,7 +296,7 @@ describe("feature-delivery", () => {
         summary: "escaped",
         review: {
           additional: [
-            { reviewer: "security", kind: "changes-addressed", feedback: ["escape the key"] },
+            { reviewer: "security", kind: "changes-requested", feedback: ["escape the key"] },
             { reviewer: "perf", kind: "ready", summary: "fast enough" },
           ],
         },
@@ -266,18 +316,68 @@ describe("feature-delivery", () => {
       expect(run.stopped).toEqual({ stage: "additional-review", reason: "perf: harness crashed" });
     });
 
-    test("two with one name are refused", async () => {
-      const run = await testWorkflow(featureDelivery, {
-        ...args,
-        runtimes: {
-          ...args.runtimes,
-          additionalReviewers: [
-            { name: "x", runtime: "claude" },
-            { name: "x", runtime: "codex" },
-          ],
+    test("one that can't decide stops the others, and the delivery", async () => {
+      // perf hangs until it is cancelled: were it not, the test would fail as stalled.
+      const run = await testWorkflow(featureDelivery, withExtras, {
+        agents: {
+          ...happyPath,
+          "additional-reviewer:security": answer(VERDICT, {
+            kind: "inconclusive",
+            reason: "no diff to read",
+          }),
+          "additional-reviewer:perf": reply.hang(),
         },
       });
-      expect(() => run.value).toThrow("additional reviewer names must be unique");
+      expect(run.stopped).toEqual({
+        stage: "additional-review",
+        reason: "security: no diff to read",
+      });
+    });
+  });
+
+  describe("from the command line", () => {
+    const prepare = (...argv: string[]) => feature.prepare({ argv, cwd: "/repo" });
+
+    test("a ticket names the run; a claude planner and codex for the rest", () => {
+      const args = prepare("ABC-1");
+      expect(args).toEqual({
+        ticket: "ABC-1",
+        runtimes: { planner: "claude", implementer: "codex", reviewer: "codex" },
+      });
+      expect(feature.id?.(args)).toBe("ABC-1");
+    });
+
+    test("flags set the revisions and add reviewers", () => {
+      expect(
+        prepare(
+          "--revisions",
+          "1",
+          "ABC-1",
+          "--reviewer",
+          "security=claude",
+          "--reviewer",
+          "perf=pi",
+        ),
+      ).toMatchObject({
+        ticket: "ABC-1",
+        maxRevisions: 1,
+        additionalReviewers: [
+          { name: "security", runtime: "claude" },
+          { name: "perf", runtime: "pi" },
+        ],
+      });
+    });
+
+    test.each([
+      [[]],
+      [["ABC-1", "ABC-2"]],
+      [["ABC-1", "--revisions", "-1"]],
+      [["ABC-1", "--revisions", ""]],
+      [["ABC-1", "--reviewer", "security"]],
+      [["ABC-1", "--reviewer", "x=claude", "--reviewer", "x=codex"]],
+      [["ABC-1", "--verbose"]],
+    ])("%p is refused with the usage", (argv) => {
+      expect(() => prepare(...argv)).toThrow("-- {ticket}");
     });
   });
 });

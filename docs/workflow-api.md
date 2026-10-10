@@ -692,7 +692,7 @@ entry may go unused, which makes it the right shape for a happy path shared by s
 // examples/feature-delivery/workflow.test.ts
 const args = {
   ticket: "ABC-1",
-  runtimes: { planner: "claude", implementer: "codex", reviewer: "codex", additionalReviewers: [] },
+  runtimes: { planner: "claude", implementer: "codex", reviewer: "codex" },
 };
 const doc = "docs/ABC-1.md";
 const ready = (summary: string) => answer(VERDICT, { kind: "ready", summary });

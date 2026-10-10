@@ -133,8 +133,15 @@ Each example that spans more than one file has a folder of its own, with its wor
   A lens with `paths` globs runs only when the diff touches a match, given the changed files by
   the entry point. It prints a line per finding to act on, and writes `report.md` with the
   evidence, the verifier's reasons and what was refuted, to hand back to the implementer.
-- `feature-delivery/` plans, implements, reviews and revises a feature. Its logic is tested; it
-  has never run with live agents.
+- `feature-delivery/` takes a ticket from plan to approved change, each step a stage, so
+  `--continue {ticket}` redoes the step that stopped. `-- {ticket}` runs it with a claude planner
+  and codex for the implementer and the reviewer; `--revisions {n}` bounds each review's revisions and
+  `--reviewer {name}={runtime}` adds a reviewer who looks last. Its planner has a skill, which claude
+  takes only from outside its working directory, so `--run-root` puts the run's records elsewhere.
+  It ran live on 2026-10-10, a small ticket in a scratch repo, through all five stages.
+  `workflow.ts` holds only the process; `reviews.ts` what each review says and how it loops,
+  `team.ts` its agents, `cli.ts` its arguments; `session.ts`, a turn that answers or stops, and
+  `prompt.ts`, prompts written inline, are for another workflow to copy and change.
 - `single-agent-review/` is one agent reviewing `--range` in one turn, with a pinned public
   review skill (`--skill owner/repo/skill@ref`) or none: the baseline richer review workflows are
   scored against with `awf-lab` (story 008).
@@ -172,7 +179,7 @@ path, `bun test examples/feature-delivery`; outside this repository, `awf test` 
 [The workflow API](../docs/workflow-api.md#testing-a-workflow) says how to write one.
 
 Only `minimum-review/review-loop.ts`, `calling-session/workflow.ts`, `compaction/workflow.ts`, `effort/workflow.ts`,
-`fork/workflow.ts`, `fork-caller/workflow.ts`, `pane-layout/workflow.ts`, `quick-check/workflow.ts`, `sandboxes/workflow.ts`, `sandbox-probe/workflow.ts`,
+`feature-delivery/workflow.ts`, `fork/workflow.ts`, `fork-caller/workflow.ts`, `pane-layout/workflow.ts`, `quick-check/workflow.ts`, `sandboxes/workflow.ts`, `sandbox-probe/workflow.ts`,
 `skills-probe/workflow.ts`, `triage/workflow.ts` and `single-agent-review/workflow.ts` have the
 executable default export required by `awf run`.
 A catalogue review's entry point lives beside the catalogue it reads, outside this package, because
