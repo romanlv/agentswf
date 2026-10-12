@@ -25,9 +25,18 @@ import { after, lastJson, resuming } from "./shared";
 function claudeInteractive(
   settings: LaunchSettings = {},
   launchArgs: readonly string[] = [],
+  sessionHint?: string,
 ): TurnPlan {
   return {
-    argv: ["claude", "--allowed-tools", "Bash", ...claudeSettings(settings), ...launchArgs],
+    argv: [
+      "claude",
+      "--allowed-tools",
+      "Bash",
+      ...(sessionHint ? ["--session-id", sessionHint] : []),
+      ...claudeSettings(settings),
+      ...launchArgs,
+    ],
+    ...(sessionHint ? { sessionId: sessionHint } : {}),
   };
 }
 

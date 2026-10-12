@@ -88,9 +88,14 @@ export type HarnessSpec = {
   herdrSessionIsOwn: boolean;
   /**
    * A retained interactive launch, independent of the terminal provider that hosts it, with the
-   * arguments its launch adds last, where nothing follows to be swallowed.
+   * arguments its launch adds last, where nothing follows to be swallowed. A harness that can be
+   * told its new session's id takes `sessionHint`, and its plan's `sessionId` says it did.
    */
-  interactive(settings?: LaunchSettings, launchArgs?: readonly string[]): TurnPlan;
+  interactive(
+    settings?: LaunchSettings,
+    launchArgs?: readonly string[],
+    sessionHint?: string,
+  ): TurnPlan;
   /**
    * The same launch on a session that exists, such as a fork's, or a pane's relaunched at other
    * settings; absent where a pane cannot.

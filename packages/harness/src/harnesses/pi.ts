@@ -26,8 +26,14 @@ const PI = {
   sessionEnv: "PI_SESSION_ID",
   interrupted: "Operation aborted",
   login: piLogin,
-  interactive: (settings = {}, launchArgs = []) => ({
-    argv: ["pi", ...piSettings(settings), ...launchArgs],
+  interactive: (settings = {}, launchArgs = [], sessionHint) => ({
+    argv: [
+      "pi",
+      ...(sessionHint ? ["--session-id", sessionHint] : []),
+      ...piSettings(settings),
+      ...launchArgs,
+    ],
+    ...(sessionHint ? { sessionId: sessionHint } : {}),
   }),
   interactiveResume: (session, settings = {}, launchArgs = []) => ({
     argv: ["pi", ...piSession(session), ...piSettings(settings), ...launchArgs],
