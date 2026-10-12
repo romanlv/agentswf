@@ -149,6 +149,8 @@ export type RunWorkflowOptions = {
   deadline: AbsoluteDeadline;
   cwd?: string;
   onLog?: (message: string, fields?: JsonObject) => void;
+  /** The operator hands the session back once agents.stop has released it. */
+  onCallerStopped?: (reason: string) => Promise<void>;
   signal?: AbortSignal;
   /** The sandbox providers agents may run in; without them, a sandboxed agent is refused. */
   sandboxes?: RunSandboxOptions;
@@ -263,6 +265,9 @@ type AgentEntry = {
   channel: Promise<ResultChannel | undefined>;
   /** Why `agents.stop` ended it; its key is not opened again. */
   stopped?: string;
+  stopping?: Promise<boolean>;
+  stopComplete?: boolean;
+  releasedAt?: number;
   /** How it was opened, or found for the calling session, which its forks reuse. */
   opening?: {
     sessions: AgentSessions;
@@ -435,6 +440,7 @@ export async function startWorkflow<Args extends JsonValue, Result extends JsonV
     control,
     ledger,
     onLog: options.onLog,
+    onCallerStopped: options.onCallerStopped,
     livenessPolicy: options.livenessPolicy,
   });
   const stopped = new AbortController();
@@ -678,6 +684,7 @@ class WorkflowOwner {
       progress: RunProgress;
       recordTurn: RecordTurn;
       onLog?: RunWorkflowOptions["onLog"];
+      onCallerStopped?: RunWorkflowOptions["onCallerStopped"];
     },
   ) {
     this.context = {
@@ -695,6 +702,8 @@ class WorkflowOwner {
         },
         attach: (key, runtime) => {
           if (this.#caller?.key !== key) return unavailable("agents.attach");
+          const stopped = this.#agents.get(key)?.stopped;
+          if (stopped !== undefined) return Promise.reject(stoppedError(key, stopped));
           if (runtime !== undefined) {
             return Promise.reject(
               new Error(`agent ${key} is the calling session, whose runtime is the operator's`),
@@ -1033,16 +1042,56 @@ class WorkflowOwner {
    * Ends an agent the workflow has no more use for, as an operation that fails ends it: what it
    * is running is cancelled, and its pane closed or, where `keepPane` says, kept and released.
    */
-  private async stopAgent(key: string, reason?: string): Promise<boolean> {
+  private stopAgent(key: string, reason?: string): Promise<boolean> {
     if (this.#closed || this.#cleanupFailures.length) throw new Error("workflow context is closed");
+    const scope = scopes.getStore();
+    scope?.assertAccepting();
+    this.options.stages.checkOperation();
+    const deadline = scope?.deadline ?? this.options.deadline;
+    assertDeadline(deadline);
+    const wait = (pending: Promise<boolean>) => {
+      const bounded = this.track(waitForDeadline(pending, deadline));
+      scope?.track(bounded);
+      return bounded;
+    };
     const entry = this.#agents.get(key);
-    if (!entry || entry.stopped !== undefined) return false;
-    entry.stopped = reason ?? "stopped by the workflow";
-    const state = await this.track(entry.state).catch(() => undefined);
-    if (!state) return false;
-    await this.track(state.close(entry.stopped));
-    await entry.channel.then((channel) => channel?.close());
-    return true;
+    if (!entry || entry.stopComplete) return Promise.resolve(false);
+    if (entry.stopping) return wait(entry.stopping);
+    entry.stopped ??= reason ?? "stopped by the workflow";
+    const stopping = this.track(
+      (async () => {
+        const state = await entry.state.catch(() => undefined);
+        if (!state) {
+          delete entry.stopped;
+          return false;
+        }
+        this.options.progress.agentStopped(key, entry.stopped!);
+        try {
+          await state.close(entry.stopped);
+        } finally {
+          await entry.channel.then((channel) => channel?.close());
+        }
+        if (this.#caller?.key === key) {
+          entry.releasedAt = Date.now();
+          try {
+            await this.options.onCallerStopped?.(entry.stopped!);
+          } catch (error) {
+            this.options.onLog?.(
+              `awf: the calling session was not handed back: ${messageOf(error)}`,
+            );
+          }
+        }
+        entry.stopComplete = true;
+        return true;
+      })(),
+    );
+    entry.stopping = stopping;
+    stopping
+      .finally(() => {
+        if (entry.stopping === stopping) delete entry.stopping;
+      })
+      .catch(() => undefined);
+    return wait(stopping);
   }
 
   /**
@@ -1077,6 +1126,7 @@ class WorkflowOwner {
       cwd: found.cwd,
       sessions: () => reportedSessions(sessions),
       promptedAt: () => sessions.harness?.promptedAt?.(),
+      releasedAt: () => this.#agents.get(key)?.releasedAt,
     };
     const ledger = this.options.ledger.agent(accounted);
     this.options.skills.record(key, "operator");
@@ -1127,6 +1177,10 @@ class WorkflowOwner {
     const scope = scopes.getStore();
     scope?.assertAccepting();
     this.options.stages.checkOperation();
+    if (this.#caller) {
+      const stopped = this.#agents.get(this.#caller.key)?.stopped;
+      if (stopped !== undefined) throw stoppedError(this.#caller.key, stopped);
+    }
     const calling = this.options.runtime.host.calling;
     if (calling === undefined || typeof calling === "string") {
       this.options.onLog?.(
@@ -1438,6 +1492,7 @@ class WorkflowOwner {
     const from = unopened || this.#caller?.key === parentKey ? CALLING : parentKey;
     const existing = this.#agents.get(spec.key);
     if (existing) {
+      if (existing.stopped !== undefined) throw stoppedError(spec.key, existing.stopped);
       const forked = existing.identity.forkedFrom;
       if (forked?.parent !== from || !isDeepStrictEqual(forked.spec, forkSpec)) {
         throw new Error(`agent ${spec.key} is already open, not as this fork of ${from}`);
@@ -1614,6 +1669,7 @@ class WorkflowOwner {
     }
     const entry = this.#agents.get(target);
     if (!entry) return known(`${target} is not open`);
+    if (entry.stopped !== undefined) return known(`${target} was stopped`);
     if (placementOf(entry.identity.execution) === "headless") return known(`${target} is headless`);
     if (entry.identity.sandbox !== undefined) {
       return known(`${target} runs in a sandbox, whose panes are in its own Herdr`);
@@ -1621,7 +1677,7 @@ class WorkflowOwner {
     // Registered before this agent, so it can't be waiting on this one in turn.
     return () =>
       waitForDeadline(entry.state, deadline).then(
-        () => undefined,
+        () => (entry.stopped === undefined ? undefined : `${target} was stopped`),
         () => `${target} did not open`,
       );
   }

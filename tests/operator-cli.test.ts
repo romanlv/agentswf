@@ -123,7 +123,7 @@ describe("awf run", () => {
 
     expect(exitCode).toBe(0);
     // Sonnet 5 at $2/$0.20/$10 and gpt-5.6-sol at $4/$0.40/$20 per million: $0.0088 + $0.0176.
-    // Parallel completions may arrive in either order; the result below remains lens-ordered.
+    // Parallel turns may arrive in either order; the result below remains lens-ordered.
     expect([errors[0], ...errors.slice(1, 3).sort(), ...errors.slice(3)]).toEqual([
       "[0:00] ▶ Minimum review (2)",
       "[0:00] ✓ reviewer:correctness · 0s",
@@ -168,7 +168,7 @@ describe("awf run", () => {
     expect(existsSync(join(result.artifacts, "calls"))).toBe(true);
     const saved = JSON.parse(readFileSync(join(result.artifacts, "output.json"), "utf8"));
     expect(saved.accounting).toMatchObject({
-      basis: "list prices 2026-09-26",
+      basis: "list prices 2026-10-07",
       billing: "subscription",
       totals: { agents: 2, known: 2, priced: 2 },
       byModel: [{ model: "claude-sonnet-5" }, { model: "gpt-5.6-sol" }],
@@ -611,7 +611,7 @@ describe("awf run", () => {
     });
   });
 
-  test("without flags, a run gets 30 minutes and is kept in the project's .awf, ignored by git", async () => {
+  test("without flags, a run gets an hour and is kept in the project's .awf, ignored by git", async () => {
     const home = runDirs.tempRunDir();
     const cwd = runDirs.tempRunDir();
     const workflow = join(cwd, "ok.js");
@@ -632,7 +632,7 @@ describe("awf run", () => {
     });
 
     expect(exitCode).toBe(0);
-    expect(timeout).toBe(30 * 60_000);
+    expect(timeout).toBe(60 * 60_000);
     expect(existsSync(join(home, ".awf/runs"))).toBe(false);
     expect(readFileSync(join(cwd, ".awf/runs/.gitignore"), "utf8")).toBe("*\n");
     expect([...new Bun.Glob("*/*/run.json").scanSync({ cwd: join(cwd, ".awf/runs") })]).toEqual([
@@ -1171,7 +1171,7 @@ describe("awf run's runs and attempts", () => {
     expect(attemptOf(join(runs(cwd), "AIRS-1515"))).toMatchObject({
       attempt: 1,
       outcome: "completed",
-      flags: { timeout: "30m" },
+      flags: { timeout: "1h" },
     });
 
     const before = readdirSync(runs(cwd));
@@ -2154,6 +2154,59 @@ describe("awf run --here", () => {
       expect(second).toBe(1);
       expect(existsSync(mark)).toBe(false);
     }
+  });
+
+  test("stopping the caller hands it back during the run, with no second message at run end", async () => {
+    const herdr = fakeHerdr({ "w1:p1": { agent: "pi", screen: "awf-here-0123abcd" } });
+    const root = runDirs.tempRunDir();
+    const fixture = join(root, "stop-caller.ts");
+    await Bun.write(
+      fixture,
+      executableModule(
+        "return null;",
+        `
+      await workflow.agents.caller({ key: "author" });
+      await workflow.agents.stop("author", "finished editing");
+      workflow.log("caller released");
+      return null;
+    `,
+      ),
+    );
+    let duringRun = false;
+    const adapter = createFakeAdapter({ harnesses: ["pi"], script: () => ({}) });
+    const code = await cli(["run", "--session", "awf-here-0123abcd", "--run-root", root, fixture], {
+      cwd: ROOT,
+      environment: inHerdr,
+      herdr: herdr.run,
+      stdout: () => undefined,
+      stderr: (text) => {
+        if (text.includes("caller released")) {
+          duringRun = true;
+          expect(
+            herdr.calls.filter((call) => call[0] === "agent" && call[1] === "prompt"),
+          ).toHaveLength(1);
+          expect(existsSync(join(HOME, ".awf", "callers", "w1_p1.json"))).toBe(false);
+        }
+      },
+      installRuntime: async () => ({
+        config: {
+          aliases: {},
+          host: {
+            ...createSingleSessionHostFactory(adapter),
+            caller: { harness: "pi", cwd: ROOT },
+          },
+        },
+        cleanup: async () => undefined,
+      }),
+    });
+    expect(code).toBe(0);
+    expect(duringRun).toBe(true);
+    const prompts = herdr.calls.filter((call) => call[0] === "agent" && call[1] === "prompt");
+    expect(prompts).toHaveLength(1);
+    expect(prompts[0]![3]).toContain("stopped using this session.");
+    expect(prompts[0]![3]).not.toContain("finished editing");
+    expect(prompts[0]![3]).toContain("This session was released from the run");
+    expect(herdr.calls.some((call) => call[0] === "pane" && call[1] === "close")).toBe(false);
   });
 
   test("takes the pane showing its code over, and hands it back with how the run ended", async () => {

@@ -27,6 +27,7 @@ export type AgentProgress = {
   /** Index into `groups` of the labelled `parallel` that opened the agent. */
   group?: number;
   turns: number;
+  stopped?: { at: number; reason: string; cancelledTurn: boolean };
   /** The agent it was forked from. */
   forkedFrom?: AgentKey;
   /** The latest turn. */
@@ -62,6 +63,17 @@ export class RunProgress {
   agentForked(key: AgentKey, from: AgentKey): void {
     const agent = this.#agents.get(key);
     if (agent) agent.forkedFrom = from;
+  }
+
+  agentStopped(key: AgentKey, reason: string): void {
+    const agent = this.#agents.get(key);
+    if (agent && !agent.stopped) {
+      agent.stopped = {
+        at: Date.now(),
+        reason,
+        cancelledTurn: agent.turn !== undefined && agent.turn.outcome === undefined,
+      };
+    }
   }
 
   turnStarted(

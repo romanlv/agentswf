@@ -34,6 +34,8 @@ export type AccountedAgent = {
   sessions(): readonly string[];
   /** When its host first prompted it, where that waits on the agent first; see `window`. */
   promptedAt?(): number | undefined;
+  /** The caller handed back early by agents.stop. */
+  releasedAt?(): number | undefined;
   /** When a fork's session was made: what it holds from before is its parent's (ADR 0009). */
   forkedAt?(): number | undefined;
 };
@@ -270,7 +272,10 @@ function window(
   const forkedAt = agent.forkedAt?.();
   if (forkedAt !== undefined) return { from: forkedAt, until: Number.POSITIVE_INFINITY };
   if (!agent.execution.caller) return { from: options.startedAt, until: Number.POSITIVE_INFINITY };
-  return { from: agent.promptedAt?.() ?? Number.POSITIVE_INFINITY, until: options.endedAt };
+  return {
+    from: agent.promptedAt?.() ?? Number.POSITIVE_INFINITY,
+    until: agent.releasedAt?.() ?? options.endedAt,
+  };
 }
 
 async function readUntilSettled(

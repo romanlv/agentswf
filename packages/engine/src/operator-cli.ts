@@ -189,13 +189,15 @@ async function runAttempt(
   /** The run, once it is claimed. */
   let run: Run | undefined;
   // Once the run has taken the session over, however it ends, the session gets it back.
-  const handOver = async (ended: string) => {
-    if (!calling) return;
+  let handedBack = false;
+  const handOver = async (ended: string, stopped = false) => {
+    if (!calling || handedBack) return;
+    handedBack = true;
     calling.release();
     const failed = await handBack(
       herdrConfig(calling.caller.session),
       calling.caller.pane.paneId,
-      `[awf] The workflow ${meta.name}${run ? `, run ${run.record.id},` : ""} ${ended}. The run is over and this session is yours; nothing here needs an answer.`,
+      `[awf] The workflow ${meta.name}${run ? `, run ${run.record.id},` : ""} ${ended}. ${stopped ? "This session was released from the run" : "The run is over"} and this session is yours; nothing here needs an answer.`,
       environment.herdr,
     );
     if (failed) stderr(`awf: the calling session was not told the run ended: ${failed}`);
@@ -336,6 +338,7 @@ async function runAttempt(
       deadline,
       cwd,
       ...(environment.signal ? { signal: environment.signal } : {}),
+      onCallerStopped: () => handOver("stopped using this session", true),
       onLog: (logMessage, fields?: JsonObject) =>
         progress.log(fields ? `${logMessage} ${JSON.stringify(fields)}` : logMessage),
     });

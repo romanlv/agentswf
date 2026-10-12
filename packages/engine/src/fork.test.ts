@@ -78,6 +78,32 @@ const ask = async (agent: AgentRef, prompt: string) => {
 };
 
 describe("fork", () => {
+  test("a stopped fork key rejects another fork with the same specification", async () => {
+    const adapter = forkingAdapter();
+    await run(adapter, async (context) => {
+      const parent = await open(context);
+      await ask(parent, "Plan.");
+      await parent.fork({ key: "child" });
+      expect(await context.agents.stop("child", "done")).toBe(true);
+      await expect(parent.fork({ key: "child" })).rejects.toThrow("agent child was stopped (done)");
+      expect(adapter.forks).toHaveLength(1);
+      return null;
+    });
+  });
+
+  test("stopping a parent leaves its independently opened fork usable", async () => {
+    const adapter = forkingAdapter();
+    await run(adapter, async (context) => {
+      const parent = await open(context);
+      await ask(parent, "Plan.");
+      const child = await parent.fork({ key: "child" });
+      await context.agents.stop("worker");
+      await expect(parent.fork({ key: "another" })).rejects.toThrow("logical agent is closed");
+      expect(await ask(child, "Continue.")).toBe("child");
+      return null;
+    });
+  });
+
   test("copies the session after the operations before it, never one after", async () => {
     const adapter = forkingAdapter();
     const result = await run(adapter, async (context) => {

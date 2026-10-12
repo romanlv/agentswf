@@ -60,7 +60,9 @@ export function renderProgress(
   };
   const listAgents = (agents: readonly Agent[]) => {
     const shown =
-      agents.length <= MAX_LISTED ? agents : agents.filter((a) => isRunning(a) || isFailed(a));
+      agents.length <= MAX_LISTED
+        ? agents
+        : agents.filter((a) => isRunning(a) || isFailed(a) || a.stopped);
     lines.push(...shown.slice(0, MAX_LISTED).map(agentLine));
     const hidden = agents.length - Math.min(shown.length, MAX_LISTED);
     if (hidden > 0) lines.push(paint.dim(`    … ${hidden} more`));
@@ -94,7 +96,8 @@ export function renderProgress(
   });
   // Agents opened outside any labelled parallel.
   const loose = snapshot.agents.filter((agent) => agent.group === undefined && !inStage(agent));
-  if (loose.some((agent) => isRunning(agent) || isFailed(agent))) listAgents(loose);
+  if (loose.some((agent) => isRunning(agent) || isFailed(agent) || agent.stopped))
+    listAgents(loose);
   return lines;
 }
 
@@ -131,9 +134,16 @@ export function progressEvents(
     if (agent.forkedFrom !== undefined && earlier?.forkedFrom === undefined) {
       add(turn?.startedAt ?? view.now, "fork", `↳ ${agent.key} forked from ${agent.forkedFrom}`);
     }
+    if (agent.stopped && !earlier?.stopped) {
+      add(
+        Math.max(agent.stopped.at, turn?.settledAt ?? agent.stopped.at),
+        "agent stop",
+        `■ ${agent.key} stopped: ${oneLine(agent.stopped.reason)}`,
+      );
+    }
     if (!turn) continue;
     const fresh = earlier?.turns !== agent.turns;
-    if (fresh && turn.outcome === undefined)
+    if (fresh && (turn.outcome === undefined || agent.stopped))
       add(turn.startedAt, "agent start", `▶ ${agent.key} · ${agent.execution.model}`);
     if (
       turn.outcome === undefined &&
@@ -158,7 +168,7 @@ export function progressEvents(
         settledAt === turn.startedAt ? "zero-length end" : "agent end",
         turn.outcome === "answered"
           ? `✓ ${agent.key} · ${took}`
-          : `✗ ${agent.key} · ${took} · ${turn.outcome}${turn.reason ? `: ${oneLine(turn.reason)}` : ""}${whereBlocked(agent, view.herdrSession)}`,
+          : `${cancelledByStop(agent) ? "■" : "✗"} ${agent.key} · ${took} · ${turn.outcome}${turn.reason && !cancelledByStop(agent) ? `: ${oneLine(turn.reason)}` : ""}${whereBlocked(agent, view.herdrSession)}`,
       );
     }
   }
@@ -202,6 +212,7 @@ const RANKS = [
   "agent start",
   "agent phase",
   "zero-length end",
+  "agent stop",
 ] as const;
 type Rank = (typeof RANKS)[number];
 
@@ -322,7 +333,7 @@ function stageAgentLine(
 ): string {
   const turn = agent.turn!;
   const [mark, note] =
-    turn.outcome === "answered"
+    turn.outcome === "answered" && !agent.stopped
       ? [paint.dim("·"), paint.dim("waiting")]
       : agentState(agent, now, paint, herdrSession);
   const took = duration((turn.settledAt ?? now) - turn.startedAt);
@@ -337,6 +348,8 @@ function agentState(
   paint: Paint,
   herdrSession?: string,
 ): [string, string] {
+  if (agent.stopped && !isFailed(agent))
+    return [paint.dim("■"), paint.dim(`stopped: ${oneLine(agent.stopped.reason)}`)];
   const turn = agent.turn;
   if (!turn) {
     return agent.state === "missing" || agent.state === "quarantined"
@@ -415,10 +428,15 @@ export function describeRunSession(
 }
 
 function isRunning(agent: Agent): boolean {
-  return agent.turn !== undefined && agent.turn.outcome === undefined;
+  return !agent.stopped && agent.turn !== undefined && agent.turn.outcome === undefined;
+}
+
+function cancelledByStop(agent: Agent): boolean {
+  return agent.stopped?.cancelledTurn === true && agent.turn?.outcome === "cancelled";
 }
 
 function isFailed(agent: Agent): boolean {
+  if (cancelledByStop(agent)) return false;
   if (!agent.turn) return agent.state === "missing" || agent.state === "quarantined";
   return agent.turn.outcome !== undefined && agent.turn.outcome !== "answered";
 }

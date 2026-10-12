@@ -393,6 +393,48 @@ describe("usage read when the run ends", () => {
     expect(result.usage[0]!.spend![0]!.tokens.output).toBe(3);
   });
 
+  test("a caller stopped early excludes operator work before the run ends", async () => {
+    const files = sessionFiles();
+    const adapter = createFakeAdapter({
+      script: (context) => ({
+        sessionRef: "s-caller",
+        act: async () => {
+          await Bun.sleep(5);
+          files.log("s-caller", 3);
+          await submit(context.binding!, { answer: "ok" });
+        },
+      }),
+    });
+    const accounting = files.accounting();
+    const runtime: AgentRuntimeConfig = {
+      aliases: ALIASES,
+      host: {
+        ...createSingleSessionHostFactory(adapter, accounting),
+        caller: { harness: "fake", cwd: "/repo" },
+      },
+    };
+    const result = await runNew(
+      workflow(async (context) => {
+        // The operator's turn that replied with the run's code, before any step reached it.
+        files.log("s-caller", 20);
+        await Bun.sleep(5);
+        await (await context.agents.caller({ key: "author" }))!.run({
+          prompt: "Go.",
+          schema: ANSWER,
+        });
+        await context.agents.stop("author");
+        await Bun.sleep(5);
+        files.log("s-caller", 900);
+        return null;
+      }),
+      null,
+      { runRoot: runDirs.tempRunDir(), deadline: future(), runtime },
+    );
+
+    expect(result.usage[0]!.execution).toEqual({ harness: "fake", model: "", caller: true });
+    expect(result.usage[0]!.spend![0]!.tokens.output).toBe(3);
+  });
+
   test("a fork of the session the run was started from is charged only its own", async () => {
     const files = sessionFiles();
     const adapter = createFakeAdapter({

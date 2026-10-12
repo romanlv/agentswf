@@ -625,3 +625,173 @@ describe("where pane agents are", () => {
     ]);
   });
 });
+
+test.each(["answered", "cancelled"] as const)(
+  "a deliberately stopped %s agent is shown as stopped, with its reason in the log",
+  (outcome) => {
+    const stopped = {
+      ...agent("lens", 0, {
+        startedAt: 0,
+        settledAt: 2000,
+        outcome,
+        reason: outcome === "cancelled" ? "no longer needed" : undefined,
+        stage: "review",
+      }),
+      stopped: { at: 2000, reason: "no longer needed", cancelledTurn: outcome === "cancelled" },
+    };
+    const snapshot: WorkflowRunSnapshot = {
+      state: "running",
+      upcoming: [],
+      groups: [],
+      agents: [stopped],
+      stages: [{ stage: "review", source: "ran", attempt: 1, startedAt: 0 }],
+    };
+    const text = renderProgress(snapshot, {
+      name: "review",
+      startedAt: 0,
+      now: 3000,
+      paint: PLAIN,
+    }).join("\n");
+    expect(text).toContain("■ lens");
+    expect(text).toContain("stopped: no longer needed");
+    expect(text).not.toContain("waiting");
+    expect(text).not.toContain("✗");
+    const events = progressEvents(undefined, snapshot, { startedAt: 0, now: 3000 });
+    expect(events).toContain("[0:00] ▶ lens · gpt-6-sol");
+    const ended = outcome === "answered" ? "[0:02] ✓ lens · 2s" : "[0:02] ■ lens · 2s · cancelled";
+    expect(events).toContain(ended);
+    expect(events).toContain("[0:02] ■ lens stopped: no longer needed");
+    expect(events.indexOf(ended)).toBeLessThan(
+      events.indexOf("[0:02] ■ lens stopped: no longer needed"),
+    );
+    expect(events.join("\n")).not.toContain("✗ lens");
+    expect(progressEvents(snapshot, snapshot, { startedAt: 0, now: 4000 })).toEqual([]);
+  },
+);
+
+test("the runner records a deliberate stop while the workflow is still running", async () => {
+  let paused!: () => void;
+  const stopped = new Promise<void>((resolve) => {
+    paused = resolve;
+  });
+  let finish!: () => void;
+  const finished = new Promise<void>((resolve) => {
+    finish = resolve;
+  });
+  let began!: () => void;
+  const started = new Promise<void>((resolve) => {
+    began = resolve;
+  });
+  const adapter = createFakeAdapter({
+    script: async (context) => {
+      began();
+      await new Promise<void>((resolve) =>
+        context.signal.addEventListener("abort", () => resolve(), { once: true }),
+      );
+      return {};
+    },
+  });
+  const workflow: WorkflowDefinition<null, null> = {
+    meta: { name: "stop-progress", description: "stop-progress" },
+    async run(context) {
+      const lens = await context.agents.open({
+        key: "lens",
+        runtime: { harness: "fake", model: "fake" },
+      });
+      const turn = lens.run({ prompt: "Wait." });
+      await started;
+      await context.agents.stop("lens", "no longer needed");
+      await turn;
+      paused();
+      await finished;
+      return null;
+    },
+  };
+  const handle = await startNew(workflow, null, {
+    runRoot: runDirs.tempRunDir(),
+    deadline: future(),
+    runtime: { aliases: {}, host: createSingleSessionHostFactory(adapter) },
+  });
+  try {
+    await stopped;
+    const snapshot = handle.inspect();
+    expect(snapshot.agents[0]!.stopped?.reason).toBe("no longer needed");
+    expect(snapshot.agents[0]!.turn?.outcome).toBe("cancelled");
+    const text = renderProgress(snapshot, {
+      name: "review",
+      startedAt: 0,
+      now: Date.now(),
+      paint: PLAIN,
+    }).join("\n");
+    expect(text).toContain("■ lens");
+    expect(text).toContain("stopped: no longer needed");
+    expect(text).not.toContain("✗");
+  } finally {
+    finish();
+    await handle.result;
+  }
+});
+
+test.each(["failed", "timed-out", "cancelled"] as const)(
+  "stopping after a settled %s turn preserves its failure and log",
+  (outcome) => {
+    const lens = {
+      ...agent("lens", 0, { startedAt: 0, settledAt: 1000, outcome, reason: "earlier failure" }),
+      stopped: { at: 2000, reason: "done", cancelledTurn: false },
+    };
+    const after: WorkflowRunSnapshot = {
+      state: "running",
+      stages: [],
+      upcoming: [],
+      groups: [{ label: "Lenses", total: 1, started: 1, done: 1, startedAt: 0, endedAt: 2000 }],
+      agents: [lens],
+    };
+    const before: WorkflowRunSnapshot = {
+      ...after,
+      groups: [{ ...after.groups[0]!, endedAt: undefined }],
+      agents: [agent("lens", 0, { startedAt: 0 })],
+    };
+    const events = progressEvents(before, after, { startedAt: 0, now: 3000 });
+    expect(events).toContain(`[0:01] ✗ lens · 1s · ${outcome}: earlier failure`);
+    expect(events).toContain("[0:02] ■ lens stopped: done");
+    expect(events).toContain("[0:02] ✗ Lenses done 1/1 in 2s, 1 failed");
+    const text = renderProgress(after, {
+      name: "review",
+      startedAt: 0,
+      now: 3000,
+      paint: PLAIN,
+    }).join("\n");
+    expect(text).toContain("1 failed");
+    expect(text).toContain(`${outcome}: earlier failure`);
+    const loose = renderProgress(
+      { ...after, groups: [], agents: [{ ...lens, group: undefined }] },
+      { name: "review", startedAt: 0, now: 3000, paint: PLAIN },
+    ).join("\n");
+    expect(loose).toContain("✗ lens");
+  },
+);
+
+test.each([false, true])("a stopped agent stays in a crowded %s list", (grouped) => {
+  const agents: Agent[] = Array.from({ length: 9 }, (_, i) => ({
+    ...agent(`lens:${i}`, 0, { startedAt: 0, settledAt: 1000, outcome: "answered" }),
+    group: grouped ? 0 : undefined,
+  }));
+  agents[8] = { ...agents[8]!, stopped: { at: 2000, reason: "done", cancelledTurn: false } };
+  const snapshot: WorkflowRunSnapshot = {
+    state: "running",
+    stages: [],
+    upcoming: [],
+    agents,
+    groups: grouped ? [{ label: "Lenses", total: 10, started: 9, done: 9, startedAt: 0 }] : [],
+  };
+  const text = renderProgress(snapshot, {
+    name: "review",
+    startedAt: 0,
+    now: 3000,
+    paint: PLAIN,
+  }).join("\n");
+  expect(text).toContain("■ lens:8");
+  expect(text).toContain("stopped: done");
+  expect(text).toContain("… 8 more");
+  expect(text).not.toContain("… 9 more");
+});

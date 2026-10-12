@@ -2421,6 +2421,10 @@ describe("agents.stop", () => {
       const agent = await openReviewer(context);
       await agent.run({ id: "review", prompt: "Review.", schema: ANSWER_SCHEMA });
       const stopped = await context.agents.stop("reviewer", "answered");
+      const socketClosed = await connect(endpoint).then(
+        () => false,
+        () => true,
+      );
       const closedAtStop = [...adapter.closed];
       const again = await context.agents.stop("reviewer");
       const unknown = await context.agents.stop("nobody");
@@ -2432,7 +2436,7 @@ describe("agents.stop", () => {
         () => "ran",
         (error: Error) => error.message,
       );
-      return { stopped, closedAtStop, again, unknown, reopened, ran };
+      return { stopped, socketClosed, closedAtStop, again, unknown, reopened, ran };
     });
 
     const result = await runNew(workflow, null, {
@@ -2443,51 +2447,436 @@ describe("agents.stop", () => {
 
     expect(result.value).toEqual({
       stopped: true,
+      socketClosed: true,
       closedAtStop: ["reviewer"],
       again: false,
       unknown: false,
       reopened: "agent reviewer was stopped (answered); its key is not opened again",
       ran: "logical agent is closed",
     });
-    await expect(connect(endpoint)).rejects.toBeDefined();
   });
 
-  test("cancels the turn it is running, and keeps its pane where keepPane says", async () => {
-    const keeps: (boolean | undefined)[] = [];
+  test.each(["always", "on-failure"] as const)(
+    "cancels a running turn and keeps its pane for %s",
+    async (keepPane) => {
+      let began!: () => void;
+      const started = new Promise<void>((resolve) => {
+        began = resolve;
+      });
+      const keeps: (boolean | undefined)[] = [];
+      const fake = createFakeAdapter({
+        script: async (context) => {
+          began();
+          await new Promise<void>((resolve) =>
+            context.signal.addEventListener("abort", () => resolve(), { once: true }),
+          );
+          return {};
+        },
+      });
+      const adapter = adapterWith(fake, (session) => ({
+        close: (reason, options) => {
+          keeps.push(options?.keep);
+          return session.close(reason, options);
+        },
+      }));
+      const workflow = workflowOf("stop-busy", async (context) => {
+        const agent = await context.agents.open({
+          key: "lens",
+          runtime: "review",
+          keepPane,
+        });
+        const turn = agent.run({ id: "wait", prompt: "Wait." });
+        await started;
+        await context.agents.stop("lens", "no longer needed");
+        return (await turn).outcome.kind;
+      });
+
+      const result = await runNew(workflow, null, {
+        runRoot: tempRunDir(),
+        deadline: future(),
+        runtime: runtime(adapter),
+      });
+
+      expect(result.value).toBe("cancelled");
+      expect(keeps[0]).toBe(true);
+    },
+  );
+
+  test("on-failure closes the pane after an answered turn", async () => {
+    const keeps: boolean[] = [];
+    const fake = createFakeAdapter({
+      script: (context) => ({
+        act: async () => {
+          await submit(context.binding!, { answer: "done" });
+        },
+      }),
+    });
+    const adapter = adapterWith(fake, (session) => ({
+      close: (reason, options) => {
+        keeps.push(options?.keep ?? false);
+        return session.close(reason, options);
+      },
+    }));
+    await runNew(
+      workflowOf("stop-answered", async (context) => {
+        const agent = await context.agents.open({
+          key: "lens",
+          runtime: "review",
+          keepPane: "on-failure",
+        });
+        await agent.run({ prompt: "Answer.", schema: ANSWER_SCHEMA });
+        await context.agents.stop("lens");
+        expect(keeps).toEqual([false]);
+        return null;
+      }),
+      null,
+      { runRoot: tempRunDir(), deadline: future(), runtime: runtime(adapter) },
+    );
+  });
+
+  test("stops the caller and rejects every later lookup, with one release notification", async () => {
+    const adapter = createFakeAdapter({ script: () => ({}) });
+    const config = runtime(adapter);
+    config.host = { ...config.host, caller: { harness: "fake", cwd: process.cwd() } };
+    const releases: string[] = [];
+    const result = await runNew(
+      workflowOf("stop-caller", async (context) => {
+        const caller = (await context.agents.caller({ key: "author" }))!;
+        expect(await context.agents.attach("author")).toBe(caller);
+        expect(await context.agents.stop("author", "finished editing")).toBe(true);
+        expect(releases).toEqual(["finished editing"]);
+        for (const lookup of [
+          () => context.agents.caller({ key: "author" }),
+          () => context.agents.attach("author"),
+          () => context.agents.forkCaller({ key: "child" }),
+        ]) {
+          await expect(lookup()).rejects.toThrow("agent author was stopped (finished editing)");
+        }
+        expect(await context.agents.stop("author")).toBe(false);
+        await expect(caller.run({ prompt: "More." })).rejects.toThrow("logical agent is closed");
+        return null;
+      }),
+      null,
+      {
+        runRoot: tempRunDir(),
+        deadline: future(),
+        runtime: config,
+        onCallerStopped: async (reason) => {
+          releases.push(reason);
+        },
+      },
+    );
+    expect(result.value).toBeNull();
+    expect(releases).toEqual(["finished editing"]);
+  });
+
+  test("stopping a busy caller cancels the run turn before returning it to the operator", async () => {
+    let began!: () => void;
+    const started = new Promise<void>((resolve) => {
+      began = resolve;
+    });
+    let interrupted = false;
     const fake = createFakeAdapter({
       script: async (context) => {
+        began();
+        await new Promise<void>((resolve) =>
+          context.signal.addEventListener(
+            "abort",
+            () => {
+              interrupted = true;
+              resolve();
+            },
+            { once: true },
+          ),
+        );
+        return {};
+      },
+    });
+    const config = runtime(fake);
+    config.host = { ...config.host, caller: { harness: "fake", cwd: process.cwd() } };
+    let released = false;
+    await runNew(
+      workflowOf("stop-busy-caller", async (context) => {
+        const caller = (await context.agents.caller({ key: "author" }))!;
+        const turn = caller.run({ prompt: "Wait." });
+        await started;
+        expect(await context.agents.stop("author")).toBe(true);
+        expect(released).toBe(true);
+        expect((await turn).outcome.kind).toBe("cancelled");
+        return null;
+      }),
+      null,
+      {
+        runRoot: tempRunDir(),
+        deadline: future(),
+        runtime: config,
+        onCallerStopped: async () => {
+          expect(interrupted).toBe(true);
+          released = true;
+        },
+      },
+    );
+  });
+
+  test("concurrent stops wait for teardown and use the default reason", async () => {
+    let closing!: () => void;
+    const began = new Promise<void>((resolve) => {
+      closing = resolve;
+    });
+    let release!: () => void;
+    const released = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const reasons: (string | undefined)[] = [];
+    const fake = createFakeAdapter({ script: () => ({}) });
+    const adapter = adapterWith(fake, (session) => ({
+      close: async (reason, options) => {
+        reasons.push(reason);
+        closing();
+        await released;
+        await session.close(reason, options);
+      },
+    }));
+    await runNew(
+      workflowOf("stop-concurrent", async (context) => {
+        const agent = await openReviewer(context);
+        const first = context.agents.stop("reviewer");
+        await began;
+        let secondDone = false;
+        const second = context.agents.stop("reviewer").then((value) => {
+          secondDone = true;
+          return value;
+        });
+        await Bun.sleep(0);
+        expect(secondDone).toBe(false);
+        release();
+        expect(await Promise.all([first, second])).toEqual([true, true]);
+        expect(reasons).toEqual(["stopped by the workflow"]);
+        await expect(agent.fork({ key: "child" })).rejects.toThrow("logical agent is closed");
+        await expect(openReviewer(context)).rejects.toThrow(
+          "agent reviewer was stopped (stopped by the workflow)",
+        );
+        expect(await context.agents.stop("reviewer")).toBe(false);
+        return null;
+      }),
+      null,
+      { runRoot: tempRunDir(), deadline: future(), runtime: runtime(adapter) },
+    );
+  });
+
+  test("a failed close revokes the socket and a later stop retries teardown", async () => {
+    let endpoint = "";
+    let closes = 0;
+    const fake = createFakeAdapter({
+      script: (context) => ({
+        act: async () => {
+          endpoint = context.binding!.endpoint;
+          await submit(context.binding!, { answer: "done" });
+        },
+      }),
+    });
+    const adapter = adapterWith(fake, (session) => ({
+      close: async (reason, options) => {
+        if (++closes === 1) throw new Error("close failed once");
+        await session.close(reason, options);
+      },
+    }));
+    await runNew(
+      workflowOf("stop-retry", async (context) => {
+        const agent = await openReviewer(context);
+        await agent.run({ prompt: "Answer.", schema: ANSWER_SCHEMA });
+        await expect(context.agents.stop("reviewer")).rejects.toThrow("close failed once");
+        await expect(connect(endpoint)).rejects.toBeDefined();
+        expect(await context.agents.stop("reviewer")).toBe(true);
+        expect(closes).toBe(2);
+        expect(await context.agents.stop("reviewer")).toBe(false);
+        return null;
+      }),
+      null,
+      { runRoot: tempRunDir(), deadline: future(), runtime: runtime(adapter) },
+    );
+  });
+
+  test("stop is owned by its stage and a sealed stage cannot start another stop", async () => {
+    let release!: () => void;
+    const released = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let closing!: () => void;
+    const began = new Promise<void>((resolve) => {
+      closing = resolve;
+    });
+    let later!: Promise<string>;
+    const fake = createFakeAdapter({ script: () => ({}) });
+    const adapter = adapterWith(fake, (session) => ({
+      close: async (reason, options) => {
+        closing();
+        await released;
+        await session.close(reason, options);
+      },
+    }));
+    const handle = await startNew(
+      workflowOf("stop-stage", async (context) => {
+        await openReviewer(context);
+        await openReviewer(context, "other");
+        await context.stage("cleanup", async () => {
+          later = new Promise<string>((resolve) => {
+            setTimeout(() => {
+              void context.agents.stop("other").then(
+                () => resolve("stopped"),
+                (error: Error) => resolve(error.message),
+              );
+            }, 40);
+          });
+          setTimeout(() => {
+            release();
+          }, 20);
+          void context.agents.stop("reviewer");
+        });
+        expect(fake.closed).toEqual(["reviewer"]);
+        expect(await later).toBe("parallel execution scope is closed");
+        return null;
+      }),
+      null,
+      { runRoot: tempRunDir(), deadline: future(), runtime: runtime(adapter) },
+    );
+    await began;
+    expect(handle.inspect().stages[0]!.endedAt).toBeUndefined();
+    await handle.result;
+  });
+
+  test("stop respects its calling scope's deadline while teardown remains run-owned", async () => {
+    let release!: () => void;
+    const released = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const adapter = adapterWith(createFakeAdapter({ script: () => ({}) }), (session) => ({
+      close: async (reason, options) => {
+        await released;
+        await session.close(reason, options);
+      },
+    }));
+    await runNew(
+      workflowOf("stop-deadline", async (context) => {
+        await openReviewer(context);
+        try {
+          await expect(
+            context.parallel(
+              [0],
+              async () => {
+                await context.agents.stop("reviewer");
+              },
+              { deadline: future(20) },
+            ),
+          ).rejects.toBeInstanceOf(DeadlineExceededError);
+        } finally {
+          release();
+        }
+        expect(await context.agents.stop("reviewer")).toBe(true);
+        return null;
+      }),
+      null,
+      { runRoot: tempRunDir(), deadline: future(), runtime: runtime(adapter) },
+    );
+  });
+
+  test("hand-back failure is logged after release, without failing a completed stop", async () => {
+    const adapter = createFakeAdapter({ script: () => ({}) });
+    const config = runtime(adapter);
+    config.host = { ...config.host, caller: { harness: "fake", cwd: process.cwd() } };
+    const logs: string[] = [];
+    await runNew(
+      workflowOf("stop-handback-failed", async (context) => {
+        await context.agents.caller({ key: "author" });
+        expect(await context.agents.stop("author")).toBe(true);
+        expect(await context.agents.stop("author")).toBe(false);
+        expect(logs).toEqual(["awf: the calling session was not handed back: handback failed"]);
+        return null;
+      }),
+      null,
+      {
+        runRoot: tempRunDir(),
+        deadline: future(),
+        runtime: config,
+        onCallerStopped: () => {
+          throw new Error("handback failed");
+        },
+        onLog: (message) => {
+          logs.push(message);
+        },
+      },
+    );
+  });
+
+  test("a queued turn refuses a stopped ref; only the running turn settles cancelled", async () => {
+    let began!: () => void;
+    const started = new Promise<void>((resolve) => {
+      began = resolve;
+    });
+    const fake = createFakeAdapter({
+      script: async (context) => {
+        began();
         await new Promise<void>((resolve) =>
           context.signal.addEventListener("abort", () => resolve(), { once: true }),
         );
         return {};
       },
     });
-    const adapter = adapterWith(fake, (session) => ({
-      close: (reason, options) => {
-        keeps.push(options?.keep);
-        return session.close(reason, options);
-      },
-    }));
-    const workflow = workflowOf("stop-busy", async (context) => {
-      const agent = await context.agents.open({
-        key: "lens",
-        runtime: "review",
-        keepPane: "always",
-      });
-      const turn = agent.run({ id: "wait", prompt: "Wait." });
-      await new Promise((resolve) => setTimeout(resolve, 20));
-      await context.agents.stop("lens", "no longer needed");
-      return (await turn).outcome.kind;
-    });
+    await runNew(
+      workflowOf("stop-queued", async (context) => {
+        const agent = await openReviewer(context);
+        const running = agent.run({ prompt: "First." });
+        await started;
+        const queued = agent.run({ prompt: "Second." }).catch((error: Error) => error.message);
+        await context.agents.stop("reviewer");
+        expect((await running).outcome.kind).toBe("cancelled");
+        expect(await queued).toBe("logical agent is closed");
+        expect(fake.turns).toHaveLength(1);
+        return null;
+      }),
+      null,
+      { runRoot: tempRunDir(), deadline: future(), runtime: runtime(fake) },
+    );
+  });
 
-    const result = await runNew(workflow, null, {
-      runRoot: tempRunDir(),
-      deadline: future(),
-      runtime: runtime(adapter),
-    });
+  test("a stopped layout target falls back rather than splitting its old pane", async () => {
+    const adapter = createFakeAdapter({ script: () => ({}) });
+    await runNew(
+      workflowOf("stop-beside", async (context) => {
+        await openReviewer(context, "lead");
+        await context.agents.stop("lead");
+        await context.agents.open({
+          key: "next",
+          runtime: "review",
+          layout: { beside: "lead", side: "right" },
+        });
+        expect(
+          adapter.activations.find((activation) => activation.key === "next")!.layoutFallback,
+        ).toBe("lead was stopped");
+        return null;
+      }),
+      null,
+      { runRoot: tempRunDir(), deadline: future(), runtime: runtime(adapter) },
+    );
+  });
 
-    expect(result.value).toBe("cancelled");
-    expect(keeps[0]).toBe(true);
+  test("a failed open stays failed after stop returns false; a closed context refuses stop", async () => {
+    const fake = createFakeAdapter({ script: () => ({}), refuse: () => "cannot open" });
+    let saved!: WorkflowContext;
+    const result = await runNew(
+      workflowOf("stop-failed-open", async (context) => {
+        saved = context;
+        await expect(openReviewer(context)).rejects.toThrow("cannot open");
+        expect(await context.agents.stop("reviewer")).toBe(false);
+        await expect(openReviewer(context)).rejects.toThrow("cannot open");
+        expect(await context.agents.stop("reviewer")).toBe(false);
+        return null;
+      }),
+      null,
+      { runRoot: tempRunDir(), deadline: future(), runtime: runtime(fake) },
+    );
+    expect(result.value).toBeNull();
+    await expect(saved.agents.stop("reviewer")).rejects.toThrow("workflow context is closed");
   });
 });
 

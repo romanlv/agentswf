@@ -6,7 +6,7 @@ import { messageOf } from "./errors";
 import { SESSION_CODE } from "./here";
 import { idProblem, runRootOf, stageNameProblem } from "./runs";
 
-const DEFAULT_TIMEOUT = "30m";
+const DEFAULT_TIMEOUT = "1h";
 
 export const usage = [
   "usage: awf run [options] <workflow-file> [options] [-- workflow arguments...]",
@@ -26,7 +26,7 @@ export const usage = [
   "nothing is passed. Without one the attempt stops, naming the stage and its schema.",
   "A stop exits 3. A run is kept in .awf/runs/<workflow>/<id> under --cwd, unless --run-root names",
   "another folder for .awf/runs.",
-  "The deadline defaults to 30m, per attempt.",
+  "The deadline defaults to 1h, per attempt.",
   "A workflow that knows how to present its result prints that; --json prints the full result instead.",
   "Either way the full result is kept as output.json in the run's folder, beside report.md",
   "when the workflow writes one. A run that fails or is cancelled once its agents have started keeps",
