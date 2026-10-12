@@ -509,7 +509,7 @@ The reasons are in the design's Decisions.
 
 - [x] 1. Claude agents cannot message around their routes (M1)
 - [x] 2. Types, wire v4, record format and the `deliver` seam are settled
-- [ ] 3. The messaging logic admits, queues and settles, as pure code
+- [x] 3. The messaging logic admits, queues and settles, as pure code
 - [ ] 4. The runner wakes, continues and closes through it, against the fake harness
 - [ ] 5. `wf peers`, `wf send` and `wf reply` work over the control plane and the sandbox door
 - [ ] 6. Headless agents receive messages and await replies
@@ -924,6 +924,31 @@ waiting on them; these are the drafts the gate named, as built and reviewed.
   task 4 checks a route's ends by identity against the agents opened; agent-facing times carry
   their offset or are relative, since a docker agent's clock is UTC (task 3); `awf logs`'s filters
   and its message lines are task 8's.
+
+### Task 3
+
+- `engine/src/messaging/` holds the logic: `routes.ts` (a route, its scope, its pairs),
+  `messaging.ts` (the `Messaging` class), `text.ts` (everything an agent reads about messaging),
+  `limits.ts` (the ceilings and the `--await-reply` list, the fake alone on it). It starts nothing:
+  the runner tells it of operations (`opened`, `extended`, `ended`) and asks it what a turn's end
+  goes on to (`turnEnded`), what is held (`pending`, `opening`, `take`), and what a stage still
+  waits for (`busy`); the control plane hands it `send`, `reply`, `peers` and `checkFinish`.
+- An operation carries its scope and a ceiling. A message operation's deadline moves later as it
+  takes questions, to the latest of its askers' deadlines, never past the run's; a wait without
+  `--timeout` follows its asker's deadline as that moves.
+- A message held for an agent busy outside a stage when the stage's function returns is dropped as
+  the stage finishes (`route-closed`), so the stage never waits on an unrelated turn.
+- An answer that asks back is an answer first: whatever ends its question, the answer is still
+  delivered unless its own asker has finished, and then its sender is told rather than left
+  waiting. A stopped agent's questions are dropped with it, so a reply to it is `expired`.
+- Agent-facing times are in UTC with how long is left, and a past one is the time alone. A message
+  operation opens on its routes' lesson, as a workflow's `run` does, and every envelope names its
+  call.
+- `message-sent` is written before a send is acknowledged; a write that fails rejects the send, for
+  task 5's "may have been queued" acknowledgement. Every other record is best effort.
+- Review: both reviewers' findings are resolved (the answer-that-asks-back cases, the record's
+  undelivered reasons, the reply's limit, deadlines, scope, a pure `pending`, the text of past
+  times and `awaiting you`), each with a test; 37 tests.
 
 ## Human review
 
