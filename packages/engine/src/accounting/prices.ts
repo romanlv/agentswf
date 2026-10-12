@@ -82,7 +82,7 @@ function lookup(model: string): ModelRate | undefined {
   return own(bare) ?? (dated ? own(dated[1]!) : undefined);
 }
 
-export const PUBLISHED_PRICES: PriceTable = { basis: "list prices 2026-09-26", rate: lookup };
+export const PUBLISHED_PRICES: PriceTable = { basis: "list prices 2026-10-07", rate: lookup };
 
 /** `cacheWrite1h` is the part of `cacheWrite` with an hour's lifetime; the rest is five minutes. */
 export function costOf(tokens: TokenUsage, rate: ModelRate): number {

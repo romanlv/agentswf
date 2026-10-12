@@ -134,6 +134,14 @@ describe("published prices", () => {
     expect(PUBLISHED_PRICES.rate("gpt-6-sol-2026-09-01")).toMatchObject({ input: 2 });
   });
 
+  test("Haiku 5.5 uses its committed base rate, including dated and context-tagged IDs", () => {
+    for (const id of ["claude-haiku-5-5", "claude-haiku-5-5-20261007[1m]"]) {
+      const rate = PUBLISHED_PRICES.rate(id)!;
+      expect(rate).toMatchObject({ input: 0.1, output: 0.5 });
+      expect(costOf(tokens({ input: 1_000_000, output: 1_000_000 }), rate)).toBeCloseTo(0.6, 10);
+    }
+  });
+
   test("has no rate for a model it does not know, or a sibling of one it does", () => {
     for (const model of [
       "gpt-4",
@@ -158,7 +166,7 @@ describe("published prices", () => {
   });
 
   test("names the table every figure came from", () => {
-    expect(PUBLISHED_PRICES.basis).toContain("2026-09-26");
+    expect(PUBLISHED_PRICES.basis).toBe("list prices 2026-10-07");
   });
 });
 
