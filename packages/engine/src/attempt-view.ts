@@ -305,10 +305,20 @@ function listRecorded(records: readonly StageRecord[], now: number): string[] {
  * Going on from that start point repeats `--values`, or names `{file}` for a value it stopped for.
  */
 export function continueCommand(
-  command: RunCommand,
+  command: Pick<
+    RunCommand,
+    | "shellCwd"
+    | "cwd"
+    | "cwdGiven"
+    | "runRoot"
+    | "runRootGiven"
+    | "workflowFile"
+    | "fromStage"
+    | "values"
+  >,
   id: string,
   stop: WorkflowStopped | undefined,
-  entered: readonly StageSummary[],
+  entered: readonly Pick<StageSummary, "stage">[],
 ): string {
   const { fromStage } = command;
   const redo =
@@ -347,6 +357,6 @@ const STAGE = "{stage}";
 /** The placeholder for the file of values a go-on needs and none was given. */
 const FILE = "{file}";
 
-function shellWord(word: string): string {
+export function shellWord(word: string): string {
   return /^[\w@%+=:,./-]+$/.test(word) ? word : `'${word.replaceAll("'", `'\\''`)}'`;
 }

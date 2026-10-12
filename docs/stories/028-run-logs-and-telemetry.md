@@ -771,9 +771,9 @@ Line numbers are main's on 2026-10-11 and drift; the symbols are what to look fo
 - [x] 2. The engine writes stages, operations, agents, logs and decisions
 - [x] 3. A headless claude or codex agent's session is known from launch
 - [x] 4. Activity readers for the four harnesses, windowed and masked, on fixtures recorded in M1
-- [ ] 5. Reading a run: references, state with the three-valued probe, cursors and handles
-- [ ] 6. `awf runs`, the list and one run, with `--json` and trailers
-- [ ] 7. `awf logs`, with `--wait`, `--follow`, `--full` and `--json`
+- [x] 5. Reading a run: references, state with the three-valued probe, cursors and handles
+- [x] 6. `awf runs`, the list and one run, with `--json` and trailers
+- [x] 7. `awf logs`, with `--wait`, `--follow`, `--full` and `--json`
 - [ ] 8. `awf run`'s `started` line and `did you mean`, the `awf-run` skill, and live checks M2, M3
 
 Done when:
@@ -838,6 +838,31 @@ Tasks 1–3, 2026-10-11, on branch `run-logs`:
   chain is not followed for activity: the files it names after the session's own are its parents',
   whose rows are theirs. Codex's `agent_message` rows, messages between its own subagents, are not
   read.
+- **Reading a run** (task 5): `run-state.ts` gives a run's state from `run.json` and its attempts
+  through `probeProcess`, which answers a start time, `gone`, or `unknown` (a `ps` that cannot be
+  run, or that refuses `-o lstart`, as BusyBox's does); `--continue` keeps the two-valued
+  `processStart`, and both compare starts through one `sameStart`. Where `ps` cannot be asked,
+  `--continue` cannot claim an attempt at all, so the reader's `running (unchecked)` meets no
+  disagreeing claim. `run-read.ts` numbers sessions, finds their files, keeps each agent's rows to
+  the windows the log gives it (from its opening or fork to its stop; the calling session's only
+  inside its operations), and merges them with the log by time, the log's lines in their own order.
+  An attempt that died leaves its spans open: an agent's end where the next attempt begins, the
+  calling session's at the dead attempt's last line. A session's files are its own: a codex fork's
+  ancestors are not followed, as their rows are theirs.
+- **Handles** name a file by its session's number and, past the session's first file, by the first
+  12 hex digits of a hash of its path, not by a subagent id or a place in a fork chain as Q3 said:
+  the path is what every harness gives, and a hash renumbers nothing when a file appears late.
+- **The commands** (tasks 6, 7): `awf runs` in `runs-command.ts`, `awf logs` in `logs-command.ts`, on
+  what they share in `run-commands.ts` (where they look, the `next` and continue commands, the
+  started line) and the run's view in `run-view.ts`. A failed or stopped run also says its
+  `continue:` command, as `awf run` does; it leaves out `--values`, which no record keeps. A
+  session's files are found once per command and again only when the log grows, so a claude
+  subagent file that appears without a new log line waits for the next one.
+- **`awf run`** (task 8) prints the started line just before the workflow starts, once nothing can
+  refuse the run, and only where stderr is not a terminal; in a terminal the progress header reads
+  `{workflow}/{id}`. Under `--here` the id is drawn in the calling shell and passed to the tab as
+  `--id`. `awf run {ref}`, where `{ref}` is no file but a run, answers `did you mean: awf runs {ref}`.
+  The `awf-run` skill says how to watch a run.
 - **A turn that throws after delivery** has no path today: `superviseOperation`'s failures settle as
   a `failed` turn. `operation-failed` is written for a throw before delivery, which the tests cover.
 - Tests: `engine/src/run-event-log.test.ts`, the CLI's attempt lines and continue in
@@ -861,6 +886,20 @@ Tasks 1–3, 2026-10-11, on branch `run-logs`:
   whole files in one buffer (chunks); a replaced file stalled (read again); masking over-masked
   `max_tokens=` and missed unquoted `x-api-key:`, URL credentials, `-u user:pass`, JWTs and Google
   keys (fixed). Q3's JSON example showed `exit` on a tool call (now on its result).
+- Task 5: a crashed attempt's spans stayed open, so the operator's own conversation after it
+  would show; windows were one per agent, not per opening; BusyBox `ps` read as `gone`; a 4-digit
+  file key could collide; an unreadable or newer record read as a missing run; a dead parameter and
+  a duplicated helper. All fixed; `--wait` polling now finds a session's files once.
+- Tasks 6–7, design: no stage in `awf logs`'s header or its "nothing new" trailer; `running
+  (unchecked)` without its last event; `run.stage` and `ambiguous` missing from the JSON; a waiting
+  phase, best effort, published as an agent's durable state (now only under `live`); `see:` on any
+  unfinished run (now on a failed one); shared plumbing scattered across the two commands (now
+  `run-commands.ts`); unused exports; an undocumented `-f`. All fixed.
+- Tasks 6–7, correctness: one unreadable older run failed the newest-run default (now passed
+  over, and listed as unreadable); a filtered `--wait` slept on past the run's end; a turn line
+  that settled before the line ahead of it could be paged twice; an interrupted stage published as
+  `failed`, a provided one as `reused`, and agents and activity of earlier attempts shown in the
+  last. All fixed, with tests.
 - Task 3: a session named before a first turn that then failed stayed among the agent's sessions,
   and a stopped first claude turn left an id that may not exist (both fixed: named sessions join
   only when confirmed); the seam was session-wide and lost which turn named the session (now a

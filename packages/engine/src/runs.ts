@@ -242,7 +242,15 @@ export function sameProcess(
   probe: ProcessProbe = processStart,
 ): boolean {
   const now = probe(pid);
-  return now !== undefined && Math.abs(Date.parse(now) - Date.parse(started)) <= 1_000;
+  return now !== undefined && sameStart(now, started);
+}
+
+/**
+ * Two `ps` start times of one process: a second apart is the same start, as on Linux `ps` derives
+ * it from the boot time, which a clock step can move.
+ */
+export function sameStart(now: string, started: string): boolean {
+  return Math.abs(Date.parse(now) - Date.parse(started)) <= 1_000;
 }
 
 /** Why a run takes no attempt now: one of its attempts is still running, or it completed. */
@@ -419,11 +427,10 @@ export async function readEvents(runDir: string): Promise<RunLogLine[]> {
 
 /**
  * The same, each with its line number in the file, from 1: its position, which never changes, as
- * lines are only appended. Only lines after `after` are parsed.
+ * lines are only appended.
  */
 export async function readNumberedEvents(
   runDir: string,
-  after = 0,
 ): Promise<{ number: number; line: RunLogLine }[]> {
   const text = await readFile(turnsFile(runDir), "utf8").catch((error) => {
     if (isCode(error, "ENOENT")) return "";
@@ -433,7 +440,6 @@ export async function readNumberedEvents(
   // A last line not yet ended is still being written.
   lines.pop();
   return lines.flatMap((json, index) => {
-    if (index < after) return [];
     try {
       const value: unknown = JSON.parse(json);
       const line = typeof value === "object" && value !== null ? runLogLine(value) : undefined;
@@ -582,8 +588,8 @@ async function sweep(dir: string, now = Date.now()): Promise<void> {
   }
 }
 
-/** A folder's entries, without hidden ones: temp files, `.gitignore`. */
-async function entries(dir: string): Promise<string[]> {
+/** A folder's entries, sorted, without hidden ones (temp files, `.gitignore`); none when it is not there. */
+export async function entries(dir: string): Promise<string[]> {
   const names = await readdir(dir).catch((error) => {
     if (isCode(error, "ENOENT")) return [] as string[];
     throw error;
@@ -610,15 +616,17 @@ export function probeProcess(pid: number): string | "gone" | "unknown" {
   try {
     done = Bun.spawnSync(["ps", "-o", "lstart=", "-p", String(pid)], {
       stdout: "pipe",
-      stderr: "ignore",
+      stderr: "pipe",
       env: { ...process.env, LC_ALL: "C", TZ: "UTC0" },
     });
   } catch {
     return "unknown";
   }
   const text = done.stdout?.toString().trim() ?? "";
-  // `ps` exits 1 and prints nothing for a pid that is not there.
-  if (text === "") return done.exitCode === 1 ? "gone" : "unknown";
+  // `ps` exits 1 and prints nothing at all for a pid that is not there; one that cannot take these
+  // options, as BusyBox's, says so on stderr.
+  const said = done.stderr?.toString().trim() ?? "";
+  if (text === "") return done.exitCode === 1 && said === "" ? "gone" : "unknown";
   const time = new Date(`${text} UTC`);
   return Number.isNaN(time.getTime()) ? "unknown" : time.toISOString().replace(/\.\d{3}Z$/, "Z");
 }

@@ -40,10 +40,11 @@ export async function readActivity(
   const handle = await open(file, "r").catch(() => undefined);
   if (!handle) return { rows: [], offset: from };
   const rows: ActivityRow[] = [];
+  let offset = from;
   try {
     const { size } = await handle.stat();
     // A file shorter than where the last read stopped was replaced: it is read again whole.
-    let offset = size < from ? 0 : from;
+    if (size < from) offset = 0;
     // In chunks, a native file may be hundreds of megabytes; a line runs on into the next.
     let pending = Buffer.alloc(0);
     for (let position = offset; position < size; ) {
@@ -74,7 +75,8 @@ export async function readActivity(
     }
     return { rows, offset };
   } catch {
-    return { rows, offset: from };
+    // What was read stands; the next read goes on from it.
+    return { rows: rows.filter((row) => row.offset < offset), offset };
   } finally {
     await handle.close();
   }
