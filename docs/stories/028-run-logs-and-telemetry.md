@@ -3,7 +3,7 @@ id: "028"
 title: An agent sees what a run is doing, from the command line
 summary: "`awf runs` and `awf logs` read a running or finished run as bounded, structured output with a cursor, so an agent can watch another agent's run; the run's events are span-shaped, ready for the OTel export in story 030."
 type: story
-status: in-progress
+status: awaiting-human-review
 priority: P1
 epic: observability
 discovered_in: "implement-ticket flow.ts live runs, AIRS-1515, 2026-10-02"

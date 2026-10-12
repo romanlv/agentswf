@@ -89,6 +89,9 @@ labelled groups it shows live in the terminal, and stages a run continues from.
   given the earlier stages' values.
 - **Deadlines and cleanup.** Every wait has a deadline, and every agent is cleaned up when the run
   ends, however it ends. Only a pane the workflow asked to keep stays open.
+- **Watch a run from anywhere.** `awf runs` lists the runs and shows one in depth; `awf logs`
+  reads what it did and is doing, each agent's prompts, tool calls and messages included, a page
+  at a time with a cursor, so another agent can follow your run. [More](#watching-a-run).
 - **Watch or run headless.** An agent runs in a terminal pane you can watch and type into
   (through [Herdr](https://herdr.dev)), or headless as a subprocess. The workflow says where each
   pane appears: a tab of its own, beside another agent's pane, or in the workspace you typed
@@ -277,6 +280,28 @@ A workflow's tests can do the same without agents: `testWorkflow` takes `recorde
 and `values`, as [the workflow API](docs/workflow-api.md#continuing-over-recorded-stages) shows.
 The full model, with what's on disk and why, is in
 [`docs/design/runs-and-stages.md`](docs/design/runs-and-stages.md).
+
+### Watching a run
+
+Run by an agent, or anywhere not a terminal, `awf run`'s first line names the run and how to follow it
+(in a terminal, its progress block's header names the run):
+
+```
+awf: ticket/AIRS-1515 started · watch: awf logs ticket/AIRS-1515
+```
+
+- **`awf runs`** lists the runs here, newest first; `awf runs ticket/AIRS-1515` shows one: its
+  attempts, the stages of the last, each agent's state and last activity, and what to run next.
+- **`awf logs ticket/AIRS-1515`** shows the last 40 events: stages, turns, agents opened and
+  stopped, `workflow.log` lines, and what each agent did, read from its harness's own session
+  files. Each page ends with the command for what comes next, `--after {cursor} --wait 90`, which
+  waits for something new; `--follow` prints events as they come until the run ends.
+- **`--agent {key}`** keeps to one agent, and `@{handle} --full` prints one event's whole text.
+  Text is cut to a line and common credential shapes are masked. `--json` on either command is
+  the interface for scripts.
+
+cursor's agents show their events but not their activity: cursor keeps a chat in a database that
+can't be read from where the last page stopped.
 
 ## Examples
 

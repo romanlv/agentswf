@@ -121,8 +121,9 @@ status is one of `todo`, `draft`, `ready`, `in-progress`, `blocked`, `awaiting-h
   `awaiting-human-review` — `agents.forkCaller` opens an agent on a copy of the session `awf run` was started from,
   waiting on it or handed over with `--here`, on the model its files show; `null` when there is none.
 - [`028` — An agent sees what a run is doing, from the command line](028-run-logs-and-telemetry.md) —
-  `draft` — `awf runs` and `awf logs` read a run as bounded, structured output with a cursor, so
-  an agent can watch another agent's run; the run's events are span-shaped.
+  `awaiting-human-review` — `awf runs` and `awf logs` read a run as bounded, structured output with a cursor, so
+  an agent can watch another agent's run: its event log merged with each agent's own session
+  files; the run's events are span-shaped.
 - [`029` — Agents in a run message each other over routes the workflow grants](029-agent-messaging.md) —
   `ready` — `workflow.messages.allow` grants routes with a purpose; agents use `wf peers`, `wf send
   [--await-reply]` and `wf reply`; a message arrives at a turn boundary and wakes an idle agent,

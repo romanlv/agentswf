@@ -605,7 +605,7 @@ answers.urgency.expected;     // 1.4, the probability-weighted level
 ## Logging and usage
 
 ```ts
-workflow.log("reviewed", { findings: 12 }); // a line in awf's live progress
+workflow.log("reviewed", { findings: 12 }); // a line in awf's live progress and in `awf logs`
 workflow.usage();                            // this scope's finished operations: times and sessions
 ```
 

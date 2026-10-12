@@ -39,6 +39,11 @@ Each of these is a live probe, recorded under `experiments/` and cited where it 
   session's log repeats its parent's, and whether its subagents log apart. A dollar figure, if it
   prints one, per turn (`readCharge`) or as a running total (`readCostTotal`). Then its models in
   `engine/src/accounting/prices.ts`.
+- **Activity.** Whether its session files can be read from an offset while the agent works, and
+  what each row says it did (`activityRow`): prompts, tool calls and results, messages, its
+  subagents' files. Whether a pane's new session takes an id given at launch (`interactive`'s
+  `sessionHint`), so `awf logs` reads it during its first turn, and where else it names that
+  session. Its rows recorded as fixtures for the reader (story 028, M1).
 - **Billing.** What says subscription or metered (`billing`), and whether headless turns are billed
   per token whatever the login (`meteredHeadless`).
 - **Plan allowance.** The command that shows what is left of its plan without a model turn, headless

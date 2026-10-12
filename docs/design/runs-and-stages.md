@@ -386,10 +386,11 @@ be an earlier attempt's than the last; its `attempt` says which.
 | Is an attempt live? | its file has no `ended`, and its `pid` with its `processStart` exists |
 | The run's status | the highest attempt: `running` if live; its `outcome` if ended; else `interrupted`, as is a run with no attempt file |
 | What a continue reuses | the succeeded records in `stages/`, through the stage plan |
-| The current stage | from outside, the stage of the live attempt's last turn; its own view knows exactly |
+| The current stage | from outside, the last attempt's stage started in `turns.jsonl` and not ended; its own view knows exactly |
+| What an agent is doing | its sessions in `turns.jsonl`, and the harness's own session files read on from there: `awf logs` |
 | The run's cost | each attempt file's `accounting`, summed; an interrupted attempt has none, and `turns.jsonl` holds turns and sessions, no spend |
 | A stage's history | `replaced/{stage}.*.json` and `stages/{stage}.json`, ordered by attempt; the attempt files say which attempt reused what |
-| A workflow's runs | `runs/{workflow}/*/run.json` |
+| A workflow's runs | `runs/{workflow}/*/run.json`: `awf runs` |
 
 ### Ids
 
@@ -675,7 +676,6 @@ Migrating old runs is decided when a format first changes.
 
 Each is a reader of the same files, or a row in the stage plan:
 
-- `awf status [workflow]`: runs with their status, current stage, attempts and cost.
 - `awf continue {workflow}/{id}`: the last attempt's file and the recorded argv.
 - `--to-stage` and `--only-stage`: a stopping point, and a `paused` outcome.
 - `--skip-stage {stage}`, with a stage's `default`.
@@ -689,7 +689,7 @@ Each is a reader of the same files, or a row in the stage plan:
   `TerminalError` and Temporal's `nonRetryable` do.
 - A status the workflow sets (parked, 2026-10-04): "waiting on CI", "MR open", where the work is in
   the workflow's words. Likely a declared `meta.statuses` with a typed `workflow.status(…)`, shown
-  in the view, logs, `awf status` and the report. Prior art: Temporal's `setCurrentDetails`.
+  in the view, `awf logs`, `awf runs` and the report. Prior art: Temporal's `setCurrentDetails`.
 - A lint rule for workflows: a turn between stages, a variable assigned inside a stage and read
   after it.
 

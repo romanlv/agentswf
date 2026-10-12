@@ -82,7 +82,7 @@ live runs.
   split from story 021 so accounting does not delay liveness.
 
 - [[stopped-run-recovery]] — a stop says how to go on, and can wait on a person; after story 018.
-- [[028-run-logs-and-telemetry]] — now story 028, draft: an agent reads a run with `awf runs` and `awf logs`; `operator-run-observation` folded in.
+- [[028-run-logs-and-telemetry]] — now story 028, awaiting human review: an agent reads a run with `awf runs` and `awf logs`; `operator-run-observation` folded in.
 - [[agent-permission-mode]] — host claude runs in auto mode, a classifier on every command.
 - [[readable-workflows]] — durations a person writes; the ticket workflow as its process.
 - [[run-through-sleep]] — keep the machine awake for a run; record time slept through.

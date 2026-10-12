@@ -206,7 +206,10 @@ as story 002 did to check accounting against the session files.
   `engine/src/skills`, `harness/src/capabilities` or a harness's launch arguments; `sandbox-panes-srt` and
   `sandbox-panes-docker` for a sandboxed pane, the Herdr host's typed start or a box's Herdr;
   `run-sandbox` for `awf run --sandbox` or how awf-lab runs a trial; `calling-session` for
-  `awf run --here`, `agents.caller` or the caller's Herdr backend. Pane layout, `keepPane` and the
+  `awf run --here`, `agents.caller` or the caller's Herdr backend. `awf runs`, `awf logs` and the
+  activity readers have no eval: run `examples/quick-check` on the harness you changed, headless and
+  in a pane (`-- pi pi-pane`), and in another shell follow it with the `awf logs` its first line
+  names, then `--after {cursor} --wait 90` as each page says. Pane layout, `keepPane` and the
   marks that sweep a dead run's panes have no eval, as their result is what a person sees: run
   `examples/pane-layout` from a Herdr pane and look (three codex luna agents, a few cents).
 - **Level 4:** only when a story names it.
