@@ -1,4 +1,5 @@
 // Scores results/*.json per model and scenario against the M2 counts.
+// biome-ignore-all lint/suspicious/noExplicitAny: a throwaway reading untyped JSON results
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -16,7 +17,7 @@ const isPoll = (c: string) =>
 const wfCalls = (t: any, cmd: string) => t.calls.filter((c: any) => c.argv[0] === cmd);
 
 for (const [key, rs] of [...by].sort()) {
-  const [, scenario] = key.split(" ");
+  const [, scenario = ""] = key.split(" ");
   const tally: Record<string, number> = {};
   const add = (k: string, ok = true) => (tally[k] = (tally[k] ?? 0) + (ok ? 1 : 0));
   const notes: string[] = [];

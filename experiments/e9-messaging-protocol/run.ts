@@ -1,5 +1,6 @@
 // E9: do headless agents operate the designed messaging protocol (docs/design/messaging.md, M2)?
 // bun run.ts {harness:model} {scenario,…|all} {trials} [concurrency]; RESULTS={subdir} DRY={scenario}
+// biome-ignore-all lint/suspicious/noExplicitAny: a throwaway reading untyped JSON results
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
