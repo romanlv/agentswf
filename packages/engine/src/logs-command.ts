@@ -18,6 +18,7 @@ import {
 } from "./run-commands";
 import {
   type Cursor,
+  cutCursor,
   decodeCursor,
   decodeHandle,
   encodeCursor,
@@ -47,6 +48,8 @@ export const logsUsage = [
 ].join("\n");
 
 const DEFAULT_LIMIT = 40;
+/** In a page's JSON, how much of a string the run wrote: `@{handle}` gives it whole. */
+const PAGE_TEXT = 1_000;
 const MAX_WAIT_SECONDS = 300;
 /** After a first new event, how long to wait for the rest of its burst. */
 const SETTLE_MS = 1_000;
@@ -227,21 +230,6 @@ function kept(read: Read, options: LogsOptions) {
   return { events, stages };
 }
 
-/**
- * Where a page cut before `cut` leaves off: before every event it did not show. Events are in
- * time order and the log's lines in line order among them, so nothing shown is read again.
- */
-function cutCursor(all: readonly ReadEvent[], cut: number, end: Cursor): Cursor {
-  const next: Cursor = { log: end.log, files: { ...end.files } };
-  for (const event of all.slice(cut)) {
-    const handle = decodeHandle(event.handle)!;
-    if (handle.kind === "event") next.log = Math.min(next.log, handle.line - 1);
-    else
-      next.files[handle.file] = Math.min(next.files[handle.file] ?? handle.offset, handle.offset);
-  }
-  return next;
-}
-
 function sameLine(a: ReadEvent, b: ReadEvent): boolean {
   const first = decodeHandle(a.handle);
   const second = decodeHandle(b.handle);
@@ -267,7 +255,12 @@ async function page(
   const deadline = clock.now() + options.waitSeconds * 1000;
   let waited = false;
   // Waits while there is nothing it keeps to show and the run goes on.
-  while (events.length === 0 && reader.status.state === "running" && clock.now() < deadline) {
+  while (
+    events.length === 0 &&
+    !read.more &&
+    reader.status.state === "running" &&
+    clock.now() < deadline
+  ) {
     waited = true;
     await clock.sleep(POLL_MS);
     await reader.refresh(place.runRoot);
@@ -295,8 +288,10 @@ async function page(
     // A line's items stay together.
     while (end < events.length && sameLine(events[end - 1]!, events[end]!)) end += 1;
     shown = events.slice(0, end);
-    newer = end < events.length;
-    if (newer) cursor = cutCursor(read.events, read.events.indexOf(events[end]!), read.cursor);
+    newer = end < events.length || read.more;
+    if (end < events.length) {
+      cursor = cutCursor(read.events, read.events.indexOf(events[end]!), read.cursor);
+    }
   }
   const stage = currentStage(status, read.log.lines);
   const filters = [
@@ -317,7 +312,7 @@ async function page(
         ambiguous: alsoRunning.length > 0,
         ...(status.state !== "running" && ended !== undefined ? { duration: ended - started } : {}),
       },
-      events: shown.map((event) => publish(event, stages)),
+      events: shown.map((event) => publish(event, stages, PAGE_TEXT)),
       cursor: encodeCursor(cursor),
       more: { ...(older ? { older: true } : {}), ...(newer ? { newer: true } : {}) },
       ...(next ? { next } : {}),
@@ -371,8 +366,11 @@ async function follow(
     const { events, stages } = kept(read, options);
     for (const event of events) out.stdout(describeEvent(event, stages));
     cursor = read.cursor;
-    if (reader.status.state !== "running") break;
-    await clock.sleep(POLL_MS);
+    // A read that stopped short goes on at once.
+    if (!read.more) {
+      if (reader.status.state !== "running") break;
+      await clock.sleep(POLL_MS);
+    }
     await reader.refresh(place.runRoot);
     read = await reader.next(cursor);
   }
@@ -459,7 +457,11 @@ function trailer(
 }
 
 /** An event as `--json` publishes it: the line's own fields, or the activity, with its keys. */
-function publish(event: ReadEvent, stages: Map<string, string>): LogEventJson {
+function publish(
+  event: ReadEvent,
+  stages: Map<string, string>,
+  limit = Number.POSITIVE_INFINITY,
+): LogEventJson {
   if (event.source === "activity") {
     const stage = event.operation ? stages.get(event.operation) : undefined;
     return {
@@ -477,14 +479,15 @@ function publish(event: ReadEvent, stages: Map<string, string>): LogEventJson {
   return {
     handle: event.handle,
     at: event.at,
-    ...(masked(fields) as typeof fields),
+    ...(masked(fields, limit) as typeof fields),
     ...("operationId" in fields ? { operation: fields.operationId } : {}),
   };
 }
 
 /** `@e216 09:27:02 fix  fixer  turn ended  answered  1m48s`. */
 function describeEvent(event: ReadEvent, stages: Map<string, string>): string {
-  const where = [stageOf(event, stages), agentOf(event)].filter(Boolean).join("  ");
+  const agent = agentOf(event);
+  const where = [stageOf(event, stages), agent && said(agent, 60)].filter(Boolean).join("  ");
   const what =
     event.source === "activity" ? describeActivity(event.activity) : describeLine(event.line);
   return `@${event.handle} ${clockTime(event.at)} ${where ? `${where}  ` : ""}${what}`;
@@ -520,7 +523,7 @@ function describeLine(line: RunLogLine): string {
     case "agent-stopped":
       return "stopped";
     case "agent-forked":
-      return `forked from ${line.from ?? "the calling session"}`;
+      return `forked from ${line.from ? said(line.from, 60) : "the calling session"}`;
     case "log":
       return said(line.text);
     case "warning":

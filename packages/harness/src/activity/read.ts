@@ -23,21 +23,22 @@ export type ActivityRow = {
 
 /**
  * The rows from `from` on, and where the next read starts: after the last whole line. `cut`: a
- * tail read left lines before it.
+ * tail read left lines before it; `more`: a bounded read stopped before the end.
  */
-export type ActivityRead = { rows: ActivityRow[]; offset: number; cut?: boolean };
+export type ActivityRead = { rows: ActivityRow[]; offset: number; cut?: boolean; more?: boolean };
 
 /**
  * `file`'s activity from byte `from`, through its harness's row reader. A last line not yet ended
  * with a newline is left for the next read; a line that does not parse, or names no time, is passed.
  * A harness with no reader, or a file that cannot be read, gives nothing. `tail`: read from `0`, only
- * the whole lines of about that many last bytes. `lines`: stop after that many lines.
+ * the whole lines of about that many last bytes. `lines`: stop after that many lines; `bytes`, at
+ * the end of the line that reaches that many.
  */
 export async function readActivity(
   harness: string,
   file: string,
   from = 0,
-  options: { full?: boolean; tail?: number; lines?: number } = {},
+  options: { full?: boolean; tail?: number; lines?: number; bytes?: number } = {},
 ): Promise<ActivityRead> {
   const read = findHarness(harness)?.activityRow;
   if (!read) return { rows: [], offset: from };
@@ -56,7 +57,11 @@ export async function readActivity(
     // In chunks, a native file may be hundreds of megabytes; a line runs on into the next.
     let pending = Buffer.alloc(0);
     let taken = 0;
-    for (let position = offset; position < size && taken !== options.lines; ) {
+    const begun = offset;
+    // Past what was asked for, at the end of a whole line.
+    const enough = (at: number) =>
+      taken === options.lines || (options.bytes !== undefined && at - begun >= options.bytes);
+    for (let position = offset; position < size && !enough(offset); ) {
       const chunk = Buffer.alloc(Math.min(CHUNK_BYTES, size - position));
       const { bytesRead } = await handle.read(chunk, 0, chunk.length, position);
       if (bytesRead === 0) break;
@@ -65,7 +70,7 @@ export async function readActivity(
       let start = 0;
       for (
         let end = bytes.indexOf(10);
-        end >= 0 && taken !== options.lines;
+        end >= 0 && !enough(offset + start);
         end = bytes.indexOf(10, start)
       ) {
         const line = parseRow(bytes.subarray(start, end).toString("utf8"));
@@ -91,7 +96,12 @@ export async function readActivity(
       offset += start;
       pending = bytes.subarray(start);
     }
-    return { rows, offset, ...(cut ? { cut } : {}) };
+    return {
+      rows,
+      offset,
+      ...(cut ? { cut } : {}),
+      ...(offset < size && enough(offset) ? { more: true } : {}),
+    };
   } catch {
     // What was read stands; the next read goes on from it.
     return { rows: rows.filter((row) => row.offset < offset), offset };

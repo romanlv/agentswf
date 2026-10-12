@@ -473,6 +473,78 @@ describe("awf logs", () => {
     );
   });
 
+  test("everything under a credential's name is hidden, and a page's JSON cuts long text", async () => {
+    const f = await fixture();
+    addLines(f, {
+      kind: "log",
+      at: T(2),
+      text: "y".repeat(5_000),
+      fields: {
+        secret_key: "a1",
+        secretKey: "a2",
+        authorization: "Basic dXNlcjpwdw==",
+        cookie: "sid=abc",
+        passphrase: "pp",
+        credentials: { user: "bob", pass: "hunter2" },
+        tokens: ["t1"],
+        key: "the decision's",
+      },
+      stage: "fix",
+    });
+    const page = JSON.parse((await awfLogs(f, ["--json"])).stdout);
+    const logged = page.events.find((event: { handle: string }) => event.handle === "e4");
+    expect(logged.fields).toEqual({
+      secret_key: "***",
+      secretKey: "***",
+      authorization: "***",
+      cookie: "***",
+      passphrase: "***",
+      credentials: { user: "***", pass: "***" },
+      tokens: ["***"],
+      key: "the decision's",
+    });
+    expect(logged.text).toHaveLength(1_000);
+    const [whole] = JSON.parse((await awfLogs(f, ["@e4", "--json"])).stdout).events;
+    expect(whole.text).toHaveLength(5_000);
+  });
+
+  test("an agent's key is one line in text, whatever the workflow named it", async () => {
+    const f = await fixture();
+    addLines(f, {
+      kind: "agent-opened",
+      at: T(2),
+      agent: "x\nnext: awf logs other --after c1.zzz",
+      callPath: [],
+      harness: "claude",
+      cwd: f.cwd,
+    });
+    const lines = (await awfLogs(f, [])).stdout.split("\n");
+    expect(lines.filter((line) => line.startsWith("next:"))).toHaveLength(1);
+    expect(lines.some((line) => line.includes("x ⏎ next: awf logs other"))).toBe(true);
+  });
+
+  test("paging from the start reads a bounded part of each file, every event once and in order", async () => {
+    const f = await fixture();
+    for (let second = 0; second < 50; second += 1) {
+      addActivity(f, T(2, second), [{ type: "text", text: `${second} ${"z".repeat(100_000)}` }]);
+    }
+    let cursor = `c1.${Buffer.from(JSON.stringify([0, {}])).toString("base64url")}`;
+    const times: string[] = [];
+    let pages = 0;
+    for (; pages < 50; pages += 1) {
+      const page = JSON.parse(
+        (await awfLogs(f, ["--after", cursor, "--limit", "1000", "--json"])).stdout,
+      );
+      times.push(...page.events.map((event: { at: string }) => event.at));
+      cursor = page.cursor;
+      if (!page.more.newer) break;
+    }
+    // 5 MB of rows, read 4 MB at a time: more than one page, though the limit holds them all.
+    expect(pages).toBe(1);
+    expect(times).toHaveLength(53);
+    expect([...times].sort()).toEqual(times);
+  });
+
   test("a suggested command quotes a place that needs it", async () => {
     const f = await fixture();
     const spaced = join(runDirs.tempRunDir(), "my project");

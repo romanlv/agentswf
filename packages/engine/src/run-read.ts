@@ -170,6 +170,9 @@ const REFIND_NONE_MS = 5_000;
 /** Without a cursor, a native file is read from this far before its end: a read shows its last events. */
 const TAIL_BYTES = 4 * 1024 * 1024;
 
+/** With a cursor, how far one read goes on in a native file: a page needs little of it. */
+const READ_BYTES = 4 * 1024 * 1024;
+
 /** One native file of a session, by a key its name gives, so a late file renumbers nothing. */
 export type SessionFile = { session: NativeSession; key: string; path: string };
 
@@ -292,11 +295,13 @@ export async function readRun(
     /** The command's clock, for when to look for files again. */
     now?: number;
   } = {},
-): Promise<{ events: ReadEvent[]; cursor: Cursor; log: RunLog; cut: boolean }> {
+): Promise<{ events: ReadEvent[]; cursor: Cursor; log: RunLog; cut: boolean; more: boolean }> {
   const log = await readRunLog(runDir, options);
   const cache = options.files ?? new Map();
   const now = options.now ?? Date.now();
   let cut = false;
+  // Where the files that stopped short stopped: what comes after it is left for the next read.
+  let horizon = Number.POSITIVE_INFINITY;
   const events: ReadEvent[] = [];
   let last = cursor.log;
   // The log's lines keep their order among the activity: a turn line's time is its settling,
@@ -335,9 +340,17 @@ export async function readRun(
         ...(options.full ? { full: true } : {}),
         ...(options.tail && files[name] === undefined ? { tail: TAIL_BYTES } : {}),
         // One file read for one handle: its line is the first.
-        ...(options.only !== undefined ? { lines: 1 } : {}),
+        ...(options.only !== undefined
+          ? { lines: 1 }
+          : options.tail && files[name] === undefined
+            ? {}
+            : { bytes: READ_BYTES }),
       });
       if (read.cut) cut = true;
+      if (read.more && options.only === undefined) {
+        const times = read.rows.map((row) => Date.parse(row.at)).filter((at) => !Number.isNaN(at));
+        horizon = Math.min(horizon, Math.max(Number.NEGATIVE_INFINITY, ...times));
+      }
       files[name] = read.offset;
       for (const row of read.rows) {
         const time = Date.parse(row.at);
@@ -362,7 +375,26 @@ export async function readRun(
     }
   }
   events.sort((a, b) => a.time - b.time);
-  return { events, cursor: { log: last, files }, log, cut };
+  const more = horizon < Number.POSITIVE_INFINITY;
+  const beyond = events.findIndex((event) => event.time > horizon);
+  if (beyond < 0) return { events, cursor: { log: last, files }, log, cut, more };
+  const next = cutCursor(events, beyond, { log: last, files });
+  return { events: events.slice(0, beyond), cursor: next, log, cut, more };
+}
+
+/**
+ * Where a page cut before `cut` leaves off: before every event it did not show. Events are in
+ * time order and the log's lines in line order among them, so nothing shown is read again.
+ */
+export function cutCursor(all: readonly ReadEvent[], cut: number, end: Cursor): Cursor {
+  const next: Cursor = { log: end.log, files: { ...end.files } };
+  for (const event of all.slice(cut)) {
+    const handle = decodeHandle(event.handle)!;
+    if (handle.kind === "event") next.log = Math.min(next.log, handle.line - 1);
+    else
+      next.files[handle.file] = Math.min(next.files[handle.file] ?? handle.offset, handle.offset);
+  }
+  return next;
 }
 
 /** When a line happened: an event's time, or a turn's settling. */

@@ -428,6 +428,8 @@ Neither command reports the run's outcome in its exit code.
   so the split between durable and best-effort is in the structure.
 - The envelope's types live in `contract/records`. A read of one `@handle` has no `cursor`,
   `more` or `next`: it pages nothing.
+- A page's strings the run wrote are cut at 1,000 characters, and in text at about 120; one
+  `@handle` gives them whole. A field named for a credential is hidden, with all it holds.
 
 **The skill.** `awf-run` gains a few lines:
 
@@ -947,6 +949,15 @@ shell by following each `next:` with `--wait 90`, as an agent would.
   read pointed at `--limit`, which cannot reach what was cut (now at paging from the start), and a
   handle read its file to the end (now its one line); a session with no files was looked for on
   every poll (now every 5 s).
+- Branch review, round 3: more masker shapes (`config set` with a flag before the name,
+  `--proxy-user`, `--passphrase`, `--secret-key`, `*_PASS=`, `X-Auth:`, `mysqladmin -p`,
+  `redis-cli -a`); a field was hidden only by its own name, from a short list, so
+  `{credentials: {pass}}`, `secretKey`, `cookie` and `authorization` were published (now any name
+  holding a credential word hides everything under it); `--json` published the run's text whole
+  (now cut at 1,000 in a page); agent keys, which a workflow writes, were printed raw (now one
+  line, cut); paging from the start read each file to its end per page (now at most 4 MB of each
+  per read, the page stopping where the shortest stopped, so time order holds and nothing is
+  read twice).
 
 ## Related
 

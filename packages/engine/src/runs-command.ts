@@ -1,5 +1,4 @@
 import type { RunJson, RunsJson } from "@agentswf/contract/records";
-import { maskCredentials } from "@agentswf/harness";
 import { messageOf } from "./errors";
 import {
   clockTime,
@@ -7,6 +6,7 @@ import {
   continueOf,
   estimateOf,
   failed,
+  masked,
   money,
   nextLogs,
   type Out,
@@ -150,7 +150,7 @@ const busy = (agent: AgentView) => agent.state === "working" || agent.state === 
 function agentLine(agent: AgentView, indent: string, now: number): string {
   const waiting = agent.live?.phase === "waiting" ? agent.live : undefined;
   const parts = [
-    agent.key.padEnd(16),
+    said(agent.key, 60).padEnd(16),
     (waiting ? "waiting" : agent.state).padEnd(9),
     busy(agent) ? `turn ${agent.turns + 1}` : `${agent.turns} turn${agent.turns === 1 ? "" : "s"}`,
     ...(waiting
@@ -194,7 +194,7 @@ function agentLines(agents: readonly AgentView[], indent: string, now: number): 
     for (const each of group) states.set(each.state, (states.get(each.state) ?? 0) + 1);
     const counts = [...states].map(([state, n]) => `${n} ${state}`).join(", ");
     lines.push(
-      `${indent}    ${group[0]!.key} … ${group.at(-1)!.key}   ${group.length} agents: ${counts}`,
+      `${indent}    ${said(group[0]!.key, 60)} … ${said(group.at(-1)!.key, 60)}   ${group.length} agents: ${counts}`,
     );
   }
   return lines;
@@ -303,7 +303,7 @@ function runJson(view: RunView, place: ReadPlace, now: number): RunJson {
       state:
         outcome ?? (attempt === status.attempts.at(-1)?.attempt ? status.state : "interrupted"),
       ...(stage ? { stage } : {}),
-      ...(reason ? { reason: maskCredentials(reason) } : {}),
+      ...(reason ? { reason: masked(reason, 1_000) as string } : {}),
     })),
     stages: view.stages.map(({ stage, state, startedAt, endedAt }) => ({
       stage,
@@ -325,7 +325,7 @@ function runJson(view: RunView, place: ReadPlace, now: number): RunJson {
               phase: agent.live.phase,
               ...(agent.live.reason === undefined
                 ? {}
-                : { reason: maskCredentials(agent.live.reason) }),
+                : { reason: masked(agent.live.reason, 1_000) as string }),
               ...(agent.live.until === undefined
                 ? {}
                 : { until: new Date(agent.live.until).toISOString() }),

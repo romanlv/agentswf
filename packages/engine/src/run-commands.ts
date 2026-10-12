@@ -47,17 +47,26 @@ export function command(place: ReadPlace, ...words: string[]): string[] {
 
 /** A field whose name says it holds a credential, whatever its value looks like. */
 const SECRET_NAME =
-  /(?:password|passwd|pwd|secret|token|api[_-]?key|access[_-]?key|private[_-]?key|credentials?)$/i;
+  /password|passwd|passphrase|secret|token|credential|cookie|bearer|authorization|(?:api|access|private|session)[_-]?key|^(?:pwd|pass|auth)$/i;
 
 /**
- * Every string in `value` masked, and every string under a credential's name hidden: a run's
- * text, errors and fields are its workflow's, its agents' and its tools'.
+ * Every string in `value` masked, and everything under a credential's name hidden: a run's text,
+ * errors and fields are its workflow's, its agents' and its tools'. Past `limit`, a string is cut.
  */
-export function masked(value: unknown, name = ""): unknown {
-  if (typeof value === "string") return SECRET_NAME.test(name) ? "***" : maskCredentials(value);
-  if (Array.isArray(value)) return value.map((each) => masked(each, name));
+export function masked(value: unknown, limit = Number.POSITIVE_INFINITY, hidden = false): unknown {
+  if (typeof value === "string") {
+    if (hidden) return "***";
+    const shown = maskCredentials(value);
+    return shown.length > limit ? `${shown.slice(0, limit - 1)}…` : shown;
+  }
+  if (Array.isArray(value)) return value.map((each) => masked(each, limit, hidden));
   if (value && typeof value === "object") {
-    return Object.fromEntries(Object.entries(value).map(([key, each]) => [key, masked(each, key)]));
+    return Object.fromEntries(
+      Object.entries(value).map(([key, each]) => [
+        key,
+        masked(each, limit, hidden || SECRET_NAME.test(key)),
+      ]),
+    );
   }
   return value;
 }

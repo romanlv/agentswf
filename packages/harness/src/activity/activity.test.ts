@@ -240,11 +240,19 @@ describe("reading from an offset", () => {
     expect(await readActivity("claude", path, 0, { tail: 10_000 })).toEqual(whole);
   });
 
+  test("a read of so many bytes stops at the end of the line that reaches them", async () => {
+    const path = file(row("one"), row("two"), row("three"));
+    const whole = await readActivity("claude", path);
+    const some = await readActivity("claude", path, 0, { bytes: 1 });
+    expect(some).toEqual({ rows: [whole.rows[0]!], offset: whole.rows[1]!.offset, more: true });
+    expect(await readActivity("claude", path, 0, { bytes: 10_000 })).toEqual(whole);
+  });
+
   test("a read of so many lines stops after them", async () => {
     const path = file(row("one"), row("two"), row("three"));
     const whole = await readActivity("claude", path);
     const one = await readActivity("claude", path, whole.rows[1]!.offset, { lines: 1 });
-    expect(one).toEqual({ rows: [whole.rows[1]!], offset: whole.rows[2]!.offset });
+    expect(one).toEqual({ rows: [whole.rows[1]!], offset: whole.rows[2]!.offset, more: true });
   });
 
   test("stops before a torn last line, and reads it once it is whole", async () => {
@@ -330,6 +338,19 @@ describe("masking", () => {
       ["bun test packages/engine", "bun test packages/engine"],
       ["max_tokens=4096", "max_tokens=4096"],
       ["curl --user admin:pw url", "curl --user *** url"],
+      [
+        "git config set --global user.password hunter2",
+        "git config set --global user.password ***",
+      ],
+      ["git config set --global user.name me", "git config set --global user.name me"],
+      ["curl --proxy-user u:p url", "curl --proxy-user *** url"],
+      ["gpg --passphrase hunter2 x", "gpg --passphrase *** x"],
+      ["export DB_PASS=hunter2", "export DB_PASS=***"],
+      ["curl -H 'X-Auth: abc'", "curl -H 'X-Auth: ***'"],
+      ["mysqladmin -u root -pSecret1 status", "mysqladmin -u root -p*** status"],
+      ["aws s3 --secret-key abc", "aws s3 --secret-key ***"],
+      ["redis-cli -a hunter2", "redis-cli -a ***"],
+      ["BYPASS_CACHE=1 curl -H 'X-Request-Id: 12'", "BYPASS_CACHE=1 curl -H 'X-Request-Id: 12'"],
       ["sshpass -p hunter2 ssh x", "sshpass -p *** ssh x"],
       ["mysql -u root -p Secret1", "mysql -u root -p ***"],
       ["openssl enc -k hunter2", "openssl enc -k ***"],
