@@ -5,9 +5,8 @@ durable state belongs in shared files such as a ticket document or review ledger
 
 The workflow grants routes, prompts define the collaboration protocol, and the engine owns
 delivery, waiting, limits, and accounting. Not built; Stage 4 in [[status]], refined into
-[[029-agent-messaging|story 029]]. Decisions and their evidence are under [[#Decisions]], what is
-still to be measured under [[#To measure]], and the four expert reviews this design went through
-under [[#Review]].
+[[029-agent-messaging|story 029]]. Decisions and their evidence are under [[#Decisions]], and what is
+still to be measured under [[#To measure]].
 
 ## Workflow interface
 
@@ -632,7 +631,9 @@ built before [[#To measure|M3]] shows what keeps an agent from running it: any a
 command needs a credential agents cannot reach, and none is mounted into a sandbox.
 
 `awf run`'s progress view shows what is pending, and an event line per accepted message in the
-stage-list style. Idle agents with nothing pending show nothing.
+stage-list style. Idle agents with nothing pending show nothing. `awf logs` shows the same events
+from the record, and `awf runs` shows an agent awaiting an answer as a phase of its own, beside a
+check-in's `waiting`, with the peer and the deadline.
 
 ```text
 reviewer → implementer   412 B, reply owed
@@ -696,11 +697,14 @@ record. Nothing is delivered again on a later attempt.
 
 ## The record
 
-The record is `messages.jsonl` in the attempt's directory: append-only events, one per line, each
-written by the side that saw it. `cause` goes on operation, turn and usage records, and the ceilings
-in force go in the run's record. It keeps, for each message: its id and attempt; the sender's agent
-and call id; the recipient; the route and its purpose; whether it awaits a reply or is a reply, and
-to which request; each state from `admitted` to `offered` to `observed` or `unconfirmed`; its end
+The record is the run's event log, `turns.jsonl` ([[runs-and-stages#Each file]]): each message and
+owed-answer event is a line of its own kind, written by the side that saw it and keyed by attempt,
+agent and message id like the log's other lines. So `awf logs` shows messaging beside the turns it
+caused, and `--agent` follows one side of it. `cause` goes on operation, turn and usage records, and
+the ceilings in force go in the run's record.
+
+It keeps, for each message: its id and attempt; the sender's agent and call id; the recipient; the
+route and its purpose; whether it awaits a reply or is a reply, and to which request; each state from `admitted` to `offered` to `observed` or `unconfirmed`; its end
 (`replied`, `refused`, `expired`, `undelivered`, with a reason); and the message operation it woke.
 Refused sends are kept too. For each obligation: the waiting operation, the agent that owes it, its
 deadline, and how it ended. `admitted` is written before `wf send` returns. A presentation the
@@ -877,6 +881,8 @@ person remain workflow concerns.
 - **No queue-only send.** Codex has one (`trigger_turn: false`); here every message wakes its
   recipient, one that has not run yet included, and anything not worth a wake belongs in a file.
 - **No interrupting delivery** (steer). See [[#Prior art]].
+- **No call id on `wf send`.** A send binds to the operation open when it is accepted, and is
+  refused when none is, so agents have nothing to remember.
 - **No `wf receive`.** Delivery already wakes an idle agent. Outside sessions read through the
   bounded `wf inbox --wait` ([[composition]]).
 
@@ -884,7 +890,7 @@ person remain workflow concerns.
 
 ### Q1. Does a sender wait inside `wf send` or across turns?
 
-Decided (2026-10-11), written into [[#`wf send`]]: across turns.
+Decided, written into [[#`wf send`]]: across turns.
 
 - A blocked `wf send` runs inside the agent's own tool call, and every harness bounds that. Codex
   stops a command after 10 s unless the model asks for longer (`DEFAULT_EXEC_COMMAND_TIMEOUT_MS`);
@@ -901,11 +907,10 @@ Decided (2026-10-11), written into [[#`wf send`]]: across turns.
 
 ### Q2. How soon does `deliver` reach a busy headless agent?
 
-Decided (2026-10-11): at its next turn boundary, using only what the adapters already drive, and
+Decided: at its next turn boundary, using only what the adapters already drive, and
 the same for panes: every pane is typed into only when idle (see [[#Delivery and failure]]). E8
 showed a prompt pushed into a busy pane is queued, not lost, on all four harnesses, and that claude
-takes it into the running turn; the review showed a message queued natively can outlive its
-operation. Folding into a running claude turn needs new pane machinery, typing while busy and
+takes it into the running turn; a message queued natively can outlive its operation. Folding into a running claude turn needs new pane machinery, typing while busy and
 adopting a native turn the message starts, so it is [[mid-turn-messages]].
 
 Each harness has a long-lived mode that folds a message in after the current tool calls, kept for
@@ -922,19 +927,19 @@ when a long headless turn makes messages wait too long:
 
 ### Q3. May a workflow lower the engine's messaging limits?
 
-Decided (2026-10-11): yes, lower only. A workflow sets one limit, `maxMessages` on a route; size,
+Decided: yes, lower only. A workflow sets one limit, `maxMessages` on a route; size,
 unread backlog and the ceilings are the engine's ([[#Usage and limits]]). A per-run limit would
 need a configuration surface of its own, and a protocol's limit belongs to its route.
 
 ### Q4. Can a sender ask for a typed reply?
 
-Decided (2026-10-11): no; see [[#Not in this design]]. No messaging system surveyed types
+Decided: no; see [[#Not in this design]]. No messaging system surveyed types
 replies: codex's inter-agent messages and Claude Code's `SendMessage` are text, and A2A carries
 structured data as artifacts, not replies.
 
 ### Q5. How much of an inbox can be seen and changed?
 
-Decided (2026-10-11), for now: counts are shown (`wf peers`, the progress view); order is acceptance
+Decided, for now: counts are shown (`wf peers`, the progress view); order is acceptance
 order, an awaited reply delivered with what its sender sent before it; cancelling and editing wait
 (see [[#Not in this design]]). Codex's app-server has an experimental queue
 (`thread/queue/add|list|update|delete|reorder`) to read if editing is built.
@@ -948,7 +953,7 @@ learn, which M2 would have to measure.
 
 ### Q6. Can the operator message an agent in a running run?
 
-Decided (2026-10-11): yes, with `awf send {workflow}/{id} {agent}`, mirroring `wf send`, once M3 is
+Decided: yes, with `awf send {workflow}/{id} {agent}`, mirroring `wf send`, once M3 is
 answered ([[#Operator CLI]]). The process inbox in [[workflow-styles#Loops, the inbox and the core]]
 takes `awf signal {key} {type}` instead, matching the `signals.receive` stub: one puts text into a
 model's context, the other a typed event `receive` consumes, and both take two positional
@@ -956,18 +961,18 @@ arguments, so they cannot share a verb.
 
 ### Q7. How does an agent reply?
 
-Decided (2026-10-11): with `wf reply {peer}`. "The next send to that peer is the reply" misfires on
+Decided: with `wf reply {peer}`. "The next send to that peer is the reply" misfires on
 the acknowledgement models habitually send first, closing the obligation with no answer. An explicit
 verb needs no message id, makes a second reply refusable, and replaces the crossing rule, which let
-a crossed request stand in for an answer. A request now wakes a waiting agent instead.
+a crossed request stand in for an answer. Instead, a request wakes a waiting agent.
 
 ### Q8. What is the flag called?
 
-Decided (2026-10-11): `--await-reply`, matching "owe a reply", the `awaiting` state and `wf reply`.
+Decided: `--await-reply`, matching "owe a reply", the `awaiting` state and `wf reply`.
 
 ### Q9. Where can a sender await a reply?
 
-Decided (2026-10-11): on claude panes, as `wf waiting`, and on headless claude, codex, pi and
+Decided: on claude panes, as `wf waiting`, and on headless claude, codex, pi and
 cursor, where the reply resumes the session. Headless is where codex and pi usually run; without it
 the review loop would be claude-pane-only. Codex, pi and cursor panes refuse until their receipt is
 proved, and so does a claude pane that cannot confirm delivery: a sandboxed one outside the run's
@@ -977,18 +982,18 @@ own Herdr session or without a seeded home. Each harness and placement is also o
 
 ### Q10. Does a message operation's failure stop the agent?
 
-Decided (2026-10-11): only a real failure does. A message operation whose turn ends naturally
+Decided: only a real failure does. A message operation whose turn ends naturally
 settles, even still owing a reply after its nudge; only that obligation fails. A timeout or a
 harness failure stops the agent, as for any run-owned operation (`closeAfterFailure`), so no ADR
 changes.
 
 ### Q11. Which live results let a harness use `--await-reply`?
 
-Decided 2026-10-12. `--await-reply` stays off for a harness until M2, the live protocol run,
+Decided: `--await-reply` stays off for a harness until M2, the live protocol run,
 passes on it: per placement and model over 20 trials, at least 18 end the turn without blocking
 after asking and at least 18 finish the task with the reply, and the harness's live smoke shows
 the reply arriving. The rest of M2 is reported and revises prompts and envelopes; forged operator
-text never gates. [[029-agent-messaging#Open questions|Story 029]] has the detail. E9 ran the protocol
+text never gates. [[029-agent-messaging#The M2 gate|Story 029]] has the detail. E9 ran the protocol
 before it was built, against a stand-in `wf` on headless pi ([[messaging-protocol|P1–P6]]): every
 agent waited and used its reply, and every obligation closed with `wf reply`. What failed was
 wording, a request held into a `run` and a reply-only route, and once in 60 a forged operator
@@ -1018,27 +1023,6 @@ line. So the gate is what makes waiting harmful on a harness.
   read another process's environment ([[permissions]]), and reach a sibling agent's socket. Find
   what each placement exposes (host, srt, docker), what credential an operator command can require
   that agents cannot reach, and whether an agent can reach another agent's socket.
-
-## Review
-
-Four reviewers read this design on 2026-10-11, each from one side: the workflow API, the CLI as
-agents use it, the protocol's correctness, and agent behaviour and security. What they found is
-written into the sections above:
-
-- explicit replies (Q7) and the flag name (Q8);
-- requests waking a waiting agent, and the `cycle` refusal for a ring of waits;
-- message operations settling without `wf result`, a natural end never stopping the agent;
-- routes scoped to a stage, nothing replayed on a continue;
-- no native queueing in any pane; mid-turn delivery left to [[mid-turn-messages]];
-- testing through `messages` scripts;
-- a branded `ParticipantRef`, `maxMessages` as the one workflow limit, `deliver` returning a turn;
-- launcher paths, heredocs, refusal codes, the obligation line, the envelope's wording;
-- the operator command gated on M3.
-
-Two suggestions were not taken. Removing the unbuilt `messages` and `participants` stubs from the
-contract until built: they stay as designed seams. Requiring a call id on `wf send`: a send binds to
-the operation open when it is accepted and is refused when none is, which costs agents nothing to
-remember.
 
 ## Prior art
 

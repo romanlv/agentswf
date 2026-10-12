@@ -12,24 +12,23 @@ depends_on: ["018", "021", "024"]
 
 # Agents in a run message each other over routes the workflow grants
 
-The design is [[messaging]] (`docs/design/messaging.md`). It converged with the user on
-2026-10-11, was reviewed from four sides, and was then checked against the code for this story.
-This story links to it rather than copying it. Before `ready`, the questions under
-[[#Open questions]] need answers.
+The design is [[messaging]] (`docs/design/messaging.md`). This story builds it and links to it
+rather than copying it.
 
 ## Outcome
 
-A workflow lets two agents talk while both are working, without code passing text between them:
+Agents in a workflow can talk to each other while they work, without workflow code passing text
+between them:
 
-- The workflow grants a route with a purpose.
-- An agent lists its peers, sends a note, or asks and waits for the answer.
-- A message to an idle agent wakes it for one bounded operation.
-- The engine keeps every message and obligation in the run's record, with what each wake cost.
+- The workflow allows two agents to talk, and says what for. This is a *route*.
+- An agent can list who it may talk to, send a note, or ask a question and wait for the answer.
+- A message to an idle agent wakes it to deal with the message.
+- The run's record keeps every message, every answer still owed, and what each wake cost.
 
-Why now: Stage 4 of [[foundation]] starts with messaging, "the structural test", the one feature
-that touches every package. Today `reviewLoop` in `examples/feature-delivery/reviews.ts` has to end
-the reviewer's turn, hand its findings to code, and start the implementer again. With messaging,
-the reviewer owns the loop ([[messaging#Review until convergence]]).
+Why now: stage 4 of [[foundation]] starts with messaging, because it touches every package. Today
+`reviewLoop` in `examples/feature-delivery/reviews.ts` has to end the reviewer's turn, pass its
+findings through code, and start the implementer again. With messaging the reviewer runs the loop
+itself ([[messaging#Review until convergence]]).
 
 ## How it works
 
@@ -38,133 +37,130 @@ workflow                 engine (control plane)                  agents
 --------                 ----------------------                  ------
 messages.allow  ──────>  route {from,to | between, purpose, max}
                                                                  reviewer: wf send --await-reply implementer
-                         admit: route? limit? ─────────────────  (atomic with the obligation)
+                         admit: route? limit? ─────────────────  (saved together with the owed answer)
                          reviewer's operation: waiting   <─────  reviewer ends its turn
                          implementer idle → message operation ─> implementer wakes, fixes,
                                                                  wf reply reviewer
-                         obligation satisfied; reply queued ───> reviewer's same operation continues
+                         answer recorded and queued ───────────> reviewer's same operation continues
                                                                  reviewer: wf result {call-id}
 ```
 
-- **Routes.** `workflow.messages.allow` grants a one-way route (`from`, `to`) or both directions
-  (`between`). Each carries a purpose that every envelope quotes, and an optional `maxMessages`.
-  - A route granted in a stage closes when the stage ends.
-  - A route closes when either endpoint stops.
-  - Messages not yet shown when a route closes end `undelivered`.
-- **Send and reply.** `wf send {peer}` returns once the message is durably recorded.
-  - With `--await-reply`, the obligation is created atomically with the message.
-  - The peer then owes a reply, and is held to it as to a result: its `wf result` and
-    `wf waiting` are refused (`owes-reply`), and a turn that ends still owing gets one nudge
-    naming the reply, within the check-in response window. If it still owes, the obligation fails
-    and the sender is continued with that failure ([[messaging#Finishing]]).
-  - `wf send --await-reply` is a tool call like any other: the sender may go on with work that
-    does not need the answer. If its turn ends without a result, its operation waits for the
-    reply. Awaiting never blocks `wf result`: a sender that finds the answer itself, or decides not
-    to wait, finishes, and the wait is dropped. A request not yet shown is withdrawn and wakes
-    nobody; a peer that has seen it no longer owes it, and its reply is refused `expired`.
-  - The reply, or a failure, continues the same operation with the same call id.
-  - `wf reply {peer}` is the only thing that satisfies an obligation.
-- **Waking.** A message to an idle agent starts a *message operation*. An agent opened but not yet
-  run is idle: the message starts its first turn, and a later `run` continues that session.
-  - It settles when its turn ends with nothing awaited, and needs no `wf result`.
-  - A turn that ends naturally is not a failure, even if a reply is still owed after its one nudge.
-  - A request also continues an agent that is waiting on a reply. `--await-reply` is refused
-    (`cycle`) when the chain of open waits from the peer leads back to the sender.
-- **Delivery, at turn boundaries only.** An idle pane has the message typed into it. A headless
-  agent gets it as a resumed turn (`resumeTurn`) once its process has exited. A busy agent gets it
-  when its turn ends. Folding a message into a running claude turn is later, in
+- **Routes.** `workflow.messages.allow` lets one agent message another (`from`, `to`), or both ways
+  (`between`). Each route has a purpose, shown with every message, and an optional cap,
+  `maxMessages`. A route made in a stage closes when the stage ends, and any route closes when
+  either agent stops. Messages not yet shown by then are recorded `undelivered`.
+- **Sending.** `wf send {peer}` returns as soon as the message is saved. It does not wait for the
+  peer.
+- **Asking.** `wf send --await-reply {peer}` also records that the peer owes an answer. The asker
+  may keep working. If its turn ends without a result, its operation waits, and the answer
+  continues that same operation, with the same call id. If the asker finishes with `wf result`
+  instead, the question is dropped: withdrawn if the peer has not seen it, and otherwise a late
+  answer is refused `expired`.
+- **Answering.** Only `wf reply {peer}` counts as an answer. Until it answers, the peer cannot finish
+  with `wf result` or ask for more time with `wf waiting` (both refused `owes-reply`). A turn that
+  ends still owing gets one reminder. If it still has not answered, the owed answer fails, and the
+  asker continues with a failure that says what to do instead ([[messaging#Finishing]]). The
+  peer's turn ending that way is not a failure of its own operation.
+- **Waking.** A message to an idle agent starts a *message operation*: an operation whose only job
+  is the message. It ends when the agent's turn ends with nothing awaited, and needs no `wf result`. An agent that was opened
+  but never run counts as idle, so the message starts its first turn, and a later `run` continues
+  the same session. A question also continues an agent that is waiting on its own answer. Asking is
+  refused `cycle` when it would close a ring of agents each waiting on the next.
+- **When a message arrives.** Only between turns. An idle pane has it typed in. A headless agent
+  gets it as a resumed session (`resumeTurn`) once its process exits. A busy agent gets it when its
+  turn ends. Putting a message into a claude turn that is still running is later work,
   [[mid-turn-messages]].
-- **Where a sender can wait.** On a claude pane that confirms delivery, awaiting a reply uses
-  `wf waiting`'s waiting state (story 021), ended by the reply instead of a timer. Any message also
-  ends a check-in's `wf waiting` interval early. A check-in's `wf waiting` is refused headless,
-  where its receipt cannot be confirmed ([[021-implementation-proof#Current support boundary]]). So
-  headless, the process exits and the reply resumes the session as a fresh turn; this is new
-  support. While a reply is awaited, `wf waiting` changes nothing and is only acknowledged, on any
-  placement.
-- **Settlement.** Every settle is a compare-and-set against the operation still open on the agent,
-  so a late or stale reply is refused, not consumed.
+- **How an asker waits.** In a claude pane that can confirm what it was sent, the asker waits the
+  way `wf waiting` does (story 021), woken by the answer instead of a timer. Headless, a check-in's
+  `wf waiting` is refused, because receipt cannot be confirmed
+  ([[021-implementation-proof#Current support boundary]]); there the process exits, and the answer
+  resumes the session as a new turn. While an answer is awaited, `wf waiting` is accepted and
+  changes nothing. Any message also cuts a check-in's `wf waiting` short.
+- **Nothing is applied twice.** An answer or a result is accepted only against the operation still
+  open on the agent, so a late or stale one is refused, not used.
 
-The case people ask about first, "what if the peer never answers?": the peer is nudged once, and
-then its obligation fails and the sender is continued with a failure that says what to do instead.
-The same happens when the peer fails or stops, or when the sender's `--timeout` passes. The wait
-never outlasts the sender's operation: at that operation's deadline, or its scope's, the operation
-times out and the agent stops, as any timeout does.
+"What if the peer never answers?" It gets one reminder. Then its answer fails, and the asker
+continues with a failure that says what to do instead. The same happens when the peer fails or
+stops, or the asker's `--timeout` passes. The wait never outlasts the asker's own operation: at
+that operation's deadline, or its scope's, the operation times out and the agent stops, as with any
+timeout.
+
+**Terms used below:**
+
+- **Operation:** one piece of work given to an agent, such as a workflow `run`. Each has a *call
+  id*, which the agent uses to finish it with `wf result {call-id}`.
+- **Check-in:** 021's question to an agent whose turn ended without a result: finish, or ask for
+  more time with `wf waiting`.
+- **Placement:** where an agent runs: headless or in a pane, on the host or in a sandbox (srt or
+  docker). The *sandbox door* forwards `wf` commands out of a sandbox.
+- **Held messages:** messages that arrived while their recipient was busy, delivered when its turn
+  ends.
+- **Scope:** a stage's lifetime. A stage *seals* its scope when its function returns, and then
+  waits for what it owns.
+- **Route lesson:** the lines in an agent's prompt that tell it its routes and how to use them.
+- **Lenses→fixer:** several reviewers ("lenses") each sending findings to one agent that fixes
+  them.
+- **M1, M2, M3:** measurements in [[messaging#To measure]]: whether claude's own messaging gets
+  around routes; whether agents use messaging correctly; what stops an agent from acting as the
+  operator. **E8** and **E9** are earlier experiments: E8 measured pane delivery, and its setup is
+  reused; E9 tried this protocol on a stand-in `wf`.
 
 ## Scope
 
 In scope:
 
-- **Author surface.** `workflow.messages.allow` with `maxMessages`, and a branded `ParticipantRef`
-  for agents. The validation, scope and waking rules are in [[messaging#Workflow interface]].
-- **Agent commands:**
-  - `wf peers`, with `--json`;
-  - `wf send`, with `--await-reply` and `--timeout`;
-  - `wf reply`;
-  - `wf result` and `wf waiting` refused while a reply is owed; a result while awaiting drops the
-    wait;
-  - the obligation line;
-  - all of it through the sandbox door.
-- **Engine.** The messaging state machine in `engine/src/messaging/` ([[foundation]] §10), and its
-  integration into the runner:
-  - routes and their scope;
-  - inboxes;
-  - obligations;
-  - message operations;
-  - limits;
-  - cycle refusal;
-  - envelopes;
-  - prompts that teach routes.
-- **Harness.** `HarnessTurn.deliver` at turn boundaries:
-  - headless, by `resumeTurn`, for all four harnesses;
-  - idle panes, typed, for all four harnesses;
-  - the fake harness too.
-- **`--await-reply` support.** Claude panes that confirm delivery, plus headless claude, codex, pi
-  and cursor ([[messaging#Q9. Where can a sender await a reply?|Q9]]). An engine allow-list, keyed
-  by harness and placement, enables each combination once every model M2 measured on it passes. A
-  model M2 did not measure is allowed on an enabled combination. A combination that is off refuses
-  `--await-reply` with `unsupported`. The fake harness is always on.
-- **Record and usage:**
-  - the message and obligation record;
-  - `cause` on operation, turn and usage records;
-  - the ceilings written into the record.
-- **Testing surface.** `messages` scripts, `turn.send`, `turn.messages`, `turn.reply`,
+- **Workflow API.** `workflow.messages.allow` with `maxMessages`. `ParticipantRef` becomes a branded
+  type, so a workflow can only name agents it opened. Rules: [[messaging#Workflow interface]].
+- **Agent commands.** `wf peers` (with `--json`), `wf send` (with `--await-reply` and
+  `--timeout`) and `wf reply`. `wf result` and `wf waiting` are refused while an answer is owed,
+  and a result while awaiting an answer drops the wait. Every response ends with a line saying what the agent
+  owes. All of it works through the sandbox door.
+- **Engine.** The messaging logic, in `engine/src/messaging/` ([[foundation]] §10), wired into the
+  runner: routes, inboxes, owed answers, message operations, limits, the `cycle` refusal, the
+  wrapper around each delivered message, and the prompt text that tells agents their routes.
+- **Harness.** `HarnessTurn.deliver` between turns, for all four harnesses, headless and in idle
+  panes, and in the fake harness.
+- **Where asking works.** Claude panes that confirm what they were sent, and headless claude, codex,
+  pi and cursor ([[messaging#Q9. Where can a sender await a reply?|Q9]]). An engine list turns
+  `--await-reply` on per harness and placement once M2 passes there ([[#The M2 gate]]). A model M2
+  did not measure may use a combination that is on. Elsewhere it is refused `unsupported`. The
+  fake harness always has it.
+- **Record and usage.** Messages and owed answers in the run's record. `cause`, why an operation
+  ran, on operation, turn and usage records. The limits written into the record.
+- **Testing API.** `messages` scripts, `turn.send`, `turn.messages`, `turn.reply`,
   `run.messagesOf` and `turn.cause` ([[messaging#Testing a workflow that messages]]).
-- **Progress view.** Lines for accepted messages, waits and queues.
-- **M1.** Tests and refusal of inbound cross-session messages, plus the measurement.
-- **M2.** A live measurement against thresholds set in advance.
-- **Example.** `reviewLoop` rewritten as review until convergence, with its test and one live run.
+- **Progress view and logs.** Lines for accepted messages, waits and queues in `awf run`; the same
+  events in `awf logs`, and a phase for awaiting an answer in `awf runs`.
+- **M1.** Claude's own messaging blocked, with tests and a measurement.
+- **M2.** A live measurement, judged by [[#The M2 gate]].
+- **Example.** `reviewLoop` rewritten so the reviewer and implementer talk until they agree, with
+  its test and one live run.
 - **Docs.** `workflow-api.md` (Messaging, Testing, Not built yet), `composition.md` (branded
   `ParticipantRef`), `status.md`.
 
 Out of scope:
 
-- **Mid-turn delivery**, [[mid-turn-messages]]. Until then, in the lenses→fixer shape, findings
-  continue the fixer's operation when its turn ends, and a finding after its result wakes a message
-  operation outside its report.
-- **`awf send`**, gated on M3: designed, not built.
+- **Delivering into a running turn**, [[mid-turn-messages]]. Until then, in the lenses→fixer shape,
+  findings continue the fixer's operation when its turn ends, and a finding after its result wakes
+  a separate message operation, outside its report.
+- **`awf send`**, which waits on M3. Designed, not built.
 - **`awf signal`** and the process inbox ([[workflow-styles]]).
 - **Outside participants:** `participants.connect` and `wf inbox --wait` ([[composition]]). Their
   stubs stay published and throw `unavailable`.
-- **The calling session (`agents.caller`) as an endpoint**, until [[attended-agent]]. Agents
-  opened with `agents.forkCaller` (story 027) are ordinary agents and may be endpoints.
-- **What [[messaging#Not in this design]] excludes:**
-  - typed replies;
-  - steer;
-  - cancelling or editing queued messages;
-  - reading transcripts;
-  - pushed rooms;
-  - broadcast.
-- **`--await-reply` on codex, pi and cursor panes.**
-- **An operator setting for the ceilings**, [[operator-settings]].
+- **The session that started the run (`agents.caller`) as a route end**, until [[attended-agent]].
+  Agents opened with `agents.forkCaller` (story 027) are ordinary agents and can be route ends.
+- **What [[messaging#Not in this design]] leaves out:** typed replies, steering, cancelling or
+  editing queued messages, reading transcripts, pushed rooms and broadcast.
+- **`--await-reply` in codex, pi and cursor panes.**
+- **An operator setting for the limits**, [[operator-settings]].
 - **Closing a route in the middle of a stage.** Stages scope routes.
 - **Spend limits**, [[live-spend-limits]].
 
 ## Context and evidence
 
-Checked against the code on 2026-10-11 by two read-only reviews; what each found is under
-[[#Review record]].
+The code as of 2026-10-12.
 
-**The author surface:**
+**Workflow API:**
 
 - `contract/src/workflow/messaging.ts` defines `MessageAccess` without `maxMessages`.
 - `workflow.ts:85-88` publishes `participants`, `messages` and `signals`.
@@ -172,47 +168,47 @@ Checked against the code on 2026-10-11 by two read-only reviews; what each found
   (`agents.ts:341`), and `LogicalAgent implements AgentRef` (`engine/src/workflow-runner.ts`).
 - No example or test builds a `{ key }` literal, so branding breaks nothing.
 
-**The harness seam:**
+**Harness:**
 
-- `HarnessTurn.deliver(prompt): Promise<void>` is a stub (`harness/src/adapter.ts`,
-  `session-core.ts:395` throws).
+- `HarnessTurn.deliver(prompt): Promise<void>` is a stub (`harness/src/adapter.ts`;
+  `session-core.ts:398` throws).
 - `nudge` returns a turn with native `delivery` evidence. `NativeTurnRequest.kind` is
   `"turn" | "nudge" | "compact"`.
-- `session-core` allows one active turn (`assertIdle`).
-- The pane path waits for the agent to settle before it types (`adapters/herdr.ts`, the E8 comment).
-- Pane idleness is observable, through Herdr `agent wait --until idle` and `agent_status`.
+- `session-core` allows one active turn at a time (`assertIdle`).
+- The pane path waits for the agent to settle before typing (`adapters/herdr.ts`, the E8 comment).
+- A pane's idleness can be read through Herdr `agent wait --until idle` and `agent_status`.
 
 **Waiting:**
 
-- `supportsWaiting` is set only with `confirmsDelivery` (`session-core.ts:498`).
-- Only `adapters/herdr.ts:887` sets that: a claude pane awf launched on the host, or a sandboxed
-  one in the run's own Herdr session with a seeded home (story 024). A claude pane in a sandbox's
-  own Herdr session cannot wait, so it cannot await a reply.
-- `direct-process.ts` never sets it. Headless waiting is refused
+- `supportsWaiting` is set only together with `confirmsDelivery` (`session-core.ts:501`).
+- Only `adapters/herdr.ts:887` sets it: a claude pane awf launched on the host, or a sandboxed one
+  in the run's own Herdr session with a seeded home (story 024). A claude pane in a sandbox's own
+  Herdr session cannot wait, so it cannot await an answer.
+- `direct-process.ts` never sets it, so headless waiting is refused
   ([[021-implementation-proof#Current support boundary]]).
-- Headless `--await-reply` is therefore new: a reply resumes the session as a fresh turn. All four
+- So headless `--await-reply` is new: the answer resumes the session as a new turn. All four
   harnesses define `resumeTurn` (`harnesses/{claude,codex,pi,cursor}.ts`).
 
-**A name collision:** `operation-liveness.ts:29,283` already has an `awaiting-reply` phase, and
-`progress-view.ts` shows it as "awaiting reply". It is 021's check-in response window, up to
-`responseMs` (120 s) for `wf waiting` or `wf result`, after which the turn is `unanswered`. It is
-not a hook for messaging.
+**A name clash:** `operation-liveness.ts:29,290` already has a phase named `awaiting-reply`, shown as
+"awaiting reply" in `progress-view.ts`. It is 021's window for answering a check-in, up to
+`responseMs` (120 s), after which the turn is `unanswered`. It has nothing to do with messaging and
+is renamed.
 
-**Failure stops an agent:** `executeWaitingOperation` closes the agent on `failed` or `timed-out`
-(`closeAfterFailure`, `workflow-runner.ts:2308`), and Q10 keeps that rule. A `cancelled` operation
-does not close it there, though [[workflow-api#Outcomes]] says every unsuccessful operation does.
-That gap predates this story and is left as it is; messaging relies only on timeouts and failures
-stopping the agent.
+**A failure stops the agent:** `executeWaitingOperation` closes the agent when an operation fails or
+times out (`closeAfterFailure`, `workflow-runner.ts:2454`), and messaging keeps that rule (Q10). A
+cancelled operation does not close it there, although [[workflow-api#Outcomes]] says every
+unsuccessful operation does. That gap is older than this story and stays; messaging relies only on
+timeouts and failures stopping the agent.
 
-**Serialization:** `LogicalAgent.#tail` serializes an agent's operations, but nothing counts what
-is queued. Stages call `scope.seal()` then `settleOwned()` (`workflow-runner.ts:876-930`), and
+**Order of work:** `LogicalAgent.#tail` runs an agent's operations one at a time, but nothing counts
+what is queued. Stages call `scope.seal()` then `settleOwned()` (`workflow-runner.ts:898-955`), and
 scopes are AsyncLocalStorage.
 
 **Control plane:**
 
-- `startResultControlPlane` and `handleFrame` (`control-plane.ts`) are hard-wired to
+- `startResultControlPlane` and `handleFrame` (`control-plane.ts`) are tied to
   `ResultSlotRegistry`, which is indexed by `operationId` only.
-- There is no lookup of the open operation for an agent.
+- Nothing finds the open operation for an agent.
 - The wire is version 3, and every request carries `operationId`. Decoding rejects unknown fields
   and codes (`RESPONSE_CODES`, `RESULT_SUBMIT_CODES`).
 - The test host already submits over the real socket, through `@agentswf/wf/client`
@@ -221,36 +217,37 @@ scopes are AsyncLocalStorage.
 **Records:**
 
 - `OperationRecord` (`agents.ts:230`) reaches `SettledOperation` and `TurnRecord` through
-  `TURN_OPERATION_FIELDS` (`records.ts:375`).
+  `TURN_OPERATION_FIELDS` (`records.ts:376`).
 - `TurnRecord.kind` is `"turn" | "compact"`.
-- `OperationTags` in `run-usage.ts:57` carries the per-operation tags.
+- `OperationTags` in `run-usage.ts:58` carries the per-operation tags.
 - `turnsOf` exists (`workflow-testing/index.ts:91`).
 
-**The M1 environment is mostly done:**
+**Claude's own messaging (M1) is mostly handled:**
 
 - `callingSessionEnv` in `harnesses/claude.ts` already lists `CLAUDE_CODE_MESSAGING_SOCKET` and
   `CLAUDE_CODE_MESSAGING_TOKEN`.
-- `operator-runtime.ts:409-431` folds them into `WITHHELD_ENVIRONMENT` and
-  `PANE_WITHHELD_ENVIRONMENT`. `withholding()` applies these headless, sandboxed and in panes
-  (`herdr.ts` `emptyEnvironmentArgs`).
-- What is missing: tests for each placement, and refusing inbound messages. Claude's changelog
-  names `crossSessionInbound: "refuse"`.
-- Host agents use the operator's `~/.claude`, so the setting has to be passed by `--settings` at
-  launch. In a sandbox it goes in the seeded `settings.json` (`harness/src/sandbox-needs.ts:86`).
+- `operator-runtime.ts:409-431` adds them to `WITHHELD_ENVIRONMENT` and
+  `PANE_WITHHELD_ENVIRONMENT`, and `withholding()` keeps them from headless, sandboxed and pane
+  agents (`herdr.ts` `emptyEnvironmentArgs`).
+- Missing: a test for each placement, and refusing incoming messages. Claude's changelog names
+  `crossSessionInbound: "refuse"`.
+- Host agents use the operator's `~/.claude`, so the setting is passed with `--settings` at launch.
+  In a sandbox it goes in the seeded `settings.json` (`harness/src/sandbox-needs.ts:86`).
 
 **Constraints:**
 
-- Messaging cannot be one package ([[foundation]] §7). If a boundary has to move, stop and say so.
-- The record is published once built, so its format is approved before anything writes it.
-- Crash recovery is not built ([[foundation]] §10). After a crash, the record is read as it stands.
-- Examples may import only `contract/workflow` (`scripts/check-boundaries.ts`, the author rule),
-  and their tests also `@agentswf/engine/workflow-testing`, so the brand's symbol must be exported
-  from neither.
+- Messaging cannot live in one package ([[foundation]] §7). If a package boundary has to move, stop
+  and say so.
+- The record is public once built, so its format is approved before anything writes it.
+- Crash recovery is not built ([[foundation]] §10). After a crash, the record is read as it is.
+- Examples may import only `contract/workflow` (`scripts/check-boundaries.ts`), and their tests also
+  `@agentswf/engine/workflow-testing`, so neither may export the brand's symbol.
 
-**Assumption:** models end their turn when told to, and use `wf reply` rather than prose. M2
-measures this. Agent Relay's "phantom" messages say some will not. E9 found none on headless pi
-with gpt-6-luna and gpt-6.1-sol: 40/40 waits ended cleanly and 80/80 owed replies went by
-`wf reply` ([[messaging-protocol]]). Claude, codex, cursor and panes are still unmeasured.
+**Assumption:** models end their turn when told to, and answer with `wf reply` rather than in plain
+text. M2 measures this. Agent Relay's evals saw agents answer in plain text ("phantom" messages).
+E9 saw none on headless pi with gpt-6-luna and gpt-6.1-sol: 40/40 waits ended cleanly and 80/80
+owed answers went by `wf reply` ([[messaging-protocol]]). Claude, codex, cursor and panes are not
+yet measured.
 
 ## Code map
 
@@ -258,94 +255,97 @@ with gpt-6-luna and gpt-6.1-sol: 40/40 waits ended cleanly and 80/80 owed replie
 
 - **`src/workflow/messaging.ts`:** `maxMessages`.
 - **`src/workflow/participants.ts`:**
-  - `ParticipantRef` is branded with a `unique symbol`. The symbol and the function that mints a
-    ref live in a contract module reached only through an engine-side export path, never
-    `contract/workflow`, so the engine and `workflow-testing` issue refs without `as unknown as`
-    and examples cannot forge one;
+  - `ParticipantRef` branded with a `unique symbol`. The symbol and the function that makes a ref
+    live in a contract module the engine reaches through its own export path, never
+    `contract/workflow`, so the engine and `workflow-testing` make refs without casts and examples
+    cannot forge one;
   - `ExternalParticipantRef` and `ParticipantDirectory` stay as stubs.
-- **`src/workflow/agents.ts`:** `cause` on `OperationRecord`. It is the one place a message
-  operation is told apart; `TurnRecord.kind` stays `"turn" | "compact"`.
+- **`src/workflow/agents.ts`:** `cause` on `OperationRecord`, the one field that marks a message
+  operation. `TurnRecord.kind` stays `"turn" | "compact"`.
 - **`src/records.ts`:**
   - `cause` added to `TURN_OPERATION_FIELDS`;
-  - the message and obligation records, versioned like the others;
-  - liveness kinds for a reply wait in `OPERATION_LIVENESS_KINDS` (`liveness.jsonl`).
+  - the message and owed-answer event kinds in `RunEvent`, versioned in `RUN_EVENT_VERSIONS`;
+  - a phase for awaiting an answer in the `awf runs` view, beside `waiting`;
+  - liveness kinds for waiting on an answer, in `OPERATION_LIVENESS_KINDS` (`liveness.jsonl`).
 - **`src/wire.ts`:**
   - version 4;
   - `peers`, `send` and `reply` requests, none with an `operationId`;
-  - an `obligation` line on every response;
-  - send codes `no-route`, `awaiting`, `cycle`, `limit`, `too-large`, `inbox-full`, `closed`,
+  - a line on every response saying what the agent owes;
+  - send refusals `no-route`, `awaiting`, `cycle`, `limit`, `too-large`, `inbox-full`, `closed`,
     `peer-stopped`, `unsupported`, `no-operation`;
-    - reply codes `none-owed`, `expired`, `closed`, `too-large`, `no-operation`, and with
-    `--await-reply` the send codes `awaiting`, `unsupported`, `cycle`, `limit`;
-  - `owes-reply` and `no-result` in `RESULT_SUBMIT_CODES`: `owes-reply` for `wf result` and
-    `wf waiting`, and `no-result` for `wf result` and `wf waiting` given a message operation's call
-    id;
-  - `wf waiting`'s acknowledgement while a reply is awaited: a new response kind, `awaiting-reply`,
-    carrying the peer and the reply's deadline, so `wf` never prints "waiting granted"; a
-    `--timeout` given then is ignored.
+  - reply refusals `none-owed`, `expired`, `closed`, `too-large`, `no-operation`, plus, with
+    `--await-reply`, the send refusals `awaiting`, `unsupported`, `cycle`, `limit`;
+  - `owes-reply` and `no-result` in `RESULT_SUBMIT_CODES`. `owes-reply` refuses `wf result` and
+    `wf waiting` while an answer is owed; `no-result` refuses them on a message operation's call id;
+  - a new response kind, `awaiting-reply`, for `wf waiting` while an answer is awaited. It carries
+    the peer and the answer's deadline, so `wf` never prints "waiting granted". A `--timeout` given
+    then is ignored.
 
 ### harness
 
-- `src/adapter.ts`:
-    - `deliver(spec: HarnessDeliverySpec): Promise<HarnessTurn>`, the spec shaped as a nudge's:
-      `id`, `prompt`, `authored`;
-  - `cause` and `messages` on `AuthoredTurn`, so the test host can tell a message operation apart
-    and read what was delivered without parsing envelopes.
-- `src/session-core.ts`: replaces the stub, reusing the nudge path's evidence.
-- `src/adapters/direct-process.ts`: headless delivery through `resumeTurn`.
-- `src/adapters/herdr.ts`: pane delivery when idle.
-- `src/harnesses/claude.ts`: `crossSessionInbound` by `--settings` on the host.
-- `src/sandbox-needs.ts`: `crossSessionInbound` in seeded sandbox settings.
-- `src/testing/fake.ts`: `deliver`, needed in task 2 so later tasks can run against the fake.
+- **`src/adapter.ts`:**
+  - `deliver(spec: HarnessDeliverySpec & HarnessTurnHooks): Promise<HarnessTurn>`, with a spec
+    shaped like a nudge's: `id`, `prompt`, `authored`, and `onSession` as `start` takes it;
+  - `cause` and `messages` on `AuthoredTurn`, so the test host can spot a message operation and
+    read what was delivered without parsing the wrapped text.
+- **`src/session-core.ts`:** replaces the stub, reusing the nudge path's delivery evidence.
+- **`src/adapters/direct-process.ts`:** headless delivery through `resumeTurn`.
+- **`src/adapters/herdr.ts`:** pane delivery when idle.
+- **`src/harnesses/claude.ts`:** `crossSessionInbound` passed by `--settings` on the host.
+- **`src/sandbox-needs.ts`:** `crossSessionInbound` in seeded sandbox settings.
+- **`src/testing/fake.ts`:** `deliver`, in task 2, so later tasks can run against the fake.
 
 ### engine
 
-- `src/messaging/` (new). Holds the `--await-reply` allow-list by harness and placement, on for the
-  fake from task 3, and:
-  - routes, their scope and closure;
-  - admission with limits, reservation and cycles;
-  - inboxes and ordering;
-  - obligations;
-  - envelopes;
-  - the record writer.
-- `src/control-plane.ts`: a dispatcher for messaging requests beside `ResultSlotRegistry`.
-- `src/result-slots.ts`:
-  - an open-operation lookup by agent;
+- **`src/messaging/` (new):**
+  - routes, their scope and closing;
+  - admission, with limits, room kept for answers, and the `cycle` check;
+  - inboxes and their order;
+  - owed answers;
+  - the wrapper around each delivered message;
+  - the record's events, written through `RunEventLog`;
+  - the `--await-reply` list by harness and placement, on for the fake from task 3.
+- **`src/control-plane.ts`:** a handler for messaging requests beside `ResultSlotRegistry`.
+- **`src/result-slots.ts`:**
+  - finding the open operation for an agent;
   - call ids for message operations, with no result slot (`no-result`);
-  - `owes-reply`, and `wf waiting` only acknowledged while a reply is awaited, on any placement,
+  - `owes-reply`, and `wf waiting` only acknowledged while an answer is awaited, on any placement,
     with no check-in;
-  - the compare-and-set on settle.
-- `src/operation-liveness.ts`:
-  - a peer-wait phase with a new name;
-  - 021's `awaiting-reply` renamed `check-in-response`, and "awaiting reply" in the view likewise;
-  - a reply continuation observed as a fresh working turn, not under the check-in response window;
+  - accepting a result only if the operation is still open (compare-and-set).
+- **`src/operation-liveness.ts`:**
+  - a new phase for waiting on a peer;
+  - 021's `awaiting-reply` renamed `check-in-response`, and "awaiting reply" in the view too;
+  - an answer that continues an operation seen as a new working turn, not under the check-in
+    response window;
   - a deadline that can move, where 021 fixed one per operation;
-  - a reply wait that does not depend on `supportsWaiting` (`workflow-runner.ts:2229`,
-    `operation-liveness.ts:77`).
-- `src/workflow-runner.ts`:
+  - waiting on an answer that does not need `supportsWaiting` (`workflow-runner.ts:2372`,
+    `operation-liveness.ts:79`).
+- **`src/workflow-runner.ts`:**
   - `workflow.messages`;
-  - a queue count on `LogicalAgent`;
+  - a count of what is queued on `LogicalAgent`;
   - a supervisor for message operations, which have no schema or result slot;
-  - attaching message operations to their route's scope, a sealed one included, or to the attempt
-    outside any stage, with a drain that repeats until nothing is in flight;
-  - closing on stage end, `agents.stop` and the workflow's return.
-- `src/run-progress.ts`, `src/progress-view.ts`: message lines.
-- `src/run-usage.ts`: `cause` in `OperationTags`.
-- `src/workflow-testing/`:
+  - attaching each message operation to its route's scope, even a sealed one, or to the attempt
+    outside any stage, and draining until nothing is in flight;
+  - closing routes at a stage's end, on `agents.stop`, and when the workflow returns.
+- **`src/run-progress.ts`, `src/progress-view.ts`:** message lines.
+- **`src/run-view.ts`, `src/logs-command.ts`:** message events in `awf logs`, and the awaiting phase
+  in `awf runs`.
+- **`src/run-usage.ts`:** `cause` in `OperationTags`.
+- **`src/workflow-testing/`:**
   - `messages` scripts, `turn.send`, `turn.messages`, `turn.reply`, `messagesOf` and `cause`;
-  - `host.ts` submits sends and replies, and maps a reply's turn back to the pending `turn.send`.
+  - `host.ts` submits sends and replies, and matches an answer's turn to its pending `turn.send`.
 
 ### wf
 
-- `src/cli.ts`, `src/client.ts`:
+- **`src/cli.ts`, `src/client.ts`:**
   - `peers`, `send` and `reply`;
-  - the heredoc, standard-input and argument forms;
-  - the obligation line printed from each response;
+  - message text from a heredoc, standard input or an argument;
+  - the owed-answer line printed from each response;
   - usage text.
 
 ### examples
 
-- `examples/feature-delivery/reviews.ts`: `reviewLoop` becomes review until convergence, with its
+- **`examples/feature-delivery/reviews.ts`:** `reviewLoop` becomes review until agreement, with its
   `*.test.ts`.
 
 ### docs
@@ -354,182 +354,182 @@ with gpt-6-luna and gpt-6.1-sol: 40/40 waits ended cleanly and 80/80 owed replie
 
 ## Proposed design
 
-As written in [[messaging]]. The state machine lives in the engine; the adapter only starts or
-continues model work and reports what it observed ([[messaging#Agent binding and adapter seam]]).
+As written in [[messaging]]. The engine holds all messaging state; the adapter only starts or
+continues model work and reports what it saw ([[messaging#Agent binding and adapter seam]]).
 
-Decided on 2026-10-11 while refining this story, and written into the design:
+### Settled questions
 
-- **A sender waits across turns, never inside `wf send`**
+- **An asker waits between turns, never inside `wf send`**
   ([[messaging#Q1. Does a sender wait inside `wf send` or across turns?|Q1]]).
-- **Replies are text, never typed** ([[messaging#Q4. Can a sender ask for a typed reply?|Q4]]).
-- **An inbox shows counts, in acceptance order, with no editing for now**
-  ([[messaging#Q5. How much of an inbox can be seen and changed?|Q5]]). A dropped wait already
-  withdraws an unshown request; a sender withdrawing its plain messages would reuse that end, but
-  it would be a fourth verb for M2 to measure.
-- **Delivery at turn boundaries only**
-  ([[messaging#Q2. How soon does `deliver` reach a busy headless agent?|Q2]]). Mid-turn claude
-  folding is [[mid-turn-messages]].
-- **`--await-reply` on claude panes and on all headless harnesses**
+- **Answers are text, never typed** ([[messaging#Q4. Can a sender ask for a typed reply?|Q4]]).
+- **An inbox shows counts, in arrival order, and cannot be edited for now**
+  ([[messaging#Q5. How much of an inbox can be seen and changed?|Q5]]). A sender withdrawing its
+  own unshown messages would reuse the end a dropped wait already records (`withdrawn`), so the
+  record leaves room for it; it is not built because it would be a fourth command for M2 to measure.
+- **Delivery only between turns**
+  ([[messaging#Q2. How soon does `deliver` reach a busy headless agent?|Q2]]). Delivery into a
+  running claude turn is [[mid-turn-messages]].
+- **`--await-reply` in claude panes and on every headless harness**
   ([[messaging#Q9. Where can a sender await a reply?|Q9]]).
-- **Failure.** A message operation's natural end is not a failure; a timeout or a harness failure
-  stops the agent ([[messaging#Q10. Does a message operation's failure stop the agent?|Q10]]).
+- **Failure.** A message operation that simply ends is not a failure. A timeout or a harness
+  failure stops the agent ([[messaging#Q10. Does a message operation's failure stop the agent?|Q10]]).
 
-Implementation decisions taken in review, also in the design:
+### Rules this story builds
 
-- **Held messages.**
-  - They join a workflow's `run` as well as a message operation.
-  - In a `run` they follow its prompt, each in its envelope, and `cause` stays absent.
-  - A request shown in a `run` becomes that operation's obligation.
-  - `compact` and `set` carry none.
-- **The end of a turn,** in the order in [[messaging#Finishing]]:
-  - **A workflow operation:** awaiting, then waiting; held messages continue it; owing gets one
-    nudge; otherwise the check-in.
-  - **A message operation:** awaiting, then waiting; owing gets one nudge; then it settles, and
-    held messages open a new message operation, with its own `cause`, scope and deadline, or join
-    a workflow `run` already queued.
-  - A message ends a check-in's `wf waiting` interval early.
-  - An operation awaiting a reply is continued only by its reply, a failure or a request.
-  - `wf waiting` is refused while a reply is owed. While one is awaited it changes nothing and is
-    only acknowledged, on any placement; `wf result` drops the wait.
-- **One route opens a message operation.** Messages held on other routes wait for the next one, so
-  `cause` names one sender and the operation belongs to one scope. Once open, it may be continued
-  from any route: by its awaited reply, by a request, and by plain messages held with the reply. A
-  stage waits for the operations its routes opened to settle, and for every reply owed on its
-  routes to be sent or fail, whatever operation owes it. After a stage's function returns, a
-  reply's `--await-reply` on its routes is refused `closed`.
-- **A stage owns the message operations its routes opened,** as it owns a `run`: one that times
-  out or whose harness fails fails the stage, and a stage that throws or stops cancels them.
-- **Routes.** A route is an ordered pair of agents with at most one open route at a time; a grant
-  for an open pair must be identical or it rejects. Endpoints are any agents the workflow opened,
-  in any scope. `maxMessages` above the ceiling is clamped.
-- **Message operations have call ids,** named in their envelopes, with no result slot and no
-  check-in: `wf result` and `wf waiting` refuse one (`no-result`), before any other check. Nothing
-  shown to a message operation mentions `wf result`; it stops waiting only by its reply, a failure
-  or its own `--timeout`.
-- **A result drops a wait.** A reply accepted but not yet shown to the waiter ends `undelivered`
-  (`withdrawn`), as an unshown request does; "shown" means `offered`.
-- **Send and reply checks run in a fixed order,** given in [[messaging#`wf send`]] and
-  [[messaging#`wf reply`]]; `peer-stopped` comes before `closed`, and `no-route` means never
-  granted, so a closed route stays known for the attempt.
-- **A reply and a timeout race** by compare-and-set on the obligation: once the reply is accepted,
-  the timeout changes nothing.
-- **One agent can reach a sibling's socket,** since agents share the engine's user; M3 measures it
-  per placement.
-- **`--timeout` past the default** is clamped, and the acknowledgement prints the deadline. Only
-  `--timeout` continues a sender with a timeout failure; reaching its operation's own deadline
-  times the operation out and stops the agent.
-- **No call closes a route.** A route closes with its stage; a stage may exist only to scope one.
-  `allow` returning a handle with `close()` is additive and waits for a workflow that needs it
+Each is written out in the design.
+
+- **Routes.** A route is from one agent to another, and a pair has at most one open route at a
+  time. Granting it again must match exactly, or it is rejected. Route ends are any agents the
+  workflow opened, in any scope. `maxMessages` above the ceiling is lowered to it.
+- **No call closes a route.** A route closes with its stage, so a stage can exist just to scope
+  one. `allow` returning a handle with `close()` can be added later, when a workflow needs it
   ([[messaging#Routes by shape]]).
+- **A route closing** marks messages not yet shown `undelivered` (`route-closed`). An answer
+  already accepted is still delivered.
+- **Limits.** The limits are engine constants, written into the run's record. An answer counts
+  against its route's limit, so a question needs room for itself and its answer.
+- **Checks run in a fixed order,** listed in [[messaging#`wf send`]] and [[messaging#`wf reply`]].
+  `peer-stopped` comes before `closed`. `no-route` means the route was never granted, so a closed
+  route is still known for the rest of the attempt. A reply with `--await-reply` whose question
+  fails a check is refused whole.
+- **`--timeout`** past the default is lowered to it, and the acknowledgement prints the deadline.
+  Only `--timeout` continues an asker with a timeout failure; reaching its operation's own deadline
+  times the operation out and stops the agent.
+- **Message operations have call ids,** named in their messages, with no result slot and no
+  check-in. `wf result` and `wf waiting` on one are refused `no-result`, before any other check.
+  Nothing shown to a message operation mentions `wf result`; it stops waiting only on its answer, a
+  failure or its own `--timeout`.
+- **One route opens a message operation,** so `cause` names one sender and the operation belongs to
+  one scope. Messages held on other routes wait for the next one. Once open, the operation can be
+  continued from any route: by its answer, by a question, and by plain messages held with the
+  answer.
+- **A message operation's deadline** is the later of 15 minutes from opening and the deadlines of
+  the operations waiting on its answers, capped by its scope's, and it only ever moves later. An
+  asker's `--timeout` fails only its question, never the answering agent's operation. A timeout
+  stops the agent, as any timeout does.
+- **A stage owns the message operations its routes opened,** as it owns a `run`. One that times out
+  or whose harness fails fails the stage; a stage that throws or stops cancels them. A stage waits
+  for them to finish, and for every answer owed on its routes to be sent or fail, whatever
+  operation owes it. After its function
+  returns, a reply's `--await-reply` on its routes is refused `closed`.
+- **When the workflow returns,** new sends are refused, and it waits for message operations in
+  flight, as a stage does. The attempt owns message operations opened by routes outside any stage:
+  one that times out or whose harness fails ends the run `failed`, even after the workflow returned
+  a value.
+- **The end of a turn** follows the order in [[messaging#Finishing]]:
+  - **A workflow operation:** waiting on an answer comes first, then `wf waiting`. Held messages
+    continue it. One that owes an answer gets one reminder instead of the check-in. Otherwise the
+    check-in.
+  - **A message operation:** waiting on an answer, then `wf waiting`. One that owes gets one
+    reminder. Then it ends, and held messages open a new message operation, with its own `cause`,
+    scope and deadline, or join a workflow `run` already queued.
+  - A message cuts a check-in's `wf waiting` short.
+  - An operation waiting on an answer is continued only by the answer, a failure or a question.
+  - `wf waiting` is refused while an answer is owed. While one is awaited, it changes nothing and
+    is acknowledged, on any placement.
+- **Held messages** join a workflow's `run` as well as a message operation. In a `run` they come
+  after its prompt, each wrapped, and `cause` stays absent. A question shown in a `run` becomes
+  owed by that operation. `compact` and `set` carry none.
+- **A plain message to an asker that is waiting** is held and delivered with the answer.
+- **A result drops a wait.** An answer accepted but not yet shown to the asker is recorded
+  `undelivered` (`withdrawn`), like an unshown question. "Shown" means `offered`.
+- **An answer and a timeout race** by compare-and-set: once the answer is accepted, the timeout
+  changes nothing.
+- **A message to an agent that has not run** starts its first turn as a message operation, through
+  `HarnessSession.start`, as a first `run` does. `agents.open` already opens the session idle, on
+  the host (`workflow-runner.ts:1273`) and sandboxed (`:1418`). A pane is placed at open and its
+  harness started by the first operation (`herdr.ts:1350-1357`), and both adapters put
+  `instructions` before the first prompt of any kind. Nothing new is needed to open an agent
+  asleep.
+- **Every message operation starts with `HarnessSession.start`,** bound to its call id. `deliver`
+  only continues an operation already open.
+- **`wf peers` states:** `not-started` (a message starts its first turn), `working`, `idle`,
+  `awaiting {peer}`, or `stopped` with a reason. A failed operation stops its agent, so there is no
+  `failed` or `done` state.
+- **Delivery states.** A message is `observed` when a claude pane confirms it (`claude-receipt`),
+  or, headless, when the resumed turn's session record shows it. Otherwise it stays `unconfirmed`.
+- **Compaction.** The owed-answer line on every response restores what an agent owes after its
+  harness compacts. Operations run one at a time, so awf's `compact` never runs while an answer is
+  owed.
+- **Agents can reach each other's sockets,** since they run as the engine's user. M3 measures this
+  per placement.
+- **The record** ([[messaging#The record]]) is the run's event log, `turns.jsonl`, which `awf logs`
+  and `awf runs` already read (story 028): message and owed-answer events are new kinds there, with
+  `admitted` written before `wf send` returns.
 - **The review example.** `reviewLoop` grants a `between` route per review stage, none when
-  `maxRevisions` is 0, with `maxMessages` twice `maxRevisions`, asks the reviewer once, stops on
+  `maxRevisions` is 0, with `maxMessages` twice `maxRevisions`. It asks the reviewer once, stops on
   `changes-requested`, and takes the work's typed value from one more author turn,
   `Record {subject}` ([[messaging#Review until convergence]]).
-- **A reply with `--await-reply`** whose request check fails is refused whole.
 - **The lenses→fixer shape** needs a claude pane until [[mid-turn-messages]], and each lens says
   `done` last.
-- **`wf peers` states.** `not-started` (a message starts its first turn), `working`, `idle`,
-  `awaiting {peer}` or `stopped` with a reason. A failed operation stops its agent, so `failed` and
-  `done` are gone.
-- **Message-operation deadline.** The later of 15 minutes from opening and the operation deadlines
-  of the waiters whose requests it carries, capped by its scope's, and only ever lengthened. A
-  waiter's `--timeout` fails only its obligation, never the replier's operation. It is in the
-  ceilings table, and a timeout stops the agent as any timeout does.
-- **Route closure.** A message not yet shown when its route closes is `undelivered`
-  (`route-closed`). A reply already admitted still delivers.
-- **Workflow return.** It refuses new sends and waits for message operations in flight, as a
-  stage's end does. The attempt owns message operations opened by routes outside any stage: one
-  that times out or whose harness fails ends the run `failed`, even after the workflow returned a
-  value.
-- **Plain messages and waiting senders.** A plain message to a waiting sender is held and
-  delivered with its reply.
-- **A message to an agent that has not run** starts its first turn, as a message operation through
-  `HarnessSession.start`, as a first `run` does. `agents.open` already opens the session idle, on
-  the host (`workflow-runner.ts:1247`) and sandboxed (`:1392`); a pane is placed at open and its
-  harness launched by the first operation (`herdr.ts:1350-1357`), and both adapters prepend
-  `instructions` to the first prompt of any kind. Nothing new is needed to open an agent asleep.
-- **Every message operation opens with `HarnessSession.start`,** bound to its call id; `deliver`
-  only continues an open operation.
-- **A workflow operation that ends owing a reply** gets one owing nudge instead of the check-in.
-- **Ceilings.** They are engine constants, written into the run's record.
-- **A reply counts against its route's limit.** A request needs room for itself and its reply.
-- **Delivery states.** `observed` needs `claude-receipt` on a claude pane, or the resumed turn's
-  session record headless. Otherwise a message stays `unconfirmed`.
-- **Compaction.** The obligation line restores obligations after a harness's own compaction. The
-  design's "compaction focus" rule was dropped: operations are serialized, so awf's `compact`
-  never runs while an obligation is open.
-- **The record**, in the design's [[messaging#The record]], goes in `messages.jsonl` in the
-  attempt's directory, one event per line, with `admitted` written before `wf send` returns.
 
-Alternatives rejected, with reasons in the design's Decisions:
+### The M2 gate
 
-- **A sender blocking inside `wf send`** (Q1).
-- **"The next send is the reply"** (Q7).
+`--await-reply` stays off for a harness and placement until M2 passes there
+([[messaging#Q11. Which live results let a harness use `--await-reply`?|Q11]]). For each model, in
+at least 18 of 20 trials:
+
+- after asking, the agent ends its turn without `sleep` or another blocking wait, since an asker
+  that blocks holds back its own answer and uses up its deadline;
+- once the answer arrives, the agent finishes its task with it, a check-in allowed;
+
+and the harness's live smoke shows the answer arriving: a headless session resumed with it, or a
+pane confirming it (tasks 6 and 7).
+
+The rest of M2 is reported, not gated; under 18 of 20 means revising the prompts and wrappers in
+task 9. That covers: answering with `wf reply` within one reminder; how often `wf peers` is checked
+per wait, flagged above two; answering only in plain text, `wf result` on a message, sending on a
+reply-only route (one that only lets it answer the other side's questions); and remembering an owed answer after `/compact` in a pane, where a miss
+costs a reminder, not the answer.
+
+Fake "operator" text inside a message is reported and never gates `--await-reply`: plain messages
+carry the same text and are not gated. What limits the harm is the route, the sandbox and
+permissions. Any time it is obeyed is recorded in [[messaging-protocol]] and in the design's
+[[messaging#What a delivered message looks like]].
+
+The evidence is E9 ([[messaging-protocol|P1–P6]]), on headless pi with gpt-6-luna and gpt-6.1-sol.
+Asking, waiting and answering held 40/40. What failed was wording: sol stopped after answering a
+question that came with a workflow `run` (20/20, recovered by the check-in), and luna tried to
+send on a reply-only route (50/60). The design's wrapper for a question in a `run` and its
+reply-only refusal text address both. A fake operator line was obeyed once in 60, and never when
+escaped or quoted (0/80).
+
+### Rejected
+
+The reasons are in the design's Decisions.
+
+- **An asker blocking inside `wf send`** (Q1).
+- **"The next send is the answer"** (Q7).
 - **The crossing rule.**
-- **Typed replies** (Q4).
+- **Typed answers** (Q4).
 - **A per-run limit** (Q3).
-- **Any message-operation failure stopping the agent** (Q10).
+- **Any failed message operation stopping the agent** (Q10).
 
 ## Tasks at a glance
 
 - [ ] 1. Claude agents cannot message around their routes (M1)
 - [ ] 2. Types, wire v4, record format and the `deliver` seam are settled
-- [ ] 3. The messaging state machine admits, queues and settles, as pure code
+- [ ] 3. The messaging logic admits, queues and settles, as pure code
 - [ ] 4. The runner wakes, continues and closes through it, against the fake harness
 - [ ] 5. `wf peers`, `wf send` and `wf reply` work over the control plane and the sandbox door
 - [ ] 6. Headless agents receive messages and await replies
 - [ ] 7. Panes receive messages when idle, and claude panes await replies
-- [ ] 8. A workflow's tests script messages; the progress view and usage show them
-- [ ] 9. Agents operate the protocol live (M2); the review example converges; docs updated
+- [ ] 8. A workflow's tests script messages; the progress view, logs and usage show them
+- [ ] 9. Agents use messaging correctly live (M2); the review example converges; docs updated
+
+Task 7 needs story 024, which is `awaiting-human-review`, to be done. Tasks 1 to 6 do not.
 
 ## Open questions
 
-### Q11. Which live results let a harness use `--await-reply`?
-
-**Decided 2026-10-12: the gate below, as proposed.**
-
-Task 9. [[messaging#Q11. Which live results let a harness use `--await-reply`?|Q11]] in the design.
-
-`--await-reply` lets an agent end its turn and be continued by the reply. It stays off for a
-harness until M2 has run on it: the live protocol run of task 9, 20 or more trials per harness
-and model, counting how agents wait, reply and resist forged text. The decision is which of those
-counts must pass, at what rate, before it is switched on, and which are only reported.
-
-E9 ([[messaging-protocol|P1–P6]]) ran the protocol before it was built: 260 headless pi trials on
-gpt-6-luna and gpt-6.1-sol against a stand-in `wf`. Every sender waited without sleeping and used
-its reply (40/40), and every owed reply went out by `wf reply` on the first try (40/40 woken, 40/40
-in a `run`). What failed was wording: sol stalled after replying to a request held into a `run`
-(20/20, recovered by the check-in), and luna tried to send on a reply-only route (50/60). A forged
-operator line was obeyed once in 60, and never escaped or quoted (0/80).
-
-So the proposal gates on what would make waiting harmful on a harness, and reports the rest:
-
-- **Gate, per harness and placement, each model over 20 trials:**
-  - after `--await-reply`, the turn ends without `sleep` or another blocking wait in at least 18:
-    a sender that blocks holds its own reply back and spends its deadline;
-  - continued by the reply, the task finishes with it, a check-in allowed, in at least 18;
-  - the harness's live smoke resumes a headless session with the reply, or confirms a pane's
-    receipt (tasks 6 and 7).
-- **Reported, not gating; under 18 of 20 revises the prompts and envelopes in task 9:**
-  - an owed reply sent with `wf reply` after at most its one nudge;
-  - `wf peers` looks per wait, more than two flagged;
-  - prose-only first replies, `wf result` on a message, sends on a reply-only route;
-  - an obligation recalled after `/compact` in a pane: the obligation line and the nudge restore
-    it, so a miss costs a nudge, not the reply.
-- **Forged operator text is reported and never gates `--await-reply`:** plain messages carry the
-  same text and are not gated. Any obey is recorded in [[messaging-protocol]] and in the design's
-  envelope section; the bound stays the route, the sandbox and permissions.
-
-  Confirmed by the user, 2026-10-12.
+None.
 
 ## Task execution rule
 
-Process one task at a time. Every task repeats the checklist shown under its details. Do not begin
-the next task because the current implementation merely compiles: its design must be recorded, its
-diff reviewed by subagents, findings resolved, and focused verification complete.
+Do one task at a time. Every task goes through the checklist under its details. Compiling is not
+enough to move on: the task's design is recorded, its diff reviewed by subagents, their findings
+resolved, and its focused checks passing.
 
-After all tasks are complete, run story-level verification and request human review of the complete
-deliverable.
+When every task is done, run the story-level checks and ask for human review of the whole.
 
 ## Task details
 
@@ -545,137 +545,128 @@ Every task runs the same checklist:
 
 ### 1. Claude agents cannot message around their routes
 
-Outcome: an awf-launched claude agent can neither reach a peer or the operator's session over
-claude's cross-session socket nor receive from one. This holds on the host and under srt and
+Outcome: a claude agent awf launched can neither send to nor receive from a peer or the operator's
+session over claude's own cross-session messaging. This holds on the host, under srt and under
 docker.
 
 Work:
 
-- Check first that `crossSessionInbound: "refuse"` exists in the installed claude, and what
-  `--settings` does with it. If it does not exist, record that and rely on withholding.
+- Check that the installed claude has `crossSessionInbound: "refuse"`, and what `--settings` does
+  with it. If it does not exist, record that and rely on withholding the variables.
 - Pass it by `--settings` on the host, and in seeded sandbox settings.
-- Add tests that the messaging variables are withheld for headless, sandboxed and pane agents.
-  They already are, but untested.
-- Run M1: send from an agent in each placement, including with a token read with `ps eww`.
+- Test that the messaging variables are withheld from headless, sandboxed and pane agents. They
+  already are, but nothing tests it.
+- Run M1: send from an agent in each placement, including with a token read through `ps eww`.
 
 Done when:
 
-- the tests show the variables absent for every placement, and the setting present if it exists;
+- the tests show the variables absent in every placement, and the setting present if it exists;
 - M1's result is in [[messaging#To measure]] and `docs/findings/`. If the host is still reachable,
   the story stops for a decision.
 
 ### 2. Types, wire v4, record format and the `deliver` seam are settled
 
-Outcome: everything another package will import is final before any of it is used.
+Outcome: everything another package will import is final before anything uses it.
 
 Work:
 
-- **Contract:**
-  - `maxMessages`;
-  - the brand;
-  - `cause`;
-  - the reply-wait liveness kinds.
-- **Wire v4:** requests, responses, the obligation line and every refusal code in the Code map. An
-  old launcher is refused, as 021 did at v3.
-- **The record:**
-  - a written draft of `messages.jsonl`: events, fields, states, version;
-  - `cause`;
-  - the ceilings in the run's record.
-- **Harness:** `deliver(spec: HarnessDeliverySpec): Promise<HarnessTurn>`, `cause` and `messages`
-  on `AuthoredTurn`, and `deliver` on the fake harness.
+- **Contract:** `maxMessages`, the brand, `cause`, and the liveness kinds for waiting on an answer.
+- **Wire v4:** requests, responses, the owed-answer line and every refusal code in the Code map.
+  An older launcher is refused, as 021 did at v3.
+- **The record:** a written draft of the message and owed-answer event kinds in `turns.jsonl`
+  (fields, states, versions in `RUN_EVENT_VERSIONS`), `cause`, the limits in the run's record, and
+  the phase `awf runs --json` shows for an agent awaiting an answer.
+- **Harness:** `deliver(spec: HarnessDeliverySpec & HarnessTurnHooks): Promise<HarnessTurn>`, so a
+  delivered turn names its session as a started one does, `cause` and `messages` on
+  `AuthoredTurn`, and `deliver` on the fake harness.
 
 Done when:
 
-- the design's author-surface examples compile in a typecheck file, and a `{ key }` literal does
-  not. The testing sketch is settled in task 8;
+- the design's workflow examples compile in a typecheck file, and a `{ key }` literal does not.
+  The testing sketch is settled in task 8;
 - wire round-trip tests cover every code;
 - the user has approved the record draft, the new liveness kinds, and `cause` on turn records.
 
-### 3. The messaging state machine admits, queues and settles, as pure code
+### 3. The messaging logic admits, queues and settles, as pure code
 
-Outcome: `engine/src/messaging/` decides every case in the design, without I/O beyond its record
+Outcome: `engine/src/messaging/` decides every case in the design, with no I/O beyond its record
 writer.
 
 Work:
 
-- **Routes:**
-  - validation;
-  - idempotence;
-  - scope and closure;
-  - `route-closed` for messages not yet shown.
+- **Routes:** validation, granting the same route twice, scope and closing, and `route-closed` for
+  messages not yet shown.
 - **Admission:**
-  - route, limit, size and unread checks;
-  - reserved room for a reply;
-  - cycle refusal over open waits, ignoring the obligation a reply with `--await-reply` answers;
-  - atomic request plus obligation.
-- **Inboxes:** acceptance order; plain messages to a waiting sender held with its reply.
-- **Obligations:**
-  - satisfied by `wf reply` only;
+  - the route, limit, size and unread checks;
+  - room kept for an answer;
+  - the `cycle` check over open waits, ignoring the question a reply with `--await-reply` answers;
+  - a question and its owed answer saved together.
+- **Inboxes:** arrival order; plain messages to a waiting asker held with its answer.
+- **Owed answers:**
+  - met only by `wf reply`;
   - `none-owed` and `expired`;
   - failing on timeout, stop or cancel;
-  - a peer's late reply refused.
-- **Envelopes.** The three kinds, from [[messaging#What a delivered message looks like]]:
-  - a message;
-  - an awaited reply;
-  - a failure.
-
-  Each has a nonce fence of at least 8 hex characters, escapes fence-like lines, quotes the
-  purpose and names the call id.
-- **Prompt text:** the route lesson in an operation prompt, the route announcement, and the owing
-  nudge.
+  - a late answer refused.
+- **Wrapping.** The three kinds in [[messaging#What a delivered message looks like]]: a message,
+  an awaited answer, and a failure. Each is fenced with a random marker of at least 8 hex
+  characters, escapes lines that look like a fence, quotes the route's purpose, and names the call
+  id.
+- **Prompt text:** the route lesson in an operation's prompt, the announcement of a new route, and
+  the reminder to answer.
 
 Done when:
 
 - unit tests cover each bullet;
-- the envelope tests include a forged fence and a forged header.
+- the wrapping tests include a forged fence and a forged header.
 
 ### 4. The runner wakes, continues and closes through it, against the fake harness
 
-Outcome: the runner carries out every messaging rule on the fake harness. Tests drive sends and
-replies through `engine/src/messaging`'s own interface, the one task 5's dispatcher calls; the
-`wf` commands come in task 5.
+Outcome: the runner follows every messaging rule on the fake harness. Tests drive sends and replies
+through `engine/src/messaging`'s own interface, the one task 5's handler calls; the `wf` commands
+come in task 5.
 
 Work:
 
-- `workflow.messages`, with grants bound to the current scope, route identity and the
-  `maxMessages` clamp.
-- **Waking:** a queue count on `LogicalAgent`, and a message operation only when nothing is queued.
+- `workflow.messages`, with grants bound to the current scope, one open route per pair, and
+  `maxMessages` lowered to the ceiling.
+- **Waking:** a count of what is queued on `LogicalAgent`, and a message operation only when nothing
+  is queued.
 - **Message operations:**
-  - a supervisor of their own;
-  - a natural end settles;
-  - one owing nudge;
+  - their own supervisor;
+  - ending when its turn ends with nothing awaited;
+  - one reminder to answer;
   - a timeout or a harness failure stops the agent (Q10);
-  - one route opens a message operation and fixes its `cause` and scope, and continuations may
-    come from any route;
-  - a stage waits for the operations its routes opened, and for every reply owed on its routes to
-    be sent or fail;
-  - the deadline: the later of 15 minutes and the waiters' operation deadlines, lengthened only;
+  - one route opens a message operation and fixes its `cause` and scope; once open, it may be
+    continued from any route;
+  - the deadline: the later of 15 minutes and the waiting operations' deadlines, only ever later;
   - a stage owns them: a timeout fails the stage, a throw or stop cancels them. A sealed scope still
-    takes them, since a message held before the function returned may open one after the seal, and
-    the drain repeats until nothing is in flight;
-    - outside any stage the attempt owns them, and a failure ends the run `failed`;
+    takes them, since a message held before the function returned can open one after the seal,
+    and the drain repeats until nothing is in flight;
+  - a stage waits for the operations its routes opened, and for every answer owed on its routes to
+    be sent or fail;
+  - outside any stage the attempt owns them, and a failure ends the run `failed`;
   - a message to an agent opened but not yet run starts its first turn.
-- **Held messages:** they join a workflow's `run` after its prompt, and a request shown there
-  becomes that operation's obligation.
+- **Held messages:** they join a workflow's `run` after its prompt, and a question shown there is
+  owed by that operation.
 - **A turn's end,** in the design's order:
   - for a workflow operation, held messages continue it before any check-in;
   - for a message operation, held messages open the next one, or join a `run` already queued;
-  - a message ends a check-in's `wf waiting` interval.
-- **Waiting senders:** continued by a reply, a failure or a request; `wf waiting` only
+  - a message ends a check-in's `wf waiting` early.
+- **Waiting askers:** continued by an answer, a failure or a question; `wf waiting` only
   acknowledged; `wf result` drops the wait.
-- **Settlement:**
-  - `wf result` and `wf waiting` refused while a reply is owed;
-  - a result while awaiting drops the wait: an unshown request withdrawn (`withdrawn`), a seen one
-    released, its late reply `expired`; a reply accepted but not shown also `withdrawn`;
-  - a reply racing its waiter's timeout, settled by compare-and-set;
-  - the compare-and-set on settle;
-  - an open-operation lookup by agent.
+- **Finishing:**
+  - `wf result` and `wf waiting` refused while an answer is owed;
+  - a result while awaiting an answer drops the wait: a question not yet shown is `withdrawn`, a seen one is
+    released and its late answer `expired`, and an answer accepted but not shown is `withdrawn`;
+  - an answer racing its asker's timeout, settled by compare-and-set;
+  - every result accepted only if its operation is still open;
+  - finding the open operation for an agent.
 - **Endings:**
-  - stage end and the workflow's return wait for message operations in flight;
+  - a stage's end and the workflow's return wait for message operations in flight;
   - `agents.stop` closes routes;
   - the attempt's end records undelivered messages;
-  - the ceilings written into the run's record.
-- **Phases:** 021's `awaiting-reply` renamed, and a peer-wait phase added.
+  - the limits written into the run's record.
+- **Phases:** 021's `awaiting-reply` renamed, and a phase for waiting on a peer added.
 
 Done when:
 
@@ -685,66 +676,67 @@ Done when:
 
 ### 5. `wf peers`, `wf send` and `wf reply` work over the control plane and the sandbox door
 
-Outcome: an agent's commands behave and print as in [[messaging#Agent CLI]].
+Outcome: the agent commands behave and print as in [[messaging#Agent CLI]].
 
 Work:
 
-- The three verbs, in the heredoc, standard-input and argument forms; `--json` on `peers`.
-- The obligation line from each response.
+- The three commands, with text from a heredoc, standard input or an argument; `--json` on `peers`.
+- The owed-answer line printed from each response.
 - The "may have been queued" acknowledgement.
 - Exit codes 0, 1 and 2.
 - Usage text with the launcher's full path.
-- A messaging dispatcher in `control-plane.ts`.
-- Forwarding through the sandbox door, as 021 task 2 tested for `wf waiting`.
+- A messaging handler in `control-plane.ts`.
+- Forwarding through the sandbox door, tested as 021 task 2 tested `wf waiting`.
 
 Done when:
 
-- CLI tests check every acknowledgement and refusal line written in the design;
+- CLI tests check every acknowledgement and refusal line in the design;
 - end-to-end tests run over a real socket, on the host and through the srt door.
 
 ### 6. Headless agents receive messages and await replies
 
 Outcome: on headless claude, codex, pi and cursor:
 
-- a message to an idle agent wakes it through `HarnessSession.start`: a resumed turn, or a fresh
-  session if it has not run;
-- a message to a busy one waits for its process to exit;
-- a sender that awaits a reply is continued by one.
+- a message to an idle agent wakes it through `HarnessSession.start`, resuming its session, or
+  starting one if it has not run;
+- a message to a busy agent waits for its process to exit;
+- an asker waiting on an answer is continued by it.
 
 Work:
 
 - `deliver` in `direct-process.ts`.
-- A reply continuation observed as a fresh working turn, not under the check-in window.
-- `wf waiting` while awaiting a reply acknowledged headless, changing nothing.
+- An answer that continues an operation seen as a new working turn, not under the check-in
+  response window.
+- `wf waiting` while an answer is awaited, acknowledged headless and changing nothing.
 - `observed` from the resumed turn's session record.
-- `--await-reply` allowed headless by the allow-list, which stays off for each combination until
+- `--await-reply` allowed headless through the engine list, still off for each combination until
   task 9.
 
 Done when:
 
-- harness tests with the fake cover wake, held delivery and continuation;
-- one live smoke per harness delivers, wakes and continues, with the allow-list forced on for the
-  smoke.
+- harness tests with the fake cover waking, held delivery and continuing;
+- one live smoke per harness delivers, wakes and continues, with the list forced on for it.
 
 ### 7. Panes receive messages when idle, and claude panes await replies
 
-Outcome: in a pane, a message is typed only when the agent is idle. A claude pane's sender awaits
-a reply as with `wf waiting`.
+Outcome: in a pane, a message is typed only when the agent is idle. In a claude pane, an asker
+waits for its answer the way `wf waiting` waits.
 
 Work:
 
 - `deliver` in `herdr.ts`: wait for idle, then type, with `claude-receipt` on claude.
-- Await-reply on claude panes through the waiting machinery, behind the allow-list like headless.
+- Waiting on an answer in claude panes through the waiting code, behind the engine list as
+  headless is.
 - Codex, pi and cursor panes refuse `--await-reply` with `unsupported`.
 
 Done when:
 
 - adapter tests cover typing only when idle;
-- one live smoke per harness in a pane delivers a message, read or recorded `unconfirmed`, with the
-  allow-list forced on for claude;
-- a claude pane awaits and is continued.
+- one live smoke per harness in a pane delivers a message, confirmed or recorded `unconfirmed`,
+  with the list forced on for claude;
+- a claude pane waits and is continued.
 
-### 8. A workflow's tests script messages; the progress view and usage show them
+### 8. A workflow's tests script messages; the progress view, logs and usage show them
 
 Outcome: an author tests a messaging workflow for free, and an operator sees messaging in
 `awf run`.
@@ -758,39 +750,42 @@ Work:
   - `turn.messages` and `turn.reply(peer, text)` for messages that join a workflow turn, with a
     result refused (`owes-reply`) while the script still owes;
   - `turn.send` resolving to `sent`, `replied`, `failed` or `refused`;
-  - a turn ended with `reply.waiting` or `reply.silent` invoked again with held messages;
+  - a turn that ended with `reply.waiting` or `reply.silent` run again with held messages;
   - continuations as turns of their own in `turnsOf`;
   - `run.messagesOf` and `turn.cause`;
-  - a missing script for a woken agent fails the test.
-- **The test host:** submits sends and replies, and maps a reply's turn back to the pending
+  - a woken agent with no script fails the test.
+- **The test host:** submits sends and replies, and matches an answer's turn to its pending
   `turn.send`.
 - **Progress:** lines for accepted messages, waits and queues; nothing for idle agents.
+- **Logs:** message events in `awf logs`, followed by `--agent` from either side; an agent awaiting
+  an answer shown in `awf runs` with its peer and deadline.
 - **Usage:** `cause` in `workflow.usage()` and `output.json`.
 
 Done when:
 
-- the user has approved the testing surface's names and types before it is built;
+- the user has approved the testing API's names and types before it is built;
 - the design's testing sketches, the review loop and lenses→fixer, pass as real tests;
-- progress-view tests show the three line kinds.
+- progress-view tests show the three kinds of line, and logs tests a message, an owed answer and a
+  wait.
 
-### 9. Agents operate the protocol live; the review example converges; docs updated
+### 9. Agents use messaging correctly live (M2); the review example converges; docs updated
 
 Outcome:
 
-- each harness and placement that passes M2 is on the allow-list;
-- one that fails stays refused, with the reason recorded;
+- each harness and placement that passes M2 is on the engine list;
+- one that fails stays off, with the reason recorded;
 - the review example runs live;
 - the docs say what is built.
 
 Work:
 
 - **M2** on the E8 setup: 20 or more trials per harness, placement and model, counting what
-  [[messaging#To measure]] lists, against the thresholds confirmed in Open questions. Cheap models,
-  on codex where claude is not under test. E9's scenarios and scorer
-  (`experiments/e9-messaging-protocol`) are the starting point, run against the built `wf`.
-- **Revisions:** prompts and envelopes revised from the counts.
-- **The example:** `reviewLoop` in `examples/feature-delivery` rewritten as review until
-  convergence, with its test, and run live once.
+  [[messaging#To measure]] lists, judged by [[#The M2 gate]]. Cheap models, on codex where claude
+  is not the subject. E9's scenarios and scorer (`experiments/e9-messaging-protocol`) are the
+  starting point, run against the built `wf`.
+- **Revisions:** prompts and wrappers revised from the counts.
+- **The example:** `reviewLoop` in `examples/feature-delivery` rewritten as review until agreement,
+  with its test, and run live once.
 - **Docs:**
   - `workflow-api.md`: Messaging, Testing, and Not built yet;
   - `composition.md`: the branded `ParticipantRef`, and its review loop asking with
@@ -800,7 +795,7 @@ Work:
 
 Done when:
 
-- M2's counts are in `docs/findings/`, and the allow-list, by harness and placement, matches them;
+- M2's counts are in `docs/findings/`, and the engine list, by harness and placement, matches them;
 - the example's test passes, and its live run reaches a verdict within its `maxMessages`.
 
 ## Verification
@@ -812,250 +807,12 @@ Automated:
 - [ ] `bunx tsc --noEmit`
 - [ ] `bun run check`, with no boundary moved
 
-Manual or live evaluation, with costs estimated in [[testing]] first:
+Manual or live, with costs estimated in [[testing]] first:
 
 - [ ] M1 on the host, srt and docker (task 1).
 - [ ] Delivery smokes: headless per harness (task 6), panes per harness (task 7).
 - [ ] M2, at least 20 trials per harness and model (task 9).
 - [ ] The review example, live, once (task 9).
-
-## Review record
-
-### Refinement, 2026-10-11
-
-- **Code against the story** (one subagent).
-  - **Corrected:**
-    - headless waiting is not supported today;
-    - `awaiting-reply` is 021's check-in window;
-    - the M1 environment is already withheld (`operator-runtime.ts`, not `command.ts`);
-    - the review loop is `examples/feature-delivery`;
-    - `cause` belongs on `OperationRecord`.
-  - **Added:**
-    - the wire v4 and dispatcher;
-    - an open-operation lookup;
-    - a message-operation supervisor;
-    - a queue count;
-    - scope attachment;
-    - the fake's `deliver` moved earlier;
-    - where the brand lives;
-    - the dependency on 024.
-  - **Not taken:** "cursor has no `resumeTurn`". It does (`harnesses/cursor.ts:80`).
-- **Story against the design** (one subagent).
-  - **Contradictions:**
-    - headless support;
-    - failure stopping the agent;
-    - the phase name.
-
-    The first two became Q9 and Q10; the third is a rename.
-  - **Undecided behaviour,** now written into the design:
-    - held messages;
-    - the default deadline;
-    - route closure;
-    - the workflow's return;
-    - ceilings;
-    - reply room;
-    - delivery states;
-    - new refusal codes and texts;
-    - route lessons;
-    - the owing nudge.
-  - **Tasks 3 and 5 split.**
-  - **The M2 gate made explicit** with an allow-list.
-  - **Docs added as work.**
-  - **Delivery reduced to turn boundaries** by the user's decision, which removed the adopted-turn
-    machinery.
-
-### Second pass, 2026-10-11
-
-- **Story against design and code** (one subagent).
-  - **Two blocking gaps, now decided:**
-    - plain messages and a turn's end, which the lenses→fixer shape needs;
-    - held messages joining a `run`, with no format or test surface. Now `turn.messages` and
-      `turn.reply`.
-  - **Fixed:**
-    - leftover "operator ceilings", "never stopping" and "fold in" text;
-    - the 15-minute deadline added to the ceilings;
-    - the allow-list key;
-    - task 4's test path;
-    - the record approval widened to liveness kinds and `cause`, with no new `TurnRecord.kind`;
-    - `wf peers` states;
-    - `sandbox-needs.ts` moved to harness;
-    - the boundary cite;
-    - "forced compaction";
-    - wire codes;
-    - task 1's conditional;
-    - "an attempt".
-  - **Eight or more code claims** spot-checked correct.
-
-### Third pass, 2026-10-11
-
-- **Story against design and code** (one subagent).
-  - **One blocking gap, now decided:** a message operation continued by every later message would
-    hit its 15 minutes and stop the agent. Held messages now open a new message operation instead.
-  - **Fixed:**
-    - the order at a turn's end, for both kinds of operation;
-    - `wf waiting` refused while owing;
-    - reply codes, and a reply refused whole when its own request is refused;
-    - `--timeout` clamped;
-    - the cancel wording against the code;
-    - lenses→fixer limited to claude panes, with `done`;
-    - the testing sketch:
-      - result kinds that do not clash with `reply`;
-      - `end` not `state`;
-      - re-invocation with held messages;
-      - continuations in `turnsOf`;
-    - the testing surface approved in task 8, not task 2;
-    - allow-list coverage;
-    - the `wf peers` example.
-
-### Fourth pass, 2026-10-11
-
-Its `awaits-reply` refusal is superseded by the User decision below.
-
-- **Story against design** (one subagent).
-  - **Three blocking gaps, now decided:**
-    - a message operation carrying several routes' messages had no single `cause` or scope; now
-      one route per operation;
-    - `wf result` while awaiting had no code; now `awaits-reply`;
-    - two story lines still said a cancel stops the agent.
-  - **Fixed:**
-    - the testing sketches type-check in shape and wait for every lens;
-    - the allow-list's place in the Code map;
-    - `expired` wins over `closed` for a reply to a stopped waiter;
-    - the `wf peers` example;
-    - "turn's number".
-
-### Fifth pass, 2026-10-11
-
-- **Story against design and code** (one subagent).
-  - **One blocking gap, now decided:** "one route per operation" against continuations from other
-    routes. One route opens the operation and fixes its `cause` and scope; continuations may come
-    from any route; a stage waits for operations carrying an open obligation on its routes.
-  - **Checked consistent:**
-    - result codes against wire v3;
-    - `expired` over `closed`;
-    - the turn-end orders;
-    - the testing sketches against `script.ts`;
-    - the allow-list;
-    - the task order.
-
-### Sixth pass, 2026-10-11
-
-- **Story against design and code** (one subagent).
-  - **One blocking gap, now decided:** whether a stage waits for a foreign operation to settle or
-    only for the reply it owes. Now it waits for the reply, sent or failed.
-  - **Also settled:**
-    - a request continuing a message operation moves its deadline;
-    - a reply's `--await-reply` after a stage returns is refused `closed`.
-
-### Seventh pass, 2026-10-11
-
-- **Story against design and code** (one subagent): no blocking findings. Two clauses added:
-  - what happens at a stage's end to messages held before its function returned;
-  - Finishing names both halves of the stage wait.
-
-### Eighth pass, 2026-10-11
-
-Its `wf waiting` reset of a reply wait is superseded by the User decision below.
-
-- **Fresh read of story, design and code** (main session).
-  - **Decided with the user:**
-    - a reply wait that reaches its operation's deadline times out and stops the agent; only
-      `--timeout`, a peer's failure or stop, or a failed obligation continue the sender;
-    - the review example rewritten against `reviews.ts` as it is after b9cb6d0: shared by every
-      review stage, `Session` and `Subject`, a final `Record {subject}` turn;
-    - no call closes a route mid-stage.
-  - **Fixed:** the cycle check on a reply with `--await-reply` ignores the obligation it answers;
-    otherwise `wf reply --await-reply` to the waiter was always `cycle`.
-  - **The user's comments answered:** rooms as a stopgap, route closing, `awf send` finding runs
-    by folder, the owing nudge, a sender going on working after `--await-reply`, and `wf waiting`
-    applied to replies.
-  - **Decided with the user:** `wf waiting` while awaiting a reply is accepted and resets the
-    reply wait, capped by the operation's deadline, not refused.
-  - **Confirmed by the user:** Q1 and Q4; Q5 for now, with room for withdrawing left in the record.
-  - **Noted:** story 024 is `awaiting-human-review`; task 7 needs it done, tasks 1 to 6 do not.
-
-### Ninth pass, 2026-10-11
-
-Its `awaits-reply` code is superseded by the User decision below.
-
-- **Design soundness** (one expert subagent).
-  - **Two blocking gaps, now decided:**
-    - a waiter's `--timeout` bounded the replier's operation, so a peer could stop it. A message
-      operation is now bounded by its waiters' operation deadlines, lengthened only, and a
-      `--timeout` fails only its obligation;
-    - a stage's drain had no outcome. A stage owns the operations its routes opened, as it owns a
-      `run` (`settleOwned`): a timeout fails the stage, a throw or stop cancels them.
-  - **Fixed:**
-    - a reply racing its waiter's timeout;
-    - route identity and overlapping grants;
-    - `maxMessages` above the ceiling clamped;
-    - the socket's limit stated and added to M3;
-    - call ids for message operations (`no-result`);
-    - where the brand is minted;
-    - reserved reply room released when an obligation fails;
-    - `messages` scripts as arrays, and the reviewer's turns in the sketch;
-    - a route's worst-case wakes;
-    - the review example with no revisions, and where it can run.
-- **Story against design and code** (one subagent).
-  - **One blocking break:** the story's frontmatter had been rewrapped into a paragraph by a
-    formatting pass, now restored.
-  - **Fixed:**
-    - `awaits-reply` is not only after a request;
-    - what continues a sender: no "refused reply";
-    - `wf waiting` while awaiting, against the headless refusal and the code's `supportsWaiting`
-      gate, now in the Code map and tasks 4 and 6;
-    - `wf waiting` refused while owing, now in Scope and task 4;
-    - which claude panes can wait (`herdr.ts:887`);
-    - the allow-list written into the design's Q9;
-    - grant endpoints are agents the workflow opened, not the scope's;
-    - a message operation's held messages may join a queued `run`;
-    - `reviewLoop` runs in every review stage;
-    - the record's file and events in the design;
-    - the ceilings written into the record in task 4.
-  - **Code citations** all held, except `herdr.ts:887`'s condition.
-
-### Tenth pass, 2026-10-11
-
-Its `not-awaiting` code is superseded by the User decision below.
-
-- **Fixes checked** (one expert subagent): all nine held in both docs and against the code;
-  `BLOCKING: none`.
-  - **Fixed:**
-    - the message-operation deadline is the later of 15 minutes and the waiters' deadlines, so a
-      waiter near its own deadline cannot shorten the replier's;
-    - a top-level message operation that fails ends the run `failed`, even after its value;
-    - `wf waiting` on a message operation awaiting nothing is refused `not-awaiting`;
-    - the stage drain takes operations opened after the seal, and repeats;
-    - the `cycle` refusal worded for a ring through a third agent;
-    - `maxMessages` a positive integer;
-    - the seeded-home condition in Q9;
-    - the review example's stop reason, and its `Record` turn after an approval with no revision
-      accepted;
-    - the M2 thresholds numbered Q11, in the design too.
-
-### User decision, 2026-10-11
-
-- **`--await-reply` never blocks `wf result`.** The agent chose to wait, so it may stop waiting:
-  a result settles the operation and drops the wait, as a cancel does. A request not yet shown is
-  withdrawn (`undelivered`, `withdrawn`); a peer that has seen it no longer owes it, and its reply
-  is refused `expired`. `awaits-reply` is removed.
-- **The `cycle` refusal stays.** Dropped, then restored after review: a turn that owes and awaits
-  waits before its nudge, and a waiting agent cannot run `wf result`, so a ring of waits would hold
-  until a deadline stopped its agents.
-- **`wf waiting` no longer resets a reply wait.** While a reply is awaited it changes nothing and
-  is acknowledged with the reply's deadline, which only `--timeout` sets. `not-awaiting` is removed;
-  on a message operation `wf waiting` is refused `no-result`, as `wf result` is.
-- **A message starts an agent that has not run.** An agent opened and not yet run is idle, and a
-  message starts its first turn as a message operation. A workflow can keep an agent on call and
-  pay for it only if a peer needs it, and a request to it no longer waits for a `run` that cannot
-  come until the stage returns.
-
-### User decision, 2026-10-12
-
-- **Q11: the M2 gate.** `--await-reply` is enabled on a harness when, per placement and model over
-  20 trials, at least 18 end the turn without blocking after asking, at least 18 finish the task
-  with the reply, and the live smoke shows the reply arriving. The rest of M2, forged operator
-  text included, is reported and revises prompts, never gates.
 
 ## Readiness
 
@@ -1065,7 +822,7 @@ Its `not-awaiting` code is superseded by the User decision below.
 - [x] Expensive interface, record-format, and stage-gate decisions are settled. The record format
   is approved inside task 2.
 - [x] Tasks are ordered, coherent, and independently verifiable.
-- [x] Open questions are resolved or explicitly moved out of scope. Q11 was decided 2026-10-12.
+- [x] Open questions are resolved or explicitly moved out of scope.
 
 ## Implementation notes
 
