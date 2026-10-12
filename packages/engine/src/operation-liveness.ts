@@ -416,10 +416,12 @@ export async function superviseOperation(options: Options): Promise<SupervisedOu
           break;
         }
       }
+      // Timers against this pass's own clock: a time that came due while it ran fires at once,
+      // where judging it by a later reading would leave it neither due nor timed.
       const candidates = admitted
         ? []
         : [deadline, waitUntil, quietUntil, responseUntil, deliveryUntil, receiptUntil].filter(
-            (v): v is number => v !== undefined && v > now(),
+            (v): v is number => v !== undefined && v > at,
           );
       const signal = wake.promise;
       const cancelTimer = candidates.length ? schedule(Math.min(...candidates), changed) : () => {};
