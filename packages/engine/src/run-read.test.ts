@@ -1,5 +1,5 @@
 import { afterAll, describe, expect, test } from "bun:test";
-import { appendFileSync, mkdirSync, writeFileSync } from "node:fs";
+import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { AttemptRecord } from "@agentswf/contract/records";
 import { writeJson } from "./files";
@@ -234,6 +234,29 @@ describe("reading a run", () => {
       [1, "worker"],
       [2, "author"],
     ]);
+  });
+
+  test("the calling session is known by its operations, should its opening line be lost", async () => {
+    const { made } = await setUp();
+    const log = join(made.dir, "turns.jsonl");
+    const lines = readFileSync(log, "utf8")
+      .split("\n")
+      .filter(Boolean)
+      .map((line) => line.replace(',"caller":true', ""))
+      .map((line) =>
+        line.includes('"op-2"')
+          ? line.replace(
+              '"execution":{"harness":"claude","model":"m"}',
+              '"execution":{"harness":"claude","model":"","caller":true}',
+            )
+          : line,
+      );
+    writeFileSync(log, `${lines.join("\n")}\n`);
+    const read = await readRun(made.dir, "/repo", undefined, { ended: true });
+    const author = read.events.flatMap((each) =>
+      each.source === "activity" && each.agent === "author" ? [each.operation] : [],
+    );
+    expect(author).toEqual(["op-2"]);
   });
 
   test("a cursor returns only what is new, never past a torn line", async () => {

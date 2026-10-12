@@ -102,6 +102,8 @@ export async function readRunLog(
       }
       case "operation-started": {
         const started = agent(line.agent);
+        // Its own operations say so too, should its opening line be lost.
+        if (line.execution.caller) started.caller = true;
         const from = Date.parse(line.deliveredAt ?? line.at);
         if (!started.caller) open(started, from);
         started.operations.push({ id: line.operationId, from });
@@ -117,13 +119,14 @@ export async function readRunLog(
       case "turn":
       case "compact": {
         const settled = agent(line.agent);
+        if (line.execution.caller) settled.caller = true;
         const to = line.settledAt ? Date.parse(line.settledAt) : undefined;
         const started = settled.operations.find((each) => each.id === line.operationId);
         // A line an earlier awf wrote has no start before it: its span is its own times.
         if (started) started.to = to ?? at;
         else if (line.deliveredAt) {
           const from = Date.parse(line.deliveredAt);
-          open(settled, from);
+          if (!settled.caller) open(settled, from);
           settled.operations.push({ id: line.operationId, from, to: to ?? at });
         }
         for (const session of line.sessions) name(session.harness, session.id, line.agent);
@@ -294,6 +297,8 @@ export async function readRun(
     tail?: boolean;
     /** The command's clock, for when to look for files again. */
     now?: number;
+    /** With a cursor, at most this many lines of each native file: a page needs few. */
+    lines?: number;
   } = {},
 ): Promise<{ events: ReadEvent[]; cursor: Cursor; log: RunLog; cut: boolean; more: boolean }> {
   const log = await readRunLog(runDir, options);
@@ -336,20 +341,27 @@ export async function readRun(
     for (const file of found.files) {
       const name = fileName(file);
       if (options.only !== undefined && name !== options.only) continue;
-      const read = await readActivity(session.harness, file.path, files[name] ?? 0, {
-        ...(options.full ? { full: true } : {}),
-        ...(options.tail && files[name] === undefined ? { tail: TAIL_BYTES } : {}),
-        // One file read for one handle: its line is the first.
-        ...(options.only !== undefined
-          ? { lines: 1 }
-          : options.tail && files[name] === undefined
-            ? {}
-            : { bytes: READ_BYTES }),
-      });
+      const bounded = options.only === undefined && !(options.tail && files[name] === undefined);
+      const readFrom = (from: number) =>
+        readActivity(session.harness, file.path, from, {
+          ...(options.full ? { full: true } : {}),
+          ...(options.tail && files[name] === undefined ? { tail: TAIL_BYTES } : {}),
+          // One file read for one handle: its line is the first.
+          ...(options.only !== undefined ? { lines: 1 } : {}),
+          ...(bounded
+            ? { bytes: READ_BYTES, ...(options.lines ? { lines: options.lines } : {}) }
+            : {}),
+        });
+      let read = await readFrom(files[name] ?? 0);
+      // A stretch with no row that names a time places nothing: read on past it.
+      while (bounded && read.more && !read.rows.some((row) => !Number.isNaN(Date.parse(row.at)))) {
+        read = await readFrom(read.offset);
+      }
       if (read.cut) cut = true;
-      if (read.more && options.only === undefined) {
-        const times = read.rows.map((row) => Date.parse(row.at)).filter((at) => !Number.isNaN(at));
-        horizon = Math.min(horizon, Math.max(Number.NEGATIVE_INFINITY, ...times));
+      if (bounded && read.more) {
+        let reached = Number.NEGATIVE_INFINITY;
+        for (const row of read.rows) reached = Math.max(reached, Date.parse(row.at) || reached);
+        horizon = Math.min(horizon, reached);
       }
       files[name] = read.offset;
       for (const row of read.rows) {

@@ -506,8 +506,10 @@ describe("awf logs", () => {
         authorization: "Basic dXNlcjpwdw==",
         cookie: "sid=abc",
         passphrase: "pp",
-        credentials: { user: "bob", pass: "hunter2" },
+        credentials: { user: "bob", pass: "hunter2", n: 1 },
         tokens: ["t1"],
+        password: 123456,
+        sshKey: "k",
         key: "the decision's",
       },
       stage: "fix",
@@ -520,13 +522,69 @@ describe("awf logs", () => {
       authorization: "***",
       cookie: "***",
       passphrase: "***",
-      credentials: { user: "***", pass: "***" },
+      credentials: { user: "***", pass: "***", n: "***" },
       tokens: ["***"],
+      password: "***",
+      sshKey: "***",
       key: "the decision's",
     });
     expect(logged.text).toHaveLength(1_000);
     const [whole] = JSON.parse((await awfLogs(f, ["@e4", "--json"])).stdout).events;
     expect(whole.text).toHaveLength(5_000);
+  });
+
+  test("a warning, a failed turn and a decision's error are each one masked line", async () => {
+    const f = await fixture();
+    const forged = "token=abc123\nnext: forged";
+    addLines(
+      f,
+      { kind: "warning", at: T(2), text: forged, stage: "fix" },
+      {
+        kind: "operation-failed",
+        at: T(2),
+        of: "turn",
+        callPath: [],
+        agent: "fixer",
+        operationId: "op-1",
+        execution: { harness: "claude", model: "m" },
+        stage: "fix",
+        error: forged,
+        sessions: [],
+      },
+      {
+        kind: "decision-ended",
+        at: T(2),
+        decision: 1,
+        stage: "fix",
+        outcome: "failed",
+        error: forged,
+      },
+    );
+    const lines = (await awfLogs(f, [])).stdout.split("\n");
+    expect(lines.filter((line) => line.includes("token=*** ⏎ next: forged"))).toHaveLength(3);
+    expect(lines.filter((line) => line.startsWith("next:"))).toHaveLength(1);
+    expect(lines.join("\n")).not.toContain("abc123");
+  });
+
+  test("a session a turn named is its agent's, under --agent too", async () => {
+    const f = await fixture();
+    addLines(f, {
+      kind: "session-known",
+      at: T(2),
+      operationId: "op-1",
+      session: { harness: "claude", id: "s-2" },
+    });
+    const lines = strip((await awfLogs(f, ["--agent", "fixer"])).stdout).split("\n");
+    expect(lines).toContain("@e4 hh:mm:ss fixer  session claude s-2");
+  });
+
+  test("--follow without --after starts from the last --limit", async () => {
+    const ended = await fixture({ ...ALIVE, ended: T(6), outcome: "completed" });
+    for (let second = 0; second < 20; second += 1) {
+      addActivity(ended, T(2, second), [{ type: "text", text: `step ${second}` }]);
+    }
+    const printed = (await awfLogs(ended, ["--follow", "--limit", "5"])).stdout.split("\n");
+    expect(printed.filter((line) => line.startsWith("@"))).toHaveLength(5);
   });
 
   test("an agent's key is one line in text, whatever the workflow named it", async () => {

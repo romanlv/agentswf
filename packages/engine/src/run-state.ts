@@ -32,18 +32,31 @@ export type RunStatus = {
   checked: boolean;
 };
 
-export async function runStatus(run: Run, probe: ProcessStatus = probeProcess): Promise<RunStatus> {
+/** How long a run folder with no attempt yet may be an `awf run` still starting. */
+const STARTING_MS = 60_000;
+
+export async function runStatus(
+  run: Run,
+  probe: ProcessStatus = probeProcess,
+  at = Date.now(),
+): Promise<RunStatus> {
   const attempts = await readAttempts(run);
   const last = attempts.at(-1);
   const ref = `${run.record.workflow}/${run.record.id}`;
-  // Between its folder and its first attempt's claim: an `awf run` starting, or one refused.
-  if (!last) return { run, ref, attempts, state: "running", checked: false };
+  // Between its folder and its first attempt's claim: an `awf run` starting, or, past a minute,
+  // one refused or killed before it claimed one.
+  if (!last) {
+    const starting = at - Date.parse(run.record.created) < STARTING_MS;
+    return { run, ref, attempts, state: starting ? "running" : "interrupted", checked: !starting };
+  }
   if (last.outcome !== undefined) return { run, ref, attempts, state: last.outcome, checked: true };
   const now = probe(last.pid);
   if (now === "unknown") return { run, ref, attempts, state: "running", checked: false };
   const same = now !== "gone" && sameStart(now, last.processStart);
   return { run, ref, attempts, state: same ? "running" : "interrupted", checked: true };
 }
+
+const ALSO_RUNNING_CHECKED = 20;
 
 /** A reference the commands take, or why there is none to read. */
 export class RunNotFound extends Error {}
@@ -76,7 +89,8 @@ export async function findRun(
     const [newest, ...older] = await listRuns(runRoot);
     if (!newest) throw new RunNotFound(`no runs under ${runRoot}`);
     const alsoRunning: string[] = [];
-    for (const run of older) {
+    // The newest few: each open attempt is a `ps`, and a run root is never pruned.
+    for (const run of older.slice(0, ALSO_RUNNING_CHECKED)) {
       // One that cannot be read is no reason to fail a read of another.
       const status = await runStatus(run, probe).catch(() => undefined);
       if (status?.state === "running") alsoRunning.push(status.ref);

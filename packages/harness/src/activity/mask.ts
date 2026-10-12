@@ -4,7 +4,7 @@
  */
 const CREDENTIALS: readonly [RegExp, string][] = [
   [
-    /((?:proxy-)?authorization|x-api-key|api[_-]key|private-token|x-auth[\w-]*|x-[\w-]*?(?:token|key|secret))(\s*[:=]\s*)(?:(?:bearer|basic|token)\s+)?[^\s'"]+/gi,
+    /((?:proxy-)?authorization|x-api-key|api[_-]key|private-token|x-auth[\w-]{0,40}|x-[\w-]{0,40}?(?:token|key|secret))(\s*[:=]\s*)(?:(?:bearer|basic|token)\s+)?[^\s'"]+/gi,
     "$1$2***",
   ],
   [/(\b(?:set-)?cookie\s*:\s*)[^'"\n]+/gi, "$1***"],
@@ -25,13 +25,13 @@ const CREDENTIALS: readonly [RegExp, string][] = [
   ],
   // A setting named for a credential, given as the next word.
   [
-    /(\bconfig(?:ure)?\s+set\b[^|;&\n]*?\s\S*?(?:password|passwd|secret|token|key)\S*\s+)("[^"]*"|'[^']*'|\S+)/gi,
+    /(\bconfig(?:ure)?[ \t]+set\b[^|;&\n]{0,200}?[ \t]\S{0,100}?(?:password|passwd|secret|token|key)\S{0,100}[ \t]+)("[^"]*"|'[^']*'|\S+)/gi,
     "$1***",
   ],
-  [/(\b(?:login|sshpass)\b[^|;&\n]*?\s-p\s*)("[^"]*"|'[^']*'|[^\s'"-][^\s'"]*)/g, "$1***"],
-  [/(\bmysql\w*\b[^|;&\n]*?\s-p)(\s*)([^\s'"-][^\s'"]*)/g, "$1$2***"],
-  [/(\bredis-cli\b[^|;&\n]*?\s-a\s+)(\S+)/g, "$1***"],
-  [/(\bopenssl\b[^|;&\n]*?\s-(?:k|pass|passin|passout)\s+)(\S+)/g, "$1***"],
+  [/(\b(?:login|sshpass)\b[^|;&\n]{0,200}?\s-p\s*)("[^"]*"|'[^']*'|[^\s'"-][^\s'"]*)/g, "$1***"],
+  [/(\bmysql\w*\b[^|;&\n]{0,200}?\s-p)(\s*)([^\s'"-][^\s'"]*)/g, "$1$2***"],
+  [/(\bredis-cli\b[^|;&\n]{0,200}?\s-a\s+)(\S+)/g, "$1***"],
+  [/(\bopenssl\b[^|;&\n]{0,200}?\s-(?:k|pass|passin|passout)\s+)(\S+)/g, "$1***"],
   [/(["']?(?:api[_-]?key|token|secret|password)["']?\s*:\s*)("[^"]*"|'[^']*')/gi, '$1"***"'],
   [/(:\/\/)[^\s/:@]+:[^\s/@]+@/g, "$1***@"],
   [/(\s(?:-u|-U|--user|--proxy-user)(?:\s+|=))[^\s:]+:\S+/g, "$1***"],
@@ -47,8 +47,13 @@ export function maskCredentials(text: string): string {
   return CREDENTIALS.reduce((masked, [shape, mask]) => masked.replace(shape, mask), text);
 }
 
-/** About `limit` characters of one line, with `…` where it was cut, masked. */
+/**
+ * About `limit` characters of one line, with `…` where it was cut, masked. Only its start is
+ * masked, and before its lines are joined, so a rule never reads on into the next command.
+ */
 export function cut(text: string, limit = 120): string {
-  const line = maskCredentials(text.replace(/\s+/g, " ").trim());
+  const line = maskCredentials(text.slice(0, limit * 8))
+    .replace(/\s+/g, " ")
+    .trim();
   return line.length > limit ? `${line.slice(0, limit - 1)}…` : line;
 }

@@ -47,7 +47,7 @@ export function command(place: ReadPlace, ...words: string[]): string[] {
 
 /** A field whose name says it holds a credential, whatever its value looks like. */
 const SECRET_NAME =
-  /password|passwd|passphrase|secret|token|credential|cookie|bearer|authorization|(?:api|access|private|session)[_-]?key|^(?:pwd|pass|auth)$/i;
+  /password|passwd|passphrase|passcode|secret|token|credential|cookie|bearer|authorization|(?:api|access|private|session|ssh|signing|encryption)[_-]?key|^(?:pwd|pass|pin|auth)$/i;
 
 /**
  * Every string in `value` masked, and everything under a credential's name hidden: a run's text,
@@ -59,6 +59,7 @@ export function masked(value: unknown, limit = Number.POSITIVE_INFINITY, hidden 
     const shown = maskCredentials(value);
     return shown.length > limit ? `${shown.slice(0, limit - 1)}…` : shown;
   }
+  if (hidden && value !== null && typeof value !== "object") return "***";
   if (Array.isArray(value)) return value.map((each) => masked(each, limit, hidden));
   if (value && typeof value === "object") {
     return Object.fromEntries(

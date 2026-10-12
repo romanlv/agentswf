@@ -391,4 +391,23 @@ describe("masking", () => {
     expect(long).toHaveLength(120);
     expect(long.endsWith("…")).toBe(true);
   });
+
+  test("a rule never reads on into the next line's command", () => {
+    expect(cut("git config set user.name me\nssh-keygen -t ed25519 -f x")).toBe(
+      "git config set user.name me ssh-keygen -t ed25519 -f x",
+    );
+  });
+
+  test("masking stays fast on long input that repeats a rule's keyword", () => {
+    const started = performance.now();
+    for (const text of [
+      "x-a".repeat(70_000),
+      "login ".repeat(40_000),
+      "git config set a b ".repeat(20_000),
+    ]) {
+      maskCredentials(text);
+      cut(text);
+    }
+    expect(performance.now() - started).toBeLessThan(1_000);
+  });
 });

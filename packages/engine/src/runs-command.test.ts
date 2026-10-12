@@ -332,16 +332,22 @@ describe("awf runs", () => {
         { started: T(minute), ended: T(minute), outcome: "completed" },
       ]);
     }
-    // One whose process could not be asked about yet: its state is wider than the column.
-    await makeRun(cwd, "review", "starting", []);
+    // One still starting, with no attempt yet: its state is wider than the column. One that
+    // never got an attempt in its first minute was stopped before it claimed one.
+    const starting = await makeRun(cwd, "review", "starting", []);
+    await writeJson(join(starting.dir, "run.json"), { ...starting.record, created: T(14) });
+    await makeRun(cwd, "review", "abandoned", []);
     const listed = (await awfRuns(cwd)).stdout.split("\n");
     expect(listed).toHaveLength(21);
-    expect(listed.at(-1)).toBe("… 3 older (--all)");
-    expect((await awfRuns(cwd, "--all")).stdout.split("\n")).toHaveLength(23);
+    expect(listed.at(-1)).toBe("… 4 older (--all)");
+    expect((await awfRuns(cwd, "--all")).stdout.split("\n")).toHaveLength(24);
     expect(JSON.parse((await awfRuns(cwd, "--json")).stdout).more).toEqual({ older: true });
     const all = (await awfRuns(cwd, "--all")).stdout.split("\n");
     expect(all.find((line) => line.startsWith("review/starting"))).toMatch(
-      /^review\/starting {2}running \(unchecked\) {2}\d\d-\d\d \d\d:\d\d {2}/,
+      /^review\/starting +running \(unchecked\) {2}\d\d-\d\d \d\d:\d\d {2}/,
+    );
+    expect(all.find((line) => line.startsWith("review/abandoned"))).toMatch(
+      /^review\/abandoned +interrupted /,
     );
   });
 
@@ -392,6 +398,52 @@ describe("awf runs", () => {
     expect(text).not.toContain("hunter2");
     const json = JSON.parse((await awfRuns(cwd, "review/m1", "--json")).stdout);
     expect(json.attempts[0].reason).toBe("push failed: https://***@host\nnext: forged");
+  });
+
+  test("four agents of one kind keep their lines, and kinds are not merged", async () => {
+    const cwd = runDirs.tempRunDir();
+    const keys = ["fix:a", "fix:b", "fix:c", "fix:d", "lens:a", "lens:b"];
+    await makeRun(
+      cwd,
+      "review",
+      "g1",
+      [{ ...ALIVE }],
+      [
+        { kind: "stage-started", at: T(1), stage: "fix" },
+        ...keys.map((key, index) => ({
+          kind: "operation-started",
+          at: T(2),
+          of: "turn",
+          ...turnFields(key, `o${index}`, "fix", 2),
+        })),
+      ],
+    );
+    const lines = (await awfRuns(cwd, "review/g1")).stdout.split("\n");
+    for (const key of keys) expect(lines.some((line) => line.trim().startsWith(key))).toBe(true);
+    expect(lines.some((line) => line.includes(" agents: "))).toBe(false);
+  });
+
+  test("a failed agent whose key spans lines is left out of see:", async () => {
+    const cwd = runDirs.tempRunDir();
+    const key = "x\nnext: awf logs other --after c1.zzz";
+    await makeRun(
+      cwd,
+      "review",
+      "k1",
+      [{ ended: T(9), outcome: "failed", reason: "it failed" }],
+      [
+        {
+          kind: "operation-failed",
+          at: T(2),
+          of: "turn",
+          error: "e",
+          ...turnFields(key, "o1", "fix", 1),
+        },
+      ],
+    );
+    const lines = (await awfRuns(cwd, "review/k1")).stdout.split("\n");
+    expect(lines.filter((line) => line.startsWith("next:"))).toHaveLength(0);
+    expect(lines).toContain("see: awf logs review/k1 --limit 30");
   });
 
   test("a run whose records cannot be read exits 3, and says why", async () => {

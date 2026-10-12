@@ -82,7 +82,7 @@ async function list(place: ReadPlace, all: boolean, json: boolean, out: Out, now
   const shown = all ? runs : runs.slice(0, LISTED);
   const listed: Listed[] = await Promise.all(
     shown.map((run) =>
-      runStatus(run).then(
+      runStatus(run, undefined, now).then(
         (status) => ({ status }),
         (error: unknown) => ({
           ref: `${run.record.workflow}/${run.record.id}`,
@@ -270,7 +270,8 @@ function trailer(view: RunView, place: ReadPlace): string[] {
     const stuck = view.agents.find((each) => each.state === "failed" || each.state === "timed-out");
     const look = command(place, "awf", "logs", status.ref);
     lines.push(
-      `see: ${shellLine([...look, ...(stuck ? ["--agent", stuck.key] : []), "--limit", "30"])}`,
+      // A key a shell line cannot carry on one line is left out.
+      `see: ${shellLine([...look, ...(stuck && !/[\r\n]/.test(stuck.key) ? ["--agent", stuck.key] : []), "--limit", "30"])}`,
     );
   }
   if (go) lines.push(`continue: ${go}`);

@@ -108,7 +108,7 @@ export async function logsCommand(
           `cursor ${options.after} does not fit this run; start again: ${again}`,
         );
     }
-    const read = new Reader(status, after, clock);
+    const read = new Reader(status, after, clock, options.limit * 2);
     // Lines are numbered by their place in the file, past any that were skipped.
     if (after && after.log > ((await read.next()).log.lines.at(-1)?.number ?? 0)) {
       throw new DoesNotFit(`cursor ${options.after} does not fit this run; start again: ${again}`);
@@ -180,6 +180,8 @@ class Reader {
     public status: RunStatus,
     readonly from: Cursor | undefined,
     readonly clock: LogsClock,
+    /** Lines of each native file one read takes: about what a page shows. */
+    readonly lines: number,
   ) {}
 
   next(cursor = this.from) {
@@ -187,6 +189,7 @@ class Reader {
       ended: this.status.state !== "running",
       files: this.#files,
       now: this.clock.now(),
+      lines: this.lines,
       ...(cursor ? {} : { tail: true }),
     });
   }
@@ -199,32 +202,40 @@ class Reader {
 
 type Read = Awaited<ReturnType<Reader["next"]>>;
 
-/** Each operation's stage, from the lines that name it. */
-function operationStages(lines: readonly { line: RunLogLine }[]): Map<string, string> {
-  const stages = new Map<string, string>();
+/** Each operation's stage and agent, from the lines that name them. */
+type Places = { stage: Map<string, string>; agent: Map<string, string> };
+
+function operationPlaces(lines: readonly { line: RunLogLine }[]): Places {
+  const places: Places = { stage: new Map(), agent: new Map() };
   for (const { line } of lines) {
-    if ("operationId" in line && "stage" in line && line.stage) {
-      stages.set(line.operationId, line.stage);
-    }
+    if (!("operationId" in line) || !line.operationId) continue;
+    if ("stage" in line && line.stage) places.stage.set(line.operationId, line.stage);
+    if ("agent" in line && line.agent) places.agent.set(line.operationId, line.agent);
   }
-  return stages;
+  return places;
 }
 
-function agentOf(event: ReadEvent): string | undefined {
+function agentOf(event: ReadEvent, places: Places): string | undefined {
   if (event.source === "activity") return event.agent;
-  return "agent" in event.line ? event.line.agent : undefined;
+  if ("agent" in event.line && event.line.agent) return event.line.agent;
+  // A session a headless turn named names its operation, and so its agent.
+  return "operationId" in event.line && event.line.operationId
+    ? places.agent.get(event.line.operationId)
+    : undefined;
 }
 
-function stageOf(event: ReadEvent, stages: Map<string, string>): string | undefined {
-  if (event.source === "activity") return event.operation ? stages.get(event.operation) : undefined;
+function stageOf(event: ReadEvent, places: Places): string | undefined {
+  if (event.source === "activity") {
+    return event.operation ? places.stage.get(event.operation) : undefined;
+  }
   return "stage" in event.line ? event.line.stage : undefined;
 }
 
 function kept(read: Read, options: LogsOptions) {
-  const stages = operationStages(read.log.lines);
+  const stages = operationPlaces(read.log.lines);
   const events = read.events.filter(
     (event) =>
-      (options.agent === undefined || agentOf(event) === options.agent) &&
+      (options.agent === undefined || agentOf(event, stages) === options.agent) &&
       (options.stage === undefined || stageOf(event, stages) === options.stage),
   );
   return { events, stages };
@@ -254,6 +265,8 @@ async function page(
   let { events, stages } = kept(read, options);
   const deadline = clock.now() + options.waitSeconds * 1000;
   let waited = false;
+  // Without a cursor, a wait reads on from its first read: nothing before it is kept.
+  let from = reader.from;
   // Waits while there is nothing it keeps to show and the run goes on.
   while (
     events.length === 0 &&
@@ -262,14 +275,15 @@ async function page(
     clock.now() < deadline
   ) {
     waited = true;
+    if (!reader.from) from = read.cursor;
     await clock.sleep(POLL_MS);
     await reader.refresh(place.runRoot);
-    read = await reader.next();
+    read = await reader.next(from);
     ({ events, stages } = kept(read, options));
     if (events.length > 0) {
       // A burst comes back as one page.
       await clock.sleep(SETTLE_MS);
-      read = await reader.next();
+      read = await reader.next(from);
       ({ events, stages } = kept(read, options));
     }
   }
@@ -364,9 +378,11 @@ async function follow(
   let cursor = reader.from;
   let read = await reader.next(cursor);
   out.stdout(header(reader.status, currentStage(reader.status, read.log.lines)));
-  for (;;) {
+  for (let first = true; ; first = false) {
     const { events, stages } = kept(read, options);
-    for (const event of events) out.stdout(describeEvent(event, stages));
+    // Without a cursor it starts from the last `--limit`, as a page would.
+    const shown = first && !reader.from ? events.slice(-options.limit) : events;
+    for (const event of shown) out.stdout(describeEvent(event, stages));
     cursor = read.cursor;
     // A read that stopped short goes on at once.
     if (!read.more) {
@@ -405,7 +421,7 @@ async function oneEvent(
       only: handle.kind === "event" ? "" : handle.file,
     },
   );
-  const stages = operationStages(read.log.lines);
+  const stages = operationPlaces(read.log.lines);
   const event = read.events.find((each) => each.handle === encodeHandle(handle));
   if (!event) throw missing;
   if (json) {
@@ -460,13 +476,9 @@ function trailer(
 }
 
 /** An event as `--json` publishes it: the line's own fields, or the activity, with its keys. */
-function publish(
-  event: ReadEvent,
-  stages: Map<string, string>,
-  limit = Number.POSITIVE_INFINITY,
-): LogEventJson {
+function publish(event: ReadEvent, stages: Places, limit = Number.POSITIVE_INFINITY): LogEventJson {
   if (event.source === "activity") {
-    const stage = event.operation ? stages.get(event.operation) : undefined;
+    const stage = event.operation ? stages.stage.get(event.operation) : undefined;
     return {
       handle: event.handle,
       at: event.at,
@@ -488,8 +500,8 @@ function publish(
 }
 
 /** `@e216 09:27:02 fix  fixer  turn ended  answered  1m48s`. */
-function describeEvent(event: ReadEvent, stages: Map<string, string>): string {
-  const agent = agentOf(event);
+function describeEvent(event: ReadEvent, stages: Places): string {
+  const agent = agentOf(event, stages);
   const where = [stageOf(event, stages), agent && said(agent, 60)].filter(Boolean).join("  ");
   const what =
     event.source === "activity" ? describeActivity(event.activity) : describeLine(event.line);

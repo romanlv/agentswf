@@ -38,7 +38,7 @@ import {
 } from "./operator-runtime";
 import { ANSI, describeRunSession, type Terminal, watchProgress } from "./progress-view";
 import { parseCommand, type RunCommand, usage } from "./run-command";
-import { startedLine } from "./run-commands";
+import { shellLine, startedLine } from "./run-commands";
 import { claimNext, loadAndPrepare, type PreparedRun, workspaceLabel } from "./run-prepare";
 import { findRun } from "./run-state";
 import { type Attempt, createRun, discardRun, type Run, RunRefused } from "./runs";
@@ -134,7 +134,14 @@ export async function runOperatorCli(
   }
   const meant = await runNamed(command);
   if (meant) {
-    stderr(`awf: ${command.workflowFile} is not a workflow file; did you mean: awf runs ${meant}`);
+    const look = shellLine([
+      "awf",
+      "runs",
+      meant,
+      ...(command.cwdGiven ? ["--cwd", command.cwd] : []),
+      ...(command.runRootGiven ? ["--run-root", command.runRoot] : []),
+    ]);
+    stderr(`awf: ${command.workflowFile} is not a workflow file; did you mean: ${look}`);
     return 2;
   }
   if (command.here) return startHere(argv, command, environment, stdout, stderr, notice);

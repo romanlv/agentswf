@@ -261,7 +261,7 @@ Coverage, per harness:
 | claude | live, including subagent files | live |
 | codex | live, following its fork chain | live |
 | pi | live | live |
-| cursor | nothing | at the end of each turn, from awf's usage sidecar; its `store.db` cannot be read from an offset |
+| cursor | nothing | none for now: its `store.db` cannot be read from an offset, and the usage sidecar holds no activity (implementation notes) |
 
 There are no links in the run dir. `awf runs {ref} --json` lists each agent's native files,
 resolved when read through `HarnessSpec.sessionFiles` against the agent's home and working
@@ -359,6 +359,7 @@ ends with `… {n} older (--all)` when there are more, and `--full` with nothing
 | --- | --- | --- |
 | `awf logs` | running, new events | `next: awf logs {ref} --after {cursor} --wait 90` |
 | `awf logs` | running, nothing new | `nothing new in {s}s · running, stage {stage} · next: …` |
+| `awf logs` | ended or interrupted, page before the newest | `next: awf logs {ref} --after {cursor} · run {state}, more to read` |
 | `awf logs` | ended | `run ended: {outcome} in {duration} · result: awf runs {ref}` |
 | `awf logs` | interrupted | `run interrupted · continue: {the continue command}` |
 | `awf runs {ref}` | running | `next: awf logs {ref} --after {cursor} --wait 90` |
@@ -368,7 +369,8 @@ ends with `… {n} older (--all)` when there are more, and `--full` with nothing
 `next` repeats `--agent`, `--stage`, `--cwd` and `--run-root` as given. The continue command is the line
 `continueCommand` already prints (`attempt-view.ts:307-342`). It takes a whole `RunCommand`, so the
 reader rebuilds one from `run.json` (`argv`, `cwd`) and the last attempt's `file` and
-`flags.fromStage`, with no stop. Once a run has ended there is no `next`, which would invite more polling.
+`flags.fromStage`, with no stop. Once a run has ended and a page reaches its newest event there is
+no `next`, which would invite more polling; before that, `next` pages on without `--wait`.
 
 **The cursor is opaque.** It holds the event log's position and a byte offset for each native file
 read, and never moves past a torn last line. Files are named by their index among the run's
@@ -963,6 +965,18 @@ shell by following each `next:` with `--wait 90`, as an agent would.
 - Branch review, round 4: a run that had ended printed no `next` in text, so a page that stopped
   before its newest event, and the "from the start" route a cut read offers, ended there (now
   `next: … · run {state}, more to read` until the newest, without `--wait`).
+- Branch review, closing pass (could-fix): `--follow` without `--after` replayed all history
+  (now the last `--limit`); a folder with no attempt read as running forever (now `interrupted`
+  after a minute); the calling session's window depended on its opening line alone (its
+  operations' `execution.caller` now says so too); `awf` usage lacked `runs` and `logs`; a
+  session a turn named showed no agent; `did you mean` dropped `--cwd`/`--run-root`; the masker's
+  open scans were quadratic and `config set` masked the next line's command (scans bounded, and
+  `cut` masks only an argument's start, before joining its lines); a cursorless `--wait` reread
+  the tail each poll (now reads on); a forward read took 4 MB whatever the page (now about two
+  lines per event shown); a stretch with no timed row emptied the page (now read past); `see:`
+  carried a key spanning lines; a number under a credential's name was published. Deferred: the
+  live checks (task 8, M1–M3), reading the event log from a byte offset (after M2), tests without
+  `ps`, and the remaining test-coverage asks.
 
 ## Related
 
