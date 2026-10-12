@@ -65,7 +65,7 @@ nudge when the pending-task count reaches zero. This is an architectural inferen
 
 ## The original failure provides narrower evidence than the initial hypothesis
 
-Read-only inspection of the AIRS-1515 transcript
+Read-only inspection of the implement-ticket transcript
 `~/.claude/projects/-Users-roman-dev-braintrust-agent/5dbd8155-35fa-42da-968a-9a33e435f361.jsonl`
 found a Claude **2.1.287** tool result with `backgroundTaskId: bbxx8fio7` at line 1867,
 2026-10-02T21:02:02.502Z. Lines 1939 and 1941 enqueue task notifications for `b3u5t19ze`

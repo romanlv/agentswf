@@ -1167,25 +1167,25 @@ describe("awf run's runs and attempts", () => {
 
   test("--id names the run, and a taken id is refused before anything starts", async () => {
     const cwd = await project();
-    const first = await awfRun(cwd, ["--id", "AIRS-1515", "flow.js", "--", "AIRS-1515"]);
+    const first = await awfRun(cwd, ["--id", "PROJ-1515", "flow.js", "--", "PROJ-1515"]);
     expect(first.exitCode).toBe(0);
     expect(first.record).toMatchObject({
-      runId: "AIRS-1515",
+      runId: "PROJ-1515",
       attempt: 1,
-      artifacts: join(runs(cwd), "AIRS-1515"),
-      value: { runId: "AIRS-1515", attempt: 1, args: ["AIRS-1515"] },
+      artifacts: join(runs(cwd), "PROJ-1515"),
+      value: { runId: "PROJ-1515", attempt: 1, args: ["PROJ-1515"] },
     });
-    expect(attemptOf(join(runs(cwd), "AIRS-1515"))).toMatchObject({
+    expect(attemptOf(join(runs(cwd), "PROJ-1515"))).toMatchObject({
       attempt: 1,
       outcome: "completed",
       flags: { timeout: "1h" },
     });
 
     const before = readdirSync(runs(cwd));
-    const again = await awfRun(cwd, ["--id", "AIRS-1515", "flow.js", "--", "AIRS-1515"]);
+    const again = await awfRun(cwd, ["--id", "PROJ-1515", "flow.js", "--", "PROJ-1515"]);
     expect(again).toMatchObject({ exitCode: 2, installed: false });
     expect(readdirSync(runs(cwd))).toEqual(before);
-    expect(again.stderr).toContain("AIRS-1515 exists");
+    expect(again.stderr).toContain("PROJ-1515 exists");
   });
 
   test("an attempt whose host never opens ends before it started: a new run is not kept, a continued one ends at no cost", async () => {
@@ -1684,9 +1684,9 @@ describe("awf run's stages", () => {
         "id(args) { return args[0]; },",
       ).replace("prepare()", "prepare(invocation)"),
     );
-    const derived = await awfRun(cwd, ["ticket.js", "--", "AIRS-1515"]);
-    expect(derived.record).toMatchObject({ runId: "AIRS-1515", value: "AIRS-1515" });
-    const given = await awfRun(cwd, ["--id", "retry-2", "ticket.js", "--", "AIRS-1515"]);
+    const derived = await awfRun(cwd, ["ticket.js", "--", "PROJ-1515"]);
+    expect(derived.record).toMatchObject({ runId: "PROJ-1515", value: "PROJ-1515" });
+    const given = await awfRun(cwd, ["--id", "retry-2", "ticket.js", "--", "PROJ-1515"]);
     expect(given.record).toMatchObject({ runId: "retry-2" });
     const bad = await awfRun(cwd, ["ticket.js", "--", "has space"]);
     expect(bad.exitCode).toBe(2);

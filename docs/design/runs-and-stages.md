@@ -17,14 +17,14 @@ is what breaks it, what stays, and what comes later.
 
 ```
 workflow   implement-ticket                 the meta.name in the file; the file's path is not identity
-  └─ run   AIRS-1515                        one piece of work: an id (given or generated), its argv
+  └─ run   PROJ-1515                        one piece of work: an id (given or generated), its argv
        ├─ attempt 1   flow.ts  v1.2.0        one `awf run`: the code it ran, its turns, its outcome
        │    ├─ stage doc-review   ran        succeeded  value ✓
        │    ├─ stage implement    ran        succeeded  value ✓
        │    ├─ stage review       ran        succeeded  value ✓
        │    ├─ stage mr           ran        succeeded  value ✓
        │    └─ stage qa           ran        failed     (agent settled without an answer)
-       └─ attempt 2   flow.ts  v1.2.1        --continue AIRS-1515, after a code fix
+       └─ attempt 2   flow.ts  v1.2.1        --continue PROJ-1515, after a code fix
             ├─ stage doc-review   reused     the value attempt 1 recorded
             ├─ stage implement    reused
             ├─ stage review       reused
@@ -211,9 +211,9 @@ attempts never collide. Sandboxes live outside the project, in
 ```json
 {
   "version": 1,
-  "id": "AIRS-1515",
+  "id": "PROJ-1515",
   "workflow": "implement-ticket",
-  "argv": ["AIRS-1515"],
+  "argv": ["PROJ-1515"],
   "cwd": "/Users/roman/dev/braintrust",
   "sandbox": null,
   "created": "2026-10-02T16:02:11Z"
@@ -243,7 +243,7 @@ attempts never collide. Sandboxes live outside the project, in
   "outcome": "completed",
   "stages": [
     { "stage": "doc-review", "source": "reused", "outcome": "succeeded", "attempt": 1,
-      "spanMs": 0, "summary": "docs/AIRS-1515.md" },
+      "spanMs": 0, "summary": "docs/PROJ-1515.md" },
     { "stage": "qa", "source": "ran", "outcome": "succeeded", "attempt": 2,
       "spanMs": 1712000, "summary": "preview ok" }
   ],
@@ -425,22 +425,22 @@ awf run flow.ts [--id I | --continue I] [--from-stage S [--values F]] -- argv
  1. load flow.ts → meta.name, meta.version, id(args)?
  2. resolve the run
       new run     prepare(argv) → args; id = --id, else id(args), else generated;
-                  claim runs/{workflow}/{id} with its run.json (taken → refuse: "AIRS-1515
+                  claim runs/{workflow}/{id} with its run.json (taken → refuse: "PROJ-1515
                   exists; --continue it, or --id another to start over").
       --continue  read runs/{meta.name}/{id}/run.json (missing → look under the other workflows
-                  and say where it is, or refuse "no run AIRS-1515 of implement-ticket in
+                  and say where it is, or refuse "no run PROJ-1515 of implement-ticket in
                   {root}; a run is kept under the directory it works in, which --cwd names").
                   argv, cwd and sandbox come from it; flags giving others are refused.
                   prepare(argv) → args with the code as it is now (fails → refuse: "the
-                  recorded argv of AIRS-1515 no longer parses with {file}: {error}; start a
+                  recorded argv of PROJ-1515 no longer parses with {file}: {error}; start a
                   new run").
-                  The last attempt completed and no --from-stage → refuse: "AIRS-1515
+                  The last attempt completed and no --from-stage → refuse: "PROJ-1515
                   completed; to redo from a stage, --from-stage one of:", then a line per
-                  record: its stage, summary, attempt and age. With no records: "AIRS-1515
+                  record: its stage, summary, attempt and age. With no records: "PROJ-1515
                   completed; there is nothing to continue".
  3. claim attempt n (another attempt live → refuse, naming it). Each earlier attempt that reads
     interrupted is named, with the stage of its last turn and the Herdr workspace its panes may
-    still be open in, "awf implement-ticket AIRS-1515 #1"; awf names it without asking Herdr.
+    still be open in, "awf implement-ticket PROJ-1515 #1"; awf names it without asking Herdr.
  4. run the workflow; each stage entered goes through the stage plan. The view shows each reused
     stage as ↺ with its summary and the attempt that ran it, and its age once over an hour, as a
     guard against reusing a stale record; and the stages recorded but not yet reached, dim
@@ -504,9 +504,9 @@ hand. A later stage reads the values of earlier ones, so each stage before the s
 no record to reuse needs its value, and `--values {file}` gives them, a JSON object by stage name:
 
 ```
-awf run flow.ts --from-stage qa-local --json -- AIRS-1234
+awf run flow.ts --from-stage qa-local --json -- PROJ-1234
 → stopped in doc-review, needs: [{stage: "doc-review", schema: {…}}, {stage: "review", …}, {stage: "mr", …}]
-awf run flow.ts --continue AIRS-1234 --from-stage qa-local --values v.json --json
+awf run flow.ts --continue PROJ-1234 --from-stage qa-local --values v.json --json
 → qa-local runs
 ```
 
@@ -593,8 +593,8 @@ only. Two copies are one workflow: a run started from `flow.ts` continues from `
 how a fix gets tried.
 
 **`meta.name` changes.** Old runs stay under the old name. A continue that finds nothing looks the
-id up under the other workflows: "AIRS-1515 is a run of implement-ticket-old; move
-runs/implement-ticket-old/AIRS-1515 to runs/implement-ticket to continue it here".
+id up under the other workflows: "PROJ-1515 is a run of implement-ticket-old; move
+runs/implement-ticket-old/PROJ-1515 to runs/implement-ticket to continue it here".
 
 **The code changes between attempts.** Expected: restarting after a fix is the main use. The
 continue shows what it reuses, and from which attempt.
@@ -618,7 +618,7 @@ was in has no record, and the records after it were moved to `replaced/` when it
 continue starts there. Its turns and sessions are in `turns.jsonl`; it has no cost, which reading
 its sessions afterwards is [[stopped-run-recovery]]'s. Its panes and sandboxes may still be alive,
 so the next attempt names it, the stage of its last turn and its Herdr workspace, labelled with the
-attempt (`awf implement-ticket AIRS-1515 #2`), without asking Herdr whether it is still open, and
+attempt (`awf implement-ticket PROJ-1515 #2`), without asking Herdr whether it is still open, and
 leaves it: a person may be in it. Headless children are [[headless-orphans]].
 
 **Two `awf run`s at once.** The same run: the attempt claim refuses the second. The same new id:
@@ -700,7 +700,7 @@ stop and then a continue, not a process kept alive waiting.
 
 ## Checked against implement-ticket
 
-The prototype's `flow.ts`, its two live runs on AIRS-1515 and their run notes, through the model:
+The prototype's `flow.ts`, its two live runs on one ticket and their run notes, through the model:
 
 - **Run 1 stopped in qa; run 2 continued after a fix.** Attempt 2 with a plain `--continue`:
   doc-review, implement, review and mr are reused, qa runs. ✓
@@ -714,7 +714,7 @@ The prototype's `flow.ts`, its two live runs on AIRS-1515 and their run notes, t
 - **Three stops on a stage's value** (no doc, a branch without a preview environment, review
   stopped) move inside their stages. ✓, one edit each.
 - **`not-ready` stops in doc-review;** after answering the questions, a plain `--continue
-  AIRS-1515` redoes it. ✓
+  PROJ-1515` redoes it. ✓
 - **Every stage returns a value**, so each gets a schema; review's needs writing. ✓
 - **The prototype's `stopped()`** built its result from the stages done; the ending's `stages`
   gives `report` the same. ✓

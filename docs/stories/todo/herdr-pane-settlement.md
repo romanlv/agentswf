@@ -85,6 +85,6 @@ Folded in from `pane-agent-start-readiness` (story 001, task 7) and `docs/design
   provider output. The record shape and redaction boundary are a durable-evidence decision: settle
   them before building.
 - **Non-answered outcomes.** A turn settled `blocked`, `unanswered` or timed out keeps no screen,
-  and closing the run closes the pane. In the AIRS-1515 rerun a worker mid-tool-call was settled
+  and closing the run closes the pane. In the implement-ticket rerun a worker mid-tool-call was settled
   `blocked`, likely wrongly, and nothing was left to check. Save `agent read --source detection`
   in the call dir with every non-answered outcome.

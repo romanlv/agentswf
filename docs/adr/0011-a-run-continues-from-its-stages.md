@@ -79,7 +79,7 @@ of deterministic replay.
 
 ## Evidence
 
-- The implement-ticket prototype: two live runs on AIRS-1515, the second continuing in qa after a
+- The implement-ticket prototype: two live runs on one ticket, the second continuing in qa after a
   code fix, with a side effect at a stage boundary that ran again (`~/dev/braintrust/agent/workflows/
   implement-ticket/run-notes.md`).
 - E6 ([findings](../findings/README.md), "What the journal cannot replay"). Its tests are in git

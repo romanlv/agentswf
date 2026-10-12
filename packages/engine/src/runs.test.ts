@@ -29,10 +29,10 @@ import { createTempRunDirs, runAttempt, workflowOf } from "./testing";
 const runDirs = createTempRunDirs();
 afterAll(() => runDirs.cleanup());
 const root = () => join(runDirs.tempRunDir(), ".awf", "runs");
-const run = (id = "AIRS-1515", workflow = "implement-ticket") => ({
+const run = (id = "PROJ-1515", workflow = "implement-ticket") => ({
   id,
   workflow,
-  argv: ["AIRS-1515"],
+  argv: ["PROJ-1515"],
   cwd: "/work",
   sandbox: null,
 });
@@ -59,15 +59,15 @@ describe("runs", () => {
   test("a new run is claimed under its workflow with its run.json, and the root ignored by git", async () => {
     const at = root();
     const created = await createRun(at, run());
-    expect(created.dir).toBe(join(at, "implement-ticket", "AIRS-1515"));
+    expect(created.dir).toBe(join(at, "implement-ticket", "PROJ-1515"));
     expect(JSON.parse(await readFile(join(created.dir, "run.json"), "utf8"))).toMatchObject({
       version: 1,
-      id: "AIRS-1515",
+      id: "PROJ-1515",
       workflow: "implement-ticket",
-      argv: ["AIRS-1515"],
+      argv: ["PROJ-1515"],
     });
     expect(await readFile(join(at, ".gitignore"), "utf8")).toBe("*\n");
-    expect(await readdir(join(at, "implement-ticket"))).toEqual(["AIRS-1515"]);
+    expect(await readdir(join(at, "implement-ticket"))).toEqual(["PROJ-1515"]);
   });
 
   test("a generated id is local time and four hex digits", () => {
@@ -79,12 +79,12 @@ describe("runs", () => {
     const at = root();
     await createRun(at, run());
     await expect(createRun(at, run())).rejects.toThrow(
-      "AIRS-1515 exists; --continue it, or --id another to start over",
+      "PROJ-1515 exists; --continue it, or --id another to start over",
     );
-    await expect(createRun(at, run("airs-1515"))).rejects.toBeInstanceOf(RunRefused);
+    await expect(createRun(at, run("proj-1515"))).rejects.toBeInstanceOf(RunRefused);
     await expect(createRun(at, run(".hidden"))).rejects.toThrow("not a valid id");
     await expect(createRun(at, run("a/b"))).rejects.toThrow("not a valid id");
-    expect(await readdir(join(at, "implement-ticket"))).toEqual(["AIRS-1515"]);
+    expect(await readdir(join(at, "implement-ticket"))).toEqual(["PROJ-1515"]);
   });
 
   test("a generated id that is taken is generated again; a given one is refused", async () => {
@@ -117,7 +117,7 @@ describe("runs", () => {
     await endAttempt(one.attempt, { outcome: "failed", reason: "qa settled without an answer" });
     expect((await readAttempts(created))[0]?.outcome).toBe("failed");
 
-    const opened = await openRun(at, "implement-ticket", "AIRS-1515");
+    const opened = await openRun(at, "implement-ticket", "PROJ-1515");
     const two = await claim(opened, { pid: 1, probe });
     expect(two.attempt.record.attempt).toBe(2);
     expect(two.interrupted).toEqual([]);
@@ -183,26 +183,26 @@ describe("runs", () => {
   test("a new run whose first attempt never claimed is discarded, and its id is free", async () => {
     const at = root();
     const created = await createRun(at, run());
-    await expect(checkFree(at, "implement-ticket", "AIRS-1515")).rejects.toThrow("exists");
-    await expect(checkFree(at, "implement-ticket", "airs-1515")).rejects.toThrow("exists");
+    await expect(checkFree(at, "implement-ticket", "PROJ-1515")).rejects.toThrow("exists");
+    await expect(checkFree(at, "implement-ticket", "proj-1515")).rejects.toThrow("exists");
     expect(await discardRun(created)).toBe(true);
-    await checkFree(at, "implement-ticket", "AIRS-1515");
+    await checkFree(at, "implement-ticket", "PROJ-1515");
     // One with an attempt is kept.
     const again = await createRun(at, run());
     await claim(again, { pid: 1, probe: alive(1) });
     expect(await discardRun(again)).toBe(false);
-    expect(await readdir(join(at, "implement-ticket"))).toEqual(["AIRS-1515"]);
+    expect(await readdir(join(at, "implement-ticket"))).toEqual(["PROJ-1515"]);
   });
 
   test("a run being claimed, its folder not yet renamed, is invisible", async () => {
     const at = root();
-    await createRun(at, run("AIRS-1"));
+    await createRun(at, run("PROJ-1"));
     const pending = join(at, "implement-ticket", ".new-abc");
     await mkdir(pending);
     await writeFile(join(pending, "run.json"), JSON.stringify({ ...run(".new-abc"), version: 1 }));
     await expect(openRun(at, "implement-ticket", ".new-abc")).rejects.toThrow("not a valid id");
-    await checkFree(at, "implement-ticket", "AIRS-2");
-    expect((await createRun(at, run("AIRS-2"))).record.id).toBe("AIRS-2");
+    await checkFree(at, "implement-ticket", "PROJ-2");
+    expect((await createRun(at, run("PROJ-2"))).record.id).toBe("PROJ-2");
   });
 
   test("of two attempts claimed at once, exactly one runs", async () => {
@@ -225,7 +225,7 @@ describe("runs", () => {
     const at = root();
     const claims = await Promise.allSettled([createRun(at, run()), createRun(at, run())]);
     expect(claims.filter((claim) => claim.status === "fulfilled")).toHaveLength(1);
-    expect(await readdir(join(at, "implement-ticket"))).toEqual(["AIRS-1515"]);
+    expect(await readdir(join(at, "implement-ticket"))).toEqual(["PROJ-1515"]);
   });
 
   test("temp files a crash left are ignored, and swept once a day old", async () => {
@@ -243,10 +243,10 @@ describe("runs", () => {
     await claim(created, { pid: 1, probe: alive(1) });
     expect((await readdir(attempts)).sort()).toEqual([".tmp-fresh", "1.json"]);
     expect(await readAttempts(created)).toHaveLength(1);
-    await createRun(at, run("AIRS-1516"));
+    await createRun(at, run("PROJ-1516"));
     expect((await readdir(join(at, "implement-ticket"))).sort()).toEqual([
-      "AIRS-1515",
-      "AIRS-1516",
+      "PROJ-1515",
+      "PROJ-1516",
     ]);
   });
 
@@ -254,11 +254,11 @@ describe("runs", () => {
     const created = await createRun(root(), run());
     expect(() => checkContinue(created, { argv: [] })).not.toThrow();
     expect(() => checkContinue(created, { argv: [], cwd: "/work", sandbox: null })).not.toThrow();
-    expect(() => checkContinue(created, { argv: ["AIRS-1516"] })).toThrow(
-      "AIRS-1515 keeps the arguments it was started with",
+    expect(() => checkContinue(created, { argv: ["PROJ-1516"] })).toThrow(
+      "PROJ-1515 keeps the arguments it was started with",
     );
     expect(() => checkContinue(created, { argv: [], cwd: "/elsewhere" })).toThrow(
-      "AIRS-1515 works in /work, not /elsewhere",
+      "PROJ-1515 works in /work, not /elsewhere",
     );
     expect(() => checkContinue(created, { argv: [], sandbox: { srt: {} } })).toThrow(
       "runs in the sandbox it was started with",
@@ -267,12 +267,12 @@ describe("runs", () => {
 
   test("a continue of a run under another workflow says where it is", async () => {
     const at = root();
-    await createRun(at, run("AIRS-1515", "implement-ticket-old"));
-    await expect(openRun(at, "implement-ticket", "AIRS-1515")).rejects.toThrow(
-      `AIRS-1515 is a run of implement-ticket-old; move ${join(at, "implement-ticket-old", "AIRS-1515")} to ${join(at, "implement-ticket", "AIRS-1515")}`,
+    await createRun(at, run("PROJ-1515", "implement-ticket-old"));
+    await expect(openRun(at, "implement-ticket", "PROJ-1515")).rejects.toThrow(
+      `PROJ-1515 is a run of implement-ticket-old; move ${join(at, "implement-ticket-old", "PROJ-1515")} to ${join(at, "implement-ticket", "PROJ-1515")}`,
     );
-    await expect(openRun(at, "implement-ticket", "AIRS-9")).rejects.toThrow(
-      `no run AIRS-9 of implement-ticket in ${at}`,
+    await expect(openRun(at, "implement-ticket", "PROJ-9")).rejects.toThrow(
+      `no run PROJ-9 of implement-ticket in ${at}`,
     );
   });
 
@@ -289,7 +289,7 @@ describe("runs", () => {
       join(created.dir, "run.json"),
       JSON.stringify({ ...created.record, version: 9 }),
     );
-    await expect(openRun(at, "implement-ticket", "AIRS-1515")).rejects.toBeInstanceOf(RunRefused);
+    await expect(openRun(at, "implement-ticket", "PROJ-1515")).rejects.toBeInstanceOf(RunRefused);
   });
 
   test("a write that fails leaves the old file whole and no temp file beside it", async () => {

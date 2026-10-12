@@ -43,9 +43,9 @@ describe("workflow.stage", () => {
         { version: "1.2.0" },
       ),
       null,
-      { agents: { worker: answer(DOC, { path: "docs/AIRS-1515.md" }) } },
+      { agents: { worker: answer(DOC, { path: "docs/PROJ-1515.md" }) } },
     );
-    expect(run.value).toEqual({ path: "docs/AIRS-1515.md" });
+    expect(run.value).toEqual({ path: "docs/PROJ-1515.md" });
     expect(run.stages).toEqual([
       {
         version: 1,
@@ -56,8 +56,8 @@ describe("workflow.stage", () => {
         ended: expect.any(String),
         workflowVersion: "1.2.0",
         sessions: [{ agent: "worker", harness: "codex", session: expect.any(String) }],
-        summary: "docs/AIRS-1515.md",
-        value: { path: "docs/AIRS-1515.md" },
+        summary: "docs/PROJ-1515.md",
+        value: { path: "docs/PROJ-1515.md" },
       },
       expect.objectContaining({ stage: "notify", outcome: "succeeded", sessions: [] }),
     ]);

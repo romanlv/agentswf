@@ -6,7 +6,7 @@ type: story
 status: done
 priority: P0
 epic: long-runs
-discovered_in: "implement-ticket flow.ts live run, AIRS-1515, 2026-10-02"
+discovered_in: "implement-ticket flow.ts live run, 2026-10-02"
 depends_on: []
 ---
 
@@ -14,7 +14,7 @@ depends_on: []
 
 ## The problem
 
-In the first AIRS-1515 run, the worker started a deploy watch in the background and ended its
+In the first implement-ticket run, the worker started a deploy watch in the background and ended its
 turn, expecting the watch to wake it. awf saw an idle pane and nudged it to submit a result.
 The agent said it was still waiting. awf then returned `unanswered` and closed the run, killing
 the watch. An hour and $18.29 at list prices had been spent, with the work one step from done.

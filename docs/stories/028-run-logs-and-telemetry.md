@@ -6,7 +6,7 @@ type: story
 status: awaiting-human-review
 priority: P1
 epic: observability
-discovered_in: "implement-ticket flow.ts live runs, AIRS-1515, 2026-10-02"
+discovered_in: "implement-ticket flow.ts live runs, 2026-10-02"
 depends_on: ["018", "021"]
 ---
 
@@ -532,7 +532,7 @@ nothing new in 90s · running, stage fix · next: awf logs review/20261011-0912-
 
 ### 3. See what one agent did
 
-The case from AIRS-1515: what was headless codex doing in review round 3, while it ran?
+The case from the implement-ticket runs: what was headless codex doing in review round 3, while it ran?
 
 ```text
 $ awf logs implement-ticket/20261002-1410-77ab --agent review:codex --limit 5

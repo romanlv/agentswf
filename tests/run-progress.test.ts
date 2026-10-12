@@ -68,7 +68,7 @@ const CONTINUED: WorkflowRunSnapshot = {
       startedAt: 0,
       endedAt: 0,
       outcome: "succeeded",
-      summary: "docs/AIRS-1515.md",
+      summary: "docs/PROJ-1515.md",
       // Old enough that its age is shown, as the next one's is not.
       recordedAt: -2 * 24 * 60 * 60_000,
     },
@@ -130,15 +130,15 @@ describe("run progress by stage", () => {
   test("a continued run mid-stage: reused, done, current with its agents, and still to come", () => {
     expect(
       renderProgress(CONTINUED, {
-        name: "implement-ticket AIRS-1515 · attempt 2",
+        name: "implement-ticket PROJ-1515 · attempt 2",
         startedAt: 0,
         now: 300_000,
         paint: PLAIN,
       }),
     ).toEqual([
-      "implement-ticket AIRS-1515 · attempt 2 · qa · 5m 00s · 1 working",
+      "implement-ticket PROJ-1515 · attempt 2 · qa · 5m 00s · 1 working",
       // A reused stage took no time: its summary is where a stage that ran has its own.
-      "↺ doc-review            docs/AIRS-1515.md   attempt 1 · 2d ago",
+      "↺ doc-review            docs/PROJ-1515.md   attempt 1 · 2d ago",
       "↺ implement                                 attempt 1",
       "✓ review       4m 00s   2 findings",
       expect.stringMatching(/^. qa {11}1m 00s$/),
@@ -180,7 +180,7 @@ describe("run progress by stage", () => {
         ]),
       }).slice(1),
     ).toEqual([
-      "↺ doc-review            docs/AIRS-1515.md   attempt 1 · 2d ago",
+      "↺ doc-review            docs/PROJ-1515.md   attempt 1 · 2d ago",
       "↺ implement                                 attempt 1",
       "✓ review       4m 00s   2 findings          1 agent · 90k tokens · ~$0.30",
       "✗ qa           1m 00s",
@@ -192,7 +192,7 @@ describe("run progress by stage", () => {
   test("the same run, without a terminal, as one line per change, stamped when it happened", () => {
     const started = { ...CONTINUED, stages: CONTINUED.stages.slice(0, 3), agents: [] };
     expect(progressEvents(undefined, started, { startedAt: 0, now: 0 })).toEqual([
-      "[0:00] ↺ stage doc-review · docs/AIRS-1515.md · attempt 1",
+      "[0:00] ↺ stage doc-review · docs/PROJ-1515.md · attempt 1",
       "[0:00] ↺ stage implement · attempt 1",
       "[0:00] ▶ stage review",
       "[4:00] ✓ stage review · 4m 00s · 2 findings",

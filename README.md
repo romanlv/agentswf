@@ -243,9 +243,9 @@ What to know when writing one:
 
   ```
   ■ stopped in qa: the mr environment never came up
-    ticket AIRS-1515 · attempt 1 · 52m 10s · …
-    go on    awf run ticket.ts --continue AIRS-1515
-    records  .awf/runs/ticket/AIRS-1515
+    ticket PROJ-1515 · attempt 1 · 52m 10s · …
+    go on    awf run ticket.ts --continue PROJ-1515
+    records  .awf/runs/ticket/PROJ-1515
   ```
 
 - **`--from-stage {stage}` redoes from a stage** on purpose, with the ones before it reused. The
@@ -261,13 +261,13 @@ read earlier stages' values, so awf asks for them. It finds every stage the run 
 and stops once, naming each with its schema:
 
 ```
-$ awf run ticket.ts --from-stage qa -- AIRS-1234
+$ awf run ticket.ts --from-stage qa -- PROJ-1234
 ■ stopped in plan: nothing recorded for plan
-  ticket AIRS-1234 · 0s
+  ticket PROJ-1234 · 0s
   needs    plan: {title: string, steps: string[]}
            implement: {branch: string}
-  go on    awf run ticket.ts --continue AIRS-1234 --from-stage qa --values {file}
-  records  .awf/runs/ticket/AIRS-1234
+  go on    awf run ticket.ts --continue PROJ-1234 --from-stage qa --values {file}
+  records  .awf/runs/ticket/PROJ-1234
 ```
 
 Write the values to a JSON file keyed by stage name, `{"plan": {…}, "implement": {…}}`, and run
@@ -287,12 +287,12 @@ Run by an agent, or anywhere not a terminal, `awf run`'s first line names the ru
 (in a terminal, its progress block's header names the run):
 
 ```
-awf: ticket/AIRS-1515 started · watch: awf logs ticket/AIRS-1515
+awf: ticket/PROJ-1515 started · watch: awf logs ticket/PROJ-1515
 ```
 
-- **`awf runs`** lists the runs here, newest first; `awf runs ticket/AIRS-1515` shows one: its
+- **`awf runs`** lists the runs here, newest first; `awf runs ticket/PROJ-1515` shows one: its
   attempts, the stages of the last, each agent's state and last activity, and what to run next.
-- **`awf logs ticket/AIRS-1515`** shows the last 40 events: stages, turns, agents opened and
+- **`awf logs ticket/PROJ-1515`** shows the last 40 events: stages, turns, agents opened and
   stopped, `workflow.log` lines, and what each agent did, read from its harness's own session
   files. Each page ends with the command for what comes next, `--after {cursor} --wait 90`, which
   waits for something new; `--follow` prints events as they come until the run ends.

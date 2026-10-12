@@ -115,7 +115,7 @@ registry-change events as equivalent top-level records.
 
 ## Cross-check against the original pane transcript
 
-A read-only second pass over the existing AIRS-1515 **Claude 2.1.287** transcript found an
+A read-only second pass over the existing implement-ticket **Claude 2.1.287** transcript found an
 additional distinction beyond the previously documented killed-task notifications:
 
 - A successful subagent completion was enqueued at **20:59:17.277Z**, line 1745.

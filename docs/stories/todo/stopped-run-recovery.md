@@ -4,7 +4,7 @@ type: story
 status: todo
 priority: P1
 epic: long-runs
-discovered_in: "implement-ticket flow.ts live runs, AIRS-1515, 2026-10-02"
+discovered_in: "implement-ticket flow.ts live runs, 2026-10-02"
 depends_on: ["021", "018"]
 ---
 

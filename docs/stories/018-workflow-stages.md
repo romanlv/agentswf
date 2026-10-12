@@ -4,7 +4,7 @@ title: Run a workflow as named stages, and continue it from one
 summary: A run is one piece of work with an id, given or generated, and numbered attempts; a workflow marks its stages inline; the run keeps each stage's current record, and a continue reuses the ones that succeeded and runs the rest. The view, costs and endings read by stage. awf gains `stage` and `stop`; the prototype's ask, durations and md are left to the boilerplate and the next story.
 type: story
 status: done
-discovered_in: implement-ticket flow.ts live runs, AIRS-1515, 2026-10-02
+discovered_in: implement-ticket flow.ts live runs, 2026-10-02
 depends_on: []
 ---
 
@@ -46,10 +46,10 @@ export default defineExecutableWorkflow({
 ```
 
 ```
-awf run flow.ts -- AIRS-1515                              # run AIRS-1515, its id from the workflow's id(args)
-awf run flow.ts --id retry-2 -- AIRS-1515                 # the same ticket as another run
-awf run flow.ts --continue AIRS-1515                      # attempt 2: reuses what succeeded, runs the rest
-awf run flow.ts --continue AIRS-1515 --from-stage qa      # …or from qa on
+awf run flow.ts -- PROJ-1515                              # run PROJ-1515, its id from the workflow's id(args)
+awf run flow.ts --id retry-2 -- PROJ-1515                 # the same ticket as another run
+awf run flow.ts --continue PROJ-1515                      # attempt 2: reuses what succeeded, runs the rest
+awf run flow.ts --continue PROJ-1515 --from-stage qa      # …or from qa on
 ```
 
 - **A run is one piece of work, with numbered attempts.**
@@ -550,9 +550,9 @@ The operator is an agent, not a person at a prompt, so nothing is interactive. T
 supplies a value, and reruns until the start point is reached:
 
 ```
-awf run flow.ts --from-stage qa-local --json -- AIRS-1234
+awf run flow.ts --from-stage qa-local --json -- PROJ-1234
 → stopped, needs: [{stage: "doc-review", schema: {…}}, {stage: "review", …}, {stage: "mr", …}]
-awf run flow.ts --continue AIRS-1234 --from-stage qa-local --values v.json --json
+awf run flow.ts --continue PROJ-1234 --from-stage qa-local --values v.json --json
 → qa-local runs
 ```
 
