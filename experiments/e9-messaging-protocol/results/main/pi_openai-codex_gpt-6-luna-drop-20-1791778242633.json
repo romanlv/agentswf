@@ -1,0 +1,45 @@
+{
+  "scenario": "drop",
+  "model": "pi:openai-codex/gpt-6-luna",
+  "n": 20,
+  "dir": "/var/folders/4g/s95glx9x6n71bq4hc08ly2gm0000gn/T/m2-drop-WhgEUh",
+  "notesExists": true,
+  "state": {
+    "callId": "c-43",
+    "message": false,
+    "peers": [
+      {
+        "name": "architect",
+        "can": "send",
+        "state": "idle",
+        "purpose": "Ask about the design when DESIGN.md does not settle it."
+      }
+    ],
+    "owes": [],
+    "awaiting": null,
+    "deadline": "14:32",
+    "settled": true
+  },
+  "turns": [
+    {
+      "commands": [
+        "ls -la && rg --files -g 'DESIGN.md' -g 'src/payments.ts' -g '*test*'",
+        "<read> {\"path\":\"DESIGN.md\",\"offset\":1,\"limit\":100}",
+        "<read> {\"path\":\"src/payments.ts\",\"offset\":1,\"limit\":200}",
+        "<read> {\"path\":\"NOTES.md\",\"offset\":1,\"limit\":100}",
+        "/var/folders/4g/s95glx9x6n71bq4hc08ly2gm0000gn/T/m2-drop-WhgEUh/bin/wf result c-43 <<'WF_JSON'\n{\"decision\":\"queue\",\"plan\":\"Add retry handling at the queue boundary, not in `charge()`: DESIGN.md explicitly says the queue owns retries because the shared client is also used by the batch path, which must not retry. Keep `charge()` as a single-attempt HTTP operation and preserve its existing 5xx error behavior; add queue-level retry policy and tests verifying transient failures are retried there while direct/batch client calls are not.\"}\nWF_JSON"
+      ],
+      "final": "Delivered the plan: retries belong in the queue, while `charge()` remains a single-attempt operation.",
+      "ms": 15394,
+      "code": 0,
+      "calls": [
+        {
+          "at": 1791778238431,
+          "argv": ["result", "c-43"],
+          "result": "{\"decision\":\"queue\",\"plan\":\"Add retry handling at the queue boundary, not in `charge()`: DESIGN.md explicitly says the queue owns retries because the shared client is also used by the batch path, which must not retry. Keep `charge()` as a single-attempt HTTP operation and preserve its existing 5xx error behavior; add queue-level retry policy and tests verifying transient failures are retried there while direct/batch client calls are not.\"}\n",
+          "droppedWait": null
+        }
+      ]
+    }
+  ]
+}

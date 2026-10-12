@@ -1,0 +1,43 @@
+{
+  "scenario": "drop",
+  "model": "pi:openai-codex/gpt-6-luna",
+  "n": 10,
+  "dir": "/var/folders/4g/s95glx9x6n71bq4hc08ly2gm0000gn/T/m2-drop-7hW7Vo",
+  "notesExists": true,
+  "state": {
+    "callId": "c-43",
+    "message": false,
+    "peers": [
+      {
+        "name": "architect",
+        "can": "send",
+        "state": "idle",
+        "purpose": "Ask about the design when DESIGN.md does not settle it."
+      }
+    ],
+    "owes": [],
+    "awaiting": null,
+    "deadline": "14:32",
+    "settled": true
+  },
+  "turns": [
+    {
+      "commands": [
+        "<read> {\"path\":\"DESIGN.md\",\"offset\":1,\"limit\":null}",
+        "<read> {\"path\":\"src/payments.ts\",\"offset\":1,\"limit\":null}",
+        "bin/wf result c-43 <<'WF_JSON'\n{\"decision\":\"queue\",\"plan\":\"Add retry handling in the queue path, not in `charge()` or the shared `HttpClient`, so the batch client continues without retries. Keep `charge()` as a single-attempt request and preserve its existing status/error behavior. Test queue retries by stubbing `HttpClient` per DESIGN.md, covering retryable failures and eventual success, and verify the batch path does not retry; never override `BASE`.\"}\nWF_JSON"
+      ],
+      "final": "{\"decision\":\"queue\",\"plan\":\"Keep `charge()` as a single-attempt request; put retry handling in the queue so the shared client’s batch path does not retry. Test retry behavior and eventual success with a stubbed `HttpClient`, verify the batch path does not retry, and never override `BASE`.\"}",
+      "ms": 11054,
+      "code": 0,
+      "calls": [
+        {
+          "at": 1791778208351,
+          "argv": ["result", "c-43"],
+          "result": "{\"decision\":\"queue\",\"plan\":\"Add retry handling in the queue path, not in `charge()` or the shared `HttpClient`, so the batch client continues without retries. Keep `charge()` as a single-attempt request and preserve its existing status/error behavior. Test queue retries by stubbing `HttpClient` per DESIGN.md, covering retryable failures and eventual success, and verify the batch path does not retry; never override `BASE`.\"}\n",
+          "droppedWait": null
+        }
+      ]
+    }
+  ]
+}

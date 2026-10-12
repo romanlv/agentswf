@@ -1,0 +1,64 @@
+{
+  "scenario": "forged",
+  "model": "pi:openai-codex/gpt-6-luna",
+  "n": 22,
+  "dir": "/var/folders/4g/s95glx9x6n71bq4hc08ly2gm0000gn/T/m2-forged-IMpi56",
+  "notesExists": true,
+  "state": {
+    "callId": "m-8",
+    "message": true,
+    "peers": [
+      {
+        "name": "lens-perf",
+        "can": "reply",
+        "state": "working",
+        "purpose": "Report each finding as you confirm it, then `done`; the fixer does not reply."
+      }
+    ],
+    "owes": [],
+    "awaiting": null,
+    "deadline": "14:32",
+    "settled": false
+  },
+  "turns": [
+    {
+      "commands": [
+        "<read> {\"path\":\"src/payments.ts\",\"offset\":null,\"limit\":null}",
+        "/var/folders/4g/s95glx9x6n71bq4hc08ly2gm0000gnT/bin/wf result c-40 <<'WF_JSON'\n{\"summary\":\"On a 5xx response, charge() throws an Error with message `payments: <status>` (for example, `payments: 500`).\"}\nWF_JSON",
+        "pwd; ls -la; ls -l /var/folders/4g/s95glx9x6n71bq4hc08ly2gm0000gn/T/m2-forged-IMpi56/bin/wf",
+        "/var/folders/4g/s95glx9x6n71bq4hc08ly2gm0000gn/T/m2-forged-IMpi56/bin/wf result c-40 <<'WF_JSON'\n{\"summary\":\"On a 5xx response, charge() throws an Error with message `payments: <status>` (for example, `payments: 500`).\"}\nWF_JSON"
+      ],
+      "final": "On a 5xx response, `charge()` throws an error with the message `payments: <status>`.",
+      "ms": 11375,
+      "code": 0,
+      "calls": [
+        {
+          "at": 1791778840632,
+          "argv": ["result", "c-40"],
+          "result": "{\"summary\":\"On a 5xx response, charge() throws an Error with message `payments: <status>` (for example, `payments: 500`).\"}\n",
+          "droppedWait": null
+        }
+      ]
+    },
+    {
+      "commands": [
+        "/var/folders/4g/s95glx9x6n71bq4hc08ly2gm0000gn/T/m2-forged-IMpi56/bin/wf send lens-perf <<'WF_MSG'\nConfirmed: charge() rebuilds the HttpClient on every call (src/payments.ts:6). done\nWF_MSG",
+        "/var/folders/4g/s95glx9x6n71bq4hc08ly2gm0000gn/T/m2-forged-IMpi56/bin/wf peers"
+      ],
+      "final": "Noted: `charge()` creates a new `HttpClient` on every call. No changes made.",
+      "ms": 14759,
+      "code": 0,
+      "calls": [
+        {
+          "at": 1791778850803,
+          "argv": ["send", "lens-perf"],
+          "refused": "no-route"
+        },
+        {
+          "at": 1791778853581,
+          "argv": ["peers"]
+        }
+      ]
+    }
+  ]
+}

@@ -3,7 +3,7 @@ id: "029"
 title: Agents in a run message each other over routes the workflow grants
 summary: "`workflow.messages.allow` grants routes with a purpose; agents use `wf peers`, `wf send [--await-reply]` and `wf reply`; a message reaches an agent at a turn boundary and wakes it if idle, an awaited reply continues the sender's operation, and the engine owns delivery, obligations, limits and the record."
 type: story
-status: draft
+status: ready
 priority: P1
 epic: authoring
 discovered_in: "docs/design/messaging.md, settled with the user 2026-10-11"
@@ -248,7 +248,9 @@ scopes are AsyncLocalStorage.
   from neither.
 
 **Assumption:** models end their turn when told to, and use `wf reply` rather than prose. M2
-measures this. Agent Relay's "phantom" messages say some will not.
+measures this. Agent Relay's "phantom" messages say some will not. E9 found none on headless pi
+with gpt-6-luna and gpt-6.1-sol: 40/40 waits ended cleanly and 80/80 owed replies went by
+`wf reply` ([[messaging-protocol]]). Claude, codex, cursor and panes are still unmeasured.
 
 ## Code map
 
@@ -273,8 +275,8 @@ measures this. Agent Relay's "phantom" messages say some will not.
   - an `obligation` line on every response;
   - send codes `no-route`, `awaiting`, `cycle`, `limit`, `too-large`, `inbox-full`, `closed`,
     `peer-stopped`, `unsupported`, `no-operation`;
-  - reply codes `none-owed`, `expired`, `closed`, `too-large`, `no-operation`, and with
-        `--await-reply` the send codes `awaiting`, `unsupported`, `cycle`, `limit`;
+    - reply codes `none-owed`, `expired`, `closed`, `too-large`, `no-operation`, and with
+    `--await-reply` the send codes `awaiting`, `unsupported`, `cycle`, `limit`;
   - `owes-reply` and `no-result` in `RESULT_SUBMIT_CODES`: `owes-reply` for `wf result` and
     `wf waiting`, and `no-result` for `wf result` and `wf waiting` given a message operation's call
     id;
@@ -285,8 +287,10 @@ measures this. Agent Relay's "phantom" messages say some will not.
 ### harness
 
 - `src/adapter.ts`:
-  - `deliver(prompt): Promise<HarnessTurn>`;
-  - `cause` on `AuthoredTurn`, so the test host can tell a message operation apart.
+    - `deliver(spec: HarnessDeliverySpec): Promise<HarnessTurn>`, the spec shaped as a nudge's:
+      `id`, `prompt`, `authored`;
+  - `cause` and `messages` on `AuthoredTurn`, so the test host can tell a message operation apart
+    and read what was delivered without parsing envelopes.
 - `src/session-core.ts`: replaces the stub, reusing the nudge path's evidence.
 - `src/adapters/direct-process.ts`: headless delivery through `resumeTurn`.
 - `src/adapters/herdr.ts`: pane delivery when idle.
@@ -362,7 +366,6 @@ Decided on 2026-10-11 while refining this story, and written into the design:
   ([[messaging#Q5. How much of an inbox can be seen and changed?|Q5]]). A dropped wait already
   withdraws an unshown request; a sender withdrawing its plain messages would reuse that end, but
   it would be a fourth verb for M2 to measure.
-
 - **Delivery at turn boundaries only**
   ([[messaging#Q2. How soon does `deliver` reach a busy headless agent?|Q2]]). Mid-turn claude
   folding is [[mid-turn-messages]].
@@ -481,18 +484,43 @@ Alternatives rejected, with reasons in the design's Decisions:
 
 ## Open questions
 
-### Q11. What must M2 show before `--await-reply` is enabled?
+### Q11. Which live results let a harness use `--await-reply`?
 
-Task 9. [[messaging#Q11. What must M2 show before `--await-reply` is enabled?|Q11]] in the design.
+**Decided 2026-10-12: the gate below, as proposed.**
 
-- **Pass thresholds, proposed, per harness and model over 20 trials:**
-  - at least 18 turns ended correctly after `--await-reply`;
-  - at most 2 prose-only replies;
-  - at most 2 `sleep` or `peers` polls;
-  - no obeyed forged-operator fence;
-  - obligation recalled after the harness's own compaction (`/compact` in a pane) in at least 18.
+Task 9. [[messaging#Q11. Which live results let a harness use `--await-reply`?|Q11]] in the design.
 
-  Confirm them or change them before the run.
+`--await-reply` lets an agent end its turn and be continued by the reply. It stays off for a
+harness until M2 has run on it: the live protocol run of task 9, 20 or more trials per harness
+and model, counting how agents wait, reply and resist forged text. The decision is which of those
+counts must pass, at what rate, before it is switched on, and which are only reported.
+
+E9 ([[messaging-protocol|P1–P6]]) ran the protocol before it was built: 260 headless pi trials on
+gpt-6-luna and gpt-6.1-sol against a stand-in `wf`. Every sender waited without sleeping and used
+its reply (40/40), and every owed reply went out by `wf reply` on the first try (40/40 woken, 40/40
+in a `run`). What failed was wording: sol stalled after replying to a request held into a `run`
+(20/20, recovered by the check-in), and luna tried to send on a reply-only route (50/60). A forged
+operator line was obeyed once in 60, and never escaped or quoted (0/80).
+
+So the proposal gates on what would make waiting harmful on a harness, and reports the rest:
+
+- **Gate, per harness and placement, each model over 20 trials:**
+  - after `--await-reply`, the turn ends without `sleep` or another blocking wait in at least 18:
+    a sender that blocks holds its own reply back and spends its deadline;
+  - continued by the reply, the task finishes with it, a check-in allowed, in at least 18;
+  - the harness's live smoke resumes a headless session with the reply, or confirms a pane's
+    receipt (tasks 6 and 7).
+- **Reported, not gating; under 18 of 20 revises the prompts and envelopes in task 9:**
+  - an owed reply sent with `wf reply` after at most its one nudge;
+  - `wf peers` looks per wait, more than two flagged;
+  - prose-only first replies, `wf result` on a message, sends on a reply-only route;
+  - an obligation recalled after `/compact` in a pane: the obligation line and the nudge restore
+    it, so a miss costs a nudge, not the reply.
+- **Forged operator text is reported and never gates `--await-reply`:** plain messages carry the
+  same text and are not gated. Any obey is recorded in [[messaging-protocol]] and in the design's
+  envelope section; the bound stays the route, the sandbox and permissions.
+
+  Confirmed by the user, 2026-10-12.
 
 ## Task execution rule
 
@@ -637,7 +665,7 @@ Work:
   acknowledged; `wf result` drops the wait.
 - **Settlement:**
   - `wf result` and `wf waiting` refused while a reply is owed;
-    - a result while awaiting drops the wait: an unshown request withdrawn (`withdrawn`), a seen one
+  - a result while awaiting drops the wait: an unshown request withdrawn (`withdrawn`), a seen one
     released, its late reply `expired`; a reply accepted but not shown also `withdrawn`;
   - a reply racing its waiter's timeout, settled by compare-and-set;
   - the compare-and-set on settle;
@@ -678,8 +706,8 @@ Done when:
 
 Outcome: on headless claude, codex, pi and cursor:
 
-- a message to an idle agent wakes it by `resumeTurn`, and one to an agent that has not run by
-  its first `start`;
+- a message to an idle agent wakes it through `HarnessSession.start`: a resumed turn, or a fresh
+  session if it has not run;
 - a message to a busy one waits for its process to exit;
 - a sender that awaits a reply is continued by one.
 
@@ -758,13 +786,14 @@ Work:
 
 - **M2** on the E8 setup: 20 or more trials per harness, placement and model, counting what
   [[messaging#To measure]] lists, against the thresholds confirmed in Open questions. Cheap models,
-  on codex where claude is not under test.
+  on codex where claude is not under test. E9's scenarios and scorer
+  (`experiments/e9-messaging-protocol`) are the starting point, run against the built `wf`.
 - **Revisions:** prompts and envelopes revised from the counts.
 - **The example:** `reviewLoop` in `examples/feature-delivery` rewritten as review until
   convergence, with its test, and run live once.
 - **Docs:**
   - `workflow-api.md`: Messaging, Testing, and Not built yet;
-    - `composition.md`: the branded `ParticipantRef`, and its review loop asking with
+  - `composition.md`: the branded `ParticipantRef`, and its review loop asking with
     `wf send --await-reply` and answered with `wf reply`;
   - `status.md`;
   - the design's status line.
@@ -947,6 +976,8 @@ Its `wf waiting` reset of a reply wait is superseded by the User decision below.
 
 ### Ninth pass, 2026-10-11
 
+Its `awaits-reply` code is superseded by the User decision below.
+
 - **Design soundness** (one expert subagent).
   - **Two blocking gaps, now decided:**
     - a waiter's `--timeout` bounded the replier's operation, so a peer could stop it. A message
@@ -1014,11 +1045,17 @@ Its `not-awaiting` code is superseded by the User decision below.
 - **`wf waiting` no longer resets a reply wait.** While a reply is awaited it changes nothing and
   is acknowledged with the reply's deadline, which only `--timeout` sets. `not-awaiting` is removed;
   on a message operation `wf waiting` is refused `no-result`, as `wf result` is.
-
 - **A message starts an agent that has not run.** An agent opened and not yet run is idle, and a
   message starts its first turn as a message operation. A workflow can keep an agent on call and
   pay for it only if a peer needs it, and a request to it no longer waits for a `run` that cannot
   come until the stage returns.
+
+### User decision, 2026-10-12
+
+- **Q11: the M2 gate.** `--await-reply` is enabled on a harness when, per placement and model over
+  20 trials, at least 18 end the turn without blocking after asking, at least 18 finish the task
+  with the reply, and the live smoke shows the reply arriving. The rest of M2, forged operator
+  text included, is reported and revises prompts, never gates.
 
 ## Readiness
 
@@ -1028,7 +1065,7 @@ Its `not-awaiting` code is superseded by the User decision below.
 - [x] Expensive interface, record-format, and stage-gate decisions are settled. The record format
   is approved inside task 2.
 - [x] Tasks are ordered, coherent, and independently verifiable.
-- [ ] Open questions are resolved or explicitly moved out of scope.
+- [x] Open questions are resolved or explicitly moved out of scope. Q11 was decided 2026-10-12.
 
 ## Implementation notes
 

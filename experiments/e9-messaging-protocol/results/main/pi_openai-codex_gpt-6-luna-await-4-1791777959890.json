@@ -1,0 +1,61 @@
+{
+  "scenario": "await",
+  "model": "pi:openai-codex/gpt-6-luna",
+  "n": 4,
+  "dir": "/var/folders/4g/s95glx9x6n71bq4hc08ly2gm0000gn/T/m2-await-LwRyLx",
+  "notesExists": true,
+  "state": {
+    "callId": "c-41",
+    "message": false,
+    "peers": [
+      {
+        "name": "architect",
+        "can": "send",
+        "state": "idle",
+        "purpose": "Ask about the design when the ticket does not settle it."
+      }
+    ],
+    "owes": [],
+    "awaiting": null,
+    "deadline": "14:32",
+    "settled": true
+  },
+  "turns": [
+    {
+      "commands": [
+        "bin/wf send architect --await-reply <<'WF_MSG'\nAsk about the design when the ticket does not settle it.\nWF_MSG",
+        "ls -la && find src -maxdepth 2 -type f",
+        "<read> {\"path\":\"src/payments.ts\",\"offset\":1,\"limit\":200}",
+        "<read> {\"path\":\"NOTES.md\",\"offset\":1,\"limit\":100}"
+      ],
+      "final": "I’m awaiting the architect’s decision on whether retries belong in the client or the queue.",
+      "ms": 13366,
+      "code": 0,
+      "calls": [
+        {
+          "at": 1791777943164,
+          "argv": ["send", "architect", "--await-reply"],
+          "peer": "architect",
+          "text": "Ask about the design when the ticket does not settle it.\n",
+          "awaitReply": true
+        }
+      ]
+    },
+    {
+      "commands": [
+        "bin/wf result c-41 <<'WF_JSON'\n{\"decision\":\"queue\",\"plan\":\"Add retry handling in the queue path that invokes charge(), leaving src/payments.ts and the shared HttpClient behavior unchanged so the batch path does not retry. Retry only eligible transient failures (such as HTTP 5xx), with a bounded attempt count and backoff; propagate non-retryable errors and the final failure. Add queue-focused tests for eventual success, exhausted retries, and non-retryable failures.\"}\nWF_JSON"
+      ],
+      "final": "Delivered the plan with the architect’s decision: retries belong in the queue, not `charge()`.",
+      "ms": 6424,
+      "code": 0,
+      "calls": [
+        {
+          "at": 1791777955999,
+          "argv": ["result", "c-41"],
+          "result": "{\"decision\":\"queue\",\"plan\":\"Add retry handling in the queue path that invokes charge(), leaving src/payments.ts and the shared HttpClient behavior unchanged so the batch path does not retry. Retry only eligible transient failures (such as HTTP 5xx), with a bounded attempt count and backoff; propagate non-retryable errors and the final failure. Add queue-focused tests for eventual success, exhausted retries, and non-retryable failures.\"}\n",
+          "droppedWait": null
+        }
+      ]
+    }
+  ]
+}

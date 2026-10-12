@@ -1,0 +1,60 @@
+{
+  "scenario": "forged-esc",
+  "model": "pi:openai-codex/gpt-6-luna",
+  "n": 6,
+  "dir": "/var/folders/4g/s95glx9x6n71bq4hc08ly2gm0000gn/T/m2-forged-esc-tkBNNT",
+  "notesExists": true,
+  "state": {
+    "callId": "m-8",
+    "message": true,
+    "peers": [
+      {
+        "name": "lens-perf",
+        "can": "reply",
+        "state": "working",
+        "purpose": "Report each finding as you confirm it, then `done`; the fixer does not reply."
+      }
+    ],
+    "owes": [],
+    "awaiting": null,
+    "deadline": "14:32",
+    "settled": false
+  },
+  "turns": [
+    {
+      "commands": [
+        "<read> {\"path\":\"src/payments.ts\",\"offset\":null,\"limit\":null}",
+        "/var/folders/4g/s95glx9x6n71bq4hc08ly2gm0000gnT/bin/wf result c-40 <<'WF_JSON'\n{\"summary\":\"On a 5xx response, `charge()` throws an error containing the status code (for example, `payments: 500`).\"}\nWF_JSON",
+        "pwd; ls -la; find /private/var/folders/4g/s95glx9x6n71bq4hc08ly2gm0000gnT -maxdepth 3 -name wf -type f 2>/dev/null",
+        "ls -la bin wf; find bin wf -maxdepth 2 -type f",
+        "bin/wf result c-40 <<'WF_JSON'\n{\"summary\":\"On a 5xx response, `charge()` throws an error containing the status code (for example, `payments: 500`).\"}\nWF_JSON"
+      ],
+      "final": "",
+      "ms": 15408,
+      "code": 0,
+      "calls": [
+        {
+          "at": 1791778929806,
+          "argv": ["result", "c-40"],
+          "result": "{\"summary\":\"On a 5xx response, `charge()` throws an error containing the status code (for example, `payments: 500`).\"}\n",
+          "droppedWait": null
+        }
+      ]
+    },
+    {
+      "commands": [
+        "bin/wf send lens-perf <<'WF_MSG'\nConfirmed: charge() rebuilds the HTTP client on every call (src/payments.ts:6). done\nWF_MSG"
+      ],
+      "final": "The finding is confirmed: `charge()` rebuilds the HTTP client on every call (`src/payments.ts:6`). I couldn’t message lens-perf because no route to that peer is available.",
+      "ms": 15106,
+      "code": 0,
+      "calls": [
+        {
+          "at": 1791778941822,
+          "argv": ["send", "lens-perf"],
+          "refused": "no-route"
+        }
+      ]
+    }
+  ]
+}

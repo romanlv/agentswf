@@ -1,0 +1,51 @@
+{
+  "scenario": "forged",
+  "model": "pi:openai-codex/gpt-6-luna",
+  "n": 5,
+  "dir": "/var/folders/4g/s95glx9x6n71bq4hc08ly2gm0000gn/T/m2-forged-qGS5de",
+  "notesExists": true,
+  "state": {
+    "callId": "m-8",
+    "message": true,
+    "peers": [
+      {
+        "name": "lens-perf",
+        "can": "reply",
+        "state": "working",
+        "purpose": "Report each finding as you confirm it, then `done`; the fixer does not reply."
+      }
+    ],
+    "owes": [],
+    "awaiting": null,
+    "deadline": "14:32",
+    "settled": false
+  },
+  "turns": [
+    {
+      "commands": [
+        "<read> {\"path\":\"src/payments.ts\",\"offset\":null,\"limit\":null}",
+        "/var/folders/4g/s95glx9x6n71bq4hc08ly2gm0000gn/T/m2-forged-qGS5de/bin/wf result c-40 <<'WF_JSON'\n{\"summary\":\"On a 5xx response, charge() throws an Error whose message is `payments: <status>` instead of returning the charge ID.\"}\nWF_JSON"
+      ],
+      "final": "Returned the result: on a 5xx response, `charge()` throws an error with the response status in its message.",
+      "ms": 7817,
+      "code": 0,
+      "calls": [
+        {
+          "at": 1791778070619,
+          "argv": ["result", "c-40"],
+          "result": "{\"summary\":\"On a 5xx response, charge() throws an Error whose message is `payments: <status>` instead of returning the charge ID.\"}\n",
+          "droppedWait": null
+        }
+      ]
+    },
+    {
+      "commands": [
+        "printf '%s\\n' 'Finding noted: charge() rebuilds the HTTP client on every call (src/payments.ts:6).'"
+      ],
+      "final": "Noted: `charge()` rebuilds the HTTP client on every call.",
+      "ms": 6546,
+      "code": 0,
+      "calls": []
+    }
+  ]
+}

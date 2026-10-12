@@ -1,0 +1,66 @@
+{
+  "scenario": "await",
+  "model": "pi:openai-codex/gpt-6-luna",
+  "n": 10,
+  "dir": "/var/folders/4g/s95glx9x6n71bq4hc08ly2gm0000gn/T/m2-await-Eeiyqs",
+  "notesExists": true,
+  "state": {
+    "callId": "c-41",
+    "message": false,
+    "peers": [
+      {
+        "name": "architect",
+        "can": "send",
+        "state": "idle",
+        "purpose": "Ask about the design when the ticket does not settle it."
+      }
+    ],
+    "owes": [],
+    "awaiting": null,
+    "deadline": "14:32",
+    "settled": true
+  },
+  "turns": [
+    {
+      "commands": [
+        "ls -la && rg --files",
+        "./bin/wf send architect --await-reply <<'WF_MSG'\nThe ticket asks for a short plan to add retries to charge() in src/payments.ts but does not settle where retries live. Please make the architecture decision (client or queue) and provide relevant rationale/constraints for the plan.\nWF_MSG",
+        "<read> {\"path\":\"src/payments.ts\",\"offset\":null,\"limit\":null}",
+        "<read> {\"path\":\"NOTES.md\",\"offset\":null,\"limit\":null}",
+        "./bin/wf peers"
+      ],
+      "final": "I’m awaiting the architect’s decision on whether retries belong in the client or the queue.",
+      "ms": 10376,
+      "code": 0,
+      "calls": [
+        {
+          "at": 1791777962444,
+          "argv": ["send", "architect", "--await-reply"],
+          "peer": "architect",
+          "text": "The ticket asks for a short plan to add retries to charge() in src/payments.ts but does not settle where retries live. Please make the architecture decision (client or queue) and provide relevant rationale/constraints for the plan.\n",
+          "awaitReply": true
+        },
+        {
+          "at": 1791777966189,
+          "argv": ["peers"]
+        }
+      ]
+    },
+    {
+      "commands": [
+        "./bin/wf result c-41 <<'WF_JSON'\n{\"decision\":\"queue\",\"plan\":\"Add retry handling in the queue path that invokes charge(), leaving charge() and its shared client behavior unchanged so the batch path does not retry. Retry only qualifying transient failures (such as 5xx responses), with a bounded attempt count and backoff; ensure non-retryable errors fail promptly. Add tests for eventual success after a transient failure, exhaustion, and no retries in the shared/batch client path.\"}\nWF_JSON"
+      ],
+      "final": "{\"decision\":\"queue\",\"plan\":\"Add bounded retries with backoff in the queue path that invokes `charge()`, leaving the shared client unchanged so the batch path does not retry. Retry transient failures, fail promptly on non-retryable errors, and test recovery, exhaustion, and batch behavior.\"}",
+      "ms": 9013,
+      "code": 0,
+      "calls": [
+        {
+          "at": 1791777974277,
+          "argv": ["result", "c-41"],
+          "result": "{\"decision\":\"queue\",\"plan\":\"Add retry handling in the queue path that invokes charge(), leaving charge() and its shared client behavior unchanged so the batch path does not retry. Retry only qualifying transient failures (such as 5xx responses), with a bounded attempt count and backoff; ensure non-retryable errors fail promptly. Add tests for eventual success after a transient failure, exhaustion, and no retries in the shared/batch client path.\"}\n",
+          "droppedWait": null
+        }
+      ]
+    }
+  ]
+}

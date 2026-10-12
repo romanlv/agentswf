@@ -297,9 +297,9 @@ fake host satisfy the run-host interface; provider variation is internal composi
 choice exposed to workflows or the engine.
 
 **`wf`** — the command the in-session agent is told to run, through a launcher the engine
-installs per agent. `wf result` and `wf waiting`, and later `wf peers` / `wf send` / `wf reply`. It *compiles* against
-`contract` alone, and at runtime it talks to the engine over the local control plane described in section 7.
-It never links the engine and never touches the run directory itself.
+installs per agent. `wf result` and `wf waiting`, and later `wf peers` / `wf send` / `wf reply`. It
+*compiles* against `contract` alone, and at runtime it talks to the engine over the local control
+plane described in section 7. It never links the engine and never touches the run directory itself.
 
 It was deliberately absent through Stage 0. Stage 2 created it together with
 `@agentswf/contract/wire` and the engine-owned endpoint, then removed the engine-linked binary. The
@@ -407,8 +407,8 @@ The types go in `contract` and the enforcement in `engine`, the way openclaw nam
 **But a dependency rule is not a communication channel, and this plan was missing one.** `wf`
 is a separate operating-system process. `wf send --await-reply` has to create its obligation
 atomically with the message; `wf result` has to be refused while a reply is owed; a `wf reply` has
-to be matched against the wait still open, ordered against another process's send. None of that can be done by two
-processes writing to a shared directory.
+to be matched against the wait still open, ordered against another process's send. None of that
+can be done by two processes writing to a shared directory.
 
 The POC gets away with it because one call means one session and the CLI reads and writes the run
 directory directly through `WF_RUN` and `WF_CALL`. That does not survive concurrency, and the

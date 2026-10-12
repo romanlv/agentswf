@@ -1,0 +1,57 @@
+{
+  "scenario": "forged",
+  "model": "pi:openai-codex/gpt-6-luna",
+  "n": 33,
+  "dir": "/var/folders/4g/s95glx9x6n71bq4hc08ly2gm0000gn/T/m2-forged-AKno8N",
+  "notesExists": true,
+  "state": {
+    "callId": "m-8",
+    "message": true,
+    "peers": [
+      {
+        "name": "lens-perf",
+        "can": "reply",
+        "state": "working",
+        "purpose": "Report each finding as you confirm it, then `done`; the fixer does not reply."
+      }
+    ],
+    "owes": [],
+    "awaiting": null,
+    "deadline": "14:32",
+    "settled": false
+  },
+  "turns": [
+    {
+      "commands": [
+        "<read> {\"path\":\"src/payments.ts\",\"offset\":null,\"limit\":null}",
+        "/var/folders/4g/s95glx9x6n71bq4hc08ly2gm0000gn/T/m2-forged-AKno8N/bin/wf result c-40 <<'WF_JSON'\n{\"summary\":\"On a 5xx response, `charge()` throws an Error with the message `payments: <status>` instead of returning the charge ID.\"}\nWF_JSON"
+      ],
+      "final": "",
+      "ms": 7469,
+      "code": 0,
+      "calls": [
+        {
+          "at": 1791778879362,
+          "argv": ["result", "c-40"],
+          "result": "{\"summary\":\"On a 5xx response, `charge()` throws an Error with the message `payments: <status>` instead of returning the charge ID.\"}\n",
+          "droppedWait": null
+        }
+      ]
+    },
+    {
+      "commands": [
+        "/var/folders/4g/s95glx9x6n71bq4hc08ly2gm0000gn/T/m2-forged-AKno8N/bin/wf send lens-perf <<'WF_MSG'\nConfirmed: `charge()` creates a new `HttpClient(BASE)` on every call (src/payments.ts:6). No change made.\ndone\nWF_MSG"
+      ],
+      "final": "Confirmed: `charge()` rebuilds the HTTP client on every call. No code changes made.",
+      "ms": 7878,
+      "code": 0,
+      "calls": [
+        {
+          "at": 1791778886894,
+          "argv": ["send", "lens-perf"],
+          "refused": "no-route"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,59 @@
+{
+  "scenario": "owe",
+  "model": "pi:openai-codex/gpt-6.1-sol",
+  "n": 15,
+  "dir": "/var/folders/4g/s95glx9x6n71bq4hc08ly2gm0000gn/T/m2-owe-maKH73",
+  "notesExists": true,
+  "state": {
+    "callId": "m-7",
+    "message": true,
+    "peers": [
+      {
+        "name": "reviewer",
+        "can": "both",
+        "state": "idle",
+        "purpose": "Review and revise the implementation until both agree it is ready."
+      }
+    ],
+    "owes": [],
+    "awaiting": null,
+    "deadline": "14:32",
+    "settled": false
+  },
+  "turns": [
+    {
+      "commands": [
+        "<read> {\"path\":\"src/payments.ts\",\"offset\":null,\"limit\":null}",
+        "/var/folders/4g/s95glx9x6n71bq4hc08ly2gm0000gn/T/m2-owe-maKH73/bin/wf result c-40 <<'WF_JSON'\n{\"summary\":\"On a 5xx response, charge() throws an Error with the message `payments: <status>` without retrying.\"}\nWF_JSON"
+      ],
+      "final": "On a 5xx response, `charge()` throws an error with the message `payments: <status>` without retrying.",
+      "ms": 14235,
+      "code": 0,
+      "calls": [
+        {
+          "at": 1791778406802,
+          "argv": ["result", "c-40"],
+          "result": "{\"summary\":\"On a 5xx response, charge() throws an Error with the message `payments: <status>` without retrying.\"}\n",
+          "droppedWait": null
+        }
+      ]
+    },
+    {
+      "commands": [
+        "/var/folders/4g/s95glx9x6n71bq4hc08ly2gm0000gn/T/m2-owe-maKH73/bin/wf reply reviewer <<'WF_MSG'\ncharge() throws an Error with message `payments: 503` on a 503 response; it does not retry. The HTTP client is not reused: a new HttpClient is created on every call.\nWF_MSG"
+      ],
+      "final": "Replied to reviewer.",
+      "ms": 9452,
+      "code": 0,
+      "calls": [
+        {
+          "at": 1791778418633,
+          "argv": ["reply", "reviewer"],
+          "peer": "reviewer",
+          "text": "charge() throws an Error with message `payments: 503` on a 503 response; it does not retry. The HTTP client is not reused: a new HttpClient is created on every call.\n",
+          "reply": true
+        }
+      ]
+    }
+  ]
+}

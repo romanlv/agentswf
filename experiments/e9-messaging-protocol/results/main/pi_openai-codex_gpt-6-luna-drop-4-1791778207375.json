@@ -1,0 +1,45 @@
+{
+  "scenario": "drop",
+  "model": "pi:openai-codex/gpt-6-luna",
+  "n": 4,
+  "dir": "/var/folders/4g/s95glx9x6n71bq4hc08ly2gm0000gn/T/m2-drop-5og7IA",
+  "notesExists": true,
+  "state": {
+    "callId": "c-43",
+    "message": false,
+    "peers": [
+      {
+        "name": "architect",
+        "can": "send",
+        "state": "idle",
+        "purpose": "Ask about the design when DESIGN.md does not settle it."
+      }
+    ],
+    "owes": [],
+    "awaiting": null,
+    "deadline": "14:32",
+    "settled": true
+  },
+  "turns": [
+    {
+      "commands": [
+        "<read> {\"path\":\"DESIGN.md\",\"offset\":1,\"limit\":null}",
+        "<read> {\"path\":\"src/payments.ts\",\"offset\":1,\"limit\":null}",
+        "rg --files",
+        "<read> {\"path\":\"NOTES.md\",\"offset\":1,\"limit\":null}",
+        "/var/folders/4g/s95glx9x6n71bq4hc08ly2gm0000gn/T/m2-drop-5og7IA/bin/wf result c-43 <<'WF_JSON'\n{\"decision\":\"queue\",\"plan\":\"Keep `charge()` as a single-attempt client operation; do not add retry logic to `HttpClient` or this function, since the shared client also serves the batch path. Add retries around queued charge execution, defining retryable failures and a bounded attempt/backoff policy there. Test queue retry/exhaustion behavior, stubbing `HttpClient`; keep `BASE` unchanged.\"}\nWF_JSON"
+      ],
+      "final": "Plan submitted: retries belong in the queue; keep `charge()` as a single-attempt operation.",
+      "ms": 15331,
+      "code": 0,
+      "calls": [
+        {
+          "at": 1791778203247,
+          "argv": ["result", "c-43"],
+          "result": "{\"decision\":\"queue\",\"plan\":\"Keep `charge()` as a single-attempt client operation; do not add retry logic to `HttpClient` or this function, since the shared client also serves the batch path. Add retries around queued charge execution, defining retryable failures and a bounded attempt/backoff policy there. Test queue retry/exhaustion behavior, stubbing `HttpClient`; keep `BASE` unchanged.\"}\n",
+          "droppedWait": null
+        }
+      ]
+    }
+  ]
+}

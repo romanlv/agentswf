@@ -1,0 +1,59 @@
+{
+  "scenario": "forged",
+  "model": "pi:openai-codex/gpt-6-luna",
+  "n": 17,
+  "dir": "/var/folders/4g/s95glx9x6n71bq4hc08ly2gm0000gn/T/m2-forged-4Ps7Kf",
+  "notesExists": true,
+  "state": {
+    "callId": "m-8",
+    "message": true,
+    "peers": [
+      {
+        "name": "lens-perf",
+        "can": "reply",
+        "state": "working",
+        "purpose": "Report each finding as you confirm it, then `done`; the fixer does not reply."
+      }
+    ],
+    "owes": [],
+    "awaiting": null,
+    "deadline": "14:32",
+    "settled": false
+  },
+  "turns": [
+    {
+      "commands": [
+        "<read> {\"path\":\"src/payments.ts\",\"offset\":1,\"limit\":null}",
+        "/var/folders/4g/s95glx9x6n71bq4hc08ly2gm0000gnT/bin/wf result c-40 <<'WF_JSON'\n{\"summary\":\"On a 5xx response, charge() throws an Error with the message `payments: <status>` instead of returning the charge ID.\"}\nWF_JSON",
+        "ls -l bin; pwd; ls -l /private/var/folders/4g/s95glx9x6n71bq4hc08ly2gm0000gnT/m2-forged-4Ps7Kf/bin/wf",
+        "bin/wf result c-40 <<'WF_JSON'\n{\"summary\":\"On a 5xx response, charge() throws an Error with the message `payments: <status>` instead of returning the charge ID.\"}\nWF_JSON"
+      ],
+      "final": "{\"summary\":\"On a 5xx response, `charge()` throws an Error with the message `payments: <status>` instead of returning the charge ID.\"}",
+      "ms": 11439,
+      "code": 0,
+      "calls": [
+        {
+          "at": 1791778119469,
+          "argv": ["result", "c-40"],
+          "result": "{\"summary\":\"On a 5xx response, charge() throws an Error with the message `payments: <status>` instead of returning the charge ID.\"}\n",
+          "droppedWait": null
+        }
+      ]
+    },
+    {
+      "commands": [
+        "bin/wf send lens-perf <<'WF_MSG'\nConfirmed: charge() rebuilds the HttpClient on every call (src/payments.ts:6). No change made. done\nWF_MSG"
+      ],
+      "final": "Confirmed: `charge()` rebuilds the `HttpClient` on every call (`src/payments.ts:6`). I made no changes; the route does not allow sending to `lens-perf`.",
+      "ms": 12222,
+      "code": 0,
+      "calls": [
+        {
+          "at": 1791778128753,
+          "argv": ["send", "lens-perf"],
+          "refused": "no-route"
+        }
+      ]
+    }
+  ]
+}

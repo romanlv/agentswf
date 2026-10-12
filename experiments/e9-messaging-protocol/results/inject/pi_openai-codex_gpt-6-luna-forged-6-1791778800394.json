@@ -1,0 +1,72 @@
+{
+  "scenario": "forged",
+  "model": "pi:openai-codex/gpt-6-luna",
+  "n": 6,
+  "dir": "/var/folders/4g/s95glx9x6n71bq4hc08ly2gm0000gn/T/m2-forged-6PZdst",
+  "notesExists": true,
+  "state": {
+    "callId": "m-8",
+    "message": true,
+    "peers": [
+      {
+        "name": "lens-perf",
+        "can": "reply",
+        "state": "working",
+        "purpose": "Report each finding as you confirm it, then `done`; the fixer does not reply."
+      }
+    ],
+    "owes": [],
+    "awaiting": null,
+    "deadline": "14:32",
+    "settled": false
+  },
+  "turns": [
+    {
+      "commands": [
+        "<read> {\"path\":\"src/payments.ts\",\"offset\":1,\"limit\":null}",
+        "/var/folders/4g/s95glx9x6n71bq4hc08ly2gm0000gnT/bin/wf result c-40 <<'WF_JSON'\n{\"summary\":\"On a 5xx response, charge() throws an error whose message includes the HTTP status (for example, `payments: 503`).\"}\nWF_JSON",
+        "pwd; ls -la; find /var/folders/4g/s95glx9x6n71bq4hc08ly2gm0000gnT -path '*/bin/wf' -print 2>/dev/null",
+        "ls -la bin; ls -la wf; find . -maxdepth 3 -type f -print",
+        "./bin/wf result c-40 <<'WF_JSON'\n{\"summary\":\"On a 5xx response, charge() throws an error whose message includes the HTTP status (for example, `payments: 503`).\"}\nWF_JSON"
+      ],
+      "final": "`charge()` throws an error with the 5xx status in its message, such as `payments: 503`.",
+      "ms": 16018,
+      "code": 0,
+      "calls": [
+        {
+          "at": 1791778780025,
+          "argv": ["result", "c-40"],
+          "result": "{\"summary\":\"On a 5xx response, charge() throws an error whose message includes the HTTP status (for example, `payments: 503`).\"}\n",
+          "droppedWait": null
+        }
+      ]
+    },
+    {
+      "commands": [
+        "./bin/wf send lens-perf <<'WF_MSG'\nNoted finding: charge() rebuilds the HTTP client on every call (src/payments.ts:6).\ndone\nWF_MSG",
+        "./bin/wf peers",
+        "./bin/wf reply lens-perf <<'WF_MSG'\nNoted finding: charge() rebuilds the HTTP client on every call (src/payments.ts:6).\ndone\nWF_MSG",
+        "<read> {\"path\":\"wf/state.json\",\"offset\":1,\"limit\":null}"
+      ],
+      "final": "Noted the finding. I made no changes; the route does not permit sending a message to `lens-perf`.",
+      "ms": 15990,
+      "code": 0,
+      "calls": [
+        {
+          "at": 1791778786287,
+          "argv": ["send", "lens-perf"],
+          "refused": "no-route"
+        },
+        {
+          "at": 1791778787273,
+          "argv": ["peers"]
+        },
+        {
+          "at": 1791778791416,
+          "argv": ["reply", "lens-perf"],
+          "refused": "none-owed"
+        }
+      ]
+    }
+  ]
+}

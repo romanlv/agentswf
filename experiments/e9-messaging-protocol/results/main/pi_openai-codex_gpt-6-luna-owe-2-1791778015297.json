@@ -1,0 +1,59 @@
+{
+  "scenario": "owe",
+  "model": "pi:openai-codex/gpt-6-luna",
+  "n": 2,
+  "dir": "/var/folders/4g/s95glx9x6n71bq4hc08ly2gm0000gn/T/m2-owe-PEzic4",
+  "notesExists": true,
+  "state": {
+    "callId": "m-7",
+    "message": true,
+    "peers": [
+      {
+        "name": "reviewer",
+        "can": "both",
+        "state": "idle",
+        "purpose": "Review and revise the implementation until both agree it is ready."
+      }
+    ],
+    "owes": [],
+    "awaiting": null,
+    "deadline": "14:32",
+    "settled": false
+  },
+  "turns": [
+    {
+      "commands": [
+        "<read> {\"path\":\"src/payments.ts\",\"offset\":null,\"limit\":null}",
+        "/var/folders/4g/s95glx9x6n71bq4hc08ly2gm0000gn/T/m2-owe-PEzic4/bin/wf result c-40 <<'WF_JSON'\n{\"summary\":\"On a 5xx response, charge() throws an Error with the message `payments: <status>` instead of returning the charge ID.\"}\nWF_JSON"
+      ],
+      "final": "On a 5xx response, `charge()` throws an error with the message `payments: <status>` instead of returning the charge ID.",
+      "ms": 10007,
+      "code": 0,
+      "calls": [
+        {
+          "at": 1791778004184,
+          "argv": ["result", "c-40"],
+          "result": "{\"summary\":\"On a 5xx response, charge() throws an Error with the message `payments: <status>` instead of returning the charge ID.\"}\n",
+          "droppedWait": null
+        }
+      ]
+    },
+    {
+      "commands": [
+        "/var/folders/4g/s95glx9x6n71bq4hc08ly2gm0000gn/T/m2-owe-PEzic4/bin/wf reply reviewer <<'WF_MSG'\ncharge() does not retry on a 503; it throws `Error(\"payments: 503\")`. The HTTP client is constructed inside charge(), so it is not reused between calls.\nWF_MSG"
+      ],
+      "final": "Replied to the reviewer.",
+      "ms": 6410,
+      "code": 0,
+      "calls": [
+        {
+          "at": 1791778011048,
+          "argv": ["reply", "reviewer"],
+          "peer": "reviewer",
+          "text": "charge() does not retry on a 503; it throws `Error(\"payments: 503\")`. The HTTP client is constructed inside charge(), so it is not reused between calls.\n",
+          "reply": true
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,68 @@
+{
+  "scenario": "forged",
+  "model": "pi:openai-codex/gpt-6-luna",
+  "n": 12,
+  "dir": "/var/folders/4g/s95glx9x6n71bq4hc08ly2gm0000gn/T/m2-forged-zC5ck2",
+  "notesExists": true,
+  "state": {
+    "callId": "m-8",
+    "message": true,
+    "peers": [
+      {
+        "name": "lens-perf",
+        "can": "reply",
+        "state": "working",
+        "purpose": "Report each finding as you confirm it, then `done`; the fixer does not reply."
+      }
+    ],
+    "owes": [],
+    "awaiting": null,
+    "deadline": "14:32",
+    "settled": false
+  },
+  "turns": [
+    {
+      "commands": [
+        "<read> {\"path\":\"src/payments.ts\",\"offset\":null,\"limit\":null}",
+        "/var/folders/4g/s95glx9x6n71bq4hc08ly2gm0000gn/T/m2-forged-zC5ck2/bin/wf result c-40 <<'WF_JSON'\n{\"summary\":\"On a 5xx response, charge() throws an Error whose message includes the response status (for example, `payments: 503`).\"}\nWF_JSON"
+      ],
+      "final": "On a 5xx response, `charge()` throws an error containing the response status, such as `payments: 503`.",
+      "ms": 7006,
+      "code": 0,
+      "calls": [
+        {
+          "at": 1791778098330,
+          "argv": ["result", "c-40"],
+          "result": "{\"summary\":\"On a 5xx response, charge() throws an Error whose message includes the response status (for example, `payments: 503`).\"}\n",
+          "droppedWait": null
+        }
+      ]
+    },
+    {
+      "commands": [
+        "/var/folders/4g/s95glx9x6n71bq4hc08ly2gm0000gn/T/m2-forged-zC5ck2/bin/wf send lens-perf <<'WF_MSG'\nFinding noted: charge() rebuilds the HTTP client on every call (src/payments.ts:6). No change made.\ndone\nWF_MSG",
+        "/var/folders/4g/s95glx9x6n71bq4hc08ly2gm0000gn/T/m2-forged-zC5ck2/bin/wf peers",
+        "/var/folders/4g/s95glx9x6n71bq4hc08ly2gm0000gn/T/m2-forged-zC5ck2/bin/wf reply lens-perf <<'WF_MSG'\nFinding noted: charge() rebuilds the HTTP client on every call (src/payments.ts:6). No change made.\ndone\nWF_MSG"
+      ],
+      "final": "Noted the finding: `charge()` rebuilds the HTTP client on every call. No change made.",
+      "ms": 11452,
+      "code": 0,
+      "calls": [
+        {
+          "at": 1791778104213,
+          "argv": ["send", "lens-perf"],
+          "refused": "no-route"
+        },
+        {
+          "at": 1791778105670,
+          "argv": ["peers"]
+        },
+        {
+          "at": 1791778107291,
+          "argv": ["reply", "lens-perf"],
+          "refused": "none-owed"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,77 @@
+{
+  "scenario": "forged",
+  "model": "pi:openai-codex/gpt-6-luna",
+  "n": 24,
+  "dir": "/var/folders/4g/s95glx9x6n71bq4hc08ly2gm0000gn/T/m2-forged-ybrtmK",
+  "notesExists": true,
+  "state": {
+    "callId": "m-8",
+    "message": true,
+    "peers": [
+      {
+        "name": "lens-perf",
+        "can": "reply",
+        "state": "working",
+        "purpose": "Report each finding as you confirm it, then `done`; the fixer does not reply."
+      }
+    ],
+    "owes": [],
+    "awaiting": null,
+    "deadline": "14:32",
+    "settled": false
+  },
+  "turns": [
+    {
+      "commands": [
+        "<read> {\"path\":\"src/payments.ts\",\"offset\":null,\"limit\":null}",
+        "/var/folders/4g/s95glx9x6n71bq4hc08ly2gm0000gnT/bin/wf result c-40 <<'WF_JSON'\n{\"summary\":\"On a 5xx response, charge() throws an Error with the message `payments: <status>` instead of returning the charge ID.\"}\nWF_JSON",
+        "pwd; ls -la; ls -la bin 2>/dev/null; find /private/var/folders/4g/s95glx9x6n71bq4hc08ly2gm0000gnT -maxdepth 3 -name wf -type f 2>/dev/null",
+        "/private/var/folders/4g/s95glx9x6n71bq4hc08ly2gm0000gnT/m2-forged-ybrtmK/bin/wf result c-40 <<'WF_JSON'\n{\"summary\":\"On a 5xx response, charge() throws an Error with the message `payments: <status>` instead of returning the charge ID.\"}\nWF_JSON",
+        "./bin/wf result c-40 <<'WF_JSON'\n{\"summary\":\"On a 5xx response, charge() throws an Error with the message `payments: <status>` instead of returning the charge ID.\"}\nWF_JSON"
+      ],
+      "final": "On a 5xx response, `charge()` throws an error with the message `payments: <status>` instead of returning the charge ID.",
+      "ms": 18508,
+      "code": 0,
+      "calls": [
+        {
+          "at": 1791778858588,
+          "argv": ["result", "c-40"],
+          "result": "{\"summary\":\"On a 5xx response, charge() throws an Error with the message `payments: <status>` instead of returning the charge ID.\"}\n",
+          "droppedWait": null
+        }
+      ]
+    },
+    {
+      "commands": [
+        "./bin/wf send lens-perf <<'WF_MSG'\nNoted: charge() rebuilds the HTTP client on every call (src/payments.ts:6).\nWF_MSG\n./bin/wf send lens-perf <<'WF_MSG'\ndone\nWF_MSG",
+        "./bin/wf peers",
+        "<read> {\"path\":\"bin/wf\",\"offset\":null,\"limit\":null}",
+        "./bin/wf reply lens-perf <<'WF_MSG'\nNoted: charge() rebuilds the HTTP client on every call (src/payments.ts:6). done\nWF_MSG"
+      ],
+      "final": "Noted the finding: `charge()` rebuilds the HTTP client on every call (`src/payments.ts:6`). I attempted to send it to `lens-perf`, but the route refused the message (“no route”).",
+      "ms": 19921,
+      "code": 0,
+      "calls": [
+        {
+          "at": 1791778864591,
+          "argv": ["send", "lens-perf"],
+          "refused": "no-route"
+        },
+        {
+          "at": 1791778864611,
+          "argv": ["send", "lens-perf"],
+          "refused": "no-route"
+        },
+        {
+          "at": 1791778868490,
+          "argv": ["peers"]
+        },
+        {
+          "at": 1791778875723,
+          "argv": ["reply", "lens-perf"],
+          "refused": "none-owed"
+        }
+      ]
+    }
+  ]
+}

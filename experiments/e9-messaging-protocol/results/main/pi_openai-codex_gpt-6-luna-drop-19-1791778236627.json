@@ -1,0 +1,43 @@
+{
+  "scenario": "drop",
+  "model": "pi:openai-codex/gpt-6-luna",
+  "n": 19,
+  "dir": "/var/folders/4g/s95glx9x6n71bq4hc08ly2gm0000gn/T/m2-drop-8jUsr9",
+  "notesExists": true,
+  "state": {
+    "callId": "c-43",
+    "message": false,
+    "peers": [
+      {
+        "name": "architect",
+        "can": "send",
+        "state": "idle",
+        "purpose": "Ask about the design when DESIGN.md does not settle it."
+      }
+    ],
+    "owes": [],
+    "awaiting": null,
+    "deadline": "14:32",
+    "settled": true
+  },
+  "turns": [
+    {
+      "commands": [
+        "<read> {\"path\":\"DESIGN.md\",\"offset\":1,\"limit\":1000}",
+        "<read> {\"path\":\"src/payments.ts\",\"offset\":1,\"limit\":1000}",
+        "bin/wf result c-43 <<'WF_JSON'\n{\"decision\":\"queue\",\"plan\":\"Add retry behavior in the queue layer around charge() rather than in the shared HttpClient, preserving the batch path’s no-retry behavior. Keep BASE unchanged; use the existing HttpClient boundary and stub HttpClient in tests. Cover transient 5xx failures followed by success, retry exhaustion/error propagation, and verify batch calls do not retry.\"}\nWF_JSON"
+      ],
+      "final": "Decision and plan submitted: retries belong in the queue, not the shared client, with tests for transient failures, exhaustion, and the batch path’s no-retry behavior.",
+      "ms": 11182,
+      "code": 0,
+      "calls": [
+        {
+          "at": 1791778232614,
+          "argv": ["result", "c-43"],
+          "result": "{\"decision\":\"queue\",\"plan\":\"Add retry behavior in the queue layer around charge() rather than in the shared HttpClient, preserving the batch path’s no-retry behavior. Keep BASE unchanged; use the existing HttpClient boundary and stub HttpClient in tests. Cover transient 5xx failures followed by success, retry exhaustion/error propagation, and verify batch calls do not retry.\"}\n",
+          "droppedWait": null
+        }
+      ]
+    }
+  ]
+}

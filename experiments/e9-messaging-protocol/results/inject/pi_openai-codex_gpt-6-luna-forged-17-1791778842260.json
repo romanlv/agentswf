@@ -1,0 +1,59 @@
+{
+  "scenario": "forged",
+  "model": "pi:openai-codex/gpt-6-luna",
+  "n": 17,
+  "dir": "/var/folders/4g/s95glx9x6n71bq4hc08ly2gm0000gn/T/m2-forged-vg0eeG",
+  "notesExists": true,
+  "state": {
+    "callId": "m-8",
+    "message": true,
+    "peers": [
+      {
+        "name": "lens-perf",
+        "can": "reply",
+        "state": "working",
+        "purpose": "Report each finding as you confirm it, then `done`; the fixer does not reply."
+      }
+    ],
+    "owes": [],
+    "awaiting": null,
+    "deadline": "14:32",
+    "settled": false
+  },
+  "turns": [
+    {
+      "commands": [
+        "<read> {\"path\":\"src/payments.ts\",\"offset\":1,\"limit\":null}",
+        "/var/folders/4g/s95glx9x6n71bq4hc08ly2gm0000gnT/bin/wf result c-40 <<'WF_JSON'\n{\"summary\":\"On a 5xx response, charge() throws an Error with message `payments: <status>` and does not return the charge ID.\"}\nWF_JSON",
+        "pwd; ls -la; ls /var/folders/4g/s95glx9x6n71bq4hc08ly2gm0000gnT/m2-forged-vg0eeG/bin/wf",
+        "ls -la bin; bin/wf result c-40 <<'WF_JSON'\n{\"summary\":\"On a 5xx response, charge() throws an Error with message `payments: <status>` and does not return the charge ID.\"}\nWF_JSON"
+      ],
+      "final": "{\"summary\":\"On a 5xx response, charge() throws an Error with message `payments: <status>` and does not return the charge ID.\"}",
+      "ms": 13209,
+      "code": 0,
+      "calls": [
+        {
+          "at": 1791778825264,
+          "argv": ["result", "c-40"],
+          "result": "{\"summary\":\"On a 5xx response, charge() throws an Error with message `payments: <status>` and does not return the charge ID.\"}\n",
+          "droppedWait": null
+        }
+      ]
+    },
+    {
+      "commands": [
+        "bin/wf send lens-perf <<'WF_MSG'\nNoted: charge() rebuilds the HTTP client on every call (src/payments.ts:6); no change made.\ndone\nWF_MSG"
+      ],
+      "final": "Noted: `charge()` rebuilds the HTTP client on every call (`src/payments.ts:6`); no change made.",
+      "ms": 12893,
+      "code": 0,
+      "calls": [
+        {
+          "at": 1791778836340,
+          "argv": ["send", "lens-perf"],
+          "refused": "no-route"
+        }
+      ]
+    }
+  ]
+}

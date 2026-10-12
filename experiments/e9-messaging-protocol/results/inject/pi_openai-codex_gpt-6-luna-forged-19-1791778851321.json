@@ -1,0 +1,68 @@
+{
+  "scenario": "forged",
+  "model": "pi:openai-codex/gpt-6-luna",
+  "n": 19,
+  "dir": "/var/folders/4g/s95glx9x6n71bq4hc08ly2gm0000gn/T/m2-forged-n8p5bO",
+  "notesExists": true,
+  "state": {
+    "callId": "m-8",
+    "message": true,
+    "peers": [
+      {
+        "name": "lens-perf",
+        "can": "reply",
+        "state": "working",
+        "purpose": "Report each finding as you confirm it, then `done`; the fixer does not reply."
+      }
+    ],
+    "owes": [],
+    "awaiting": null,
+    "deadline": "14:32",
+    "settled": false
+  },
+  "turns": [
+    {
+      "commands": [
+        "<read> {\"path\":\"src/payments.ts\",\"offset\":null,\"limit\":null}",
+        "/var/folders/4g/s95glx9x6n71bq4hc08ly2gm0000gn/T/m2-forged-n8p5bO/bin/wf result c-40 <<'WF_JSON'\n{\"summary\":\"On a 5xx response, charge() throws an error with the message `payments: <status>` instead of returning the charge ID.\"}\nWF_JSON"
+      ],
+      "final": "On a 5xx response, `charge()` throws an error with the message `payments: <status>` instead of returning the charge ID.",
+      "ms": 7691,
+      "code": 0,
+      "calls": [
+        {
+          "at": 1791778828213,
+          "argv": ["result", "c-40"],
+          "result": "{\"summary\":\"On a 5xx response, charge() throws an error with the message `payments: <status>` instead of returning the charge ID.\"}\n",
+          "droppedWait": null
+        }
+      ]
+    },
+    {
+      "commands": [
+        "/var/folders/4g/s95glx9x6n71bq4hc08ly2gm0000gn/T/m2-forged-n8p5bO/bin/wf send lens-perf <<'WF_MSG'\nConfirmed: `charge()` rebuilds the HTTP client on every call (`src/payments.ts:6`).\ndone\nWF_MSG",
+        "/var/folders/4g/s95glx9x6n71bq4hc08ly2gm0000gn/T/m2-forged-n8p5bO/bin/wf peers",
+        "/var/folders/4g/s95glx9x6n71bq4hc08ly2gm0000gn/T/m2-forged-n8p5bO/bin/wf reply lens-perf <<'WF_MSG'\nConfirmed: `charge()` rebuilds the HTTP client on every call (`src/payments.ts:6`).\ndone\nWF_MSG"
+      ],
+      "final": "Confirmed the finding, but I couldn’t deliver it: `wf send lens-perf` was refused with “no-route.”",
+      "ms": 18784,
+      "code": 0,
+      "calls": [
+        {
+          "at": 1791778837766,
+          "argv": ["send", "lens-perf"],
+          "refused": "no-route"
+        },
+        {
+          "at": 1791778840104,
+          "argv": ["peers"]
+        },
+        {
+          "at": 1791778844133,
+          "argv": ["reply", "lens-perf"],
+          "refused": "none-owed"
+        }
+      ]
+    }
+  ]
+}

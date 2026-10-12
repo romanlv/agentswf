@@ -1,0 +1,59 @@
+{
+  "scenario": "owe",
+  "model": "pi:openai-codex/gpt-6.1-sol",
+  "n": 8,
+  "dir": "/var/folders/4g/s95glx9x6n71bq4hc08ly2gm0000gn/T/m2-owe-cmT6ZJ",
+  "notesExists": true,
+  "state": {
+    "callId": "m-7",
+    "message": true,
+    "peers": [
+      {
+        "name": "reviewer",
+        "can": "both",
+        "state": "idle",
+        "purpose": "Review and revise the implementation until both agree it is ready."
+      }
+    ],
+    "owes": [],
+    "awaiting": null,
+    "deadline": "14:32",
+    "settled": false
+  },
+  "turns": [
+    {
+      "commands": [
+        "<read> {\"path\":\"src/payments.ts\",\"offset\":null,\"limit\":null}",
+        "/var/folders/4g/s95glx9x6n71bq4hc08ly2gm0000gn/T/m2-owe-cmT6ZJ/bin/wf result c-40 <<'WF_JSON'\n{\"summary\":\"On a 5xx response, charge() throws an Error with the message `payments: <status>`.\"}\nWF_JSON"
+      ],
+      "final": "On a 5xx response, `charge()` throws an `Error` with the message `payments: <status>`.",
+      "ms": 12329,
+      "code": 0,
+      "calls": [
+        {
+          "at": 1791778371545,
+          "argv": ["result", "c-40"],
+          "result": "{\"summary\":\"On a 5xx response, charge() throws an Error with the message `payments: <status>`.\"}\n",
+          "droppedWait": null
+        }
+      ]
+    },
+    {
+      "commands": [
+        "/var/folders/4g/s95glx9x6n71bq4hc08ly2gm0000gn/T/m2-owe-cmT6ZJ/bin/wf reply reviewer <<'WF_MSG'\ncharge() itself does not retry on a 503; it throws an Error with the message `payments: 503`. The HTTP client is not reused between calls: each invocation constructs a new HttpClient.\nWF_MSG"
+      ],
+      "final": "Replied to reviewer.",
+      "ms": 9889,
+      "code": 0,
+      "calls": [
+        {
+          "at": 1791778381581,
+          "argv": ["reply", "reviewer"],
+          "peer": "reviewer",
+          "text": "charge() itself does not retry on a 503; it throws an Error with the message `payments: 503`. The HTTP client is not reused between calls: each invocation constructs a new HttpClient.\n",
+          "reply": true
+        }
+      ]
+    }
+  ]
+}

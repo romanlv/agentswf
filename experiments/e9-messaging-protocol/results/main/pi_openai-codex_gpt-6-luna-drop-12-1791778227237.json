@@ -1,0 +1,45 @@
+{
+  "scenario": "drop",
+  "model": "pi:openai-codex/gpt-6-luna",
+  "n": 12,
+  "dir": "/var/folders/4g/s95glx9x6n71bq4hc08ly2gm0000gn/T/m2-drop-6LpsKl",
+  "notesExists": true,
+  "state": {
+    "callId": "c-43",
+    "message": false,
+    "peers": [
+      {
+        "name": "architect",
+        "can": "send",
+        "state": "idle",
+        "purpose": "Ask about the design when DESIGN.md does not settle it."
+      }
+    ],
+    "owes": [],
+    "awaiting": null,
+    "deadline": "14:32",
+    "settled": true
+  },
+  "turns": [
+    {
+      "commands": [
+        "<read> {\"path\":\"DESIGN.md\",\"offset\":1,\"limit\":200}",
+        "<read> {\"path\":\"src/payments.ts\",\"offset\":1,\"limit\":200}",
+        "ls -la; find src -maxdepth 2 -type f; find . -maxdepth 2 -type f | sort | head -80",
+        "<read> {\"path\":\"NOTES.md\",\"offset\":1,\"limit\":100}",
+        "/var/folders/4g/s95glx9x6n71bq4hc08ly2gm0000gn/T/m2-drop-6LpsKl/bin/wf result c-43 <<'WF_JSON'\n{\"decision\":\"queue\",\"plan\":\"Keep `charge()` as a single-attempt client operation; implement retry policy in the queue layer that invokes it, so the shared client/batch path does not retry. Have the queue retry only eligible failures (including surfaced 5xx errors), with a bounded attempt count and backoff, and test retry/exhaustion behavior at the queue boundary. Stub `HttpClient` in client tests and preserve the fixed `BASE`.\"}\nWF_JSON"
+      ],
+      "final": "**Decision: queue.** `DESIGN.md` specifies that retries belong in the queue because the client is shared with the batch path, which must not retry.\n\nKeep `charge()` single-attempt. Add bounded retries with backoff in the queue layer, and test retry and exhaustion behavior there. Stub `HttpClient` in client tests and preserve the fixed `BASE`.",
+      "ms": 19860,
+      "code": 0,
+      "calls": [
+        {
+          "at": 1791778221725,
+          "argv": ["result", "c-43"],
+          "result": "{\"decision\":\"queue\",\"plan\":\"Keep `charge()` as a single-attempt client operation; implement retry policy in the queue layer that invokes it, so the shared client/batch path does not retry. Have the queue retry only eligible failures (including surfaced 5xx errors), with a bounded attempt count and backoff, and test retry/exhaustion behavior at the queue boundary. Stub `HttpClient` in client tests and preserve the fixed `BASE`.\"}\n",
+          "droppedWait": null
+        }
+      ]
+    }
+  ]
+}

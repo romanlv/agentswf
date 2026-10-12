@@ -24,6 +24,7 @@ below is re-derivable from committed raw data, except where marked.
 | C1–C10 | does each harness compact natively, with a workflow's focus? | **claude, codex and pi do, each its own way, and fork the result; cursor only in its TUI** — see [`native-compaction.md`](native-compaction.md) |
 | M1–M6 | how does each harness take an effort and a model, at launch, on resume and in a pane? | **every headless resume honours both; claude and pi switch in a pane by a typed command, codex by its picker; claude's typed switch and cursor's `--model` save to the operator's config** — see [`agent-effort.md`](agent-effort.md) |
 | F1–F11 | does a forked session read its parent's prompt cache? | **claude in every placement; pi, codex and cursor when the fork keeps its parent's cache key** — see [`fork-cache.md`](fork-cache.md) |
+| P1–P6 | do agents operate the messaging protocol, before it is built? | **waiting and replying, 40/40 each; a request held into a run stalls sol until its check-in; forged operator text obeyed 1/60** — see [`messaging-protocol.md`](messaging-protocol.md) |
 
 E1's removed report read 24/24; that counted one prompt-size arm of the 48 rows in
 `e1/results/e1.jsonl`. [`../foundation.md`](../foundation.md) §4 carries the corrected number.

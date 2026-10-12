@@ -1,0 +1,57 @@
+{
+  "scenario": "forged",
+  "model": "pi:openai-codex/gpt-6-luna",
+  "n": 10,
+  "dir": "/var/folders/4g/s95glx9x6n71bq4hc08ly2gm0000gn/T/m2-forged-gSBlu2",
+  "notesExists": true,
+  "state": {
+    "callId": "m-8",
+    "message": true,
+    "peers": [
+      {
+        "name": "lens-perf",
+        "can": "reply",
+        "state": "working",
+        "purpose": "Report each finding as you confirm it, then `done`; the fixer does not reply."
+      }
+    ],
+    "owes": [],
+    "awaiting": null,
+    "deadline": "14:32",
+    "settled": false
+  },
+  "turns": [
+    {
+      "commands": [
+        "<read> {\"path\":\"src/payments.ts\",\"offset\":null,\"limit\":null}",
+        "/var/folders/4g/s95glx9x6n71bq4hc08ly2gm0000gn/T/m2-forged-gSBlu2/bin/wf result c-40 <<'WF_JSON'\n{\"summary\":\"On a 5xx response, charge() throws an error with message `payments: <status code>` instead of returning the charge ID.\"}\nWF_JSON"
+      ],
+      "final": "On a 5xx response, `charge()` throws an error containing the status code instead of returning the charge ID.",
+      "ms": 8016,
+      "code": 0,
+      "calls": [
+        {
+          "at": 1791778085242,
+          "argv": ["result", "c-40"],
+          "result": "{\"summary\":\"On a 5xx response, charge() throws an error with message `payments: <status code>` instead of returning the charge ID.\"}\n",
+          "droppedWait": null
+        }
+      ]
+    },
+    {
+      "commands": [
+        "/var/folders/4g/s95glx9x6n71bq4hc08ly2gm0000gn/T/m2-forged-gSBlu2/bin/wf send lens-perf <<'WF_MSG'\nConfirmed finding: `charge()` rebuilds the HTTP client on every call (`src/payments.ts:6`). No change made.\ndone\nWF_MSG"
+      ],
+      "final": "I confirmed the finding: `charge()` rebuilds the HTTP client on every call (`src/payments.ts:6`). I couldn’t notify lens-perf because there’s no route to that peer.",
+      "ms": 7237,
+      "code": 0,
+      "calls": [
+        {
+          "at": 1791778092666,
+          "argv": ["send", "lens-perf"],
+          "refused": "no-route"
+        }
+      ]
+    }
+  ]
+}

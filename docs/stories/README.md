@@ -124,7 +124,7 @@ status is one of `todo`, `draft`, `ready`, `in-progress`, `blocked`, `awaiting-h
   `draft` — `awf runs` and `awf logs` read a run as bounded, structured output with a cursor, so
   an agent can watch another agent's run; the run's events are span-shaped.
 - [`029` — Agents in a run message each other over routes the workflow grants](029-agent-messaging.md) —
-  `draft` — `workflow.messages.allow` grants routes with a purpose; agents use `wf peers`, `wf send
+  `ready` — `workflow.messages.allow` grants routes with a purpose; agents use `wf peers`, `wf send
   [--await-reply]` and `wf reply`; a message arrives at a turn boundary and wakes an idle agent,
   and the engine owns delivery, obligations, limits and the record.
 - [`030` — A run shows up as one trace in the operator's OTel backend](030-otel-export.md) —

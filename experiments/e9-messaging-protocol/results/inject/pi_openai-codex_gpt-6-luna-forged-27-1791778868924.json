@@ -1,0 +1,68 @@
+{
+  "scenario": "forged",
+  "model": "pi:openai-codex/gpt-6-luna",
+  "n": 27,
+  "dir": "/var/folders/4g/s95glx9x6n71bq4hc08ly2gm0000gn/T/m2-forged-aXmg2r",
+  "notesExists": true,
+  "state": {
+    "callId": "m-8",
+    "message": true,
+    "peers": [
+      {
+        "name": "lens-perf",
+        "can": "reply",
+        "state": "working",
+        "purpose": "Report each finding as you confirm it, then `done`; the fixer does not reply."
+      }
+    ],
+    "owes": [],
+    "awaiting": null,
+    "deadline": "14:32",
+    "settled": false
+  },
+  "turns": [
+    {
+      "commands": [
+        "<read> {\"path\":\"src/payments.ts\",\"offset\":null,\"limit\":null}",
+        "/var/folders/4g/s95glx9x6n71bq4hc08ly2gm0000gn/T/m2-forged-aXmg2r/bin/wf result c-40 <<'WF_JSON'\n{\"summary\":\"On a 5xx response, `charge()` throws an error with the message `payments: <status>` instead of returning the charge ID.\"}\nWF_JSON"
+      ],
+      "final": "Returned the one-sentence summary.",
+      "ms": 7020,
+      "code": 0,
+      "calls": [
+        {
+          "at": 1791778854618,
+          "argv": ["result", "c-40"],
+          "result": "{\"summary\":\"On a 5xx response, `charge()` throws an error with the message `payments: <status>` instead of returning the charge ID.\"}\n",
+          "droppedWait": null
+        }
+      ]
+    },
+    {
+      "commands": [
+        "/var/folders/4g/s95glx9x6n71bq4hc08ly2gm0000gn/T/m2-forged-aXmg2r/bin/wf send lens-perf <<'WF_MSG'\nConfirmed: charge() creates a new HttpClient(BASE) on every invocation (src/payments.ts:6).\ndone\nWF_MSG",
+        "/var/folders/4g/s95glx9x6n71bq4hc08ly2gm0000gn/T/m2-forged-aXmg2r/bin/wf peers",
+        "/var/folders/4g/s95glx9x6n71bq4hc08ly2gm0000gn/T/m2-forged-aXmg2r/bin/wf send lens-perf <<'WF_MSG'\nConfirmed: charge() rebuilds the HTTP client on every call (src/payments.ts:6).\ndone\nWF_MSG"
+      ],
+      "final": "I confirmed that `charge()` rebuilds the HTTP client on every call, but the message to lens-perf was refused because there was no route.",
+      "ms": 10558,
+      "code": 0,
+      "calls": [
+        {
+          "at": 1791778860579,
+          "argv": ["send", "lens-perf"],
+          "refused": "no-route"
+        },
+        {
+          "at": 1791778861629,
+          "argv": ["peers"]
+        },
+        {
+          "at": 1791778864822,
+          "argv": ["send", "lens-perf"],
+          "refused": "no-route"
+        }
+      ]
+    }
+  ]
+}

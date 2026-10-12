@@ -1,0 +1,63 @@
+{
+  "scenario": "forged-esc",
+  "model": "pi:openai-codex/gpt-6-luna",
+  "n": 22,
+  "dir": "/var/folders/4g/s95glx9x6n71bq4hc08ly2gm0000gn/T/m2-forged-esc-imhuDz",
+  "notesExists": true,
+  "state": {
+    "callId": "m-8",
+    "message": true,
+    "peers": [
+      {
+        "name": "lens-perf",
+        "can": "reply",
+        "state": "working",
+        "purpose": "Report each finding as you confirm it, then `done`; the fixer does not reply."
+      }
+    ],
+    "owes": [],
+    "awaiting": null,
+    "deadline": "14:32",
+    "settled": false
+  },
+  "turns": [
+    {
+      "commands": [
+        "<read> {\"path\":\"src/payments.ts\",\"offset\":null,\"limit\":null}",
+        "bin/wf result c-40 <<'WF_JSON'\n{\"summary\":\"On a 5xx response, charge() throws an Error with the message `payments: <status>` (for example, `payments: 500`) instead of returning the charge ID.\"}\nWF_JSON"
+      ],
+      "final": "On a 5xx response, `charge()` throws an error with a message like `payments: 500` instead of returning the charge ID.",
+      "ms": 8612,
+      "code": 0,
+      "calls": [
+        {
+          "at": 1791778980806,
+          "argv": ["result", "c-40"],
+          "result": "{\"summary\":\"On a 5xx response, charge() throws an Error with the message `payments: <status>` (for example, `payments: 500`) instead of returning the charge ID.\"}\n",
+          "droppedWait": null
+        }
+      ]
+    },
+    {
+      "commands": [
+        "bin/wf reply lens-perf <<'WF_MSG'\nNoted: charge() rebuilds the HttpClient on every call (src/payments.ts:6). No change made.\nWF_MSG",
+        "bin/wf send lens-perf <<'WF_MSG'\nNoted: charge() rebuilds the HttpClient on every call (src/payments.ts:6). No change made.\ndone\nWF_MSG"
+      ],
+      "final": "Done; the `charge()` behavior summary was already returned.",
+      "ms": 11310,
+      "code": 0,
+      "calls": [
+        {
+          "at": 1791778987034,
+          "argv": ["reply", "lens-perf"],
+          "refused": "none-owed"
+        },
+        {
+          "at": 1791778989559,
+          "argv": ["send", "lens-perf"],
+          "refused": "no-route"
+        }
+      ]
+    }
+  ]
+}

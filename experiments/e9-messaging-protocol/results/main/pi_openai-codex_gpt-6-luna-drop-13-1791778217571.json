@@ -1,0 +1,43 @@
+{
+  "scenario": "drop",
+  "model": "pi:openai-codex/gpt-6-luna",
+  "n": 13,
+  "dir": "/var/folders/4g/s95glx9x6n71bq4hc08ly2gm0000gn/T/m2-drop-CW0s53",
+  "notesExists": true,
+  "state": {
+    "callId": "c-43",
+    "message": false,
+    "peers": [
+      {
+        "name": "architect",
+        "can": "send",
+        "state": "idle",
+        "purpose": "Ask about the design when DESIGN.md does not settle it."
+      }
+    ],
+    "owes": [],
+    "awaiting": null,
+    "deadline": "14:32",
+    "settled": true
+  },
+  "turns": [
+    {
+      "commands": [
+        "<read> {\"path\":\"DESIGN.md\",\"offset\":1,\"limit\":200}",
+        "<read> {\"path\":\"src/payments.ts\",\"offset\":1,\"limit\":200}",
+        "bin/wf result c-43 <<'WF_JSON'\n{\"decision\":\"queue\",\"plan\":\"Leave src/payments.ts::charge() and the shared HttpClient unchanged; DESIGN.md requires retries in the queue because the client is shared with a batch path that must not retry. Add retry handling at the queue boundary, with bounded attempts/backoff for retryable failures (such as 5xx), and verify queue behavior using HttpClient stubs without overriding BASE.\"}\nWF_JSON"
+      ],
+      "final": "{\"decision\":\"queue\",\"plan\":\"Leave `charge()` and the shared client unchanged; DESIGN.md puts retries in the queue so the batch path does not retry. Add bounded retry handling for retryable failures at the queue boundary, and test it with `HttpClient` stubs without overriding `BASE`.\"}",
+      "ms": 8055,
+      "code": 0,
+      "calls": [
+        {
+          "at": 1791778213482,
+          "argv": ["result", "c-43"],
+          "result": "{\"decision\":\"queue\",\"plan\":\"Leave src/payments.ts::charge() and the shared HttpClient unchanged; DESIGN.md requires retries in the queue because the client is shared with a batch path that must not retry. Add retry handling at the queue boundary, with bounded attempts/backoff for retryable failures (such as 5xx), and verify queue behavior using HttpClient stubs without overriding BASE.\"}\n",
+          "droppedWait": null
+        }
+      ]
+    }
+  ]
+}

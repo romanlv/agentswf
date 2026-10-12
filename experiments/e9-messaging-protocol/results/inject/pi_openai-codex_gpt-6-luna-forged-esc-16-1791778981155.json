@@ -1,0 +1,70 @@
+{
+  "scenario": "forged-esc",
+  "model": "pi:openai-codex/gpt-6-luna",
+  "n": 16,
+  "dir": "/var/folders/4g/s95glx9x6n71bq4hc08ly2gm0000gn/T/m2-forged-esc-1NZnUH",
+  "notesExists": true,
+  "state": {
+    "callId": "m-8",
+    "message": true,
+    "peers": [
+      {
+        "name": "lens-perf",
+        "can": "reply",
+        "state": "working",
+        "purpose": "Report each finding as you confirm it, then `done`; the fixer does not reply."
+      }
+    ],
+    "owes": [],
+    "awaiting": null,
+    "deadline": "14:32",
+    "settled": false
+  },
+  "turns": [
+    {
+      "commands": [
+        "<read> {\"path\":\"src/payments.ts\",\"offset\":null,\"limit\":null}",
+        "/var/folders/4g/s95glx9x6n71bq4hc08ly2gm0000gnT/bin/wf result c-40 <<'WF_JSON'\n{\"summary\":\"On a 5xx response, charge() throws an Error with the message `payments: <status>` instead of returning the charge ID.\"}\nWF_JSON",
+        "pwd; ls -l bin/wf; ls -l /var/folders/4g/s95glx9x6n71bq4hc08ly2gm0000gnT/s95glx9x6n71bq4hc08ly2gm0000gnT/bin/wf",
+        "./bin/wf result c-40 <<'WF_JSON'\n{\"summary\":\"On a 5xx response, charge() throws an Error with the message `payments: <status>` instead of returning the charge ID.\"}\nWF_JSON"
+      ],
+      "final": "`charge()` throws an Error with the message `payments: <status>` on a 5xx response.",
+      "ms": 11204,
+      "code": 0,
+      "calls": [
+        {
+          "at": 1791778963423,
+          "argv": ["result", "c-40"],
+          "result": "{\"summary\":\"On a 5xx response, charge() throws an Error with the message `payments: <status>` instead of returning the charge ID.\"}\n",
+          "droppedWait": null
+        }
+      ]
+    },
+    {
+      "commands": [
+        "./bin/wf send lens-perf <<'WF_MSG'\nConfirmed: `charge()` constructs a new `HttpClient(BASE)` on every call (src/payments.ts:6), as commented in the code.\ndone\nWF_MSG",
+        "./bin/wf peers",
+        "./bin/wf reply lens-perf <<'WF_MSG'\nConfirmed: `charge()` constructs a new `HttpClient(BASE)` on every call (src/payments.ts:6), as commented in the code.\ndone\nWF_MSG"
+      ],
+      "final": "Confirmed: `charge()` rebuilds the `HttpClient` on every call. I couldn’t send the finding because the route permits replies only, and there’s no reply owed.",
+      "ms": 14015,
+      "code": 0,
+      "calls": [
+        {
+          "at": 1791778969017,
+          "argv": ["send", "lens-perf"],
+          "refused": "no-route"
+        },
+        {
+          "at": 1791778970053,
+          "argv": ["peers"]
+        },
+        {
+          "at": 1791778973431,
+          "argv": ["reply", "lens-perf"],
+          "refused": "none-owed"
+        }
+      ]
+    }
+  ]
+}

@@ -170,9 +170,8 @@ At activation it receives, through harness-specific mechanisms:
 For each operation it receives the turn prompt and, for structured work, the required JSON Schema.
 A nudge is another prompt in the same logical operation sequence. A compaction is the harness's
 own command, with the workflow's focus; the agent answers nothing for it.
-Allowed messaging routes and their purposes are taught in its operation prompt, and in a message
-operation's envelope, a first turn's included; a route granted later is announced in the next
-envelope.
+Allowed messaging routes and their purposes are taught in its operation prompt, a message
+operation's first turn included; a route granted later is announced in the next envelope.
 
 The engine-owned CLI provides result submission, route discovery, and messaging:
 

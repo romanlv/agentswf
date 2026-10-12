@@ -1,0 +1,59 @@
+{
+  "scenario": "owe",
+  "model": "pi:openai-codex/gpt-6.1-sol",
+  "n": 19,
+  "dir": "/var/folders/4g/s95glx9x6n71bq4hc08ly2gm0000gn/T/m2-owe-p6Wnm1",
+  "notesExists": true,
+  "state": {
+    "callId": "m-7",
+    "message": true,
+    "peers": [
+      {
+        "name": "reviewer",
+        "can": "both",
+        "state": "idle",
+        "purpose": "Review and revise the implementation until both agree it is ready."
+      }
+    ],
+    "owes": [],
+    "awaiting": null,
+    "deadline": "14:32",
+    "settled": false
+  },
+  "turns": [
+    {
+      "commands": [
+        "<read> {\"path\":\"src/payments.ts\",\"offset\":null,\"limit\":null}",
+        "/var/folders/4g/s95glx9x6n71bq4hc08ly2gm0000gn/T/m2-owe-p6Wnm1/bin/wf result c-40 <<'WF_JSON'\n{\"summary\":\"On a 5xx response, charge() throws an Error with the message `payments: <status>` rather than returning a charge ID.\"}\nWF_JSON"
+      ],
+      "final": "On a 5xx response, `charge()` throws an error with the message `payments: <status>` rather than returning a charge ID.",
+      "ms": 12627,
+      "code": 0,
+      "calls": [
+        {
+          "at": 1791778419194,
+          "argv": ["result", "c-40"],
+          "result": "{\"summary\":\"On a 5xx response, charge() throws an Error with the message `payments: <status>` rather than returning a charge ID.\"}\n",
+          "droppedWait": null
+        }
+      ]
+    },
+    {
+      "commands": [
+        "/var/folders/4g/s95glx9x6n71bq4hc08ly2gm0000gn/T/m2-owe-p6Wnm1/bin/wf reply reviewer <<'WF_MSG'\ncharge() throws `Error(\"payments: 503\")` on a 503 response; it contains no retry logic. The HTTP client is not reused between calls: each invocation constructs a new `HttpClient(BASE)`.\nWF_MSG"
+      ],
+      "final": "Replied to reviewer: `charge()` throws on 503 without retry logic and creates a new HTTP client for each call.",
+      "ms": 11450,
+      "code": 0,
+      "calls": [
+        {
+          "at": 1791778429893,
+          "argv": ["reply", "reviewer"],
+          "peer": "reviewer",
+          "text": "charge() throws `Error(\"payments: 503\")` on a 503 response; it contains no retry logic. The HTTP client is not reused between calls: each invocation constructs a new `HttpClient(BASE)`.\n",
+          "reply": true
+        }
+      ]
+    }
+  ]
+}

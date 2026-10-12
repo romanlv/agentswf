@@ -1,0 +1,44 @@
+{
+  "scenario": "drop",
+  "model": "pi:openai-codex/gpt-6-luna",
+  "n": 16,
+  "dir": "/var/folders/4g/s95glx9x6n71bq4hc08ly2gm0000gn/T/m2-drop-YRljfu",
+  "notesExists": true,
+  "state": {
+    "callId": "c-43",
+    "message": false,
+    "peers": [
+      {
+        "name": "architect",
+        "can": "send",
+        "state": "idle",
+        "purpose": "Ask about the design when DESIGN.md does not settle it."
+      }
+    ],
+    "owes": [],
+    "awaiting": null,
+    "deadline": "14:32",
+    "settled": true
+  },
+  "turns": [
+    {
+      "commands": [
+        "<read> {\"path\":\"DESIGN.md\",\"offset\":1,\"limit\":null}",
+        "<read> {\"path\":\"src/payments.ts\",\"offset\":1,\"limit\":null}",
+        "ls -R src test* 2>/dev/null | head -100; rg \"charge\\(|retry|queue\" src test* 2>/dev/null",
+        "./bin/wf result c-43 <<'WF_JSON'\n{\"decision\":\"queue\",\"plan\":\"Implement retry policy in the queue, not charge(): DESIGN.md says the client is shared with the batch path, which must not retry. Keep charge() as a single-attempt operation and wire queue retries around its invocation; avoid retrying batch calls. Add tests for queue retry/success and exhausted attempts, stubbing HttpClient as required by DESIGN.md and never overriding BASE.\"}\nWF_JSON"
+      ],
+      "final": "Plan submitted: retries belong in the queue, while `charge()` remains a single-attempt operation.",
+      "ms": 10625,
+      "code": 0,
+      "calls": [
+        {
+          "at": 1791778224094,
+          "argv": ["result", "c-43"],
+          "result": "{\"decision\":\"queue\",\"plan\":\"Implement retry policy in the queue, not charge(): DESIGN.md says the client is shared with the batch path, which must not retry. Keep charge() as a single-attempt operation and wire queue retries around its invocation; avoid retrying batch calls. Add tests for queue retry/success and exhausted attempts, stubbing HttpClient as required by DESIGN.md and never overriding BASE.\"}\n",
+          "droppedWait": null
+        }
+      ]
+    }
+  ]
+}

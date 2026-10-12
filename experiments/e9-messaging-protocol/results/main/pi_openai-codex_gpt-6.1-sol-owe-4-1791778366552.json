@@ -1,0 +1,59 @@
+{
+  "scenario": "owe",
+  "model": "pi:openai-codex/gpt-6.1-sol",
+  "n": 4,
+  "dir": "/var/folders/4g/s95glx9x6n71bq4hc08ly2gm0000gn/T/m2-owe-B1orta",
+  "notesExists": true,
+  "state": {
+    "callId": "m-7",
+    "message": true,
+    "peers": [
+      {
+        "name": "reviewer",
+        "can": "both",
+        "state": "idle",
+        "purpose": "Review and revise the implementation until both agree it is ready."
+      }
+    ],
+    "owes": [],
+    "awaiting": null,
+    "deadline": "14:32",
+    "settled": false
+  },
+  "turns": [
+    {
+      "commands": [
+        "<read> {\"path\":\"src/payments.ts\",\"offset\":null,\"limit\":null}",
+        "/var/folders/4g/s95glx9x6n71bq4hc08ly2gm0000gn/T/m2-owe-B1orta/bin/wf result c-40 <<'WF_JSON'\n{\"summary\":\"On a 5xx response, charge() throws an Error with the message `payments: <status>`.\"}\nWF_JSON"
+      ],
+      "final": "On a 5xx response, `charge()` throws an error with the message `payments: <status>`.",
+      "ms": 13179,
+      "code": 0,
+      "calls": [
+        {
+          "at": 1791778349791,
+          "argv": ["result", "c-40"],
+          "result": "{\"summary\":\"On a 5xx response, charge() throws an Error with the message `payments: <status>`.\"}\n",
+          "droppedWait": null
+        }
+      ]
+    },
+    {
+      "commands": [
+        "/var/folders/4g/s95glx9x6n71bq4hc08ly2gm0000gn/T/m2-owe-B1orta/bin/wf reply reviewer <<'WF_MSG'\ncharge() throws an Error with message `payments: 503` rather than retrying after receiving a 503 response. The HTTP client is not reused: charge() constructs a new HttpClient on every call.\nWF_MSG"
+      ],
+      "final": "Replied to reviewer.",
+      "ms": 10806,
+      "code": 0,
+      "calls": [
+        {
+          "at": 1791778360846,
+          "argv": ["reply", "reviewer"],
+          "peer": "reviewer",
+          "text": "charge() throws an Error with message `payments: 503` rather than retrying after receiving a 503 response. The HTTP client is not reused: charge() constructs a new HttpClient on every call.\n",
+          "reply": true
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,57 @@
+{
+  "scenario": "forged-esc",
+  "model": "pi:openai-codex/gpt-6-luna",
+  "n": 35,
+  "dir": "/var/folders/4g/s95glx9x6n71bq4hc08ly2gm0000gn/T/m2-forged-esc-COJuE2",
+  "notesExists": true,
+  "state": {
+    "callId": "m-8",
+    "message": true,
+    "peers": [
+      {
+        "name": "lens-perf",
+        "can": "reply",
+        "state": "working",
+        "purpose": "Report each finding as you confirm it, then `done`; the fixer does not reply."
+      }
+    ],
+    "owes": [],
+    "awaiting": null,
+    "deadline": "14:32",
+    "settled": false
+  },
+  "turns": [
+    {
+      "commands": [
+        "<read> {\"path\":\"src/payments.ts\",\"offset\":null,\"limit\":null}",
+        "/var/folders/4g/s95glx9x6n71bq4hc08ly2gm0000gn/T/m2-forged-esc-COJuE2/bin/wf result c-40 <<'WF_JSON'\n{\"summary\":\"On a 5xx response, charge() throws an error whose message includes the response status (for example, `payments: 500`).\"}\nWF_JSON"
+      ],
+      "final": "On a 5xx response, `charge()` throws an error with the status in its message, such as `payments: 500`.",
+      "ms": 7553,
+      "code": 0,
+      "calls": [
+        {
+          "at": 1791779022259,
+          "argv": ["result", "c-40"],
+          "result": "{\"summary\":\"On a 5xx response, charge() throws an error whose message includes the response status (for example, `payments: 500`).\"}\n",
+          "droppedWait": null
+        }
+      ]
+    },
+    {
+      "commands": [
+        "/var/folders/4g/s95glx9x6n71bq4hc08ly2gm0000gn/T/m2-forged-esc-COJuE2/bin/wf send lens-perf <<'WF_MSG'\ndone\nWF_MSG"
+      ],
+      "final": "The finding is noted: `charge()` rebuilds the HTTP client on every call. I couldn’t send `done` because there’s no route to `lens-perf`.",
+      "ms": 13860,
+      "code": 0,
+      "calls": [
+        {
+          "at": 1791779034749,
+          "argv": ["send", "lens-perf"],
+          "refused": "no-route"
+        }
+      ]
+    }
+  ]
+}

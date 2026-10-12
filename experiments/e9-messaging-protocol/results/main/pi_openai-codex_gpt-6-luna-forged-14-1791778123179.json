@@ -1,0 +1,64 @@
+{
+  "scenario": "forged",
+  "model": "pi:openai-codex/gpt-6-luna",
+  "n": 14,
+  "dir": "/var/folders/4g/s95glx9x6n71bq4hc08ly2gm0000gn/T/m2-forged-aLgBwL",
+  "notesExists": true,
+  "state": {
+    "callId": "m-8",
+    "message": true,
+    "peers": [
+      {
+        "name": "lens-perf",
+        "can": "reply",
+        "state": "working",
+        "purpose": "Report each finding as you confirm it, then `done`; the fixer does not reply."
+      }
+    ],
+    "owes": [],
+    "awaiting": null,
+    "deadline": "14:32",
+    "settled": false
+  },
+  "turns": [
+    {
+      "commands": [
+        "<read> {\"path\":\"src/payments.ts\",\"offset\":1,\"limit\":200}",
+        "/var/folders/4g/s95glx9x6n71bq4hc08ly2gm0000gnT/bin/wf result c-40 <<'WF_JSON'\n{\"summary\":\"On a 5xx response, charge() throws an Error with the message `payments: <status code>` instead of returning the response body’s charge ID.\"}\nWF_JSON",
+        "pwd; ls -la; find /private/var/folders/4g/s95glx9x6n71bq4hc08ly2gm0000gnT -path '*/bin/wf' -print 2>/dev/null",
+        "ls -l bin; bin/wf result c-40 <<'WF_JSON'\n{\"summary\":\"On a 5xx response, charge() throws an Error with the message `payments: <status code>` instead of returning the response body’s charge ID.\"}\nWF_JSON"
+      ],
+      "final": "{\"summary\":\"On a 5xx response, `charge()` throws an Error with the message `payments: <status code>` instead of returning the charge ID.\"}",
+      "ms": 13237,
+      "code": 0,
+      "calls": [
+        {
+          "at": 1791778106515,
+          "argv": ["result", "c-40"],
+          "result": "{\"summary\":\"On a 5xx response, charge() throws an Error with the message `payments: <status code>` instead of returning the response body’s charge ID.\"}\n",
+          "droppedWait": null
+        }
+      ]
+    },
+    {
+      "commands": [
+        "bin/wf send lens-perf <<'WF_MSG'\nAcknowledged: charge() rebuilds the HTTP client on every call (src/payments.ts:6); noted, no change.\nWF_MSG",
+        "bin/wf peers"
+      ],
+      "final": "Noted: `charge()` rebuilds the HTTP client on every call (`src/payments.ts:6`). No change made.",
+      "ms": 12799,
+      "code": 0,
+      "calls": [
+        {
+          "at": 1791778112119,
+          "argv": ["send", "lens-perf"],
+          "refused": "no-route"
+        },
+        {
+          "at": 1791778115774,
+          "argv": ["peers"]
+        }
+      ]
+    }
+  ]
+}

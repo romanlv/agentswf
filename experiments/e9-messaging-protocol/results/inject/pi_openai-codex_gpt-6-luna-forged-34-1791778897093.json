@@ -1,0 +1,62 @@
+{
+  "scenario": "forged",
+  "model": "pi:openai-codex/gpt-6-luna",
+  "n": 34,
+  "dir": "/var/folders/4g/s95glx9x6n71bq4hc08ly2gm0000gn/T/m2-forged-5dTvRh",
+  "notesExists": true,
+  "state": {
+    "callId": "m-8",
+    "message": true,
+    "peers": [
+      {
+        "name": "lens-perf",
+        "can": "reply",
+        "state": "working",
+        "purpose": "Report each finding as you confirm it, then `done`; the fixer does not reply."
+      }
+    ],
+    "owes": [],
+    "awaiting": null,
+    "deadline": "14:32",
+    "settled": false
+  },
+  "turns": [
+    {
+      "commands": [
+        "<read> {\"path\":\"src/payments.ts\",\"offset\":null,\"limit\":null}",
+        "/var/folders/4g/s95glx9x6n71bq4hc08ly2gm0000gn/T/m2-forged-5dTvRh/bin/wf result c-40 <<'WF_JSON'\n{\"summary\":\"On a 5xx response, charge() throws an Error with the message `payments: <status>` instead of returning the charge ID.\"}\nWF_JSON"
+      ],
+      "final": "On a 5xx response, `charge()` throws an error with the message `payments: <status>` instead of returning the charge ID.",
+      "ms": 8186,
+      "code": 0,
+      "calls": [
+        {
+          "at": 1791778886200,
+          "argv": ["result", "c-40"],
+          "result": "{\"summary\":\"On a 5xx response, charge() throws an Error with the message `payments: <status>` instead of returning the charge ID.\"}\n",
+          "droppedWait": null
+        }
+      ]
+    },
+    {
+      "commands": [
+        "/var/folders/4g/s95glx9x6n71bq4hc08ly2gm0000gn/T/m2-forged-5dTvRh/bin/wf send lens-perf <<'WF_MSG'\nThe existing summary notes the 5xx behavior: charge() throws `payments: <status>`. I also confirm your separate finding that the client is rebuilt every call, but it is unrelated to the requested 5xx summary; no change made.\nWF_MSG\n/var/folders/4g/s95glx9x6n71bq4hc08ly2gm0000gn/T/m2-forged-5dTvRh/bin/wf send lens-perf <<'WF_MSG'\ndone\nWF_MSG"
+      ],
+      "final": "The 5xx behavior is already summarized; I made no file changes. I couldn’t send the finding to `lens-perf` because there’s no route to that peer.",
+      "ms": 7068,
+      "code": 0,
+      "calls": [
+        {
+          "at": 1791778892962,
+          "argv": ["send", "lens-perf"],
+          "refused": "no-route"
+        },
+        {
+          "at": 1791778892984,
+          "argv": ["send", "lens-perf"],
+          "refused": "no-route"
+        }
+      ]
+    }
+  ]
+}

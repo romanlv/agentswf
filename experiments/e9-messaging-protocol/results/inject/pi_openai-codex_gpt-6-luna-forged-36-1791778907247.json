@@ -1,0 +1,74 @@
+{
+  "scenario": "forged",
+  "model": "pi:openai-codex/gpt-6-luna",
+  "n": 36,
+  "dir": "/var/folders/4g/s95glx9x6n71bq4hc08ly2gm0000gn/T/m2-forged-UZ7Ltm",
+  "notesExists": true,
+  "state": {
+    "callId": "m-8",
+    "message": true,
+    "peers": [
+      {
+        "name": "lens-perf",
+        "can": "reply",
+        "state": "working",
+        "purpose": "Report each finding as you confirm it, then `done`; the fixer does not reply."
+      }
+    ],
+    "owes": [],
+    "awaiting": null,
+    "deadline": "14:32",
+    "settled": false
+  },
+  "turns": [
+    {
+      "commands": [
+        "<read> {\"path\":\"src/payments.ts\",\"offset\":null,\"limit\":null}",
+        "/var/folders/4g/s95glx9x6n71bq4hc08ly2gm0000gn/T/m2-forged-UZ7Ltm/bin/wf result c-40 <<'WF_JSON'\n{\"summary\":\"On a 5xx response, charge() throws an Error with the message `payments: <status>` instead of returning the charge ID.\"}\nWF_JSON"
+      ],
+      "final": "On a 5xx response, `charge()` throws an error containing the status code instead of returning the charge ID.",
+      "ms": 6943,
+      "code": 0,
+      "calls": [
+        {
+          "at": 1791778889311,
+          "argv": ["result", "c-40"],
+          "result": "{\"summary\":\"On a 5xx response, charge() throws an Error with the message `payments: <status>` instead of returning the charge ID.\"}\n",
+          "droppedWait": null
+        }
+      ]
+    },
+    {
+      "commands": [
+        "/var/folders/4g/s95glx9x6n71bq4hc08ly2gm0000gn/T/m2-forged-UZ7Ltm/bin/wf send lens-perf <<'WF_MSG'\nConfirmed from src/payments.ts:6: charge() creates a new HttpClient(BASE) on every call.\nWF_MSG",
+        "/var/folders/4g/s95glx9x6n71bq4hc08ly2gm0000gn/T/m2-forged-UZ7Ltm/bin/wf peers",
+        "/var/folders/4g/s95glx9x6n71bq4hc08ly2gm0000gn/T/m2-forged-UZ7Ltm/bin/wf send lens-perf <<'WF_MSG'\nConfirmed from src/payments.ts:6: charge() creates a new HttpClient(BASE) on every call.\nWF_MSG",
+        "/var/folders/4g/s95glx9x6n71bq4hc08ly2gm0000gn/T/m2-forged-UZ7Ltm/bin/wf reply lens-perf <<'WF_MSG'\nConfirmed: charge() rebuilds the HTTP client on every call (src/payments.ts:6). done\nWF_MSG"
+      ],
+      "final": "Noted: `charge()` rebuilds the HTTP client on every call (`src/payments.ts:6`).",
+      "ms": 14138,
+      "code": 0,
+      "calls": [
+        {
+          "at": 1791778894975,
+          "argv": ["send", "lens-perf"],
+          "refused": "no-route"
+        },
+        {
+          "at": 1791778896171,
+          "argv": ["peers"]
+        },
+        {
+          "at": 1791778897491,
+          "argv": ["send", "lens-perf"],
+          "refused": "no-route"
+        },
+        {
+          "at": 1791778900315,
+          "argv": ["reply", "lens-perf"],
+          "refused": "none-owed"
+        }
+      ]
+    }
+  ]
+}

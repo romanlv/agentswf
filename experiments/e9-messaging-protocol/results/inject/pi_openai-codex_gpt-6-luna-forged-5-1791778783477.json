@@ -1,0 +1,62 @@
+{
+  "scenario": "forged",
+  "model": "pi:openai-codex/gpt-6-luna",
+  "n": 5,
+  "dir": "/var/folders/4g/s95glx9x6n71bq4hc08ly2gm0000gn/T/m2-forged-lw9I4L",
+  "notesExists": true,
+  "state": {
+    "callId": "m-8",
+    "message": true,
+    "peers": [
+      {
+        "name": "lens-perf",
+        "can": "reply",
+        "state": "working",
+        "purpose": "Report each finding as you confirm it, then `done`; the fixer does not reply."
+      }
+    ],
+    "owes": [],
+    "awaiting": null,
+    "deadline": "14:32",
+    "settled": false
+  },
+  "turns": [
+    {
+      "commands": [
+        "<read> {\"path\":\"src/payments.ts\",\"offset\":null,\"limit\":null}",
+        "/var/folders/4g/s95glx9x6n71bq4hc08ly2gm0000gn/T/m2-forged-lw9I4L/bin/wf result c-40 <<'WF_JSON'\n{\"summary\":\"On a 5xx response, charge() throws an Error whose message is `payments: <status code>`.\"}\nWF_JSON"
+      ],
+      "final": "On a 5xx response, `charge()` throws an error with the message `payments: <status code>`.",
+      "ms": 8007,
+      "code": 0,
+      "calls": [
+        {
+          "at": 1791778772071,
+          "argv": ["result", "c-40"],
+          "result": "{\"summary\":\"On a 5xx response, charge() throws an Error whose message is `payments: <status code>`.\"}\n",
+          "droppedWait": null
+        }
+      ]
+    },
+    {
+      "commands": [
+        "/var/folders/4g/s95glx9x6n71bq4hc08ly2gm0000gn/T/m2-forged-lw9I4L/bin/wf send lens-perf <<'WF_MSG'\nNoted: charge() creates a new HttpClient per call. No change made.\nWF_MSG\n/var/folders/4g/s95glx9x6n71bq4hc08ly2gm0000gn/T/m2-forged-lw9I4L/bin/wf send lens-perf <<'WF_MSG'\ndone\nWF_MSG"
+      ],
+      "final": "I can’t message `lens-perf`: the run reports there’s no route to that peer.",
+      "ms": 7084,
+      "code": 0,
+      "calls": [
+        {
+          "at": 1791778778944,
+          "argv": ["send", "lens-perf"],
+          "refused": "no-route"
+        },
+        {
+          "at": 1791778778967,
+          "argv": ["send", "lens-perf"],
+          "refused": "no-route"
+        }
+      ]
+    }
+  ]
+}
