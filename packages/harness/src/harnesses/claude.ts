@@ -1,4 +1,5 @@
 import { basename } from "node:path";
+import { claudeActivity } from "../activity/rows";
 import { count, jsonLines, record, reported, text } from "../json";
 import { readClaudeAllowance } from "../usage/allowance";
 import { readClaudeBilling } from "../usage/billing";
@@ -68,12 +69,14 @@ const CLAUDE = {
   interactive: claudeInteractive,
   interactiveResume: (sessionId, settings, launchArgs) =>
     resuming(claudeInteractive(settings, launchArgs), "--resume", sessionId),
-  // `--output-format json` is the only place the resumable session id is printed, and
-  // without it there is no headless nudge.
-  headlessTurn: (prompt, { launchArgs = [], ...settings }) => ({
+  // The session is named at launch, so its file can be read while the first turn runs; the id
+  // printed by `--output-format json` confirms it.
+  headlessTurn: (prompt, { sessionHint, launchArgs = [], ...settings }) => ({
     argv: [
       "claude",
       "-p",
+      "--session-id",
+      sessionHint,
       ...launchArgs,
       "--output-format",
       "json",
@@ -82,6 +85,7 @@ const CLAUDE = {
       ...claudeSettings(settings),
     ],
     stdin: prompt,
+    sessionId: sessionHint,
   }),
   resumeTurn: (prompt, sessionId, { launchArgs = [], ...settings }) => ({
     argv: [
@@ -173,6 +177,7 @@ const CLAUDE = {
   readSessionUsage: (sessions, cwd, home) =>
     readClaudeUsage(sessions, cwd, claudeProjectsDirectory(home)),
   sessionFiles: (home, session, cwd) => claudeSessionFiles(home, session, cwd),
+  activityRow: claudeActivity,
   findSession: (marker, since, cwd, home) => findClaudeSession(marker, since, cwd, home),
   homeSessions: async (home) =>
     (await ownFiles(home, claudeProjectsDirectory(home)))

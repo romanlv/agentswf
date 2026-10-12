@@ -1,5 +1,6 @@
 import { afterAll, describe, expect, test } from "bun:test";
 import {
+  appendFileSync,
   existsSync,
   mkdirSync,
   readdirSync,
@@ -19,7 +20,7 @@ import { decideEnding, runOutcome } from "../packages/engine/src/attempt-ending"
 import { WorkflowCancelledError } from "../packages/engine/src/deadlines";
 import { createFakeDecisionProvider } from "../packages/engine/src/decisions/fake";
 import { runOperatorCli } from "../packages/engine/src/operator-cli";
-import { processStart } from "../packages/engine/src/runs";
+import { processStart, readEvents } from "../packages/engine/src/runs";
 import { WorkflowStopped } from "../packages/engine/src/stopped";
 import { createTempRunDirs, submit } from "../packages/engine/src/testing";
 import { WorkflowRunError } from "../packages/engine/src/workflow-runner";
@@ -1285,6 +1286,29 @@ describe("awf run's runs and attempts", () => {
     expect(continued.stderr).toContain(
       'awf: attempt 1 of r1 was interrupted in qa; its panes may still be open in Herdr workspace "awf fixture r1 #1"',
     );
+  });
+
+  test("each attempt opens and closes in the run's event log, which the continue does not read", async () => {
+    const cwd = await project();
+    await Bun.write(join(cwd, "fail"), "");
+    await awfRun(cwd, ["--id", "r1", "flow.js"]);
+    const dir = join(runs(cwd), "r1");
+    // A line the stage files contradict, and a torn last line: the continue goes by the files.
+    appendFileSync(
+      join(dir, "turns.jsonl"),
+      `${JSON.stringify({ version: 1, attempt: 1, at: "", kind: "stage-ended", stage: "qa", outcome: "succeeded" })}\n{"version":1,"att`,
+    );
+    rmSync(join(cwd, "fail"));
+    expect((await awfRun(cwd, ["flow.js", "--continue", "r1"])).exitCode).toBe(0);
+    const lines = (await readEvents(dir)).filter((line) => line.kind.startsWith("attempt-"));
+    expect(lines.map(({ kind, attempt }) => [kind, attempt])).toEqual([
+      ["attempt-started", 1],
+      ["attempt-ended", 1],
+      ["attempt-started", 2],
+      ["attempt-ended", 2],
+    ]);
+    expect(lines[1]).toMatchObject({ outcome: "failed" });
+    expect(lines[3]).toMatchObject({ outcome: "completed" });
   });
 
   test("a live attempt refuses a continue", async () => {

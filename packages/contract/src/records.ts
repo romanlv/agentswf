@@ -4,6 +4,7 @@ import type {
   AgentKey,
   HarnessKind,
   KeepPane,
+  NativeSessionRef,
   OperationRecord,
   PaneLayout,
   PaneWorkspace,
@@ -393,7 +394,137 @@ export type TurnRecord = {
   attempt: number;
   kind: "turn" | "compact";
   outcome: TurnOutcome<JsonValue>["kind"];
+  /** Absent on lines an earlier awf wrote. */
+  callPath?: string[];
 } & Pick<OperationRecord, (typeof TURN_OPERATION_FIELDS)[number]>;
+
+/** An operation's fields on its start or failure: a turn line's, but its settling. */
+type OperationEvent = { of: TurnRecord["kind"]; callPath: string[] } & Pick<
+  OperationRecord,
+  Exclude<(typeof TURN_OPERATION_FIELDS)[number], "settledAt">
+>;
+
+/**
+ * Every line of the run's event log but a settled turn's. Keyed, never given an id: a span's start
+ * and end carry the same keys (attempt, stage, `operationId`, decision), and the tree is read off
+ * them. Observation only: `--continue` never reads it (ADR 0011).
+ */
+export type RunEvent = {
+  /** Its kind's, from `RUN_EVENT_VERSIONS`. */
+  version: number;
+  attempt: number;
+  at: string;
+} & (
+  | { kind: "attempt-started" }
+  | { kind: "attempt-ended"; outcome: AttemptOutcome }
+  | { kind: "stage-started"; stage: string }
+  /** A stage not run in this attempt, its value reused or given, writes only its end. */
+  | { kind: "stage-ended"; stage: string; outcome: StageOutcome; source?: "reused" | "provided" }
+  /** Written at delivery; its `sessions` name the native session when it is known by then. */
+  | ({ kind: "operation-started" } & OperationEvent)
+  /** May have no start: an operation can fail before it is delivered. */
+  | ({ kind: "operation-failed"; error: string } & OperationEvent)
+  | {
+      kind: "session-known";
+      session: NativeSessionRef;
+      /** A headless turn whose harness named its session while it ran. */
+      operationId?: string;
+      /** A fork, once its session exists. */
+      agent?: AgentKey;
+    }
+  | {
+      kind: "agent-opened";
+      agent: AgentKey;
+      callPath: string[];
+      harness: HarnessKind;
+      /** Where it runs, a sandbox's when in one: its native files are found by it. */
+      cwd: string;
+      /** A sandboxed agent's own harness home; absent for the operator's. */
+      home?: string;
+      /** The calling session (ADR 0010). */
+      caller?: true;
+    }
+  | { kind: "agent-stopped"; agent: AgentKey; callPath: string[]; harness: HarnessKind }
+  | {
+      kind: "agent-forked";
+      agent: AgentKey;
+      /** The agent it was copied from; null for a calling session the run never opened. */
+      from: AgentKey | null;
+      /** The parent's operation it was copied after; null when the parent ran nothing in this run. */
+      after: string | null;
+    }
+  | { kind: "log" | "warning"; text: string; fields?: JsonObject; stage?: string }
+  /** `decision` numbers it in the order asked within the attempt. */
+  | ({ kind: "decision-asked"; decision: number } & Pick<
+      DecisionRecord,
+      "stage" | "key" | "alias" | "provider" | "model"
+    >)
+  | ({ kind: "decision-ended"; decision: number } & Pick<
+      DecisionRecord,
+      "stage" | "outcome" | "error"
+    >)
+);
+
+/**
+ * What an agent did, read from its native session files when asked and never copied into the run.
+ * A message is its length only, and a tool its name and a short argument, cut and with common
+ * credential shapes masked: the native files hold the rest.
+ */
+export type Activity =
+  | { type: "message"; from: "agent" | "user"; chars: number }
+  | {
+      type: "tool";
+      tool: string;
+      input?: string;
+      /** Pairs it with its result. */
+      call?: string;
+      /** It goes on running after the call returns. */
+      background?: true;
+    }
+  /** `exit` only where the harness logs one as data: codex's shell calls; claude logs none. */
+  | { type: "tool-result"; call?: string; error?: true; exit?: number }
+  /** A task started in the background said it ended: claude's task notification. */
+  | { type: "background-ended" }
+  | { type: "compaction" };
+
+/** A line of `turns.jsonl`, the run's event log. */
+export type RunLogLine = TurnRecord | RunEvent;
+
+/** Each kind's own version, which changes when that kind's shape does. */
+export const RUN_EVENT_VERSIONS = {
+  "attempt-started": 1,
+  "attempt-ended": 1,
+  "stage-started": 1,
+  "stage-ended": 1,
+  "operation-started": 1,
+  "operation-failed": 1,
+  "session-known": 1,
+  "agent-opened": 1,
+  "agent-stopped": 1,
+  "agent-forked": 1,
+  log: 1,
+  warning: 1,
+  "decision-asked": 1,
+  "decision-ended": 1,
+} as const satisfies Record<RunEvent["kind"], number>;
+
+/**
+ * The line as this reader knows it, or undefined for a kind or version it does not know, which
+ * every reader skips so that a later awf can add kinds.
+ */
+export function runLogLine(value: object): RunLogLine | undefined {
+  const { kind, version, attempt } = value as Record<string, unknown>;
+  if (typeof attempt !== "number") return undefined;
+  // The first turn lines, written for a day before turns had a kind, were all turns.
+  if (kind === "turn" || kind === "compact" || kind === undefined) {
+    return version === TURN_RECORD_VERSION ? ({ kind: "turn", ...value } as TurnRecord) : undefined;
+  }
+  if (typeof kind !== "string") return undefined;
+  return Object.hasOwn(RUN_EVENT_VERSIONS, kind) &&
+    version === RUN_EVENT_VERSIONS[kind as RunEvent["kind"]]
+    ? (value as RunEvent)
+    : undefined;
+}
 
 export const OUTPUT_RECORD_VERSION = 5 as const;
 

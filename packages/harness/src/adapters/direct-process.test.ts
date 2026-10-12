@@ -61,7 +61,8 @@ describe("createHeadlessAdapter", () => {
     run: RunProcess,
     config: Partial<DirectProcessConfig> = {},
     request: typeof activation = activation,
-  ) => createHeadlessAdapter(config, run).activate(request);
+    // claude is told its first session's id, which it then prints: `claudeOut`'s by default.
+  ) => createHeadlessAdapter({ newSessionId: () => "sess-1", ...config }, run).activate(request);
 
   test("an admitted headless answer hands its process the release deadline", async () => {
     let spawned!: () => void;
@@ -166,7 +167,7 @@ describe("createHeadlessAdapter", () => {
 
   test("a nudge resumes the native session in a fresh process environment", async () => {
     const { run, calls } = stub([claudeOut("first"), claudeOut("second")]);
-    const session = await headless(run, { newSessionId: () => "chosen" });
+    const session = await headless(run);
     const first = await session.start(turnSpec, firstBinding);
     await expect(first.settled).resolves.toMatchObject({
       state: "completed",
@@ -439,7 +440,7 @@ describe("createHeadlessAdapter", () => {
 
     test("claude resumes with /compact and its focus, and answers with the summary it wrote", async () => {
       const { run, calls } = stub([claudeOut("first"), claudeCompacted("the path is 14 m")]);
-      const session = await headless(run, { newSessionId: () => "chosen" });
+      const session = await headless(run);
       await (await session.start(turnSpec, firstBinding)).settled;
       const compact = await session.compact("c-1", "Keep the path.", activation.deadline);
 
@@ -568,6 +569,68 @@ describe("createHeadlessAdapter", () => {
       });
       expect(calls).toHaveLength(1);
     });
+  });
+
+  test("a first claude turn runs in the session it is told, named before it runs", async () => {
+    const seen: string[] = [];
+    let named: string[] = [];
+    const { run, calls } = stub([claudeOut("first")]);
+    const session = await headless(async (input) => {
+      named = [...seen];
+      return run(input);
+    });
+    const onSession = (id: string) => seen.push(id);
+    await (await session.start({ ...turnSpec, onSession }, firstBinding)).settled;
+    expect(calls[0]?.argv[calls[0].argv.indexOf("--session-id") + 1]).toBe("sess-1");
+    expect(named).toEqual(["sess-1"]);
+    expect(session.sessions?.()).toEqual(["sess-1"]);
+  });
+
+  test("a first claude turn that never ran, or was stopped before claude named it, leaves no session", async () => {
+    for (const ended of [
+      { stdout: "", stderr: "bad flag", exitCode: 2, timedOut: false },
+      { stdout: "", stderr: "", exitCode: 143, timedOut: false, cancelled: true },
+      { stdout: "", stderr: "", exitCode: 143, timedOut: true },
+    ]) {
+      const session = await headless(async () => ended);
+      const turn = await session.start({ ...turnSpec, onSession: () => {} }, firstBinding);
+      await turn.settled;
+      expect(session.sessions?.()).toEqual([]);
+    }
+  });
+
+  test("a first codex turn names its session as its output streams, before it exits", async () => {
+    const seen: string[] = [];
+    let exited = false;
+    const session = await headless(
+      (input) =>
+        runProcess({
+          ...input,
+          argv: [
+            process.execPath,
+            "-e",
+            `console.log(JSON.stringify({ type: "thread.started", thread_id: "thread-9" })); await Bun.sleep(200);`,
+          ],
+        }).finally(() => {
+          exited = true;
+        }),
+      {},
+      {
+        ...activation,
+        cwd: tmpdir(),
+        execution: { harness: "codex", model: "m", placement: "headless" },
+      },
+    );
+    const named = Promise.withResolvers<boolean>();
+    const onSession = (id: string) => {
+      seen.push(id);
+      named.resolve(exited);
+    };
+    const turn = await session.start({ ...turnSpec, onSession }, firstBinding);
+    expect(await named.promise).toBe(false);
+    await turn.settled;
+    expect(seen).toEqual(["thread-9"]);
+    expect(session.sessions?.()).toEqual(["thread-9"]);
   });
 
   test("the prompt rides on stdin, where no CLI reinterprets it", async () => {
@@ -716,7 +779,8 @@ describe("createHeadlessAdapter", () => {
 
     test("claude forks with /cost into the id it is given, asking the model nothing", async () => {
       const { run, calls } = stub([claudeOut("first"), forked("fork-1")]);
-      const session = await headless(run, { newSessionId: () => "fork-1" });
+      const ids = ["sess-1", "fork-1"];
+      const session = await headless(run, { newSessionId: () => ids.shift()! });
       await (await session.start(turnSpec, firstBinding)).settled;
       const fork = await session.fork!(activation.deadline);
 
@@ -837,7 +901,8 @@ describe("createHeadlessAdapter", () => {
         [forked("sess-1"), "claude wrote no fork"],
       ] as const) {
         const { run } = stub([claudeOut("first"), stdout]);
-        const session = await headless(run, { newSessionId: () => "fork-1" });
+        const ids = ["sess-1", "fork-1"];
+        const session = await headless(run, { newSessionId: () => ids.shift()! });
         await (await session.start(turnSpec, firstBinding)).settled;
         await expect(session.fork!(activation.deadline)).rejects.toThrow(error);
       }
@@ -1174,7 +1239,12 @@ describe("createHeadlessAdapter", () => {
 
   test("a turn that reports no session is not resumed under an id the harness never saw", async () => {
     const { run, calls } = stub(["no session id anywhere in this output"]);
-    const session = await headless(run, { newSessionId: () => "invented" });
+    // codex names its session only in its output; claude and pi are told theirs.
+    const session = await headless(
+      run,
+      { newSessionId: () => "invented" },
+      { ...activation, execution: { harness: "codex", model: "m", placement: "headless" } },
+    );
     const turn = await session.start(turnSpec, firstBinding);
     await turn.settled;
     const nudge = await turn.nudge(nudgeSpec);

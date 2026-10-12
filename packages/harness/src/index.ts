@@ -1,3 +1,4 @@
+export { type ActivityRead, type ActivityRow, readActivity } from "./activity/read";
 export type { DirectProcessConfig } from "./adapters/direct-process";
 export { createHeadlessRunHostFactory } from "./adapters/direct-process";
 export { callingSession, findSession } from "./adapters/fork";

@@ -7,7 +7,9 @@ import {
   type CallSpec,
   type Candidate,
   RUN_RECORD_VERSION,
+  type RunLogLine,
   type RunRecord,
+  runLogLine,
   STAGE_RECORD_VERSION,
   type StageRecord,
   type TurnRecord,
@@ -400,19 +402,53 @@ export async function replaceRecord(runDir: string, stage: string): Promise<void
   await rename(file, join(replaced, `${stage}.${record.attempt}.json`));
 }
 
-/** Appends a settled turn to the run's `turns.jsonl`, which only the live attempt writes. */
-export async function appendTurn(runDir: string, record: TurnRecord): Promise<void> {
-  await appendLine(turnsFile(runDir), JSON.stringify(record));
+/** Appends a line to the run's event log, `turns.jsonl`, which only the live attempt writes. */
+export async function appendEvent(runDir: string, line: RunLogLine): Promise<void> {
+  await appendLine(turnsFile(runDir), JSON.stringify(line));
 }
 
-/** Ends a line a crash left torn, so the next turn appended starts a line of its own. */
+/** Ends a line a crash left torn, so the next line appended starts a line of its own. */
 export async function endTurnsLine(runDir: string): Promise<void> {
   await endTornLine(turnsFile(runDir));
 }
 
-/** Every turn of the run, in the order they settled, less a line a crash tore. */
+/** The run's event log in the order written, less a line a crash tore and the kinds this awf does not know. */
+export async function readEvents(runDir: string): Promise<RunLogLine[]> {
+  return (await readNumberedEvents(runDir)).map(({ line }) => line);
+}
+
+/**
+ * The same, each with its line number in the file, from 1: its position, which never changes, as
+ * lines are only appended. Only lines after `after` are parsed.
+ */
+export async function readNumberedEvents(
+  runDir: string,
+  after = 0,
+): Promise<{ number: number; line: RunLogLine }[]> {
+  const text = await readFile(turnsFile(runDir), "utf8").catch((error) => {
+    if (isCode(error, "ENOENT")) return "";
+    throw error;
+  });
+  const lines = text.split("\n");
+  // A last line not yet ended is still being written.
+  lines.pop();
+  return lines.flatMap((json, index) => {
+    if (index < after) return [];
+    try {
+      const value: unknown = JSON.parse(json);
+      const line = typeof value === "object" && value !== null ? runLogLine(value) : undefined;
+      return line ? [{ number: index + 1, line }] : [];
+    } catch {
+      return [];
+    }
+  });
+}
+
+/** Every turn of the run, in the order they settled. */
 export async function readTurns(runDir: string): Promise<TurnRecord[]> {
-  return readLines<TurnRecord>(turnsFile(runDir));
+  return (await readEvents(runDir)).filter(
+    (line): line is TurnRecord => line.kind === "turn" || line.kind === "compact",
+  );
 }
 
 /** The last ended attempt's `output.json`. */
@@ -560,14 +596,29 @@ async function entries(dir: string): Promise<string[]> {
  * time zone the attempt that wrote it and the one checking it each run in.
  */
 export function processStart(pid: number): string | undefined {
-  if (!Number.isSafeInteger(pid) || pid <= 0) return undefined;
-  const done = Bun.spawnSync(["ps", "-o", "lstart=", "-p", String(pid)], {
-    stdout: "pipe",
-    stderr: "ignore",
-    env: { ...process.env, LC_ALL: "C", TZ: "UTC0" },
-  });
-  const text = done.stdout.toString().trim();
-  if (!done.success || text === "") return undefined;
+  const found = probeProcess(pid);
+  return found === "gone" || found === "unknown" ? undefined : found;
+}
+
+/**
+ * What `ps` says of process `pid`: when it started, as `processStart` gives it, `gone`, or
+ * `unknown` where `ps` could not be asked, as in a sandbox that forbids it.
+ */
+export function probeProcess(pid: number): string | "gone" | "unknown" {
+  if (!Number.isSafeInteger(pid) || pid <= 0) return "gone";
+  let done: ReturnType<typeof Bun.spawnSync>;
+  try {
+    done = Bun.spawnSync(["ps", "-o", "lstart=", "-p", String(pid)], {
+      stdout: "pipe",
+      stderr: "ignore",
+      env: { ...process.env, LC_ALL: "C", TZ: "UTC0" },
+    });
+  } catch {
+    return "unknown";
+  }
+  const text = done.stdout?.toString().trim() ?? "";
+  // `ps` exits 1 and prints nothing for a pid that is not there.
+  if (text === "") return done.exitCode === 1 ? "gone" : "unknown";
   const time = new Date(`${text} UTC`);
-  return Number.isNaN(time.getTime()) ? undefined : time.toISOString().replace(/\.\d{3}Z$/, "Z");
+  return Number.isNaN(time.getTime()) ? "unknown" : time.toISOString().replace(/\.\d{3}Z$/, "Z");
 }

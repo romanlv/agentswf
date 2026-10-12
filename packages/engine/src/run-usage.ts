@@ -3,6 +3,7 @@ import type {
   AbsoluteDeadline,
   AgentExecution,
   AgentKey,
+  NativeSessionRef,
   OperationRecord,
 } from "@agentswf/contract/workflow";
 import type { SessionAccounting, SessionRead, UsageRecord } from "@agentswf/harness";
@@ -62,6 +63,13 @@ export type AgentLedger = {
     execution: () => AgentExecution,
     tags?: OperationTags,
   ): OperationEntry;
+  /** An operation's record before it settles, with the agent's sessions as of now. */
+  unsettled(
+    operationId: string,
+    execution: AgentExecution,
+    tags: OperationTags,
+    deliveredAt?: number,
+  ): Omit<OperationRecord, "settledAt">;
 };
 
 export type RunLedger = {
@@ -118,16 +126,8 @@ export function createRunLedger({
           return {
             settle(times, charges, finishing) {
               operation.usage = {
-                callPath: [],
-                agent: agent.key,
-                operationId,
-                execution: execution(),
-                ...(times.deliveredAt === undefined
-                  ? {}
-                  : { deliveredAt: new Date(times.deliveredAt).toISOString() }),
+                ...recordOf(agent, operationId, execution(), tags, times.deliveredAt),
                 settledAt: new Date(times.settledAt).toISOString(),
-                ...(tags.stage === undefined ? {} : { stage: tags.stage }),
-                ...(tags.label === undefined ? {} : { label: tags.label }),
               };
               operation.costs = [...charges];
               if (finishing) {
@@ -143,6 +143,10 @@ export function createRunLedger({
               return withSessions(operation as Settled);
             },
           };
+        },
+        unsettled(operationId, execution, tags, deliveredAt) {
+          const record = recordOf(agent, operationId, execution, tags, deliveredAt);
+          return { ...record, sessions: sessionsOf(agent, execution) };
         },
       };
     },
@@ -336,11 +340,30 @@ function share(
   return shares;
 }
 
-function withSessions({ usage, agent }: Settled): OperationRecord {
+function recordOf(
+  agent: AccountedAgent,
+  operationId: string,
+  execution: AgentExecution,
+  tags: OperationTags,
+  deliveredAt: number | undefined,
+): Omit<OperationRecord, "sessions" | "settledAt"> {
   return {
-    ...usage,
-    sessions: agent.sessions().map((id) => ({ harness: usage.execution.harness, id })),
+    callPath: [],
+    agent: agent.key,
+    operationId,
+    execution,
+    ...(deliveredAt === undefined ? {} : { deliveredAt: new Date(deliveredAt).toISOString() }),
+    ...(tags.stage === undefined ? {} : { stage: tags.stage }),
+    ...(tags.label === undefined ? {} : { label: tags.label }),
   };
+}
+
+function sessionsOf(agent: AccountedAgent, execution: AgentExecution): NativeSessionRef[] {
+  return agent.sessions().map((id) => ({ harness: execution.harness, id }));
+}
+
+function withSessions({ usage, agent }: Settled): OperationRecord {
+  return { ...usage, sessions: sessionsOf(agent, usage.execution) };
 }
 
 function unread(operations: readonly Settled[]): SettledOperation[] {

@@ -1,4 +1,5 @@
 import { isAbsolute, join } from "node:path";
+import { piActivity } from "../activity/rows";
 import { jsonLines, parseRow, type Row, record, reported, text } from "../json";
 import { readPiBilling } from "../usage/billing";
 import { ownFiles } from "../usage/files";
@@ -152,6 +153,7 @@ const PI = {
   readCompactSummary: (session) => readPiCompactSummary(session),
   readSessionUsage: (sessions, _cwd, home) => readPiUsage(sessions, home),
   sessionFiles: (home, session) => piSessionFiles(home, session),
+  activityRow: piActivity,
   // pi logs the provider apart from the model, and names a model `provider/model`.
   launchModel: ({ model, provider }) => (provider ? `${provider}/${model}` : model),
   homeSessions: async (home) => {

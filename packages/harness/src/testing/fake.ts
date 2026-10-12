@@ -37,6 +37,8 @@ export type FakeAdapterTurnContext = {
   /** The model and effort the session is at: as activated, then as the last `set` left them. */
   settings: SessionSettings;
   signal: AbortSignal;
+  /** Names the session the turn runs in before it settles, as codex's stream does. */
+  nameSession(sessionRef: string): void;
 };
 
 export type FakeAdapterTurn = {
@@ -207,6 +209,7 @@ export function createFakeAdapter(
             turn,
             settings,
             signal: controller.signal,
+            nameSession: (sessionRef) => operation.onSession?.(sessionRef),
           };
           turns.push(context);
           try {
