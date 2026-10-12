@@ -784,6 +784,7 @@ Line numbers are main's on 2026-10-11 and drift; the symbols are what to look fo
 - [x] 6. `awf runs`, the list and one run, with `--json` and trailers
 - [x] 7. `awf logs`, with `--wait`, `--follow`, `--full` and `--json`
 - [ ] 8. `awf run`'s `started` line and `did you mean`, the `awf-run` skill, and live checks M2, M3
+  (all but M2 done)
 
 Done when:
 
@@ -909,12 +910,18 @@ start one subagent; all watched by following `next:` with `--wait 90`.
   silent command and returned its output, so `--wait 90` fits them.
 - [x] `--wait 90` returned on the first new event, and at 90 s with `nothing new`; the run ended
   with `run ended`.
-- [ ] M3 for codex, headless and in a pane, and M1 for its fork chain: its login had lapsed (a
-  refresh token revoked server-side, though `codex login status` passed).
+- [x] M3 for codex, headless and in a pane (`wait-probe/20261012-0940-bfa7`, after a fresh login):
+  its shell call yields after about 30 s, and the agent polls the command with `write_stdin` until
+  it ends, so `--wait 90` costs a codex agent about four steps, and works. A codex pane's rows were
+  read only once its turn ended, its first `wf` call being its last.
+- [x] M1 for a codex fork (`fork/20261012-0942-440f`, headless): `forked from` and the fork's own
+  `session-known` came before its turn, and its rows began at its own first prompt, the history it
+  copied not shown again.
 - [ ] M2 on an implement-ticket run (quick-check's log was 9 lines, 2.2 KB; the probe's 41).
-- Seen, outside this story: claude in a pane now sees awf's delivery as `<pasted_content>`, and
-  once declined to run its `wf result` as text the user did not write; a codex pane whose login
-  had lapsed waited out its six minutes with nothing to say why.
+- Seen, outside this story: claude in a pane shows awf's delivery as `<pasted_content>`, as it
+  shows any long paste, and reads it; once in two runs it still declined to run its `wf result`, as
+  text the user had not asked it to act on. A codex pane whose login had lapsed waited out its six
+  minutes with nothing to say why.
 
 ## Review record
 
