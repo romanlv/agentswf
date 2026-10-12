@@ -265,6 +265,61 @@ describe("the run's event log", () => {
     expect(lines.find((line) => line.kind === "agent-opened")).not.toHaveProperty("caller");
   });
 
+  test("the calling session opened as an agent says so, and a fork of it comes from that agent", async () => {
+    const runRoot = runDirs.tempRunDir();
+    const calling = createFakeCallingSession({
+      harness: "fake",
+      cwd: "/repo",
+      model: "model-a",
+      session: "s-main",
+    });
+    // The calling session's own fork, as a handed-over session is forked.
+    const adapter = createFakeAdapter({
+      continues: true,
+      found: calling,
+      script: (context) => ({
+        act: () => submit(context.binding!, { path: "x" }).then(() => undefined),
+      }),
+    });
+    const run = await createRun(runRoot, {
+      id: "r1",
+      workflow: "staged",
+      argv: [],
+      cwd: process.cwd(),
+      sandbox: null,
+    });
+    await runWorkflow(
+      workflowOf(async (context) => {
+        await ask((await context.agents.caller({ key: "author" }))!);
+        await ask((await context.agents.forkCaller({ key: "fixer" }))!);
+        return null;
+      }),
+      null,
+      {
+        runRoot,
+        run: { dir: run.dir, id: "r1", attempt: 1 },
+        runtime: {
+          aliases: { review: { harness: "fake", model: "fake" } },
+          host: {
+            ...createSingleSessionHostFactory(adapter),
+            caller: { harness: "fake", cwd: "/repo" },
+            calling,
+          },
+        },
+        deadline: future(),
+      },
+    );
+    const lines = (await readEvents(run.dir)).filter(isEvent);
+    expect(lines.find((line) => line.kind === "agent-opened")).toMatchObject({
+      agent: "author",
+      caller: true,
+      cwd: "/repo",
+    });
+    const forked = lines.find((line) => line.kind === "agent-forked");
+    expect(forked).toMatchObject({ agent: "fixer", from: "author" });
+    expect(forked).toHaveProperty("after", expect.any(String));
+  });
+
   test("a session named while its turn runs is known before the turn ends", async () => {
     const runRoot = runDirs.tempRunDir();
     const adapter = createFakeAdapter({

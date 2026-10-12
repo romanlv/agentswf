@@ -1294,6 +1294,40 @@ describe("awf run's runs and attempts", () => {
     );
   });
 
+  test("a continue names the stage of the last turn, whatever the event log's other kinds say after it", async () => {
+    const cwd = await project();
+    await Bun.write(join(cwd, "fail"), "");
+    await awfRun(cwd, ["--id", "r1", "flow.js"]);
+    reopenAttempt(join(runs(cwd), "r1"), 1, { pid: 999_999_999 });
+    const at = "2026-10-11T09:00:00.000Z";
+    const line = (fields: object) =>
+      `${JSON.stringify({ version: 1, attempt: 1, at, ...fields })}\n`;
+    writeFileSync(
+      join(runs(cwd), "r1", "turns.jsonl"),
+      [
+        line({ kind: "attempt-started" }),
+        line({ kind: "stage-started", stage: "qa" }),
+        line({ kind: "turn", agent: "w", stage: "qa", outcome: "answered", sessions: [] }),
+        line({ kind: "stage-ended", stage: "qa", outcome: "succeeded" }),
+        line({ kind: "stage-started", stage: "fix" }),
+        line({ kind: "log", text: "fixing", stage: "fix" }),
+        line({
+          kind: "decision-asked",
+          decision: 1,
+          stage: "fix",
+          key: "k",
+          provider: "p",
+          model: "m",
+        }),
+        '{"version":1,"attempt":1,"kind":"turn","stage":"fi',
+      ].join(""),
+    );
+    rmSync(join(cwd, "fail"));
+    const continued = await awfRun(cwd, ["flow.js", "--continue", "r1"]);
+    expect(continued.exitCode).toBe(0);
+    expect(continued.stderr).toContain("awf: attempt 1 of r1 was interrupted in qa;");
+  });
+
   test("each attempt opens and closes in the run's event log, which the continue does not read", async () => {
     const cwd = await project();
     await Bun.write(join(cwd, "fail"), "");

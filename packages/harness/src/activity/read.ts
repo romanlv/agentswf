@@ -21,19 +21,23 @@ export type ActivityRow = {
   text?: string;
 };
 
-/** The rows from `from` on, and where the next read starts: after the last whole line. */
-export type ActivityRead = { rows: ActivityRow[]; offset: number };
+/**
+ * The rows from `from` on, and where the next read starts: after the last whole line. `cut`: a
+ * tail read left lines before it.
+ */
+export type ActivityRead = { rows: ActivityRow[]; offset: number; cut?: boolean };
 
 /**
  * `file`'s activity from byte `from`, through its harness's row reader. A last line not yet ended
  * with a newline is left for the next read; a line that does not parse, or names no time, is passed.
- * A harness with no reader, or a file that cannot be read, gives nothing.
+ * A harness with no reader, or a file that cannot be read, gives nothing. `tail`: read from `0`, only
+ * the whole lines of about that many last bytes.
  */
 export async function readActivity(
   harness: string,
   file: string,
   from = 0,
-  options: { full?: boolean } = {},
+  options: { full?: boolean; tail?: number } = {},
 ): Promise<ActivityRead> {
   const read = findHarness(harness)?.activityRow;
   if (!read) return { rows: [], offset: from };
@@ -45,6 +49,10 @@ export async function readActivity(
     const { size } = await handle.stat();
     // A file shorter than where the last read stopped was replaced: it is read again whole.
     if (size < from) offset = 0;
+    // From the byte before, so the line it starts in is dropped whole, an empty one included.
+    let partial = offset === 0 && options.tail !== undefined && size > options.tail;
+    const cut = partial;
+    if (partial) offset = size - options.tail! - 1;
     // In chunks, a native file may be hundreds of megabytes; a line runs on into the next.
     let pending = Buffer.alloc(0);
     for (let position = offset; position < size; ) {
@@ -58,6 +66,10 @@ export async function readActivity(
         const line = parseRow(bytes.subarray(start, end).toString("utf8"));
         const at = offset + start;
         start = end + 1;
+        if (partial) {
+          partial = false;
+          continue;
+        }
         const said = line && read(line);
         if (!said?.at) continue;
         said.items.forEach(({ activity, text }, index) => {
@@ -73,7 +85,7 @@ export async function readActivity(
       offset += start;
       pending = bytes.subarray(start);
     }
-    return { rows, offset };
+    return { rows, offset, ...(cut ? { cut } : {}) };
   } catch {
     // What was read stands; the next read goes on from it.
     return { rows: rows.filter((row) => row.offset < offset), offset };

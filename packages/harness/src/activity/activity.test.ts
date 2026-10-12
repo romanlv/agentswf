@@ -222,6 +222,24 @@ describe("reading from an offset", () => {
     expect((await readActivity("claude", path, next.offset)).rows).toEqual([]);
   });
 
+  test("a tail read keeps only the whole lines of its last bytes, at their own offsets", async () => {
+    const lines = ["one", "two", "three"].map((text) => `${JSON.stringify(row(text))}\n`);
+    const path = file(row("one"), row("two"), row("three"));
+    const whole = await readActivity("claude", path);
+    // Exactly the last two lines, then one byte more: the line that byte ends is not whole.
+    for (const tail of [
+      lines[1]!.length + lines[2]!.length,
+      lines[1]!.length + lines[2]!.length + 1,
+    ]) {
+      const read = await readActivity("claude", path, 0, { tail });
+      expect(read).toMatchObject({ cut: true, offset: whole.offset });
+      expect(read.rows.map((each) => each.offset)).toEqual(
+        whole.rows.slice(1).map((each) => each.offset),
+      );
+    }
+    expect(await readActivity("claude", path, 0, { tail: 10_000 })).toEqual(whole);
+  });
+
   test("stops before a torn last line, and reads it once it is whole", async () => {
     const path = file(row("one"));
     const whole = JSON.stringify(row("two"));
@@ -304,6 +322,19 @@ describe("masking", () => {
       ["eyJhbGciOiJIUzI1.eyJzdWIiOiIxMjM0.SflKxwRJSMeKKF2QT4", "***"],
       ["bun test packages/engine", "bun test packages/engine"],
       ["max_tokens=4096", "max_tokens=4096"],
+      ["mysql --password=hunter2", "mysql --password=***"],
+      ["mysql -u root -phunter2 db", "mysql -u root -p*** db"],
+      ["gh auth login --token ghx123456", "gh auth login --token ***"],
+      ["curl -H 'X-Auth-Token: abcdef123'", "curl -H 'X-Auth-Token: ***'"],
+      ["curl -H 'Cookie: sid=abc; theme=dark'", "curl -H 'Cookie: ***'"],
+      ["password=hunter2 ./run", "password=*** ./run"],
+      ["export aws_secret_access_key = abcd1234efgh", "export aws_secret_access_key = ***"],
+      ["docker login -p s3cr3t registry", "docker login -p *** registry"],
+      [
+        "echo //registry.npmjs.org/:_authToken=npm_abcdef",
+        "echo //registry.npmjs.org/:_authToken=***",
+      ],
+      ["mkdir -p dir && git log -p", "mkdir -p dir && git log -p"],
     ] as const) {
       expect(maskCredentials(given)).toBe(shown);
     }

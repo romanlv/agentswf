@@ -44,10 +44,15 @@ export function command(place: ReadPlace, ...words: string[]): string[] {
   return [first!, second!, ...rest.slice(0, 1), ...place.repeat, ...rest.slice(1)];
 }
 
+/** A suggested command as text to paste into a shell. */
+export function shellLine(words: readonly string[]): string {
+  return words.map(shellWord).join(" ");
+}
+
 /** Says a run that is not there, and exits 1; anything else is the run's files, exit 3. */
 export function failed(error: unknown, place: ReadPlace, out: Out, message: string): number {
   if (error instanceof RunNotFound) {
-    out.stderr(`${error.message}; runs here: ${command(place, "awf", "runs").join(" ")}`);
+    out.stderr(`${error.message}; runs here: ${shellLine(command(place, "awf", "runs"))}`);
     return 1;
   }
   out.stderr(`awf: ${message}`);
@@ -65,10 +70,10 @@ export function startedLine(
 ): string {
   const ref = `${workflow}/${id}`;
   const repeat = [
-    ...(run.cwdGiven ? ["--cwd", shellWord(run.cwd)] : []),
-    ...(run.runRootGiven ? ["--run-root", shellWord(run.runRoot)] : []),
+    ...(run.cwdGiven ? ["--cwd", run.cwd] : []),
+    ...(run.runRootGiven ? ["--run-root", run.runRoot] : []),
   ];
-  return `awf: ${ref} started · watch: ${["awf", "logs", ref, ...repeat, "--wait", "90"].join(" ")}`;
+  return `awf: ${ref} started · watch: ${shellLine(["awf", "logs", ref, ...repeat, "--wait", "90"])}`;
 }
 
 /** `awf logs` from `cursor`: with `--wait` unless the page stopped short of the newest. */

@@ -377,7 +377,8 @@ callers copy it back and never compute it. Text and `--json` carry the same curs
 `next`.
 
 **`--wait {s}`** returns on the first new event, about a second after it so a burst comes back as
-one page, or at the timeout. The default is 0, the maximum 300. The skill teaches `--wait 90`,
+one page, or at the timeout. Without `--after`, every event so far is new, so it waits only while
+there is none yet; the `watch:` command shows what the run has done, and its `next:` waits. The default is 0, the maximum 300. The skill teaches `--wait 90`,
 which fits claude's two-minute command default. It bounds one read; waiting for a run to end is
 `awf wait`'s ([[run-in-background]]). `--follow` is the same read in a loop, for a person, and
 prints a line per event; `--follow --json` is a usage error.
@@ -424,7 +425,8 @@ Neither command reports the run's outcome in its exit code.
 - Times are always ISO.
 - In `awf runs {ref} --json`, best-effort fields sit under `live: {phase, lastActivity, observedAt}`,
   so the split between durable and best-effort is in the structure.
-- The envelope's types live in `contract/records`.
+- The envelope's types live in `contract/records`. A read of one `@handle` has no `cursor`,
+  `more` or `next`: it pages nothing.
 
 **The skill.** `awf-run` gains a few lines:
 
@@ -890,9 +892,8 @@ shell by following each `next:` with `--wait 90`, as an agent would.
   a calling session never opened, a failed write).
 - Tasks 1–2, correctness: a failed torn-line close left a claimed attempt (now caught);
   `agent-stopped` before its last turn's line (moved after the close); later failed turn writes
-  silent (each is said). Not added: a sandboxed agent's `home` on `agent-opened` and a held
-  caller's fork `from`, which need a sandbox and a found session in the fake; both are a line of
-  mapping each, read in review.
+  silent (each is said). A sandboxed agent's `home` on `agent-opened` and a held caller's fork
+  `from` were tested only in the branch review that followed.
 - Task 4: codex exits read from free text (now only from structured metadata); rows the harness
   injects shown as the user's (claude's slash commands, compaction summaries, task
   notifications, which now end a background task; codex's `AGENTS.md` and environment blocks);
@@ -917,6 +918,23 @@ shell by following each `next:` with `--wait 90`, as an agent would.
   and a stopped first claude turn left an id that may not exist (both fixed: named sessions join
   only when confirmed); the seam was session-wide and lost which turn named the session (now a
   hook on the turn).
+- Branch review, round 1: a cursor was refused once the log held a line the reader skips (now
+  checked against line numbers); a session's file not there at the first read was never looked
+  for again during a wait, and a codex store was listed again on every new line (files are now
+  found again when none were, and every 30 s); a first read took every native file whole (now its
+  last 4 MB, `more.older` saying it was cut, and `@handle` reads from its own offset); suggested
+  commands did not quote `--cwd` or `--run-root`; the log's own text, `log`, `warning` and errors,
+  was neither masked nor kept to one line; the masker missed `--password=`, `-p` after `login`,
+  lower-case `password=`, `X-Auth-Token`, `Cookie` and npm's `_authToken`; `--wait` without
+  `--after` was dropped silently (now it waits while there is nothing to show, and the skill says
+  so); the format reference still described `turns.jsonl` as turns only; the JSON envelopes were
+  untyped (now `RunsJson`, `RunJson` and `LogsJson` in `contract/records`, and `live.until` is
+  ISO); a `running (unchecked)` row ran into the next column; example 8's collapse of many agents
+  was not built. All fixed, with tests, and the tests the review found missing added: `probeProcess`
+  on each answer `ps` gives, the continue over a log of new kinds, claude's told id against its
+  printed one, the waiting phase, the 20-run cap, a sandboxed agent's files and exit 3. Rejected: a
+  retry reusing a stopped first claude turn's `--session-id`; an agent never launches a first
+  turn twice (a test now shows it).
 
 ## Related
 

@@ -599,6 +599,35 @@ describe("createHeadlessAdapter", () => {
     }
   });
 
+  test("a first claude turn that ended is resumed under the id it was told, whatever its output names", async () => {
+    for (const printed of [claudeOut("first", "printed"), "no session id in this output"]) {
+      const { run, calls } = stub([printed, claudeOut("second")]);
+      const session = await headless(run, { newSessionId: () => "told" });
+      const first = await session.start(turnSpec, firstBinding);
+      await first.settled;
+      await (await first.nudge(nudgeSpec)).settled;
+      expect(calls[1]?.argv[calls[1].argv.indexOf("--resume") + 1]).toBe("told");
+    }
+  });
+
+  test("a first claude turn stopped before it named its session is never launched again under its id", async () => {
+    const calls: ProcessInput[] = [];
+    const session = await headless(async (input) => {
+      calls.push(input);
+      return { stdout: "", stderr: "", exitCode: 143, timedOut: false, cancelled: true };
+    });
+    await (await session.start(turnSpec, firstBinding)).settled;
+    const second = await session.start(
+      { ...turnSpec, id: "turn-2" },
+      { ...firstBinding, operationId: "op-2" },
+    );
+    await expect(second.settled).resolves.toMatchObject({
+      state: "failed",
+      detail: "claude produced no resumable native session reference",
+    });
+    expect(calls).toHaveLength(1);
+  });
+
   test("a first codex turn names its session as its output streams, before it exits", async () => {
     const seen: string[] = [];
     let exited = false;

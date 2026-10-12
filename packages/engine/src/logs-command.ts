@@ -1,4 +1,5 @@
-import type { RunLogLine } from "@agentswf/contract/records";
+import type { LogEventJson, LogsJson, RunLogLine } from "@agentswf/contract/records";
+import { maskCredentials } from "@agentswf/harness";
 import { messageOf } from "./errors";
 import {
   clockTime,
@@ -10,6 +11,7 @@ import {
   type Out,
   parsePlace,
   type ReadPlace,
+  shellLine,
   span,
   stateWord,
 } from "./run-commands";
@@ -18,6 +20,7 @@ import {
   decodeCursor,
   decodeHandle,
   encodeCursor,
+  encodeHandle,
   type FileCache,
   type ReadEvent,
   readRun,
@@ -34,9 +37,9 @@ export const logsUsage = [
   "What a run did and is doing: its events and what its agents did, read from their own session",
   "files, merged by time. With no run, the newest here. Without --after, the last 40 events; with",
   "it, what came after, oldest first. Every answer ends with the command that gets only what is",
-  "new. --wait returns on the first new event or after that many seconds, at most 300; --follow",
-  "prints each event as it comes until the run ends. @<handle> names one event, and --full prints",
-  "its text, with common credential shapes masked.",
+  "new. --wait: with nothing to show yet, wait for the first event, at most that many seconds, up",
+  "to 300; --follow prints each event as it comes until the run ends. @<handle> names one event,",
+  "and --full prints its text, with common credential shapes masked.",
   "",
   "Exits 0 on any read that worked, 1 when there is no such run or the cursor or handle does not",
   "fit it, 2 on a usage error, 3 when the run's files could not be read.",
@@ -92,7 +95,7 @@ export async function logsCommand(
   }
   try {
     const { status, alsoRunning } = await findRun(place.runRoot, options.ref);
-    const again = command(place, "awf", "logs", status.ref).join(" ");
+    const again = shellLine(command(place, "awf", "logs", status.ref));
     let after: Cursor | undefined;
     if (options.after !== undefined) {
       after = decodeCursor(options.after);
@@ -102,12 +105,11 @@ export async function logsCommand(
         );
     }
     const read = new Reader(status, after);
-    if (after && after.log > (await read.next()).log.lines.length) {
+    // Lines are numbered by their place in the file, past any that were skipped.
+    if (after && after.log > ((await read.next()).log.lines.at(-1)?.number ?? 0)) {
       throw new DoesNotFit(`cursor ${options.after} does not fit this run; start again: ${again}`);
     }
-    if (options.handle !== undefined) {
-      return await oneEvent(status, options, json, out, again);
-    }
+    if (options.handle !== undefined) return await oneEvent(status, options, json, out, again);
     if (options.follow) return await follow(read, options, place, out, clock);
     return await page(read, alsoRunning, options, place, json, out, clock);
   } catch (error) {
@@ -158,6 +160,9 @@ function parseLogs(rest: readonly string[]): LogsOptions {
     else throw new Error(`one run at a time: ${options.ref} and ${arg}`);
   }
   if (options.follow && waitGiven) throw new Error("--follow and --wait do not go together");
+  if (options.handle && (waitGiven || options.follow)) {
+    throw new Error("@<handle> reads one event; it takes no --wait or --follow");
+  }
   if (options.full && !options.handle) {
     throw new Error("--full prints one event: name it, @<handle>");
   }
@@ -166,7 +171,7 @@ function parseLogs(rest: readonly string[]): LogsOptions {
 
 /** Reads one run again and again from one cursor, keeping its files found between reads. */
 class Reader {
-  readonly #files: FileCache = { lines: -1, sessions: new Map() };
+  readonly #files: FileCache = new Map();
   constructor(
     public status: RunStatus,
     readonly from: Cursor | undefined,
@@ -176,6 +181,7 @@ class Reader {
     return readRun(this.status.run.dir, this.status.run.record.cwd, cursor, {
       ended: this.status.state !== "running",
       files: this.#files,
+      ...(cursor ? {} : { tail: true }),
     });
   }
 
@@ -257,13 +263,8 @@ async function page(
   let { events, stages } = kept(read, options);
   const deadline = clock.now() + options.waitSeconds * 1000;
   let waited = false;
-  // Waits while nothing it keeps is new and the run goes on.
-  while (
-    events.length === 0 &&
-    reader.from &&
-    reader.status.state === "running" &&
-    clock.now() < deadline
-  ) {
+  // Waits while there is nothing it keeps to show and the run goes on.
+  while (events.length === 0 && reader.status.state === "running" && clock.now() < deadline) {
     waited = true;
     await clock.sleep(POLL_MS);
     await reader.refresh(place.runRoot);
@@ -285,7 +286,7 @@ async function page(
   let newer = false;
   if (!reader.from) {
     shown = events.slice(-options.limit);
-    older = events.length > shown.length;
+    older = events.length > shown.length || read.cut;
   } else {
     let end = Math.min(options.limit, events.length);
     // A line's items stay together.
@@ -303,29 +304,22 @@ async function page(
     status.state === "running" ? nextLogs(status, place, cursor, filters, !newer) : undefined;
   if (json) {
     const { started, ended } = span(status, clock.now());
-    out.stdout(
-      JSON.stringify(
-        {
-          v: 1,
-          run: {
-            ref: status.ref,
-            state: status.state,
-            checked: status.checked,
-            ...(stage ? { stage } : {}),
-            ambiguous: alsoRunning.length > 0,
-            ...(status.state !== "running" && ended !== undefined
-              ? { duration: ended - started }
-              : {}),
-          },
-          events: shown.map((event) => publish(event, stages)),
-          cursor: encodeCursor(cursor),
-          more: { ...(older ? { older: true } : {}), ...(newer ? { newer: true } : {}) },
-          ...(next ? { next } : {}),
-        },
-        null,
-        2,
-      ),
-    );
+    const document: LogsJson = {
+      v: 1,
+      run: {
+        ref: status.ref,
+        state: status.state,
+        checked: status.checked,
+        ...(stage ? { stage } : {}),
+        ambiguous: alsoRunning.length > 0,
+        ...(status.state !== "running" && ended !== undefined ? { duration: ended - started } : {}),
+      },
+      events: shown.map((event) => publish(event, stages)),
+      cursor: encodeCursor(cursor),
+      more: { ...(older ? { older: true } : {}), ...(newer ? { newer: true } : {}) },
+      ...(next ? { next } : {}),
+    };
+    out.stdout(JSON.stringify(document, null, 2));
     return 0;
   }
   const lastAt = read.log.lines.at(-1);
@@ -338,7 +332,8 @@ async function page(
   }
   if (older) {
     const of = options.agent ? ` for ${options.agent}` : "";
-    lines.push(`(showing ${shown.length} of ${events.length}${of}; raise --limit for more)`);
+    const total = read.cut ? `the last ${events.length} read` : `${events.length}`;
+    lines.push(`(showing ${shown.length} of ${total}${of}; raise --limit for more)`);
   }
   lines.push(...shown.map((event) => describeEvent(event, stages)));
   lines.push(
@@ -385,26 +380,45 @@ async function oneEvent(
   out: Out,
   again: string,
 ): Promise<number> {
-  const read = await readRun(status.run.dir, status.run.record.cwd, undefined, {
-    ended: status.state !== "running",
-    full: options.full,
-  });
+  const missing = new DoesNotFit(
+    `@${options.handle} is no event of ${status.ref}; see its events: ${again}`,
+  );
+  const handle = decodeHandle(options.handle!);
+  if (!handle) throw missing;
+  // Read from where the handle points, and only its file.
+  const read = await readRun(
+    status.run.dir,
+    status.run.record.cwd,
+    handle.kind === "event"
+      ? { log: handle.line - 1, files: {} }
+      : { log: Number.MAX_SAFE_INTEGER, files: { [handle.file]: handle.offset } },
+    {
+      ended: status.state !== "running",
+      full: options.full,
+      only: handle.kind === "event" ? "" : handle.file,
+    },
+  );
   const stages = operationStages(read.log.lines);
-  const event = read.events.find((each) => each.handle === options.handle);
-  if (!event)
-    throw new DoesNotFit(
-      `@${options.handle} is no event of ${status.ref}; see its events: ${again}`,
-    );
+  const event = read.events.find((each) => each.handle === encodeHandle(handle));
+  if (!event) throw missing;
   if (json) {
-    const run = { ref: status.ref, state: status.state, checked: status.checked };
-    out.stdout(JSON.stringify({ v: 1, run, events: [publish(event, stages)] }, null, 2));
+    const document: LogsJson = {
+      v: 1,
+      run: { ref: status.ref, state: status.state, checked: status.checked },
+      events: [publish(event, stages)],
+    };
+    out.stdout(JSON.stringify(document, null, 2));
     return 0;
   }
   const lines = [describeEvent(event, stages)];
   if (options.full) {
-    if (event.source === "activity")
-      lines.unshift("(native text; common credential shapes are masked)");
-    const text = event.source === "activity" ? event.text : JSON.stringify(event.line, null, 2);
+    lines.unshift(
+      `(${event.source === "activity" ? "native text" : "the log's line"}; common credential shapes are masked)`,
+    );
+    const text =
+      event.source === "activity"
+        ? event.text
+        : maskCredentials(JSON.stringify(event.line, null, 2));
     if (text) lines.push(...text.split("\n").map((line) => `  ${line}`));
   }
   out.stdout(lines.join("\n"));
@@ -426,7 +440,7 @@ function trailer(
   nothingIn: number | undefined,
 ): string {
   if (status.state === "running") {
-    const said = `next: ${(next ?? command(place, "awf", "logs", status.ref)).join(" ")}`;
+    const said = `next: ${shellLine(next ?? command(place, "awf", "logs", status.ref))}`;
     if (nothingIn === undefined) return said;
     return `nothing new in ${nothingIn}s · running${stage ? `, stage ${stage}` : ""} · ${said}`;
   }
@@ -436,11 +450,11 @@ function trailer(
   }
   const { ended, started } = span(status, Date.now());
   const took = ended === undefined ? "" : ` in ${duration(ended - started)}`;
-  return `run ended: ${status.state}${took} · result: ${command(place, "awf", "runs", status.ref).join(" ")}`;
+  return `run ended: ${status.state}${took} · result: ${shellLine(command(place, "awf", "runs", status.ref))}`;
 }
 
 /** An event as `--json` publishes it: the line's own fields, or the activity, with its keys. */
-function publish(event: ReadEvent, stages: Map<string, string>) {
+function publish(event: ReadEvent, stages: Map<string, string>): LogEventJson {
   if (event.source === "activity") {
     const stage = event.operation ? stages.get(event.operation) : undefined;
     return {
@@ -458,9 +472,24 @@ function publish(event: ReadEvent, stages: Map<string, string>) {
   return {
     handle: event.handle,
     at: event.at,
-    ...fields,
+    ...(masked(fields) as typeof fields),
     ...("operationId" in fields ? { operation: fields.operationId } : {}),
   };
+}
+
+/** Every string in `value`, masked: a log line's text and errors are the workflow's and its tools'. */
+function masked(value: unknown): unknown {
+  if (typeof value === "string") return maskCredentials(value);
+  if (Array.isArray(value)) return value.map(masked);
+  if (value && typeof value === "object") {
+    return Object.fromEntries(Object.entries(value).map(([key, each]) => [key, masked(each)]));
+  }
+  return value;
+}
+
+/** Text from the log as one line, masked, so it can never pass for a line of its own. */
+function said(text: string): string {
+  return maskCredentials(text).replace(/\s*[\r\n]+\s*/g, " ⏎ ");
 }
 
 /** `@e216 09:27:02 fix  fixer  turn ended  answered  1m48s`. */
@@ -485,7 +514,7 @@ function describeLine(line: RunLogLine): string {
     case "operation-started":
       return `${operation(line.of)} started${line.label ? `  label "${line.label}"` : ""}`;
     case "operation-failed":
-      return `${operation(line.of)} failed  ${line.error}`;
+      return `${operation(line.of)} failed  ${said(line.error)}`;
     case "turn":
     case "compact": {
       const took =
@@ -503,12 +532,12 @@ function describeLine(line: RunLogLine): string {
     case "agent-forked":
       return `forked from ${line.from ?? "the calling session"}`;
     case "log":
-      return line.text;
+      return said(line.text);
     case "warning":
-      return `warning: ${line.text}`;
+      return `warning: ${said(line.text)}`;
     case "decision-asked":
       return `decision "${line.key}" asked  ${line.model}`;
     case "decision-ended":
-      return `decision ${line.decision} ${line.outcome}`;
+      return `decision ${line.decision} ${line.outcome}${line.error ? `  ${said(line.error)}` : ""}`;
   }
 }

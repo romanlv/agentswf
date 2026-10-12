@@ -60,10 +60,11 @@ export type RunView = {
 export async function viewRun(status: RunStatus): Promise<RunView> {
   const { run, attempts } = status;
   const attempt = attempts.at(-1);
-  const files: FileCache = { lines: -1, sessions: new Map() };
+  const files: FileCache = new Map();
   const read = await readRun(run.dir, run.record.cwd, undefined, {
     ended: status.state !== "running",
     files,
+    tail: true,
   });
   const own = read.log.lines
     .map(({ line }) => line)
@@ -160,7 +161,7 @@ export async function viewRun(status: RunStatus): Promise<RunView> {
     seen.sessions.push({
       harness: session.harness,
       id: session.id,
-      files: (files.sessions.get(session.n) ?? []).map((file) => file.path),
+      files: (files.get(session.n)?.files ?? []).map((file) => file.path),
     });
   }
   const estimate = estimateOf(attempts);

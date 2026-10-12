@@ -241,4 +241,149 @@ describe("awf runs", () => {
     );
     expect((await awfRuns(cwd, "--bogus")).exitCode).toBe(2);
   });
+
+  test("an agent waiting within its operation says why, and when it checks in", async () => {
+    const cwd = runDirs.tempRunDir();
+    const run = await makeRun(
+      cwd,
+      "review",
+      "w1",
+      [{ ...ALIVE }],
+      [{ kind: "operation-started", at: T(2), of: "turn", ...turnFields("fixer", "o1", "fix", 2) }],
+    );
+    mkdirSync(join(run.dir, "calls", "o1"), { recursive: true });
+    const until = Date.parse(T(20));
+    writeFileSync(
+      join(run.dir, "calls", "o1", "liveness.jsonl"),
+      `${JSON.stringify({ version: 1, operationId: "o1", kind: "waiting", at: Date.parse(T(3)), sequence: 1, reason: "CI runs", until })}\n`,
+    );
+    const due = new Date(until).toTimeString().slice(0, 5);
+    const { stdout } = await awfRuns(cwd, "review/w1");
+    expect(stdout.split("\n")[1]).toMatch(
+      new RegExp(`^ {4}fixer +waiting +turn 1 {2}"CI runs" \\(check-in due ${due}\\)`),
+    );
+    const json = JSON.parse((await awfRuns(cwd, "review/w1", "--json")).stdout);
+    expect(json.agents[0].live).toEqual({
+      phase: "waiting",
+      reason: "CI runs",
+      until: T(20),
+      observedAt: T(14),
+    });
+  });
+
+  test("a continued run shows its earlier attempts, and many agents of one kind on one line", async () => {
+    const cwd = runDirs.tempRunDir();
+    const second = (line: object) => ({ ...line, attempt: 2 });
+    const lenses = Array.from({ length: 8 }, (_, index) => `fix:lens-${index + 1}`);
+    await makeRun(
+      cwd,
+      "review",
+      "c1",
+      [{ started: T(0) }, { started: T(11), flags: { timeout: "1h", fromStage: "fix" }, ...ALIVE }],
+      [
+        { kind: "stage-started", at: T(1), stage: "review" },
+        second({
+          kind: "stage-ended",
+          at: T(11),
+          stage: "review",
+          outcome: "succeeded",
+          source: "reused",
+        }),
+        second({ kind: "stage-started", at: T(11), stage: "fix" }),
+        ...lenses.flatMap((key, index) => [
+          second({
+            kind: "operation-started",
+            at: T(11),
+            of: "turn",
+            ...turnFields(key, `l${index}`, "fix", 11),
+          }),
+          ...(index < 6
+            ? [
+                second({
+                  kind: "turn",
+                  outcome: "answered",
+                  ...turnFields(key, `l${index}`, "fix", 11, 12),
+                }),
+              ]
+            : []),
+        ]),
+        second({
+          kind: "operation-started",
+          at: T(13),
+          of: "turn",
+          ...turnFields("fixer", "f", "fix", 13),
+        }),
+      ],
+    );
+    const lines = (await awfRuns(cwd, "review/c1")).stdout.split("\n");
+    expect(lines[0]).toBe("review/c1  running  attempt 2 (from stage fix)  stage fix  14m00s");
+    expect(lines[1]).toBe("  attempt 1  interrupted");
+    expect(lines[2]).toBe("  attempt 2");
+    expect(lines[3]).toBe("    stage review   reused");
+    expect(lines[4]).toMatch(/^ {4}stage fix +running +3m00s$/);
+    expect(lines[5]).toBe("      fix:lens-1 … fix:lens-8   8 agents: 6 answered, 2 working");
+    expect(lines[6]).toMatch(/^ {6}fixer +working +turn 1/);
+  });
+
+  test("lists twenty runs, says how many are older, and --all lists them all", async () => {
+    const cwd = runDirs.tempRunDir();
+    for (let minute = 0; minute < 22; minute += 1) {
+      await makeRun(cwd, "review", `r${minute}`, [
+        { started: T(minute), ended: T(minute), outcome: "completed" },
+      ]);
+    }
+    // One whose process could not be asked about yet: its state is wider than the column.
+    await makeRun(cwd, "review", "starting", []);
+    const listed = (await awfRuns(cwd)).stdout.split("\n");
+    expect(listed).toHaveLength(21);
+    expect(listed.at(-1)).toBe("… 3 older (--all)");
+    expect((await awfRuns(cwd, "--all")).stdout.split("\n")).toHaveLength(23);
+    expect(JSON.parse((await awfRuns(cwd, "--json")).stdout).more).toEqual({ older: true });
+    const all = (await awfRuns(cwd, "--all")).stdout.split("\n");
+    expect(all.find((line) => line.startsWith("review/starting"))).toMatch(
+      /^review\/starting {2}running \(unchecked\) {2}\d\d-\d\d \d\d:\d\d {2}/,
+    );
+  });
+
+  test("a sandboxed agent's native files are found under its sandbox's home", async () => {
+    const cwd = runDirs.tempRunDir();
+    const home = runDirs.tempRunDir();
+    const file = join(home, "projects", "-box", "s-1.jsonl");
+    mkdirSync(join(home, "projects", "-box"), { recursive: true });
+    writeFileSync(file, "");
+    await makeRun(
+      cwd,
+      "review",
+      "s1",
+      [{ ...ALIVE }],
+      [
+        {
+          kind: "agent-opened",
+          at: T(0),
+          agent: "coder",
+          callPath: [],
+          harness: "claude",
+          cwd: "/box",
+          home,
+        },
+        {
+          kind: "session-known",
+          at: T(1),
+          agent: "coder",
+          session: { harness: "claude", id: "s-1" },
+        },
+      ],
+    );
+    const json = JSON.parse((await awfRuns(cwd, "review/s1", "--json")).stdout);
+    expect(json.agents[0].sessions).toEqual([{ harness: "claude", id: "s-1", files: [file] }]);
+  });
+
+  test("a run whose records cannot be read exits 3, and says why", async () => {
+    const cwd = runDirs.tempRunDir();
+    const run = await makeRun(cwd, "review", "bad", [{}]);
+    writeFileSync(join(run.dir, "attempts", "1.json"), "{not json");
+    const read = await awfRuns(cwd, "review/bad");
+    expect(read.exitCode).toBe(3);
+    expect(read.stderr).toStartWith("awf: ");
+  });
 });

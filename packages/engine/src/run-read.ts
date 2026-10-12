@@ -157,7 +157,17 @@ function operationAt(agent: RunAgent, at: number): string | null | undefined {
   return agent.windows.some((each) => within(each, at)) ? null : undefined;
 }
 
-export type FileCache = { lines: number; sessions: Map<number, SessionFile[]> };
+/**
+ * A session's files as found, kept between the reads of one command: finding them can list a
+ * harness's whole session store. Found again when none were, and now and then after, for the
+ * files a session adds as it runs.
+ */
+export type FileCache = Map<number, { files: SessionFile[]; at: number }>;
+
+const REFIND_MS = 30_000;
+
+/** Without a cursor, a native file is read from this far before its end: a read shows its last events. */
+const TAIL_BYTES = 4 * 1024 * 1024;
 
 /** One native file of a session, by a key its name gives, so a late file renumbers nothing. */
 export type SessionFile = { session: NativeSession; key: string; path: string };
@@ -273,19 +283,17 @@ export async function readRun(
   options: {
     full?: boolean;
     ended?: boolean;
-    /**
-     * A session's files as found, kept between the reads of one command: finding them lists a
-     * harness's whole session store. Found again once the log has grown.
-     */
     files?: FileCache;
+    /** Reads only this native file, by its name in handles; `""` reads none. */
+    only?: string;
+    /** A read of the newest: each file not in the cursor from its tail, `cut` where it had more. */
+    tail?: boolean;
   } = {},
-): Promise<{ events: ReadEvent[]; cursor: Cursor; log: RunLog }> {
+): Promise<{ events: ReadEvent[]; cursor: Cursor; log: RunLog; cut: boolean }> {
   const log = await readRunLog(runDir, options);
-  const cache = options.files;
-  if (cache && cache.lines !== log.lines.length) {
-    cache.lines = log.lines.length;
-    cache.sessions.clear();
-  }
+  const cache = options.files ?? new Map();
+  const now = Date.now();
+  let cut = false;
   const events: ReadEvent[] = [];
   let last = cursor.log;
   // The log's lines keep their order among the activity: a turn line's time is its settling,
@@ -307,11 +315,23 @@ export async function readRun(
   const files = { ...cursor.files };
   for (const session of log.sessions) {
     const agent = session.agent ? log.agents.get(session.agent) : undefined;
-    const found = cache?.sessions.get(session.n) ?? (await sessionFiles(session, agent, runCwd));
-    cache?.sessions.set(session.n, found);
-    for (const file of found) {
+    const only = options.only;
+    if (only !== undefined && only !== `a${session.n}` && !only.startsWith(`a${session.n}-`)) {
+      continue;
+    }
+    let found = cache.get(session.n);
+    if (!found || found.files.length === 0 || now - found.at > REFIND_MS) {
+      found = { files: await sessionFiles(session, agent, runCwd), at: now };
+      cache.set(session.n, found);
+    }
+    for (const file of found.files) {
       const name = fileName(file);
-      const read = await readActivity(session.harness, file.path, files[name] ?? 0, options);
+      if (options.only !== undefined && name !== options.only) continue;
+      const read = await readActivity(session.harness, file.path, files[name] ?? 0, {
+        ...(options.full ? { full: true } : {}),
+        ...(options.tail && files[name] === undefined ? { tail: TAIL_BYTES } : {}),
+      });
+      if (read.cut) cut = true;
       files[name] = read.offset;
       for (const row of read.rows) {
         const time = Date.parse(row.at);
@@ -336,7 +356,7 @@ export async function readRun(
     }
   }
   events.sort((a, b) => a.time - b.time);
-  return { events, cursor: { log: last, files }, log };
+  return { events, cursor: { log: last, files }, log, cut };
 }
 
 /** When a line happened: an event's time, or a turn's settling. */

@@ -610,23 +610,34 @@ export function processStart(pid: number): string | undefined {
  * What `ps` says of process `pid`: when it started, as `processStart` gives it, `gone`, or
  * `unknown` where `ps` could not be asked, as in a sandbox that forbids it.
  */
-export function probeProcess(pid: number): string | "gone" | "unknown" {
+export function probeProcess(pid: number, ps: Ps = runPs): string | "gone" | "unknown" {
   if (!Number.isSafeInteger(pid) || pid <= 0) return "gone";
-  let done: ReturnType<typeof Bun.spawnSync>;
+  let done: ReturnType<Ps>;
   try {
-    done = Bun.spawnSync(["ps", "-o", "lstart=", "-p", String(pid)], {
-      stdout: "pipe",
-      stderr: "pipe",
-      env: { ...process.env, LC_ALL: "C", TZ: "UTC0" },
-    });
+    done = ps(pid);
   } catch {
     return "unknown";
   }
-  const text = done.stdout?.toString().trim() ?? "";
+  const text = done.stdout.trim();
   // `ps` exits 1 and prints nothing at all for a pid that is not there; one that cannot take these
   // options, as BusyBox's, says so on stderr.
-  const said = done.stderr?.toString().trim() ?? "";
-  if (text === "") return done.exitCode === 1 && said === "" ? "gone" : "unknown";
+  if (text === "") return done.exitCode === 1 && done.stderr.trim() === "" ? "gone" : "unknown";
   const time = new Date(`${text} UTC`);
   return Number.isNaN(time.getTime()) ? "unknown" : time.toISOString().replace(/\.\d{3}Z$/, "Z");
 }
+
+/** `ps -o lstart= -p {pid}`, as it answered. */
+export type Ps = (pid: number) => { stdout: string; stderr: string; exitCode: number | null };
+
+const runPs: Ps = (pid) => {
+  const done = Bun.spawnSync(["ps", "-o", "lstart=", "-p", String(pid)], {
+    stdout: "pipe",
+    stderr: "pipe",
+    env: { ...process.env, LC_ALL: "C", TZ: "UTC0" },
+  });
+  return {
+    stdout: done.stdout?.toString() ?? "",
+    stderr: done.stderr?.toString() ?? "",
+    exitCode: done.exitCode,
+  };
+};

@@ -1,3 +1,4 @@
+import type { RunJson, RunsJson } from "@agentswf/contract/records";
 import { messageOf } from "./errors";
 import {
   clockTime,
@@ -10,6 +11,7 @@ import {
   type Out,
   parsePlace,
   type ReadPlace,
+  shellLine,
   span,
   stateWord,
 } from "./run-commands";
@@ -89,7 +91,7 @@ async function list(place: ReadPlace, all: boolean, json: boolean, out: Out, now
   );
   const older = runs.length - shown.length;
   if (json) {
-    const runsJson = listed.map((each) => {
+    const runsJson: RunsJson["runs"] = listed.map((each) => {
       if (!("status" in each)) return each;
       const { status } = each;
       const { started, ended } = span(status, now);
@@ -103,7 +105,8 @@ async function list(place: ReadPlace, all: boolean, json: boolean, out: Out, now
         ...(estimate === undefined ? {} : { estimate }),
       };
     });
-    out.stdout(JSON.stringify({ v: 1, runs: runsJson, more: { older: older > 0 } }, null, 2));
+    const document: RunsJson = { v: 1, runs: runsJson, more: { older: older > 0 } };
+    out.stdout(JSON.stringify(document, null, 2));
     return 0;
   }
   if (listed.length === 0) {
@@ -112,14 +115,16 @@ async function list(place: ReadPlace, all: boolean, json: boolean, out: Out, now
   }
   const refOf = (each: Listed) => ("status" in each ? each.status.ref : each.ref);
   const width = Math.max(...listed.map((each) => refOf(each).length)) + 2;
-  const lines = listed.map((each) => {
+  const states = listed.map((each) => ("status" in each ? stateWord(each.status) : ""));
+  const stateWidth = Math.max(13, ...states.map((each) => each.length + 2));
+  const lines = listed.map((each, index) => {
     if (!("status" in each)) return `${each.ref.padEnd(width)}unreadable: ${each.unreadable}`;
     const { status } = each;
     const { started, ms } = span(status, now);
     const estimate = estimateOf(status.attempts);
     return [
       status.ref.padEnd(width),
-      stateWord(status).padEnd(13),
+      states[index]!.padEnd(stateWidth),
       dayTime(started).padEnd(13),
       duration(ms).padEnd(8),
       money(estimate).join(""),
@@ -164,6 +169,35 @@ function agentLine(agent: AgentView, indent: string, now: number): string {
   return `${indent}    ${parts.filter(Boolean).join("  ")}`;
 }
 
+/** Past this many, agents whose keys share a prefix, `fix:lens-1` to `fix:lens-8`, take one line. */
+const GROUPED = 4;
+
+function agentLines(agents: readonly AgentView[], indent: string, now: number): string[] {
+  const prefix = (agent: AgentView) => agent.key.slice(0, agent.key.lastIndexOf(":") + 1);
+  const groups = new Map<string, AgentView[]>();
+  for (const agent of agents) {
+    if (prefix(agent)) groups.set(prefix(agent), [...(groups.get(prefix(agent)) ?? []), agent]);
+  }
+  const lines: string[] = [];
+  const done = new Set<string>();
+  for (const agent of agents) {
+    const group = groups.get(prefix(agent)) ?? [agent];
+    if (group.length <= GROUPED) {
+      lines.push(agentLine(agent, indent, now));
+      continue;
+    }
+    if (done.has(prefix(agent))) continue;
+    done.add(prefix(agent));
+    const states = new Map<string, number>();
+    for (const each of group) states.set(each.state, (states.get(each.state) ?? 0) + 1);
+    const counts = [...states].map(([state, n]) => `${n} ${state}`).join(", ");
+    lines.push(
+      `${indent}    ${group[0]!.key} … ${group.at(-1)!.key}   ${group.length} agents: ${counts}`,
+    );
+  }
+  return lines;
+}
+
 function describe(view: RunView, place: ReadPlace, now: number): string {
   const { status, attempt } = view;
   const lines: string[] = [
@@ -200,14 +234,17 @@ function describe(view: RunView, place: ReadPlace, now: number): string {
     lines.push(
       `${indent}  stage ${stage.stage.padEnd(8)} ${stage.state.padEnd(10)} ${took}`.trimEnd(),
     );
-    for (const agent of view.agents.filter((each) => each.stage === stage.stage)) {
-      shown.add(agent.key);
-      lines.push(agentLine(agent, indent, now));
-    }
+    const own = view.agents.filter((each) => each.stage === stage.stage);
+    for (const agent of own) shown.add(agent.key);
+    lines.push(...agentLines(own, indent, now));
   }
-  for (const agent of view.agents) {
-    if (!shown.has(agent.key)) lines.push(agentLine(agent, indent, now));
-  }
+  lines.push(
+    ...agentLines(
+      view.agents.filter((each) => !shown.has(each.key)),
+      indent,
+      now,
+    ),
+  );
   for (const decision of view.decisions) {
     lines.push(
       `${indent}    decision "${decision.key}"  asked ${clockTime(decision.askedAt).slice(0, 5)}, ${decision.outcome ?? "open"}`,
@@ -220,7 +257,7 @@ function describe(view: RunView, place: ReadPlace, now: number): string {
 function trailer(view: RunView, place: ReadPlace): string[] {
   const { status } = view;
   if (status.state === "running") {
-    return [`next: ${nextLogs(status, place, view.cursor).join(" ")}`];
+    return [`next: ${shellLine(nextLogs(status, place, view.cursor))}`];
   }
   const go = status.state === "completed" ? undefined : continueOf(status, view.lines, place);
   if (status.state === "interrupted") return go ? [`continue: ${go}`] : [];
@@ -231,7 +268,7 @@ function trailer(view: RunView, place: ReadPlace): string[] {
     const stuck = view.agents.find((each) => each.state === "failed" || each.state === "timed-out");
     const look = command(place, "awf", "logs", status.ref);
     lines.push(
-      `see: ${[...look, ...(stuck ? ["--agent", stuck.key] : []), "--limit", "30"].join(" ")}`,
+      `see: ${shellLine([...look, ...(stuck ? ["--agent", stuck.key] : []), "--limit", "30"])}`,
     );
   }
   if (go) lines.push(`continue: ${go}`);
@@ -239,7 +276,7 @@ function trailer(view: RunView, place: ReadPlace): string[] {
 }
 
 /** `awf runs {ref} --json`: durable fields at the top, best-effort ones under `live`. */
-function runJson(view: RunView, place: ReadPlace, now: number) {
+function runJson(view: RunView, place: ReadPlace, now: number): RunJson {
   const { status } = view;
   const { ended, started } = span(status, now);
   const go =
@@ -281,7 +318,15 @@ function runJson(view: RunView, place: ReadPlace, now: number) {
       turns: agent.turns,
       sessions: agent.sessions,
       live: {
-        ...(agent.live ?? {}),
+        ...(agent.live
+          ? {
+              phase: agent.live.phase,
+              ...(agent.live.reason === undefined ? {} : { reason: agent.live.reason }),
+              ...(agent.live.until === undefined
+                ? {}
+                : { until: new Date(agent.live.until).toISOString() }),
+            }
+          : {}),
         ...(agent.last ? { lastActivity: agent.last } : {}),
         observedAt: new Date(now).toISOString(),
       },

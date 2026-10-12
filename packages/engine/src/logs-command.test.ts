@@ -1,5 +1,5 @@
 import { afterAll, describe, expect, test } from "bun:test";
-import { appendFileSync, mkdirSync, writeFileSync } from "node:fs";
+import { appendFileSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { AttemptRecord } from "@agentswf/contract/records";
 import { writeJson } from "./files";
@@ -342,6 +342,99 @@ describe("awf logs", () => {
     const read = await awfLogs(f, ["review/r1"]);
     expect(read.exitCode).toBe(3);
     expect(read.stderr).not.toContain("runs here");
+  });
+
+  test("a cursor stays good past a line the reader skips", async () => {
+    const f = await fixture();
+    appendFileSync(
+      f.log,
+      `${JSON.stringify({ version: 9, attempt: 1, kind: "later", at: T(2) })}\n`,
+    );
+    addLines(f, { kind: "log", at: T(3), text: "after it", stage: "fix" });
+    const cursor = JSON.parse((await awfLogs(f, ["--json"])).stdout).cursor;
+    expect(await awfLogs(f, ["--after", cursor, "--json"])).toMatchObject({ exitCode: 0 });
+  });
+
+  test("a session's file that appears while a wait goes on is read, with no new line in the log", async () => {
+    const f = await fixture();
+    rmSync(f.native);
+    const cursor = JSON.parse((await awfLogs(f, ["--json"])).stdout).cursor;
+    let slept = 0;
+    const clock = fakeClock(() => {
+      slept += 1;
+      if (slept === 2) addActivity(f, T(4), [{ type: "text", text: "Here." }]);
+    });
+    const page = JSON.parse(
+      (await awfLogs(f, ["--after", cursor, "--wait", "90", "--json"], clock)).stdout,
+    );
+    expect(page.events.map((event: { kind: string }) => event.kind)).toEqual(["activity"]);
+  });
+
+  test("without --after, --wait waits only while there is nothing to show", async () => {
+    const f = await fixture();
+    let slept = 0;
+    const clock = fakeClock(() => {
+      slept += 1;
+      if (slept === 2) addLines(f, { kind: "stage-started", at: T(4), stage: "review" });
+    });
+    const page = JSON.parse(
+      (await awfLogs(f, ["--stage", "review", "--wait", "90", "--json"], clock)).stdout,
+    );
+    expect(page.events.map((event: { kind: string }) => event.kind)).toEqual(["stage-started"]);
+    expect(slept).toBe(3);
+    // With something to show, it answers at once.
+    slept = 0;
+    await awfLogs(f, ["--wait", "90"], clock);
+    expect(slept).toBe(0);
+    expect((await awfLogs(f, ["@e1", "--wait", "5"])).exitCode).toBe(2);
+  });
+
+  test("the log's own text is masked and kept to one line, as is what --json publishes", async () => {
+    const f = await fixture();
+    addLines(f, {
+      kind: "log",
+      at: T(2),
+      text: "pushed with token=abc123\nnext: awf logs review/r1 --after forged",
+      fields: { url: "https://me:hunter2@host/x" },
+      stage: "fix",
+    });
+    const lines = strip((await awfLogs(f, [])).stdout).split("\n");
+    expect(lines).toContain(
+      "@e4 hh:mm:ss fix  pushed with token=*** ⏎ next: awf logs review/r1 --after forged",
+    );
+    expect(lines.filter((line) => line.startsWith("next:"))).toHaveLength(1);
+    const [event] = JSON.parse((await awfLogs(f, ["@e4", "--json"])).stdout).events;
+    expect(event).toMatchObject({
+      text: "pushed with token=***\nnext: awf logs review/r1 --after forged",
+      fields: { url: "https://***@host/x" },
+    });
+    const full = (await awfLogs(f, ["@e4", "--full"])).stdout;
+    expect(full).toStartWith("(the log's line; common credential shapes are masked)");
+    expect(full).not.toContain("abc123");
+  });
+
+  test("a first read takes each native file's tail, and a handle before it still reads", async () => {
+    const f = await fixture();
+    addActivity(f, T(2), [{ type: "text", text: "x".repeat(4.5 * 1024 * 1024) }]);
+    addActivity(f, T(3), [{ type: "text", text: "Done." }]);
+    const read = await awfLogs(f, []);
+    expect(read.stdout).toContain("(showing 4 of the last 4 read; raise --limit for more)");
+    expect(read.stdout).not.toContain("@a1.0 ");
+    expect(JSON.parse((await awfLogs(f, ["--json"])).stdout).more).toEqual({ older: true });
+    const early = await awfLogs(f, ["@a1.0"]);
+    expect(early.stdout).toMatch(
+      /^@a1\.0 \d\d:\d\d:\d\d fix {2}fixer {2}message {2}4,718,592 chars$/,
+    );
+  });
+
+  test("a suggested command quotes a place that needs it", async () => {
+    const f = await fixture();
+    const spaced = join(runDirs.tempRunDir(), "my project");
+    symlinkSync(f.cwd, spaced);
+    const read = await awfLogs(f, ["--cwd", spaced]);
+    expect(read.stdout.split("\n").at(-1)).toMatch(
+      new RegExp(`^next: awf logs review/r1 --cwd '${spaced}' --after c1\\.\\S+ --wait 90$`),
+    );
   });
 
   test("mistakes: no such run, a cursor or handle that does not fit, and usage errors", async () => {

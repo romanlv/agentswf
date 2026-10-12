@@ -490,6 +490,104 @@ export type Activity =
 /** A line of `turns.jsonl`, the run's event log. */
 export type RunLogLine = TurnRecord | RunEvent;
 
+/**
+ * What `awf runs --json` and `awf logs --json` print: one document per call. A reader ignores the
+ * kinds and fields it does not know; `v` changes only when one is renamed or removed. Times are ISO.
+ */
+export type RunStateJson = "running" | "interrupted" | AttemptOutcome;
+
+/** A run as both commands head it. `checked: false`: a `running` whose process was not asked. */
+export type RunHeadJson = {
+  ref: string;
+  state: RunStateJson;
+  checked: boolean;
+  stage?: string;
+  /** Once the run has ended. */
+  duration?: number;
+};
+
+/** `awf runs --json`. */
+export type RunsJson = {
+  v: 1;
+  runs: (
+    | {
+        ref: string;
+        state: RunStateJson;
+        checked: boolean;
+        started: string;
+        duration?: number;
+        estimate?: number;
+      }
+    | { ref: string; unreadable: string }
+  )[];
+  more: { older: boolean };
+};
+
+/** `awf runs {ref} --json`: durable fields, and best effort under each agent's `live`. */
+export type RunJson = {
+  v: 1;
+  run: RunHeadJson & { estimate?: number; dir: string };
+  attempts: {
+    attempt: number;
+    started: string;
+    ended?: string;
+    state: RunStateJson;
+    stage?: string;
+    reason?: string;
+  }[];
+  stages: { stage: string; state: string; started?: string; ended?: string }[];
+  agents: {
+    key: AgentKey;
+    harness?: HarnessKind;
+    caller?: true;
+    stage?: string;
+    state: string;
+    turns: number;
+    sessions: { harness: HarnessKind; id: string; files: string[] }[];
+    live: {
+      phase?: "waiting";
+      reason?: string;
+      until?: string;
+      lastActivity?: { activity: Activity; at: string };
+      observedAt: string;
+    };
+  }[];
+  decisions: { decision: number; key: string; asked: string; outcome?: string }[];
+  cursor: string;
+  /** While it runs. */
+  next?: string[];
+  /** Where it can go on. */
+  continue?: string;
+};
+
+/** An event as `awf logs --json` publishes it, with the keys that place it. */
+export type LogEventJson = { handle: string; at: string } & (
+  | {
+      kind: "activity";
+      /** `null` between the agent's operations. */
+      operation: string | null;
+      agent?: AgentKey;
+      stage?: string;
+      activity: Activity;
+      /** With `--full`. */
+      text?: string;
+    }
+  | (DistributiveOmit<RunLogLine, "version"> & { operation?: string })
+);
+
+type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;
+
+/** `awf logs --json`. A read of one `@handle` has no `cursor`, `more` or `next`: it pages nothing. */
+export type LogsJson = {
+  v: 1;
+  run: RunHeadJson & { ambiguous?: boolean };
+  events: LogEventJson[];
+  cursor?: string;
+  more?: { older?: true; newer?: true };
+  /** While the run goes on. */
+  next?: string[];
+};
+
 /** Each kind's own version, which changes when that kind's shape does. */
 export const RUN_EVENT_VERSIONS = {
   "attempt-started": 1,
