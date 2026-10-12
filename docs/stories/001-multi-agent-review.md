@@ -212,7 +212,7 @@ Follow-ups in [`todo/`](todo/):
 - `pane-agent-start-readiness` — durable redacted start diagnostics; folded into
   [`herdr-pane-settlement.md`](todo/herdr-pane-settlement.md).
 - [`026`](026-pane-layout.md) — where each pane agent appears, said by the workflow.
-- [`operator-run-observation.md`](todo/operator-run-observation.md) — operator progress and status.
+- [[028-run-logs-and-telemetry]] — operator progress and status (folded in from the `operator-run-observation` todo).
 - [`live-eval-disclosure.md`](todo/live-eval-disclosure.md) — explicit live-evaluation disclosure.
 - `schema-in-prompt.md` — send the schema, not a rendering of it; done in
   [story 002](002-cost-and-time-accounting.md).

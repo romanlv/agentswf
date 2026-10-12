@@ -16,7 +16,7 @@ agent.run({ prompt, schema?, timeoutMs?, label?, nudge? })  // → { outcome }; 
 agent.compact({ prompt })                                    // → outcome; the harness's own compaction, with a focus
 agent.set({ model?, effort? })                               // → outcome; later turns run at these, in the same session
 agent.fork({ key, placement?, effort?, instructions?, layout?, keepPane? })  // → a new agent on a copy of this one's session
-workflow.agents.stop(key, reason?)                          // → true; the agent is done, its pane closed or kept
+workflow.agents.stop(key, reason?)                          // → boolean; true once done, false if absent or already stopped
 workflow.agents.caller({ key })                              // → the session `awf run --here` was typed in, or null
 workflow.agents.forkCaller({ key, placement?, effort?, instructions?, layout?, keepPane? })  // → a new agent on a copy of the session awf run was started from, or null
 isAnswered(outcome)                                          // narrows to { kind: "answered", value }
@@ -216,7 +216,9 @@ sit idle until the end. It is done as a failed operation leaves it: a turn it is
 `cancelled`, its pane is closed, or kept where `keepPane` says, and it can't answer any more. Its
 ref refuses later turns and forks, and its key is not opened again. It resolves `true` once the
 agent is done, and `false` for a key that was never opened, was already stopped, or did not open.
-Stopping the calling session releases it from the run; the session itself is the operator's.
+Concurrent stops wait for the same teardown. A failed close can be retried; the key stays unavailable.
+Stopping the calling session cancels its outstanding turn and sends the hand-back at stop,
+after a bounded wait for the session to settle. Its spend window ends there, and run end sends no second message. The operator's pane stays open.
 
 ### Sessions: talk to the same agent again
 
@@ -498,7 +500,7 @@ The model, and what happens when the code changes between attempts, is in
 
 ## Deadlines
 
-Every run has one deadline, 30 minutes by default (`awf run --timeout 2h`). It is
+Every run has one deadline, an hour by default (`awf run --timeout 2h`). It is
 `workflow.deadline`. Everything inside inherits it, and anything can set an earlier one:
 
 ```
@@ -873,7 +875,7 @@ Each message names the agent or decision and the turn, and usually the first lin
 prompt.
 
 Deadlines are real time. `reply.timedOut()` ends a turn as timed out at once; `testWorkflow`'s
-own `timeoutMs` sets the run's deadline, 30 minutes by default. Testing what a workflow does as
+own `timeoutMs` sets the run's deadline, an hour by default. Testing what a workflow does as
 time passes needs virtual time, which isn't built.
 
 ## Not built yet

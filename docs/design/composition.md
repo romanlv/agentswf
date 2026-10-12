@@ -136,6 +136,7 @@ wf peers
 wf inbox
 wf inbox --wait 5m
 wf send reviewer < round2.md
+wf reply reviewer < answer.md
 ```
 
 `inbox` prints unread messages in acceptance order. Messages are considered delivered only after
@@ -146,10 +147,9 @@ are answered, even after their messages have been delivered.
 timeout, leaving inbox state unchanged. Delivery is always this pull: the engine has no operation
 through which to run an outside session, so nothing is ever pushed into its context.
 
-`send` follows the messaging contract. Sending to a peer awaiting this participant's response
-satisfies that obligation and may add `--expect-response`. The participant may have at most one
-outgoing response expectation at a time; responses it owes are distinguished by peer name, so no
-message ids enter the CLI.
+`send` and `reply` follow the messaging contract. `wf reply {peer}` satisfies a reply this
+participant owes and may add `--await-reply`. The participant may await at most one reply at a
+time; replies it owes are distinguished by peer name, so no message ids enter the CLI.
 
 Peer names are qualified only when necessary. If two child calls both expose a local `reviewer`,
 `wf peers` shows addresses such as `review:claude/reviewer` and `review:codex/reviewer`; `wf send`
@@ -219,7 +219,7 @@ const { outcome } = await reviewer.run({
   prompt: `
 Review the working tree against ${args.base} and keep findings in ${args.findingsPath}.
 
-Send each round to the author with a response expectation. Continue when dispositions arrive.
+Send each round to the author with wf send --await-reply. Continue when dispositions arrive.
 Return the verdict once nothing is open.
 `,
   schema: REVIEW_VERDICT,
@@ -231,7 +231,7 @@ The outside session participates with the same files and a small CLI surface:
 ```sh
 wf inbox
 wf peers
-wf send review:claude/reviewer < round2.md
+wf reply review:claude/reviewer < round2.md
 ```
 
 Durable findings remain in files; messages carry only coordination.

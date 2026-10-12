@@ -82,7 +82,7 @@ live runs.
   split from story 021 so accounting does not delay liveness.
 
 - [[stopped-run-recovery]] — a stop says how to go on, and can wait on a person; after story 018.
-- [[run-logs-and-telemetry]] — `awf logs`, each agent's native session linked from the run dir.
+- [[028-run-logs-and-telemetry]] — now story 028, draft: an agent reads a run with `awf runs` and `awf logs`; `operator-run-observation` folded in.
 - [[agent-permission-mode]] — host claude runs in auto mode, a classifier on every command.
 - [[readable-workflows]] — durations a person writes; the ticket workflow as its process.
 - [[run-through-sleep]] — keep the machine awake for a run; record time slept through.
@@ -91,8 +91,9 @@ live runs.
 ### P2
 
 - [[billing-provenance]], [[interrupted-accounting-read]] — what spend records claim.
-- [[operator-settings]], [[operator-run-observation]], [[context-size]].
+- [[operator-settings]], [[context-size]].
 - [[herdr-pane-settlement]] — with start and non-answered diagnostics folded in.
+- [[mid-turn-messages]] — a message folded into a running claude turn; after story 029.
 - [[key-growth-from-runs]], [[jev-noise-audit]], [[second-case-kind]] — the lab's data and scorer.
 - [[workflow-in-sandbox]], [[sandbox-host-protection]] — containment.
 - [[split-large-modules]].

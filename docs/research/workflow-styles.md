@@ -7,16 +7,17 @@ impossible, and where awf's proposal sits among them.
 
 The SDK calls were checked against current docs (Context7, 2026-10-06): Temporal's TypeScript
 SDK, inngest-js and Restate's TypeScript SDK. The awf proposal is a sketch; its names are not
-settled.
+settled. [Effect](#effect-the-process-as-a-typed-value) is a lens on all six rather than a
+seventh, and comes after the comparison.
 
 **Direction so far** (discussion, 2026-10-07; nothing built):
 
 - Inngest's model, not Temporal's or Restate's: rerun from the top, match by name, and let fixed
   code apply to runs in flight, which is what `--continue` already does.
-- No server. A run suspends; `awf send` and a scheduled `awf tick` resume it.
-- From Restate, a value sent before the run waits for it is kept. `awf resolve`/`send` accepts a
+- No server. A run suspends; `awf signal` and a scheduled `awf tick` resume it.
+- From Restate, a value sent before the run waits for it is kept. `awf resolve`/`signal` accepts a
   name the run has not reached yet.
-- Every wake-up is a message in a process's inbox: addressed sends, routed events, timers,
+- Every wake-up is a message in a process's inbox: addressed signals, routed events, timers,
   schedules. One wait primitive, `receive`. See [Loops, the inbox and the core](#loops-the-inbox-and-the-core).
 
 ## The process
@@ -308,7 +309,7 @@ const digest = restate.object({
 
 A stage is a named step whose result the run keeps. `awf run {file} --continue {id}` starts a
 new attempt that reruns `run` from the top, returns recorded stage results, and runs the rest. An
-attempt has one deadline, 30 minutes by default. There is no sleep, no outside input and no
+attempt has one deadline, an hour by default. There is no sleep, no outside input and no
 schedule: `steps` and `signals` are typed and throw `unavailable`.
 
 ```ts
@@ -466,6 +467,147 @@ pins a run to its code, where awf's `--continue` exists to run fixed code.
 
 ---
 
+## Effect: the process as a typed value
+
+Effect is a TypeScript effect system: a program is a value, `Effect<A, E, R>`, that succeeds with
+`A`, fails with a typed `E`, and needs the services `R`, which a `Layer` provides. Generators make
+it read top to bottom. `effect/workflow` adds durability on the same model as Temporal: a
+`Workflow` with payload, success and error schemas; an `Activity` whose completed result is
+recorded by name; `DurableClock.sleep` and `DurableDeferred` for waits; a `WorkflowEngine` layer
+for the store. awf already cites it for scopes, interruption and retry schedules
+([[reading]]); Smithers is built on it ([[landscape]]).
+
+Checked against current docs (Context7, `/websites/effect_website_v4`, 2026-10-09):
+`Workflow.make`, `Activity.make`, `DurableClock.sleep`, `DurableDeferred.make`, `token` and
+`succeed`, `Effect.retry` with `Schedule`. `DurableDeferred.await` and `raceAll` are from the v3
+API and were not confirmed in v4; v4 is still in beta.
+
+```ts
+import { Effect, Schema } from "effect";
+import { Activity, DurableClock, DurableDeferred, Workflow } from "effect/workflow";
+
+const FeatureDelivery = Workflow.make("FeatureDelivery", {
+  payload: { ticket: Schema.String },
+  success: Done,
+  error: Abandoned,                       // a tagged error: { _tag: "Abandoned", reason }
+  idempotencyKey: ({ ticket }) => ticket,
+});
+
+const DocApproved = DurableDeferred.make("doc-approved", { success: Approval });
+const Checked = (item: Item) => DurableDeferred.make(`checked-${item}`, { success: Check });
+
+// an agent turn is an activity: once it completes, its result is recorded and never asked again
+const agentTurn = (name: string, turn: Turn) =>
+  Activity.make({ name, success: TurnResult, execute: dispatchTurn(turn) });
+
+const waitOrExpire = <A>(name: string, wait: Effect.Effect<A>, duration: string) =>
+  DurableDeferred.raceAll({
+    name,
+    success: Schema.Union(Schema.Literal("expired"), Schema.Any),
+    error: Schema.Never,
+    effects: [wait, DurableClock.sleep({ name: `${name}-clock`, duration }).pipe(Effect.as("expired" as const))],
+  });
+
+const FeatureDeliveryLive = FeatureDelivery.toLayer(({ ticket }) =>
+  Effect.gen(function* () {
+    const doc = yield* agentTurn("plan", { role: "planner", prompt: `Draft a ticket doc for ${ticket}` });
+
+    for (let round = 1; ; round++) {
+      const next = yield* waitOrExpire(`approval-${round}`, DurableDeferred.await(DocApproved), "2 days");
+      if (next !== "expired") break;
+      if (round === 3) return yield* Effect.fail(new Abandoned({ reason: "doc not approved" }));
+      yield* Activity.make({ name: `remind-${round}`, execute: notify(`Reminder: approve ${doc.path}`) });
+    }
+
+    yield* agentTurn("implement", { role: "implementer", prompt: `Implement ${doc.path}` });
+
+    const all = Effect.all(ITEMS.map((i) => DurableDeferred.await(Checked(i))), { concurrency: "unbounded" });
+    if ((yield* waitOrExpire("checklist", all, "14 days")) === "expired") {
+      return yield* Effect.fail(new Abandoned({ reason: "checklist expired" }));
+    }
+
+    yield* Activity.make({ name: "release", execute: release(ticket) });
+    yield* DurableClock.sleep({ name: "follow-up", duration: "14 days" });
+    yield* agentTurn("follow-up", { role: "reviewer", prompt: `Check for regressions since ${ticket} shipped` });
+    return { kind: "done" };
+  }),
+);
+// Effect<Done, Abandoned, WorkflowEngine | Agents | Notifier>: the failure and the needs are in the type
+```
+
+From outside, a person's approval is `DurableDeferred.succeed(DocApproved, { token, value })`. The
+token is derived from the workflow name, the execution id and the deferred's name, so a sender
+who knows the ticket can address it. The weekly digest is not a workflow: `Effect.schedule` with
+`Schedule.cron` in a process that stays up.
+
+- **Wake-up:** the `WorkflowEngine` behind the layer, in memory or a durable store; it resumes a
+  suspended execution when a clock fires or a deferred is completed.
+- **On resume, what reruns:** the body, with completed activities, clocks and deferreds from the
+  record. Only completed activities are memoized: an activity that suspends runs its body again on
+  replay, so effects before the suspension repeat (the docs' own warning).
+- **A value sent early:** not checked.
+- **Code change in flight:** replay against the record, as in Temporal; no `patched()`.
+- **Where is it:** `poll` returns the result once there is one; which step it is on is not built in.
+- **Cost:** a dependency the author surface would be written in, plus an engine store.
+
+### Is it more readable?
+
+Line for line it is close to Temporal and to awf today, with `yield*` for `await`. What it adds is
+the type: `Effect<Done, Abandoned, ...>` says how the process can end and what it needs, which
+plain `async` code cannot. awf has one place that would read better for it. `workflow.stop`
+throws, so `docs/workflow-api.md` asks for `return workflow.stop(reason)` to get narrowing; in
+Effect a stop is a value in the error channel.
+
+What it costs:
+
+- **A second language at every line.** `function*`, `yield*` and `pipe` for code that already
+  reads top to bottom with `await`. The people who write and read awf workflows are coding agents
+  and the operator, not Effect specialists.
+- **New failure modes.** A missing `yield*` type-checks and does nothing. Effect's type errors run
+  to many lines.
+- **A published type tied to someone else's majors.** `contract` is pure and depends on nothing;
+  an author surface typed in `Effect` follows Effect's versions, and v4 is in beta.
+- **Smithers is the evidence.** Built on Effect, it went to a static plan of `Planned` proxies
+  that throw when computed on, with "trampoline" rounds for lists found at run time.
+
+So: not as the author surface.
+
+### What awf already has
+
+The ideas came over without the library:
+
+| Effect | awf |
+| --- | --- |
+| `Exit`, tagged errors | the `outcome.kind` union: a turn that goes wrong is a value |
+| `Effect.timeout`, interruption | one deadline per run; `parallel` and `agent.run` only narrow it |
+| structured concurrency | `parallel` is fail-fast and cancels its siblings |
+| `Layer` and `R` | two composition roots, `operator-runtime.ts` and `workflow-testing` (ADR 0006) |
+| `Activity.make({ name, success, execute })` | `workflow.stage(name, { result }, work)` |
+| "only completed activities are memoized" | "code between stages runs on every attempt" |
+
+### What to borrow
+
+1. **A schedule as a value.** "Every 2 days, at most 3 times" is
+   `Schedule.spaced("2 days").pipe(Schedule.take(3))`, not a loop of `remind-${round}` names.
+   If the policy is data, the run directory can record it and `awf tick` can resume it, and one
+   named timer replaces a name per round, which shrinks question 2 of
+   [What the proposal has to settle](#what-the-proposal-has-to-settle). The same value would
+   retry a turn that ended `failed` with `retryable`. Library code over `receive`, per the table
+   in [Loops, the inbox and the core](#loops-the-inbox-and-the-core); it starts in `examples/`.
+2. **`stop` that narrows.** A `never` return type, or a stop returned as a value, removes the
+   `return workflow.stop(...)` convention without taking Effect.
+3. **An idempotency key per side effect.** `Activity.idempotencyKey(name, { includeAttempt })`
+   derives a key from the execution, the name and, optionally, the attempt. A stage that pushes,
+   posts or releases, and is redone after `stopped`, needs the same thing; awf has `runId`, the
+   stage name and `attempt`, so this is a written rule and perhaps a helper.
+4. **Needs in the type, maybe.** `R` makes a missing service a compile error. awf could get part
+   of it by letting a workflow declare the runtimes and decision providers it uses, so
+   `workflow-testing` refuses to start without a fake for each. Only if that mistake shows up.
+
+Not borrowed: `Layer` as an author-facing idea, `pipe` composition, a static plan.
+
+---
+
 ## Loops, the inbox and the core
 
 A process that loops (a PR shepherd: fix CI, address comments, ping when quiet, merge when green
@@ -478,7 +620,7 @@ returning (done), suspending on a message, or `workflow.again(state)`: the next 
 that state and the same inbox. A straight-line workflow is a process that never calls `again`.
 This is Temporal's `continueAsNew` and Restate's Virtual Object, in awf's terms.
 
-**Everything that wakes a process is a message in its inbox**: `awf send {key} {type}` from a
+**Everything that wakes a process is a message in its inbox**: `awf signal {key} {type}` from a
 person, script or agent; `awf emit {type}` routed by the workflow's `on` rules, starting the
 process if needed; timers and `schedule` from the clock. The one wait is
 `receive(name, { types, match, timeout })`: it takes the oldest unconsumed matching message, or a
@@ -490,7 +632,7 @@ checklist and a reminder loop are all built on it.
 | Layer | Holds |
 | --- | --- |
 | contract | `receive`, `again`, the process key; the inbox, state and round record formats |
-| engine | the inbox (append, dedup by message id), consumption records, one round per key at a time, clock messages, `awf send`, `awf tick`, `awf status {key}` |
+| engine | the inbox (append, dedup by message id), consumption records, one round per key at a time, clock messages, `awf signal`, `awf tick`, `awf status {key}` |
 | workflow-testing | a virtual clock and a scripted inbox |
 | library, pure, over the author surface | `promise`, `sleep`, a checklist collector, reminders, retry, approval, `ask`. Starts in `examples/`; extracted on the second copy |
 | integrations, contract only, through the CLI | CI and forge pollers, notifiers, approval UIs |
@@ -498,7 +640,7 @@ checklist and a reminder loop are all built on it.
 
 `race` and `all` cannot be library code: two live receives could each consume a message, and the
 loser's is lost. So the core `receive` multiplexes and consumes exactly one message. `emit` and
-routing come after addressed `send`, once addressing keys by hand gets tedious.
+routing come after addressed `signal`, once addressing keys by hand gets tedious.
 
 **To decide before building**, since each fixes the author surface or a record:
 

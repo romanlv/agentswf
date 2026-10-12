@@ -170,8 +170,9 @@ At activation it receives, through harness-specific mechanisms:
 For each operation it receives the turn prompt and, for structured work, the required JSON Schema.
 A nudge is another prompt in the same logical operation sequence. A compaction is the harness's
 own command, with the workflow's focus; the agent answers nothing for it.
-Allowed messaging routes and their purposes are included in its instructions or authenticated
-inbound messages.
+Allowed messaging routes and their purposes are taught in its operation prompt, and in a message
+operation's envelope, a first turn's included; a route granted later is announced in the next
+envelope.
 
 The engine-owned CLI provides result submission, route discovery, and messaging:
 
@@ -181,7 +182,8 @@ wf result <call-id> < result.json
 
 wf peers
 wf send reviewer 'Findings are ready in REVIEW.md'
-wf send reviewer 'Please review the revision' --expect-response
+wf send --await-reply reviewer 'Please review the revision'
+wf reply implementer 'Fixed in src/page.ts'
 ```
 
 See [`messaging.md`](messaging.md) for delivery, response, wake-up, and failure semantics.

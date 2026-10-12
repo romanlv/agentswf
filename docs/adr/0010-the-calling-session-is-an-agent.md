@@ -81,8 +81,10 @@ handed over or waiting on it, which replaces "a run does not fork it".
     claude folds a queued prompt into the running turn (E8).
   - A run that is killed, crashes, or whose tab is closed sends nothing. The `--here` command's
     own output names the run's tab, which shows how the run ended.
-  - `agents.stop` is not built. When it is, stop on the caller's key sends the hand-back then,
-    nothing is sent at run end, and every later call on that key rejects.
+  - `agents.stop` on the caller's key cancels its outstanding turn, releases the run's observer
+    and result channel, and sends the hand-back then. It never closes the operator's pane.
+    Nothing is sent at run end, its spend window ends at release, and every later call on that
+    key rejects.
 - **A workflow can fork the session that started the run, and only by asking** (story 027).
   `agents.forkCaller(spec)` opens a new agent on a copy of it, as ADR 0009's fork does, or answers
   `null`. `caller()` is unchanged: the session as an agent of the run, which needs it handed over.

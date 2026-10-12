@@ -237,10 +237,11 @@ hold an agent, because an agent that cannot call `wf result` cannot answer.
 uid and can reach each other's doors, as the trust boundary allows. Confining agents against each
 other takes separate sandboxes.
 
-**Messaging crosses sandboxes for free.** A message goes `wf send`, engine,
-`HarnessTurn.deliver`. The engine owns the inbox and the peer's provider presents the prompt. Two
-agents in different sandboxes talk exactly as well as two on the host, through the same door.
-There is no agent-to-agent channel to preserve and this design creates none.
+**Messaging crosses sandboxes for free.** A message goes `wf send`, engine, then
+`HarnessSession.start` for a new message operation or `HarnessTurn.deliver` to continue one. The
+engine owns the inbox and the peer's provider presents the prompt. Two agents in different sandboxes
+talk exactly as well as two on the host, through the same door. There is no agent-to-agent channel
+to preserve and this design creates none.
 
 **Shared files cross only within a sandbox.** [[messaging]] puts durable state in shared files,
 and the review workflows coordinate through a ledger in the worktree. That holds while agents

@@ -151,7 +151,7 @@ means usage and pricing need a real home, not a `console.log`.
 - **review-loop is out of scope for now.** It works, it stays where it is, and nothing in this
   repository ports it. The order is design, prototype, experiment, and only then consider replacing
   it. The seam should not foreclose that last step, but it is neither a gate nor scheduled.
-- **No `telemetry` package yet.** Reasoning in section 7.
+- **No `telemetry` package yet.** Reasoning in section 8.
 - **No `workflows/` directory yet.** Reasoning in section 8.
 - Plain copy with a fresh initial commit; poc1's experiment results kept in `experiments/_archive/`, its scripts in git history.
 
@@ -297,8 +297,8 @@ fake host satisfy the run-host interface; provider variation is internal composi
 choice exposed to workflows or the engine.
 
 **`wf`** — the command the in-session agent is told to run, through a launcher the engine
-installs per agent. `wf result` and `wf waiting`, and later `wf peers` / `wf send`. It *compiles* against `contract`
-alone, and at runtime it talks to the engine over the local control plane described in section 7.
+installs per agent. `wf result` and `wf waiting`, and later `wf peers` / `wf send` / `wf reply`. It *compiles* against
+`contract` alone, and at runtime it talks to the engine over the local control plane described in section 7.
 It never links the engine and never touches the run directory itself.
 
 It was deliberately absent through Stage 0. Stage 2 created it together with
@@ -396,17 +396,18 @@ The feature spans every layer:
 
 - route, envelope and obligation **types** — needed by everything
 - `HarnessTurn.deliver`, presenting a message at the next safe model continuation — **harness**
-- `wf peers`, `wf send --expect-response` — **wf**
-- the obligation state machine: atomic send ordering, crossing sends satisfying earlier
-  obligations, refusing `wf result` while a response is owed — **engine**
+- `wf peers`, `wf send --await-reply`, `wf reply` — **wf**
+- the obligation state machine: atomic acceptance of a send and its obligation, a request waking
+  an agent that awaits a reply, refusing `wf result` while a reply is owed, and a result while
+  awaiting dropping the wait — **engine**
 
 The types go in `contract` and the enforcement in `engine`, the way openclaw names
 `gateway-protocol` separately from the gateway.
 
 **But a dependency rule is not a communication channel, and this plan was missing one.** `wf`
-is a separate operating-system process. `wf send --expect-response` has to block until the engine
-says an obligation is satisfied; `wf result` has to be refused while a reply is owed; a crossing send
-has to be ordered atomically against another process's send. None of that can be done by two
+is a separate operating-system process. `wf send --await-reply` has to create its obligation
+atomically with the message; `wf result` has to be refused while a reply is owed; a `wf reply` has
+to be matched against the wait still open, ordered against another process's send. None of that can be done by two
 processes writing to a shared directory.
 
 The POC gets away with it because one call means one session and the CLI reads and writes the run
@@ -607,10 +608,12 @@ Prices and the summary in `engine/src/accounting/` — pure, importing only the 
 exported so a finished run can be priced again; positioned to be lifted out whole. Spend-pool admission and budget enforcement are the
 engine's proper. Nothing about pricing lives beside an adapter.
 
-**When it fires.** Two producers — the engine will emit records the harness knows nothing about
-(step start/end, agent open/close, admission waits) — and two consumers, the operator asking what a
-run cost and the autoresearch loop learning from it. Story 002 brings the first consumer and the
-second is next, so this is the trigger to watch.
+**When it fires.** When something needs control over who may import it. Counting producers and
+consumers was the first trigger, and it fired without that need: story 028 makes the engine a
+second producer (stage, operation and agent events in the run's event log, activity read from the
+native session files), and story 030's OTel export is another consumer. The event and activity
+types went to `contract`, the activity readers beside the usage readers in `harness`, and no
+package followed.
 
 One thing to carry regardless of packaging: the two dollar columns are not the same number, and the
 difference is not currency — both are USD. A pane draws on a subscription and, on the measured
@@ -658,7 +661,7 @@ named trigger fires.
 
 | Not yet | Lives in for now | Extract when |
 | --- | --- | --- |
-| `telemetry` / accounting package | readers and billing in `harness/src/usage/`; run-end reading in `engine/src/run-usage.ts`; prices and summary in `engine/src/accounting/`; the record in `contract` | two producers and two consumers — the autoresearch loop is the second consumer |
+| `telemetry` / accounting package | readers and billing in `harness/src/usage/`, activity readers beside them; run-end reading in `engine/src/run-usage.ts`; prices and summary in `engine/src/accounting/`; the run's event log and the records in `contract` | something needs control over who imports it. Two producers and two consumers arrived with stories 028 and 030 and did not need it |
 | `messaging` state machine | `engine/src/messaging/`, types in `contract` | never as one package — see section 7 |
 | tool capability resolution | request and report *shapes* in `contract`, resolution in `harness/src/capabilities/`, fail-vs-downgrade policy in `engine` | two adapters demonstrate what is actually portable; skills met it and are built (story 007) |
 | context-usage reading | `harness/src/context/` | — |

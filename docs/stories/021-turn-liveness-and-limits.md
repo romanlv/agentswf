@@ -470,7 +470,7 @@ fixture. Mermaid syntax in this document must also parse in the supported render
 
 - [[herdr-pane-settlement]] shares prompt-delivery and native release measurements.
 - [[headless-orphans]] owns stronger descendant cleanup; do not claim it from native completion.
-- [[run-logs-and-telemetry]] and [[operator-run-observation]] can consume waiting/check-in events.
+- [[028-run-logs-and-telemetry]] can consume waiting/check-in events.
 - [[stopped-run-recovery]] may later reuse an open operation; it cannot reopen a closed slot.
 - [[live-spend-limits]] remains separate. [[018-workflow-stages]] is not a prerequisite.
 

@@ -132,10 +132,10 @@ Out of scope:
 - [[runs-and-stages]]'s "Later" list: `awf status`, `awf continue {workflow}/{id}`, `--to-stage` and
   `--only-stage`, `--skip-stage`, `fresh`, fork, a status the workflow sets.
 - Reopening agents' sessions on a continue, and debug mode ([[stopped-run-recovery]]).
-- Live cost during a run, `awf logs` and OTel ([[run-logs-and-telemetry]]).
+- Live cost during a run, `awf logs` and OTel ([[028-run-logs-and-telemetry]]).
 - Per-stage limits remain separate; operation waiting and check-ins are in
   [[021-turn-liveness-and-limits]].
-- A status command for a live run ([[operator-run-observation]]).
+- A status command for a live run ([[028-run-logs-and-telemetry]]).
 - Red log lines: fixed already (commit 4f54d32).
 
 ## Context and evidence
@@ -173,7 +173,7 @@ The facts are as found before this story.
   - docker: containers with optional unique names and a status.
 - **Constraint: ADR 0001.** Each published type lands with its implementation and a workflow that
   uses it (task 8).
-- **Constraint: [[operator-run-observation]].** Herdr ids aren't portable workflow state.
+- **Constraint: [[028-run-logs-and-telemetry]].** Herdr ids aren't portable workflow state.
 
 ## Code map
 
@@ -492,7 +492,7 @@ Plan (2026-10-04):
   - Without a terminal, stages are entered, reused and ended as lines.
 - **Deviation:** the view shows each agent's placement but not its pane id. The harness's agent
   snapshot doesn't carry one, and adding it reaches into the session core of every host; it is
-  left for [[operator-run-observation]].
+  left for [[028-run-logs-and-telemetry]].
 
 ### 7. Accounting and endings by stage
 

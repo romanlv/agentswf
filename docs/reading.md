@@ -26,7 +26,10 @@ left unmined, and delete it here.
   agent spans. Should `SettledOperation` use them?
 - **Harness OTel export**: [Claude Code monitoring](https://docs.claude.com/en/docs/claude-code/monitoring-usage),
   [Codex OTel config](https://developers.openai.com/codex/config-advanced). Can usage come from
-  exported telemetry instead of session files? %% good idea, let's add it to TODO , we should standartize on OTel %%
+  exported telemetry instead of session files?
+  Checked 2026-10-10 in [[028-run-logs-and-telemetry]]: only claude and codex export, batched and
+  lost on kill, so session files stay the source; awf's own events export as OTel in
+  [[030-otel-export]].
 
 ## The run record and autoresearch
 

@@ -120,6 +120,16 @@ status is one of `todo`, `draft`, `ready`, `in-progress`, `blocked`, `awaiting-h
 - [`027` — A run forks the session that started it](027-caller-fork.md) —
   `awaiting-human-review` — `agents.forkCaller` opens an agent on a copy of the session `awf run` was started from,
   waiting on it or handed over with `--here`, on the model its files show; `null` when there is none.
+- [`028` — An agent sees what a run is doing, from the command line](028-run-logs-and-telemetry.md) —
+  `draft` — `awf runs` and `awf logs` read a run as bounded, structured output with a cursor, so
+  an agent can watch another agent's run; the run's events are span-shaped.
+- [`029` — Agents in a run message each other over routes the workflow grants](029-agent-messaging.md) —
+  `draft` — `workflow.messages.allow` grants routes with a purpose; agents use `wf peers`, `wf send
+  [--await-reply]` and `wf reply`; a message arrives at a turn boundary and wakes an idle agent,
+  and the engine owns delivery, obligations, limits and the record.
+- [`030` — A run shows up as one trace in the operator's OTel backend](030-otel-export.md) —
+  `draft` — each attempt sends its part of the event log as OTLP JSON spans when an endpoint is
+  set, never failing the run; proven by unit tests.
 
 - [[021-turn-liveness-and-limits|021 — Keep a waiting agent alive within fixed limits]] —
   `done` — Repeated cooperative check-ins share one deadline and result slot; an accepted
