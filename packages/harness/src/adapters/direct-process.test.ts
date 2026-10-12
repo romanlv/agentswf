@@ -184,6 +184,74 @@ describe("createHeadlessAdapter", () => {
     expect(calls[1]?.argv[calls[1].argv.indexOf("--resume") + 1]).toBe("sess-1");
   });
 
+  test("a delivery resumes the session, and is observed only where the session's file shows it", async () => {
+    const home = mkdtempSync(join(tmpdir(), "awf-observed-"));
+    const cwd = mkdtempSync(join(tmpdir(), "awf-observed-cwd-"));
+    try {
+      const project = join(home, "projects", cwd.replace(/[^A-Za-z0-9]/g, "-"));
+      mkdirSync(project, { recursive: true });
+      const transcript = join(project, "sess-1.jsonl");
+      // claude writes what it was given to its session file; the stub does that for one turn.
+      const said = (text: string) =>
+        writeFileSync(
+          transcript,
+          `${JSON.stringify({
+            type: "user",
+            timestamp: "2026-10-12T14:00:00.000Z",
+            message: { role: "user", content: text },
+          })}\n`,
+          { flag: "a" },
+        );
+      const calls: (ProcessInput | SandboxedCommand)[] = [];
+      const run: RunProcess = async (input) => {
+        calls.push(input);
+        if (calls.length === 2) said("Message from architect, on the route \u201cAsk.\u201d\nbody");
+        // A resume that fails before claude writes anything.
+        if (calls.length === 4) return { stdout: "", stderr: "boom", exitCode: 1, timedOut: false };
+        return { stdout: claudeOut("ok"), stderr: "", exitCode: 0, timedOut: false };
+      };
+      const session = await headless(run, {}, { ...activation, cwd, home });
+      const first = await session.start(turnSpec, firstBinding);
+      await first.settled;
+      const message = {
+        kind: "message" as const,
+        from: "architect",
+        text: "body",
+        answers: true as const,
+      };
+      const delivered = await first.deliver({
+        id: "turn-1:message:1",
+        prompt: "Message from architect, on the route \u201cAsk.\u201d\nbody",
+        deadline: activation.deadline,
+        authored: { prompt: "review", messages: [message] },
+      });
+      expect(await delivered.settled).toMatchObject({ state: "completed", observed: true });
+      expect(calls[1]?.argv[calls[1].argv.indexOf("--resume") + 1]).toBe("sess-1");
+      // Nothing in the file for this one: it stays unobserved.
+      const unread = await delivered.deliver({
+        id: "turn-1:message:2",
+        prompt: "No reply from tester: it stopped.",
+        deadline: activation.deadline,
+        authored: { prompt: "review", messages: [message] },
+      });
+      expect(await unread.settled).not.toHaveProperty("observed");
+      // The same first line again, in a turn that never ran: the earlier one is not taken for it.
+      const failed = await unread.deliver({
+        id: "turn-1:message:3",
+        prompt: "Message from architect, on the route \u201cAsk.\u201d\nbody",
+        deadline: activation.deadline,
+        authored: { prompt: "review", messages: [message] },
+      });
+      const outcome = await failed.settled;
+      expect(outcome.state).toBe("failed");
+      expect(outcome).not.toHaveProperty("observed");
+      await session.close();
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
   describe("with skills", () => {
     test("every turn, a resumed one too, carries them where they swallow nothing", async () => {
       const { run, calls } = stub([claudeOut("first"), claudeOut("second")]);

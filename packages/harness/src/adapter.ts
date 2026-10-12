@@ -130,6 +130,11 @@ export type HarnessTurnOutcome = {
   summary?: string;
   /** On a failed turn whose harness showed it cannot sign in; see `HarnessSpec.login`. */
   login?: TurnLogin;
+  /**
+   * The harness's own record shows the model was given this turn's prompt: what a headless turn
+   * can say of messages it delivered, where a pane has its delivery evidence instead.
+   */
+  observed?: true;
 };
 
 export type HarnessReleaseDisposition =

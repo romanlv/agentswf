@@ -1,4 +1,5 @@
 import { open } from "node:fs/promises";
+import { join } from "node:path";
 import type { Activity } from "@agentswf/contract/records";
 import { parseRow, type Row } from "../json";
 import { findHarness } from "../spec";
@@ -111,6 +112,46 @@ export async function readActivity(
 }
 
 const CHUNK_BYTES = 4 * 1024 * 1024;
+
+/**
+ * A session's own file, the first its harness names: not a subagent's beside it, nor a forked
+ * session's parent's, whose rows are theirs. Absent where the harness has no reader for its files.
+ */
+export async function ownSessionFile(
+  harness: string,
+  home: string,
+  session: string,
+  cwd: string,
+): Promise<string | undefined> {
+  const spec = findHarness(harness);
+  if (!spec?.sessionFiles || !spec.activityRow) return undefined;
+  const [own] = (await spec.sessionFiles(home, session, cwd).catch(() => undefined)) ?? [];
+  return own === undefined ? undefined : join(home, own);
+}
+
+/**
+ * Whether what was appended to a session's file from byte `from` shows `line` in a message from
+ * its user: what a headless turn can say of the prompt it was given, which its harness writes as
+ * the turn starts. Only what this turn wrote is read, so an earlier prompt with the same words is
+ * never taken for it.
+ */
+export async function appendedShows(
+  harness: string,
+  file: string,
+  from: number,
+  line: string,
+): Promise<boolean> {
+  // Rows are read masked, so the line is too.
+  const probe = maskCredentials(line);
+  const read = await readActivity(harness, file, from, { full: true, lines: APPENDED_LINES });
+  return read.rows.some(
+    (row) =>
+      row.activity.type === "message" && row.activity.from === "user" && row.text?.includes(probe),
+  );
+}
+
+/** The prompt is among the first rows a turn appends; a few hundred lines is far past it. */
+const APPENDED_LINES = 400;
 
 /** The text of a content block list, or of a string: what a message says. */
 export function contentText(content: unknown): string {

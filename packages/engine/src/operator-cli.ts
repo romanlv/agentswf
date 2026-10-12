@@ -45,7 +45,12 @@ import { type Attempt, createRun, discardRun, type Run, RunRefused } from "./run
 import { runsCommand } from "./runs-command";
 import { parseTestCommand, runWorkflowTests, type TestCommand, testUsage } from "./test-command";
 import type { LoadedWorkflow } from "./workflow-loader";
-import { startWorkflow, WorkflowCancelledError, type WorkflowRunHandle } from "./workflow-runner";
+import {
+  type RunWorkflowOptions,
+  startWorkflow,
+  WorkflowCancelledError,
+  type WorkflowRunHandle,
+} from "./workflow-runner";
 
 /** What the CLI reaches the machine through; each is the real one when absent. */
 export type OperatorEnvironment = {
@@ -76,6 +81,11 @@ export type OperatorEnvironment = {
   now?: () => number;
   /** How `awf allowance` reads a harness's plan. */
   readAllowance?: (harness: Harness) => Promise<HarnessAllowance>;
+  /**
+   * Where agents may `--await-reply`, past the engine's list: for the live checks that decide
+   * what goes on it (story 029's M2 gate).
+   */
+  awaitReply?: RunWorkflowOptions["awaitReply"];
 };
 
 type Output = {
@@ -369,6 +379,7 @@ async function runAttempt(
       deadline,
       cwd,
       ...(environment.signal ? { signal: environment.signal } : {}),
+      ...(environment.awaitReply ? { awaitReply: environment.awaitReply } : {}),
       onCallerStopped: () => handOver("stopped using this session", true),
       onLog: (logMessage, fields?: JsonObject) =>
         progress.log(fields ? `${logMessage} ${JSON.stringify(fields)}` : logMessage),

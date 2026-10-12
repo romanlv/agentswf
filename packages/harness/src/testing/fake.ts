@@ -51,6 +51,8 @@ export type FakeAdapterTurn = {
   summary?: string;
   /** On a failed turn: its harness showed it cannot sign in. */
   login?: TurnLogin;
+  /** Its record shows the model was given the prompt, as a headless harness's file would. */
+  observed?: true;
   durationMs?: number;
   act?: (context: FakeAdapterTurnContext) => void | Promise<void>;
 };
@@ -235,6 +237,7 @@ export function createFakeAdapter(
                 ? {}
                 : { summary: scripted.summary }),
               ...(scripted.login && !controller.signal.aborted ? { login: scripted.login } : {}),
+              ...(scripted.observed ? { observed: true as const } : {}),
             };
           } finally {
             if (activeController === controller) activeController = undefined;

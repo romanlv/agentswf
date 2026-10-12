@@ -2681,7 +2681,8 @@ class LogicalAgent implements AgentRef {
           deadline,
           deliverySignal,
           prompt: checkInPrompt(recoveryPrompt),
-          authored: { ...authored, prompt: recoveryPrompt },
+          // A check-in delivers no messages: those its first prompt carried are not its own.
+          authored: { ...withoutMessages(authored), prompt: recoveryPrompt },
         }),
       onStop: (stop) => {
         this.#operationStops.add(stop);
@@ -2775,7 +2776,11 @@ class LogicalAgent implements AgentRef {
           prompt,
           deadline: turn.deadline(),
           deliverySignal: signal,
-          authored: { ...turn.authored, prompt, ...(messages.length ? { messages } : {}) },
+          authored: {
+            ...withoutMessages(turn.authored),
+            prompt,
+            ...(messages.length ? { messages } : {}),
+          },
           onSession: turn.session,
         });
         return this.confirmed(operationId, delivery?.numbers ?? [], next);
@@ -2788,8 +2793,8 @@ class LogicalAgent implements AgentRef {
   }
 
   /**
-   * What the harness confirms of a delivery: received is `observed`; a failure, or no evidence by
-   * the turn's end, `unconfirmed`. A host without evidence never confirms one.
+   * What the harness confirms of a delivery: received, or a session record showing the prompt, is
+   * `observed`; a failure, or no evidence by the turn's end, `unconfirmed`.
    */
   private confirmed(
     operationId: string,
@@ -2808,7 +2813,8 @@ class LogicalAgent implements AgentRef {
       void turn.delivery.received.then(() => say("observed"));
       void turn.delivery.failed.then(() => say("unconfirmed"));
     }
-    void turn.settled.then(() => say("unconfirmed"));
+    // Headless, the resumed session's own record is the evidence, read as the turn ends.
+    void turn.settled.then((outcome) => say(outcome.observed ? "observed" : "unconfirmed"));
     return turn;
   }
 
@@ -3360,6 +3366,12 @@ function operationEnd(kind: SupervisedOutcome["kind"]): OperationEnd {
     default:
       return kind;
   }
+}
+
+/** A turn as the workflow wrote it, without the messages an earlier turn of it delivered. */
+function withoutMessages(authored: AuthoredTurn): AuthoredTurn {
+  const { messages: _messages, ...rest } = authored;
+  return rest;
 }
 
 /** What continued an operation, as its liveness record says. */

@@ -1,5 +1,7 @@
 import { randomUUID } from "node:crypto";
+import { stat } from "node:fs/promises";
 import type { AbsoluteDeadline } from "@agentswf/contract/workflow";
+import { appendedShows, ownSessionFile } from "../activity/read";
 import type {
   AgentRunHostFactory,
   AgentSessionAdapter,
@@ -118,6 +120,26 @@ export function createHeadlessAdapter(
         identity.sessionId = forked.sessionRef;
         costTotal = forked.costTotal;
       }
+      const home = request.home ?? harnessState()[harness];
+      /** Asks, once the turn has run, whether its session's own record shows `prompt`. */
+      const promptShown = async (prompt: string, resumed: string | undefined) => {
+        const before = resumed
+          ? await ownSessionFile(harness, home, resumed, request.cwd)
+          : undefined;
+        const size =
+          before === undefined
+            ? 0
+            : await stat(before).then(
+                (info) => info.size,
+                () => 0,
+              );
+        return async (session: string) => {
+          const file = await ownSessionFile(harness, home, session, request.cwd);
+          if (file === undefined) return false;
+          // A session it resumed is read from where it stood; one new this turn, whole.
+          return appendedShows(harness, file, file === before ? size : 0, probeOf(prompt));
+        };
+      };
       return {
         identity,
         // Each turn is a process of its own, and the next one resumes the session this one leaves.
@@ -204,6 +226,13 @@ export function createHeadlessAdapter(
               ...(compaction?.holdStdinUntil ? { holdStdinUntil: compaction.holdStdinUntil } : {}),
               ...(streamed ? { onStdoutLine: streamed } : {}),
             };
+            // A turn carrying messages is observed when what it appends to its session's own file
+            // shows its prompt; that file's size before it runs is where its rows begin.
+            const shown = operation.authored?.messages?.length
+              ? await promptShown(operation.prompt, operation.previousSessionRef).catch(
+                  () => undefined,
+                )
+              : undefined;
             // Every turn, a resumed one too, runs inside when the agent has a place there.
             let processDeadline = operation.deadline.unixMilliseconds;
             const timeoutAt = () => processDeadline;
@@ -268,7 +297,12 @@ export function createHeadlessAdapter(
                     : total;
               costTotal = total;
             }
+            const observed =
+              !failedToRun &&
+              nativeSession !== undefined &&
+              (await shown?.(nativeSession).catch(() => false)) === true;
             const common = {
+              ...(observed ? { observed: true as const } : {}),
               resultEvidence: transcript
                 ? ({ kind: "transcript", text: transcript } as const)
                 : ({ kind: "unavailable" } as const),
@@ -392,4 +426,9 @@ function sessionFromStream(
     found = true;
     named(id);
   };
+}
+
+/** A line of a prompt to look for in a session's record: its first. */
+function probeOf(prompt: string): string {
+  return (prompt.split("\n").find((line) => line.trim() !== "") ?? prompt).trim();
 }

@@ -512,7 +512,7 @@ The reasons are in the design's Decisions.
 - [x] 3. The messaging logic admits, queues and settles, as pure code
 - [x] 4. The runner wakes, continues and closes through it, against the fake harness
 - [x] 5. `wf peers`, `wf send` and `wf reply` work over the control plane and the sandbox door
-- [ ] 6. Headless agents receive messages and await replies
+- [x] 6. Headless agents receive messages and await replies
 - [ ] 7. Panes receive messages when idle, and claude panes await replies
 - [ ] 8. A workflow's tests script messages; the progress view, logs and usage show them
 - [ ] 9. Agents use messaging correctly live (M2); the review example converges; docs updated
@@ -1014,6 +1014,29 @@ waiting on them; these are the drafts the gate named, as built and reviewed.
   skipped without srt).
 - Review: both reviewers' findings are resolved; the design's Agent CLI text now says an argument
   wins over standard input, and its `closed` refusal names the stage.
+
+### Task 6
+
+- Headless delivery needed no new path: a `deliver` turn resumes the session with `resumeTurn`, as
+  a nudge does, once the turn before it has ended, and a message operation's first turn starts a
+  session for an agent that has not run.
+- `observed` comes from the session's own record, read by the harness backend, which owns its
+  formats: when a turn carries messages, the size of its session's own file before it runs marks
+  where its rows begin, and it is observed when what it appended shows its prompt's first line
+  from its user. Only what that turn wrote is read, so the same words in an earlier turn are never
+  taken for it, and a turn that failed to run is never observed. A subagent's or a fork parent's
+  files are not searched. cursor keeps its chats in a SQLite store awf cannot read: its deliveries
+  stay `unconfirmed`. `HarnessTurnOutcome.observed` carries it; a pane keeps its delivery evidence.
+- A check-in or a reminder carries no messages in `authored`; only the turns that deliver them do.
+- `OperatorEnvironment.awaitReply` lets a live check turn the list on for what it tests;
+  `tests/messaging.eval.ts` turns each harness on, headless.
+- Live, 2026-10-12, claude, codex, pi and cursor headless: every asker returned the codeword only
+  its keeper knew, every keeper was woken by the question, and every answer resumed its asker's
+  same call; deliveries were `observed`, cursor's `unconfirmed`. 8 agents, ~25 s, ~$0.24 at list
+  prices.
+- Review: both reviewers' findings are resolved: the evidence read only from where the turn began,
+  in the session's own file, the probe masked as the rows are; tests for a same-line delivery that
+  fails to run, the engine recording `observed`, and headless `wf waiting` and held messages.
 
 ## Human review
 

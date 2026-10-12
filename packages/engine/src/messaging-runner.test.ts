@@ -215,6 +215,106 @@ describe("messaging through the runner", () => {
     ]);
   });
 
+  test("headless, the question starts the peer's session and the answer resumes the asker's", async () => {
+    const asked = Promise.withResolvers<void>();
+    const { adapter, outcome, log } = await run(
+      {
+        asker: [
+          async (turn) => {
+            await wf(turn, { command: "send", peer: "peer", text: "Q?", awaitReply: true });
+            // Acknowledged headless too, where there is no wait of 021's to grant.
+            expect(
+              await wf(turn, {
+                command: "waiting",
+                operationId: turn.binding!.operationId,
+                reason: "waiting on peer",
+              }),
+            ).toMatchObject({ kind: "awaiting-reply", peer: "peer" });
+            asked.resolve();
+            return {};
+          },
+          async (turn) => {
+            expect(turn.previousSessionRef).toBe("fake-asker");
+            await result(turn, { verdict: "answered" });
+            // The resumed session's record shows what it was given, as a headless harness's does.
+            return { observed: true };
+          },
+        ],
+        peer: [
+          async (turn) => {
+            expect(turn.previousSessionRef).toBeUndefined();
+            await asked.promise;
+            await wf(turn, { command: "reply", peer: "asker", text: "A." });
+            return { observed: true };
+          },
+        ],
+      },
+      async (context) => {
+        const headless = { harness: "fake", model: "fake", placement: "headless" } as const;
+        const asker = await context.agents.open({ key: "asker", runtime: headless });
+        const peer = await context.agents.open({ key: "peer", runtime: headless });
+        await context.messages.allow({ from: asker, to: peer, purpose: "Ask." });
+        return (await asker.run({ prompt: "Ask.", schema: VERDICT })).outcome.kind;
+      },
+    );
+    expect(outcome).toEqual({ ok: true, value: "answered" });
+    expect(adapter.turns.map((turn) => `${turn.activation.key}:${turn.kind}`)).toEqual([
+      "asker:turn",
+      "peer:turn",
+      "asker:deliver",
+    ]);
+    expect(
+      (await log()).flatMap((line) =>
+        line.kind === "message-delivery" && line.state !== "offered"
+          ? [`${line.message} ${line.state}`]
+          : [],
+      ),
+    ).toEqual(["1 observed", "2 observed"]);
+  });
+
+  test("headless, messages held while a turn runs continue it once its process has ended", async () => {
+    const reported = Promise.withResolvers<void>();
+    const { adapter, outcome } = await run(
+      {
+        lens: [
+          async (turn) => {
+            await wf(turn, { command: "send", peer: "fixer", text: "Finding." });
+            reported.resolve();
+            await result(turn, { verdict: "sent" });
+            return {};
+          },
+        ],
+        fixer: [
+          async () => {
+            await reported.promise;
+            return {};
+          },
+          async (turn) => {
+            expect(turn.kind).toBe("deliver");
+            expect(turn.previousSessionRef).toBe("fake-fixer");
+            await result(turn, { verdict: "fixed" });
+            return {};
+          },
+        ],
+      },
+      async (context) => {
+        const headless = { harness: "fake", model: "fake", placement: "headless" } as const;
+        const fixer = await context.agents.open({ key: "fixer", runtime: headless });
+        const lens = await context.agents.open({ key: "lens", runtime: headless });
+        await context.messages.allow({ from: lens, to: fixer, purpose: "Report findings." });
+        const [fixed] = await Promise.all([
+          fixer.run({ prompt: "Fix.", schema: VERDICT }),
+          lens.run({ prompt: "Find.", schema: VERDICT }),
+        ]);
+        return fixed.outcome.kind;
+      },
+    );
+    expect(outcome).toEqual({ ok: true, value: "answered" });
+    expect(
+      adapter.turns.filter((turn) => turn.activation.key === "fixer").map((t) => t.kind),
+    ).toEqual(["turn", "deliver"]);
+  });
+
   test("held messages continue a workflow's turn that ended without a result, before its check-in", async () => {
     const reported = Promise.withResolvers<void>();
     const { adapter, outcome } = await run(
