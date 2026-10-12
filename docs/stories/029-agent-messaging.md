@@ -581,8 +581,8 @@ Work:
   - a written draft of `messages.jsonl`: events, fields, states, version;
   - `cause`;
   - the ceilings in the run's record.
-- **Harness:** `deliver(prompt): Promise<HarnessTurn>`, `cause` on `AuthoredTurn`, and `deliver`
-  on the fake harness.
+- **Harness:** `deliver(spec: HarnessDeliverySpec): Promise<HarnessTurn>`, `cause` and `messages`
+  on `AuthoredTurn`, and `deliver` on the fake harness.
 
 Done when:
 

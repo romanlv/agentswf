@@ -118,7 +118,7 @@ outcome, continuation delivery, nudge, and release.
 | `AgentRunHost` | `openAgent(request)`, `inspect()`, `close(reason?)` |
 | `AgentSessionAdapter` | `activate(request)` — called by the host, not the engine |
 | `HarnessSession` | `status()`, `start(turn, binding)`, `compact(id, prompt, deadline)`, `fork?(deadline)`, `close(reason?)` |
-| `HarnessTurn` | `settled`, `deliver(prompt)`, `nudge(spec)`, `release(reason, deadline)` |
+| `HarnessTurn` | `settled`, `deliver(spec)`, `nudge(spec)`, `release(reason, deadline)` |
 | `OutsideSessionControl` | `status(session)`, `wake(session)` — optional, see below |
 
 The engine, not the adapter, owns logical-agent identity, runtime alias resolution, queue ordering,
