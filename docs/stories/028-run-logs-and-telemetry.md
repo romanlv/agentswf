@@ -888,8 +888,33 @@ shell by following each `next:` with `--wait 90`, as an agent would.
   call and result in order under its turn, nothing repeated across six reads; the run ended with
   `run ended: completed in 18s`.
 - [x] It showed a codex code-mode command still escaped as a script's string literal; now read.
-- [ ] M1 for claude (headless and pane, its subagent files) and pi; M2 on an implement-ticket
-  run (this one's log was 9 lines, 2.2 KB); M3, how each harness's agent waits on `--wait 90`.
+
+Live, 2026-10-11 and 12, every harness and placement: quick-check on all six of its runtimes
+(`20261011-2349-7e65`, then `20261011-2355-e248` after the fixes), and a throwaway probe,
+`wait-probe/20261012-0000-26c6`, that had each agent run a command silent for 95 s and each claude
+start one subagent; all watched by following `next:` with `--wait 90`.
+
+- [x] M1 for claude and pi, headless and in a pane: each prompt, tool call, result and message read
+  live under its turn. A pane agent's session was learnt only from its first `wf` call, so its
+  first turn could not be read until it ended; a new claude or pi pane is now launched with
+  `--session-id`, told to the turn as headless claude's is. A codex pane names its session only to
+  Herdr, and is read from its first `wf` call.
+- [x] Claude's subagent files, headless and in a pane: found once the log grew and read live,
+  under a handle keyed by the file (`a2-b40bf2c3fb07.0`), the subagent's handback included.
+- [x] A pane's pi names its session twice, by id and by file: its rows came out twice. A file two
+  sessions name is now read once.
+- [x] `awf runs` folded `check:pi` … `check:cursor-pane` into one line by their shared prefix,
+  hiding which failed; only numbered agents fold now, and the rest align to the longest key.
+- [x] M3 for claude, pi and cursor, both placements: each shell tool waited the full 95 s on a
+  silent command and returned its output, so `--wait 90` fits them.
+- [x] `--wait 90` returned on the first new event, and at 90 s with `nothing new`; the run ended
+  with `run ended`.
+- [ ] M3 for codex, headless and in a pane, and M1 for its fork chain: its login had lapsed (a
+  refresh token revoked server-side, though `codex login status` passed).
+- [ ] M2 on an implement-ticket run (quick-check's log was 9 lines, 2.2 KB; the probe's 41).
+- Seen, outside this story: claude in a pane now sees awf's delivery as `<pasted_content>`, and
+  once declined to run its `wf result` as text the user did not write; a codex pane whose login
+  had lapsed waited out its six minutes with nothing to say why.
 
 ## Review record
 
