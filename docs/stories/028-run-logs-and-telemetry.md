@@ -869,6 +869,19 @@ Tasks 1–3, 2026-10-11, on branch `run-logs`:
   `tests/operator-cli.test.ts`, and claude's and codex's named sessions in
   `harness/src/adapters/direct-process.test.ts`.
 
+Live, 2026-10-11, from the worktree: `awf run examples/quick-check/workflow.ts -- codex` (codex
+headless on `gpt-6-luna`, two turns, 18 s, under a cent at list prices), watched from another
+shell by following each `next:` with `--wait 90`, as an agent would.
+
+- [x] The started line came first, and named the run.
+- [x] M1 for codex headless: `thread.started` named the session a second after launch, as a
+  `session-known` line mid-turn; its rollout was read live from offsets, each prompt, message, tool
+  call and result in order under its turn, nothing repeated across six reads; the run ended with
+  `run ended: completed in 18s`.
+- [x] It showed a codex code-mode command still escaped as a script's string literal; now read.
+- [ ] M1 for claude (headless and pane, its subagent files) and pi; M2 on an implement-ticket
+  run (this one's log was 9 lines, 2.2 KB); M3, how each harness's agent waits on `--wait 90`.
+
 ## Review record
 
 - Tasks 1–2, architecture: one version for all kinds (now one per kind); lines after

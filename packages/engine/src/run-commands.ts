@@ -157,7 +157,13 @@ export function estimateOf(attempts: readonly AttemptRecord[]): number | undefin
   const known = attempts.flatMap((each) =>
     each.accounting?.totals.estimate === undefined ? [] : [each.accounting.totals.estimate],
   );
-  return known.length > 0 ? known.reduce((sum, each) => sum + each, 0) : undefined;
+  return known.length > 0 ? known.reduce((total, each) => total + each, 0) : undefined;
+}
+
+/** `$6.10`; `<$0.01` for less, and nothing for none. */
+export function money(estimate: number | undefined): string[] {
+  if (!estimate) return [];
+  return [estimate < 0.005 ? "<$0.01" : `$${estimate.toFixed(2)}`];
 }
 
 export function clockTime(at: number | string): string {

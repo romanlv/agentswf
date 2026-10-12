@@ -5,6 +5,7 @@ import {
   continueOf,
   estimateOf,
   failed,
+  money,
   nextLogs,
   type Out,
   parsePlace,
@@ -121,7 +122,7 @@ async function list(place: ReadPlace, all: boolean, json: boolean, out: Out, now
       stateWord(status).padEnd(13),
       dayTime(started).padEnd(13),
       duration(ms).padEnd(8),
-      estimate === undefined ? "" : `$${estimate.toFixed(2)}`,
+      money(estimate).join(""),
     ]
       .join("")
       .trimEnd();
@@ -178,7 +179,7 @@ function describe(view: RunView, place: ReadPlace, now: number): string {
       status.state === "interrupted" && view.lastEventAt
         ? `last event ${clockTime(view.lastEventAt)}`
         : duration(span(status, now).ms),
-      ...(view.estimate === undefined ? [] : [`$${view.estimate.toFixed(2)}`]),
+      ...money(view.estimate),
     ].join("  "),
   ];
   for (const earlier of status.attempts.slice(0, -1)) {

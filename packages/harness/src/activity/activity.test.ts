@@ -112,7 +112,8 @@ describe("codex", () => {
         type: "custom_tool_call",
         name: "exec",
         call_id: "c2",
-        input: 'text(await tools.exec_command({cmd: "bun test run-usage"}))',
+        input:
+          'text(await tools.exec_command({cmd: "bun test run-usage <<\'X\'\\n{\\"a\\":1}\\nX"}))',
       }),
       item({
         type: "custom_tool_call_output",
@@ -131,7 +132,8 @@ describe("codex", () => {
       { type: "message", from: "user", chars: 7 },
       { type: "tool", tool: "shell", input: "rg -n readUntilSettled", call: "c1" },
       { type: "tool-result", call: "c1", error: true, exit: 1 },
-      { type: "tool", tool: "exec", input: "bun test run-usage", call: "c2" },
+      // The script's string literal, its escapes read.
+      { type: "tool", tool: "exec", input: `bun test run-usage <<'X' {"a":1} X`, call: "c2" },
       // Its output prints an exit code, but as text: not taken.
       { type: "tool-result", call: "c2" },
       { type: "message", from: "agent", chars: 5 },

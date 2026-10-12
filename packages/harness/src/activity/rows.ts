@@ -128,7 +128,8 @@ export function codexActivity(row: Row): ActivityLine {
       case "custom_tool_call": {
         const input = text(payload.input) ?? "";
         // Codex's code mode runs a script; the command it runs is the argument worth showing.
-        const command = /\bcmd\s*:\s*(["'`])((?:\\.|(?!\1).)*)\1/.exec(input)?.[2];
+        const quoted = /\bcmd\s*:\s*(["'`])((?:\\.|(?!\1).)*)\1/.exec(input)?.[2];
+        const command = quoted === undefined ? undefined : unescaped(quoted);
         items.push(tool(text(payload.name) ?? "tool", command ?? input, text(payload.call_id)));
         break;
       }
@@ -173,4 +174,12 @@ export function piActivity(row: Row): ActivityLine {
     }
   }
   return { ...(at ? { at } : {}), items };
+}
+
+/** A script's string literal as the command it holds: its escapes read. */
+function unescaped(literal: string): string {
+  return literal.replace(/\\(u[0-9a-fA-F]{4}|.)/g, (_, code: string) => {
+    if (code.length > 1) return String.fromCharCode(Number.parseInt(code.slice(1), 16));
+    return { n: "\n", t: "\t", r: "\r" }[code] ?? code;
+  });
 }
