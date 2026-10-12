@@ -42,11 +42,11 @@ When it ends, its output closes with the workflow's result: give the user that, 
 
 ## Watching it
 
-Its first line names the run: `awf: {workflow}/{id} started · watch: awf logs {workflow}/{id} --wait 90`.
+Its first line names the run: `awf: {workflow}/{id} started · watch: awf logs {workflow}/{id}`.
 Name your own run by that reference, never by "the latest": another run may start beside it.
 
 - To see what it is doing, run the `watch:` command in the foreground. It shows what the run has
-  done so far, or, while there is nothing yet, waits up to 90 seconds for its first event.
+  done so far, at once.
 - Every answer ends with what to run next. Run exactly the `next:` command to get only what is new,
   and stop at `run ended`.
 - Under claude, `run_in_background` already tells you when the run ends: check in when you need

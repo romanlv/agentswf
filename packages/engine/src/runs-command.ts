@@ -1,4 +1,5 @@
 import type { RunJson, RunsJson } from "@agentswf/contract/records";
+import { maskCredentials } from "@agentswf/harness";
 import { messageOf } from "./errors";
 import {
   clockTime,
@@ -11,6 +12,7 @@ import {
   type Out,
   parsePlace,
   type ReadPlace,
+  said,
   shellLine,
   span,
   stateWord,
@@ -84,7 +86,7 @@ async function list(place: ReadPlace, all: boolean, json: boolean, out: Out, now
         (status) => ({ status }),
         (error: unknown) => ({
           ref: `${run.record.workflow}/${run.record.id}`,
-          unreadable: messageOf(error),
+          unreadable: said(messageOf(error), 400),
         }),
       ),
     ),
@@ -154,7 +156,7 @@ function agentLine(agent: AgentView, indent: string, now: number): string {
     ...(waiting
       ? [
           [
-            waiting.reason ? `"${waiting.reason}"` : "",
+            waiting.reason ? `"${said(waiting.reason)}"` : "",
             waiting.until ? `(check-in due ${clockTime(waiting.until).slice(0, 5)})` : "",
           ]
             .filter(Boolean)
@@ -247,7 +249,7 @@ function describe(view: RunView, place: ReadPlace, now: number): string {
   );
   for (const decision of view.decisions) {
     lines.push(
-      `${indent}    decision "${decision.key}"  asked ${clockTime(decision.askedAt).slice(0, 5)}, ${decision.outcome ?? "open"}`,
+      `${indent}    decision "${said(decision.key)}"  asked ${clockTime(decision.askedAt).slice(0, 5)}, ${decision.outcome ?? "open"}`,
     );
   }
   lines.push(...trailer(view, place));
@@ -262,7 +264,7 @@ function trailer(view: RunView, place: ReadPlace): string[] {
   const go = status.state === "completed" ? undefined : continueOf(status, view.lines, place);
   if (status.state === "interrupted") return go ? [`continue: ${go}`] : [];
   const lines: string[] = [];
-  if (view.attempt?.reason) lines.push(`reason: ${view.attempt.reason}`);
+  if (view.attempt?.reason) lines.push(`reason: ${said(view.attempt.reason, 400)}`);
   lines.push(`records: ${status.run.dir} (report.md, output.json)`);
   if (status.state === "failed") {
     const stuck = view.agents.find((each) => each.state === "failed" || each.state === "timed-out");
@@ -301,7 +303,7 @@ function runJson(view: RunView, place: ReadPlace, now: number): RunJson {
       state:
         outcome ?? (attempt === status.attempts.at(-1)?.attempt ? status.state : "interrupted"),
       ...(stage ? { stage } : {}),
-      ...(reason ? { reason } : {}),
+      ...(reason ? { reason: maskCredentials(reason) } : {}),
     })),
     stages: view.stages.map(({ stage, state, startedAt, endedAt }) => ({
       stage,
@@ -321,7 +323,9 @@ function runJson(view: RunView, place: ReadPlace, now: number): RunJson {
         ...(agent.live
           ? {
               phase: agent.live.phase,
-              ...(agent.live.reason === undefined ? {} : { reason: agent.live.reason }),
+              ...(agent.live.reason === undefined
+                ? {}
+                : { reason: maskCredentials(agent.live.reason) }),
               ...(agent.live.until === undefined
                 ? {}
                 : { until: new Date(agent.live.until).toISOString() }),

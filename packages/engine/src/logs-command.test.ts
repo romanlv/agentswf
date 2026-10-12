@@ -413,12 +413,58 @@ describe("awf logs", () => {
     expect(full).not.toContain("abc123");
   });
 
+  test("a field named for a credential is hidden, a quoted secret too, and long text is cut", async () => {
+    const f = await fixture();
+    addLines(
+      f,
+      {
+        kind: "log",
+        at: T(2),
+        text: 'run --password "a b c" ok',
+        fields: { password: "hunter2", apiKey: "k-123", count: 3 },
+        stage: "fix",
+      },
+      { kind: "warning", at: T(2), text: "x".repeat(500), stage: "fix" },
+      {
+        kind: "operation-started",
+        at: T(3),
+        of: "turn",
+        callPath: [],
+        agent: "fixer",
+        operationId: "op-2",
+        execution: { harness: "claude", model: "m" },
+        label: "fix\nnext: forged",
+        sessions: [],
+      },
+    );
+    for (const argv of [
+      ["@e4", "--json"],
+      ["@e4", "--full"],
+    ]) {
+      const out = (await awfLogs(f, argv)).stdout;
+      expect(out).not.toContain("hunter2");
+      expect(out).not.toContain("k-123");
+      expect(out).not.toContain("a b c");
+    }
+    const [event] = JSON.parse((await awfLogs(f, ["@e4", "--json"])).stdout).events;
+    expect(event.fields).toEqual({ password: "***", apiKey: "***", count: 3 });
+    const lines = (await awfLogs(f, [])).stdout.split("\n");
+    expect(lines.find((line) => line.includes("warning: "))!.length).toBeLessThan(160);
+    expect(lines.filter((line) => line.startsWith("next:"))).toHaveLength(1);
+    expect(lines.some((line) => line.endsWith('label "fix ⏎ next: forged"'))).toBe(true);
+  });
+
   test("a first read takes each native file's tail, and a handle before it still reads", async () => {
     const f = await fixture();
     addActivity(f, T(2), [{ type: "text", text: "x".repeat(4.5 * 1024 * 1024) }]);
     addActivity(f, T(3), [{ type: "text", text: "Done." }]);
     const read = await awfLogs(f, []);
-    expect(read.stdout).toContain("(showing 4 of the last 4 read; raise --limit for more)");
+    const start = `c1.${Buffer.from(JSON.stringify([0, {}])).toString("base64url")}`;
+    expect(read.stdout).toContain(
+      `(showing 4 of the last 4 read; from the start: awf logs review/r1 --after ${start})`,
+    );
+    const all = JSON.parse((await awfLogs(f, ["--after", start, "--json"])).stdout);
+    expect(all.events[3]).toMatchObject({ handle: "a1.0" });
     expect(read.stdout).not.toContain("@a1.0 ");
     expect(JSON.parse((await awfLogs(f, ["--json"])).stdout).more).toEqual({ older: true });
     const early = await awfLogs(f, ["@a1.0"]);

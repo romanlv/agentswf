@@ -278,7 +278,7 @@ kill.
 - When stderr is not a terminal, as when an agent runs it, the first line is:
 
   ```text
-  awf: review/20261011-0912-4c1e started · watch: awf logs review/20261011-0912-4c1e --wait 90
+  awf: review/20261011-0912-4c1e started · watch: awf logs review/20261011-0912-4c1e
   ```
 
   The reference there is always `{workflow}/{id}`, never a path, and `watch:` repeats `--cwd` and
@@ -378,7 +378,8 @@ callers copy it back and never compute it. Text and `--json` carry the same curs
 
 **`--wait {s}`** returns on the first new event, about a second after it so a burst comes back as
 one page, or at the timeout. Without `--after`, every event so far is new, so it waits only while
-there is none yet; the `watch:` command shows what the run has done, and its `next:` waits. The default is 0, the maximum 300. The skill teaches `--wait 90`,
+there is none yet. The `watch:` command carries none, since its run has always begun by then: it
+shows what the run has done, and its `next:` waits. The default is 0, the maximum 300. The skill teaches `--wait 90`,
 which fits claude's two-minute command default. It bounds one read; waiting for a run to end is
 `awf wait`'s ([[run-in-background]]). `--follow` is the same read in a loop, for a person, and
 prints a line per event; `--follow --json` is a usage error.
@@ -430,8 +431,8 @@ Neither command reports the run's outcome in its exit code.
 
 **The skill.** `awf-run` gains a few lines:
 
-- The run prints `watch: awf logs {ref} --wait 90` first. Run it in the foreground to see what the
-  run is doing.
+- The run prints `watch: awf logs {ref}` first. Run it in the foreground to see what the run has
+  done so far.
 - Each answer ends with what to do next; run exactly the `next:` command to get only what is new.
   Stop at `run ended`.
 - Under claude, `run_in_background` already reports the end, so check in, don't poll in a loop.
@@ -488,7 +489,7 @@ answers.
 The calling session ran `awf run review.ts` in the background (story 027). Its output starts:
 
 ```text
-awf: review/20261011-0912-4c1e started · watch: awf logs review/20261011-0912-4c1e --wait 90
+awf: review/20261011-0912-4c1e started · watch: awf logs review/20261011-0912-4c1e
 ```
 
 Later it checks in:
@@ -935,6 +936,17 @@ shell by following each `next:` with `--wait 90`, as an agent would.
   printed one, the waiting phase, the 20-run cap, a sandboxed agent's files and exit 3. Rejected: a
   retry reusing a stopped first claude turn's `--session-id`; an agent never launches a first
   turn twice (a test now shows it).
+- Branch review, round 2: the masker still missed `--user`, `sshpass -p`, `mysql -p {value}`,
+  `openssl -k`, an `api_key:` header, `*_PWD=`, a token as a URL's first parameter and
+  `config set {name} {value}` (all masked now); `--json` masked a field by its value only, so
+  `{password: …}` was published (now a field named for a credential is hidden), and `--full`
+  masked the line after quoting it (now before); the log's text was one line but not cut (now about
+  120 characters, labels and decision keys too), and `awf runs` printed a failure's reason and a
+  check-in's unmasked (now as `awf logs` does); the `watch:` hint carried a `--wait` that could
+  not wait, since a run has always begun when it prints (now `watch: awf logs {ref}`); a cut first
+  read pointed at `--limit`, which cannot reach what was cut (now at paging from the start), and a
+  handle read its file to the end (now its one line); a session with no files was looked for on
+  every poll (now every 5 s).
 
 ## Related
 

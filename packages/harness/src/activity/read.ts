@@ -31,13 +31,13 @@ export type ActivityRead = { rows: ActivityRow[]; offset: number; cut?: boolean 
  * `file`'s activity from byte `from`, through its harness's row reader. A last line not yet ended
  * with a newline is left for the next read; a line that does not parse, or names no time, is passed.
  * A harness with no reader, or a file that cannot be read, gives nothing. `tail`: read from `0`, only
- * the whole lines of about that many last bytes.
+ * the whole lines of about that many last bytes. `lines`: stop after that many lines.
  */
 export async function readActivity(
   harness: string,
   file: string,
   from = 0,
-  options: { full?: boolean; tail?: number } = {},
+  options: { full?: boolean; tail?: number; lines?: number } = {},
 ): Promise<ActivityRead> {
   const read = findHarness(harness)?.activityRow;
   if (!read) return { rows: [], offset: from };
@@ -55,14 +55,19 @@ export async function readActivity(
     if (partial) offset = size - options.tail! - 1;
     // In chunks, a native file may be hundreds of megabytes; a line runs on into the next.
     let pending = Buffer.alloc(0);
-    for (let position = offset; position < size; ) {
+    let taken = 0;
+    for (let position = offset; position < size && taken !== options.lines; ) {
       const chunk = Buffer.alloc(Math.min(CHUNK_BYTES, size - position));
       const { bytesRead } = await handle.read(chunk, 0, chunk.length, position);
       if (bytesRead === 0) break;
       position += bytesRead;
       const bytes = Buffer.concat([pending, chunk.subarray(0, bytesRead)]);
       let start = 0;
-      for (let end = bytes.indexOf(10); end >= 0; end = bytes.indexOf(10, start)) {
+      for (
+        let end = bytes.indexOf(10);
+        end >= 0 && taken !== options.lines;
+        end = bytes.indexOf(10, start)
+      ) {
         const line = parseRow(bytes.subarray(start, end).toString("utf8"));
         const at = offset + start;
         start = end + 1;
@@ -70,6 +75,7 @@ export async function readActivity(
           partial = false;
           continue;
         }
+        taken += 1;
         const said = line && read(line);
         if (!said?.at) continue;
         said.items.forEach(({ activity, text }, index) => {

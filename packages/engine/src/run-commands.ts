@@ -1,5 +1,6 @@
 import { resolve } from "node:path";
 import type { AttemptRecord, RunLogLine } from "@agentswf/contract/records";
+import { maskCredentials } from "@agentswf/harness";
 import { continueCommand, shellWord } from "./attempt-view";
 import type { RunCommand } from "./run-command";
 import { type Cursor, encodeCursor } from "./run-read";
@@ -44,6 +45,32 @@ export function command(place: ReadPlace, ...words: string[]): string[] {
   return [first!, second!, ...rest.slice(0, 1), ...place.repeat, ...rest.slice(1)];
 }
 
+/** A field whose name says it holds a credential, whatever its value looks like. */
+const SECRET_NAME =
+  /(?:password|passwd|pwd|secret|token|api[_-]?key|access[_-]?key|private[_-]?key|credentials?)$/i;
+
+/**
+ * Every string in `value` masked, and every string under a credential's name hidden: a run's
+ * text, errors and fields are its workflow's, its agents' and its tools'.
+ */
+export function masked(value: unknown, name = ""): unknown {
+  if (typeof value === "string") return SECRET_NAME.test(name) ? "***" : maskCredentials(value);
+  if (Array.isArray(value)) return value.map((each) => masked(each, name));
+  if (value && typeof value === "object") {
+    return Object.fromEntries(Object.entries(value).map(([key, each]) => [key, masked(each, key)]));
+  }
+  return value;
+}
+
+/**
+ * Text a run wrote, as one masked line of about `limit` characters, so it can never pass for a
+ * line of its own or fill a page. `@{handle} --full` prints it whole.
+ */
+export function said(text: string, limit = 120): string {
+  const line = maskCredentials(text).replace(/\s*[\r\n]+\s*/g, " ⏎ ");
+  return line.length > limit ? `${line.slice(0, limit - 1)}…` : line;
+}
+
 /** A suggested command as text to paste into a shell. */
 export function shellLine(words: readonly string[]): string {
   return words.map(shellWord).join(" ");
@@ -73,7 +100,7 @@ export function startedLine(
     ...(run.cwdGiven ? ["--cwd", run.cwd] : []),
     ...(run.runRootGiven ? ["--run-root", run.runRoot] : []),
   ];
-  return `awf: ${ref} started · watch: ${shellLine(["awf", "logs", ref, ...repeat, "--wait", "90"])}`;
+  return `awf: ${ref} started · watch: ${shellLine(["awf", "logs", ref, ...repeat])}`;
 }
 
 /** `awf logs` from `cursor`: with `--wait` unless the page stopped short of the newest. */

@@ -127,7 +127,7 @@ describe("awf run", () => {
     // Parallel completions may arrive in either order; the result below remains lens-ordered.
     // Not a terminal: it names the run first, for the agent that started it.
     expect(errors.shift()).toMatch(
-      /^awf: review-loop\/(\S+) started · watch: awf logs review-loop\/\1 --run-root \S+ --wait 90$/,
+      /^awf: review-loop\/(\S+) started · watch: awf logs review-loop\/\1 --run-root \S+$/,
     );
     expect([errors[0], ...errors.slice(1, 3).sort(), ...errors.slice(3)]).toEqual([
       "[0:00] ▶ Minimum review (2)",
@@ -1374,7 +1374,7 @@ describe("awf run's runs and attempts", () => {
       join(cwd, "flow.js"),
     ]);
     expect(ran.stderr.split("\n")[0]).toBe(
-      `awf: fixture/r1 started · watch: awf logs fixture/r1 --cwd ${cwd} --run-root ${root} --wait 90`,
+      `awf: fixture/r1 started · watch: awf logs fixture/r1 --cwd ${cwd} --run-root ${root}`,
     );
   });
 
@@ -1579,7 +1579,7 @@ describe("awf run's stages", () => {
     expect(continued.exitCode).toBe(0);
     expect(continued.record.value).toBe(2);
     expect(continued.stderr.split("\n")[0]).toBe(
-      "awf: fixture/r1 started · watch: awf logs fixture/r1 --wait 90",
+      "awf: fixture/r1 started · watch: awf logs fixture/r1",
     );
     expect(continued.stderr.split("\n").slice(1).join("\n")).not.toContain("awf: ");
     expect(continued.stderr).toContain("↺ stage implement · feat/a · attempt 1");
@@ -2094,10 +2094,9 @@ describe("awf run --here", () => {
     const code = output.join("\n").split("\n").at(-1)!;
     expect(code).toMatch(/^awf-here-[0-9a-f]{8}$/);
     // The run is named in this shell, by the id the tab is given.
-    const id =
-      /^awf: calling-session\/(\S+) started · watch: awf logs calling-session\/\S+ --wait 90$/.exec(
-        errors.join("\n"),
-      )?.[1];
+    const id = /^awf: calling-session\/(\S+) started · watch: awf logs calling-session\/\S+$/.exec(
+      errors.join("\n"),
+    )?.[1];
     expect(id).toBeDefined();
     expect(herdr.calls).toContainEqual([
       "tab",

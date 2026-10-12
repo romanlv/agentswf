@@ -1,5 +1,4 @@
 import type { LogEventJson, LogsJson, RunLogLine } from "@agentswf/contract/records";
-import { maskCredentials } from "@agentswf/harness";
 import { messageOf } from "./errors";
 import {
   clockTime,
@@ -7,10 +6,12 @@ import {
   continueOf,
   currentStage,
   failed,
+  masked,
   nextLogs,
   type Out,
   parsePlace,
   type ReadPlace,
+  said,
   shellLine,
   span,
   stateWord,
@@ -104,7 +105,7 @@ export async function logsCommand(
           `cursor ${options.after} does not fit this run; start again: ${again}`,
         );
     }
-    const read = new Reader(status, after);
+    const read = new Reader(status, after, clock);
     // Lines are numbered by their place in the file, past any that were skipped.
     if (after && after.log > ((await read.next()).log.lines.at(-1)?.number ?? 0)) {
       throw new DoesNotFit(`cursor ${options.after} does not fit this run; start again: ${again}`);
@@ -175,12 +176,14 @@ class Reader {
   constructor(
     public status: RunStatus,
     readonly from: Cursor | undefined,
+    readonly clock: LogsClock,
   ) {}
 
   next(cursor = this.from) {
     return readRun(this.status.run.dir, this.status.run.record.cwd, cursor, {
       ended: this.status.state !== "running",
       files: this.#files,
+      now: this.clock.now(),
       ...(cursor ? {} : { tail: true }),
     });
   }
@@ -332,8 +335,12 @@ async function page(
   }
   if (older) {
     const of = options.agent ? ` for ${options.agent}` : "";
+    // A cut read has more than any --limit reaches: paging from the start reads it all.
+    const more = read.cut
+      ? `from the start: ${shellLine([...command(place, "awf", "logs", status.ref), ...filters, "--after", encodeCursor({ log: 0, files: {} })])}`
+      : "raise --limit for more";
     const total = read.cut ? `the last ${events.length} read` : `${events.length}`;
-    lines.push(`(showing ${shown.length} of ${total}${of}; raise --limit for more)`);
+    lines.push(`(showing ${shown.length} of ${total}${of}; ${more})`);
   }
   lines.push(...shown.map((event) => describeEvent(event, stages)));
   lines.push(
@@ -416,9 +423,7 @@ async function oneEvent(
       `(${event.source === "activity" ? "native text" : "the log's line"}; common credential shapes are masked)`,
     );
     const text =
-      event.source === "activity"
-        ? event.text
-        : maskCredentials(JSON.stringify(event.line, null, 2));
+      event.source === "activity" ? event.text : JSON.stringify(masked(event.line), null, 2);
     if (text) lines.push(...text.split("\n").map((line) => `  ${line}`));
   }
   out.stdout(lines.join("\n"));
@@ -477,21 +482,6 @@ function publish(event: ReadEvent, stages: Map<string, string>): LogEventJson {
   };
 }
 
-/** Every string in `value`, masked: a log line's text and errors are the workflow's and its tools'. */
-function masked(value: unknown): unknown {
-  if (typeof value === "string") return maskCredentials(value);
-  if (Array.isArray(value)) return value.map(masked);
-  if (value && typeof value === "object") {
-    return Object.fromEntries(Object.entries(value).map(([key, each]) => [key, masked(each)]));
-  }
-  return value;
-}
-
-/** Text from the log as one line, masked, so it can never pass for a line of its own. */
-function said(text: string): string {
-  return maskCredentials(text).replace(/\s*[\r\n]+\s*/g, " ⏎ ");
-}
-
 /** `@e216 09:27:02 fix  fixer  turn ended  answered  1m48s`. */
 function describeEvent(event: ReadEvent, stages: Map<string, string>): string {
   const where = [stageOf(event, stages), agentOf(event)].filter(Boolean).join("  ");
@@ -512,7 +502,7 @@ function describeLine(line: RunLogLine): string {
     case "stage-ended":
       return `stage ${line.source ?? "ended"}  ${line.outcome}`;
     case "operation-started":
-      return `${operation(line.of)} started${line.label ? `  label "${line.label}"` : ""}`;
+      return `${operation(line.of)} started${line.label ? `  label "${said(line.label)}"` : ""}`;
     case "operation-failed":
       return `${operation(line.of)} failed  ${said(line.error)}`;
     case "turn":
@@ -536,7 +526,7 @@ function describeLine(line: RunLogLine): string {
     case "warning":
       return `warning: ${said(line.text)}`;
     case "decision-asked":
-      return `decision "${line.key}" asked  ${line.model}`;
+      return `decision "${said(line.key)}" asked  ${line.model}`;
     case "decision-ended":
       return `decision ${line.decision} ${line.outcome}${line.error ? `  ${said(line.error)}` : ""}`;
   }

@@ -240,6 +240,13 @@ describe("reading from an offset", () => {
     expect(await readActivity("claude", path, 0, { tail: 10_000 })).toEqual(whole);
   });
 
+  test("a read of so many lines stops after them", async () => {
+    const path = file(row("one"), row("two"), row("three"));
+    const whole = await readActivity("claude", path);
+    const one = await readActivity("claude", path, whole.rows[1]!.offset, { lines: 1 });
+    expect(one).toEqual({ rows: [whole.rows[1]!], offset: whole.rows[2]!.offset });
+  });
+
   test("stops before a torn last line, and reads it once it is whole", async () => {
     const path = file(row("one"));
     const whole = JSON.stringify(row("two"));
@@ -322,6 +329,22 @@ describe("masking", () => {
       ["eyJhbGciOiJIUzI1.eyJzdWIiOiIxMjM0.SflKxwRJSMeKKF2QT4", "***"],
       ["bun test packages/engine", "bun test packages/engine"],
       ["max_tokens=4096", "max_tokens=4096"],
+      ["curl --user admin:pw url", "curl --user *** url"],
+      ["sshpass -p hunter2 ssh x", "sshpass -p *** ssh x"],
+      ["mysql -u root -p Secret1", "mysql -u root -p ***"],
+      ["openssl enc -k hunter2", "openssl enc -k ***"],
+      [
+        "aws configure set aws_secret_access_key abcd1234",
+        "aws configure set aws_secret_access_key ***",
+      ],
+      [
+        "npm config set //registry.npmjs.org/:_authToken abc123",
+        "npm config set //registry.npmjs.org/:_authToken ***",
+      ],
+      ['curl -H "api_key: abc123"', 'curl -H "api_key: ***"'],
+      ["export FOO_PWD=abc", "export FOO_PWD=***"],
+      ["curl https://x.io/y?access_token=abc123def", "curl https://x.io/y?access_token=***"],
+      ["PWD=/x git config set user.name me", "PWD=/x git config set user.name me"],
       ["mysql --password=hunter2", "mysql --password=***"],
       ["mysql -u root -phunter2 db", "mysql -u root -p*** db"],
       ["gh auth login --token ghx123456", "gh auth login --token ***"],

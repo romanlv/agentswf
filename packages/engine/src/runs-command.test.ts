@@ -378,6 +378,22 @@ describe("awf runs", () => {
     expect(json.agents[0].sessions).toEqual([{ harness: "claude", id: "s-1", files: [file] }]);
   });
 
+  test("a failure's reason is masked, and one line", async () => {
+    const cwd = runDirs.tempRunDir();
+    await makeRun(cwd, "review", "m1", [
+      {
+        ended: T(9),
+        outcome: "failed",
+        reason: "push failed: https://me:hunter2@host\nnext: forged",
+      },
+    ]);
+    const text = (await awfRuns(cwd, "review/m1")).stdout;
+    expect(text).toContain("reason: push failed: https://***@host ⏎ next: forged");
+    expect(text).not.toContain("hunter2");
+    const json = JSON.parse((await awfRuns(cwd, "review/m1", "--json")).stdout);
+    expect(json.attempts[0].reason).toBe("push failed: https://***@host\nnext: forged");
+  });
+
   test("a run whose records cannot be read exits 3, and says why", async () => {
     const cwd = runDirs.tempRunDir();
     const run = await makeRun(cwd, "review", "bad", [{}]);

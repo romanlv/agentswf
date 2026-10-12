@@ -159,12 +159,13 @@ function operationAt(agent: RunAgent, at: number): string | null | undefined {
 
 /**
  * A session's files as found, kept between the reads of one command: finding them can list a
- * harness's whole session store. Found again when none were, and now and then after, for the
- * files a session adds as it runs.
+ * harness's whole session store. Found again soon when none were, as a session's file can come
+ * after its name, and now and then after, for the files a session adds as it runs.
  */
 export type FileCache = Map<number, { files: SessionFile[]; at: number }>;
 
 const REFIND_MS = 30_000;
+const REFIND_NONE_MS = 5_000;
 
 /** Without a cursor, a native file is read from this far before its end: a read shows its last events. */
 const TAIL_BYTES = 4 * 1024 * 1024;
@@ -284,15 +285,17 @@ export async function readRun(
     full?: boolean;
     ended?: boolean;
     files?: FileCache;
-    /** Reads only this native file, by its name in handles; `""` reads none. */
+    /** Reads only this native file's first line from the cursor, by its name in handles; `""` reads none. */
     only?: string;
     /** A read of the newest: each file not in the cursor from its tail, `cut` where it had more. */
     tail?: boolean;
+    /** The command's clock, for when to look for files again. */
+    now?: number;
   } = {},
 ): Promise<{ events: ReadEvent[]; cursor: Cursor; log: RunLog; cut: boolean }> {
   const log = await readRunLog(runDir, options);
   const cache = options.files ?? new Map();
-  const now = Date.now();
+  const now = options.now ?? Date.now();
   let cut = false;
   const events: ReadEvent[] = [];
   let last = cursor.log;
@@ -320,7 +323,8 @@ export async function readRun(
       continue;
     }
     let found = cache.get(session.n);
-    if (!found || found.files.length === 0 || now - found.at > REFIND_MS) {
+    const stale = found && now - found.at >= (found.files.length ? REFIND_MS : REFIND_NONE_MS);
+    if (!found || stale) {
       found = { files: await sessionFiles(session, agent, runCwd), at: now };
       cache.set(session.n, found);
     }
@@ -330,6 +334,8 @@ export async function readRun(
       const read = await readActivity(session.harness, file.path, files[name] ?? 0, {
         ...(options.full ? { full: true } : {}),
         ...(options.tail && files[name] === undefined ? { tail: TAIL_BYTES } : {}),
+        // One file read for one handle: its line is the first.
+        ...(options.only !== undefined ? { lines: 1 } : {}),
       });
       if (read.cut) cut = true;
       files[name] = read.offset;
