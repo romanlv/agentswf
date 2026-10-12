@@ -1701,6 +1701,28 @@ describe("createHerdrRunHostFactory", () => {
         )
       ).settled;
 
+    test("names a new session at launch, where the harness can be told, and tells the turn", async () => {
+      for (const harness of ["claude", "pi", "codex"] as const) {
+        const { run, calls } = hostStub();
+        const { session } = await opened(run, harness);
+        const seen: string[] = [];
+        await (
+          await session.start(
+            { id: "t1", prompt: "go", deadline: deadline(), onSession: (id) => seen.push(id) },
+            binding("op-1"),
+          )
+        ).settled;
+        const argv = starts(calls)[0]!.argv;
+        if (harness === "codex") {
+          expect(argv).not.toContain("--session-id");
+          expect(seen).toEqual([]);
+        } else {
+          expect(seen).toHaveLength(1);
+          expect(argv[argv.indexOf("--session-id") + 1]).toBe(seen[0]);
+        }
+      }
+    });
+
     test("relaunches the pane's harness on its session at the new settings, once it has settled", async () => {
       const { run, calls } = hostStub();
       const { host, session } = await opened(run);

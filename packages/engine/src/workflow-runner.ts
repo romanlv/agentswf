@@ -107,6 +107,7 @@ import {
 } from "./operation-liveness";
 import { besideOf, checkPaneOptions, keepsPane, storedLayout } from "./pane-layout";
 import { createResultSlotRegistry, type ResultSlotRegistry } from "./result-slots";
+import { RunEventLog } from "./run-event-log";
 import { type AgentProgress, type GroupProgress, RunProgress } from "./run-progress";
 import {
   type AccountedAgent,
@@ -115,7 +116,7 @@ import {
   type OperationTags,
   type RunLedger,
 } from "./run-usage";
-import { appendTurn, endTurnsLine, readStageRecords } from "./runs";
+import { endTurnsLine, readStageRecords } from "./runs";
 import { type CredentialLocks, placeCarried, seedHome } from "./sandbox-homes";
 import {
   RUN_SANDBOX_ONLY,
@@ -326,7 +327,8 @@ export async function startWorkflow<Args extends JsonValue, Result extends JsonV
   // Before anything opens: a record this awf can't read refuses the attempt, and a crash may have
   // torn the last line an earlier attempt appended.
   const recorded = await readStageRecords(runDir);
-  await endTurnsLine(runDir);
+  // The log is observation: one that cannot be written says so as it is, and fails nothing.
+  await endTurnsLine(runDir).catch(() => undefined);
   const slots = createResultSlotRegistry({
     runDir,
     ...(options.livenessPolicy
@@ -355,9 +357,26 @@ export async function startWorkflow<Args extends JsonValue, Result extends JsonV
     await control.close();
     throw error;
   }
+  // A failed write is said on stderr only: as a warning, it would be written to the log again.
+  const events = new RunEventLog({
+    runDir,
+    attempt,
+    failed: (message) => options.onLog?.(message),
+  });
+  const say =
+    (kind: "log" | "warning") =>
+    (text: string, fields?: JsonObject, stage = scopes.getStore()?.stage): void => {
+      options.onLog?.(text, fields);
+      events.event({
+        kind,
+        text,
+        ...(fields === undefined ? {} : { fields }),
+        ...(stage === undefined ? {} : { stage }),
+      });
+    };
+  const warn = say("warning");
   // Each turn as it settles, so an attempt that dies keeps the sessions and times of its turns.
   const turns: TurnRecord[] = [];
-  const turnWrites: Promise<void>[] = [];
   const ledger = createRunLedger({ accounting: options.runtime.host.accounting, startedAt });
   const recordTurn: RecordTurn = (outcome, kind) => {
     const turn: TurnRecord = {
@@ -365,14 +384,11 @@ export async function startWorkflow<Args extends JsonValue, Result extends JsonV
       attempt,
       kind,
       outcome: outcome.kind,
+      callPath: outcome.usage.callPath,
       ...pick(outcome.usage, TURN_OPERATION_FIELDS),
     };
     turns.push(turn);
-    turnWrites.push(
-      appendTurn(runDir, turn).catch((error) =>
-        options.onLog?.(`awf: a turn was not recorded in turns.jsonl: ${messageOf(error)}`),
-      ),
-    );
+    events.turn(turn);
   };
   const stages = new StageLedger({
     runDir,
@@ -382,6 +398,7 @@ export async function startWorkflow<Args extends JsonValue, Result extends JsonV
     ...(options.run.values === undefined ? {} : { values: options.run.values }),
     ...(definition.meta.version === undefined ? {} : { workflowVersion: definition.meta.version }),
     turns: () => turns,
+    event: (body, at) => events.event(body, at),
   });
   const progress = new RunProgress();
   // Shared by sandboxed agents' homes and a host agent's own: they may copy one credential.
@@ -393,7 +410,7 @@ export async function startWorkflow<Args extends JsonValue, Result extends JsonV
     runRoot: options.runRoot,
     cwd,
     deadline: options.deadline,
-    log: (message) => options.onLog?.(message),
+    log: (message) => warn(message),
   });
   if (sandboxes.hasRunSandbox) {
     try {
@@ -411,6 +428,7 @@ export async function startWorkflow<Args extends JsonValue, Result extends JsonV
   const decisions = new RunDecisions({
     ...(options.decisions ? { installation: options.decisions } : {}),
     runDir,
+    event: (body) => events.event(body),
   });
   const skills = new RunSkills({
     runDir,
@@ -439,7 +457,9 @@ export async function startWorkflow<Args extends JsonValue, Result extends JsonV
     slots,
     control,
     ledger,
-    onLog: options.onLog,
+    onLog: warn,
+    log: say("log"),
+    events,
     onCallerStopped: options.onCallerStopped,
     livenessPolicy: options.livenessPolicy,
   });
@@ -514,10 +534,8 @@ export async function startWorkflow<Args extends JsonValue, Result extends JsonV
     const finishedAt = new Date().toISOString();
     await stages
       .close()
-      .catch((error) =>
-        options.onLog?.(`awf: a stage record was not written: ${messageOf(error)}`),
-      );
-    await Promise.all(turnWrites);
+      .catch((error) => warn(`awf: a stage record was not written: ${messageOf(error)}`));
+    await events.close();
     const usage = await ledger.settle(reading.signal);
     signal.removeEventListener("abort", cutReading);
     const times = { startedAt: new Date(startedAt).toISOString(), finishedAt };
@@ -683,7 +701,11 @@ class WorkflowOwner {
       ledger: RunLedger;
       progress: RunProgress;
       recordTurn: RecordTurn;
-      onLog?: RunWorkflowOptions["onLog"];
+      /** Engine warnings, written to the event log as well, under `stage` or the scope's. */
+      onLog?: Warn;
+      /** The workflow's own log lines. */
+      log(message: string, fields?: JsonObject): void;
+      events: RunEventLog;
       onCallerStopped?: RunWorkflowOptions["onCallerStopped"];
     },
   ) {
@@ -795,7 +817,7 @@ class WorkflowOwner {
         this.runStage(name, rest)) as WorkflowContext["stage"],
       call: () => unavailable("call"),
       usage: () => options.ledger.records(),
-      log: (message, fields) => options.onLog?.(message, fields),
+      log: (message, fields) => options.log(message, fields),
     };
   }
 
@@ -1022,6 +1044,7 @@ class WorkflowOwner {
     }
     const { state, channel } = opened;
     const ownedState = this.track(state);
+    this.agentOpened(ownedState, accounted);
     this.#agents.set(spec.key, {
       identity,
       opening: { sessions, accounted, skills },
@@ -1152,6 +1175,7 @@ class WorkflowOwner {
       }
     });
     const owned = this.track(state);
+    this.agentOpened(owned, accounted, { caller: true });
     this.#caller = { key, state: owned };
     this.#agents.set(key, {
       identity: { execution, cwd: found.cwd },
@@ -1206,7 +1230,9 @@ class WorkflowOwner {
       CALLING,
       spec,
       (into) =>
-        calling.fork(deadlineWithin(FORK_TIMEOUT_MS, deadline), into, this.#closingRun.signal),
+        calling
+          .fork(deadlineWithin(FORK_TIMEOUT_MS, deadline), into, this.#closingRun.signal)
+          .then((native) => ({ native, after: null })),
       execution,
       parent,
     );
@@ -1433,6 +1459,7 @@ class WorkflowOwner {
       ledger,
       progress: this.options.progress,
       recordTurn: this.options.recordTurn,
+      events: this.options.events,
       track: (promise) => this.track(promise),
       isRunClosing: () => this.#closed || this.#cleanupFailures.length > 0,
       checkOperation: () => this.options.stages.checkOperation(),
@@ -1471,7 +1498,7 @@ class WorkflowOwner {
     parentKey: string,
     spec: AgentForkSpec,
     /** Queues the native fork, or its copy `into` another home; or why its host cannot fork. */
-    take: ((into?: SessionCopy) => Promise<NativeFork>) | string,
+    take: ((into?: SessionCopy) => Promise<TakenFork>) | string,
     /** The parent's settings once every `set` queued before the fork has run. */
     parentSettings: AgentExecution,
     /** A parent the run never opened: the session it was started from. */
@@ -1548,7 +1575,7 @@ class WorkflowOwner {
     // The fork is asked for now, in the parent's queue; the child opens once it is made. One that
     // was not made leaves nothing behind: its key may be forked again, after the parent's turn.
     const forked = take(copy === undefined ? undefined : { directory: copy })
-      .then((fork) => {
+      .then(({ native: fork, after }) => {
         if (ofCaller) {
           if (!fork.model) throw new Error(`agent ${parentKey}'s fork named no model to run on`);
           // The one object its identity, ledger and activation all hold, before it activates.
@@ -1557,6 +1584,12 @@ class WorkflowOwner {
         continues = fork;
         forkedAt = Date.now();
         this.options.progress.agentForked(spec.key, from);
+        this.options.events.event({
+          kind: "agent-forked",
+          agent: spec.key,
+          from: from === CALLING ? (this.#caller?.key ?? null) : from,
+          after,
+        });
         return fork;
       })
       .catch((error: unknown) => {
@@ -1628,6 +1661,7 @@ class WorkflowOwner {
         .finally(() => rm(copy, { recursive: true, force: true }).catch(() => undefined));
     }
     const ownedState = this.track(state);
+    this.agentOpened(ownedState, accounted, { fork: true });
     this.#agents.set(spec.key, {
       identity,
       opening: { sessions, accounted, skills },
@@ -1640,6 +1674,37 @@ class WorkflowOwner {
     const activated = this.track(waitForDeadline(ownedState, deadline));
     scope?.track(activated);
     return activated;
+  }
+
+  /** Once it is open, where its native files are: a sandboxed agent's are known only then. */
+  private agentOpened(
+    state: Promise<LogicalAgent>,
+    accounted: AccountedAgent,
+    as?: { caller: true } | { fork: true },
+  ): void {
+    state.then(
+      () => {
+        this.options.events.event({
+          kind: "agent-opened",
+          agent: accounted.key,
+          callPath: [],
+          harness: accounted.execution.harness,
+          cwd: accounted.cwd,
+          ...(accounted.home === undefined ? {} : { home: accounted.home }),
+          ...(as && "caller" in as ? { caller: true } : {}),
+        });
+        // A fork's session is made before its first operation names it.
+        if (!as || !("fork" in as)) return;
+        for (const id of accounted.sessions()) {
+          this.options.events.event({
+            kind: "session-known",
+            session: { harness: accounted.execution.harness, id },
+            agent: accounted.key,
+          });
+        }
+      },
+      () => undefined,
+    );
   }
 
   private bundle(): Promise<string> {
@@ -1741,6 +1806,8 @@ class LogicalAgent implements AgentRef {
   #last: TurnOutcome<never>["kind"] | undefined;
   #closed = false;
   #closePromise: Promise<void> | undefined;
+  /** The operation delivered last, which a fork taken now is copied after. */
+  #lastOperation: string | undefined;
 
   constructor(
     private readonly options: {
@@ -1756,6 +1823,7 @@ class LogicalAgent implements AgentRef {
       ledger: AgentLedger;
       progress: RunProgress;
       recordTurn: RecordTurn;
+      events: RunEventLog;
       track<T>(promise: Promise<T>): Promise<T>;
       isRunClosing(): boolean;
       /** Throws when no turn may start: the attempt is looking on for values it needs. */
@@ -1770,7 +1838,7 @@ class LogicalAgent implements AgentRef {
        */
       fork(
         spec: AgentForkSpec,
-        take: ((into?: SessionCopy) => Promise<NativeFork>) | string,
+        take: ((into?: SessionCopy) => Promise<TakenFork>) | string,
         settings: AgentExecution,
       ): Promise<AgentRef>;
       /** As the workflow wrote it; decides, at close, whether its pane stays. */
@@ -1844,12 +1912,15 @@ class LogicalAgent implements AgentRef {
       }
       scope?.assertActive();
       const tags = tagsOf(scope, completeSpec.label);
+      // Drawn here, so a turn that throws before it is delivered is still written as failed.
+      const operation = this.operationLog(randomUUID(), "turn", tags);
       this.options.progress.turnStarted(this.key, tags);
       try {
-        const settled = await this.executeOperation(completeSpec, scope, deadline, tags);
+        const settled = await this.executeOperation(completeSpec, scope, deadline, operation);
         this.turnEnded(settled.outcome, "turn");
         return settled;
       } catch (error) {
+        operation.failed(error);
         this.options.progress.turnSettled(this.key, "failed", messageOf(error));
         throw error;
       } finally {
@@ -1899,12 +1970,14 @@ class LogicalAgent implements AgentRef {
       }
       scope?.assertActive();
       const tags = tagsOf(scope);
+      const operation = this.operationLog(randomUUID(), "compact", tags);
       this.options.progress.turnStarted(this.key, tags, "compact");
       try {
-        const outcome = await this.executeCompaction(id, spec.prompt, deadline, scope, tags);
+        const outcome = await this.executeCompaction(id, spec.prompt, deadline, scope, operation);
         this.turnEnded(outcome, "compact");
         return outcome;
       } catch (error) {
+        operation.failed(error);
         this.options.progress.turnSettled(this.key, "failed", messageOf(error));
         throw error;
       } finally {
@@ -1970,6 +2043,62 @@ class LogicalAgent implements AgentRef {
     return tracked;
   }
 
+  /**
+   * An operation's start and failure in the run's event log, under the id its record keeps. Its
+   * settling is the turn line `recordTurn` writes.
+   */
+  private operationLog(
+    operationId: string,
+    of: TurnRecord["kind"],
+    tags: OperationTags,
+  ): OperationLog {
+    let deliveredAt: number | undefined;
+    /** Named by its host before delivery, for its start to carry. */
+    const named: string[] = [];
+    const fields = () => {
+      const { callPath, sessions, ...record } = this.options.ledger.unsettled(
+        operationId,
+        this.#execution,
+        tags,
+        deliveredAt,
+      );
+      const harness = this.#execution.harness;
+      const fresh = named.filter((id) => !sessions.some((known) => known.id === id));
+      return {
+        of,
+        callPath,
+        ...record,
+        sessions: [...sessions, ...fresh.map((id) => ({ harness, id }))],
+      };
+    };
+    return {
+      operationId,
+      tags,
+      delivered: (at: number) => {
+        deliveredAt = at;
+        this.#lastOperation = operationId;
+        this.options.events.event({ kind: "operation-started", ...fields() }, at);
+      },
+      session: (id: string) => {
+        if (deliveredAt === undefined) {
+          named.push(id);
+          return;
+        }
+        this.options.events.event({
+          kind: "session-known",
+          session: { harness: this.#execution.harness, id },
+          operationId,
+        });
+      },
+      failed: (error: unknown) =>
+        this.options.events.event({
+          kind: "operation-failed",
+          ...fields(),
+          error: messageOf(error),
+        }),
+    };
+  }
+
   /** A turn or compaction that settled, as the view shows it and `turns.jsonl` keeps it. */
   private turnEnded(outcome: TurnOutcome<JsonValue>, kind: TurnRecord["kind"]): void {
     this.#last = outcome.kind;
@@ -2013,7 +2142,8 @@ class LogicalAgent implements AgentRef {
             `agent ${this.key} was not at the settings its fork was opened at: a set queued before the fork did not take`,
           );
         }
-        return fork(deadlineWithin(FORK_TIMEOUT_MS, deadline), into);
+        const after = this.#lastOperation ?? null;
+        return { native: await fork(deadlineWithin(FORK_TIMEOUT_MS, deadline), into), after };
       });
     try {
       return this.options.fork(spec, take, settings);
@@ -2148,6 +2278,7 @@ class LogicalAgent implements AgentRef {
   }
 
   close(reason?: string): Promise<void> {
+    const first = !this.#closed;
     this.#closed = true;
     // An operation still going is cancelled by this close.
     const keep = keepsPane(
@@ -2169,7 +2300,20 @@ class LogicalAgent implements AgentRef {
         if (this.#closePromise === attempt) this.#closePromise = undefined;
       });
     }
-    return Promise.all([this.#closePromise, stopped]).then(() => undefined);
+    const closed = Promise.all([this.#closePromise, stopped]).then(() => undefined);
+    // Once what it was running has ended, so its last operation's line comes first.
+    if (first) {
+      const { key, execution } = this.options;
+      const stoppedLine = () =>
+        this.options.events.event({
+          kind: "agent-stopped",
+          agent: key,
+          callPath: [],
+          harness: execution.harness,
+        });
+      closed.then(stoppedLine, stoppedLine);
+    }
+    return closed;
   }
 
   /**
@@ -2201,22 +2345,21 @@ class LogicalAgent implements AgentRef {
     spec: AgentRunTextSpec | AgentRunStructuredSpec<JsonValue>,
     scope: ExecutionScope | undefined,
     operationDeadline: AbsoluteDeadline,
-    tags: OperationTags,
+    operation: OperationLog,
   ): Promise<RunResult<JsonValue>> {
     const nudge = spec.nudge === false ? undefined : (spec.nudge ?? this.defaultNudge());
     scope?.assertActive();
     if (nudge?.deadline) assertDeadlineValue(nudge.deadline);
-    return this.executeWaitingOperation(spec, scope, operationDeadline, tags, nudge);
+    return this.executeWaitingOperation(spec, scope, operationDeadline, operation, nudge);
   }
 
   private async executeWaitingOperation(
     spec: AgentRunTextSpec | AgentRunStructuredSpec<JsonValue>,
     scope: ExecutionScope | undefined,
     deadline: AbsoluteDeadline,
-    tags: OperationTags,
+    { operationId, tags, delivered, session }: OperationLog,
     nudge: Exclude<AgentRunTextSpec["nudge"], false>,
   ): Promise<RunResult<JsonValue>> {
-    const operationId = randomUUID();
     const schema = resultSchema(spec.schema);
     const binding = { endpoint: this.options.endpoint, operationId };
     const entry = this.options.ledger.reserve(operationId, () => this.#execution, tags);
@@ -2264,6 +2407,7 @@ class LogicalAgent implements AgentRef {
             prompt: operationPrompt(spec.prompt, schema, this.options.launcher, operationId),
             deadline,
             authored,
+            onSession: session,
           },
           binding,
         ),
@@ -2285,6 +2429,7 @@ class LogicalAgent implements AgentRef {
       },
       phase: (phase, reason, until) =>
         this.options.progress.turnPhase(this.key, phase, reason, until),
+      delivered,
     })
       .catch(
         (error: unknown): SupervisedOutcome => ({
@@ -2335,9 +2480,9 @@ class LogicalAgent implements AgentRef {
     prompt: string,
     deadline: AbsoluteDeadline,
     scope: ExecutionScope | undefined,
-    tags: OperationTags,
+    { operationId, tags, delivered }: OperationLog,
   ): Promise<TurnOutcome<string>> {
-    const entry = this.options.ledger.reserve(randomUUID(), () => this.#execution, tags);
+    const entry = this.options.ledger.reserve(operationId, () => this.#execution, tags);
     const times: { deliveredAt?: number } = {};
     const settle = (
       native: HarnessTurnOutcome | "expired",
@@ -2395,6 +2540,7 @@ class LogicalAgent implements AgentRef {
       });
     }
     times.deliveredAt = Date.now();
+    delivered(times.deliveredAt);
     const removeCanceller = scope?.add((stop) => releaseTurn(turn, stop.reason));
     try {
       let cancelTimer: (() => void) | undefined;
@@ -2629,16 +2775,31 @@ function summaryOf(
   name: string,
   options: StageOptions<JsonValue> | undefined,
   value: JsonValue | undefined,
-  log: RunWorkflowOptions["onLog"],
+  log: Warn | undefined,
 ): string | undefined {
   if (!options?.summary || value === undefined) return undefined;
   try {
     return String(options.summary(value));
   } catch (error) {
-    log?.(`awf: stage ${name}'s summary failed: ${messageOf(error)}`);
+    log?.(`awf: stage ${name}'s summary failed: ${messageOf(error)}`, undefined, name);
     return undefined;
   }
 }
+
+type Warn = (message: string, fields?: JsonObject, stage?: string) => void;
+
+/** An operation's start and failure, written under the id its record keeps. */
+type OperationLog = {
+  operationId: string;
+  tags: OperationTags;
+  delivered(at: number): void;
+  /** A session its host named while it ran: on its start if that is still to come. */
+  session(id: string): void;
+  failed(error: unknown): void;
+};
+
+/** A native fork, and the parent's operation it was copied after: null when it ran none. */
+type TakenFork = { native: NativeFork; after: string | null };
 
 /** A settled turn or compaction, kept in the run's `turns.jsonl`. */
 type RecordTurn = (outcome: TurnOutcome<JsonValue>, kind: TurnRecord["kind"]) => void;

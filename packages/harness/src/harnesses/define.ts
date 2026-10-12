@@ -1,6 +1,8 @@
 import type { Billing } from "@agentswf/contract/records";
 import type { Effort } from "@agentswf/contract/workflow";
+import type { ActivityLine } from "../activity/read";
 import type { Holding, RunProcess } from "../command";
+import type { Row } from "../json";
 import type { AllowanceRead } from "../usage/allowance";
 import type { SessionRead, UsageRecord } from "../usage/records";
 import type { LoginCheck } from "./login";
@@ -86,9 +88,14 @@ export type HarnessSpec = {
   herdrSessionIsOwn: boolean;
   /**
    * A retained interactive launch, independent of the terminal provider that hosts it, with the
-   * arguments its launch adds last, where nothing follows to be swallowed.
+   * arguments its launch adds last, where nothing follows to be swallowed. A harness that can be
+   * told its new session's id takes `sessionHint`, and its plan's `sessionId` says it did.
    */
-  interactive(settings?: LaunchSettings, launchArgs?: readonly string[]): TurnPlan;
+  interactive(
+    settings?: LaunchSettings,
+    launchArgs?: readonly string[],
+    sessionHint?: string,
+  ): TurnPlan;
   /**
    * The same launch on a session that exists, such as a fork's, or a pane's relaunched at other
    * settings; absent where a pane cannot.
@@ -142,6 +149,8 @@ export type HarnessSpec = {
    * home is not its parent's. Undefined where the session cannot be found there.
    */
   sessionFiles?(home: string, session: string, cwd: string): Promise<string[] | undefined>;
+  /** What a row of those files says the agent did; absent where they cannot be read as it works. */
+  activityRow?(row: Row): ActivityLine;
   /**
    * The model a launch names for a request its files logged, where that is not the model as
    * logged: a fork of a session awf did not start runs on its last request's (story 027).

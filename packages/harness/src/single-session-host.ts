@@ -15,6 +15,7 @@ import type {
   HarnessSession,
   HarnessSessionStatus,
   HarnessTurn,
+  HarnessTurnHooks,
 } from "./adapter";
 import type { SessionAccounting } from "./usage/accounting";
 
@@ -160,7 +161,9 @@ function observeSession(
       return status;
     },
     start: ((
-      turn: (AgentTextTurnSpec | AgentStructuredTurnSpec<JsonValue>) & HarnessAuthored,
+      turn: (AgentTextTurnSpec | AgentStructuredTurnSpec<JsonValue>) &
+        HarnessAuthored &
+        HarnessTurnHooks,
       binding: HarnessOperationBinding,
     ) =>
       begin(() =>

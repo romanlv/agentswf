@@ -27,6 +27,7 @@ import { type Kept, keepRecords } from "./attempt-output";
 import { continueCommand, printEnding, toldOf } from "./attempt-view";
 import { messageOf } from "./errors";
 import { type Caller, showOwnTab, startHere, takeCaller } from "./here";
+import { logsCommand } from "./logs-command";
 import { machinePaths, sandboxesDirOf } from "./machine";
 import {
   allowanceReader,
@@ -37,8 +38,11 @@ import {
 } from "./operator-runtime";
 import { ANSI, describeRunSession, type Terminal, watchProgress } from "./progress-view";
 import { parseCommand, type RunCommand, usage } from "./run-command";
+import { shellLine, startedLine } from "./run-commands";
 import { claimNext, loadAndPrepare, type PreparedRun, workspaceLabel } from "./run-prepare";
+import { findRun } from "./run-state";
 import { type Attempt, createRun, discardRun, type Run, RunRefused } from "./runs";
+import { runsCommand } from "./runs-command";
 import { parseTestCommand, runWorkflowTests, type TestCommand, testUsage } from "./test-command";
 import type { LoadedWorkflow } from "./workflow-loader";
 import { startWorkflow, WorkflowCancelledError, type WorkflowRunHandle } from "./workflow-runner";
@@ -112,6 +116,12 @@ export async function runOperatorCli(
     return 0;
   }
   if (argv[0] === "test") return testCommand(argv.slice(1), environment, stdout, stderr);
+  if (argv[0] === "logs") {
+    return logsCommand(argv.slice(1), environment.cwd ?? process.cwd(), { stdout, stderr });
+  }
+  if (argv[0] === "runs") {
+    return runsCommand(argv.slice(1), environment.cwd ?? process.cwd(), { stdout, stderr });
+  }
   if (argv[0] === "allowance") {
     return allowanceCommand(argv.slice(1), environment, stdout, stderr);
   }
@@ -120,6 +130,18 @@ export async function runOperatorCli(
     command = parseCommand(argv, environment.cwd ?? process.cwd());
   } catch (error) {
     stderr(`awf: ${messageOf(error)}\n\n${usage}`);
+    return 2;
+  }
+  const meant = await runNamed(command);
+  if (meant) {
+    const look = shellLine([
+      "awf",
+      "runs",
+      meant,
+      ...(command.cwdGiven ? ["--cwd", command.cwd] : []),
+      ...(command.runRootGiven ? ["--run-root", command.runRoot] : []),
+    ]);
+    stderr(`awf: ${command.workflowFile} is not a workflow file; did you mean: ${look}`);
     return 2;
   }
   if (command.here) return startHere(argv, command, environment, stdout, stderr, notice);
@@ -169,6 +191,13 @@ export async function runOperatorCli(
     terminal,
     now,
   });
+}
+
+/** The run `awf run {ref}` names where `{ref}` is no file: one meant for `awf runs`. */
+async function runNamed(command: RunCommand): Promise<string | undefined> {
+  if (existsSync(resolve(command.shellCwd, command.workflowFile))) return undefined;
+  const found = await findRun(command.runRoot, command.workflowFile).catch(() => undefined);
+  return found?.status.ref;
 }
 
 /**
@@ -304,7 +333,9 @@ async function runAttempt(
     return endUnstarted(new WorkflowCancelledError(environment.signal.reason), await cleanUp());
   }
 
-  const progress = watchProgress(`${meta.name} ${id}${n > 1 ? ` · attempt ${n}` : ""}`, startedAt, {
+  // Before any agent starts; in a terminal, the progress block's header names the run instead.
+  if (!terminal) notice(startedLine(meta.name, id, command));
+  const progress = watchProgress(`${meta.name}/${id}${n > 1 ? ` · attempt ${n}` : ""}`, startedAt, {
     stderr,
     terminal,
     now,

@@ -26,6 +26,11 @@ exists, the code is right, then this page.
   the rest, or redoes from one with `--from-stage`. `workflow.stop` ends an attempt `stopped`.
 - While it runs, `awf run` shows its stages, each labelled `parallel` as a group, and its agents'
   turns: a block redrawn in place on a terminal, a line per change otherwise.
+- Another agent watches a run from the command line (story 028): `awf run`
+  names it first, `awf: {workflow}/{id} started · watch: …`; `awf runs` lists the runs here and
+  shows one in depth; `awf logs` reads its event log, `turns.jsonl`, merged with what each agent did,
+  read from its own claude, codex or pi session files (cursor's cannot be read from an offset), bounded, with a cursor, `--wait`, `--follow`,
+  one event `--full`, and `--json`.
 - Each agent answers through `wf result`, over a socket the engine opened for that agent alone. At
   most one result is accepted per operation, validated against its schema. Quiet agents receive
   recovery prompts; supported Claude panes can declare waiting and take repeated check-ins within
@@ -204,7 +209,9 @@ The gates are defined in [`foundation.md`](foundation.md) §12.
   turn is released. Host Claude and SRT acceptance runs passed; Cursor-dependent full live
   matrices remain blocked by authentication.
 
-Built and awaiting human review: [023 — harness login](stories/023-harness-login.md),
+Built and awaiting human review: [028 — an agent sees what a run is doing](stories/028-run-logs-and-telemetry.md)
+(live on every harness and placement; M2, page sizes on an implement-ticket run, remains),
+[023 — harness login](stories/023-harness-login.md),
 [024 — a Herdr session of the run's own](stories/024-herdr-run-session.md),
 [026 — pane layout](stories/026-pane-layout.md) and
 [027 — a run forks the session that started it](stories/027-caller-fork.md).

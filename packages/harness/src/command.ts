@@ -38,6 +38,8 @@ export type Holding = {
   holdStdinUntil?: (line: string) => boolean;
   /** A headless answer admitted before expiry may extend its process through release grace. */
   timeoutAt?: () => number;
+  /** Each whole line of stdout as it arrives. */
+  onStdoutLine?: (line: string) => void;
 };
 
 /**
@@ -146,7 +148,17 @@ export const runProcess: RunProcess = async (input) => {
 
   let result: ProcessResult;
   try {
-    const out = capture(child.stdout, onLine);
+    const { onStdoutLine } = input;
+    const held = onLine;
+    const out = capture(
+      child.stdout,
+      onStdoutLine && held
+        ? (line) => {
+            onStdoutLine(line);
+            held(line);
+          }
+        : (onStdoutLine ?? held),
+    );
     const err = capture(child.stderr);
     const exitCode = await child.exited;
     // What a sandboxed or ended command left running goes before its pipes are read. An

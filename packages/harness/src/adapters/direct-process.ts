@@ -192,9 +192,18 @@ export function createHeadlessAdapter(
               timeoutMs: Math.max(1, remaining),
               signal: controller.signal,
             };
-            const holding = compaction?.holdStdinUntil
-              ? { holdStdinUntil: compaction.holdStdinUntil }
-              : {};
+            // A new session is named as soon as it is known: by the plan, or by the harness's output
+            // as it streams, so its files can be read while the turn runs.
+            const named = !compaction && !operation.previousSessionRef;
+            if (named && plan.sessionId) operation.onSession?.(plan.sessionId);
+            const streamed =
+              named && !plan.sessionId && spec.readSessionId && operation.onSession
+                ? sessionFromStream(spec.readSessionId, operation.onSession)
+                : undefined;
+            const holding = {
+              ...(compaction?.holdStdinUntil ? { holdStdinUntil: compaction.holdStdinUntil } : {}),
+              ...(streamed ? { onStdoutLine: streamed } : {}),
+            };
             // Every turn, a resumed one too, runs inside when the agent has a place there.
             let processDeadline = operation.deadline.unixMilliseconds;
             const timeoutAt = () => processDeadline;
@@ -227,11 +236,14 @@ export function createHeadlessAdapter(
             // wins over the one the output does: a pi fork, resumed by its file, prints its parent's
             // id, which would point the next turn at the parent.
             const failedToRun = result.exitCode !== 0 && !result.cancelled && !result.timedOut;
+            // A first turn stopped before its harness made the session it was named: claude
+            // prints its id only once it has.
+            const printed = spec.readSessionId?.(result.stdout);
+            const unmade =
+              named && (result.cancelled || result.timedOut) && printed !== plan.sessionId;
             const nativeSession = failedToRun
-              ? (operation.previousSessionRef ?? spec.readSessionId?.(result.stdout))
-              : (plan.sessionId ??
-                spec.readSessionId?.(result.stdout) ??
-                operation.previousSessionRef);
+              ? (operation.previousSessionRef ?? printed)
+              : ((unmade ? undefined : plan.sessionId) ?? printed ?? operation.previousSessionRef);
             if (nativeSession) identity.sessionId = nativeSession;
             // What it printed of its usage is all there is of it; a turn's answer never waits on it.
             if (nativeSession && !compaction) {
@@ -365,4 +377,19 @@ export function createHeadlessRunHostFactory(
 /** A difference of two printed totals, without the float noise subtraction leaves. */
 function roundUsd(usd: number): number {
   return Math.round(usd * 1e9) / 1e9;
+}
+
+/** Hands on the first session id a line of output names. */
+function sessionFromStream(
+  read: (stdout: string) => string | undefined,
+  named: (sessionRef: string) => void,
+): (line: string) => void {
+  let found = false;
+  return (line) => {
+    if (found) return;
+    const id = read(line);
+    if (id === undefined) return;
+    found = true;
+    named(id);
+  };
 }

@@ -1,11 +1,15 @@
 import { rm } from "node:fs/promises";
-import { OUTPUT_RECORD_VERSION, type OutputRecord } from "@agentswf/contract/records";
+import {
+  OUTPUT_RECORD_VERSION,
+  type OutputRecord,
+  RUN_EVENT_VERSIONS,
+} from "@agentswf/contract/records";
 import type { Ending, ExecutableWorkflow, JsonValue } from "@agentswf/contract/workflow";
 import { attemptAccounting } from "./accounting/summary";
 import type { AttemptEnd } from "./attempt-ending";
 import { messageOf } from "./errors";
 import { writeJson, writeWhole } from "./files";
-import { type Attempt, endAttempt, outputFile, reportFile } from "./runs";
+import { type Attempt, appendEvent, endAttempt, outputFile, reportFile } from "./runs";
 import { withoutValue } from "./stage-ledger";
 
 /** Where an attempt's records went, and its output record as `--json` prints it. */
@@ -79,6 +83,14 @@ export async function keepRecords(
       stderr(`awf: output.json: ${messageOf(error)}`);
     }
   }
+  // Before the ending: once the attempt has ended, the next may start appending.
+  await appendEvent(dir, {
+    version: RUN_EVENT_VERSIONS["attempt-ended"],
+    attempt: attempt.record.attempt,
+    at: new Date().toISOString(),
+    kind: "attempt-ended",
+    outcome: ending.kind,
+  }).catch((error) => stderr(`awf: the run's event log was not written: ${messageOf(error)}`));
   try {
     await endAttempt(attempt, {
       outcome: ending.kind,

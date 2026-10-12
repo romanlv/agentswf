@@ -14,6 +14,8 @@ import {
   isLive,
   openRun,
   type ProcessProbe,
+  type Ps,
+  probeProcess,
   processStart,
   type Run,
   RunRefused,
@@ -303,6 +305,27 @@ describe("runs", () => {
     expect(processStart(process.pid)).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/);
     expect(processStart(process.pid)).toBe(processStart(process.pid));
     expect(processStart(2 ** 22 + 12345)).toBeUndefined();
+  });
+
+  test("a process is there with its start, gone, or unknown where ps could not say", () => {
+    const answered =
+      (stdout: string, exitCode: number | null = 0, stderr = ""): Ps =>
+      () => ({ stdout, stderr, exitCode });
+    expect(probeProcess(7, answered("Sat Oct 11 09:12:03 2026\n"))).toBe("2026-10-11T09:12:03Z");
+    // Nothing printed and exit 1 is ps on a pid that is not there.
+    expect(probeProcess(7, answered("", 1))).toBe("gone");
+    expect(probeProcess(0, answered("Sat Oct 11 09:12:03 2026"))).toBe("gone");
+    // A ps that refuses the options says so, and one that is forbidden may not run at all.
+    expect(probeProcess(7, answered("", 1, "ps: unrecognized option: lstart="))).toBe("unknown");
+    expect(probeProcess(7, answered("", 2))).toBe("unknown");
+    expect(probeProcess(7, answered("not a time"))).toBe("unknown");
+    const forbidden: Ps = () => {
+      throw new Error("EPERM");
+    };
+    expect(probeProcess(7, forbidden)).toBe("unknown");
+    // And the real one: this process, and one that has exited.
+    expect(probeProcess(process.pid)).toBe(processStart(process.pid)!);
+    expect(probeProcess(Bun.spawnSync(["true"]).pid)).toBe("gone");
   });
 
   test("an attempt's file names its version and flags", async () => {

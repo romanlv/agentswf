@@ -194,7 +194,7 @@ so restarting a run twenty times adds twenty small files.
           implement.json
         replaced/
           qa.1.json            a record a later attempt redid, moved here: {stage}.{attempt that ran it}
-        turns.jsonl            every turn, tagged with its attempt and stage; appended
+        turns.jsonl            the run's event log: every turn, and what happened around them; appended
         calls/{callId}/        call.json, candidates.jsonl, result.json
         output.json            the last ended attempt's: what `--json` prints
         report.md              the last ended attempt's, when the workflow writes one
@@ -305,8 +305,15 @@ Written twice, each time whole, and only by its own attempt:
   passed ([[#Starting at a stage]]). Its `attempt` is the one it was given in. It is `succeeded`,
   and reused as any other.
 
-**`turns.jsonl`**: each turn, nudges included, and each compaction, as it settles; `kind` tells
-them apart.
+**`turns.jsonl`**: the run's event log. Each turn, nudges included, and each compaction, as it
+settles, and around them what the run did: an attempt's start and end, a stage's, an operation's
+delivery and failure, a session named, an agent opened, stopped or forked, a workflow's `log` and a
+warning, a decision asked and ended. `kind` tells them apart, and each kind has its own `version`
+(`RUN_EVENT_VERSIONS` in `contract/records`); a line of a kind or version a reader does not know is
+skipped. A line names keys, never ids it was given: `attempt`, `stage`, `agent`, `operationId`.
+A line an older awf wrote has no `kind`, and is a turn. Observation only: nothing reads the log to
+decide what a run does, but a continue reads its turns, as before (ADR 0011). [[028-run-logs-and-telemetry]]
+has each kind's fields.
 
 ```json
 {"version":1,"attempt":2,"kind":"turn","agent":"worker","operationId":"…","execution":{…},"stage":"qa","label":"preview","deliveredAt":"…","settledAt":"…","outcome":"answered","sessions":[{"harness":"claude","id":"5dbd8155-…"}]}

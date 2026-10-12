@@ -1,5 +1,6 @@
 import { afterAll, describe, expect, test } from "bun:test";
 import {
+  appendFileSync,
   existsSync,
   mkdirSync,
   readdirSync,
@@ -19,7 +20,7 @@ import { decideEnding, runOutcome } from "../packages/engine/src/attempt-ending"
 import { WorkflowCancelledError } from "../packages/engine/src/deadlines";
 import { createFakeDecisionProvider } from "../packages/engine/src/decisions/fake";
 import { runOperatorCli } from "../packages/engine/src/operator-cli";
-import { processStart } from "../packages/engine/src/runs";
+import { processStart, readEvents } from "../packages/engine/src/runs";
 import { WorkflowStopped } from "../packages/engine/src/stopped";
 import { createTempRunDirs, submit } from "../packages/engine/src/testing";
 import { WorkflowRunError } from "../packages/engine/src/workflow-runner";
@@ -124,6 +125,10 @@ describe("awf run", () => {
     expect(exitCode).toBe(0);
     // Sonnet 5 at $2/$0.20/$10 and gpt-5.6-sol at $4/$0.40/$20 per million: $0.0088 + $0.0176.
     // Parallel turns may arrive in either order; the result below remains lens-ordered.
+    // Not a terminal: it names the run first, for the agent that started it.
+    expect(errors.shift()).toMatch(
+      /^awf: review-loop\/(\S+) started · watch: awf logs review-loop\/\1 --run-root \S+$/,
+    );
     expect([errors[0], ...errors.slice(1, 3).sort(), ...errors.slice(3)]).toEqual([
       "[0:00] ▶ Minimum review (2)",
       "[0:00] ✓ reviewer:correctness · 0s",
@@ -222,7 +227,9 @@ describe("awf run", () => {
       "codex: wrong (390), then right (400)",
       "pi: right (391), then right (400)",
     ]);
-    const accounting = errors.filter((line) => line !== "" && !line.startsWith("["));
+    const accounting = errors.filter(
+      (line) => line !== "" && !line.startsWith("[") && !/^awf: \S+ started · /.test(line),
+    );
     expect(accounting[0]).toMatch(
       /^✓ completed · quick-check \S+ · 2 agents · \d+s · .* · subscription/,
     );
@@ -708,7 +715,7 @@ describe("awf run", () => {
     expect(errors.some((line) => line.startsWith("["))).toBe(false);
     expect(drawn[0]).toBe("\x1b[?25l\x1b[?7l");
     expect(drawn.at(-1)).toBe("\x1b[?7h\x1b[?25h");
-    expect(drawn.some((frame) => /^fixture \S+ · \d+s\n$/.test(frame))).toBe(true);
+    expect(drawn.some((frame) => /^fixture\/\S+ · \d+s\n$/.test(frame))).toBe(true);
     // Once the run is over, its name and clock are the command's and the accounting's.
     expect(drawn.at(-2)).not.toContain("fixture");
   });
@@ -1287,6 +1294,90 @@ describe("awf run's runs and attempts", () => {
     );
   });
 
+  test("a continue names the stage of the last turn, whatever the event log's other kinds say after it", async () => {
+    const cwd = await project();
+    await Bun.write(join(cwd, "fail"), "");
+    await awfRun(cwd, ["--id", "r1", "flow.js"]);
+    reopenAttempt(join(runs(cwd), "r1"), 1, { pid: 999_999_999 });
+    const at = "2026-10-11T09:00:00.000Z";
+    const line = (fields: object) =>
+      `${JSON.stringify({ version: 1, attempt: 1, at, ...fields })}\n`;
+    writeFileSync(
+      join(runs(cwd), "r1", "turns.jsonl"),
+      [
+        line({ kind: "attempt-started" }),
+        line({ kind: "stage-started", stage: "qa" }),
+        line({ kind: "turn", agent: "w", stage: "qa", outcome: "answered", sessions: [] }),
+        line({ kind: "stage-ended", stage: "qa", outcome: "succeeded" }),
+        line({ kind: "stage-started", stage: "fix" }),
+        line({ kind: "log", text: "fixing", stage: "fix" }),
+        line({
+          kind: "decision-asked",
+          decision: 1,
+          stage: "fix",
+          key: "k",
+          provider: "p",
+          model: "m",
+        }),
+        '{"version":1,"attempt":1,"kind":"turn","stage":"fi',
+      ].join(""),
+    );
+    rmSync(join(cwd, "fail"));
+    const continued = await awfRun(cwd, ["flow.js", "--continue", "r1"]);
+    expect(continued.exitCode).toBe(0);
+    expect(continued.stderr).toContain("awf: attempt 1 of r1 was interrupted in qa;");
+  });
+
+  test("each attempt opens and closes in the run's event log, which the continue does not read", async () => {
+    const cwd = await project();
+    await Bun.write(join(cwd, "fail"), "");
+    await awfRun(cwd, ["--id", "r1", "flow.js"]);
+    const dir = join(runs(cwd), "r1");
+    // A line the stage files contradict, and a torn last line: the continue goes by the files.
+    appendFileSync(
+      join(dir, "turns.jsonl"),
+      `${JSON.stringify({ version: 1, attempt: 1, at: "", kind: "stage-ended", stage: "qa", outcome: "succeeded" })}\n{"version":1,"att`,
+    );
+    rmSync(join(cwd, "fail"));
+    expect((await awfRun(cwd, ["flow.js", "--continue", "r1"])).exitCode).toBe(0);
+    const lines = (await readEvents(dir)).filter((line) => line.kind.startsWith("attempt-"));
+    expect(lines.map(({ kind, attempt }) => [kind, attempt])).toEqual([
+      ["attempt-started", 1],
+      ["attempt-ended", 1],
+      ["attempt-started", 2],
+      ["attempt-ended", 2],
+    ]);
+    expect(lines[1]).toMatchObject({ outcome: "failed" });
+    expect(lines[3]).toMatchObject({ outcome: "completed" });
+  });
+
+  test("a run named where a workflow file goes is meant for awf runs", async () => {
+    const cwd = await project();
+    await awfRun(cwd, ["--id", "r1", "flow.js"]);
+    const meant = await awfRun(cwd, ["fixture/r1"]);
+    expect(meant.exitCode).toBe(2);
+    expect(meant.stderr).toBe(
+      "awf: fixture/r1 is not a workflow file; did you mean: awf runs fixture/r1",
+    );
+  });
+
+  test("the started line repeats --cwd and --run-root, for a reader elsewhere", async () => {
+    const cwd = await project();
+    const root = runDirs.tempRunDir();
+    const ran = await awfRun(runDirs.tempRunDir(), [
+      "--cwd",
+      cwd,
+      "--run-root",
+      root,
+      "--id",
+      "r1",
+      join(cwd, "flow.js"),
+    ]);
+    expect(ran.stderr.split("\n")[0]).toBe(
+      `awf: fixture/r1 started · watch: awf logs fixture/r1 --cwd ${cwd} --run-root ${root}`,
+    );
+  });
+
   test("a live attempt refuses a continue", async () => {
     const cwd = await project();
     await Bun.write(join(cwd, "fail"), "");
@@ -1487,7 +1578,10 @@ describe("awf run's stages", () => {
     const continued = await awfRun(cwd, ["flow.js", "--continue", "r1"]);
     expect(continued.exitCode).toBe(0);
     expect(continued.record.value).toBe(2);
-    expect(continued.stderr).not.toContain("awf: ");
+    expect(continued.stderr.split("\n")[0]).toBe(
+      "awf: fixture/r1 started · watch: awf logs fixture/r1",
+    );
+    expect(continued.stderr.split("\n").slice(1).join("\n")).not.toContain("awf: ");
     expect(continued.stderr).toContain("↺ stage implement · feat/a · attempt 1");
 
     const done = await awfRun(cwd, ["flow.js", "--continue", "r1"]);
@@ -1984,6 +2078,7 @@ describe("awf run --here", () => {
   test("starts the run in a new tab with a code, and prints the line to end the turn with", async () => {
     const herdr = fakeHerdr();
     const output: string[] = [];
+    const errors: string[] = [];
     const exitCode = await cli(
       ["run", "--here", "--timeout", "20m", WORKFLOW, "--", "--no-helper"],
       {
@@ -1992,11 +2087,17 @@ describe("awf run --here", () => {
         herdr: herdr.run,
         self: ["awf"],
         stdout: (text) => output.push(text),
+        stderr: (text) => errors.push(text),
       },
     );
     expect(exitCode).toBe(0);
     const code = output.join("\n").split("\n").at(-1)!;
     expect(code).toMatch(/^awf-here-[0-9a-f]{8}$/);
+    // The run is named in this shell, by the id the tab is given.
+    const id = /^awf: calling-session\/(\S+) started · watch: awf logs calling-session\/\S+$/.exec(
+      errors.join("\n"),
+    )?.[1];
+    expect(id).toBeDefined();
     expect(herdr.calls).toContainEqual([
       "tab",
       "create",
@@ -2005,7 +2106,7 @@ describe("awf run --here", () => {
       "--cwd",
       ROOT,
       "--label",
-      "awf calling-session",
+      `awf calling-session ${id}`,
       "--no-focus",
     ]);
     // Only awf's own --here is dropped; its other options and the workflow's arguments pass.
@@ -2013,7 +2114,19 @@ describe("awf run --here", () => {
       "pane",
       "run",
       "w1:p9",
-      ["awf", "run", "--session", code, "--timeout", "20m", WORKFLOW, "--", "--no-helper"]
+      [
+        "awf",
+        "run",
+        "--session",
+        code,
+        "--id",
+        id!,
+        "--timeout",
+        "20m",
+        WORKFLOW,
+        "--",
+        "--no-helper",
+      ]
         .map((arg) => `'${arg}'`)
         .join(" "),
     ]);

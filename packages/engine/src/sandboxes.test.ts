@@ -20,6 +20,8 @@ import {
   type FakeSandboxOptions,
 } from "@agentswf/sandbox/testing";
 import { installSandboxes } from "./operator-runtime";
+import { listRuns } from "./run-state";
+import { readEvents } from "./runs";
 import { RunSandboxes } from "./sandboxes";
 import { createTempRunDirs, future, runNew, startNew, workflowOf } from "./testing";
 import { WorkflowCancelledError, WorkflowRunError } from "./workflow-runner";
@@ -112,9 +114,10 @@ function setup(
     host: host ?? createHeadlessRunHostFactory({}),
   };
   const logs: string[] = [];
+  const runRoot = runDirs.tempRunDir();
   const run = <Result extends JsonValue>(body: (context: WorkflowContext) => Promise<Result>) =>
     runNew(workflowOf(body, { name: "sandboxes" }), null, {
-      runRoot: runDirs.tempRunDir(),
+      runRoot,
       runtime,
       deadline: future(),
       cwd: work,
@@ -126,7 +129,7 @@ function setup(
       },
       onLog: (message) => logs.push(message),
     });
-  return { events: fake.events, run, providers, runtime, logs };
+  return { events: fake.events, run, providers, runtime, logs, runRoot };
 }
 
 const kinds = (events: FakeSandboxEvent[], sandbox?: string) =>
@@ -145,7 +148,7 @@ async function turnsOf(home: string): Promise<{ argv: string; env: string[] }[]>
 
 describe("sandboxed agents", () => {
   test("two share a sandbox and one has its own; every turn runs inside and is reaped", async () => {
-    const { events, run } = setup();
+    const { events, run, runRoot } = setup();
     process.env.AWF_ENGINE_ONLY = "leaked";
     let result: Awaited<ReturnType<typeof run>>;
     try {
@@ -190,6 +193,16 @@ describe("sandboxed agents", () => {
       ],
     });
     expect(own).toMatchObject({ key: "agent:reviewer", agents: [{ agent: "reviewer" }] });
+    // The run's event log says where each agent's native files are: its sandbox's home.
+    const [logged] = await listRuns(runRoot);
+    const opened = (await readEvents(logged!.dir)).flatMap((line) =>
+      line.kind === "agent-opened" ? [[line.agent, line.home]] : [],
+    );
+    expect(opened).toEqual([
+      ["coder", homes[0]],
+      ["tester", homes[1]],
+      ["reviewer", homes[2]],
+    ]);
 
     // Each process carried its own agent's marker and home, and nothing else of the engine's.
     for (const [home, sandbox, count] of [

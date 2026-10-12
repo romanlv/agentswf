@@ -20,6 +20,7 @@ import type {
   HarnessSession,
   HarnessSessionStatus,
   HarnessTurn,
+  HarnessTurnHooks,
   HarnessTurnOutcome,
   NativeFork,
   PanePlacement,
@@ -43,6 +44,8 @@ export type NativeTurnRequest = {
   kind: "turn" | "nudge" | "compact";
   /** Only a backend that answers as the agent reads it; see `HarnessAuthored`. */
   authored?: AuthoredTurn;
+  /** A native session the turn runs in, named before the turn settles. */
+  onSession?: (sessionRef: string) => void;
 };
 
 export type NativeTurnOutcome = HarnessTurnOutcome & { sessionRef?: string };
@@ -502,7 +505,9 @@ function createSession(
       return active || waiting > 0 ? { state: "working" } : lastStatus;
     },
     async start(
-      turn: (AgentTextTurnSpec | AgentStructuredTurnSpec<JsonValue>) & HarnessAuthored,
+      turn: (AgentTextTurnSpec | AgentStructuredTurnSpec<JsonValue>) &
+        HarnessAuthored &
+        HarnessTurnHooks,
       binding: HarnessOperationBinding,
     ) {
       return afterFinishing(turn.deadline, () =>
@@ -513,6 +518,7 @@ function createSession(
           binding,
           kind: "turn",
           ...(turn.authored ? { authored: turn.authored } : {}),
+          ...(turn.onSession ? { onSession: turn.onSession } : {}),
         }),
       );
     },

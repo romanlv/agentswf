@@ -63,6 +63,8 @@ type Options = {
   onStop(cancel: (stop: OperationStop) => Promise<void>): () => void;
   event?(event: LivenessEvent): void;
   phase?(phase: OperationPhase, reason?: string, until?: number): void;
+  /** Once, when the harness first accepts the operation. */
+  delivered?(at: number): void;
   policy?: LivenessPolicy;
   now?: () => number;
   schedule?: (at: number, action: () => void) => () => void;
@@ -93,6 +95,11 @@ export async function superviseOperation(options: Options): Promise<SupervisedOu
   let dispatched = false;
   let receiptSatisfied = false;
   let deliveredAt: number | undefined;
+  const deliver = (at: number | undefined) => {
+    if (deliveredAt !== undefined || at === undefined) return;
+    deliveredAt = at;
+    options.delivered?.(at);
+  };
   let dispatchStartedAt: number | undefined;
   let held: HarnessTurn | undefined;
   let acquiring: Promise<HarnessTurn> | undefined;
@@ -136,7 +143,7 @@ export async function superviseOperation(options: Options): Promise<SupervisedOu
       emit("waiting", event.reason, event.waitUntil);
     } else if (event.kind === "admitted") {
       admitted = true;
-      deliveredAt ??= dispatchStartedAt ?? event.admittedAt;
+      deliver(dispatchStartedAt ?? event.admittedAt);
       waitUntil = undefined;
       clearAnswerTimers();
       cancelPending();
@@ -248,7 +255,7 @@ export async function superviseOperation(options: Options): Promise<SupervisedOu
           void turn.delivery.dispatched.then((at) => {
             if (!valid()) return;
             dispatched = true;
-            deliveredAt ??= at;
+            deliver(at);
             if (
               result === undefined &&
               !admitted &&
@@ -294,7 +301,7 @@ export async function superviseOperation(options: Options): Promise<SupervisedOu
           acquisitionError = new Error("waiting operation has no delivery evidence");
           changed();
         } else {
-          deliveredAt ??= now();
+          deliver(now());
         }
         changed();
       },

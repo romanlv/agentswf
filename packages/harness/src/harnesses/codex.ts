@@ -1,4 +1,5 @@
 import { basename } from "node:path";
+import { codexActivity } from "../activity/rows";
 import { jsonLines, parseRow, type Row, record, text } from "../json";
 import { harnessState } from "../state";
 import { readCodexAllowance } from "../usage/allowance";
@@ -229,6 +230,7 @@ const CODEX = {
   readSessionUsage: (sessions, _cwd, home) =>
     readCodexUsage(sessions, codexSessionsDirectory(home)),
   sessionFiles: (home, session) => codexSessionFiles(home, session),
+  activityRow: codexActivity,
   findSession: (marker, since, cwd, home) =>
     findCodexSession(marker, since, cwd, codexSessionsDirectory(home)),
   // By start time, which a rollout's name begins with: a root session starts before the

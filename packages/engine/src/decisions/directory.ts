@@ -22,6 +22,7 @@ import {
   scheduleAt,
 } from "../deadlines";
 import { messageOf } from "../errors";
+import type { RunEventBody } from "../run-event-log";
 import {
   type DecisionInstallation,
   type DecisionProvider,
@@ -70,6 +71,8 @@ export class RunDecisions {
       installation?: DecisionInstallation;
       runDir: string;
       sleep?: (milliseconds: number, signal: AbortSignal) => Promise<void>;
+      /** Writes the run's event log. */
+      event?(body: RunEventBody): void;
     },
   ) {}
 
@@ -137,6 +140,15 @@ export class RunDecisions {
     assertDeadline(deadline);
     const slot = this.#slots.length;
     this.#slots.push(undefined);
+    this.options.event?.({
+      kind: "decision-asked",
+      decision: slot + 1,
+      ...(scope.stage === undefined ? {} : { stage: scope.stage }),
+      key: spec.key,
+      alias: spec.model,
+      provider: resolved.provider,
+      model: resolved.model,
+    });
     return { spec, ids, resolved, provider, deadline, slot };
   }
 
@@ -269,6 +281,13 @@ export class RunDecisions {
           : { ...settled, error: `${settled.error ?? settled.outcome}; ${lost}` };
     }
     this.#slots[slot] = settled;
+    this.options.event?.({
+      kind: "decision-ended",
+      decision: slot + 1,
+      ...(settled.stage === undefined ? {} : { stage: settled.stage }),
+      outcome: settled.outcome,
+      ...(settled.error === undefined ? {} : { error: settled.error }),
+    });
     const { charged: _charged, ...returned } = settled;
 
     if (returned.outcome === "answered") return { answers: answers!, record: returned };

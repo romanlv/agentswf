@@ -60,7 +60,7 @@ test("a cancelled run exits as the signal would, having written its record", asy
   const decoder = new TextDecoder();
   for await (const chunk of child.stderr) {
     stderr += decoder.decode(chunk);
-    if (stderr.includes("started") && !child.killed) child.kill("SIGHUP");
+    if (/^started$/m.test(stderr) && !child.killed) child.kill("SIGHUP");
   }
   expect(await child.exited).toBe(129);
   expect(stderr).toMatch(/^■ cancelled/m);

@@ -46,6 +46,14 @@ export interface HarnessAuthored {
   authored?: AuthoredTurn;
 }
 
+export interface HarnessTurnHooks {
+  /**
+   * Told the native session a new turn runs in as soon as the host names it, before the turn
+   * settles: the session may yet turn out never to have been made.
+   */
+  onSession?(sessionRef: string): void;
+}
+
 /** A turn as the workflow wrote it. A nudge has its own prompt and its turn's label and schema. */
 export type AuthoredTurn = {
   prompt: string;
@@ -146,11 +154,11 @@ export interface HarnessSession {
   status(): Promise<HarnessSessionStatus>;
   /** `turn.prompt` is the wrapped prompt the agent is sent. */
   start(
-    turn: AgentTextTurnSpec & HarnessAuthored,
+    turn: AgentTextTurnSpec & HarnessAuthored & HarnessTurnHooks,
     binding: HarnessOperationBinding,
   ): Promise<HarnessTurn>;
   start<T extends JsonValue>(
-    turn: AgentStructuredTurnSpec<T> & HarnessAuthored,
+    turn: AgentStructuredTurnSpec<T> & HarnessAuthored & HarnessTurnHooks,
     binding: HarnessOperationBinding,
   ): Promise<HarnessTurn>;
   compact(id: CompactionId, prompt: string, deadline: AbsoluteDeadline): Promise<HarnessTurn>;

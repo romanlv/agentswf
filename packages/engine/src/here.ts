@@ -17,8 +17,9 @@ import { runSessionName } from "./herdr-run-session";
 import type { OperatorEnvironment } from "./operator-cli";
 import { callerSession, herdrConfig } from "./operator-runtime";
 import type { RunCommand } from "./run-command";
+import { startedLine } from "./run-commands";
 import { loadAndPrepare } from "./run-prepare";
-import { processStart, sameProcess } from "./runs";
+import { generateId, processStart, sameProcess } from "./runs";
 
 /** What `--here` and `--session` reach Herdr and the calling session through. */
 type HereEnvironment = Pick<
@@ -84,6 +85,8 @@ export async function startHere(
     return refuse(`this session cannot reach Herdr: ${unreachable.trim()}`, sandboxFix(env));
   }
   const code = `awf-here-${randomBytes(4).toString("hex")}`;
+  // Chosen here, so this shell, which the agent reads, can name the run its tab starts.
+  const id = command.continueId ?? ready.prepared.id ?? generateId();
   const end = argv.indexOf("--");
   const options = (end === -1 ? argv.slice(1) : argv.slice(1, end)).filter(
     (arg) => arg !== "--here",
@@ -96,11 +99,16 @@ export async function startHere(
       // Under codex this can be another pane's workspace (E8); the run's tab still works from it.
       workspace,
       cwd: command.shellCwd,
-      label: tabLabel(
-        ready.loaded.executable.definition.meta.name,
-        command.continueId ?? ready.prepared.id,
-      ),
-      argv: [...self, "run", "--session", code, ...options, ...rest],
+      label: tabLabel(ready.loaded.executable.definition.meta.name, id),
+      argv: [
+        ...self,
+        "run",
+        "--session",
+        code,
+        ...((command.continueId ?? ready.prepared.id) ? [] : ["--id", id]),
+        ...options,
+        ...rest,
+      ],
       // The tab takes the Herdr server's environment, not this shell's: the operator's choice of
       // where the run's agents open is passed on, and the session's own id, which only this shell
       // has, for a fork of it.
@@ -117,6 +125,7 @@ export async function startHere(
       "Run the workflow from a shell with awf run instead.",
     );
   }
+  notice(startedLine(ready.loaded.executable.definition.meta.name, id, command));
   stdout(
     [
       `awf: ${basename(ready.loaded.file)} is starting in Herdr tab ${started.tabId}. Once this turn ends it takes this session over: each of its steps arrives here as a prompt, and a last message hands the session back.`,

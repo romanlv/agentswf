@@ -1018,6 +1018,7 @@ export function createHerdrRunHostFactory(
             operationId: string,
             deadline: { unixMilliseconds: number },
             signal: AbortSignal,
+            onSession?: (sessionRef: string) => void,
           ): Promise<NativeTurnOutcome | undefined> => {
             // A first start that failed closed its pane; one never started may be placed again.
             if (!pane) {
@@ -1045,9 +1046,10 @@ export function createHerdrRunHostFactory(
               ...(request.occupant ? sandboxedArgs(harness) : []),
               ...(skills?.args ?? []),
             ];
+            // A new session named at launch can be read while its first turn runs.
             const launch = resume
               ? spec.interactiveResume!(resume, settings, launchArgs)
-              : spec.interactive(settings, launchArgs);
+              : spec.interactive(settings, launchArgs, randomUUID());
             if (terminal && typed) terminal = await request.occupant!.pane!();
             typed = true;
             const started = terminal
@@ -1087,6 +1089,7 @@ export function createHerdrRunHostFactory(
                 )
               );
             }
+            if (launch.sessionId) onSession?.(launch.sessionId);
             return undefined;
           };
 
@@ -1357,6 +1360,7 @@ export function createHerdrRunHostFactory(
                     operationId,
                     operation.deadline,
                     controller.signal,
+                    operation.onSession,
                   );
                   if (failed) return failed;
                   hasExecuted = true;

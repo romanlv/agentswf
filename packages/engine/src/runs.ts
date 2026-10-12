@@ -7,7 +7,9 @@ import {
   type CallSpec,
   type Candidate,
   RUN_RECORD_VERSION,
+  type RunLogLine,
   type RunRecord,
+  runLogLine,
   STAGE_RECORD_VERSION,
   type StageRecord,
   type TurnRecord,
@@ -240,7 +242,15 @@ export function sameProcess(
   probe: ProcessProbe = processStart,
 ): boolean {
   const now = probe(pid);
-  return now !== undefined && Math.abs(Date.parse(now) - Date.parse(started)) <= 1_000;
+  return now !== undefined && sameStart(now, started);
+}
+
+/**
+ * Two `ps` start times of one process: a second apart is the same start, as on Linux `ps` derives
+ * it from the boot time, which a clock step can move.
+ */
+export function sameStart(now: string, started: string): boolean {
+  return Math.abs(Date.parse(now) - Date.parse(started)) <= 1_000;
 }
 
 /** Why a run takes no attempt now: one of its attempts is still running, or it completed. */
@@ -400,19 +410,51 @@ export async function replaceRecord(runDir: string, stage: string): Promise<void
   await rename(file, join(replaced, `${stage}.${record.attempt}.json`));
 }
 
-/** Appends a settled turn to the run's `turns.jsonl`, which only the live attempt writes. */
-export async function appendTurn(runDir: string, record: TurnRecord): Promise<void> {
-  await appendLine(turnsFile(runDir), JSON.stringify(record));
+/** Appends a line to the run's event log, `turns.jsonl`, which only the live attempt writes. */
+export async function appendEvent(runDir: string, line: RunLogLine): Promise<void> {
+  await appendLine(turnsFile(runDir), JSON.stringify(line));
 }
 
-/** Ends a line a crash left torn, so the next turn appended starts a line of its own. */
+/** Ends a line a crash left torn, so the next line appended starts a line of its own. */
 export async function endTurnsLine(runDir: string): Promise<void> {
   await endTornLine(turnsFile(runDir));
 }
 
-/** Every turn of the run, in the order they settled, less a line a crash tore. */
+/** The run's event log in the order written, less a line a crash tore and the kinds this awf does not know. */
+export async function readEvents(runDir: string): Promise<RunLogLine[]> {
+  return (await readNumberedEvents(runDir)).map(({ line }) => line);
+}
+
+/**
+ * The same, each with its line number in the file, from 1: its position, which never changes, as
+ * lines are only appended.
+ */
+export async function readNumberedEvents(
+  runDir: string,
+): Promise<{ number: number; line: RunLogLine }[]> {
+  const text = await readFile(turnsFile(runDir), "utf8").catch((error) => {
+    if (isCode(error, "ENOENT")) return "";
+    throw error;
+  });
+  const lines = text.split("\n");
+  // A last line not yet ended is still being written.
+  lines.pop();
+  return lines.flatMap((json, index) => {
+    try {
+      const value: unknown = JSON.parse(json);
+      const line = typeof value === "object" && value !== null ? runLogLine(value) : undefined;
+      return line ? [{ number: index + 1, line }] : [];
+    } catch {
+      return [];
+    }
+  });
+}
+
+/** Every turn of the run, in the order they settled. */
 export async function readTurns(runDir: string): Promise<TurnRecord[]> {
-  return readLines<TurnRecord>(turnsFile(runDir));
+  return (await readEvents(runDir)).filter(
+    (line): line is TurnRecord => line.kind === "turn" || line.kind === "compact",
+  );
 }
 
 /** The last ended attempt's `output.json`. */
@@ -546,8 +588,8 @@ async function sweep(dir: string, now = Date.now()): Promise<void> {
   }
 }
 
-/** A folder's entries, without hidden ones: temp files, `.gitignore`. */
-async function entries(dir: string): Promise<string[]> {
+/** A folder's entries, sorted, without hidden ones (temp files, `.gitignore`); none when it is not there. */
+export async function entries(dir: string): Promise<string[]> {
   const names = await readdir(dir).catch((error) => {
     if (isCode(error, "ENOENT")) return [] as string[];
     throw error;
@@ -560,14 +602,42 @@ async function entries(dir: string): Promise<string[]> {
  * time zone the attempt that wrote it and the one checking it each run in.
  */
 export function processStart(pid: number): string | undefined {
-  if (!Number.isSafeInteger(pid) || pid <= 0) return undefined;
+  const found = probeProcess(pid);
+  return found === "gone" || found === "unknown" ? undefined : found;
+}
+
+/**
+ * What `ps` says of process `pid`: when it started, as `processStart` gives it, `gone`, or
+ * `unknown` where `ps` could not be asked, as in a sandbox that forbids it.
+ */
+export function probeProcess(pid: number, ps: Ps = runPs): string | "gone" | "unknown" {
+  if (!Number.isSafeInteger(pid) || pid <= 0) return "gone";
+  let done: ReturnType<Ps>;
+  try {
+    done = ps(pid);
+  } catch {
+    return "unknown";
+  }
+  const text = done.stdout.trim();
+  // `ps` exits 1 and prints nothing at all for a pid that is not there; one that cannot take these
+  // options, as BusyBox's, says so on stderr.
+  if (text === "") return done.exitCode === 1 && done.stderr.trim() === "" ? "gone" : "unknown";
+  const time = new Date(`${text} UTC`);
+  return Number.isNaN(time.getTime()) ? "unknown" : time.toISOString().replace(/\.\d{3}Z$/, "Z");
+}
+
+/** `ps -o lstart= -p {pid}`, as it answered. */
+export type Ps = (pid: number) => { stdout: string; stderr: string; exitCode: number | null };
+
+const runPs: Ps = (pid) => {
   const done = Bun.spawnSync(["ps", "-o", "lstart=", "-p", String(pid)], {
     stdout: "pipe",
-    stderr: "ignore",
+    stderr: "pipe",
     env: { ...process.env, LC_ALL: "C", TZ: "UTC0" },
   });
-  const text = done.stdout.toString().trim();
-  if (!done.success || text === "") return undefined;
-  const time = new Date(`${text} UTC`);
-  return Number.isNaN(time.getTime()) ? undefined : time.toISOString().replace(/\.\d{3}Z$/, "Z");
-}
+  return {
+    stdout: done.stdout?.toString() ?? "",
+    stderr: done.stderr?.toString() ?? "",
+    exitCode: done.exitCode,
+  };
+};

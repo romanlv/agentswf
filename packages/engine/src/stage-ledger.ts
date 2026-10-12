@@ -6,6 +6,7 @@ import {
 } from "@agentswf/contract/records";
 import type { JsonSchema } from "@agentswf/contract/schema";
 import type { JsonValue, StageOutcome, StageSummary } from "@agentswf/contract/workflow";
+import type { RunEventBody } from "./run-event-log";
 import { replaceRecord, replaceStale, stageNameProblem, writeStageRecord } from "./runs";
 import { planStage } from "./stage-plan";
 import { placeholderOf } from "./stage-schema";
@@ -99,6 +100,8 @@ export class StageLedger {
       fromStage?: string;
       /** `--values`: the values of stages before `fromStage` that have no record to reuse. */
       values?: ReadonlyMap<string, JsonValue>;
+      /** Writes the run's event log. */
+      event?(body: RunEventBody, at?: number): void;
       now?: () => Date;
     },
   ) {}
@@ -253,6 +256,15 @@ export class StageLedger {
         }
       }
       this.#reused.add(name);
+      this.options.event?.(
+        {
+          kind: "stage-ended",
+          stage: name,
+          outcome: "succeeded",
+          source: decision.kind === "reuse" ? "reused" : "provided",
+        },
+        at,
+      );
       const { attempt, summary, provided } = record;
       this.#stages.set(name, {
         stage: name,
@@ -285,6 +297,7 @@ export class StageLedger {
 
   /** A stage the plan stopped as it was entered: shown stopped, though it ran nothing. */
   #stoppedAt(name: string, at: number): void {
+    this.options.event?.({ kind: "stage-ended", stage: name, outcome: "stopped" }, at);
     this.#stages.set(name, {
       stage: name,
       source: "ran",
@@ -411,6 +424,7 @@ export class StageLedger {
       startedAt,
     };
     this.#stages.set(name, entered);
+    this.options.event?.({ kind: "stage-started", stage: name }, startedAt);
     let ended: Promise<void> | undefined;
     // A record that fails to be written fails the stage with that error, whatever its work did.
     const end = (fields: Pick<StageRecord, "outcome" | "reason" | "summary" | "value">) => {
@@ -445,6 +459,13 @@ export class StageLedger {
           throw error;
         },
       );
+      // Its outcome once the record is written: one that is not fails the stage.
+      const logEnd = () =>
+        this.options.event?.(
+          { kind: "stage-ended", stage: name, outcome: entered.outcome ?? record.outcome },
+          at.getTime(),
+        );
+      ended.then(logEnd, logEnd);
       this.#writes.add(ended);
       return ended;
     };

@@ -1,15 +1,17 @@
 import { statSync } from "node:fs";
-import type { AttemptRecord } from "@agentswf/contract/records";
+import { type AttemptRecord, RUN_EVENT_VERSIONS } from "@agentswf/contract/records";
 import type { ExecutableWorkflow, JsonValue } from "@agentswf/contract/workflow";
 import { refusalMessage } from "./attempt-view";
 import { messageOf } from "./errors";
 import type { RunCommand } from "./run-command";
 import {
   type Attempt,
+  appendEvent,
   attemptRefusal,
   checkContinue,
   checkFree,
   claimAttempt,
+  endTurnsLine,
   idProblem,
   openRun,
   type Run,
@@ -147,6 +149,18 @@ export async function claimNext(
   if ("refused" in claimed) {
     throw new RunRefused(refusalMessage(run.record.id, claimed.refused, now));
   }
+  // A crash may have torn the last line an earlier attempt appended; this attempt's first line
+  // must not be glued to it.
+  await endTurnsLine(run.dir)
+    .then(() =>
+      appendEvent(run.dir, {
+        version: RUN_EVENT_VERSIONS["attempt-started"],
+        attempt: claimed.attempt.record.attempt,
+        at: claimed.attempt.record.started,
+        kind: "attempt-started",
+      }),
+    )
+    .catch((error) => notice(`awf: the run's event log was not written: ${messageOf(error)}`));
   const turns = claimed.interrupted.length > 0 ? await readTurns(run.dir).catch(() => []) : [];
   for (const earlier of claimed.interrupted) {
     // Its last turn says the stage it was in, as nothing else it wrote does.
