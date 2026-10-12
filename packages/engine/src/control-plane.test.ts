@@ -47,6 +47,28 @@ describe("result control plane", () => {
     }
   });
 
+  test("refuses messaging until it is built, still learning the session", async () => {
+    const control = await startResultControlPlane({
+      slots: createResultSlotRegistry({ runDir: tempRunDir() }),
+    });
+    try {
+      const sessions: string[] = [];
+      const channel = await control.openChannel(AGENT, (id) => sessions.push(id));
+      for (const request of [
+        { version: WIRE_VERSION, command: "peers", session: "s-1" },
+        { version: WIRE_VERSION, command: "send", peer: "fixer", text: "hi", session: "s-1" },
+        { version: WIRE_VERSION, command: "reply", peer: "fixer", text: "ok", session: "s-1" },
+      ]) {
+        await expect(
+          rawRequest(channel.endpoint, `${JSON.stringify(request)}\n`),
+        ).resolves.toMatchObject({ kind: "rejected", code: "unsupported-command" });
+      }
+      expect(sessions).toEqual(["s-1", "s-1", "s-1"]);
+    } finally {
+      await control.close();
+    }
+  });
+
   test("a call is answerable only on its own agent's socket", async () => {
     const fixture = await setup();
     try {

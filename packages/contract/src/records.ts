@@ -1,4 +1,5 @@
 import type { JsonSchema } from "./schema";
+import type { ReplyCode, SendCode } from "./wire";
 import type {
   AgentExecution,
   AgentKey,
@@ -326,6 +327,8 @@ export type AttemptRecord = {
    * and turns carry no spend, so an earlier attempt's is kept here. Absent for an interrupted one.
    */
   accounting?: AttemptAccounting;
+  /** The messaging ceilings in force; absent on attempts an earlier awf ran. */
+  messageLimits?: MessageLimits;
 };
 
 /** What an attempt's file keeps of its accounting: what a run's total sums. */
@@ -382,6 +385,7 @@ export const TURN_OPERATION_FIELDS = [
   "deliveredAt",
   "settledAt",
   "sessions",
+  "cause",
 ] as const satisfies readonly (keyof OperationRecord)[];
 
 /**
@@ -463,7 +467,128 @@ export type RunEvent = {
       DecisionRecord,
       "stage" | "outcome" | "error"
     >)
+  | MessagingEvent
 );
+
+/**
+ * A route's ends, as the workflow granted it: `between` is one route both ways, with one count, its
+ * two ends in the order given, which means nothing. A pair has one open route at a time, so its ends
+ * name it.
+ */
+export type RouteEnds =
+  | { from: AgentKey; to: AgentKey; between?: never }
+  | { between: [AgentKey, AgentKey]; from?: never; to?: never };
+
+/**
+ * Why a message admitted was never shown: its sender stopped waiting before its peer saw it, its
+ * route closed, or the attempt ended.
+ */
+export type UndeliveredReason = "withdrawn" | "route-closed" | "attempt-ended";
+
+/**
+ * How an owed answer ended: answered with `wf reply`; failed (its peer stopped, failed, or still owed
+ * it after its reminder); the asker's `--timeout` passed; or the asker finished first, before its
+ * peer saw the question (`withdrawn`) or after (`released`).
+ */
+export type RequestEnd = "replied" | "failed" | "timed-out" | "withdrawn" | "released";
+
+/**
+ * Messaging in the run's event log, keyed by attempt and `message`, numbered in the order admitted
+ * within the attempt. Written by the side that saw each: the engine on admission and its end, the
+ * delivery with what the harness confirmed.
+ */
+export type MessagingEvent =
+  | ({
+      kind: "route-opened";
+      callPath: string[];
+      purpose: string;
+      /** The limit in force, answers included, and what the workflow asked for when it differed. */
+      maxMessages: number;
+      asked?: number;
+      /** The stage it closes with; absent, it lasts the attempt. */
+      stage?: string;
+    } & RouteEnds)
+  | ({
+      kind: "route-closed";
+      callPath: string[];
+      reason: "stage-ended" | "agent-stopped" | "attempt-ended";
+    } & RouteEnds)
+  /**
+   * Admitted, before `wf send` or `wf reply` returned. `operationId` is the sender's open operation.
+   * A question carries the answer's deadline; an answer, the question it answers.
+   */
+  | {
+      kind: "message-sent";
+      callPath: string[];
+      message: number;
+      from: AgentKey;
+      to: AgentKey;
+      operationId: string;
+      text: string;
+      bytes: number;
+      /** It awaits an answer by this time. */
+      awaitsReply?: { until: string };
+      /** The question it answers. */
+      replyTo?: number;
+    }
+  /** Refused before admission, with the code `wf` printed. */
+  | {
+      kind: "message-refused";
+      callPath: string[];
+      from: AgentKey;
+      to: AgentKey;
+      /** Absent for `no-operation`. */
+      operationId?: string;
+      command: "send" | "reply";
+      code: SendCode | ReplyCode;
+      bytes: number;
+      awaitReply?: true;
+    }
+  /**
+   * Shown to its recipient in `operationId`: `offered` once typed or its resumed turn started, then
+   * `observed` where the harness confirmed the model read it, else `unconfirmed`.
+   */
+  | {
+      kind: "message-delivery";
+      callPath: string[];
+      message: number;
+      from: AgentKey;
+      to: AgentKey;
+      operationId: string;
+      state: "offered" | "observed" | "unconfirmed";
+    }
+  | {
+      kind: "message-undelivered";
+      callPath: string[];
+      message: number;
+      from: AgentKey;
+      to: AgentKey;
+      reason: UndeliveredReason;
+    }
+  /** An owed answer's end. `message` is the question; `reply`, its answer's number. */
+  | {
+      kind: "request-ended";
+      callPath: string[];
+      message: number;
+      /** The agent that owed it, and the asker. */
+      owedBy: AgentKey;
+      asker: AgentKey;
+      end: RequestEnd;
+      reason?: string;
+      reply?: number;
+    };
+
+/** The messaging ceilings an attempt ran under. A route's `maxMessages` may only lower `perRoute`. */
+export type MessageLimits = {
+  /** Messages a route carries an attempt, answers included. */
+  perRoute: number;
+  /** A message's size in UTF-8 bytes. */
+  bytes: number;
+  /** Messages admitted for one agent and not yet shown to it. */
+  unread: number;
+  /** A message operation's own time, before its waiters' deadlines lengthen it. */
+  operationMs: number;
+};
 
 /**
  * What an agent did, read from its native session files when asked and never copied into the run.
@@ -545,8 +670,10 @@ export type RunJson = {
     turns: number;
     sessions: { harness: HarnessKind; id: string; files: string[] }[];
     live: {
-      phase?: "waiting";
+      /** `waiting` after `wf waiting`; `awaiting-reply` on `peer`'s answer. */
+      phase?: "waiting" | "awaiting-reply";
       reason?: string;
+      peer?: AgentKey;
       until?: string;
       lastActivity?: { activity: Activity; at: string };
       observedAt: string;
@@ -607,6 +734,13 @@ export const RUN_EVENT_VERSIONS = {
   warning: 1,
   "decision-asked": 1,
   "decision-ended": 1,
+  "route-opened": 1,
+  "route-closed": 1,
+  "message-sent": 1,
+  "message-refused": 1,
+  "message-delivery": 1,
+  "message-undelivered": 1,
+  "request-ended": 1,
 } as const satisfies Record<RunEvent["kind"], number>;
 
 /**
@@ -715,6 +849,12 @@ export type AllowanceWindow = {
 
 export const OPERATION_LIVENESS_RECORD_VERSION = 1 as const;
 
+/**
+ * Messaging's kinds: `awaiting-reply`, a turn ended with its operation awaiting `peer`'s answer until
+ * `until`; `continued`, a delivery went on with it, `reason` saying what (`reply`, `no-reply`,
+ * `request`, `messages`); `reminder-due`, a turn ended owing an answer; `deadline-extended`, a
+ * message operation's deadline moved later, to `until`.
+ */
 export const OPERATION_LIVENESS_KINDS = [
   "opened",
   "waiting",
@@ -724,6 +864,10 @@ export const OPERATION_LIVENESS_KINDS = [
   "queue-accepted",
   "received",
   "check-in-due",
+  "awaiting-reply",
+  "continued",
+  "reminder-due",
+  "deadline-extended",
   "releasing",
   "release",
   "terminal",
@@ -741,6 +885,8 @@ export type OperationLivenessRecord = {
   sequence: number;
   reason?: string;
   until?: number;
+  /** On `awaiting-reply`, whose answer the operation awaits. */
+  peer?: AgentKey;
   /** Events omitted since the previous successfully written record. */
   dropped?: number;
   truncated?: true;

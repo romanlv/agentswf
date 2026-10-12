@@ -160,12 +160,19 @@ function providerImport(reason: string, allowed?: string): { pattern: RegExp; re
   };
 }
 
+/** The engine alone issues participant refs, so no other package reaches the function that does. */
+const ISSUES_REFS = {
+  pattern: /^@agentswf\/contract\/participant$/,
+  reason: "only the engine issues a participant ref",
+};
+
 const RULES: Rule[] = [
   { dir: "packages/contract", allow: [], pure: true },
   // Pricing and totals, positioned to be lifted out whole (foundation §8): records in, figures out.
   {
     dir: "packages/engine/src/accounting",
     allow: ["@agentswf/contract", "@agentswf/contract/*"],
+    forbid: [ISSUES_REFS],
     pure: true,
   },
   // Adapters launch through the seam's types; which provider runs them is the operator's. Tests
@@ -174,7 +181,7 @@ const RULES: Rule[] = [
     dir: "packages/harness",
     except: ["**/*.test.ts"],
     allow: ["@agentswf/contract", "@agentswf/contract/*", "@agentswf/sandbox"],
-    forbid: [providerImport("harness knows the sandbox seam, never a provider")],
+    forbid: [providerImport("harness knows the sandbox seam, never a provider"), ISSUES_REFS],
   },
   {
     dir: "packages/harness",
@@ -185,7 +192,10 @@ const RULES: Rule[] = [
       "@agentswf/sandbox",
       "@agentswf/sandbox/testing",
     ],
-    forbid: [providerImport("harness knows the sandbox seam, never a provider", "testing")],
+    forbid: [
+      providerImport("harness knows the sandbox seam, never a provider", "testing"),
+      ISSUES_REFS,
+    ],
   },
   // Only the composition root installs a provider; the rest of the engine sees the seam.
   {
@@ -240,6 +250,7 @@ const RULES: Rule[] = [
         pattern: /^@agentswf\/(harness|engine|wf)/,
         reason: "the sandbox package imports contract only",
       },
+      ISSUES_REFS,
     ],
   },
   {
@@ -248,6 +259,7 @@ const RULES: Rule[] = [
     forbid: [
       { pattern: /^@agentswf\/(engine|harness)/, reason: "wf reaches the engine only over wire" },
       { pattern: /^(?:node:)?fs(?:\/|$)/, reason: "wf never performs run-directory I/O" },
+      ISSUES_REFS,
     ],
   },
   // "Approved pure schema authoring libraries" is not a list the checker can hold; what it can hold
@@ -262,6 +274,7 @@ const RULES: Rule[] = [
         pattern: /^@agentswf\/(engine|harness)/,
         reason: "lab runs workflows through `awf run`, and never links the engine or a harness",
       },
+      ISSUES_REFS,
     ],
   },
   // Serves any kind of case: imports nothing, not even contract, and reaches no runtime.

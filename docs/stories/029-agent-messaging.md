@@ -508,7 +508,7 @@ The reasons are in the design's Decisions.
 ## Tasks at a glance
 
 - [x] 1. Claude agents cannot message around their routes (M1)
-- [ ] 2. Types, wire v4, record format and the `deliver` seam are settled
+- [x] 2. Types, wire v4, record format and the `deliver` seam are settled
 - [ ] 3. The messaging logic admits, queues and settles, as pure code
 - [ ] 4. The runner wakes, continues and closes through it, against the fake harness
 - [ ] 5. `wf peers`, `wf send` and `wf reply` work over the control plane and the sandbox door
@@ -859,6 +859,71 @@ Manual or live, with costs estimated in [[testing]] first:
 - Decided by the human, 2026-10-12: a claude agent outside a sandbox may use claude's own
   messaging for now, as it already runs on the operator's whole claude setup; it is documented, not
   blocked. Giving agents a clean setup, by default, is [[agent-own-config]].
+
+### Task 2
+
+The human asked, 2026-10-12, that the story's approval gates be checked by review rather than
+waiting on them; these are the drafts the gate named, as built and reviewed.
+
+- **The brand.** `ParticipantRef` carries `[PARTICIPANT]: true`, a `unique symbol` in
+  `contract/src/participant.ts`, exported only as `@agentswf/contract/participant`, with
+  `participantRef(key)`. `participants.ts` imports its type alone, so `contract/workflow` exports no
+  way to make one. `LogicalAgent` is the one class that implements `AgentRef`, and carries it.
+- **`cause`** is `{ message: { from } }` on `OperationRecord`, absent for the workflow's own
+  operations, and in `TURN_OPERATION_FIELDS`, so turn lines, `operation-started` and usage records
+  carry it. An added optional field leaves every kind's version at 1, as story 028's rule says.
+- **The record.** New `RunEvent` kinds, each at version 1, keyed by attempt and `message`, a number
+  in the order admitted within the attempt, as `decision` is:
+  - `route-opened` and `route-closed`: the route's ends (`from`/`to`, or `between`), purpose, the
+    limit in force and the one asked for when it differed, the stage it closes with; closed for
+    `stage-ended`, `agent-stopped` or `attempt-ended`.
+  - `message-sent`, written before `wf send` or `wf reply` returns: sender, recipient, the sender's
+    operation, the text and its bytes, `awaitsReply.until` on a question, `replyTo` on an answer.
+  - `message-refused`: the command, code and bytes, so refused sends are kept.
+  - `message-delivery`: `offered`, then `observed` or `unconfirmed`, with the operation it went in.
+  - `message-undelivered`: `withdrawn`, `route-closed` or `attempt-ended`.
+  - Delivery lines carry `from` as well as `to`, so `awf logs --agent` can follow either side.
+  - `request-ended`: an owed answer's end, `replied`, `failed`, `timed-out`, `withdrawn` or
+    `released`, with the answer's number.
+  The text is kept, which the design's list did not name: it is the only copy of a message never
+  shown, and `awf logs` cuts it in a page as it cuts any string the run wrote.
+- **Limits.** `messageLimits` on the attempt record: `perRoute` 40, `bytes` 16 KB, `unread` 16,
+  `operationMs` 15 minutes.
+- **`awf runs`.** `live.phase` gains `awaiting-reply`, with `peer` and `until`, read from the
+  latest liveness record as `waiting` is.
+- **Liveness kinds.** `awaiting-reply` (with `peer` and `until`), `continued` (`reason` says by
+  what: `reply`, `no-reply`, `request` or `messages`), `reminder-due`, and `deadline-extended`.
+- **Wire 4.** `peers`, `send` and `reply` name no call id. Every response may lead with `owing`,
+  the owed-answer line. `peers` carries the same as data for `--json`. `awaiting-reply` answers
+  `wf waiting` while an answer is awaited. `SEND_CODES` and `REPLY_CODES` are in check order, and
+  `ENVELOPE_CODES` are the refusals any command can get. `decodeResponseFor` takes only a
+  command's own acknowledgements and codes, so the client casts nothing. A version 3 launcher is
+  refused `unsupported-version`. Until task 5 the control plane answers the new commands
+  `unsupported-command`.
+- **Who writes what an agent reads.** The engine writes every messaging line, since only it knows
+  the launcher's path, the peers' purposes and what closes a cycle: `notice` on `sent` and
+  `awaiting-reply`, `text` on `peers`, `error` on a refusal, and `owing`. `wf` prints them. The
+  result and waiting lines from before keep `wf`'s own wording, which E5 measured; `owes-reply` and
+  `no-result` print the engine's.
+- **`deliver`.** `HarnessDeliverySpec` is the design's, plus `deadline`, which a nudge has too. It
+  runs a native turn of kind `deliver` on the operation's binding, after the turn settles, and may
+  repeat on the turn it returns. A turn takes one successor, a check-in or a delivery. Both
+  backends already send any kind but `compact` as a prompt; tasks 6 and 7 make them deliver
+  properly. The fake delivers through the same path.
+- **`AuthoredTurn`** gains `cause` and `messages`: each a `message` with its sender and text,
+  `answers` when it is the answer the operation awaited and `asks` when it is a question, an answer
+  that asks back being both; or `no-reply`, with the reason the answer failed.
+- **Review.** Both reviewers found nothing blocking. Resolved:
+  - one continuation path for a nudge and a delivery: claimed only once it starts, refused on a
+    turn released or followed by another operation's, and one withdrawn before dispatch leaves the
+    agent's status as it was;
+  - the liveness `peer` is kept and checked; 021's check-in phase is now `check-in-response`;
+  - `@agentswf/contract/participant` is forbidden outside the engine by the boundary check;
+  - a peer's key with surrounding spaces is refused.
+  Left for later tasks: the brand stops a `{ key }` literal, not a spread or cast of a real ref, so
+  task 4 checks a route's ends by identity against the agents opened; agent-facing times carry
+  their offset or are relative, since a docker agent's clock is UTC (task 3); `awf logs`'s filters
+  and its message lines are task 8's.
 
 ## Human review
 

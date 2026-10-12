@@ -8,6 +8,7 @@
     "./schema": "./src/schema.ts",
     "./records": "./src/records.ts",
     "./wire": "./src/wire.ts",
+    "./participant": "./src/participant.ts",
     "./workflow": "./src/workflow/index.ts",
     "./testing": "./src/testing/fixtures.ts"
   }

@@ -1,10 +1,16 @@
+import type { PARTICIPANT } from "../participant";
 import type { JsonObject } from "./json";
 
 export type ParticipantKey = string;
 
+/**
+ * A participant the engine issued: an agent this workflow opened, or later a connected outside
+ * session. Only the engine makes one, so a workflow cannot name a participant it was not given.
+ */
 export interface ParticipantRef {
   /** Logical key in the workflow context that issued this reference. */
   readonly key: ParticipantKey;
+  readonly [PARTICIPANT]: true;
 }
 
 export interface ExternalParticipantSpec {

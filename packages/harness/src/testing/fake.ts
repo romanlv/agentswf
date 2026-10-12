@@ -29,7 +29,7 @@ export type FakeAdapterTurnContext = {
   activation: HarnessActivation;
   id: string;
   prompt: string;
-  kind: "turn" | "nudge" | "compact";
+  kind: "turn" | "nudge" | "deliver" | "compact";
   authored?: AuthoredTurn;
   binding?: HarnessOperationBinding;
   previousSessionRef?: string;

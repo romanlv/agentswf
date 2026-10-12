@@ -498,7 +498,7 @@ test("log progress records phase, renewed wait and reason changes without countd
   expect(progressEvents(renewed, snapshot("waiting", "verify", 90_000), view)[0]).toContain(
     "verify",
   );
-  for (const phase of ["check-in-pending", "awaiting-reply", "releasing", "working"]) {
+  for (const phase of ["check-in-pending", "check-in-response", "releasing", "working"]) {
     expect(progressEvents(waiting, snapshot(phase), view)).toEqual([
       `[0:10] … waiter · ${phase.replaceAll("-", " ")}`,
     ]);

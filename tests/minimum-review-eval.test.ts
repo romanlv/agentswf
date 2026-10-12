@@ -225,7 +225,9 @@ describe("minimum review live evaluation plan", () => {
       });
       const turn: HarnessTurn = {
         settled,
-        async deliver() {},
+        async deliver() {
+          throw new Error("fixture does not deliver");
+        },
         async nudge() {
           return turn;
         },
@@ -271,7 +273,9 @@ describe("minimum review live evaluation plan", () => {
     });
     const turn: HarnessTurn = {
       settled,
-      async deliver() {},
+      async deliver() {
+        throw new Error("fixture does not deliver");
+      },
       async nudge() {
         return turn;
       },

@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { mkdir, realpath, rm } from "node:fs/promises";
 import { dirname, join, relative } from "node:path";
 import { isDeepStrictEqual } from "node:util";
+import { PARTICIPANT } from "@agentswf/contract/participant";
 import type {
   AgentPaneRecord,
   AgentSkillsRecord,
@@ -1784,6 +1785,7 @@ class WorkflowOwner {
 }
 
 class LogicalAgent implements AgentRef {
+  readonly [PARTICIPANT] = true as const;
   readonly #operationStops = new Set<(stop: OperationStop) => Promise<void>>();
   readonly #operations = new Map<
     string,

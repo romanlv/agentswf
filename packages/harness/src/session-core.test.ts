@@ -577,3 +577,58 @@ test.each([true, false])(
     await session.close();
   },
 );
+
+test("a continuation withdrawn before dispatch leaves the agent's status as it was", async () => {
+  const deadline = { unixMilliseconds: Date.now() + 60_000 };
+  const kinds: string[] = [];
+  const adapter = createSessionAdapter({
+    harnesses: ["fake"],
+    async activate() {
+      return {
+        confirmsDelivery: true,
+        identity: { sessionId: "native", cwd: "/tmp" },
+        async execute(request) {
+          kinds.push(request.kind);
+          if (request.kind === "turn") {
+            request.onDispatched?.();
+            request.onReceived?.();
+            return { ...completed, sessionRef: "native" };
+          }
+          // As a pane waits to go idle before typing: withdrawn meanwhile, nothing is sent.
+          await new Promise((resolve) =>
+            request.deliverySignal?.addEventListener("abort", resolve, { once: true }),
+          );
+          return { ...completed, state: "cancelled" as const, detail: "withdrawn" };
+        },
+        async close() {},
+      };
+    },
+  });
+  const session = await adapter.activate({
+    key: "agent",
+    cwd: "/tmp",
+    deadline,
+    execution: { harness: "fake", model: "fake" },
+  });
+  const binding = { endpoint: "/unused", operationId: "one" };
+  for (const kind of ["nudge", "deliver"] as const) {
+    const turn = await session.start(
+      { id: `t-${kind}`, prompt: "go", deadline },
+      {
+        ...binding,
+        operationId: kind,
+      },
+    );
+    await turn.settled;
+    const withdraw = new AbortController();
+    const next =
+      kind === "nudge"
+        ? await turn.nudge({ id: "n", deadline, deliverySignal: withdraw.signal })
+        : await turn.deliver({ id: "d", prompt: "x", deadline, deliverySignal: withdraw.signal });
+    withdraw.abort();
+    expect((await next.settled).state).toBe("cancelled");
+    expect(await session.status()).toEqual({ state: "idle" });
+  }
+  expect(kinds).toEqual(["turn", "nudge", "turn", "deliver"]);
+  await session.close();
+});

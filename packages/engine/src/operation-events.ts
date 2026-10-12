@@ -8,7 +8,7 @@ import {
 
 export type OperationEvent = Pick<
   OperationLivenessRecord,
-  "kind" | "at" | "sequence" | "reason" | "until"
+  "kind" | "at" | "sequence" | "reason" | "until" | "peer"
 >;
 type EventOptions = {
   write?(path: string, line: string): Promise<void>;
@@ -153,7 +153,8 @@ function validEvent(value: OperationEvent): boolean {
     Number.isSafeInteger(value.sequence) &&
     value.sequence >= 0 &&
     (value.reason === undefined || typeof value.reason === "string") &&
-    (value.until === undefined || (Number.isSafeInteger(value.until) && value.until >= 0))
+    (value.until === undefined || (Number.isSafeInteger(value.until) && value.until >= 0)) &&
+    (value.peer === undefined || (typeof value.peer === "string" && value.peer.trim() !== ""))
   );
 }
 function truncate(text: string, bytes: number): string {

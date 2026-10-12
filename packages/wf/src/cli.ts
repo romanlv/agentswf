@@ -127,11 +127,13 @@ async function runWaiting(
       stdout: "",
       stderr: `wf: waiting rejected (${response.code}).\n${response.error}`,
     };
+  if (response.kind === "awaiting-reply")
+    return { exitCode: 0, stdout: `wf: ${response.notice}`, stderr: "" };
   if (response.kind !== "waiting")
     return {
       exitCode: 1,
       stdout: "",
-      stderr: "wf: unexpected result acknowledgement for waiting; wait is uncertain",
+      stderr: "wf: unexpected acknowledgement for waiting; wait is uncertain",
     };
   return {
     exitCode: 0,
@@ -167,6 +169,10 @@ function rejection(
     case "expired-operation":
     case "closed-operation":
       return "that call is no longer open; the workflow engine must start a new one";
+    // Messaging's: the engine names the peer and the next step.
+    case "owes-reply":
+    case "no-result":
+      return `result refused (${response.code}): ${response.error}`;
     default:
       // Everything else — too large, malformed, wrong version — is only distinguishable by what
       // the engine said, and whether a shorter or different value would be taken.

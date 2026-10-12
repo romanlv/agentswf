@@ -12,6 +12,7 @@ import type {
   JsonValue,
   KeepPane,
   NudgeOptions,
+  OperationCause,
   OutputSchema,
   PaneLayout,
   RuntimeAliases,
@@ -61,7 +62,37 @@ export type AuthoredTurn = {
   /** The workflow stage it runs in. */
   stage?: string;
   schema?: OutputSchema<JsonValue>;
+  /** Present on a message operation's turns: who woke it. */
+  cause?: OperationCause;
+  /** The messages this turn delivers, in the order shown, unwrapped. */
+  messages?: readonly AuthoredMessage[];
 };
+
+/** A message as delivered, or a failure in place of the answer the operation awaited. */
+export type AuthoredMessage =
+  | {
+      kind: "message";
+      from: AgentKey;
+      text: string;
+      /** The answer this operation awaited from `from`. */
+      answers?: true;
+      /** A question: the agent now owes `from` an answer. An answer may ask one back. */
+      asks?: true;
+    }
+  | { kind: "no-reply"; from: AgentKey; reason: string };
+
+/**
+ * A continuation of an operation already open: its own turn id, the wrapped prompt, and the turn as
+ * the engine wrote it, as a nudge has.
+ */
+export interface HarnessDeliverySpec extends HarnessAuthored {
+  id: TurnId;
+  prompt: string;
+  /** Bounds presentation and the turn it starts: its operation's deadline, as it stands. */
+  deadline: AbsoluteDeadline;
+  /** Cancels only a delivery still waiting to dispatch, never submitted native work. */
+  deliverySignal?: AbortSignal;
+}
 
 /** `prompt` is the wrapped prompt the agent is sent. */
 export interface HarnessNudgeSpec extends NudgeOptions, HarnessAuthored {
@@ -122,8 +153,13 @@ export interface HarnessTurn {
   };
   /** Native evidence only; the engine combines it with the atomically settled result slot. */
   readonly settled: Promise<HarnessTurnOutcome>;
-  /** Continues this operation and resolves once the prompt is presented to the model. */
-  deliver(prompt: string): Promise<void>;
+  /**
+   * Continues this operation at its next turn boundary, once this turn has settled: typed into an
+   * idle pane, or a resumed turn once a headless one has exited. Returns the turn that carries it,
+   * with native delivery evidence as `nudge` has; absent evidence leaves presentation unconfirmed.
+   * Unlike a nudge it may repeat, on each turn it returns.
+   */
+  deliver(spec: HarnessDeliverySpec & HarnessTurnHooks): Promise<HarnessTurn>;
   /** Makes one more delivery attempt using this operation's existing result authority. */
   nudge(spec: HarnessNudgeSpec): Promise<HarnessTurn>;
   /**

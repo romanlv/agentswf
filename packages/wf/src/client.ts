@@ -1,8 +1,8 @@
 import { createConnection, type Socket } from "node:net";
 import {
   type ControlRequest,
-  type ControlResponse,
-  decodeControlResponse,
+  decodeResponseFor,
+  type ResponseFor,
   type ResultSubmitRequest,
   type ResultSubmitResponse,
   type WaitingRequest,
@@ -11,40 +11,38 @@ import {
 
 const MAX_RESPONSE_BYTES = 256 * 1024;
 
-export async function submitResult(
+export function submitResult(
   endpoint: string,
   request: ResultSubmitRequest,
   timeoutSeconds = 30,
   connect: (endpoint: string) => Socket = createConnection,
 ): Promise<ResultSubmitResponse> {
-  const response = await submitControl(endpoint, request, timeoutSeconds, connect);
-  if (response.kind === "waiting") throw new Error("unexpected waiting acknowledgement");
-  return response;
+  return submitControl(endpoint, request, timeoutSeconds, connect);
 }
 
-export async function submitWaiting(
+export function submitWaiting(
   endpoint: string,
   request: WaitingRequest,
   timeoutSeconds = 30,
   connect: (endpoint: string) => Socket = createConnection,
 ): Promise<WaitingResponse> {
-  const response = await submitControl(endpoint, request, timeoutSeconds, connect);
-  if (response.kind === "accepted") throw new Error("unexpected result acknowledgement");
-  return response;
+  return submitControl(endpoint, request, timeoutSeconds, connect);
 }
 
-export function submitControl(
+/** Sends one request and resolves with a response that answers its command. */
+export function submitControl<R extends ControlRequest>(
   endpoint: string,
-  request: ControlRequest,
+  request: R,
   timeoutSeconds = 30,
   connect: (endpoint: string) => Socket = createConnection,
-): Promise<ControlResponse> {
+): Promise<ResponseFor[R["command"]]> {
+  type Response = ResponseFor[R["command"]];
   if (!Number.isFinite(timeoutSeconds) || timeoutSeconds <= 0) {
     return Promise.reject(new Error("control-plane timeout must be positive"));
   }
   const outgoing = Buffer.from(`${JSON.stringify(request)}\n`);
 
-  return new Promise<ControlResponse>((resolve, reject) => {
+  return new Promise<Response>((resolve, reject) => {
     const chunks: Buffer[] = [];
     let bytes = 0;
     let settled = false;
@@ -87,16 +85,9 @@ export function submitControl(
         fail(new Error("control plane returned invalid JSON"));
         return;
       }
-      const decoded = decodeControlResponse(parsed);
+      const decoded = decodeResponseFor<R["command"]>(request.command, parsed);
       if (!decoded.ok) {
         fail(new Error(decoded.error));
-        return;
-      }
-      if (
-        decoded.value.kind !== "rejected" &&
-        decoded.value.kind !== (request.command === "waiting" ? "waiting" : "accepted")
-      ) {
-        fail(new Error("control plane returned an acknowledgement for a different command"));
         return;
       }
       settled = true;

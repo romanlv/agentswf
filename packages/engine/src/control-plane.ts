@@ -293,6 +293,9 @@ async function handleFrame(
   // Before the result is judged: a rejected submission still proves which session sent it.
   if (decoded.value.session) onSession?.(decoded.value.session);
 
+  if (decoded.value.command !== "result" && decoded.value.command !== "waiting") {
+    return rejected("unsupported-command", "messaging is not available in this run");
+  }
   try {
     if (decoded.value.command === "waiting") {
       const grant = await slots.waiting({

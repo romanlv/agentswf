@@ -4,6 +4,10 @@ import {
   decodeControlResponse,
   decodeResultSubmitRequest,
   decodeResultSubmitResponse,
+  ENVELOPE_CODES,
+  REPLY_CODES,
+  RESULT_CODES,
+  SEND_CODES,
   validWaitingReason,
   WIRE_VERSION,
 } from "./wire";
@@ -169,7 +173,7 @@ test("waiting acknowledgements require integer ordered timestamps and exact fiel
     waitUntil: 1000,
     deadline: 2000,
   } as const;
-  expect(decodeControlResponse(response)).toEqual({ ok: true, value: response });
+  expect(decodeControlResponse(response) as unknown).toEqual({ ok: true, value: response });
   expect(decodeResultSubmitResponse(response)).toMatchObject({ ok: false });
   for (const fields of [
     { waitUntil: -1 },
@@ -198,4 +202,162 @@ test("control decoders reject unrelated JSON values without throwing", () => {
     expect(decodeControlRequest(value).ok).toBe(false);
     expect(decodeControlResponse(value).ok).toBe(false);
   }
+});
+
+describe("messaging wire", () => {
+  const SEND = {
+    version: WIRE_VERSION,
+    command: "send",
+    peer: "fixer",
+    text: "Off by one",
+  } as const;
+
+  test("decodes peers, send and reply, none naming a call id", () => {
+    expect(decodeControlRequest({ version: WIRE_VERSION, command: "peers" })).toEqual({
+      ok: true,
+      value: { version: WIRE_VERSION, command: "peers" },
+    });
+    expect(decodeControlRequest(SEND)).toEqual({ ok: true, value: SEND });
+    const asking = {
+      ...SEND,
+      command: "reply",
+      awaitReply: true,
+      timeoutMs: 300_000,
+      session: "s",
+    };
+    expect(decodeControlRequest(asking) as unknown).toEqual({ ok: true, value: asking });
+    for (const fields of [
+      { operationId: "op-1" },
+      { peer: " " },
+      { text: "  " },
+      { text: 7 },
+      { awaitReply: false },
+      { timeoutMs: 1000 },
+      { awaitReply: true, timeoutMs: 0 },
+      { session: "" },
+    ]) {
+      expect(decodeControlRequest({ ...SEND, ...fields })).toMatchObject({
+        ok: false,
+        code: "invalid-request",
+      });
+    }
+    expect(
+      decodeControlRequest({ version: WIRE_VERSION, command: "peers", json: true }),
+    ).toMatchObject({ ok: false, code: "invalid-request" });
+  });
+
+  test("a launcher from before messaging is refused, not misread", () => {
+    expect(decodeControlRequest({ ...SEND, version: 3 })).toMatchObject({
+      ok: false,
+      code: "unsupported-version",
+    });
+    expect(
+      decodeControlRequest({ version: 3, command: "result", operationId: "op-1", raw: "{}" }),
+    ).toMatchObject({ ok: false, code: "unsupported-version" });
+  });
+
+  test("every refusal code round-trips, with the owed-answer line", () => {
+    for (const code of new Set([
+      ...ENVELOPE_CODES,
+      ...RESULT_CODES,
+      ...SEND_CODES,
+      ...REPLY_CODES,
+    ])) {
+      const response = {
+        version: WIRE_VERSION,
+        kind: "rejected",
+        code,
+        error: `refused (${code})`,
+        owing: "you owe reviewer a reply (wf reply reviewer).",
+      } as const;
+      expect(decodeControlResponse(JSON.parse(JSON.stringify(response)))).toEqual({
+        ok: true,
+        value: response,
+      });
+    }
+    expect(
+      decodeControlResponse({ version: WIRE_VERSION, kind: "rejected", code: "nope", error: "x" }),
+    ).toMatchObject({ ok: false });
+  });
+
+  test("a result's response is a result code, never a send's", () => {
+    const rejected = { version: WIRE_VERSION, kind: "rejected", error: "x" } as const;
+    expect(decodeResultSubmitResponse({ ...rejected, code: "owes-reply" })).toMatchObject({
+      ok: true,
+    });
+    expect(decodeResultSubmitResponse({ ...rejected, code: "no-route" })).toMatchObject({
+      ok: false,
+    });
+    expect(
+      decodeResultSubmitResponse({ version: WIRE_VERSION, kind: "sent", message: 1, notice: "x" }),
+    ).toMatchObject({ ok: false });
+  });
+
+  test("acknowledgements: sent, awaiting a reply, peers", () => {
+    const responses = [
+      { version: WIRE_VERSION, kind: "sent", message: 3, notice: "wf: sent to fixer." },
+      {
+        version: WIRE_VERSION,
+        kind: "sent",
+        message: 4,
+        until: 1_800_000,
+        notice: "wf: sent to architect.",
+        owing: "you await architect's reply.",
+      },
+      {
+        version: WIRE_VERSION,
+        kind: "awaiting-reply",
+        peer: "architect",
+        until: 1_800_000,
+        notice: "you already await architect's reply.",
+      },
+      { version: WIRE_VERSION, kind: "accepted", owing: "you owe reviewer a reply." },
+      {
+        version: WIRE_VERSION,
+        kind: "peers",
+        peers: [
+          {
+            peer: "reviewer",
+            can: "both",
+            state: "awaiting",
+            awaits: "implementer",
+            queued: 0,
+            purpose: "Review it.",
+          },
+          {
+            peer: "architect",
+            can: "send",
+            state: "stopped",
+            reason: "design settled",
+            queued: 1,
+            purpose: "Ask.",
+          },
+        ],
+        owes: ["reviewer"],
+        awaits: { peer: "architect", until: 1_800_000 },
+        text: "peer  you can  state",
+      },
+    ];
+    for (const response of responses) {
+      expect(decodeControlResponse(response) as unknown).toEqual({ ok: true, value: response });
+    }
+    for (const broken of [
+      { ...responses[0], message: 0 },
+      { ...responses[0], notice: "" },
+      { ...responses[0], owing: "" },
+      { ...responses[2], until: -1 },
+      { ...responses[4], owes: [""] },
+      { ...responses[4], awaits: { peer: "x" } },
+      {
+        ...responses[4],
+        peers: [{ peer: "x", can: "all", state: "idle", queued: 0, purpose: "" }],
+      },
+      {
+        ...responses[4],
+        peers: [{ peer: "x", can: "send", state: "idle", queued: -1, purpose: "" }],
+      },
+    ]) {
+      expect(decodeControlResponse(broken)).toMatchObject({ ok: false });
+    }
+  });
 });

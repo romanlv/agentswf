@@ -1,10 +1,11 @@
 import { isRecord } from "./schema";
 
 /**
- * Version 3 discriminates result submissions from cooperative waiting declarations.
- * The per-agent connection remains the authority.
+ * Version 4 adds messaging: `peers`, `send` and `reply`, which name no call id, and the line every
+ * response leads with about what the agent's open operation owes or awaits. The per-agent
+ * connection remains the authority.
  */
-export const WIRE_VERSION = 3 as const;
+export const WIRE_VERSION = 4 as const;
 
 export type ResultSubmitRequest = {
   version: typeof WIRE_VERSION;
@@ -27,7 +28,29 @@ export type WaitingRequest = {
   session?: string;
 };
 
-export type ControlRequest = ResultSubmitRequest | WaitingRequest;
+/** The agent's routes and its peers' states, as `wf peers` shows them. */
+export type PeersRequest = {
+  version: typeof WIRE_VERSION;
+  command: "peers";
+  session?: string;
+};
+
+/**
+ * A message to `peer`, bound to the agent's open operation when the engine accepts it. `reply`
+ * answers the question `peer` asked; with `awaitReply` either one asks.
+ */
+export type MessageRequest = {
+  version: typeof WIRE_VERSION;
+  command: "send" | "reply";
+  peer: string;
+  text: string;
+  awaitReply?: true;
+  /** Shortens the wait for the answer; only with `awaitReply`. */
+  timeoutMs?: number;
+  session?: string;
+};
+
+export type ControlRequest = ResultSubmitRequest | WaitingRequest | PeersRequest | MessageRequest;
 export const MAX_WAITING_REASON_BYTES = 2048;
 
 export function validWaitingReason(value: unknown): value is string {
@@ -41,12 +64,8 @@ export function validWaitingReason(value: unknown): value is string {
   return true;
 }
 
-const RESULT_SUBMIT_CODES = [
-  "unknown-operation",
-  "wrong-agent",
-  "expired-operation",
-  "closed-operation",
-  "invalid-result",
+/** Refusals of a request itself, which any command can get. */
+export const ENVELOPE_CODES = [
   "invalid-request",
   "unsupported-version",
   "unsupported-command",
@@ -54,21 +73,133 @@ const RESULT_SUBMIT_CODES = [
   "internal-error",
 ] as const;
 
-export type ResultSubmitCode = (typeof RESULT_SUBMIT_CODES)[number];
+/** `wf result`'s and `wf waiting`'s own refusals. */
+export const RESULT_CODES = [
+  "unknown-operation",
+  "wrong-agent",
+  "expired-operation",
+  "closed-operation",
+  "invalid-result",
+  /** While the operation owes an answer. */
+  "owes-reply",
+  /** Given a message operation's call id. */
+  "no-result",
+] as const;
+
+/** A send's refusals, in the order they are checked. */
+export const SEND_CODES = [
+  "no-operation",
+  "no-route",
+  "peer-stopped",
+  "closed",
+  "too-large",
+  "awaiting",
+  "unsupported",
+  "cycle",
+  "limit",
+  "inbox-full",
+] as const;
+
+/** A reply's refusals, in the order they are checked; the last four only with `awaitReply`. */
+export const REPLY_CODES = [
+  "no-operation",
+  "none-owed",
+  "expired",
+  "closed",
+  "too-large",
+  "awaiting",
+  "unsupported",
+  "cycle",
+  "limit",
+] as const;
+
+export type EnvelopeCode = (typeof ENVELOPE_CODES)[number];
+export type ResultSubmitCode = (typeof RESULT_CODES)[number] | EnvelopeCode;
+export type SendCode = (typeof SEND_CODES)[number];
+export type ReplyCode = (typeof REPLY_CODES)[number];
+export type ControlCode = ResultSubmitCode | SendCode | ReplyCode;
+
+/**
+ * Leads every response while the agent's open operation owes or awaits an answer: one line, such as
+ * "you owe reviewer a reply (wf reply reviewer).", which brings it back after a compaction.
+ */
+export type Owing = { owing?: string };
+
+export type Rejection<Code extends ControlCode = ControlCode> = {
+  version: typeof WIRE_VERSION;
+  kind: "rejected";
+  code: Code;
+  /** The refusal as `wf` prints it after its code, naming the next action. */
+  error: string;
+} & Owing;
 
 export type ResultSubmitResponse =
-  | { version: typeof WIRE_VERSION; kind: "accepted" }
-  | {
-      version: typeof WIRE_VERSION;
-      kind: "rejected";
-      code: ResultSubmitCode;
-      error: string;
-    };
+  | ({ version: typeof WIRE_VERSION; kind: "accepted" } & Owing)
+  | Rejection<ResultSubmitCode>;
 
 export type WaitingResponse =
-  | { version: typeof WIRE_VERSION; kind: "waiting"; waitUntil: number; deadline: number }
-  | Extract<ResultSubmitResponse, { kind: "rejected" }>;
-export type ControlResponse = ResultSubmitResponse | WaitingResponse;
+  | ({ version: typeof WIRE_VERSION; kind: "waiting"; waitUntil: number; deadline: number } & Owing)
+  /**
+   * `wf waiting` while the operation awaits `peer`'s answer, which it does until `until`: it changes
+   * nothing, and a `--timeout` given with it is ignored.
+   */
+  | ({
+      version: typeof WIRE_VERSION;
+      kind: "awaiting-reply";
+      peer: string;
+      until: number;
+      /** The acknowledgement as `wf` prints it. */
+      notice: string;
+    } & Owing)
+  | Rejection<ResultSubmitCode>;
+
+/** A peer as `wf peers --json` prints it. */
+export type PeerView = {
+  peer: string;
+  /** `send` on a route from this agent, `reply` on one only to it, `both` either way. */
+  can: "send" | "reply" | "both";
+  state: "not-started" | "working" | "idle" | "awaiting" | "stopped";
+  /** Whose answer it awaits, when `awaiting`. */
+  awaits?: string;
+  /** Why it stopped, when `stopped`. */
+  reason?: string;
+  /** This agent's messages it has not been shown yet. */
+  queued: number;
+  purpose: string;
+};
+
+export type PeersResponse =
+  | ({
+      version: typeof WIRE_VERSION;
+      kind: "peers";
+      peers: PeerView[];
+      /** Who the open operation owes an answer. */
+      owes: string[];
+      /** Whose answer it awaits, and until when. */
+      awaits?: { peer: string; until: number };
+      /** The table `wf peers` prints. */
+      text: string;
+    } & Owing)
+  | Rejection<EnvelopeCode>;
+
+/** A message admitted: `message` numbers it in the run's record; `until` ends a wait it began. */
+export type MessageResponse =
+  | ({
+      version: typeof WIRE_VERSION;
+      kind: "sent";
+      message: number;
+      until?: number;
+      /** The acknowledgement as `wf` prints it. */
+      notice: string;
+    } & Owing)
+  | Rejection<SendCode | ReplyCode | EnvelopeCode>;
+
+export type ControlResponse =
+  | ResultSubmitResponse
+  | WaitingResponse
+  | PeersResponse
+  | MessageResponse
+  | Rejection;
 
 export type WireDecodeResult<T> =
   | { ok: true; value: T }
@@ -79,7 +210,31 @@ export type WireDecodeResult<T> =
     };
 
 const REQUEST_FIELDS = ["version", "command", "operationId", "raw", "session"] as const;
-const RESPONSE_CODES = new Set<ResultSubmitCode>(RESULT_SUBMIT_CODES);
+const RESPONSE_CODES = new Set<ControlCode>([
+  ...ENVELOPE_CODES,
+  ...RESULT_CODES,
+  ...SEND_CODES,
+  ...REPLY_CODES,
+]);
+
+/** What each command's response may be. */
+export type ResponseFor = {
+  result: ResultSubmitResponse;
+  waiting: WaitingResponse;
+  peers: PeersResponse;
+  send: MessageResponse;
+  reply: MessageResponse;
+};
+
+const ANSWERS: {
+  [C in keyof ResponseFor]: { kinds: readonly string[]; codes: readonly ControlCode[] };
+} = {
+  result: { kinds: ["accepted"], codes: [...ENVELOPE_CODES, ...RESULT_CODES] },
+  waiting: { kinds: ["waiting", "awaiting-reply"], codes: [...ENVELOPE_CODES, ...RESULT_CODES] },
+  peers: { kinds: ["peers"], codes: ENVELOPE_CODES },
+  send: { kinds: ["sent"], codes: [...ENVELOPE_CODES, ...SEND_CODES] },
+  reply: { kinds: ["sent"], codes: [...ENVELOPE_CODES, ...REPLY_CODES] },
+};
 
 function checkEnvelope(value: unknown, label: string): WireDecodeResult<Record<string, unknown>> {
   if (!isRecord(value)) return invalid(`${label} must be a JSON object`);
@@ -101,17 +256,14 @@ export function decodeResultSubmitRequest(value: unknown): WireDecodeResult<Resu
   if (!envelope.ok) return envelope;
   const request = envelope.value;
   if (request.command !== "result") return invalid("request.command must be result");
-  const extra = Object.keys(request).some(
-    (key) => !REQUEST_FIELDS.includes(key as (typeof REQUEST_FIELDS)[number]),
-  );
-  if (extra) return invalid("request has unexpected fields");
+  if (extraFields(request, REQUEST_FIELDS)) return invalid("request has unexpected fields");
   if (!nonEmpty(request.operationId)) {
     return invalid("request.operationId must be a non-empty string");
   }
   if (typeof request.raw !== "string" || request.raw.trim() === "") {
     return invalid("request.raw must be a non-empty string");
   }
-  if (request.session !== undefined && !nonEmpty(request.session)) {
+  if (!optionalNonEmpty(request.session)) {
     return invalid("request.session must be a non-empty string when present");
   }
   return {
@@ -130,32 +282,35 @@ export function decodeControlRequest(value: unknown): WireDecodeResult<ControlRe
   const envelope = checkEnvelope(value, "request");
   if (!envelope.ok) return envelope;
   const request = envelope.value;
-  if (request.command === "result") return decodeResultSubmitRequest(request);
-  if (request.command !== "waiting")
-    return {
-      ok: false,
-      code: "unsupported-command",
-      error: "request.command must be result or waiting",
-    };
-  if (
-    Object.keys(request).some(
-      (key) =>
-        !["version", "command", "operationId", "reason", "timeoutMs", "session"].includes(key),
-    )
-  )
+  switch (request.command) {
+    case "result":
+      return decodeResultSubmitRequest(request);
+    case "waiting":
+      return decodeWaitingRequest(request);
+    case "peers":
+      return decodePeersRequest(request);
+    case "send":
+    case "reply":
+      return decodeMessageRequest(request, request.command);
+    default:
+      return {
+        ok: false,
+        code: "unsupported-command",
+        error: "request.command must be result, waiting, peers, send or reply",
+      };
+  }
+}
+
+function decodeWaitingRequest(request: Record<string, unknown>): WireDecodeResult<WaitingRequest> {
+  if (extraFields(request, ["version", "command", "operationId", "reason", "timeoutMs", "session"]))
     return invalid("request has unexpected fields");
   if (!nonEmpty(request.operationId))
     return invalid("request.operationId must be a non-empty string");
   if (!validWaitingReason(request.reason))
     return invalid("request.reason must be non-blank and at most 2048 UTF-8 bytes");
-  if (
-    request.timeoutMs !== undefined &&
-    (typeof request.timeoutMs !== "number" ||
-      !Number.isSafeInteger(request.timeoutMs) ||
-      request.timeoutMs <= 0)
-  )
+  if (request.timeoutMs !== undefined && !positiveInteger(request.timeoutMs))
     return invalid("request.timeoutMs must be a positive safe integer when present");
-  if (request.session !== undefined && !nonEmpty(request.session))
+  if (!optionalNonEmpty(request.session))
     return invalid("request.session must be a non-empty string when present");
   return {
     ok: true,
@@ -170,59 +325,207 @@ export function decodeControlRequest(value: unknown): WireDecodeResult<ControlRe
   };
 }
 
-export function decodeControlResponse(value: unknown): WireDecodeResult<ControlResponse> {
-  const envelope = checkEnvelope(value, "response");
-  if (!envelope.ok) return envelope;
-  const response = envelope.value;
-  if (response.kind === "accepted") {
-    const fields = Object.keys(response);
-    if (fields.length !== 2) return invalid("accepted response has unexpected fields");
-    return { ok: true, value: { version: WIRE_VERSION, kind: "accepted" } };
-  }
-  if (response.kind === "waiting") {
-    if (
-      Object.keys(response).some(
-        (key) => !["version", "kind", "waitUntil", "deadline"].includes(key),
-      )
-    )
-      return invalid("waiting response has unexpected fields");
-    if (
-      typeof response.waitUntil !== "number" ||
-      !Number.isSafeInteger(response.waitUntil) ||
-      response.waitUntil < 0 ||
-      typeof response.deadline !== "number" ||
-      !Number.isSafeInteger(response.deadline) ||
-      response.deadline < response.waitUntil
-    )
-      return invalid(
-        "waiting response requires non-negative integer times with waitUntil <= deadline",
-      );
-    return {
-      ok: true,
-      value: {
-        version: WIRE_VERSION,
-        kind: "waiting",
-        waitUntil: response.waitUntil,
-        deadline: response.deadline,
-      },
-    };
-  }
-  if (response.kind !== "rejected")
-    return invalid("response.kind must be accepted, waiting or rejected");
-  if (Object.keys(response).some((key) => !["version", "kind", "code", "error"].includes(key))) {
-    return invalid("rejected response has unexpected fields");
-  }
-  if (!RESPONSE_CODES.has(response.code as ResultSubmitCode)) {
-    return invalid("response.code is not recognized");
-  }
-  if (!nonEmpty(response.error)) return invalid("response.error must be a non-empty string");
+function decodePeersRequest(request: Record<string, unknown>): WireDecodeResult<PeersRequest> {
+  if (extraFields(request, ["version", "command", "session"]))
+    return invalid("request has unexpected fields");
+  if (!optionalNonEmpty(request.session))
+    return invalid("request.session must be a non-empty string when present");
   return {
     ok: true,
     value: {
       version: WIRE_VERSION,
-      kind: "rejected",
-      code: response.code as ResultSubmitCode,
-      error: response.error,
+      command: "peers",
+      ...(request.session === undefined ? {} : { session: request.session }),
+    },
+  };
+}
+
+function decodeMessageRequest(
+  request: Record<string, unknown>,
+  command: "send" | "reply",
+): WireDecodeResult<MessageRequest> {
+  if (
+    extraFields(request, [
+      "version",
+      "command",
+      "peer",
+      "text",
+      "awaitReply",
+      "timeoutMs",
+      "session",
+    ])
+  )
+    return invalid("request has unexpected fields");
+  if (!nonEmpty(request.peer) || request.peer !== request.peer.trim())
+    return invalid("request.peer must be an agent's key, without surrounding spaces");
+  if (!nonEmpty(request.text)) return invalid("request.text must be a non-blank string");
+  if (request.awaitReply !== undefined && request.awaitReply !== true)
+    return invalid("request.awaitReply must be true when present");
+  if (request.timeoutMs !== undefined) {
+    if (!positiveInteger(request.timeoutMs))
+      return invalid("request.timeoutMs must be a positive safe integer when present");
+    if (request.awaitReply !== true) return invalid("request.timeoutMs needs awaitReply");
+  }
+  if (!optionalNonEmpty(request.session))
+    return invalid("request.session must be a non-empty string when present");
+  return {
+    ok: true,
+    value: {
+      version: WIRE_VERSION,
+      command,
+      peer: request.peer,
+      text: request.text,
+      ...(request.awaitReply ? { awaitReply: true as const } : {}),
+      ...(request.timeoutMs === undefined ? {} : { timeoutMs: request.timeoutMs }),
+      ...(request.session === undefined ? {} : { session: request.session }),
+    },
+  };
+}
+
+export function decodeControlResponse(value: unknown): WireDecodeResult<ControlResponse> {
+  const envelope = checkEnvelope(value, "response");
+  if (!envelope.ok) return envelope;
+  const response = envelope.value;
+  if (!optionalNonEmpty(response.owing))
+    return invalid("response.owing must be a non-empty string when present");
+  const owing = response.owing === undefined ? {} : { owing: response.owing };
+  const version = WIRE_VERSION;
+  switch (response.kind) {
+    case "accepted":
+      if (extraFields(response, ["version", "kind", "owing"]))
+        return invalid("accepted response has unexpected fields");
+      return { ok: true, value: { version, kind: "accepted", ...owing } };
+    case "waiting": {
+      if (extraFields(response, ["version", "kind", "waitUntil", "deadline", "owing"]))
+        return invalid("waiting response has unexpected fields");
+      const { waitUntil, deadline } = response;
+      if (!time(waitUntil) || !time(deadline) || deadline < waitUntil)
+        return invalid(
+          "waiting response requires non-negative integer times with waitUntil <= deadline",
+        );
+      return { ok: true, value: { version, kind: "waiting", waitUntil, deadline, ...owing } };
+    }
+    case "awaiting-reply": {
+      if (extraFields(response, ["version", "kind", "peer", "until", "notice", "owing"]))
+        return invalid("awaiting-reply response has unexpected fields");
+      const { peer, until, notice } = response;
+      if (!nonEmpty(peer)) return invalid("response.peer must be a non-empty string");
+      if (!time(until)) return invalid("response.until must be a non-negative integer time");
+      if (!nonEmpty(notice)) return invalid("response.notice must be a non-empty string");
+      return {
+        ok: true,
+        value: { version, kind: "awaiting-reply", peer, until, notice, ...owing },
+      };
+    }
+    case "peers":
+      return decodePeersResponse(response, owing);
+    case "sent": {
+      if (extraFields(response, ["version", "kind", "message", "until", "notice", "owing"]))
+        return invalid("sent response has unexpected fields");
+      const { message, until, notice } = response;
+      if (typeof message !== "number" || !Number.isSafeInteger(message) || message < 1)
+        return invalid("response.message must be a positive integer");
+      if (until !== undefined && !time(until))
+        return invalid("response.until must be a non-negative integer time when present");
+      if (!nonEmpty(notice)) return invalid("response.notice must be a non-empty string");
+      return {
+        ok: true,
+        value: {
+          version,
+          kind: "sent",
+          message,
+          ...(until === undefined ? {} : { until }),
+          notice,
+          ...owing,
+        },
+      };
+    }
+    case "rejected": {
+      if (extraFields(response, ["version", "kind", "code", "error", "owing"]))
+        return invalid("rejected response has unexpected fields");
+      if (!RESPONSE_CODES.has(response.code as ControlCode))
+        return invalid("response.code is not recognized");
+      if (!nonEmpty(response.error)) return invalid("response.error must be a non-empty string");
+      return {
+        ok: true,
+        value: {
+          version,
+          kind: "rejected",
+          code: response.code as ControlCode,
+          error: response.error,
+          ...owing,
+        },
+      };
+    }
+    default:
+      return invalid(
+        "response.kind must be accepted, waiting, awaiting-reply, peers, sent or rejected",
+      );
+  }
+}
+
+const PEER_STATES = new Set(["not-started", "working", "idle", "awaiting", "stopped"]);
+const PEER_ABILITIES = new Set(["send", "reply", "both"]);
+
+function decodePeersResponse(
+  response: Record<string, unknown>,
+  owing: Owing,
+): WireDecodeResult<ControlResponse> {
+  if (extraFields(response, ["version", "kind", "peers", "owes", "awaits", "text", "owing"]))
+    return invalid("peers response has unexpected fields");
+  const { peers, owes, awaits, text } = response;
+  if (!Array.isArray(owes) || !owes.every(nonEmpty))
+    return invalid("response.owes must be a list of peers");
+  if (
+    awaits !== undefined &&
+    !(
+      isRecord(awaits) &&
+      !extraFields(awaits, ["peer", "until"]) &&
+      nonEmpty(awaits.peer) &&
+      time(awaits.until)
+    )
+  )
+    return invalid("response.awaits must name a peer and a time when present");
+  if (typeof text !== "string") return invalid("response.text must be a string");
+  if (!Array.isArray(peers)) return invalid("response.peers must be a list");
+  const views: PeerView[] = [];
+  for (const each of peers) {
+    if (
+      !isRecord(each) ||
+      extraFields(each, ["peer", "can", "state", "awaits", "reason", "queued", "purpose"]) ||
+      !nonEmpty(each.peer) ||
+      !PEER_ABILITIES.has(each.can as string) ||
+      !PEER_STATES.has(each.state as string) ||
+      !optionalNonEmpty(each.awaits) ||
+      !optionalNonEmpty(each.reason) ||
+      typeof each.queued !== "number" ||
+      !Number.isSafeInteger(each.queued) ||
+      each.queued < 0 ||
+      typeof each.purpose !== "string"
+    )
+      return invalid("response.peers holds a malformed peer");
+    views.push({
+      peer: each.peer,
+      can: each.can as PeerView["can"],
+      state: each.state as PeerView["state"],
+      ...(each.awaits === undefined ? {} : { awaits: each.awaits }),
+      ...(each.reason === undefined ? {} : { reason: each.reason }),
+      queued: each.queued,
+      purpose: each.purpose,
+    });
+  }
+  return {
+    ok: true,
+    value: {
+      version: WIRE_VERSION,
+      kind: "peers",
+      peers: views,
+      owes: owes as string[],
+      ...(isRecord(awaits)
+        ? { awaits: { peer: awaits.peer as string, until: awaits.until as number } }
+        : {}),
+      text,
+      ...owing,
     },
   };
 }
@@ -235,10 +538,41 @@ function nonEmpty(value: unknown): value is string {
   return typeof value === "string" && value.trim() !== "";
 }
 
-export function decodeResultSubmitResponse(value: unknown): WireDecodeResult<ResultSubmitResponse> {
+function optionalNonEmpty(value: unknown): value is string | undefined {
+  return value === undefined || nonEmpty(value);
+}
+
+function positiveInteger(value: unknown): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value > 0;
+}
+
+function time(value: unknown): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
+}
+
+function extraFields(value: Record<string, unknown>, allowed: readonly string[]): boolean {
+  return Object.keys(value).some((key) => !allowed.includes(key));
+}
+
+/** A response to `command`: one of its acknowledgements, or a refusal with one of its codes. */
+export function decodeResponseFor<C extends keyof ResponseFor>(
+  command: C,
+  value: unknown,
+): WireDecodeResult<ResponseFor[C]> {
   const decoded = decodeControlResponse(value);
   if (!decoded.ok) return decoded;
-  if (decoded.value.kind === "waiting")
-    return invalid("result response must be accepted or rejected");
-  return { ok: true, value: decoded.value };
+  const response = decoded.value;
+  const { kinds, codes } = ANSWERS[command];
+  const fits =
+    response.kind === "rejected" ? codes.includes(response.code) : kinds.includes(response.kind);
+  if (!fits) {
+    const what = response.kind === "rejected" ? `refusal ${response.code}` : response.kind;
+    return invalid(`the control plane answered ${command} with ${what}, for a different command`);
+  }
+  // Checked against the command's own answers above.
+  return { ok: true, value: response as ResponseFor[C] };
+}
+
+export function decodeResultSubmitResponse(value: unknown): WireDecodeResult<ResultSubmitResponse> {
+  return decodeResponseFor("result", value);
 }

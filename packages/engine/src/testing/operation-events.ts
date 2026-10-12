@@ -8,7 +8,7 @@ import {
 
 type OperationEvent = Pick<
   OperationLivenessRecord,
-  "kind" | "at" | "sequence" | "reason" | "until"
+  "kind" | "at" | "sequence" | "reason" | "until" | "peer"
 >;
 const MAX_BYTES = 1024 * 1024;
 function eventFile(runDir: string, operationId: string): string {
@@ -72,7 +72,8 @@ function validEvent(value: OperationEvent): boolean {
     Number.isSafeInteger(value.sequence) &&
     value.sequence >= 0 &&
     (value.reason === undefined || typeof value.reason === "string") &&
-    (value.until === undefined || (Number.isSafeInteger(value.until) && value.until >= 0))
+    (value.until === undefined || (Number.isSafeInteger(value.until) && value.until >= 0)) &&
+    (value.peer === undefined || (typeof value.peer === "string" && value.peer.trim() !== ""))
   );
 }
 function isRecord(value: unknown, operationId: string): value is OperationLivenessRecord {

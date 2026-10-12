@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { createConnection, createServer, type Socket } from "node:net";
 import { WIRE_VERSION } from "@agentswf/contract/wire";
-import { submitResult, submitWaiting } from "./client";
+import { submitControl, submitResult, submitWaiting } from "./client";
 
 const REQUEST = {
   version: WIRE_VERSION,
@@ -74,7 +74,7 @@ test("the response lifetime is absolute even when a peer keeps sending data", as
 });
 
 test("validates the complete response across fragmented data", async () => {
-  await withServerResponse(['{"version":3,"kind":', '"accepted"}\n'], async (endpoint) => {
+  await withServerResponse(['{"version":4,"kind":', '"accepted"}\n'], async (endpoint) => {
     await expect(submitResult(endpoint, REQUEST)).resolves.toEqual({
       version: WIRE_VERSION,
       kind: "accepted",
@@ -85,7 +85,7 @@ test("validates the complete response across fragmented data", async () => {
 test("rejects malformed, extra-line, and oversized responses", async () => {
   for (const chunks of [
     ["not-json\n"],
-    ['{"version":3,"kind":"accepted"}\n', '{"version":3,"kind":"accepted"}\n'],
+    ['{"version":4,"kind":"accepted"}\n', '{"version":4,"kind":"accepted"}\n'],
     ["x".repeat(256 * 1024 + 1)],
   ]) {
     await withServerResponse(chunks, async (endpoint) => {
@@ -165,4 +165,50 @@ test("lost waiting acknowledgements are never retried", async () => {
     ).rejects.toThrow();
   });
   expect(connections).toBe(1);
+});
+
+test("each command takes only its own acknowledgements and refusal codes", async () => {
+  const awaiting = {
+    version: WIRE_VERSION,
+    kind: "awaiting-reply",
+    peer: "architect",
+    until: 1000,
+    notice: "you already await architect's reply.",
+  } as const;
+  await withServerResponse([`${JSON.stringify(awaiting)}\n`], async (endpoint) => {
+    await expect(submitWaiting(endpoint, WAITING)).resolves.toEqual(awaiting);
+  });
+  const sent = {
+    version: WIRE_VERSION,
+    kind: "sent",
+    message: 1,
+    notice: "sent to fixer.",
+  } as const;
+  await withServerResponse([`${JSON.stringify(sent)}\n`], async (endpoint) => {
+    await expect(submitResult(endpoint, REQUEST)).rejects.toThrow("different command");
+    await expect(
+      submitControl(endpoint, {
+        version: WIRE_VERSION,
+        command: "send",
+        peer: "fixer",
+        text: "hi",
+      }),
+    ).resolves.toEqual(sent);
+  });
+  // A send's refusal is no answer to a result, and a result's none to a send.
+  const refusal = (code: string) =>
+    `${JSON.stringify({ version: WIRE_VERSION, kind: "rejected", code, error: code })}\n`;
+  await withServerResponse([refusal("no-route")], async (endpoint) => {
+    await expect(submitResult(endpoint, REQUEST)).rejects.toThrow("different command");
+  });
+  await withServerResponse([refusal("owes-reply")], async (endpoint) => {
+    await expect(
+      submitControl(endpoint, { version: WIRE_VERSION, command: "peers" }),
+    ).rejects.toThrow("different command");
+  });
+  await withServerResponse([refusal("internal-error")], async (endpoint) => {
+    await expect(
+      submitControl(endpoint, { version: WIRE_VERSION, command: "peers" }),
+    ).resolves.toMatchObject({ code: "internal-error" });
+  });
 });

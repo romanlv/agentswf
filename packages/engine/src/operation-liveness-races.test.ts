@@ -65,7 +65,9 @@ function turn(release?: HarnessTurn["release"]) {
       received: received.promise,
       failed: new Promise(() => {}),
     },
-    deliver: async () => {},
+    deliver: async () => {
+      throw new Error("fixture does not deliver");
+    },
     nudge: async () => {
       throw new Error("fixture must supply successor");
     },

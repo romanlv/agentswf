@@ -1,4 +1,4 @@
-import type { LogEventJson, LogsJson, RunLogLine } from "@agentswf/contract/records";
+import type { LogEventJson, LogsJson, RouteEnds, RunLogLine } from "@agentswf/contract/records";
 import { messageOf } from "./errors";
 import {
   clockTime,
@@ -547,5 +547,31 @@ function describeLine(line: RunLogLine): string {
       return `decision "${said(line.key)}" asked  ${line.model}`;
     case "decision-ended":
       return `decision ${line.decision} ${line.outcome}${line.error ? `  ${said(line.error)}` : ""}`;
+    case "route-opened":
+      return `route ${routeEnds(line)} opened  "${said(line.purpose)}"  ${line.maxMessages} messages`;
+    case "route-closed":
+      return `route ${routeEnds(line)} closed  ${line.reason}`;
+    case "message-sent":
+      return `message ${line.message} ${said(line.from, 60)} → ${said(line.to, 60)}  ${line.bytes} B${
+        line.awaitsReply
+          ? ", reply owed"
+          : line.replyTo !== undefined
+            ? `, reply to ${line.replyTo}`
+            : ""
+      }`;
+    case "message-refused":
+      return `${line.command} ${said(line.from, 60)} → ${said(line.to, 60)} refused  ${line.code}`;
+    case "message-delivery":
+      return `message ${line.message} ${line.state}`;
+    case "message-undelivered":
+      return `message ${line.message} undelivered  ${line.reason}`;
+    case "request-ended":
+      return `request ${line.message} ${line.end}${line.reason ? `  ${said(line.reason)}` : ""}`;
   }
+}
+
+function routeEnds(line: RouteEnds): string {
+  return line.between
+    ? `${said(line.between[0], 60)} ↔ ${said(line.between[1], 60)}`
+    : `${said(line.from, 60)} → ${said(line.to, 60)}`;
 }

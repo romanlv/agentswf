@@ -14,6 +14,7 @@ import type {
   CloseOptions,
   HarnessActivation,
   HarnessAuthored,
+  HarnessDeliverySpec,
   HarnessNudgeSpec,
   HarnessOperationBinding,
   HarnessReleaseDisposition,
@@ -41,7 +42,8 @@ export type NativeTurnRequest = {
   deadline: AbsoluteDeadline;
   binding?: HarnessOperationBinding;
   previousSessionRef?: string;
-  kind: "turn" | "nudge" | "compact";
+  /** `deliver` continues an operation with messages, as a nudge continues it with a check-in. */
+  kind: "turn" | "nudge" | "deliver" | "compact";
   /** Only a backend that answers as the agent reads it; see `HarnessAuthored`. */
   authored?: AuthoredTurn;
   /** A native session the turn runs in, named before the turn settles. */
@@ -269,7 +271,7 @@ function createSession(
   const start = (request: NativeTurnRequest): HarnessTurn => {
     assertIdle();
     assertDeadline(request.deadline, now);
-    if (request.binding && request.kind !== "nudge") {
+    if (request.binding && request.kind !== "nudge" && request.kind !== "deliver") {
       if (usedOperationIds.has(request.binding.operationId)) {
         throw new Error("harness operation id has already been used in this session");
       }
@@ -377,7 +379,8 @@ function createSession(
           lastStatus = leftFinishing
             ? { state: "idle" }
             : delivery &&
-                request.kind === "nudge" &&
+                request.kind !== "turn" &&
+                request.kind !== "compact" &&
                 request.deliverySignal?.aborted &&
                 !dispatched &&
                 outcome.state === "cancelled"
@@ -390,35 +393,67 @@ function createSession(
         active = false;
       });
 
-    let nudged = false;
+    /** One successor per turn: a check-in or a delivery, never both. */
+    let successor: "nudged" | "continued" | undefined;
     let releases = 0;
+    /**
+     * The successor turn, once this one has settled, on this operation's binding. Claimed only once
+     * it starts, so one that cannot start leaves the other free; never on a turn released or
+     * followed by another operation's.
+     */
+    const continueWith = async (
+      kind: "nudge" | "deliver",
+      spec: {
+        id: string;
+        prompt: string;
+        deadline: AbsoluteDeadline;
+        deliverySignal?: AbortSignal;
+        authored?: AuthoredTurn;
+        onSession?: (sessionRef: string) => void;
+      },
+    ): Promise<HarnessTurn> => {
+      const what = kind === "nudge" ? "check-in" : "delivery";
+      const check = () => {
+        if (spec.deliverySignal?.aborted)
+          throw new DOMException(`${what} cancelled before dispatch`, "AbortError");
+        if (successor) throw new Error(`harness turn has already been ${successor}`);
+      };
+      check();
+      if (!request.binding) throw new Error("harness turn has no operation to continue");
+      await settled;
+      check();
+      assertIdle();
+      if (releases > 0) throw new Error("harness turn was released; its operation is over");
+      if (generation !== turns) throw new Error("another turn has run since this one");
+      const next = start({
+        ...spec,
+        binding: request.binding,
+        kind,
+      });
+      successor = kind === "nudge" ? "nudged" : "continued";
+      receiptObserver.abort();
+      return next;
+    };
     return {
       settled,
       ...(delivery ? { delivery } : {}),
-      async deliver() {
-        throw new Error("harness delivery is unavailable until messaging acknowledgement exists");
-      },
-      async nudge(spec: HarnessNudgeSpec) {
-        if (spec.deliverySignal?.aborted)
-          throw new DOMException("check-in cancelled before dispatch", "AbortError");
-        if (nudged) throw new Error("harness turn has already been nudged");
-        if (!request.binding) throw new Error("harness turn has no result authority to reuse");
-        await settled;
-        if (spec.deliverySignal?.aborted)
-          throw new DOMException("check-in cancelled before dispatch", "AbortError");
-        if (nudged) throw new Error("harness turn has already been nudged");
-        nudged = true;
-        receiptObserver.abort();
-        return start({
+      deliver: (spec: HarnessDeliverySpec & HarnessTurnHooks) =>
+        continueWith("deliver", {
+          id: spec.id,
+          prompt: spec.prompt,
+          deadline: spec.deadline,
+          ...(spec.deliverySignal ? { deliverySignal: spec.deliverySignal } : {}),
+          ...(spec.authored ? { authored: spec.authored } : {}),
+          ...(spec.onSession ? { onSession: spec.onSession } : {}),
+        }),
+      nudge: (spec: HarnessNudgeSpec) =>
+        continueWith("nudge", {
           id: spec.id,
           prompt: spec.prompt ?? "Provide the requested result now.",
           deadline: spec.deadline,
-          binding: request.binding,
-          kind: "nudge",
           ...(spec.deliverySignal ? { deliverySignal: spec.deliverySignal } : {}),
           ...(spec.authored ? { authored: spec.authored } : {}),
-        });
-      },
+        }),
       async release(reason, deadline, options): Promise<HarnessReleaseDisposition> {
         const releaseGeneration = ++releases;
         const currentRelease = () =>

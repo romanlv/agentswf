@@ -82,7 +82,9 @@ function setup(
         received: delivery.received.promise,
         failed: delivery.failed.promise,
       },
-      deliver: async () => {},
+      deliver: async () => {
+        throw new Error("fixture does not deliver");
+      },
       nudge: async () => make(),
       release:
         overrides.release ??

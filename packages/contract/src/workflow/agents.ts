@@ -244,7 +244,15 @@ export type OperationRecord = {
   stage?: string;
   /** The turn's own label, as the workflow gave it. */
   label?: string;
+  /** Why it ran: absent for the workflow's own operations. */
+  cause?: OperationCause;
 };
+
+/**
+ * Why an operation ran that the workflow did not start: a message from `from`, woken through a
+ * route, which needs no result.
+ */
+export type OperationCause = { message: { from: AgentKey } };
 
 /** A harness that needs the operator to log in again. */
 export type TurnLogin = {

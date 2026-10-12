@@ -26,7 +26,7 @@ export type OperationPhase =
   | "working"
   | "waiting"
   | "check-in-pending"
-  | "awaiting-reply"
+  | "check-in-response"
   | "releasing";
 export type LivenessEvent = {
   kind: OperationLivenessKind;
@@ -287,7 +287,7 @@ export async function superviseOperation(options: Options): Promise<SupervisedOu
               grantRevision === revision
             ) {
               responseUntil = Math.min(deadline, at + policy.responseMs);
-              options.phase?.("awaiting-reply", undefined, responseUntil);
+              options.phase?.("check-in-response", undefined, responseUntil);
             }
             emit("received", undefined, responseUntil);
             changed();
