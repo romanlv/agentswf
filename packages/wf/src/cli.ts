@@ -2,40 +2,84 @@
 import {
   type ControlRequest,
   type ControlResponse,
+  type MessageRequest,
   validWaitingReason,
   WIRE_VERSION,
 } from "@agentswf/contract/wire";
-import { submitControl } from "./client";
+import { NotSentError, submitControl } from "./client";
 
-const usage = [
-  "usage: wf result <call-id> '<json>'",
-  "       wf result <call-id> < result.json",
-  "       wf waiting <call-id> --reason <text> [--timeout <duration>]",
-  "",
-  "The call id is the one named in the request. Pass JSON as one argument; with no argument,",
-  "JSON is read from standard input.",
-].join("\n");
+/** `wf` is its launcher's full path, as an agent must type it; `wf` alone when it is not known. */
+function usage(wf: string): string {
+  return [
+    `usage: ${wf} result <call-id> '<json>'`,
+    `       ${wf} result <call-id> < result.json`,
+    `       ${wf} waiting <call-id> --reason <text> [--timeout <duration>]`,
+    `       ${wf} peers [--json]`,
+    ...messageUsage(wf, "       "),
+    "",
+    "The call id is the one named in the request. Pass JSON as one argument; with no argument,",
+    "JSON is read from standard input.",
+  ].join("\n");
+}
+
+function messageUsage(wf: string, indent = "usage: "): string[] {
+  return [
+    `${indent}${wf} send [--await-reply [--timeout <duration>]] <peer> <<'EOF'`,
+    "       <message>",
+    "       EOF",
+    `       ${wf} reply [--await-reply [--timeout <duration>]] <peer> <<'EOF'`,
+    "       <answer>",
+    "       EOF",
+    "",
+    "Flags go before the peer. The message comes from a quoted heredoc, standard input or one",
+    "final argument; given an argument, standard input is not read.",
+  ];
+}
 const MAX_STDIN_BYTES = 1024 * 1024;
 const STDIN_TIMEOUT_MS = 30_000;
 
 export type CliOutcome = { exitCode: number; stdout: string; stderr: string };
 
+type Submit = (endpoint: string, request: ControlRequest) => Promise<ControlResponse>;
+
 export async function runCli(
   argv: readonly string[],
   stdin: string | null,
-  submit: (endpoint: string, request: ControlRequest) => Promise<ControlResponse> = submitControl,
+  submit: Submit = submitControl,
 ): Promise<CliOutcome> {
   // The launcher the engine installs supplies `--at`; the socket is an address, not a secret.
   const {
     endpoint,
     session,
+    launcher,
     command: [command, ...args],
   } = launched(argv);
+  const wf = launcher ?? "wf";
   if (!endpoint) {
     return usageError("wf must be run through the launcher the workflow engine installed");
   }
-  if (command === "waiting") return runWaiting(endpoint, session, args, submit);
-  if (command !== "result") return usageError(usage);
+  switch (command) {
+    case "waiting":
+      return runWaiting(endpoint, session, args, submit);
+    case "result":
+      return runResult(endpoint, session, args, stdin, submit);
+    case "peers":
+      return runPeers(endpoint, session, args, submit);
+    case "send":
+    case "reply":
+      return runMessage(endpoint, session, command, args, stdin, wf, submit);
+    default:
+      return usageError(usage(wf));
+  }
+}
+
+async function runResult(
+  endpoint: string,
+  session: string | undefined,
+  args: readonly string[],
+  stdin: string | null,
+  submit: Submit,
+): Promise<CliOutcome> {
   const [operationId, ...rest] = args;
   if (!operationId) return usageError("wf result needs the call id it is answering");
   if (rest.length > 1) {
@@ -65,18 +109,18 @@ export async function runCli(
   }
 
   if (response.kind === "rejected") {
-    return { exitCode: 1, stdout: "", stderr: `wf: ${rejection(response, operationId)}` };
+    return refused(response, `wf: ${rejection(response, operationId)}`);
   }
   if (response.kind !== "accepted")
     return { exitCode: 1, stdout: "", stderr: "wf: unexpected waiting acknowledgement for result" };
-  return { exitCode: 0, stdout: "wf: result accepted", stderr: "" };
+  return succeeded(response, "wf: result accepted");
 }
 
 async function runWaiting(
   endpoint: string,
   session: string | undefined,
   args: readonly string[],
-  submit: (endpoint: string, request: ControlRequest) => Promise<ControlResponse>,
+  submit: Submit,
 ): Promise<CliOutcome> {
   const [operationId, ...flags] = args;
   if (!operationId?.trim() || operationId.startsWith("--"))
@@ -95,13 +139,9 @@ async function runWaiting(
   const duration = values.get("--timeout");
   let timeoutMs: number | undefined;
   if (duration !== undefined) {
-    const match = /^([0-9]+)(ms|s|m|h)$/.exec(duration);
-    if (!match)
+    timeoutMs = durationOf(duration);
+    if (timeoutMs === undefined)
       return usageError("wf waiting --timeout must be a positive integer with ms, s, m or h");
-    const factor = { ms: 1, s: 1000, m: 60_000, h: 3_600_000 }[match[2]!]!;
-    timeoutMs = Number(match[1]) * factor;
-    if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0)
-      return usageError("wf waiting --timeout must fit a positive safe integer in milliseconds");
   }
   let response: ControlResponse;
   try {
@@ -122,23 +162,168 @@ async function runWaiting(
     };
   }
   if (response.kind === "rejected")
-    return {
-      exitCode: 1,
-      stdout: "",
-      stderr: `wf: waiting rejected (${response.code}).\n${response.error}`,
-    };
-  if (response.kind === "awaiting-reply")
-    return { exitCode: 0, stdout: `wf: ${response.notice}`, stderr: "" };
+    return refused(
+      response,
+      response.code === "owes-reply" || response.code === "no-result"
+        ? `wf: waiting refused (${response.code}): ${response.error}`
+        : `wf: waiting rejected (${response.code}).\n${response.error}`,
+    );
+  if (response.kind === "awaiting-reply") return succeeded(response, `wf: ${response.notice}`);
   if (response.kind !== "waiting")
     return {
       exitCode: 1,
       stdout: "",
       stderr: "wf: unexpected acknowledgement for waiting; wait is uncertain",
     };
+  return succeeded(
+    response,
+    `wf: waiting granted until ${response.waitUntil}; operation deadline ${response.deadline} (Unix milliseconds)`,
+  );
+}
+
+async function runPeers(
+  endpoint: string,
+  session: string | undefined,
+  args: readonly string[],
+  submit: Submit,
+): Promise<CliOutcome> {
+  if (args.length > 1 || (args.length === 1 && args[0] !== "--json"))
+    return usageError("wf peers takes only --json");
+  let response: ControlResponse;
+  try {
+    response = await submit(endpoint, {
+      version: WIRE_VERSION,
+      command: "peers",
+      ...(session ? { session } : {}),
+    });
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    return { exitCode: 1, stdout: "", stderr: `wf: peers failed; nothing changed.\n${detail}` };
+  }
+  if (response.kind === "rejected")
+    return refused(response, `wf: peers refused (${response.code}): ${response.error}`);
+  if (response.kind !== "peers")
+    return { exitCode: 1, stdout: "", stderr: "wf: unexpected acknowledgement for peers" };
+  // The table says what is owed itself, so the owed-answer line does not lead it.
+  if (args[0] === "--json") {
+    const { peers, owes, awaits } = response;
+    return {
+      exitCode: 0,
+      stdout: JSON.stringify({ peers, owes, ...(awaits ? { awaits } : {}) }),
+      stderr: "",
+    };
+  }
+  return { exitCode: 0, stdout: response.text, stderr: "" };
+}
+
+async function runMessage(
+  endpoint: string,
+  session: string | undefined,
+  command: "send" | "reply",
+  args: readonly string[],
+  stdin: string | null,
+  wf: string,
+  submit: Submit,
+): Promise<CliOutcome> {
+  const parsed = messageArgs(args);
+  const wrong = (problem: string) =>
+    usageError(`wf: ${command}: ${problem}\n\n${messageUsage(wf).join("\n")}`);
+  if ("error" in parsed) return wrong(parsed.error);
+  const { peer, message, awaitReply, timeoutMs } = parsed;
+  // A heredoc ends with a newline the agent did not mean as part of the message.
+  const text = message ?? stdin?.replace(/\r?\n$/, "") ?? null;
+  if (text === null || text.trim() === "") return wrong("it needs a message");
+  const request: MessageRequest = {
+    version: WIRE_VERSION,
+    command,
+    peer,
+    text,
+    ...(awaitReply ? { awaitReply: true as const } : {}),
+    ...(timeoutMs === undefined ? {} : { timeoutMs }),
+    ...(session ? { session } : {}),
+  };
+  let response: ControlResponse;
+  try {
+    response = await submit(endpoint, request);
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    const what = command === "send" ? "message" : "reply";
+    // Refused at the connection, nothing reached the engine; after, it may have been admitted.
+    if (error instanceof NotSentError) {
+      return {
+        exitCode: 1,
+        stdout: "",
+        stderr: `wf: the ${what} was not sent: the engine could not be reached. Try again.\n${detail}`,
+      };
+    }
+    return {
+      exitCode: 1,
+      stdout: "",
+      stderr: `wf: the engine did not confirm this ${what}, so it may have been queued. Nothing was retried: do not send it again.\n${detail}`,
+    };
+  }
+  if (response.kind === "rejected")
+    return refused(response, `wf: ${command} refused (${response.code}): ${response.error}`);
+  if (response.kind !== "sent")
+    return { exitCode: 1, stdout: "", stderr: `wf: unexpected acknowledgement for ${command}` };
+  return succeeded(response, `wf: ${response.notice}`);
+}
+
+/** Flags before the peer, then the peer, then the message if it is an argument. */
+function messageArgs(
+  args: readonly string[],
+): { peer: string; message?: string; awaitReply: boolean; timeoutMs?: number } | { error: string } {
+  let awaitReply = false;
+  let timeoutMs: number | undefined;
+  let i = 0;
+  for (; i < args.length && args[i]!.startsWith("--"); i += 1) {
+    const flag = args[i]!;
+    if (flag === "--await-reply" && !awaitReply) awaitReply = true;
+    else if (flag === "--timeout" && timeoutMs === undefined) {
+      timeoutMs = durationOf(args[i + 1] ?? "");
+      if (timeoutMs === undefined)
+        return { error: "--timeout takes a positive integer with ms, s, m or h, such as 5m" };
+      i += 1;
+    } else return { error: `${flag} is not a flag it takes, or is given twice` };
+  }
+  if (timeoutMs !== undefined && !awaitReply) return { error: "--timeout needs --await-reply" };
+  const [peer, ...rest] = args.slice(i);
+  if (!peer) return { error: "it needs the peer to send to" };
+  // A flag typed after the peer would otherwise go as the message, and the heredoc be dropped.
+  if (rest.some((arg) => arg === "--await-reply" || arg === "--timeout"))
+    return { error: "flags go before the peer" };
+  if (rest.length > 1)
+    return { error: "the message is one argument; quote it, or use a heredoc or standard input" };
+  return {
+    peer,
+    ...(rest[0] === undefined ? {} : { message: rest[0] }),
+    awaitReply,
+    ...(timeoutMs === undefined ? {} : { timeoutMs }),
+  };
+}
+
+function durationOf(text: string): number | undefined {
+  const match = /^([0-9]+)(ms|s|m|h)$/.exec(text);
+  if (!match) return undefined;
+  const factor = { ms: 1, s: 1000, m: 60_000, h: 3_600_000 }[match[2]!]!;
+  const value = Number(match[1]) * factor;
+  return Number.isSafeInteger(value) && value > 0 ? value : undefined;
+}
+
+/** What is owed leads, so it comes back after a harness compacts; then the acknowledgement. */
+function succeeded(response: { owing?: string }, line: string): CliOutcome {
   return {
     exitCode: 0,
-    stdout: `wf: waiting granted until ${response.waitUntil}; operation deadline ${response.deadline} (Unix milliseconds)`,
+    stdout: response.owing ? `wf: ${response.owing}\n${line}` : line,
     stderr: "",
+  };
+}
+
+function refused(response: { owing?: string }, line: string): CliOutcome {
+  return {
+    exitCode: 1,
+    stdout: "",
+    stderr: response.owing ? `wf: ${response.owing}\n${line}` : line,
   };
 }
 
@@ -181,19 +366,27 @@ function rejection(
 }
 
 /**
- * The launcher supplies `--at <socket>`, then `--session <id>` expanded from the harness's own
- * variable, which is empty when the agent's shell does not set it.
+ * The launcher supplies `--at <socket>`, then `--as <its own path>`, then `--session <id>`
+ * expanded from the harness's own variable, which is empty when the agent's shell does not set it.
  */
 function launched(argv: readonly string[]): {
   endpoint?: string;
   session?: string;
+  launcher?: string;
   command: readonly string[];
 } {
   const [flag, endpoint, ...rest] = argv;
   if (flag !== "--at" || !endpoint) return { command: rest };
-  if (rest[0] !== "--session") return { endpoint, command: rest };
-  const session = rest[1]?.trim();
-  return { endpoint, ...(session ? { session } : {}), command: rest.slice(2) };
+  let command = rest;
+  let launcher: string | undefined;
+  if (command[0] === "--as") {
+    launcher = command[1]?.trim() || undefined;
+    command = command.slice(2);
+  }
+  const named = launcher ? { launcher } : {};
+  if (command[0] !== "--session") return { endpoint, ...named, command };
+  const session = command[1]?.trim();
+  return { endpoint, ...named, ...(session ? { session } : {}), command: command.slice(2) };
 }
 
 function usageError(stderr: string): CliOutcome {
@@ -209,7 +402,7 @@ if (import.meta.main) {
       Bun.stdin.stream(),
     );
   } catch (error) {
-    console.error(`wf result: ${error instanceof Error ? error.message : String(error)}`);
+    console.error(`wf: ${error instanceof Error ? error.message : String(error)}`);
     process.exit(2);
   }
   const outcome = await runCli(process.argv.slice(2), stdinText);
@@ -218,14 +411,22 @@ if (import.meta.main) {
   process.exit(outcome.exitCode);
 }
 
+/**
+ * Standard input, for the commands that take it: `result <call-id>` and nothing more, or `send`
+ * and `reply` with no message argument after the peer.
+ */
 export async function readCliStdin(
   argv: readonly string[],
   isTTY: boolean,
   stream: ReadableStream<Uint8Array>,
 ): Promise<string | null> {
-  // `result <call-id>` and nothing more: the value is coming from standard input.
-  const { command } = launched(argv);
-  if (isTTY || command[0] !== "result" || command.length !== 2) return null;
+  if (isTTY) return null;
+  const [verb, ...args] = launched(argv).command;
+  const parsed = verb === "send" || verb === "reply" ? messageArgs(args) : undefined;
+  const reads =
+    (verb === "result" && args.length === 1) ||
+    (parsed !== undefined && !("error" in parsed) && parsed.message === undefined);
+  if (!reads) return null;
   const text = await readBoundedStdin(stream);
   return text === "" ? null : text;
 }

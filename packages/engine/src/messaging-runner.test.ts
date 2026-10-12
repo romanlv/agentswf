@@ -334,10 +334,12 @@ describe("messaging through the runner", () => {
           async (turn) => {
             // The question continues its turn, and now it owes the answer.
             expect(turn.kind).toBe("deliver");
-            expect(await result(turn, { verdict: "x" })).toMatchObject({
+            // The refusal says what is owed itself, so no owed-answer line repeats it.
+            expect(await result(turn, { verdict: "x" })).toEqual({
+              version: WIRE_VERSION,
               kind: "rejected",
               code: "owes-reply",
-              owing: expect.stringContaining("you owe asker a reply"),
+              error: expect.stringContaining("you owe asker a reply"),
             });
             return {};
           },
@@ -852,8 +854,9 @@ describe("messaging through the runner", () => {
             expect(waiting).toMatchObject({
               kind: "awaiting-reply",
               peer: "peer",
-              owing: expect.stringContaining("you await peer's reply"),
+              notice: expect.stringContaining("you already await peer's reply"),
             });
+            expect(waiting).not.toHaveProperty("owing");
             asked.resolve();
             return {};
           },

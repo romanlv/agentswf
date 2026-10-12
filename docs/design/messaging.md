@@ -324,9 +324,10 @@ EOF
 wf result {call-id} '{"verdict":"approve"}'
 ```
 
-The message comes from a quoted heredoc, standard input or the final argument, never both. The
-heredoc is the form taught: a backtick in double quotes runs a command, and an apostrophe ends
-single quotes. Flags go before the peer.
+The message comes from a quoted heredoc, standard input or the final argument; given an argument,
+standard input is not read. The heredoc is the form taught: a backtick in double quotes runs a
+command, and an apostrophe ends single quotes. Flags go before the peer, and a flag after it is
+refused rather than sent as the message.
 
 Agents run `wf` through the launcher the engine installed. Every envelope, refusal, nudge and
 acknowledgement spells out the launcher's full path; this doc writes it as `wf`. When an agent has
@@ -430,7 +431,7 @@ wf: send refused (limit): 10 messages with reviewer, this route's limit. Say so 
 wf: send refused (unsupported): this agent cannot await a reply here. Send without
 --await-reply and say where the answer should go, such as a file.
 wf: send refused (no-operation): this agent has no open operation.
-wf: send refused (closed): the route to architect closed when its stage ended.
+wf: send refused (closed): the route to architect closed when its stage plan ended.
 wf: send refused (closed): stage plan is finishing; it takes no new messages. Say so in your result.
 wf: send refused (peer-stopped): architect has stopped ("design questions are settled").
 wf: send refused (too-large): 21 KB; the limit is 16 KB. Put it in a file and send its path.

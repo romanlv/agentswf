@@ -11,6 +11,9 @@ import {
 
 const MAX_RESPONSE_BYTES = 256 * 1024;
 
+/** The connection never opened: nothing was written, so nothing reached the engine. */
+export class NotSentError extends Error {}
+
 export function submitResult(
   endpoint: string,
   request: ResultSubmitRequest,
@@ -46,6 +49,7 @@ export function submitControl<R extends ControlRequest>(
     const chunks: Buffer[] = [];
     let bytes = 0;
     let settled = false;
+    let connected = false;
     const socket = connect(endpoint);
     const lifetime = setTimeout(
       () => fail(new Error("control plane response timed out")),
@@ -60,7 +64,10 @@ export function submitControl<R extends ControlRequest>(
       reject(error);
     };
 
-    socket.once("connect", () => socket.end(outgoing));
+    socket.once("connect", () => {
+      connected = true;
+      socket.end(outgoing);
+    });
     socket.on("data", (data) => {
       if (settled) return;
       const chunk = typeof data === "string" ? Buffer.from(data) : data;
@@ -94,7 +101,9 @@ export function submitControl<R extends ControlRequest>(
       clearTimeout(lifetime);
       resolve(decoded.value);
     });
-    socket.once("error", fail);
+    socket.once("error", (error) =>
+      fail(connected ? error : new NotSentError(error.message, { cause: error })),
+    );
     socket.once("close", () => {
       if (!settled) fail(new Error("control plane closed without a response"));
     });

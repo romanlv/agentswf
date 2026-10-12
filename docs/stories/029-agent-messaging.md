@@ -511,7 +511,7 @@ The reasons are in the design's Decisions.
 - [x] 2. Types, wire v4, record format and the `deliver` seam are settled
 - [x] 3. The messaging logic admits, queues and settles, as pure code
 - [x] 4. The runner wakes, continues and closes through it, against the fake harness
-- [ ] 5. `wf peers`, `wf send` and `wf reply` work over the control plane and the sandbox door
+- [x] 5. `wf peers`, `wf send` and `wf reply` work over the control plane and the sandbox door
 - [ ] 6. Headless agents receive messages and await replies
 - [ ] 7. Panes receive messages when idle, and claude panes await replies
 - [ ] 8. A workflow's tests script messages; the progress view, logs and usage show them
@@ -992,6 +992,28 @@ waiting on them; these are the drafts the gate named, as built and reviewed.
   to observe turns as the workflow's does; `ended` in a `finally`, with the credential write-back
   after a message operation; busy-elsewhere read from the runner's state; a recipient woken even
   when its message's record fails; the reminder's window; reminders without nudges. 18 runner tests.
+
+### Task 5
+
+- `wf peers [--json]`, `wf send` and `wf reply` print what the engine wrote, prefixed `wf:`:
+  acknowledgements on standard output, refusals on standard error, exit 0, 1 or 2. The owed-answer
+  line leads every response, but not one that already says it: the acknowledgement of a wait it
+  began, `wf waiting` while awaiting, and the `owes-reply` and `awaiting` refusals. `wf peers`
+  says it in its table, "No routes." included.
+- The message comes from a quoted heredoc, standard input or one argument; given an argument,
+  standard input is not read, as for `wf result`, since a tool runner's inherited pipe would stall
+  the read. A heredoc's last newline is not part of the message. A flag after the peer is refused:
+  sent as the message, it would drop the heredoc and the wait the agent meant.
+- A connection that never opened says the message was not sent; one lost after the write says it
+  may have been queued and that nothing was retried.
+- The launcher passes its own path (`--as`), so `wf`'s usage names it as an agent must type it.
+  A box's copy carries the same path.
+- Tests: CLI tests for each line `wf` itself writes; through a real launcher and control plane on
+  the host, every acknowledgement and refusal the design gives that no logic test prints; through
+  a real srt sandbox's door, `peers`, a heredoc send and a refusal (`tests/messaging-door.local.test.ts`,
+  skipped without srt).
+- Review: both reviewers' findings are resolved; the design's Agent CLI text now says an argument
+  wins over standard input, and its `closed` refusal names the stage.
 
 ## Human review
 

@@ -213,7 +213,15 @@ export function peersTable(
   /** The agent asking, which a peer awaiting it names as "you". */
   viewer: AgentKey,
 ): string {
-  if (peers.length === 0) return "No routes.";
+  const standing = [
+    ...(awaits
+      ? [
+          `You await ${awaits.peer}'s reply, until ${clock(awaits.until, now)}; checking again does not speed it.`,
+        ]
+      : []),
+    ...owes.map((peer) => `You owe ${peer} a reply.`),
+  ];
+  if (peers.length === 0) return ["No routes.", ...standing].join("\n");
   const rows = peers.map((peer) => [
     peer.peer,
     peer.can,
@@ -234,14 +242,8 @@ export function peersTable(
       .map((cell, column) => (column === cells.length - 1 ? cell : cell.padEnd(widths[column]!)))
       .join("  ")
       .trimEnd();
-  const lines = [line(header), ...rows.map(line)];
-  if (awaits) {
-    lines.unshift(
-      `You await ${awaits.peer}'s reply, until ${clock(awaits.until, now)}; checking again does not speed it.`,
-    );
-  }
-  for (const peer of owes) lines.push(`You owe ${peer} a reply.`);
-  return lines.join("\n");
+  const [awaiting, ...owing] = awaits ? standing : [undefined, ...standing];
+  return [...(awaiting ? [awaiting] : []), line(header), ...rows.map(line), ...owing].join("\n");
 }
 
 /** A send or reply whose record could not be written: it was admitted, so it may yet arrive. */

@@ -56,7 +56,8 @@ export async function installSandboxedDoor(
   return {
     endpoint: socket,
     launcher,
-    boxScript: launcherScript(["bun", NO_ENV, bundle], socket, sessionEnv),
+    // A box copies it to the launcher's path, the one it names itself by.
+    boxScript: launcherScript(["bun", NO_ENV, bundle], socket, sessionEnv, launcher),
     bundle,
     reads: [bun, bundle],
   };
@@ -95,7 +96,7 @@ async function writeLauncher(
   const path = join(directory, "wf");
   // Not writable, so an agent that redirects into its own launcher fails rather than replacing its
   // only way to answer. A `chmod` still gets past it; a sandbox denies the write outright.
-  await writeFile(path, launcherScript(command, endpoint, sessionEnv), { mode: 0o500 });
+  await writeFile(path, launcherScript(command, endpoint, sessionEnv, path), { mode: 0o500 });
   await chmod(path, 0o500);
   return path;
 }
@@ -104,12 +105,14 @@ function launcherScript(
   command: readonly string[],
   endpoint: string,
   sessionEnv: string | undefined,
+  /** Its own path, which `wf` names in what it prints, as an agent must type it. */
+  path: string,
 ): string {
   if (sessionEnv !== undefined && !/^[A-Za-z_][A-Za-z0-9_]*$/.test(sessionEnv)) {
     throw new Error(`not an environment variable name: ${sessionEnv}`);
   }
   const session = sessionEnv ? ` --session "\${${sessionEnv}:-}"` : "";
-  return `#!/bin/sh\nexec ${command.map(shellQuote).join(" ")} --at ${shellQuote(endpoint)}${session} "$@"\n`;
+  return `#!/bin/sh\nexec ${command.map(shellQuote).join(" ")} --at ${shellQuote(endpoint)} --as ${shellQuote(path)}${session} "$@"\n`;
 }
 
 async function resolveAgentCommand(): Promise<string> {

@@ -295,8 +295,14 @@ async function handleFrame(
   onSession: ((id: string) => void) | undefined,
 ): Promise<ControlResponse> {
   const response = await answerFrame(frame, slots, messaging, agentId, onSession);
-  // Leads every response, so what is owed comes back after a compaction.
-  const owing = messaging?.owing(agentId);
+  // Leads every response, so what is owed comes back after a compaction; not one that already
+  // says it, about the wait it began or the answer it is refused for.
+  const repeats =
+    response.kind === "awaiting-reply" ||
+    (response.kind === "sent" && response.until !== undefined) ||
+    (response.kind === "rejected" &&
+      (response.code === "owes-reply" || response.code === "awaiting"));
+  const owing = repeats ? undefined : messaging?.owing(agentId);
   return owing ? { ...response, owing } : response;
 }
 

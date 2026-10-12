@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   type ControlRequest,
+  type ControlResponse,
   type ResultSubmitResponse,
   WIRE_VERSION,
 } from "@agentswf/contract/wire";
@@ -277,5 +278,186 @@ describe("wf waiting", () => {
       kind: "accepted",
     }));
     expect(crossed.exitCode).toBe(1);
+  });
+});
+
+describe("wf peers, send and reply", () => {
+  const LAUNCHER = "/tmp/awf-x/a1/wf";
+  const as = (...args: readonly string[]) => ["--at", ENDPOINT, "--as", LAUNCHER, ...args];
+  const answer =
+    (response: ControlResponse, seen: ControlRequest[] = []) =>
+    async (_endpoint: string, request: ControlRequest) => {
+      seen.push(request);
+      return response;
+    };
+
+  test("send takes the message from a heredoc or an argument, and prints the engine's notice", async () => {
+    const seen: ControlRequest[] = [];
+    const sent = {
+      version: WIRE_VERSION,
+      kind: "sent",
+      message: 3,
+      notice: "sent to fixer; it reads this when its current turn ends.",
+    } as const;
+    expect(await runCli(as("send", "fixer"), "Off-by-one\n", answer(sent, seen))).toEqual({
+      exitCode: 0,
+      stdout: "wf: sent to fixer; it reads this when its current turn ends.",
+      stderr: "",
+    });
+    expect(
+      await runCli(
+        as("send", "--await-reply", "--timeout", "5m", "architect", "Queue?"),
+        null,
+        answer(sent, seen),
+      ),
+    ).toMatchObject({ exitCode: 0 });
+    expect(seen).toEqual([
+      // The heredoc's last newline is not part of the message.
+      { version: WIRE_VERSION, command: "send", peer: "fixer", text: "Off-by-one" },
+      {
+        version: WIRE_VERSION,
+        command: "send",
+        peer: "architect",
+        text: "Queue?",
+        awaitReply: true,
+        timeoutMs: 300_000,
+      },
+    ]);
+  });
+
+  test("what is owed leads every response, a refusal's included", async () => {
+    const owing = "you owe reviewer a reply (/tmp/awf-x/a1/wf reply reviewer).";
+    expect(
+      await runCli(
+        as("reply", "reviewer", "Done."),
+        null,
+        answer({
+          version: WIRE_VERSION,
+          kind: "sent",
+          message: 4,
+          notice: "replied to reviewer.",
+          owing,
+        }),
+      ),
+    ).toEqual({ exitCode: 0, stdout: `wf: ${owing}\nwf: replied to reviewer.`, stderr: "" });
+    expect(
+      await runCli(
+        as("send", "tester", "hi"),
+        null,
+        answer({
+          version: WIRE_VERSION,
+          kind: "rejected",
+          code: "no-route",
+          error: `no route to tester. Your routes: ${LAUNCHER} peers`,
+          owing,
+        }),
+      ),
+    ).toEqual({
+      exitCode: 1,
+      stdout: "",
+      stderr: `wf: ${owing}\nwf: send refused (no-route): no route to tester. Your routes: ${LAUNCHER} peers`,
+    });
+    expect(
+      await runCli(
+        as("result", "op-1", "{}"),
+        null,
+        answer({ version: WIRE_VERSION, kind: "accepted", owing: "you await architect's reply." }),
+      ),
+    ).toEqual({
+      exitCode: 0,
+      stdout: "wf: you await architect's reply.\nwf: result accepted",
+      stderr: "",
+    });
+    expect(
+      await runCli(
+        as("result", "op-1", "{}"),
+        null,
+        answer({
+          version: WIRE_VERSION,
+          kind: "rejected",
+          code: "owes-reply",
+          error: `you owe reviewer a reply. Send it with ${LAUNCHER} reply reviewer, then run ${LAUNCHER} result op-1 again.`,
+        }),
+      ),
+    ).toEqual({
+      exitCode: 1,
+      stdout: "",
+      stderr: `wf: result refused (owes-reply): you owe reviewer a reply. Send it with ${LAUNCHER} reply reviewer, then run ${LAUNCHER} result op-1 again.`,
+    });
+  });
+
+  test("a lost acknowledgement says it may have been queued, and nothing is retried", async () => {
+    let calls = 0;
+    const outcome = await runCli(as("send", "fixer", "hi"), null, async () => {
+      calls += 1;
+      throw new Error("control plane response timed out");
+    });
+    expect(calls).toBe(1);
+    expect(outcome).toEqual({
+      exitCode: 1,
+      stdout: "",
+      stderr:
+        "wf: the engine did not confirm this message, so it may have been queued. Nothing was retried: do not send it again.\ncontrol plane response timed out",
+    });
+  });
+
+  test("peers prints the engine's table, or the same as data with --json", async () => {
+    const peers: ControlResponse = {
+      version: WIRE_VERSION,
+      kind: "peers",
+      peers: [{ peer: "reviewer", can: "both", state: "idle", queued: 0, purpose: "Review." }],
+      owes: [],
+      text: "peer      you can  state  queued  purpose",
+      owing: "you await reviewer's reply.",
+    };
+    expect(await runCli(as("peers"), null, answer(peers))).toEqual({
+      exitCode: 0,
+      stdout: "peer      you can  state  queued  purpose",
+      stderr: "",
+    });
+    expect(JSON.parse((await runCli(as("peers", "--json"), null, answer(peers))).stdout)).toEqual({
+      peers: [{ peer: "reviewer", can: "both", state: "idle", queued: 0, purpose: "Review." }],
+      owes: [],
+    });
+    expect(await runCli(as("peers", "--all"), null, answer(peers))).toMatchObject({ exitCode: 2 });
+  });
+
+  test("usage errors exit 2 and name the launcher's full path", async () => {
+    const never = async (): Promise<never> => {
+      throw new Error("not sent");
+    };
+    const usage = await runCli(as("send", "--loud", "fixer"), null, never);
+    expect(usage.exitCode).toBe(2);
+    expect(usage.stderr).toContain("--loud is not a flag it takes");
+    expect(usage.stderr).toContain(
+      `${LAUNCHER} send [--await-reply [--timeout <duration>]] <peer> <<'EOF'`,
+    );
+    for (const args of [
+      as("send", "fixer"),
+      as("send", "--timeout", "5m", "fixer", "hi"),
+      as("reply"),
+      as("send", "fixer", "one", "two"),
+    ]) {
+      expect((await runCli(args, null, never)).exitCode).toBe(2);
+    }
+    // A flag after the peer would otherwise go as the message, and the heredoc be dropped.
+    const late = await runCli(as("send", "fixer", "--await-reply"), "the question\n", never);
+    expect(late.exitCode).toBe(2);
+    expect(late.stderr).toStartWith("wf: send: flags go before the peer");
+    expect(
+      await readCliStdin(as("send", "fixer", "--await-reply"), false, new Blob(["x"]).stream()),
+    ).toBeNull();
+    expect((await runCli(as("bogus"), null, never)).stderr).toContain(`${LAUNCHER} peers [--json]`);
+  });
+
+  test("standard input is read for a send or reply with no message argument", async () => {
+    const stream = () => new Blob(["from a heredoc\n"]).stream();
+    expect(await readCliStdin(as("send", "--await-reply", "fixer"), false, stream())).toBe(
+      "from a heredoc\n",
+    );
+    expect(await readCliStdin(as("reply", "fixer"), false, stream())).toBe("from a heredoc\n");
+    expect(await readCliStdin(as("send", "fixer", "inline"), false, stream())).toBeNull();
+    expect(await readCliStdin(as("peers"), false, stream())).toBeNull();
+    expect(await readCliStdin(as("send", "fixer"), true, stream())).toBeNull();
   });
 });
