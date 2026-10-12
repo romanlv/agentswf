@@ -859,6 +859,37 @@ minutes and its waiters' operation deadlines, never past its scope's. Spend limi
 [[live-spend-limits]], not to messaging. Convergence and the decision to retry, stop, or involve a
 person remain workflow concerns.
 
+## Claude's own messaging
+
+Claude Code can message between its own sessions, separately from awf: a claude lists the other
+claudes running with its `ListAgents` tool and writes to one with `SendMessage`. Tried on claude
+2.1.296, 2026-10-12:
+
+- **It is on by default.** Every claude counts the moment it starts, in a terminal or run by a
+  script (`claude -p`).
+- **A claude sees every other claude on the machine,** in any folder, plus the operator's claude
+  sessions in the cloud. The operator's own claude saw 57.
+- **Any claude can write to any other.** It does not matter who started whom. A message to a claude
+  that is waiting for input wakes it, and it treats the message like a new request.
+- **A subagent can write too,** though it cannot list. Its message arrives under the name of the
+  claude that started it.
+- **What decides who sees whom is the setup folder.** Claudes that share `~/.claude` see each
+  other. A claude given a folder of its own (`CLAUDE_CONFIG_DIR`), as a sandboxed agent is, saw
+  nobody and could reach nobody.
+- **A claude can refuse to receive.** Started with `--settings '{"crossSessionInbound":"refuse"}'`,
+  it never shows a message sent to it, and the sender is told it was refused. It is still listed,
+  and it can still send. Nothing turns sending off.
+
+What awf does with it:
+
+- **Every claude agent refuses to receive**, so no other claude, the operator's included, can
+  prompt it outside the workflow's routes.
+- **A sandboxed claude agent sees no one,** as it has its own setup folder.
+- **A claude agent outside a sandbox can see and write to the operator's other claudes.** That is
+  accepted for now: such an agent already runs on the operator's whole claude setup, and this is
+  one more part of it. Giving it a clean setup instead, and making that the default, is
+  [[agent-own-config]].
+
 ## Not in this design
 
 - **No `ask`, `tell`, visible message id, channel, team, broadcast, dynamic grant, or automatic
@@ -1001,13 +1032,8 @@ line. So the gate is what makes waiting harmful on a harness.
 
 ## To measure
 
-- **M1. Can a claude agent message around its routes?** Every claude session, `-p` included, binds
-  a cross-session messaging socket and exports `CLAUDE_CODE_MESSAGING_SOCKET` and
-  `CLAUDE_CODE_MESSAGING_TOKEN`; an operator's session has one. Check whether an awf-launched
-  claude agent, on the host and under srt and docker, can reach a peer or the operator's session,
-  including with a token read from another process's environment (`ps eww`). Removing the variables
-  from agents' environment and refusing inbound messages (`crossSessionInbound`) is a fix to make
-  regardless; the measurement says whether that is enough on the host.
+- **M1. Can a claude agent message around its routes?** Measured 2026-10-12: outside a sandbox,
+  yes; in one, no. See [[#Claude's own messaging]], which also says what awf does about it.
 - **M2. Do agents operate the protocol?** On the E8 setup, each harness and model, 20 or more
   trials. Count per `--await-reply`: tool calls before the turn ends, `sleep` and `peers` polls,
   prose-only replies, an acknowledgement sent as a plain send before the
