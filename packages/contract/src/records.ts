@@ -587,7 +587,7 @@ export type LogsJson = {
   events: LogEventJson[];
   cursor?: string;
   more?: { older?: true; newer?: true };
-  /** While the run goes on. */
+  /** While the run goes on, or while the page stopped before the newest event. */
   next?: string[];
 };
 

@@ -234,6 +234,27 @@ describe("awf logs", () => {
     );
   });
 
+  test("an ended run's pages go on in text until the newest, then say it ended", async () => {
+    const ended = await fixture({ ...ALIVE, ended: T(6), outcome: "completed" });
+    for (let second = 0; second < 20; second += 1) {
+      addActivity(ended, T(2, second), [{ type: "text", text: `step ${second}` }]);
+    }
+    addLines(ended, turnEnded(5), { kind: "attempt-ended", at: T(6), outcome: "completed" });
+    let argv = ["--after", `c1.${Buffer.from(JSON.stringify([0, {}])).toString("base64url")}`];
+    const seen: string[] = [];
+    for (let pages = 0; pages < 10; pages += 1) {
+      const lines = (await awfLogs(ended, [...argv, "--limit", "7"])).stdout.split("\n");
+      seen.push(...lines.filter((line) => line.startsWith("@")).map((line) => line.split(" ")[0]!));
+      const last = lines.at(-1)!;
+      if (last.startsWith("run ended: completed")) break;
+      const next = /^next: (.*) · run completed, more to read$/.exec(last);
+      expect(next?.[1]).not.toContain("--wait");
+      argv = next![1]!.split(" ").slice(3);
+    }
+    expect(seen).toHaveLength(25);
+    expect(new Set(seen).size).toBe(25);
+  });
+
   test("--follow prints each event as it comes until the run ends; --stage keeps one stage", async () => {
     const f = await fixture();
     let step = 0;

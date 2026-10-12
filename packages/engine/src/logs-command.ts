@@ -298,8 +298,10 @@ async function page(
     ...(options.agent ? ["--agent", options.agent] : []),
     ...(options.stage ? ["--stage", options.stage] : []),
   ];
+  // A run that ended has a next only while its page stopped before the newest event.
+  const running = status.state === "running";
   const next =
-    status.state === "running" ? nextLogs(status, place, cursor, filters, !newer) : undefined;
+    running || newer ? nextLogs(status, place, cursor, filters, running && !newer) : undefined;
   if (json) {
     const { started, ended } = span(status, clock.now());
     const document: LogsJson = {
@@ -447,6 +449,7 @@ function trailer(
     if (nothingIn === undefined) return said;
     return `nothing new in ${nothingIn}s · running${stage ? `, stage ${stage}` : ""} · ${said}`;
   }
+  if (next) return `next: ${shellLine(next)} · run ${status.state}, more to read`;
   if (status.state === "interrupted") {
     const go = continueOf(status, read.log.lines, place);
     return `run interrupted${go ? ` · continue: ${go}` : ""}`;

@@ -422,7 +422,9 @@ Neither command reports the run's outcome in its exit code.
   newest event.
 - A reader ignores kinds and fields it does not know. `v` changes only when something is renamed or
   removed.
-- Once the run has ended, `next` is absent and `run` gains `duration`; `run.state` is the outcome.
+- Once the run has ended, `run` gains `duration` and `run.state` is the outcome; `next` is absent
+  once a page reaches the newest event. Before that, `next` pages on, without `--wait`, and the
+  text trailer is `next: … · run {state}, more to read`.
 - Times are always ISO.
 - In `awf runs {ref} --json`, best-effort fields sit under `live: {phase, lastActivity, observedAt}`,
   so the split between durable and best-effort is in the structure.
@@ -958,6 +960,9 @@ shell by following each `next:` with `--wait 90`, as an agent would.
   line, cut); paging from the start read each file to its end per page (now at most 4 MB of each
   per read, the page stopping where the shortest stopped, so time order holds and nothing is
   read twice).
+- Branch review, round 4: a run that had ended printed no `next` in text, so a page that stopped
+  before its newest event, and the "from the start" route a cut read offers, ended there (now
+  `next: … · run {state}, more to read` until the newest, without `--wait`).
 
 ## Related
 
