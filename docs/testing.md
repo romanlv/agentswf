@@ -71,12 +71,15 @@ What they cover between them:
   Herdr pane, through `awf run`. Every answer must be right, each including a follow-up in the same
   session, and every agent's spend known and billed to its subscription, but cursor's: its billing
   is unknown, and a pane's cursor prints no usage. 6 agents, ~40 s, ~$0.13.
-- `messaging` — story 029's headless delivery, on claude, codex, pi and cursor, with
-  `--await-reply` forced on: an asker asks a keeper that has never run for a codeword only it
-  knows, the question wakes the keeper, and its answer resumes the asker's same call. Every asker
-  must return the codeword, every keeper be woken by the question, and each delivery be `observed`
-  in its session's record, but cursor's, whose store awf cannot read: `unconfirmed`.
-  `bun tests/messaging.eval.ts codex pi` runs only those. 8 agents, ~25 s, ~$0.24.
+- `messaging` — story 029's delivery, with `--await-reply` turned on for what it tests: an asker
+  asks a keeper that has never run for a codeword only it knows, the question wakes the keeper,
+  and its answer resumes the asker's same call. Headless on claude, codex, pi and cursor, and in a
+  pane: a claude asker waiting in its pane for a claude pane keeper, and a codex, pi or cursor pane
+  keeper asked from headless. Every asker must return the codeword, every keeper be woken by the
+  question, the asker run one operation, and each delivery be `observed` where evidence exists (a
+  headless session's record, a claude pane's receipt), `unconfirmed` where it cannot (cursor's
+  store, a codex, pi or cursor pane). `bun tests/messaging.eval.ts codex-pane` runs one; with no
+  names, the four headless ones. 8 agents each way, ~25 s, ~$0.25.
 - `compaction` — native compaction (stories 015, 019) on every harness in panes and headless: each
   compacts with a focus naming a codename it was never told, then must recall it and what it noted
   before. A headless cursor, which has none, must refuse, saying why. `bun

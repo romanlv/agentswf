@@ -513,7 +513,7 @@ The reasons are in the design's Decisions.
 - [x] 4. The runner wakes, continues and closes through it, against the fake harness
 - [x] 5. `wf peers`, `wf send` and `wf reply` work over the control plane and the sandbox door
 - [x] 6. Headless agents receive messages and await replies
-- [ ] 7. Panes receive messages when idle, and claude panes await replies
+- [x] 7. Panes receive messages when idle, and claude panes await replies
 - [ ] 8. A workflow's tests script messages; the progress view, logs and usage show them
 - [ ] 9. Agents use messaging correctly live (M2); the review example converges; docs updated
 
@@ -1037,6 +1037,28 @@ waiting on them; these are the drafts the gate named, as built and reviewed.
 - Review: both reviewers' findings are resolved: the evidence read only from where the turn began,
   in the session's own file, the probe masked as the rows are; tests for a same-line delivery that
   fails to run, the engine recording `observed`, and headless `wf waiting` and held messages.
+
+### Task 7
+
+- Story 024's code is merged; only its human review is open, and task 7 relies on nothing else of
+  it.
+- The pane backend needed no change: it settles a pane before typing any turn but a compaction, a
+  delivery included (`herdr.ts` `execute`), and arms the claude receipt for every turn on a pane
+  that confirms delivery, so a delivery to a claude pane is `observed` once its session shows the
+  model took it. Only a claude pane on the host, or one in the run's own Herdr session with a home
+  of its own, confirms delivery; anywhere else `--await-reply` is `unsupported`, a sandbox's own
+  Herdr included (Q9). A real harness's pane goes on the list only as `confirmed`.
+- With delivery evidence, a turn's end waits a few seconds for the receipt before a delivery is
+  `unconfirmed`, since the receipt is read from the session's file.
+- Tests: a delivery types nothing while the pane's agent works and nothing once withdrawn, and a
+  claude pane's carries its receipt marker; a claude pane in a sandbox's own Herdr cannot wait.
+- Live, 2026-10-12, on main's pasted multi-line prompts: a claude asker waited in its pane
+  (`awaiting-reply`, then `continued` by the reply) for a claude pane keeper; codex, pi and cursor
+  pane keepers were woken in their panes by a headless asker. Every asker returned the codeword;
+  claude panes' deliveries were `observed`, the others' panes' `unconfirmed`. ~$0.26 for the four,
+  ~$0.20 for claude's alone.
+- Review: both reviewers' findings are resolved: rebased on main's claude pane paste and rerun;
+  the receipt's grace; stronger pane tests; the eval's default back to the headless four.
 
 ## Human review
 

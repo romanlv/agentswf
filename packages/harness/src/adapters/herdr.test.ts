@@ -1306,6 +1306,131 @@ describe("createHerdrRunHostFactory", () => {
     await host.close();
   });
 
+  test("a delivery is typed into the agent's own pane only once it has settled, and may repeat", async () => {
+    const { run, calls } = hostStub();
+    const host = await createHerdrRunHostFactory(CONFIG, run).openRun({
+      runId: "run-1",
+      cwd: "/repo",
+      deadline: deadline(),
+    });
+    const session = await host.openAgent({
+      key: "fixer",
+      cwd: "/repo",
+      deadline: deadline(),
+      execution: { harness: "codex", model: "gpt-5.6-sol" },
+    });
+    const first = await session.start(
+      { id: "one", prompt: "fix what the lenses send", deadline: deadline() },
+      binding("op-1"),
+    );
+    const message = { kind: "message" as const, from: "lens", text: "Off by one." };
+    const delivered = await first.deliver({
+      id: "one:message:1",
+      prompt: "Message from lens, on the route \u201cReport.\u201d",
+      deadline: deadline(),
+      authored: { prompt: "fix what the lenses send", messages: [message] },
+    });
+    await (
+      await delivered.deliver({
+        id: "one:message:2",
+        prompt: "Message from lens: done.",
+        deadline: deadline(),
+        authored: { prompt: "fix what the lenses send", messages: [message] },
+      })
+    ).settled;
+    const prompts = calls.filter((call) => verb(call) === "agent prompt");
+    expect(prompts.map((call) => call.argv[6])).toEqual([
+      "fix what the lenses send",
+      "Message from lens, on the route \u201cReport.\u201d",
+      "Message from lens: done.",
+    ]);
+    expect(new Set(prompts.map((call) => call.argv[5])).size).toBe(1);
+    // Never typed into a busy agent: each waits for it to settle first.
+    const order = calls.map(verb).filter((v) => v === "agent prompt" || v === "agent wait");
+    expect(order).toEqual([
+      "agent prompt",
+      "agent wait",
+      "agent prompt",
+      "agent wait",
+      "agent prompt",
+    ]);
+    await host.close();
+  });
+
+  test("a delivery types nothing while the agent works, and nothing at all once withdrawn", async () => {
+    const base = hostStub();
+    let hold = false;
+    let release!: () => void;
+    let entered!: () => void;
+    const waiting = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    const run: RunProcess = async (input) => {
+      if (hold && verb(input) === "agent wait") {
+        entered();
+        await new Promise<void>((resolve) => {
+          release = resolve;
+          input.signal?.addEventListener("abort", () => resolve(), { once: true });
+        });
+        if (input.signal?.aborted)
+          return { stdout: "", stderr: "", exitCode: 130, cancelled: true, timedOut: false };
+      }
+      return base.run(input);
+    };
+    const host = await createHerdrRunHostFactory(CONFIG, run).openRun({
+      runId: "held-delivery",
+      cwd: "/repo",
+      deadline: deadline(),
+    });
+    const session = await host.openAgent({
+      key: "fixer",
+      cwd: "/repo",
+      deadline: deadline(),
+      execution: { harness: "claude", model: "test" },
+    });
+    const first = await session.start(
+      { id: "one", prompt: "fix", deadline: deadline() },
+      binding("op-1"),
+    );
+    await first.settled;
+    const typed = () => base.calls.filter((call) => verb(call) === "agent prompt").length;
+    const before = typed();
+    hold = true;
+    const message = { kind: "message" as const, from: "lens", text: "Off by one." };
+    const withdrawn = new AbortController();
+    const pending = first.deliver({
+      id: "one:message:1",
+      prompt: "Message from lens.\nOff by one.",
+      deadline: deadline(),
+      deliverySignal: withdrawn.signal,
+      authored: { prompt: "fix", messages: [message] },
+    });
+    await waiting;
+    expect(typed()).toBe(before);
+    withdrawn.abort();
+    const cancelled = await pending;
+    expect((await cancelled.settled).state).toBe("cancelled");
+    expect(typed()).toBe(before);
+    // The next delivery waits the same way, and is typed once the agent has settled; on a claude
+    // pane it carries the receipt marker its delivery is confirmed by.
+    const next = cancelled.deliver({
+      id: "one:message:2",
+      prompt: "Message from lens.\nStill off by one.",
+      deadline: deadline(),
+      authored: { prompt: "fix", messages: [message] },
+    });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(typed()).toBe(before);
+    hold = false;
+    release();
+    const delivered = await next;
+    expect(delivered.delivery).toBeDefined();
+    await delivered.settled;
+    expect(typed()).toBe(before + 1);
+    expect(base.calls.some((call) => call.argv.join(" ").includes("[awf-delivery:"))).toBe(true);
+    await host.close();
+  });
+
   test("an answered turn is left to finish in its pane, and the next operation waits for it", async () => {
     const base = hostStub();
     let endFirst!: () => void;

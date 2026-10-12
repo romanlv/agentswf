@@ -309,6 +309,8 @@ type AgentIdentity = {
 };
 
 const CLEANUP_GRACE_MILLISECONDS = 5_000;
+/** How long after a pane's turn ends its receipt may still be read from the session's file. */
+const RECEIPT_GRACE_MS = 10_000;
 /** What a fork of the session the run was started from names as its parent. */
 const CALLING = "the calling session";
 /** A fork asks no model: it copies a session file, in seconds (F7). */
@@ -2810,8 +2812,18 @@ class LogicalAgent implements AgentRef {
       messaging.confirmed(operationId, numbers, state);
     };
     if (turn.delivery) {
-      void turn.delivery.received.then(() => say("observed"));
-      void turn.delivery.failed.then(() => say("unconfirmed"));
+      const { received, failed } = turn.delivery;
+      void received.then(() => say("observed"));
+      void failed.then(() => say("unconfirmed"));
+      // A receipt read from the session's file may come just after the turn has ended.
+      void turn.settled.then(() =>
+        Promise.race([
+          received,
+          failed,
+          new Promise((resolve) => setTimeout(resolve, RECEIPT_GRACE_MS).unref()),
+        ]).then(() => say("unconfirmed")),
+      );
+      return turn;
     }
     // Headless, the resumed session's own record is the evidence, read as the turn ends.
     void turn.settled.then((outcome) => say(outcome.observed ? "observed" : "unconfirmed"));

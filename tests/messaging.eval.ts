@@ -4,16 +4,28 @@ import { join } from "node:path";
 import type { OutputRecord, RunLogLine } from "../packages/contract/src/records";
 import { canAwaitReply } from "../packages/engine/src/messaging/limits";
 import { runOperatorCli } from "../packages/engine/src/operator-cli";
-import { CODEWORD, RUNTIMES, type SmokeResult } from "./fixtures/messaging-smoke";
+import { CODEWORD, HEADLESS_NAMES, RUNTIMES, type SmokeResult } from "./fixtures/messaging-smoke";
 import { assertLiveOptIn, interruption } from "./live";
 
 /**
- * Story 029's headless delivery smoke, with `--await-reply` forced on for the harnesses named (all
- * four by default): a question wakes a keeper that has never run, its answer resumes the asker's
- * same call, and the record shows both delivered and seen. Two agents a harness.
- * `bun tests/messaging.eval.ts codex pi` runs only those.
+ * Story 029's delivery smoke, with `--await-reply` turned on for what it runs: a question wakes a
+ * keeper that has never run, its answer resumes the asker's same call, and the record says what
+ * confirmed each delivery. With no names, the four headless pairs; `claude-pane`, `codex-pane`,
+ * `pi-pane` and `cursor-pane` run a pane's. Two agents each.
  */
 const SMOKE = join(import.meta.dir, "fixtures/messaging-smoke.ts");
+
+/**
+ * Whether a delivery to this side can be confirmed: a claude pane's receipt, or a headless
+ * session's own record but cursor's, which keeps its chats in a SQLite store awf cannot read. A
+ * codex, pi or cursor pane gives no evidence.
+ */
+function confirmable(name: string, side: "asker" | "keeper"): boolean {
+  const { asker, keeper } = RUNTIMES[name]!;
+  const execution = side === "asker" ? asker : keeper;
+  if (execution.placement !== "headless") return execution.harness === "claude";
+  return execution.harness !== "cursor";
+}
 
 export async function problems(
   exitCode: number,
@@ -43,9 +55,10 @@ export async function problems(
       (line) => line.kind === "turn" && line.agent === keeper && line.cause?.message.from,
     );
     if (!woken) found.push(`${name}: the keeper was not woken by the question`);
-    // cursor keeps its chats in a SQLite store awf cannot read, so nothing confirms a delivery.
-    const expected = name === "cursor" ? "unconfirmed" : "observed";
     for (const agent of [keeper, `asker:${name}`]) {
+      const expected = confirmable(name, agent === keeper ? "keeper" : "asker")
+        ? "observed"
+        : "unconfirmed";
       const states = lines.flatMap((line) =>
         line.kind === "message-delivery" && line.state !== "offered" && line.to === agent
           ? [line.state]
@@ -66,7 +79,7 @@ export async function problems(
 
 if (import.meta.main) {
   assertLiveOptIn();
-  const names = process.argv.slice(2).length ? process.argv.slice(2) : Object.keys(RUNTIMES);
+  const names = process.argv.slice(2).length ? process.argv.slice(2) : HEADLESS_NAMES;
   const workDir = await mkdtemp(join(tmpdir(), "awf-messaging-"));
   const output: string[] = [];
   const exitCode = await runOperatorCli(
@@ -86,19 +99,15 @@ if (import.meta.main) {
       signal: interruption(),
       stdout: (text) => output.push(text),
       stderr: (text) => console.error(text),
-      // The list is off until M2 passes on a harness; this smoke turns each on, headless, to show
-      // its delivery works.
+      // The list is off until M2 passes on a harness; this smoke turns each on to show its delivery
+      // works: headless, and in a claude pane that confirms what it was sent.
       awaitReply: (execution, confirms) =>
-        canAwaitReply(
-          execution,
-          confirms,
-          Object.fromEntries(
-            names.map((name) => [
-              RUNTIMES[name as keyof typeof RUNTIMES].harness,
-              { headless: true },
-            ]),
-          ),
-        ),
+        canAwaitReply(execution, confirms, {
+          claude: { headless: true, pane: "confirmed" },
+          codex: { headless: true },
+          pi: { headless: true },
+          cursor: { headless: true },
+        }),
     },
   );
   const record = output.length > 0 ? (JSON.parse(output.join("\n")) as OutputRecord) : undefined;

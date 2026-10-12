@@ -321,6 +321,27 @@ describe("a pane agent in a sandbox's own Herdr", () => {
     return { host, box, run, occupant, state };
   };
 
+  test("its claude cannot wait, even with a home of its own, so cannot await an answer (Q9)", async () => {
+    const { run, occupant } = setup();
+    const runHost = await createHerdrRunHostFactory(CONFIG, run).openRun({
+      runId: "run-1",
+      cwd: "/repo",
+      deadline: deadline(),
+    });
+    const session = await runHost.openAgent({
+      key: "waiter",
+      cwd: "/repo",
+      deadline: deadline(),
+      execution: { harness: "claude", model: "sonnet" },
+      home: "/run/homes/claude",
+      occupant: occupant(),
+    });
+    // Its receipt cannot be read from outside the box's own Herdr.
+    expect(session.supportsWaiting).toBeUndefined();
+    await session.close();
+    await runHost.close();
+  });
+
   test("opens one workspace in the box for its agents, drives them there, and closes it", async () => {
     const { host, box, run, occupant } = setup();
     const runHost = await createHerdrRunHostFactory(CONFIG, run).openRun({
