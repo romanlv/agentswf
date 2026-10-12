@@ -254,6 +254,7 @@ export const codex = defineHarness(CODEX, {
   readCostTotal: "codex prints no dollars; its tokens are priced from its rollouts",
   readCompactSummary: "codex keeps its compaction's summary opaque",
   allowancePane: "its app-server answers what `/status` shows, with no pane",
+  promptLead: "codex acts on a prompt Herdr pastes, with no words of the operator's beside it",
 });
 
 const CODEX_FOCUS_END = "Reply only: ok";

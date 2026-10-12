@@ -1402,6 +1402,7 @@ export function createHerdrRunHostFactory(
                     confirmsDelivery && operation.onReceived
                       ? await prepareClaudeReceipt(request.cwd, marker, request.home, {
                           sessionRef: operation.previousSessionRef ?? continued,
+                          ...(spec.promptLead ? { lead: spec.promptLead } : {}),
                           signal: operation.deliverySignal
                             ? AbortSignal.any([operation.deliverySignal, controller.signal])
                             : controller.signal,
@@ -1448,7 +1449,9 @@ export function createHerdrRunHostFactory(
                 const sent = await submitPrompt(
                   herdr,
                   placement.agentName,
+                  placement.paneId,
                   prompt,
+                  spec.promptLead,
                   waitMs,
                   controller.signal,
                 );

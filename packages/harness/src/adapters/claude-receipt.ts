@@ -14,18 +14,22 @@ const CHUNK_BYTES = 256 * 1024;
 const POLL_MS = 100;
 const SCAN_BATCH = 64;
 
-/** Only native prompt insertion and linked model output count; queued is not yet received. */
-export function createClaudeReceiptReducer(marker: string) {
+/**
+ * Only native prompt insertion and linked model output count; queued is not yet received. A prompt
+ * may follow the `lead` typed before it.
+ */
+export function createClaudeReceiptReducer(marker: string, lead?: string) {
   const parents = new Map<string, string | undefined>();
   const inputs = new Set<string>();
   let accepted = false;
   let received = false;
   const matches = (value: unknown) => {
     if (typeof value !== "string") return false;
-    if (value.startsWith(marker)) return true;
+    const prompt = lead && value.startsWith(lead) ? value.slice(lead.length) : value;
+    if (prompt.startsWith(marker)) return true;
     // Claude wraps terminal bracketed pastes before persisting the human input.
-    const paste = /^\n\n<pasted_content id="[A-Za-z0-9]+">\n/.exec(value);
-    return paste !== null && value.slice(paste[0].length).startsWith(marker);
+    const paste = /^\n\n<pasted_content id="[A-Za-z0-9]+">\n/.exec(prompt);
+    return paste !== null && prompt.slice(paste[0].length).startsWith(marker);
   };
   return {
     push(value: unknown): { accepted: boolean; received: boolean } {
@@ -118,7 +122,7 @@ export async function prepareClaudeReceipt(
   cwd: string,
   marker: string,
   home?: string,
-  options: { sessionRef?: string; signal?: AbortSignal } = {},
+  options: { sessionRef?: string; signal?: AbortSignal; lead?: string } = {},
 ) {
   options.signal?.throwIfAborted();
   const directory = await claudeProjectDirectory(cwd, home);
@@ -158,7 +162,7 @@ export async function prepareClaudeReceipt(
       bytes: 0,
       protected: name === known,
       partial: Buffer.alloc(0),
-      ...(name === known ? { reducer: createClaudeReceiptReducer(marker) } : {}),
+      ...(name === known ? { reducer: createClaudeReceiptReducer(marker, options.lead) } : {}),
     };
     progress.set(name, cursor);
     return cursor;
@@ -357,7 +361,7 @@ export async function prepareClaudeReceipt(
                   workBytes += read.bytesRead;
                   if (signal.aborted) return;
                   if (read.bytesRead !== candidate.length) continue;
-                  const reducer = createClaudeReceiptReducer(marker);
+                  const reducer = createClaudeReceiptReducer(marker, options.lead);
                   const receipt = reducer.push(parseRow(row.toString("utf8")));
                   if (!receipt.accepted) continue;
                   cursor.protected = true;

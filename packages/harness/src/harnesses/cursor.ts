@@ -155,6 +155,7 @@ export const cursor = defineHarness(CURSOR, {
   interrupted:
     "cursor draws no line of its own for an interrupted turn: a stopped tool's line ends in `Cancelled`, and a stopped reply puts the prompt back in the input (2026.10.01)",
   readCompactSummary: "cursor draws its summary on the screen only; its transcript keeps none (C7)",
+  promptLead: "cursor acts on a prompt Herdr pastes, with no words of the operator's beside it",
   effort:
     "cursor names a model's effort in its id, as `gpt-5.6-luna-high`, or as a parameter whose key differs per model; a variant is chosen as the model (M3)",
   readAllowance:

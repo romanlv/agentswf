@@ -128,14 +128,24 @@ export function herdrFailure(result: Extract<HerdrResult, { ok: false }>, remain
   return localOutcome("failed", result.error);
 }
 
-/** Herdr owns paste framing and writes Enter only after the text reaches the PTY. */
+/**
+ * Herdr owns paste framing and writes Enter only after the text reaches the PTY. A `lead` is typed
+ * into `pane` first, short: `pane send-text` writes raw keys, and a long text so typed lost its
+ * start to the harness's own paste detection.
+ */
 export async function submitPrompt(
   herdr: HerdrCommand,
   target: string,
+  pane: string,
   prompt: string,
+  lead: string | undefined,
   waitMs: number,
   signal: AbortSignal,
 ): Promise<HerdrResult> {
+  if (lead && prompt.includes("\n")) {
+    const typed = await herdr(["pane", "send-text", pane, lead], waitMs, signal);
+    if (!typed.ok) return typed;
+  }
   return herdr(
     ["agent", "prompt", target, prompt, "--wait", "--timeout", String(waitMs)],
     waitMs + HERDR_REPORT_GRACE_MS,

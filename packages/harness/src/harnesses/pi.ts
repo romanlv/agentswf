@@ -179,6 +179,7 @@ export const pi = defineHarness(PI, {
   keepTurnUsage: "pi logs each request in its session files",
   readCostTotal: "pi prints each request's cost, which readCharge reads",
   findSession: "Herdr names a pi pane's session by its file (story 017)",
+  promptLead: "pi acts on a prompt Herdr pastes, with no words of the operator's beside it",
   localSockets: "only codex's own sandbox was found blocking local sockets (E8)",
   readAllowance:
     "pi has no plan usage command (0.87.1); its OAuth logins draw on claude's and codex's plans, which their own readers show",

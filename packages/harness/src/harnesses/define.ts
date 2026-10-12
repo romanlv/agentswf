@@ -87,6 +87,11 @@ export type HarnessSpec = {
    */
   herdrSessionIsOwn: boolean;
   /**
+   * Words typed into its pane before a prompt of several lines, which Herdr pastes: its model may
+   * not act on a paste with none of the operator's own words beside it (claude 2.1.296).
+   */
+  promptLead?: string;
+  /**
    * A retained interactive launch, independent of the terminal provider that hosts it, with the
    * arguments its launch adds last, where nothing follows to be swallowed. A harness that can be
    * told its new session's id takes `sessionHint`, and its plan's `sessionId` says it did.

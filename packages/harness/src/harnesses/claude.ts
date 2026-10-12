@@ -72,6 +72,8 @@ const CLAUDE = {
   herdrSessionIsOwn: true,
   sessionEnv: "CLAUDE_CODE_SESSION_ID",
   interrupted: "Interrupted · What should Claude do instead?",
+  // Sonnet declined about one in eight pasted prompts alone, none of 36 with this typed before.
+  promptLead: "Do what the pasted text below asks. ",
   login: claudeLogin,
   // `Bash` has to be allowed or the agent cannot run `wf` at all, which would measure the
   // permission prompt rather than the return channel.

@@ -280,7 +280,9 @@ export function createCallerHostFactory(
             const sent = await submitPrompt(
               herdr,
               pane,
+              pane,
               operation.prompt,
+              spec.promptLead,
               waitMs,
               controller.signal,
             );

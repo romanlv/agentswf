@@ -252,6 +252,21 @@ test("native bracketed paste wrapper preserves marker identity and ancestry", ()
   expect(echo.push({ ...user(), message: { content: `quoted ${marker}` } }).accepted).toBe(false);
 });
 
+test("a prompt pasted after its typed lead is the delivery, and other words before it are not", () => {
+  const lead = "Do what the pasted text below asks. ";
+  const pasted = `\n\n<pasted_content id="be6e">\n${marker} prompt\n</pasted_content id="be6e">\n`;
+  const reader = createClaudeReceiptReducer(marker, lead);
+  expect(reader.push({ ...user(), message: { content: `${lead}${pasted}` } }).accepted).toBe(true);
+  const inline = createClaudeReceiptReducer(marker, lead);
+  expect(inline.push({ ...user(), message: { content: `${lead}${marker} prompt` } }).accepted).toBe(
+    true,
+  );
+  const other = createClaudeReceiptReducer(marker, lead);
+  expect(other.push({ ...user(), message: { content: `Other words. ${pasted}` } }).accepted).toBe(
+    false,
+  );
+});
+
 test("historical cwd sessions do not exhaust the live receipt file budget", async () => {
   const home = await mkdtemp(join(tmpdir(), "awf-receipt-"));
   const directory = join(home, "projects", "-probe");

@@ -2023,7 +2023,13 @@ describe("createHerdrRunHostFactory", () => {
       expect(prompts[0]!.argv[6]?.replace(/^\[awf-delivery:[^\]]+\] /, "")).toBe(
         "You write the tests.\n\ntest",
       );
-      expect(calls.some((call) => verb(call) === "pane send-text")).toBe(false);
+      // Claude may not act on a paste alone: a short line of the operator's is typed before it,
+      // and the prompt itself still goes whole through Herdr's paste.
+      const typed = calls.filter((call) => verb(call) === "pane send-text");
+      expect(typed.map((call) => call.argv.at(-1))).toEqual([
+        "Do what the pasted text below asks. ",
+      ]);
+      expect(calls.indexOf(typed[0]!)).toBeLessThan(calls.indexOf(prompts[0]!));
       await host.close();
     });
 

@@ -177,8 +177,9 @@ The gates are defined in [`foundation.md`](foundation.md) §12.
   call: claude, codex and pi in a pane or headless, into either, in a sandbox too, and cursor
   headless (in a pane too since story 019). Every fork reads its parent's cache, codex's and cursor's by keeping their parent's
   key; cursor's was measured on `composer-2.5` only ([findings](findings/fork-cache.md)). A headless claude turn charges what it added to its
-  session's total. Claude panes are typed their prompts, which claude 2.1.288 otherwise shows as
-  pasted text and will not act on.
+  session's total. A claude pane's prompt of several lines is pasted whole, after a short line
+  typed before it: claude shows a paste alone as pasted text, and sonnet declined about one in
+  eight such prompts (claude 2.1.296); typed in full, a long prompt lost its start.
 - [017 — pi in panes](stories/017-pi-pane-agent.md): done, approved 2026-10-01. pi runs in a Herdr
   pane, on the host and in srt and docker sandboxes, and compacts there with a focus.
 - [018 — workflow stages](stories/018-workflow-stages.md): done, approved 2026-10-05. Runs with ids and attempts,
