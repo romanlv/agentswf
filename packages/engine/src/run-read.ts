@@ -353,10 +353,13 @@ export async function readRun(
             : {}),
         });
       let read = await readFrom(files[name] ?? 0);
-      // A stretch with no row that names a time places nothing: read on past it.
-      while (bounded && read.more && !read.rows.some((row) => !Number.isNaN(Date.parse(row.at)))) {
-        read = await readFrom(read.offset);
-      }
+      // A stretch with no row of the run's, untimed or outside its windows, as the operator's own
+      // conversation in a calling session's file, shows nothing: read on past it.
+      const ours = (row: { at: string }) => {
+        const time = Date.parse(row.at);
+        return !Number.isNaN(time) && agent !== undefined && operationAt(agent, time) !== undefined;
+      };
+      while (bounded && read.more && !read.rows.some(ours)) read = await readFrom(read.offset);
       if (read.cut) cut = true;
       if (bounded && read.more) {
         let reached = Number.NEGATIVE_INFINITY;
