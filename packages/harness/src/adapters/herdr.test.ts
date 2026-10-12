@@ -2092,9 +2092,11 @@ describe("createHerdrRunHostFactory", () => {
     await (
       await session.start({ id: "one", prompt: "review", deadline: deadline() }, binding("op-1"))
     ).settled;
-    expect(argv(calls, "agent start").slice(-6)).toEqual([
+    expect(argv(calls, "agent start").slice(-8)).toEqual([
       "--model",
       "opus",
+      "--settings",
+      '{"crossSessionInbound":"refuse"}',
       "--setting-sources",
       "project,local",
       "--add-dir",

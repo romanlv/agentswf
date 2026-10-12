@@ -62,6 +62,7 @@ describe("sandboxNeeds", () => {
     expect(JSON.parse(settings!.contents)).toEqual({
       skipDangerousModePermissionPrompt: true,
       permissions: { defaultMode: "bypassPermissions" },
+      crossSessionInbound: "refuse",
     });
     expect({ ...needs, defaults: [] }).toEqual({
       env: { CLAUDE_CONFIG_DIR: agentHome },

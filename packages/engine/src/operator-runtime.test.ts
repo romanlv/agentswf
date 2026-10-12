@@ -4,6 +4,7 @@ import { mkdir, mkdtemp, rm, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ProcessInput, ProcessResult, RunProcess } from "@agentswf/harness";
+import type { Occupant } from "@agentswf/sandbox";
 import {
   callerSession,
   installDecisions,
@@ -319,11 +320,30 @@ describe("operator runtime", () => {
         deadline,
         execution: { harness: "codex", model: "m", placement: "headless" },
       });
-      const turn = await codex.start(
-        { id: "turn-1", prompt: "review", deadline },
-        { endpoint: "/private/engine.sock", operationId: "op-1" },
-      );
-      await turn.settled;
+      await (
+        await codex.start(
+          { id: "turn-1", prompt: "review", deadline },
+          { endpoint: "/private/engine.sock", operationId: "op-1" },
+        )
+      ).settled;
+      // A provider sets the whole environment; one that carried the markers in is still stripped.
+      const occupant: Occupant = {
+        launch: (root) => ({ ...root, env: { HOME: "/box", ...MARKERS_SET }, group: true }),
+        release: async () => undefined,
+      };
+      const sandboxed = await host.openAgent({
+        key: "sandboxed",
+        cwd: "/repo",
+        deadline,
+        execution: { harness: "codex", model: "m", placement: "headless" },
+        occupant,
+      });
+      await (
+        await sandboxed.start(
+          { id: "turn-2", prompt: "review", deadline },
+          { endpoint: "/private/engine.sock", operationId: "op-2" },
+        )
+      ).settled;
       await host
         .openAgent({
           key: "pane",
@@ -333,19 +353,16 @@ describe("operator runtime", () => {
         })
         .catch(() => undefined);
       await host.close();
-      const headless = calls.find((call) => call.argv[0] === "codex" && call.argv[1] === "exec");
+      const [headless, inBox] = calls.filter(
+        (call) => call.argv[0] === "codex" && call.argv[1] === "exec",
+      );
+      expect(inBox && "group" in inBox).toBe(true);
       const workspace = calls.find(
         (call) => call.argv.slice(3, 5).join(" ") === "workspace create",
       );
-      // The calling session's markers, and what would override the effort an agent is launched at.
-      for (const name of [
-        "CLAUDECODE",
-        "CLAUDE_CODE_SESSION_ID",
-        "CLAUDE_CODE_MESSAGING_TOKEN",
-        "CLAUDE_EFFORT",
-        "CLAUDE_CODE_EFFORT_LEVEL",
-      ]) {
+      for (const name of Object.keys(MARKERS_SET)) {
         expect(headless?.env).toHaveProperty(name, undefined);
+        expect(inBox?.env).not.toHaveProperty(name);
         expect(workspace?.argv).toContain(`${name}=`);
       }
     } finally {
@@ -635,6 +652,19 @@ describe("operator runtime", () => {
     }
   });
 });
+
+// The calling session's markers, its messaging route, and what would override the effort an agent
+// is launched at.
+const MARKERS_SET = Object.fromEntries(
+  [
+    "CLAUDECODE",
+    "CLAUDE_CODE_SESSION_ID",
+    "CLAUDE_CODE_MESSAGING_SOCKET",
+    "CLAUDE_CODE_MESSAGING_TOKEN",
+    "CLAUDE_EFFORT",
+    "CLAUDE_CODE_EFFORT_LEVEL",
+  ].map((name) => [name, "set"]),
+);
 
 function subscriptionRunner(calls: ProcessInput[]): RunProcess {
   let codexTurns = 0;

@@ -90,7 +90,7 @@ The gates are defined in [`foundation.md`](foundation.md) §12.
 | 1 — the harness stands alone | in progress: no standalone command is accepted yet |
 | 2 — minimum engine and control plane | done (story 001) |
 | 3 — measure and run something real | in progress: catalogue review runs; accounting done (story 002); E4 not run |
-| 4 — messaging, composition, checkpoints, then the journal | not started; messaging is [story 029](stories/029-agent-messaging.md), ready |
+| 4 — messaging, composition, checkpoints, then the journal | not started; messaging is [story 029](stories/029-agent-messaging.md), in progress: task 1 done |
 
 ## Stories
 

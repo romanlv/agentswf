@@ -46,13 +46,23 @@ function claudeInteractive(
  * silently (M4).
  */
 function claudeSettings({ model, effort }: LaunchSettings): string[] {
-  return [...(model ? ["--model", model] : []), ...(effort ? ["--effort", effort] : [])];
+  return [
+    ...(model ? ["--model", model] : []),
+    ...(effort ? ["--effort", effort] : []),
+    ...REFUSE_CROSS_SESSION,
+  ];
 }
+
+/**
+ * Peers reach an agent only through awf's routes, so claude's own messaging from the user's other
+ * sessions is refused: a restrictive value, which no other settings source can loosen.
+ */
+const REFUSE_CROSS_SESSION = ["--settings", JSON.stringify({ crossSessionInbound: "refuse" })];
 
 const CLAUDE = {
   // What a Claude Code session sets for the commands it runs. The findings tie inherited
-  // `CLAUDE_*` to a pane claude saving no transcript, and the messaging token would let an agent
-  // message the operator's session.
+  // `CLAUDE_*` to a pane claude saving no transcript. The messaging socket and token are the
+  // operator's session's own; an agent's claude has its own, so they gate nothing it can reach.
   callingSessionEnv: [
     "AI_AGENT",
     "CLAUDECODE",
@@ -162,7 +172,7 @@ const CLAUDE = {
       ...launchArgs,
       "--output-format",
       "json",
-      ...(model ? ["--model", model] : []),
+      ...claudeSettings({ model }),
     ],
     stdin: "/cost",
     sessionId: newSessionId,

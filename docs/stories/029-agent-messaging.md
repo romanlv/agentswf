@@ -3,7 +3,7 @@ id: "029"
 title: Agents in a run message each other over routes the workflow grants
 summary: "`workflow.messages.allow` grants routes with a purpose; agents use `wf peers`, `wf send [--await-reply]` and `wf reply`; a message reaches an agent at a turn boundary and wakes it if idle, an awaited reply continues the sender's operation, and the engine owns delivery, obligations, limits and the record."
 type: story
-status: ready
+status: in-progress
 priority: P1
 epic: authoring
 discovered_in: "docs/design/messaging.md, settled with the user 2026-10-11"
@@ -291,8 +291,8 @@ yet measured.
 - **`src/session-core.ts`:** replaces the stub, reusing the nudge path's delivery evidence.
 - **`src/adapters/direct-process.ts`:** headless delivery through `resumeTurn`.
 - **`src/adapters/herdr.ts`:** pane delivery when idle.
-- **`src/harnesses/claude.ts`:** `crossSessionInbound` passed by `--settings` on the host.
-- **`src/sandbox-needs.ts`:** `crossSessionInbound` in seeded sandbox settings.
+- **`src/harnesses/claude.ts`:** `crossSessionInbound` passed by `--settings` on every agent launch.
+- **`src/sandbox-needs.ts`:** `crossSessionInbound` in seeded sandbox settings too.
 - **`src/testing/fake.ts`:** `deliver`, in task 2, so later tasks can run against the fake.
 
 ### engine
@@ -507,7 +507,7 @@ The reasons are in the design's Decisions.
 
 ## Tasks at a glance
 
-- [ ] 1. Claude agents cannot message around their routes (M1)
+- [x] 1. Claude agents cannot message around their routes (M1)
 - [ ] 2. Types, wire v4, record format and the `deliver` seam are settled
 - [ ] 3. The messaging logic admits, queues and settles, as pure code
 - [ ] 4. The runner wakes, continues and closes through it, against the fake harness
@@ -825,6 +825,40 @@ Manual or live, with costs estimated in [[testing]] first:
 - [x] Open questions are resolved or explicitly moved out of scope.
 
 ## Implementation notes
+
+### Task 1
+
+- claude 2.1.296 has `crossSessionInbound`: `accept`, `hold` or `refuse`. Unset, a message is
+  delivered only when sender and receiver are in the same permission-mode class. Settings sources
+  merge it as restrictive, so `refuse` from `--settings` cannot be loosened by the user's settings.
+  `--settings` takes a JSON string, and still applies under `--setting-sources project,local`.
+- Every agent launch passes `--settings '{"crossSessionInbound":"refuse"}'`: pane, pane resume,
+  headless, resume, compaction and fork. `claude -p /usage` and `claude auth status` are not agents
+  and do not. The seeded sandbox `settings.json` carries it too, as a backstop should a launch
+  path ever miss the flag.
+- In panes the variables are emptied (`NAME=`), not removed.
+- The withholding test is the existing "no agent inherits the markers" test in
+  `engine/src/operator-runtime.test.ts`, extended with `CLAUDE_CODE_MESSAGING_SOCKET` and a
+  sandboxed agent, which has them removed. Dropping the socket from the withheld names fails it.
+  `harness/src/harnesses/claude.test.ts` checks the flag on every claude plan, host and sandboxed.
+- Herdr passes the flag's JSON intact: `herdr agent start --kind claude -- --settings '{…}'`
+  reports it unchanged in its `argv`, and the pane's claude starts normally.
+- Live, 2026-10-12, every harness: 15 of 17 evals pass. Among them are every sandboxed claude
+  placement (`run-sandbox`, `run-sandbox-docker`, `sandbox-panes-srt`, `sandbox-panes-docker`,
+  `sandbox-srt`, `sandbox-docker`), `harnesses`, `calling-session`, `compaction`, `effort` and
+  `turn-liveness`. `harnesses` and `calling-session` failed only while other live runs shared
+  Herdr, and pass alone. `skills` started no agent: a sandboxed cursor needs `CURSOR_API_KEY`.
+  `fork` fails on `claude>headless` on main too, so not from this change. Its claude pane case
+  failed once on prompt delivery, then passed twice alone.
+- M1, measured 2026-10-12 ([[claude-session-messaging]]) and written up in
+  [[messaging#Claude's own messaging]]: every claude
+  that shares `~/.claude` sees and can write to every other, the operator's included, and
+  withholding the variables changes nothing, since a claude agent is a session of its own. A
+  claude with its own setup folder, as a sandboxed one has, reaches no one. `refuse` stops an
+  agent receiving; nothing stops it sending.
+- Decided by the human, 2026-10-12: a claude agent outside a sandbox may use claude's own
+  messaging for now, as it already runs on the operator's whole claude setup; it is documented, not
+  blocked. Giving agents a clean setup, by default, is [[agent-own-config]].
 
 ## Human review
 

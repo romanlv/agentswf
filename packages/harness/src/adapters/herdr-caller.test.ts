@@ -455,7 +455,7 @@ describe("createCallerHostFactory", () => {
       expect(calls.map(verb)[0]).toBe("agent wait");
       const fork = calls.find((input) => input.argv[0] === "claude")!;
       expect(fork.argv).toEqual(expect.arrayContaining(["--resume", "sess-1", "--fork-session"]));
-      expect(fork.argv.slice(-2)).toEqual(["--model", "claude-opus-5-5"]);
+      expect(fork.argv[fork.argv.indexOf("--model") + 1]).toBe("claude-opus-5-5");
       expect(fork.cwd).toBe(cwd);
     });
 

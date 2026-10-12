@@ -72,7 +72,8 @@ const SANDBOXED: Readonly<Record<Harness, SandboxedHarness | Absent>> = {
     // prompt, and loses that prompt otherwise (H3, H6). Headless asks for none; one home's files
     // serve both placements, and a trusted folder's project settings stay inside the sandbox.
     // Its permission prompts are off, as the sandbox answers what they would ask (permissions.md),
-    // in this home's user settings, which only a sandboxed claude reads.
+    // in this home's user settings, which only a sandboxed claude reads. Messages from other claude
+    // sessions are refused here too, for a launch that misses the `--settings` flag.
     defaults: (cwd) => [
       {
         name: ".claude.json",
@@ -87,6 +88,7 @@ const SANDBOXED: Readonly<Record<Harness, SandboxedHarness | Absent>> = {
         contents: `${JSON.stringify({
           skipDangerousModePermissionPrompt: true,
           permissions: { defaultMode: "bypassPermissions" },
+          crossSessionInbound: "refuse",
         })}\n`,
       },
     ],

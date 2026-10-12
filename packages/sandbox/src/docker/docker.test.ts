@@ -391,6 +391,8 @@ describe("the docker provider", () => {
     const beforePanes = calls.length;
     const pane = await occupant.pane!();
     const second = await occupant.pane!();
+    // The pane's environment is only what its prelude assigns, none of the engine's own.
+    expect(pane.prelude.startsWith("exec /usr/bin/env -i ")).toBe(true);
     const paned = calls.slice(beforePanes);
     expect(paned.filter(({ args }) => args.includes("server"))).toHaveLength(1);
     const written = paned.filter(({ stdin }) => stdin?.includes("sk-secret-value"));
