@@ -1025,12 +1025,13 @@ describe("check order", () => {
 
 describe("stages and deadlines", () => {
   test("a finishing stage drops what it held for an agent busy outside it, and keeps the rest", async () => {
-    const { messaging, open, events } = setup();
+    const { messaging, open, events, states } = setup();
     const plan = messaging.scope("plan");
     messaging.grant({ from: "reviewer", to: "implementer" }, { purpose: PURPOSE, scope: plan });
     messaging.grant({ from: "reviewer", to: "architect" }, { purpose: "Ask.", scope: plan });
     open("reviewer", "op-r", "workflow", plan);
     // Busy in another scope, and idle: only the first loses its message.
+    states.set("implementer", { state: "working" });
     open("implementer", "op-i", "workflow", messaging.scope("build"));
     await messaging.send("reviewer", { peer: "implementer", text: "late" });
     await messaging.send("reviewer", { peer: "architect", text: "wakes it" });

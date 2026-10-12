@@ -41,6 +41,7 @@ import {
   type JsonObject,
   type JsonValue,
   type KeepPane,
+  type MessageAccess,
   type OperationRecord,
   type OutputSchema,
   type PaneLayout,
@@ -67,6 +68,7 @@ import {
 import type {
   AgentRunHost,
   AgentRuntimeConfig,
+  AuthoredMessage,
   AuthoredTurn,
   HarnessActivation,
   HarnessReleaseDisposition,
@@ -99,9 +101,15 @@ import {
 import { RunDecisions } from "./decisions/directory";
 import type { DecisionInstallation } from "./decisions/seam";
 import { messageOf } from "./errors";
+import { superviseMessageOperation } from "./message-operation";
+import { canAwaitReply } from "./messaging/limits";
+import { type AgentView, type Delivery, Messaging, type OperationEnd } from "./messaging/messaging";
+import type { Scope as MessagingScope } from "./messaging/routes";
 import { createOperationEvents } from "./operation-events";
 import {
+  type LivenessEvent,
   type LivenessPolicy,
+  type OperationMessages,
   type OperationStop,
   type SupervisedOutcome,
   superviseOperation,
@@ -160,6 +168,11 @@ export type RunWorkflowOptions = {
   skillCache?: string;
   /** The decision models workflows may ask; without them, `decisions.decide` is refused. */
   decisions?: DecisionInstallation;
+  /**
+   * Where an agent may `--await-reply`: the engine's list by harness and placement unless given. A
+   * workflow's test allows it everywhere, as the fake harness can.
+   */
+  awaitReply?: (execution: AgentExecution, confirmsDelivery: boolean) => boolean;
 };
 
 /** What a run is known by once it has ended, whether or not it succeeded. */
@@ -463,6 +476,7 @@ export async function startWorkflow<Args extends JsonValue, Result extends JsonV
     events,
     onCallerStopped: options.onCallerStopped,
     livenessPolicy: options.livenessPolicy,
+    awaitReply: options.awaitReply ?? ((execution, confirms) => canAwaitReply(execution, confirms)),
   });
   const stopped = new AbortController();
   // Aborted by a stop that comes after the body ended; the one that ended it does not cut short the
@@ -478,7 +492,15 @@ export async function startWorkflow<Args extends JsonValue, Result extends JsonV
     let failed = false;
     try {
       value = await runUntilStopped(
-        () => Promise.race([definition.run(owner.context, args), fatal.promise]),
+        () =>
+          Promise.race([
+            // Its value waits for the message operations its routes outside any stage opened.
+            definition.run(owner.context, args).then(async (returned) => {
+              await owner.settleMessages();
+              return returned;
+            }),
+            fatal.promise,
+          ]),
         signal,
         options.deadline,
       );
@@ -670,6 +692,15 @@ class WorkflowOwner {
   readonly #cleanupFailures: Error[] = [];
   readonly context: WorkflowContext;
   readonly #agents = new Map<string, AgentEntry>();
+  /** Each agent once it has opened, by key: what messaging asks about, and what a ref must be. */
+  readonly #logical = new Map<string, LogicalAgent>();
+  readonly #messaging: Messaging;
+  /** A stage's execution scope, by its messaging scope: what owns the operations its routes open. */
+  readonly #stageScopes = new Map<MessagingScope, ExecutionScope>();
+  /** Message operations routes outside any stage opened, which the attempt owns. */
+  readonly #attemptOwned = new Set<Promise<unknown>>();
+  /** Resolves on any change to messaging, for a drain waiting on it. */
+  #messagingChange = Promise.withResolvers<void>();
   readonly #inFlight = new Set<Promise<unknown>>();
   #closed = false;
   #closing: Promise<unknown[]> | undefined;
@@ -708,8 +739,30 @@ class WorkflowOwner {
       log(message: string, fields?: JsonObject): void;
       events: RunEventLog;
       onCallerStopped?: RunWorkflowOptions["onCallerStopped"];
+      awaitReply: NonNullable<RunWorkflowOptions["awaitReply"]>;
     },
   ) {
+    this.#messaging = new Messaging({
+      agent: (key) => this.#agentView(key),
+      canAwait: (key) => {
+        const agent = this.#logical.get(key);
+        return agent ? options.awaitReply(agent.execution, agent.confirmsDelivery) : false;
+      },
+      launcher: (key) => this.#logical.get(key)?.launcher ?? "wf",
+      changed: (key) => {
+        this.#messagesChanged();
+        this.#logical.get(key)?.messagesChanged();
+      },
+      schedule: (at, action) => scheduleAt({ unixMilliseconds: at }, action),
+      now: Date.now,
+      record: async (event) => {
+        this.#messagesChanged();
+        if (!(await options.events.event({ ...event, callPath: [] }))) {
+          throw new Error("the run's event log was not written");
+        }
+      },
+    });
+    options.control.attach(this.#messaging);
     this.context = {
       runId: options.runId,
       attempt: options.attempt,
@@ -794,7 +847,7 @@ class WorkflowOwner {
         connect: () => unavailable("participants.connect"),
         get: () => unavailable("participants.get"),
       },
-      messages: { allow: () => unavailable("messages.allow") },
+      messages: { allow: async (access) => this.allowRoute(access) },
       steps: {
         run: () => unavailable("steps.run"),
         sleep: () => unavailable("steps.sleep"),
@@ -822,9 +875,122 @@ class WorkflowOwner {
     };
   }
 
+  /** An agent as messaging sees it, from its entry and its operations. */
+  #agentView(key: string): AgentView | undefined {
+    const agent = this.#logical.get(key);
+    if (!agent) return undefined;
+    const caller = agent.execution.caller ? { caller: true as const } : {};
+    const stopped = this.#agents.get(key)?.stopped ?? agent.closedReason;
+    if (stopped !== undefined) return { state: "stopped", reason: stopped, ...caller };
+    return { state: agent.busy ? "working" : agent.hasRun ? "idle" : "not-started", ...caller };
+  }
+
+  #messagesChanged(): void {
+    const change = this.#messagingChange;
+    this.#messagingChange = Promise.withResolvers<void>();
+    change.resolve();
+  }
+
+  /**
+   * Grants a route in the current stage, or for the attempt outside any. Its ends must be the refs
+   * this run issued: a spread or cast of one names an agent it did not hand out.
+   */
+  private allowRoute(access: MessageAccess): void {
+    if (this.#closed || this.#cleanupFailures.length) throw new Error("workflow context is closed");
+    const scope = scopes.getStore();
+    scope?.assertAccepting();
+    const end = (ref: unknown): string => {
+      const key =
+        typeof ref === "object" && ref !== null ? (ref as { key?: unknown }).key : undefined;
+      const agent = typeof key === "string" ? this.#logical.get(key) : undefined;
+      if (!agent || agent !== ref) {
+        throw new Error(
+          `a route's ends are agents this workflow opened; ${typeof key === "string" ? key : "this"} is not one`,
+        );
+      }
+      return agent.key;
+    };
+    if (typeof access !== "object" || access === null)
+      throw new Error("a route is { from, to } or { between }, with a purpose");
+    const shape = access as { from?: unknown; to?: unknown; between?: unknown };
+    let ends: { from: string; to: string } | { between: [string, string] };
+    if (shape.between !== undefined) {
+      if (shape.from !== undefined || shape.to !== undefined)
+        throw new Error("a route is between two agents, or from one to another, not both");
+      if (!Array.isArray(shape.between) || shape.between.length !== 2)
+        throw new Error("a route between agents names two of them");
+      ends = { between: [end(shape.between[0]), end(shape.between[1])] };
+    } else ends = { from: end(shape.from), to: end(shape.to) };
+    this.#messaging.grant(ends, {
+      purpose: access.purpose,
+      maxMessages: access.maxMessages,
+      scope: scope?.messages ?? this.#messaging.attempt,
+    });
+  }
+
+  /** Who owns a message operation a route in `scope` opens: its stage, or the attempt. */
+  #messageOwner(
+    scope: MessagingScope,
+  ): { stage?: ExecutionScope; adopt(operation: Promise<unknown>): void } | undefined {
+    if (scope.state === "closed") return undefined;
+    const stage = this.#stageScopes.get(scope);
+    if (stage) {
+      return {
+        stage,
+        adopt: (operation) => {
+          stage.adopt(operation);
+          this.#messagesChanged();
+        },
+      };
+    }
+    if (scope !== this.#messaging.attempt) return undefined;
+    return {
+      adopt: (operation) => {
+        this.#attemptOwned.add(operation);
+        this.#messagesChanged();
+        // The attempt owns it: one that times out or whose harness fails ends the run, even after
+        // the workflow returned a value.
+        operation.catch((error: unknown) => this.options.failRun(error as Error));
+      },
+    };
+  }
+
+  /**
+   * Until nothing a scope owns is in flight: its operations settled, and no answer owed or message
+   * held on its routes. A message held for an idle agent opens an operation meanwhile, which the
+   * scope then owns too.
+   */
+  private async drainMessages(scope: MessagingScope, settle: () => Promise<void>): Promise<void> {
+    for (;;) {
+      const change = this.#messagingChange.promise;
+      await settle();
+      if (!this.#messaging.busy(scope)) {
+        await settle();
+        if (!this.#messaging.busy(scope)) return;
+      }
+      await change;
+    }
+  }
+
+  /**
+   * The workflow returned: its routes outside any stage take nothing new, and the message
+   * operations they opened are waited for, as a stage waits for its own.
+   */
+  async settleMessages(): Promise<void> {
+    const attempt = this.#messaging.attempt;
+    this.#messaging.finishing(attempt);
+    await this.drainMessages(attempt, async () => {
+      const settled = await Promise.allSettled([...this.#attemptOwned]);
+      const failed = settled.find((each) => each.status === "rejected");
+      if (failed?.status === "rejected") throw failed.reason;
+    });
+  }
+
   async close(deadline: AbsoluteDeadline): Promise<unknown[]> {
     this.#closing ??= (async (): Promise<unknown[]> => {
       this.#closed = true;
+      // Nothing more is delivered; what was held is recorded undelivered.
+      this.#messaging.close();
       this.#closingRun.abort();
       // Each agent is closed by itself first, which knows whether its pane stays; then the host,
       // which closes whatever is left.
@@ -923,16 +1089,21 @@ class WorkflowOwner {
       return entered.value;
     }
     const open = entered.stage;
+    const messages = this.#messaging.scope(name);
     const scope = new ExecutionScope(
       parent?.deadline ?? this.options.deadline,
       parent?.group,
       name,
+      messages,
     );
+    this.#stageScopes.set(messages, scope);
     const removeFromParent = parent?.add((stop) => scope.cancel(stop));
     try {
       const returned: unknown = await scopes.run(scope, () => work());
+      // Its routes take nothing new; what they carry still goes before the stage ends.
+      this.#messaging.finishing(messages);
       scope.seal();
-      await scope.settleOwned();
+      await this.drainMessages(messages, () => scope.settleOwned());
       if (this.options.stages.stopped?.stage === name) throw this.options.stages.caught();
       const value = stageValue(name, options, returned);
       await open.succeed(value, summaryOf(name, options, value, this.options.onLog));
@@ -951,6 +1122,8 @@ class WorkflowOwner {
       }
       throw error;
     } finally {
+      this.#messaging.closeScope(messages);
+      this.#stageScopes.delete(messages);
       removeFromParent?.();
     }
   }
@@ -1448,9 +1621,11 @@ class WorkflowOwner {
     ledger: AgentLedger,
     seated?: Pick<SeatedAgent, "writeBack">,
   ): LogicalAgent {
-    return new LogicalAgent({
+    const agent = new LogicalAgent({
       key,
       runDir: this.options.runDir,
+      messaging: this.#messaging,
+      messageOwner: (scope) => this.#messageOwner(scope),
       execution,
       session,
       slots: this.options.slots,
@@ -1488,6 +1663,8 @@ class WorkflowOwner {
           }
         : {}),
     });
+    this.#logical.set(key, agent);
+    return agent;
   }
 
   /**
@@ -1808,13 +1985,29 @@ class LogicalAgent implements AgentRef {
   #last: TurnOutcome<never>["kind"] | undefined;
   #closed = false;
   #closePromise: Promise<void> | undefined;
+  /** Why it closed, once it has. */
+  #closedReason: string | undefined;
   /** The operation delivered last, which a fork taken now is copied after. */
   #lastOperation: string | undefined;
+  /** Operations queued or running: a message waits for them rather than waking it. */
+  #queued = 0;
+  /** An operation of its own has been delivered: a message to it continues its session. */
+  #hasRun = false;
+  /** Supervisors of its open operation, woken when something arrives for it. */
+  readonly #watchers = new Set<() => void>();
 
   constructor(
     private readonly options: {
       key: string;
       runDir: string;
+      messaging: Messaging;
+      /**
+       * What owns a message operation a route in `scope` opens: its stage, or the attempt outside
+       * any stage. Undefined once that scope has closed: nothing opens for it then.
+       */
+      messageOwner(
+        scope: MessagingScope,
+      ): { stage?: ExecutionScope; adopt(operation: Promise<unknown>): void } | undefined;
       execution: AgentExecution;
       session: HarnessSession;
       slots: ResultSlotRegistry;
@@ -1858,6 +2051,38 @@ class LogicalAgent implements AgentRef {
 
   get execution(): AgentExecution {
     return this.#execution;
+  }
+
+  get launcher(): string {
+    return this.options.launcher;
+  }
+
+  /** It can confirm what a pane was sent, as waiting in a pane needs. */
+  get confirmsDelivery(): boolean {
+    return this.options.session.supportsWaiting === true;
+  }
+
+  get busy(): boolean {
+    return this.#queued > 0;
+  }
+
+  get hasRun(): boolean {
+    return this.#hasRun;
+  }
+
+  get closedReason(): string | undefined {
+    return this.#closed ? (this.#closedReason ?? "closed") : undefined;
+  }
+
+  /**
+   * Something arrived for it: its open operation's supervisor looks again, and an agent with
+   * nothing queued wakes for a held message, in a message operation.
+   */
+  messagesChanged(): void {
+    for (const wake of this.#watchers) wake();
+    if (this.#queued > 0 || this.#closed || this.options.isRunClosing()) return;
+    const opening = this.options.messaging.opening(this.key);
+    if (opening) this.startMessageOperation(opening.scope);
   }
 
   enqueue(_spec: AgentTextTurnSpec): Promise<never>;
@@ -2078,6 +2303,7 @@ class LogicalAgent implements AgentRef {
       tags,
       delivered: (at: number) => {
         deliveredAt = at;
+        this.#hasRun = true;
         this.#lastOperation = operationId;
         this.options.events.event({ kind: "operation-started", ...fields() }, at);
       },
@@ -2282,6 +2508,12 @@ class LogicalAgent implements AgentRef {
   close(reason?: string): Promise<void> {
     const first = !this.#closed;
     this.#closed = true;
+    if (first) {
+      this.#closedReason = reason ?? "closed";
+      // Its routes close, what it asked is dropped and what it owed fails, before the operation it
+      // is running ends, so an answer it asked back on still reaches its asker.
+      this.options.messaging.agentStopped(this.key, this.#closedReason);
+    }
     // An operation still going is cancelled by this close.
     const keep = keepsPane(
       this.options.keepPane(),
@@ -2335,11 +2567,17 @@ class LogicalAgent implements AgentRef {
   }
 
   private queue<T>(operation: () => Promise<T>): Promise<T> {
+    this.#queued += 1;
     const result = this.#tail.then(operation, operation);
     this.#tail = result.then(
       () => undefined,
       () => undefined,
     );
+    void this.#tail.then(() => {
+      this.#queued -= 1;
+      // With nothing queued, a message held meanwhile opens the next operation.
+      if (this.#queued === 0) this.messagesChanged();
+    });
     return result;
   }
 
@@ -2365,11 +2603,26 @@ class LogicalAgent implements AgentRef {
     const schema = resultSchema(spec.schema);
     const binding = { endpoint: this.options.endpoint, operationId };
     const entry = this.options.ledger.reserve(operationId, () => this.#execution, tags);
+    const { messaging } = this.options;
+    messaging.opened({
+      id: operationId,
+      agent: this.key,
+      kind: "workflow",
+      deadline: deadline.unixMilliseconds,
+      ceiling: this.options.deadline.unixMilliseconds,
+      scope: scope?.messages ?? messaging.attempt,
+    });
+    // After its prompt: how to use its routes, then each message held for it, wrapped.
+    const joined = messaging.take(operationId, "joins");
+    const prompt = [spec.prompt, messaging.lesson(this.key), joined?.text]
+      .filter(Boolean)
+      .join("\n\n");
     const authored: AuthoredTurn = {
       prompt: spec.prompt,
       ...(spec.label === undefined ? {} : { label: spec.label }),
       ...(tags.stage === undefined ? {} : { stage: tags.stage }),
       ...(spec.schema ? { schema: spec.schema } : {}),
+      ...(joined ? { messages: joined.messages } : {}),
     };
     const waitingSupported = this.options.session.supportsWaiting === true;
     const recoveryPrompt =
@@ -2391,7 +2644,14 @@ class LogicalAgent implements AgentRef {
           ].join("\n")
         : "");
     const events = createOperationEvents(this.options.runDir, operationId);
+    const messages = this.operationMessages(operationId, `${spec.id!}:message`, {
+      deadline: () => deadline,
+      authored,
+      session,
+      record: events.record,
+    });
     const outcome = await superviseOperation({
+      messages,
       event: events.record,
       operationId,
       agentId: this.key,
@@ -2403,16 +2663,18 @@ class LogicalAgent implements AgentRef {
       nudge: nudge !== undefined,
       policy: this.options.livenessPolicy,
       start: () =>
-        this.options.session.start(
-          {
-            id: spec.id!,
-            prompt: operationPrompt(spec.prompt, schema, this.options.launcher, operationId),
-            deadline,
-            authored,
-            onSession: session,
-          },
-          binding,
-        ),
+        this.options.session
+          .start(
+            {
+              id: spec.id!,
+              prompt: operationPrompt(prompt, schema, this.options.launcher, operationId),
+              deadline,
+              authored,
+              onSession: session,
+            },
+            binding,
+          )
+          .then((turn) => this.confirmed(operationId, joined?.numbers ?? [], turn)),
       successor: (turn, sequence, deliverySignal) =>
         turn.nudge({
           id: `${spec.id!}:check-in:${sequence}`,
@@ -2442,16 +2704,13 @@ class LogicalAgent implements AgentRef {
           settledAt: Date.now(),
         }),
       )
-      .then((outcome) => {
-        if (outcome.cleanupUnresolved) {
-          this.options.cleanupUnresolved(
-            `cleanup-unresolved: ${this.key} operation ${operationId}`,
-          );
-          this.closeAfterFailure("cleanup-unresolved");
-        }
-        return outcome;
-      })
       .finally(() => events.close());
+    // Its wait is dropped and what it still owed fails, before a failure closes the agent.
+    messaging.ended(operationId, operationEnd(outcome.kind));
+    if (outcome.cleanupUnresolved) {
+      this.options.cleanupUnresolved(`cleanup-unresolved: ${this.key} operation ${operationId}`);
+      this.closeAfterFailure("cleanup-unresolved");
+    }
     if (outcome.kind === "timed-out" || outcome.kind === "failed")
       this.closeAfterFailure(outcome.reason, outcome.kind);
     const usage = entry.settle(
@@ -2470,6 +2729,263 @@ class LogicalAgent implements AgentRef {
       };
     }
     return { outcome: { kind: outcome.kind, reason: outcome.reason, usage } };
+  }
+
+  /**
+   * What an operation's supervisor asks of its messages: what is held, what it awaits, where its
+   * turn's end goes, and the turn that carries a delivery or the reminder.
+   */
+  private operationMessages(
+    operationId: string,
+    turnIds: string,
+    turn: {
+      deadline: () => AbsoluteDeadline;
+      authored: AuthoredTurn;
+      session: (id: string) => void;
+      record: (event: LivenessEvent) => void;
+      /** A message operation's deadline moved later, for the askers it now answers. */
+      extended?: (deadline: number) => void;
+    },
+  ): OperationMessages {
+    const { messaging } = this.options;
+    return {
+      pending: () => messaging.pending(operationId),
+      awaiting: () => messaging.awaiting(operationId),
+      turnEnded: () => messaging.turnEnded(operationId),
+      reminderExpired: () => messaging.reminderExpired(operationId),
+      continueWith: async (previous, sequence, signal, reminder) => {
+        const delivery =
+          reminder === undefined ? messaging.take(operationId, "continues") : undefined;
+        if (reminder === undefined && !delivery) {
+          throw new Error("nothing was held to continue the operation with");
+        }
+        if (delivery?.deadline !== undefined) turn.extended?.(delivery.deadline);
+        const prompt = reminder ?? delivery!.text;
+        const messages = delivery?.messages ?? [];
+        if (reminder === undefined) {
+          turn.record({
+            kind: "continued",
+            at: Date.now(),
+            sequence,
+            reason: continuedBy(messages),
+          });
+        }
+        const next = await previous.deliver({
+          id: `${turnIds}:${sequence}`,
+          prompt,
+          deadline: turn.deadline(),
+          deliverySignal: signal,
+          authored: { ...turn.authored, prompt, ...(messages.length ? { messages } : {}) },
+          onSession: turn.session,
+        });
+        return this.confirmed(operationId, delivery?.numbers ?? [], next);
+      },
+      onChange: (wake) => {
+        this.#watchers.add(wake);
+        return () => this.#watchers.delete(wake);
+      },
+    };
+  }
+
+  /**
+   * What the harness confirms of a delivery: received is `observed`; a failure, or no evidence by
+   * the turn's end, `unconfirmed`. A host without evidence never confirms one.
+   */
+  private confirmed(
+    operationId: string,
+    numbers: readonly number[],
+    turn: HarnessTurn,
+  ): HarnessTurn {
+    if (numbers.length === 0) return turn;
+    const { messaging } = this.options;
+    let said = false;
+    const say = (state: "observed" | "unconfirmed") => {
+      if (said) return;
+      said = true;
+      messaging.confirmed(operationId, numbers, state);
+    };
+    if (turn.delivery) {
+      void turn.delivery.received.then(() => say("observed"));
+      void turn.delivery.failed.then(() => say("unconfirmed"));
+    }
+    void turn.settled.then(() => say("unconfirmed"));
+    return turn;
+  }
+
+  /**
+   * Wakes this idle agent in a message operation: its route's stage owns it, or the attempt outside
+   * any stage. Queued as any operation is, so nothing else runs beside it.
+   */
+  private startMessageOperation(scope: MessagingScope): void {
+    const owner = this.options.messageOwner(scope);
+    if (!owner) return;
+    const result = this.queue(async () => {
+      if (this.#closed || this.options.isRunClosing()) return;
+      // What is first now: a message dropped since this was queued leaves another route's, which
+      // waits for an operation of its own scope.
+      const opening = this.options.messaging.opening(this.key);
+      if (opening?.scope !== scope) return;
+      await this.executeMessageOperation(opening.from, scope, owner.stage);
+    });
+    this.options.track(result).catch(() => undefined);
+    owner.adopt(result);
+  }
+
+  private async executeMessageOperation(
+    from: AgentKey,
+    scope: MessagingScope,
+    stage: ExecutionScope | undefined,
+  ): Promise<void> {
+    const { messaging } = this.options;
+    const operationId = randomUUID();
+    const ceiling = this.deadlineCeiling(stage).unixMilliseconds;
+    let deadline = Math.min(Date.now() + messaging.limits.operationMs, ceiling);
+    messaging.opened({
+      id: operationId,
+      agent: this.key,
+      kind: "message",
+      deadline,
+      ceiling,
+      scope,
+    });
+    /** How it ended; unset until its supervisor says, or if it never opened. */
+    let end: SupervisedOutcome["kind"] | undefined;
+    try {
+      const opening = messaging.take(operationId, "opens");
+      // Withdrawn before it could be shown: nothing to wake it for.
+      if (!opening) return;
+      if (opening.deadline !== undefined) deadline = opening.deadline;
+      const cause = { message: { from } };
+      const tags: OperationTags = {
+        ...(stage?.stage === undefined ? {} : { stage: stage.stage }),
+        cause,
+      };
+      const operation = this.operationLog(operationId, "turn", tags);
+      this.options.progress.turnStarted(this.key, tags);
+      try {
+        const outcome = await this.superviseMessage(operationId, deadline, opening, {
+          cause,
+          tags,
+          stage,
+          operation,
+        });
+        end = outcome.kind;
+        if (outcome.kind === "timed-out" || outcome.kind === "failed") {
+          throw new Error(
+            `agent ${this.key}'s message operation ${outcome.kind}: ${outcome.reason}`,
+          );
+        }
+      } catch (error) {
+        if (end === undefined) {
+          end = "failed";
+          operation.failed(error);
+          this.options.progress.turnSettled(this.key, "failed", messageOf(error));
+        }
+        throw error;
+      } finally {
+        await this.options.afterOperation?.();
+      }
+    } finally {
+      // A message operation that simply ends settles; its wait is dropped and what it owed fails.
+      messaging.ended(
+        operationId,
+        end === undefined ? "cancelled" : end === "answered" ? "settled" : operationEnd(end),
+      );
+    }
+  }
+
+  /** Supervises a message operation's turns, records its turn and usage, and says how it ended. */
+  private async superviseMessage(
+    operationId: string,
+    initial: number,
+    opening: Delivery,
+    context: {
+      cause: { message: { from: AgentKey } };
+      tags: OperationTags;
+      stage: ExecutionScope | undefined;
+      operation: OperationLog;
+    },
+  ): Promise<SupervisedOutcome> {
+    const { messaging } = this.options;
+    const { cause, tags, stage, operation } = context;
+    let deadline = initial;
+    const entry = this.options.ledger.reserve(operationId, () => this.#execution, tags);
+    const events = createOperationEvents(this.options.runDir, operationId);
+    const authored: AuthoredTurn = {
+      prompt: opening.text,
+      ...(tags.stage === undefined ? {} : { stage: tags.stage }),
+      cause,
+      messages: opening.messages,
+    };
+    let outcome: SupervisedOutcome;
+    try {
+      outcome = await superviseMessageOperation({
+        deadline: () => deadline,
+        start: () =>
+          this.options.session
+            .start(
+              {
+                id: operationId,
+                prompt: opening.text,
+                deadline: { unixMilliseconds: deadline },
+                authored,
+                onSession: operation.session,
+              },
+              { endpoint: this.options.endpoint, operationId },
+            )
+            .then((turn) => this.confirmed(operationId, opening.numbers, turn)),
+        messages: this.operationMessages(operationId, `${operationId}:message`, {
+          deadline: () => ({ unixMilliseconds: deadline }),
+          authored,
+          session: operation.session,
+          record: events.record,
+          extended: (later) => {
+            if (later <= deadline) return;
+            deadline = later;
+            messaging.extended(operationId, later);
+            events.record({ kind: "deadline-extended", at: Date.now(), sequence: 0, until: later });
+          },
+        }),
+        onStop: (stop) => {
+          this.#operationStops.add(stop);
+          const remove = stage?.add(stop);
+          return () => {
+            this.#operationStops.delete(stop);
+            remove?.();
+          };
+        },
+        event: events.record,
+        phase: (phase, reason, until) =>
+          this.options.progress.turnPhase(this.key, phase, reason, until),
+        delivered: operation.delivered,
+        ...(this.options.livenessPolicy ? { policy: this.options.livenessPolicy } : {}),
+      });
+    } finally {
+      await events.close();
+    }
+    if (outcome.cleanupUnresolved) {
+      this.options.cleanupUnresolved(`cleanup-unresolved: ${this.key} operation ${operationId}`);
+    }
+    // A timeout or a harness failure stops the agent, as any operation's does (Q10).
+    if (outcome.kind === "timed-out" || outcome.kind === "failed")
+      this.closeAfterFailure(outcome.reason, outcome.kind);
+    const usage = entry.settle(
+      {
+        ...(outcome.deliveredAt === undefined ? {} : { deliveredAt: outcome.deliveredAt }),
+        settledAt: outcome.settledAt,
+      },
+      outcome.charges,
+    );
+    // Recorded `answered` with no value: it did what it was woken for, and takes no result.
+    this.turnEnded(
+      outcome.kind === "answered"
+        ? { kind: "answered", value: null, usage }
+        : outcome.kind === "failed"
+          ? { kind: "failed", reason: outcome.reason, retryable: false, usage }
+          : { kind: outcome.kind, reason: outcome.reason, usage },
+      "turn",
+    );
+    return outcome;
   }
 
   /**
@@ -2591,6 +3107,8 @@ class ExecutionScope {
     readonly group?: GroupProgress,
     /** The workflow stage everything in this scope runs in. */
     readonly stage?: string,
+    /** The stage's messaging scope, where routes granted in it live and close. */
+    readonly messages?: MessagingScope,
   ) {}
 
   get cancelled(): boolean {
@@ -2627,10 +3145,24 @@ class ExecutionScope {
     promise.catch(() => undefined);
   }
 
+  /**
+   * Owns a message operation one of the stage's routes opened, even once the stage's function has
+   * returned: a message held before then can open one after.
+   */
+  adopt(promise: Promise<unknown>): void {
+    this.#owned.add(promise);
+    promise.catch(() => undefined);
+  }
+
+  /** Until everything it owns has settled, what was adopted meanwhile included. */
   async settleOwned(): Promise<void> {
-    const settled = await Promise.allSettled([...this.#owned]);
-    const rejected = settled.find((result) => result.status === "rejected");
-    if (rejected?.status === "rejected") throw rejected.reason;
+    let seen = 0;
+    while (this.#owned.size > seen) {
+      seen = this.#owned.size;
+      const settled = await Promise.allSettled([...this.#owned]);
+      const rejected = settled.find((result) => result.status === "rejected");
+      if (rejected?.status === "rejected") throw rejected.reason;
+    }
   }
 
   seal(): void {
@@ -2679,7 +3211,12 @@ async function executeParallel<Item, Result>(
   group?: GroupProgress,
 ): Promise<Result[]> {
   // An unlabelled parallel inside a labelled one stays part of it.
-  const scope = new ExecutionScope(deadline, group ?? parent?.group, parent?.stage);
+  const scope = new ExecutionScope(
+    deadline,
+    group ?? parent?.group,
+    parent?.stage,
+    parent?.messages,
+  );
   const removeFromParent = parent?.add((stop) => scope.cancel(stop));
   const results = new Array<Result>(items.length);
   let next = 0;
@@ -2810,6 +3347,27 @@ function pick<T extends object, K extends keyof T>(value: T, keys: readonly K[])
   return Object.fromEntries(
     keys.flatMap((key) => (value[key] === undefined ? [] : [[key, value[key]]])),
   ) as Pick<T, K>;
+}
+
+/** How an operation's end reads to messaging: a result, or a turn that simply ended, or worse. */
+function operationEnd(kind: SupervisedOutcome["kind"]): OperationEnd {
+  switch (kind) {
+    case "answered":
+      return "result";
+    case "unanswered":
+    case "blocked":
+      return "settled";
+    default:
+      return kind;
+  }
+}
+
+/** What continued an operation, as its liveness record says. */
+function continuedBy(messages: readonly AuthoredMessage[]): string {
+  if (messages.some((each) => each.kind === "no-reply")) return "no-reply";
+  if (messages.some((each) => each.kind === "message" && each.answers)) return "reply";
+  if (messages.some((each) => each.kind === "message" && each.asks)) return "request";
+  return "messages";
 }
 
 function tagsOf(scope: ExecutionScope | undefined, label?: string): OperationTags {

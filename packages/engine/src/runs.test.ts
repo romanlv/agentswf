@@ -113,6 +113,13 @@ describe("runs", () => {
     const probe = alive(1);
     const one = await claim(created, { pid: 1, probe });
     expect(one.attempt.record).toMatchObject({ attempt: 1, pid: 1, processStart: START });
+    // The messaging ceilings it runs under, in its record.
+    expect((await readAttempts(created))[0]?.messageLimits).toEqual({
+      perRoute: 40,
+      bytes: 16_384,
+      unread: 16,
+      operationMs: 900_000,
+    });
     expect(isLive((await readAttempts(created))[0]!, probe)).toBe(true);
     await endAttempt(one.attempt, { outcome: "failed", reason: "qa settled without an answer" });
     expect((await readAttempts(created))[0]?.outcome).toBe("failed");

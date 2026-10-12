@@ -25,10 +25,11 @@ export class RunEventLog {
     },
   ) {}
 
-  event(body: RunEventBody, at?: number): void {
-    if (this.#closed) return;
+  /** Whether the line was written, once it is; a caller may wait for it, and none has to. */
+  event(body: RunEventBody, at?: number): Promise<boolean> {
+    if (this.#closed) return Promise.resolve(false);
     const time = new Date(at ?? this.options.now?.() ?? Date.now()).toISOString();
-    this.#append({
+    return this.#append({
       version: RUN_EVENT_VERSIONS[body.kind],
       attempt: this.options.attempt,
       at: time,
@@ -54,13 +55,18 @@ export class RunEventLog {
     await Promise.all(this.#writes);
   }
 
-  #append(line: RunEvent): void {
-    this.#writes.push(
-      appendEvent(this.options.runDir, line).catch((error) => {
-        if (this.#failed) return;
-        this.#failed = true;
-        this.options.failed(`awf: the run's event log was not written: ${messageOf(error)}`);
-      }),
+  #append(line: RunEvent): Promise<boolean> {
+    const written = appendEvent(this.options.runDir, line).then(
+      () => true,
+      (error) => {
+        if (!this.#failed) {
+          this.#failed = true;
+          this.options.failed(`awf: the run's event log was not written: ${messageOf(error)}`);
+        }
+        return false;
+      },
     );
+    this.#writes.push(written.then(() => undefined));
+    return written;
   }
 }

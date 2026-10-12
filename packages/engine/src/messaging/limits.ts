@@ -12,22 +12,20 @@ export const MESSAGE_LIMITS: MessageLimits = {
 
 /**
  * Where an asker may wait for an answer, by harness and placement: off until M2 passes there
- * (story 029's M2 gate). The fake harness always may.
+ * (story 029's M2 gate). A pane that is `confirmed` waits only where it confirms what it was sent,
+ * as `wf waiting` needs. The fake harness always may.
  */
-export const AWAIT_REPLY: Readonly<Record<string, { headless?: true; pane?: true }>> = {
-  fake: { headless: true, pane: true },
-};
+export const AWAIT_REPLY: Readonly<Record<string, { headless?: true; pane?: true | "confirmed" }>> =
+  {
+    fake: { headless: true, pane: true },
+  };
 
-/**
- * Whether this agent may `--await-reply`: on the list for its harness and placement, and, in a
- * pane, only where the pane confirms what it was sent, as `wf waiting` needs.
- */
+/** Whether this agent may `--await-reply` where it runs. */
 export function canAwaitReply(
   execution: AgentExecution,
   confirmsDelivery: boolean,
   list: typeof AWAIT_REPLY = AWAIT_REPLY,
 ): boolean {
-  const placement = placementOf(execution);
-  const allowed = list[execution.harness]?.[placement] === true;
-  return allowed && (placement === "headless" || confirmsDelivery);
+  const allowed = list[execution.harness]?.[placementOf(execution)];
+  return allowed === true || (allowed === "confirmed" && confirmsDelivery);
 }

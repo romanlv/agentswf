@@ -243,3 +243,7 @@ export function peersTable(
   for (const peer of owes) lines.push(`You owe ${peer} a reply.`);
   return lines.join("\n");
 }
+
+/** A send or reply whose record could not be written: it was admitted, so it may yet arrive. */
+export const UNRECORDED =
+  "the engine could not record this message, so it may have been queued; nothing was retried. Do not send it again; say so in your result or reply.";

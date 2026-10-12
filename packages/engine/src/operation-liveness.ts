@@ -8,6 +8,7 @@ import type {
 } from "@agentswf/harness/adapter";
 import { scheduleAt } from "./deadlines";
 import { messageOf } from "./errors";
+import type { Pending, TurnEnd } from "./messaging/messaging";
 import type { ResultSlotEvent, ResultSlotRegistry, ResultSlotSettlement } from "./result-slots";
 
 export type LivenessPolicy = {
@@ -25,6 +26,7 @@ export const DEFAULT_LIVENESS_POLICY: LivenessPolicy = {
 export type OperationPhase =
   | "working"
   | "waiting"
+  | "awaiting-reply"
   | "check-in-pending"
   | "check-in-response"
   | "releasing";
@@ -34,6 +36,33 @@ export type LivenessEvent = {
   sequence: number;
   reason?: string;
   until?: number;
+  peer?: string;
+};
+
+/**
+ * An operation's messages, which a turn that ends without a result goes on to before 021's
+ * check-in: what continues it, a wait for an answer, or a reminder of one it owes.
+ */
+export type OperationMessages = {
+  /** What is held for it, deciding nothing. */
+  pending(): Pending;
+  /** The answer it awaits, while it does. */
+  awaiting(): { peer: string; until: number } | undefined;
+  turnEnded(): TurnEnd;
+  /**
+   * The turn that carries what is held, or the reminder, once `turn` has settled; it says why it
+   * continued.
+   */
+  continueWith(
+    turn: HarnessTurn,
+    sequence: number,
+    signal: AbortSignal,
+    reminder?: string,
+  ): Promise<HarnessTurn>;
+  /** A reminder's response window passed: what it owed then fails, its askers told. */
+  reminderExpired(): void;
+  /** Wakes the supervisor when something arrives for it. */
+  onChange(wake: () => void): () => void;
 };
 export type SupervisedOutcome = {
   kind: "answered" | "unanswered" | "timed-out" | "cancelled" | "blocked" | "failed";
@@ -63,6 +92,7 @@ type Options = {
   onStop(cancel: (stop: OperationStop) => Promise<void>): () => void;
   event?(event: LivenessEvent): void;
   phase?(phase: OperationPhase, reason?: string, until?: number): void;
+  messages?: OperationMessages;
   /** Once, when the harness first accepts the operation. */
   delivered?(at: number): void;
   policy?: LivenessPolicy;
@@ -94,6 +124,12 @@ export async function superviseOperation(options: Options): Promise<SupervisedOu
   let receiptUntil: number | undefined;
   let dispatched = false;
   let receiptSatisfied = false;
+  /** The answer it waits on, once a turn has ended awaiting it: no check-in while it does. */
+  let awaitingPeer: { peer: string; until: number } | undefined;
+  /** When a reminder's response window closes: what it owes fails then. */
+  let reminderUntil: number | undefined;
+  /** Deliveries not yet dispatched, which only a stop aborts. */
+  const continuations = new Set<AbortController>();
   let deliveredAt: number | undefined;
   const deliver = (at: number | undefined) => {
     if (deliveredAt !== undefined || at === undefined) return;
@@ -114,14 +150,45 @@ export async function superviseOperation(options: Options): Promise<SupervisedOu
     | undefined;
   let answerReleaseDeadline: number | undefined;
   const charges: number[] = [];
-  const emit = (kind: OperationLivenessKind, reason?: string, until?: number, at = now()) =>
+  const emit = (
+    kind: OperationLivenessKind,
+    reason?: string,
+    until?: number,
+    at = now(),
+    peer?: string,
+  ) =>
     options.event?.({
       kind,
       at,
       sequence,
       ...(reason === undefined ? {} : { reason }),
       ...(until === undefined ? {} : { until }),
+      ...(peer === undefined ? {} : { peer }),
     });
+  /**
+   * A delivery, or the reminder, as the turn after the one that ended: a working turn, no check-in.
+   * Unlike a check-in it is not withdrawn when a result or a wait arrives first: what it carries is
+   * already shown, and only a stop aborts it.
+   */
+  const continueWithMessages = (messages: OperationMessages, reminder?: string) => {
+    waitUntil = quietUntil = undefined;
+    awaitingPeer = undefined;
+    sequence += 1;
+    const continuation = new AbortController();
+    continuations.add(continuation);
+    options.phase?.("working");
+    if (reminder !== undefined) {
+      emit("reminder-due");
+      // It has the check-in's response window to answer in.
+      reminderUntil = now() + policy.responseMs;
+    }
+    observe(
+      Promise.resolve()
+        .then(() => messages.continueWith(held!, sequence, continuation.signal, reminder))
+        .finally(() => continuations.delete(continuation)),
+      false,
+    );
+  };
   const clearAnswerTimers = () => {
     quietUntil = responseUntil = deliveryUntil = receiptUntil = undefined;
   };
@@ -160,6 +227,7 @@ export async function superviseOperation(options: Options): Promise<SupervisedOu
     stopped.resolve();
     void options.slots.close(options.operationId);
     cancelPending();
+    for (const continuation of continuations) continuation.abort();
     changed();
     return released.promise;
   });
@@ -181,6 +249,7 @@ export async function superviseOperation(options: Options): Promise<SupervisedOu
     return terminal(stop?.kind ?? "failed", stop?.reason ?? messageOf(error));
   }
   emit("opened", undefined, deadline);
+  const unwatch = options.messages?.onChange(changed);
   if (stop) void options.slots.close(options.operationId);
   void slot.settled.then((value) => {
     settlement = value;
@@ -393,9 +462,37 @@ export async function superviseOperation(options: Options): Promise<SupervisedOu
           break;
         }
         const idle = native !== undefined && !acquiring;
+        const settledTurn =
+          idle &&
+          responseUntil === undefined &&
+          deliveryUntil === undefined &&
+          receiptUntil === undefined;
+        const messages = options.messages;
+        // Before any check-in: what continues it goes now, cutting a `wf waiting` short, and an
+        // operation awaiting an answer waits for it with no check-in.
+        if (messages && settledTurn) {
+          if (messages.pending() === "continues") {
+            continueWithMessages(messages);
+            continue;
+          }
+          const awaited = messages.awaiting();
+          if (awaited) {
+            if (awaitingPeer?.peer !== awaited.peer || awaitingPeer.until !== awaited.until) {
+              awaitingPeer = awaited;
+              options.phase?.("awaiting-reply", awaited.peer, awaited.until);
+              emit("awaiting-reply", undefined, awaited.until, now(), awaited.peer);
+            }
+            waitUntil = quietUntil = undefined;
+          } else awaitingPeer = undefined;
+        }
         const due =
           waitUntil !== undefined ? at >= waitUntil : quietUntil !== undefined && at >= quietUntil;
         if (idle && due && responseUntil === undefined && deliveryUntil === undefined) {
+          const next = messages?.turnEnded();
+          if (next?.kind === "continue" || next?.kind === "remind") {
+            continueWithMessages(messages!, next.kind === "remind" ? next.text : undefined);
+            continue;
+          }
           if (!options.nudge) {
             result = terminal("unanswered", "agent settled without an accepted result");
             break;
@@ -410,19 +507,35 @@ export async function superviseOperation(options: Options): Promise<SupervisedOu
             true,
           );
         }
-        // Without nudges, a normal completion retains the existing immediate no-answer rule.
-        if (idle && !options.nudge && waitUntil === undefined) {
+        // Without nudges, a normal completion retains the existing immediate no-answer rule, after
+        // what its messages go on to: a reminder of an answer it owes still comes.
+        if (idle && !options.nudge && waitUntil === undefined && !awaitingPeer) {
+          const next = settledTurn ? messages?.turnEnded() : undefined;
+          if (next?.kind === "continue" || next?.kind === "remind") {
+            continueWithMessages(messages!, next.kind === "remind" ? next.text : undefined);
+            continue;
+          }
           result = terminal("unanswered", "agent settled without an accepted result");
           break;
+        }
+        if (reminderUntil !== undefined && at >= reminderUntil) {
+          reminderUntil = undefined;
+          options.messages?.reminderExpired();
         }
       }
       // Timers against this pass's own clock: a time that came due while it ran fires at once,
       // where judging it by a later reading would leave it neither due nor timed.
       const candidates = admitted
         ? []
-        : [deadline, waitUntil, quietUntil, responseUntil, deliveryUntil, receiptUntil].filter(
-            (v): v is number => v !== undefined && v > at,
-          );
+        : [
+            deadline,
+            waitUntil,
+            quietUntil,
+            responseUntil,
+            deliveryUntil,
+            receiptUntil,
+            reminderUntil,
+          ].filter((v): v is number => v !== undefined && v > at);
       const signal = wake.promise;
       const cancelTimer = candidates.length ? schedule(Math.min(...candidates), changed) : () => {};
       await signal;
@@ -493,6 +606,7 @@ export async function superviseOperation(options: Options): Promise<SupervisedOu
     return { ...terminal("failed", messageOf(error)), cleanupUnresolved: true };
   } finally {
     finished = true;
+    unwatch?.();
     removeStop();
     released.resolve();
   }

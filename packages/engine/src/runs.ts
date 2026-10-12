@@ -17,6 +17,7 @@ import {
 import type { AttemptOutcome } from "@agentswf/contract/workflow";
 import { exists, isCode, linkNew, writeJson } from "./files";
 import { appendLine, endTornLine, readLines } from "./jsonl";
+import { MESSAGE_LIMITS } from "./messaging/limits";
 
 /**
  * Runs on disk: `{root}/{workflow}/{id}/`, holding `run.json`, `attempts/{attempt}.json`,
@@ -314,6 +315,7 @@ export async function claimAttempt(
       pid,
       processStart: started,
       started: (options.now ?? new Date()).toISOString(),
+      messageLimits: MESSAGE_LIMITS,
     };
     const file = join(dir, `${n}.json`);
     if (await linkNew(file, record)) {

@@ -54,8 +54,11 @@ type OperationEntry = {
   ): OperationRecord;
 };
 
-/** Where an operation ran: its workflow stage, absent between stages, and its turn's label. */
-export type OperationTags = Pick<OperationRecord, "stage" | "label">;
+/**
+ * Where an operation ran: its workflow stage, absent between stages, its turn's label, and what
+ * caused it when the workflow did not.
+ */
+export type OperationTags = Pick<OperationRecord, "stage" | "label" | "cause">;
 
 /** One agent's part of the run's ledger. */
 export type AgentLedger = {
@@ -360,6 +363,7 @@ function recordOf(
     ...(deliveredAt === undefined ? {} : { deliveredAt: new Date(deliveredAt).toISOString() }),
     ...(tags.stage === undefined ? {} : { stage: tags.stage }),
     ...(tags.label === undefined ? {} : { label: tags.label }),
+    ...(tags.cause === undefined ? {} : { cause: tags.cause }),
   };
 }
 

@@ -510,7 +510,7 @@ The reasons are in the design's Decisions.
 - [x] 1. Claude agents cannot message around their routes (M1)
 - [x] 2. Types, wire v4, record format and the `deliver` seam are settled
 - [x] 3. The messaging logic admits, queues and settles, as pure code
-- [ ] 4. The runner wakes, continues and closes through it, against the fake harness
+- [x] 4. The runner wakes, continues and closes through it, against the fake harness
 - [ ] 5. `wf peers`, `wf send` and `wf reply` work over the control plane and the sandbox door
 - [ ] 6. Headless agents receive messages and await replies
 - [ ] 7. Panes receive messages when idle, and claude panes await replies
@@ -685,7 +685,6 @@ Work:
 - The "may have been queued" acknowledgement.
 - Exit codes 0, 1 and 2.
 - Usage text with the launcher's full path.
-- A messaging handler in `control-plane.ts`.
 - Forwarding through the sandbox door, tested as 021 task 2 tested `wf waiting`.
 
 Done when:
@@ -949,6 +948,50 @@ waiting on them; these are the drafts the gate named, as built and reviewed.
 - Review: both reviewers' findings are resolved (the answer-that-asks-back cases, the record's
   undelivered reasons, the reply's limit, deadlines, scope, a pure `pending`, the text of past
   times and `awaiting you`), each with a test; 37 tests.
+
+### Task 4
+
+- The control plane's messaging handler came forward from task 5: `wf result` and `wf waiting`
+  have to be judged against what is owed before the result slot is asked, and the runner's tests
+  drive sends and replies over the real socket, as the test host does. It hands `peers`, `send` and
+  `reply` to the logic, refuses `no-result` and `owes-reply` first, answers `awaiting-reply` for
+  `wf waiting` while an answer is awaited, and leads every response with the owed-answer line.
+  Task 5 is left the `wf` side, the door and the CLI and end-to-end tests.
+- `WorkflowOwner` holds the run's `Messaging` and answers its questions about agents: `working`
+  while anything is queued, `idle` once one of its operations was delivered, `not-started` before,
+  `stopped` with its reason. A route's ends must be the very refs the run issued, so a spread or
+  cast of one is refused. A route is scoped to the stage it is granted in, a `parallel` inside it
+  included, else to the attempt.
+- `LogicalAgent` counts what is queued. With nothing queued, a held message opens a message
+  operation, which it queues as any operation, so nothing runs beside it. The opening is read again
+  when it starts: a message dropped meanwhile leaves another route's for an operation of its own.
+  A closed stage opens none.
+- A message operation runs on `superviseMessageOperation`: no slot, no check-in. It honours a stop
+  and its deadline while a turn starts or is delivered, fails on a delivery that fails or is not
+  confirmed in time, as 021's turns do, and releases bounded. Its deadline is 15 minutes, moved
+  later to its askers' as it takes their questions, never past the run's. It is recorded `answered`
+  with no value, and messaging is told it settled. A timeout or a harness failure stops the agent
+  and fails what owns it: its stage, or the run, even after the workflow returned.
+- A stage owns the message operations its routes open, past the end of its function. When that
+  returns, its routes take nothing new and messages held for agents busy outside it are dropped;
+  it then waits until nothing it owns is in flight and no answer owed or message held on its routes
+  is left, waking on any change to messaging. The workflow's return does the same for the attempt.
+- A workflow operation registers with messaging when it starts, and takes what is held after its
+  prompt and route lesson. When its turn ends without a result, what continues it goes at once,
+  cutting a `wf waiting` short; while it awaits an answer there is no check-in; at the check-in's
+  time it gets the reminder instead if it owes, which has the check-in's response window to be
+  answered in. A delivery that has not dispatched is not withdrawn when a result arrives first,
+  since what it carries is already shown. Without nudges the reminder still comes.
+- The fake harness may `--await-reply` in a pane without delivery evidence: the list marks a real
+  harness's pane `confirmed`, so it waits only where the pane confirms what it was sent.
+- `RunWorkflowOptions.awaitReply` overrides the list; task 8's test host needs it, as a workflow's
+  test runs real harness names on the fake.
+- Deferred: a message operation's deadline follows its askers' only when it takes their questions,
+  not when an asker's own deadline moves later afterwards.
+- Review: both reviewers' findings are resolved, each with a test: the message supervisor rewritten
+  to observe turns as the workflow's does; `ended` in a `finally`, with the credential write-back
+  after a message operation; busy-elsewhere read from the runner's state; a recipient woken even
+  when its message's record fails; the reminder's window; reminders without nudges. 18 runner tests.
 
 ## Human review
 

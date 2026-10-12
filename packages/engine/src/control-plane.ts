@@ -2,7 +2,15 @@ import { chmod, mkdir, mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { type ControlResponse, decodeControlRequest, WIRE_VERSION } from "@agentswf/contract/wire";
 import { isCode } from "./files";
+import type { Messaging } from "./messaging/messaging";
+import { UNRECORDED } from "./messaging/text";
 import type { ResultSlotRegistry } from "./result-slots";
+
+/** What the control plane asks of the run's messaging, by the agent whose socket asked. */
+export type MessagingHandler = Pick<
+  Messaging,
+  "checkFinish" | "peers" | "send" | "reply" | "owing"
+>;
 
 /** `wf` accepts a 1 MiB value; escaped into the request's JSON it can double, plus the envelope. */
 const MAX_RESULT_REQUEST_BYTES = 2 * 1024 * 1024 + 4 * 1024;
@@ -26,6 +34,8 @@ export type ResultControlPlane = {
    * agents that share a uid needs a uid per agent, which is a sandbox question, not a socket one.
    */
   openChannel(agentId: string, onSession?: (id: string) => void): Promise<ResultChannel>;
+  /** The run's messaging, once it exists; until then `peers`, `send` and `reply` are refused. */
+  attach(messaging: MessagingHandler): void;
   close(): Promise<void>;
 };
 
@@ -80,6 +90,7 @@ export async function startResultControlPlane(options: {
   // directory to discover its siblings'. Close puts the read bit back so the tree can be removed.
   await chmod(directory, 0o300);
 
+  let messaging: MessagingHandler | undefined;
   // Shared across channels: the budget protects the engine, not any one agent.
   let activeConnections = 0;
   let accepting = true;
@@ -167,6 +178,7 @@ export async function startResultControlPlane(options: {
               handleFrame(
                 Buffer.concat(socket.data.chunks).toString("utf8"),
                 options.slots,
+                messaging,
                 agentId,
                 onSession,
               ),
@@ -234,6 +246,9 @@ export async function startResultControlPlane(options: {
   let closing: Promise<void> | undefined;
   return {
     openChannel,
+    attach(handler) {
+      messaging = handler;
+    },
     close() {
       closing ??= (async () => {
         accepting = false;
@@ -275,6 +290,20 @@ function emptyConnection(): ConnectionState {
 async function handleFrame(
   frame: string,
   slots: ResultSlotRegistry,
+  messaging: MessagingHandler | undefined,
+  agentId: string,
+  onSession: ((id: string) => void) | undefined,
+): Promise<ControlResponse> {
+  const response = await answerFrame(frame, slots, messaging, agentId, onSession);
+  // Leads every response, so what is owed comes back after a compaction.
+  const owing = messaging?.owing(agentId);
+  return owing ? { ...response, owing } : response;
+}
+
+async function answerFrame(
+  frame: string,
+  slots: ResultSlotRegistry,
+  messaging: MessagingHandler | undefined,
   agentId: string,
   onSession: ((id: string) => void) | undefined,
 ): Promise<ControlResponse> {
@@ -293,25 +322,57 @@ async function handleFrame(
   // Before the result is judged: a rejected submission still proves which session sent it.
   if (decoded.value.session) onSession?.(decoded.value.session);
 
-  if (decoded.value.command !== "result" && decoded.value.command !== "waiting") {
-    return rejected("unsupported-command", "messaging is not available in this run");
+  const request = decoded.value;
+  if (request.command !== "result" && request.command !== "waiting") {
+    if (!messaging)
+      return rejected("unsupported-command", "messaging is not available in this run");
+    if (request.command === "peers") {
+      return { version: WIRE_VERSION, kind: "peers", ...messaging.peers(agentId) };
+    }
+    const { peer, text } = request;
+    const message = {
+      peer,
+      text,
+      ...(request.awaitReply ? { awaitReply: request.awaitReply } : {}),
+      ...(request.timeoutMs === undefined ? {} : { timeoutMs: request.timeoutMs }),
+    };
+    let admitted: Awaited<ReturnType<MessagingHandler["send"]>>;
+    try {
+      admitted =
+        request.command === "send"
+          ? await messaging.send(agentId, message)
+          : await messaging.reply(agentId, message);
+    } catch {
+      // Only its record failed: it was admitted, so it may yet arrive.
+      return rejected("internal-error", UNRECORDED);
+    }
+    if (admitted.kind === "refused") return rejected(admitted.code, admitted.error);
+    const { kind: _kind, ...sent } = admitted;
+    return { version: WIRE_VERSION, kind: "sent", ...sent };
+  }
+  // Before the slot is asked: a message operation has none, and an answer owed comes first.
+  const gate = messaging?.checkFinish(agentId, request.operationId, request.command);
+  if (gate?.kind === "refused") return rejected(gate.code, gate.error);
+  if (gate?.kind === "awaiting" && request.command === "waiting") {
+    const { peer, until, notice } = gate;
+    return { version: WIRE_VERSION, kind: "awaiting-reply", peer, until, notice };
   }
   try {
-    if (decoded.value.command === "waiting") {
+    if (request.command === "waiting") {
       const grant = await slots.waiting({
-        operationId: decoded.value.operationId,
+        operationId: request.operationId,
         agentId,
-        reason: decoded.value.reason,
-        ...(decoded.value.timeoutMs === undefined ? {} : { timeoutMs: decoded.value.timeoutMs }),
+        reason: request.reason,
+        ...(request.timeoutMs === undefined ? {} : { timeoutMs: request.timeoutMs }),
       });
       return grant.kind === "waiting"
         ? { version: WIRE_VERSION, ...grant }
         : rejected(grant.code, grant.error);
     }
     const result = await slots.submit({
-      operationId: decoded.value.operationId,
+      operationId: request.operationId,
       agentId,
-      raw: decoded.value.raw,
+      raw: request.raw,
       source: "control-plane",
     });
     return result.kind === "accepted"

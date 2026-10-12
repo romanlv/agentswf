@@ -277,8 +277,9 @@ export class Messaging {
     if (scope.state !== "open") return;
     scope.state = "finishing";
     for (const [agent, held] of this.#inboxes) {
-      const busy = this.#current.get(agent);
-      if (!busy || busy.scope === scope) continue;
+      // Working on something of another scope, a compaction or a queued run included.
+      if (this.#host.agent(agent)?.state !== "working") continue;
+      if (this.#current.get(agent)?.scope === scope) continue;
       this.#drop(
         agent,
         held.filter(
@@ -369,6 +370,12 @@ export class Messaging {
     }
   }
 
+  /** The answer this operation awaits, while it does. */
+  awaiting(id: string): { peer: AgentKey; until: number } | undefined {
+    const waited = this.#operations.get(id)?.awaits;
+    return waited?.state === "open" ? { peer: waited.owedBy, until: waited.until } : undefined;
+  }
+
   /** The operation open on this agent, if any. */
   current(agent: AgentKey): OperationInfo | undefined {
     return this.#current.get(agent);
@@ -387,8 +394,9 @@ export class Messaging {
     | { kind: "awaiting"; peer: AgentKey; until: number; notice: string }
     | null {
     const operation = this.#operations.get(id);
-    if (!operation || operation.agent !== agent || operation.ended) return null;
+    if (!operation || operation.agent !== agent) return null;
     const wf = this.#host.launcher(agent);
+    // A message operation's call takes no result, ended or not.
     if (operation.kind === "message") {
       return {
         kind: "refused",
@@ -396,6 +404,7 @@ export class Messaging {
         error: `call ${id} is a message, not a task: it takes no result and cannot wait. ${this.#owes(operation).length ? "Reply, then end your turn." : "End your turn."}`,
       };
     }
+    if (operation.ended) return null;
     const owes = this.#owes(operation);
     if (owes.length > 0) {
       const peer = owes[0]!;
@@ -428,8 +437,12 @@ export class Messaging {
     const { operation, route, bytes } = checked;
     const message = this.#admit(from, request.peer, request.text, bytes, route);
     const until = request.awaitReply ? this.#ask(message, operation, request.timeoutMs) : undefined;
-    await this.#sent(message, operation);
-    this.#host.changed(request.peer);
+    // Admitted whatever the record says: its recipient is woken even if the write fails.
+    try {
+      await this.#sent(message, operation);
+    } finally {
+      this.#host.changed(request.peer);
+    }
     return {
       kind: "sent",
       message: message.n,
@@ -450,7 +463,8 @@ export class Messaging {
     if (owed.askerOperation.awaits === owed) owed.askerOperation.awaits = undefined;
     const message = this.#admit(from, owed.asker, request.text, bytes, owed.request.route, owed);
     const until = request.awaitReply ? this.#ask(message, operation, request.timeoutMs) : undefined;
-    await this.#sent(message, operation);
+    // Its line first, then the question's end, in the log's order; the end is written either way.
+    const sent = this.#sent(message, operation);
     void this.#record({
       kind: "request-ended",
       message: owed.request.n,
@@ -459,7 +473,11 @@ export class Messaging {
       end: "replied",
       reply: message.n,
     });
-    this.#host.changed(owed.asker);
+    try {
+      await sent;
+    } finally {
+      this.#host.changed(owed.asker);
+    }
     const asked = until === undefined ? "" : ` ${this.#awaitNotice(operation, until)}`;
     return {
       kind: "sent",
@@ -934,6 +952,18 @@ export class Messaging {
       };
     }
     return { kind: operation.kind === "workflow" ? "check-in" : "settle" };
+  }
+
+  /**
+   * The reminder's response window passed with answers still owed: they fail now, and their askers
+   * are told, though the turn may go on.
+   */
+  reminderExpired(id: string): void {
+    const operation = this.#operations.get(id);
+    if (!operation) return;
+    for (const owed of [...operation.owes]) {
+      if (owed.reminded) this.#end(owed, "failed", "it did not reply after a reminder");
+    }
   }
 
   /**
