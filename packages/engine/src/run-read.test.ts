@@ -340,6 +340,51 @@ describe("reading a run", () => {
     expect(activity).toEqual(["worker op-2 04", "worker op-2 09", "worker null 11"]);
   });
 
+  test("a session named by its id and by its file, as a pane's pi is, is read once", async () => {
+    const root = runDirs.tempRunDir();
+    const made = await run(root, "check", "p1");
+    const home = join(root, "pi-home");
+    const id = "33333333-3333-4333-8333-333333333333";
+    const path = join(home, "sessions", "--repo--", `2026-10-11T09-01-00-000Z_${id}.jsonl`);
+    mkdirSync(join(home, "sessions", "--repo--"), { recursive: true });
+    writeFileSync(
+      path,
+      `${JSON.stringify({ type: "message", timestamp: T(2), message: { role: "assistant", content: [{ type: "text", text: "391" }] } })}\n`,
+    );
+    const sessions = [
+      { harness: "pi", id },
+      { harness: "pi", id: path },
+    ];
+    const lines = [
+      event({
+        kind: "agent-opened",
+        at: T(1),
+        agent: "check",
+        callPath: [],
+        harness: "pi",
+        cwd: "/repo",
+        home,
+      }),
+      event({
+        kind: "turn",
+        outcome: "answered",
+        callPath: [],
+        agent: "check",
+        operationId: "op-1",
+        execution: { harness: "pi", model: "m" },
+        deliveredAt: T(1),
+        settledAt: T(3),
+        sessions,
+      }),
+    ];
+    writeFileSync(join(made.dir, "turns.jsonl"), `${lines.join("\n")}\n`);
+    const read = await readRun(made.dir, "/repo", undefined, { ended: true });
+    expect(read.log.sessions).toHaveLength(2);
+    expect(
+      read.events.filter((each) => each.source === "activity").map((each) => each.handle),
+    ).toEqual(["a1.0"]);
+  });
+
   test("a session named late renumbers none named before it", async () => {
     const { made } = await setUp();
     const before = (await readRunLog(made.dir)).sessions;

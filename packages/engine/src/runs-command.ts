@@ -147,11 +147,11 @@ function dayTime(at: number): string {
 
 const busy = (agent: AgentView) => agent.state === "working" || agent.state === "was working";
 
-function agentLine(agent: AgentView, indent: string, now: number): string {
+function agentLine(agent: AgentView, indent: string, now: number, width: number): string {
   const waiting = agent.live?.phase === "waiting" ? agent.live : undefined;
   const parts = [
-    said(agent.key, 60).padEnd(16),
-    (waiting ? "waiting" : agent.state).padEnd(9),
+    said(agent.key, 60).padEnd(width),
+    (waiting ? "waiting" : agent.state).padEnd(11),
     busy(agent) ? `turn ${agent.turns + 1}` : `${agent.turns} turn${agent.turns === 1 ? "" : "s"}`,
     ...(waiting
       ? [
@@ -171,11 +171,12 @@ function agentLine(agent: AgentView, indent: string, now: number): string {
   return `${indent}    ${parts.filter(Boolean).join("  ")}`;
 }
 
-/** Past this many, agents whose keys share a prefix, `fix:lens-1` to `fix:lens-8`, take one line. */
+/** Past this many, agents numbered alike, `fix:lens-1` to `fix:lens-8`, take one line. */
 const GROUPED = 4;
 
 function agentLines(agents: readonly AgentView[], indent: string, now: number): string[] {
-  const prefix = (agent: AgentView) => agent.key.slice(0, agent.key.lastIndexOf(":") + 1);
+  const prefix = (agent: AgentView) => (/\d$/.test(agent.key) ? agent.key.replace(/\d+$/, "") : "");
+  const width = Math.max(16, ...agents.map((agent) => said(agent.key, 60).length + 1));
   const groups = new Map<string, AgentView[]>();
   for (const agent of agents) {
     if (prefix(agent)) groups.set(prefix(agent), [...(groups.get(prefix(agent)) ?? []), agent]);
@@ -185,7 +186,7 @@ function agentLines(agents: readonly AgentView[], indent: string, now: number): 
   for (const agent of agents) {
     const group = groups.get(prefix(agent)) ?? [agent];
     if (group.length <= GROUPED) {
-      lines.push(agentLine(agent, indent, now));
+      lines.push(agentLine(agent, indent, now, width));
       continue;
     }
     if (done.has(prefix(agent))) continue;

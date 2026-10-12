@@ -326,6 +326,8 @@ export async function readRun(
     });
   }
   const files = { ...cursor.files };
+  // A pane's pi names its session twice, by id and by path: one file, read once.
+  const seen = new Set<string>();
   for (const session of log.sessions) {
     const agent = session.agent ? log.agents.get(session.agent) : undefined;
     const only = options.only;
@@ -341,6 +343,8 @@ export async function readRun(
     for (const file of found.files) {
       const name = fileName(file);
       if (options.only !== undefined && name !== options.only) continue;
+      if (seen.has(file.path)) continue;
+      seen.add(file.path);
       const bounded = options.only === undefined && !(options.tail && files[name] === undefined);
       const readFrom = (from: number) =>
         readActivity(session.harness, file.path, from, {

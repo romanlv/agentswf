@@ -400,9 +400,15 @@ describe("awf runs", () => {
     expect(json.attempts[0].reason).toBe("push failed: https://***@host\nnext: forged");
   });
 
-  test("four agents of one kind keep their lines, and kinds are not merged", async () => {
+  test("only numbered agents share a line; named ones keep theirs, aligned", async () => {
     const cwd = runDirs.tempRunDir();
-    const keys = ["fix:a", "fix:b", "fix:c", "fix:d", "lens:a", "lens:b"];
+    const keys = [
+      "check:pi",
+      "check:codex",
+      "check:claude",
+      "check:cursor",
+      "check:cursor-pane-long",
+    ];
     await makeRun(
       cwd,
       "review",
@@ -421,6 +427,10 @@ describe("awf runs", () => {
     const lines = (await awfRuns(cwd, "review/g1")).stdout.split("\n");
     for (const key of keys) expect(lines.some((line) => line.trim().startsWith(key))).toBe(true);
     expect(lines.some((line) => line.includes(" agents: "))).toBe(false);
+    const states = lines
+      .filter((line) => line.includes("working"))
+      .map((line) => line.indexOf("working"));
+    expect(new Set(states).size).toBe(1);
   });
 
   test("a failed agent whose key spans lines is left out of see:", async () => {
