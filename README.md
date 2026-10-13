@@ -154,15 +154,24 @@ A workflow can live in any folder and needs nothing installed there: `awf` serve
 
 ### Your first workflow
 
-The smallest workflow: one headless agent, one typed answer. It needs neither Herdr nor a sandbox,
-only a codex login. Swap in any harness and model your account has.
+```sh
+mkdir ~/workflows && cd ~/workflows
+awf init                    # a hello workflow, its test, and the config files
+awf test                    # its test, on scripted agents: free, and no agent starts
+awf run hello/workflow.ts   # one real agent
+```
+
+`awf init` never overwrites a file; run it in a folder that has some, and it adds only what's
+missing. The workflow it writes is the smallest one: one headless agent, one typed answer. It
+needs neither Herdr nor a sandbox, only a codex login. Swap in any harness and model your account
+has.
 
 ```ts
-// ~/workflows/hello.ts
+// hello/workflow.ts
 import { defineExecutableWorkflow, isAnswered } from "agentswf/workflow";
 import Type from "typebox";
 
-const ANSWER = Type.Object({ answer: Type.Integer() }, { additionalProperties: false });
+export const ANSWER = Type.Object({ answer: Type.Integer() }, { additionalProperties: false });
 
 export default defineExecutableWorkflow({
   definition: {
@@ -172,7 +181,7 @@ export default defineExecutableWorkflow({
         key: "hello",
         runtime: { harness: "codex", model: "gpt-6-luna", placement: "headless" },
       });
-      const { outcome } = await agent.run({
+      const { outcome } = await agent.run<Type.Static<typeof ANSWER>>({
         prompt: "What is 17 multiplied by 23? Work it out yourself; do not run any code.",
         schema: ANSWER,
         timeoutMs: 3 * 60_000,
@@ -184,12 +193,8 @@ export default defineExecutableWorkflow({
 });
 ```
 
-```sh
-cd ~/workflows && awf run ./hello.ts
-```
-
-It prints the agent's answer, `{ "answer": 391 }`, and a line on time, tokens and estimated cost.
-The run's full record stays in `.awf/runs/hello/{id}`.
+`awf run` prints the agent's answer, `{ "answer": 391 }`, and a line on time, tokens and estimated
+cost. The run's full record stays in `.awf/runs/hello/{id}`.
 
 ### Things to know
 
@@ -208,8 +213,9 @@ The run's full record stays in `.awf/runs/hello/{id}`.
 <details>
 <summary>Editor types for a workflow outside this repository</summary>
 
-With the npm install, add the packages as dev dependencies; `awf` still runs the workflow
-against its own copies:
+`awf init` sets a folder up for editor types: `agentswf`, `typebox`, `@types/bun` and `typescript`
+as dev dependencies, and a `tsconfig.json`. `awf` still runs the workflow against its own copies.
+To set up a folder by hand instead:
 
 ```sh
 bun add -d agentswf@beta typebox @types/bun
@@ -228,8 +234,8 @@ bun add -d agentswf@beta typebox @types/bun
 }
 ```
 
-`awf test` serves `agentswf/testing` to a workflow's tests, but the npm package doesn't carry its
-types yet. From a clone, give the folder a `tsconfig.json` that points into it instead. Paths in it can't start with `~`, so write
+To type a workflow against a clone's unreleased changes, give the folder a `tsconfig.json` that
+points into the clone instead. Paths in it can't start with `~`, so write
 your home directory out:
 
 ```json

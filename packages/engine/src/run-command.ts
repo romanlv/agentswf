@@ -11,6 +11,7 @@ const DEFAULT_TIMEOUT = "1h";
 export const usage = [
   "usage: awf run [options] <workflow-file> [options] [-- workflow arguments...]",
   "       awf run [options] <workflow-file> --continue <id>",
+  "       awf init [dir] [--no-install]",
   "       awf test [paths...] [-t <pattern>] [--watch] [--timeout <duration>]",
   "       awf allowance [harness...] [--json]",
   "       awf runs [<run>] [--json]          (awf runs -h)",

@@ -49,6 +49,9 @@ exists, the code is right, then this page.
   `testWorkflow` from `agentswf/testing` runs the workflow through the real engine with each agent
   and decision model scripted, typed by the schema each turn asks for. Twelve examples have theirs
   beside them.
+- `awf init [dir]` sets a folder up for writing workflows (story 031): a hello workflow and its
+  test, `package.json`, `tsconfig.json`, `.gitignore` and `AGENTS.md`, never overwriting, then
+  `bun install` for editor types.
 - `agent.compact({ prompt })` runs the harness's own compaction with the workflow's focus (story
   015, ADR 0007), within the workflow's deadline unless `timeoutMs` bounds it: every harness in a
   pane, and headless all but cursor, which refuses.
@@ -225,6 +228,9 @@ Built and awaiting human review: [028 — an agent sees what a run is doing](sto
 [027 — a run forks the session that started it](stories/027-caller-fork.md).
 
 The inbox of possible stories is [`stories/todo/`](stories/todo/).
+- [031 — `awf init`](stories/031-awf-init.md): awaiting human review. `awf init` writes a hello workflow,
+  its test and the config files; `agentswf/testing` is exported from the npm package, at
+  `0.1.0-beta.1`, unpublished.
 
 ## Next
 

@@ -1,0 +1,17 @@
+import { expect, test } from "bun:test";
+import { answer, reply, testWorkflow } from "agentswf/testing";
+import hello, { ANSWER } from "./workflow";
+
+test("returns the agent's answer", async () => {
+  const run = await testWorkflow(hello, {}, {
+    agents: { hello: answer(ANSWER, { answer: 391 }) },
+  });
+  expect(run.value).toEqual({ answer: 391 });
+  expect(run.turnsOf("hello")[0]?.prompt).toContain("17 multiplied by 23");
+});
+
+test("an agent that never answers is nudged once, then the result says why", async () => {
+  const run = await testWorkflow(hello, {}, { agents: { hello: reply.silent() } });
+  expect(run.value).toHaveProperty("unanswered");
+  expect(run.turnsOf("hello").map((turn) => turn.nudge)).toEqual([false, true]);
+});

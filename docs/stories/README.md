@@ -131,6 +131,9 @@ status is one of `todo`, `draft`, `ready`, `in-progress`, `blocked`, `awaiting-h
 - [`030` — A run shows up as one trace in the operator's OTel backend](030-otel-export.md) —
   `draft` — each attempt sends its part of the event log as OTLP JSON spans when an endpoint is
   set, never failing the run; proven by unit tests.
+- [`031` — `awf init` sets up a folder for writing workflows](031-awf-init.md) —
+  `awaiting-human-review` — a hello workflow, its test and the config files, never overwriting, so
+  `awf test` passes at once.
 
 - [[021-turn-liveness-and-limits|021 — Keep a waiting agent alive within fixed limits]] —
   `done` — Repeated cooperative check-ins share one deadline and result slot; an accepted

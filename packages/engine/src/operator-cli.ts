@@ -27,6 +27,7 @@ import { type Kept, keepRecords } from "./attempt-output";
 import { continueCommand, printEnding, toldOf } from "./attempt-view";
 import { messageOf } from "./errors";
 import { type Caller, showOwnTab, startHere, takeCaller } from "./here";
+import { type InitCommand, initUsage, parseInitCommand, runInit } from "./init-command";
 import { logsCommand } from "./logs-command";
 import { machinePaths, sandboxesDirOf } from "./machine";
 import {
@@ -79,6 +80,8 @@ export type OperatorEnvironment = {
   callerSearchMs?: number;
   signal?: AbortSignal;
   now?: () => number;
+  /** What `awf init` runs to install, in the folder it set up. */
+  install?: (dir: string) => Promise<number>;
   /** How `awf allowance` reads a harness's plan. */
   readAllowance?: (harness: Harness) => Promise<HarnessAllowance>;
   /**
@@ -126,6 +129,7 @@ export async function runOperatorCli(
     return 0;
   }
   if (argv[0] === "test") return testCommand(argv.slice(1), environment, stdout, stderr);
+  if (argv[0] === "init") return initCommand(argv.slice(1), environment, stdout, stderr);
   if (argv[0] === "logs") {
     return logsCommand(argv.slice(1), environment.cwd ?? process.cwd(), { stdout, stderr });
   }
@@ -451,6 +455,33 @@ async function allowanceCommand(
   const report = await readReport(command.harnesses, read, (environment.now ?? Date.now)());
   stdout(command.json ? JSON.stringify(report, null, 2) : describeReport(report));
   return 0;
+}
+
+/** `awf init`: a folder set up for writing workflows. */
+async function initCommand(
+  argv: readonly string[],
+  environment: OperatorEnvironment,
+  stdout: (text: string) => void,
+  stderr: (text: string) => void,
+): Promise<number> {
+  const cwd = environment.cwd ?? process.cwd();
+  let command: InitCommand | "help";
+  try {
+    command = parseInitCommand(argv, cwd);
+  } catch (error) {
+    stderr(`awf: ${messageOf(error)}\n\n${initUsage}`);
+    return 2;
+  }
+  if (command === "help") {
+    stdout(initUsage);
+    return 0;
+  }
+  try {
+    return await runInit(command, cwd, { stdout, stderr }, environment.install);
+  } catch (error) {
+    stderr(`awf: ${messageOf(error)}`);
+    return 1;
+  }
 }
 
 /** `awf test`: the workflow tests under the given paths, with Bun's test runner. */

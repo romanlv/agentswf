@@ -1,0 +1,16 @@
+# Workflows
+
+This folder holds [agents.wf](https://github.com/romanlv/agentswf) workflows: TypeScript files
+that run coding agents, started with `awf`.
+
+- A workflow is a folder with a `workflow.ts`, which default-exports
+  `defineExecutableWorkflow(…)` from `agentswf/workflow`, and a `workflow.test.ts` beside it.
+  `hello/` is the smallest one; copy it to start another.
+- The API, with every option and outcome:
+  https://github.com/romanlv/agentswf/blob/main/docs/workflow-api.md
+- `awf test` runs the tests with each agent replaced by scripted answers: no agent starts, and it
+  costs nothing. After a change, run it and `bun run check`, which typechecks.
+- `awf run hello/workflow.ts` starts real agents, on the operator's accounts. Don't run a workflow
+  unless asked.
+- Each run is kept in `.awf/runs/{workflow}/{id}`. `awf runs` lists them; `awf logs {run}` shows
+  what one did.
