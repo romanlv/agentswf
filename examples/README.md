@@ -66,6 +66,19 @@ proving a harness, its result channel and the run's accounting for a few cents:
 bun awf run examples/quick-check/workflow.ts -- codex pi
 ```
 
+## See agents message each other
+
+`messaging/` has an implementer write `slugify()` in a fresh folder under `/tmp/awf-messaging`, and
+a reviewer who knows a house style the implementer was not told run it, ask for the fix with
+`wf send --await-reply`, and check again. Codex by default, or `pi`, `claude` (headless, billed per
+token) or `claude-pane`; under a minute and a cent on codex:
+
+```sh
+awf run examples/messaging/workflow.ts -- codex
+awf logs                  # the newest run: messages, waits, replies and each agent's tool calls
+awf logs @e18 --full      # one event in full, a message's text included
+```
+
 ## Drive the session you are in
 
 `calling-session/` takes over the agent session it was started from (ADR 0010). It asks the session
