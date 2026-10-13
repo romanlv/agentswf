@@ -1,8 +1,18 @@
 {
   "name": "@agentswf/sandbox",
-  "version": "0.0.0",
-  "private": true,
+  "version": "0.1.0-beta.0",
+  "description": "agents.wf: the sandboxes a workflow opens, and their providers",
+  "license": "MIT",
+  "homepage": "https://github.com/romanlv/agentswf",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/romanlv/agentswf.git",
+    "directory": "packages/sandbox"
+  },
   "type": "module",
+  "engines": {
+    "bun": ">=1.4.0"
+  },
   "exports": {
     ".": "./src/index.ts",
     "./testing": "./src/testing/index.ts",
@@ -10,7 +20,17 @@
     "./srt": "./src/srt/index.ts",
     "./docker": "./src/docker/index.ts"
   },
+  "files": [
+    "src",
+    "!src/**/*.test.ts",
+    "!src/**/*.eval.ts",
+    "!src/**/fixtures",
+    "docker"
+  ],
   "dependencies": {
     "@agentswf/contract": "workspace:*"
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }

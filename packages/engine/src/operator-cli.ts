@@ -555,7 +555,8 @@ export function cancelOnSignals(
   };
 }
 
-if (import.meta.main) {
+/** Runs `awf` with this process's arguments and signals; `agentswf`'s bin calls it too. */
+export async function main(): Promise<void> {
   const controller = new AbortController();
   const stop = cancelOnSignals(controller);
   try {
@@ -564,3 +565,5 @@ if (import.meta.main) {
     stop();
   }
 }
+
+if (import.meta.main) await main();

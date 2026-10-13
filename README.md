@@ -12,7 +12,7 @@ const { outcome } = await reviewer.run({ prompt: "Review `git diff main`.", sche
 if (isAnswered(outcome)) console.log(outcome.value.findings); // validated against FINDINGS, or a reason why not
 ```
 
-> **Early preview.** Interfaces will change, and nothing is on npm yet: you install from a clone.
+> **Early preview.** Interfaces will change between versions. It is on npm as a beta: `agentswf@beta`.
 
 ## Why
 
@@ -133,14 +133,21 @@ You need [Bun](https://bun.sh) 1.4 or later, git, and at least one agent CLI you
 claude, codex, pi or cursor.
 
 ```sh
-git clone https://github.com/romanlv/agentswf.git ~/.agentswf
-cd ~/.agentswf && bun install
-(cd packages/engine && bun link)   # puts awf in ~/.bun/bin
+bun add -g agentswf@beta   # puts awf in ~/.bun/bin
 awf --version
 ```
 
-`bun link` puts `awf` in `~/.bun/bin`, which Bun's installer adds to your PATH. To update:
-`cd ~/.agentswf && git pull && bun install`.
+`~/.bun/bin` is on your PATH if Bun's installer set it up. To update, run the same `bun add -g`.
+
+To run from a clone instead, as you would to work on agents.wf itself:
+
+```sh
+git clone https://github.com/romanlv/agentswf.git ~/.agentswf
+cd ~/.agentswf && bun install
+(cd packages/engine && bun link)   # puts awf in ~/.bun/bin
+```
+
+To update a clone: `cd ~/.agentswf && git pull && bun install`.
 
 A workflow can live in any folder and needs nothing installed there: `awf` serves it
 `agentswf/workflow` and `typebox` from its own copies. `awf` alone prints its usage.
@@ -201,8 +208,29 @@ The run's full record stays in `.awf/runs/hello/{id}`.
 <details>
 <summary>Editor types for a workflow outside this repository</summary>
 
-Give the folder a `tsconfig.json` that points into the clone. Paths in it can't start with `~`,
-so write your home directory out:
+With the npm install, add the packages as dev dependencies; `awf` still runs the workflow
+against its own copies:
+
+```sh
+bun add -d agentswf@beta typebox @types/bun
+```
+
+```json
+{
+  "compilerOptions": {
+    "strict": true,
+    "noEmit": true,
+    "module": "Preserve",
+    "moduleResolution": "Bundler",
+    "target": "ESNext",
+    "types": ["bun"]
+  }
+}
+```
+
+`awf test` serves `agentswf/testing` to a workflow's tests, but the npm package doesn't carry its
+types yet. From a clone, give the folder a `tsconfig.json` that points into it instead. Paths in it can't start with `~`, so write
+your home directory out:
 
 ```json
 {
