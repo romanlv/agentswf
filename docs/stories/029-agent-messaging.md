@@ -515,7 +515,7 @@ The reasons are in the design's Decisions.
 - [x] 6. Headless agents receive messages and await replies
 - [x] 7. Panes receive messages when idle, and claude panes await replies
 - [x] 8. A workflow's tests script messages; the progress view, logs and usage show them
-- [ ] 9. Agents use messaging correctly live (M2); the review example converges; docs updated
+- [x] 9. Agents use messaging correctly live (M2); the review example converges; docs updated
 
 Task 7 needs story 024, which is `awaiting-human-review`, to be done. Tasks 1 to 6 do not.
 
@@ -1096,6 +1096,40 @@ waiting on them; these are the drafts the gate named, as built and reviewed.
   a script left awaiting when its call ends is let go, its wait `cancelled`; sends after a turn
   ended fail the test; `messagesOf`'s ends made one vocabulary; tests added for `turn.reply`,
   `message.send`, `message.fail` and a `silent` turn run again.
+
+### Task 9
+
+- M2 ran on the built engine, `experiments/m2-messaging`, a real workflow per trial: a planner must
+  plan retries whose home is its architect's call, with a route to ask it. Findings R1–R7 in
+  `docs/findings/messaging-m2.md`. The gate passed 80/80, 20 each on claude headless and in a
+  pane, codex and pi: every asker sent with `--await-reply`, ended its turn with no sleep or poll,
+  and finished with the answer, 77 ending their turn before it came; every peer answered with
+  `wf reply` first time; all 160 deliveries were `observed`. The engine list now allows claude headless and in a pane that confirms delivery, and
+  headless codex and pi.
+- cursor stays off, 11 of 20 on `composer-2.5-fast`: its turns ran past the 6-minute deadline,
+  four before asking; those that asked waited and used the answer. `composer-2.5` answered
+  `[unavailable]` all day, outside awf too.
+- The revision M2 called for was ours: the route lesson's "add `--await-reply`" put the flag after
+  the peer in 60 of 60 first-round trials, which `wf` refused. The lesson now shows
+  `wf send --await-reply <peer>`, and `wf` takes flags typed right after the peer; one after the
+  message is still refused, and so is a message argument that starts with `--`, told to use a
+  heredoc. 0 of 80 after.
+- Ten claude panes started at once beside the headless rounds lost their first prompts to the
+  30 s delivery window, workflow turns as much as messages (R6); two pairs at a time ran clean.
+- `reviewLoop` is the design's. Building it showed feature-delivery's reviewer ran in a codex pane,
+  which cannot await, so its default is now `{ alias: "codex", placement: "headless" }`. The
+  ticket doc's `revise` prompt went with the old loop; the additional reviews' fix-up is
+  `applyFeedback`. The live run showed the design's route both ways let the author, recording its
+  work, ask the reviewer after approval; the route now runs from reviewer to author, which the
+  author answers with `wf reply`.
+- Live, 2026-10-12, on a one-file repo with a two-line ticket: the run completed in 3m26s,
+  ~$0.82 at list prices. In implementation review the reviewer asked the implementer for a
+  correction with `--await-reply`, was answered by `wf reply` and approved; in doc review the
+  planner, recording its doc, asked the reviewer a question and was answered. Two messages per
+  review, within its limit of six.
+- Docs: `workflow-api.md` has Messaging, testing's Messages, and messages left out of Not built
+  yet; `composition.md` the branded `ParticipantRef` and the review loop's `wf reply`; the design's
+  status line, Q11 and M2; `status.md`.
 
 ## Human review
 

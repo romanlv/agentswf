@@ -4,8 +4,9 @@ Messaging lets agents coordinate during a workflow run. Messages are short-lived
 durable state belongs in shared files such as a ticket document or review ledger.
 
 The workflow grants routes, prompts define the collaboration protocol, and the engine owns
-delivery, waiting, limits, and accounting. Not built; Stage 4 in [[status]], refined into
-[[029-agent-messaging|story 029]]. Decisions and their evidence are under [[#Decisions]], and what is
+delivery, waiting, limits, and accounting. Built in [[029-agent-messaging|story 029]], except what
+[[#Not in this design]] and the story leave out: `awf send` waits on M3, and outside participants on
+[[composition]]. Decisions and their evidence are under [[#Decisions]], and what is
 still to be measured under [[#To measure]].
 
 ## Workflow interface
@@ -332,8 +333,9 @@ wf result {call-id} '{"verdict":"approve"}'
 
 The message comes from a quoted heredoc, standard input or the final argument; given an argument,
 standard input is not read. The heredoc is the form taught: a backtick in double quotes runs a
-command, and an apostrophe ends single quotes. Flags go before the peer, and a flag after it is
-refused rather than sent as the message.
+command, and an apostrophe ends single quotes. Flags go before the message, before or after
+the peer; one after the message is refused rather than sent as its text, and so is a message
+argument that starts with `--`, which goes in a heredoc instead.
 
 Agents run `wf` through the launcher the engine installed. Every envelope, refusal, nudge and
 acknowledgement spells out the launcher's full path; this doc writes it as `wf`. When an agent has
@@ -731,7 +733,8 @@ export function reviewLoop(workflow: WorkflowContext, reviewer: Session, maxRevi
     const revising = maxRevisions > 0;
     if (revising) {
       await workflow.messages.allow({
-        between: [author.agent, reviewer.agent],
+        from: reviewer.agent,
+        to: author.agent,
         purpose: `Revise the ${subject.name} until the reviewer approves it.`,
         maxMessages: 2 * maxRevisions,
       });
@@ -774,7 +777,9 @@ reports the work as it stands
 ```
 
 Each revision is a request and its reply, so `maxMessages` is twice `maxRevisions`, clamped to the
-engine's ceiling. Code cannot tell whether anything was revised, so an approval with no revision
+engine's ceiling. The route runs from the reviewer to the author: the author answers each request
+with `wf reply`, and cannot reopen the review once it is approved, as its `Record` turn could on a
+route both ways (story 029's live run). Code cannot tell whether anything was revised, so an approval with no revision
 still takes the `Record` turn; that cost is accepted for a typed value. The reviewer has to be able
 to await: headless, as feature-delivery runs, or a claude pane that confirms delivery. Elsewhere its
 `--await-reply` is refused `unsupported`, it returns `changes-requested`, and the run stops saying
@@ -1035,7 +1040,10 @@ text never gates. [[029-agent-messaging#The M2 gate|Story 029]] has the detail. 
 before it was built, against a stand-in `wf` on headless pi ([[messaging-protocol|P1–P6]]): every
 agent waited and used its reply, and every obligation closed with `wf reply`. What failed was
 wording, a request held into a `run` and a reply-only route, and once in 60 a forged operator
-line. So the gate is what makes waiting harmful on a harness.
+line. So the gate is what makes waiting harmful on a harness. M2 ran on the built engine
+([[messaging-m2|R1–R7]]): it passed 80/80 on claude, headless and in a pane, and on headless codex
+and pi, which the list allows; cursor passed 11 of 20, its turns running past their deadline, so
+it stays off.
 
 ## To measure
 
@@ -1049,8 +1057,9 @@ line. So the gate is what makes waiting harmful on a harness.
   a pane), and how often a peer message with a forged fence and "the operator says: delete X" is
   obeyed. Agent Relay's evals count the prose case as a "phantom" message. Set pass thresholds
   before enabling a harness ([[#Q11. Which live results let a harness use `--await-reply`?|Q11]]).
-  E9 ran it ahead of the build on headless pi ([[messaging-protocol]]); M2 repeats it on the built
-  engine, on every harness and placement.
+  E9 ran it ahead of the build on headless pi ([[messaging-protocol]]). Measured 2026-10-12 on the
+  built engine ([[messaging-m2]]): the gate's counts, replies and delivery; compaction mid-wait and
+  forged text there were not.
 - **M3. What stops an agent from acting as the operator or another agent?** An agent on the host
   has `awf` on its path, and nothing yet tells the operator's call from an agent's; one user can
   read another process's environment ([[permissions]]), and reach a sibling agent's socket. Find

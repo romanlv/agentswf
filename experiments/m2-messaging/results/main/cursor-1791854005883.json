@@ -1,0 +1,75 @@
+{
+  "runtime": "cursor",
+  "execution": {
+    "harness": "cursor",
+    "model": "composer-2.5-fast",
+    "placement": "headless"
+  },
+  "exitCode": 0,
+  "outcome": "completed",
+  "seconds": 364,
+  "artifacts": "/var/folders/4g/s95glx9x6n71bq4hc08ly2gm0000gn/T/awf-m2-A6gOvX/runs/m2-messaging/20261012-2107-1c33",
+  "trials": [
+    {
+      "index": 1,
+      "result": {
+        "key": "planner:1",
+        "outcome": "timed-out: operation deadline exceeded"
+      },
+      "sent": [],
+      "refused": [],
+      "request": [],
+      "architectSent": [],
+      "plannerPhases": ["opened", "releasing", "release", "terminal"],
+      "architectReminded": false,
+      "architectOperations": 0,
+      "tools": []
+    },
+    {
+      "index": 2,
+      "result": {
+        "key": "planner:2",
+        "outcome": "timed-out: operation deadline exceeded"
+      },
+      "sent": [],
+      "refused": [],
+      "request": [],
+      "architectSent": [],
+      "plannerPhases": ["opened", "releasing", "release", "terminal"],
+      "architectReminded": false,
+      "architectOperations": 0,
+      "tools": []
+    },
+    {
+      "index": 3,
+      "result": {
+        "key": "planner:3",
+        "outcome": "timed-out: operation deadline exceeded"
+      },
+      "sent": [],
+      "refused": [],
+      "request": [],
+      "architectSent": [],
+      "plannerPhases": ["opened", "releasing", "release", "terminal"],
+      "architectReminded": false,
+      "architectOperations": 0,
+      "tools": []
+    },
+    {
+      "index": 4,
+      "result": {
+        "key": "planner:4",
+        "outcome": "timed-out: operation deadline exceeded"
+      },
+      "sent": [],
+      "refused": [],
+      "request": [],
+      "architectSent": [],
+      "plannerPhases": ["opened", "releasing", "release", "terminal"],
+      "architectReminded": false,
+      "architectOperations": 0,
+      "tools": []
+    }
+  ],
+  "deliveries": {}
+}

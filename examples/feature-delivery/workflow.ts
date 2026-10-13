@@ -6,11 +6,13 @@
 //                                                                                implementer fixes what
 //                                                                                they ask, reviewer ⟲
 //
-// The reviewer runs on another model than the planner. The run stops when an agent gives no
-// answer, an author moves the ticket doc, a reviewer can't decide, or a review still wants changes
-// after `--revisions` revisions (3 by default). `--continue {ticket}` keeps the stages that finished
-// and redoes the one that stopped, with fresh agents: each stage's value carries what later stages
-// need, and each prompt says all its agent needs to know.
+// The reviewer runs on another model than the planner, headless, so it can wait for a revision: it
+// messages the author the changes it needs, and the author replies with each revision, up to
+// `--revisions` of them (3 by default). The run stops when an agent gives no answer, an author
+// moves the ticket doc, a reviewer can't decide, or a review still wants changes when it ends.
+// `--continue {ticket}` keeps the stages that finished and redoes the one that stopped, with fresh
+// agents: each stage's value carries what later stages need, and each prompt says all its agent
+// needs to know.
 //
 // awf run --run-root {outside the repo} examples/feature-delivery/workflow.ts -- ABC-1
 //   [--revisions 3] [--reviewer security=claude]…
@@ -21,6 +23,7 @@ import { parseArgs } from "./cli";
 import { md } from "./prompt";
 import {
   additionalReviews,
+  applyFeedback,
   implementation,
   requestedChanges,
   reviewLoop,
@@ -89,7 +92,7 @@ async function deliverFeature(workflow: WorkflowContext, args: FeatureArgs): Pro
 
       const fixed = await workOn(implementer, docPath, {
         label: "Apply additional review",
-        prompt: implementation(ticket).revise(approvedBuild.work, asked),
+        prompt: applyFeedback(ticket, approvedBuild.work, asked),
       });
       const final = await reviewUntilApproved(implementer, fixed, implementation(ticket, asked));
       return { final, additional };

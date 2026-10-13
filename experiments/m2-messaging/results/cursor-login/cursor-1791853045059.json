@@ -1,0 +1,60 @@
+{
+  "runtime": "cursor",
+  "execution": {
+    "harness": "cursor",
+    "model": "composer-2.5-fast",
+    "placement": "headless"
+  },
+  "exitCode": 1,
+  "outcome": "failed",
+  "reason": "Cursor authentication is required (`cursor-agent login`); `cursor-agent status` reads as logged out",
+  "seconds": 10,
+  "artifacts": "/var/folders/4g/s95glx9x6n71bq4hc08ly2gm0000gn/T/awf-m2-LORJ0a/runs/m2-messaging/20261012-2057-b3e6",
+  "trials": [
+    {
+      "index": 1,
+      "sent": [],
+      "refused": [],
+      "request": [],
+      "architectSent": [],
+      "plannerPhases": [],
+      "architectReminded": false,
+      "architectOperations": 0,
+      "tools": []
+    },
+    {
+      "index": 2,
+      "sent": [],
+      "refused": [],
+      "request": [],
+      "architectSent": [],
+      "plannerPhases": [],
+      "architectReminded": false,
+      "architectOperations": 0,
+      "tools": []
+    },
+    {
+      "index": 3,
+      "sent": [],
+      "refused": [],
+      "request": [],
+      "architectSent": [],
+      "plannerPhases": [],
+      "architectReminded": false,
+      "architectOperations": 0,
+      "tools": []
+    },
+    {
+      "index": 4,
+      "sent": [],
+      "refused": [],
+      "request": [],
+      "architectSent": [],
+      "plannerPhases": [],
+      "architectReminded": false,
+      "architectOperations": 0,
+      "tools": []
+    }
+  ],
+  "deliveries": {}
+}

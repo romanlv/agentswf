@@ -90,6 +90,8 @@ Each `reviewLoop` opens its own reviewer and resolves `author` from its particip
 export interface ParticipantRef {
   /** Logical key in the workflow context that issued this reference. */
   readonly key: ParticipantKey;
+  /** Only the engine makes one, so a `{ key }` literal is not a ref. */
+  readonly [PARTICIPANT]: true;
 }
 
 export interface ExternalParticipantSpec {
@@ -112,8 +114,10 @@ export interface ParticipantDirectory {
 }
 ```
 
-`AgentRef` also extends `ParticipantRef`, and messaging accepts `ParticipantRef` endpoints. Runtime
-validation ensures references belong to the current scope. Agents and outside participants share
+`AgentRef` also extends `ParticipantRef`, and messaging accepts `ParticipantRef` endpoints. A ref
+is branded with a symbol exported only from `@agentswf/contract/participant`, which a workflow
+cannot import, so only one the engine issued type-checks (built in story 029). Runtime validation
+ensures references belong to the current scope. Agents and outside participants share
 one key namespace within that scope, so `connect` rejects an occupied key.
 
 `connect` creates an inbox and installs a CLI binding for the outside session. The default binding
@@ -219,7 +223,8 @@ const { outcome } = await reviewer.run({
   prompt: `
 Review the working tree against ${args.base} and keep findings in ${args.findingsPath}.
 
-Send each round to the author with wf send --await-reply. Continue when dispositions arrive.
+Send each round to the author with wf send --await-reply, and end your turn: the author answers
+with wf reply, and its dispositions start your next turn.
 Return the verdict once nothing is open.
 `,
   schema: REVIEW_VERDICT,

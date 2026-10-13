@@ -1,6 +1,6 @@
 # Status
 
-Where awf stands, as of 2026-10-06. [`foundation.md`](foundation.md) is the argument and changes
+Where awf stands, as of 2026-10-12. [`foundation.md`](foundation.md) is the argument and changes
 slowly; this page is the state and changes with every story. When the two disagree about what
 exists, the code is right, then this page.
 
@@ -73,9 +73,16 @@ exists, the code is right, then this page.
   agent has exactly those, on the host or in a sandbox, under claude, codex and pi (story 007).
   Each agent gets a checked copy; a public skill is pinned to a commit in a cache shared by runs.
   `output.json` records each agent's skills. An agent named none keeps the operator's on the host.
+- Agents message each other on routes a workflow grants with `workflow.messages.allow` (story
+  029): `wf peers`, `wf send` and `wf reply`, and `wf send --await-reply` to ask and wait, where M2
+  measured it: claude headless and in a pane that confirms delivery, headless codex and pi. A
+  message reaches an agent between turns; one for an idle agent starts a message operation, whose
+  `cause` is in `workflow.usage()` and `output.json`. `awf run`, `awf logs` and `awf runs` show the
+  messages, waits and queues, and a workflow's tests script them for free.
 - `feature-delivery` runs on stages, `awf run` takes it with `-- {ticket}`, and its tests pass. It ran
-  live once (2026-10-10), all five stages on a small ticket in a scratch repo, and a continue from
-  `additional-review` reused the four before it.
+  live on 2026-10-10, all five stages on a small ticket in a scratch repo, and a continue from
+  `additional-review` reused the four before it. Its reviewers now own the revisions, asking the
+  author by message; that loop ran live on 2026-10-12.
 - `bun run eval` checks every supported feature against the live harnesses, on their cheapest
   models; [`testing.md`](testing.md) says what each eval takes and when to run it.
 
@@ -90,7 +97,7 @@ The gates are defined in [`foundation.md`](foundation.md) §12.
 | 1 — the harness stands alone | in progress: no standalone command is accepted yet |
 | 2 — minimum engine and control plane | done (story 001) |
 | 3 — measure and run something real | in progress: catalogue review runs; accounting done (story 002); E4 not run |
-| 4 — messaging, composition, checkpoints, then the journal | not started; messaging is [story 029](stories/029-agent-messaging.md), in progress: tasks 1 to 8 done |
+| 4 — messaging, composition, checkpoints, then the journal | in progress: messaging is [story 029](stories/029-agent-messaging.md), its tasks done, awaiting the story checks |
 
 ## Stories
 

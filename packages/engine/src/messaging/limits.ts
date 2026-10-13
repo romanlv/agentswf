@@ -11,13 +11,17 @@ export const MESSAGE_LIMITS: MessageLimits = {
 };
 
 /**
- * Where an asker may wait for an answer, by harness and placement: off until M2 passes there
- * (story 029's M2 gate). A pane that is `confirmed` waits only where it confirms what it was sent,
- * as `wf waiting` needs. The fake harness always may.
+ * Where an asker may wait for an answer, by harness and placement: on where M2 passed
+ * (`docs/findings/messaging-m2.md`), off elsewhere. A pane that is `confirmed` waits only where it
+ * confirms what it was sent, as `wf waiting` needs. The fake harness always may. cursor is off:
+ * its turns ran past their deadline in M2.
  */
 export const AWAIT_REPLY: Readonly<Record<string, { headless?: true; pane?: true | "confirmed" }>> =
   {
     fake: { headless: true, pane: true },
+    claude: { headless: true, pane: "confirmed" },
+    codex: { headless: true },
+    pi: { headless: true },
   };
 
 /** Whether this agent may `--await-reply` where it runs. */

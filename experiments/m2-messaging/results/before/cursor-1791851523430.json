@@ -1,0 +1,165 @@
+{
+  "runtime": "cursor",
+  "execution": {
+    "harness": "cursor",
+    "model": "composer-2.5",
+    "placement": "headless"
+  },
+  "exitCode": 0,
+  "outcome": "completed",
+  "seconds": 3,
+  "artifacts": "/var/folders/4g/s95glx9x6n71bq4hc08ly2gm0000gn/T/awf-m2-K6phYO/runs/m2-messaging/20261012-2032-0601",
+  "trials": [
+    {
+      "index": 1,
+      "result": {
+        "key": "planner:1",
+        "outcome": "failed: cursor-agent exited 1: Error: [unavailable] Error"
+      },
+      "sent": [],
+      "refused": [],
+      "request": [],
+      "architectSent": [],
+      "plannerPhases": ["opened", "releasing", "release", "terminal"],
+      "architectReminded": false,
+      "architectOperations": 0,
+      "tools": []
+    },
+    {
+      "index": 2,
+      "result": {
+        "key": "planner:2",
+        "outcome": "failed: cursor-agent exited 1: Error: [unavailable] Error"
+      },
+      "sent": [],
+      "refused": [],
+      "request": [],
+      "architectSent": [],
+      "plannerPhases": ["opened", "releasing", "release", "terminal"],
+      "architectReminded": false,
+      "architectOperations": 0,
+      "tools": []
+    },
+    {
+      "index": 3,
+      "result": {
+        "key": "planner:3",
+        "outcome": "failed: cursor-agent exited 1: Error: [unavailable] Error"
+      },
+      "sent": [],
+      "refused": [],
+      "request": [],
+      "architectSent": [],
+      "plannerPhases": ["opened", "releasing", "release", "terminal"],
+      "architectReminded": false,
+      "architectOperations": 0,
+      "tools": []
+    },
+    {
+      "index": 4,
+      "result": {
+        "key": "planner:4",
+        "outcome": "failed: cursor-agent exited 1: Error: [unavailable] Error"
+      },
+      "sent": [],
+      "refused": [],
+      "request": [],
+      "architectSent": [],
+      "plannerPhases": ["opened", "releasing", "release", "terminal"],
+      "architectReminded": false,
+      "architectOperations": 0,
+      "tools": []
+    },
+    {
+      "index": 5,
+      "result": {
+        "key": "planner:5",
+        "outcome": "failed: cursor-agent exited 1: Error: [unavailable] Error"
+      },
+      "sent": [],
+      "refused": [],
+      "request": [],
+      "architectSent": [],
+      "plannerPhases": ["opened", "releasing", "release", "terminal"],
+      "architectReminded": false,
+      "architectOperations": 0,
+      "tools": []
+    },
+    {
+      "index": 6,
+      "result": {
+        "key": "planner:6",
+        "outcome": "failed: cursor-agent exited 1: Error: [unavailable] Error"
+      },
+      "sent": [],
+      "refused": [],
+      "request": [],
+      "architectSent": [],
+      "plannerPhases": ["opened", "releasing", "release", "terminal"],
+      "architectReminded": false,
+      "architectOperations": 0,
+      "tools": []
+    },
+    {
+      "index": 7,
+      "result": {
+        "key": "planner:7",
+        "outcome": "failed: cursor-agent exited 1: Cannot use this model: composer-2.5. Available models:"
+      },
+      "sent": [],
+      "refused": [],
+      "request": [],
+      "architectSent": [],
+      "plannerPhases": ["opened", "releasing", "release", "terminal"],
+      "architectReminded": false,
+      "architectOperations": 0,
+      "tools": []
+    },
+    {
+      "index": 8,
+      "result": {
+        "key": "planner:8",
+        "outcome": "failed: cursor-agent exited 1: Error: [unavailable] Error"
+      },
+      "sent": [],
+      "refused": [],
+      "request": [],
+      "architectSent": [],
+      "plannerPhases": ["opened", "releasing", "release", "terminal"],
+      "architectReminded": false,
+      "architectOperations": 0,
+      "tools": []
+    },
+    {
+      "index": 9,
+      "result": {
+        "key": "planner:9",
+        "outcome": "failed: cursor-agent exited 1: Error: [unavailable] Error"
+      },
+      "sent": [],
+      "refused": [],
+      "request": [],
+      "architectSent": [],
+      "plannerPhases": ["opened", "releasing", "release", "terminal"],
+      "architectReminded": false,
+      "architectOperations": 0,
+      "tools": []
+    },
+    {
+      "index": 10,
+      "result": {
+        "key": "planner:10",
+        "outcome": "failed: cursor-agent exited 1: Error: [unavailable] Error"
+      },
+      "sent": [],
+      "refused": [],
+      "request": [],
+      "architectSent": [],
+      "plannerPhases": ["opened", "releasing", "release", "terminal"],
+      "architectReminded": false,
+      "architectOperations": 0,
+      "tools": []
+    }
+  ],
+  "deliveries": {}
+}

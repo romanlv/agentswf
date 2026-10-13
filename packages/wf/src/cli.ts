@@ -31,8 +31,9 @@ function messageUsage(wf: string, indent = "usage: "): string[] {
     "       <answer>",
     "       EOF",
     "",
-    "Flags go before the peer. The message comes from a quoted heredoc, standard input or one",
-    "final argument; given an argument, standard input is not read.",
+    "Flags go before the message. The message comes from a quoted heredoc, standard input or one",
+    "final argument; given an argument, standard input is not read. One that starts with -- goes",
+    "in a heredoc.",
   ];
 }
 const MAX_STDIN_BYTES = 1024 * 1024;
@@ -269,29 +270,36 @@ async function runMessage(
   return succeeded(response, `wf: ${response.notice}`);
 }
 
-/** Flags before the peer, then the peer, then the message if it is an argument. */
+/**
+ * Flags, the peer and the message if it is an argument. Flags may come before the peer or right
+ * after it, as agents type them; one after the message would otherwise go as its text.
+ */
 function messageArgs(
   args: readonly string[],
 ): { peer: string; message?: string; awaitReply: boolean; timeoutMs?: number } | { error: string } {
   let awaitReply = false;
   let timeoutMs: number | undefined;
-  let i = 0;
-  for (; i < args.length && args[i]!.startsWith("--"); i += 1) {
-    const flag = args[i]!;
-    if (flag === "--await-reply" && !awaitReply) awaitReply = true;
-    else if (flag === "--timeout" && timeoutMs === undefined) {
+  const positional: string[] = [];
+  for (let i = 0; i < args.length; i += 1) {
+    const arg = args[i]!;
+    if (!arg.startsWith("--")) {
+      positional.push(arg);
+      continue;
+    }
+    if (positional.length > 1) return { error: "flags go before the message" };
+    if (arg === "--await-reply" && !awaitReply) awaitReply = true;
+    else if (arg === "--timeout" && timeoutMs === undefined) {
       timeoutMs = durationOf(args[i + 1] ?? "");
       if (timeoutMs === undefined)
         return { error: "--timeout takes a positive integer with ms, s, m or h, such as 5m" };
       i += 1;
-    } else return { error: `${flag} is not a flag it takes, or is given twice` };
+    } else if (positional.length === 1 && arg !== "--await-reply" && arg !== "--timeout") {
+      return { error: `${arg} is not a flag; a message that starts with -- goes in a heredoc` };
+    } else return { error: `${arg} is not a flag it takes, or is given twice` };
   }
   if (timeoutMs !== undefined && !awaitReply) return { error: "--timeout needs --await-reply" };
-  const [peer, ...rest] = args.slice(i);
+  const [peer, ...rest] = positional;
   if (!peer) return { error: "it needs the peer to send to" };
-  // A flag typed after the peer would otherwise go as the message, and the heredoc be dropped.
-  if (rest.some((arg) => arg === "--await-reply" || arg === "--timeout"))
-    return { error: "flags go before the peer" };
   if (rest.length > 1)
     return { error: "the message is one argument; quote it, or use a heredoc or standard input" };
   return {

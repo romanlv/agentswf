@@ -166,7 +166,7 @@ export function routeLesson(routes: readonly RouteLine[], launcher: string): str
   return [
     "You can message other agents on these routes:",
     ...routes.map(routeLine),
-    `See them with ${wf} peers. Send with ${wf} send <peer> <<'EOF' ... EOF; add --await-reply to ask and wait for the answer, which starts your next turn: end your turn then, do not poll or sleep.`,
+    `See them with ${wf} peers. Send with ${wf} send <peer> <<'EOF' ... EOF. To ask and wait for the answer, send with ${wf} send --await-reply <peer>; the answer starts your next turn, so end your turn then, and do not poll or sleep.`,
     `Answer a question with ${wf} reply <peer> <<'EOF' ... EOF; only a reply counts as the answer.`,
   ].join("\n");
 }

@@ -440,13 +440,20 @@ describe("wf peers, send and reply", () => {
     ]) {
       expect((await runCli(args, null, never)).exitCode).toBe(2);
     }
-    // A flag after the peer would otherwise go as the message, and the heredoc be dropped.
-    const late = await runCli(as("send", "fixer", "--await-reply"), "the question\n", never);
-    expect(late.exitCode).toBe(2);
-    expect(late.stderr).toStartWith("wf: send: flags go before the peer");
+    // Agents type the flag after the peer: it is taken, and the heredoc read as the message.
     expect(
       await readCliStdin(as("send", "fixer", "--await-reply"), false, new Blob(["x"]).stream()),
-    ).toBeNull();
+    ).toBe("x");
+    // One after the message would otherwise go as its text.
+    const late = await runCli(as("send", "fixer", "the question", "--await-reply"), null, never);
+    expect(late.exitCode).toBe(2);
+    expect(late.stderr).toStartWith("wf: send: flags go before the message");
+    // A message that starts with -- is not taken for a flag, nor sent as one.
+    const dashed = await runCli(as("reply", "fixer", "--force is risky"), null, never);
+    expect(dashed.exitCode).toBe(2);
+    expect(dashed.stderr).toStartWith(
+      "wf: reply: --force is risky is not a flag; a message that starts with -- goes in a heredoc",
+    );
     expect((await runCli(as("bogus"), null, never)).stderr).toContain(`${LAUNCHER} peers [--json]`);
   });
 

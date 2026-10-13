@@ -1,0 +1,158 @@
+{
+  "runtime": "cursor",
+  "execution": {
+    "harness": "cursor",
+    "model": "composer-2.5-fast",
+    "placement": "headless"
+  },
+  "exitCode": 0,
+  "outcome": "completed",
+  "seconds": 157,
+  "artifacts": "/var/folders/4g/s95glx9x6n71bq4hc08ly2gm0000gn/T/awf-m2-4cbZWQ/runs/m2-messaging/20261012-2119-294d",
+  "deliveries": {
+    "offered": 8,
+    "unconfirmed": 8
+  },
+  "trials": [
+    {
+      "index": 1,
+      "result": {
+        "key": "planner:1",
+        "outcome": "answered",
+        "decision": "queue"
+      },
+      "sent": [
+        {
+          "to": "architect:1",
+          "awaits": true
+        }
+      ],
+      "refused": [],
+      "request": ["replied"],
+      "architectSent": [
+        {
+          "to": "planner:1",
+          "replyTo": 5
+        }
+      ],
+      "plannerPhases": [
+        "opened",
+        "awaiting-reply",
+        "continued:reply",
+        "admitted",
+        "persisted",
+        "releasing",
+        "release",
+        "terminal"
+      ],
+      "architectReminded": false,
+      "architectOperations": 1,
+      "tools": []
+    },
+    {
+      "index": 2,
+      "result": {
+        "key": "planner:2",
+        "outcome": "answered",
+        "decision": "queue"
+      },
+      "sent": [
+        {
+          "to": "architect:2",
+          "awaits": true
+        }
+      ],
+      "refused": [],
+      "request": ["replied"],
+      "architectSent": [
+        {
+          "to": "planner:2",
+          "replyTo": 6
+        }
+      ],
+      "plannerPhases": [
+        "opened",
+        "awaiting-reply",
+        "continued:reply",
+        "admitted",
+        "persisted",
+        "releasing",
+        "release",
+        "terminal"
+      ],
+      "architectReminded": false,
+      "architectOperations": 1,
+      "tools": []
+    },
+    {
+      "index": 3,
+      "result": {
+        "key": "planner:3",
+        "outcome": "answered",
+        "decision": "queue"
+      },
+      "sent": [
+        {
+          "to": "architect:3",
+          "awaits": true
+        }
+      ],
+      "refused": [],
+      "request": ["replied"],
+      "architectSent": [
+        {
+          "to": "planner:3",
+          "replyTo": 1
+        }
+      ],
+      "plannerPhases": [
+        "opened",
+        "awaiting-reply",
+        "continued:reply",
+        "admitted",
+        "persisted",
+        "releasing",
+        "release",
+        "terminal"
+      ],
+      "architectReminded": false,
+      "architectOperations": 1,
+      "tools": []
+    },
+    {
+      "index": 4,
+      "result": {
+        "key": "planner:4",
+        "outcome": "answered",
+        "decision": "queue"
+      },
+      "sent": [
+        {
+          "to": "architect:4",
+          "awaits": true
+        }
+      ],
+      "refused": [],
+      "request": ["replied"],
+      "architectSent": [
+        {
+          "to": "planner:4",
+          "replyTo": 2
+        }
+      ],
+      "plannerPhases": [
+        "opened",
+        "awaiting-reply",
+        "continued:reply",
+        "admitted",
+        "persisted",
+        "releasing",
+        "release",
+        "terminal"
+      ],
+      "architectReminded": false,
+      "architectOperations": 1,
+      "tools": []
+    }
+  ]
+}

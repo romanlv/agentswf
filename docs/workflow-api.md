@@ -24,6 +24,7 @@ isAnswered(outcome)                                          // narrows to { kin
 workflow.parallel(items, (item, i) => …, { concurrency?, label?, deadline? })  // → results in item order
 workflow.sandboxes.open({ key, write?, read?, network?, srt? | docker? })        // → pass as { sandbox }
 workflow.decisions.decide({ key, model: "jev", state, questions })              // → { answers } in ~200 ms
+workflow.messages.allow({ from, to, purpose, maxMessages? } | { between: [a, b], purpose, … })  // agents may message
 
 workflow.stage(name, { result, summary? }?, async () => …)  // → its value; reused on a continue
 workflow.stop(reason)                                         // ends the attempt stopped
@@ -32,8 +33,8 @@ workflow.log(message, fields?)   workflow.usage()   workflow.deadline   workflow
 workflow.runId   workflow.attempt
 
 // In a test, from "agentswf/testing"; `awf test` runs it:
-testWorkflow(workflow, args, { agents?, decisions?, runtimes?, caller?, timeoutMs?, stallMs?, cwd?,
-                              recorded?, fromStage?, values? })  // → run
+testWorkflow(workflow, args, { agents?, messages?, compactions?, awaitReply?, decisions?, runtimes?,
+                              caller?, timeoutMs?, stallMs?, cwd?, recorded?, fromStage?, values? })  // → run
 answer(SCHEMA, value | (turn) => value)   answer("text")   reply.waiting(reason, timeoutMs?) | silent() | blocked() | failed() | needsLogin(provider?) | timedOut() | hang() | interrupted()
 ```
 
@@ -46,6 +47,7 @@ answer(SCHEMA, value | (turn) => value)   answer("text")   reply.waiting(reason,
 | **Deadline** | Every wait has one. A child's deadline can be earlier than its parent's, never later. |
 | **Sandbox** | What agents inside it can read, write and reach. They share it or get a private one. |
 | **Decision** | Closed questions to a decision model (Jev). It returns probabilities, and no agent is involved. |
+| **Route** | Lets one agent message another while both work, for a purpose the workflow states. |
 | **Run** | One piece of work, with an id. Each `awf run` of it is an attempt; `--continue` adds one. |
 | **Stage** | A named step of a run. A continue reuses what stages succeeded and runs the rest. |
 
@@ -602,6 +604,43 @@ answers.urgency.expected;     // 1.4, the probability-weighted level
 - **A decision that didn't answer rejects** with `DecisionError` (or `DeadlineExceededError`).
   It's recorded either way.
 
+## Messaging
+
+Agents can talk to each other while they work, on routes the workflow grants. Your code grants a
+route and reads typed results; what is said on it is between the agents, and code never reads it.
+
+```ts
+await workflow.messages.allow({
+  between: [reviewer, implementer],
+  purpose: "Revise the implementation until the reviewer approves it.",
+  maxMessages: 6,
+});
+const verdict = await reviewer.run({ prompt: "Review the change; ask the implementer for fixes.", schema: VERDICT });
+```
+
+- **A route** is `{ from, to }`, one way, or `{ between: [a, b] }`, both ways sharing one count.
+  Its `purpose` is shown with every message on it. Granted inside a stage, it closes when the stage
+  ends; outside any, with the attempt. `maxMessages` lowers the engine's ceiling of 40 messages a
+  route, replies included.
+- **Agents use `wf`**, which their prompt teaches them: `wf peers` lists their routes,
+  `wf send {peer}` sends a note, `wf send --await-reply {peer}` asks and waits, and
+  `wf reply {peer}` answers a question. An agent that asks ends its turn; the answer starts its
+  next turn of the same call, so its `run` returns once it has used it.
+- **A message reaches an agent between turns**, never into one running. One for an agent with
+  nothing to do starts a turn of its own, a message operation, whose cost is the receiver's. One
+  for a busy agent waits until its turn ends, and comes with its next turn.
+- **An agent asked a question owes the answer:** its result is refused until it replies, and a
+  message operation that ends owing it is reminded once, then the asker's wait fails.
+- **`--await-reply` works where the engine has measured it** (story 029's M2): headless claude,
+  codex and pi, and a claude pane that confirms what it is sent. Elsewhere it is refused
+  `unsupported`, and the agent is told to send without waiting.
+- **`workflow.usage()`** has each operation's `cause`: `{ message: { from } }` for one a message
+  started, absent for your own `run`s, so `output.json` shows what messaging cost and for whom.
+  `awf run`, `awf logs` and `awf runs` show the messages, waits and queues.
+
+claude's own messaging between sessions is a different thing, and is on by default:
+[`design/messaging.md`](design/messaging.md#claudes-own-messaging) says what it reaches.
+
 ## Logging and usage
 
 ```ts
@@ -677,6 +716,9 @@ test reports.
 - **`reply.needsLogin(provider?)`** fails a turn as the agent's harness does when it cannot sign
   in: `login` names the agent's harness, the provider, and what to run.
 
+- **`turn.send(peer, text, { awaitReply? })`** and **`turn.reply(peer, text)`** message another
+  agent, as `wf send` and `wf reply` do; see [Messages](#messages).
+
 - **`reply.waiting(reason, timeoutMs?)`** declares a cooperative wait. It is supported for
   run-owned Claude panes, matching production; other placements reject it. The next check-in
   invokes the same script entry with `turn.nudge: true`. Waiting never extends the deadline.
@@ -694,7 +736,11 @@ entry may go unused, which makes it the right shape for a happy path shared by s
 // examples/feature-delivery/workflow.test.ts
 const args = {
   ticket: "ABC-1",
-  runtimes: { planner: "claude", implementer: "codex", reviewer: "codex" },
+  runtimes: {
+    planner: "claude",
+    implementer: "codex",
+    reviewer: { alias: "codex", placement: "headless" as const },
+  },
 };
 const doc = "docs/ABC-1.md";
 const ready = (summary: string) => answer(VERDICT, { kind: "ready", summary });
@@ -719,14 +765,14 @@ const run = await testWorkflow(featureDelivery, args, {
       answer(WORK, planned),
       answer(WORK, { docPath: doc, summary: "plan v2", decisions: ["name the cache"] }),
     ],
-    reviewer: [
-      answer(VERDICT, { kind: "changes-requested", feedback: ["name the cache"] }),
-      ready("doc ok"),
-      ready("code ok"),
-    ],
+    reviewer: [asking("name the cache", "doc ok"), ready("code ok")],
   },
+  messages: { planner: (message) => message.reply("Named it in the doc.") },
 });
 ```
+
+`asking` is the test's own reviewer that asks its author for a change by message; see
+[Messages](#messages).
 
 A fan-out is scripted by pattern; `runtimes` adds the workflow's `cheap` and `judge`. Here `holds`
 is the test's own verifier answer, `answer(VERDICT_SCHEMA, { refuted: false, … })`, met by every verifier:
@@ -747,6 +793,62 @@ const run = await testWorkflow(judged, judged.prepare({ argv: [], cwd: "/repo" }
   },
 });
 ```
+
+### Messages
+
+A script messages as its agent would. `turn.send` resolves with the reply, so a wait that spans
+turns is an `await`:
+
+```ts
+// examples/feature-delivery/workflow.test.ts
+/** A review that asks its author for `change` by message and approves what the author replies. */
+const asking = (change: string, summary: string) =>
+  answer(VERDICT, async (turn) => {
+    const author = turn.label === "Review ticket doc" ? "planner" : "implementer";
+    const revised = await turn.send(author, change, { awaitReply: true });
+    return revised.kind === "replied"
+      ? { kind: "ready", summary: `${summary}: ${revised.text}` }
+      : { kind: "inconclusive", reason: `no revision: ${revised.kind}` };
+  });
+```
+
+The planner's revision is a message operation, scripted under `messages`, between its two
+workflow turns:
+
+```ts
+// examples/feature-delivery/workflow.test.ts
+expect(run.messagesOf("planner")).toEqual([
+  { from: "reviewer", awaitReply: true, end: "replied" },
+]);
+// Built, revised by message, then reported as it stands after review.
+expect(run.turnsOf("planner").map(({ label, cause }) => [label, cause])).toEqual([
+  ["Create ticket doc", undefined],
+  [undefined, { message: { from: "reviewer" } }],
+  ["Record ticket doc", undefined],
+]);
+```
+
+- **`turn.send(peer, text, { awaitReply?, timeoutMs? })`** resolves to `{ kind: "sent" }`;
+  `{ kind: "replied", text }` with `awaitReply`; `{ kind: "failed", reason }` when the peer did not
+  answer, or `"dropped"` when the script returned without awaiting it; or `{ kind: "refused", code }`,
+  a value to test, not a throw. The turn that asked ends `awaiting-reply`, and the reply comes in a
+  turn of its own sharing its number. While it awaits, a script awaits only the host's calls.
+- **`turn.messages`** are the messages shown in the turn; **`turn.reply(peer, text)`** answers a
+  question among them, and a script that returns a result while it owes one fails the test, as the
+  agent's would be refused. A turn that ends `reply.waiting` or `reply.silent` with messages held is
+  run again with them.
+- **`messages`** maps an agent's key, or a pattern, to the script of each message operation it is
+  woken for: `(message) => …`, with `message.from`, `text`, `asks`, its `turn`, and `reply(text)`,
+  `send(peer, text)`, `silent()` and `fail(reason?)`. A list is one entry per message operation,
+  apart from `agents`, so granting a route never shifts an agent's turn scripts. An agent woken with
+  no script fails the test.
+- **`run.messagesOf(key)`** is the messages sent to an agent: `from`, `awaitReply`, and `end`,
+  `replied` or `failed` for a question, `delivered` or `undelivered` for the rest, with a `reason`.
+  A turn's **`cause`** says which message started it.
+- **`awaitReply`**: by default a test refuses `--await-reply` where a run would. `"anywhere"`
+  tries a workflow's messaging on a harness the engine has not measured yet.
+- A script awaiting a reply cannot answer another agent's question meanwhile; the test says the
+  host cannot script it.
 
 ### Decisions
 
@@ -863,9 +965,10 @@ expect(run.compactions).toEqual([]); // a compaction inside implement isn't repe
 
 ### What fails the test, not the workflow
 
-- an agent or a decision with no script;
+- an agent or a decision with no script, or an agent woken by a message with no `messages` script;
 - a turn past a list's end, or a list entry never reached;
-- an answer for a schema other than the turn's, or one the schema refuses;
+- an answer for a schema other than the turn's, or one the schema refuses, or one given while the
+  agent owes a reply;
 - a decision's answer its question can't take, or that is no distribution;
 - a script that throws;
 - a stall: nothing starting or ending for 2 s (`stallMs`), which names the turns in flight, so a
@@ -882,7 +985,7 @@ time passes needs virtual time, which isn't built.
 
 These calls are in the types and throw `unavailable` today: `agents.attach`, except for the calling
 session's key, `agent.enqueue`, `steps` (durable steps and sleep), `signals` (waiting for
-outside input), `participants` and `messages` (agents talking to each other), and `call` (one
+outside input), `participants` (sessions the engine did not start, as route ends), and `call` (one
 workflow calling another). [`docs/status.md`](status.md) says what's next.
 
 ## Where to go next

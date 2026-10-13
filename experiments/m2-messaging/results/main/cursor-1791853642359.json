@@ -1,0 +1,122 @@
+{
+  "runtime": "cursor",
+  "execution": {
+    "harness": "cursor",
+    "model": "composer-2.5-fast",
+    "placement": "headless"
+  },
+  "exitCode": 0,
+  "outcome": "completed",
+  "seconds": 597,
+  "artifacts": "/var/folders/4g/s95glx9x6n71bq4hc08ly2gm0000gn/T/awf-m2-sUHm4i/runs/m2-messaging/20261012-2057-4af7",
+  "trials": [
+    {
+      "index": 1,
+      "result": {
+        "key": "planner:1",
+        "outcome": "timed-out: operation deadline exceeded"
+      },
+      "sent": [
+        {
+          "to": "architect:1",
+          "awaits": true
+        }
+      ],
+      "refused": [],
+      "request": ["replied"],
+      "architectSent": [
+        {
+          "to": "planner:1",
+          "replyTo": 3
+        }
+      ],
+      "plannerPhases": [
+        "opened",
+        "awaiting-reply",
+        "continued:reply",
+        "releasing",
+        "release",
+        "terminal"
+      ],
+      "architectReminded": false,
+      "architectOperations": 1,
+      "tools": []
+    },
+    {
+      "index": 2,
+      "result": {
+        "key": "planner:2",
+        "outcome": "timed-out: operation deadline exceeded"
+      },
+      "sent": [
+        {
+          "to": "architect:2",
+          "awaits": true
+        }
+      ],
+      "refused": ["architect:2 reply expired", "architect:2 reply expired"],
+      "request": ["released"],
+      "architectSent": [],
+      "plannerPhases": ["opened", "awaiting-reply", "releasing", "release", "terminal"],
+      "architectReminded": false,
+      "architectOperations": 1,
+      "tools": []
+    },
+    {
+      "index": 3,
+      "result": {
+        "key": "planner:3",
+        "outcome": "timed-out: operation deadline exceeded"
+      },
+      "sent": [
+        {
+          "to": "architect:3",
+          "awaits": true
+        }
+      ],
+      "refused": [],
+      "request": ["replied"],
+      "architectSent": [
+        {
+          "to": "planner:3",
+          "replyTo": 2
+        }
+      ],
+      "plannerPhases": [
+        "opened",
+        "awaiting-reply",
+        "continued:reply",
+        "releasing",
+        "release",
+        "terminal"
+      ],
+      "architectReminded": false,
+      "architectOperations": 1,
+      "tools": []
+    },
+    {
+      "index": 4,
+      "result": {
+        "key": "planner:4",
+        "outcome": "timed-out: operation deadline exceeded"
+      },
+      "sent": [
+        {
+          "to": "architect:4",
+          "awaits": true
+        }
+      ],
+      "refused": ["architect:4 reply expired", "architect:4 reply expired"],
+      "request": ["released"],
+      "architectSent": [],
+      "plannerPhases": ["opened", "awaiting-reply", "releasing", "release", "terminal"],
+      "architectReminded": false,
+      "architectOperations": 1,
+      "tools": []
+    }
+  ],
+  "deliveries": {
+    "offered": 6,
+    "unconfirmed": 6
+  }
+}

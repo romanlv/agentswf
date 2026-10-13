@@ -823,7 +823,7 @@ describe("what an agent reads", () => {
       [
         "You can message other agents on these routes:",
         `- you and implementer may message each other: “${PURPOSE}”`,
-        `See them with ${WF} peers. Send with ${WF} send <peer> <<'EOF' ... EOF; add --await-reply to ask and wait for the answer, which starts your next turn: end your turn then, do not poll or sleep.`,
+        `See them with ${WF} peers. Send with ${WF} send <peer> <<'EOF' ... EOF. To ask and wait for the answer, send with ${WF} send --await-reply <peer>; the answer starts your next turn, so end your turn then, and do not poll or sleep.`,
         `Answer a question with ${WF} reply <peer> <<'EOF' ... EOF; only a reply counts as the answer.`,
       ].join("\n"),
     );

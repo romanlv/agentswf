@@ -1,0 +1,107 @@
+{
+  "runtime": "claude-pane",
+  "execution": {
+    "harness": "claude",
+    "model": "claude-sonnet-5-5"
+  },
+  "exitCode": 0,
+  "outcome": "completed",
+  "seconds": 33,
+  "estimateUsd": 0.45108270000000006,
+  "artifacts": "/var/folders/4g/s95glx9x6n71bq4hc08ly2gm0000gn/T/awf-m2-g2x47F/runs/m2-messaging/20261012-2042-4fe2",
+  "trials": [
+    {
+      "index": 1,
+      "result": {
+        "key": "planner:1",
+        "outcome": "answered",
+        "decision": "queue"
+      },
+      "sent": [
+        {
+          "to": "architect:1",
+          "awaits": true
+        }
+      ],
+      "refused": [],
+      "request": ["replied"],
+      "architectSent": [
+        {
+          "to": "planner:1",
+          "replyTo": 1
+        }
+      ],
+      "plannerPhases": [
+        "opened",
+        "dispatched",
+        "queue-accepted",
+        "received",
+        "awaiting-reply",
+        "continued:reply",
+        "dispatched",
+        "queue-accepted",
+        "admitted",
+        "persisted",
+        "releasing",
+        "received",
+        "release",
+        "terminal"
+      ],
+      "architectReminded": false,
+      "architectOperations": 1,
+      "tools": [
+        "Bash /tmp/awf-it41zf/af1BX58/wf send --await-reply architect:1 <<'EOF' Planning retries for charge() in src/payments.ts. The\u2026",
+        "Bash /tmp/awf-it41zf/af1BX58/wf result 3f0fbda8-a4f7-41a3-9fd6-4df787bbc689 <<'WF_JSON' {\"decision\":\"queue\",\"plan\":\"Decision\u2026"
+      ]
+    },
+    {
+      "index": 2,
+      "result": {
+        "key": "planner:2",
+        "outcome": "answered",
+        "decision": "queue"
+      },
+      "sent": [
+        {
+          "to": "architect:2",
+          "awaits": true
+        }
+      ],
+      "refused": [],
+      "request": ["replied"],
+      "architectSent": [
+        {
+          "to": "planner:2",
+          "replyTo": 2
+        }
+      ],
+      "plannerPhases": [
+        "opened",
+        "dispatched",
+        "queue-accepted",
+        "received",
+        "awaiting-reply",
+        "continued:reply",
+        "dispatched",
+        "queue-accepted",
+        "admitted",
+        "persisted",
+        "releasing",
+        "received",
+        "release",
+        "terminal"
+      ],
+      "architectReminded": false,
+      "architectOperations": 1,
+      "tools": [
+        "Bash /tmp/awf-it41zf/apUoUY2/wf peers; cat src/payments.ts",
+        "Bash /tmp/awf-it41zf/apUoUY2/wf send --await-reply architect:2 <<'EOF' I'm planning retries for charge() in src/payments.ts.\u2026",
+        "Bash /tmp/awf-it41zf/apUoUY2/wf result 55190065-be57-44e5-9ddb-895f0bda55b6 <<'WF_JSON' {\"decision\":\"queue\",\"plan\":\"Decision\u2026"
+      ]
+    }
+  ],
+  "deliveries": {
+    "offered": 4,
+    "observed": 4
+  }
+}

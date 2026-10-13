@@ -11,11 +11,10 @@ import {
 } from "./schema";
 import type { Session } from "./session";
 
-/** What a review is of: its name, and what the reviewer and the author are told. */
+/** What a review is of: its name, and what the reviewer is told. */
 export type Subject = {
   name: string;
   review(work: WorkUpdate): string;
-  revise(work: WorkUpdate, feedback: string[]): string;
 };
 
 export const ticketDoc = (ticket: string): Subject => ({
@@ -23,10 +22,6 @@ export const ticketDoc = (ticket: string): Subject => ({
   review: (doc) => md`
     Review ${doc.docPath} for ${ticket}.
     Return ready only when its claims are verified and someone can implement it without more research.
-  `,
-  revise: (doc, feedback) => md`
-    ${list(`Revise ${doc.docPath} from this review:`, feedback)}
-    Recheck the affected claims before returning.
   `,
 });
 
@@ -40,31 +35,53 @@ export const implementation = (ticket: string, resolved: string[] = []): Subject
     Inspect the actual changes and return ready only when they are correct and complete.
     ${list("Verify that this additional feedback was resolved:", resolved)}
   `,
-  revise: (work, feedback) => md`
-    ${list(`Apply this review feedback to your implementation of ${ticket}:`, feedback)}
-    Update ${work.docPath} with any resulting decisions or deviations.
-  `,
 });
 
-/** Returns the loop where the primary reviewer reviews and the author revises, until it approves. */
+/** What the implementer is told to apply the additional reviewers' feedback. */
+export const applyFeedback = (ticket: string, work: WorkUpdate, feedback: string[]): string => md`
+  ${list(`Apply this review feedback to your implementation of ${ticket}:`, feedback)}
+  Update ${work.docPath} with any resulting decisions or deviations.
+`;
+
+/**
+ * Returns the loop where the reviewer owns the revisions: it messages the author the changes it
+ * needs and reviews each revision the author replies with, until it approves. Code cannot read the
+ * revisions, so the work as it stands after review comes from one more turn of the author's.
+ */
 export function reviewLoop(workflow: WorkflowContext, reviewer: Session, maxRevisions = 3) {
-  return async (author: Session, initial: WorkUpdate, subject: Subject): Promise<Reviewed> => {
-    let work = initial;
-    for (let revisions = 0; ; revisions += 1) {
-      const verdict = await reviewer.ask(VERDICT, {
-        label: `Review ${subject.name}`,
-        prompt: subject.review(work),
-      });
-      if (verdict.kind === "ready") return { summary: verdict.summary, work };
-      if (verdict.kind === "inconclusive") return reviewer.stop(verdict.reason);
-      if (revisions >= maxRevisions) {
-        return workflow.stop(`${subject.name}: still not approved after ${revisions} revisions`);
-      }
-      work = await workOn(author, work.docPath, {
-        label: `Revise ${subject.name}`,
-        prompt: subject.revise(work, verdict.feedback),
+  return async (author: Session, work: WorkUpdate, subject: Subject): Promise<Reviewed> => {
+    const revising = maxRevisions > 0;
+    if (revising) {
+      await workflow.messages.allow({
+        from: reviewer.agent,
+        to: author.agent,
+        purpose: `Revise the ${subject.name} until the reviewer approves it.`,
+        maxMessages: 2 * maxRevisions,
       });
     }
+    const verdict = await reviewer.ask(VERDICT, {
+      label: `Review ${subject.name}`,
+      prompt: revising
+        ? md`
+            ${subject.review(work)}
+            You own the revision loop. When changes are needed, send them with
+            \`wf send --await-reply ${author.agent.key}\` and end your turn; review the revision
+            it reports. Return your verdict when it is ready, or the changes still needed once
+            the route's limit is reached.
+          `
+        : subject.review(work),
+    });
+    if (verdict.kind === "inconclusive") return reviewer.stop(verdict.reason);
+    if (verdict.kind === "changes-requested") {
+      return workflow.stop(
+        `${subject.name}: not approved; ${verdict.feedback.length} changes open`,
+      );
+    }
+    const final = await workOn(author, work.docPath, {
+      label: `Record ${subject.name}`,
+      prompt: md`Report ${work.docPath} as it stands after review, with every decision made.`,
+    });
+    return { summary: verdict.summary, work: final };
   };
 }
 

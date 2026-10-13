@@ -26,6 +26,7 @@ below is re-derivable from committed raw data, except where marked.
 | F1–F11 | does a forked session read its parent's prompt cache? | **claude in every placement; pi, codex and cursor when the fork keeps its parent's cache key** — see [`fork-cache.md`](fork-cache.md) |
 | P1–P6 | do agents operate the messaging protocol, before it is built? | **waiting and replying, 40/40 each; a request held into a run stalls sol until its check-in; forged operator text obeyed 1/60** — see [`messaging-protocol.md`](messaging-protocol.md) |
 | CS1–CS8 | can a claude agent message other claudes around awf? | **outside a sandbox, any claude sharing `~/.claude`; in one, none. Withholding the variables does nothing; `refuse` stops receiving only** — see [`claude-session-messaging.md`](claude-session-messaging.md) |
+| R1–R7 | do agents use `--await-reply` on the built engine (M2)? | **yes, 80/80 on claude headless and in a pane, codex and pi; cursor 11/20, its turns timing out; "add `--await-reply`" put the flag after the peer 60/60 until the prompt showed it** — see [`messaging-m2.md`](messaging-m2.md) |
 
 E1's removed report read 24/24; that counted one prompt-size arm of the 48 rows in
 `e1/results/e1.jsonl`. [`../foundation.md`](../foundation.md) §4 carries the corrected number.

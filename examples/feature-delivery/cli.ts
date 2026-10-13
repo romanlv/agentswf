@@ -2,11 +2,18 @@ import type { AdditionalReviewer, FeatureArgs } from "./schema";
 
 const USAGE = "feature-delivery: -- {ticket} [--revisions {n}] [--reviewer {name}={runtime}]…";
 
-/** A claude planner, codex for the rest, and an additional reviewer per `--reviewer`. */
+/**
+ * A claude planner, codex for the rest, the reviewer headless so it can await a revision, and an
+ * additional reviewer per `--reviewer`.
+ */
 export function parseArgs(argv: readonly string[]): FeatureArgs {
   const args: FeatureArgs = {
     ticket: "",
-    runtimes: { planner: "claude", implementer: "codex", reviewer: "codex" },
+    runtimes: {
+      planner: "claude",
+      implementer: "codex",
+      reviewer: { alias: "codex", placement: "headless" },
+    },
   };
   const additionalReviewers: AdditionalReviewer[] = [];
   for (let i = 0; i < argv.length; i += 1) {

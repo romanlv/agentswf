@@ -99,8 +99,8 @@ if (import.meta.main) {
       signal: interruption(),
       stdout: (text) => output.push(text),
       stderr: (text) => console.error(text),
-      // The list is off until M2 passes on a harness; this smoke turns each on to show its delivery
-      // works: headless, and in a claude pane that confirms what it was sent.
+      // The engine's list has what M2 passed; this smoke turns cursor on too, to show its delivery
+      // works, and checks every harness headless and a claude pane that confirms what it was sent.
       awaitReply: (execution, confirms) =>
         canAwaitReply(execution, confirms, {
           claude: { headless: true, pane: "confirmed" },

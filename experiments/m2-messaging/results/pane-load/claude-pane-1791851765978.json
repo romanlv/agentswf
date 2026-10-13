@@ -1,0 +1,88 @@
+{
+  "runtime": "claude-pane",
+  "execution": {
+    "harness": "claude",
+    "model": "claude-sonnet-5-5"
+  },
+  "exitCode": 0,
+  "outcome": "completed",
+  "seconds": 38,
+  "artifacts": "/var/folders/4g/s95glx9x6n71bq4hc08ly2gm0000gn/T/awf-m2-elFQNQ/runs/m2-messaging/20261012-2035-32ac",
+  "trials": [
+    {
+      "index": 1,
+      "result": {
+        "key": "planner:1",
+        "outcome": "failed: prompt delivery could not be confirmed"
+      },
+      "sent": [],
+      "refused": [],
+      "request": [],
+      "architectSent": [],
+      "plannerPhases": ["opened", "dispatched", "releasing", "release", "terminal"],
+      "architectReminded": false,
+      "architectOperations": 0,
+      "tools": []
+    },
+    {
+      "index": 2,
+      "result": {
+        "key": "planner:2",
+        "outcome": "failed: prompt delivery could not be confirmed"
+      },
+      "sent": [],
+      "refused": [],
+      "request": [],
+      "architectSent": [],
+      "plannerPhases": ["opened", "dispatched", "releasing", "release", "terminal"],
+      "architectReminded": false,
+      "architectOperations": 0,
+      "tools": []
+    },
+    {
+      "index": 3,
+      "result": {
+        "key": "planner:3",
+        "outcome": "failed: prompt delivery could not be confirmed"
+      },
+      "sent": [],
+      "refused": [],
+      "request": [],
+      "architectSent": [],
+      "plannerPhases": ["opened", "dispatched", "releasing", "release", "terminal"],
+      "architectReminded": false,
+      "architectOperations": 0,
+      "tools": []
+    },
+    {
+      "index": 4,
+      "result": {
+        "key": "planner:4",
+        "outcome": "failed: prompt delivery could not be confirmed"
+      },
+      "sent": [],
+      "refused": [],
+      "request": [],
+      "architectSent": [],
+      "plannerPhases": ["opened", "dispatched", "releasing", "release", "terminal"],
+      "architectReminded": false,
+      "architectOperations": 0,
+      "tools": []
+    },
+    {
+      "index": 5,
+      "result": {
+        "key": "planner:5",
+        "outcome": "failed: prompt delivery could not be confirmed"
+      },
+      "sent": [],
+      "refused": [],
+      "request": [],
+      "architectSent": [],
+      "plannerPhases": ["opened", "dispatched", "releasing", "release", "terminal"],
+      "architectReminded": false,
+      "architectOperations": 0,
+      "tools": []
+    }
+  ]
+}
