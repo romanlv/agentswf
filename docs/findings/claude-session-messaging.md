@@ -16,3 +16,4 @@ can be re-run but not re-derived from this repository. What awf does about it is
 | CS6 | What does `crossSessionInbound: "refuse"` do? | **Stops receiving only.** Set by `--settings`, the claude was still listed; a message to it never showed, the send succeeded, and a refusal notice reached the sender minutes later. |
 | CS7 | Does a different permission mode hold a message? | **Not from auto to manual.** A message from an auto-mode session reached a manual-mode one and was answered. |
 | CS8 | Can a subagent write? | **Yes, as its parent.** It has `SendMessage` and no `ListAgents`; its message arrived under the parent session's name. |
+| CS9 | And a claude agent awf runs, by where? | **On the host it lists every claude, in a sandbox none.** Run through awf 2026-10-12, headless haiku asked to call `ListAgents`: on the host it listed 39; under srt, 0; under docker, "No reachable agents". |

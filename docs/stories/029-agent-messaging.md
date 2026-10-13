@@ -3,7 +3,7 @@ id: "029"
 title: Agents in a run message each other over routes the workflow grants
 summary: "`workflow.messages.allow` grants routes with a purpose; agents use `wf peers`, `wf send [--await-reply]` and `wf reply`; a message reaches an agent at a turn boundary and wakes it if idle, an awaited reply continues the sender's operation, and the engine owns delivery, obligations, limits and the record."
 type: story
-status: in-progress
+status: awaiting-human-review
 priority: P1
 epic: authoring
 discovered_in: "docs/design/messaging.md, settled with the user 2026-10-11"
@@ -801,17 +801,17 @@ Done when:
 
 Automated:
 
-- [ ] focused tests named in each task
-- [ ] `bun test`
-- [ ] `bunx tsc --noEmit`
-- [ ] `bun run check`, with no boundary moved
+- [x] focused tests named in each task
+- [x] `bun test`
+- [x] `bunx tsc --noEmit`
+- [x] `bun run check`, with no boundary moved
 
 Manual or live, with costs estimated in [[testing]] first:
 
-- [ ] M1 on the host, srt and docker (task 1).
-- [ ] Delivery smokes: headless per harness (task 6), panes per harness (task 7).
-- [ ] M2, at least 20 trials per harness and model (task 9).
-- [ ] The review example, live, once (task 9).
+- [x] M1 on the host, srt and docker (task 1).
+- [x] Delivery smokes: headless per harness (task 6), panes per harness (task 7).
+- [x] M2, at least 20 trials per harness and model (task 9).
+- [x] The review example, live, once (task 9).
 
 ## Readiness
 
@@ -1127,14 +1127,16 @@ waiting on them; these are the drafts the gate named, as built and reviewed.
   correction with `--await-reply`, was answered by `wf reply` and approved; in doc review the
   planner, recording its doc, asked the reviewer a question and was answered. Two messages per
   review, within its limit of six.
+- M1 again, through awf in each place (CS9): a headless claude listed 39 sessions on the host, 0
+  under srt, and "No reachable agents" under docker.
 - Docs: `workflow-api.md` has Messaging, testing's Messages, and messages left out of Not built
   yet; `composition.md` the branded `ParticipantRef` and the review loop's `wf reply`; the design's
   status line, Q11 and M2; `status.md`.
 
 ## Human review
 
-- [ ] Every task is complete and story-level verification passes.
-- [ ] Set the story status to `awaiting-human-review` and present the outcome, architecture
+- [x] Every task is complete and story-level verification passes.
+- [x] Set the story status to `awaiting-human-review` and present the outcome, architecture
   decisions, task-level subagent findings and dispositions, exact verification results, deviations,
   and remaining risks.
 - [ ] Record the human's explicit approval or requested changes here.
