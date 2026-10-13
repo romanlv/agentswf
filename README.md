@@ -12,10 +12,6 @@ const { outcome } = await reviewer.run({ prompt: "Review `git diff main`.", sche
 if (isAnswered(outcome)) console.log(outcome.value.findings); // validated against FINDINGS, or a reason why not
 ```
 
-> **Runs on your Claude subscription.** Claude Code agents in a pane use the Claude plan you
-> already have: no API key, no credits to buy. (Headless claude is the exception; see
-> [Things to know](#things-to-know).)
-
 > **Early preview.** Interfaces will change, and nothing is on npm yet: you install from a clone.
 
 ## Why
@@ -25,7 +21,9 @@ another reviews, and you paste the findings back. Five agents review the same ch
 cross-check what they found. Scripting that is easy right up until an agent goes quiet, answers
 in the wrong shape, or a run costs ten times what you expected and you can't tell why.
 
-agentswf keeps the workflow in code you own, and moves the unreliable parts into the engine.
+agentswf keeps the workflow in code you own, and moves the unreliable parts into the engine. It
+drives the agent CLIs you already use, logged in as you already are: Claude Code in a pane runs on
+your Claude subscription, with no API key and no credits to buy.
 
 ## How it works
 
@@ -40,63 +38,92 @@ agentswf keeps the workflow in code you own, and moves the unreliable parts into
  return result               usage and cost for the record
 ```
 
-A workflow is a TypeScript module with a default export. `awf run ./workflow.ts` loads it, runs
-it, prints its result and keeps everything in the project's `.awf/runs`. Control flow is yours: `for`,
-`if`, `Promise.all`, whatever. The engine gives you agents, sandboxes, `parallel` with
-labelled groups it shows live in the terminal, and stages a run continues from.
+A workflow is a TypeScript module. `awf run ./workflow.ts` runs it, prints its result and keeps
+a record of the run in `.awf/runs`. Control flow is yours: `for`, `if`, `Promise.all`. Each agent
+runs in a **pane** of [Herdr](https://herdr.dev), a terminal multiplexer where you can watch it and
+type to it, or **headless** as a plain subprocess.
 
-**A few words used below:**
+## What a workflow looks like
 
-- **Harness:** the agent CLI that does the work: `claude`, `codex`, `pi` or `cursor`. A runtime
-  is a harness plus a model.
-- **Placement:** where the agent runs. A **pane** is a terminal pane in
-  [Herdr](https://herdr.dev), a terminal multiplexer for agents, where you can watch it and type
-  to it; panes are the default. **Headless** runs the CLI as a subprocess, with no terminal.
-- **Sandbox:** a boundary around agents, from docker or **srt** (Anthropic's sandbox-runtime),
-  that limits what they can write and reach.
-- **Jev:** a small decision model on OpenRouter that answers closed questions with probabilities.
+It reads as the process it runs. This is
+[`examples/feature-delivery`](examples/feature-delivery/workflow.ts), which takes a ticket from a
+plan to an approved change: a planner writes a ticket doc, a reviewer on another model sends it
+back until it's right, then an implementer builds it and the reviewer does the same again. Each
+step is a [stage](#runs-stages-and-continuing), so a run that stops part-way goes on from there.
+`ask`, `workOn` and `reviewLoop` are the example's own short helpers over `agent.run`, in files
+beside it.
+
+```ts
+async function deliverFeature(workflow: WorkflowContext, args: FeatureArgs): Promise<Handoff> {
+  const { ticket } = args;
+  const team = await openTeam(workflow, args);
+  const { planner, reviewer } = team;
+  const reviewUntilApproved = reviewLoop(workflow, reviewer, args.maxRevisions);
+
+  const plan = await workflow.stage("ticket-doc", { result: WORK }, () =>
+    planner.ask(WORK, {
+      label: "Create ticket doc",
+      prompt: md`Create an implementation-ready ticket doc for ${ticket}.`,
+    }),
+  );
+  const approvedPlan = await workflow.stage("doc-review", { result: REVIEWED }, () =>
+    reviewUntilApproved(planner, plan, ticketDoc(ticket)),
+  );
+  const { docPath } = approvedPlan.work;
+
+  const implementer = await team.implementer();
+  const built = await workflow.stage("implementation", { result: WORK }, () =>
+    workOn(implementer, docPath, {
+      label: "Implement feature",
+      prompt: md`Implement ${ticket} from ${docPath}.`,
+    }),
+  );
+  const approvedBuild = await workflow.stage("implementation-review", { result: REVIEWED }, () =>
+    reviewUntilApproved(implementer, built, implementation(ticket)),
+  );
+  // …then an optional round of extra reviewers, and the handoff
+}
+```
+
+```sh
+awf run --run-root /tmp/awf-runs examples/feature-delivery/workflow.ts -- PROJ-1515
+```
+
+| Example | What it shows |
+| --- | --- |
+| [`quick-check`](examples/quick-check/) | one known-answer question per harness: the cheap smoke test |
+| [`minimum-review`](examples/minimum-review/) | two reviewers in parallel, one lens each |
+| [`catalogue-review`](examples/catalogue-review/) | many lenses, a verifier per finding, a Markdown report |
+| [`feature-delivery`](examples/feature-delivery/) | plan, implement, review, revise, as stages |
+| [`messaging`](examples/messaging/) | a reviewer asks an implementer for a fix by message |
+| [`sandboxes`](examples/sandboxes/) | a shared docker sandbox and a private srt one |
+| [`triage`](examples/triage/) | typed decisions with probabilities, no coding agent |
+| [`calling-session`](examples/calling-session/) | `awf run --here`: a workflow driving the session that started it |
+
+More in [`examples/`](examples/README.md), with how to run each. Every call is explained in
+[the workflow API](docs/workflow-api.md), on one page.
 
 ## What you get
 
-- **Workflows saved as code.** A workflow is a TypeScript file: versioned, diffable, reviewable
-  and re-runnable, instead of a procedure you repeat by hand in a chat.
-- **Your existing agents and logins.** agentswf drives the agent CLIs you already use, logged in
-  the way you already log in. Claude Code in a pane runs on your Claude subscription, as it does
-  when you use it yourself: no API key and no credits to buy. The same goes for codex on a
-  ChatGPT plan.
-- **Mix harnesses and models.** Each agent picks its own harness and model, so a codex reviewer can
-  check a claude implementer, or a cheap model can triage before an expensive one works.
-- **Typed answers, checked.** Every turn can carry a schema. The agent answers by running
-  `wf result` with JSON, which is validated before your code sees it, and TypeScript knows its
-  shape. A turn ends `answered`, or `unanswered`, `blocked`, `timed-out`, `failed` or `cancelled`
-  with a reason. It never ends with a silently missing answer or half-parsed prose, and an agent
-  that goes quiet gets a recovery prompt. Supported Claude panes can declare waiting and take
-  repeated check-ins within the same deadline.
-- **Long-lived sessions.** Talk to the same agent again and it continues its own session, keeping
-  its context, and each turn can ask for a different kind of answer: a plan, then a patch
-  summary, then a yes or no. When the context fills, `compact` runs the harness's own compaction
-  with your focus, as `/compact` does, and the agent goes on.
-- **Sandboxes.** Put agents in a docker or srt sandbox, shared or private, that decides what they
-  can write and which domains they can reach. Give each one exactly the skills you name.
-- **Cost tracking.** Every run records time, tokens and a cost estimate for each agent, stage and
-  model, read from the harnesses' own session files. It's printed at the end and kept with the
-  run, failed runs included.
-- **Fast decisions with Jev.** For routing, triage and gating, ask [Jev](#fast-decisions-with-jev),
-  a decision model, closed questions and get a probability for every answer in about 200 ms, with
-  no coding agent involved. It needs an OpenRouter key.
-- **Runs that continue.** Mark steps as [stages](#runs-stages-and-continuing) and a stopped run
-  picks up at the step that stopped, reusing what succeeded. A new run can start at any stage,
-  given the earlier stages' values.
-- **Deadlines and cleanup.** Every wait has a deadline, and every agent is cleaned up when the run
-  ends, however it ends. Only a pane the workflow asked to keep stays open.
-- **Watch a run from anywhere.** `awf runs` lists the runs and shows one in depth; `awf logs`
-  reads what it did and is doing, each agent's prompts, tool calls and messages included, a page
-  at a time with a cursor, so another agent can follow your run. [More](#watching-a-run).
-- **Watch or run headless.** An agent runs in a terminal pane you can watch and type into
-  (through [Herdr](https://herdr.dev)), or headless as a subprocess. The workflow says where each
-  pane appears: a tab of its own, beside another agent's pane, or in the workspace you typed
-  `awf run` in. It also says whether a pane stays open once its agent is done, always or only when
-  the agent failed.
+- **Typed answers, checked.** A turn ends `answered`, with JSON that fits its schema, or with a
+  reason: `unanswered`, `blocked`, `timed-out`, `failed` or `cancelled`. Never half-parsed prose.
+  An agent that goes quiet is nudged.
+- **Mix harnesses and models.** A codex reviewer checks a claude implementer; a cheap model
+  triages before an expensive one works.
+- **Long-lived sessions.** An agent keeps its context from one turn to the next. `compact` shrinks
+  it, keeping what you name, and `fork` starts new agents from what one knows.
+- **Agents that talk to each other,** on routes the workflow grants and caps.
+- **Sandboxes.** docker or srt limits what agents can write and reach, and each agent gets exactly
+  the skills you name.
+- **Cost on every run.** Time, tokens and an estimated cost per agent, stage and model, failed runs
+  included.
+- **Fast decisions.** Closed questions to [Jev](#fast-decisions-with-jev), a
+  decision model, come back with a probability per answer in about 200 ms, for routing and triage
+  without a coding agent.
+- **Runs you can follow and continue.** `awf runs` and `awf logs` show what a run did, to you or to
+  another agent, and a stopped run goes on from the stage that stopped.
+- **Deadlines and cleanup.** Every wait has a deadline, and every agent is closed when the run
+  ends, however it ends, unless the workflow asked to keep its pane.
 
 ## Quick start
 
@@ -154,19 +181,16 @@ export default defineExecutableWorkflow({
 cd ~/workflows && awf run ./hello.ts
 ```
 
-It prints the result as JSON, with the agent's answer, `{ "answer": 391 }`, under `value`, and a
-line on time, tokens and estimated cost. The run's full record, including `output.json`, stays
-in `.awf/runs/{workflow}/{id}` under the working directory (`--run-root` moves it), and
-`--continue {id}` runs it again with the arguments it was started with.
+It prints the agent's answer, `{ "answer": 391 }`, and a line on time, tokens and estimated cost.
+The run's full record stays in `.awf/runs/hello/{id}`.
 
 ### Things to know
 
-- **Pane agents** (the default placement) need [Herdr](https://herdr.dev). Headless agents don't.
-- **claude, codex and pi run in a pane or headless; cursor runs headless only.**
+- **Pane agents**, the default, need [Herdr](https://herdr.dev). Headless agents don't.
 - **Claude on a subscription works in panes only.** Headless claude (`claude -p`) is billed per
   token as API usage even when you're logged in with a subscription, so awf refuses it unless the
   runtime also says `metered: true`. To stay on your plan, run claude agents in panes, the
-  default. Headless codex and pi need no such flag.
+  default. Other harnesses need no such flag.
 - **Sandboxes** need `srt`, Anthropic's sandbox-runtime (with bubblewrap on Linux), or docker.
 - **A workflow file is trusted code.** It runs with your filesystem and process permissions.
   Sandbox the agents, not the workflow.
@@ -203,28 +227,18 @@ so write your home directory out:
 
 ## Runs, stages and continuing
 
-A workflow that runs for an hour shouldn't start over because its last step failed. awf keeps
-every run on disk, and a workflow marks the steps worth keeping as stages.
+A workflow that runs for an hour shouldn't start over because its last step failed. When a run
+stops, it says how to go on:
 
-- **Run:** one piece of work, such as a ticket, kept in `.awf/runs/{workflow}/{id}`. Its id comes
-  from `--id`, from the workflow's own `id(args)` (a ticket's key, say), or is generated.
-- **Attempt:** one `awf run` of a run. `awf run flow.ts --continue {id}` starts the next one with
-  the same arguments, after you've fixed the code, a prompt or the environment. An attempt that
-  crashed or was killed reads `interrupted`, and continues the same way.
-- **Stage:** a named step whose value the run records, checked against a schema.
-
-```ts
-const plan = await workflow.stage("plan", { result: PLAN, summary: (p) => p.title }, async () => {
-  const { outcome } = await planner.run({ prompt: `Plan ${ticket}.`, schema: PLAN });
-  return isAnswered(outcome) ? outcome.value : workflow.stop(outcome.reason); // a continue redoes plan
-});
-const built = await workflow.stage("implement", { result: BUILT }, () => implement(plan));
-await workflow.stage("qa", { result: QA }, () => qa(built));
+```
+■ stopped in qa: the mr environment never came up
+  ticket PROJ-1515 · attempt 1 · 52m 10s · …
+  go on    awf run ticket.ts --continue PROJ-1515
+  records  .awf/runs/ticket/PROJ-1515
 ```
 
-On a continue, a stage that succeeded before is **reused**: its work isn't called, no agent is
-asked anything, and `stage` returns the recorded value. The first stage with no succeeded record
-runs, and so does everything after it:
+Fix the code, a prompt or the environment, and run it. Stages that succeeded before are reused,
+with no agent asked anything; the one that stopped runs again, and so does everything after it:
 
 ```
 ↺ plan        Add --dry-run    attempt 1 · 2h ago
@@ -232,234 +246,20 @@ runs, and so does everything after it:
 ✓ qa          4m 12s
 ```
 
-What to know when writing one:
+`--from-stage {stage}` redoes from a stage on purpose, and a new run can start part-way through,
+given the earlier stages' values. [`docs/design/runs-and-stages.md`](docs/design/runs-and-stages.md)
+has the full model.
 
-- **A stage's value is its only output.** Agents start fresh in every attempt, so a stage returns
-  what later stages need: a branch, a doc path, a list of findings.
-- **Code between stages runs on every attempt,** reused stages or not. Keep it repeatable; push,
-  post and create inside a stage.
-- **A stop says how to go on.** `workflow.stop(reason)` or a throw inside a stage records it
-  stopped or failed, and the closing block names the command that redoes it:
+To watch a run, `awf runs` lists them and shows one in depth, and `awf logs {run}` reads what it
+did, each agent's prompts, tool calls and messages included; `--follow` streams it.
 
-  ```
-  ■ stopped in qa: the mr environment never came up
-    ticket PROJ-1515 · attempt 1 · 52m 10s · …
-    go on    awf run ticket.ts --continue PROJ-1515
-    records  .awf/runs/ticket/PROJ-1515
-  ```
+## Fast decisions with Jev
 
-- **`--from-stage {stage}` redoes from a stage** on purpose, with the ones before it reused. The
-  records it replaces move to `replaced/` rather than being deleted.
-- **A changed workflow doesn't silently reuse old results.** A record from another major
-  `meta.version`, or one whose value no longer fits the stage's schema, stops the continue at that
-  stage, and `--from-stage` it redoes from there.
-
-### Starting at a stage
-
-A new run can start part-way through, for example at qa for a ticket you built by hand. Later stages
-read earlier stages' values, so awf asks for them. It finds every stage the run needs a value for
-and stops once, naming each with its schema:
-
-```
-$ awf run ticket.ts --from-stage qa -- PROJ-1234
-■ stopped in plan: nothing recorded for plan
-  ticket PROJ-1234 · 0s
-  needs    plan: {title: string, steps: string[]}
-           implement: {branch: string}
-  go on    awf run ticket.ts --continue PROJ-1234 --from-stage qa --values {file}
-  records  .awf/runs/ticket/PROJ-1234
-```
-
-Write the values to a JSON file keyed by stage name, `{"plan": {…}, "implement": {…}}`, and run
-the `go on` command. Each value is checked against its stage's schema and recorded as `provided`,
-with no agent turns and no cost; a stage that returns nothing needs no entry. With `--json`, the stop's
-`needs` holds each full JSON Schema. The loop is meant for an agent: read `needs`, find the values in
-the ticket or the repository, write the file, rerun.
-
-A workflow's tests can do the same without agents: `testWorkflow` takes `recorded`, `fromStage`
-and `values`, as [the workflow API](docs/workflow-api.md#continuing-over-recorded-stages) shows.
-The full model, with what's on disk and why, is in
-[`docs/design/runs-and-stages.md`](docs/design/runs-and-stages.md).
-
-### Watching a run
-
-Run by an agent, or anywhere not a terminal, `awf run`'s first line names the run and how to follow it
-(in a terminal, its progress block's header names the run):
-
-```
-awf: ticket/PROJ-1515 started · watch: awf logs ticket/PROJ-1515
-```
-
-- **`awf runs`** lists the runs here, newest first; `awf runs ticket/PROJ-1515` shows one: its
-  attempts, the stages of the last, each agent's state and last activity, and what to run next.
-- **`awf logs ticket/PROJ-1515`** shows the last 40 events: stages, turns, agents opened and
-  stopped, `workflow.log` lines, and what each agent did, read from its harness's own session
-  files. Each page ends with the command for what comes next, `--after {cursor} --wait 90`, which
-  waits for something new; `--follow` prints events as they come until the run ends.
-- **`--agent {key}`** keeps to one agent, and `@{handle} --full` prints one event's whole text.
-  Text is cut to a line and common credential shapes are masked. `--json` on either command is
-  the interface for scripts.
-
-cursor's agents show their events but not their activity: cursor keeps a chat in a database that
-can't be read from where the last page stopped.
-
-## Examples
-
-These show the shape of what you can build. To keep them short they are fragments: the `run()`
-of a workflow shaped like [the first one](#your-first-workflow), with the same imports. Each
-typechecks against the current API, and each points to a complete workflow in
-[`examples/`](examples/) that does the same thing in full. Every call they use is explained in
-[the workflow API](docs/workflow-api.md).
-
-### Fan out reviewers, then check every finding
-
-Three reviewers read the same diff at once, each looking for one kind of problem (a *lens*).
-Then a fresh agent from a different model family tries to refute each finding, and only the
-ones that survive are kept.
-Agents that disagree for a living cut the noise a single reviewer produces.
-
-```ts
-const STRICT = { additionalProperties: false } as const;
-const FINDINGS = Type.Object({
-  findings: Type.Array(Type.Object({ file: Type.String(), problem: Type.String() }, STRICT)),
-}, STRICT);
-const VERDICT = Type.Object({ real: Type.Boolean(), reason: Type.String() }, STRICT);
-type Findings = Type.Static<typeof FINDINGS>;
-type Verdict = Type.Static<typeof VERDICT>;
-
-const REVIEWER = { harness: "codex", model: "gpt-6-luna", placement: "headless" } as const;
-const CHECKER = { harness: "claude", model: "claude-sonnet-5-5" } as const; // a pane in Herdr
-
-async run(workflow) {
-  const found = await workflow.parallel(["correctness", "security", "tests"], async (lens) => {
-    const reviewer = await workflow.agents.open({ key: `review:${lens}`, runtime: REVIEWER });
-    const { outcome } = await reviewer.run<Findings>({
-      prompt: `Review \`git diff origin/main...HEAD\` for ${lens} problems only. Change nothing.`,
-      schema: FINDINGS,
-    });
-    return isAnswered(outcome) ? outcome.value.findings : [];
-  }, { label: "Review" });
-
-  const checked = await workflow.parallel(found.flat(), async (finding, i) => {
-    const checker = await workflow.agents.open({ key: `check:${i}`, runtime: CHECKER });
-    const { outcome } = await checker.run<Verdict>({
-      prompt: `A reviewer claims: ${finding.problem} (in ${finding.file}). Try to prove it wrong.`,
-      schema: VERDICT,
-    });
-    return { ...finding, verdict: isAnswered(outcome) ? outcome.value : null };
-  }, { label: "Check", concurrency: 4 });
-
-  return { findings: checked.filter((f) => f.verdict?.real) };
-}
-```
-
-The full version is [`examples/catalogue-review`](examples/catalogue-review/). It reads its lenses
-from a catalogue, skips a lens when the diff doesn't touch its paths, and writes a `report.md` to
-hand back to whoever wrote the change. It has run live with 21 agents on one merge request.
-
-### Build, review, repeat
-
-One agent implements and another reviews, until the reviewer approves or three rounds pass. Each
-`run()` on the same agent continues its session, so the builder remembers what it did last round.
-Both run in panes, so you can watch them work and step in.
-
-```ts
-const STRICT = { additionalProperties: false } as const;
-const DONE = Type.Object({ summary: Type.String() }, STRICT);
-const REVIEW = Type.Object({ approved: Type.Boolean(), mustFix: Type.Array(Type.String()) }, STRICT);
-type Done = Type.Static<typeof DONE>;
-type Review = Type.Static<typeof REVIEW>;
-
-// prepare turns the words after `--` into the task: prepare: (inv) => ({ task: inv.argv.join(" ") })
-async run(workflow, { task }) {
-  const builder = await workflow.agents.open({
-    key: "builder",
-    runtime: { harness: "claude", model: "claude-sonnet-5-5" },
-  });
-  const reviewer = await workflow.agents.open({
-    key: "reviewer",
-    runtime: { harness: "codex", model: "gpt-6-luna" },
-    instructions: "You review uncommitted changes. You never edit files.",
-  });
-
-  let request = `Implement this, then summarise what you changed:\n\n${task}`;
-  for (let round = 1; round <= 3; round++) {
-    const built = await builder.run<Done>({ prompt: request, schema: DONE, label: `build ${round}` });
-    if (!isAnswered(built.outcome)) return { approved: false, note: built.outcome.reason };
-
-    const review = await reviewer.run<Review>({
-      prompt: `The builder says: ${built.outcome.value.summary}\nReview \`git diff\`.`,
-      schema: REVIEW,
-      label: `review ${round}`,
-    });
-    if (!isAnswered(review.outcome)) return { approved: false, note: review.outcome.reason };
-    if (review.outcome.value.approved) return { approved: true, note: `approved in round ${round}` };
-
-    request = `The reviewer asks for these fixes:\n- ${review.outcome.value.mustFix.join("\n- ")}`;
-  }
-  return { approved: false, note: "not approved after three rounds" };
-}
-```
-
-```sh
-awf run ./build-and-review.ts -- "Add a --dry-run flag to the deploy script"
-```
-
-A builder that runs many rounds can shed old context between them with the harness's own
-compaction, keeping what you name:
-
-```ts
-await builder.compact({ prompt: "Keep the task and the reviewer's open points; drop the build logs." });
-```
-
-It runs after the builder's earlier turns and within the workflow's deadline (`timeoutMs` bounds
-it sooner). Claude, codex and pi compact, in a pane or headless; cursor refuses, and the context
-is left as it was.
-
-[`examples/feature-delivery`](examples/feature-delivery/) is the bigger design: plan, implement,
-review and revise, each a stage, so a step that stops is redone by `--continue` and the ones before
-it are reused. `awf run --run-root {elsewhere} examples/feature-delivery/workflow.ts -- {ticket}`
-runs it; it has run live once, on a small ticket.
-
-### Put agents in a sandbox, with exactly the skills they need
-
-A sandbox says what its agents can write and which domains they can reach. Agents can share
-one, or each get their own. Skills are copied in per agent, so an agent has the ones you name
-and nothing else from your setup.
-
-```ts
-const box = await workflow.sandboxes.open({
-  key: "work",
-  write: ["."],                     // the working directory, and nothing else
-  network: ["registry.npmjs.org"],  // plus the model's own API
-  docker: {},                       // or srt: {}, Anthropic's sandbox-runtime
-});
-const agent = await workflow.agents.open({
-  key: "upgrader",
-  runtime: { harness: "codex", model: "gpt-6-luna", placement: "headless" },
-  sandbox: box,
-  skills: [
-    { path: new URL("./skills/upgrade-deps", import.meta.url) }, // one beside the workflow
-    { repo: "owner/repo", skill: "code-review", ref: "v1.2.0" }, // a public one, pinned
-  ],
-});
-```
-
-[`examples/sandboxes`](examples/sandboxes/) runs three agents in one container and a fourth in a
-private srt sandbox, and prints what each was allowed and refused.
-
-### Fast decisions with Jev
-
-Not every step needs a coding agent. [Jev](https://docs.typesafe.ai/concepts/system-one), from TypeSafe, is a
-*decision model*: instead of writing text, it answers closed questions about some state and
-returns a probability for every possible answer. A call comes back in about 200 ms, and you pay
-only for the state you send, once per call ($0.042 per million input tokens), so asking ten
-questions costs about the same as asking one. Use it to route, triage or gate, and hand only the
-uncertain cases to an agent or a person.
-
-`workflow.decisions` calls Jev through OpenRouter, so it needs an **`OPENROUTER_API_KEY`**, in the
-environment or in a `.env` in the directory you run `awf` from. The engine holds the key; no agent
-ever sees it.
+Not every step needs a coding agent. [Jev](https://docs.typesafe.ai/concepts/system-one), from
+TypeSafe, is a *decision model*: rather than writing text, it answers closed questions about some
+state with a probability for every possible answer, in about 200 ms. You pay for the state once
+per call ($0.042 per million input tokens), so ten questions cost about the same as one. Use it to
+route, triage or gate, and hand only the uncertain cases to an agent or a person.
 
 ```ts
 import { choice, yesNo } from "agentswf/workflow";
@@ -480,71 +280,10 @@ const { answers } = await workflow.decisions.decide({
 // answers.bug  → { type: "yes-no", yes: 0.91 }
 ```
 
-[`examples/triage`](examples/triage/) routes support tickets this way, and flags any answer below
-0.9 as unsure rather than taking it. How well Jev did on real review data is in
-[`docs/findings/system-one-models.md`](docs/findings/system-one-models.md).
-
-### Run a workflow in the session you are in
-
-A long procedure you run often, such as review, fix, re-review and summarize, can run inside the
-agent session that already holds the context, instead of starting cold. From claude, codex, pi or
-cursor in a Herdr pane, start it with `awf run --here`. The run opens its own tab, takes your
-session over as one of its agents, and hands it back with a last `[awf]` message when it ends.
-Other agents it opens run as usual.
-
-```ts
-const author = await workflow.agents.caller({ key: "author" });
-if (!author) throw new Error("start this workflow with awf run --here");
-const { outcome } = await author.run({ prompt: "Fix the findings in REVIEW.md.", schema: FIXED });
-```
-
-`agents.caller` returns `null` when the run was not started from a session. Its turns work like any
-agent's, except that the context is yours: `compact` is refused, a turn that fails, times out or
-is cancelled leaves the session as it was, and pressing Esc on a step settles that step
-`cancelled` instead of nudging you.
-
-There are three ways to start it:
-
-- **Type it yourself:** `!awf run --here review-loop.ts` in claude (`!` runs a shell command).
-- **A skill:** copy [`packages/engine/skills/awf-run`](packages/engine/skills/awf-run/) to
-  `~/.claude/skills/`, `~/.agents/skills/` (codex), `~/.pi/agent/skills/` or `~/.cursor/skills/`,
-  then invoke it the way your harness invokes a skill, as `/awf-run review-loop.ts` in claude.
-- **A command for one workflow:** the same skill with the workflow fixed, so `/review-loop` is
-  all you type. Copy `awf-run`, rename it, and change its command and `name`:
-
-  ```markdown
-  ---
-  name: review-loop
-  description: Review this branch in this session with the review-loop workflow. Use when the user types /review-loop.
-  ---
-
-  Run `awf run --here ~/workflows/review-loop.ts` in the shell, then follow the rest of awf-run's
-  instructions.
-  ```
-
-When the session cannot be driven, the command says why and starts nothing: when it is not in a
-Herdr pane, or when its sandbox cannot reach Herdr. Under codex's default sandbox, start codex with
-`-c sandbox_workspace_write.network_access=true`. Try it with
-[`examples/calling-session`](examples/calling-session/). The design is
-[ADR 0010](docs/adr/0010-the-calling-session-is-an-agent.md).
-
-## Runnable examples
-
-| Workflow | What it shows | Run it |
-| --- | --- | --- |
-| [`quick-check`](examples/quick-check/) | one known-answer question per harness: the cheap smoke test | `awf run examples/quick-check/workflow.ts -- codex pi` |
-| [`minimum-review`](examples/minimum-review/) | two reviewers in parallel, one lens each | `awf run examples/minimum-review/review-loop.ts -- src` |
-| [`single-agent-review`](examples/single-agent-review/) | one reviewer, with or without a public review skill | `awf run examples/single-agent-review/workflow.ts -- --range main...HEAD` |
-| [`catalogue-review`](examples/catalogue-review/) | many lenses, a verifier per finding, a Markdown report | an entry point beside your lens catalogue |
-| [`sandboxes`](examples/sandboxes/) | a shared docker sandbox and a private srt one | `awf run --cwd "$(mktemp -d)" examples/sandboxes/workflow.ts` |
-| [`triage`](examples/triage/) | typed decisions with probabilities | `awf run examples/triage/workflow.ts` |
-| [`pane-layout`](examples/pane-layout/) | a lead and two reviewers in one tab where you typed `awf run`, the lead's pane kept | `awf run examples/pane-layout/workflow.ts`, from a Herdr pane |
-| [`compaction`](examples/compaction/) | an agent compacted with a focus, then asked what it kept, per harness | `awf run examples/compaction/workflow.ts -- claude pi` |
-| [`calling-session`](examples/calling-session/) | a workflow driving the session it was started from | `awf run --here examples/calling-session/workflow.ts`, from an agent |
-| [`feature-delivery`](examples/feature-delivery/) | plan, implement, review, revise, as stages | `awf run --run-root /tmp/awf-runs examples/feature-delivery/workflow.ts -- ABC-1` |
-
-[`examples/README.md`](examples/README.md) has the details of each. The rest of the folder is test
-apparatus and a shared helper.
+It runs through OpenRouter, so it needs an `OPENROUTER_API_KEY`, in the environment or in a `.env`
+where you run `awf`. The engine holds the key, and no agent sees it.
+[`examples/triage`](examples/triage/) routes support tickets this way, and
+[the findings](docs/findings/system-one-models.md) show where Jev is reliable and where it isn't.
 
 ## Written by agents, read by people
 
@@ -566,17 +305,10 @@ its mistakes before anything runs. And it reads plainly: agents, prompts, schema
 
 ## Not yet
 
-Deliberately left out until something real needs them: agents messaging each other mid-turn,
-calling one workflow from another, human checkpoints, and reopening a stopped run's agent sessions
-(a continue redoes the stage with fresh agents). Some of these
-have types in the API already, and calling them fails with a clear "unavailable" error.
-[`docs/status.md`](docs/status.md) has what runs today and what's next.
-
-## Names
-
-The project is **agentswf**. **`awf`** is the command you run, and what it owns keeps that
-name (`.awf/runs`, `AWF_*`). **`wf`** is the command an agent runs inside its session to answer.
-A workflow imports **`agentswf/workflow`**. The packages here are **`@agentswf/*`**.
+Deliberately left out until something real needs them: calling one workflow from another,
+waiting for outside input such as a human checkpoint, and reopening a stopped run's agent sessions
+(a continue redoes the stage with fresh agents). Their types exist, and calling them fails with a
+clear "unavailable" error. [`docs/status.md`](docs/status.md) has what runs today and what's next.
 
 ## Contributing and design docs
 
