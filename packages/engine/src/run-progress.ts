@@ -15,12 +15,26 @@ export type GroupProgress = {
 type TurnProgress = Pick<TurnRecord, "kind" | "stage" | "label"> & {
   startedAt: number;
   phase?: string;
+  /** When `phase` began. */
+  phaseAt?: number;
   waitingReason?: string;
   checkInAt?: number;
   settledAt?: number;
   /** Absent while the turn runs. */
   outcome?: TurnRecord["outcome"];
   reason?: string;
+};
+
+/** A message admitted, as the progress view lines it. */
+export type MessageProgress = {
+  from: AgentKey;
+  to: AgentKey;
+  bytes: number;
+  at: number;
+  /** It asks: `to` owes a reply. */
+  asks?: true;
+  /** It answers a question `to` asked. */
+  answers?: true;
 };
 
 export type AgentProgress = {
@@ -41,6 +55,7 @@ export type AgentProgress = {
 export class RunProgress {
   readonly #groups: GroupProgress[] = [];
   readonly #agents = new Map<AgentKey, AgentProgress>();
+  readonly #messages: MessageProgress[] = [];
 
   group(label: string, total: number): GroupProgress {
     const group = { label, total, started: 0, done: 0, startedAt: Date.now() };
@@ -98,12 +113,25 @@ export class RunProgress {
   turnPhase(key: AgentKey, phase: string, reason?: string, until?: number): void {
     const turn = this.#agents.get(key)?.turn;
     if (!turn || turn.outcome) return;
+    if (turn.phase !== phase || turn.waitingReason !== reason) turn.phaseAt = Date.now();
     turn.phase = phase;
     turn.waitingReason = reason;
     turn.checkInAt = until;
   }
 
-  snapshot(): { groups: GroupProgress[]; agents: Map<AgentKey, AgentProgress> } {
-    return { groups: structuredClone(this.#groups), agents: structuredClone(this.#agents) };
+  messageSent(message: MessageProgress): void {
+    this.#messages.push(message);
+  }
+
+  snapshot(): {
+    groups: GroupProgress[];
+    agents: Map<AgentKey, AgentProgress>;
+    messages: MessageProgress[];
+  } {
+    return {
+      groups: structuredClone(this.#groups),
+      agents: structuredClone(this.#agents),
+      messages: structuredClone(this.#messages),
+    };
   }
 }

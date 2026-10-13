@@ -116,6 +116,96 @@ async function awfLogs(fixture: Fixture, argv: string[], clock = fakeClock()) {
 const strip = (text: string) => text.replace(/ \d\d:\d\d:\d\d /g, " hh:mm:ss ");
 
 describe("awf logs", () => {
+  test("messaging: a message, an owed answer and a wait, followed by --agent from either side", async () => {
+    const f = await fixture();
+    const at = { callPath: [] };
+    addLines(
+      f,
+      {
+        ...at,
+        kind: "route-opened",
+        at: T(1),
+        between: ["fixer", "reviewer"],
+        purpose: "Agree.",
+        maxMessages: 40,
+      },
+      {
+        ...at,
+        kind: "message-sent",
+        at: T(2),
+        message: 1,
+        from: "fixer",
+        to: "reviewer",
+        operationId: "op-1",
+        text: "Is 4 blocking?",
+        bytes: 14,
+        awaitsReply: { until: T(22) },
+      },
+      {
+        ...at,
+        kind: "message-delivery",
+        at: T(2),
+        message: 1,
+        from: "fixer",
+        to: "reviewer",
+        operationId: "op-2",
+        state: "offered",
+      },
+      {
+        ...at,
+        kind: "message-sent",
+        at: T(3),
+        message: 2,
+        from: "reviewer",
+        to: "fixer",
+        operationId: "op-2",
+        text: "No.",
+        bytes: 3,
+        replyTo: 1,
+      },
+      {
+        ...at,
+        kind: "request-ended",
+        at: T(3),
+        message: 1,
+        owedBy: "reviewer",
+        asker: "fixer",
+        end: "replied",
+        reply: 2,
+      },
+      {
+        ...at,
+        kind: "message-sent",
+        at: T(4),
+        message: 3,
+        from: "lens",
+        to: "fixer",
+        operationId: "op-3",
+        text: "Done.",
+        bytes: 5,
+      },
+    );
+    const until = new Date(Date.parse(T(22))).toTimeString().slice(0, 8);
+    const messaging = [
+      "fixer ↔ reviewer opened",
+      `message 1 fixer → reviewer  14 B, reply owed  fixer awaits it until ${until}`,
+      "message 1 offered",
+      "message 2 reviewer → fixer  3 B, reply to 1",
+      "request 1 replied",
+    ];
+    const shown = async (agent: string) =>
+      strip((await awfLogs(f, ["--agent", agent])).stdout)
+        .split("\n")
+        .filter((line) => /route|message \d|request/.test(line));
+    const reviewer = await shown("reviewer");
+    expect(reviewer).toHaveLength(messaging.length);
+    for (const [index, text] of messaging.entries()) expect(reviewer[index]).toContain(text);
+    // The fixer's side holds the lens's note too.
+    const fixer = await shown("fixer");
+    expect(fixer.at(-1)).toContain("message 3 lens → fixer  5 B");
+    expect(fixer).toHaveLength(messaging.length + 1);
+  });
+
   test("shows the run's events and its agents' activity, newest last, and what to run next", async () => {
     const f = await fixture();
     addActivity(f, T(2), [

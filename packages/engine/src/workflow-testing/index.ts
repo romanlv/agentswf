@@ -19,7 +19,7 @@ import { type Harness, sandboxTokens } from "@agentswf/harness";
 import { createFakeSandboxProvider } from "@agentswf/sandbox/testing/fake";
 import { messageOf } from "../errors";
 import { OPERATOR_ALIASES } from "../operator-aliases";
-import { createRun, readStageRecords, writeStageRecord } from "../runs";
+import { createRun, readEvents, readStageRecords, writeStageRecord } from "../runs";
 import { primaryFailure, WorkflowStopped } from "../stopped";
 import { runWorkflow, type SettledRun, WorkflowRunError } from "../workflow-runner";
 import { createScriptedDecisions, type DecisionRequest, type DecisionScript } from "./decisions";
@@ -31,10 +31,20 @@ import {
   type SetRecord,
   type TurnRecord,
 } from "./host";
-import { type Script, Scripts } from "./script";
+import { type MessageScript, MessageScripts, type Script, Scripts } from "./script";
 
 export type { DecisionRequest, DecisionScript } from "./decisions";
-export { answer, reply, type Script, type Turn } from "./script";
+export {
+  answer,
+  type Message,
+  type MessageOutcome,
+  type MessageScript,
+  type ReceivedMessage,
+  reply,
+  type Script,
+  type SendOptions,
+  type Turn,
+} from "./script";
 
 export type TestOptions = {
   /** Each agent's script, by its key or a pattern such as `"review:*"`. */
@@ -44,6 +54,18 @@ export type TestOptions = {
    * entry per compaction. An agent with none here has every compaction answer `""`.
    */
   compactions?: Readonly<Record<string, Script>>;
+  /**
+   * Each agent's message operations, apart from its turns, by its key or a pattern: a script for
+   * all of them, or a list, one per operation. An agent a message wakes with none here fails the
+   * test.
+   */
+  messages?: Readonly<Record<string, MessageScript | readonly MessageScript[]>>;
+  /**
+   * Where an agent may `--await-reply`: `listed`, where the engine's list allows it for the
+   * agent's harness and placement, as a run would; `anywhere`, to test a workflow's messaging on a
+   * harness not listed yet.
+   */
+  awaitReply?: "listed" | "anywhere";
   /** Each decision's answers, by its key or a pattern. */
   decisions?: Readonly<Record<string, DecisionScript>>;
   /** Runtime aliases beside the ones `awf run` installs, `claude` and `codex`; the same name replaces one. */
@@ -97,6 +119,8 @@ export type TestRun<Result> = {
   sets: SetRecord[];
   /** One agent's switches, in order. */
   setsOf(agent: string): SetRecord[];
+  /** The messages admitted for one agent, in the order sent: who sent each, whether it asked, and how it ended. */
+  messagesOf(recipient: string): MessageRecord[];
   /** Every agent opened, in the order opened. */
   agents: OpenedAgent[];
   /** The agent opened under `key`; throws, naming the keys opened, when there is none. */
@@ -128,6 +152,7 @@ export async function testWorkflow<Args extends JsonValue, Result extends JsonVa
     noun: "compaction",
     option: "compactions",
   });
+  const messageScripts = new MessageScripts(options.messages);
   if (options.values !== undefined && options.fromStage === undefined) {
     throw new Error("values give the stages before fromStage: give fromStage too");
   }
@@ -165,6 +190,7 @@ export async function testWorkflow<Args extends JsonValue, Result extends JsonVa
   const host = createScriptedHost(
     scripts,
     compactionScripts,
+    messageScripts,
     events,
     options.caller ? { ...options.caller, cwd } : undefined,
   );
@@ -176,6 +202,7 @@ export async function testWorkflow<Args extends JsonValue, Result extends JsonVa
   let settled: { value: Result } | { error: unknown };
   let sandboxOf = new Map<string, AgentSandbox>();
   let stages: StageRecord[] = [];
+  let messages: (MessageRecord & { to: string })[] = [];
   const runRoot = directory();
   const run = await createRun(runRoot, {
     id: "test",
@@ -201,6 +228,7 @@ export async function testWorkflow<Args extends JsonValue, Result extends JsonVa
     const result = await runWorkflow(definition, args, {
       runRoot,
       livenessPolicy: { quietMs: 1, responseMs: 25, deliveryMs: 100, releaseMs: 1000 },
+      ...(options.awaitReply === "anywhere" ? { awaitReply: () => true } : {}),
       run: {
         dir: run.dir,
         id: run.record.id,
@@ -244,10 +272,15 @@ export async function testWorkflow<Args extends JsonValue, Result extends JsonVa
     }
   } finally {
     clearTimeout(stall);
+    messages = await messagesIn(run.dir);
     for (const path of temporary) rmSync(path, { recursive: true, force: true });
   }
   if (problems.length === 0) {
-    const leftovers = [...scripts.leftovers(), ...compactionScripts.leftovers()];
+    const leftovers = [
+      ...scripts.leftovers(),
+      ...compactionScripts.leftovers(),
+      ...messageScripts.leftovers(),
+    ];
     // What the workflow threw may be why a list went unfinished.
     if (leftovers.length > 0 && "error" in settled) {
       leftovers.push(`the workflow threw: ${messageOf(settled.error)}`);
@@ -270,6 +303,8 @@ export async function testWorkflow<Args extends JsonValue, Result extends JsonVa
     compactionsOf: (agent) => host.compactions.filter((compaction) => compaction.agent === agent),
     sets: host.sets,
     setsOf: (agent) => host.sets.filter((set) => set.agent === agent),
+    messagesOf: (recipient) =>
+      messages.flatMap(({ to, ...each }) => (to === recipient ? [each] : [])),
     agents,
     agentOf(key) {
       const agent = agents.find((opened) => opened.key === key);
@@ -282,6 +317,51 @@ export async function testWorkflow<Args extends JsonValue, Result extends JsonVa
     stages,
     ...stoppedOf(settled),
   };
+}
+
+/**
+ * A message as `messagesOf` gives it. A question ends `replied` or `failed`, `reason` saying why it
+ * failed (`timed-out`, `withdrawn`, `released`, or how its peer failed); any other message ends
+ * `delivered` once shown, or `undelivered` with the reason. `pending` until then.
+ */
+export type MessageRecord = {
+  from: string;
+  awaitReply: boolean;
+  end: "replied" | "failed" | "delivered" | "undelivered" | "pending";
+  reason?: string;
+};
+
+/** The attempt's messages, read from the run's event log. */
+async function messagesIn(dir: string): Promise<(MessageRecord & { to: string })[]> {
+  const found = new Map<number, MessageRecord & { to: string }>();
+  for (const event of await readEvents(dir)) {
+    if (event.kind === "message-sent") {
+      found.set(event.message, {
+        from: event.from,
+        to: event.to,
+        awaitReply: event.awaitsReply !== undefined,
+        end: "pending",
+      });
+      continue;
+    }
+    const message =
+      "message" in event && typeof event.message === "number"
+        ? found.get(event.message)
+        : undefined;
+    if (!message) continue;
+    if (event.kind === "request-ended") {
+      message.end = event.end === "replied" ? "replied" : "failed";
+      const reason =
+        event.end === "failed" ? event.reason : event.end === "replied" ? undefined : event.end;
+      if (reason !== undefined) message.reason = reason;
+    } else if (!message.awaitReply && event.kind === "message-delivery") {
+      message.end = "delivered";
+    } else if (!message.awaitReply && event.kind === "message-undelivered") {
+      message.end = "undelivered";
+      message.reason = event.reason;
+    }
+  }
+  return [...found.values()];
 }
 
 /**

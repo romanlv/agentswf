@@ -117,7 +117,12 @@ import {
 import { besideOf, checkPaneOptions, keepsPane, storedLayout } from "./pane-layout";
 import { createResultSlotRegistry, type ResultSlotRegistry } from "./result-slots";
 import { RunEventLog } from "./run-event-log";
-import { type AgentProgress, type GroupProgress, RunProgress } from "./run-progress";
+import {
+  type AgentProgress,
+  type GroupProgress,
+  type MessageProgress,
+  RunProgress,
+} from "./run-progress";
 import {
   type AccountedAgent,
   type AgentLedger,
@@ -253,8 +258,12 @@ export type WorkflowRunSnapshot = {
   stages: readonly StageProgress[];
   /** Stages an earlier attempt recorded that this one hasn't entered yet. */
   upcoming: readonly string[];
+  /** Messages admitted this attempt, in order. */
+  messages: readonly MessageProgress[];
   agents: readonly (Partial<AgentProgress> & {
     key: AgentKey;
+    /** Messages held for it and not yet shown; absent when none are. */
+    queued?: number;
     execution: AgentExecution;
     state:
       | "starting"
@@ -608,7 +617,15 @@ export async function startWorkflow<Args extends JsonValue, Result extends JsonV
         state,
         groups: known.groups,
         ...stages.progress(),
-        agents: agents.map((agent) => ({ ...known.agents.get(agent.key), ...agent })),
+        messages: known.messages,
+        agents: agents.map((agent) => {
+          const queued = owner.held(agent.key);
+          return {
+            ...known.agents.get(agent.key),
+            ...agent,
+            ...(queued > 0 ? { queued } : {}),
+          };
+        }),
       };
     },
     async stop(reason) {
@@ -759,6 +776,16 @@ class WorkflowOwner {
       now: Date.now,
       record: async (event) => {
         this.#messagesChanged();
+        if (event.kind === "message-sent") {
+          options.progress.messageSent({
+            from: event.from,
+            to: event.to,
+            bytes: event.bytes,
+            at: Date.now(),
+            ...(event.awaitsReply ? { asks: true as const } : {}),
+            ...(event.replyTo === undefined ? {} : { answers: true as const }),
+          });
+        }
         if (!(await options.events.event({ ...event, callPath: [] }))) {
           throw new Error("the run's event log was not written");
         }
@@ -972,6 +999,11 @@ class WorkflowOwner {
       }
       await change;
     }
+  }
+
+  /** Messages held for `key` and not yet shown. */
+  held(key: AgentKey): number {
+    return this.#messaging.held(key);
   }
 
   /**

@@ -148,21 +148,25 @@ function dayTime(at: number): string {
 const busy = (agent: AgentView) => agent.state === "working" || agent.state === "was working";
 
 function agentLine(agent: AgentView, indent: string, now: number, width: number): string {
-  const waiting = agent.live?.phase === "waiting" ? agent.live : undefined;
+  const { live } = agent;
   const parts = [
     said(agent.key, 60).padEnd(width),
-    (waiting ? "waiting" : agent.state).padEnd(11),
+    (live?.phase === "waiting" ? "waiting" : live ? "awaiting" : agent.state).padEnd(11),
     busy(agent) ? `turn ${agent.turns + 1}` : `${agent.turns} turn${agent.turns === 1 ? "" : "s"}`,
-    ...(waiting
+    ...(live?.phase === "waiting"
       ? [
           [
-            waiting.reason ? `"${said(waiting.reason)}"` : "",
-            waiting.until ? `(check-in due ${clockTime(waiting.until).slice(0, 5)})` : "",
+            live.reason ? `"${said(live.reason)}"` : "",
+            live.until ? `(check-in due ${clockTime(live.until).slice(0, 5)})` : "",
           ]
             .filter(Boolean)
             .join(" "),
         ]
-      : []),
+      : live
+        ? [
+            `${said(live.peer, 60)}'s reply${live.until ? ` (until ${clockTime(live.until).slice(0, 5)})` : ""}`,
+          ]
+        : []),
     ...(agent.since && agent.state === "working" ? [duration(now - agent.since)] : []),
     ...(agent.last
       ? [`last: ${describeActivity(agent.last.activity)} (${clockTime(agent.last.at)})`]
@@ -325,9 +329,11 @@ function runJson(view: RunView, place: ReadPlace, now: number): RunJson {
         ...(agent.live
           ? {
               phase: agent.live.phase,
-              ...(agent.live.reason === undefined
-                ? {}
-                : { reason: masked(agent.live.reason, 1_000) as string }),
+              ...(agent.live.phase === "awaiting-reply"
+                ? { peer: agent.live.peer }
+                : agent.live.reason === undefined
+                  ? {}
+                  : { reason: masked(agent.live.reason, 1_000) as string }),
               ...(agent.live.until === undefined
                 ? {}
                 : { until: new Date(agent.live.until).toISOString() }),

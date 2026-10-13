@@ -157,7 +157,9 @@ export function progressEvents(
       const note =
         turn.phase === "waiting"
           ? `waiting (agent-reported): ${oneLine(turn.waitingReason ?? "")}${turn.checkInAt === undefined ? "" : ` · check-in at ${clock(turn.checkInAt - view.startedAt)}`}`
-          : oneLine(turn.phase.replaceAll("-", " "));
+          : turn.phase === "awaiting-reply"
+            ? `awaiting ${oneLine(turn.waitingReason ?? "a reply")}${turn.checkInAt === undefined ? "" : ` · until ${clock(turn.checkInAt - view.startedAt)}`}`
+            : oneLine(turn.phase.replaceAll("-", " "));
       add(view.now, "agent phase", `… ${oneLine(agent.key)} · ${note}`);
     }
     if (turn.outcome !== undefined && (fresh || earlier?.turn?.outcome === undefined)) {
@@ -171,6 +173,9 @@ export function progressEvents(
           : `${cancelledByStop(agent) ? "■" : "✗"} ${agent.key} · ${took} · ${turn.outcome}${turn.reason && !cancelledByStop(agent) ? `: ${oneLine(turn.reason)}` : ""}${whereBlocked(agent, view.herdrSession)}`,
       );
     }
+  }
+  for (const message of after.messages.slice(before?.messages.length ?? 0)) {
+    add(message.at, "message", messageLine(message));
   }
   after.stages.forEach((stage, index) => {
     const earlier = before?.stages[index];
@@ -211,6 +216,7 @@ const RANKS = [
   "fork",
   "agent start",
   "agent phase",
+  "message",
   "zero-length end",
   "agent stop",
 ] as const;
@@ -361,10 +367,13 @@ function agentState(
     const note =
       phase === "waiting"
         ? `waiting (agent-reported): ${oneLine(turn.waitingReason ?? "")}${turn.checkInAt === undefined ? "" : ` · check-in in ${duration(Math.max(0, turn.checkInAt - now))}`}`
-        : phase && phase !== "working"
-          ? phase.replaceAll("-", " ")
-          : "";
-    return [paint.busy(spin(now)), note];
+        : phase === "awaiting-reply"
+          ? awaitingNote(turn, now)
+          : phase && phase !== "working"
+            ? phase.replaceAll("-", " ")
+            : "";
+    const queued = agent.queued ? `${agent.queued} queued` : "";
+    return [paint.busy(spin(now)), [note, queued].filter(Boolean).join(" · ")];
   }
   if (turn.outcome === "answered") return [paint.ok("✓"), ""];
   return [
@@ -373,6 +382,21 @@ function agentState(
       `${turn.outcome}${turn.reason ? `: ${oneLine(turn.reason)}` : ""}${whereBlocked(agent, herdrSession)}`,
     ),
   ];
+}
+
+/** Whose reply a turn awaits, how long it has, and for how long. */
+function awaitingNote(turn: NonNullable<Agent["turn"]>, now: number): string {
+  const since = turn.phaseAt ?? turn.startedAt;
+  const of = turn.checkInAt === undefined ? "" : ` of ${duration(turn.checkInAt - since)}`;
+  return `awaiting ${oneLine(turn.waitingReason ?? "a reply")} · ${duration(Math.max(0, now - since))}${of}`;
+}
+
+/** A message admitted: who to whom, its size, and whether it asks or answers. */
+export function messageLine(message: WorkflowRunSnapshot["messages"][number]): string {
+  const size =
+    message.bytes < 1024 ? `${message.bytes} B` : `${(message.bytes / 1024).toFixed(1)} KB`;
+  const kind = [message.answers ? "reply" : "", message.asks ? "reply owed" : ""].filter(Boolean);
+  return `${oneLine(message.from)} → ${oneLine(message.to)}   ${[size, ...kind].join(", ")}`;
 }
 
 /**
@@ -488,6 +512,12 @@ export function watchProgress(
     if (!handle) return;
     const snapshot = handle.inspect();
     if (terminal) {
+      // A message is an event: a line above the block, as a log line is.
+      const sent = snapshot.messages.slice(last?.messages.length ?? 0);
+      if (sent.length > 0) {
+        clear();
+        for (const message of sent) stderr(messageLine(message));
+      }
       const lines = renderProgress(snapshot, {
         name,
         startedAt,

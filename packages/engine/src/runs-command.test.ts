@@ -271,6 +271,35 @@ describe("awf runs", () => {
     });
   });
 
+  test("an agent awaiting a reply names its peer, and until when", async () => {
+    const cwd = runDirs.tempRunDir();
+    const run = await makeRun(
+      cwd,
+      "review",
+      "a1",
+      [{ ...ALIVE }],
+      [{ kind: "operation-started", at: T(2), of: "turn", ...turnFields("fixer", "o1", "fix", 2) }],
+    );
+    mkdirSync(join(run.dir, "calls", "o1"), { recursive: true });
+    const until = Date.parse(T(20));
+    writeFileSync(
+      join(run.dir, "calls", "o1", "liveness.jsonl"),
+      `${JSON.stringify({ version: 1, operationId: "o1", kind: "awaiting-reply", at: Date.parse(T(3)), sequence: 0, until, peer: "reviewer" })}\n`,
+    );
+    const due = new Date(until).toTimeString().slice(0, 5);
+    const { stdout } = await awfRuns(cwd, "review/a1");
+    expect(stdout.split("\n")[1]).toMatch(
+      new RegExp(`^ {4}fixer +awaiting +turn 1 {2}reviewer's reply \\(until ${due}\\)`),
+    );
+    const json = JSON.parse((await awfRuns(cwd, "review/a1", "--json")).stdout);
+    expect(json.agents[0].live).toEqual({
+      phase: "awaiting-reply",
+      peer: "reviewer",
+      until: T(20),
+      observedAt: T(14),
+    });
+  });
+
   test("a continued run shows its earlier attempts, and many agents of one kind on one line", async () => {
     const cwd = runDirs.tempRunDir();
     const second = (line: object) => ({ ...line, attempt: 2 });

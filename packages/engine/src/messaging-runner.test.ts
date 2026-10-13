@@ -1,7 +1,7 @@
 import { afterAll, describe, expect, test } from "bun:test";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { RunLogLine, TurnRecord } from "@agentswf/contract/records";
+import type { RunLogLine, SettledOperation, TurnRecord } from "@agentswf/contract/records";
 import { type ControlRequest, WIRE_VERSION } from "@agentswf/contract/wire";
 import type {
   AgentRef,
@@ -62,16 +62,20 @@ async function run<T extends JsonValue>(
     meta: { name: "messaging", description: "messaging" },
     run: (context) => workflow(context),
   };
+  const usage: SettledOperation[] = [];
   const outcome = await runNew(definition, null, {
     runRoot,
     runtime,
     deadline: future(30_000),
     livenessPolicy: POLICY,
   }).then(
-    (settled) => ({ ok: true as const, value: settled.value }),
+    (settled) => {
+      usage.push(...settled.usage);
+      return { ok: true as const, value: settled.value };
+    },
     (error: unknown) => ({ ok: false as const, error }),
   );
-  return { adapter, outcome, log: () => logOf(runRoot) };
+  return { adapter, outcome, usage, log: () => logOf(runRoot) };
 }
 
 async function logOf(runRoot: string): Promise<RunLogLine[]> {
@@ -471,7 +475,7 @@ describe("messaging through the runner", () => {
 
   test("a stage waits for what its routes carry, then closes them", async () => {
     let afterStage: unknown;
-    const { outcome } = await run(
+    const { outcome, usage } = await run(
       {
         planner: [
           async (turn) => {
@@ -500,6 +504,12 @@ describe("messaging through the runner", () => {
     );
     // The architect's message operation ran inside the stage, before it ended.
     expect(outcome).toEqual({ ok: true, value: [null, "planner", null] });
+    // As the run's record keeps it, output.json's `usage`.
+    expect(usage.map(({ agent, cause }) => [agent, cause ?? null])).toEqual([
+      ["planner", null],
+      ["architect", { message: { from: "planner" } }],
+      ["planner", null],
+    ]);
     expect(afterStage).toMatchObject({
       kind: "rejected",
       code: "closed",

@@ -36,6 +36,7 @@ const MID_RUN: WorkflowRunSnapshot = {
   state: "running",
   stages: [],
   upcoming: [],
+  messages: [],
   groups: [
     { label: "Lenses", total: 2, started: 2, done: 2, startedAt: 0, endedAt: 150_000 },
     { label: "Verify", total: 4, started: 2, done: 1, startedAt: 150_000 },
@@ -60,6 +61,7 @@ const CONTINUED: WorkflowRunSnapshot = {
   state: "running",
   groups: [],
   upcoming: ["mr"],
+  messages: [],
   stages: [
     {
       stage: "doc-review",
@@ -255,6 +257,7 @@ describe("run progress by stage", () => {
     const after: WorkflowRunSnapshot = {
       ...CONTINUED,
       upcoming: [],
+      messages: [],
       stages: [
         ...CONTINUED.stages.slice(0, 3),
         {
@@ -481,6 +484,7 @@ test("log progress records phase, renewed wait and reason changes without countd
     stages: [],
     groups: [],
     upcoming: [],
+    messages: [],
     agents: [agent("waiter", 0, { startedAt: 0, phase, waitingReason: reason, checkInAt: until })],
   });
   const working = snapshot("working");
@@ -510,6 +514,7 @@ describe("where pane agents are", () => {
     state: "running",
     stages: [],
     upcoming: [],
+    messages: [],
     groups: [{ label: "Fix", total: 2, started: 2, done: 2, startedAt: 0 }],
     agents: [
       agent("fixer", 0, {
@@ -642,6 +647,7 @@ test.each(["answered", "cancelled"] as const)(
     const snapshot: WorkflowRunSnapshot = {
       state: "running",
       upcoming: [],
+      messages: [],
       groups: [],
       agents: [stopped],
       stages: [{ stage: "review", source: "ran", attempt: 1, startedAt: 0 }],
@@ -743,6 +749,7 @@ test.each(["failed", "timed-out", "cancelled"] as const)(
       state: "running",
       stages: [],
       upcoming: [],
+      messages: [],
       groups: [{ label: "Lenses", total: 1, started: 1, done: 1, startedAt: 0, endedAt: 2000 }],
       agents: [lens],
     };
@@ -781,6 +788,7 @@ test.each([false, true])("a stopped agent stays in a crowded %s list", (grouped)
     state: "running",
     stages: [],
     upcoming: [],
+    messages: [],
     agents,
     groups: grouped ? [{ label: "Lenses", total: 10, started: 9, done: 9, startedAt: 0 }] : [],
   };
@@ -794,4 +802,85 @@ test.each([false, true])("a stopped agent stays in a crowded %s list", (grouped)
   expect(text).toContain("stopped: done");
   expect(text).toContain("… 8 more");
   expect(text).not.toContain("… 9 more");
+});
+
+describe("messaging in progress", () => {
+  const MESSAGING: WorkflowRunSnapshot = {
+    state: "running",
+    stages: [],
+    upcoming: [],
+    groups: [],
+    messages: [
+      { from: "reviewer", to: "implementer", bytes: 412, at: 60_000, asks: true },
+      { from: "lens", to: "fixer", bytes: 2_150, at: 70_000 },
+      { from: "implementer", to: "reviewer", bytes: 38, at: 90_000, answers: true },
+    ],
+    agents: [
+      {
+        ...agent("reviewer", -1, {
+          startedAt: 0,
+          phase: "awaiting-reply",
+          phaseAt: 60_000,
+          waitingReason: "implementer",
+          checkInAt: 60_000 + 20 * 60_000,
+        }),
+        group: undefined,
+      },
+      { ...agent("fixer", -1, { startedAt: 0 }), group: undefined, queued: 2 },
+      {
+        ...agent("idle", -1, { startedAt: 0, settledAt: 10_000, outcome: "answered" }),
+        group: undefined,
+        queued: 2,
+      },
+    ],
+  };
+
+  test("a wait shows its peer and how long of how long; a queue its count; an idle agent neither", () => {
+    const lines = renderProgress(MESSAGING, {
+      name: "review",
+      startedAt: 0,
+      now: 60_000 + 4 * 60_000,
+      paint: PLAIN,
+    });
+    expect(lines.slice(1).map((line) => line.replace(/^ {4}\S /, "    ~ "))).toEqual([
+      "    ~ reviewer  gpt-6-sol  5m 00s  awaiting implementer · 4m 00s of 20m 00s",
+      "    ~ fixer     gpt-6-sol  5m 00s  2 queued",
+      // Listed as any agent is, with nothing of messaging.
+      "    ~ idle      gpt-6-sol     10s",
+    ]);
+  });
+
+  test("a line per message admitted, in the stage-list style, said once", () => {
+    const before = { ...MESSAGING, messages: MESSAGING.messages.slice(0, 1) };
+    const view = { startedAt: 0, now: 100_000 };
+    expect(progressEvents(before, MESSAGING, view)).toEqual([
+      "[1:10] lens → fixer   2.1 KB",
+      "[1:30] implementer → reviewer   38 B, reply",
+    ]);
+    expect(progressEvents(MESSAGING, MESSAGING, view)).toEqual([]);
+    expect(progressEvents(undefined, MESSAGING, view)).toContain(
+      "[1:00] reviewer → implementer   412 B, reply owed",
+    );
+  });
+
+  test("the log says when an agent starts awaiting a reply, and until when", () => {
+    const working: WorkflowRunSnapshot = {
+      ...MESSAGING,
+      agents: [agent("reviewer", 0, { startedAt: 0, phase: "working" })],
+    };
+    const awaiting: WorkflowRunSnapshot = {
+      ...MESSAGING,
+      agents: [
+        agent("reviewer", 0, {
+          startedAt: 0,
+          phase: "awaiting-reply",
+          waitingReason: "implementer",
+          checkInAt: 20 * 60_000,
+        }),
+      ],
+    };
+    expect(progressEvents(working, awaiting, { startedAt: 0, now: 60_000 })).toContain(
+      "[1:00] … reviewer · awaiting implementer · until 20:00",
+    );
+  });
 });

@@ -514,7 +514,7 @@ The reasons are in the design's Decisions.
 - [x] 5. `wf peers`, `wf send` and `wf reply` work over the control plane and the sandbox door
 - [x] 6. Headless agents receive messages and await replies
 - [x] 7. Panes receive messages when idle, and claude panes await replies
-- [ ] 8. A workflow's tests script messages; the progress view, logs and usage show them
+- [x] 8. A workflow's tests script messages; the progress view, logs and usage show them
 - [ ] 9. Agents use messaging correctly live (M2); the review example converges; docs updated
 
 Task 7 needs story 024, which is `awaiting-human-review`, to be done. Tasks 1 to 6 do not.
@@ -1059,6 +1059,43 @@ waiting on them; these are the drafts the gate named, as built and reviewed.
   ~$0.20 for claude's alone.
 - Review: both reviewers' findings are resolved: rebased on main's claude pane paste and rerun;
   the receipt's grace; stronger pane tests; the eval's default back to the headless four.
+
+### Task 8
+
+- The testing API is the design's sketch, with what building it settled:
+  - `messages` takes a `MessageScript`, called with a `ReceivedMessage`: the message, its `turn`,
+    and `reply`, `send`, `silent` and `fail`. What it returns ends the turn, as `silent` unless it
+    is a `reply`. A list is one entry per message operation, apart from `agents`, whose lists now
+    count the agent's workflow turns, not its session's: a message operation shifts no agent
+    script.
+  - `turn.send` and `turn.reply` resolve to a `MessageOutcome`. A turn that ends awaiting a reply
+    is recorded `awaiting-reply`; the turn that carries the reply resumes the same script call.
+    `TurnRecord` adds `cause` and the `messages` shown.
+  - `run.messagesOf(recipient)` gives `{ from, awaitReply, end, reason? }`. A question ends
+    `replied` or `failed`, `reason` saying why (`timed-out`, `withdrawn`, `released`, or how its
+    peer failed); any other message `delivered` or `undelivered`; `pending` until then.
+  - `awaitReply: "listed" | "anywhere"`, not in the sketch: by default a test refuses
+    `--await-reply` where the engine's list does, as a run would, so a test cannot pass where a run
+    fails. `anywhere` tries a workflow's messaging on a harness the list does not have yet. Raised
+    for the human review: it could be dropped once M2 has put harnesses on the list.
+- The host ends a native turn once its script is still with a reply awaited: no host call in
+  flight, a macrotask later. So a script awaiting a reply awaits only the host's calls; one that
+  goes on regardless fails the test, saying so. A script answers only once its sends have returned,
+  as an agent's `wf send` returns before its `wf result`.
+- Limit of the test host: a script awaiting a reply cannot answer a third agent's question that
+  continues its call; the test fails, saying the host cannot script it.
+- Progress: a line per message admitted, above the live block or in the log; `awaiting {peer} ·
+  {elapsed} of {total}` and `{n} queued` on an agent's line. `awf logs --agent` follows a message
+  line from either side, and a question's line says who awaits it until when. `awf runs` shows an
+  agent `awaiting` its peer's reply until its deadline; `--json` has `live.peer`. `cause` reaches
+  `workflow.usage()` and `output.json`'s `usage`, which a runner test asserts.
+- A message operation that fails fails the run, as any operation the run owns does (Q10), which a
+  test now shows.
+- Review: both reviewers' findings are resolved: a result racing the run's end, or submitted while
+  a send was in flight, flaked under load and no longer does (1,680 runs under load, none failed);
+  a script left awaiting when its call ends is let go, its wait `cancelled`; sends after a turn
+  ended fail the test; `messagesOf`'s ends made one vocabulary; tests added for `turn.reply`,
+  `message.send`, `message.fail` and a `silent` turn run again.
 
 ## Human review
 

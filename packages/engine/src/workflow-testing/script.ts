@@ -1,4 +1,5 @@
-import type { Effort, JsonValue, OutputSchema } from "@agentswf/contract/workflow";
+import type { ReplyCode, SendCode } from "@agentswf/contract/wire";
+import type { Effort, JsonValue, OperationCause, OutputSchema } from "@agentswf/contract/workflow";
 import type Type from "typebox";
 import { canonical } from "../canonical-json";
 import { messageOf } from "../errors";
@@ -7,7 +8,7 @@ import { messageOf } from "../errors";
 export type Turn = {
   /** The agent's key. */
   agent: string;
-  /** 1-based in the agent's session. A nudge shares its turn's number. */
+  /** 1-based in the agent's session. A nudge, or a delivery continuing the turn, shares its number. */
   n: number;
   nudge: boolean;
   prompt: string;
@@ -21,9 +22,68 @@ export type Turn = {
   model: string;
   /** Its effort, likewise; absent, the harness's default. */
   effort?: Effort;
+  /** Who woke the operation: absent for the workflow's own `run`. */
+  cause?: OperationCause;
+  /**
+   * The messages the agent was shown in this turn, in order; one delivered while the script awaits
+   * a reply is added, the reply included.
+   */
+  readonly messages: readonly Message[];
+  /**
+   * `wf send`: resolves once admitted, `sent`; or, with `awaitReply`, with the reply, which arrives
+   * in a later turn of the same call. Returning a result without awaiting it drops the wait, and it
+   * resolves `failed` with reason `dropped`. While a reply is awaited the script awaits only the
+   * host's calls: once it is still, its turn ends.
+   */
+  send(peer: string, text: string, options?: SendOptions): Promise<MessageOutcome>;
+  /** `wf reply`: answers the question `peer` asked. A result is refused while one is owed. */
+  reply(peer: string, text: string, options?: SendOptions): Promise<MessageOutcome>;
   /** Fires when the engine cancels the turn. */
   signal: AbortSignal;
 };
+
+/** A message as the agent was shown it. */
+export type Message = {
+  from: string;
+  text: string;
+  /** A question: the agent owes `from` a reply. */
+  asks?: true;
+  /** The reply to a question this agent asked. */
+  answers?: true;
+};
+
+export type SendOptions = { awaitReply?: boolean; timeoutMs?: number };
+
+/** How a send or reply ended; a refusal is a value to test, not a throw. */
+export type MessageOutcome =
+  | { kind: "sent" }
+  | { kind: "replied"; text: string }
+  | { kind: "failed"; reason: string }
+  | { kind: "refused"; code: SendCode | ReplyCode };
+
+/**
+ * A message that woke the agent, and what its script may do in that turn: `reply` and `send` as
+ * the turn's own, or end it with `silent` or `fail`. Returning ends the turn as `silent` does.
+ */
+export type ReceivedMessage = Message & {
+  /** The turn it woke: whether it is a reminder (`nudge`), and every message shown in it. */
+  turn: Turn;
+  reply(text: string, options?: SendOptions): Promise<MessageOutcome>;
+  send(peer: string, text: string, options?: SendOptions): Promise<MessageOutcome>;
+  /** Ends the turn without a reply; one owed is reminded once, then fails. */
+  silent(): Reply;
+  /** The harness failed: the message operation fails, and the agent stops. */
+  fail(reason?: string): Reply;
+};
+
+/**
+ * A message operation's script: called with the message that woke the agent, and again with the
+ * next one when held messages continue the operation, or with the same one, `turn.nudge` set, when
+ * it is reminded of a reply it owes.
+ */
+export type MessageScript = (
+  message: ReceivedMessage,
+) => Reply | MessageOutcome | undefined | Promise<Reply | MessageOutcome | undefined>;
 
 const ENTRY: unique symbol = Symbol("agentswf.script-entry");
 
@@ -107,8 +167,11 @@ export const reply = {
   interrupted: (): Reply => ending({ kind: "interrupted" }),
 };
 
-/** How a turn ended, as `run.turns` keeps it. */
-export type TurnOutcome = "answered" | Ending["kind"] | "cancelled";
+/**
+ * How a turn ended, as `run.turns` keeps it: `awaiting-reply` when its script awaits a reply, which
+ * a later turn of the same call resumes it with.
+ */
+export type TurnOutcome = "answered" | Ending["kind"] | "cancelled" | "awaiting-reply";
 
 export type Step =
   | { kind: "answer"; value: JsonValue }
@@ -117,57 +180,113 @@ export type Step =
   | { kind: "script-error"; message: string };
 
 /**
- * Finds each agent's script and walks it. An exact key wins over a pattern; two patterns matching
- * one key is the test's mistake. A list is walked per agent, and ends the test if run past.
+ * Each agent's entries by key or pattern: one for every use, or a list walked in order, one per
+ * use, that ends the test if run past. An exact key wins over a pattern; two patterns matching one
+ * key is the test's mistake.
  */
-export class Scripts {
-  readonly #scripts: Readonly<Record<string, Script>>;
-  /** The furthest turn each agent reached, by the key or pattern that met it. */
+class Lists<E> {
+  readonly #lists: Readonly<Record<string, E | readonly E[]>>;
+  /** The furthest use each agent reached, by the key or pattern that met it. */
   readonly #reached = new Map<string, { pattern: string; n: number }>();
-  /** What each entry answers. */
-  readonly #noun: "turn" | "compaction";
+  readonly #of: Of;
+
+  constructor(
+    lists: Readonly<Record<string, E | readonly E[]>>,
+    of: Of,
+    valid: (entry: unknown) => boolean,
+  ) {
+    this.#of = of;
+    for (const [key, list] of Object.entries(lists)) {
+      if (Array.isArray(list) && list.length === 0) {
+        throw new TypeError(
+          `${of.option}["${key}"] is an empty list; a list has an entry per ${of.noun}`,
+        );
+      }
+      for (const entry of Array.isArray(list) ? list : [list]) {
+        if (!valid(entry)) {
+          throw new TypeError(
+            `${of.option}["${key}"] must be ${of.expected} or a list of them, not ${describe(entry)}`,
+          );
+        }
+      }
+    }
+    this.#lists = lists;
+  }
+
+  /** Whether any entry, by key or pattern, is for this agent. */
+  has(agent: string): boolean {
+    return !("why" in findByKey(this.#lists, agent, "agent"));
+  }
+
+  /** The agent's entry for its `n`th use, or why there is none. */
+  protected entry(agent: string, n: number): { entry: E } | { why: string } {
+    const found = findByKey(this.#lists, agent, "agent");
+    if ("why" in found) return found;
+    const { pattern, value: list } = found;
+    const entry = isList(list) ? list[n - 1] : list;
+    if (entry === undefined) {
+      return {
+        why: `its ${this.#of.whose}${named(pattern, agent)} has ${count(list, this.#of.noun)}`,
+      };
+    }
+    const reached = this.#reached.get(agent);
+    this.#reached.set(agent, { pattern, n: Math.max(reached?.n ?? 0, n) });
+    return { entry };
+  }
+
+  /** What a list scripted and no use reached. */
+  leftovers(): string[] {
+    const { noun, whose } = this.#of;
+    const problems: string[] = [];
+    for (const [key, { pattern, n }] of this.#reached) {
+      const list = this.#lists[pattern]!;
+      if (isList(list) && n < list.length) {
+        problems.push(
+          `agent "${key}" was asked ${count(n, noun)}; its ${whose}${named(pattern, key)} has ${list.length}`,
+        );
+      }
+    }
+    const met = new Set([...this.#reached.values()].map(({ pattern }) => pattern));
+    for (const [pattern, list] of Object.entries(this.#lists)) {
+      if (isList(list) && !met.has(pattern)) {
+        const who = pattern.includes("*")
+          ? `no agent matching "${pattern}" was asked`
+          : `agent "${pattern}" was never asked`;
+        problems.push(`${who}; its ${whose} has ${count(list, noun)}`);
+      }
+    }
+    return problems;
+  }
+}
+
+/** What a list's entries are for, as its messages name them. */
+type Of = { noun: string; option: string; whose: string; expected: string };
+
+/** Each agent's turn scripts, or its compactions'. */
+export class Scripts extends Lists<Answer | Reply> {
+  readonly #noun: string;
 
   constructor(
     scripts: Readonly<Record<string, Script>> = {},
     of: { noun: "turn" | "compaction"; option: string } = { noun: "turn", option: "agents" },
   ) {
+    super(
+      scripts,
+      {
+        ...of,
+        whose: of.noun === "turn" ? "script" : `${of.noun} script`,
+        expected: "answer(…), reply.…()",
+      },
+      isEntry,
+    );
     this.#noun = of.noun;
-    for (const [key, script] of Object.entries(scripts)) {
-      if (isList(script) && script.length === 0) {
-        throw new TypeError(
-          `${of.option}["${key}"] is an empty list; a list has an entry per ${of.noun}`,
-        );
-      }
-      for (const entry of isList(script) ? script : [script]) {
-        if (!isEntry(entry)) {
-          throw new TypeError(
-            `${of.option}["${key}"] must be answer(…), reply.…() or a list of them, not ${JSON.stringify(entry)}`,
-          );
-        }
-      }
-    }
-    this.#scripts = scripts;
   }
 
-  /** Whether any script, by key or pattern, is for this agent. */
-  has(agent: string): boolean {
-    return !("why" in findByKey(this.#scripts, agent, "agent"));
-  }
-
-  async step(turn: Turn): Promise<Step> {
-    const found = findByKey(this.#scripts, turn.agent, "agent");
+  /** `index` is the turn's place among the workflow's turns of this agent, not the session's. */
+  async step(turn: Turn, index = turn.n): Promise<Step> {
+    const found = this.entry(turn.agent, index);
     if ("why" in found) return this.error(turn, found.why);
-    const { pattern, value: script } = found;
-    const entry = isList(script) ? script[turn.n - 1] : script;
-    if (!entry) {
-      return this.error(
-        turn,
-        `its ${this.#whose()}${named(pattern, turn.agent)} has ${count(script, this.#noun)}`,
-      );
-    }
-    const reached = this.#reached.get(turn.agent);
-    this.#reached.set(turn.agent, { pattern, n: Math.max(reached?.n ?? 0, turn.n) });
-    const meant = entry[ENTRY];
+    const meant = found.entry[ENTRY];
     if (meant.kind === "reply") return { kind: "reply", ending: meant.ending };
     if (!sameSchema(meant.schema, turn.schema)) {
       return this.error(
@@ -190,38 +309,61 @@ export class Scripts {
     return { kind: "answer", value: out };
   }
 
-  #whose(): string {
-    return this.#noun === "turn" ? "script" : `${this.#noun} script`;
-  }
-
   private error(turn: Turn, why: string): Step {
     return {
       kind: "script-error",
       message: `agent "${turn.agent}" ${this.#noun} ${turn.n}${turn.nudge ? " (nudge)" : ""}: ${why}. It was asked: ${firstLine(turn.prompt)}`,
     };
   }
+}
 
-  /** What a list scripted and no turn reached. */
-  leftovers(): string[] {
-    const problems: string[] = [];
-    for (const [key, { pattern, n }] of this.#reached) {
-      const script = this.#scripts[pattern]!;
-      if (isList(script) && n < script.length) {
-        problems.push(
-          `agent "${key}" was asked ${count(n, this.#noun)}; its ${this.#whose()}${named(pattern, key)} has ${script.length}`,
-        );
-      }
+/** Each agent's message scripts: one for all its message operations, or a list, one per operation. */
+export class MessageScripts extends Lists<MessageScript> {
+  constructor(scripts: Readonly<Record<string, MessageScript | readonly MessageScript[]>> = {}) {
+    super(
+      scripts,
+      {
+        noun: "message operation",
+        option: "messages",
+        whose: "message script",
+        expected: "a function of the message",
+      },
+      (entry) => typeof entry === "function",
+    );
+  }
+
+  /**
+   * Runs the script for the agent's `index`th message operation with `message`; what it returns
+   * ends the turn, as `silent` unless it is a `reply`.
+   */
+  async step(message: ReceivedMessage, index: number): Promise<Step> {
+    const { turn } = message;
+    const where = `agent "${turn.agent}" turn ${turn.n}${turn.nudge ? " (reminder)" : ""}, woken by ${message.from}`;
+    const found = this.entry(turn.agent, index);
+    if ("why" in found) {
+      return {
+        kind: "script-error",
+        message: `${where}: ${found.why === "no agent is scripted" ? "no agent has a message script" : found.why}`,
+      };
     }
-    const met = new Set([...this.#reached.values()].map(({ pattern }) => pattern));
-    for (const [pattern, script] of Object.entries(this.#scripts)) {
-      if (isList(script) && !met.has(pattern)) {
-        const who = pattern.includes("*")
-          ? `no agent matching "${pattern}" was asked`
-          : `agent "${pattern}" was never asked`;
-        problems.push(`${who}; its ${this.#whose()} has ${count(script, this.#noun)}`);
-      }
+    let out: unknown;
+    try {
+      out = await found.entry(message);
+    } catch (error) {
+      return {
+        kind: "script-error",
+        message: `${where}: its message script threw: ${messageOf(error)}`,
+      };
     }
-    return problems;
+    if (isEntry(out)) {
+      const given = out[ENTRY];
+      if (given.kind === "reply") return { kind: "reply", ending: given.ending };
+      return {
+        kind: "script-error",
+        message: `${where}: a message script ends a turn, it answers no call`,
+      };
+    }
+    return { kind: "reply", ending: { kind: "silent" } };
   }
 }
 
@@ -251,20 +393,24 @@ function isEntry(value: unknown): value is Answer | Reply {
   return typeof value === "object" && value !== null && ENTRY in value;
 }
 
-function isList(script: Script): script is readonly (Answer | Reply)[] {
-  return Array.isArray(script);
+function isList<E>(list: E | readonly E[]): list is readonly E[] {
+  return Array.isArray(list);
 }
 
 function named(pattern: string, key: string): string {
   return pattern === key ? "" : ` (${quote(pattern)})`;
 }
 
+function describe(entry: unknown): string {
+  return typeof entry === "function" ? "a function" : JSON.stringify(entry);
+}
+
 function quote(key: string): string {
   return `"${key}"`;
 }
 
-function count(of: number | Script, noun: string): string {
-  const n = typeof of === "number" ? of : isList(of) ? of.length : 1;
+function count(of: number | unknown, noun: string): string {
+  const n = typeof of === "number" ? of : Array.isArray(of) ? of.length : 1;
   return `${n} ${noun}${n === 1 ? "" : "s"}`;
 }
 

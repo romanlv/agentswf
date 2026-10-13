@@ -1156,6 +1156,11 @@ export class Messaging {
     };
   }
 
+  /** Messages held for an agent and not yet shown to it, answers included. */
+  held(agent: AgentKey): number {
+    return this.#inbox(agent).filter((item) => item.kind !== "no-reply").length;
+  }
+
   /** Messages held for an agent that count against its unread limit: answers do not. */
   #unread(agent: AgentKey): number {
     return this.#inbox(agent).filter((item) => item.kind !== "no-reply" && !item.answers).length;

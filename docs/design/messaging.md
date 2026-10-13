@@ -229,7 +229,7 @@ cost and on whose behalf. The run's record keeps every message and obligation; s
 
 ### Testing a workflow that messages
 
-A sketch, to settle before the types ship. `messages` scripts message operations separately from
+`messages` scripts message operations separately from
 `agents`, so granting a route never shifts an agent's scripted turns. A script's `turn.send`
 resolves with the reply, which collapses the wait across turns into an `await`. Messages held for an
 agent that join one of its workflow turns are on `turn.messages`, and `turn.reply(peer, text)`
@@ -243,6 +243,12 @@ messages held is invoked again with them on `turn.messages`, as a check-in invok
 continuation, like a nudge, is a turn of its own in `turnsOf`, sharing its turn's number. `messages`
 takes a script per agent, or an array of them, one per message operation, as `agents` does.
 `messagesOf` is keyed by recipient.
+
+As built (story 029, task 8): a turn that ends awaiting a reply is recorded `awaiting-reply`, and
+the turn carrying the reply resumes the same script call. A test refuses `--await-reply` where the
+engine's list does, as a run would; `awaitReply: "anywhere"` tries a harness the list does not have
+yet. A script awaiting a reply cannot answer a third agent's question meanwhile: the test host
+cannot script that, and says so.
 
 Here against `feature-delivery`'s test, whose `happyPath` and `ready` are its own helpers, with
 [[#Review until convergence|the loop rewritten]]. The implementer's three operations are the build,

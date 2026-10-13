@@ -231,11 +231,33 @@ function stageOf(event: ReadEvent, places: Places): string | undefined {
   return "stage" in event.line ? event.line.stage : undefined;
 }
 
+/** The agents a messaging line is between, so `--agent` follows it from either side. */
+function sidesOf(event: ReadEvent): readonly string[] {
+  if (event.source === "activity") return [];
+  const { line } = event;
+  switch (line.kind) {
+    case "route-opened":
+    case "route-closed":
+      return line.between ?? [line.from, line.to];
+    case "message-sent":
+    case "message-refused":
+    case "message-delivery":
+    case "message-undelivered":
+      return [line.from, line.to];
+    case "request-ended":
+      return [line.owedBy, line.asker];
+    default:
+      return [];
+  }
+}
+
 function kept(read: Read, options: LogsOptions) {
   const stages = operationPlaces(read.log.lines);
   const events = read.events.filter(
     (event) =>
-      (options.agent === undefined || agentOf(event, stages) === options.agent) &&
+      (options.agent === undefined ||
+        agentOf(event, stages) === options.agent ||
+        sidesOf(event).includes(options.agent)) &&
       (options.stage === undefined || stageOf(event, stages) === options.stage),
   );
   return { events, stages };
@@ -553,11 +575,11 @@ function describeLine(line: RunLogLine): string {
       return `route ${routeEnds(line)} closed  ${line.reason}`;
     case "message-sent":
       return `message ${line.message} ${said(line.from, 60)} → ${said(line.to, 60)}  ${line.bytes} B${
+        line.replyTo === undefined ? "" : `, reply to ${line.replyTo}`
+      }${
         line.awaitsReply
-          ? ", reply owed"
-          : line.replyTo !== undefined
-            ? `, reply to ${line.replyTo}`
-            : ""
+          ? `, reply owed  ${said(line.from, 60)} awaits it until ${clockTime(Date.parse(line.awaitsReply.until))}`
+          : ""
       }`;
     case "message-refused":
       return `${line.command} ${said(line.from, 60)} → ${said(line.to, 60)} refused  ${line.code}`;

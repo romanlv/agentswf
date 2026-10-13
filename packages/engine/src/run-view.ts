@@ -33,8 +33,10 @@ export type AgentView = {
   turns: number;
   /** When its current operation, or its last, started. */
   since?: number;
-  /** Its operation's latest phase, where it is waiting within it. */
-  live?: { phase: "waiting"; reason?: string; until?: number };
+  /** Its operation's latest phase, where it is waiting within it, or awaiting `peer`'s reply. */
+  live?:
+    | { phase: "waiting"; reason?: string; until?: number }
+    | { phase: "awaiting-reply"; peer: string; until?: number };
   last?: { activity: Activity; at: string };
   sessions: { harness: HarnessKind; id: string; files: string[] }[];
 };
@@ -141,12 +143,16 @@ export async function viewRun(status: RunStatus): Promise<RunView> {
   if (status.state === "running") {
     for (const [id, key] of open) {
       const phase = await latestPhase(run.dir, id);
-      if (phase?.kind !== "waiting") continue;
-      agent(key).live = {
-        phase: "waiting",
-        ...(phase.reason === undefined ? {} : { reason: phase.reason }),
-        ...(phase.until === undefined ? {} : { until: phase.until }),
-      };
+      const until = phase?.until === undefined ? {} : { until: phase.until };
+      if (phase?.kind === "waiting") {
+        agent(key).live = {
+          phase: "waiting",
+          ...(phase.reason === undefined ? {} : { reason: phase.reason }),
+          ...until,
+        };
+      } else if (phase?.kind === "awaiting-reply" && phase.peer !== undefined) {
+        agent(key).live = { phase: "awaiting-reply", peer: phase.peer, ...until };
+      }
     }
   }
   const since = attempt ? Date.parse(attempt.started) : Number.NEGATIVE_INFINITY;
