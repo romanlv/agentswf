@@ -309,6 +309,35 @@ describe("awf logs", () => {
     ]);
   });
 
+  test("a page's JSON carries each activity's native text, masked, the line its short cut", async () => {
+    const f = await fixture();
+    const argument = `wf result op-1 <<'WF_JSON'\n{"approved":false,"note":"${"z".repeat(200)}"}\nWF_JSON`;
+    addActivity(f, T(2), [
+      { type: "text", text: "Sending the verdict with API_TOKEN=s3cr3t" },
+      { type: "tool_use", id: "t1", name: "Bash", input: { command: argument } },
+    ]);
+    appendFileSync(
+      f.native,
+      `${JSON.stringify({
+        type: "user",
+        timestamp: T(3),
+        message: { content: [{ type: "tool_result", tool_use_id: "t1", content: "recorded" }] },
+      })}\n`,
+    );
+    const { events } = JSON.parse((await awfLogs(f, ["--json"])).stdout);
+    const activity = events.filter((event: { kind: string }) => event.kind === "activity");
+    expect(activity.map((event: { text: string }) => event.text)).toEqual([
+      "Sending the verdict with API_TOKEN=***",
+      argument,
+      "recorded",
+    ]);
+    expect(activity[1].activity.input).toHaveLength(120);
+    const [one] = JSON.parse(
+      (await awfLogs(f, [`@${activity[1].handle}`, "--json"])).stdout,
+    ).events;
+    expect(one.text).toBe(argument);
+  });
+
   test("a run that ended says so, with no next; an interrupted one says how to go on", async () => {
     const ended = await fixture({ ...ALIVE, ended: T(6), outcome: "completed" });
     addLines(ended, turnEnded(5), { kind: "attempt-ended", at: T(6), outcome: "completed" });
@@ -589,7 +618,7 @@ describe("awf logs", () => {
     addLines(f, {
       kind: "log",
       at: T(2),
-      text: "y".repeat(5_000),
+      text: "y".repeat(60_000),
       fields: {
         secret_key: "a1",
         secretKey: "a2",
@@ -618,9 +647,9 @@ describe("awf logs", () => {
       sshKey: "***",
       key: "the decision's",
     });
-    expect(logged.text).toHaveLength(1_000);
+    expect(logged.text).toHaveLength(50_000);
     const [whole] = JSON.parse((await awfLogs(f, ["@e4", "--json"])).stdout).events;
-    expect(whole.text).toHaveLength(5_000);
+    expect(whole.text).toHaveLength(60_000);
   });
 
   test("a warning, a failed turn and a decision's error are each one masked line", async () => {

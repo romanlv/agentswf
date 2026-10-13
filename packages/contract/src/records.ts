@@ -696,7 +696,7 @@ export type LogEventJson = { handle: string; at: string } & (
       agent?: AgentKey;
       stage?: string;
       activity: Activity;
-      /** With `--full`. */
+      /** The native text: the message, the tool's whole argument, or its output. */
       text?: string;
     }
   | (DistributiveOmit<RunLogLine, "version"> & { operation?: string })
@@ -705,7 +705,7 @@ export type LogEventJson = { handle: string; at: string } & (
 type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;
 
 /**
- * `awf logs --json`. In a page, a string the run wrote is cut at 1,000 characters; a read of one
+ * `awf logs --json`. In a page, a string the run wrote is cut at 50,000 characters; a read of one
  * `@handle` gives it whole, and has no `cursor`, `more` or `next`: it pages nothing.
  */
 export type LogsJson = {

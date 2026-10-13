@@ -41,15 +41,18 @@ export const logsUsage = [
   "it, what came after, oldest first. Every answer ends with the command that gets only what is",
   "new. --wait: with nothing to show yet, wait for the first event, at most that many seconds, up",
   "to 300; --follow prints each event as it comes until the run ends. @<handle> names one event,",
-  "and --full prints its text, with common credential shapes masked.",
+  "and --full prints its text, with common credential shapes masked; --json carries it always.",
   "",
   "Exits 0 on any read that worked, 1 when there is no such run or the cursor or handle does not",
   "fit it, 2 on a usage error, 3 when the run's files could not be read.",
 ].join("\n");
 
 const DEFAULT_LIMIT = 40;
-/** In a page's JSON, how much of a string the run wrote: `@{handle}` gives it whole. */
-const PAGE_TEXT = 1_000;
+/**
+ * In a page's JSON, how much of a string the run wrote or an agent's native text: enough for a
+ * result or a message whole, short of a dumped file. `@{handle}` gives it whole.
+ */
+const PAGE_TEXT = 50_000;
 const MAX_WAIT_SECONDS = 300;
 /** After a first new event, how long to wait for the rest of its burst. */
 const SETTLE_MS = 1_000;
@@ -108,7 +111,7 @@ export async function logsCommand(
           `cursor ${options.after} does not fit this run; start again: ${again}`,
         );
     }
-    const read = new Reader(status, after, clock, options.limit * 2);
+    const read = new Reader(status, after, clock, options.limit * 2, json);
     // Lines are numbered by their place in the file, past any that were skipped.
     if (after && after.log > ((await read.next()).log.lines.at(-1)?.number ?? 0)) {
       throw new DoesNotFit(`cursor ${options.after} does not fit this run; start again: ${again}`);
@@ -182,6 +185,8 @@ class Reader {
     readonly clock: LogsClock,
     /** Lines of each native file one read takes: about what a page shows. */
     readonly lines: number,
+    /** Keeps each activity's native text. */
+    readonly full: boolean,
   ) {}
 
   next(cursor = this.from) {
@@ -190,6 +195,7 @@ class Reader {
       files: this.#files,
       now: this.clock.now(),
       lines: this.lines,
+      ...(this.full ? { full: true } : {}),
       ...(cursor ? {} : { tail: true }),
     });
   }
@@ -439,7 +445,7 @@ async function oneEvent(
       : { log: Number.MAX_SAFE_INTEGER, files: { [handle.file]: handle.offset } },
     {
       ended: status.state !== "running",
-      full: options.full,
+      full: options.full || json,
       only: handle.kind === "event" ? "" : handle.file,
     },
   );
@@ -509,7 +515,7 @@ function publish(event: ReadEvent, stages: Places, limit = Number.POSITIVE_INFIN
       ...(event.agent ? { agent: event.agent } : {}),
       ...(stage ? { stage } : {}),
       activity: event.activity,
-      ...(event.text === undefined ? {} : { text: event.text }),
+      ...(event.text === undefined ? {} : { text: masked(event.text, limit) as string }),
     };
   }
   const { version: _version, ...fields } = event.line;
