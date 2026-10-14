@@ -133,6 +133,11 @@ async function openBox(
     }
     return result.stdout.trim();
   };
+  if (spec.sockets.length > 0) {
+    throw new Error(
+      `docker: a box cannot reach host sockets (${spec.sockets.join(", ")}); use srt`,
+    );
+  }
   const socket = daemonSocket(client.environment);
   for (const path of [spec.cwd, ...spec.read, ...spec.write]) {
     // A box that can reach the daemon can start a container with the host mounted.

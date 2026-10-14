@@ -299,6 +299,7 @@ export class RunSandboxes {
           read: [...resolved.read],
           write: [...resolved.write],
           network: [...resolved.network],
+          ...(resolved.sockets.length > 0 ? { sockets: [...resolved.sockets] } : {}),
           [provider]: resolved.environment,
         },
         directory,

@@ -110,6 +110,7 @@ const spec: ResolvedSandbox<DockerEnvironment> = {
   cwd: repo,
   read: [join(repo, "vendor"), join(root, "notes")],
   write: [repo],
+  sockets: [],
   network: ["registry.npmjs.org"],
   hidden: [],
   gitdirs: [{ path: join(repo, ".git"), writable: true }],
@@ -269,6 +270,14 @@ describe("the docker provider", () => {
       "the sandbox image awf-agent:test is not built",
     );
     expect(verbs()).toEqual(["version --format", "image inspect"]);
+  });
+
+  test("host sockets are refused, before anything is made", async () => {
+    const { client, verbs } = fakeClient(() => false);
+    await expect(
+      provider(client).open({ ...spec, sockets: ["/private/tmp/app"] }, context),
+    ).rejects.toThrow("a box cannot reach host sockets");
+    expect(verbs()).toEqual(["version --format"]);
   });
 
   test("a spec's own image must be here already", async () => {

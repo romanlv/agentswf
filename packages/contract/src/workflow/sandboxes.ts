@@ -14,6 +14,12 @@ export type SandboxReach = {
   write?: readonly string[];
   /** Domains reachable beyond each harness's model API. */
   network?: readonly Domain[];
+  /**
+   * Host unix sockets the agents inside may connect to: a socket, or a directory whose sockets they
+   * may connect to and, when it is also in `write`, create. Nothing else of the host's is reachable
+   * this way. srt only: docker refuses a sandbox that names one.
+   */
+  sockets?: readonly string[];
 };
 
 /** Anthropic's sandbox-runtime on this machine: the host system and the operator's toolchain. */

@@ -63,7 +63,11 @@ export function baseProfile(
   const gitdirs = spec.gitdirs.map((gitdir) => gitdir.path);
   return {
     enableWeakerNetworkIsolation: true,
-    network: { allowedDomains: [...spec.network], deniedDomains: [], allowUnixSockets: [] },
+    network: {
+      allowedDomains: [...spec.network],
+      deniedDomains: [],
+      allowUnixSockets: [...spec.sockets],
+    },
     filesystem: {
       denyRead: unique([host.home, ...DENIED, context.runRoot, ...spec.hidden]),
       allowRead: unique([
@@ -117,7 +121,11 @@ export function agentProfile(
     network: {
       ...base.network,
       allowedDomains: unique([...base.network.allowedDomains, ...agent.harness.domains]),
-      allowUnixSockets: [agent.door.endpoint, ...(short ? [short] : [])],
+      allowUnixSockets: unique([
+        ...base.network.allowUnixSockets,
+        agent.door.endpoint,
+        ...(short ? [short] : []),
+      ]),
     },
     filesystem: {
       ...base.filesystem,

@@ -30,6 +30,7 @@ const spec: ResolvedSandbox<unknown> = {
   read: ["/Users/op/notes", "/Users/op/repo/vendor"],
   write: ["/Users/op/repo"],
   network: ["registry.npmjs.org"],
+  sockets: [],
   hidden: [],
   gitdirs: [
     { path: "/Users/op/repo/.git", writable: true },
@@ -131,6 +132,16 @@ describe("srt profiles", () => {
     // An install tree inside harness state passes; the base is untouched.
     expect(() => checkProfile(profile, host, context, spec)).not.toThrow();
     expect(base.network.allowUnixSockets).toEqual([]);
+  });
+
+  test("the spec's sockets: in the base, and kept beside each agent's door", () => {
+    const withSockets = { ...spec, sockets: ["/private/tmp/app/browser.sock"] };
+    const base = baseProfile(withSockets, context, host, `${context.directory}/tmp`, PROTECTED);
+    expect(base.network.allowUnixSockets).toEqual(["/private/tmp/app/browser.sock"]);
+    expect(agentProfile(base, agent).network.allowUnixSockets).toEqual([
+      "/private/tmp/app/browser.sock",
+      agent.door.endpoint,
+    ]);
   });
 
   test("an agent's short directory and shared writes: its own to bind in, and the /tmp link alone", () => {

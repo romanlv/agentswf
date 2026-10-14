@@ -87,6 +87,7 @@ describe("resolveSandbox", () => {
       read: [join(home, "notes"), repo],
       write: [join(repo, "src")],
       network: ["registry.npmjs.org", "*.npmjs.org"],
+      sockets: [],
       hidden: [],
       // Read-only: `src` is writable, not the worktree whose history it holds.
       gitdirs: [{ path: join(repo, ".git"), writable: false }],
@@ -173,6 +174,16 @@ describe("resolveSandbox", () => {
     }
     const { sandbox } = await resolveSandbox({ write: [join(doors, "mine")] }, options);
     expect(sandbox.write).toEqual([join(doors, "mine")]);
+  });
+
+  test("sockets resolve like paths, and are refused where a path would be", async () => {
+    await mkdir(join(root, "sockets"), { recursive: true });
+    const { sandbox } = await resolve({ sockets: [join(root, "sockets")] });
+    expect(sandbox.sockets).toEqual([join(root, "sockets")]);
+    expect(sandbox.read).toEqual([]);
+    await expect(resolve({ sockets: [join(root, "missing")] })).rejects.toThrow("sandbox sockets");
+    await expect(resolve({ sockets: [join(home, ".ssh")] })).rejects.toThrow("would expose keys");
+    await expect(resolve({ sockets: [runRoot] })).rejects.toThrow("would expose the run root");
   });
 
   test("harness state the operator moved is refused too", async () => {

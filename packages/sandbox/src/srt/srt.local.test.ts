@@ -73,10 +73,11 @@ describe.skipIf(!provider)("srt on this machine", () => {
 
   beforeAll(async () => {
     await mkdir(join(repo, "src"), { recursive: true });
+    await mkdir(join(root, "sockets"), { recursive: true });
     Bun.spawnSync(["git", "init", "-q", repo]);
     await writeFile(join(repo, "src", "a.txt"), "tracked\n");
     const { sandbox } = await resolveSandbox(
-      { write: ["."], network: ["registry.npmjs.org"] },
+      { write: ["."], network: ["registry.npmjs.org"], sockets: [join(root, "sockets")] },
       {
         key: "local",
         cwd: repo,
@@ -270,6 +271,23 @@ describe.skipIf(!provider)("srt on this machine", () => {
       shell.terminal?.close();
     }
   }, 30_000);
+
+  test("sockets: one in a listed directory answers, one beside it does not", async () => {
+    const serve = (path: string) =>
+      Bun.serve({ unix: path, fetch: () => new Response(`answered ${path}`) });
+    const allowed = serve(join(root, "sockets", "app.sock"));
+    const other = serve(join(root, "other.sock"));
+    try {
+      const { stdout } = await sh(
+        `for s in '${join(root, "sockets", "app.sock")}' '${join(root, "other.sock")}'; do curl -s --max-time 5 --unix-socket "$s" http://x/ || echo "refused $s"; echo; done`,
+      );
+      expect(stdout).toContain(`answered ${join(root, "sockets", "app.sock")}`);
+      expect(stdout).toContain(`refused ${join(root, "other.sock")}`);
+    } finally {
+      allowed.stop(true);
+      other.stop(true);
+    }
+  });
 
   test("the network: an allowed domain, and not localhost, another domain or a raw address", async () => {
     const curl = (url: string, label: string) =>

@@ -24,7 +24,7 @@ workflow.agents.forkCaller({ key, placement?, effort?, instructions?, layout?, k
 isAnswered(outcome)                                          // narrows to { kind: "answered", value }
 
 workflow.parallel(items, (item, i) => …, { concurrency?, label?, deadline? })  // → results in item order
-workflow.sandboxes.open({ key, write?, read?, network?, srt? | docker? })        // → pass as { sandbox }
+workflow.sandboxes.open({ key, write?, read?, network?, sockets?, srt? | docker? }) // → pass as { sandbox }
 workflow.decisions.decide({ key, model: "jev", state, questions })              // → { answers } in ~200 ms
 workflow.messages.allow({ from, to, purpose, maxMessages? } | { between: [a, b], purpose, … })  // agents may message
 
@@ -424,7 +424,10 @@ const reader = await workflow.agents.open({
 });
 ```
 
-- **`read`, `write`, `network`** say what the agents inside can see and reach.
+- **`read`, `write`, `network`** say what the agents inside can see and reach. **`sockets`** names
+  host unix sockets they may connect to, a socket or a directory of them, such as a browser or a
+  database the workflow runs on the host. In a directory also in `write`, they can create sockets
+  of their own. srt only; docker refuses it.
 - **`srt`** is Anthropic's sandbox-runtime, on your machine with your toolchain. **`docker`** is a
   container running as your user.
 - **Agents sharing a sandbox can read each other's files**, their homes and skills included.

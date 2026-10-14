@@ -21,7 +21,12 @@ async function acceptedShapes(): Promise<void> {
     network: ["registry.npmjs.org", "*.npmjs.org"],
     docker: { image: "awf-agent:node22" },
   });
-  const local = await context.sandboxes.open({ key: "lint", cwd: "/repo", srt: {} });
+  const local = await context.sandboxes.open({
+    key: "lint",
+    cwd: "/repo",
+    sockets: ["/tmp/app"],
+    srt: {},
+  });
   const unpinned = { read: ["~/notes"] } satisfies SandboxSpec;
   const opened: AgentOpenSpec[] = [
     { key: "coder", runtime: { alias: "codex", ...headless }, sandbox: box },
