@@ -280,6 +280,8 @@ export interface HarnessActivation {
    * adapter that cannot launch through one refuses the agent.
    */
   occupant?: Occupant;
+  /** Inside an occupant, its harness keeps its model-side web tools: its sandbox's spec says so. */
+  webSearch?: true;
   /**
    * The skills the workflow named, copied where this harness reads them. Absent, the harness finds
    * whatever it would on its own.

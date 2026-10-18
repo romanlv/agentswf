@@ -403,6 +403,15 @@ describe("createHeadlessAdapter", () => {
       expect(launched[0]).toMatchObject({ cwd: "/repo", stdin: expect.stringContaining("review") });
     });
 
+    test("a sandbox that keeps web search runs its agent with its web tools", async () => {
+      const { run, calls } = stub([claudeOut("first")]);
+      const { place } = occupant();
+      const session = await headless(run, {}, { ...activation, occupant: place, webSearch: true });
+      await (await session.start(turnSpec, firstBinding)).settled;
+
+      expect(calls[0]?.argv).not.toContain("--disallowed-tools");
+    });
+
     test("an unsandboxed agent's turn is unchanged", async () => {
       const { run, calls } = stub([claudeOut("first")]);
       const session = await headless(run);

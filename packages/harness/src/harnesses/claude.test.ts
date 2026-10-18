@@ -4,7 +4,7 @@ import { HARNESSES } from "../spec";
 
 test("every claude launch refuses messages from the user's other sessions", async () => {
   const claude = HARNESSES.claude;
-  for (const launchArgs of [[], sandboxedArgs("claude")]) {
+  for (const launchArgs of [[], sandboxedArgs("claude", false)]) {
     const context = { model: "m", sessionHint: "s", launchArgs };
     const plans = [
       claude.interactive({ model: "m" }, launchArgs, "s"),

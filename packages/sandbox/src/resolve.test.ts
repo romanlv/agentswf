@@ -88,6 +88,7 @@ describe("resolveSandbox", () => {
       write: [join(repo, "src")],
       network: ["registry.npmjs.org", "*.npmjs.org"],
       sockets: [],
+      webSearch: false,
       hidden: [],
       // Read-only: `src` is writable, not the worktree whose history it holds.
       gitdirs: [{ path: join(repo, ".git"), writable: false }],
@@ -174,6 +175,12 @@ describe("resolveSandbox", () => {
     }
     const { sandbox } = await resolveSandbox({ write: [join(doors, "mine")] }, options);
     expect(sandbox.write).toEqual([join(doors, "mine")]);
+  });
+
+  test("webSearch is a boolean, false when absent", async () => {
+    expect((await resolve({ webSearch: true })).sandbox.webSearch).toBe(true);
+    expect((await resolve({})).sandbox.webSearch).toBe(false);
+    await expect(resolve({ webSearch: "yes" })).rejects.toThrow("sandbox webSearch must be");
   });
 
   test("sockets resolve like paths, and are refused where a path would be", async () => {

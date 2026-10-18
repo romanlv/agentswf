@@ -20,6 +20,12 @@ export type SandboxReach = {
    * this way. srt only: docker refuses a sandbox that names one.
    */
   sockets?: readonly string[];
+  /**
+   * Keeps each harness's model-side web tools, which awf otherwise turns off inside: a search runs
+   * on the model provider's servers, past any `network` rule, so it can carry what the agents read
+   * out and bring the web in (X15).
+   */
+  webSearch?: boolean;
 };
 
 /** Anthropic's sandbox-runtime on this machine: the host system and the operator's toolchain. */

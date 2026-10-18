@@ -20,10 +20,12 @@ type SandboxedHarness = {
   /** Config written fresh into the home: `defaults` in the seam. */
   defaults?(cwd: string): readonly { name: string; contents: string }[];
   /**
-   * Inserted into each turn's arguments where they swallow nothing: they turn off what reaches past
-   * the sandbox from the model's side (X15).
+   * Inserted into each turn's arguments where they swallow nothing, as `webSearch` is: what the
+   * harness needs inside, and what it would reach past the sandbox with that no spec can grant.
    */
   args: readonly string[];
+  /** What turns off its model-side web tools, which reach past `network` (X15), unless a spec keeps them. */
+  webSearch: readonly string[] | Absent;
   /** Whether an agent on the host may have a home of its own, which skills can need. */
   hostHome: true | Absent;
   /** What points it at `home`; absent, its state variable alone. */
@@ -62,8 +64,10 @@ const SANDBOXED: Readonly<Record<Harness, SandboxedHarness | Absent>> = {
     seed: [],
     token: { env: "CLAUDE_CODE_OAUTH_TOKEN", from: "from `claude setup-token`" },
     domains: () => ["api.anthropic.com"],
+    args: [],
     // One argument for the list, and never last: the flag takes every argument up to the next.
-    args: ["--disallowed-tools", "WebSearch,WebFetch"],
+    // WebFetch was not measured past the allowlist; it goes with search until it is.
+    webSearch: ["--disallowed-tools", "WebSearch,WebFetch"],
     hostHome: {
       absent:
         "claude on the host keeps the operator's home: its login is in the keychain, and its home's settings turn off the prompts only a sandbox stands in for",
@@ -117,11 +121,9 @@ const SANDBOXED: Readonly<Record<Harness, SandboxedHarness | Absent>> = {
         contents: `[projects.${JSON.stringify(cwd)}]\ntrust_level = "trusted"\n`,
       },
     ],
-    // `tools.web_search=false` leaves the tool in place (X15). Apps and plugins act through the
-    // login on the operator's ChatGPT account, past any sandbox (Task 4 found them listed).
+    // Apps and plugins act through the login on the operator's ChatGPT account, past any sandbox
+    // (Task 4 found them listed).
     args: [
-      "-c",
-      'web_search="disabled"',
       "-c",
       "features.apps=false",
       "-c",
@@ -129,6 +131,8 @@ const SANDBOXED: Readonly<Record<Harness, SandboxedHarness | Absent>> = {
       "-c",
       "features.remote_plugin=false",
     ],
+    // `tools.web_search=false` leaves the tool in place (X15).
+    webSearch: ["-c", 'web_search="disabled"'],
     hostHome: true,
   },
   pi: {
@@ -149,6 +153,7 @@ const SANDBOXED: Readonly<Record<Harness, SandboxedHarness | Absent>> = {
     },
     // pi's core has no web search (X15); an extension, the operator's or the project's, could.
     args: ["--no-extensions"],
+    webSearch: { absent: "pi's core has no web tools" },
     hostHome: true,
     // pi runs `/bin/bash` unless told otherwise, and macOS's bash 3.2 writes every heredoc,
     // `wf result`'s included, where a sandbox denies it (X22); zsh writes it under `TMPPREFIX`.
@@ -176,9 +181,11 @@ const SANDBOXED: Readonly<Record<Harness, SandboxedHarness | Absent>> = {
     sharedWrites: () => [
       join("/private/tmp", `cursor-agent-persist-${process.getuid?.() ?? "user"}`),
     ],
-    // Its own sandbox, inside ours, is off. Its web tools stay, as the operator chose (story 019):
-    // its search runs on cursor's servers, and a fetch reaches only the sandbox's domains.
+    // Its own sandbox, inside ours, is off.
     args: ["--sandbox", "disabled"],
+    // Its web tools stay whatever the spec says, as the operator chose (story 019): its search runs
+    // on cursor's servers, and a fetch reaches only the sandbox's domains.
+    webSearch: { absent: "cursor keeps its web tools in a sandbox (story 019)" },
     // A release directory: a wrapper script, the node it runs and its bundle beside it.
     reads: (executable) => [dirname(executable)],
     hostHome: {
@@ -244,10 +251,14 @@ export function sandboxable(harness: string): boolean {
   return !isAbsent(sandboxed(harness));
 }
 
-/** The arguments a sandboxed turn adds, turning off what the model reaches past the sandbox. */
-export function sandboxedArgs(harness: string): readonly string[] {
+/**
+ * The arguments a sandboxed turn adds: what the harness needs inside, and what turns off what it
+ * would reach past the sandbox, its web tools unless its spec keeps them.
+ */
+export function sandboxedArgs(harness: string, webSearch: boolean): readonly string[] {
   const needs = sandboxed(harness);
-  return isAbsent(needs) ? [] : needs.args;
+  if (isAbsent(needs)) return [];
+  return webSearch || isAbsent(needs.webSearch) ? needs.args : [...needs.webSearch, ...needs.args];
 }
 
 /**

@@ -74,7 +74,8 @@ describe("sandboxNeeds", () => {
       executable: claude,
       reads: [],
     });
-    expect(sandboxedArgs("claude")).toEqual(["--disallowed-tools", "WebSearch,WebFetch"]);
+    expect(sandboxedArgs("claude", false)).toEqual(["--disallowed-tools", "WebSearch,WebFetch"]);
+    expect(sandboxedArgs("claude", true)).toEqual([]);
   });
 
   test("codex: its home seeded from the operator's, its release tree, and search off", async () => {
@@ -98,9 +99,18 @@ describe("sandboxNeeds", () => {
       executable: join(codexRelease, "bin", "codex"),
       reads: [codexRelease],
     });
-    expect(sandboxedArgs("codex")).toEqual([
+    expect(sandboxedArgs("codex", false)).toEqual([
       "-c",
       'web_search="disabled"',
+      "-c",
+      "features.apps=false",
+      "-c",
+      "features.plugins=false",
+      "-c",
+      "features.remote_plugin=false",
+    ]);
+    // Kept search leaves apps and plugins off: they act on the operator's account, not the web.
+    expect(sandboxedArgs("codex", true)).toEqual([
       "-c",
       "features.apps=false",
       "-c",
@@ -141,7 +151,8 @@ describe("sandboxNeeds", () => {
       executable: join(piPackage, "dist", "cli.js"),
       reads: [piPackage, nodeRoot],
     });
-    expect(sandboxedArgs("pi")).toEqual(["--no-extensions"]);
+    expect(sandboxedArgs("pi", false)).toEqual(["--no-extensions"]);
+    expect(sandboxedArgs("pi", true)).toEqual(["--no-extensions"]);
     // Its shell is zsh, whose heredocs a sandbox lets it write (X22).
     expect(needs.defaults("/repo")).toEqual([
       { path: join(agentHome, "settings.json"), contents: '{"shellPath":"/bin/zsh"}\n' },
@@ -196,7 +207,7 @@ describe("sandboxNeeds", () => {
       executable: join(cursorRelease, "cursor-agent"),
       reads: [cursorRelease],
     });
-    expect(sandboxedArgs("cursor")).toEqual(["--sandbox", "disabled"]);
+    expect(sandboxedArgs("cursor", false)).toEqual(["--sandbox", "disabled"]);
     await expect(sandboxNeeds("cursor", agentHome, undefined, environment)).rejects.toThrow(
       "a sandboxed cursor needs CURSOR_API_KEY",
     );
@@ -220,7 +231,7 @@ describe("sandboxNeeds", () => {
   test("each turn plan puts the real flags where nothing swallows them or what follows", () => {
     for (const harness of ["claude", "codex", "pi", "cursor"] as const) {
       const spec = HARNESSES[harness];
-      const args = sandboxedArgs(harness);
+      const args = sandboxedArgs(harness, false);
       for (const model of ["m", undefined]) {
         const context = { ...(model ? { model } : {}), sessionHint: "s", launchArgs: args };
         for (const plan of [

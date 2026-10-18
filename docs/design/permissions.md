@@ -155,7 +155,8 @@ The seam is `packages/sandbox/src/seam.ts`, and the story's "The seam" gives eac
    launcher or reaches a door in another sandbox.
 4. **Reach, and nothing else.** Unreadable inside: the operator's home, temp directories and
    harness state, the run root outside this sandbox's directory, and other sandboxes. No domain
-   beyond the models and `network`, and no model-side web search.
+   beyond the models and `network`, and no model-side web search unless the spec names
+   `webSearch`.
 5. **Trust stops at the boundary.** Invariants 3 and 4 hold between sandboxes.
 6. **A killed turn leaves nothing running,** so the next turn resumes a session nothing else
    writes. Each provider has one known exception: under srt, a process that starts its own session
@@ -181,7 +182,10 @@ wider and says so afterwards.
 `packages/harness/src/sandbox-needs.ts`: the variables that point it at its home, the credential to
 seed, first-run answers, its model domains, its executable and the install tree it reads, and the
 flags that take away what reaches past egress: model-side web search (X15), codex's apps and
-plugins (X23), pi's extensions. The workflow never names `~/.claude` or `api.anthropic.com`; the
+plugins (X23), pi's extensions. Only the first can be granted, by `webSearch`: it reaches the web,
+which the spec already speaks of, where apps and plugins act through the operator's account. The
+harness keeps its search flags apart from the rest, and the adapter leaves them out for an agent
+whose sandbox names `webSearch`. The workflow never names `~/.claude` or `api.anthropic.com`; the
 record does, because the agent can reach them. A sandboxed cursor gets a `HOME` of its own and
 `CURSOR_API_KEY`, its own sandbox off and its web tools kept (story 019).
 

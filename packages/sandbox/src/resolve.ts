@@ -5,7 +5,7 @@ import { isRecord } from "@agentswf/contract";
 import { SANDBOX_ENVIRONMENTS, type SandboxEnvironmentKey } from "@agentswf/contract/workflow";
 import type { Gitdir, ResolvedSandbox, SandboxProviders } from "./seam";
 
-const REACH_KEYS = ["read", "write", "network", "sockets"] as const;
+const REACH_KEYS = ["read", "write", "network", "sockets", "webSearch"] as const;
 
 export type SandboxResolution = {
   /** The environment key the sandbox runs under: the one the spec named, else the default. */
@@ -119,6 +119,9 @@ export async function resolveSandbox(
   const write = unique(await paths("write"));
   const read = unique(await paths("read")).filter((path) => !write.includes(path));
   const sockets = unique(await paths("sockets"));
+  if (spec.webSearch !== undefined && typeof spec.webSearch !== "boolean") {
+    throw new Error("sandbox webSearch must be true or false");
+  }
   const network = unique(
     list(spec.network, "network").map((domain) => {
       if (!isDomain(domain)) throw new Error(`not a sandbox domain: ${JSON.stringify(domain)}`);
@@ -176,6 +179,7 @@ export async function resolveSandbox(
       write,
       network,
       sockets,
+      webSearch: spec.webSearch === true,
       hidden: holdsRunRoot ? [runRoot] : [],
       gitdirs: [...gitdirs].map(([path, { own, linked }]): Gitdir => {
         // A submodule's gitdir is in its superproject's `modules`, which is guarded whole: it is

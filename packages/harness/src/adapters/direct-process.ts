@@ -70,7 +70,10 @@ export function createHeadlessAdapter(
       /** Every turn, a resumed one too: none of them remembers the last one's arguments. */
       const launchContext = async () => {
         const skills = request.skills ? await skillsLaunch(harness, request.skills) : undefined;
-        const launchArgs = [...(occupant ? sandboxedArgs(harness) : []), ...(skills?.args ?? [])];
+        const launchArgs = [
+          ...(occupant ? sandboxedArgs(harness, request.webSearch === true) : []),
+          ...(skills?.args ?? []),
+        ];
         return {
           env: { ...skills?.env },
           context: {

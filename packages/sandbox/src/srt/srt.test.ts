@@ -31,6 +31,7 @@ const spec: ResolvedSandbox<unknown> = {
   write: ["/Users/op/repo"],
   network: ["registry.npmjs.org"],
   sockets: [],
+  webSearch: false,
   hidden: [],
   gitdirs: [
     { path: "/Users/op/repo/.git", writable: true },

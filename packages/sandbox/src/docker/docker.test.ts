@@ -111,6 +111,7 @@ const spec: ResolvedSandbox<DockerEnvironment> = {
   read: [join(repo, "vendor"), join(root, "notes")],
   write: [repo],
   sockets: [],
+  webSearch: false,
   network: ["registry.npmjs.org"],
   hidden: [],
   gitdirs: [{ path: join(repo, ".git"), writable: true }],

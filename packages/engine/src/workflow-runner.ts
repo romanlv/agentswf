@@ -79,7 +79,6 @@ import type {
   SessionCopy,
   SessionSettings,
 } from "@agentswf/harness/adapter";
-import type { Occupant } from "@agentswf/sandbox";
 import { PUBLISHED_PRICES } from "./accounting/prices";
 import { summarizeRun } from "./accounting/summary";
 import { buildAgentBundle, installAgentLauncher, installSandboxedDoor } from "./agent-launcher";
@@ -687,10 +686,10 @@ type AgentOpening = {
   ledger: AgentLedger;
   /** Its skills' sources, resolved when it opens; absent when it has the operator's. */
   skills?: SkillSource[];
-  /** The host's activation for the agent, working in `cwd`, inside `occupant` if sandboxed. */
+  /** The host's activation for the agent, working in `cwd`, inside its seat's occupant if sandboxed. */
   activation(
     cwd: string,
-    occupant?: Occupant,
+    seated?: Pick<SeatedAgent, "occupant" | "webSearch">,
     skills?: AgentSkills,
     /** Its harness home: a sandbox's, or its own on the host. */
     home?: string,
@@ -1227,14 +1226,15 @@ class WorkflowOwner {
       sessions,
       ledger: this.options.ledger.agent(accounted),
       ...(identity.skills ? { skills: identity.skills } : {}),
-      activation: (cwd, occupant, skills, home) => ({
+      activation: (cwd, seated, skills, home) => ({
         key: spec.key,
         deadline: effectiveDeadline,
         cwd,
         execution,
         ...(spec.instructions === undefined ? {} : { instructions: spec.instructions }),
         ...(spec.labels === undefined ? {} : { labels: spec.labels }),
-        ...(occupant ? { occupant } : {}),
+        ...(seated ? { occupant: seated.occupant } : {}),
+        ...(seated?.webSearch ? { webSearch: true } : {}),
         ...(skills ? { skills } : {}),
         ...(home ? { home } : {}),
         ...paneOptions(identity),
@@ -1624,7 +1624,7 @@ class WorkflowOwner {
       let session: HarnessSession;
       try {
         session = await this.options.host.openAgent(
-          activation(seat.cwd, seated.occupant, seat.skills, seat.home),
+          activation(seat.cwd, seated, seat.skills, seat.home),
         );
       } catch (error) {
         await seated.release().catch(() => undefined);
@@ -1827,14 +1827,15 @@ class WorkflowOwner {
       ledger: this.options.ledger.agent(accounted),
       ...(sources ? { skills: sources } : {}),
       ...(sandboxed && copy ? { carried: { parent: parentKey, forked, copy } } : {}),
-      activation: (cwd, occupant, given, home) => ({
+      activation: (cwd, seated, given, home) => ({
         key: spec.key,
         deadline,
         cwd,
         execution,
         ...(forkSpec.instructions === undefined ? {} : { instructions: forkSpec.instructions }),
         ...(forkSpec.labels === undefined ? {} : { labels: forkSpec.labels }),
-        ...(occupant ? { occupant } : {}),
+        ...(seated ? { occupant: seated.occupant } : {}),
+        ...(seated?.webSearch ? { webSearch: true } : {}),
         ...(given ? { skills: given } : {}),
         ...(home ? { home } : {}),
         ...(continues ? { continues } : {}),

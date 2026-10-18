@@ -248,6 +248,7 @@ async function probe(options: SrtOptions, context: SandboxContext): Promise<void
       write: [],
       network: [],
       sockets: [],
+      webSearch: false,
       hidden: [],
       gitdirs: [],
       environment: {},

@@ -770,7 +770,7 @@ export function createHerdrRunHostFactory(
               sessionHint: sessionRef,
               ...(request.home ? { home: request.home } : {}),
               launchArgs: [
-                ...(request.occupant ? sandboxedArgs(harness) : []),
+                ...(request.occupant ? sandboxedArgs(harness, request.webSearch === true) : []),
                 ...(skills?.args ?? []),
               ],
             });
@@ -1043,7 +1043,7 @@ export function createHerdrRunHostFactory(
             );
             current = { operationId, paneId, agentName };
             const launchArgs = [
-              ...(request.occupant ? sandboxedArgs(harness) : []),
+              ...(request.occupant ? sandboxedArgs(harness, request.webSearch === true) : []),
               ...(skills?.args ?? []),
             ];
             // A new session named at launch can be read while its first turn runs.

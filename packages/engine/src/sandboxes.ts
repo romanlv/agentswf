@@ -75,6 +75,8 @@ export type Seat = {
 
 export type SeatedAgent = {
   occupant: Occupant;
+  /** Its sandbox keeps the harness's model-side web tools. */
+  webSearch?: true;
   /** Hands a refreshed credential back to the operator; after each operation and at release. */
   writeBack(): Promise<void>;
   /** Writes back, then releases the occupant; once, however often it is called. */
@@ -300,6 +302,7 @@ export class RunSandboxes {
           write: [...resolved.write],
           network: [...resolved.network],
           ...(resolved.sockets.length > 0 ? { sockets: [...resolved.sockets] } : {}),
+          ...(resolved.webSearch ? { webSearch: true } : {}),
           [provider]: resolved.environment,
         },
         directory,
@@ -442,6 +445,7 @@ export class RunSandboxes {
       let released: Promise<void> | undefined;
       const seated: SeatedAgent = {
         occupant: this.#logged(sandbox, occupant, who),
+        ...(sandbox.resolved.webSearch ? { webSearch: true as const } : {}),
         writeBack: () => seeded.writeBack(),
         release: () => {
           released ??= seeded

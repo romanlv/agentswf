@@ -25,6 +25,7 @@ async function acceptedShapes(): Promise<void> {
     key: "lint",
     cwd: "/repo",
     sockets: ["/tmp/app"],
+    webSearch: true,
     srt: {},
   });
   const unpinned = { read: ["~/notes"] } satisfies SandboxSpec;
