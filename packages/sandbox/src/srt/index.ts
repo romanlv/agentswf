@@ -304,7 +304,8 @@ async function probe(options: SrtOptions, context: SandboxContext): Promise<void
 }
 
 /**
- * srt as installed on this machine: 1.0.0 or later on `PATH`. `undefined` when absent. The
+ * srt as installed on this machine: the `srt` on `PATH` that answers `--version` (npm releases are
+ * 0.0.x; older ones print 1.0.0 outside npm). `undefined` when absent. The
  * toolchain is what `PATH`'s executables under `~` need: their `bin` directories, and each one's
  * install tree (X19): a node package's root, a `bin/` beside a `lib/` (a node or a Python venv),
  * or the executable alone. Never a whole parent of `bin`: `~/.local` holds `state/` and
@@ -326,8 +327,8 @@ export async function findSrt(
     stderr: "pipe",
     timeout: VERSION_MS,
   });
-  const [major] = version.stdout.toString().trim().split(".").map(Number);
-  if (version.exitCode !== 0 || major === undefined || !(major >= 1)) return undefined;
+  if (version.exitCode !== 0 || !/^\d+\.\d+\.\d+/.test(version.stdout.toString().trim()))
+    return undefined;
   const real = [
     ...new Set(
       (await Promise.all(path.map((entry) => realpath(entry).catch(() => undefined)))).filter(

@@ -1,6 +1,6 @@
 {
   "name": "agentswf",
-  "version": "0.1.0-beta.1",
+  "version": "0.1.0-beta.2",
   "description": "agents.wf: an engine that runs workflows made of coding agents. Gives you awf, agentswf/workflow and agentswf/testing",
   "license": "MIT",
   "homepage": "https://github.com/romanlv/agentswf",

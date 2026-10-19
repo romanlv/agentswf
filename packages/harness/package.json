@@ -1,6 +1,6 @@
 {
   "name": "@agentswf/harness",
-  "version": "0.1.0-beta.1",
+  "version": "0.1.0-beta.2",
   "description": "agents.wf: drives one coding agent: adapters, liveness and usage",
   "license": "MIT",
   "homepage": "https://github.com/romanlv/agentswf",
