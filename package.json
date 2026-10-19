@@ -19,7 +19,7 @@
     "eval": "bun scripts/eval.ts",
     "format": "biome check --write .",
     "prepare": "git config core.hooksPath .githooks",
-    "release": "for p in contract sandbox harness wf engine agentswf; do (cd packages/$p && bun publish --tag beta) || exit 1; done",
+    "release": "bun scripts/release.ts",
     "test": "bun test"
   },
   "devDependencies": {
