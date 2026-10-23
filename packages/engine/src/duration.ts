@@ -10,3 +10,12 @@ export function parseDuration(value: string): number {
   if (!Number.isSafeInteger(milliseconds)) throw new Error(`duration is too large: ${value}`);
   return milliseconds;
 }
+
+/** `45s`, `6m40s`, `1h02m`. */
+export function duration(milliseconds: number): string {
+  const seconds = Math.max(0, Math.round(milliseconds / 1000));
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m${String(seconds % 60).padStart(2, "0")}s`;
+  return `${Math.floor(minutes / 60)}h${String(minutes % 60).padStart(2, "0")}m`;
+}

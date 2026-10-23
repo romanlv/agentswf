@@ -1,4 +1,5 @@
 import type { RunJson, RunsJson } from "@agentswf/contract/records";
+import { duration } from "./duration";
 import { messageOf } from "./errors";
 import {
   clockTime,
@@ -19,7 +20,7 @@ import {
 } from "./run-commands";
 import { encodeCursor } from "./run-read";
 import { findRun, listRuns, type RunStatus, runStatus } from "./run-state";
-import { type AgentView, describeActivity, duration, type RunView, viewRun } from "./run-view";
+import { type AgentView, describeActivity, type RunView, viewRun } from "./run-view";
 
 export const runsUsage = [
   "usage: awf runs [--all] [--cwd <directory>] [--run-root <directory>] [--json]",

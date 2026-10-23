@@ -1,4 +1,5 @@
 import type { LogEventJson, LogsJson, RouteEnds, RunLogLine } from "@agentswf/contract/records";
+import { duration } from "./duration";
 import { messageOf } from "./errors";
 import {
   clockTime,
@@ -29,7 +30,7 @@ import {
   timeOf,
 } from "./run-read";
 import { findRun, type RunStatus } from "./run-state";
-import { describeActivity, duration } from "./run-view";
+import { describeActivity } from "./run-view";
 
 export const logsUsage = [
   "usage: awf logs [<run>] [@<handle>] [--agent <key>] [--stage <name>] [--after <cursor>]",
@@ -576,13 +577,15 @@ function describeLine(line: RunLogLine): string {
     case "decision-ended":
       return `decision ${line.decision} ${line.outcome}${line.error ? `  ${said(line.error)}` : ""}`;
     case "route-opened":
-      return `route ${routeEnds(line)} opened  "${said(line.purpose)}"  ${line.maxMessages} messages`;
+      return `route ${routeEnds(line)} opened  "${said(line.purpose)}"  ${line.maxMessages} messages${
+        line.timeoutMs === undefined ? "" : `, a question closes after ${duration(line.timeoutMs)}`
+      }`;
     case "route-closed":
       return `route ${routeEnds(line)} closed  ${line.reason}`;
     case "message-sent":
       return `message ${line.message} ${said(line.from, 60)} → ${said(line.to, 60)}  ${line.bytes} B${
-        line.replyTo === undefined ? "" : `, reply to ${line.replyTo}`
-      }${
+        line.via === undefined ? "" : ` via ${line.via}`
+      }${line.replyTo === undefined ? "" : `, reply to ${line.replyTo}`}${
         line.awaitsReply
           ? `, reply owed  ${said(line.from, 60)} awaits it${
               line.awaitsReply.until

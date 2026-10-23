@@ -945,7 +945,8 @@ describe("messaging through the runner", () => {
     });
     expect(outcome).toEqual({
       ok: true,
-      value: "a route's ends are agents this workflow opened; b is not one",
+      value:
+        "a route's ends are agents this workflow opened or participants it connected; b is not one",
     });
   });
 

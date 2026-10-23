@@ -3,7 +3,11 @@ import { randomUUID } from "node:crypto";
 import { mkdir, realpath, rm } from "node:fs/promises";
 import { dirname, join, relative } from "node:path";
 import { isDeepStrictEqual } from "node:util";
-import { PARTICIPANT } from "@agentswf/contract/participant";
+import {
+  PARTICIPANT,
+  participantRef,
+  RESERVED_PARTICIPANT_KEYS,
+} from "@agentswf/contract/participant";
 import type {
   AgentPaneRecord,
   AgentSkillsRecord,
@@ -37,6 +41,8 @@ import {
   type CompactionId,
   type CompactSpec,
   DeadlineExceededError,
+  type ExternalParticipantRef,
+  type ExternalParticipantSpec,
   isJsonValue,
   type JsonObject,
   type JsonValue,
@@ -87,6 +93,7 @@ import {
   type ResultControlPlane,
   startResultControlPlane,
 } from "./control-plane";
+import type { CoordinatorPort } from "./coordinator-port";
 import {
   assertDeadline,
   assertDeadlineValue,
@@ -102,6 +109,7 @@ import type { DecisionInstallation } from "./decisions/seam";
 import { messageOf } from "./errors";
 import { superviseMessageOperation } from "./message-operation";
 import { canAwaitReply } from "./messaging/limits";
+import type { HolderRequest } from "./messaging/messaging";
 import { type AgentView, type Delivery, Messaging, type OperationEnd } from "./messaging/messaging";
 import type { Scope as MessagingScope } from "./messaging/routes";
 import { createOperationEvents } from "./operation-events";
@@ -177,6 +185,12 @@ export type RunWorkflowOptions = {
    * workflow's test allows it everywhere, as the fake harness can.
    */
   awaitReply?: (execution: AgentExecution, confirmsDelivery: boolean) => boolean;
+  /**
+   * Whatever answers for the run's outside participants, each told everything: `awf run`'s prompt,
+   * the socket `awf reply` and `awf send` reach, or a test's scripts. Unsupported outside the engine.
+   * @internal
+   */
+  coordinators?: readonly CoordinatorPort[];
 };
 
 /** What a run is known by once it has ended, whether or not it succeeded. */
@@ -487,6 +501,7 @@ export async function startWorkflow<Args extends JsonValue, Result extends JsonV
     onCallerStopped: options.onCallerStopped,
     livenessPolicy: options.livenessPolicy,
     awaitReply: options.awaitReply ?? ((execution, confirms) => canAwaitReply(execution, confirms)),
+    coordinators: options.coordinators ?? [],
   });
   const stopped = new AbortController();
   // Aborted by a stop that comes after the body ended; the one that ended it does not cut short the
@@ -728,6 +743,8 @@ class WorkflowOwner {
   #caller: { key: string; state: Promise<LogicalAgent> } | undefined;
   /** Stops a fork of the session the run was started from, whose process is not an agent's. */
   readonly #closingRun = new AbortController();
+  /** Outside participants the workflow connected, by key: the refs a route's ends must be. */
+  readonly #outsideRefs = new Map<string, ExternalParticipantRef>();
 
   constructor(
     private readonly options: {
@@ -758,6 +775,7 @@ class WorkflowOwner {
       events: RunEventLog;
       onCallerStopped?: RunWorkflowOptions["onCallerStopped"];
       awaitReply: NonNullable<RunWorkflowOptions["awaitReply"]>;
+      coordinators: readonly CoordinatorPort[];
     },
   ) {
     this.#messaging = new Messaging({
@@ -788,9 +806,22 @@ class WorkflowOwner {
         if (!(await options.events.event({ ...event, callPath: [] }))) {
           throw new Error("the run's event log was not written");
         }
+        for (const port of options.coordinators) {
+          try {
+            port.recorded(event);
+          } catch (error) {
+            options.onLog?.(`awf: a coordinator did not take an event: ${messageOf(error)}`);
+          }
+        }
       },
     });
     options.control.attach(this.#messaging);
+    const holder = {
+      reply: (request: HolderRequest) => this.#messaging.holderReply(request),
+      send: (request: HolderRequest) => this.#messaging.holderSend(request),
+      open: () => this.#messaging.openQuestions(),
+    };
+    for (const port of options.coordinators) port.attach(holder);
     this.context = {
       runId: options.runId,
       attempt: options.attempt,
@@ -872,8 +903,11 @@ class WorkflowOwner {
         },
       },
       participants: {
-        connect: () => unavailable("participants.connect"),
-        get: () => unavailable("participants.get"),
+        connect: async (spec) => this.connectParticipant(spec),
+        get: async (key) =>
+          (this.#messaging.connected().includes(key) ? this.#outsideRefs.get(key) : undefined) ??
+          (this.#logical.get(key) as AgentRef | undefined) ??
+          null,
       },
       messages: { allow: async (access) => this.allowRoute(access) },
       steps: {
@@ -913,6 +947,47 @@ class WorkflowOwner {
     return { state: agent.busy ? "working" : agent.hasRun ? "idle" : "not-started", ...caller };
   }
 
+  /** Connects a participant outside the run under a key no agent holds and none reserved. */
+  private connectParticipant(spec: ExternalParticipantSpec): ExternalParticipantRef {
+    if (this.#closed || this.#cleanupFailures.length) throw new Error("workflow context is closed");
+    scopes.getStore()?.assertAccepting();
+    if (typeof spec !== "object" || spec === null || typeof spec.key !== "string" || !spec.key)
+      throw new Error("a participant is connected as { key, labels? }");
+    const { key, labels } = spec;
+    this.#assertFreeKey(key, "a participant");
+    if (this.#agents.has(key) || this.#logical.has(key) || this.#caller?.key === key)
+      throw new Error(`${key} is an agent's key; a participant takes a key of its own`);
+    if (
+      labels !== undefined &&
+      (typeof labels !== "object" ||
+        labels === null ||
+        Array.isArray(labels) ||
+        !isJsonValue(labels))
+    )
+      throw new Error("a participant's labels are a JSON object");
+    this.#messaging.connect(key, labels === undefined ? undefined : structuredClone(labels));
+    const ref: ExternalParticipantRef = {
+      ...participantRef(key),
+      release: async (reason) => {
+        if (reason !== undefined && typeof reason !== "string")
+          throw new Error("a release's reason is a string");
+        return this.#messaging.release(key, reason);
+      },
+    };
+    this.#outsideRefs.set(key, ref);
+    return ref;
+  }
+
+  /** A key an agent may not take: a reserved one, or an outside participant's. */
+  #assertFreeKey(key: string, who: string): void {
+    if ((RESERVED_PARTICIPANT_KEYS as readonly string[]).includes(key.toLowerCase()))
+      throw new Error(
+        `${key} is reserved: an agent could read a message from it as authority; ${who} takes another key`,
+      );
+    if (this.#messaging.isOutside(key))
+      throw new Error(`${key} is a participant outside the run; ${who} takes another key`);
+  }
+
   #messagesChanged(): void {
     const change = this.#messagingChange;
     this.#messagingChange = Promise.withResolvers<void>();
@@ -930,13 +1005,16 @@ class WorkflowOwner {
     const end = (ref: unknown): string => {
       const key =
         typeof ref === "object" && ref !== null ? (ref as { key?: unknown }).key : undefined;
-      const agent = typeof key === "string" ? this.#logical.get(key) : undefined;
-      if (!agent || agent !== ref) {
+      const issued =
+        typeof key === "string"
+          ? (this.#logical.get(key) ?? this.#outsideRefs.get(key))
+          : undefined;
+      if (!issued || issued !== ref) {
         throw new Error(
-          `a route's ends are agents this workflow opened; ${typeof key === "string" ? key : "this"} is not one`,
+          `a route's ends are agents this workflow opened or participants it connected; ${typeof key === "string" ? key : "this"} is not one`,
         );
       }
-      return agent.key;
+      return issued.key;
     };
     if (typeof access !== "object" || access === null)
       throw new Error("a route is { from, to } or { between }, with a purpose");
@@ -952,6 +1030,7 @@ class WorkflowOwner {
     this.#messaging.grant(ends, {
       purpose: access.purpose,
       maxMessages: access.maxMessages,
+      timeoutMs: access.timeoutMs,
       scope: scope?.messages ?? this.#messaging.attempt,
     });
   }
@@ -1007,7 +1086,8 @@ class WorkflowOwner {
 
   /**
    * The workflow returned: its routes outside any stage take nothing new, and the message
-   * operations they opened are waited for, as a stage waits for its own.
+   * operations they opened are waited for, as a stage waits for its own. A question open to an
+   * outside participant keeps it waiting too; once none is, each one still connected is released.
    */
   async settleMessages(): Promise<void> {
     const attempt = this.#messaging.attempt;
@@ -1017,6 +1097,9 @@ class WorkflowOwner {
       const failed = settled.find((each) => each.status === "rejected");
       if (failed?.status === "rejected") throw failed.reason;
     });
+    for (const key of this.#messaging.connected()) {
+      this.#messaging.release(key, "the workflow returned");
+    }
   }
 
   async close(deadline: AbsoluteDeadline): Promise<unknown[]> {
@@ -1164,6 +1247,7 @@ class WorkflowOwner {
   private openAgent(spec: AgentOpenSpec): Promise<AgentRef> {
     if (this.#closed || this.#cleanupFailures.length) throw new Error("workflow context is closed");
     scopes.getStore()?.assertAccepting();
+    this.#assertFreeKey(spec.key, "an agent");
     if (this.#caller?.key === spec.key) {
       throw new Error(`agent ${spec.key} is the calling session; it is not opened`);
     }
@@ -1334,6 +1418,7 @@ class WorkflowOwner {
     if (this.#closed || this.#cleanupFailures.length) throw new Error("workflow context is closed");
     const scope = scopes.getStore();
     scope?.assertAccepting();
+    this.#assertFreeKey(key, "an agent");
     const found = this.options.runtime.host.caller;
     if (!found) return Promise.resolve(null);
     if (this.#caller) {
@@ -1723,6 +1808,7 @@ class WorkflowOwner {
     if (this.#caller?.key === spec.key) {
       throw new Error(`agent ${spec.key} is the calling session; it is not opened`);
     }
+    this.#assertFreeKey(spec.key, "an agent");
     const forkSpec = structuredClone(spec);
     if (forkSpec.layout !== undefined) forkSpec.layout = storedLayout(forkSpec.layout);
     const deadline = scope?.deadline ?? this.options.deadline;

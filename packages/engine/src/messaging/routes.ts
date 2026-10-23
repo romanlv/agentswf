@@ -21,12 +21,14 @@ export type Route = {
   readonly asked?: number;
   /** As the workflow gave it, for telling an identical grant from a conflicting one. */
   readonly requested?: number;
+  /** On a route an agent asks an outside participant over: how long a question on it waits. */
+  readonly timeoutMs?: number;
   readonly scope: Scope;
   /** Messages counted against it, answers reserved for included. */
   count: number;
   open: boolean;
   /** Why it closed. */
-  closed?: "stage-ended" | "agent-stopped" | "attempt-ended";
+  closed?: "stage-ended" | "agent-stopped" | "released" | "attempt-ended";
   /** Its place among the attempt's grants, which `wf peers` lists in. */
   readonly order: number;
 };
@@ -51,12 +53,13 @@ export function peerOf(route: Route, agent: AgentKey): AgentKey {
   return a === agent ? b : a;
 }
 
-/** The same grant: shape, purpose, requested limit and scope, `between`'s order aside. */
+/** The same grant: shape, purpose, requested limit, `timeoutMs` and scope, `between`'s order aside. */
 export function sameGrant(
   route: Route,
   ends: RouteEnds,
   purpose: string,
   requested: number | undefined,
+  timeoutMs: number | undefined,
   scope: Scope,
 ): boolean {
   const sameEnds = route.ends.between
@@ -64,7 +67,11 @@ export function sameGrant(
       [...route.ends.between].sort().join("\0") === [...ends.between].sort().join("\0")
     : ends.between === undefined && route.ends.from === ends.from && route.ends.to === ends.to;
   return (
-    sameEnds && route.purpose === purpose && route.requested === requested && route.scope === scope
+    sameEnds &&
+    route.purpose === purpose &&
+    route.requested === requested &&
+    route.timeoutMs === timeoutMs &&
+    route.scope === scope
   );
 }
 

@@ -1,13 +1,15 @@
 import type {
   MessageLimits,
   MessagingEvent,
+  OutsideVia,
   RequestEnd,
   RouteEnds,
   UndeliveredReason,
 } from "@agentswf/contract/records";
-import type { PeerView, ReplyCode, SendCode } from "@agentswf/contract/wire";
-import type { AgentKey } from "@agentswf/contract/workflow";
+import type { HolderCode, PeerView, ReplyCode, SendCode } from "@agentswf/contract/wire";
+import type { AgentKey, JsonObject } from "@agentswf/contract/workflow";
 import type { AuthoredMessage } from "@agentswf/harness/adapter";
+import { duration } from "../duration";
 import { MESSAGE_LIMITS } from "./limits";
 import {
   directions,
@@ -100,6 +102,31 @@ export type Delivery = {
   deadline?: number;
 };
 
+/**
+ * What a holder asks for, as `awf reply` and `awf send` do: `coordinator` is `--as`, `to` the
+ * question's number within the attempt.
+ */
+export type HolderRequest = {
+  coordinator?: AgentKey;
+  agent: AgentKey;
+  to?: number;
+  text: string;
+  via: OutsideVia;
+};
+
+/** A holder's result: a reply's `message` is the question's number, a send's the new message's. */
+export type HolderResult =
+  | { code: "delivered"; message: number }
+  | { code: Exclude<HolderCode, "not-found">; error: string; choices?: string[] };
+
+/** A question open to an outside participant, and when it closes unanswered if it has a limit. */
+export type OpenQuestion = {
+  coordinator: AgentKey;
+  message: number;
+  asker: AgentKey;
+  closesAt?: number;
+};
+
 /** What is held for an operation whose turn has ended, without deciding anything. */
 export type Pending = "continues" | "held" | "none";
 
@@ -146,6 +173,11 @@ type Obligation = {
   until: number;
   /** It has a `--timeout` of its own, which only that fails it at. */
   readonly timed: boolean;
+  /**
+   * When it closes unanswered, on an outside participant: the route's `timeoutMs` or the asker's
+   * shorter `--timeout`, and which of the two.
+   */
+  readonly closes?: { at: number; by: "route" | "own"; ms: number };
   state: "open" | RequestEnd;
   /** Its end, set once; a reply after it is refused `expired`. */
   endedAt?: number;
@@ -154,6 +186,9 @@ type Obligation = {
 
 type Failure = { kind: "no-reply"; for: Operation; from: AgentKey; reason: string };
 type Held = Message | Failure;
+
+/** A participant outside the run, which the workflow connected: it has no operation and no inbox. */
+type Outside = { readonly key: AgentKey; released: boolean };
 
 type Operation = OperationInfo & {
   awaits?: Obligation;
@@ -184,6 +219,8 @@ export class Messaging {
   readonly #obligations: Obligation[] = [];
   /** Every message admitted, by its number. */
   readonly #sentBy = new Map<number, Message>();
+  /** Outside participants connected in the attempt, released ones included, whose keys stay taken. */
+  readonly #outside = new Map<AgentKey, Outside>();
   #closed = false;
 
   constructor(host: MessagingHost, limits: MessageLimits = MESSAGE_LIMITS) {
@@ -201,7 +238,10 @@ export class Messaging {
    * Grants a route in `scope`, atomically: anything invalid rejects with nothing granted. Granting
    * the same route again does nothing; another route over an open pair rejects.
    */
-  grant(ends: RouteEnds, options: { purpose: unknown; maxMessages?: unknown; scope: Scope }): void {
+  grant(
+    ends: RouteEnds,
+    options: { purpose: unknown; maxMessages?: unknown; timeoutMs?: unknown; scope: Scope },
+  ): void {
     const { scope } = options;
     if (this.#closed || scope.state !== "open")
       throw new Error("routes are granted only while a scope is open");
@@ -217,7 +257,14 @@ export class Messaging {
     const pairs = directions(ends);
     for (const [from, to] of pairs) {
       if (from === to) throw new Error(`a route from ${from} to itself is not allowed`);
+      if (this.#outside.has(from) && this.#outside.has(to))
+        throw new Error(`${from} and ${to} are both outside the run: nothing would run`);
       for (const key of [from, to]) {
+        const outside = this.#outside.get(key);
+        if (outside) {
+          if (outside.released) throw new Error(`${key} has been released`);
+          continue;
+        }
         const agent = this.#host.agent(key);
         if (!agent) throw new Error(`${key} is not an agent this workflow opened`);
         if (agent.caller)
@@ -225,12 +272,30 @@ export class Messaging {
         if (agent.state === "stopped") throw new Error(`${key} has stopped`);
       }
     }
+    const timeoutMs = options.timeoutMs;
+    if (timeoutMs !== undefined) {
+      if (typeof timeoutMs !== "number" || !Number.isSafeInteger(timeoutMs) || timeoutMs < 1)
+        throw new Error("a route's timeoutMs is a positive whole number of milliseconds");
+      // Only where an agent can ask an outside participant: nothing else needs it yet.
+      if (!pairs.some(([, to]) => this.#outside.has(to)))
+        throw new Error(
+          "timeoutMs is only for a route an agent asks an outside participant over: between them, or to it",
+        );
+    }
     const open = pairs.map(([from, to]) => this.#open(from, to));
     if (open.some(Boolean)) {
       if (
         open.every(
           (route) =>
-            route && sameGrant(route, ends, purpose, requested as number | undefined, scope),
+            route &&
+            sameGrant(
+              route,
+              ends,
+              purpose,
+              requested as number | undefined,
+              timeoutMs as number | undefined,
+              scope,
+            ),
         ) &&
         new Set(open).size === 1
       )
@@ -248,6 +313,7 @@ export class Messaging {
       maxMessages,
       ...(asked !== undefined && asked > maxMessages ? { asked } : {}),
       ...(asked === undefined ? {} : { requested: asked }),
+      ...(timeoutMs === undefined ? {} : { timeoutMs: timeoutMs as number }),
       scope,
       count: 0,
       open: true,
@@ -263,9 +329,227 @@ export class Messaging {
       purpose,
       maxMessages,
       ...(route.asked === undefined ? {} : { asked: route.asked }),
+      ...(route.timeoutMs === undefined ? {} : { timeoutMs: route.timeoutMs }),
       ...(scope.stage === undefined ? {} : { stage: scope.stage }),
     });
-    for (const agent of new Set(pairs.flat())) this.#host.changed(agent);
+    for (const agent of new Set(pairs.flat())) {
+      if (!this.#outside.has(agent)) this.#host.changed(agent);
+    }
+  }
+
+  // Outside participants
+
+  /**
+   * Connects a participant outside the run under `key`, which the runner has checked no agent
+   * holds and is not reserved. A key connected before in the attempt, released or not, rejects.
+   */
+  connect(key: AgentKey, labels?: JsonObject): void {
+    if (this.#closed) throw new Error("participants connect only while the attempt runs");
+    if (this.#outside.has(key)) throw new Error(`${key} is already connected`);
+    this.#outside.set(key, { key, released: false });
+    void this.#record({
+      kind: "participant-connected",
+      participant: key,
+      ...(labels === undefined ? {} : { labels }),
+    });
+  }
+
+  /** Whether `key` is an outside participant's, connected in this attempt. */
+  isOutside(key: AgentKey): boolean {
+    return this.#outside.has(key);
+  }
+
+  /** Outside participants connected and not released, in the order connected. */
+  connected(): AgentKey[] {
+    return [...this.#outside.values()].filter((each) => !each.released).map((each) => each.key);
+  }
+
+  /**
+   * Releases an outside participant: its routes close and every question open to it ends
+   * `released`, its asker told. False when it was released already.
+   */
+  release(key: AgentKey, reason?: string): boolean {
+    const outside = this.#outside.get(key);
+    if (!outside || outside.released) return false;
+    outside.released = true;
+    const why = reason ? ` (${JSON.stringify(reason)})` : "";
+    for (const owed of this.#obligations) {
+      if (owed.owedBy === key && owed.state === "open") {
+        this.#end(owed, "released", `it was released${why} before replying`, { tell: true });
+      }
+    }
+    for (const route of this.#openRoutes()) {
+      if (directions(route.ends).some((pair) => pair.includes(key)))
+        this.#closeRoute(route, "released");
+    }
+    return true;
+  }
+
+  /** Questions open to outside participants now, oldest first. */
+  openQuestions(): OpenQuestion[] {
+    return this.#obligations
+      .filter((owed) => owed.state === "open" && this.#outside.has(owed.owedBy))
+      .map((owed) => ({
+        coordinator: owed.owedBy,
+        message: owed.request.n,
+        asker: owed.asker,
+        ...(owed.closes ? { closesAt: owed.closes.at } : {}),
+      }));
+  }
+
+  /**
+   * A holder answers a question, as `awf reply` does: the first answer wins. Refusals come in
+   * `HOLDER_CODES`' order, a question's own state before its route's.
+   */
+  async holderReply(request: HolderRequest): Promise<HolderResult> {
+    if (this.#closed) return holderRefusal("ended", "the run has ended.");
+    const named =
+      request.to === undefined || request.coordinator !== undefined
+        ? undefined
+        : this.#obligations.find(
+            (owed) => owed.request.n === request.to && this.#outside.has(owed.owedBy),
+          )?.owedBy;
+    const as = this.#holderAs(request.coordinator ?? named);
+    if (as.kind === "refused") return as.result;
+    const { agent } = request;
+    if (!this.#host.agent(agent)) return unknownAgent(agent);
+    const asked = (coordinator: AgentKey) =>
+      this.#obligations.filter(
+        (owed) => owed.asker === agent && owed.owedBy === coordinator && owed.state === "open",
+      );
+    let owed: Obligation | undefined;
+    if (request.to === undefined) {
+      if (as.key === undefined) return as.ambiguous();
+      const open = asked(as.key);
+      if (open.length > 1)
+        return holderRefusal(
+          "ambiguous",
+          `${agent} has ${open.length} questions open to ${as.key}; name one with --to.`,
+          open.map((each) => String(each.request.n)),
+        );
+      owed = open[0];
+      if (!owed) return holderRefusal("expired", `${agent} has no question open to ${as.key}.`);
+    } else {
+      owed = this.#obligations.find(
+        (each) =>
+          each.request.n === request.to &&
+          each.asker === agent &&
+          each.state === "open" &&
+          (as.key === undefined ? this.#outside.has(each.owedBy) : each.owedBy === as.key),
+      );
+      if (!owed)
+        return holderRefusal(
+          "expired",
+          `${request.to} is not a question open from ${agent}${as.key === undefined ? "" : ` to ${as.key}`}.`,
+        );
+    }
+    const route = owed.request.route;
+    if (!route.open) return holderRefusal("closed", `the route with ${agent} has closed.`);
+    const bytes = Buffer.byteLength(request.text);
+    if (bytes > this.limits.bytes) return tooLarge(bytes, this.limits.bytes);
+    owed.state = "replied";
+    owed.endedAt = this.#host.now();
+    owed.cancelTimer?.();
+    if (owed.askerOperation.awaits === owed) owed.askerOperation.awaits = undefined;
+    const message = this.#admit(owed.owedBy, agent, request.text, bytes, route, owed);
+    const sent = this.#sent(message, request.via);
+    void this.#record({
+      kind: "request-ended",
+      message: owed.request.n,
+      owedBy: owed.owedBy,
+      asker: owed.asker,
+      end: "replied",
+      reply: message.n,
+    });
+    try {
+      await sent;
+    } finally {
+      this.#host.changed(agent);
+    }
+    return { code: "delivered", message: owed.request.n };
+  }
+
+  /** A holder messages an agent first, as `awf send` does, over a route the workflow allowed. */
+  async holderSend(request: HolderRequest): Promise<HolderResult> {
+    if (this.#closed || this.attempt.state !== "open")
+      return holderRefusal("ended", "the workflow has returned; it takes no new messages.");
+    const as = this.#holderAs(request.coordinator);
+    if (as.kind === "refused") return as.result;
+    const { agent } = request;
+    const view = this.#host.agent(agent);
+    if (!view) return unknownAgent(agent);
+    if (as.key === undefined) return as.ambiguous();
+    const from = as.key;
+    const initiating = this.#routes.get(pairKey(from, agent)) ?? [];
+    if (initiating.length === 0)
+      return holderRefusal("no-route", `the workflow allows no route from ${from} to ${agent}.`);
+    if (view.state === "stopped")
+      return holderRefusal(
+        "stopped",
+        `${agent} has stopped${view.reason ? ` (${JSON.stringify(view.reason)})` : ""}.`,
+      );
+    const route = initiating.find((each) => each.open);
+    if (route?.scope.state !== "open")
+      return holderRefusal(
+        "closed",
+        `the route to ${agent} has closed${route?.scope.stage ? `: its stage ${route.scope.stage} is finishing` : ""}.`,
+      );
+    const bytes = Buffer.byteLength(request.text);
+    if (bytes > this.limits.bytes) return tooLarge(bytes, this.limits.bytes);
+    if (route.count + 1 > route.maxMessages)
+      return holderRefusal(
+        "limit",
+        `${route.maxMessages} messages with ${agent}, this route's limit for the attempt.`,
+      );
+    const unread = this.#unread(agent);
+    if (unread >= this.limits.unread)
+      return holderRefusal(
+        "inbox-full",
+        `${agent} has ${unread} unread messages; try again later.`,
+      );
+    const message = this.#admit(from, agent, request.text, bytes, route);
+    try {
+      await this.#sent(message, request.via);
+    } finally {
+      this.#host.changed(agent);
+    }
+    return { code: "delivered", message: message.n };
+  }
+
+  /**
+   * The outside participant a holder speaks as: `--as`, or the only one connected. Undefined when
+   * several are: `ambiguous` once the agent is known, unless a `--to` names the question.
+   */
+  #holderAs(
+    key: AgentKey | undefined,
+  ):
+    | { kind: "refused"; result: HolderResult }
+    | { kind: "ok"; key: AgentKey | undefined; ambiguous: () => HolderResult } {
+    const connected = this.connected();
+    const ambiguous = () =>
+      holderRefusal(
+        "ambiguous",
+        `the workflow connects ${connected.length} coordinators; say which with --as.`,
+        connected,
+      );
+    if (key !== undefined && !connected.includes(key))
+      return {
+        kind: "refused",
+        result: holderRefusal(
+          "no-coordinator",
+          `no coordinator ${key} is connected${this.#outside.has(key) ? ": it was released" : ""}.`,
+        ),
+      };
+    if (connected.length === 0)
+      return {
+        kind: "refused",
+        result: holderRefusal("no-coordinator", "the run has no coordinator connected."),
+      };
+    return {
+      kind: "ok",
+      key: key ?? (connected.length === 1 ? connected[0] : undefined),
+      ambiguous,
+    };
   }
 
   /**
@@ -336,7 +620,9 @@ export class Messaging {
     if (!operation || deadline <= operation.deadline) return;
     operation.deadline = deadline;
     const waited = operation.awaits;
-    if (waited?.state === "open" && !waited.timed) waited.until = deadline;
+    // An outside question still closes at its own limit, wherever the deadline moves.
+    if (waited?.state === "open" && !waited.timed)
+      waited.until = Math.min(deadline, waited.closes?.at ?? Infinity);
   }
 
   /**
@@ -351,10 +637,15 @@ export class Messaging {
     const waited = operation.awaits;
     operation.awaits = undefined;
     if (waited?.state === "open") {
+      // On an outside participant, the asker timing out or being cancelled is `cancelled`; an
+      // attempt's end closes it `attempt-ended` before its operations stop.
+      const cut = this.#outside.has(waited.owedBy) && (how === "timed-out" || how === "cancelled");
       this.#end(
         waited,
-        waited.request.shown ? "released" : "withdrawn",
-        `${operation.agent} finished first`,
+        cut ? "cancelled" : waited.request.shown ? "released" : "withdrawn",
+        cut
+          ? `${operation.agent}'s operation ${how === "timed-out" ? "timed out" : "was cancelled"}`
+          : `${operation.agent} finished first`,
       );
     }
     // An answer accepted but not yet shown is withdrawn with it.
@@ -513,7 +804,7 @@ export class Messaging {
         ? replyOnly()
         : refuse("no-route", `no route to ${peer}. Your routes: ${wf} peers`);
     }
-    const agent = this.#host.agent(peer);
+    const agent = this.#outside.has(peer) ? undefined : this.#host.agent(peer);
     if (agent?.state === "stopped")
       return refuse(
         "peer-stopped",
@@ -712,7 +1003,9 @@ export class Messaging {
     };
     // An answer's room was reserved when it was asked.
     if (!answers) route.count += 1;
-    this.#inbox(to).push(message);
+    // An outside participant reads the run log: a message to it is shown once recorded.
+    if (this.#outside.has(to)) message.shown = true;
+    else this.#inbox(to).push(message);
     this.#sentBy.set(message.n, message);
     return message;
   }
@@ -721,10 +1014,15 @@ export class Messaging {
   #ask(message: Message, operation: Operation, timeoutMs?: number): number {
     message.route.count += 1;
     const now = this.#host.now();
-    const until = Math.min(
-      operation.deadline,
-      timeoutMs === undefined ? Infinity : now + timeoutMs,
-    );
+    const routeMs = this.#outside.has(message.to) ? message.route.timeoutMs : undefined;
+    // The route's limit, or the asker's own when shorter: the shorter wins.
+    const limit =
+      routeMs !== undefined && (timeoutMs === undefined || routeMs <= timeoutMs)
+        ? { by: "route" as const, ms: routeMs }
+        : timeoutMs === undefined
+          ? undefined
+          : { by: "own" as const, ms: timeoutMs };
+    const until = Math.min(operation.deadline, limit ? now + limit.ms : Infinity);
     const obligation: Obligation = {
       request: message,
       asker: message.from,
@@ -732,19 +1030,26 @@ export class Messaging {
       owedBy: message.to,
       until,
       timed: until < operation.deadline,
+      ...(limit && this.#outside.has(message.to)
+        ? { closes: { ...limit, at: now + limit.ms } }
+        : {}),
       state: "open",
     };
     message.asks = obligation;
     operation.awaits = obligation;
     this.#obligations.push(obligation);
     // Only `--timeout` fails a question: reaching the operation's own deadline times it out.
-    if (obligation.timed) {
-      obligation.cancelTimer = this.#host.schedule(until, () => {
+    // Its limit closes it even when the deadline cut the wait first and later moved out.
+    const closesAt = obligation.closes?.at ?? (obligation.timed ? until : undefined);
+    if (closesAt !== undefined) {
+      obligation.cancelTimer = this.#host.schedule(closesAt, () => {
         if (obligation.state === "open") {
           this.#end(
             obligation,
             "timed-out",
-            `your --timeout passed at ${clock(until, this.#host.now())}`,
+            obligation.closes?.by === "route"
+              ? `the question closed unanswered after ${duration(obligation.closes.ms)}`
+              : `your --timeout passed at ${clock(closesAt, this.#host.now())}`,
           );
         }
       });
@@ -752,18 +1057,24 @@ export class Messaging {
     return until;
   }
 
-  /** Durable before `wf send` returns: a failed write rejects, and `wf` says it may have been queued. */
-  async #sent(message: Message, operation: Operation): Promise<void> {
+  /**
+   * Durable before `wf send` returns: a failed write rejects, and `wf` says it may have been
+   * queued. An outside participant's message says what it came through instead of an operation.
+   * A question to one carries when it closes unanswered, if it has a limit.
+   */
+  async #sent(message: Message, by: Operation | OutsideVia): Promise<void> {
+    const asks = message.asks;
+    const until = asks && (this.#outside.has(asks.owedBy) ? asks.closes?.at : asks.until);
     await this.#host.record({
       kind: "message-sent",
       message: message.n,
       from: message.from,
       to: message.to,
-      operationId: operation.id,
+      ...(typeof by === "string" ? { via: by } : { operationId: by.id }),
       text: message.text,
       bytes: message.bytes,
-      ...(message.asks
-        ? { awaitsReply: { until: new Date(message.asks.until).toISOString() } }
+      ...(asks
+        ? { awaitsReply: until === undefined ? {} : { until: new Date(until).toISOString() } }
         : {}),
       ...(message.answers ? { replyTo: message.answers.request.n } : {}),
     });
@@ -771,6 +1082,7 @@ export class Messaging {
 
   #sentNotice(peer: AgentKey, operation: Operation, until?: number): string {
     if (until !== undefined) return `sent to ${peer}. ${this.#awaitNotice(operation, until)}`;
+    if (this.#outside.has(peer)) return `sent to ${peer}, outside the run; it reads it from there.`;
     const state = this.#host.agent(peer)?.state;
     const when =
       this.#current.get(peer)?.awaits?.state === "open"
@@ -1017,6 +1329,14 @@ export class Messaging {
   } {
     const peers = this.#routesOf(agent, true).map((route): PeerView => {
       const peer = peerOf(route, agent);
+      if (this.#outside.has(peer))
+        return {
+          peer,
+          can: this.#can(route, agent),
+          state: "outside",
+          queued: 0,
+          purpose: route.purpose,
+        };
       const view = this.#host.agent(peer);
       const waited = this.#current.get(peer)?.awaits;
       const awaiting = waited?.state === "open" ? waited.owedBy : undefined;
@@ -1081,7 +1401,7 @@ export class Messaging {
     this.#closed = true;
     for (const owed of this.#obligations) {
       if (owed.state === "open")
-        this.#end(owed, "failed", "the attempt ended", {
+        this.#end(owed, "attempt-ended", "the attempt ended", {
           undelivered: "attempt-ended",
           tell: false,
         });
@@ -1185,7 +1505,8 @@ export class Messaging {
     owed: Obligation,
     end: Exclude<RequestEnd, "replied">,
     reason: string,
-    options: { gone?: true; undelivered?: UndeliveredReason; tell?: false } = {},
+    /** `tell`: whether its asker is told, beside a failure or a timeout, which always are. */
+    options: { gone?: true; undelivered?: UndeliveredReason; tell?: boolean } = {},
   ): void {
     if (owed.state !== "open") return;
     owed.state = end;
@@ -1219,7 +1540,8 @@ export class Messaging {
     });
     const operation = owed.askerOperation;
     if (operation.awaits === owed) operation.awaits = undefined;
-    if (options.tell !== false && !operation.ended && (end === "failed" || end === "timed-out")) {
+    const told = options.tell ?? (end === "failed" || end === "timed-out");
+    if (told && !operation.ended) {
       this.#inbox(owed.asker).push({ kind: "no-reply", for: operation, from: owed.owedBy, reason });
       this.#host.changed(owed.asker);
     }
@@ -1265,7 +1587,10 @@ export class Messaging {
     }
   }
 
-  #closeRoute(route: Route, reason: "stage-ended" | "agent-stopped" | "attempt-ended"): void {
+  #closeRoute(
+    route: Route,
+    reason: "stage-ended" | "agent-stopped" | "released" | "attempt-ended",
+  ): void {
     if (!route.open) return;
     route.open = false;
     route.closed = reason;
@@ -1300,4 +1625,23 @@ export class Messaging {
 
 function refuse<C extends SendCode | ReplyCode>(code: C, error: string) {
   return { kind: "refused" as const, code, error };
+}
+
+function holderRefusal(
+  code: Exclude<HolderCode, "not-found">,
+  error: string,
+  choices?: string[],
+): HolderResult {
+  return { code, error, ...(choices ? { choices } : {}) };
+}
+
+function unknownAgent(agent: AgentKey): HolderResult {
+  return holderRefusal("unknown-agent", `the run has no agent ${agent}.`);
+}
+
+function tooLarge(bytes: number, limit: number): HolderResult {
+  return holderRefusal(
+    "too-large",
+    `${Math.ceil(bytes / 1024)} KB; the limit is ${limit / 1024} KB. Put it in a file and send its path.`,
+  );
 }

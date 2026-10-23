@@ -22,6 +22,7 @@ import { OPERATOR_ALIASES } from "../operator-aliases";
 import { createRun, readEvents, readStageRecords, writeStageRecord } from "../runs";
 import { primaryFailure, WorkflowStopped } from "../stopped";
 import { runWorkflow, type SettledRun, WorkflowRunError } from "../workflow-runner";
+import { CoordinatorScripts } from "./coordinators";
 import { createScriptedDecisions, type DecisionRequest, type DecisionScript } from "./decisions";
 import {
   type AgentSandbox,
@@ -172,7 +173,6 @@ export async function testWorkflow<Args extends JsonValue, Result extends JsonVa
     option: "compactions",
   });
   const messageScripts = new MessageScripts(options.messages);
-  if (options.coordinators !== undefined) throw new Error("coordinators: not built yet");
   if (options.values !== undefined && options.fromStage === undefined) {
     throw new Error("values give the stages before fromStage: give fromStage too");
   }
@@ -180,22 +180,37 @@ export async function testWorkflow<Args extends JsonValue, Result extends JsonVa
   const problems: string[] = [];
   const stallMs = options.stallMs ?? 2_000;
   let stall: ReturnType<typeof setTimeout> | undefined;
+  /** The test ended the attempt: everything left waited on a coordinator's script. */
+  let waitedOut = false;
+  const arm = (ms: number) => {
+    clearTimeout(stall);
+    stall = setTimeout(stalled, ms);
+  };
+  const stalled = () => {
+    const open = coordinators.open();
+    if (host.inFlight().length === 0 && coordinators.idle && open.length > 0) {
+      const closes = open.flatMap((each) => (each.closesAt === undefined ? [] : [each.closesAt]));
+      // A question that closes on its own is waited for; that wait is not a stall.
+      if (closes.length > 0) return arm(Math.max(0, Math.min(...closes) - Date.now()) + stallMs);
+      waitedOut = true;
+      stopping.abort(new Error("everything left waits on a coordinator"));
+      return;
+    }
+    const waiting = host
+      .inFlight()
+      .map((turn) => `"${turn.agent}" turn ${turn.n}${turn.nudge ? " (nudge)" : ""}`);
+    stopWith(
+      `the run stalled: nothing started or ended for ${stallMs} ms; ${
+        waiting.length > 0 ? `in flight: ${waiting.join(", ")}` : "no turn in flight"
+      }`,
+    );
+  };
   const events = {
-    onActivity() {
-      clearTimeout(stall);
-      stall = setTimeout(() => {
-        const waiting = host
-          .inFlight()
-          .map((turn) => `"${turn.agent}" turn ${turn.n}${turn.nudge ? " (nudge)" : ""}`);
-        stopWith(
-          `the run stalled: nothing started or ended for ${stallMs} ms; ${
-            waiting.length > 0 ? `in flight: ${waiting.join(", ")}` : "no turn in flight"
-          }`,
-        );
-      }, stallMs);
-    },
+    onActivity: () => arm(stallMs),
     onScriptError: (message: string) => stopWith(message),
   };
+  const attempt = options.recorded ? 2 : 1;
+  const coordinators = new CoordinatorScripts(options.coordinators, attempt, events);
   const stopWith = (message: string) => {
     problems.push(message);
     stopping.abort(new Error(message));
@@ -220,6 +235,16 @@ export async function testWorkflow<Args extends JsonValue, Result extends JsonVa
   const sandboxes = createFakeSandboxProvider({ panes: { prelude: "true", ready: "ready" } });
 
   let settled: { value: Result } | { error: unknown };
+  /** What the workflow returned, before the run settled: a test that waits out a question keeps it. */
+  let returned: { value: Result } | undefined;
+  const watched: WorkflowDefinition<Args, Result> = {
+    ...definition,
+    run: async (context, given) => {
+      const value = await definition.run(context, given);
+      if (!waitedOut) returned = { value };
+      return value;
+    },
+  };
   let sandboxOf = new Map<string, AgentSandbox>();
   let stages: StageRecord[] = [];
   let messages: (MessageRecord & { to: string })[] = [];
@@ -245,14 +270,14 @@ export async function testWorkflow<Args extends JsonValue, Result extends JsonVa
   };
   events.onActivity();
   try {
-    const result = await runWorkflow(definition, args, {
+    const result = await runWorkflow(watched, args, {
       runRoot,
       livenessPolicy: { quietMs: 1, responseMs: 25, deliveryMs: 100, releaseMs: 1000 },
       ...(options.awaitReply === "anywhere" ? { awaitReply: () => true } : {}),
       run: {
         dir: run.dir,
         id: run.record.id,
-        attempt: options.recorded ? 2 : 1,
+        attempt,
         ...(options.fromStage === undefined ? {} : { fromStage: options.fromStage }),
         ...(options.values === undefined
           ? {}
@@ -280,6 +305,7 @@ export async function testWorkflow<Args extends JsonValue, Result extends JsonVa
         aliases: { jev: { provider: "scripted", model: "jev" } },
       },
       onLog: (message, fields) => logs.push({ message, ...(fields ? { fields } : {}) }),
+      coordinators: [coordinators],
     });
     settled = { value: result.value };
     sandboxOf = sandboxesOf(result.sandboxes);
@@ -292,6 +318,11 @@ export async function testWorkflow<Args extends JsonValue, Result extends JsonVa
     }
   } finally {
     clearTimeout(stall);
+    if (waitedOut) {
+      settled = returned ?? {
+        error: new Error("the test ended the attempt: everything left waited on a coordinator"),
+      };
+    }
     messages = await messagesIn(run.dir);
     for (const path of temporary) rmSync(path, { recursive: true, force: true });
   }
@@ -355,13 +386,17 @@ export type MessageRecord = {
 /** The attempt's messages, read from the run's event log. */
 async function messagesIn(dir: string): Promise<(MessageRecord & { to: string })[]> {
   const found = new Map<number, MessageRecord & { to: string }>();
+  const outside = new Set<string>();
   for (const event of await readEvents(dir)) {
+    if (event.kind === "participant-connected") outside.add(event.participant);
     if (event.kind === "message-sent") {
+      const awaitReply = event.awaitsReply !== undefined;
       found.set(event.message, {
         from: event.from,
         to: event.to,
-        awaitReply: event.awaitsReply !== undefined,
-        end: "pending",
+        awaitReply,
+        // A coordinator reads the run log: what it is sent is shown once recorded.
+        end: outside.has(event.to) && !awaitReply ? "delivered" : "pending",
       });
       continue;
     }

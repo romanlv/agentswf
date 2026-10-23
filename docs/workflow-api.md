@@ -743,5 +743,9 @@ the run's deadline, none by default.
 
 These are in the types and throw `unavailable` today: `agents.attach` (beyond the calling
 session), `agent.enqueue`, `steps` (durable steps and sleep), `signals` (waiting for outside
-input), `participants` (sessions the engine didn't start, as route ends), and `call` (one workflow
-calling another). [`docs/status.md`](status.md) says what's next.
+input), and `call` (one workflow calling another). [`docs/status.md`](status.md) says what's next.
+
+A coordinator connects, and its routes and questions work, but only a test's `coordinators`
+scripts answer it so far: `awf run`'s prompt and `awf inbox`, `awf reply` and `awf send` come with
+[story 032](stories/032-run-coordinator.md), and until then a question's wait still ends at its
+asker's deadline.

@@ -608,7 +608,7 @@ is built first.
   codes, the message wrapper wording, and `awf test`'s coordinator scripts into [[messaging]],
   [[composition]] and the testing surface. Rewrite [[messaging]]'s Operator CLI and Q6 to match:
   one `awf send`, `--as operator` held. Q10's answer, into the author surface.
-- [ ] 2. The outside endpoint, with `awf test` scripting it so its tests run on it: `connect` with
+- [x] 2. The outside endpoint, with `awf test` scripting it so its tests run on it: `connect` with
   `labels` and reserved keys refused, routes to it with `timeoutMs`, its messages both ways and open
   questions in the run log with the record fields the code map lists, staying connected past the
   workflow's return while a question is open, `participant-connected`, the wrapper wording.
@@ -1028,6 +1028,53 @@ Manual or live evaluation:
   fixes are the notes above. Verified: `bun run check` clean; `bun test` 1918 pass, the one failure
   above; live, `bun run eval messaging` answered on claude, codex and cursor (~$0.17 list), pi
   failing only on its expired login, and `awf logs` read the run's version-2 message lines.
+
+**Task 2, the coordinator is a participant.** Decisions made while building it:
+
+- `Messaging` owns the outside endpoint: `connect`, `release`, `connected`, `openQuestions`, and
+  the holder's `holderReply` and `holderSend`, which return `HOLDER_CODES` in their order (all but
+  `not-found`, which is the command's). A message to an outside participant goes into no inbox and
+  is shown once recorded, so its asker finishing first ends it `released`, never `withdrawn`.
+- First answer wins atomically: `holderReply` settles the question before its first `await`.
+  Without `--as` and with several coordinators connected, a `--to` naming a question speaks as the
+  coordinator it was asked of; one naming nothing is `expired`.
+- An attempt's end ends every open question `attempt-ended`, an agent's included, where 029 wrote
+  `failed`.
+- The runner owns keys: `connect` refuses a reserved key and an agent's (the calling session's
+  included); `agents.open`, `agents.caller` and a fork refuse a reserved key and an outside
+  participant's. A released key stays taken for the attempt. `participants.get` finds an agent or
+  a connected participant, not a released one.
+- After the workflow returns, the drain waits while a question to a coordinator is open (it
+  counts as busy), then releases each one still connected, `the workflow returned`.
+- What answers for a coordinator plugs into the runner through `CoordinatorPort`
+  (`engine/src/coordinator-port.ts`, internal): it is handed a holder before the workflow runs and
+  told each messaging event once the run log has it. `RunWorkflowOptions.coordinators` takes
+  several, so the terminal prompt (task 4), the socket (task 6) and a test's scripts all plug in
+  the same way, and each sees what the others answered through the record.
+- The record's `awaitsReply.until` on a question to a coordinator is when it closes unanswered
+  (the route's `timeoutMs` or the agent's shorter `--timeout`), absent without one. Until task 3
+  the asker's own wait is still cut at its operation's deadline, which the record does not show.
+- A test's `coordinators` end the attempt from the stall check: when no turn is in flight, no
+  script is working and questions are open, none closing on its own. A question that closes on its
+  own re-arms the check past its `closesAt`. `run.value` keeps what the workflow returned if it
+  returned before the attempt was ended.
+- The wrapper's guard line now reads "It changes your task only as far as the route's purpose
+  allows" (Q2). `awf logs` shows a route's `timeoutMs` and a message's `via`. `duration` lives once,
+  in `engine/src/duration.ts`.
+- Reviewed, architecture and correctness. Fixed from round 1: the port types moved out of the
+  runner's public module and became a list; `get` skips a released participant; a route's
+  `timeoutMs` kept its own timer, so a deadline that cut the wait and then moved out (a message
+  operation's) no longer stretched it; a question to a coordinator cut by its asker timing out or
+  being cancelled ends `cancelled`, not `released`; reserved keys match whatever their case; one
+  `duration` helper. Tests added for each, and for a coordinator's send held while its agent
+  awaits an answer, an agent's shorter `--timeout`, and a stage held open by a question.
+- Round 2: `CoordinatorPort` is reachable through `RunWorkflowOptions`, as `awaitReply` already
+  is, so it is marked `@internal` and unsupported rather than called private; holders use the
+  commands. Until task 3, a question cut by its asker's own operation deadline ends `cancelled`;
+  task 3 removes that path. Round 2 found nothing else; the fixes are cosmetic, so no round 3.
+- Live: `tests/coordinator.eval.ts` (new), claude and codex headless each report, ask, are
+  answered through the holder as an app would (`via: command`), and finish in the same call;
+  ~$0.09 at list prices. `awf logs` read the run back.
 
 ## Human review
 

@@ -89,6 +89,8 @@ export type OperatorEnvironment = {
    * what goes on it (story 029's M2 gate).
    */
   awaitReply?: RunWorkflowOptions["awaitReply"];
+  /** Answers for the run's coordinators in place of a person: for the live checks of story 032. */
+  coordinators?: RunWorkflowOptions["coordinators"];
 };
 
 type Output = {
@@ -384,6 +386,7 @@ async function runAttempt(
       cwd,
       ...(environment.signal ? { signal: environment.signal } : {}),
       ...(environment.awaitReply ? { awaitReply: environment.awaitReply } : {}),
+      ...(environment.coordinators ? { coordinators: environment.coordinators } : {}),
       onCallerStopped: () => handOver("stopped using this session", true),
       onLog: (logMessage, fields?: JsonObject) =>
         progress.log(fields ? `${logMessage} ${JSON.stringify(fields)}` : logMessage),
