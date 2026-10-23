@@ -15,21 +15,26 @@ awf reply {workflow}/{id} {agent} --to {id} 'Keep two, and link them.'
 awf send {workflow}/{id} {agent} 'Also check the 09:12 deploy.'
 ```
 
-All three look in the current folder's `.awf/runs`, or the `--cwd` or `--run-root` given, as
-`awf runs` does. A run is always `{workflow}/{id}`. A holder runs in the folder where runs start, so
-an app and the cron that starts runs share a folder; one serving several folders runs a loop in
-each. Every command takes `--json`, and `--as {key}` when the workflow connects more than one
-coordinator.
+Like `awf runs`, all three read the runs in the current folder's `.awf/runs`, or in `--cwd` or
+`--run-root`, so a holder runs in the folder where runs start; an app watching several folders runs
+one loop per folder. A run is named `{workflow}/{id}`. Every command takes `--json`, and `--as {key}`
+when the workflow connects more than one coordinator.
 
 ## In a terminal
 
-`awf run` asks a coordinator's questions itself when its stdin and stderr are a terminal and
-`--json` isn't given: each message to the coordinator is a line, and each question a prompt,
-oldest first; one asked while another waits shows its text again when its turn comes. An empty
-line leaves the question for another holder. A question another holder answers first, or that
-closes, is passed over. With `--json`, or under a cron with no terminal, nothing is asked: each
-question is a line in the run's progress, with its text and the `awf reply` command that answers
-it, and waits in the run log.
+`awf run` asks the questions itself when its stdin and stderr are a terminal and `--json` isn't
+given. Reports print as lines, and each question is a prompt, oldest first; one that waited behind
+another shows its text again when its turn comes. An empty answer leaves the question for another
+holder. A question answered elsewhere, or closed, is skipped.
+
+With `--json`, or with no terminal, as under a cron, nothing is asked. Each question prints in the
+run's progress with the command that answers it, and waits in the run log:
+
+```
+● investigator asks coordinator (1.2):
+                Merge the two incidents, or keep two?
+  answer: awf reply investigate/r1 investigator --to 1.2 '…'
+```
 
 ## `awf inbox`
 
@@ -66,7 +71,8 @@ An attempt whose process died reads as `interrupted`: each question still open i
 
 It fails `not-found` for no such run, `no-coordinator` for a run that ended without connecting one
 (or that `--as`), and `bad-cursor`, in that order; with `--json`, `{ v: 1, code, error }`. A live run
-that has not connected one yet is just empty.
+that has not connected one yet is just empty. Exit codes: 0 read, 1 one of those, 2 a usage error,
+3 the run's files could not be read.
 
 ## `awf reply` and `awf send`
 
@@ -78,9 +84,9 @@ only when that agent has exactly one question open to this coordinator. A late a
 question never lands on a newer one: a `--to` naming anything but an open question from that agent
 is `expired`. Anyone may answer, and the first answer wins.
 
-`awf send` messages an agent first, over a route the workflow allowed. To an agent between turns
-it starts the next turn, a model call; to an idle one it opens a message operation; to one
-awaiting this coordinator's answer it is held, and comes with that answer, as the command says.
+`awf send` messages an agent first, over a route the workflow allowed. A busy agent gets it with
+its next turn, and an idle one gets a turn of its own for it, a model call. One waiting for this
+coordinator's answer gets it with that answer; the command says so.
 
 Both print one line, or with `--json` `HolderResultJson`: `delivered` with the id an `awf inbox`
 item names (for a reply the question's, for a send the new message's), or a refusal. The first code

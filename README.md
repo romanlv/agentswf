@@ -112,7 +112,8 @@ More in [`examples/`](examples/README.md), with how to run each. Every call is e
   triages before an expensive one works.
 - **Long-lived sessions.** An agent keeps its context from one turn to the next. `compact` shrinks
   it, keeping what you name, and `fork` starts new agents from what one knows.
-- **Agents that talk to each other,** on routes the workflow grants and caps.
+- **Agents that talk to each other,** on routes the workflow grants and caps, and that can ask a
+  person or an app outside the run, then wait for the answer, hours if need be.
 - **Sandboxes.** docker or srt limits what agents can write and reach, and each agent gets exactly
   the skills you name.
 - **Cost on every run.** Time, tokens and an estimated cost per agent, stage and model, failed runs
@@ -122,8 +123,8 @@ More in [`examples/`](examples/README.md), with how to run each. Every call is e
   without a coding agent.
 - **Runs you can follow and continue.** `awf runs` and `awf logs` show what a run did, to you or to
   another agent, and a stopped run goes on from the stage that stopped.
-- **Deadlines and cleanup.** Every wait has a deadline, and every agent is closed when the run
-  ends, however it ends, unless the workflow asked to keep its pane.
+- **Deadlines and cleanup.** A stalled turn is stopped, deadlines you set nest, and every agent is
+  closed when the run ends, however it ends, unless the workflow asked to keep its pane.
 
 ## Quick start
 
@@ -339,10 +340,11 @@ its mistakes before anything runs. And it reads plainly: agents, prompts, schema
 
 ## Not yet
 
-Deliberately left out until something real needs them: calling one workflow from another,
-waiting for outside input such as a human checkpoint, and reopening a stopped run's agent sessions
-(a continue redoes the stage with fresh agents). Their types exist, and calling them fails with a
-clear "unavailable" error. [`docs/status.md`](docs/status.md) has what runs today and what's next.
+Deliberately left out until something real needs them: calling one workflow from another, a
+workflow itself pausing for outside input (its agents can already ask a coordinator), and
+reopening a stopped run's agent sessions (a continue redoes the stage with fresh agents). Their
+types exist, and calling them fails with a clear "unavailable" error.
+[`docs/status.md`](docs/status.md) has what runs today and what's next.
 
 ## Contributing and design docs
 

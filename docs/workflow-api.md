@@ -641,8 +641,8 @@ const asking = (change: string, summary: string) =>
   });
 ```
 
-- **`turn.send(peer, text, { awaitReply? })`** resolves to `sent`, `replied` with `text`,
-  `failed`, `dropped` or `refused`: values to test, not throws. **`turn.reply(peer, text)`**
+- **`turn.send(peer, text, { awaitReply? })`** resolves to `sent`, `replied` with `text`, `failed`
+  with a `reason`, or `refused` with a `code`: values to test, not throws. **`turn.reply(peer, text)`**
   answers a question among `turn.messages`.
 - **`messages`** maps an agent's key, or a pattern, to the script for each message it is woken by:
   `(message) => …`, with `message.from`, `text`, `asks`, and `reply`, `send`, `silent` and `fail`.

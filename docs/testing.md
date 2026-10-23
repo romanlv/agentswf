@@ -80,6 +80,11 @@ What they cover between them:
   headless session's record, a claude pane's receipt), `unconfirmed` where it cannot (cursor's
   store, a codex, pi or cursor pane). `bun tests/messaging.eval.ts codex-pane` runs one; with no
   names, the four headless ones. 8 agents each way, ~25 s, ~$0.25.
+- `coordinator` — story 032's coordinator: each investigator reports to it and asks it for a
+  codeword, the answer comes through the run's holder as an app's would, and the asker goes on in
+  the same call. Claude and codex headless. `bun tests/coordinator.eval.ts --late` gives each
+  operation 60 s and answers after 90 s, so it passes only if waiting doesn't count. ~$0.10 at
+  list prices.
 - `compaction` — native compaction (stories 015, 019) on every harness in panes and headless: each
   compacts with a focus naming a codename it was never told, then must recall it and what it noted
   before. A headless cursor, which has none, must refuse, saying why. `bun
