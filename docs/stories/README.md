@@ -135,7 +135,7 @@ status is one of `todo`, `draft`, `ready`, `in-progress`, `blocked`, `awaiting-h
   `awaiting-human-review` — a hello workflow, its test and the config files, never overwriting, so
   `awf test` passes at once.
 - [`032` — A coordinator outside the run talks with its agents](032-run-coordinator.md) —
-  `ready` — a workflow connects a coordinator, and the agents it grants a route tell it things
+  `in-progress` (M2 and M3 open) — a workflow connects a coordinator, and the agents it grants a route tell it things
   and ask it questions with `wf send`; `awf run`'s terminal, another session or an app (a Slack
   bridge, outside this repository) reads them from the run's record and replies.
 

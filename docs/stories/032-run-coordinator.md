@@ -3,7 +3,7 @@ id: "032"
 title: "A coordinator outside the run talks with its agents"
 summary: "A workflow connects a coordinator. Agents with a route to it report findings and ask questions with wf send. Whatever answers for it (awf run's terminal, another session, or an app such as a Slack bridge) reads with awf inbox and answers with awf reply or awf send, and an agent that asked goes on in the same session."
 type: story
-status: ready
+status: in-progress
 depends_on: ["029"]
 ---
 
