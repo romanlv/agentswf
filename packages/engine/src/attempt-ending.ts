@@ -63,7 +63,11 @@ export const OUTCOMES: Record<
 export type GoOn = (stop: WorkflowStopped | undefined, entered: readonly StageSummary[]) => string;
 
 /** The ending of a run that returned or threw. */
-export function decideEnding(run: Finished, deadline: AbsoluteDeadline, goOn: GoOn): AttemptEnd {
+export function decideEnding(
+  run: Finished,
+  deadline: AbsoluteDeadline | undefined,
+  goOn: GoOn,
+): AttemptEnd {
   if ("result" in run) {
     const { result } = run;
     return {
@@ -104,7 +108,7 @@ export function decideEnding(run: Finished, deadline: AbsoluteDeadline, goOn: Go
  */
 export function endedBeforeStart(
   error: unknown,
-  deadline: AbsoluteDeadline,
+  deadline: AbsoluteDeadline | undefined,
   run: { runId: string; startedAt: number; endedAt: number },
   goOn: GoOn,
 ): AttemptEnd & { ending: Exclude<Ending<JsonValue>, { kind: "completed" }> } {
@@ -156,14 +160,14 @@ export function cleanupFailed(end: AttemptEnd, error: unknown, goOn: string): At
  */
 export function runOutcome(
   error: unknown,
-  deadline: AbsoluteDeadline,
+  deadline: AbsoluteDeadline | undefined,
 ): { kind: UnfinishedOutcome; stop?: WorkflowStopped; cancellation?: WorkflowCancelledError } {
   const cancellation = findCancellation(error);
   const failure = primaryFailure(unwrapped(error));
   const stop = failure instanceof WorkflowStopped ? failure : undefined;
   const timedOut =
     failure instanceof DeadlineExceededError &&
-    failure.deadline.unixMilliseconds === deadline.unixMilliseconds;
+    failure.deadline.unixMilliseconds === deadline?.unixMilliseconds;
   const kind = cancellation ? "cancelled" : stop ? "stopped" : timedOut ? "timed-out" : "failed";
   return { kind, ...(stop ? { stop } : {}), ...(cancellation ? { cancellation } : {}) };
 }

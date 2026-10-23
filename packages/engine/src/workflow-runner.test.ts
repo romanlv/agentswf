@@ -307,7 +307,7 @@ describe("runWorkflow", () => {
     expect(first?.prompt).not.toContain("deadline");
     expect(checkIn?.kind).toBe("nudge");
     expect(checkIn?.prompt).toContain(` waiting ${checkIn?.binding?.operationId} --reason`);
-    expect(checkIn?.prompt).toContain("The fixed answer deadline is");
+    expect(checkIn?.prompt).toContain("The answer deadline is");
   });
 
   test("an adapter sees a text turn as the workflow wrote it, with no schema", async () => {

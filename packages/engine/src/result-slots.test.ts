@@ -135,6 +135,31 @@ describe("result slots", () => {
     await expect(binding.settled).resolves.toEqual({ kind: "expired" });
   });
 
+  test("a moved deadline re-arms its expiry, and none leaves it open", async () => {
+    let now = NOW;
+    const timers: { delay: number; cancelled: boolean; fire: () => void }[] = [];
+    const slots = createResultSlotRegistry({
+      runDir: tempRunDir(),
+      now: () => now,
+      schedule: (delay, fire) => {
+        const timer = { delay, cancelled: false, fire };
+        timers.push(timer);
+        return () => {
+          timer.cancelled = true;
+        };
+      },
+    });
+    await slots.open(call({ allowWaiting: true }));
+    slots.extend("op-1", undefined);
+    expect(timers.find((timer) => timer.delay === 10_000)?.cancelled).toBe(true);
+    now += 20_000;
+    expect(await slots.waiting({ operationId: "op-1", agentId: AGENT, reason: "x" })).toMatchObject(
+      { kind: "waiting" },
+    );
+    slots.extend("op-1", { unixMilliseconds: now + 5_000 });
+    expect(timers.at(-1)).toMatchObject({ delay: 5_000, cancelled: false });
+  });
+
   test("concurrent opens reserve the operation id before persistence", async () => {
     let release!: () => void;
     const gate = new Promise<void>((resolve) => {

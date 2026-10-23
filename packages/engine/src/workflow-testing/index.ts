@@ -90,7 +90,7 @@ export type TestOptions = {
   decisions?: Readonly<Record<string, DecisionScript>>;
   /** Runtime aliases beside the ones `awf run` installs, `claude` and `codex`; the same name replaces one. */
   runtimes?: RuntimeAliases;
-  /** The run's deadline; an hour, as `awf run`'s. */
+  /** The run's deadline; none unless given, as `awf run` has none unless `--timeout` gives one. */
   timeoutMs?: number;
   /** Real time with no turn or decision starting or ending before the test fails; 2 s. */
   stallMs?: number;
@@ -284,7 +284,9 @@ export async function testWorkflow<Args extends JsonValue, Result extends JsonVa
           : { values: new Map(Object.entries(options.values)) }),
       },
       cwd,
-      deadline: { unixMilliseconds: Date.now() + (options.timeoutMs ?? 60 * 60_000) },
+      ...(options.timeoutMs === undefined
+        ? {}
+        : { deadline: { unixMilliseconds: Date.now() + options.timeoutMs } }),
       signal: stopping.signal,
       runtime: { aliases: { ...OPERATOR_ALIASES, ...options.runtimes }, host: host.factory },
       sandboxes: {

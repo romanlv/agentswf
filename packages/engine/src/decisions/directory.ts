@@ -34,9 +34,9 @@ import {
 const MAX_ATTEMPTS = 3;
 const FIRST_BACKOFF_MILLISECONDS = 500;
 
-/** Where a call runs: its scope's deadline, and the scope's way of cancelling what it owns. */
+/** Where a call runs: its scope's deadline, if any, and the scope's way of cancelling what it owns. */
 export type DecisionScope = {
-  deadline: AbsoluteDeadline;
+  deadline: AbsoluteDeadline | undefined;
   /** Returns the removal. */
   add?(cancel: (reason: string) => Promise<unknown>): () => void;
   /** The workflow stage it is asked in. */
@@ -48,7 +48,7 @@ type PreparedCall = {
   ids: string[];
   resolved: { provider: string; model: string };
   provider: DecisionProvider;
-  deadline: AbsoluteDeadline;
+  deadline: AbsoluteDeadline | undefined;
   slot: number;
 };
 
@@ -165,7 +165,9 @@ export class RunDecisions {
       controller.abort(next.outcome);
     };
     const cancel = (reason: string) => end({ outcome: "cancelled", reason });
-    const cancelTimer = scheduleAt(deadline, () => end({ outcome: "timed-out", deadline }));
+    const cancelTimer = deadline
+      ? scheduleAt(deadline, () => end({ outcome: "timed-out", deadline }))
+      : () => undefined;
     this.#cancellers.add(cancel);
     const removeFromScope = scope.add?.(async (reason) => cancel(reason));
 
@@ -217,7 +219,7 @@ export class RunDecisions {
             thrown instanceof DecisionProviderError &&
             thrown.retryable &&
             attempts < MAX_ATTEMPTS &&
-            Date.now() + backoff < deadline.unixMilliseconds;
+            (!deadline || Date.now() + backoff < deadline.unixMilliseconds);
           if (!retry) break;
           await (this.options.sleep ?? abortableSleep)(backoff, controller.signal);
           if (ending) break;
@@ -291,7 +293,7 @@ export class RunDecisions {
     const { charged: _charged, ...returned } = settled;
 
     if (returned.outcome === "answered") return { answers: answers!, record: returned };
-    if (returned.outcome === "timed-out") throw new DeadlineExceededError(deadline);
+    if (returned.outcome === "timed-out") throw new DeadlineExceededError(deadline!);
     throw new DecisionError(`decision ${spec.key}: ${returned.error}`, returned);
   }
 }

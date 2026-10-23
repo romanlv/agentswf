@@ -1259,7 +1259,8 @@ describe("an outside participant", () => {
       text: "Merge or keep two?",
       awaitReply: true,
     });
-    expect(asked).toMatchObject({ kind: "sent", message: 1, until: T0 + 3_600_000 });
+    // Its deadline does not cut a wait on a coordinator: only the route's limit does.
+    expect(asked).toMatchObject({ kind: "sent", message: 1, until: T0 + 7_200_000 });
     // The record carries when the question closes unanswered: the route's limit, not the deadline.
     expect(events.at(-1)).toMatchObject({
       kind: "message-sent",
@@ -1272,7 +1273,7 @@ describe("an outside participant", () => {
     expect(messaging.turnEnded("op-1")).toEqual({
       kind: "wait",
       peer: "coordinator",
-      until: T0 + 3_600_000,
+      until: T0 + 7_200_000,
     });
     const answered = await messaging.holderReply({
       agent: "investigator",
@@ -1468,7 +1469,7 @@ describe("an outside participant", () => {
     expect(await send("investigator")).toMatchObject({ code: "ended" });
   });
 
-  test("a route's limit holds when the asker's deadline cut the wait and then moved out", async () => {
+  test("a route's limit holds whatever the asker's deadline does", async () => {
     const run = setup({ investigator: "working", fixer: "working" });
     const { messaging } = run;
     messaging.connect("coordinator");
@@ -1484,7 +1485,11 @@ describe("an outside participant", () => {
     // A question from an agent with a later deadline moves the message operation's out.
     await messaging.send("fixer", { peer: "investigator", text: "Why?", awaitReply: true });
     messaging.take("m-1", "continues");
-    expect(messaging.awaiting("m-1")).toEqual({ peer: "coordinator", until: T0 + 120_000 });
+    expect(messaging.awaiting("m-1")).toEqual({
+      peer: "coordinator",
+      until: T0 + 120_000,
+      outside: true,
+    });
     run.advance(120_000);
     expect(run.events.at(-1)).toMatchObject({ kind: "request-ended", end: "timed-out" });
   });
@@ -1500,6 +1505,34 @@ describe("an outside participant", () => {
       messaging.ended("op-1", how);
       expect(events.at(-1)).toMatchObject({ kind: "request-ended", end });
     }
+  });
+
+  test("the record keeps the route's limit; the asker's wait also ends at the deadlines around it", async () => {
+    const run = setup({ investigator: "working" });
+    const { messaging, events } = run;
+    messaging.connect("coordinator");
+    const scope = messaging.attempt;
+    messaging.grant(
+      { between: ["investigator", "coordinator"] },
+      { purpose: ASK, scope, timeoutMs: 10_000_000 },
+    );
+    messaging.opened({
+      id: "op-1",
+      agent: "investigator",
+      kind: "workflow",
+      deadline: T0 + 60_000,
+      ceiling: T0 + 7_200_000,
+      scope,
+    });
+    const asked = await messaging.send("investigator", {
+      peer: "coordinator",
+      text: "?",
+      awaitReply: true,
+    });
+    expect(asked).toMatchObject({ until: T0 + 7_200_000 });
+    expect(events.at(-1)).toMatchObject({
+      awaitsReply: { until: new Date(T0 + 10_000_000).toISOString() },
+    });
   });
 
   test("a coordinator's send to an agent awaiting an answer is held for it", async () => {

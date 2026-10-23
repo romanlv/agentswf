@@ -29,13 +29,17 @@ const ANSWER: OutputSchema<{ codeword: string }> = {
 
 export type CoordinatorSmokeResult = { runtime: string; outcome: string; codeword?: string }[];
 
-export default defineExecutableWorkflow<{ runtimes: string[] }, CoordinatorSmokeResult>({
+/** `--timeout-ms {n}` bounds each investigator's operation, which a late answer outlasts. */
+export default defineExecutableWorkflow<
+  { runtimes: string[]; timeoutMs: number },
+  CoordinatorSmokeResult
+>({
   definition: {
     meta: {
       name: "coordinator-smoke",
       description: "Agents report to a coordinator outside the run and ask it for a codeword.",
     },
-    async run(workflow, { runtimes }) {
+    async run(workflow, { runtimes, timeoutMs }) {
       const coordinator = await workflow.participants.connect({
         key: "coordinator",
         labels: { audience: "eval" },
@@ -57,7 +61,7 @@ export default defineExecutableWorkflow<{ runtimes: string[] }, CoordinatorSmoke
             "Then ask it for the codeword, waiting for its reply, and return the codeword it gives you. Do not guess it.",
           ].join(" "),
           schema: ANSWER,
-          timeoutMs: 5 * 60_000,
+          timeoutMs,
         });
         return isAnswered(outcome)
           ? { runtime, outcome: outcome.kind, codeword: outcome.value.codeword }
@@ -66,11 +70,14 @@ export default defineExecutableWorkflow<{ runtimes: string[] }, CoordinatorSmoke
     },
   },
   prepare({ argv }) {
-    const names = argv.length === 0 ? HEADLESS_NAMES : argv;
+    const at = argv.indexOf("--timeout-ms");
+    const timeoutMs = at < 0 ? 5 * 60_000 : Number(argv[at + 1]);
+    const given = at < 0 ? argv : argv.filter((_, index) => index !== at && index !== at + 1);
+    const names = given.length === 0 ? HEADLESS_NAMES : given;
     for (const name of names) {
       if (!Object.hasOwn(HEADLESS, name))
         throw new Error(`unknown runtime ${name}; expected ${Object.keys(HEADLESS).join(", ")}`);
     }
-    return { runtimes: [...names] };
+    return { runtimes: [...names], timeoutMs };
   },
 });

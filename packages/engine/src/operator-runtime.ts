@@ -82,7 +82,7 @@ export type OperatorRuntimeOptions = {
  * headless one. `WITHHELD_ENVIRONMENT` is cleared from both.
  */
 export async function installOperatorRuntime(
-  timeoutMilliseconds: number,
+  timeoutMilliseconds: number | undefined,
   options: OperatorRuntimeOptions = {},
 ): Promise<OperatorRuntimeInstallation> {
   const {
@@ -101,7 +101,7 @@ export async function installOperatorRuntime(
   const session = runSessionOnce(() => name, { run, environment, home }, onRunSession);
   const runConfig = (session: string): HerdrConfig => ({
     ...herdrConfig(session),
-    commandTimeoutMs: Math.min(timeoutMilliseconds, 150_000),
+    commandTimeoutMs: Math.min(timeoutMilliseconds ?? Number.POSITIVE_INFINITY, 150_000),
     emptyEnvironment: PANE_WITHHELD_ENVIRONMENT,
     acceptWorkspaceTrust: true,
     watchSandboxes,

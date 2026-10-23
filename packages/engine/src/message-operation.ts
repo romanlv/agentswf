@@ -2,6 +2,7 @@ import type { HarnessTurn, HarnessTurnOutcome } from "@agentswf/harness/adapter"
 import { scheduleAt } from "./deadlines";
 import { messageOf } from "./errors";
 import {
+  CEILING_GRACE_MS,
   DEFAULT_LIVENESS_POLICY,
   type LivenessEvent,
   type LivenessPolicy,
@@ -20,6 +21,10 @@ import {
 export async function superviseMessageOperation(options: {
   /** Moves only later, as the operation takes questions whose askers wait longer. */
   deadline(): number;
+  /** The deadlines around it, which a wait on an outside participant still ends at. */
+  ceiling?: number;
+  /** A wait on an outside participant ended: its deadline moves out by its length, to `later`. */
+  extended?(later: number): void;
   start(): Promise<HarnessTurn>;
   messages: OperationMessages;
   onStop(cancel: (stop: OperationStop) => Promise<void>): () => void;
@@ -60,11 +65,19 @@ export async function superviseMessageOperation(options: {
     cleanupUnresolved: false,
     charges,
     ...(deliveredAt === undefined ? {} : { deliveredAt }),
-    settledAt: kind === "timed-out" ? Math.min(now(), options.deadline()) : now(),
+    settledAt:
+      kind === "timed-out"
+        ? Math.min(now(), outsideSince === undefined ? options.deadline() : ceiling)
+        : now(),
   });
+  const ceiling = options.ceiling ?? Number.POSITIVE_INFINITY;
+  /** While it awaits an outside participant: its deadline does not count, only the ceiling. */
+  let outsideSince: number | undefined;
+  const limit = () =>
+    outsideSince === undefined ? options.deadline() : ceiling + CEILING_GRACE_MS;
   /** Until something changes, a stop, the deadline, or `until`, whichever comes first. */
   const nextChange = async (until = Number.POSITIVE_INFINITY) => {
-    const cancel = scheduleAt({ unixMilliseconds: Math.min(options.deadline(), until) }, changed);
+    const cancel = scheduleAt({ unixMilliseconds: Math.min(limit(), until) }, changed);
     try {
       await wake.promise;
     } finally {
@@ -72,7 +85,7 @@ export async function superviseMessageOperation(options: {
       wake = Promise.withResolvers<void>();
     }
   };
-  const stopped = () => stop !== undefined || now() >= options.deadline();
+  const stopped = () => stop !== undefined || now() >= limit();
   /** Aborts a delivery not yet dispatched when the operation is stopped. */
   let acquisition: AbortController | undefined;
 
@@ -194,8 +207,16 @@ export async function superviseMessageOperation(options: {
         while (next.kind === "wait" && !stopped()) {
           options.phase?.("awaiting-reply", next.peer, next.until);
           emit("awaiting-reply", undefined, next.until, next.peer);
+          if (options.messages.awaiting()?.outside) outsideSince = now();
           // An answer, a failure or a question continues it; nothing else does.
           while (!stopped() && options.messages.pending() !== "continues") await nextChange();
+          // Stopped while it waited: the reason says the deadline around it ended the wait.
+          if (stopped()) break;
+          if (outsideSince !== undefined) {
+            const waited = now() - outsideSince;
+            outsideSince = undefined;
+            options.extended?.(Math.min(ceiling, options.deadline() + waited));
+          }
           next = options.messages.turnEnded();
         }
         if (stopped()) break;
@@ -217,6 +238,8 @@ export async function superviseMessageOperation(options: {
         );
       }
       if (stop) return ended(stop.kind, stop.reason);
+      if (outsideSince !== undefined)
+        return ended("timed-out", "a deadline around it passed while it waited");
       return ended("timed-out", "message operation deadline exceeded");
     })();
   } catch (error) {

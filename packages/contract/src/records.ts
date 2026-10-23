@@ -308,7 +308,8 @@ export type AttemptRecord = {
   file: string;
   /** The workflow's `meta.version`, when it gives one. */
   workflowVersion?: string;
-  flags: { timeout: string; fromStage?: string };
+  /** `timeout` absent: the attempt had no deadline. */
+  flags: { timeout?: string; fromStage?: string };
   /** With `processStart`, what makes the attempt checkably live: a pid alone may be reused. */
   pid: number;
   /** As `ps -o lstart=` gives it, as an ISO time to the second. */
@@ -956,8 +957,9 @@ export const OPERATION_LIVENESS_RECORD_VERSION = 1 as const;
 /**
  * Messaging's kinds: `awaiting-reply`, a turn ended with its operation awaiting `peer`'s answer until
  * `until`; `continued`, a delivery went on with it, `reason` saying what (`reply`, `no-reply`,
- * `request`, `messages`); `reminder-due`, a turn ended owing an answer; `deadline-extended`, a
- * message operation's deadline moved later, to `until`.
+ * `request`, `messages`); `reminder-due`, a turn ended owing an answer; `deadline-extended`, its
+ * deadline moved later, to `until`: a message operation's for the askers it answers, a workflow's by
+ * a wait on an outside participant.
  */
 export const OPERATION_LIVENESS_KINDS = [
   "opened",

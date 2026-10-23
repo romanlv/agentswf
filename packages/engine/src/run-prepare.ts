@@ -140,7 +140,7 @@ export async function claimNext(
       file: loaded.file,
       ...(meta.version === undefined ? {} : { workflowVersion: meta.version }),
       flags: {
-        timeout: command.timeout,
+        ...(command.timeout === undefined ? {} : { timeout: command.timeout }),
         ...(command.fromStage === undefined ? {} : { fromStage: command.fromStage }),
       },
     },

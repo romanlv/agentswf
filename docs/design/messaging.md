@@ -6,7 +6,8 @@ durable state belongs in shared files such as a ticket document or review ledger
 The workflow grants routes, prompts define the collaboration protocol, and the engine owns
 delivery, waiting, limits, and accounting. Built in [[029-agent-messaging|story 029]], except what
 [[#Not in this design]] and the story leave out. An outside participant, such as a coordinator, and
-the [[#Coordinator CLI]] that answers for it are [[032-run-coordinator|story 032]]'s. Decisions and their evidence are under [[#Decisions]], and what is
+the [[#Coordinator CLI]] that answers for it are built in [[032-run-coordinator|story 032]], whose
+M2 and M3, an existing host and a sample chat app driving it, are not run yet. Decisions and their evidence are under [[#Decisions]], and what is
 still to be measured under [[#To measure]].
 
 ## Workflow interface
@@ -654,7 +655,8 @@ Whatever answers for an outside participant ([[composition#Connecting an outside
 the holder, uses three commands on `awf`, matching `wf`'s verbs: `awf inbox` to read, `awf reply`
 and `awf send` to talk back. They are the interface apps build on, so `awf inbox`'s items and
 cursor, and the two commands' arguments, stdin and result codes, are published; the run log's
-format and the socket folder are not. Designed in [[032-run-coordinator|story 032]].
+format and the socket folder are not. Built in [[032-run-coordinator|story 032]]; the reference
+for a holder is [`holder-cli.md`](../holder-cli.md).
 
 All three take a run as `{workflow}/{id}`, found under `.awf/runs` in the current folder, or the
 `--cwd` or `--run-root` given, as `awf run --continue` finds it. No two runs in one folder share
@@ -912,7 +914,9 @@ when the workflow returns keeps the run open, since message operations in flight
 workflow that doesn't want that sets the route's `timeoutMs`.
 
 While it waits, a headless agent costs nothing, each of its turns a process of its own. An agent in
-a pane keeps its pane, process and sandbox. If the run's process dies during the wait, that is
+a pane keeps its pane, process and sandbox. A run with no deadline still hands its host, its sandboxes
+and each turn a bound of a week from when they opened, so a pane or a docker sandbox may not
+outlast a week's wait: a question open that long is a run to stop and start again. If the run's process dies during the wait, that is
 [[stopped-run-recovery]]'s.
 
 The waiter is continued with a failure when its `--timeout` passes, when the peer fails or stops, or

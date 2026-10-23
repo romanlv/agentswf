@@ -535,8 +535,7 @@ await workflow.messages.allow({
 - **It stays connected** past the workflow's return while a question to it is open, so the run
   waits for the answer. `coordinator.release(reason)` ends it sooner.
 - **Run in a terminal**, `awf run` asks each question there. Otherwise the answer comes from
-  `awf reply`, by a session or an app reading `awf inbox`
-  ([`design/messaging.md`](design/messaging.md#coordinator-cli)).
+  `awf reply`, by a session or an app reading `awf inbox` ([`holder-cli.md`](holder-cli.md)).
 
 claude's own messaging between sessions is a different thing, on by default:
 [`design/messaging.md`](design/messaging.md#claudes-own-messaging) says what it reaches.
@@ -745,7 +744,3 @@ These are in the types and throw `unavailable` today: `agents.attach` (beyond th
 session), `agent.enqueue`, `steps` (durable steps and sleep), `signals` (waiting for outside
 input), and `call` (one workflow calling another). [`docs/status.md`](status.md) says what's next.
 
-A coordinator connects, and its routes and questions work, but only a test's `coordinators`
-scripts answer it so far: `awf run`'s prompt and `awf inbox`, `awf reply` and `awf send` come with
-[story 032](stories/032-run-coordinator.md), and until then a question's wait still ends at its
-asker's deadline.

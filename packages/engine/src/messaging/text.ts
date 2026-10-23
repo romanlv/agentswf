@@ -191,7 +191,7 @@ export function reminder(owed: readonly AgentKey[], to: Recipient): string {
 /** The line every `wf` command leads with while the operation owes or awaits an answer. */
 export function owingLine(
   owes: readonly AgentKey[],
-  awaits: { peer: AgentKey; until: number } | undefined,
+  awaits: { peer: AgentKey; until?: number } | undefined,
   launcher: string,
   now: number,
 ): string | undefined {
@@ -200,14 +200,17 @@ export function owingLine(
     const how = owes.map((peer) => `${launcher} reply ${peer}`).join(", ");
     parts.push(`you owe ${owes.join(" and ")} a reply (${how})`);
   }
-  if (awaits) parts.push(`you await ${awaits.peer}'s reply, until ${clock(awaits.until, now)}`);
+  if (awaits)
+    parts.push(
+      `you await ${awaits.peer}'s reply${awaits.until === undefined ? "" : `, until ${clock(awaits.until, now)}`}`,
+    );
   return parts.length === 0 ? undefined : `${parts.join("; ")}.`;
 }
 
 /** `wf peers`'s table, the line about what is owed, and nothing for empty cells. */
 export function peersTable(
   peers: readonly PeerView[],
-  awaits: { peer: AgentKey; until: number } | undefined,
+  awaits: { peer: AgentKey; until?: number } | undefined,
   owes: readonly AgentKey[],
   now: number,
   /** The agent asking, which a peer awaiting it names as "you". */
@@ -216,7 +219,7 @@ export function peersTable(
   const standing = [
     ...(awaits
       ? [
-          `You await ${awaits.peer}'s reply, until ${clock(awaits.until, now)}; checking again does not speed it.`,
+          `You await ${awaits.peer}'s reply${awaits.until === undefined ? "" : `, until ${clock(awaits.until, now)}`}; checking again does not speed it.`,
         ]
       : []),
     ...owes.map((peer) => `You owe ${peer} a reply.`),

@@ -1,0 +1,48 @@
+{
+  "session": "01a168ef-b718-7011-a2a4-7ae467593715",
+  "investigate": {
+    "at": "2026-10-23T13:25:16.375Z",
+    "session": "01a168ef-b718-7011-a2a4-7ae467593715",
+    "text": "The first 5xx errors began at **2026-10-22 09:12 UTC**. Requests were still returning 200s through 09:11:45.\n\nJust before that, at **09:10 UTC**, checkout-api’s DB pool was reduced from 50 connections to 10 for cost reduction. The 503s report `db pool exhausted: 10/10 in use`, and latency jumps from under 100 ms to roughly 2.4 seconds when they begin. The pool reduction is the likely cause: under the existing request load, the smaller pool is exhausted.\n\nThis looks like the 2026-10-14 payments-api incident; should we merge the two incidents or keep them separate?",
+    "ms": 13948,
+    "turns": 4,
+    "usage": {
+      "input": 117261,
+      "cachedRead": 99840,
+      "cacheWrite": 0,
+      "output": 553
+    }
+  },
+  "warm": {
+    "at": "2026-10-23T13:25:22.415Z",
+    "session": "01a168ef-b718-7011-a2a4-7ae467593715",
+    "text": "Deploy **8f3c** at **2026-10-22 09:10 UTC**, which reduced checkout-api’s DB pool from 50 to 10 connections.",
+    "ms": 6040,
+    "turns": 0,
+    "usage": {
+      "input": 151502,
+      "cachedRead": 107904,
+      "cacheWrite": 0,
+      "output": 593
+    }
+  },
+  "cold": {
+    "at": "2026-10-23T15:30:42.956Z",
+    "session": "01a168ef-b718-7011-a2a4-7ae467593715",
+    "text": "5xx errors began at **2026-10-22 09:12 UTC**, two minutes after deploy **8f3c** reduced checkout-api’s DB pool from **50 to 10 connections**. The errors report pool exhaustion, making that reduction the likely cause.\n\nNext, I’ll keep the two incidents separate and link them as related.",
+    "ms": 7594,
+    "turns": 0,
+    "usage": {
+      "input": 185842,
+      "cachedRead": 141952,
+      "cacheWrite": 0,
+      "output": 668
+    }
+  },
+  "hours": 2.089039166666667,
+  "remembered": {
+    "time": true,
+    "deploy": true,
+    "change": true
+  }
+}

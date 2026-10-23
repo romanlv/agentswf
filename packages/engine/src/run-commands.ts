@@ -26,6 +26,11 @@ export function parsePlace(
   const rest: string[] = [];
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index]!;
+    // What follows is the command's own, a message's text included.
+    if (arg === "--") {
+      rest.push(...argv.slice(index));
+      break;
+    }
     if (arg === "--json") json = true;
     else if (arg === "--cwd" || arg === "--run-root") {
       const value = argv[index + 1];

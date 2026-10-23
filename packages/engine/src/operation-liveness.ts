@@ -43,11 +43,21 @@ export type LivenessEvent = {
  * An operation's messages, which a turn that ends without a result goes on to before 021's
  * check-in: what continues it, a wait for an answer, or a reminder of one it owes.
  */
+/**
+ * How long past the deadlines around it a wait on an outside participant is ended here, should the
+ * scope's own stop, which ends it with its reason, not have come.
+ */
+export const CEILING_GRACE_MS = 1_000;
+
 export type OperationMessages = {
   /** What is held for it, deciding nothing. */
   pending(): Pending;
   /** The answer it awaits, while it does. */
-  awaiting(): { peer: string; until: number } | undefined;
+  /**
+   * The answer it awaits, while it does: until `until` when the wait has a limit; `outside` when an
+   * outside participant owes it, a wait its deadline does not count.
+   */
+  awaiting(): { peer: string; until?: number; outside?: true } | undefined;
   turnEnded(): TurnEnd;
   /**
    * The turn that carries what is held, or the reminder, once `turn` has settled; it says why it
@@ -83,7 +93,15 @@ type Options = {
   agentId: string;
   question: string;
   schema: JsonSchema;
-  deadline: AbsoluteDeadline;
+  /** Absent when nothing bounds it. */
+  deadline?: AbsoluteDeadline;
+  /** The deadlines around it, which a wait on an outside participant still ends at. */
+  ceiling?: number;
+  /**
+   * Its deadline moved: to the ceiling while it waits on an outside participant (`waiting`), then
+   * out by that wait's length once it ends, within the ceiling. Undefined is none.
+   */
+  extended?(deadline: number | undefined, waiting: boolean): void;
   slots: ResultSlotRegistry;
   nudge: boolean;
   waitingSupported?: boolean;
@@ -107,7 +125,17 @@ export async function superviseOperation(options: Options): Promise<SupervisedOu
     options.schedule ?? ((at, action) => scheduleAt({ unixMilliseconds: at }, action));
   const policy = options.policy ?? DEFAULT_LIVENESS_POLICY;
   const waitingSupported = options.waitingSupported !== false;
-  const deadline = options.deadline.unixMilliseconds;
+  let deadline = options.deadline?.unixMilliseconds ?? Number.POSITIVE_INFINITY;
+  const ceiling = options.ceiling ?? Number.POSITIVE_INFINITY;
+  /** When its turn ended awaiting an outside participant: the wait its deadline does not count. */
+  let outsideSince: number | undefined;
+  const finite = (at: number) => (Number.isFinite(at) ? at : undefined);
+  const waitedOutside = (at: number) => {
+    if (outsideSince === undefined) return;
+    deadline = Math.min(ceiling, deadline + (at - outsideSince));
+    outsideSince = undefined;
+    options.extended?.(finite(deadline), false);
+  };
   let wake = Promise.withResolvers<void>();
   const stopped = Promise.withResolvers<void>();
   const released = Promise.withResolvers<void>();
@@ -125,7 +153,7 @@ export async function superviseOperation(options: Options): Promise<SupervisedOu
   let dispatched = false;
   let receiptSatisfied = false;
   /** The answer it waits on, once a turn has ended awaiting it: no check-in while it does. */
-  let awaitingPeer: { peer: string; until: number } | undefined;
+  let awaitingPeer: { peer: string; until?: number } | undefined;
   /** When a reminder's response window closes: what it owes fails then. */
   let reminderUntil: number | undefined;
   /** Deliveries not yet dispatched, which only a stop aborts. */
@@ -173,6 +201,7 @@ export async function superviseOperation(options: Options): Promise<SupervisedOu
   const continueWithMessages = (messages: OperationMessages, reminder?: string) => {
     waitUntil = quietUntil = undefined;
     awaitingPeer = undefined;
+    waitedOutside(now());
     sequence += 1;
     const continuation = new AbortController();
     continuations.add(continuation);
@@ -248,7 +277,7 @@ export async function superviseOperation(options: Options): Promise<SupervisedOu
     released.resolve();
     return terminal(stop?.kind ?? "failed", stop?.reason ?? messageOf(error));
   }
-  emit("opened", undefined, deadline);
+  emit("opened", undefined, finite(deadline));
   const unwatch = options.messages?.onChange(changed);
   if (stop) void options.slots.close(options.operationId);
   void slot.settled.then((value) => {
@@ -419,7 +448,16 @@ export async function superviseOperation(options: Options): Promise<SupervisedOu
         result = { ...terminal("answered", "answer saved"), value: settlement.value };
         break;
       }
-      if (!admitted && (at >= deadline || settlement?.kind === "expired")) {
+      if (outsideSince !== undefined && !options.messages?.awaiting()?.outside) waitedOutside(at);
+      // The scope's own stop ends the wait at the ceiling, with its reason; this is the backstop.
+      if (!admitted && outsideSince !== undefined && at >= ceiling + CEILING_GRACE_MS) {
+        result = terminal("timed-out", "a deadline around it passed while it waited");
+        break;
+      }
+      if (
+        !admitted &&
+        ((outsideSince === undefined && at >= deadline) || settlement?.kind === "expired")
+      ) {
         result = terminal("timed-out", "operation deadline exceeded");
         break;
       }
@@ -482,6 +520,11 @@ export async function superviseOperation(options: Options): Promise<SupervisedOu
               options.phase?.("awaiting-reply", awaited.peer, awaited.until);
               emit("awaiting-reply", undefined, awaited.until, now(), awaited.peer);
             }
+            if (awaited.outside && outsideSince === undefined) {
+              outsideSince = at;
+              // Its result stays open while it waits: only the deadlines around it end that.
+              options.extended?.(finite(ceiling + CEILING_GRACE_MS), true);
+            }
             waitUntil = quietUntil = undefined;
           } else awaitingPeer = undefined;
         }
@@ -528,7 +571,7 @@ export async function superviseOperation(options: Options): Promise<SupervisedOu
       const candidates = admitted
         ? []
         : [
-            deadline,
+            outsideSince === undefined ? deadline : ceiling + CEILING_GRACE_MS,
             waitUntil,
             quietUntil,
             responseUntil,
@@ -649,7 +692,10 @@ export async function superviseOperation(options: Options): Promise<SupervisedOu
       cleanupUnresolved: false,
       charges,
       ...(deliveredAt === undefined ? {} : { deliveredAt }),
-      settledAt: kind === "timed-out" ? Math.min(now(), deadline) : now(),
+      settledAt:
+        kind === "timed-out"
+          ? Math.min(now(), outsideSince === undefined ? deadline : ceiling)
+          : now(),
     };
   }
   async function bounded<T>(

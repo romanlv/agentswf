@@ -6,8 +6,6 @@ import { messageOf } from "./errors";
 import { SESSION_CODE } from "./here";
 import { idProblem, runRootOf, stageNameProblem } from "./runs";
 
-const DEFAULT_TIMEOUT = "1h";
-
 export const usage = [
   "usage: awf run [options] <workflow-file> [options] [-- workflow arguments...]",
   "       awf run [options] <workflow-file> --continue <id>",
@@ -29,7 +27,7 @@ export const usage = [
   "nothing is passed. Without one the attempt stops, naming the stage and its schema.",
   "A stop exits 3. A run is kept in .awf/runs/<workflow>/<id> under --cwd, unless --run-root names",
   "another folder for .awf/runs.",
-  "The deadline defaults to 1h, per attempt.",
+  "A run has no deadline unless --timeout gives it one, per attempt.",
   "A workflow that knows how to present its result prints that; --json prints the full result instead.",
   "Either way the full result is kept as output.json in the run's folder, beside report.md",
   "when the workflow writes one. A run that fails or is cancelled once its agents have started keeps",
@@ -65,9 +63,9 @@ export type RunCommand = {
   runRootGiven: boolean;
   workflowFile: string;
   workflowArgs: string[];
-  /** As typed, for the attempt's record. */
-  timeout: string;
-  timeoutMilliseconds: number;
+  /** As typed, for the attempt's record; absent, the run has no deadline. */
+  timeout?: string;
+  timeoutMilliseconds?: number;
   runRoot: string;
   /** A new run's id, as `--id` gave it. */
   id?: string;
@@ -90,8 +88,8 @@ export type RunCommand = {
 
 export function parseCommand(argv: readonly string[], cwd: string): RunCommand {
   if (argv[0] !== "run") throw new Error("expected the run command");
-  let timeout = DEFAULT_TIMEOUT;
-  let timeoutMilliseconds = parseDuration(DEFAULT_TIMEOUT);
+  let timeout: string | undefined;
+  let timeoutMilliseconds: number | undefined;
   let runRoot: string | undefined;
   let id: string | undefined;
   let continueId: string | undefined;
@@ -185,8 +183,8 @@ export function parseCommand(argv: readonly string[], cwd: string): RunCommand {
     runRootGiven: runRoot !== undefined,
     workflowFile,
     workflowArgs,
-    timeout,
-    timeoutMilliseconds,
+    ...(timeout === undefined ? {} : { timeout }),
+    ...(timeoutMilliseconds === undefined ? {} : { timeoutMilliseconds }),
     runRoot: runRoot ?? runRootOf(workCwd),
     ...(id === undefined ? {} : { id }),
     ...(continueId === undefined ? {} : { continueId }),

@@ -19,7 +19,7 @@ export type ResultSlotAccepted = {
 };
 type Rejected = { kind: "rejected"; code: ResultRejectionCode; error: string };
 export type ResultSubmission = ResultSlotAccepted | Rejected;
-export type WaitingGrant = { kind: "waiting"; waitUntil: number; deadline: number };
+export type WaitingGrant = { kind: "waiting"; waitUntil: number; deadline?: number };
 export type ResultSlotSettlement =
   | ResultSlotAccepted
   | { kind: "closed" }
@@ -36,7 +36,8 @@ export type ResultSlotSpec = {
   question: string;
   schema?: JsonSchema;
   semantic?: SemanticCheck;
-  deadline: AbsoluteDeadline;
+  /** Absent when nothing bounds the operation. */
+  deadline?: AbsoluteDeadline;
   allowWaiting?: boolean;
   onEvent?(event: ResultSlotEvent): void;
 };
@@ -71,6 +72,8 @@ export interface ResultSlotRegistry {
     timeoutMs?: number;
   }): Promise<WaitingGrant | Rejected>;
   close(operationId: string): Promise<boolean>;
+  /** Its operation's deadline moved, out by a wait that did not count, or to none. */
+  extend(operationId: string, deadline: AbsoluteDeadline | undefined): void;
 }
 type Slot = ResultSlotSpec & {
   state: "open" | "committing" | "accepted" | "closed" | "expired" | "failed";
@@ -160,13 +163,7 @@ export function createResultSlotRegistry(options: ResultSlotRegistryOptions): Re
         } else slots.delete(spec.operationId);
         throw error;
       }
-      if (slot.state === "open") {
-        if (now() >= spec.deadline.unixMilliseconds) closeSlot(slot, "expired");
-        else
-          slot.cancelExpiry = schedule(spec.deadline.unixMilliseconds - now(), () => {
-            if (slot.state === "open") closeSlot(slot, "expired");
-          });
-      }
+      if (slot.state === "open") expireAt(slot);
       return { operationId: spec.operationId, settled };
     },
 
@@ -190,7 +187,7 @@ export function createResultSlotRegistry(options: ResultSlotRegistryOptions): Re
       )
         return rejected("invalid-request", "waiting timeout must be a positive safe integer");
       const at = now();
-      const remaining = slot.deadline.unixMilliseconds - at;
+      const remaining = (slot.deadline?.unixMilliseconds ?? Number.POSITIVE_INFINITY) - at;
       if (remaining <= 0) {
         closeSlot(slot, "expired");
         return rejected("expired-operation");
@@ -204,7 +201,11 @@ export function createResultSlotRegistry(options: ResultSlotRegistryOptions): Re
         at,
         revision: ++slot.revision,
       });
-      return { kind: "waiting", waitUntil, deadline: slot.deadline.unixMilliseconds };
+      return {
+        kind: "waiting",
+        waitUntil,
+        ...(slot.deadline ? { deadline: slot.deadline.unixMilliseconds } : {}),
+      };
     },
 
     async submit(input) {
@@ -281,16 +282,39 @@ export function createResultSlotRegistry(options: ResultSlotRegistryOptions): Re
     async close(operationId) {
       const slot = slots.get(operationId);
       if (!slot || (slot.state !== "open" && slot.state !== "committing")) return false;
-      closeSlot(slot, now() >= slot.deadline.unixMilliseconds ? "expired" : "closed");
+      closeSlot(
+        slot,
+        slot.deadline && now() >= slot.deadline.unixMilliseconds ? "expired" : "closed",
+      );
       return true;
     },
+
+    extend(operationId, deadline) {
+      const slot = slots.get(operationId);
+      if (slot?.state !== "open") return;
+      slot.cancelExpiry();
+      slot.cancelExpiry = () => {};
+      if (deadline) slot.deadline = deadline;
+      else delete slot.deadline;
+      expireAt(slot);
+    },
   };
+
+  function expireAt(slot: Slot): void {
+    const { deadline } = slot;
+    if (!deadline) return;
+    if (now() >= deadline.unixMilliseconds) closeSlot(slot, "expired");
+    else
+      slot.cancelExpiry = schedule(deadline.unixMilliseconds - now(), () => {
+        if (slot.state === "open") closeSlot(slot, "expired");
+      });
+  }
 }
 
 function unavailableCode(slot: Slot, now: number): ResultRejectionCode | null {
   if (slot.state === "expired") return "expired-operation";
   if (slot.state !== "open") return "closed-operation";
-  if (now >= slot.deadline.unixMilliseconds) {
+  if (slot.deadline && now >= slot.deadline.unixMilliseconds) {
     closeSlot(slot, "expired");
     return "expired-operation";
   }

@@ -7,23 +7,29 @@ export class WorkflowCancelledError extends Error {
   }
 }
 
-/** Races `execute` against `signal` and `deadline`; losing the race does not stop `execute`. */
+/**
+ * Races `execute` against `signal` and `deadline`, if there is one; losing the race does not stop
+ * `execute`.
+ */
 export async function runUntilStopped<T>(
   execute: () => Promise<T>,
   signal: AbortSignal | undefined,
-  deadline: AbsoluteDeadline,
+  deadline: AbsoluteDeadline | undefined,
 ): Promise<T> {
   if (signal?.aborted) throw new WorkflowCancelledError(signal.reason);
-  if (Date.now() >= deadline.unixMilliseconds) throw new DeadlineExceededError(deadline);
+  if (deadline && Date.now() >= deadline.unixMilliseconds)
+    throw new DeadlineExceededError(deadline);
   let rejectStopped!: (error: Error) => void;
   const stopped = new Promise<never>((_resolve, reject) => {
     rejectStopped = reject;
   });
   const abort = () => rejectStopped(new WorkflowCancelledError(signal?.reason));
   signal?.addEventListener("abort", abort, { once: true });
-  const cancelDeadline = scheduleAt(deadline, () => {
-    rejectStopped(new DeadlineExceededError(deadline));
-  });
+  const cancelDeadline = deadline
+    ? scheduleAt(deadline, () => {
+        rejectStopped(new DeadlineExceededError(deadline));
+      })
+    : () => undefined;
   try {
     return await Promise.race([execute(), stopped]);
   } finally {
@@ -32,7 +38,11 @@ export async function runUntilStopped<T>(
   }
 }
 
-export function waitForDeadline<T>(promise: Promise<T>, deadline: AbsoluteDeadline): Promise<T> {
+export function waitForDeadline<T>(
+  promise: Promise<T>,
+  deadline: AbsoluteDeadline | undefined,
+): Promise<T> {
+  if (!deadline) return promise;
   let cancelTimer: (() => void) | undefined;
   const expired = new Promise<never>((_resolve, reject) => {
     cancelTimer = scheduleAt(deadline, () => reject(new DeadlineExceededError(deadline)));
@@ -60,7 +70,20 @@ export function scheduleAt(deadline: AbsoluteDeadline, action: () => void): () =
   };
 }
 
-export function earlierDeadline(left: AbsoluteDeadline, right: AbsoluteDeadline): AbsoluteDeadline {
+/** The earlier of two deadlines, an absent one being none. */
+export function earlierDeadline(
+  left: AbsoluteDeadline,
+  right: AbsoluteDeadline | undefined,
+): AbsoluteDeadline;
+export function earlierDeadline(
+  left: AbsoluteDeadline | undefined,
+  right: AbsoluteDeadline | undefined,
+): AbsoluteDeadline | undefined;
+export function earlierDeadline(
+  left: AbsoluteDeadline | undefined,
+  right: AbsoluteDeadline | undefined,
+): AbsoluteDeadline | undefined {
+  if (!left || !right) return left ?? right;
   return left.unixMilliseconds <= right.unixMilliseconds ? left : right;
 }
 
@@ -68,14 +91,18 @@ export function laterDeadline(left: AbsoluteDeadline, right: AbsoluteDeadline): 
   return left.unixMilliseconds >= right.unixMilliseconds ? left : right;
 }
 
-export function deadlineWithin(milliseconds: number, ceiling: AbsoluteDeadline): AbsoluteDeadline {
+export function deadlineWithin(
+  milliseconds: number,
+  ceiling: AbsoluteDeadline | undefined,
+): AbsoluteDeadline {
   if (!Number.isSafeInteger(milliseconds) || milliseconds <= 0) {
     throw new Error("timeoutMs must be a positive safe integer");
   }
   return earlierDeadline({ unixMilliseconds: Date.now() + milliseconds }, ceiling);
 }
 
-export function assertDeadline(deadline: AbsoluteDeadline): void {
+export function assertDeadline(deadline: AbsoluteDeadline | undefined): void {
+  if (!deadline) return;
   assertDeadlineValue(deadline);
   if (Date.now() >= deadline.unixMilliseconds) {
     throw new DeadlineExceededError(deadline);
@@ -86,6 +113,16 @@ export function assertDeadlineValue(deadline: AbsoluteDeadline): void {
   if (!Number.isSafeInteger(deadline.unixMilliseconds) || deadline.unixMilliseconds < 0) {
     throw new Error("deadline.unixMilliseconds must be a non-negative safe integer");
   }
+}
+
+/**
+ * What a harness bounds a run, an agent or a turn by when nothing else does. Workflow code sees no
+ * deadline then; a harness needs one, and a timer cannot wait past about 24.8 days.
+ */
+const HARNESS_BOUND_MS = 7 * 24 * 60 * 60_000;
+
+export function harnessDeadline(deadline: AbsoluteDeadline | undefined): AbsoluteDeadline {
+  return deadline ?? { unixMilliseconds: Date.now() + HARNESS_BOUND_MS };
 }
 
 /** Waits `milliseconds`, or until `signal` aborts, whichever is first. */

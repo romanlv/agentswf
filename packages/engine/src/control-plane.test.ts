@@ -199,6 +199,7 @@ describe("result control plane", () => {
       release = resolve;
     });
     const slots: ResultSlotRegistry = {
+      extend() {},
       async waiting() {
         throw new Error("unused");
       },

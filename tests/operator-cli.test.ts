@@ -13,6 +13,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { RUNTIMES } from "../examples/quick-check/workflow";
 import { OUTPUT_RECORD_VERSION } from "../packages/contract/src/records";
+import { WIRE_VERSION } from "../packages/contract/src/wire";
 import { DeadlineExceededError } from "../packages/contract/src/workflow/timing";
 import { PUBLISHED_PRICES } from "../packages/engine/src/accounting/prices";
 import { summarizeRun } from "../packages/engine/src/accounting/summary";
@@ -22,7 +23,7 @@ import { createFakeDecisionProvider } from "../packages/engine/src/decisions/fak
 import { runOperatorCli } from "../packages/engine/src/operator-cli";
 import { processStart, readEvents } from "../packages/engine/src/runs";
 import { WorkflowStopped } from "../packages/engine/src/stopped";
-import { createTempRunDirs, submit } from "../packages/engine/src/testing";
+import { createTempRunDirs, exchange, submit } from "../packages/engine/src/testing";
 import { WorkflowRunError } from "../packages/engine/src/workflow-runner";
 import type { AgentRuntimeConfig, AgentSessionAdapter } from "../packages/harness/src/adapter";
 import type { RunProcess } from "../packages/harness/src/command";
@@ -618,13 +619,13 @@ describe("awf run", () => {
     });
   });
 
-  test("without flags, a run gets an hour and is kept in the project's .awf, ignored by git", async () => {
+  test("without flags, a run has no deadline and is kept in the project's .awf, ignored by git", async () => {
     const home = runDirs.tempRunDir();
     const cwd = runDirs.tempRunDir();
     const workflow = join(cwd, "ok.js");
     await Bun.write(workflow, executableModule("return null;", "return 1;"));
     const startedAt = Date.now();
-    let timeout: number | undefined;
+    let timeout: number | undefined = 0;
     const output: string[] = [];
 
     const exitCode = await cli(["run", workflow], {
@@ -639,12 +640,119 @@ describe("awf run", () => {
     });
 
     expect(exitCode).toBe(0);
-    expect(timeout).toBe(60 * 60_000);
+    expect(timeout).toBeUndefined();
     expect(existsSync(join(home, ".awf/runs"))).toBe(false);
     expect(readFileSync(join(cwd, ".awf/runs/.gitignore"), "utf8")).toBe("*\n");
     expect([...new Bun.Glob("*/*/run.json").scanSync({ cwd: join(cwd, ".awf/runs") })]).toEqual([
       expect.stringMatching(/^fixture\/\d{8}-\d{4}-[0-9a-f]{4}\/run\.json$/),
     ]);
+  });
+
+  test("a coordinator folder inside the workflow's directory refuses the run", async () => {
+    const cwd = runDirs.tempRunDir();
+    await Bun.write(join(cwd, "flow.js"), executableModule("return null;", "return 1;"));
+    const errors: string[] = [];
+    const exitCode = await cli(["run", "flow.js"], {
+      cwd,
+      home: runDirs.tempRunDir(),
+      stdout: () => undefined,
+      stderr: (text) => errors.push(text),
+      environment: { ...process.env, AWF_COORDINATOR_DIR: join(cwd, "coordinator") },
+      installRuntime: async () => emptyRuntime(),
+    });
+    expect(exitCode).toBe(2);
+    expect(errors.join("\n")).toContain(
+      "is inside the workflow's directory, where its agents work",
+    );
+  });
+
+  test("a question is asked at the terminal, and its answer goes on in the agent's same call", async () => {
+    const adapter = createFakeAdapter({
+      harnesses: ["claude"],
+      script: () => ({
+        act: async (turn) => {
+          if (turn.kind === "turn") {
+            await exchange(
+              turn.binding!.endpoint,
+              `${JSON.stringify({ version: WIRE_VERSION, command: "send", peer: "coordinator", text: "Merge or keep two?", awaitReply: true })}\n`,
+            );
+          } else if (turn.kind === "deliver") {
+            await submit(turn.binding!, turn.prompt.includes("Keep two.") ? "kept" : "lost");
+          }
+        },
+      }),
+    });
+    const asks = executableModule(
+      "return null;",
+      `const investigator = await workflow.agents.open({ key: "investigator", runtime: "claude" });
+       const coordinator = await workflow.participants.connect({ key: "coordinator" });
+       await workflow.messages.allow({ between: [investigator, coordinator], purpose: "Ask." });
+       const { outcome } = await investigator.run({ prompt: "Ask." });
+       return outcome.kind === "answered" ? outcome.value : outcome.kind;`,
+    );
+    const cwd = runDirs.tempRunDir();
+    await Bun.write(join(cwd, "flow.js"), asks);
+    const prompts: string[] = [];
+    const shown: string[] = [];
+    const output: string[] = [];
+    const exitCode = await cli(["run", "flow.js"], {
+      cwd,
+      home: runDirs.tempRunDir(),
+      stdout: (text) => output.push(text),
+      stderr: (text) => shown.push(text),
+      terminal: { write: () => undefined, color: false },
+      awaitReply: () => true,
+      lines: {
+        read: async (prompt) => {
+          prompts.push(prompt);
+          return "Keep two.";
+        },
+        above: (line) => shown.push(line),
+        close: () => undefined,
+      },
+      installRuntime: async () => ({ config: runtime(adapter), cleanup: async () => undefined }),
+    });
+    expect(exitCode).toBe(0);
+    expect(output.join("\n")).toContain("kept");
+    expect(prompts).toEqual(["reply to investigator › "]);
+    expect(shown).toContain("● investigator asks:\n                Merge or keep two?");
+    const [dir] = [...new Bun.Glob(".awf/runs/fixture/*").scanSync({ cwd, onlyFiles: false })];
+    const answer = (await readEvents(join(cwd, dir!))).find(
+      (event) => event.kind === "message-sent" && event.from === "coordinator",
+    );
+    expect(answer).toMatchObject({ to: "investigator", via: "terminal", text: "Keep two." });
+  });
+
+  test("a coordinator's questions are asked at a terminal, and never with --json or without one", async () => {
+    const connects = executableModule(
+      "return null;",
+      'await workflow.participants.connect({ key: "coordinator" }); return 1;',
+    );
+    const attempt = async (args: string[], options: { terminal: boolean }) => {
+      const cwd = runDirs.tempRunDir();
+      await Bun.write(join(cwd, "flow.js"), connects);
+      let closed = 0;
+      const exitCode = await cli(["run", ...args, "flow.js"], {
+        cwd,
+        home: runDirs.tempRunDir(),
+        stdout: () => undefined,
+        stderr: () => undefined,
+        ...(options.terminal ? { terminal: { write: () => undefined, color: false } } : {}),
+        lines: {
+          read: async () => undefined,
+          above: () => undefined,
+          close: () => {
+            closed += 1;
+          },
+        },
+        installRuntime: async () => emptyRuntime(),
+      });
+      expect(exitCode).toBe(0);
+      return closed;
+    };
+    expect(await attempt([], { terminal: true })).toBe(1);
+    expect(await attempt(["--json"], { terminal: true })).toBe(0);
+    expect(await attempt([], { terminal: false })).toBe(0);
   });
 
   test("--cwd, before or after the workflow file, moves where the workflow works; command-line paths stay relative to the shell", async () => {
@@ -1178,7 +1286,7 @@ describe("awf run's runs and attempts", () => {
     expect(attemptOf(join(runs(cwd), "PROJ-1515"))).toMatchObject({
       attempt: 1,
       outcome: "completed",
-      flags: { timeout: "1h" },
+      flags: {},
     });
 
     const before = readdirSync(runs(cwd));

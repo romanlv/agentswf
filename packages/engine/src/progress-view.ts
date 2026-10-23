@@ -504,6 +504,10 @@ export function watchProgress(
   // nothing is said under the closing block.
   let stopped = false;
   let drawn = 0;
+  /** While a prompt waits for a line: the block is not drawn, and lines go above the prompt. */
+  let above: ((line: string) => void) | undefined;
+  /** Messages another view shows already, which get no line here. */
+  let shown: (message: WorkflowRunSnapshot["messages"][number]) => boolean = () => false;
   const clear = () => {
     if (terminal && drawn > 0) terminal.write(`\x1b[${drawn}F\x1b[0J`);
     drawn = 0;
@@ -513,7 +517,14 @@ export function watchProgress(
     const snapshot = handle.inspect();
     if (terminal) {
       // A message is an event: a line above the block, as a log line is.
-      const sent = snapshot.messages.slice(last?.messages.length ?? 0);
+      const sent = snapshot.messages
+        .slice(last?.messages.length ?? 0)
+        .filter((message) => !shown(message));
+      if (above && !final) {
+        for (const message of sent) above(messageLine(message));
+        last = snapshot;
+        return;
+      }
       if (sent.length > 0) {
         clear();
         for (const message of sent) stderr(messageLine(message));
@@ -548,9 +559,21 @@ export function watchProgress(
     },
     log(text: string) {
       if (stopped) return;
+      if (above) return above(text);
       clear();
       stderr(text);
       if (terminal) tick();
+    },
+    /** Messages the prompt shows itself, with their text: no size line for them here. */
+    showsMessages(by: (message: WorkflowRunSnapshot["messages"][number]) => boolean) {
+      shown = by;
+    },
+    /** A prompt opened, writing lines through `under`, or closed with none. */
+    hold(under: ((line: string) => void) | undefined) {
+      if (stopped || !terminal) return;
+      above = under;
+      if (under) clear();
+      else tick();
     },
     /** The Herdr session pane agents opened in, which a blocked one's line names. */
     placedIn(session: string) {

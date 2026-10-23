@@ -14,7 +14,8 @@ import { assertLiveOptIn, interruption } from "./live";
 /**
  * Story 032's coordinator smoke on live agents: each investigator reports to the coordinator and
  * asks it for a codeword, and the answer, given as an app would through the run's holder, continues
- * the asker's same call. With no names, claude and codex headless.
+ * the asker's same call. With no names, claude and codex headless. With `--late`, each operation
+ * has 60 s and the answer comes after 90 s: the wait doesn't count, so it goes on.
  */
 const SMOKE = join(import.meta.dir, "fixtures/coordinator-smoke.ts");
 
@@ -70,7 +71,9 @@ export function problems(
 
 if (import.meta.main) {
   assertLiveOptIn();
-  const names = process.argv.slice(2).length ? process.argv.slice(2) : HEADLESS_NAMES;
+  const late = process.argv.includes("--late");
+  const given = process.argv.slice(2).filter((arg) => arg !== "--late");
+  const names = given.length ? given : HEADLESS_NAMES;
   const workDir = await mkdtemp(join(tmpdir(), "awf-coordinator-"));
   const output: string[] = [];
   let holder: CoordinatorHolder | undefined;
@@ -86,6 +89,7 @@ if (import.meta.main) {
       SMOKE,
       "--",
       ...names,
+      ...(late ? ["--timeout-ms", "60000"] : []),
     ],
     {
       cwd: workDir,
@@ -102,16 +106,19 @@ if (import.meta.main) {
             if (event.kind !== "message-sent" || event.to !== "coordinator" || !event.awaitsReply)
               return;
             asked.push(event.text);
-            setTimeout(() => {
-              void holder
-                ?.reply({
-                  agent: event.from,
-                  to: event.message,
-                  text: `The codeword is ${CODEWORD}.`,
-                  via: "command",
-                })
-                .then((result) => console.error(`coordinator → ${event.from}: ${result.code}`));
-            }, 2_000);
+            setTimeout(
+              () => {
+                void holder
+                  ?.reply({
+                    agent: event.from,
+                    to: event.message,
+                    text: `The codeword is ${CODEWORD}.`,
+                    via: "command",
+                  })
+                  .then((result) => console.error(`coordinator → ${event.from}: ${result.code}`));
+              },
+              late ? 90_000 : 2_000,
+            );
           },
         },
       ],

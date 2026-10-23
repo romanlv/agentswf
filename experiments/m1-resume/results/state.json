@@ -1,0 +1,62 @@
+{
+  "claude": {
+    "session": "b90f19c0-c89b-49ef-a23d-96a6ff50f67c",
+    "investigate": {
+      "at": "2026-10-23T13:24:56.610Z",
+      "session": "b90f19c0-c89b-49ef-a23d-96a6ff50f67c",
+      "text": "**Findings for checkout-api (2026-10-22)**\n\n- **When the 5xx errors began:** at 09:12:00Z. The first error is req=72-0, a `POST /checkout` that returned 503 with `latency_ms=2400`. Until then every request returned 200 with latency of 80–95 ms.\n- **What changed just before:** at 09:10:00Z, deploy `8f3c` of checkout-api changed `db.pool_size` from 50 to 10 as a cost reduction. It is the only checkout-api deploy that day. The next-closest checkout-api change, `1a2b` (bump logging library), shipped the previous afternoon at 2026-10-21T16:40Z, and the logs show no problems after it. The other deploys, `77d0` on search-api and `91aa` on payments-api (09:30Z), don't touch checkout-api. `91aa` came after the errors began, so it can't be the trigger.\n- **Likely cause:** the smaller connection pool. Every 503 carries the error `db pool exhausted: 10/10 in use`, which matches the new limit of 10. Errors started about 2 minutes after the deploy, once traffic filled the smaller pool.\n- **Scale:** the log has 144 errors out of 720 requests, and all 144 are 503s. The log ends at 09:59:45Z with errors still occurring. Latency on the requests that succeed also climbs to about 2.5 s, so the pool is still saturated. Nothing in the log shows a rollback.\n- **Suggested action:** revert `db.pool_size` to 50, or to a value sized for peak concurrency.\n\nDo you want to merge this with the 2026-10-14 incident on payments-api, or keep two separate incidents? I only have the checkout-api logs, so I can't confirm a link between the two. The payments-api retry-budget deploy `91aa` at 09:30Z is the only payments-api change in what I have.",
+      "ms": 23394,
+      "turns": 4,
+      "usage": {
+        "input": 8,
+        "cachedRead": 116248,
+        "cacheWrite": 23775,
+        "output": 1125,
+        "costUsd": 0.11799079999999998
+      }
+    },
+    "warm": {
+      "at": "2026-10-23T13:25:02.425Z",
+      "session": "b90f19c0-c89b-49ef-a23d-96a6ff50f67c",
+      "text": "Deploy `8f3c` on checkout-api (09:10Z), which cut `db.pool_size` from 50 to 10 and matches the `db pool exhausted: 10/10 in use` errors that began at 09:12Z.",
+      "ms": 5814,
+      "turns": 1,
+      "usage": {
+        "input": 2,
+        "cachedRead": 36671,
+        "cacheWrite": 779,
+        "output": 77,
+        "costUsd": 0.1255479
+      }
+    }
+  },
+  "codex": {
+    "session": "01a168ef-b718-7011-a2a4-7ae467593715",
+    "investigate": {
+      "at": "2026-10-23T13:25:16.375Z",
+      "session": "01a168ef-b718-7011-a2a4-7ae467593715",
+      "text": "The first 5xx errors began at **2026-10-22 09:12 UTC**. Requests were still returning 200s through 09:11:45.\n\nJust before that, at **09:10 UTC**, checkout-api’s DB pool was reduced from 50 connections to 10 for cost reduction. The 503s report `db pool exhausted: 10/10 in use`, and latency jumps from under 100 ms to roughly 2.4 seconds when they begin. The pool reduction is the likely cause: under the existing request load, the smaller pool is exhausted.\n\nThis looks like the 2026-10-14 payments-api incident; should we merge the two incidents or keep them separate?",
+      "ms": 13948,
+      "turns": 4,
+      "usage": {
+        "input": 117261,
+        "cachedRead": 99840,
+        "cacheWrite": 0,
+        "output": 553
+      }
+    },
+    "warm": {
+      "at": "2026-10-23T13:25:22.415Z",
+      "session": "01a168ef-b718-7011-a2a4-7ae467593715",
+      "text": "Deploy **8f3c** at **2026-10-22 09:10 UTC**, which reduced checkout-api’s DB pool from 50 to 10 connections.",
+      "ms": 6040,
+      "turns": 0,
+      "usage": {
+        "input": 151502,
+        "cachedRead": 107904,
+        "cacheWrite": 0,
+        "output": 593
+      }
+    }
+  }
+}

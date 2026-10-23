@@ -67,10 +67,10 @@ export type OperationInfo = {
   agent: AgentKey;
   /** A workflow's own `run`, or one a message opened. */
   kind: "workflow" | "message";
-  /** Unix milliseconds; a message operation's may move later. */
-  deadline: number;
-  /** The latest its deadline may move to: the run's. */
-  ceiling: number;
+  /** Unix milliseconds, absent when nothing bounds it; a message operation's may move later. */
+  deadline?: number;
+  /** The latest its deadline may move to: the deadlines around it, absent when there are none. */
+  ceiling?: number;
   /** The scope it runs in: its route's for a message operation, the stage's for a `run`. */
   scope: Scope;
 };
@@ -134,8 +134,11 @@ export type Pending = "continues" | "held" | "none";
 export type TurnEnd =
   /** Something continues it now: an answer, a failure, a question, or held messages. */
   | { kind: "continue" }
-  /** It awaits `peer`'s answer until `until`: nothing runs, a pane stays, a headless process exits. */
-  | { kind: "wait"; peer: AgentKey; until: number }
+  /**
+   * It awaits `peer`'s answer, until `until` if the wait has a limit: nothing runs, a pane stays, a
+   * headless process exits.
+   */
+  | { kind: "wait"; peer: AgentKey; until?: number }
   /** It owes answers: the one reminder, as its next prompt. */
   | { kind: "remind"; text: string }
   /** A workflow's operation with nothing owed or held: 021's check-in. */
@@ -169,8 +172,11 @@ type Obligation = {
   owingOperation?: Operation;
   /** Its owing operation was reminded of it once; the next turn's end that still owes fails it. */
   reminded?: true;
-  /** The asker waits until then: its `--timeout`, or its operation's deadline as that moves. */
-  until: number;
+  /**
+   * The asker waits until then: its `--timeout`, or its operation's deadline as that moves; absent
+   * when nothing limits it. On an outside participant, only its limit: the deadline does not count.
+   */
+  until?: number;
   /** It has a `--timeout` of its own, which only that fails it at. */
   readonly timed: boolean;
   /**
@@ -614,15 +620,15 @@ export class Messaging {
     this.#current.set(info.agent, operation);
   }
 
-  /** A message operation's deadline moved later, and with it any wait it has no `--timeout` for. */
+  /** An operation's deadline moved later, and with it any wait on an agent it has no `--timeout` for. */
   extended(id: string, deadline: number): void {
     const operation = this.#operations.get(id);
-    if (!operation || deadline <= operation.deadline) return;
+    if (!operation || deadline <= (operation.deadline ?? Infinity)) return;
     operation.deadline = deadline;
     const waited = operation.awaits;
-    // An outside question still closes at its own limit, wherever the deadline moves.
-    if (waited?.state === "open" && !waited.timed)
-      waited.until = Math.min(deadline, waited.closes?.at ?? Infinity);
+    // A wait on an outside participant is not bounded by the deadline at all.
+    if (waited?.state === "open" && !waited.timed && !this.#outside.has(waited.owedBy))
+      waited.until = deadline;
   }
 
   /**
@@ -661,10 +667,18 @@ export class Messaging {
     }
   }
 
-  /** The answer this operation awaits, while it does. */
-  awaiting(id: string): { peer: AgentKey; until: number } | undefined {
+  /**
+   * The answer this operation awaits, while it does; `outside` when an outside participant owes it,
+   * whose wait its deadline does not count.
+   */
+  awaiting(id: string): { peer: AgentKey; until?: number; outside?: true } | undefined {
     const waited = this.#operations.get(id)?.awaits;
-    return waited?.state === "open" ? { peer: waited.owedBy, until: waited.until } : undefined;
+    if (waited?.state !== "open") return undefined;
+    return {
+      peer: waited.owedBy,
+      ...(waited.until === undefined ? {} : { until: waited.until }),
+      ...(this.#outside.has(waited.owedBy) ? { outside: true as const } : {}),
+    };
   }
 
   /** The operation open on this agent, if any. */
@@ -682,7 +696,7 @@ export class Messaging {
     command: "result" | "waiting",
   ):
     | { kind: "refused"; code: "owes-reply" | "no-result"; error: string }
-    | { kind: "awaiting"; peer: AgentKey; until: number; notice: string }
+    | { kind: "awaiting"; peer: AgentKey; until?: number; notice: string }
     | null {
     const operation = this.#operations.get(id);
     if (!operation || operation.agent !== agent) return null;
@@ -713,8 +727,8 @@ export class Messaging {
       return {
         kind: "awaiting",
         peer: waited.owedBy,
-        until: waited.until,
-        notice: `you already await ${waited.owedBy}'s reply, until ${clock(waited.until, this.#host.now())}. End your turn, or finish with ${wf} result ${id}.`,
+        ...(waited.until === undefined ? {} : { until: waited.until }),
+        notice: `you already await ${waited.owedBy}'s reply${waited.until === undefined ? "" : `, until ${clock(waited.until, this.#host.now())}`}. End your turn, or finish with ${wf} result ${id}.`,
       };
     }
     return null;
@@ -727,7 +741,7 @@ export class Messaging {
     if (checked.kind === "refused") return this.#refused(from, request, "send", checked);
     const { operation, route, bytes } = checked;
     const message = this.#admit(from, request.peer, request.text, bytes, route);
-    const until = request.awaitReply ? this.#ask(message, operation, request.timeoutMs) : undefined;
+    const asked = request.awaitReply ? this.#ask(message, operation, request.timeoutMs) : undefined;
     // Admitted whatever the record says: its recipient is woken even if the write fails.
     try {
       await this.#sent(message, operation);
@@ -737,8 +751,8 @@ export class Messaging {
     return {
       kind: "sent",
       message: message.n,
-      ...(until === undefined ? {} : { until }),
-      notice: this.#sentNotice(request.peer, operation, until),
+      ...(asked?.until === undefined ? {} : { until: asked.until }),
+      notice: this.#sentNotice(request.peer, operation, asked),
     };
   }
 
@@ -753,7 +767,9 @@ export class Messaging {
     owed.owingOperation?.owes.delete(owed);
     if (owed.askerOperation.awaits === owed) owed.askerOperation.awaits = undefined;
     const message = this.#admit(from, owed.asker, request.text, bytes, owed.request.route, owed);
-    const until = request.awaitReply ? this.#ask(message, operation, request.timeoutMs) : undefined;
+    const asking = request.awaitReply
+      ? this.#ask(message, operation, request.timeoutMs)
+      : undefined;
     // Its line first, then the question's end, in the log's order; the end is written either way.
     const sent = this.#sent(message, operation);
     void this.#record({
@@ -769,11 +785,11 @@ export class Messaging {
     } finally {
       this.#host.changed(owed.asker);
     }
-    const asked = until === undefined ? "" : ` ${this.#awaitNotice(operation, until)}`;
+    const asked = asking ? ` ${this.#awaitNotice(operation, asking)}` : "";
     return {
       kind: "sent",
       message: message.n,
-      ...(until === undefined ? {} : { until }),
+      ...(asking?.until === undefined ? {} : { until: asking.until }),
       notice: `replied to ${request.peer}.${asked}`,
     };
   }
@@ -1011,7 +1027,7 @@ export class Messaging {
   }
 
   /** Makes `message` a question its recipient owes an answer to, and its sender's wait. */
-  #ask(message: Message, operation: Operation, timeoutMs?: number): number {
+  #ask(message: Message, operation: Operation, timeoutMs?: number): { until?: number } {
     message.route.count += 1;
     const now = this.#host.now();
     const routeMs = this.#outside.has(message.to) ? message.route.timeoutMs : undefined;
@@ -1022,25 +1038,31 @@ export class Messaging {
         : timeoutMs === undefined
           ? undefined
           : { by: "own" as const, ms: timeoutMs };
-    const until = Math.min(operation.deadline, limit ? now + limit.ms : Infinity);
+    const outside = this.#outside.has(message.to);
+    const limitAt = limit ? now + limit.ms : Infinity;
+    // Waiting on an outside participant is not work: its deadline does not cut the wait, though
+    // the deadlines around it do.
+    const waitEnd = Math.min(
+      outside ? (operation.ceiling ?? Infinity) : (operation.deadline ?? Infinity),
+      limitAt,
+    );
+    const until = Number.isFinite(waitEnd) ? waitEnd : undefined;
     const obligation: Obligation = {
       request: message,
       asker: message.from,
       askerOperation: operation,
       owedBy: message.to,
-      until,
-      timed: until < operation.deadline,
-      ...(limit && this.#outside.has(message.to)
-        ? { closes: { ...limit, at: now + limit.ms } }
-        : {}),
+      ...(until === undefined ? {} : { until }),
+      timed: limitAt < (outside ? Infinity : (operation.deadline ?? Infinity)),
+      ...(limit && outside ? { closes: { ...limit, at: limitAt } } : {}),
       state: "open",
     };
     message.asks = obligation;
     operation.awaits = obligation;
     this.#obligations.push(obligation);
     // Only `--timeout` fails a question: reaching the operation's own deadline times it out.
-    // Its limit closes it even when the deadline cut the wait first and later moved out.
-    const closesAt = obligation.closes?.at ?? (obligation.timed ? until : undefined);
+    // Only its limit closes it; a deadline ends the operation, and the wait with it.
+    const closesAt = obligation.timed ? limitAt : undefined;
     if (closesAt !== undefined) {
       obligation.cancelTimer = this.#host.schedule(closesAt, () => {
         if (obligation.state === "open") {
@@ -1054,7 +1076,7 @@ export class Messaging {
         }
       });
     }
-    return until;
+    return until === undefined ? {} : { until };
   }
 
   /**
@@ -1064,7 +1086,8 @@ export class Messaging {
    */
   async #sent(message: Message, by: Operation | OutsideVia): Promise<void> {
     const asks = message.asks;
-    const until = asks && (this.#outside.has(asks.owedBy) ? asks.closes?.at : asks.until);
+    // To an outside participant, when it closes unanswered: its limit, not the asker's wait.
+    const until = asks && this.#outside.has(asks.owedBy) ? asks.closes?.at : asks?.until;
     await this.#host.record({
       kind: "message-sent",
       message: message.n,
@@ -1080,8 +1103,8 @@ export class Messaging {
     });
   }
 
-  #sentNotice(peer: AgentKey, operation: Operation, until?: number): string {
-    if (until !== undefined) return `sent to ${peer}. ${this.#awaitNotice(operation, until)}`;
+  #sentNotice(peer: AgentKey, operation: Operation, asked?: { until?: number }): string {
+    if (asked) return `sent to ${peer}. ${this.#awaitNotice(operation, asked)}`;
     if (this.#outside.has(peer)) return `sent to ${peer}, outside the run; it reads it from there.`;
     const state = this.#host.agent(peer)?.state;
     const when =
@@ -1095,10 +1118,10 @@ export class Messaging {
     return `sent to ${peer}; ${when}.`;
   }
 
-  #awaitNotice(operation: Operation, until: number): string {
+  #awaitNotice(operation: Operation, { until }: { until?: number }): string {
     const wf = this.#host.launcher(operation.agent);
     return [
-      `Its reply starts your next turn (deadline ${clock(until, this.#host.now())}).`,
+      `Its reply starts your next turn (${until === undefined ? "no deadline" : `deadline ${clock(until, this.#host.now())}`}).`,
       "Go on with work that does not need the answer, then end your turn with one line saying what you await; do not poll or sleep.",
       ...(operation.kind === "workflow"
         ? [
@@ -1208,14 +1231,13 @@ export class Messaging {
    */
   #deadlineFor(operation: Operation): number | undefined {
     if (operation.kind !== "message") return undefined;
+    const own = operation.deadline ?? Infinity;
+    // An asker with no deadline adds none.
     const wanted = Math.min(
-      operation.ceiling,
-      Math.max(
-        operation.deadline,
-        ...[...operation.owes].map((owed) => owed.askerOperation.deadline),
-      ),
+      operation.ceiling ?? Infinity,
+      Math.max(own, ...[...operation.owes].map((owed) => owed.askerOperation.deadline ?? own)),
     );
-    return wanted > operation.deadline ? wanted : undefined;
+    return wanted > own && Number.isFinite(wanted) ? wanted : undefined;
   }
 
   /** What the harness confirmed of a delivery: the model read it, or nothing says it did. */
@@ -1247,7 +1269,12 @@ export class Messaging {
       return { kind: operation?.kind === "message" ? "settle" : "check-in" };
     if (this.#pending(operation) === "continues") return { kind: "continue" };
     const waited = operation.awaits;
-    if (waited?.state === "open") return { kind: "wait", peer: waited.owedBy, until: waited.until };
+    if (waited?.state === "open")
+      return {
+        kind: "wait",
+        peer: waited.owedBy,
+        ...(waited.until === undefined ? {} : { until: waited.until }),
+      };
     // Each question gets one reminder; a turn that ends still owing one it was reminded of fails it.
     for (const owed of [...operation.owes]) {
       if (owed.reminded) this.#end(owed, "failed", "it did not reply after a reminder");
@@ -1324,7 +1351,7 @@ export class Messaging {
   peers(agent: AgentKey): {
     peers: PeerView[];
     owes: AgentKey[];
-    awaits?: { peer: AgentKey; until: number };
+    awaits?: { peer: AgentKey; until?: number };
     text: string;
   } {
     const peers = this.#routesOf(agent, true).map((route): PeerView => {
@@ -1466,13 +1493,20 @@ export class Messaging {
     return [...operation.owes].filter((each) => each.state === "open").map((each) => each.asker);
   }
 
-  #standing(agent: AgentKey): { owes: AgentKey[]; awaits?: { peer: AgentKey; until: number } } {
+  #standing(agent: AgentKey): { owes: AgentKey[]; awaits?: { peer: AgentKey; until?: number } } {
     const operation = this.#current.get(agent);
     if (!operation) return { owes: [] };
     const waited = operation.awaits?.state === "open" ? operation.awaits : undefined;
     return {
       owes: this.#owes(operation),
-      ...(waited ? { awaits: { peer: waited.owedBy, until: waited.until } } : {}),
+      ...(waited
+        ? {
+            awaits: {
+              peer: waited.owedBy,
+              ...(waited.until === undefined ? {} : { until: waited.until }),
+            },
+          }
+        : {}),
     };
   }
 

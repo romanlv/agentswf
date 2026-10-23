@@ -612,20 +612,20 @@ is built first.
   `labels` and reserved keys refused, routes to it with `timeoutMs`, its messages both ways and open
   questions in the run log with the record fields the code map lists, staying connected past the
   workflow's return while a question is open, `participant-connected`, the wrapper wording.
-- [ ] 3. Waiting doesn't count: M1 first, as a gate; then the asker's clock stops while it waits on
+- [x] 3. Waiting doesn't count: M1 first, as a gate; then the asker's clock stops while it waits on
   the coordinator, within any deadline the workflow set around it, and no default run deadline as
   Q10 settles it, with `awf run`'s help and the docs that state 1h.
-- [ ] 4. Interactive mode in `awf run`, then a live run with real agents answered at the terminal,
+- [x] 4. Interactive mode in `awf run`, then a live run with real agents answered at the terminal,
   before moving on to the next tasks.
 - [ ] 5. Stubs of the three commands from task 1's design (canned items, cursor and result codes),
   then the sample app (M3) against them; fold what it finds into task 1's design.
-- [ ] 6. The coordinator socket: hashed name, liveness, `AWF_COORDINATOR_DIR`, the sandbox refusal.
-- [ ] 7. `awf inbox`: items, text and `--json`, cursor, `{run}`, `--all`, `--open`, `--workflow`,
+- [x] 6. The coordinator socket: hashed name, liveness, `AWF_COORDINATOR_DIR`, the sandbox refusal.
+- [x] 7. `awf inbox`: items, text and `--json`, cursor, `{run}`, `--all`, `--open`, `--workflow`,
   `--as`, `--wait`, `--cwd`/`--run-root`.
-- [ ] 8. `awf reply` and `awf send`: `--to`, `--as`, stdin, codes and their order, peer addresses,
+- [x] 8. `awf reply` and `awf send`: `--to`, `--as`, stdin, codes and their order, peer addresses,
   first answer wins, including the interactive prompt moving on.
 - [ ] 9. M3 again on the real commands, then M2 on one host.
-- [ ] 10. Docs: the holder's CLI reference, the skill that teaches a session the job,
+- [x] 10. Docs: the holder's CLI reference, the skill that teaches a session the job,
   [[status]].
 
 Tasks 3 and 4 publish nothing to apps and exercise everything underneath: the run log and the long
@@ -693,6 +693,11 @@ before they are built.
   rests on it ("answered the next morning, same session"), so it gates task 3; a bad answer means
   a cheaper wake-up or a summary at resume. After days, it also decides when a reply after the run
   can reach the agent that asked.
+  **Result, 2026-10-23** ([[resume-after-hours]], H1–H3): after 2 h 05 m, claude and codex both
+  resumed headless and recalled the investigation without reading a file again. claude's cold
+  resume rewrote about 25k tokens to the cache, about $0.10 by its own `total_cost_usd`, as much as
+  the investigation, against $0.008 warm; codex showed no cold cost at 2 h. Good enough: task 3
+  goes on, with no cheaper wake-up. Days are not measured.
 - **M2.** One existing host, Hermes or OpenClaw, drives a run through its own extension point (a
   tool, skill or plugin that runs `awf inbox` and `awf reply`). Does this fit how the host binds a
   thread to a session, or does it need glue awf should have provided? The other host follows later
@@ -934,16 +939,16 @@ Done when a fresh session, given only the skill, answers a question in a live ru
 
 Automated:
 
-- [ ] `bun test`
-- [ ] `bunx tsc --noEmit`
-- [ ] `bun run scripts/check-boundaries.ts`
+- [x] `bun test`: 1973 pass; "the samples quoted from an example are still in it" fails, as on main
+- [x] `bunx tsc --noEmit`
+- [x] `bun run scripts/check-boundaries.ts`
 
 Manual or live evaluation:
 
-- [ ] Interactive mode: a live run whose agent asks, answered at the terminal, and the agent going
+- [x] Interactive mode: a live run whose agent asks, answered at the terminal, and the agent going
   on in the same session.
-- [ ] A question answered after its asker's operation deadline would have passed: the agent goes on.
-- [ ] M1: resume after hours, with its cost.
+- [x] A question answered after its asker's operation deadline would have passed: the agent goes on.
+- [x] M1: resume after hours, with its cost.
 - [ ] M3: the sample app through a restart and a laptop sleep.
 - [ ] M2: one host drives a run, with its cost.
 
@@ -1075,6 +1080,169 @@ Manual or live evaluation:
 - Live: `tests/coordinator.eval.ts` (new), claude and codex headless each report, ask, are
   answered through the holder as an app would (`via: command`), and finish in the same call;
   ~$0.09 at list prices. `awf logs` read the run back.
+
+**Task 3, waiting doesn't count.** Decisions made while building it:
+
+- The code was written while M1's cold resume waited out the prompt cache; M1 still gates the
+  task's commit, not its coding.
+- The clock stops in operation liveness: once a turn ends awaiting an outside participant, the
+  operation's deadline is not checked, only the deadlines around it (`deadlineCeiling`), which end
+  the wait `cancelled`. When the wait ends, the deadline moves out by its length, within the
+  ceiling, and the result slot, the turns that follow and messaging move with it. While it waits,
+  the slot stays open until the ceiling. A wait on another agent is still cut at the deadline.
+- A question to a coordinator's `until` is its limit alone (the route's `timeoutMs` or the
+  agent's shorter `--timeout`), absent without one; `wf` shows no time then.
+- No default run deadline: `RunWorkflowOptions.deadline`, `awf run --timeout` and `testWorkflow`'s
+  `timeoutMs` are optional, and so is every deadline the engine reads from them (scopes,
+  operations, decisions, `parallel`, the attempt's ending, sandboxes). The attempt record's
+  `flags.timeout` is absent for a run without one.
+- The harness keeps required deadlines, as the story said: where the engine has none, it passes
+  `harnessDeadline()`, a week from the call, since a timer cannot wait past about 24.8 days. The
+  docker sandbox expires its containers a week out likewise. Workflow code never sees it.
+- Reviewed, architecture and correctness. Fixed: a message operation waiting on a coordinator
+  stops its clock too (`message-operation.ts`, the same rule, its `extended` path shared); the
+  agent's `until` on a coordinator wait is the earlier of its limit and the deadlines around it,
+  while the record keeps the limit; `deadline-extended` is written only when the deadline moved
+  later; the check-in prompt says `wf waiting` never extends the deadline; the sandbox gets
+  `harnessDeadline` from the engine, so the week has one source and the sandbox seam is unchanged;
+  a message operation cut while it waited settles at the ceiling. Tests: the moved deadline still
+  bounds work after the wait; the run's own deadline ends the question `attempt-ended`; a
+  `parallel`'s deadline, `cancelled`; slot re-arming; the message operation's wait, unit-tested.
+- Two consequences, accepted and written into [[messaging]]: with no run deadline, a peer woken by
+  a question from an asker with no deadline has its own 15 minutes, as "an asker with no deadline
+  adds none" says; and a pane or docker sandbox may not outlast a week's wait, the bound the harness
+  and sandboxes get with no deadline (a headless agent's wait is not bounded by it).
+- Round 3: the result slot is kept open through the grace too, so the scope's stop, not the slot's
+  expiry, ends an operation at the ceiling.
+- Round 2 fixed: a workflow operation cut while it waited records its end at the ceiling, not at
+  its old deadline; the record's `until` on a coordinator question is its limit, even past the
+  ceiling; at the ceiling the scope's own stop ends the wait, with its reason (`cancelled`, or
+  `attempt-ended` for the run's), and liveness ends it itself only 1 s later, as a backstop. The
+  rule lives in two supervisors, liveness and the message operation's, which share the `extended`
+  path; kept as two, each a few lines, since their loops differ.
+- `runWorkflow > an earlier legacy nudge deadline caps the initial attempt` failed once under a
+  loaded full run and passes alone and in three reruns: its nudge deadline is 10 ms out.
+- Live: `bun run eval coordinator` with `--late` (each operation 60 s, the answer after 90 s):
+  claude and codex went on in the same call; ~$0.10 at list prices.
+
+**Task 4, interactive mode.** Decisions made while building it:
+
+- The prompt is a `CoordinatorPort` of its own, `engine/src/coordinator-prompt.ts`, wired in
+  `operator-cli.ts` where `awf run` starts the workflow, not in `run-command.ts` or
+  `run-progress.ts`: it needs the run's progress view and its end. Interactive when stderr is a
+  terminal (the progress view's), stdin is one, and `--json` isn't given; the operator CLI's
+  `lines` option stands in for stdin in tests.
+- It holds stdin only while a question is asked: a readline per question, closed after, so typing
+  at other times reaches nothing and a run that asks nothing leaves the terminal alone. Ctrl-C at
+  the prompt still cancels the run; Ctrl-D leaves the question open, as an empty line does.
+- While a prompt is open the progress block holds still (`hold`), lines go above the prompt, and
+  the cursor and line wrap come back for typing.
+- Each fact once: a message to or from a coordinator is shown with its text by the prompt, so the
+  progress view gives it no size line (`showsMessages`). An answer typed here is not shown again;
+  one from another holder, and a question closing unanswered, are lines.
+- Agent text is stripped of control characters before it reaches the terminal.
+- The prompt moving on when another holder answers is built here already: it follows the record
+  (`request-ended`), so task 8 only adds the other holders.
+- Reviewed, both lenses, one round; its findings (the readline held for the whole run, the hidden
+  cursor, unsanitised text, the prompt line left at the run's end, one failure stopping the queue,
+  the CLI test not asking) are the decisions above. Tests: the prompt's unit tests (answer, skip,
+  several coordinators, passed over, closing), the progress view's hold, and `awf run` end to end
+  with a scripted terminal answering a fake agent, recorded `via: terminal`, and no prompt with
+  `--json` or without a terminal.
+- Live: `awf run` in a pty (`expect`), claude and codex each asked at the terminal, answered there,
+  and went on in the same call; about $0.10 at list prices per run, twice.
+
+**Task 5, stubs and the sample app (M3): not run.** The user chose to skip M3 for now
+(2026-10-23): a sample app on the Chat SDK needs a real platform's app, tokens and an inbound
+URL. The stubs served only that trial, so they were not built; tasks 7 and 8 were built on task
+1's design as approved, and checked live instead by a holder made of the commands themselves
+(task 8's notes). M3 stays open in To measure.
+
+**Task 6, the coordinator socket.** Decisions made while building it:
+
+- A module of its own, `engine/src/coordinator-socket.ts`, a `CoordinatorPort` like the prompt: it
+  opens at the first `participant-connected` and closes when `awf run` ends. Not the control
+  plane's listener: that one serves agents, each through a door of its own; this one serves the
+  operator.
+- `~/.awf/coordinator/{hash}.sock`, the hash of the run directory's real path, so a holder reaching
+  it through a symlink, or `/tmp` for `/private/tmp`, finds the same socket. `AWF_COORDINATOR_DIR`
+  moves the folder; it must be absolute, and when it is moved `awf run` refuses it inside the
+  workflow's directory, through symlinks too. The default under `~/.awf` is not checked so: no
+  sandbox reaches `~/.awf` anyway, and a run started from `$HOME` must work.
+- `awf run` makes the folder, mode 0700, before any sandbox is resolved, so a sandbox spec that
+  would reach it is refused through `read`, `write` and `sockets` from the first agent on.
+- One request line, one `HolderResultJson` line back; a request is answered at its newline. The
+  request is `HolderWireRequest` in `contract/wire.ts`, `@internal`; ids travel as `{attempt}.{n}`,
+  and another attempt's id is `expired`. A request this engine cannot decode, as from another
+  version of awf, is closed unanswered and the command says so, rather than a new published code.
+- A socket that fails to open is said in the run's log; the run goes on, its questions waiting for
+  the terminal or for their limit.
+- `liveCoordinatorSocket` trusts a socket only for a run `run-state` reads as `running`.
+- Reviewed, both lenses; its findings (a sandbox resolved before the folder existed, a silent
+  failure, the path not canonical, newline framing, the timer cutting an answer off, an oversized
+  request still run, the inside check's gaps) are the decisions above.
+
+**Task 7, `awf inbox`.** Decisions made while building it:
+
+- Built on `readNumberedEvents` and the attempt records, not `run-read.ts`'s `readRunLog`: an inbox
+  needs only the run log's coordinator lines, never the agents' native session files.
+- An item's place in its run is its line, the attempts ended before it, and its turn among those
+  derived after the line (an interrupted attempt's `expired` and `ended`); the cursor keeps one per
+  run, versioned (`i1.`), and checks its filter after the run, so failures come in their published
+  order. Runs are merged oldest first by each run's next item, so a run's own order holds whatever
+  its clock did.
+- A run whose last attempt has ended and whose `ended` the cursor has read is skipped without
+  reading its log: only a continue, a new attempt, brings it back.
+- Text output masks credentials and strips control characters, as `awf logs` does; `--json`
+  escapes them.
+- Known, latent: ids and the coordinator are matched by key and number, not call path; child calls
+  are not built, so every messaging line has an empty call path.
+- Reviewed, both lenses; its findings (`not-found` without its JSON, the order, the cost of polling
+  finished runs, raw text, cross-run ordering, a closed route's fields, `--open --all`'s order) are
+  fixed as above.
+
+**Task 8, `awf reply` and `awf send`.** Decisions made while building it:
+
+- One module, `engine/src/holder-command.ts`, for both. `not-found`, `ended` and `no-coordinator`
+  before the run is reached are decided from the run's state and log: an ended run is `ended`; a
+  live one with no socket is `no-coordinator` until it connects one, `ended` once it has (closing).
+  Everything after is the run's own answer.
+- A send to an agent awaiting this coordinator's answer says so from the run log (the open
+  question `awf inbox` would list), so `HolderResultJson` stays as published.
+- Text from the argument or stdin; exit 0 delivered, 1 refused, 2 usage, 3 the run not reached.
+- The interactive prompt moving on when another holder answers was built in task 4, from the
+  record.
+- Tests: two holders racing on one question (one `delivered`, one `expired`), the refusals,
+  stdin, the held send's line, and `ended` once the run has ended; the codes' order is
+  `Messaging`'s, unit-tested in task 2.
+- Live: `awf run` in the background with no terminal (as under a cron), codex and claude; a holder
+  script made of `awf inbox --all --json --wait` from a saved cursor and `awf reply --to` answered
+  both, and the run completed with the codeword; about $0.11 at list prices. While the script was
+  still broken, the questions simply waited.
+
+- Task 8 review fixed: a continued run not connected yet, or a socket a killed attempt left, is
+  `no-coordinator` (retry), never `ended` or a failure to reach; `--` keeps a message's text from
+  being read as flags, and help is only the first word; blank text is a usage error; stdin is read
+  only after the run is found, and refused when it is a terminal. `awf inbox` checks an `--all`
+  cursor before its first read, keys a route by its direction too, and cleans every text line.
+
+**Task 9, M3 and M2: not run.** M3 was skipped by the user's choice (task 5). M2 needs an existing
+host, Hermes or OpenClaw, installed and given a model and a chat; neither is on this machine. Both
+stay open in To measure, for the user to schedule.
+
+**Task 10, docs.** [`holder-cli.md`](../holder-cli.md) beside `workflow-api.md`: the three
+commands, the items, the codes and the cursor's guarantees. The `awf-coordinator` skill beside
+`awf-run`, teaching a session the loop with `--json` and `--wait 100`. [[messaging]] and
+[[composition]] say what is built; [[status]] lists the coordinator.
+
+- Done when: a fresh codex session (`gpt-6-luna`), given only the skill and the codeword, held a
+  live run's coordinator: it looped on `awf inbox --all --json --wait 100` from its cursor,
+  answered with `awf reply --to 1.2`, and stopped once the run ended; the agent finished with the
+  codeword. Its first try ran the machine's installed awf, older and without these commands, as
+  its login shell put that first on the PATH; it then found the agent's own `wf` door in
+  `awf logs` and used it. That is Q6's accepted exposure for an agent without a sandbox, seen live
+  from an outside session; the session was told which awf to run, and the second try is the one
+  above.
 
 ## Human review
 

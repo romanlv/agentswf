@@ -5,7 +5,7 @@ import type {
   WorkflowContext,
   WorkflowDefinition,
 } from "@agentswf/contract/workflow";
-import { answer, reply, testWorkflow } from "./index";
+import { answer, type CoordinatorScript, reply, testWorkflow } from "./index";
 
 const PURPOSE = "report findings that hold up; ask when the logs can't settle it";
 
@@ -268,6 +268,119 @@ describe("a coordinator in a workflow's test", () => {
     expect(run.messagesOf("coordinator")).toEqual([
       { from: "investigator", awaitReply: true, end: "replied" },
     ]);
+  });
+
+  test("waiting on the coordinator doesn't count: an answer after the deadline would have passed", async () => {
+    const waited: WorkflowDefinition<null, JsonValue> = {
+      meta: { name: "waited", description: "an answer past the deadline" },
+      async run(workflow) {
+        const investigator = await workflow.agents.open({ key: "investigator", runtime: "claude" });
+        const coordinator = await workflow.participants.connect({ key: "coordinator" });
+        await workflow.messages.allow({ between: [investigator, coordinator], purpose: PURPOSE });
+        const { outcome } = await investigator.run({ prompt: "Ask.", timeoutMs: 150 });
+        return {
+          deadline: workflow.deadline ?? null,
+          outcome: outcome.kind === "answered" ? outcome.value : outcome.kind,
+        };
+      },
+    };
+    const run = await testWorkflow(waited, null, {
+      agents: { investigator: [asks] },
+      coordinators: {
+        coordinator: async (event) => {
+          if (event.kind === "message" && event.asks) {
+            // Twice the operation's 150 ms: it is answered and goes on.
+            await Bun.sleep(300);
+            await event.reply("Keep two.");
+          }
+        },
+      },
+    });
+    // No `timeoutMs`: the run has no deadline.
+    expect(run.value).toEqual({ deadline: null, outcome: "Keep two." });
+    expect(run.turnsOf("investigator").map(({ outcome }) => outcome)).toEqual([
+      "awaiting-reply",
+      "answered",
+    ]);
+  });
+
+  test("the moved deadline still bounds the work after the wait", async () => {
+    const slow: WorkflowDefinition<null, JsonValue> = {
+      meta: { name: "slow", description: "work after the answer" },
+      async run(workflow) {
+        const investigator = await workflow.agents.open({ key: "investigator", runtime: "claude" });
+        const coordinator = await workflow.participants.connect({ key: "coordinator" });
+        await workflow.messages.allow({ between: [investigator, coordinator], purpose: PURPOSE });
+        const { outcome } = await investigator.run({ prompt: "Ask.", timeoutMs: 200 });
+        return outcome.kind;
+      },
+    };
+    const script = (workMs: number) =>
+      answer(async (turn) => {
+        await turn.send("coordinator", "Merge?", { awaitReply: true });
+        await Bun.sleep(workMs);
+        return "done";
+      });
+    const coordinators = {
+      coordinator: async (event: Parameters<CoordinatorScript>[0]) => {
+        if (event.kind === "message" && event.asks) {
+          await Bun.sleep(400);
+          await event.reply("Keep two.");
+        }
+      },
+    };
+    // 200 ms of work, the wait not counted: 50 ms after the answer fits, 400 ms does not.
+    const fits = await testWorkflow(slow, null, {
+      agents: { investigator: [script(50)] },
+      coordinators,
+    });
+    expect(fits.value).toBe("answered");
+    const overruns = await testWorkflow(slow, null, {
+      agents: { investigator: [script(400)] },
+      coordinators,
+    });
+    expect(overruns.value).toBe("timed-out");
+  });
+
+  test("the run's own deadline during the wait ends the question attempt-ended", async () => {
+    const run = await testWorkflow(investigate(), null, {
+      timeoutMs: 300,
+      agents: { investigator: [asks] },
+      coordinators: { coordinator: () => undefined },
+    });
+    expect(() => run.value).toThrow();
+    expect(run.messagesOf("coordinator")[1]).toMatchObject({
+      end: "failed",
+      reason: "attempt-ended",
+    });
+  });
+
+  test("a deadline the workflow set around the asker ends its wait, cancelled", async () => {
+    const bounded: WorkflowDefinition<null, JsonValue> = {
+      meta: { name: "bounded", description: "a parallel's deadline" },
+      async run(workflow) {
+        const investigator = await workflow.agents.open({ key: "investigator", runtime: "claude" });
+        const coordinator = await workflow.participants.connect({ key: "coordinator" });
+        await workflow.messages.allow({ between: [investigator, coordinator], purpose: PURPOSE });
+        const [kind] = await workflow
+          .parallel(
+            [investigator],
+            async (agent) => {
+              const { outcome } = await agent.run({ prompt: "Ask." });
+              return "reason" in outcome ? `${outcome.kind}: ${outcome.reason}` : outcome.kind;
+            },
+            { deadline: { unixMilliseconds: Date.now() + 200 } },
+          )
+          .catch((error: Error) => [error.name]);
+        return kind ?? null;
+      },
+    };
+    const run = await testWorkflow(bounded, null, {
+      agents: { investigator: [asks] },
+      coordinators: { coordinator: () => undefined },
+    });
+    expect(run.messagesOf("coordinator")[1]).toMatchObject({ end: "failed", reason: "cancelled" });
+    expect(run.value).toBe("DeadlineExceededError");
   });
 
   test("reserved keys, taken keys, and timeoutMs between agents are refused", async () => {

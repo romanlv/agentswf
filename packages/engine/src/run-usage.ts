@@ -83,7 +83,7 @@ export type RunLedger = {
   /** Every settled operation, with the sessions its agent has been seen with so far. */
   records(): OperationRecord[];
   /** Best effort: a turn still going at the deadline, or when the run is stopped, is killed. */
-  letFinish(runDeadline: AbsoluteDeadline, signal: AbortSignal): Promise<void>;
+  letFinish(runDeadline: AbsoluteDeadline | undefined, signal: AbortSignal): Promise<void>;
   /**
    * Every record, completed with what its agent spent. Called once the host has closed, because a
    * released turn still writes its last request after the engine has moved on (story 002,

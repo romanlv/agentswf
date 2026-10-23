@@ -99,6 +99,7 @@ import {
   assertDeadlineValue,
   deadlineWithin,
   earlierDeadline,
+  harnessDeadline,
   runUntilStopped,
   scheduleAt,
   WorkflowCancelledError,
@@ -168,7 +169,8 @@ export type RunWorkflowOptions = {
     values?: ReadonlyMap<string, JsonValue>;
   };
   runtime: AgentRuntimeConfig;
-  deadline: AbsoluteDeadline;
+  /** The run's deadline; absent, it has none, and only deadlines the workflow sets bound it. */
+  deadline?: AbsoluteDeadline;
   cwd?: string;
   onLog?: (message: string, fields?: JsonObject) => void;
   /** The operator hands the session back once agents.stop has released it. */
@@ -383,7 +385,7 @@ export async function startWorkflow<Args extends JsonValue, Result extends JsonV
       runId,
       ...(options.run.label === undefined ? {} : { label: options.run.label }),
       cwd,
-      deadline: options.deadline,
+      deadline: harnessDeadline(options.deadline),
     }),
   );
   try {
@@ -696,7 +698,7 @@ type PlacedSkills = { given: AgentSkills; writeBack?: () => Promise<void> };
 type AgentOpening = {
   spec: AgentOpenSpec;
   execution: AgentExecution;
-  deadline: AbsoluteDeadline;
+  deadline: AbsoluteDeadline | undefined;
   sessions: AgentSessions;
   ledger: AgentLedger;
   /** Its skills' sources, resolved when it opens; absent when it has the operator's. */
@@ -760,7 +762,7 @@ class WorkflowOwner {
       runId: string;
       attempt: number;
       cwd: string;
-      deadline: AbsoluteDeadline;
+      deadline: AbsoluteDeadline | undefined;
       runtime: AgentRuntimeConfig;
       host: AgentRunHost;
       slots: ResultSlotRegistry;
@@ -1116,7 +1118,9 @@ class WorkflowOwner {
             state
               .stopOperations({
                 kind:
-                  Date.now() >= this.options.deadline.unixMilliseconds ? "timed-out" : "cancelled",
+                  this.options.deadline && Date.now() >= this.options.deadline.unixMilliseconds
+                    ? "timed-out"
+                    : "cancelled",
                 reason: "workflow closing",
               })
               .then(() => state.close("workflow complete")),
@@ -1312,7 +1316,7 @@ class WorkflowOwner {
       ...(identity.skills ? { skills: identity.skills } : {}),
       activation: (cwd, seated, skills, home) => ({
         key: spec.key,
-        deadline: effectiveDeadline,
+        deadline: harnessDeadline(effectiveDeadline),
         cwd,
         execution,
         ...(spec.instructions === undefined ? {} : { instructions: spec.instructions }),
@@ -1456,7 +1460,7 @@ class WorkflowOwner {
         );
         const session = await this.options.host.openAgent({
           key,
-          deadline: this.options.deadline,
+          deadline: harnessDeadline(this.options.deadline),
           cwd: found.cwd,
           execution,
         });
@@ -1915,7 +1919,7 @@ class WorkflowOwner {
       ...(sandboxed && copy ? { carried: { parent: parentKey, forked, copy } } : {}),
       activation: (cwd, seated, given, home) => ({
         key: spec.key,
-        deadline,
+        deadline: harnessDeadline(deadline),
         cwd,
         execution,
         ...(forkSpec.instructions === undefined ? {} : { instructions: forkSpec.instructions }),
@@ -2023,7 +2027,7 @@ class WorkflowOwner {
    */
   private besideFallback(
     layout: PaneLayout | undefined,
-    deadline: AbsoluteDeadline,
+    deadline: AbsoluteDeadline | undefined,
   ): () => Promise<string | undefined> {
     const known = (reason: string | undefined) => () => Promise.resolve(reason);
     const target = besideOf(layout);
@@ -2135,7 +2139,7 @@ class LogicalAgent implements AgentRef {
       endpoint: string;
       /** The path this agent is told to run; see `installAgentLauncher`. */
       launcher: string;
-      deadline: AbsoluteDeadline;
+      deadline: AbsoluteDeadline | undefined;
       ledger: AgentLedger;
       progress: RunProgress;
       recordTurn: RecordTurn;
@@ -2241,7 +2245,7 @@ class LogicalAgent implements AgentRef {
       scope?.track(existing.result);
       return existing.result as Promise<RunResult<string | T>>;
     }
-    let deadline: AbsoluteDeadline;
+    let deadline: AbsoluteDeadline | undefined;
     try {
       deadline = this.operationDeadline(spec, scope);
       const recoveryDeadline = spec.nudge ? spec.nudge.deadline : undefined;
@@ -2306,7 +2310,7 @@ class LogicalAgent implements AgentRef {
     }
     let deadline: AbsoluteDeadline;
     try {
-      deadline = this.operationDeadline(spec, scope);
+      deadline = harnessDeadline(this.operationDeadline(spec, scope));
     } catch (error) {
       const rejected = Promise.reject<TurnOutcome<string>>(error);
       scope?.track(rejected);
@@ -2365,7 +2369,7 @@ class LogicalAgent implements AgentRef {
     let deadline: AbsoluteDeadline;
     try {
       change = this.settingsChange(spec);
-      deadline = this.operationDeadline(spec, scope);
+      deadline = harnessDeadline(this.operationDeadline(spec, scope));
     } catch (error) {
       const rejected = Promise.reject<TurnOutcome<null>>(error);
       scope?.track(rejected);
@@ -2505,7 +2509,7 @@ class LogicalAgent implements AgentRef {
   private operationDeadline(
     spec: { deadline?: AbsoluteDeadline; timeoutMs?: number },
     scope: ExecutionScope | undefined,
-  ): AbsoluteDeadline {
+  ): AbsoluteDeadline | undefined {
     if (spec.deadline && spec.timeoutMs !== undefined) {
       throw new Error("an operation cannot specify both deadline and timeoutMs");
     }
@@ -2516,8 +2520,9 @@ class LogicalAgent implements AgentRef {
     return earlierDeadline(spec.deadline, ceiling);
   }
 
-  private deadlineCeiling(scope: ExecutionScope | undefined): AbsoluteDeadline {
-    return scope ? earlierDeadline(scope.deadline, this.options.deadline) : this.options.deadline;
+  /** The deadlines around an operation: its scope's and the run's, if either has one. */
+  private deadlineCeiling(scope: ExecutionScope | undefined): AbsoluteDeadline | undefined {
+    return earlierDeadline(scope?.deadline, this.options.deadline);
   }
 
   /** Its settings once every `set` queued so far has run. */
@@ -2705,7 +2710,7 @@ class LogicalAgent implements AgentRef {
   private async executeOperation(
     spec: AgentRunTextSpec | AgentRunStructuredSpec<JsonValue>,
     scope: ExecutionScope | undefined,
-    operationDeadline: AbsoluteDeadline,
+    operationDeadline: AbsoluteDeadline | undefined,
     operation: OperationLog,
   ): Promise<RunResult<JsonValue>> {
     const nudge = spec.nudge === false ? undefined : (spec.nudge ?? this.defaultNudge());
@@ -2717,7 +2722,7 @@ class LogicalAgent implements AgentRef {
   private async executeWaitingOperation(
     spec: AgentRunTextSpec | AgentRunStructuredSpec<JsonValue>,
     scope: ExecutionScope | undefined,
-    deadline: AbsoluteDeadline,
+    initial: AbsoluteDeadline | undefined,
     { operationId, tags, delivered, session }: OperationLog,
     nudge: Exclude<AgentRunTextSpec["nudge"], false>,
   ): Promise<RunResult<JsonValue>> {
@@ -2725,12 +2730,15 @@ class LogicalAgent implements AgentRef {
     const binding = { endpoint: this.options.endpoint, operationId };
     const entry = this.options.ledger.reserve(operationId, () => this.#execution, tags);
     const { messaging } = this.options;
+    // Moves out by any wait on an outside participant, within the deadlines around it.
+    let deadline = initial;
+    const ceiling = this.deadlineCeiling(scope);
     messaging.opened({
       id: operationId,
       agent: this.key,
       kind: "workflow",
-      deadline: deadline.unixMilliseconds,
-      ceiling: this.options.deadline.unixMilliseconds,
+      ...(deadline ? { deadline: deadline.unixMilliseconds } : {}),
+      ...(ceiling ? { ceiling: ceiling.unixMilliseconds } : {}),
       scope: scope?.messages ?? messaging.attempt,
     });
     // After its prompt: how to use its routes, then each message held for it, wrapped.
@@ -2761,12 +2769,16 @@ class LogicalAgent implements AgentRef {
             "Finish or stop work needed for this answer before submitting the result.",
             `If waiting for work to finish, report it now using: ${this.options.launcher} waiting ${operationId} --reason 'what you are waiting for' [--timeout 2m]`,
             "Omit the square brackets when running the optional timeout flag. This command acknowledges your wait immediately; it does not sleep.",
-            `The fixed answer deadline is ${new Date(deadline.unixMilliseconds).toISOString()}. Waiting never extends it.`,
+            ...(deadline
+              ? [
+                  `The answer deadline is ${new Date(deadline.unixMilliseconds).toISOString()}. ${this.options.launcher} waiting never extends it.`,
+                ]
+              : []),
           ].join("\n")
         : "");
     const events = createOperationEvents(this.options.runDir, operationId);
     const messages = this.operationMessages(operationId, `${spec.id!}:message`, {
-      deadline: () => deadline,
+      deadline: () => harnessDeadline(deadline),
       authored,
       session,
       record: events.record,
@@ -2778,7 +2790,17 @@ class LogicalAgent implements AgentRef {
       agentId: this.key,
       question: spec.prompt,
       schema,
-      deadline,
+      ...(deadline ? { deadline } : {}),
+      ...(ceiling ? { ceiling: ceiling.unixMilliseconds } : {}),
+      extended: (moved, waiting) => {
+        const next = moved === undefined ? undefined : { unixMilliseconds: moved };
+        this.options.slots.extend(operationId, next);
+        if (waiting || moved === undefined || moved <= (deadline?.unixMilliseconds ?? Infinity))
+          return;
+        deadline = next;
+        messaging.extended(operationId, moved);
+        events.record({ kind: "deadline-extended", at: Date.now(), sequence: 0, until: moved });
+      },
       slots: this.options.slots,
       waitingSupported,
       nudge: nudge !== undefined,
@@ -2789,7 +2811,7 @@ class LogicalAgent implements AgentRef {
             {
               id: spec.id!,
               prompt: operationPrompt(prompt, schema, this.options.launcher, operationId),
-              deadline,
+              deadline: harnessDeadline(deadline),
               authored,
               onSession: session,
             },
@@ -2799,7 +2821,7 @@ class LogicalAgent implements AgentRef {
       successor: (turn, sequence, deliverySignal) =>
         turn.nudge({
           id: `${spec.id!}:check-in:${sequence}`,
-          deadline,
+          deadline: harnessDeadline(deadline),
           deliverySignal,
           prompt: checkInPrompt(recoveryPrompt),
           // A check-in delivers no messages: those its first prompt carried are not its own.
@@ -2975,8 +2997,8 @@ class LogicalAgent implements AgentRef {
   ): Promise<void> {
     const { messaging } = this.options;
     const operationId = randomUUID();
-    const ceiling = this.deadlineCeiling(stage).unixMilliseconds;
-    let deadline = Math.min(Date.now() + messaging.limits.operationMs, ceiling);
+    const ceiling = this.deadlineCeiling(stage)?.unixMilliseconds;
+    let deadline = Math.min(Date.now() + messaging.limits.operationMs, ceiling ?? Infinity);
     messaging.opened({
       id: operationId,
       agent: this.key,
@@ -3054,10 +3076,19 @@ class LogicalAgent implements AgentRef {
       cause,
       messages: opening.messages,
     };
+    const extended = (later: number) => {
+      if (later <= deadline) return;
+      deadline = later;
+      messaging.extended(operationId, later);
+      events.record({ kind: "deadline-extended", at: Date.now(), sequence: 0, until: later });
+    };
+    const ceiling = this.deadlineCeiling(stage)?.unixMilliseconds;
     let outcome: SupervisedOutcome;
     try {
       outcome = await superviseMessageOperation({
         deadline: () => deadline,
+        ...(ceiling === undefined ? {} : { ceiling }),
+        extended,
         start: () =>
           this.options.session
             .start(
@@ -3076,12 +3107,7 @@ class LogicalAgent implements AgentRef {
           authored,
           session: operation.session,
           record: events.record,
-          extended: (later) => {
-            if (later <= deadline) return;
-            deadline = later;
-            messaging.extended(operationId, later);
-            events.record({ kind: "deadline-extended", at: Date.now(), sequence: 0, until: later });
-          },
+          extended,
         }),
         onStop: (stop) => {
           this.#operationStops.add(stop);
@@ -3239,7 +3265,7 @@ class ExecutionScope {
   #cancellation: Promise<void> | undefined;
 
   constructor(
-    readonly deadline: AbsoluteDeadline,
+    readonly deadline: AbsoluteDeadline | undefined,
     /** The labelled `parallel` it runs in, for progress. */
     readonly group?: GroupProgress,
     /** The workflow stage everything in this scope runs in. */
@@ -3253,8 +3279,8 @@ class ExecutionScope {
   }
 
   assertActive(): void {
-    if (this.#cancelled || Date.now() >= this.deadline.unixMilliseconds) {
-      throw new DeadlineExceededError(this.deadline);
+    if (this.#cancelled || (this.deadline && Date.now() >= this.deadline.unixMilliseconds)) {
+      throw new DeadlineExceededError(this.deadline ?? { unixMilliseconds: Date.now() });
     }
   }
 
@@ -3322,7 +3348,7 @@ class ExecutionScope {
 function runParallel<Item, Result>(
   items: readonly Item[],
   operation: (item: Item, index: number) => Promise<Result>,
-  deadline: AbsoluteDeadline,
+  deadline: AbsoluteDeadline | undefined,
   requestedConcurrency?: number,
   openGroup?: () => GroupProgress | undefined,
 ): Promise<Result[]> {
@@ -3342,7 +3368,7 @@ function runParallel<Item, Result>(
 async function executeParallel<Item, Result>(
   items: readonly Item[],
   operation: (item: Item, index: number) => Promise<Result>,
-  deadline: AbsoluteDeadline,
+  deadline: AbsoluteDeadline | undefined,
   concurrency: number,
   parent: ExecutionScope | undefined,
   group?: GroupProgress,
@@ -3379,6 +3405,7 @@ async function executeParallel<Item, Result>(
   });
   let cancelTimer: (() => void) | undefined;
   const expiry = new Promise<never>((_resolve, reject) => {
+    if (!deadline) return;
     cancelTimer = scheduleAt(deadline, () => {
       void scope
         .cancel({ kind: "timed-out", reason: "parallel deadline exceeded" })
@@ -3387,9 +3414,9 @@ async function executeParallel<Item, Result>(
   });
   try {
     await Promise.race([completion, expiry]);
-    if (scope.cancelled || Date.now() >= deadline.unixMilliseconds) {
+    if (scope.cancelled || (deadline && Date.now() >= deadline.unixMilliseconds)) {
       await scope.cancel({ kind: "timed-out", reason: "parallel deadline exceeded" });
-      throw new DeadlineExceededError(deadline);
+      throw new DeadlineExceededError(deadline ?? { unixMilliseconds: Date.now() });
     }
     return results;
   } catch (error) {

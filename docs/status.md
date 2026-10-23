@@ -35,7 +35,9 @@ exists, the code is right, then this page.
   most one result is accepted per operation, validated against its schema. Quiet agents receive
   recovery prompts; supported Claude panes can declare waiting and take repeated check-ins within
   the same deadline.
-- Every wait has a deadline. The run's default is thirty minutes.
+- A run has no deadline unless `awf run --timeout` gives it one; deadlines a workflow sets on an
+  operation, stage or `parallel`, and turn liveness, bound the rest. Waiting on a coordinator's
+  answer doesn't count against the asker's deadline (story 032).
 - Every attempt reports its wall time, and for each agent, stage and model its times, tokens, billing
   and a cost estimate at dated list prices, read from the harnesses' own session files when the run
   ends. `awf run` prints it and writes it to `output.json` (story 002), for a run that failed, timed
@@ -82,6 +84,12 @@ exists, the code is right, then this page.
   message reaches an agent between turns; one for an idle agent starts a message operation, whose
   `cause` is in `workflow.usage()` and `output.json`. `awf run`, `awf logs` and `awf runs` show the
   messages, waits and queues, and a workflow's tests script them for free.
+- A workflow connects a coordinator outside the run with `workflow.participants.connect` (story
+  032), and its agents report to it and ask it over routes like any peer's, a route's `timeoutMs`
+  bounding a question. Whatever holds it answers: `awf run`'s terminal asks each question there;
+  another session or an app reads `awf inbox` from a saved cursor and answers with `awf reply` or
+  messages first with `awf send` ([`holder-cli.md`](holder-cli.md), the `awf-coordinator` skill).
+  The asker waits hours if need be, in the same session; a workflow's tests script the coordinator.
 - `feature-delivery` runs on stages, `awf run` takes it with `-- {ticket}`, and its tests pass. It ran
   live on 2026-10-10, all five stages on a small ticket in a scratch repo, and a continue from
   `additional-review` reused the four before it. Its reviewers now own the revisions, asking the

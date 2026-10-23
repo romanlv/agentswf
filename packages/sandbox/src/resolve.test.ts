@@ -154,6 +154,29 @@ describe("resolveSandbox", () => {
     expect(sandbox.gitdirs).toEqual([{ path: join(repo, ".git"), writable: false }]);
   });
 
+  test("a moved coordinator folder is refused through read, write and sockets", async () => {
+    const coordinator = join(root, "elsewhere", "coordinator");
+    await mkdir(coordinator, { recursive: true });
+    await writeFile(join(coordinator, "x.sock"), "");
+    const options = {
+      key: "box",
+      cwd: repo,
+      runRoot,
+      machineRoot,
+      home,
+      providers,
+      harnessState,
+      coordinatorRoot: coordinator,
+    };
+    for (const field of ["read", "write", "sockets"] as const) {
+      for (const path of [coordinator, join(root, "elsewhere"), join(coordinator, "x.sock")]) {
+        await expect(resolveSandbox({ [field]: [path] }, options)).rejects.toThrow(
+          "would expose the coordinator sockets",
+        );
+      }
+    }
+  });
+
   test("the engine's doors are refused: their root, and a run's directory under it", async () => {
     const doors = join(root, "doors");
     await mkdir(join(doors, "awf-run", "a1"), { recursive: true });

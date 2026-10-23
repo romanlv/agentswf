@@ -315,6 +315,57 @@ export function decodeResultSubmitRequest(value: unknown): WireDecodeResult<Resu
   };
 }
 
+/**
+ * A holder's request on a run's coordinator socket, as `awf reply` and `awf send` make it: speaking
+ * as `coordinator` (`--as`), to the agent at its peer address, answering question `to`
+ * (`{attempt}.{n}`) for a reply. Internal: holders run the commands, which ship with the engine
+ * that answers them; one this engine cannot decode is closed unanswered. The response is a
+ * `HolderResultJson`.
+ * @internal
+ */
+export type HolderWireRequest = {
+  version: typeof WIRE_VERSION;
+  command: "reply" | "send";
+  coordinator?: string;
+  agent: string;
+  to?: string;
+  text: string;
+};
+
+export function decodeHolderRequest(value: unknown): WireDecodeResult<HolderWireRequest> {
+  const envelope = checkEnvelope(value, "request");
+  if (!envelope.ok) return envelope;
+  const request = envelope.value;
+  if (request.command !== "reply" && request.command !== "send")
+    return {
+      ok: false,
+      code: "unsupported-command",
+      error: "request.command must be reply or send",
+    };
+  if (extraFields(request, ["version", "command", "coordinator", "agent", "to", "text"]))
+    return invalid("request has unexpected fields");
+  if (!optionalNonEmpty(request.coordinator))
+    return invalid("request.coordinator must be a non-empty string when present");
+  if (!nonEmpty(request.agent)) return invalid("request.agent must be an agent's address");
+  if (
+    request.to !== undefined &&
+    (request.command !== "reply" || !/^\d+\.\d+$/.test(String(request.to)))
+  )
+    return invalid("request.to is a question's id, {attempt}.{n}, and only on a reply");
+  if (!nonEmpty(request.text)) return invalid("request.text must be a non-blank string");
+  return {
+    ok: true,
+    value: {
+      version: WIRE_VERSION,
+      command: request.command,
+      ...(request.coordinator === undefined ? {} : { coordinator: request.coordinator }),
+      agent: request.agent,
+      ...(request.to === undefined ? {} : { to: request.to as string }),
+      text: request.text,
+    },
+  };
+}
+
 export function decodeControlRequest(value: unknown): WireDecodeResult<ControlRequest> {
   const envelope = checkEnvelope(value, "request");
   if (!envelope.ok) return envelope;

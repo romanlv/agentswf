@@ -97,7 +97,8 @@ correlation id.
 ## Connecting an outside participant
 
 A participant outside the run is something the engine did not start and never runs: a coordinator
-([[032-run-coordinator|story 032]]). Whatever answers for it, the holder, is `awf run`'s own
+(built in [[032-run-coordinator|story 032]]; child calls, and so a participant passed into one, are
+not built). Whatever answers for it, the holder, is `awf run`'s own
 terminal, another claude or codex session, or an app such as a Slack bridge; the workflow never
 knows which.
 

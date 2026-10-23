@@ -25,11 +25,15 @@ import {
 } from "./attempt-ending";
 import { type Kept, keepRecords } from "./attempt-output";
 import { continueCommand, printEnding, toldOf } from "./attempt-view";
+import { type LineReader, promptCoordinator, terminalReader } from "./coordinator-prompt";
+import { coordinatorSocket, prepareCoordinatorDir } from "./coordinator-socket";
 import { messageOf } from "./errors";
 import { type Caller, showOwnTab, startHere, takeCaller } from "./here";
+import { holderCommand } from "./holder-command";
+import { inboxCommand } from "./inbox-command";
 import { type InitCommand, initUsage, parseInitCommand, runInit } from "./init-command";
 import { logsCommand } from "./logs-command";
-import { machinePaths, sandboxesDirOf } from "./machine";
+import { coordinatorDir, machinePaths, sandboxesDirOf } from "./machine";
 import {
   allowanceReader,
   herdrConfig,
@@ -60,7 +64,7 @@ export type OperatorEnvironment = {
   stdout?: (text: string) => void;
   stderr?: (text: string) => void;
   installRuntime?: (
-    timeoutMilliseconds: number,
+    timeoutMilliseconds: number | undefined,
     options: {
       watchSandboxes: boolean;
       caller?: Caller;
@@ -91,6 +95,13 @@ export type OperatorEnvironment = {
   awaitReply?: RunWorkflowOptions["awaitReply"];
   /** Answers for the run's coordinators in place of a person: for the live checks of story 032. */
   coordinators?: RunWorkflowOptions["coordinators"];
+  /**
+   * Given, stdin is a terminal and these are the lines typed at it: `awf run` asks a coordinator's
+   * questions there. Absent, it is so when stdin and stderr are both terminals.
+   */
+  lines?: LineReader;
+  /** What `awf reply` and `awf send` read their text from without an argument; stdin otherwise. */
+  stdin?: () => Promise<string>;
 };
 
 type Output = {
@@ -134,6 +145,19 @@ export async function runOperatorCli(
   if (argv[0] === "init") return initCommand(argv.slice(1), environment, stdout, stderr);
   if (argv[0] === "logs") {
     return logsCommand(argv.slice(1), environment.cwd ?? process.cwd(), { stdout, stderr });
+  }
+  if (argv[0] === "inbox") {
+    return inboxCommand(argv.slice(1), environment.cwd ?? process.cwd(), { stdout, stderr });
+  }
+  if (argv[0] === "reply" || argv[0] === "send") {
+    return holderCommand(argv, environment.cwd ?? process.cwd(), {
+      stdout,
+      stderr,
+      stdin: environment.stdin ?? (() => new Response(Bun.stdin.stream()).text()),
+      ...(environment.stdin ? {} : { stdinIsTerminal: process.stdin.isTTY === true }),
+      ...(environment.environment ? { environment: environment.environment } : {}),
+      ...(environment.home ? { home: environment.home } : {}),
+    });
   }
   if (argv[0] === "runs") {
     return runsCommand(argv.slice(1), environment.cwd ?? process.cwd(), { stdout, stderr });
@@ -253,6 +277,17 @@ async function runAttempt(
     await handOver(`did not start: ${why}`);
     return 2;
   };
+  // The operator's, never where the workflow's agents work.
+  const coordinatorRoot = coordinatorDir(home, environment.environment ?? process.env);
+  try {
+    await prepareCoordinatorDir(
+      coordinatorRoot,
+      command.cwd,
+      Boolean((environment.environment ?? process.env).AWF_COORDINATOR_DIR),
+    );
+  } catch (error) {
+    return refuse(messageOf(error));
+  }
   try {
     run =
       prepared.continued?.run ??
@@ -304,7 +339,10 @@ async function runAttempt(
   // run is over may continue it at once. One that never does is interrupted. A new run that never
   // started is not kept at all, so the same command starts it again, unless another attempt has
   // claimed it since: then its records are kept as a continued run's are.
-  const deadline = { unixMilliseconds: startedAt + command.timeoutMilliseconds };
+  const deadline =
+    command.timeoutMilliseconds === undefined
+      ? undefined
+      : { unixMilliseconds: startedAt + command.timeoutMilliseconds };
   const endUnstarted = async (error: unknown, cleanupAlso?: string) => {
     const end = endedBeforeStart(error, deadline, { runId: id, startedAt, endedAt: now() }, goOn);
     const cancelled = end.ending.kind === "cancelled";
@@ -362,6 +400,23 @@ async function runAttempt(
     const insideHerdr = (environment.environment ?? process.env).HERDR_ENV === "1";
     for (const line of describeRunSession(session, label, insideHerdr)) progress.log(line);
   };
+  // Interactive: a coordinator's questions are asked here, unless the output is for a program.
+  const reader =
+    terminal && !command.json
+      ? (environment.lines ?? (process.stdin.isTTY ? terminalReader() : undefined))
+      : undefined;
+  const prompt = reader && promptCoordinator(reader, progress);
+  if (prompt) progress.showsMessages((message) => prompt.shows(message));
+  const socket = coordinatorSocket({
+    dir: coordinatorRoot,
+    runDir: run.dir,
+    attempt: n,
+    failed: (reason) =>
+      progress.log(
+        `awf: the coordinator socket did not open, so awf reply and awf send cannot reach this run: ${reason}`,
+      ),
+  });
+  const coordinators = [...(environment.coordinators ?? []), socket, ...(prompt ? [prompt] : [])];
   let handle: WorkflowRunHandle<JsonValue>;
   try {
     handle = await startWorkflow(executable.definition, prepared.args, {
@@ -379,6 +434,7 @@ async function runAttempt(
         providers: installed.sandboxes ?? { installed: {} },
         sandboxesDir: sandboxesDirOf(home, run.record),
         machineRoot: machinePaths(home).root,
+        coordinatorRoot,
         ...(sandbox === undefined ? {} : { run: sandbox }),
       },
       ...(installed.decisions ? { decisions: installed.decisions } : {}),
@@ -386,12 +442,14 @@ async function runAttempt(
       cwd,
       ...(environment.signal ? { signal: environment.signal } : {}),
       ...(environment.awaitReply ? { awaitReply: environment.awaitReply } : {}),
-      ...(environment.coordinators ? { coordinators: environment.coordinators } : {}),
+      ...(coordinators.length > 0 ? { coordinators } : {}),
       onCallerStopped: () => handOver("stopped using this session", true),
       onLog: (logMessage, fields?: JsonObject) =>
         progress.log(fields ? `${logMessage} ${JSON.stringify(fields)}` : logMessage),
     });
   } catch (error) {
+    prompt?.close();
+    await socket.close();
     progress.stop();
     return endUnstarted(error, await cleanUp());
   }
@@ -402,6 +460,9 @@ async function runAttempt(
   } catch (error) {
     finished = { error };
   }
+  prompt?.close();
+  // Gone with the run: a holder now finds it ended.
+  await socket.close();
 
   let end = decideEnding(finished, deadline, goOn);
   progress.stop(end.settled ? stageFigures(end.settled.accounting) : undefined);

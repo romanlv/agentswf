@@ -23,6 +23,7 @@ import {
   withinReach,
 } from "@agentswf/sandbox";
 import { CONTROL_PLANE_ROOT } from "./control-plane";
+import { harnessDeadline } from "./deadlines";
 import { messageOf } from "./errors";
 import { machinePaths } from "./machine";
 import { type CredentialLocks, placeCarried, type SeededHome, seedHome } from "./sandbox-homes";
@@ -38,6 +39,8 @@ export type RunSandboxOptions = {
   sandboxesDir: string;
   /** The operator's `~/.awf`, which no sandbox reaches. */
   machineRoot: string;
+  /** Where holders reach live runs' coordinators, `AWF_COORDINATOR_DIR` if it moved; no sandbox reaches it. */
+  coordinatorRoot?: string;
   /**
    * The operator's environment, which says where each harness keeps its state, the `PATH` an
    * agent's harness is found on and claude's token. Defaults to the engine's.
@@ -123,7 +126,7 @@ export class RunSandboxes {
       sandboxes?: RunSandboxOptions;
       runRoot: string;
       cwd: string;
-      deadline: AbsoluteDeadline;
+      deadline?: AbsoluteDeadline;
       /** The run's credential write-backs, which a host agent's own home shares. */
       locks: CredentialLocks;
       log(message: string): void;
@@ -396,7 +399,7 @@ export class RunSandboxes {
     const opened = await installed.open(resolved, {
       runRoot: options.runRoot,
       directory,
-      deadline: this.options.deadline,
+      deadline: harnessDeadline(this.options.deadline),
     });
     return { key, provider, resolved, directory, opened, admitting: Promise.resolve(), agents: [] };
   }
@@ -411,6 +414,9 @@ export class RunSandboxes {
       providers: this.#providers,
       harnessState: Object.values(harnessState(this.#environment)),
       controlRoot: CONTROL_PLANE_ROOT,
+      ...(this.options.sandboxes?.coordinatorRoot === undefined
+        ? {}
+        : { coordinatorRoot: this.options.sandboxes.coordinatorRoot }),
       inline,
     };
   }

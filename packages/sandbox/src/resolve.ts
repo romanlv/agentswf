@@ -37,6 +37,11 @@ export type ResolveOptions = {
    * another agent's launcher, which runs on the host.
    */
   controlRoot?: string;
+  /**
+   * Where holders reach live runs' coordinators, which `AWF_COORDINATOR_DIR` may move out of
+   * `~/.awf`: no sandbox path may contain it or lie inside it.
+   */
+  coordinatorRoot?: string;
 };
 
 /**
@@ -83,6 +88,10 @@ export async function resolveSandbox(
     options.controlRoot === undefined
       ? undefined
       : await realpath(options.controlRoot).catch(() => options.controlRoot);
+  const coordinatorRoot =
+    options.coordinatorRoot === undefined
+      ? undefined
+      : await realpath(options.coordinatorRoot).catch(() => options.coordinatorRoot);
   const harnessState = await Promise.all(
     options.harnessState.map((path) => realpath(path).catch(() => path)),
   );
@@ -101,6 +110,8 @@ export async function resolveSandbox(
     if (keys) throw new Error(`sandbox ${field} ${path} would expose keys in ${keys}`);
     if (contains(machine, path))
       throw new Error(`sandbox ${field} ${path} would expose ${machine}`);
+    if (coordinatorRoot && (contains(path, coordinatorRoot) || contains(coordinatorRoot, path)))
+      throw new Error(`sandbox ${field} ${path} would expose the coordinator sockets`);
     if (controlRoot && (contains(path, controlRoot) || insideDoors(controlRoot, path))) {
       throw new Error(`sandbox ${field} ${path} would expose the engine's doors`);
     }
