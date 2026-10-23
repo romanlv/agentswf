@@ -134,6 +134,10 @@ status is one of `todo`, `draft`, `ready`, `in-progress`, `blocked`, `awaiting-h
 - [`031` — `awf init` sets up a folder for writing workflows](031-awf-init.md) —
   `awaiting-human-review` — a hello workflow, its test and the config files, never overwriting, so
   `awf test` passes at once.
+- [`032` — A coordinator outside the run talks with its agents](032-run-coordinator.md) —
+  `ready` — a workflow connects a coordinator, and the agents it grants a route tell it things
+  and ask it questions with `wf send`; `awf run`'s terminal, another session or an app (a Slack
+  bridge, outside this repository) reads them from the run's record and replies.
 
 - [[021-turn-liveness-and-limits|021 — Keep a waiting agent alive within fixed limits]] —
   `done` — Repeated cooperative check-ins share one deadline and result slot; an accepted
