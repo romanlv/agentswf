@@ -40,7 +40,16 @@ export async function runStatus(
   probe: ProcessStatus = probeProcess,
   at = Date.now(),
 ): Promise<RunStatus> {
-  const attempts = await readAttempts(run);
+  return statusOf(run, await readAttempts(run), probe, at);
+}
+
+/** As `runStatus`, from its attempts as already read. */
+export function statusOf(
+  run: Run,
+  attempts: AttemptRecord[],
+  probe: ProcessStatus = probeProcess,
+  at = Date.now(),
+): RunStatus {
   const last = attempts.at(-1);
   const ref = `${run.record.workflow}/${run.record.id}`;
   // Between its folder and its first attempt's claim: an `awf run` starting, or, past a minute,
@@ -63,13 +72,19 @@ export class RunNotFound extends Error {}
 
 /**
  * Every run under `runRoot`, newest `created` first. A folder whose `run.json` cannot be read is
- * not a run this awf can show, and is passed over.
+ * not a run this awf can show, and is passed over. One `known` has, by its folder, is not read
+ * again: a run's record never changes.
  */
-export async function listRuns(runRoot: string): Promise<Run[]> {
+export async function listRuns(
+  runRoot: string,
+  known?: (dir: string) => Run | undefined,
+): Promise<Run[]> {
   const runs: Run[] = [];
   for (const workflow of await entries(runRoot).catch(() => [])) {
     for (const id of await entries(join(runRoot, workflow)).catch(() => [])) {
-      const run = await openRun(runRoot, workflow, id).catch(() => undefined);
+      const run =
+        known?.(join(runRoot, workflow, id)) ??
+        (await openRun(runRoot, workflow, id).catch(() => undefined));
       if (run) runs.push(run);
     }
   }

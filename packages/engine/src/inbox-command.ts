@@ -1,3 +1,4 @@
+import { join } from "node:path";
 import type {
   AttemptRecord,
   InboxErrorJson,
@@ -11,6 +12,7 @@ import type { JsonObject } from "@agentswf/contract/workflow";
 import { maskCredentials } from "@agentswf/harness";
 import { duration } from "./duration";
 import { messageOf } from "./errors";
+import { exists } from "./files";
 import {
   clockTime,
   command,
@@ -20,8 +22,15 @@ import {
   type ReadPlace,
   shellLine,
 } from "./run-commands";
-import { findRun, listRuns, RunNotFound, type RunStatus, runStatus } from "./run-state";
-import { readAttempts, readNumberedEvents } from "./runs";
+import { findRun, listRuns, RunNotFound, statusOf } from "./run-state";
+import {
+  attemptsToken,
+  type LogMark,
+  logSize,
+  type Run,
+  readAttempts,
+  readEventsFrom,
+} from "./runs";
 
 export const inboxUsage = [
   "usage: awf inbox <workflow>/<id> [--open] [--as <key>] [--after <cursor>] [--wait <seconds>]",
@@ -119,8 +128,13 @@ export async function inboxCommand(
       checked = true;
     }
     const deadline = clock.now() + options.waitSeconds * 1000;
+    const watch = new Watch(place.runRoot, options.as);
+    const one =
+      options.ref === undefined
+        ? undefined
+        : watch.entry((await findRun(place.runRoot, options.ref)).status.run);
     for (;;) {
-      const runs = await readInbox(place, options, state);
+      const runs = await readInbox(options, state, watch, one);
       // After a run that is not there, or never connected one: those come first.
       if (!checked) {
         const given = decodeCursor(options.after!);
@@ -228,51 +242,129 @@ type RunItems = { ref: string; items: Item[] };
 
 /** The runs to read, each with its items; a run that never connected a coordinator has none. */
 async function readInbox(
-  place: ReadPlace,
   options: Options,
   state: CursorState,
+  watch: Watch,
+  one: Watched | undefined,
 ): Promise<RunItems[]> {
-  if (!options.all) {
-    const { status } = await findRun(place.runRoot, options.ref);
-    const items = await itemsOf(status, options.as);
-    if (items === undefined && status.state !== "running")
+  if (one) {
+    const ref = `${one.run.record.workflow}/${one.run.record.id}`;
+    // Removed while waited on: gone, as it would be to a read started now.
+    if (!(await exists(join(one.run.dir, "run.json")))) throw new RunNotFound(`no run ${ref}`);
+    await watch.read(one);
+    if (one.items === undefined && !one.live)
       throw new Refused(
         "no-coordinator",
-        `${status.ref} ended without connecting ${options.as ? `coordinator ${options.as}` : "a coordinator"}`,
+        `${ref} ended without connecting ${options.as ? `coordinator ${options.as}` : "a coordinator"}`,
       );
-    return [{ ref: status.ref, items: items ?? [] }];
+    return [{ ref, items: one.items ?? [] }];
   }
   const found: RunItems[] = [];
-  for (const run of await listRuns(place.runRoot)) {
-    if (options.workflow !== undefined && run.record.workflow !== options.workflow) continue;
-    const seen = state.r[`${run.record.workflow}/${run.record.id}`];
-    // Its last attempt's end read already: nothing new comes until a continue adds an attempt.
-    if (seen) {
-      const last = (await readAttempts(run).catch(() => [])).at(-1);
-      if (last?.outcome !== undefined && seen[1] >= last.attempt) continue;
-    }
+  for (const each of await watch.list()) {
+    const { workflow, id } = each.run.record;
+    if (options.workflow !== undefined && workflow !== options.workflow) continue;
+    const ref = `${workflow}/${id}`;
     // One that cannot be read is no reason to fail the others.
-    const status = await runStatus(run).catch(() => undefined);
-    if (!status) continue;
-    const items = await itemsOf(status, options.as).catch(() => undefined);
-    if (items) found.push({ ref: status.ref, items });
+    const read = await watch.read(each, state.r[ref]).then(
+      () => true,
+      () => false,
+    );
+    if (read && each.items) found.push({ ref, items: each.items });
   }
   return found;
 }
 
-/** Undefined when the run never connected a coordinator, or none under `as`. */
-async function itemsOf(status: RunStatus, as: string | undefined): Promise<Item[] | undefined> {
-  const lines = await readNumberedEvents(status.run.dir);
-  const attempts = await readAttempts(status.run);
-  const items = buildItems(lines, attempts, status.state === "running");
-  const connected = lines.some(
-    ({ line }) =>
-      line.kind === "participant-connected" && (as === undefined || line.participant === as),
-  );
-  if (!connected) return undefined;
-  return as === undefined
-    ? items
-    : items.filter((item) => !("coordinator" in item) || item.coordinator === as);
+/** One run as this command last read it, kept while it waits. */
+type Watched = {
+  run: Run;
+  /** The attempt files when `attempts` was read; undefined before the first read. */
+  token?: string;
+  attempts: AttemptRecord[];
+  fold: ItemFold;
+  mark: LogMark;
+  /** Undefined when it never connected a coordinator, or none under `as`. */
+  items: Item[] | undefined;
+  live: boolean;
+  /**
+   * Its last attempt had ended, or its process was gone, when its log was read: nothing comes
+   * until another attempt.
+   */
+  settled: boolean;
+};
+
+/**
+ * The runs a command reads, kept while it waits, so a poll reads only what changed since the last:
+ * a run's record once, its attempts when their files change, and its log on from where the last
+ * read stopped. A settled run is checked for another attempt only.
+ */
+class Watch {
+  #runs = new Map<string, Watched>();
+
+  constructor(
+    readonly runRoot: string,
+    readonly as: string | undefined,
+  ) {}
+
+  /** Every run here, as `listRuns` has them, opening only those new to this command. */
+  async list(): Promise<Watched[]> {
+    const runs = await listRuns(this.runRoot, (dir) => this.#runs.get(dir)?.run);
+    this.#runs = new Map(runs.map((run) => [run.dir, this.#runs.get(run.dir) ?? this.entry(run)]));
+    return [...this.#runs.values()];
+  }
+
+  entry(run: Run): Watched {
+    return {
+      run,
+      attempts: [],
+      fold: new ItemFold(),
+      mark: { offset: 0, count: 0 },
+      items: undefined,
+      live: false,
+      settled: false,
+    };
+  }
+
+  /**
+   * Brings `entry` up to date. `seen`, the cursor's last position in it, spares reading the log of
+   * a run the cursor read to its end.
+   */
+  async read(entry: Watched, seen?: Position): Promise<void> {
+    const { run } = entry;
+    const token = await attemptsToken(run);
+    if (token === entry.token && entry.settled) return;
+    if (token !== entry.token) {
+      const first = entry.token === undefined;
+      entry.attempts = await readAttempts(run);
+      entry.token = token;
+      entry.settled = false;
+      const last = entry.attempts.at(-1);
+      if (first && seen && last?.outcome !== undefined && seen[1] >= last.attempt) {
+        entry.items = [];
+        entry.live = false;
+        entry.settled = true;
+        return;
+      }
+    }
+    let status = statusOf(run, entry.attempts);
+    // An attempt writes its end before its process exits: one gone with no end may have just ended.
+    if (status.state === "interrupted" && entry.attempts.length > 0) {
+      const again = await attemptsToken(run);
+      if (again !== entry.token) {
+        entry.attempts = await readAttempts(run);
+        entry.token = again;
+        status = statusOf(run, entry.attempts);
+      }
+    }
+    entry.live = status.state === "running";
+    // After the attempts: one that has ended has written its whole log.
+    if ((await logSize(run.dir)) > entry.mark.offset) {
+      const read = await readEventsFrom(run.dir, entry.mark);
+      entry.fold.add(read.lines);
+      entry.mark = read.mark;
+    }
+    entry.items = entry.fold.items(entry.attempts, entry.live, this.as);
+    entry.settled = entry.attempts.length > 0 && status.checked && !entry.live;
+  }
 }
 
 const EXPIRY: Partial<Record<RequestEnd, InboxExpiry>> = {
@@ -282,73 +374,109 @@ const EXPIRY: Partial<Record<RequestEnd, InboxExpiry>> = {
   "attempt-ended": "attempt-ended",
 };
 
+type Numbered = { number: number; line: RunLogLine };
+
 /**
- * Items in the log's order, each attempt's `ended` after its last line. An attempt with no end
- * whose process is gone, or that a later attempt followed, was interrupted: its open questions
- * expire `attempt-ended` and it ends `interrupted`.
+ * A run's log folded into its items as lines are added, so a log is read once however often its
+ * items are asked for. An attempt's `ended` item, and the questions it left open, are made when
+ * asked for, from the attempts as read then: an attempt with no end whose process is gone, or
+ * that a later attempt followed, was interrupted, and its open questions expire `attempt-ended`.
  */
-export function buildItems(
-  lines: readonly { number: number; line: RunLogLine }[],
-  attempts: readonly AttemptRecord[],
-  live: boolean,
-): Item[] {
-  const items: Item[] = [];
+export class ItemFold {
+  readonly #items: Item[] = [];
+  readonly #connected = new Set<string>();
   /** By attempt: the coordinators connected and their labels. */
-  const outside = new Map<number, Map<string, JsonObject | undefined>>();
-  const open = new Map<string, { coordinator: string; attempt: number }>();
+  readonly #outside = new Map<number, Map<string, JsonObject | undefined>>();
+  readonly #open = new Map<string, { coordinator: string; attempt: number }>();
   /** Each route as opened, by its ends, for the item that says it closed. */
-  const purposes = new Map<string, { purpose: string; timeoutMs?: number; labels?: JsonObject }>();
-  let attempt = 0;
-  let last = 0;
-  let lastAt = "";
-  const address = (callPath: readonly string[], key: string) => [...callPath, key].join("/");
-  const endAttempt = (ended: number) => {
-    const record = attempts.find((each) => each.attempt === ended);
-    const interrupted = !record?.outcome && (ended < (attempts.at(-1)?.attempt ?? 0) || !live);
-    if (!record?.outcome && !interrupted) return;
-    let index = 0;
-    if (interrupted) {
-      for (const [id, question] of open) {
-        if (question.attempt !== ended) continue;
-        items.push({
-          kind: "expired",
-          coordinator: question.coordinator,
-          id,
-          reason: "attempt-ended",
-          at: lastAt,
-          position: [last, ended - 1, ++index],
+  readonly #purposes = new Map<
+    string,
+    { purpose: string; timeoutMs?: number; labels?: JsonObject }
+  >();
+  /**
+   * Where the log went on to a later attempt: the attempts that ended there, and the line before.
+   * Attempt numbers only go up in a log, as only the live attempt writes it.
+   */
+  readonly #moves: { from: number; to: number; last: number; lastAt: string }[] = [];
+  #attempt = 0;
+  #last = 0;
+  #lastAt = "";
+
+  add(lines: readonly Numbered[]): this {
+    for (const { number, line } of lines) this.#add(number, line);
+    return this;
+  }
+
+  /** Its items in the log's order; undefined when it never connected a coordinator, or none under `as`. */
+  items(attempts: readonly AttemptRecord[], live: boolean, as?: string): Item[] | undefined {
+    if (as === undefined ? this.#connected.size === 0 : !this.#connected.has(as)) return undefined;
+    const ends: Item[] = [];
+    const lastAttempt = attempts.at(-1)?.attempt ?? 0;
+    const end = (ended: number, last: number, lastAt: string) => {
+      const record = attempts.find((each) => each.attempt === ended);
+      const interrupted = !record?.outcome && (ended < lastAttempt || !live);
+      if (!record?.outcome && !interrupted) return;
+      let index = 0;
+      if (interrupted)
+        for (const [id, question] of this.#open)
+          if (question.attempt === ended)
+            ends.push({
+              kind: "expired",
+              coordinator: question.coordinator,
+              id,
+              reason: "attempt-ended",
+              at: lastAt,
+              position: [last, ended - 1, ++index],
+            });
+      ends.push({
+        kind: "ended",
+        attempt: ended,
+        outcome: record?.outcome ?? "interrupted",
+        at: record?.ended ?? lastAt,
+        position: [last, ended, 0],
+      });
+    };
+    for (const { from, to, last, lastAt } of this.#moves)
+      for (let ended = from; ended < to; ended += 1) end(ended, last, lastAt);
+    for (let ended = Math.max(this.#attempt, 1); ended <= lastAttempt; ended += 1)
+      end(ended, this.#last, this.#lastAt);
+    const items = [...this.#items, ...ends].sort((a, b) =>
+      after(a.position, b.position) ? 1 : -1,
+    );
+    return as === undefined
+      ? items
+      : items.filter((item) => !("coordinator" in item) || item.coordinator === as);
+  }
+
+  #add(number: number, line: RunLogLine): void {
+    const at = "at" in line && typeof line.at === "string" ? line.at : this.#lastAt;
+    if (line.attempt !== this.#attempt) {
+      if (this.#attempt >= 1 && line.attempt > this.#attempt)
+        this.#moves.push({
+          from: this.#attempt,
+          to: line.attempt,
+          last: this.#last,
+          lastAt: this.#lastAt,
         });
-        open.delete(id);
-      }
+      this.#attempt = line.attempt;
     }
-    items.push({
-      kind: "ended",
-      attempt: ended,
-      outcome: record?.outcome ?? "interrupted",
-      at: record?.ended ?? lastAt,
-      position: [last, ended, 0],
-    });
-  };
-  for (const { number, line } of lines) {
-    const at = "at" in line && typeof line.at === "string" ? line.at : lastAt;
-    if (line.attempt !== attempt) {
-      for (let ended = attempt; ended >= 1 && ended < line.attempt; ended += 1) endAttempt(ended);
-      attempt = line.attempt;
-    }
-    last = number;
-    lastAt = at;
+    const attempt = this.#attempt;
+    this.#last = number;
+    this.#lastAt = at;
     const position: Position = [number, attempt - 1, 0];
-    const here = outside.get(attempt) ?? new Map<string, JsonObject | undefined>();
-    outside.set(attempt, here);
+    const here = this.#outside.get(attempt) ?? new Map<string, JsonObject | undefined>();
+    this.#outside.set(attempt, here);
     const id = (n: number) => `${attempt}.${n}`;
+    const items = this.#items;
     if (line.kind === "participant-connected") {
       here.set(line.participant, line.labels);
-      continue;
+      this.#connected.add(line.participant);
+      return;
     }
     if (line.kind === "route-opened" || line.kind === "route-closed") {
       const [a, b] = line.between ?? [line.from, line.to];
       const coordinator = here.has(a) ? a : here.has(b) ? b : undefined;
-      if (coordinator === undefined) continue;
+      if (coordinator === undefined) return;
       const agent = coordinator === a ? b : a;
       const direction = line.between
         ? "both"
@@ -358,13 +486,13 @@ export function buildItems(
       const labels = here.get(coordinator);
       const ends = JSON.stringify([attempt, coordinator, agent, direction]);
       if (line.kind === "route-opened")
-        purposes.set(ends, {
+        this.#purposes.set(ends, {
           purpose: line.purpose,
           ...(line.timeoutMs === undefined ? {} : { timeoutMs: line.timeoutMs }),
           ...(labels === undefined ? {} : { labels }),
         });
       // A closed route is said as it was opened, and why it closed.
-      const opening = purposes.get(ends) ?? { purpose: "" };
+      const opening = this.#purposes.get(ends) ?? { purpose: "" };
       items.push({
         kind: "route",
         state: line.kind === "route-opened" ? "opened" : "closed",
@@ -376,7 +504,7 @@ export function buildItems(
         at,
         position,
       });
-      continue;
+      return;
     }
     if (line.kind === "message-sent") {
       if (here.has(line.from)) {
@@ -390,7 +518,7 @@ export function buildItems(
             at,
             position,
           });
-          open.delete(id(line.replyTo));
+          this.#open.delete(id(line.replyTo));
         } else
           items.push({
             kind: "message",
@@ -403,9 +531,9 @@ export function buildItems(
             at,
             position,
           });
-        continue;
+        return;
       }
-      if (!here.has(line.to)) continue;
+      if (!here.has(line.to)) return;
       const asks = line.awaitsReply !== undefined;
       items.push({
         kind: "message",
@@ -419,8 +547,8 @@ export function buildItems(
         at,
         position,
       });
-      if (asks) open.set(id(line.message), { coordinator: line.to, attempt });
-      continue;
+      if (asks) this.#open.set(id(line.message), { coordinator: line.to, attempt });
+      return;
     }
     if (line.kind === "request-ended" && here.has(line.owedBy) && line.end !== "replied") {
       items.push({
@@ -431,12 +559,13 @@ export function buildItems(
         at,
         position,
       });
-      open.delete(id(line.message));
+      this.#open.delete(id(line.message));
     }
   }
-  for (let ended = Math.max(attempt, 1); ended <= (attempts.at(-1)?.attempt ?? 0); ended += 1)
-    endAttempt(ended);
-  return items;
+}
+
+function address(callPath: readonly string[], key: string): string {
+  return [...callPath, key].join("/");
 }
 
 /** What is past the cursor in each run, oldest first across runs, each run's in its log's order. */

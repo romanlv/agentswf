@@ -1,12 +1,22 @@
-import { afterAll, describe, expect, test } from "bun:test";
+import { afterAll, describe, expect, spyOn, test } from "bun:test";
 import {
   type InboxErrorJson,
   type InboxItemJson,
   RUN_EVENT_VERSIONS,
   type RunLogLine,
+  TURN_RECORD_VERSION,
 } from "@agentswf/contract/records";
-import { type InboxClock, inboxCommand } from "./inbox-command";
-import { appendEvent, claimAttempt, createRun, endAttempt, type Run } from "./runs";
+import { type InboxClock, ItemFold, inboxCommand } from "./inbox-command";
+import * as runs from "./runs";
+import {
+  appendEvent,
+  claimAttempt,
+  createRun,
+  endAttempt,
+  type Run,
+  readAttempts,
+  readNumberedEvents,
+} from "./runs";
 import { createTempRunDirs } from "./testing";
 
 const runDirs = createTempRunDirs();
@@ -73,6 +83,11 @@ const ask = (n: number, from: string, text: string, until?: string): Body<RunLog
   }) as Body<RunLogLine>;
 
 async function inbox(root: string, ...args: string[]) {
+  return waiting(root, async () => {}, ...args);
+}
+
+/** As `inbox`, with `between(poll)` run in each pause of a wait, the polls before it counted from 1. */
+async function waiting(root: string, between: (poll: number) => Promise<void>, ...args: string[]) {
   const stdout: string[] = [];
   const stderr: string[] = [];
   const sleeps: number[] = [];
@@ -80,6 +95,7 @@ async function inbox(root: string, ...args: string[]) {
     now: () => Date.now() + sleeps.reduce((sum, ms) => sum + ms, 0),
     sleep: async (ms) => {
       sleeps.push(ms);
+      await between(sleeps.length);
     },
   };
   const code = await inboxCommand(
@@ -341,5 +357,212 @@ describe("awf inbox", () => {
     });
     void run;
     expect((await inbox(root, "nope")).code).toBe(2);
+  });
+});
+
+const noise = (text: string) => ({ kind: "warning", text }) as Body<RunLogLine>;
+const cursorOf = (cursor: string) =>
+  JSON.parse(Buffer.from(cursor.slice(3), "base64url").toString("utf8")) as {
+    r: Record<string, number[]>;
+  };
+
+describe("awf inbox --wait reads only what changed", () => {
+  test("the items a wait reads poll by poll are those of the whole log, with the same cursors", async () => {
+    const root = runDirs.tempRunDir();
+    const { run, claim, ref } = await newRun(root);
+    await claim(true);
+    await log(
+      run,
+      1,
+      noise("before"),
+      { kind: "participant-connected", participant: "coordinator" },
+      noise("one"),
+      noise("two"),
+      opened("a"),
+      ask(1, "a", "Still there?"),
+      noise("last of 1"),
+    );
+    // A turn line has no time of its own: what its dead attempt left open closes at the line before.
+    const lastOf1 = new Date(clock).toISOString();
+    await appendEvent(run.dir, {
+      version: TURN_RECORD_VERSION,
+      attempt: 1,
+      kind: "turn",
+    } as unknown as RunLogLine);
+    const live = await claim();
+    // Each pause adds lines: noise, a line torn in two, a second attempt's, and its end.
+    const turns = `${run.dir}/turns.jsonl`;
+    const torn = JSON.stringify({
+      ...noise("torn"),
+      version: 1,
+      attempt: 2,
+      at: at(),
+      callPath: [],
+    });
+    const append = async (text: string) =>
+      Bun.write(turns, `${await Bun.file(turns).text()}${text}`);
+    const steps: (() => Promise<unknown>)[] = [
+      () => log(run, 2, noise("first of 2")),
+      () => log(run, 2, { kind: "participant-connected", participant: "coordinator" }, noise("x")),
+      () => append(torn.slice(0, 20)),
+      () => append(`${torn.slice(20)}\n`),
+      () => log(run, 2, opened("b"), noise("y"), ask(2, "b", "Merge?")),
+      () => endAttempt(live, { outcome: "failed" }),
+    ];
+    const read: InboxItemJson[] = [];
+    let cursor: string | undefined;
+    for (let calls = 0; calls < 20 && steps.length > 0; calls += 1) {
+      const next = await waiting(
+        root,
+        async () => {
+          await steps.shift()?.();
+        },
+        ref,
+        "--json",
+        "--wait",
+        "30",
+        ...(cursor ? ["--after", cursor] : []),
+      );
+      expect(next.code).toBe(0);
+      read.push(...next.items);
+      cursor = read.at(-1)?.cursor ?? cursor;
+    }
+    const once = await inbox(root, ref, "--json");
+    expect(read).toEqual(once.items);
+    const ended = read.filter((item) => item.kind === "expired" || item.kind === "ended");
+    expect(ended.map((item) => [item.kind, item.at, cursorOf(item.cursor!).r[ref]])).toEqual([
+      ["expired", lastOf1, [8, 0, 1]],
+      ["ended", lastOf1, [8, 1, 0]],
+      ["ended", expect.any(String), [15, 2, 0]],
+    ]);
+    expect(read.slice(-1)).toMatchObject([{ kind: "ended", attempt: 2, outcome: "failed" }]);
+    // The fold gives the same items however the log is cut into reads.
+    const lines = await readNumberedEvents(run.dir);
+    const attempts = await readAttempts(run);
+    const byLine = new ItemFold();
+    for (const each of lines) byLine.add([each]);
+    expect(byLine.items(attempts, false)).toEqual(new ItemFold().add(lines).items(attempts, false));
+  });
+
+  test("after the first poll, each reads only the live run's log, and only when it grew", async () => {
+    const root = runDirs.tempRunDir();
+    for (let n = 0; n < 5; n += 1) {
+      const quiet = await newRun(root, "build", `q${n}`);
+      const attempt = await quiet.claim();
+      await log(quiet.run, 1, noise("nothing for a holder"));
+      await endAttempt(attempt, { outcome: "completed" });
+    }
+    const one = await newRun(root, "investigate", "live");
+    await one.claim();
+    await log(
+      one.run,
+      1,
+      { kind: "participant-connected", participant: "coordinator" },
+      opened("a"),
+    );
+    const first = await inbox(root, "--all", "--json");
+    const spies = {
+      log: spyOn(runs, "readEventsFrom"),
+      attempts: spyOn(runs, "readAttempts"),
+      record: spyOn(runs, "openRun"),
+    };
+    const reads: { log: string[]; attempts: number; record: number }[] = [];
+    const counted = () => {
+      reads.push({
+        log: spies.log.mock.calls.map(([dir]) => dir),
+        attempts: spies.attempts.mock.calls.length,
+        record: spies.record.mock.calls.length,
+      });
+      for (const spy of Object.values(spies)) spy.mockClear();
+    };
+    try {
+      const next = await waiting(
+        root,
+        async (poll) => {
+          counted();
+          if (poll === 3) await log(one.run, 1, noise("still working"));
+          if (poll === 5) await log(one.run, 1, ask(1, "a", "Merge?"));
+        },
+        "--all",
+        "--json",
+        "--wait",
+        "30",
+        "--after",
+        first.items.at(-1).cursor,
+      );
+      counted();
+      expect(next.items.map((item: InboxItemJson) => [item.run, item.kind])).toEqual([
+        ["investigate/live", "message"],
+      ]);
+    } finally {
+      for (const spy of Object.values(spies)) spy.mockRestore();
+    }
+    // The first poll reads every run; each after it, the live log once it grew.
+    expect(reads[0]!.record).toBe(6);
+    expect(reads.slice(1)).toEqual([
+      { log: [], attempts: 0, record: 0 },
+      { log: [], attempts: 0, record: 0 },
+      { log: [one.run.dir], attempts: 0, record: 0 },
+      { log: [], attempts: 0, record: 0 },
+      { log: [one.run.dir], attempts: 0, record: 0 },
+    ]);
+  });
+
+  test("a run that connects its coordinator while a wait is on is read", async () => {
+    const root = runDirs.tempRunDir();
+    const late = await newRun(root, "triage", "late");
+    await late.claim();
+    await log(late.run, 1, noise("starting"));
+    const read = await waiting(
+      root,
+      async (poll) => {
+        if (poll === 2)
+          await log(
+            late.run,
+            1,
+            { kind: "participant-connected", participant: "coordinator" },
+            opened("a"),
+          );
+      },
+      "--all",
+      "--json",
+      "--wait",
+      "30",
+    );
+    expect(read.items.map((item: InboxItemJson) => [item.run, item.kind])).toEqual([
+      ["triage/late", "route"],
+    ]);
+  });
+
+  test("a run continued while a wait is on is read again", async () => {
+    const root = runDirs.tempRunDir();
+    const { run, claim, ref } = await newRun(root);
+    const attempt = await claim();
+    await log(run, 1, { kind: "participant-connected", participant: "coordinator" }, opened("a"));
+    await endAttempt(attempt, { outcome: "failed" });
+    const first = await inbox(root, "--all", "--json");
+    expect(first.items.at(-1)).toMatchObject({ kind: "ended", attempt: 1 });
+    const read = await waiting(
+      root,
+      async (poll) => {
+        if (poll !== 2) return;
+        await claim();
+        await log(
+          run,
+          2,
+          { kind: "participant-connected", participant: "coordinator" },
+          opened("b"),
+        );
+      },
+      "--all",
+      "--json",
+      "--wait",
+      "30",
+      "--after",
+      first.items.at(-1).cursor,
+    );
+    expect(
+      read.items.map((item: InboxItemJson) => [item.run, item.kind, "agent" in item && item.agent]),
+    ).toEqual([[ref, "route", "b"]]);
   });
 });

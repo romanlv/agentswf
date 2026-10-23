@@ -218,7 +218,7 @@ export function checkContinue(
  */
 export async function readAttempts(run: Run): Promise<AttemptRecord[]> {
   const dir = attemptsDir(run.dir);
-  const numbered = (await entries(dir)).filter((name) => /^[1-9]\d*\.json$/.test(name));
+  const numbered = await attemptNames(run);
   const records = await Promise.all(
     numbered.map((name) =>
       readRecord<AttemptRecord>(join(dir, name), ATTEMPT_RECORD_VERSION, { missing: true }),
@@ -434,22 +434,86 @@ export async function readEvents(runDir: string): Promise<RunLogLine[]> {
 export async function readNumberedEvents(
   runDir: string,
 ): Promise<{ number: number; line: RunLogLine }[]> {
-  const text = await readFile(turnsFile(runDir), "utf8").catch((error) => {
-    if (isCode(error, "ENOENT")) return "";
-    throw error;
-  });
-  const lines = text.split("\n");
+  return (await readEventsFrom(runDir, { offset: 0, count: 0 })).lines;
+}
+
+/** Where a read of the event log stopped: the bytes up to its last ended line, and the lines in them. */
+export type LogMark = { offset: number; count: number };
+
+/**
+ * The event log's lines past `from`, numbered on from it, and where this read stopped: what was
+ * appended since a read that stopped at `from`.
+ */
+export async function readEventsFrom(
+  runDir: string,
+  from: LogMark,
+): Promise<{ lines: { number: number; line: RunLogLine }[]; mark: LogMark }> {
+  let bytes: Buffer;
+  try {
+    const file = await open(turnsFile(runDir), "r");
+    try {
+      const { size } = await file.stat();
+      bytes = Buffer.alloc(Math.max(0, size - from.offset));
+      let read = 0;
+      while (read < bytes.length) {
+        const { bytesRead } = await file.read(bytes, read, bytes.length - read, from.offset + read);
+        if (bytesRead === 0) break;
+        read += bytesRead;
+      }
+      bytes = bytes.subarray(0, read);
+    } finally {
+      await file.close();
+    }
+  } catch (error) {
+    if (!isCode(error, "ENOENT")) throw error;
+    bytes = Buffer.alloc(0);
+  }
   // A last line not yet ended is still being written.
-  lines.pop();
-  return lines.flatMap((json, index) => {
+  const end = bytes.lastIndexOf(0x0a) + 1;
+  const texts =
+    end === 0
+      ? []
+      : bytes
+          .subarray(0, end - 1)
+          .toString("utf8")
+          .split("\n");
+  const lines = texts.flatMap((json, index) => {
     try {
       const value: unknown = JSON.parse(json);
       const line = typeof value === "object" && value !== null ? runLogLine(value) : undefined;
-      return line ? [{ number: index + 1, line }] : [];
+      return line ? [{ number: from.count + index + 1, line }] : [];
     } catch {
       return [];
     }
   });
+  return { lines, mark: { offset: from.offset + end, count: from.count + texts.length } };
+}
+
+/** The event log's size in bytes, 0 before it is written. */
+export async function logSize(runDir: string): Promise<number> {
+  return (await stat(turnsFile(runDir)).catch(() => undefined))?.size ?? 0;
+}
+
+async function attemptNames(run: Run): Promise<string[]> {
+  return (await entries(attemptsDir(run.dir))).filter((name) => /^[1-9]\d*\.json$/.test(name));
+}
+
+/**
+ * A token that changes when the run's attempt records do: one added, removed, or rewritten, as an
+ * attempt's end is.
+ */
+export async function attemptsToken(run: Run): Promise<string> {
+  const dir = attemptsDir(run.dir);
+  const names = await attemptNames(run);
+  const stats = await Promise.all(
+    names.map((name) => stat(join(dir, name)).catch(() => undefined)),
+  );
+  return names
+    .map((name, index) => {
+      const info = stats[index];
+      return info ? `${name}:${info.ino}:${info.size}:${info.mtimeMs}` : `${name}:-`;
+    })
+    .join(",");
 }
 
 /** Every turn of the run, in the order they settled. */

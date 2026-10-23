@@ -4,7 +4,7 @@ import { type HolderCode, WIRE_VERSION } from "@agentswf/contract/wire";
 import { liveCoordinatorSocket } from "./coordinator-socket";
 import { messageOf } from "./errors";
 import { isCode } from "./files";
-import { buildItems } from "./inbox-command";
+import { ItemFold } from "./inbox-command";
 import { coordinatorDir } from "./machine";
 import { failed, type Out, parsePlace, type ReadPlace } from "./run-commands";
 import { findRun, RunNotFound, type RunStatus } from "./run-state";
@@ -183,11 +183,10 @@ async function awaitedBy(
   agent: string,
   as: string | undefined,
 ): Promise<string | undefined> {
-  const items = buildItems(
-    await readNumberedEvents(status.run.dir),
-    await readAttempts(status.run),
-    true,
-  );
+  const items =
+    new ItemFold()
+      .add(await readNumberedEvents(status.run.dir))
+      .items(await readAttempts(status.run), true) ?? [];
   const closed = new Set(
     items.flatMap((item) => (item.kind === "answered" || item.kind === "expired" ? [item.id] : [])),
   );
