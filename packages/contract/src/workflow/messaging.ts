@@ -12,6 +12,11 @@ export type MessageAccess =
       purpose: string;
       /** Lowers the engine's ceiling of messages on this route an attempt, answers included. */
       maxMessages?: number;
+      /**
+       * Only on a route to an outside participant: a question on it closes unanswered after this
+       * long. Absent, it waits until answered; an agent's `--timeout` can only shorten it.
+       */
+      timeoutMs?: number;
     }
   | {
       between: readonly [ParticipantRef, ParticipantRef];
@@ -20,6 +25,11 @@ export type MessageAccess =
       purpose: string;
       /** Lowers the engine's ceiling of messages on this route an attempt, answers included. */
       maxMessages?: number;
+      /**
+       * Only on a route to an outside participant: a question on it closes unanswered after this
+       * long. Absent, it waits until answered; an agent's `--timeout` can only shorten it.
+       */
+      timeoutMs?: number;
     };
 
 export interface Messaging {

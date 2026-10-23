@@ -175,6 +175,9 @@ test("waiting acknowledgements require integer ordered timestamps and exact fiel
   } as const;
   expect(decodeControlResponse(response) as unknown).toEqual({ ok: true, value: response });
   expect(decodeResultSubmitResponse(response)).toMatchObject({ ok: false });
+  // An operation with no deadline around it reports none.
+  const open = { version: WIRE_VERSION, kind: "waiting", waitUntil: 1000 } as const;
+  expect(decodeControlResponse(open) as unknown).toEqual({ ok: true, value: open });
   for (const fields of [
     { waitUntil: -1 },
     { waitUntil: 1.5 },
@@ -338,7 +341,19 @@ describe("messaging wire", () => {
         text: "peer  you can  state",
       },
     ];
-    for (const response of responses) {
+    // A wait on an outside participant may have no limit, and it shows in `wf peers` as `outside`.
+    const outside: object[] = [
+      { version: WIRE_VERSION, kind: "awaiting-reply", peer: "coordinator", notice: "waiting." },
+      {
+        version: WIRE_VERSION,
+        kind: "peers",
+        peers: [{ peer: "coordinator", can: "both", state: "outside", queued: 0, purpose: "Ask." }],
+        owes: [],
+        awaits: { peer: "coordinator" },
+        text: "peer  you can  state",
+      },
+    ];
+    for (const response of [...responses, ...outside]) {
       expect(decodeControlResponse(response) as unknown).toEqual({ ok: true, value: response });
     }
     for (const broken of [
@@ -347,7 +362,7 @@ describe("messaging wire", () => {
       { ...responses[0], owing: "" },
       { ...responses[2], until: -1 },
       { ...responses[4], owes: [""] },
-      { ...responses[4], awaits: { peer: "x" } },
+      { ...responses[4], awaits: { peer: "x", until: -1 } },
       {
         ...responses[4],
         peers: [{ peer: "x", can: "all", state: "idle", queued: 0, purpose: "" }],

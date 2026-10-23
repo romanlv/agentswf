@@ -7,6 +7,12 @@ import type { ParticipantKey, ParticipantRef } from "./workflow/participants";
  */
 export const PARTICIPANT: unique symbol = Symbol("agentswf.participant");
 
+/**
+ * Keys `connect`, `agents.open` and a call's `participants` map refuse: an agent could read a
+ * message from one as authority. Engine-side, not the author surface; the docs name them.
+ */
+export const RESERVED_PARTICIPANT_KEYS = ["operator", "awf", "system", "user"] as const;
+
 /** A ref for a participant the engine opened. */
 export function participantRef<K extends ParticipantKey>(
   key: K,

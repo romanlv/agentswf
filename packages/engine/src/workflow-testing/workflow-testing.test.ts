@@ -262,7 +262,7 @@ describe("testWorkflow", () => {
 
   test("timeoutMs is the run's deadline", async () => {
     const remaining = workflowOf<null, number>(
-      async (workflow) => workflow.deadline.unixMilliseconds - Date.now(),
+      async (workflow) => (workflow.deadline?.unixMilliseconds ?? Number.NaN) - Date.now(),
     );
     const run = await testWorkflow(remaining, null, { timeoutMs: 60_000 });
     expect(run.value).toBeGreaterThan(55_000);

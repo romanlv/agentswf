@@ -1,5 +1,5 @@
 import type { JsonSchema } from "./schema";
-import type { ReplyCode, SendCode } from "./wire";
+import type { HolderCode, InboxCode, ReplyCode, SendCode } from "./wire";
 import type {
   AgentExecution,
   AgentKey,
@@ -473,7 +473,7 @@ export type RunEvent = {
 /**
  * A route's ends, as the workflow granted it: `between` is one route both ways, with one count, its
  * two ends in the order given, which means nothing. A pair has one open route at a time, so its ends
- * name it.
+ * name it. An end is an agent's key or an outside participant's.
  */
 export type RouteEnds =
   | { from: AgentKey; to: AgentKey; between?: never }
@@ -486,11 +486,23 @@ export type RouteEnds =
 export type UndeliveredReason = "withdrawn" | "route-closed" | "attempt-ended";
 
 /**
- * How an owed answer ended: answered with `wf reply`; failed (its peer stopped, failed, or still owed
- * it after its reminder); the asker's `--timeout` passed; or the asker finished first, before its
- * peer saw the question (`withdrawn`) or after (`released`).
+ * How an owed answer ended: answered with `wf reply` or `awf reply`; failed (its peer stopped,
+ * failed, or still owed it after its reminder); the asker's `--timeout` or its route's passed; the
+ * asker finished first, before its peer saw the question (`withdrawn`) or after (`released`), or
+ * the outside participant it was owed by was released (`released`); a deadline the workflow set
+ * around the asker passed, or its scope was cancelled (`cancelled`); or the attempt ended.
  */
-export type RequestEnd = "replied" | "failed" | "timed-out" | "withdrawn" | "released";
+export type RequestEnd =
+  | "replied"
+  | "failed"
+  | "timed-out"
+  | "withdrawn"
+  | "released"
+  | "cancelled"
+  | "attempt-ended";
+
+/** What an outside participant's message came through: `awf run`'s prompt, `awf reply` or `awf send`, a test's script. */
+export type OutsideVia = "terminal" | "command" | "test";
 
 /**
  * Messaging in the run's event log, keyed by attempt and `message`, numbered in the order admitted
@@ -498,6 +510,13 @@ export type RequestEnd = "replied" | "failed" | "timed-out" | "withdrawn" | "rel
  * delivery with what the harness confirmed.
  */
 export type MessagingEvent =
+  /** An outside participant connected, with the labels the workflow gave it. */
+  | {
+      kind: "participant-connected";
+      callPath: string[];
+      participant: string;
+      labels?: JsonObject;
+    }
   | ({
       kind: "route-opened";
       callPath: string[];
@@ -505,32 +524,35 @@ export type MessagingEvent =
       /** The limit in force, answers included, and what the workflow asked for when it differed. */
       maxMessages: number;
       asked?: number;
+      /** A route to an outside participant: how long a question on it waits. */
+      timeoutMs?: number;
       /** The stage it closes with; absent, it lasts the attempt. */
       stage?: string;
     } & RouteEnds)
   | ({
       kind: "route-closed";
       callPath: string[];
-      reason: "stage-ended" | "agent-stopped" | "attempt-ended";
+      reason: "stage-ended" | "agent-stopped" | "released" | "attempt-ended";
     } & RouteEnds)
   /**
-   * Admitted, before `wf send` or `wf reply` returned. `operationId` is the sender's open operation.
-   * A question carries the answer's deadline; an answer, the question it answers.
+   * Admitted, before `wf send`, `wf reply`, `awf send` or `awf reply` returned. `operationId` is the
+   * sender's open operation; an outside participant has none, and says what it came through
+   * instead. A question carries the answer's deadline, if it has one; an answer, the question it
+   * answers.
    */
-  | {
+  | ({
       kind: "message-sent";
       callPath: string[];
       message: number;
       from: AgentKey;
       to: AgentKey;
-      operationId: string;
       text: string;
       bytes: number;
-      /** It awaits an answer by this time. */
-      awaitsReply?: { until: string };
+      /** It awaits an answer, by this time when it has a limit. */
+      awaitsReply?: { until?: string };
       /** The question it answers. */
       replyTo?: number;
-    }
+    } & ({ operationId: string; via?: never } | { via: OutsideVia; operationId?: never }))
   /** Refused before admission, with the code `wf` printed. */
   | {
       kind: "message-refused";
@@ -718,6 +740,80 @@ export type LogsJson = {
   next?: string[];
 };
 
+/**
+ * Why a question to a coordinator closed unanswered, as `awf inbox` reports it, from its
+ * `request-ended`: `timed-out` is `timeout`, and the others keep their names. Such a question is
+ * shown when recorded, so never `withdrawn`; an outside participant is never reminded and never
+ * stops, so never `failed`.
+ */
+export type InboxExpiry = "timeout" | "released" | "cancelled" | "attempt-ended";
+
+/**
+ * One line of `awf inbox --json`, oldest first. Agents are peer addresses, qualified in a child
+ * call; message ids are `{attempt}.{n}`. A reader ignores the kinds and fields it does not know;
+ * `v` changes only when one is renamed or removed.
+ */
+export type InboxItemJson = {
+  v: 1;
+  /** `{workflow}/{id}`. */
+  run: string;
+  at: string;
+  /** `--after` this reads on from just after the item; absent under `--open`, a snapshot. */
+  cursor?: string;
+} & (
+  | {
+      kind: "route";
+      state: "opened" | "closed";
+      coordinator: string;
+      agent: string;
+      /** Which way it carries messages: `both` for `between`, else from or to the coordinator. */
+      direction: "both" | "to-coordinator" | "from-coordinator";
+      purpose: string;
+      /** How long a question on it waits; absent, until it is answered. */
+      timeoutMs?: number;
+      /** The coordinator's, as the workflow connected it. */
+      labels?: JsonObject;
+      /** Why it closed. */
+      reason?: "stage-ended" | "agent-stopped" | "released" | "attempt-ended";
+    }
+  | {
+      kind: "message";
+      coordinator: string;
+      id: string;
+      /** One is the coordinator's key, the other an agent's address. */
+      from: string;
+      to: string;
+      text: string;
+      /** A question to the coordinator, open until an `answered` or `expired` item says otherwise. */
+      asks?: true;
+      /** When the question closes unanswered, if it has a limit. */
+      until?: string;
+      /** From the coordinator, an `awf send` or a script's: what it came through. Its answers are `answered` items. */
+      via?: OutsideVia;
+    }
+  | { kind: "answered"; coordinator: string; id: string; answer: string; via: OutsideVia }
+  | { kind: "expired"; coordinator: string; id: string; reason: InboxExpiry }
+  | { kind: "ended"; attempt: number; outcome: AttemptOutcome | "interrupted" }
+);
+
+/**
+ * `awf reply --json` and `awf send --json`. `delivered`'s `id` is what an `awf inbox` item names:
+ * for a reply, the question answered, as its `answered` item has it; for a send, the new message.
+ */
+export type HolderResultJson =
+  | { v: 1; code: "delivered"; id: string }
+  | {
+      v: 1;
+      code: HolderCode;
+      /** The refusal as the command prints it, naming what to do instead. */
+      error: string;
+      /** For `ambiguous`: the coordinator keys, agent addresses or question ids to choose from. */
+      choices?: string[];
+    };
+
+/** `awf inbox --json` when it read nothing. */
+export type InboxErrorJson = { v: 1; code: InboxCode; error: string };
+
 /** Each kind's own version, which changes when that kind's shape does. */
 export const RUN_EVENT_VERSIONS = {
   "attempt-started": 1,
@@ -735,13 +831,21 @@ export const RUN_EVENT_VERSIONS = {
   "decision-asked": 1,
   "decision-ended": 1,
   "route-opened": 1,
-  "route-closed": 1,
-  "message-sent": 1,
+  "route-closed": 2,
+  "message-sent": 2,
   "message-refused": 1,
   "message-delivery": 1,
   "message-undelivered": 1,
-  "request-ended": 1,
+  "request-ended": 2,
+  "participant-connected": 1,
 } as const satisfies Record<RunEvent["kind"], number>;
+
+/** A kind whose older lines are a strict subset of its current shape, read as the current one. */
+const RUN_EVENT_OLDEST_READ: Partial<Record<RunEvent["kind"], number>> = {
+  "route-closed": 1,
+  "message-sent": 1,
+  "request-ended": 1,
+};
 
 /**
  * The line as this reader knows it, or undefined for a kind or version it does not know, which
@@ -755,10 +859,10 @@ export function runLogLine(value: object): RunLogLine | undefined {
     return version === TURN_RECORD_VERSION ? ({ kind: "turn", ...value } as TurnRecord) : undefined;
   }
   if (typeof kind !== "string") return undefined;
-  return Object.hasOwn(RUN_EVENT_VERSIONS, kind) &&
-    version === RUN_EVENT_VERSIONS[kind as RunEvent["kind"]]
-    ? (value as RunEvent)
-    : undefined;
+  if (!Object.hasOwn(RUN_EVENT_VERSIONS, kind) || typeof version !== "number") return undefined;
+  const current = RUN_EVENT_VERSIONS[kind as RunEvent["kind"]];
+  const oldest = RUN_EVENT_OLDEST_READ[kind as RunEvent["kind"]] ?? current;
+  return version >= oldest && version <= current ? (value as RunEvent) : undefined;
 }
 
 export const OUTPUT_RECORD_VERSION = 5 as const;

@@ -584,7 +584,11 @@ function describeLine(line: RunLogLine): string {
         line.replyTo === undefined ? "" : `, reply to ${line.replyTo}`
       }${
         line.awaitsReply
-          ? `, reply owed  ${said(line.from, 60)} awaits it until ${clockTime(Date.parse(line.awaitsReply.until))}`
+          ? `, reply owed  ${said(line.from, 60)} awaits it${
+              line.awaitsReply.until
+                ? ` until ${clockTime(Date.parse(line.awaitsReply.until))}`
+                : ""
+            }`
           : ""
       }`;
     case "message-refused":
@@ -595,6 +599,8 @@ function describeLine(line: RunLogLine): string {
       return `message ${line.message} undelivered  ${line.reason}`;
     case "request-ended":
       return `request ${line.message} ${line.end}${line.reason ? `  ${said(line.reason)}` : ""}`;
+    case "participant-connected":
+      return `${said(line.participant, 60)} connected`;
   }
 }
 

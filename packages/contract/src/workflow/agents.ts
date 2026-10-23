@@ -200,9 +200,16 @@ interface AgentRunBase {
   /** Idempotency key scoped to this agent. Generated when omitted. */
   id?: TurnId;
   prompt: string;
-  /** Fixed before queueing; defaults to the current scope and covers all automatic check-ins. */
+  /**
+   * Fixed before queueing; defaults to the current scope and covers all automatic check-ins. A wait
+   * for an outside participant's answer moves it out by the wait's length, within the deadlines
+   * around the operation.
+   */
   deadline?: AbsoluteDeadline;
-  /** Relative bound from invocation, capped by the current scope; waiting never extends it. */
+  /**
+   * Relative bound from invocation, capped by the current scope; waiting extends it only for an
+   * outside participant's answer, as `deadline`.
+   */
   timeoutMs?: number;
   label?: string;
   /**
@@ -396,7 +403,8 @@ export interface AgentDirectory {
   /**
    * Reattaches by logical key when every supplied field matches; omitted optional fields do not
    * constrain an existing agent. Runtime requirements are never silently relaxed. A conflicting
-   * spec or occupied outside-participant key rejects rather than mutating the existing participant.
+   * spec or occupied outside-participant key rejects rather than mutating the existing participant;
+   * so does a reserved key, `operator`, `awf`, `system` or `user`.
    */
   open(spec: AgentOpenSpec): Promise<AgentRef>;
   /** Returns null when absent; rejects when an existing agent conflicts with the requirements. */

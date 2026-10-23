@@ -87,7 +87,7 @@ const coordinator = await workflow.participants.connect({
 await workflow.messages.allow({
   between: [investigator, coordinator],
   purpose: "report findings that hold up; ask when the logs can't settle it",
-  timeout: "2h",
+  timeoutMs: 2 * 60 * 60_000,
 });
 ```
 
@@ -97,11 +97,11 @@ that `awf reply` and `awf send` use. It returns the handle that `messages.allow`
 wait for anyone, and it doesn't say who answers. `labels` is any JSON object, written for the
 holder; awf only passes it along in `route` items.
 
-`timeout` on a route to the coordinator closes a question on it unanswered after that long. The
+`timeoutMs` on a route to the coordinator closes a question on it unanswered after that long. The
 workflow sets it, not the agent: an agent forgets a flag its prompt asked for, and one forgotten
 `--timeout` would leave a run waiting forever. It is optional: without it, or an agent's own
 `--timeout`, a question waits until it is answered. An agent's `--timeout` applies either way, and
-the shorter of the two wins, so it can only shorten the route's. `timeout` is allowed only on a
+the shorter of the two wins, so it can only shorten the route's. `timeoutMs` is allowed only on a
 route to an outside participant; on a route between agents it is refused until something needs it.
 
 Who answers is chosen when the run starts, not in the workflow. The same workflow run as
@@ -149,11 +149,11 @@ questions. Each item has a `kind`:
 
 | `kind` | What it says |
 | --- | --- |
-| `route` | a route to the coordinator opened or closed: the agent, the purpose, the timeout, the coordinator's `labels` |
-| `message` | something was sent, either way: `id`, `from`, `to`, `text`, and whether it `asks`. From an agent, `to` is the coordinator's key; from the coordinator, `from` is |
-| `answered` | a question was answered: its `id`, the answer's `id` (a `message` item, with the text), and how (`terminal`, `command` or `test`) |
-| `expired` | a question closed unanswered: its `id`, and why: `timeout` (the route's or the agent's), `released` (the route, or the agent stopped), `cancelled` (a deadline the workflow set around it, or its scope cancelled), `attempt-ended` (the attempt ended, the run was stopped or passed its deadline) |
-| `ended` | the run's attempt ended, and how |
+| `route` | a route to the coordinator opened or closed: the agent, which way it goes, the purpose, the `timeoutMs`, the coordinator's `labels` |
+| `message` | something was sent, either way: `id`, `from`, `to`, `text`, whether it `asks` and until when. From an agent, `to` is the coordinator's key; from the coordinator, `from` is, and `via` says how it came. An answer is an `answered` item only |
+| `answered` | a question was answered: its `id`, the `answer`, and `via` (`terminal`, `command` or `test`) |
+| `expired` | a question closed unanswered: its `id`, and why: `timeout` (the route's or the agent's), `released` (the coordinator released, or the agent stopped), `cancelled` (a deadline the workflow set around it, or its scope cancelled), `attempt-ended` (the attempt ended, the run was stopped or passed its deadline) |
+| `ended` | the run's attempt ended, and how; `interrupted` when its process died |
 
 An agent in an item is named by its peer address, as [[composition]] writes it
 (`review:claude/reviewer`). Unlike `wf peers`, an agent in a child call is always qualified, so an
@@ -209,7 +209,9 @@ refused. A message to an agent waiting between turns of an operation starts its 
 costs a model call. A message to an idle agent opens a message operation, as any peer's does, and
 its stage waits for that operation, so a coordinator that keeps sending keeps the stage going; the
 workflow's routes are the limit (Q4). A message to an agent that hasn't started yet waits until it
-does, as with any peer. The holder never waits for an answer: the agent's reply comes back as a
+does, as with any peer. One to an agent awaiting an answer is held and comes with that answer, so a
+send to an agent waiting on this coordinator answers nothing; its line says the agent still awaits
+the reply to `{id}`. The holder never waits for an answer: the agent's reply comes back as a
 `message` item in `awf inbox`.
 
 Both commands print one line, or with `--json` a result with a `code`. The codes are published:
@@ -222,21 +224,22 @@ Both commands print one line, or with `--json` a result with a `code`. The codes
 | `no-coordinator` | no coordinator by that key: not connected yet, released, or never; a reserved key such as `operator` included |
 | `unknown-agent` | the run has no agent at that address |
 | `ambiguous` | a bare key two agents share; no `--as` when the workflow connects more than one coordinator; or no `--to` when the agent has more than one open question to this coordinator |
-| `no-route` | the workflow allows no route between this coordinator and the agent |
+| `expired` | not an open question from that agent to this coordinator: `--to` names a report, a closed question (an earlier attempt's included), another agent's question, one sent to another coordinator than `--as`, or nothing; or no `--to`, and the agent has none open |
+| `no-route` | the workflow allows no route from this coordinator to the agent |
 | `stopped` | the agent has stopped |
 | `closed` | the route was allowed, but has closed: its stage ended, or its scope is finishing |
-| `expired` | not an open question from that agent to this coordinator: `--to` names a report, a closed question (an earlier attempt's included), another agent's question, or nothing; or no `--to`, and the agent has none open |
 | `too-large` | the text is over [[messaging]]'s size cap |
 | `limit` | the route has used the messages it allows this attempt |
 | `inbox-full` | the agent has as many unread messages as [[messaging]] holds |
 
-The first that applies, in the table's order, is returned, as [[messaging]]'s refusals are. A
-reply with `--to` and an `--as` other than the coordinator the question went to is `expired`,
-checked right after `ambiguous`, before the route checks. A
+The first that applies, in the table's order, is returned, as [[messaging]]'s refusals are: a
+question's own state is checked before its route's, as `wf reply` checks it, so a `--to` naming a
+question that closed with its route is `expired`. `delivered` carries an id `awf inbox` names: for
+a reply, the question's; for a send, the new message's. A
 live run that hasn't connected the coordinator yet has no socket, so the command reads its state
 (`run-state.ts`) to tell `no-coordinator` from `ended`.
 
-`awf inbox` fails the same way: `not-found` for no such run, `no-coordinator` for a run that
+`awf inbox` fails the same way (`INBOX_CODES`): `not-found` for no such run, `no-coordinator` for a run that
 ended without connecting a coordinator, or that `--as`, and `bad-cursor` for a cursor made with
 another run or filter. A live run that hasn't connected a coordinator, or that `--as`, isn't an
 error; it just has no items yet. Under `--all` neither is ever an error.
@@ -249,7 +252,8 @@ built, is `--as operator` and nothing else (Scope).
 
 **Anyone may answer; the first answer wins.** The terminal, an app and another session can all
 reply to the same question. The first reply is delivered and shows up as an `answered` item for
-the others; any later one is refused as `expired`.
+the others; any later one is refused as `expired`, or as `no-coordinator` or `ended` when that
+first answer released the coordinator or let the run end.
 
 **How the commands find runs.** All three look in the current folder's `.awf/runs`, or the `--cwd`
 or `--run-root` given, as [[messaging]]'s `awf send` and `awf run --continue` do. A holder runs in
@@ -278,12 +282,12 @@ coordinator, and when the wait ends the deadline moves out by however long it la
 workflow set on the stage, `parallel` or call around it still holds (`deadlineCeiling`,
 `workflow-runner.ts:2433`): the wait ends there, and the moved-out deadline stays within it.
 
-A question waits until it is answered, its route's or its own timeout passes, the route is released,
+A question waits until it is answered, its route's or its own timeout passes, the coordinator is released or the asker stops,
 a deadline the workflow set around it passes or its scope is cancelled, the attempt ends, or the run
 is stopped or passes its deadline; its `expired` item says which, as step 3 lists. A run has no
 deadline by default (Q1); `awf run --timeout` sets one. A question still open when the workflow
 returns keeps the run open, since [[messaging]] awaits operations in flight: an intake run waits
-overnight for its answer. A workflow that doesn't want that sets the route's `timeout`.
+overnight for its answer. A workflow that doesn't want that sets the route's `timeoutMs`.
 
 While it waits, a headless agent costs nothing: each of its turns is a separate process. An agent
 in a pane (claude only) keeps its pane, process and sandbox open. If the run's process dies during
@@ -337,20 +341,23 @@ policies connects two coordinators, say one answered by an agent and one that go
 
 `awf test` scripts the coordinator as it scripts an agent's messages: a function per coordinator
 key, called with each message an agent sends it. It may reply, send, or return without answering,
-which leaves a question open. When everything left in the run is waiting on the coordinator's
-script, the test ends the attempt and the question expires with `attempt-ended`, so a test never
-hangs on it.
+which leaves a question open. The script is also called as each route to the coordinator opens,
+which is where one that speaks first sends. When everything left in the run is waiting on the
+coordinator's script and no open question has an `until`, the test ends the attempt and the
+question expires with `attempt-ended`, so a test never hangs on it. A question with an `until`,
+from a short `timeoutMs`, is waited for, so a test can see it expire `timeout`.
 
 ```ts
-const run = await testWorkflow(investigate, {
+const run = await testWorkflow(investigate, null, {
   agents: { investigator: [answer("…")] },
   coordinators: {
-    coordinator: (message) => (message.asks ? message.reply("Keep two, and link them.") : undefined),
+    coordinator: (event) =>
+      event.kind === "message" && event.asks ? event.reply("Keep two, and link them.") : undefined,
   },
 });
 ```
 
-An answer from the script shows up as `answered` with how `test`. The option's name and the
+An answer from the script shows up as `answered` with `via: "test"`. The option's name and the
 message's shape are written into the testing surface in task 1, next to `messages`.
 
 ## Scope
@@ -360,7 +367,7 @@ In scope:
 - the coordinator as an outside participant: connecting it, routes to it, its messages and open
   questions, all in the run log;
 - waiting for the coordinator not counting against the asking agent's deadline;
-- a route's `timeout` for questions on it;
+- a route's `timeoutMs` for questions on it;
 - interactive mode;
 - the coordinator sending first, over a route the workflow allowed (Q4);
 - no run deadline by default (Q1);
@@ -448,13 +455,13 @@ Task by task, what changes and the tests that already cover it.
 
 - `packages/contract/src/workflow/participants.ts`: `connect`, `ExternalParticipantSpec`
   (`labels` stays; `bindingPath` goes, since the socket's place is fixed), `release`;
-  reserved keys refused here.
-- The `messages.allow` spec: `timeout`, on a route to an outside participant.
-- `packages/contract/src/records.ts`: `message-sent` with `operationId` optional for an outside
-  sender, and on an answer from the coordinator, how it came (`terminal`, `command`, `test`);
-  `route-opened` with its `timeout`; a question's `request-ended` (`RequestEnd`, `records.ts:493`,
+  reserved keys documented on `connect`, the list in `@agentswf/contract/participant`.
+- The `messages.allow` spec: `timeoutMs`, on a route to an outside participant.
+- `packages/contract/src/records.ts`: `message-sent` with `via` instead of `operationId` for an
+  outside sender, how it came (`terminal`, `command`, `test`);
+  `route-opened` with its `timeoutMs`; a question's `request-ended` (`RequestEnd`, `records.ts:493`,
   `:571`) carrying what `expired` reports: `timed-out` and `released` exist, and `cancelled` and
-  `attempt-ended` come from its `reason` or new values; a new `participant-connected` event with
+  `attempt-ended` are new values; a new `participant-connected` event with
   `labels`; `RUN_EVENT_VERSIONS` bumped. Internal: apps read `awf inbox`, not these.
 - A new contract type for `awf inbox`'s JSON output: the published shape.
 - `packages/contract/src/wire.ts`: reply and send requests on the coordinator socket, and the
@@ -518,12 +525,12 @@ breaks for something outside the run. These go into [[messaging]] and [[composit
 | Answering | `wf reply {peer}`, `wf send` | `awf reply {run} {peer} [--to {id}]`, `--to` required unless one question is open; `awf send {run} {peer}` (Q4) |
 | Message ids | none in the CLI | none for agents; `{attempt}.{n}` in `awf inbox`, for `--to` |
 | A question to it | open once shown; the asker's wait cut at its operation's deadline | open once recorded; the asker's clock stops while it waits |
-| When an open question ends | when answered | when answered, at the route's `timeout` or the agent's shorter `--timeout`, on release, when its scope ends, or when the attempt ends; no reminders |
+| When an open question ends | when answered | when answered, at the route's `timeoutMs` or the agent's shorter `--timeout`, on release, when its scope ends, or when the attempt ends; no reminders |
 | When the workflow returns | releases it, failing what it owes | it stays connected while a question to it is open, then is released |
 | Unread messages to it | an inbox with a cap; unread messages keep a stage busy | no inbox in memory: no cap, no busy stage, nothing dropped |
 | Waiting for a reply itself | at most one at a time | never (it doesn't ask) |
 | Nobody holding it | not covered | fine: messages wait in the run log, questions wait until answered |
-| Records | none | internal: `message-sent` with `operationId` optional, `participant-connected` with `labels`; apps see `awf inbox`'s output only |
+| Records | none | internal: `message-sent` with `operationId` or `via`, `participant-connected` with `labels`; apps see `awf inbox`'s output only |
 
 Messaging gains one kind of endpoint: an outside one with no operation. Routes, refusals, the
 message wrapper, records and replies stay the same. Only the rows above change, where behaviour
@@ -565,7 +572,7 @@ Alternatives rejected:
   gains global state. Scoped to the folder, `{workflow}/{id}` is already unique and the run
   directory is the only record.
 - **Agents pass `--timeout` on every question.** The Datadog watch would rely on a prompt
-  instruction; one forgotten flag leaves a run waiting forever. The route's `timeout` puts it with
+  instruction; one forgotten flag leaves a run waiting forever. The route's `timeoutMs` puts it with
   the workflow.
 - **A TypeScript client package.** Typed for a Node app, but a claude session or a Hermes skill
   still needs a command. It can wrap the commands later.
@@ -596,13 +603,13 @@ Alternatives rejected:
 Anything published is written down and tried before it is built; anything that publishes nothing
 is built first.
 
-- [ ] 1. Design: write the outside endpoint, the route `timeout`, `awf inbox`'s items, text and
+- [x] 1. Design: write the outside endpoint, the route `timeoutMs`, `awf inbox`'s items, text and
   JSON output and cursor, `awf reply`/`awf send` with `--as`, `--cwd`/`--run-root` and result
   codes, the message wrapper wording, and `awf test`'s coordinator scripts into [[messaging]],
   [[composition]] and the testing surface. Rewrite [[messaging]]'s Operator CLI and Q6 to match:
   one `awf send`, `--as operator` held. Q10's answer, into the author surface.
 - [ ] 2. The outside endpoint, with `awf test` scripting it so its tests run on it: `connect` with
-  `labels` and reserved keys refused, routes to it with `timeout`, its messages both ways and open
+  `labels` and reserved keys refused, routes to it with `timeoutMs`, its messages both ways and open
   questions in the run log with the record fields the code map lists, staying connected past the
   workflow's return while a question is open, `participant-connected`, the wrapper wording.
 - [ ] 3. Waiting doesn't count: M1 first, as a gate; then the asker's clock stops while it waits on
@@ -631,7 +638,7 @@ commands are published only in tasks 7 and 8, after the stub run in task 5.
 
 - **Q1. What stops a run that is waiting for an answer?** Waiting for the coordinator doesn't count
   against the asking agent's deadline, and a question has no time limit unless its route sets a
-  `timeout` or the agent passes `--timeout` (Q8). A run has no deadline by default, for every run;
+  `timeoutMs` or the agent passes `--timeout` (Q8). A run has no deadline by default, for every run;
   `awf run --timeout` sets one. A deadline the workflow sets on a stage, `parallel` or call around
   the operation still bounds it, and turn liveness stops a turn that stalls
   ([[021-turn-liveness-and-limits|story 021]]); a workflow that keeps starting new work is bounded
@@ -664,7 +671,7 @@ commands are published only in tasks 7 and 8, after the stub run in task 5.
 - **Q7. Can the terminal stay out of it when an app answers?** Nothing new. The terminal shows
   questions and answers as event lines; a person who wants the app to answer leaves the prompt
   empty, and an `answered` line shows who answered. Rejected: a `--no-prompt` flag on `awf run`.
-- **Q8. Who limits how long a question waits?** The workflow, with `timeout` on the route; an
+- **Q8. Who limits how long a question waits?** The workflow, with `timeoutMs` on the route; an
   agent's `--timeout` can only shorten it. Rejected: leaving it to agents.
 - **Q9. Which runs does a holder see?** One folder's only (the current one, or `--cwd` or
   `--run-root`), by `{workflow}/{id}`. A holder
@@ -726,14 +733,14 @@ Work:
 - **[[composition]]:** the outside participant as the Proposed design's table has it. No binding
   file, `bindingPath` or `wf inbox`; `labels` any JSON object; the reserved keys; staying connected
   past the workflow's return while a question to it is open.
-- **[[messaging]]:** the endpoint with no operation; the route's `timeout`, outside routes only;
+- **[[messaging]]:** the endpoint with no operation; the route's `timeoutMs`, outside routes only;
   a question to the coordinator not counting against the asker's deadline, within the deadlines
   around it; the wrapper wording that lets a purpose grant authority (Q2). The Operator CLI and Q6
   rewritten: one `awf send`, `--as operator` held.
 - **The holder CLI:** `awf inbox`'s forms, item kinds and fields, text and JSON output, cursor
   guarantees and failures; `awf reply`'s and `awf send`'s arguments, stdin, `--to`, `--as`,
   `--cwd`/`--run-root`, and the code table in its order.
-- **Author surface:** `messages.allow({ timeout })`, `connect` without `bindingPath`, and
+- **Author surface:** `messages.allow({ timeoutMs })`, `connect` without `bindingPath`, and
   `workflow.deadline` optional (Q10).
 - **Testing surface:** the `coordinators` option, the message its script gets, `answered` as `test`.
 - **The record:** a draft of `participant-connected`, the `message-sent` and `route-opened` fields,
@@ -752,25 +759,26 @@ question's wait is still cut at the asker's deadline.
 
 Work:
 
-- **contract:** `ExternalParticipantSpec` without `bindingPath`; reserved keys refused; `timeout`
+- **contract:** `ExternalParticipantSpec` without `bindingPath`; reserved keys refused by
+  `connect`, `agents.open` and a call's `participants` map; `timeoutMs`
   on `messages.allow`; the record fields from task 1, `RUN_EVENT_VERSIONS` bumped.
 - **messaging:** the outside endpoint, kept out of inboxes, `busy`, the unread cap and `close`; its
-  open questions; the route's `timeout`, shortened by an agent's `--timeout`; refusing `timeout` on
+  open questions; the route's `timeoutMs`, shortened by an agent's `--timeout`; refusing `timeoutMs` on
   a route between agents; a coordinator's message to an idle agent opening a message operation.
 - **workflow-runner:** the `participants` stubs replaced; completion releasing the coordinator only
   once no question to it is open.
 - **workflow-testing:** `coordinators` scripts; an answer recorded as `test`; ending the attempt
-  when everything left waits on the coordinator's script.
+  when everything left waits on the coordinator's script and no open question has an `until`.
 - The wrapper wording.
 
 Done when tests on `awf test` cover:
 
 - a report, and a question answered in the same session;
-- a question ending at its route's `timeout` (a short one), on release, and at attempt end, each
+- a question ending at its route's `timeoutMs` (a short one), on release, and at attempt end, each
   with its reason in the record;
 - the coordinator sending first, to an idle agent and to one between turns;
 - a question open when the workflow returns keeping the run open;
-- reserved keys refused, and `timeout` refused between agents;
+- reserved keys refused by `connect` and `agents.open`, and `timeoutMs` refused between agents;
 - a test whose script never answers ending instead of hanging.
 
 ### 3. Waiting for the coordinator doesn't count
@@ -951,7 +959,7 @@ Manual or live evaluation:
 - **Language pass and command review.** The holder moved from `wf` to `awf` (`inbox`, `reply`,
   `send --as`). Typed inbox items, cursor rules, result codes, and Q6–Q7 were added.
 - **Fresh-eyes review.** A wait capped at the deadline would end before any answer, so the clock
-  stops instead. The route `timeout` is set by the workflow (Q8), and runs are seen per folder
+  stops instead. The route `timeoutMs` is set by the workflow (Q8), and runs are seen per folder
   (Q9), dropping a machine-wide registry.
 - **Review loop, five rounds until clean.** This round defined the following:
   - result codes and their order, matching messaging's refusals;
@@ -975,6 +983,51 @@ Manual or live evaluation:
 - [x] Open questions are resolved or explicitly moved out of scope.
 
 ## Implementation notes
+
+**Task 1, the surface written down.** Worktree `../worktrees/awf-run-coordinator`, branch
+`run-coordinator`. Decisions made while writing it, each in the design docs:
+
+- The route option is `timeoutMs`, as `agent.run({ timeoutMs })` has it, not `timeout: "2h"`.
+- What an outside message came through is `via` (`terminal`, `command`, `test`); `message-sent`
+  carries either `operationId` or `via`, never both.
+- Every inbox item carries its own `cursor`, except under `--open`. A coordinator's answer is an
+  `answered` item only, never also a `message`. A `route` item says its `direction`, so a holder
+  knows whether it may `awf send`.
+- `HOLDER_CODES` checks `expired` right after `ambiguous`, as `REPLY_CODES` checks a question's own
+  state before its route's. `awf inbox` has its own codes, `INBOX_CODES`, and `InboxErrorJson`. A
+  run is always `{workflow}/{id}`, never a bare id. A reply's `delivered` id is the question's,
+  the one its `answered` item carries.
+- `RESERVED_PARTICIPANT_KEYS` lives in `@agentswf/contract/participant`, engine-side; authors read
+  the keys in the docs. Keys are unique across the run whichever comes first: an agent may not take an outside
+  participant's key, nor `connect` one an agent holds, in any call.
+- The test ends the attempt only when nothing waiting has an `until`; a short `timeoutMs` is
+  waited for, so a test sees `timeout`.
+- `expired` reasons come from `request-ended`: `timed-out` reads `timeout`; a question to an outside
+  participant never ends `withdrawn` or `failed`. A dead attempt reads `interrupted`, and
+  `awf inbox` derives its open questions' `expired` and its `ended`.
+- An outside participant's key is unique across the run, never qualified by call path; reserved keys
+  are refused by `agents.open` and a call's `participants` map too, so no agent speaks as `operator`.
+- `awf send` to an agent awaiting an answer is held, as any peer's message, and its line says the
+  agent still awaits the reply.
+- `message-sent`, `route-closed` and `request-ended` go to version 2, and their version-1 lines are
+  read as version 2 (`RUN_EVENT_OLDEST_READ`), so a run continued across the change keeps its
+  messages. `route-opened` gains an optional field and stays at 1.
+- The test script is called with inbox-like events, `route` as each route opens and `message`, so
+  a script can speak first.
+- A message to an outside participant is delivered once recorded; `messagesOf` reads it so.
+- The agent side follows: `wf peers` shows a coordinator as `outside`; `until` is optional on
+  `wf waiting`'s `awaiting-reply` and on `wf peers`' `awaits`, absent for a wait with no limit, and
+  the decoders accept it; `wf waiting`'s `deadline` is optional, absent when no deadline is around
+  the operation (Q10); an operation's `deadline` and `timeoutMs` docs say a wait for an outside
+  answer moves them out; the failure envelope has lines for `timeoutMs` and `released`.
+- Task 1 is committed on the branch only; the branch is not merged or released until the exported
+  types have code behind them (task 2 on), so no published type promises what a call refuses.
+- `bun test`'s "samples quoted from an example" fails on main too (the triage example's
+  formatting), not from this story.
+- Reviewed in ten rounds until clean, architecture and correctness lenses; the findings and their
+  fixes are the notes above. Verified: `bun run check` clean; `bun test` 1918 pass, the one failure
+  above; live, `bun run eval messaging` answered on claude, codex and cursor (~$0.17 list), pi
+  failing only on its expired login, and `awf logs` read the run's version-2 message lines.
 
 ## Human review
 

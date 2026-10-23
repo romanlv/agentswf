@@ -1,4 +1,4 @@
-import type { ReplyCode, SendCode } from "@agentswf/contract/wire";
+import type { HolderCode, ReplyCode, SendCode } from "@agentswf/contract/wire";
 import type { Effort, JsonValue, OperationCause, OutputSchema } from "@agentswf/contract/workflow";
 import type Type from "typebox";
 import { canonical } from "../canonical-json";
@@ -84,6 +84,49 @@ export type ReceivedMessage = Message & {
 export type MessageScript = (
   message: ReceivedMessage,
 ) => Reply | MessageOutcome | undefined | Promise<Reply | MessageOutcome | undefined>;
+
+/**
+ * How a coordinator's script's `reply` or `send` ended, as `awf reply --json` reports it: a reply's
+ * `id` is the question's, a send's the new message's.
+ */
+export type HolderOutcome = { code: "delivered"; id: string } | { code: HolderCode };
+
+/**
+ * A message an agent sent a coordinator, and what the coordinator's script may do about it, as a
+ * holder would with `awf reply` and `awf send`. An answer is recorded as coming through `test`.
+ */
+export type CoordinatorMessage = {
+  kind: "message";
+  /** `{attempt}.{n}`, as `awf inbox` prints it. */
+  id: string;
+  /** The agent's peer address. */
+  from: string;
+  text: string;
+  /** A question: it stays open until the script answers it, or it expires. */
+  asks?: true;
+  /** Answers this question, as `awf reply --to` does. */
+  reply(text: string): Promise<HolderOutcome>;
+  /** Messages an agent over a route the workflow allowed, as `awf send` does. */
+  send(agent: string, text: string): Promise<HolderOutcome>;
+};
+
+/** A route to or from a coordinator, as it opens: where a script that speaks first starts. */
+export type CoordinatorRoute = {
+  kind: "route";
+  /** The agent's peer address. */
+  agent: string;
+  direction: "both" | "to-coordinator" | "from-coordinator";
+  purpose: string;
+  /** Messages the agent, as `awf send` does. */
+  send(text: string): Promise<HolderOutcome>;
+};
+
+/**
+ * A coordinator's script: called with each route to it as it opens, and each message an agent sends
+ * it, once recorded; the `awf inbox` items a holder would act on. What it returns is awaited and
+ * otherwise ignored: a question it does not answer stays open, and a throw fails the test.
+ */
+export type CoordinatorScript = (event: CoordinatorRoute | CoordinatorMessage) => unknown;
 
 const ENTRY: unique symbol = Symbol("agentswf.script-entry");
 

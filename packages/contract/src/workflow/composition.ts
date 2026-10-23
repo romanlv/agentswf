@@ -12,7 +12,7 @@ export interface WorkflowCallSpec<Args extends JsonValue, Result extends JsonVal
   args: Args;
   /** Defaults to the current workflow scope deadline. */
   deadline?: AbsoluteDeadline;
-  /** Parent participants exposed under child-local keys. */
+  /** Parent participants exposed under child-local keys; a reserved key such as `operator` rejects. */
   participants?: Readonly<Record<ParticipantKey, ParticipantRef>>;
   label?: string;
 }

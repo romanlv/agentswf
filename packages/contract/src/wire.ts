@@ -113,10 +113,36 @@ export const REPLY_CODES = [
   "limit",
 ] as const;
 
+/**
+ * Why `awf reply` or `awf send` was refused, in the order checked; the first that applies is
+ * returned. `expired` is a reply's `--to` naming anything but an open question from that agent to
+ * this coordinator, `--as` included, or no `--to` with none open; like `wf reply`'s, it comes
+ * before the route's state.
+ */
+export const HOLDER_CODES = [
+  "not-found",
+  "ended",
+  "no-coordinator",
+  "unknown-agent",
+  "ambiguous",
+  "expired",
+  "no-route",
+  "stopped",
+  "closed",
+  "too-large",
+  "limit",
+  "inbox-full",
+] as const;
+
+/** Why `awf inbox` read nothing: no such run, no coordinator under `--as`, a cursor it cannot use. */
+export const INBOX_CODES = ["not-found", "no-coordinator", "bad-cursor"] as const;
+
 export type EnvelopeCode = (typeof ENVELOPE_CODES)[number];
 export type ResultSubmitCode = (typeof RESULT_CODES)[number] | EnvelopeCode;
 export type SendCode = (typeof SEND_CODES)[number];
 export type ReplyCode = (typeof REPLY_CODES)[number];
+export type HolderCode = (typeof HOLDER_CODES)[number];
+export type InboxCode = (typeof INBOX_CODES)[number];
 export type ControlCode = ResultSubmitCode | SendCode | ReplyCode;
 
 /**
@@ -138,16 +164,23 @@ export type ResultSubmitResponse =
   | Rejection<ResultSubmitCode>;
 
 export type WaitingResponse =
-  | ({ version: typeof WIRE_VERSION; kind: "waiting"; waitUntil: number; deadline: number } & Owing)
+  /** `deadline` is the operation's, absent when nothing around it has one. */
+  | ({
+      version: typeof WIRE_VERSION;
+      kind: "waiting";
+      waitUntil: number;
+      deadline?: number;
+    } & Owing)
   /**
-   * `wf waiting` while the operation awaits `peer`'s answer, which it does until `until`: it changes
-   * nothing, and a `--timeout` given with it is ignored.
+   * `wf waiting` while the operation awaits `peer`'s answer, which it does until `until`, or, absent,
+   * until an outside participant answers: it changes nothing, and a `--timeout` given with it is
+   * ignored.
    */
   | ({
       version: typeof WIRE_VERSION;
       kind: "awaiting-reply";
       peer: string;
-      until: number;
+      until?: number;
       /** The acknowledgement as `wf` prints it. */
       notice: string;
     } & Owing)
@@ -158,7 +191,8 @@ export type PeerView = {
   peer: string;
   /** `send` on a route from this agent, `reply` on one only to it, `both` either way. */
   can: "send" | "reply" | "both";
-  state: "not-started" | "working" | "idle" | "awaiting" | "stopped";
+  /** `outside` is a participant outside the run, such as a coordinator: never busy, `queued` 0. */
+  state: "not-started" | "working" | "idle" | "awaiting" | "stopped" | "outside";
   /** Whose answer it awaits, when `awaiting`. */
   awaits?: string;
   /** Why it stopped, when `stopped`. */
@@ -175,14 +209,17 @@ export type PeersResponse =
       peers: PeerView[];
       /** Who the open operation owes an answer. */
       owes: string[];
-      /** Whose answer it awaits, and until when. */
-      awaits?: { peer: string; until: number };
+      /** Whose answer it awaits, and until when; no `until` for an outside participant's with no limit. */
+      awaits?: { peer: string; until?: number };
       /** The table `wf peers` prints. */
       text: string;
     } & Owing)
   | Rejection<EnvelopeCode>;
 
-/** A message admitted: `message` numbers it in the run's record; `until` ends a wait it began. */
+/**
+ * A message admitted: `message` numbers it in the run's record; `until` ends a wait it began, and
+ * is absent for a wait on an outside participant with no limit, as for a message that awaits none.
+ */
 export type MessageResponse =
   | ({
       version: typeof WIRE_VERSION;
@@ -357,7 +394,7 @@ function decodeMessageRequest(
   )
     return invalid("request has unexpected fields");
   if (!nonEmpty(request.peer) || request.peer !== request.peer.trim())
-    return invalid("request.peer must be an agent's key, without surrounding spaces");
+    return invalid("request.peer must be a peer's key, without surrounding spaces");
   if (!nonEmpty(request.text)) return invalid("request.text must be a non-blank string");
   if (request.awaitReply !== undefined && request.awaitReply !== true)
     return invalid("request.awaitReply must be true when present");
@@ -399,22 +436,39 @@ export function decodeControlResponse(value: unknown): WireDecodeResult<ControlR
       if (extraFields(response, ["version", "kind", "waitUntil", "deadline", "owing"]))
         return invalid("waiting response has unexpected fields");
       const { waitUntil, deadline } = response;
-      if (!time(waitUntil) || !time(deadline) || deadline < waitUntil)
+      if (!time(waitUntil) || (deadline !== undefined && (!time(deadline) || deadline < waitUntil)))
         return invalid(
           "waiting response requires non-negative integer times with waitUntil <= deadline",
         );
-      return { ok: true, value: { version, kind: "waiting", waitUntil, deadline, ...owing } };
+      return {
+        ok: true,
+        value: {
+          version,
+          kind: "waiting",
+          waitUntil,
+          ...(deadline === undefined ? {} : { deadline }),
+          ...owing,
+        },
+      };
     }
     case "awaiting-reply": {
       if (extraFields(response, ["version", "kind", "peer", "until", "notice", "owing"]))
         return invalid("awaiting-reply response has unexpected fields");
       const { peer, until, notice } = response;
       if (!nonEmpty(peer)) return invalid("response.peer must be a non-empty string");
-      if (!time(until)) return invalid("response.until must be a non-negative integer time");
+      if (until !== undefined && !time(until))
+        return invalid("response.until must be a non-negative integer time when present");
       if (!nonEmpty(notice)) return invalid("response.notice must be a non-empty string");
       return {
         ok: true,
-        value: { version, kind: "awaiting-reply", peer, until, notice, ...owing },
+        value: {
+          version,
+          kind: "awaiting-reply",
+          peer,
+          ...(until === undefined ? {} : { until }),
+          notice,
+          ...owing,
+        },
       };
     }
     case "peers":
@@ -464,7 +518,7 @@ export function decodeControlResponse(value: unknown): WireDecodeResult<ControlR
   }
 }
 
-const PEER_STATES = new Set(["not-started", "working", "idle", "awaiting", "stopped"]);
+const PEER_STATES = new Set(["not-started", "working", "idle", "awaiting", "stopped", "outside"]);
 const PEER_ABILITIES = new Set(["send", "reply", "both"]);
 
 function decodePeersResponse(
@@ -482,7 +536,7 @@ function decodePeersResponse(
       isRecord(awaits) &&
       !extraFields(awaits, ["peer", "until"]) &&
       nonEmpty(awaits.peer) &&
-      time(awaits.until)
+      (awaits.until === undefined || time(awaits.until))
     )
   )
     return invalid("response.awaits must name a peer and a time when present");
@@ -522,7 +576,12 @@ function decodePeersResponse(
       peers: views,
       owes: owes as string[],
       ...(isRecord(awaits)
-        ? { awaits: { peer: awaits.peer as string, until: awaits.until as number } }
+        ? {
+            awaits: {
+              peer: awaits.peer as string,
+              ...(awaits.until === undefined ? {} : { until: awaits.until as number }),
+            },
+          }
         : {}),
       text,
       ...owing,

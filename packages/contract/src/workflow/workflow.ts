@@ -77,7 +77,8 @@ export interface WorkflowContext {
   readonly attempt: number;
   /** Working directory and hard bound for this invocation, supplied and enforced by the engine. */
   readonly cwd: string;
-  readonly deadline: AbsoluteDeadline;
+  /** The run's deadline; absent when it has none, as it has unless `awf run --timeout` sets one. */
+  readonly deadline?: AbsoluteDeadline;
   readonly agents: AgentDirectory;
   readonly sandboxes: SandboxDirectory;
   /** Closed questions to a decision model: probabilities back in a few hundred milliseconds. */

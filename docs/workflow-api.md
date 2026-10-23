@@ -26,7 +26,8 @@ isAnswered(outcome)                                          // narrows to { kin
 workflow.parallel(items, (item, i) => …, { concurrency?, label?, deadline? })  // → results in item order
 workflow.sandboxes.open({ key, write?, read?, network?, sockets?, webSearch?, srt? | docker? }) // → pass as { sandbox }
 workflow.decisions.decide({ key, model: "jev", state, questions })              // → { answers } in ~200 ms
-workflow.messages.allow({ from, to, purpose, maxMessages? } | { between: [a, b], purpose, … })  // agents may message
+workflow.messages.allow({ from, to, purpose, maxMessages?, timeoutMs? } | { between: [a, b], purpose, … })  // agents may message
+workflow.participants.connect({ key, labels? })               // → a coordinator outside the run, a route end; .release(reason?)
 
 workflow.stage(name, { result, summary? }?, async () => …)  // → its value; reused on a continue
 workflow.stop(reason)                                         // ends the attempt stopped
@@ -35,7 +36,7 @@ workflow.log(message, fields?)   workflow.usage()   workflow.deadline   workflow
 workflow.runId   workflow.attempt
 
 // In a test, from "agentswf/testing"; `awf test` runs it:
-testWorkflow(workflow, args, { agents?, messages?, compactions?, awaitReply?, decisions?, runtimes?,
+testWorkflow(workflow, args, { agents?, messages?, coordinators?, compactions?, awaitReply?, decisions?, runtimes?,
                               caller?, timeoutMs?, stallMs?, cwd?, recorded?, fromStage?, values? })  // → run
 answer(SCHEMA, value | (turn) => value)   answer("text")   reply.waiting(reason, timeoutMs?) | silent() | blocked() | failed() | needsLogin(provider?) | timedOut() | hang() | interrupted()
 ```
@@ -46,10 +47,11 @@ answer(SCHEMA, value | (turn) => value)   answer("text")   reply.waiting(reason,
 | **Agent** | A coding agent (claude, codex, pi, cursor) behind a key. It keeps its session between turns. |
 | **Turn** | One `agent.run`: a prompt in, one outcome out. The answer is JSON checked against your schema. |
 | **Outcome** | Always a value, never an exception: `answered`, `unanswered`, `blocked`, `timed-out`, `failed` or `cancelled`. |
-| **Deadline** | Every wait has one. A child's deadline can be earlier than its parent's, never later. |
+| **Deadline** | Set where you want one. A child's deadline can be earlier than its parent's, never later. |
 | **Sandbox** | What agents inside it can read, write and reach. They share it or get a private one. |
 | **Decision** | Closed questions to a decision model (Jev). It returns probabilities, and no agent is involved. |
 | **Route** | Lets one agent message another while both work, for a purpose the workflow states. |
+| **Coordinator** | A participant outside the run that agents report to and ask; a terminal, a session or an app answers for it. |
 | **Run** | One piece of work, with an id. Each `awf run` of it is an attempt; `--continue` adds one. |
 | **Stage** | A named step of a run. A continue reuses what stages succeeded and runs the rest. |
 
@@ -392,8 +394,8 @@ await workflow.stage("notify", async () => {          // no result: it only has 
 
 ## Deadlines
 
-Every run has one deadline, an hour by default (`awf run --timeout 2h`), as `workflow.deadline`.
-Everything inside inherits it, and anything can set an earlier one, never a later one:
+A run has no deadline unless `awf run --timeout 2h` gives it one, as `workflow.deadline`, absent
+otherwise. Everything inside inherits it, and anything can set an earlier one, never a later one:
 
 ```
 run deadline (--timeout)
@@ -402,7 +404,9 @@ run deadline (--timeout)
 ```
 
 When a deadline passes, turns under it end `timed-out`, and `parallel` and `decide` reject with
-`DeadlineExceededError`. When the run ends, for any reason, every agent it opened is closed and
+`DeadlineExceededError`. Without any deadline, turn liveness still stops a turn that stalls. An agent
+waiting on a coordinator's answer isn't working: its clock stops while it waits, within any deadline
+around it. When the run ends, for any reason, every agent it opened is closed and
 every sandbox torn down; only kept panes and the calling session stay.
 
 ## Sandboxes
@@ -502,6 +506,37 @@ const verdict = await reviewer.run({ prompt: "Review the change; ask the impleme
   what it is sent. Elsewhere the agent is told to send without waiting.
 - **Costs and logs:** `workflow.usage()` marks each operation a message started, and `awf run`,
   `awf logs` and `awf runs` show the messages.
+
+### A coordinator outside the run
+
+A workflow can let agents report to, and ask, something outside the run: a coordinator. Who answers
+for it is chosen when the run starts, not here: `awf run`'s terminal, another claude or codex
+session, or an app such as a Slack bridge.
+
+```ts
+const coordinator = await workflow.participants.connect({
+  key: "coordinator",
+  labels: { audience: "operator" },
+});
+await workflow.messages.allow({
+  between: [investigator, coordinator],
+  purpose: "report findings that hold up; ask when the logs can't settle it",
+  timeoutMs: 2 * 60 * 60_000,
+});
+```
+
+- **Agents talk to it as to any peer:** `wf send coordinator` reports, and
+  `wf send --await-reply coordinator` asks; the answer starts the agent's next turn, in the same
+  session, hours later if need be.
+- **`labels`** is any JSON object for whatever answers; awf only passes it along. `operator`, `awf`,
+  `system` and `user` are refused as keys.
+- **`timeoutMs`**, only on a route to a coordinator, closes a question unanswered after that long;
+  without it, a question waits until it is answered. An agent's `--timeout` can only shorten it.
+- **It stays connected** past the workflow's return while a question to it is open, so the run
+  waits for the answer. `coordinator.release(reason)` ends it sooner.
+- **Run in a terminal**, `awf run` asks each question there. Otherwise the answer comes from
+  `awf reply`, by a session or an app reading `awf inbox`
+  ([`design/messaging.md`](design/messaging.md#coordinator-cli)).
 
 claude's own messaging between sessions is a different thing, on by default:
 [`design/messaging.md`](design/messaging.md#claudes-own-messaging) says what it reaches.
@@ -617,6 +652,34 @@ const asking = (change: string, summary: string) =>
 - **`awaitReply: "anywhere"`** lets a test use `--await-reply` on a harness the engine doesn't
   support yet.
 
+### A coordinator
+
+`coordinators` maps a coordinator's key to a function called with what a holder would act on: each
+route to the coordinator as it opens, and each message an agent sends it. It answers as a holder
+would, or leaves a question open by returning:
+
+```ts
+const run = await testWorkflow(investigate, args, {
+  agents: { investigator: [answer("…")] },
+  coordinators: {
+    coordinator: (event) =>
+      event.kind === "message" && event.asks ? event.reply("Keep two, and link them.") : undefined,
+  },
+});
+```
+
+- **A `message` event** has `id`, `from`, `text` and `asks`; **`reply(text)`** answers it, as
+  `awf reply --to` would, and **`send(agent, text)`** messages an agent, as `awf send` would.
+- **A `route` event** has `agent`, `direction` and `purpose`; **`send(text)`** messages that agent
+  first. Each resolves to `{ code: "delivered", id }` or a refusal's `code`.
+- **When no turn runs, no script is still working, and everything left waits on a coordinator with
+  no `until`,** the attempt ends and its open questions expire `attempt-ended`, so the test ends
+  rather than hangs; `run.value` throws if the workflow hadn't returned. While a question has an
+  `until`, from a short `timeoutMs`, the test waits for it, so it can expire `timeout`. A script that throws fails the test,
+  and so does a route or message reaching a coordinator with no script.
+- **`run.messagesOf("coordinator")`** is what it was sent and how each ended; a message to it is
+  `delivered` once recorded.
+
 ### Decisions
 
 `decisions` maps a decision's key, or a pattern, to one answer per question: a choice's option or
@@ -666,14 +729,15 @@ expect(run.compactions).toEqual([]); // a compaction inside implement isn't repe
 
 ### What fails the test, not the workflow
 
-- an agent, decision or message with no script;
+- an agent, decision, message or coordinator with no script;
 - a turn past a list's end, or a list entry never reached;
 - an answer the turn's schema refuses, or a result while the agent owes a reply;
 - a script that throws;
-- a stall: nothing starting or ending for 2 s (`stallMs`), so a stuck test fails rather than hangs.
+- a stall: nothing starting or ending for 2 s (`stallMs`), a wait for a coordinator question's
+  `until` aside, so a stuck test fails rather than hangs.
 
 Deadlines are real time: `reply.timedOut()` ends a turn as timed out at once, and `timeoutMs` sets
-the run's deadline, an hour by default.
+the run's deadline, none by default.
 
 ## Not built yet
 

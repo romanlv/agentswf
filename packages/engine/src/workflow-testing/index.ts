@@ -31,11 +31,21 @@ import {
   type SetRecord,
   type TurnRecord,
 } from "./host";
-import { type MessageScript, MessageScripts, type Script, Scripts } from "./script";
+import {
+  type CoordinatorScript,
+  type MessageScript,
+  MessageScripts,
+  type Script,
+  Scripts,
+} from "./script";
 
 export type { DecisionRequest, DecisionScript } from "./decisions";
 export {
   answer,
+  type CoordinatorMessage,
+  type CoordinatorRoute,
+  type CoordinatorScript,
+  type HolderOutcome,
   type Message,
   type MessageOutcome,
   type MessageScript,
@@ -60,6 +70,15 @@ export type TestOptions = {
    * test.
    */
   messages?: Readonly<Record<string, MessageScript | readonly MessageScript[]>>;
+  /**
+   * Each coordinator's script, by the key the workflow connects it under. When no turn runs, no
+   * script is still working, and everything left waits on a coordinator with no `until`, the attempt
+   * ends: its open questions expire `attempt-ended` and, unless the workflow returned, `run.value`
+   * throws. While a question has an `until`, the test waits for the earliest, and `stallMs` does not
+   * count that wait. A route
+   * or message reaching a coordinator with none here fails the test.
+   */
+  coordinators?: Readonly<Record<string, CoordinatorScript>>;
   /**
    * Where an agent may `--await-reply`: `listed`, where the engine's list allows it for the
    * agent's harness and placement, as a run would; `anywhere`, to test a workflow's messaging on a
@@ -153,6 +172,7 @@ export async function testWorkflow<Args extends JsonValue, Result extends JsonVa
     option: "compactions",
   });
   const messageScripts = new MessageScripts(options.messages);
+  if (options.coordinators !== undefined) throw new Error("coordinators: not built yet");
   if (options.values !== undefined && options.fromStage === undefined) {
     throw new Error("values give the stages before fromStage: give fromStage too");
   }
@@ -321,8 +341,9 @@ export async function testWorkflow<Args extends JsonValue, Result extends JsonVa
 
 /**
  * A message as `messagesOf` gives it. A question ends `replied` or `failed`, `reason` saying why it
- * failed (`timed-out`, `withdrawn`, `released`, or how its peer failed); any other message ends
- * `delivered` once shown, or `undelivered` with the reason. `pending` until then.
+ * failed (`timed-out`, `withdrawn`, `released`, `cancelled`, `attempt-ended`, or how its peer
+ * failed); any other message ends `delivered` once shown, or `undelivered` with the reason.
+ * `pending` until then. A message to a coordinator is shown once recorded.
  */
 export type MessageRecord = {
   from: string;

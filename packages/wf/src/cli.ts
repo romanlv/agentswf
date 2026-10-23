@@ -178,7 +178,9 @@ async function runWaiting(
     };
   return succeeded(
     response,
-    `wf: waiting granted until ${response.waitUntil}; operation deadline ${response.deadline} (Unix milliseconds)`,
+    response.deadline === undefined
+      ? `wf: waiting granted until ${response.waitUntil}; the operation has no deadline (Unix milliseconds)`
+      : `wf: waiting granted until ${response.waitUntil}; operation deadline ${response.deadline} (Unix milliseconds)`,
   );
 }
 

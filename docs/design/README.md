@@ -33,7 +33,8 @@ const workflow: WorkflowDefinition<Args, Result> = {
 
 - `agents` — open, reattach to, or stop logical agents, or take the session the run was started
   from (`caller`, [ADR 0010](../adr/0010-the-calling-session-is-an-agent.md)).
-- `participants` — connect outside sessions or resolve participants visible in this scope.
+- `participants` — connect a participant outside the run, such as a coordinator, or resolve
+  participants visible in this scope.
 - `messages` — grant one-way or two-way messaging routes between participants.
 - `call` — run a child workflow in its own scope.
 - `parallel` — apply an async operation with bounded local concurrency.
@@ -142,8 +143,8 @@ without a terminal multiplexer. A future adapter may use neither, provided it sa
 session interface and reports unsupported capabilities honestly.
 
 An adapter that can locate sessions it did not start advertises `outsideWake` and exposes
-`outside`. That is how a connected outside session is woken when it has unread messages; it does
-not deliver anything, and [`composition.md`](composition.md) holds the semantics.
+`outside`. That is how a session holding an outside participant is woken when `awf inbox` has new
+items for it; it does not deliver anything, and [`composition.md`](composition.md) holds the semantics.
 
 The configuration admits exactly one run host. That keeps selection outside workflow code: the
 operator chooses the host, and every logical agent in that run crosses the same interface.
@@ -186,7 +187,7 @@ wf reply implementer 'Fixed in src/page.ts'
 ```
 
 See [`messaging.md`](messaging.md) for delivery, response, wake-up, and failure semantics.
-See [`composition.md`](composition.md) for child workflow scopes and outside-session bindings.
+See [`composition.md`](composition.md) for child workflow scopes and outside participants.
 
 The model supplies the call id it was given and nothing else. It cannot answer for another agent
 by naming that agent's call: the launcher it runs holds a socket the engine opened for this agent,
