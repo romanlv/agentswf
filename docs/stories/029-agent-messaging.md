@@ -3,7 +3,7 @@ id: "029"
 title: Agents in a run message each other over routes the workflow grants
 summary: "`workflow.messages.allow` grants routes with a purpose; agents use `wf peers`, `wf send [--await-reply]` and `wf reply`; a message reaches an agent at a turn boundary and wakes it if idle, an awaited reply continues the sender's operation, and the engine owns delivery, obligations, limits and the record."
 type: story
-status: awaiting-human-review
+status: done
 priority: P1
 epic: authoring
 discovered_in: "docs/design/messaging.md, settled with the user 2026-10-11"
@@ -1139,6 +1139,9 @@ waiting on them; these are the drafts the gate named, as built and reviewed.
 - [x] Set the story status to `awaiting-human-review` and present the outcome, architecture
   decisions, task-level subagent findings and dispositions, exact verification results, deviations,
   and remaining risks.
-- [ ] Record the human's explicit approval or requested changes here.
-- [ ] If changes are requested, return to the affected task and repeat its review and verification.
-- [ ] Only after explicit approval, mark the story `done` and update `Stories at a glance`.
+- [x] Record the human's explicit approval or requested changes here.
+- [x] If changes are requested, return to the affected task and repeat its review and verification.
+- [x] Only after explicit approval, mark the story `done` and update `Stories at a glance`.
+
+Approved 2026-10-22. Any change messaging needs is made in story 032: agents.wf is in beta, so a
+better API found there replaces this one, with no compatibility kept.

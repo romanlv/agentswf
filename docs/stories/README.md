@@ -125,7 +125,7 @@ status is one of `todo`, `draft`, `ready`, `in-progress`, `blocked`, `awaiting-h
   an agent can watch another agent's run: its event log merged with each agent's own session
   files; the run's events are span-shaped.
 - [`029` — Agents in a run message each other over routes the workflow grants](029-agent-messaging.md) —
-  `awaiting-human-review` — `workflow.messages.allow` grants routes with a purpose; agents use `wf peers`, `wf send
+  `done` — `workflow.messages.allow` grants routes with a purpose; agents use `wf peers`, `wf send
   [--await-reply]` and `wf reply`; a message arrives at a turn boundary and wakes an idle agent,
   and the engine owns delivery, obligations, limits and the record.
 - [`030` — A run shows up as one trace in the operator's OTel backend](030-otel-export.md) —
