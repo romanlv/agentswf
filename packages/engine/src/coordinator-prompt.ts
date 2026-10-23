@@ -1,6 +1,7 @@
 import { createInterface, type Interface } from "node:readline/promises";
 import type { CoordinatorHolder, CoordinatorPort } from "./coordinator-port";
 import type { MessagingEventBody } from "./messaging/messaging";
+import { shellLine } from "./run-commands";
 
 /** Where the prompt reads a line: `awf run`'s terminal, or a test's script. */
 export type LineReader = {
@@ -19,7 +20,14 @@ export type PromptOutput = {
   hold(above: ((line: string) => void) | undefined): void;
 };
 
-type Question = { coordinator: string; message: number; asker: string };
+type Question = {
+  coordinator: string;
+  message: number;
+  asker: string;
+  text: string;
+  /** Asked after others, its text shown when it came in may have scrolled away: shown again. */
+  again: boolean;
+};
 
 /** What an agent wrote, safe on a terminal: no escape sequences or other control characters. */
 function shown(text: string): string[] {
@@ -49,6 +57,8 @@ export function promptCoordinator(
   let closed = false;
 
   const ask = async (question: Question): Promise<void> => {
+    if (question.again)
+      output.log([`● ${question.asker} asked:`, ...indented(question.text)].join("\n"));
     const stop = new AbortController();
     asking = { question, stop };
     output.hold((line) => reader.above(line));
@@ -122,7 +132,13 @@ export function promptCoordinator(
         [`● ${event.from} ${asks ? "asks" : `→ ${event.to}`}:`, ...indented(event.text)].join("\n"),
       );
       if (!asks) return;
-      const question = { coordinator: event.to, message: event.message, asker: event.from };
+      const question = {
+        coordinator: event.to,
+        message: event.message,
+        asker: event.from,
+        text: event.text,
+        again: asking !== undefined || queue.length > 0,
+      };
       open.set(event.message, question);
       queue.push(question);
       void next();
@@ -185,5 +201,37 @@ export function terminalReader(): LineReader {
       if (lines) clearLine();
       lines?.close();
     },
+  };
+}
+
+/**
+ * Without a prompt (`--json`, or no terminal): each question to a coordinator is a line with its
+ * text and the command that answers it, so a run awaiting one does not look stuck.
+ */
+export function replyHints(
+  run: string,
+  /** What finds the run from another command, such as `--run-root`. */
+  place: readonly string[],
+  attempt: number,
+  log: (line: string) => void,
+): CoordinatorPort & { shows(message: { to: string; asks?: boolean }): boolean } {
+  const connected = new Set<string>();
+  return {
+    attach() {},
+    recorded(event: MessagingEventBody) {
+      if (event.kind === "participant-connected") connected.add(event.participant);
+      if (event.kind !== "message-sent" || !connected.has(event.to) || !event.awaitsReply) return;
+      const id = `${attempt}.${event.message}`;
+      const as = connected.size > 1 ? ["--as", event.to] : [];
+      const command = ["awf", "reply", run, event.from, "--to", id, ...as, ...place];
+      log(
+        [
+          `● ${event.from} asks ${event.to} (${id}):`,
+          ...indented(event.text),
+          `  answer: ${shellLine(command)} '…'`,
+        ].join("\n"),
+      );
+    },
+    shows: ({ to, asks }) => asks === true && connected.has(to),
   };
 }

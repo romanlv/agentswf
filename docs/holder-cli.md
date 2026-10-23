@@ -25,9 +25,11 @@ coordinator.
 
 `awf run` asks a coordinator's questions itself when its stdin and stderr are a terminal and
 `--json` isn't given: each message to the coordinator is a line, and each question a prompt,
-oldest first. An empty line leaves the question for another holder. A question another holder
-answers first, or that closes, is passed over. Under a cron there is no terminal: questions wait
-in the run log for `awf reply`.
+oldest first; one asked while another waits shows its text again when its turn comes. An empty
+line leaves the question for another holder. A question another holder answers first, or that
+closes, is passed over. With `--json`, or under a cron with no terminal, nothing is asked: each
+question is a line in the run's progress, with its text and the `awf reply` command that answers
+it, and waits in the run log.
 
 ## `awf inbox`
 

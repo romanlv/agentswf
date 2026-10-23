@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { CoordinatorHolder } from "./coordinator-port";
-import { type LineReader, promptCoordinator } from "./coordinator-prompt";
+import { type LineReader, promptCoordinator, replyHints } from "./coordinator-prompt";
 import type { HolderRequest, MessagingEventBody } from "./messaging/messaging";
 
 /** A terminal whose lines come from `typed`, in order; `undefined` waits until the prompt is passed over. */
@@ -106,6 +106,18 @@ describe("awf run's prompt for a coordinator", () => {
     expect(term.replies.map((each) => [each.agent, each.text])).toEqual([["b", "Yes."]]);
   });
 
+  test("a question asked after others shows its text again when its prompt opens", async () => {
+    const term = run(["Yes.", "No."]);
+    term.ask("a", "First?");
+    term.ask("b", "Second?");
+    await settle();
+    expect(term.log).toEqual([
+      "● a asks:\n                First?",
+      "● b asks:\n                Second?",
+      "● b asked:\n                Second?",
+    ]);
+  });
+
   test("with several coordinators, the prompt names the one asked", async () => {
     const term = run(["ok"], ["coordinator", "pager"]);
     term.ask("investigator", "Page?", "pager");
@@ -187,5 +199,38 @@ describe("awf run's prompt for a coordinator", () => {
     await settle();
     expect(term.prompts).toEqual(["reply to a › "]);
     expect(term.closed()).toBe(true);
+  });
+});
+
+describe("awf run without a prompt", () => {
+  test("each question to a coordinator says how to answer it; a report says nothing", () => {
+    const log: string[] = [];
+    const hints = replyHints("investigate/r1", [], 2, (line) => log.push(line));
+    hints.recorded({ kind: "participant-connected", participant: "coordinator" });
+    hints.recorded(sent(1, "investigator", "coordinator", "Starting.", false));
+    hints.recorded(sent(2, "investigator", "coordinator", "Merge or keep two?", true));
+    hints.recorded(sent(3, "coordinator", "investigator", "Keep two.", false));
+    expect(log).toEqual([
+      [
+        "● investigator asks coordinator (2.2):",
+        "                Merge or keep two?",
+        "  answer: awf reply investigate/r1 investigator --to 2.2 '…'",
+      ].join("\n"),
+    ]);
+    expect(hints.shows({ to: "coordinator", asks: true })).toBe(true);
+    expect(hints.shows({ to: "coordinator" })).toBe(false);
+  });
+
+  test("with several coordinators, the command names the one asked, and where the run is", () => {
+    const log: string[] = [];
+    const hints = replyHints("investigate/r1", ["--run-root", "/tmp/my runs"], 1, (line) =>
+      log.push(line),
+    );
+    hints.recorded({ kind: "participant-connected", participant: "coordinator" });
+    hints.recorded({ kind: "participant-connected", participant: "pager" });
+    hints.recorded(sent(1, "investigator", "pager", "Page?", true));
+    expect(log[0]).toEndWith(
+      "awf reply investigate/r1 investigator --to 1.1 --as pager --run-root '/tmp/my runs' '…'",
+    );
   });
 });

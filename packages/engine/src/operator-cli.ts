@@ -25,7 +25,12 @@ import {
 } from "./attempt-ending";
 import { type Kept, keepRecords } from "./attempt-output";
 import { continueCommand, printEnding, toldOf } from "./attempt-view";
-import { type LineReader, promptCoordinator, terminalReader } from "./coordinator-prompt";
+import {
+  type LineReader,
+  promptCoordinator,
+  replyHints,
+  terminalReader,
+} from "./coordinator-prompt";
 import { coordinatorSocket, prepareCoordinatorDir } from "./coordinator-socket";
 import { messageOf } from "./errors";
 import { type Caller, showOwnTab, startHere, takeCaller } from "./here";
@@ -43,7 +48,7 @@ import {
 } from "./operator-runtime";
 import { ANSI, describeRunSession, type Terminal, watchProgress } from "./progress-view";
 import { parseCommand, type RunCommand, usage } from "./run-command";
-import { shellLine, startedLine } from "./run-commands";
+import { placeFlags, shellLine, startedLine } from "./run-commands";
 import { claimNext, loadAndPrepare, type PreparedRun, workspaceLabel } from "./run-prepare";
 import { findRun } from "./run-state";
 import { type Attempt, createRun, discardRun, type Run, RunRefused } from "./runs";
@@ -406,7 +411,11 @@ async function runAttempt(
       ? (environment.lines ?? (process.stdin.isTTY ? terminalReader() : undefined))
       : undefined;
   const prompt = reader && promptCoordinator(reader, progress);
-  if (prompt) progress.showsMessages((message) => prompt.shows(message));
+  // Without a prompt, each question says how to answer it, so the run does not look stuck.
+  const asked =
+    prompt ??
+    replyHints(`${meta.name}/${id}`, placeFlags(command), n, (line) => progress.log(line));
+  progress.showsMessages((message) => asked.shows(message));
   const socket = coordinatorSocket({
     dir: coordinatorRoot,
     runDir: run.dir,
@@ -416,7 +425,7 @@ async function runAttempt(
         `awf: the coordinator socket did not open, so awf reply and awf send cannot reach this run: ${reason}`,
       ),
   });
-  const coordinators = [...(environment.coordinators ?? []), socket, ...(prompt ? [prompt] : [])];
+  const coordinators = [...(environment.coordinators ?? []), socket, asked];
   let handle: WorkflowRunHandle<JsonValue>;
   try {
     handle = await startWorkflow(executable.definition, prepared.args, {

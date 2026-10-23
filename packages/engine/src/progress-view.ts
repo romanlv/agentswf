@@ -105,7 +105,13 @@ export function renderProgress(
 export function progressEvents(
   before: WorkflowRunSnapshot | undefined,
   after: WorkflowRunSnapshot,
-  view: { startedAt: number; now: number; herdrSession?: string },
+  view: {
+    startedAt: number;
+    now: number;
+    herdrSession?: string;
+    /** Messages another view shows already, which get no line here. */
+    shown?: (message: WorkflowRunSnapshot["messages"][number]) => boolean;
+  },
 ): string[] {
   // Each stamped and ordered by when it happened; at the same instant, what ends goes before what
   // starts, and the inner before the outer as each ends, the outer before the inner as each starts.
@@ -175,6 +181,7 @@ export function progressEvents(
     }
   }
   for (const message of after.messages.slice(before?.messages.length ?? 0)) {
+    if (view.shown?.(message)) continue;
     add(message.at, "message", messageLine(message));
   }
   after.stages.forEach((stage, index) => {
@@ -544,7 +551,7 @@ export function watchProgress(
       if (lines.length > 0) terminal.write(`${lines.join("\n")}\n`);
       drawn = lines.length;
     } else {
-      const view = { startedAt, now: now(), ...(herdrSession ? { herdrSession } : {}) };
+      const view = { startedAt, now: now(), shown, ...(herdrSession ? { herdrSession } : {}) };
       for (const line of progressEvents(last, snapshot, view)) stderr(line);
     }
     last = snapshot;

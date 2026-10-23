@@ -863,6 +863,13 @@ describe("messaging in progress", () => {
     );
   });
 
+  test("a message another view shows already gets no line", () => {
+    const shown = (message: WorkflowRunSnapshot["messages"][number]) => message.asks === true;
+    const lines = progressEvents(undefined, MESSAGING, { startedAt: 0, now: 0, shown });
+    expect(lines.some((line) => line.includes("reply owed"))).toBe(false);
+    expect(lines).toContain("[1:10] lens → fixer   2.1 KB");
+  });
+
   test("the log says when an agent starts awaiting a reply, and until when", () => {
     const working: WorkflowRunSnapshot = {
       ...MESSAGING,

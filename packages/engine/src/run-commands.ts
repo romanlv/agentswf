@@ -111,11 +111,17 @@ export function startedLine(
   run: Pick<RunCommand, "cwd" | "cwdGiven" | "runRoot" | "runRootGiven">,
 ): string {
   const ref = `${workflow}/${id}`;
-  const repeat = [
+  return `awf: ${ref} started · watch: ${shellLine(["awf", "logs", ref, ...placeFlags(run)])}`;
+}
+
+/** The flags that find this run again from another command: the folder or run root given. */
+export function placeFlags(
+  run: Pick<RunCommand, "cwd" | "cwdGiven" | "runRoot" | "runRootGiven">,
+): string[] {
+  return [
     ...(run.cwdGiven ? ["--cwd", run.cwd] : []),
     ...(run.runRootGiven ? ["--run-root", run.runRoot] : []),
   ];
-  return `awf: ${ref} started · watch: ${shellLine(["awf", "logs", ref, ...repeat])}`;
 }
 
 /** `awf logs` from `cursor`: with `--wait` unless the page stopped short of the newest. */
