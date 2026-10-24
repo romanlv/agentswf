@@ -1,7 +1,7 @@
 ---
 id: "033"
 title: "An agent learns awf from its help"
-summary: "`awf -h` lists every command, grouped, with a line each; `awf help {command}` and `awf {command} -h` show its usage, `awf help reference` all of it at once, and a mistyped command names the closest one. One table of commands feeds the index, and a command can't be dispatched without being in it."
+summary: "`awf -h` lists every command, grouped, with a line each; `awf help {command}` and `awf {command} -h` show its usage, `awf help reference` every command's usage lines on one page, and a mistyped command names the closest one. One table of commands feeds the index, and a command can't be dispatched without being in it."
 type: story
 status: ready
 priority: P2
@@ -16,8 +16,8 @@ depends_on: []
 
 A coding agent that has never seen awf types `awf -h` and finds every command, what each is for,
 and how to read more. `awf {command} -h` and `awf help {command}` give one command's usage,
-options and exit codes. `awf help reference` gives the whole tool in one read. A mistyped command
-names the closest one.
+options and exit codes. `awf help reference` shows how to call every command, on one page and
+without the prose. A mistyped command names the closest one.
 
 Why now: [[032-run-coordinator|032]] added `awf inbox`, `awf reply` and `awf send`, and `awf -h`
 doesn't mention them. Today `awf`, `awf -h` and `awf help` all print `awf: expected the run
@@ -32,7 +32,7 @@ operator-cli.ts runOperatorCli(argv)
   │
   ├─ (none) | -h | --help | help | help help → the index                   stdout, exit 0
   ├─ help {command}                          → that command's help text    stdout, exit 0
-  ├─ help reference                          → every command's help        stdout, exit 0
+  ├─ help reference                          → every command's usage lines stdout, exit 0
   ├─ --version                               → as today
   ├─ {name} in COMMANDS                      → handlers[name]
   └─ anything else, help {unknown}           → one line on stderr, exit 2:
@@ -68,7 +68,7 @@ This machine
   allowance  What is left of each harness's plan
 
 awf <command> -h      a command's usage, options and exit codes
-awf help reference    every command's help in one document
+awf help reference    every command's usage, on one page
 awf --version
 ```
 
@@ -87,7 +87,8 @@ In scope:
   the suggestion. The dispatch is keyed by the same names.
 - `awf`, `awf -h`, `awf --help`, `awf help` and `awf help help` print the index.
 - `awf help {command}`. `awf run -h` prints `run`'s usage.
-- `awf help reference`: the index and each entry's help, in one Markdown document.
+- `awf help reference`: each entry's summary and usage lines, grouped as in the index, with no
+  prose.
 - An unknown command, or an unknown leading flag, names the closest command, or `awf run {path}`
   for a workflow file.
 - A usage error in `awf run` shows only `run`'s usage, without the lines for other commands it
@@ -139,8 +140,10 @@ Out of scope:
   one line, not the line followed by the index.
 - Constraint: help on stdout is never painted. On stderr, only the `awf:` line is red, through
   `stderrLines`, as today.
-- Assumption: an agent that runs `awf help reference` reads all of it. At about 11 KB today it fits
-  in one tool result.
+- Fact: every command's help together is about 7.9 KB. Their usage lines alone are 26 lines, about
+  1.4 KB (measured 2026-10-24). All of the help at once is more than an agent needs to choose a
+  command, and it costs the agent's context. So the reference stops at the usage lines, and
+  `awf {command} -h` gives the rest.
 
 ## Code map
 
@@ -203,8 +206,12 @@ lives in `operator-cli.ts`. A handler without a table entry, or an entry without
 compile error.
 
 - **The index** is built from the table plus the three fixed footer lines.
-- **The reference** is `# awf`, then the index in a code block, then `## awf {name}` for each entry
-  with its help in a code block. Reply and send come once, under `## awf reply, awf send`.
+- **The reference** is plain text, like the rest of the help. It has the index's groups. Under
+  each, every entry gets its names and summary, then its usage lines: the help text up to its first
+  blank line, which for `run` takes in `run options:`. It ends with the line
+  `awf <command> -h for what each does, and its exit codes`. Reply and send come once, under both
+  names. A command's help keeps its usage lines in its first paragraph, and a test holds it to
+  that.
 - **The suggestion** takes the commands that the word is the start of, or else those within edit
   distance 2. Of those, it keeps the ones at the smallest distance, and names all of them when
   there is a tie: `did you mean run or runs?`. When no command qualifies, it names none and keeps
@@ -367,7 +374,7 @@ Done when:
 
 ### 4. `awf help reference`
 
-Outcome: one read gives an agent every command's help.
+Outcome: one short read shows an agent how to call every command.
 
 Execution:
 
@@ -383,8 +390,9 @@ Work:
 
 Done when:
 
-- The reference holds the index, and each entry's help text exactly once. Reply and send's shared
-  text comes once, under both names.
+- The reference holds each entry's usage lines exactly once, and none of the prose that follows
+  them. Reply and send's lines come once, under both names.
+- Every entry's help starts with its usage lines, followed by a blank line.
 
 ### 5. The skills and README point at `awf -h`
 
@@ -450,6 +458,8 @@ Manual or live evaluation:
   - The scope now lets `parseCommand` change to `RunCommand | "help"`.
   - The suggestion has a tie rule.
 - The operator, 2026-10-24: task 0 added, so that every command but `run` is one file.
+- The operator, 2026-10-24: the reference is a summary, every command's usage lines without the
+  prose, because all the help at once is too much.
 
 ### Task 0
 
