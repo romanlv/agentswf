@@ -55,3 +55,5 @@ closed or someone answered first: drop it. `ended` means the run is over. Any ot
 with an `error` saying what to do instead. Never retry a `delivered` answer.
 
 Stop when the user tells you to, or when every run you were asked to watch has ended.
+
+`awf inbox -h` and `awf reply -h` give every option; `awf -h` lists the other commands.

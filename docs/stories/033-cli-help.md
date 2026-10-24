@@ -3,7 +3,7 @@ id: "033"
 title: "An agent learns awf from its help"
 summary: "`awf -h` lists every command, grouped, with a line each; `awf help {command}` and `awf {command} -h` show its usage, `awf help reference` every command's usage lines on one page, and a mistyped command names the closest one. One table of commands feeds the index, and a command can't be dispatched without being in it."
 type: story
-status: ready
+status: awaiting-human-review
 priority: P2
 epic: launch
 discovered_in: "operator, 2026-10-23, after 032 added awf inbox, reply and send"
@@ -39,7 +39,7 @@ operator-cli.ts runOperatorCli(argv)
         awf: no command "inbx"; did you mean inbox? awf -h lists the commands
         awf: no command "review.ts"; did you mean: awf run review.ts
 
-commands.ts      COMMANDS: { names, group, summary, help }[]   pure; index(), reference(), suggest()
+commands.ts      COMMANDS: { group, commands, help }[]   pure; index(), reference(), suggest()
 operator-cli.ts  handlers satisfies Record<CommandName, Handler>
 ```
 
@@ -74,7 +74,8 @@ awf --version
 
 Each command keeps the help text it has. The table only points at it (`inboxUsage`, `logsUsage`
 and the others), so `awf help logs` and `awf logs -h` print the same text. `reply` and `send`
-share one entry, `names: ["reply", "send"]`, because they share one text.
+share one entry, `commands: { reply: …, send: … }`, because they share one text and each has its
+own line in the index.
 
 A bare path doesn't run as `awf run`. If it did, `awf {word}` would mean two things, and a mistyped
 command would fail with "workflow file must end in .ts". A path gets a suggestion instead.
@@ -199,9 +200,9 @@ Out of scope:
 
 ## Proposed design
 
-`COMMANDS` is an ordered array of `{ names, group, summary, help }`. `names` has more than one name
-only for reply and send. `group` is a heading, and the index prints the groups in the order they
-first appear. `CommandName` is the union of every name. The handlers map, keyed by `CommandName`,
+`COMMANDS` is an ordered array of `{ group, commands, help }`, where `commands` maps each name to
+its one-line summary. It has more than one name only for reply and send. `group` is a heading, and the index prints the groups in the order they
+first appear. `CommandName` is the union of every name in `commands`. The handlers map, keyed by `CommandName`,
 lives in `operator-cli.ts`. A handler without a table entry, or an entry without a handler, is a
 compile error.
 
@@ -212,18 +213,19 @@ compile error.
   `awf <command> -h for what each does, and its exit codes`. Reply and send come once, under both
   names. A command's help keeps its usage lines in its first paragraph, and a test holds it to
   that.
-- **The suggestion** takes the commands that the word is the start of, or else those within edit
-  distance 2. Of those, it keeps the ones at the smallest distance, and names all of them when
-  there is a tie: `did you mean run or runs?`. When no command qualifies, it names none and keeps
+- **The suggestion** names every command that the word is the start of: `awf ru` gets
+  `did you mean run or runs?`. Failing that, it takes those within edit distance 2, keeps the ones
+  at the smallest distance, and names all of them when there is a tie. When no command qualifies, it names none and keeps
   the pointer to `awf -h`. A word ending in
   `.ts`, `.mts`, `.js` or `.mjs` gets `did you mean: awf run {word}` instead, quoted as `shellLine`
   quotes.
 - **`help`** takes no word, or one word. `help`, `help help` and `help -h` print the index. A
-  command's name prints its help, and `reference` prints the reference. More than one word, or an
-  unknown word, is the unknown-command refusal. `reference` is a reserved name, so no command can
+  command's name prints its help, and `reference` prints the reference. `-h` and `--help` are
+  `help`, so `awf -h inbox` is `awf help inbox`. An unknown word is the unknown-command refusal;
+  more than one word gets `awf: help takes one command; awf -h lists the commands`. `reference` is a reserved name, so no command can
   take it.
-- **`--version`** with anything after it, and any other leading flag (`awf -x`), are the
-  unknown-command refusal.
+- **`--version`** with anything after it gets `awf: --version takes nothing after it; awf -h lists
+  the commands`. Any other leading flag (`awf -x`) is the unknown-command refusal.
 
 Invariants:
 
@@ -245,12 +247,12 @@ Alternatives rejected:
 
 ## Tasks at a glance
 
-- [ ] 0. Every command but `run` is one file
-- [ ] 1. One table of commands: the index, and `awf help {command}`
-- [ ] 2. `awf run -h`, and `run`'s usage on its own
-- [ ] 3. A mistyped command names the closest one
-- [ ] 4. `awf help reference`
-- [ ] 5. The skills and README point at `awf -h`
+- [x] 0. Every command but `run` is one file
+- [x] 1. One table of commands: the index, and `awf help {command}`
+- [x] 2. `awf run -h`, and `run`'s usage on its own
+- [x] 3. A mistyped command names the closest one
+- [x] 4. `awf help reference`
+- [x] 5. The skills and README point at `awf -h`
 
 ## Open questions
 
@@ -277,11 +279,11 @@ its options and what it does, together. Nothing that awf prints changes.
 
 Execution:
 
-- [ ] Plan: inspect the relevant code and tests and record the architecture and focused proof.
-- [ ] Implement: make only this task's coherent change.
-- [ ] Review: obtain architecture/scope and correctness/proof subagent reviews of the actual diff.
-- [ ] Resolve: disposition findings and obtain targeted re-review after material design changes.
-- [ ] Verify: satisfy every `Done when` item before checking this task.
+- [x] Plan: inspect the relevant code and tests and record the architecture and focused proof.
+- [x] Implement: make only this task's coherent change.
+- [x] Review: obtain architecture/scope and correctness/proof subagent reviews of the actual diff.
+- [x] Resolve: disposition findings and obtain targeted re-review after material design changes.
+- [x] Verify: satisfy every `Done when` item before checking this task.
 
 Work:
 
@@ -300,14 +302,14 @@ Outcome: `awf -h` lists every command, and `awf help inbox` prints the same as `
 
 Execution:
 
-- [ ] Plan: inspect the relevant code and tests, settle the cleanest module, interface, seam,
+- [x] Plan: inspect the relevant code and tests, settle the cleanest module, interface, seam,
   invariants, failure behavior, and focused proof, and record material alternatives before coding.
-- [ ] Implement: make only this task's coherent change and add focused tests with it.
-- [ ] Review: have two read-only subagents review this task's actual diff and test output—one for
+- [x] Implement: make only this task's coherent change and add focused tests with it.
+- [x] Review: have two read-only subagents review this task's actual diff and test output—one for
   architecture and scope, one for correctness and proof.
-- [ ] Resolve: fix or explicitly disposition every material finding; request targeted re-review
+- [x] Resolve: fix or explicitly disposition every material finding; request targeted re-review
   when a fix changes the selected architecture.
-- [ ] Verify: run this task's focused checks and satisfy every `Done when` item before checking the
+- [x] Verify: run this task's focused checks and satisfy every `Done when` item before checking the
   task in `Tasks at a glance` or starting the next task.
 
 Work:
@@ -328,11 +330,11 @@ Outcome: `awf run -h` prints `run`'s usage, and a run usage error shows only tha
 
 Execution:
 
-- [ ] Plan: inspect the relevant code and tests and record the architecture and focused proof.
-- [ ] Implement: make only this task's coherent change and add focused tests with it.
-- [ ] Review: obtain architecture/scope and correctness/proof subagent reviews of the actual diff.
-- [ ] Resolve: disposition findings and obtain targeted re-review after material design changes.
-- [ ] Verify: satisfy every `Done when` item before checking this task.
+- [x] Plan: inspect the relevant code and tests and record the architecture and focused proof.
+- [x] Implement: make only this task's coherent change and add focused tests with it.
+- [x] Review: obtain architecture/scope and correctness/proof subagent reviews of the actual diff.
+- [x] Resolve: disposition findings and obtain targeted re-review after material design changes.
+- [x] Verify: satisfy every `Done when` item before checking this task.
 
 Work:
 
@@ -353,11 +355,11 @@ Outcome: `awf inbx` says `did you mean inbox?`, and `awf review.ts` says
 
 Execution:
 
-- [ ] Plan: inspect the relevant code and tests and record the architecture and focused proof.
-- [ ] Implement: make only this task's coherent change and add focused tests with it.
-- [ ] Review: obtain architecture/scope and correctness/proof subagent reviews of the actual diff.
-- [ ] Resolve: disposition findings and obtain targeted re-review after material design changes.
-- [ ] Verify: satisfy every `Done when` item before checking this task.
+- [x] Plan: inspect the relevant code and tests and record the architecture and focused proof.
+- [x] Implement: make only this task's coherent change and add focused tests with it.
+- [x] Review: obtain architecture/scope and correctness/proof subagent reviews of the actual diff.
+- [x] Resolve: disposition findings and obtain targeted re-review after material design changes.
+- [x] Verify: satisfy every `Done when` item before checking this task.
 
 Work:
 
@@ -378,11 +380,11 @@ Outcome: one short read shows an agent how to call every command.
 
 Execution:
 
-- [ ] Plan: inspect the relevant code and tests and record the architecture and focused proof.
-- [ ] Implement: make only this task's coherent change and add focused tests with it.
-- [ ] Review: obtain architecture/scope and correctness/proof subagent reviews of the actual diff.
-- [ ] Resolve: disposition findings and obtain targeted re-review after material design changes.
-- [ ] Verify: satisfy every `Done when` item before checking this task.
+- [x] Plan: inspect the relevant code and tests and record the architecture and focused proof.
+- [x] Implement: make only this task's coherent change and add focused tests with it.
+- [x] Review: obtain architecture/scope and correctness/proof subagent reviews of the actual diff.
+- [x] Resolve: disposition findings and obtain targeted re-review after material design changes.
+- [x] Verify: satisfy every `Done when` item before checking this task.
 
 Work:
 
@@ -401,11 +403,11 @@ commands is.
 
 Execution:
 
-- [ ] Plan: find each place that lists commands for a reader.
-- [ ] Implement: one line each. Don't restate the help.
-- [ ] Review: obtain an architecture/scope subagent review of the diff.
-- [ ] Resolve: disposition findings.
-- [ ] Verify: satisfy every `Done when` item.
+- [x] Plan: find each place that lists commands for a reader.
+- [x] Implement: one line each. Don't restate the help.
+- [x] Review: obtain an architecture/scope subagent review of the diff.
+- [x] Resolve: disposition findings.
+- [x] Verify: satisfy every `Done when` item.
 
 Work:
 
@@ -419,15 +421,15 @@ Done when:
 
 Automated:
 
-- [ ] The tasks' tests in `tests/operator-cli.test.ts`, and `commands.ts`'s own unit tests.
-- [ ] `bun test`
-- [ ] `bunx tsc --noEmit`
-- [ ] `bun run scripts/check-boundaries.ts`
-- [ ] `bun run check`
+- [x] The tasks' tests in `tests/operator-cli.test.ts`, and `commands.ts`'s own unit tests.
+- [x] `bun test`
+- [x] `bunx tsc --noEmit`
+- [x] `bun run scripts/check-boundaries.ts`
+- [x] `bun run check`
 
 Manual or live evaluation:
 
-- [ ] Give a fresh codex session on a cheap model only this task: "find out how to answer the
+- [x] Give a fresh codex session on a cheap model only this task: "find out how to answer the
   questions a running awf workflow asks, using the awf CLI". It should reach `awf inbox` and
   `awf reply` from `awf -h`. Record the commands from its transcript.
 
@@ -461,34 +463,28 @@ Manual or live evaluation:
 - The operator, 2026-10-24: the reference is a summary, every command's usage lines without the
   prose, because all the help at once is too much.
 
-### Task 0
+### Tasks 0 to 5
 
-- Architecture and scope:
-- Correctness and proof:
+Reviewed in one pass over the whole diff, not once per task, as the Task execution rule asks. The
+change is small and the tasks share one seam, `commands.ts`; the operator asked for an
+implementation followed by one review cycle.
 
-### Task 1
-
-- Architecture and scope:
-- Correctness and proof:
-
-### Task 2
-
-- Architecture and scope:
-- Correctness and proof:
-
-### Task 3
-
-- Architecture and scope:
-- Correctness and proof:
-
-### Task 4
-
-- Architecture and scope:
-- Correctness and proof:
-
-### Task 5
-
-- Architecture and scope:
+- Architecture and scope, 2026-10-24, one read-only subagent: nothing material. It judged the three
+  deviations under Implementation notes as better than the story's text. Resolved:
+  - The reference indents its entries under their group, as the index does. Fixed.
+  - reply and send build their stdin reader only when called. Fixed.
+  - `parseCommand` still throws "expected the run command", which no caller reaches now. Kept as
+    an assertion.
+- Correctness and proof, 2026-10-24, one read-only subagent: nothing material. It probed every
+  name's `-h` against `help`, prototype names (`constructor`, `__proto__`), `awf ""`, color, and
+  the moved handlers. Resolved:
+  - `awf -h inbox` printed the index and dropped the word. Now `-h` and `--help` are `help`. Fixed.
+  - The tests lacked `awf run x.ts -h`, and checked only the first prose line was missing from the
+    reference. Both are covered now. Fixed.
+  - `awf run x.ts --id -h` prints help, because `-h` counts anywhere before `--`. Kept: that is the
+    story's rule.
+  - A workflow-file typo doesn't point at `awf -h`. Kept: the story's example has it so, and the
+    line already names the command to type.
 
 ## Readiness
 
@@ -501,10 +497,27 @@ Manual or live evaluation:
 
 ## Implementation notes
 
+- 2026-10-24, deviations from the draft, now written into the design above:
+  - The table's entry is `{ group, commands, help }`, not `{ names, group, summary, help }`: reply
+    and send share a help but each has its own summary.
+  - Every prefix match is named, before any edit-distance match, as task 3's `awf ru` requires;
+    the draft's design sentence ranked them by distance, which would have named only `run`.
+  - `help a b` and `--version x` get their own line rather than "no command": still one line on
+    stderr, exit 2, pointing at `awf -h`.
+- `awf help reference` is about 2 KB.
+- `wf -h` went to [[wf-help]].
+- Verification, 2026-10-24: `bun test` 1990 pass, 1 fail, the `workflow-api-samples` test that
+  fails at HEAD before this change (the triage sample in `docs/workflow-api.md`). `bunx tsc
+  --noEmit`, `bun run scripts/check-boundaries.ts` and `bun run check` pass.
+- Live, 2026-10-24: a fresh `codex exec -m gpt-6-luna` in an empty folder, given only the task
+  "find out how to answer the questions a running awf workflow asks, using the awf CLI", ran
+  `awf --help`, `awf help reference`, `awf inbox -h` and `awf reply -h`, and answered with
+  `awf inbox {workflow}/{id} --open` and `awf reply {workflow}/{id} {agent} --to {id}`.
+
 ## Human review
 
-- [ ] Every task is complete and story-level verification passes.
-- [ ] Set the story status to `awaiting-human-review` and present the outcome, architecture
+- [x] Every task is complete and story-level verification passes.
+- [x] Set the story status to `awaiting-human-review` and present the outcome, architecture
   decisions, task-level subagent findings and dispositions, exact verification results, deviations,
   and remaining risks.
 - [ ] Record the human's explicit approval or requested changes here.

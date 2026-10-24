@@ -139,7 +139,7 @@ status is one of `todo`, `draft`, `ready`, `in-progress`, `blocked`, `awaiting-h
   and ask it questions with `wf send`; `awf run`'s terminal, another session or an app (a Slack
   bridge, outside this repository) reads them from the run's record and replies.
 - [`033` — An agent learns awf from its help](033-cli-help.md) —
-  `ready` — `awf -h` lists every command from one table that also feeds the dispatch, with
+  `awaiting-human-review` — `awf -h` lists every command from one table that also feeds the dispatch, with
   `awf help {command}`, `awf help reference` and a suggestion for a mistyped command.
 
 - [[021-turn-liveness-and-limits|021 — Keep a waiting agent alive within fixed limits]] —

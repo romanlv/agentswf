@@ -54,3 +54,5 @@ Name your own run by that reference, never by "the latest": another run may star
 - `awf runs {workflow}/{id}` shows the run in depth: its stages, each agent's state and its last
   activity. `--agent {key}` on `awf logs` follows one agent; `awf logs {run} @{handle} --full` prints
   one event's text.
+
+`awf -h` lists every awf command, and `awf {command} -h` gives one's options.

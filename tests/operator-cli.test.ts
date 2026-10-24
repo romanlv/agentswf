@@ -18,9 +18,11 @@ import { DeadlineExceededError } from "../packages/contract/src/workflow/timing"
 import { PUBLISHED_PRICES } from "../packages/engine/src/accounting/prices";
 import { summarizeRun } from "../packages/engine/src/accounting/summary";
 import { decideEnding, runOutcome } from "../packages/engine/src/attempt-ending";
+import { COMMANDS, type CommandName, index } from "../packages/engine/src/commands";
 import { WorkflowCancelledError } from "../packages/engine/src/deadlines";
 import { createFakeDecisionProvider } from "../packages/engine/src/decisions/fake";
 import { runOperatorCli } from "../packages/engine/src/operator-cli";
+import { parseCommand } from "../packages/engine/src/run-command";
 import { processStart, readEvents } from "../packages/engine/src/runs";
 import { WorkflowStopped } from "../packages/engine/src/stopped";
 import { createTempRunDirs, exchange, submit } from "../packages/engine/src/testing";
@@ -65,6 +67,104 @@ describe("awf", () => {
 
     expect(exitCode).toBe(1);
     expect(errors.join("\n")).toContain("awf needs Bun >=1.4.0, and this is Bun 1.1.0");
+  });
+});
+
+describe("awf help", () => {
+  const said = async (...argv: string[]) => {
+    const stdout: string[] = [];
+    const stderr: string[] = [];
+    const exitCode = await cli(argv, {
+      stdout: (text) => stdout.push(text),
+      stderr: (text) => stderr.push(text),
+    });
+    return { exitCode, stdout: stdout.join("\n"), stderr: stderr.join("\n") };
+  };
+  const names = COMMANDS.flatMap((entry) => Object.keys(entry.commands)) as CommandName[];
+
+  test("awf, -h, --help, help, help help and help -h print the index", async () => {
+    for (const argv of [[], ["-h"], ["--help"], ["help"], ["help", "help"], ["help", "-h"]]) {
+      expect(await said(...argv)).toEqual({ exitCode: 0, stdout: index(), stderr: "" });
+    }
+    for (const name of names) expect(index()).toMatch(new RegExp(`^  ${name} `, "m"));
+  });
+
+  test("help {command} prints what {command} -h prints", async () => {
+    for (const name of names) {
+      const asked = await said("help", name);
+      expect(asked.exitCode).toBe(0);
+      expect(asked.stdout).toMatch(new RegExp(`^(usage: | +)awf ${name} `, "m"));
+      expect(await said(name, "-h")).toEqual(asked);
+      expect(await said("-h", name)).toEqual(asked);
+    }
+  });
+
+  test("awf run -h is run's usage alone, before -- only", async () => {
+    const help = await said("run", "-h");
+    expect(help.exitCode).toBe(0);
+    expect(help.stdout).toStartWith("usage: awf run");
+    expect(await said("run", "x.ts", "-h")).toEqual(help);
+    expect(await said("run", "x.ts", "--help")).toEqual(help);
+    expect(parseCommand(["run", "x.ts", "--", "-h"], ROOT)).toMatchObject({
+      workflowFile: "x.ts",
+      workflowArgs: ["-h"],
+    });
+    const refused = await said("run", "--bogus");
+    expect(refused.exitCode).toBe(2);
+    expect(refused.stderr).toStartWith("awf: unknown option: --bogus");
+    expect(refused.stderr).toContain(help.stdout);
+    expect(refused.stderr).not.toMatch(/awf (init|test|runs|logs|inbox|allowance) /);
+  });
+
+  test("a mistyped command is one line naming the closest, and awf -h", async () => {
+    const refused = async (...argv: string[]) => {
+      const out = await said(...argv);
+      expect(out.exitCode).toBe(2);
+      expect(out.stdout).toBe("");
+      expect(out.stderr.split("\n")).toHaveLength(1);
+      return out.stderr;
+    };
+    const lists = "awf -h lists the commands";
+    expect(await refused("inbx")).toBe(`awf: no command "inbx"; did you mean inbox? ${lists}`);
+    expect(await refused("help", "inbx")).toBe(await refused("inbx"));
+    expect(await refused("ru")).toBe(`awf: no command "ru"; did you mean run or runs? ${lists}`);
+    expect(await refused("zzzz")).toBe(`awf: no command "zzzz"; ${lists}`);
+    expect(await refused("-x")).toBe(`awf: no command "-x"; ${lists}`);
+    expect(await refused("constructor")).toBe(`awf: no command "constructor"; ${lists}`);
+    expect(await refused("review.ts")).toBe(
+      'awf: no command "review.ts"; did you mean: awf run review.ts',
+    );
+    expect(await refused("my review.ts")).toBe(
+      "awf: no command \"my review.ts\"; did you mean: awf run 'my review.ts'",
+    );
+    expect(await refused("help", "inbox", "extra")).toContain(lists);
+    expect(await refused("--version", "x")).toContain(lists);
+  });
+
+  test("help reference is every command's usage lines once, and none of their prose", async () => {
+    const { exitCode, stdout } = await said("help", "reference");
+    expect(exitCode).toBe(0);
+    for (const { commands, help } of COMMANDS) {
+      const [usage, prose] = help.split("\n\n");
+      expect(usage).toStartWith("usage: awf ");
+      expect(prose).toBeDefined();
+      const indented = usage!
+        .split("\n")
+        .map((line) => `    ${line}`)
+        .join("\n");
+      expect(stdout.split(indented)).toHaveLength(2);
+      const after = help
+        .slice(usage!.length)
+        .split("\n")
+        .filter((line) => line.trim() !== "");
+      for (const line of after) expect(stdout).not.toContain(line);
+      for (const [name, summary] of Object.entries(commands)) {
+        expect(stdout).toMatch(new RegExp(`^  ${name} +${summary}$`, "m"));
+      }
+    }
+    expect(stdout).toEndWith("awf <command> -h for what each does, and its exit codes");
+    expect(names).not.toContain("reference");
+    expect(names).not.toContain("help");
   });
 });
 

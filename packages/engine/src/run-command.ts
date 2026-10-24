@@ -9,12 +9,6 @@ import { idProblem, runRootOf, stageNameProblem } from "./runs";
 export const usage = [
   "usage: awf run [options] <workflow-file> [options] [-- workflow arguments...]",
   "       awf run [options] <workflow-file> --continue <id>",
-  "       awf init [dir] [--no-install]",
-  "       awf test [paths...] [-t <pattern>] [--watch] [--timeout <duration>]",
-  "       awf allowance [harness...] [--json]",
-  "       awf runs [<run>] [--json]          (awf runs -h)",
-  "       awf logs [<run>] [--after <cursor>] [--wait <seconds>] [--json]   (awf logs -h)",
-  "       awf --version",
   "run options: --id <id>, --continue <id>, --from-stage <stage>, --values <file>,",
   "             --timeout <duration>, --run-root <directory>, --cwd <directory>, --sandbox <file>,",
   "             --json, --no-watch, --here",
@@ -86,8 +80,12 @@ export type RunCommand = {
   session?: string;
 };
 
-export function parseCommand(argv: readonly string[], cwd: string): RunCommand {
+/** `awf run`'s options and workflow; `"help"` for a `-h` or `--help` anywhere before `--`. */
+export function parseCommand(argv: readonly string[], cwd: string): RunCommand | "help" {
   if (argv[0] !== "run") throw new Error("expected the run command");
+  const end = argv.indexOf("--");
+  const own = end < 0 ? argv : argv.slice(0, end);
+  if (own.includes("-h") || own.includes("--help")) return "help";
   let timeout: string | undefined;
   let timeoutMilliseconds: number | undefined;
   let runRoot: string | undefined;

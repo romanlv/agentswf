@@ -3,6 +3,8 @@ import { constants } from "node:os";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseDuration } from "./duration";
+import { messageOf } from "./errors";
+import type { Out } from "./run-commands";
 
 const PRELOAD = fileURLToPath(new URL("./workflow-test-preload.ts", import.meta.url));
 
@@ -19,6 +21,32 @@ export const testUsage = [
 ].join("\n");
 
 export type TestCommand = { paths: string[]; bunArgs: string[] };
+
+/**
+ * `awf test`: the workflow tests under the given paths, with Bun's test runner. Their output goes
+ * to `io.output` when given, else straight to this process's.
+ */
+export async function testCommand(
+  argv: readonly string[],
+  cwd: string,
+  io: Out & { output?: Out; signal?: AbortSignal },
+): Promise<number> {
+  let tests: TestCommand | "help";
+  try {
+    tests = parseTestCommand(argv, cwd);
+  } catch (error) {
+    io.stderr(`awf: ${messageOf(error)}\n\n${testUsage}`);
+    return 2;
+  }
+  if (tests === "help") {
+    io.stdout(testUsage);
+    return 0;
+  }
+  return runWorkflowTests(tests, cwd, {
+    ...(io.signal ? { signal: io.signal } : {}),
+    ...(io.output ? { output: io.output } : {}),
+  });
+}
 
 /**
  * Only these flags pass through, so the published command is awf's, not the whole of `bun test`'s,

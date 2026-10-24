@@ -7,13 +7,7 @@ import type { JsonObject, JsonValue } from "@agentswf/contract/workflow";
 import { type Harness, handBack, type RunProcess } from "@agentswf/harness";
 import manifest from "../package.json" with { type: "json" };
 import { stageFigures } from "./accounting/format";
-import {
-  type AllowanceCommand,
-  allowanceUsage,
-  describeReport,
-  parseAllowanceCommand,
-  readReport,
-} from "./allowance-command";
+import { allowanceCommand } from "./allowance-command";
 import {
   type AttemptEnd,
   cleanupFailed,
@@ -25,6 +19,7 @@ import {
 } from "./attempt-ending";
 import { type Kept, keepRecords } from "./attempt-output";
 import { continueCommand, printEnding, toldOf } from "./attempt-view";
+import { type CommandName, helpOf, index, isCommand, reference, unknownCommand } from "./commands";
 import {
   type LineReader,
   promptCoordinator,
@@ -36,7 +31,7 @@ import { messageOf } from "./errors";
 import { type Caller, showOwnTab, startHere, takeCaller } from "./here";
 import { holderCommand } from "./holder-command";
 import { inboxCommand } from "./inbox-command";
-import { type InitCommand, initUsage, parseInitCommand, runInit } from "./init-command";
+import { initCommand } from "./init-command";
 import { logsCommand } from "./logs-command";
 import { coordinatorDir, machinePaths, sandboxesDirOf } from "./machine";
 import {
@@ -53,7 +48,7 @@ import { claimNext, loadAndPrepare, type PreparedRun, workspaceLabel } from "./r
 import { findRun } from "./run-state";
 import { type Attempt, createRun, discardRun, type Run, RunRefused } from "./runs";
 import { runsCommand } from "./runs-command";
-import { parseTestCommand, runWorkflowTests, type TestCommand, testUsage } from "./test-command";
+import { testCommand } from "./test-command";
 import type { LoadedWorkflow } from "./workflow-loader";
 import {
   type RunWorkflowOptions,
@@ -142,20 +137,9 @@ export async function runOperatorCli(
     stderr(`awf: ${tooOld}`);
     return 1;
   }
-  if (argv.length === 1 && argv[0] === "--version") {
-    stdout(describeVersion());
-    return 0;
-  }
-  if (argv[0] === "test") return testCommand(argv.slice(1), environment, stdout, stderr);
-  if (argv[0] === "init") return initCommand(argv.slice(1), environment, stdout, stderr);
-  if (argv[0] === "logs") {
-    return logsCommand(argv.slice(1), environment.cwd ?? process.cwd(), { stdout, stderr });
-  }
-  if (argv[0] === "inbox") {
-    return inboxCommand(argv.slice(1), environment.cwd ?? process.cwd(), { stdout, stderr });
-  }
-  if (argv[0] === "reply" || argv[0] === "send") {
-    return holderCommand(argv, environment.cwd ?? process.cwd(), {
+  const cwd = environment.cwd ?? process.cwd();
+  const holder = () =>
+    holderCommand(argv, cwd, {
       stdout,
       stderr,
       stdin: environment.stdin ?? (() => new Response(Bun.stdin.stream()).text()),
@@ -163,19 +147,103 @@ export async function runOperatorCli(
       ...(environment.environment ? { environment: environment.environment } : {}),
       ...(environment.home ? { home: environment.home } : {}),
     });
+  const handlers = {
+    run: () => runCommand(argv, environment, { stdout, stderr, notice, terminal, now }),
+    test: () => {
+      const captured = environment.stdout || environment.stderr ? { stdout, stderr } : undefined;
+      return testCommand(argv.slice(1), cwd, {
+        stdout,
+        stderr,
+        ...(captured ? { output: captured } : {}),
+        ...(environment.signal ? { signal: environment.signal } : {}),
+      });
+    },
+    init: () =>
+      initCommand(argv.slice(1), cwd, {
+        stdout,
+        stderr,
+        ...(environment.install ? { install: environment.install } : {}),
+      }),
+    runs: () => runsCommand(argv.slice(1), cwd, { stdout, stderr }),
+    logs: () => logsCommand(argv.slice(1), cwd, { stdout, stderr }),
+    inbox: () => inboxCommand(argv.slice(1), cwd, { stdout, stderr }),
+    reply: () => holder(),
+    send: () => holder(),
+    allowance: () =>
+      allowanceCommand(argv.slice(1), {
+        stdout,
+        stderr,
+        read:
+          environment.readAllowance ??
+          allowanceReader(
+            environment.environment ?? process.env,
+            undefined,
+            environment.signal,
+            environment.home ?? homedir(),
+          ),
+        now,
+      }),
+  } satisfies Record<CommandName, () => Promise<number>>;
+  const [word, ...rest] = argv;
+  if (word === undefined) {
+    stdout(index());
+    return 0;
   }
-  if (argv[0] === "runs") {
-    return runsCommand(argv.slice(1), environment.cwd ?? process.cwd(), { stdout, stderr });
+  if (word === "--version") {
+    if (rest.length > 0) {
+      stderr("awf: --version takes nothing after it; awf -h lists the commands");
+      return 2;
+    }
+    stdout(describeVersion());
+    return 0;
   }
-  if (argv[0] === "allowance") {
-    return allowanceCommand(argv.slice(1), environment, stdout, stderr);
+  if (word === "help" || word === "-h" || word === "--help") return help(rest, stdout, stderr);
+  if (isCommand(word)) return handlers[word]();
+  stderr(unknownCommand(word));
+  return 2;
+}
+
+/** `awf help`, `awf help {command}` and `awf help reference`; `-h` and `--help` are `help`. */
+function help(
+  words: readonly string[],
+  stdout: (text: string) => void,
+  stderr: (text: string) => void,
+): number {
+  const [word] = words;
+  if (words.length > 1) {
+    stderr("awf: help takes one command; awf -h lists the commands");
+    return 2;
   }
-  let command: RunCommand;
+  if (word === undefined || word === "help" || word === "-h" || word === "--help") {
+    stdout(index());
+  } else if (word === "reference") {
+    stdout(reference());
+  } else if (isCommand(word)) {
+    stdout(helpOf(word));
+  } else {
+    stderr(unknownCommand(word));
+    return 2;
+  }
+  return 0;
+}
+
+/** `awf run`: parses it, then starts or continues the run, here or in a tab. */
+async function runCommand(
+  argv: readonly string[],
+  environment: OperatorEnvironment,
+  output: Output,
+): Promise<number> {
+  const { stdout, stderr, notice, terminal, now } = output;
+  let command: RunCommand | "help";
   try {
     command = parseCommand(argv, environment.cwd ?? process.cwd());
   } catch (error) {
     stderr(`awf: ${messageOf(error)}\n\n${usage}`);
     return 2;
+  }
+  if (command === "help") {
+    stdout(usage);
+    return 0;
   }
   const meant = await runNamed(command);
   if (meant) {
@@ -497,89 +565,6 @@ async function runAttempt(
   }
   await handOver(toldOf(end, kept));
   return close(end, kept, cleanupAlso);
-}
-
-/** `awf allowance`: what is left of each harness's plan. */
-async function allowanceCommand(
-  argv: readonly string[],
-  environment: OperatorEnvironment,
-  stdout: (text: string) => void,
-  stderr: (text: string) => void,
-): Promise<number> {
-  let command: AllowanceCommand;
-  try {
-    command = parseAllowanceCommand(argv);
-  } catch (error) {
-    stderr(`awf: ${messageOf(error)}\n\n${allowanceUsage}`);
-    return 2;
-  }
-  if (command === "help") {
-    stdout(allowanceUsage);
-    return 0;
-  }
-  const read =
-    environment.readAllowance ??
-    allowanceReader(
-      environment.environment ?? process.env,
-      undefined,
-      environment.signal,
-      environment.home ?? homedir(),
-    );
-  const report = await readReport(command.harnesses, read, (environment.now ?? Date.now)());
-  stdout(command.json ? JSON.stringify(report, null, 2) : describeReport(report));
-  return 0;
-}
-
-/** `awf init`: a folder set up for writing workflows. */
-async function initCommand(
-  argv: readonly string[],
-  environment: OperatorEnvironment,
-  stdout: (text: string) => void,
-  stderr: (text: string) => void,
-): Promise<number> {
-  const cwd = environment.cwd ?? process.cwd();
-  let command: InitCommand | "help";
-  try {
-    command = parseInitCommand(argv, cwd);
-  } catch (error) {
-    stderr(`awf: ${messageOf(error)}\n\n${initUsage}`);
-    return 2;
-  }
-  if (command === "help") {
-    stdout(initUsage);
-    return 0;
-  }
-  try {
-    return await runInit(command, cwd, { stdout, stderr }, environment.install);
-  } catch (error) {
-    stderr(`awf: ${messageOf(error)}`);
-    return 1;
-  }
-}
-
-/** `awf test`: the workflow tests under the given paths, with Bun's test runner. */
-async function testCommand(
-  argv: readonly string[],
-  environment: OperatorEnvironment,
-  stdout: (text: string) => void,
-  stderr: (text: string) => void,
-): Promise<number> {
-  let tests: TestCommand | "help";
-  try {
-    tests = parseTestCommand(argv, environment.cwd ?? process.cwd());
-  } catch (error) {
-    stderr(`awf: ${messageOf(error)}\n\n${testUsage}`);
-    return 2;
-  }
-  if (tests === "help") {
-    stdout(testUsage);
-    return 0;
-  }
-  const captured = environment.stdout || environment.stderr ? { stdout, stderr } : undefined;
-  return runWorkflowTests(tests, environment.cwd ?? process.cwd(), {
-    ...(environment.signal ? { signal: environment.signal } : {}),
-    ...(captured ? { output: captured } : {}),
-  });
 }
 
 /**

@@ -1,6 +1,8 @@
 import { existsSync, lstatSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { basename, dirname, join, relative, resolve } from "node:path";
 import manifest from "../package.json" with { type: "json" };
+import { messageOf } from "./errors";
+import type { Out } from "./run-commands";
 
 export const initUsage = [
   "usage: awf init [dir] [--no-install]",
@@ -15,6 +17,31 @@ export const initUsage = [
 ].join("\n");
 
 export type InitCommand = { dir: string; install: boolean };
+
+/** `awf init`: a folder set up for writing workflows. */
+export async function initCommand(
+  argv: readonly string[],
+  cwd: string,
+  io: Out & { install?: (dir: string) => Promise<number> },
+): Promise<number> {
+  let command: InitCommand | "help";
+  try {
+    command = parseInitCommand(argv, cwd);
+  } catch (error) {
+    io.stderr(`awf: ${messageOf(error)}\n\n${initUsage}`);
+    return 2;
+  }
+  if (command === "help") {
+    io.stdout(initUsage);
+    return 0;
+  }
+  try {
+    return await runInit(command, cwd, io, io.install);
+  } catch (error) {
+    io.stderr(`awf: ${messageOf(error)}`);
+    return 1;
+  }
+}
 
 export function parseInitCommand(argv: readonly string[], cwd: string): InitCommand | "help" {
   let dir: string | undefined;

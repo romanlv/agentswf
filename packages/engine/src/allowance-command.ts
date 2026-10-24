@@ -6,6 +6,8 @@ import {
 } from "@agentswf/contract/records";
 import { HARNESS_NAMES, type Harness } from "@agentswf/harness";
 import { PLAN_BASIS, planPrice } from "./accounting/plans";
+import { messageOf } from "./errors";
+import type { Out } from "./run-commands";
 
 export const allowanceUsage = [
   "usage: awf allowance [harness...] [--json]",
@@ -35,6 +37,27 @@ export function parseAllowanceCommand(argv: readonly string[]): AllowanceCommand
     } else throw new Error(`unknown harness or option: ${arg}`);
   }
   return { harnesses: harnesses.length > 0 ? harnesses : [...HARNESS_NAMES], json };
+}
+
+/** `awf allowance`: what is left of each harness's plan, read with `read`. */
+export async function allowanceCommand(
+  argv: readonly string[],
+  io: Out & { read: (harness: Harness) => Promise<HarnessAllowance>; now: () => number },
+): Promise<number> {
+  let command: AllowanceCommand;
+  try {
+    command = parseAllowanceCommand(argv);
+  } catch (error) {
+    io.stderr(`awf: ${messageOf(error)}\n\n${allowanceUsage}`);
+    return 2;
+  }
+  if (command === "help") {
+    io.stdout(allowanceUsage);
+    return 0;
+  }
+  const report = await readReport(command.harnesses, io.read, io.now());
+  io.stdout(command.json ? JSON.stringify(report, null, 2) : describeReport(report));
+  return 0;
 }
 
 /** Every harness asked at once: cursor's pane takes seconds the others need not wait for. */

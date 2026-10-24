@@ -151,7 +151,8 @@ cd ~/.agentswf && bun install
 To update a clone: `cd ~/.agentswf && git pull && bun install`.
 
 A workflow can live in any folder and needs nothing installed there: `awf` serves it
-`agentswf/workflow` and `typebox` from its own copies. `awf` alone prints its usage.
+`agentswf/workflow` and `typebox` from its own copies. `awf -h` lists every command, and
+`awf {command} -h` shows one in full.
 
 ### Your first workflow
 
