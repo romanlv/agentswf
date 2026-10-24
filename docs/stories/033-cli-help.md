@@ -3,7 +3,7 @@ id: "033"
 title: "An agent learns awf from its help"
 summary: "`awf -h` lists every command, grouped, with a line each; `awf help {command}` and `awf {command} -h` show its usage, `awf help reference` every command's usage lines on one page, and a mistyped command names the closest one. One table of commands feeds the index, and a command can't be dispatched without being in it."
 type: story
-status: awaiting-human-review
+status: done
 priority: P2
 epic: launch
 discovered_in: "operator, 2026-10-23, after 032 added awf inbox, reply and send"
@@ -520,6 +520,8 @@ implementation followed by one review cycle.
 - [x] Set the story status to `awaiting-human-review` and present the outcome, architecture
   decisions, task-level subagent findings and dispositions, exact verification results, deviations,
   and remaining risks.
-- [ ] Record the human's explicit approval or requested changes here.
-- [ ] If changes are requested, return to the affected task and repeat its review and verification.
-- [ ] Only after explicit approval, mark the story `done` and update `Stories at a glance`.
+- [x] Record the human's explicit approval or requested changes here. Approved by the operator,
+  2026-10-24: "looks good mark as done".
+- [x] If changes are requested, return to the affected task and repeat its review and verification.
+  None were.
+- [x] Only after explicit approval, mark the story `done` and update `Stories at a glance`.

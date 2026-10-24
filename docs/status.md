@@ -239,7 +239,7 @@ The inbox of possible stories is [`stories/todo/`](stories/todo/).
 - [031 — `awf init`](stories/031-awf-init.md): awaiting human review. `awf init` writes a hello workflow,
   its test and the config files; `agentswf/testing` is exported from the npm package, at
   `0.1.0-beta.1`, unpublished.
-- [033 — an agent learns awf from its help](stories/033-cli-help.md): awaiting human review. `awf -h` lists every
+- [033 — an agent learns awf from its help](stories/033-cli-help.md): done. `awf -h` lists every
   command from one table, with `awf help {command}`, `awf help reference` and typo suggestions.
 
 ## Next
