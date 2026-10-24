@@ -146,6 +146,14 @@ Out of scope:
 
 ### packages/engine
 
+- Each command but `run` becomes one file, `{name}-command.ts`, holding its usage, its parser and
+  `{name}Command(argv, io): Promise<number>`, which parses, prints help or the usage error, and
+  does the work. inbox, logs, runs and holder already have this shape. init, test and allowance
+  keep their handlers in `operator-cli.ts` (`allowanceCommand`, `initCommand`, `testCommand`), and
+  task 0 moves them into their files. What they read from `OperatorEnvironment` (`readAllowance`,
+  `install`, `home`, `signal`, the output streams) is passed in. `run` stays split: `run-command.ts`
+  parses it, and its attempt path stays in `operator-cli.ts`, the composition root that wires the
+  providers.
 - `src/operator-cli.ts` — in `runOperatorCli`, the `if` chain becomes
   `handlers satisfies Record<CommandName, Handler>`. Each handler adapts its command's argv and
   output shape, so a command in the table that has no handler fails to compile. The private paths
@@ -230,6 +238,7 @@ Alternatives rejected:
 
 ## Tasks at a glance
 
+- [ ] 0. Every command but `run` is one file
 - [ ] 1. One table of commands: the index, and `awf help {command}`
 - [ ] 2. `awf run -h`, and `run`'s usage on its own
 - [ ] 3. A mistyped command names the closest one
@@ -253,6 +262,30 @@ After all tasks are complete, run story-level verification and request human rev
 deliverable.
 
 ## Task details
+
+### 0. Every command but `run` is one file
+
+Outcome: a reader who wants one command's details opens `{name}-command.ts` and finds its help,
+its options and what it does, together. Nothing that awf prints changes.
+
+Execution:
+
+- [ ] Plan: inspect the relevant code and tests and record the architecture and focused proof.
+- [ ] Implement: make only this task's coherent change.
+- [ ] Review: obtain architecture/scope and correctness/proof subagent reviews of the actual diff.
+- [ ] Resolve: disposition findings and obtain targeted re-review after material design changes.
+- [ ] Verify: satisfy every `Done when` item before checking this task.
+
+Work:
+
+- Move `allowanceCommand`, `initCommand` and `testCommand` out of `operator-cli.ts` into
+  `allowance-command.ts`, `init-command.ts` and `test-command.ts`. Each takes argv and what it
+  needs from the environment as arguments.
+
+Done when:
+
+- `operator-cli.ts` holds no command's parsing or help, except `run`'s.
+- The existing tests pass unchanged, `tests/operator-cli.test.ts` among them.
 
 ### 1. One table of commands: the index, and `awf help {command}`
 
@@ -416,6 +449,12 @@ Manual or live evaluation:
   - Task 1's checks no longer depend on tasks 2 and 3.
   - The scope now lets `parseCommand` change to `RunCommand | "help"`.
   - The suggestion has a tie rule.
+- The operator, 2026-10-24: task 0 added, so that every command but `run` is one file.
+
+### Task 0
+
+- Architecture and scope:
+- Correctness and proof:
 
 ### Task 1
 
