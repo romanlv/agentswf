@@ -141,6 +141,10 @@ status is one of `todo`, `draft`, `ready`, `in-progress`, `blocked`, `awaiting-h
 - [`033` — An agent learns awf from its help](033-cli-help.md) —
   `done` — `awf -h` lists every command from one table that also feeds the dispatch, with
   `awf help {command}`, `awf help reference` and a suggestion for a mistyped command.
+- [`034` — An event starts a run, and wakes it while it runs](034-event-driven-runs.md) —
+  `ready` — a workflow declares the events it takes and their key; `awf emit` starts that key's
+  run or lands in its mailbox, and the code takes events at a wait and starts turns it doesn't
+  await.
 
 - [[021-turn-liveness-and-limits|021 — Keep a waiting agent alive within fixed limits]] —
   `done` — Repeated cooperative check-ins share one deadline and result slot; an accepted

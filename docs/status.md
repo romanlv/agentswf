@@ -241,6 +241,10 @@ The inbox of possible stories is [`stories/todo/`](stories/todo/).
   `0.1.0-beta.1`, unpublished.
 - [033 — an agent learns awf from its help](stories/033-cli-help.md): done. `awf -h` lists every
   command from one table, with `awf help {command}`, `awf help reference` and typo suggestions.
+- [034 — an event starts a run, and wakes it while it runs](stories/034-event-driven-runs.md): ready.
+  A workflow declares its events and their key; `awf emit` appends to that key's run and wakes it,
+  the code takes events at a wait, starts turns it doesn't await, and parks between events. Its
+  first task stops for review of the formats it publishes.
 
 ## Next
 
