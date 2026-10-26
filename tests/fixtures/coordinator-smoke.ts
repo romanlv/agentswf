@@ -13,7 +13,7 @@ import {
 const HEADLESS = {
   claude: { harness: "claude", model: "claude-sonnet-5-5", placement: "headless", metered: true },
   codex: { harness: "codex", model: "gpt-6-luna", placement: "headless" },
-  pi: { harness: "pi", model: "openai-codex/gpt-5.6-terra", placement: "headless" },
+  pi: { harness: "pi", model: "openrouter/deepseek/deepseek-v4.1-flash-1017", placement: "headless" },
 } satisfies Record<string, ExecutionConfig>;
 export const HEADLESS_NAMES = ["claude", "codex"];
 

@@ -39,17 +39,21 @@ export const RUNTIMES = {
     switched: { effort: "high", model: "gpt-5.6-luna" },
   },
   pi: {
-    execution: { harness: "pi", model: "openai-codex/gpt-5.6-terra", effort: "low" },
-    switched: { effort: "high", model: "openai-codex/gpt-5.6-luna" },
+    execution: {
+      harness: "pi",
+      model: "openrouter/deepseek/deepseek-v4.1-flash-1017",
+      effort: "low",
+    },
+    switched: { effort: "high", model: "openrouter/deepseek/deepseek-v4.1-flash" },
   },
   "pi-headless": {
     execution: {
       harness: "pi",
-      model: "openai-codex/gpt-5.6-terra",
+      model: "openrouter/deepseek/deepseek-v4.1-flash-1017",
       effort: "low",
       placement: "headless",
     },
-    switched: { effort: "high", model: "openai-codex/gpt-5.6-luna" },
+    switched: { effort: "high", model: "openrouter/deepseek/deepseek-v4.1-flash" },
   },
 } as const satisfies Record<
   string,

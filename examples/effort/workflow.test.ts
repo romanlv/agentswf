@@ -32,9 +32,9 @@ describe("effort", () => {
       "gpt-5.6-luna@high",
     ]);
     expect(settings("effort:pi-headless")).toEqual([
-      "openai-codex/gpt-5.6-terra@low",
-      "openai-codex/gpt-5.6-terra@high",
-      "openai-codex/gpt-5.6-luna@high",
+      "openrouter/deepseek/deepseek-v4.1-flash-1017@low",
+      "openrouter/deepseek/deepseek-v4.1-flash-1017@high",
+      "openrouter/deepseek/deepseek-v4.1-flash@high",
     ]);
     const codex = run.value.checks.find((check) => check.runtime === "codex")!;
     expect(codex.problem).toBeUndefined();

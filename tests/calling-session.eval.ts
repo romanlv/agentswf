@@ -34,7 +34,9 @@ const SESSIONS = {
     "--model",
     "gpt-6-luna",
   ],
-  pi: harnessSpec("pi").interactive({ model: "openai-codex/gpt-5.6-terra" }).argv.slice(1),
+  pi: harnessSpec("pi")
+    .interactive({ model: "openrouter/deepseek/deepseek-v4.1-flash-1017" })
+    .argv.slice(1),
   cursor: [
     ...harnessSpec("cursor").interactive({ model: "composer-2.5" }).argv.slice(1),
     "--trust",

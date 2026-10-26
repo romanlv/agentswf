@@ -28,11 +28,15 @@ export const RUNTIMES = {
     execution: { harness: "codex", model: "gpt-6-luna", placement: "headless" },
   },
   pi: {
-    execution: { harness: "pi", model: "openai-codex/gpt-5.6-terra", placement: "headless" },
+    execution: {
+      harness: "pi",
+      model: "openrouter/deepseek/deepseek-v4.1-flash-1017",
+      placement: "headless",
+    },
     inventoryLines: 2_000,
   },
   "pi-pane": {
-    execution: { harness: "pi", model: "openai-codex/gpt-5.6-terra" },
+    execution: { harness: "pi", model: "openrouter/deepseek/deepseek-v4.1-flash-1017" },
     inventoryLines: 2_000,
   },
   cursor: { execution: { harness: "cursor", model: "composer-2.5" } },

@@ -17,7 +17,13 @@ import { outputSchema } from "../output-schema";
  * what it was given.
  */
 const CODEX = { harness: "codex", model: "gpt-6-luna", placement: "headless" } as const;
-const PI = { harness: "pi", model: "openai-codex/gpt-5.6-terra", placement: "headless" } as const;
+const PI = {
+  harness: "pi",
+  model: "openrouter/deepseek/deepseek-v4.1-flash-1017",
+  placement: "headless",
+} as const;
+// No OpenRouter domain or key reaches a sandbox yet, so a sandboxed pi stays on its codex login.
+const BOX_PI = { ...PI, model: "openai-codex/gpt-5.6-terra" } as const;
 const CLAUDE = { harness: "claude", model: "claude-sonnet-5-5" } as const;
 const CURSOR = { harness: "cursor", model: "composer-2.5", placement: "headless" } as const;
 
@@ -29,7 +35,7 @@ export const AGENTS = {
   "host-pi": { runtime: PI, probe: "b", sandboxed: false },
   "host-claude": { runtime: CLAUDE, probe: "a", sandboxed: false },
   "box-codex": { runtime: CODEX, probe: "b", sandboxed: true },
-  "box-pi": { runtime: PI, probe: "a", sandboxed: true },
+  "box-pi": { runtime: BOX_PI, probe: "a", sandboxed: true },
   // Alone in its sandbox: co-tenants read each other's homes, and cursor, asked for a stamp it had no
   // skill for, searched the filesystem and ran box-pi's (story 019).
   "box-cursor": { runtime: CURSOR, probe: "b", sandboxed: "alone" },

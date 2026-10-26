@@ -15,7 +15,11 @@ import {
 
 export const RUNTIMES = {
   codex: { harness: "codex", model: "gpt-6-luna", placement: "headless" },
-  pi: { harness: "pi", model: "openai-codex/gpt-5.6-terra", placement: "headless" },
+  pi: {
+    harness: "pi",
+    model: "openrouter/deepseek/deepseek-v4.1-flash-1017",
+    placement: "headless",
+  },
   claude: { harness: "claude", model: "claude-sonnet-5-5", placement: "headless", metered: true },
   "claude-pane": { harness: "claude", model: "claude-sonnet-5-5" },
 } as const satisfies Record<string, ExecutionConfig>;

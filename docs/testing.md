@@ -50,8 +50,9 @@ prints each one's output in one block when it ends, and ends with each eval's ti
 the total. An eval checks that the pieces connect, not how well a model reasons: each gives its
 agents the smallest task that exercises its path, and checks the result in code.
 Each runs on a cheap model where a cheap one is dependable — codex `gpt-6-luna`, pi
-`openai-codex/gpt-5.6-terra` — because an eval checks the machinery, not the quality of the
-answer. Claude runs `claude-sonnet-5-5`: on haiku, about one eval in four failed on the model's
+`openrouter/deepseek/deepseek-v4.1-flash-1017` on pi's own OpenRouter login, sandboxed pi
+`openai-codex/gpt-5.6-terra` as no OpenRouter domain or key reaches a sandbox yet — because an
+eval checks the machinery, not the quality of the answer. Claude runs `claude-sonnet-5-5`: on haiku, about one eval in four failed on the model's
 own call rather than awf's (a sandbox probe refused as an injection, a `wf result` command
 printed instead of run, a skill listed but not used), 2026-10-01.
 

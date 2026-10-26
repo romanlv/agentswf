@@ -16,8 +16,12 @@ import { outputSchema } from "../output-schema";
  */
 export const RUNTIMES = {
   codex: { harness: "codex", model: "gpt-6-luna", placement: "headless" },
-  pi: { harness: "pi", model: "openai-codex/gpt-5.6-terra", placement: "headless" },
-  "pi-pane": { harness: "pi", model: "openai-codex/gpt-5.6-terra" },
+  pi: {
+    harness: "pi",
+    model: "openrouter/deepseek/deepseek-v4.1-flash-1017",
+    placement: "headless",
+  },
+  "pi-pane": { harness: "pi", model: "openrouter/deepseek/deepseek-v4.1-flash-1017" },
   claude: { harness: "claude", model: "claude-sonnet-5-5" },
   cursor: { harness: "cursor", model: "composer-2.5", placement: "headless" },
   "cursor-pane": { harness: "cursor", model: "composer-2.5" },
