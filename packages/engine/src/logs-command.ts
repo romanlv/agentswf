@@ -606,6 +606,13 @@ function describeLine(line: RunLogLine): string {
       return `${said(line.participant, 60)} connected${line.to === "code" ? " to the code" : ""}`;
     case "participant-post":
       return `run → ${said(line.participant, 60)}  ${said(line.text)}`;
+    // Placeholders until story 035's task 5 prints a call on one line.
+    case "tool-called":
+      return `tool ${said(line.tool, 60)} called  ${said(JSON.stringify(line.input))}`;
+    case "tool-ended":
+      return `tool ${said(line.tool, 60)} ${line.outcome}  ${duration(line.durationMs)}${line.error ? `  ${said(line.error)}` : ""}`;
+    case "tool-refused":
+      return `tool ${said(line.tool, 60)} refused  ${line.code}`;
   }
 }
 

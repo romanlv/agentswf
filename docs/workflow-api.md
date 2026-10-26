@@ -13,15 +13,16 @@ field documented.
 ## At a glance
 
 ```ts
-workflow.agents.open({ key, runtime, instructions?, skills?, sandbox?, cwd?, layout?, keepPane? })  // → agent
+workflow.agents.open({ key, runtime, instructions?, skills?, sandbox?, cwd?, layout?, keepPane?, tools? })  // → agent
 agent.run({ prompt, schema?, timeoutMs?, label?, nudge? })  // → { outcome }; the same agent keeps its session
 agent.compact({ prompt })                                    // → outcome; the harness's own compaction, with a focus
 agent.set({ model?, effort? })                               // → outcome; later turns run at these, in the same session
-agent.fork({ key, placement?, effort?, instructions?, layout?, keepPane? })  // → a new agent on a copy of this one's session
+agent.fork({ key, placement?, effort?, instructions?, layout?, keepPane?, tools? })  // → a new agent on a copy of this one's session
 workflow.agents.stop(key, reason?)                          // → boolean; true once done, false if absent or already stopped
 workflow.agents.caller({ key })                              // → the session `awf run --here` was typed in, or null
 workflow.agents.forkCaller({ key, placement?, effort?, instructions?, layout?, keepPane? })  // → a new agent on a copy of the session awf run was started from, or null
 isAnswered(outcome)                                          // narrows to { kind: "answered", value }
+tool({ description, input?, handler, timeoutMs? })           // → a tool the agent calls mid-turn with `wf tool`
 
 workflow.parallel(items, (item, i) => …, { concurrency?, label?, deadline? })  // → results in item order
 workflow.sandboxes.open({ key, write?, read?, network?, sockets?, webSearch?, srt? | docker? }) // → pass as { sandbox }
@@ -134,6 +135,7 @@ const reviewer = await workflow.agents.open({
 | `sandbox` | A sandbox from `workflow.sandboxes.open`, or an inline spec for a private one. Left out, the agent is unsandboxed. |
 | `cwd` | Where the agent works; `workflow.cwd` by default, which `awf run --cwd` sets. |
 | `layout`, `keepPane` | Where its pane appears, and whether it stays once the agent is done. See [Where panes go](#where-panes-go-layout-and-keeppane). |
+| `tools` | What it can ask your code to do mid-turn. See [Tools](#tools-the-agent-calls-your-code). |
 
 Each harness uses your existing login.
 
@@ -492,6 +494,55 @@ answers.urgency.expected;     // 1.4, the probability-weighted level
   [findings](findings/system-one-models.md) show Jev is reliable at matching text to options, and
   not at anything that needs reading code.
 - **A decision that didn't answer rejects** with `DecisionError` (or `DeadlineExceededError`).
+
+## Tools: the agent calls your code
+
+A tool is a function in your workflow an agent calls while it works, and reads what it returns.
+Holding a tool is what lets the agent call it.
+
+```ts
+import { tool } from "agentswf/workflow";
+
+const triager = await workflow.agents.open({
+  key: "triager",
+  runtime: "codex",
+  tools: {
+    close_item: tool({
+      description: "Close an open item as done or won't fix, saying why.",
+      input: outputSchema(Type.Object({
+        id: Type.String(),
+        status: Type.Union([Type.Literal("done"), Type.Literal("wontfix")]),
+        why: Type.String(),
+      })),
+      handler: ({ id, status, why }) => {
+        backlog.close(id, status, why);
+        return `Closed ${id}.`;
+      },
+    }),
+    list_open: tool({ description: "The items still open, one per line.", handler: () => backlog.open() }),
+  },
+});
+```
+
+- **The agent's prompt teaches its tools**, in every turn: each one's name and description, and how
+  to call it. A simple input, up to 6 strings, numbers, booleans or enums, is taught as flags,
+  `wf tool close_item --id <text> --status done|wontfix --why <text>`, which the agent fills in
+  with each value in single quotes; any other as JSON.
+- **`tool()` types the handler** from `input`, which is wrapped in `outputSchema(...)` as a turn's
+  `schema` is. Without `input` the tool takes none.
+- **The handler runs during the turn**, while the agent waits, so keep it short. It has 30 s by
+  default; `timeoutMs` sets its own, and `false` leaves only the turn's deadline. A shell command
+  that runs long is backgrounded by claude after 2 minutes and cursor after 30 s, and handed back to
+  codex to poll after 10 s, so a handler that answers within 10 s is never waited on that way. A string result
+  prints as is, other JSON as JSON, nothing as nothing; a throw fails the call, not the run. Input
+  that doesn't fit the schema is refused before it runs, and the agent corrects it.
+- **It can't give work to the agent that called it**, which is in a turn: `run`, `compact`, `set`,
+  `fork` and `agents.stop` on it throw, as they do on an agent whose handler ran this one's. It may
+  run another agent, except in the message turns a stage runs after its body, where no code can.
+- **A fork has its parent's tools** unless its spec gives its own; `tools: {}` gives none. The calling
+  session's forks take none.
+- **Recorded:** each call, its input and its result or error are in the run's event log, and
+  `awf logs` shows them.
 
 ## Messaging
 
@@ -859,5 +910,6 @@ the run's deadline, none by default.
 These are in the types and throw `unavailable` today: `agents.attach` (beyond the calling
 session), `steps` (durable steps and sleep), and `call` (one workflow calling another). Events
 (story 034) are being built: `receive`, `emit`, `agent.start` and parking throw `unavailable` until
-it lands. [`docs/status.md`](status.md) says what's next.
+it lands. Tools (story 035) are being built: `tools` is in the types, and `open` and `fork` refuse
+it until it lands. [`docs/status.md`](status.md) says what's next.
 

@@ -126,7 +126,86 @@ export interface AgentOpenSpec {
   layout?: PaneLayout;
   /** Whether its pane stays once it is done; absent, `never`. Pane agents only. */
   keepPane?: KeepPane;
+  /**
+   * What the agent can ask the workflow's code to do mid-turn, by name: holding a tool is what lets
+   * it call one. Taught in every operation's prompt. On a reopen, tools match by name, description
+   * and input schema, never by handler: matching ones take the new handlers and budgets, and left
+   * out, the agent keeps what it has.
+   */
+  tools?: AgentTools;
 }
+
+/** An agent's tools by name, each name matching `TOOL_LIMITS.name`. */
+export type AgentTools = Readonly<Record<string, ToolSpec>>;
+
+/**
+ * A tool the workflow's code runs for an agent, which calls it with `wf tool {name}` while it is in a
+ * turn and waits for the result. Write one with `tool()`, which types the handler's input from
+ * `input`.
+ */
+export interface ToolSpec<I extends JsonObject = JsonObject> {
+  /** What it is for, as the agent reads it in its prompt. */
+  description: string;
+  /**
+   * An object schema, carrying its type as `run()`'s `schema` does, so a TypeBox schema is wrapped
+   * in the schema library's `outputSchema(...)`. Absent, the tool takes no input, and its handler
+   * is given `{}`.
+   */
+  input?: OutputSchema<I>;
+  /**
+   * Runs once per accepted call, in the scope of the operation the call came in, and must be short.
+   * What it returns is the result the agent reads: a string as is, any other JSON value as JSON,
+   * nothing as nothing. A throw fails the call, not the run. It may not run, stop or fork an agent
+   * whose handler it is in, nor `workflow.receive()`.
+   */
+  // biome-ignore lint/suspicious/noConfusingVoidType: an async handler that returns nothing is a Promise<void>.
+  handler(input: I, call: ToolCall): Promise<JsonValue | void> | JsonValue | void;
+  /**
+   * The handler's budget, within the operation's deadline; absent, `TOOL_LIMITS.defaultTimeoutMs`;
+   * `false`, only the deadline. A shell command past its harness's own limit is moved to the
+   * background, or on codex handed back for the agent to poll, past 10 s by default (M2).
+   */
+  timeoutMs?: number | false;
+}
+
+/** One call of a tool, as its handler is given it. */
+export type ToolCall = {
+  /** Unique within the run, across attempts; a turn run again after a crash calls with new ids. */
+  readonly id: string;
+  /** The agent that called: a fork's own key, not its parent's. */
+  readonly agent: AgentKey;
+  /** Aborted when the call's budget passes or its operation is cancelled, stopped or ends. */
+  readonly signal: AbortSignal;
+};
+
+/**
+ * A tool, its handler's input typed from its `input` schema, or `{}` without one. Written inline
+ * instead, a handler's input is a `JsonObject`, and an annotation on it goes unchecked.
+ */
+export function tool(spec: ToolSpec<NoInput> & { input?: undefined }): ToolSpec<NoInput>;
+export function tool<I extends JsonObject>(
+  spec: ToolSpec<I> & { input: OutputSchema<I> },
+): ToolSpec<I>;
+export function tool(spec: ToolSpec): ToolSpec {
+  return spec;
+}
+
+/** What a tool that takes no input is given. */
+export type NoInput = Record<string, never>;
+
+/** Refused at `open` and `fork` past these, so the lesson in every prompt stays bounded. */
+export const TOOL_LIMITS = {
+  /** Room for the `mcp__{server}__` prefix an MCP client adds. */
+  name: /^[a-z][a-z0-9_]{0,47}$/,
+  tools: 16,
+  descriptionBytes: 1024,
+  /** In the schema's canonical form, `canonicalSchema`. */
+  schemaBytes: 8192,
+  defaultTimeoutMs: 30_000,
+  /** A call's input, and its result encoded as JSON. */
+  inputBytes: 65_536,
+  resultBytes: 65_536,
+} as const;
 
 /**
  * Where a pane agent's pane is placed, once, as it opens, or in a run of a workflow with `events` at
@@ -343,6 +422,11 @@ export interface AgentForkSpec extends PlacementChoice {
   layout?: PaneLayout;
   /** Never its parent's: absent, `never`. */
   keepPane?: KeepPane;
+  /**
+   * Replaces the parent's tools; `{}` gives none. Absent, it has the parent's, with the handlers
+   * they had when it forked. Refused for a fork of the calling session.
+   */
+  tools?: AgentTools;
 }
 
 export interface SettingsSpec {
@@ -390,7 +474,8 @@ export interface AgentRef extends ParticipantRef {
    * has this agent's harness, model, working directory, sandbox and skills, and this agent's
    * placement and effort unless it names its own; model and effort are those after every `set`
    * queued before it. Rejects before this agent's first turn, where the harness cannot fork, and
-   * where a `set` queued before it did not take. The same key with the same parent and spec returns the same agent (ADR 0009).
+   * where a `set` queued before it did not take. The same key with the same parent and spec returns
+   * the same agent (ADR 0009), its tools matched as `open` matches them.
    */
   fork(spec: AgentForkSpec): Promise<AgentRef>;
 }
@@ -422,7 +507,8 @@ export interface AgentDirectory {
    * operator's session, so it differs from an opened agent: `compact` fails; a turn that fails, is
    * cancelled or times out leaves it usable rather than closed; the operator interrupting a turn
    * settles it `cancelled`; where the harness's interrupt cannot be recognised, an unanswered turn
-   * is not nudged by default; and its `execution.model` is `""`. Its `fork` is `forkCaller`'s.
+   * is not nudged by default; and its `execution.model` is `""`. Its `fork` is `forkCaller`'s, and
+   * refuses `tools`.
    */
   caller(spec: CallerSpec): Promise<AgentRef | null>;
   /**
@@ -432,7 +518,7 @@ export interface AgentDirectory {
    * files show it last ran, in its directory, as an agent of the run; what it copied stays the
    * session's spend. Root scope only (story 027).
    */
-  forkCaller(spec: AgentForkSpec): Promise<AgentRef | null>;
+  forkCaller(spec: Omit<AgentForkSpec, "tools">): Promise<AgentRef | null>;
 }
 
 /** An agent of a run of a workflow with `events`, which can also start a turn without awaiting it. */

@@ -1,23 +1,30 @@
 import { isRecord } from "./schema";
 
 /**
- * Version 4 adds messaging: `peers`, `send` and `reply`, which name no call id, and the line every
+ * Version 5 adds `tool`, a call of one of the agent's tools, and a result given as flags, `args`.
+ * Version 4 added messaging: `peers`, `send` and `reply`, which name no call id, and the line every
  * response leads with about what the agent's open operation owes or awaits. The per-agent
  * connection remains the authority.
  */
-export const WIRE_VERSION = 4 as const;
+export const WIRE_VERSION = 5 as const;
+
+/**
+ * An input as `wf` was given it, which it sends without knowing the schema: `raw`, JSON from standard
+ * input, or `args`, the words after the call id or tool name, which the engine reads as flags by
+ * the schema. Neither is no input, `{}` to a schema.
+ */
+export type GivenInput = { raw?: string; args?: never } | { args?: string[]; raw?: never };
 
 export type ResultSubmitRequest = {
   version: typeof WIRE_VERSION;
   command: "result";
   operationId: string;
-  raw: string;
   /**
    * The harness's own session id, where the agent's shell names one. Added within version 2: the
    * engine installs the `wf` its agents run, so client and engine always ship together.
    */
   session?: string;
-};
+} & GivenInput;
 
 export type WaitingRequest = {
   version: typeof WIRE_VERSION;
@@ -50,7 +57,20 @@ export type MessageRequest = {
   session?: string;
 };
 
-export type ControlRequest = ResultSubmitRequest | WaitingRequest | PeersRequest | MessageRequest;
+/** A call of the agent's tool `tool`, bound to its open operation when the engine accepts it. */
+export type ToolRequest = {
+  version: typeof WIRE_VERSION;
+  command: "tool";
+  tool: string;
+  session?: string;
+} & GivenInput;
+
+export type ControlRequest =
+  | ResultSubmitRequest
+  | WaitingRequest
+  | PeersRequest
+  | MessageRequest
+  | ToolRequest;
 export const MAX_WAITING_REASON_BYTES = 2048;
 
 export function validWaitingReason(value: unknown): value is string {
@@ -84,6 +104,8 @@ export const RESULT_CODES = [
   "owes-reply",
   /** Given a message operation's call id. */
   "no-result",
+  /** While a tool call of the operation runs. */
+  "tool-running",
 ] as const;
 
 /** A send's refusals, in the order they are checked. */
@@ -111,6 +133,17 @@ export const REPLY_CODES = [
   "unsupported",
   "cycle",
   "limit",
+] as const;
+
+/** A tool call's refusals, in the order they are checked; none ran the handler. */
+export const TOOL_CODES = [
+  "no-operation",
+  /** The operation's result is accepted, so it is ending. */
+  "result-accepted",
+  /** Another call of this agent's is running. */
+  "tool-busy",
+  "unknown-tool",
+  "invalid-input",
 ] as const;
 
 /**
@@ -141,9 +174,10 @@ export type EnvelopeCode = (typeof ENVELOPE_CODES)[number];
 export type ResultSubmitCode = (typeof RESULT_CODES)[number] | EnvelopeCode;
 export type SendCode = (typeof SEND_CODES)[number];
 export type ReplyCode = (typeof REPLY_CODES)[number];
+export type ToolCode = (typeof TOOL_CODES)[number];
 export type HolderCode = (typeof HOLDER_CODES)[number];
 export type InboxCode = (typeof INBOX_CODES)[number];
-export type ControlCode = ResultSubmitCode | SendCode | ReplyCode;
+export type ControlCode = ResultSubmitCode | SendCode | ReplyCode | ToolCode;
 
 /**
  * Leads every response while the agent's open operation owes or awaits an answer: one line, such as
@@ -231,11 +265,30 @@ export type MessageResponse =
     } & Owing)
   | Rejection<SendCode | ReplyCode | EnvelopeCode>;
 
+/**
+ * A call the handler ended: `tool-result` with what `wf tool` prints, absent when it returned
+ * nothing; `tool-failed` when it threw or returned what can't be sent, `failed`, or its budget
+ * passed or its operation ended first, so it may have done its work, `timed-out` or `cancelled`.
+ */
+export type ToolResponse =
+  | ({ version: typeof WIRE_VERSION; kind: "tool-result"; output?: string } & Owing)
+  | ({
+      version: typeof WIRE_VERSION;
+      kind: "tool-failed";
+      outcome: ToolFailure;
+      /** The failure as `wf` prints it, naming the next action. */
+      error: string;
+    } & Owing)
+  | Rejection<ToolCode | EnvelopeCode>;
+
+export type ToolFailure = "failed" | "timed-out" | "cancelled";
+
 export type ControlResponse =
   | ResultSubmitResponse
   | WaitingResponse
   | PeersResponse
   | MessageResponse
+  | ToolResponse
   | Rejection;
 
 export type WireDecodeResult<T> =
@@ -246,13 +299,15 @@ export type WireDecodeResult<T> =
       error: string;
     };
 
-const REQUEST_FIELDS = ["version", "command", "operationId", "raw", "session"] as const;
+const REQUEST_FIELDS = ["version", "command", "operationId", "raw", "args", "session"] as const;
 const RESPONSE_CODES = new Set<ControlCode>([
   ...ENVELOPE_CODES,
   ...RESULT_CODES,
   ...SEND_CODES,
   ...REPLY_CODES,
+  ...TOOL_CODES,
 ]);
+const TOOL_FAILURES = new Set<string>(["failed", "timed-out", "cancelled"] satisfies ToolFailure[]);
 
 /** What each command's response may be. */
 export type ResponseFor = {
@@ -261,6 +316,7 @@ export type ResponseFor = {
   peers: PeersResponse;
   send: MessageResponse;
   reply: MessageResponse;
+  tool: ToolResponse;
 };
 
 const ANSWERS: {
@@ -271,6 +327,7 @@ const ANSWERS: {
   peers: { kinds: ["peers"], codes: ENVELOPE_CODES },
   send: { kinds: ["sent"], codes: [...ENVELOPE_CODES, ...SEND_CODES] },
   reply: { kinds: ["sent"], codes: [...ENVELOPE_CODES, ...REPLY_CODES] },
+  tool: { kinds: ["tool-result", "tool-failed"], codes: [...ENVELOPE_CODES, ...TOOL_CODES] },
 };
 
 function checkEnvelope(value: unknown, label: string): WireDecodeResult<Record<string, unknown>> {
@@ -297,9 +354,8 @@ export function decodeResultSubmitRequest(value: unknown): WireDecodeResult<Resu
   if (!nonEmpty(request.operationId)) {
     return invalid("request.operationId must be a non-empty string");
   }
-  if (typeof request.raw !== "string" || request.raw.trim() === "") {
-    return invalid("request.raw must be a non-empty string");
-  }
+  const given = decodeGivenInput(request);
+  if (!given.ok) return given;
   if (!optionalNonEmpty(request.session)) {
     return invalid("request.session must be a non-empty string when present");
   }
@@ -309,10 +365,26 @@ export function decodeResultSubmitRequest(value: unknown): WireDecodeResult<Resu
       version: WIRE_VERSION,
       command: "result",
       operationId: request.operationId,
-      raw: request.raw,
+      ...given.value,
       ...(request.session === undefined ? {} : { session: request.session }),
     },
   };
+}
+
+function decodeGivenInput(request: Record<string, unknown>): WireDecodeResult<GivenInput> {
+  const { raw, args } = request;
+  if (raw !== undefined && args !== undefined) return invalid("request has both raw and args");
+  if (raw !== undefined) {
+    if (typeof raw !== "string" || raw.trim() === "")
+      return invalid("request.raw must be a non-empty string when present");
+    return { ok: true, value: { raw } };
+  }
+  if (args !== undefined) {
+    if (!Array.isArray(args) || args.length === 0 || !args.every((arg) => typeof arg === "string"))
+      return invalid("request.args must be a non-empty list of strings when present");
+    return { ok: true, value: { args: [...args] } };
+  }
+  return { ok: true, value: {} };
 }
 
 /**
@@ -397,13 +469,35 @@ export function decodeControlRequest(value: unknown): WireDecodeResult<ControlRe
     case "send":
     case "reply":
       return decodeMessageRequest(request, request.command);
+    case "tool":
+      return decodeToolRequest(request);
     default:
       return {
         ok: false,
         code: "unsupported-command",
-        error: "request.command must be result, waiting, peers, send or reply",
+        error: "request.command must be result, waiting, peers, send, reply or tool",
       };
   }
+}
+
+function decodeToolRequest(request: Record<string, unknown>): WireDecodeResult<ToolRequest> {
+  if (extraFields(request, ["version", "command", "tool", "raw", "args", "session"]))
+    return invalid("request has unexpected fields");
+  if (!nonEmpty(request.tool)) return invalid("request.tool must be a non-empty string");
+  const given = decodeGivenInput(request);
+  if (!given.ok) return given;
+  if (!optionalNonEmpty(request.session))
+    return invalid("request.session must be a non-empty string when present");
+  return {
+    ok: true,
+    value: {
+      version: WIRE_VERSION,
+      command: "tool",
+      tool: request.tool,
+      ...given.value,
+      ...(request.session === undefined ? {} : { session: request.session }),
+    },
+  };
 }
 
 function decodeWaitingRequest(request: Record<string, unknown>): WireDecodeResult<WaitingRequest> {
@@ -562,6 +656,34 @@ export function decodeControlResponse(value: unknown): WireDecodeResult<ControlR
         },
       };
     }
+    case "tool-result": {
+      if (extraFields(response, ["version", "kind", "output", "owing"]))
+        return invalid("tool-result response has unexpected fields");
+      const { output } = response;
+      if (output !== undefined && typeof output !== "string")
+        return invalid("response.output must be a string when present");
+      return {
+        ok: true,
+        value: {
+          version,
+          kind: "tool-result",
+          ...(output === undefined ? {} : { output }),
+          ...owing,
+        },
+      };
+    }
+    case "tool-failed": {
+      if (extraFields(response, ["version", "kind", "outcome", "error", "owing"]))
+        return invalid("tool-failed response has unexpected fields");
+      const { outcome, error } = response;
+      if (!TOOL_FAILURES.has(outcome as string))
+        return invalid("response.outcome must be failed, timed-out or cancelled");
+      if (!nonEmpty(error)) return invalid("response.error must be a non-empty string");
+      return {
+        ok: true,
+        value: { version, kind: "tool-failed", outcome: outcome as ToolFailure, error, ...owing },
+      };
+    }
     case "rejected": {
       if (extraFields(response, ["version", "kind", "code", "error", "owing"]))
         return invalid("rejected response has unexpected fields");
@@ -581,7 +703,7 @@ export function decodeControlResponse(value: unknown): WireDecodeResult<ControlR
     }
     default:
       return invalid(
-        "response.kind must be accepted, waiting, awaiting-reply, peers, sent or rejected",
+        "response.kind must be accepted, waiting, awaiting-reply, peers, sent, tool-result, tool-failed or rejected",
       );
   }
 }

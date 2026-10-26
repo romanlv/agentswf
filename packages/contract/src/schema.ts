@@ -340,3 +340,18 @@ export function describe(schema: JsonSchema): string {
     }
   }
 }
+
+/**
+ * A schema as two of its forms are compared and measured: its JSON with keys sorted, and `required`
+ * too, whose order means nothing. Keys that aren't enumerable strings drop out, as TypeBox's own
+ * `~kind` and `~optional` do, so a TypeBox schema and the JSON Schema it writes are one. An enum's
+ * order stays: it is the order the agent is shown.
+ */
+export function canonicalSchema(schema: object): string {
+  return JSON.stringify(schema, (key, value: unknown) => {
+    if (key === "required" && isStringArray(value)) return [...value].sort();
+    if (!isRecord(value)) return value;
+    const keys = Object.keys(value).sort();
+    return Object.fromEntries(keys.map((each) => [each, value[each]]));
+  });
+}

@@ -329,6 +329,9 @@ async function answerFrame(
   if (decoded.value.session) onSession?.(decoded.value.session);
 
   const request = decoded.value;
+  // Until story 035's tasks 2 and 3 read them.
+  if (request.command === "tool")
+    return rejected("unsupported-command", "tools are not available in this run");
   if (request.command !== "result" && request.command !== "waiting") {
     if (!messaging)
       return rejected("unsupported-command", "messaging is not available in this run");
@@ -375,6 +378,8 @@ async function answerFrame(
         ? { version: WIRE_VERSION, ...grant }
         : rejected(grant.code, grant.error);
     }
+    if (request.raw === undefined)
+      return rejected("invalid-result", "give the result as JSON on standard input");
     const result = await slots.submit({
       operationId: request.operationId,
       agentId,

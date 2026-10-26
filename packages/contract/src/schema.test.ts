@@ -1,5 +1,12 @@
 import { expect, describe as group, test } from "bun:test";
-import { describe, formatErrors, type JsonSchema, parseJsonSchema, validate } from "./schema";
+import {
+  canonicalSchema,
+  describe,
+  formatErrors,
+  type JsonSchema,
+  parseJsonSchema,
+  validate,
+} from "./schema";
 import { COUNT_SCHEMA } from "./testing/fixtures";
 
 group("validate", () => {
@@ -160,5 +167,27 @@ group("properties inherited from Object.prototype", () => {
     };
 
     expect(validate(required, JSON.parse("{}"))).toHaveLength(1);
+  });
+});
+
+group("canonicalSchema", () => {
+  test("key order and keys that aren't enumerable strings don't change it; a value does", () => {
+    const typebox = {
+      [Symbol("kind")]: "Object",
+      type: "object",
+      required: ["id"],
+      properties: { id: { type: "string" } },
+    };
+    // As TypeBox 1.x marks its own.
+    Object.defineProperty(typebox, "~kind", { value: "Object", enumerable: false });
+    const json = { properties: { id: { type: "string" } }, required: ["id"], type: "object" };
+    expect(canonicalSchema(typebox)).toBe(canonicalSchema(json));
+    expect(canonicalSchema(json)).not.toBe(
+      canonicalSchema({ ...json, properties: { id: { type: "number" } } }),
+    );
+    expect(canonicalSchema({ required: ["b", "a"] })).toBe(
+      canonicalSchema({ required: ["a", "b"] }),
+    );
+    expect(canonicalSchema({ enum: ["b", "a"] })).not.toBe(canonicalSchema({ enum: ["a", "b"] }));
   });
 });

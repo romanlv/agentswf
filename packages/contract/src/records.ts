@@ -1,5 +1,5 @@
 import type { JsonSchema } from "./schema";
-import type { HolderCode, InboxCode, ReplyCode, SendCode } from "./wire";
+import type { HolderCode, InboxCode, ReplyCode, SendCode, ToolCode, ToolFailure } from "./wire";
 import type {
   AgentExecution,
   AgentKey,
@@ -664,6 +664,50 @@ export type MessagingEvent =
       to: AgentKey;
       reason: UndeliveredReason;
     }
+  /**
+   * A tool call that passed its checks, its handler about to run; `call` is its `ToolCall.id`, which
+   * its `tool-ended` carries. `operationId` is the operation it came in.
+   */
+  | {
+      kind: "tool-called";
+      call: string;
+      callPath: string[];
+      stage?: string;
+      operationId: string;
+      agent: AgentKey;
+      tool: string;
+      input: JsonObject;
+    }
+  /**
+   * Its end: `result` what the handler returned, absent for nothing; `error` why it failed. After an
+   * abort the outcome is the abort's, whatever the handler then did. `durationMs` runs from the
+   * handler's start to this record.
+   */
+  | {
+      kind: "tool-ended";
+      call: string;
+      callPath: string[];
+      stage?: string;
+      operationId: string;
+      agent: AgentKey;
+      tool: string;
+      outcome: "ok" | ToolFailure;
+      result?: JsonValue;
+      error?: string;
+      durationMs: number;
+    }
+  /** Refused before the handler ran, with the code `wf tool` printed; `operationId` absent for `no-operation`. */
+  | {
+      kind: "tool-refused";
+      callPath: string[];
+      stage?: string;
+      operationId?: string;
+      agent: AgentKey;
+      tool: string;
+      code: ToolCode;
+      /** What `wf tool` printed for `invalid-input`: the schema's errors, or the usage line's. */
+      error?: string;
+    }
   /** An owed answer's end. `message` is the question; `reply`, its answer's number. */
   | {
       kind: "request-ended";
@@ -975,6 +1019,9 @@ export const RUN_EVENT_VERSIONS = {
   "request-ended": 2,
   "participant-connected": 2,
   "participant-post": 1,
+  "tool-called": 1,
+  "tool-ended": 1,
+  "tool-refused": 1,
 } as const satisfies Record<RunEvent["kind"], number>;
 
 /** A kind whose older lines are a strict subset of its current shape, read as the current one. */

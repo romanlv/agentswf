@@ -62,7 +62,7 @@ describe("wf result", () => {
       at("result", "op-1"),
       '{"count":3}\n',
       async (_endpoint, request) => {
-        if (request.command === "result") raw = request.raw;
+        if (request.command === "result") raw = request.raw ?? "";
         return { version: WIRE_VERSION, kind: "accepted" };
       },
     );

@@ -2,12 +2,14 @@ import { describe, expect, test } from "bun:test";
 import {
   decodeControlRequest,
   decodeControlResponse,
+  decodeResponseFor,
   decodeResultSubmitRequest,
   decodeResultSubmitResponse,
   ENVELOPE_CODES,
   REPLY_CODES,
   RESULT_CODES,
   SEND_CODES,
+  TOOL_CODES,
   validWaitingReason,
   WIRE_VERSION,
 } from "./wire";
@@ -374,5 +376,83 @@ describe("messaging wire", () => {
     ]) {
       expect(decodeControlResponse(broken)).toMatchObject({ ok: false });
     }
+  });
+});
+
+describe("tool wire", () => {
+  const tool = { version: WIRE_VERSION, command: "tool", tool: "close_case" } as const;
+
+  test("a call carries JSON, flags as given, or no input", () => {
+    for (const given of [{ raw: '{"status":"noise"}' }, { args: ["--status", "it's"] }, {}]) {
+      expect(decodeControlRequest({ ...tool, ...given, session: "s-1" })).toEqual({
+        ok: true,
+        value: { ...tool, ...given, session: "s-1" },
+      });
+    }
+  });
+
+  test("a call is refused both forms at once, empty flags, a blank name and unknown fields", () => {
+    for (const request of [
+      { ...tool, raw: "{}", args: ["--a", "b"] },
+      { ...tool, args: [] },
+      { ...tool, args: ["--a", 1] },
+      { ...tool, raw: " " },
+      { ...tool, tool: " " },
+      { ...tool, operationId: "op-1" },
+    ]) {
+      expect(decodeControlRequest(request)).toMatchObject({ ok: false, code: "invalid-request" });
+    }
+  });
+
+  test("a result takes flags or no input as a call does", () => {
+    const result = { version: WIRE_VERSION, command: "result", operationId: "op-1" } as const;
+    expect(decodeControlRequest({ ...result, args: ["--verdict", "noise"] })).toEqual({
+      ok: true,
+      value: { ...result, args: ["--verdict", "noise"] },
+    });
+    expect(decodeControlRequest(result)).toEqual({ ok: true, value: result });
+    for (const request of [
+      { ...result, raw: "{}", args: ["--a"] },
+      { ...result, args: [] },
+      { ...result, args: ["--a"], extra: true },
+    ]) {
+      expect(decodeControlRequest(request)).toMatchObject({ ok: false, code: "invalid-request" });
+    }
+  });
+
+  test("a call's answers: its result, its failure, and its own refusals only", () => {
+    const version = WIRE_VERSION;
+    for (const response of [
+      { version, kind: "tool-result", output: "Closed." },
+      { version, kind: "tool-result" },
+      { version, kind: "tool-failed", outcome: "timed-out", error: "may have run", owing: "x" },
+      ...[...TOOL_CODES, ...ENVELOPE_CODES].map((code) => ({
+        version,
+        kind: "rejected",
+        code,
+        error: "no",
+      })),
+    ]) {
+      expect(decodeResponseFor("tool", response)).toEqual({ ok: true, value: response as never });
+    }
+    for (const response of [
+      { version, kind: "tool-failed", outcome: "lost", error: "x" },
+      { version, kind: "tool-result", output: 1 },
+      { version, kind: "accepted" },
+      { version, kind: "rejected", code: "no-route", error: "x" },
+    ]) {
+      expect(decodeResponseFor("tool", response).ok).toBe(false);
+    }
+    expect(
+      decodeResponseFor("result", { version, kind: "rejected", code: "tool-running", error: "x" })
+        .ok,
+    ).toBe(true);
+  });
+
+  test("a launcher from before tools is refused, not misread", () => {
+    expect(decodeControlRequest({ ...tool, version: 4 })).toMatchObject({
+      ok: false,
+      code: "unsupported-version",
+    });
   });
 });

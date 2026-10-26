@@ -935,6 +935,8 @@ class WorkflowOwner {
       deadline: options.deadline,
       agents: {
         open: (spec) => {
+          // Until story 035's task 3 runs them.
+          if (spec.tools !== undefined) return unavailable("AgentOpenSpec.tools");
           try {
             return this.openAgent(spec);
           } catch (error) {
@@ -967,6 +969,8 @@ class WorkflowOwner {
           }
         },
         forkCaller: (spec) => {
+          if ((spec as AgentForkSpec).tools !== undefined)
+            return unavailable("AgentForkSpec.tools");
           try {
             return this.forkCaller(spec);
           } catch (error) {
@@ -2905,6 +2909,7 @@ class LogicalAgent implements AgentRef {
   }
 
   fork(spec: AgentForkSpec): Promise<AgentRef> {
+    if (spec.tools !== undefined) return unavailable("AgentForkSpec.tools");
     if (this.#closed) return Promise.reject(new Error("logical agent is closed"));
     const refused = this.#refusedWhileStarted("fork");
     if (refused) return Promise.reject(refused);

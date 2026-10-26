@@ -3,7 +3,7 @@ id: "035"
 title: "An agent calls a tool the workflow's code handles"
 summary: "A workflow gives an agent named, typed tools; the agent calls one with wf tool mid-turn, the workflow's handler runs, and its return value is the tool's result."
 type: story
-status: ready
+status: in-progress
 depends_on: []
 ---
 
@@ -40,11 +40,9 @@ handler(input, call) ◄────────────────┤  (in
                                                                        goes on with its turn
 ```
 
-- **Tools are given at open**: `agents.open({ tools: { name: { description, input, handler } } })`.
-  `input` is an object schema, TypeBox or JSON Schema as `run()`'s `schema` is, and the handler's
-  argument is typed from it: `open` and `fork` are generic over the tool map, each tool's input
-  inferred from its `input` as `run()` infers its result from `schema`; if inference falls short,
-  a `tool()` helper does it per tool, decided at task 1.
+- **Tools are given at open**: `agents.open({ tools: { name: tool({ description, input, handler }) } })`.
+  `input` is an object schema, TypeBox or JSON Schema as `run()`'s `schema` is, and `tool()` types
+  the handler's argument from it, as `run()` infers its result from `schema` (Q10).
 - **The agent calls with `wf tool {name}`**, with its input as flags in single quotes,
   `--status 'noise' --why '…'`, when the input is simple, or as JSON in a quoted heredoc, which is
   always accepted; with nothing after the name for a tool that takes no input. `wf result` takes its
@@ -105,14 +103,14 @@ const investigator = await workflow.agents.open({
   key: "investigator",
   runtime: "claude",
   tools: {
-    close_case: {
+    close_case: tool({
       description: "Close the case when the engineer says it's fixed or noise.",
       input: outputSchema(Type.Object({ status: Type.Union([Type.Literal("closed"), Type.Literal("noise")]), why: Type.String() })),
       handler: ({ status, why }) => {
         kase.close({ status, why, by: "thread", at: new Date().toISOString() });
         return "Closed. Reply in one line, then end your turn.";
       },
-    },
+    }),
   },
 });
 ```
@@ -196,8 +194,9 @@ Out of scope:
   `packages/engine/src/control-plane.ts:18`). The timer is armed at `open()`, and the frame is decoded
   only after it ends (`answerFrame`), so a longer lifetime for a tool call is set once the frame
   decodes.
-- Assumption, until M2: claude's Bash tool cuts a command at 2 minutes by default, so a tool call's
-  whole budget must stay under what every harness gives a shell command.
+- Fact (M2): no harness kills a waiting `wf tool` by default while its session lives. claude moves a shell command to the
+  background at 2 minutes, cursor at 30 s; codex hands it back at 10 s for the agent to poll, and
+  ends it with the session if the agent doesn't; pi has no limit.
 - Fact: the client refuses a response over 256 KiB (`MAX_RESPONSE_BYTES`, `client.ts:12`).
 - Fact: `wf` never resends a request: `client.ts` sends once, and the failures of `wf waiting`,
   `wf send` and `wf reply` say nothing was retried (`packages/wf/src/cli.ts:162,265`; `UNRECORDED`, `messaging/text.ts:253`). A request that
@@ -228,7 +227,8 @@ Out of scope:
   a fork with the same key, parent and spec is the same fork, its spec compared whole
   (`isDeepStrictEqual` in `fork`; `agents.ts:393`, ADR 0009). A handler is a
   closure, never equal to the one before it. Each attempt opens its agents afresh.
-- Fact: `forkCaller` takes the same `AgentForkSpec` as `fork` (`agents.ts:435`).
+- Fact: `forkCaller` took the same `AgentForkSpec` as `fork`; task 1 gave it `Omit<AgentForkSpec,
+  "tools">`.
 - Fact: a scripted agent in workflow-testing calls the real wire mid-turn (`turn.send()`,
   `packages/engine/src/workflow-testing/host.ts:191-233`, `274`), and its turn has a `signal`
   (`script.ts:42`).
@@ -254,23 +254,21 @@ Out of scope:
 - `packages/contract/src/workflow/agents.ts` — `tools` on `AgentOpenSpec` and `AgentForkSpec`, and
   `forkCaller` given `Omit<AgentForkSpec, "tools">`, and a fork whose parent is the calling
   session, by `forkCaller` or by `caller()`'s ref, whose `fork` takes `AgentForkSpec`, refused at
-  run time when it has `tools`; `ToolSpec`, `ToolCall`; `open` and `fork`
-  generic over the tool map, and the event run's `EventAgentDirectory.open` and `EventAgentRef.fork` (`agents.ts:460-466`)
-  alike, the handler's input typed from `input` as `run()`'s result is from
-  `schema`; `open`'s and `fork`'s matching rule for tools.
-- `packages/contract/src/schema.ts` — the canonical form a tool's schema is compared and measured
-  in.
-- `packages/contract/src/wire.ts` — `ToolRequest` and its decoder's field list, its response
-  and `TOOL_CODES`, and their rows in `ResponseFor` and
-  the answers table (`wire.ts:258-274`); `tool-running` in `RESULT_CODES`; `ResultSubmitRequest` carrying
-  flags beside JSON; `RESPONSE_CODES`; `WIRE_VERSION` 5, which the holder wire's requests take too.
+  run time when it has `tools`; `ToolSpec`, `ToolCall`, `tool()`, `TOOL_LIMITS`; `open`'s and
+  `fork`'s matching rule for tools.
+- `packages/contract/src/schema.ts` — `canonicalSchema`, the form a tool's schema is compared and
+  measured in.
+- `packages/contract/src/wire.ts` — `ToolRequest` and its decoder, `ToolResponse` and
+  `TOOL_CODES`, and their rows in `ResponseFor` and the answers table; `tool-running` in
+  `RESULT_CODES`; `GivenInput` on `ResultSubmitRequest` and `ToolRequest`; `RESPONSE_CODES`;
+  `WIRE_VERSION` 5, which the holder wire's requests take too.
 - `packages/contract/src/records.ts` — `RunEvent`: `tool-called`, `tool-ended`, `tool-refused`, and
-  their versions in `RUN_EVENT_VERSIONS` (`records.ts:954`).
+  their versions in `RUN_EVENT_VERSIONS`.
 
 ### wf
 
 - `packages/wf/src/cli.ts`, `client.ts` — `wf tool {name}`, its usage, its exit codes, the owing
-  line on stderr, and the tool call's own client timeout; `wf result` and `wf tool` sending flags as
+  line on stderr, and no client timeout for a tool call; `wf result` and `wf tool` sending flags as
   given, beside JSON.
 
 ### engine
@@ -292,7 +290,8 @@ Out of scope:
 - `messaging/text.ts` — the tools lesson's text and the tool refusals' texts.
 - `control-plane.ts` — a second handler slot beside `attach(messaging)` (`control-plane.ts:38`); a
   `tool` frame's connection lifetime re-armed once it decodes; the `result` path passing flags on as
-  it passes `request.raw` now (`control-plane.ts:378-383`).
+  it passes `request.raw` now. Until tasks 2 and 3, a `tool` request is refused
+  `unsupported-command` and a result given as flags `invalid-result`.
 - `result-slots.ts` — a result's flags converted by the slot's schema before `evaluateResult`, and
   the accepted state `result-accepted` reads.
 - `run-event-log.ts`, `logs-command.ts` — the records and how they print.
@@ -310,29 +309,50 @@ Out of scope:
 
 ## Proposed design
 
+In `packages/contract/src/workflow/agents.ts`, abridged:
+
 ```ts
-type ToolSpec<I extends JsonObject = Record<string, never>> = {
+interface ToolSpec<I extends JsonObject = JsonObject> {
   description: string;
-  /**
-   * An object schema. Absent, the tool takes no input, and the handler is given `{}`. Its type is
-   * inferred through `OutputSchema`'s carrier, as `run()`'s is, so a TypeBox schema is wrapped in
-   * `outputSchema(...)`; one that carries no type gives `JsonObject`, never the default.
-   */
+  /** An object schema; absent, no input, and the handler is given `{}`. */
   input?: OutputSchema<I>;
-  /** Returns the result; `undefined` prints nothing. Throws to fail the call. */
-  handler: (input: I, call: ToolCall) => Promise<JsonValue | void> | JsonValue | void;
-  /** The handler's budget. Absent, 30 s; at most 90 s; both provisional until M2. */
-  timeoutMs?: number;
-};
-type ToolCall = {
-  /** Opaque, unique within the run, across attempts; the records' `call`. */
-  id: string;
-  /** The agent that called: a fork's own key, not its parent's. */
-  agent: AgentKey;
-  /** Aborted when the call's budget passes or its operation is cancelled, stopped or ends. */
-  signal: AbortSignal;
-};
+  /** Returns the result; nothing prints nothing. Throws to fail the call. */
+  handler(input: I, call: ToolCall): Promise<JsonValue | void> | JsonValue | void;
+  /** Absent, 30 s; `false`, only the operation's deadline. */
+  timeoutMs?: number | false;
+}
+type ToolCall = { readonly id: string; readonly agent: AgentKey; readonly signal: AbortSignal };
+/** Types the handler's input from `input`, carried as `run()`'s `schema` carries its type. */
+function tool(spec: ToolSpec<NoInput> & { input?: undefined }): ToolSpec<NoInput>;
+function tool<I extends JsonObject>(spec: ToolSpec<I> & { input: OutputSchema<I> }): ToolSpec<I>;
+type NoInput = Record<string, never>;
+type AgentTools = Readonly<Record<string, ToolSpec>>;
 ```
+
+`input` carries its type through `OutputSchema`'s carrier, as `run()`'s `schema` does, so a TypeBox
+schema is wrapped in `outputSchema(...)`; an unwrapped one gives the handler a `JsonObject`, and a
+tool with no input `NoInput`, so its handler can't expect fields. `handler` is a method, so a typed
+tool is a `ToolSpec` too; the price is that an annotation on an inline handler, one not written with
+`tool()`, goes unchecked.
+
+In `packages/contract/src/wire.ts`, abridged:
+
+```ts
+/** As `wf` was given it: JSON from standard input, or the words after the call id or name. */
+type GivenInput = { raw?: string; args?: never } | { args?: string[]; raw?: never };
+type ResultSubmitRequest = { version: 5; command: "result"; operationId: string; session?: string } & GivenInput;
+type ToolRequest = { version: 5; command: "tool"; tool: string; session?: string } & GivenInput;
+type ToolResponse =
+  | { kind: "tool-result"; output?: string; owing?: string }
+  | { kind: "tool-failed"; outcome: "failed" | "timed-out" | "cancelled"; error: string; owing?: string }
+  | Rejection<ToolCode | EnvelopeCode>;
+const TOOL_CODES = ["no-operation", "result-accepted", "tool-busy", "unknown-tool", "invalid-input"];
+```
+
+`output` is what `wf tool` prints, absent when the handler returned nothing; `error` is the line it
+prints on stderr, naming the next action, as a rejection's `error` does. `wf tool` maps them to its
+exit codes: `tool-result` 0, `tool-failed` `failed` 1, `timed-out` and `cancelled` 4, a rejection 3,
+`internal-error` 4.
 
 - **Binding.** A call binds to the current operation, a turn or a message turn, of the agent whose
   socket it arrives on, as `wf send` does, and is refused without one (`no-operation`). A fork that
@@ -343,9 +363,10 @@ type ToolCall = {
   arrives, as `wf send` does.
 - **Names** match `^[a-z][a-z0-9_]{0,47}$`, which an MCP tool name allows with room for the
   `mcp__{server}__` prefix claude gives it, so `wf mcp` later renames nothing; unique per agent.
-- **Limits**, each refused at `open` or `fork`: at most 16 tools; a description up to 1 KiB; an
-  input schema that is an object, up to 8 KiB in that canonical form; a `timeoutMs` over the cap. The lesson goes
-  in every prompt, and these keep it bounded.
+- **Limits** (`TOOL_LIMITS`), each refused at `open` or `fork`: at most 16 tools; a description up to
+  1 KiB; an input schema that is an object, up to 8 KiB in that canonical form; a `timeoutMs` that
+  is neither a positive integer nor `false`. The lesson goes in every prompt, and these keep it
+  bounded.
 - **Checks, in order**, each a refusal that runs no handler (`TOOL_CODES`): the agent has a
   current operation (`no-operation`); a result is
   already accepted for the operation (`result-accepted`); a call of this agent still runs
@@ -385,11 +406,15 @@ type ToolCall = {
   included. A call with no input is `{}`: a schema that accepts `{}`, a tool with no input or only
   optional properties, takes it; one with a required property refuses it with its usage line or
   schema.
-- **The budget** is the tool's `timeoutMs`, or less when the operation's deadline comes first, and
-  then `wf tool` answers with the deadline. A `tool` frame's connection lifetime is re-armed when it
-  decodes to the cap plus the 5 s settle plus a margin, so the engine's answer is written before the
-  connection is cut. `wf tool` waits longer still. Order of limits: the handler's, then the
-  connection's, then `wf`'s, then the shell's.
+- **The budget** is the tool's `timeoutMs`, 30 s when absent, or less when the operation's deadline
+  comes first, and then `wf tool` answers with the deadline; `false` leaves only the deadline (Q11).
+  A `tool` frame's connection lifetime is re-armed when it decodes, to the budget plus the 5 s
+  settle plus a margin, or to none when the budget is the deadline and there is none, so the
+  engine's answer is written before the connection is cut. `wf tool` has no timeout of its own: the
+  engine answers once the call settles, and a dropped connection ends it. A call past its harness's
+  own limit for a shell command (M2) isn't lost: claude and cursor move the command to the
+  background and the agent reads its output there; codex hands it back for the agent to poll, past
+  10 s by default; task 7 checks that agents do.
 - **The result.** A string prints as is, any other JSON value as JSON, `undefined` nothing; within
   64 KiB encoded, else the call fails, its error saying the result is too large. A value that isn't JSON, such as a
   `Date`, a `bigint`, `NaN` or a cycle, fails the call with that as its error. A thrown error fails
@@ -442,8 +467,8 @@ type ToolCall = {
   whose effect must happen once makes it safe to repeat, or keys it by what the effect is about,
   not by `call.id`.
 - **Reopen and fork, within an attempt.** Tools match by name, description and input schema, the
-  schema compared in a canonical form, its JSON with keys sorted, which drops TypeBox's symbol
-  keys, so a TypeBox and a JSON Schema form of one schema match (`parseJsonSchema` checks a schema
+  schema compared in a canonical form, its JSON with keys and `required` sorted, which drops
+  TypeBox's non-enumerable `~kind` and `~optional`, so a TypeBox and a JSON Schema form of one schema match (`parseJsonSchema` checks a schema
   but returns it as given, so this is new); handlers and `timeoutMs` are never compared. `open` with the same key and matching
   tools reattaches, and its handlers and budgets replace the earlier ones; different tools conflict,
   as any other field does; `tools` left out doesn't constrain, as any omitted field, and keeps what
@@ -463,9 +488,12 @@ type ToolCall = {
 - **Records**, in the run's event log, as their neighbours are written, keyed; `call` is
   `ToolCall.id`, and `tool-ended` names its call by it:
   - `tool-called` `{ call, callPath, stage?, operationId, agent, tool, input }`, once the checks pass;
-  - `tool-ended` `{ call, outcome: "ok" | "failed" | "timed-out" | "cancelled", error?, result?, durationMs }`,
+  - `tool-ended` `{ call, callPath, stage?, operationId, agent, tool, outcome: "ok" | "failed" |
+    "timed-out" | "cancelled", error?, result?, durationMs }`, the call's keys repeated as
+    `request-ended` repeats its question's, so `awf logs --agent` and `--stage` keep it;
     `durationMs` from the handler's start to its end being recorded;
-  - `tool-refused` `{ callPath, operationId?, agent, tool, code: ToolCode }`, `agent` the socket's,
+  - `tool-refused` `{ callPath, stage?, operationId?, agent, tool, code: ToolCode, error? }`, `agent`
+    the socket's, `error` what `wf tool` printed for `invalid-input`,
     for each `TOOL_CODES` refusal of a decoded `tool` request; an envelope refusal goes unrecorded,
     as a `send`'s does. Written as `message-refused` is: `callPath` the agent's,
     `operationId` absent for `no-operation`;
@@ -512,6 +540,17 @@ Decided (2026-10-25):
   bounds better than the schema did. Single quotes are the rule because double quotes let the shell
   change free text (`$VAR`, backticks) with no error.
 
+Decided at task 1 (2026-10-26):
+
+- Q10, `tool()` per tool types the handler, and `open` and `fork` aren't generic. A generic over
+  the tool map can't infer: the handler is context-sensitive and sits beside the schema it is typed
+  from, so TypeScript 5.9 infers the map's entry as `unknown` or its constraint. `tool()` infers
+  within one object, as `run()` does. A tool written without it still type-checks, its input a
+  `JsonObject`, and an annotation on its handler goes unchecked.
+- Q11, by the operator: `timeoutMs` defaults to 30 s, a tool sets its own, and `false` leaves only
+  the operation's deadline; there is no cap. M2 put codex's 10 s under any useful budget anyway, and
+  a backgrounded call isn't lost.
+
 Alternatives rejected:
 
 - MCP first — native tool lists with schemas, but a config per harness, cursor's only in files in
@@ -538,7 +577,7 @@ Alternatives rejected:
 
 ## Tasks at a glance
 
-- [ ] 1. The contract: the tool spec, `ToolCall`, the wire, the records, the commands' usage, the lesson; reviewed before building
+- [x] 1. The contract: the tool spec, `ToolCall`, the wire, the records, the commands' usage, the lesson; reviewed before building
 - [ ] 2. Flags for a simple input, on `wf result`: the engine reads them by the schema, the prompt shows the usage line
 - [ ] 3. A tool called over the wire: binding, checks, the handler in its scope, its budget and end
 - [ ] 4. The tools lesson
@@ -571,9 +610,19 @@ None.
     JSON. A command with nothing piped had `/dev/null` as standard input; every heredoc was a file.
     codex called `close_case` twice in 2 trials of 20, and claude `list_open` twice in 10.
   - Not measured: pi, whose login had expired; panes. Both go in task 7's live eval.
-- M2. **The shell's own timeout.** What each harness gives a shell command before cutting it, by
-  default and at most; the default and the cap go under the lowest. Measured in task 1, since both
-  are in the published type.
+- M2. **The shell's own timeout.** Measured 2026-10-26, from source and docs, and probed on codex
+  `gpt-6-luna` and cursor `composer-2.5` headless with `sleep 40` and `sleep 150` (the scratchpad's
+  `m2/`):
+  - claude 2.1.310: 120 s by default, 600 s at most, set by the model's `timeout`; past it the
+    command is moved to the background, not killed (docs, tools reference). Not probed.
+  - codex 0.164.0: `exec_command` hands control back after `yield_time_ms`, 10 s by default, 30 s
+    at most, with a session id the agent polls with `write_stdin`; the command runs on, and dies
+    with the session (`unified_exec.rs:60`, `unified_exec/mod.rs:68-73`). Both probes came back at
+    10.2 s; the agent didn't poll, and the command never finished.
+  - cursor 2026.10.22: 30 s by default, then "sent to the background" with an output file; the
+    command finished in both probes, and the agent read the file.
+  - pi 0.87.1: no timeout unless the model sets one, which kills the process tree (`bash.js`).
+  So the budget can't sit under every harness's limit; Q11 takes it from there.
 
 ## Task execution rule
 
@@ -593,11 +642,12 @@ reviewed before anything is built.
 
 Execution:
 
-- [ ] Plan, implement, review, resolve, verify (as in the template).
+- [x] Plan, implement, review, resolve, verify (as in the template). Reviewed in three rounds,
+  the last clean; the shapes reviewed by the operator 2026-10-26.
 
 Work:
 
-- M2, measured, and `timeoutMs`'s default and cap set from it;
+- M2, measured, and `timeoutMs` set from it (Q11);
 - `ToolSpec`, `ToolCall`, `tools` on `AgentOpenSpec` and `AgentForkSpec`, and `open`'s matching
   rule; the wire's request, response and codes, `tool-running` in `RESULT_CODES`, `result`
   carrying flags as `tool` does; the three
@@ -672,7 +722,8 @@ Done when:
     on; a result over 64 KiB encoded fails;
 - tests, the budget and the end:
   - a handler past its budget aborts `call.signal`, and `wf tool` exits 4 with the timeout, not the
-    connection's; a deadline shorter than the budget wins;
+    connection's; a deadline shorter than the budget wins; `timeoutMs: false` is bounded by the
+    deadline alone;
   - a call longer than the wire's 30 s and within its budget answers;
   - a cancelled turn, a passed deadline, a stopped agent and an ended attempt each abort the
     handler's signal; one that ignores it is settled 5 s later, after which `run()` resolves;
@@ -688,8 +739,8 @@ Done when:
     `run` on A from B's handler called from A's; `run()` on another agent works; in a drained
     message turn of a sealed stage, `run()` throws; `workflow.receive()` in a handler is refused;
 - tests, specs:
-  - a name, a count, a description, a schema or a `timeoutMs` over its limit is refused at `open`
-    and at `fork`;
+  - a name, a count, a description or a schema over its limit, and a `timeoutMs` that is neither a
+    positive integer nor `false`, are refused at `open` and at `fork`;
   - a reopen with matching tools, one in TypeBox and one in JSON Schema, reattaches with the new
     handlers; one with different tools conflicts; one without `tools` keeps the handlers; `attach`
     returns them;
@@ -762,6 +813,9 @@ Done when:
   with JSON, its input not simple, and its first-try rate is recorded beside M1's; in a pane on
   every harness, a no-input call and a call with flags return at once, without waiting on standard
   input.
+- a handler that takes 15 s, past codex's 10 s: codex polls the command and reads the result;
+  one that takes 40 s on cursor, past its 30 s: the agent reads it from the background; neither
+  calls the tool again.
 
 ### 8. With story 034
 

@@ -6,7 +6,8 @@ A workflow opens agents and gives them work. Left alone, an agent can touch what
 can: write to disk, reach the network, read the developer's cloud credentials and past
 transcripts. This document says how that is narrowed. It has two levels. At the first, a workflow
 opens **sandboxes** as objects and puts agents in them. At the second, a harness's own permission
-system holds a grant, and a workflow hands an agent its tools; that level is designed, not built.
+system holds a grant, and a workflow hands an agent the harness's capabilities, its built-in tools
+and MCP servers; that level is designed, not built.
 Skills are handed over at neither level but beside both: a workflow names each agent's, and the
 engine copies them to it ([[007-agent-skills|story 007]]).
 
@@ -298,10 +299,12 @@ export type CapabilityRef = string;
 
 An agent asks for the harness level by carrying a `grant` and no `sandbox`, in the open, where a
 reader of the workflow sees that a cooperative agent is trusted with it. That is the agent that
-needs SSH, which a sandbox denies by design. `use` applies with or without a sandbox: tools and MCP
-servers are what an agent has none of until the harness hands them over, as a route is granted for
-messaging. A sandboxed agent's fresh home already holds none of the operator's. Skills are not in
-`use`: `AgentOpenSpec.skills` names them, with or without a grant.
+needs SSH, which a sandbox denies by design. `use` applies with or without a sandbox: the harness's
+tools and MCP servers are capabilities an agent has none of until the harness hands them over, as a
+route is granted for messaging. A sandboxed agent's fresh home already holds none of the operator's.
+Skills are not in `use`: `AgentOpenSpec.skills` names them, with or without a grant. Nor are the
+workflow's own tools, `AgentOpenSpec.tools` ([[035-workflow-tools|story 035]]): each is code the
+workflow runs, and holding it is the permission to call it.
 
 | | claude | codex | cursor | pi |
 | --- | --- | --- | --- | --- |
