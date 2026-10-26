@@ -46,6 +46,7 @@ import {
   type EmitOutcome,
   type ExternalParticipantRef,
   type ExternalParticipantSpec,
+  type HarnessAllowance,
   isEventWorkflow,
   isJsonValue,
   type JsonObject,
@@ -77,6 +78,8 @@ import {
   type AgentSkills,
   effortRefusal,
   findHarness,
+  HARNESS_NAMES,
+  type Harness,
   hostHome,
   settingsRefusal,
   skillsLayout,
@@ -219,6 +222,8 @@ export type RunWorkflowOptions = {
   skillCache?: string;
   /** The decision models workflows may ask; without them, `decisions.decide` is refused. */
   decisions?: DecisionInstallation;
+  /** How `workflow.allowance` reads a harness's plan; without it, every harness reads `none`. */
+  allowance?: (harness: Harness) => Promise<HarnessAllowance>;
   /**
    * Where an agent may `--await-reply`: the engine's list by harness and placement unless given. A
    * workflow's test allows it everywhere, as the fake harness can.
@@ -561,6 +566,7 @@ export async function startWorkflow<Args extends JsonValue, Result extends JsonV
     ...(restoredTurns ? { restoredTurns } : {}),
     failRun: (error) => fatal.reject(error),
     decisions,
+    ...(options.allowance ? { allowance: options.allowance } : {}),
     sandboxes,
     skills,
     runDir,
@@ -851,6 +857,7 @@ class WorkflowOwner {
       locks: CredentialLocks;
       environment: Readonly<Record<string, string | undefined>>;
       decisions: RunDecisions;
+      allowance?: (harness: Harness) => Promise<HarnessAllowance>;
       stages: StageLedger;
       runId: string;
       attempt: number;
@@ -1069,6 +1076,15 @@ class WorkflowOwner {
         this.runStage(name, rest)) as WorkflowContext["stage"],
       call: () => unavailable("call"),
       usage: () => options.ledger.records(),
+      allowance: async (harness) => {
+        if (this.#closed || this.#cleanupFailures.length)
+          throw new Error("workflow context is closed");
+        if (!(HARNESS_NAMES as readonly string[]).includes(harness))
+          throw new Error(`allowance: no harness ${harness}; awf has ${HARNESS_NAMES.join(", ")}`);
+        if (!options.allowance)
+          return { harness, read: "none", reason: "this run has no allowance reader" };
+        return this.track(options.allowance(harness as Harness));
+      },
       log: (message, fields) => options.log(message, fields),
     };
     const { mailbox } = options;

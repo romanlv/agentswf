@@ -17,6 +17,7 @@ import {
   EXECUTABLE_WORKFLOW_KIND,
   type ExecutableEventWorkflow,
   type ExecutableWorkflow,
+  type HarnessAllowance,
   isEventWorkflow,
   type JsonObject,
   type JsonValue,
@@ -101,6 +102,8 @@ export type TestOptions = {
   awaitReply?: "listed" | "anywhere";
   /** Each decision's answers, by its key or a pattern. */
   decisions?: Readonly<Record<string, DecisionScript>>;
+  /** What `workflow.allowance` reads, one per harness; a harness with none here reads `none`. */
+  allowance?: readonly HarnessAllowance[];
   /** Runtime aliases beside the ones `awf run` installs, `claude` and `codex`; the same name replaces one. */
   runtimes?: RuntimeAliases;
   /** The run's deadline; none unless given, as `awf run` has none unless `--timeout` gives one. */
@@ -436,6 +439,15 @@ export async function testWorkflow<Args extends JsonValue, Result extends JsonVa
       decisions: {
         providers: { scripted: decisions.provider },
         aliases: { jev: { provider: "scripted", model: "jev" } },
+      },
+      allowance: async (harness) => {
+        return (
+          options.allowance?.find((given) => given.harness === harness) ?? {
+            harness,
+            read: "none",
+            reason: "the test gave no allowance for it",
+          }
+        );
       },
       onLog: (message, fields) => logs.push({ message, ...(fields ? { fields } : {}) }),
       coordinators: [coordinators],

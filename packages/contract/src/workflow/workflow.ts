@@ -1,4 +1,5 @@
-import type { AgentDirectory, EventAgentDirectory, OperationRecord } from "./agents";
+import type { AgentDirectory, EventAgentDirectory, HarnessKind, OperationRecord } from "./agents";
+import type { HarnessAllowance } from "./allowance";
 import type { WorkflowCallSpec } from "./composition";
 import type { DecisionDirectory } from "./decisions";
 import type {
@@ -127,6 +128,13 @@ export interface WorkflowContext {
 
   /** Completed operations in this workflow scope and its descendants, ordered by dispatch. */
   usage(): OperationRecord[];
+
+  /**
+   * What is left of `harness`'s plan, read now as `awf allowance` reads it, with no model turn: the
+   * login the run's agents get. Not recorded, so a rerun reads again; a `none` is unknown, not room
+   * to spare. A harness awf doesn't know throws.
+   */
+  allowance(harness: HarnessKind): Promise<HarnessAllowance>;
 
   log(message: string, fields?: JsonObject): void;
 }

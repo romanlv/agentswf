@@ -582,6 +582,7 @@ async function runAttempt(
         ...(sandbox === undefined ? {} : { run: sandbox }),
       },
       ...(installed.decisions ? { decisions: installed.decisions } : {}),
+      ...(installed.allowance ? { allowance: installed.allowance } : {}),
       deadline,
       cwd,
       ...(environment.signal ? { signal: environment.signal } : {}),

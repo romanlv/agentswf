@@ -1,12 +1,11 @@
 // The Datadog watcher's triage tick, from its style-c sketch: it triages signals into cases and
 // tells each changed case's run. Declared below: the case files' writer, and what the tick uses
-// from beyond story 034 (`singleton`, the allowance).
+// from beyond story 034 (`singleton`).
 import {
   defineExecutableWorkflow,
   isAnswered,
   type JsonValue,
   type OutputSchema,
-  type WorkflowContext,
 } from "@agentswf/contract/workflow";
 import caseRun from "./dd-case";
 
@@ -30,10 +29,6 @@ declare function fill(template: string, values: Record<string, string>): string;
 
 // Beyond story 034.
 declare function singleton<W>(workflow: W): W;
-declare function allowance(
-  workflow: WorkflowContext,
-  harness: string,
-): Promise<{ session: number }>;
 
 type Tick = { changed: number; skipped?: string };
 
@@ -42,8 +37,10 @@ export default singleton(
     definition: {
       meta: { name: "dd-tick", description: "Triage Datadog signals into cases." },
       async run(workflow): Promise<Tick> {
-        if ((await allowance(workflow, "claude")).session > 0.8)
-          return { changed: 0, skipped: "allowance over 80%" };
+        // A window of some models' only, as `week (Fable)`, doesn't limit the triage's sonnet.
+        const plan = await workflow.allowance("claude");
+        if (plan.read === "plan" && plan.windows.some((w) => !w.models && w.usedPercent >= 80))
+          return { changed: 0, skipped: "claude's plan is over 80% used" };
         const cases = openCases(DD_CASES);
         const triage = await workflow.agents.open({
           key: "triage",

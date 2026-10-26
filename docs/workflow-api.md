@@ -43,9 +43,10 @@ workflow.emit(target, name, data, { id? })                    // → "accepted" 
 
 workflow.log(message, fields?)   workflow.usage()   workflow.deadline   workflow.cwd
 workflow.runId   workflow.attempt
+workflow.allowance(harness)                                   // → what is left of its plan, as `awf allowance` reads it
 
 // In a test, from "agentswf/testing"; `awf test` runs it:
-testWorkflow(workflow, args, { agents?, messages?, coordinators?, compactions?, awaitReply?, decisions?, runtimes?,
+testWorkflow(workflow, args, { agents?, messages?, coordinators?, compactions?, awaitReply?, decisions?, allowance?, runtimes?,
                               caller?, timeoutMs?, stallMs?, cwd?, recorded?, fromStage?, values? })  // → run
 testWorkflow(eventWorkflow, { event, files?, events?: [{ during: "agent#1", name, data, from? }], maxTurns?, … })  // → run, .emits, .parked
 answer(SCHEMA, value | (turn) => value)   answer("text")   reply.waiting(reason, timeoutMs?) | silent() | blocked() | failed() | needsLogin(provider?) | timedOut() | hang() | interrupted()
@@ -696,6 +697,22 @@ Costs are priced after the run, from each agent's tokens: each stage's line gain
 cost, and one summary closes the run. `output.json` keeps the tokens, each stage's share and the
 price table used.
 
+## Plan allowance
+
+`workflow.allowance(harness)` reads what is left of a harness's plan now, as `awf allowance` does,
+with no model turn, on the login the run's agents get. It returns one harness of the
+`awf.allowance/1` record: each window's `usedPercent`, its `resetsAt` and, for a window that limits
+only some models, which. A `none` says why there was nothing to read, and means unknown, not room to
+spare. The read isn't recorded: a continue reads again, and a stage keeps one.
+
+```ts
+// examples/event-sketches/dd-tick.ts: a tick that leaves the plan to the operator past 80%;
+// a window of some models' only, as claude's `week (Fable)`, doesn't limit its sonnet
+const plan = await workflow.allowance("claude");
+if (plan.read === "plan" && plan.windows.some((w) => !w.models && w.usedPercent >= 80))
+  return { changed: 0, skipped: "claude's plan is over 80% used" };
+```
+
 ## Testing a workflow
 
 A workflow's test sits beside it and runs it through the real engine, with each agent replaced by
@@ -841,6 +858,11 @@ decisions: {
   "triage:2": { team: "frontend", bug: 0.05, urgency: [0.92, 0.08, 0] },
 },
 ```
+
+### Allowance
+
+`allowance` lists what `workflow.allowance` reads, a `HarnessAllowance` per harness; a harness with
+none here reads `none`.
 
 ### What the run did
 

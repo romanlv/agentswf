@@ -5,6 +5,7 @@ import { join } from "node:path";
 import {
   choice,
   defineExecutableWorkflow,
+  type HarnessAllowance,
   type JsonValue,
   type RuntimeSelection,
   score,
@@ -576,6 +577,35 @@ describe("testWorkflow", () => {
     const executable = defineExecutableWorkflow({ definition: solo(), prepare: () => null });
     const run = await testWorkflow(executable, null, { agents: { solo: answer("hi") } });
     expect(run.value).toEqual({ kind: "answered", value: "hi" });
+  });
+
+  describe("allowance", () => {
+    const read = workflowOf<string, JsonValue>((workflow, harness) => workflow.allowance(harness));
+
+    test("reads what the test gives for the harness", async () => {
+      const claude: HarnessAllowance = {
+        harness: "claude",
+        read: "plan",
+        source: "claude /usage",
+        windows: [{ id: "session", label: "Current session", usedPercent: 85 }],
+      };
+      const run = await testWorkflow(read, "claude", { allowance: [claude] });
+      expect(run.value).toEqual(claude);
+    });
+
+    test("a harness the test gives none reads none", async () => {
+      const run = await testWorkflow(read, "codex");
+      expect(run.value).toEqual({
+        harness: "codex",
+        read: "none",
+        reason: "the test gave no allowance for it",
+      });
+    });
+
+    test("a harness awf doesn't know throws", async () => {
+      const run = await testWorkflow(read, "emacs");
+      expect(() => run.value).toThrow("allowance: no harness emacs");
+    });
   });
 
   describe("decisions", () => {

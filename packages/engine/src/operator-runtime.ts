@@ -56,6 +56,8 @@ export type OperatorRuntimeInstallation = {
   sandboxes?: SandboxProviders;
   /** The decision models workflows may ask, and their aliases. */
   decisions?: DecisionInstallation;
+  /** How `workflow.allowance` reads a harness's plan, as `awf allowance` does. */
+  allowance?: (harness: Harness) => Promise<HarnessAllowance>;
   cleanup(): Promise<void>;
 };
 
@@ -178,6 +180,7 @@ export async function installOperatorRuntime(
     },
     sandboxes: await installSandboxes(environment),
     decisions: installDecisions({ OPENROUTER_API_KEY: await openRouterKey(environment) }),
+    allowance: allowanceReader(environment, run, undefined, home),
     // Nothing to undo: the agent's `wf` is a launcher the control plane installs beside its own
     // socket, and the control plane removes both when the run closes.
     cleanup: async () => undefined,

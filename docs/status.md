@@ -225,7 +225,8 @@ The gates are defined in [`foundation.md`](foundation.md) §12.
   reads what is left of each harness's plan, as the harness shows it, with no model turn: claude's
   `/usage`, codex's app-server (what `/status` shows), cursor's `/usage` in a Herdr pane; pi has
   none. It names each plan and its list price from a dated table. `awf-lab run` and `loop` hold a
-  run while a plan window it draws on is at `--allowance` (90%), until the window resets.
+  run while a plan window it draws on is at `--allowance` (90%), until the window resets. A workflow
+  reads the same with `workflow.allowance(harness)` (2026-10-26).
 
 - [[021-turn-liveness-and-limits|021 — Turn liveness and limits]]: done, approved 2026-10-05.
   An idle agent no longer ends its operation: check-ins offer `wf waiting`, and repeated

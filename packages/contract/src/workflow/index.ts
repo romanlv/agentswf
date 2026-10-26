@@ -1,4 +1,5 @@
 export * from "./agents";
+export * from "./allowance";
 export * from "./composition";
 export * from "./decisions";
 export * from "./events";
