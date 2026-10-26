@@ -1,10 +1,12 @@
-import { afterAll, expect, test } from "bun:test";
-import { mkdir, rm, writeFile } from "node:fs/promises";
+import { afterAll, describe, expect, test } from "bun:test";
+import { mkdir, readdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { TurnRecord } from "@agentswf/contract/records";
+import type { StageRecord, TurnRecord } from "@agentswf/contract/records";
 import type { JsonSchema } from "@agentswf/contract/schema";
+import type { RunEventBody } from "./run-event-log";
 import { readStageRecords } from "./runs";
 import { type OpenStage, StageLedger } from "./stage-ledger";
+import { WorkflowStopped } from "./stopped";
 
 import { createTempRunDirs } from "./testing";
 
@@ -340,4 +342,174 @@ test("a reused stage shows the view when its record ended, without its value", a
       value: { path: "docs/a.md" },
     },
   ]);
+});
+
+describe("stages by content, in a run with events", () => {
+  const byContent = (runDir: string, attempt: number, records?: Map<string, StageRecord>) =>
+    new StageLedger({
+      runDir,
+      attempt,
+      turns: () => [],
+      byContent: true,
+      workflowVersion: `${attempt}.0.0`,
+      ...(records ? { records } : {}),
+    });
+  const enter = (ledger: StageLedger, name: string, result?: JsonSchema) =>
+    ledger.enter(name, { ...(result ? { result } : {}), summary: () => undefined });
+
+  test("a stage entered twice in one attempt runs once, and the second gets its value", async () => {
+    const runDir = runDirs.tempRunDir();
+    const ledger = byContent(runDir, 1);
+    const first = await enter(ledger, "close-e1", PATH);
+    if (first.kind !== "run") throw new Error("reused");
+    await first.stage.succeed({ path: "a" });
+    const again = await enter(ledger, "close-e1", PATH);
+    expect(again).toMatchObject({ kind: "reuse", value: { path: "a" } });
+    if (again.kind === "reuse") again.release();
+    expect(ledger.summaries.map((s) => [s.stage, s.source])).toEqual([["close-e1", "ran"]]);
+  });
+
+  test("a continue that runs a new stage first still reuses the old ones after it", async () => {
+    const runDir = runDirs.tempRunDir();
+    const one = byContent(runDir, 1);
+    const old = await enter(one, "post-f1@abc", PATH);
+    if (old.kind !== "run") throw new Error("reused");
+    await old.stage.succeed({ path: "p" });
+    await one.close();
+
+    const two = byContent(runDir, 2, await readStageRecords(runDir));
+    const fresh = await enter(two, "post-f2@def", PATH);
+    expect(fresh.kind).toBe("run");
+    if (fresh.kind === "run") await fresh.stage.succeed({ path: "q" });
+    // Recorded under 1.0.0 and entered under 2.0.0: reused, as its value still fits.
+    const reused = await enter(two, "post-f1@abc", PATH);
+    expect(reused).toMatchObject({ kind: "reuse", value: { path: "p" } });
+    if (reused.kind === "reuse") reused.release();
+    await two.close();
+    expect([...(await readStageRecords(runDir)).keys()].sort()).toEqual([
+      "post-f1@abc",
+      "post-f2@def",
+    ]);
+  });
+
+  test("a failed stage runs again, its record replaced and kept, twice in one attempt too", async () => {
+    const runDir = runDirs.tempRunDir();
+    const one = byContent(runDir, 1);
+    const failing = await enter(one, "notify");
+    if (failing.kind !== "run") throw new Error("reused");
+    await failing.stage.fail("slack down");
+    await one.close();
+
+    const two = byContent(runDir, 2, await readStageRecords(runDir));
+    for (const reason of ["still down", "down again"]) {
+      const entered = await enter(two, "notify");
+      if (entered.kind !== "run") throw new Error("reused");
+      await entered.stage.fail(reason);
+    }
+    const last = await enter(two, "notify");
+    if (last.kind !== "run") throw new Error("reused");
+    await last.stage.succeed(undefined);
+    await two.close();
+
+    expect((await readStageRecords(runDir)).get("notify")).toMatchObject({
+      outcome: "succeeded",
+      attempt: 2,
+    });
+    expect((await readdir(join(runDir, "replaced"))).sort()).toEqual([
+      "notify.1.json",
+      "notify.2+2.json",
+      "notify.2.json",
+    ]);
+  });
+
+  test("a record whose value no longer fits stops the attempt", async () => {
+    const runDir = runDirs.tempRunDir();
+    const one = byContent(runDir, 1);
+    const entered = await enter(one, "write-up");
+    if (entered.kind !== "run") throw new Error("reused");
+    await entered.stage.succeed("text");
+    await one.close();
+    const two = byContent(runDir, 2, await readStageRecords(runDir));
+    await expect(enter(two, "write-up", PATH)).rejects.toThrow(
+      "write-up's record no longer fits its result schema",
+    );
+  });
+
+  test("a misfit stops the attempt whatever the version, and the view shows it stopped", async () => {
+    const runDir = runDirs.tempRunDir();
+    const one = new StageLedger({
+      runDir,
+      attempt: 1,
+      turns: () => [],
+      byContent: true,
+      workflowVersion: "1.0.0",
+    });
+    const entered = await enter(one, "write-up");
+    if (entered.kind !== "run") throw new Error("reused");
+    await entered.stage.succeed("text");
+    await one.close();
+    const two = new StageLedger({
+      runDir,
+      attempt: 2,
+      turns: () => [],
+      byContent: true,
+      workflowVersion: "1.0.0",
+      records: await readStageRecords(runDir),
+    });
+    const stopped = await enter(two, "write-up", PATH).catch((error: unknown) => error);
+    expect(stopped).toBeInstanceOf(WorkflowStopped);
+    expect(two.summaries).toMatchObject([{ stage: "write-up", outcome: "stopped" }]);
+  });
+
+  test("the event log: a reuse across attempts once, none within one, and nothing upcoming", async () => {
+    const runDir = runDirs.tempRunDir();
+    const one = byContent(runDir, 1);
+    const ran = await enter(one, "close-e1");
+    if (ran.kind !== "run") throw new Error("reused");
+    await ran.stage.succeed(undefined);
+    await one.close();
+    const lines: RunEventBody[] = [];
+    const two = new StageLedger({
+      runDir,
+      attempt: 2,
+      turns: () => [],
+      byContent: true,
+      records: await readStageRecords(runDir),
+      event: (body) => lines.push(body),
+    });
+    for (let i = 0; i < 2; i++) {
+      const again = await enter(two, "close-e1");
+      if (again.kind === "reuse") again.release();
+    }
+    expect(lines).toEqual([
+      { kind: "stage-ended", stage: "close-e1", outcome: "succeeded", source: "reused" },
+    ]);
+    expect(byContent(runDir, 3, await readStageRecords(runDir)).progress().upcoming).toEqual([]);
+  });
+
+  test("--from-stage and --values are refused", () => {
+    const runDir = runDirs.tempRunDir();
+    const refused = "a run of a workflow with events takes no --from-stage or --values";
+    expect(
+      () =>
+        new StageLedger({ runDir, attempt: 2, turns: () => [], byContent: true, fromStage: "x" }),
+    ).toThrow(refused);
+    expect(
+      () =>
+        new StageLedger({
+          runDir,
+          attempt: 2,
+          turns: () => [],
+          byContent: true,
+          values: new Map(),
+        }),
+    ).toThrow(refused);
+  });
+
+  test("without events, a name is still entered once per attempt", async () => {
+    const runDir = runDirs.tempRunDir();
+    const ledger = new StageLedger({ runDir, attempt: 1, turns: () => [] });
+    await (await run(ledger, "qa")).succeed(undefined);
+    await expect(run(ledger, "qa")).rejects.toThrow("stage qa was entered twice");
+  });
 });

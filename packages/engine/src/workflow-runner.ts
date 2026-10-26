@@ -362,6 +362,9 @@ export async function startWorkflow<Args extends JsonValue, Result extends JsonV
 ): Promise<WorkflowRunHandle<Result>> {
   assertDeadline(options.deadline);
   if (options.signal?.aborted) throw new WorkflowCancelledError(options.signal.reason);
+  // Before anything opens, so a refusal leaves nothing to close.
+  if ("events" in definition && (options.run.fromStage !== undefined || options.run.values))
+    throw new Error("a run of a workflow with events takes no --from-stage or --values");
   const { dir: runDir, id: runId, attempt } = options.run;
   const startedAt = Date.now();
   const cwd = options.cwd ?? process.cwd();
@@ -438,6 +441,7 @@ export async function startWorkflow<Args extends JsonValue, Result extends JsonV
     ...(options.run.fromStage === undefined ? {} : { fromStage: options.run.fromStage }),
     ...(options.run.values === undefined ? {} : { values: options.run.values }),
     ...(definition.meta.version === undefined ? {} : { workflowVersion: definition.meta.version }),
+    ...("events" in definition ? { byContent: true } : {}),
     turns: () => turns,
     event: (body, at) => events.event(body, at),
   });

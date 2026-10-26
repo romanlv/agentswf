@@ -516,7 +516,7 @@ turn, which the case's files keep and the wait's `until` reads.
 ## Tasks at a glance
 
 - [x] 1. The contract: `events`, `key`, `starts`, `file`, `receive`, `emit`, `start`, `turn`, the records, the names (Q10–Q12); reviewed before building
-- [ ] 2. Stages by content in a run with `events`
+- [x] 2. Stages by content in a run with `events`
 - [ ] 3. The mailbox and `receive` in the engine
 - [ ] 4. One way in: `awf emit --target`, the key's lock, append or refuse, `wake`
 - [ ] 5. Parking: the `parked` ending, a continue to the wait with agents on their kept sessions, and `awf tick`
@@ -874,3 +874,35 @@ Built in the worktree `../worktrees/awf-event-driven-runs`, branch `event-driven
   changed engine, `examples/quick-check` completed on codex headless and on claude in a pane
   (`quick-check/20261025-1950-bc1d`, `-3334`). Operator review of the formats was taken as a
   self-review gate in this approved story; the formats above are what to look at first.
+
+### Task 2: stages by content
+
+- **Where.** `planStageByContent` in `stage-plan.ts`, pure: a succeeded record whose value fits is
+  reused whatever its version (Q12), one that doesn't fit stops the attempt, a failed record or
+  none runs. `StageLedger` takes `byContent`, set by `runWorkflow` for a definition with `events`;
+  it keeps the run's records as they stand, this attempt's included, so a name entered again in
+  the same attempt is reused from what it just wrote. There is no start point and no
+  `replaceStale`; a record a run replaces, a failed one, moves to `replaced/` as it is written.
+- **A name entered again** in the attempt that ran it hands back its value with no second line in
+  the view or the event log: the stage happened once.
+- **`replaced/{stage}.{attempt}.json`** takes `.{n}` from 2 for a stage replaced again in the same
+  attempt; nothing parses those names.
+- **`--from-stage` and `--values`** are refused by the ledger for a run with `events`; `awf run
+  --continue` reaches that once the loader takes event workflows (task 4).
+- Alternative rejected: a second ledger class for by-content runs. The two rules share opening,
+  recording, sealing and the view; only entering differs.
+- **Review** (one agent, both lenses, as the diff was small): 7 findings, all fixed or recorded. A
+  failed write after its record was moved no longer breaks the reruns after it (`#records` drops
+  the moved record); `--from-stage` and `--values` are refused in `startWorkflow` before anything
+  opens, and the ledger keeps the check as an invariant; nothing is `upcoming` in a by-content run,
+  where an earlier event's stage may never be entered again; a stage re-entered in the attempt that
+  ran it counts as reused, so it is never where the attempt ended; a further replacement in one
+  attempt is `{stage}.{attempt}+{n}.json`, which no stage's name can read as. Recorded: the view
+  keeps one line per name, the last run of it, as the stage happened once; the event log keeps
+  each run. Tests added for the event-log lines, a misfit at the same version stopping the attempt
+  as `WorkflowStopped`, and nothing upcoming. Owed to task 3, where `testWorkflow` runs an event
+  workflow: the runner's `byContent` wiring and its refusal of `--from-stage` and `--values`. Not
+  tested: a write failing after its record moved, which needs a fault the file layer has no seam
+  for; the fix is one line.
+- **Verified**: `bun test packages/engine/src/stage-ledger.test.ts` 21 pass; `bun test
+  packages/engine` and `bun run check` pass.

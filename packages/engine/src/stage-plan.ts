@@ -92,6 +92,12 @@ function unreusable(
   if (recorded !== undefined && now !== undefined && recorded !== now) {
     return `${stage} was recorded by ${record.workflowVersion}; this is ${state.workflowVersion}`;
   }
+  return misfitOf(record, result);
+}
+
+/** Why a succeeded record's value no longer fits the stage's `result`; undefined when it does. */
+function misfitOf(record: StageRecord, result: JsonSchema | undefined): string | undefined {
+  const { stage } = record;
   if (result === undefined) {
     return record.value === undefined
       ? undefined
@@ -124,4 +130,21 @@ function majorOf(version: string | undefined): string | undefined {
   if (version === undefined) return undefined;
   const [major, minor] = version.split(".");
   return major === "0" ? `0.${minor}` : major;
+}
+
+/**
+ * In a run of a workflow with `events`, a stage runs once ever: a succeeded record is reused
+ * wherever and however often its name is entered, whatever version of the code recorded it, as
+ * long as its value still fits the stage's `result`. One that doesn't fit stops the attempt; a
+ * failed record, or none, runs.
+ */
+export function planStageByContent(
+  record: StageRecord | undefined,
+  result: JsonSchema | undefined,
+): Extract<StagePlanDecision, { kind: "reuse" | "stop" }> | { kind: "run" } {
+  if (record?.outcome !== "succeeded") return { kind: "run" };
+  const misfit = misfitOf(record, result);
+  return misfit === undefined
+    ? { kind: "reuse", record, value: record.value }
+    : { kind: "stop", reason: misfit };
 }

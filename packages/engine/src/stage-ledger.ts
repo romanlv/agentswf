@@ -8,7 +8,7 @@ import type { JsonSchema } from "@agentswf/contract/schema";
 import type { JsonValue, StageOutcome, StageSummary } from "@agentswf/contract/workflow";
 import type { RunEventBody } from "./run-event-log";
 import { replaceRecord, replaceStale, stageNameProblem, writeStageRecord } from "./runs";
-import { planStage } from "./stage-plan";
+import { planStage, planStageByContent } from "./stage-plan";
 import { placeholderOf } from "./stage-schema";
 import { primaryFailure, WorkflowStopped } from "./stopped";
 
@@ -86,6 +86,8 @@ export class StageLedger {
    */
   readonly #looked = new Set<string>();
   #needed: WorkflowStopped | undefined;
+  /** The run's stage records as they stand, this attempt's included: what a stage by content reuses. */
+  readonly #records: Map<string, StageRecord>;
 
   constructor(
     private readonly options: {
@@ -100,11 +102,20 @@ export class StageLedger {
       fromStage?: string;
       /** `--values`: the values of stages before `fromStage` that have no record to reuse. */
       values?: ReadonlyMap<string, JsonValue>;
+      /**
+       * A run of a workflow with `events`: a stage runs once ever, reused wherever it is entered,
+       * as `planStageByContent` says; no start point, and no `fromStage` or `values`.
+       */
+      byContent?: boolean;
       /** Writes the run's event log. */
       event?(body: RunEventBody, at?: number): void;
       now?: () => Date;
     },
-  ) {}
+  ) {
+    if (options.byContent && (options.fromStage !== undefined || options.values !== undefined))
+      throw new Error("a run of a workflow with events takes no --from-stage or --values");
+    this.#records = new Map(options.records);
+  }
 
   /** A `--from-stage` the attempt never reached: a typo, or a branch not taken. */
   get fromStageUnreached(): string | undefined {
@@ -144,9 +155,10 @@ export class StageLedger {
    * entered yet, in the order they first started.
    */
   progress(): { stages: StageProgress[]; upcoming: string[] } {
-    const upcoming = this.recorded
-      .map((record) => record.stage)
-      .filter((stage) => !this.#stages.has(stage));
+    // By content, an earlier event's stage may never be entered again: none is upcoming.
+    const upcoming = this.options.byContent
+      ? []
+      : this.recorded.map((record) => record.stage).filter((stage) => !this.#stages.has(stage));
     const recorded = (stage: string) => this.options.records?.get(stage)?.ended;
     return {
       stages: [...this.#stages.values()].map((entered) => {
@@ -196,6 +208,7 @@ export class StageLedger {
     if (caught) throw caught;
     this.#check(name);
     const at = this.#now().getTime();
+    if (this.options.byContent) return this.#enterByContent(name, entry, at);
     const decision = planStage(
       {
         records: this.options.records ?? new Map(),
@@ -293,6 +306,42 @@ export class StageLedger {
       this.#started = true;
     }
     return { kind: "run", stage };
+  }
+
+  /**
+   * Enters a stage by content: reused from its succeeded record, this attempt's included, run when
+   * it has none or a failed one, which its own record then replaces.
+   */
+  async #enterByContent(name: string, entry: StageEntry, at: number): Promise<EnteredStage> {
+    const decision = planStageByContent(this.#records.get(name), entry.result);
+    if (decision.kind === "stop") {
+      this.#stopped = new WorkflowStopped(decision.reason, name, true);
+      this.#stoppedAt(name, at);
+      throw this.#stopped;
+    }
+    if (decision.kind === "reuse") {
+      const held = this.#hold(name, decision.value);
+      this.#reused.add(name);
+      // Entered again in the attempt that ran or reused it: nothing more to show or log.
+      if (this.#stages.get(name)?.outcome === "succeeded") return held;
+      const { attempt, summary } = decision.record;
+      this.options.event?.(
+        { kind: "stage-ended", stage: name, outcome: "succeeded", source: "reused" },
+        at,
+      );
+      this.#stages.set(name, {
+        stage: name,
+        source: "reused",
+        outcome: "succeeded",
+        attempt,
+        startedAt: at,
+        endedAt: at,
+        ...(summary === undefined ? {} : { summary }),
+        ...(decision.value === undefined ? {} : { value: decision.value }),
+      });
+      return held;
+    }
+    return { kind: "run", stage: this.#opened(name, at) };
   }
 
   /** A stage the plan stopped as it was entered: shown stopped, though it ran nothing. */
@@ -411,7 +460,7 @@ export class StageLedger {
         `stage ${name} was entered while stage ${this.#open.name} is open; one stage runs at a time, and parallel work goes inside one`,
       );
     }
-    if (this.#stages.has(name) || this.#looked.has(name)) {
+    if (!this.options.byContent && (this.#stages.has(name) || this.#looked.has(name))) {
       throw new Error(`stage ${name} was entered twice; a loop goes inside one stage`);
     }
   }
@@ -452,13 +501,26 @@ export class StageLedger {
         ...(record.summary === undefined ? {} : { summary: record.summary }),
         ...(record.value === undefined ? {} : { value: record.value }),
       });
-      ended = writeStageRecord(this.options.runDir, record).then(
-        () => undefined,
-        (error: unknown) => {
-          entered.outcome = "failed";
-          throw error;
-        },
-      );
+      // By content, a failed record this one replaces is kept, as a redone stage's is.
+      const replacing = this.options.byContent && this.#records.has(name);
+      ended = (
+        replacing
+          ? replaceRecord(this.options.runDir, name).then(() => {
+              // Moved: a write that fails now leaves nothing in `stages/` to move again.
+              this.#records.delete(name);
+            })
+          : Promise.resolve()
+      )
+        .then(() => writeStageRecord(this.options.runDir, record))
+        .then(
+          () => {
+            this.#records.set(name, record);
+          },
+          (error: unknown) => {
+            entered.outcome = "failed";
+            throw error;
+          },
+        );
       // Its outcome once the record is written: one that is not fails the stage.
       const logEnd = () =>
         this.options.event?.(

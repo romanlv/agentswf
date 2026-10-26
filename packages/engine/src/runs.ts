@@ -401,13 +401,21 @@ export async function replaceStale(
   return stale;
 }
 
-/** Moves a stage's record, unchanged, to `replaced/{stage}.{attempt}.json`. */
+/**
+ * Moves a stage's record, unchanged, to `replaced/{stage}.{attempt}.json`, or, for a stage by
+ * content replaced again in the same attempt, `{stage}.{attempt}+{n}.json` from 2: no name has a
+ * `+`, so neither reads as another stage's.
+ */
 export async function replaceRecord(runDir: string, stage: string): Promise<void> {
   const file = join(stagesDir(runDir), `${stage}.json`);
   const record = await readRecord<StageRecord>(file, STAGE_RECORD_VERSION);
   const replaced = join(runDir, "replaced");
   await mkdir(replaced, { recursive: true, mode: 0o700 });
-  await rename(file, join(replaced, `${stage}.${record.attempt}.json`));
+  let target = join(replaced, `${stage}.${record.attempt}.json`);
+  for (let n = 2; await exists(target); n++) {
+    target = join(replaced, `${stage}.${record.attempt}+${n}.json`);
+  }
+  await rename(file, target);
 }
 
 /** Appends a line to the run's event log, `turns.jsonl`, which only the live attempt writes. */
