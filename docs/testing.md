@@ -86,8 +86,8 @@ What they cover between them:
   arrive word for word; then answers with flags. It prints each agent's refused and failed calls
   and rejected results. `bun tests/tools.eval.ts slow` makes the no-input tool take 15 s on codex
   and 40 s on cursor, past the time each lets a shell command run, and its handler must run once,
-  with no refusal. 7 agents, ~1 min; the five run so far, pi not yet, came to ~$0.11 at list
-  prices; `slow` 2 more, ~2 min.
+  with no refusal. 7 agents, ~1 min; all but pi came to ~$0.11 at list prices; `slow` 2 more,
+  ~2 min.
 - `coordinator` — story 032's coordinator: each investigator reports to it and asks it for a
   codeword, the answer comes through the run's holder as an app's would, and the asker goes on in
   the same call. Claude and codex headless. `bun tests/coordinator.eval.ts --late` gives each

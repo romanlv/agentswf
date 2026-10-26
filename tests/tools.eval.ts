@@ -14,8 +14,8 @@ import { assertLiveOptIn, interruption } from "./live";
  * with a title holding `'` and `$HOME` as its reason; and returns its result with flags. `slow`
  * then makes `list_open` take longer than a harness lets a shell command run (M2): 15 s on codex,
  * which hands it back at 10 s, and 40 s on cursor, which backgrounds it at 30 s; its handler must run
- * once, with no refusal. Seven agents, about a minute; the five run so far, pi not yet, came to
- * about $0.11 at list prices. `slow` two more, about two minutes.
+ * once, with no refusal. Seven agents, about a minute; all but pi came to about $0.11 at list
+ * prices. `slow` two more, about two minutes.
  */
 const TOOLS = join(import.meta.dir, "../examples/tools/workflow.ts");
 export const ALL = Object.keys(RUNTIMES);

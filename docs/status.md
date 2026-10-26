@@ -94,8 +94,7 @@ exists, the code is right, then this page.
   035): `wf tool {name}`, with flags for a simple input and JSON for any other, and the handler's
   answer printed back. Each call's budget is 30 s by default, its own, or none; calls settle before
   their turn ends, and `awf logs` shows each on one line. A simple result schema is taught as flags
-  on `wf result` too. Live on codex and cursor, headless and in panes, and claude in a pane, first
-  time right; pi not yet run.
+  on `wf result` too. Live on codex, cursor and pi, headless and in panes, and claude in a pane.
 - `feature-delivery` runs on stages, `awf run` takes it with `-- {ticket}`, and its tests pass. It ran
   live on 2026-10-10, all five stages on a small ticket in a scratch repo, and a continue from
   `additional-review` reused the four before it. Its reviewers now own the revisions, asking the
@@ -252,8 +251,7 @@ The inbox of possible stories is [`stories/todo/`](stories/todo/).
   the code takes events at a wait, starts turns it doesn't await, and parks between events. Its
   first task stops for review of the formats it publishes.
 - [035 — an agent calls a tool the workflow's code handles](stories/035-workflow-tools.md): built,
-  awaiting human review. Live on codex, cursor and claude, headless and in panes; pi waits for its
-  login.
+  awaiting human review. Live on every harness, headless and in panes, claude in a pane only.
 
 ## Next
 

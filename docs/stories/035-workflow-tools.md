@@ -597,7 +597,7 @@ Alternatives rejected:
 - [x] 4. The tools lesson
 - [x] 5. Records and `awf logs`
 - [x] 6. workflow-testing: a scripted agent calls a tool
-- [x] 7. `examples/tools`, live (pi waits for its login)
+- [x] 7. `examples/tools`, live
 - [x] 8. With story 034: a started turn's calls, parking, `start()` from a handler, the sketch's `tools`
 
 ## Open questions
@@ -948,7 +948,12 @@ Implementation notes:
     Rewording `tool-busy` didn't change it. So the same call made again while it runs now joins it
     and gets its answer: run again, codex called at 12 s, joined, read the list at 15 s, and the
     handler ran once, no refusal.
-  - Not run: pi, whose login had expired again; claude headless, billed per token.
+  - pi, headless and in a pane, on `openrouter/deepseek/deepseek-v4.1-flash` (its codex login
+    had expired; the run set the model by hand, and the example keeps its own): both right, with
+    the reason word for word. Each ran two tools in parallel shell commands, `close_item` and
+    `label_item` in the same millisecond; the second was refused `tool-busy`, and the agent sent it
+    again at once, which ran. So pi, like claude, may call in parallel; `tool-busy` costs it a retry.
+  - Not run: claude headless, billed per token.
 
 Done when:
 
