@@ -206,6 +206,45 @@ describe("awf logs", () => {
     expect(fixer).toHaveLength(messaging.length + 1);
   });
 
+  test("a tool call is one line, its end's; a start with no end shows alone; --json keeps both", async () => {
+    const f = await fixture();
+    const keys = { callPath: [], stage: "fix", operationId: "op-1", agent: "fixer" };
+    addLines(
+      f,
+      { ...keys, kind: "tool-called", at: T(2), call: "c1", tool: "close", input: { id: "a1" } },
+      {
+        ...keys,
+        kind: "tool-ended",
+        at: T(2),
+        call: "c1",
+        tool: "close",
+        outcome: "cancelled",
+        error: "close was stopped as your turn ended",
+        durationMs: 2000,
+      },
+      { ...keys, kind: "tool-called", at: T(3), call: "c2", tool: "list", input: {} },
+    );
+    const lines = (argv: string[]) =>
+      awfLogs(f, argv).then(({ stdout }) =>
+        strip(stdout)
+          .split("\n")
+          .filter((line) => line.includes("tool call "))
+          .map((line) => line.replace(/^@\S+ hh:mm:ss fix {2}fixer {2}/, "")),
+      );
+    const expected = [
+      'tool call close {"id":"a1"}  cancelled  2s  close was stopped as your turn ended',
+      "tool call list  no end yet",
+    ];
+    expect(await lines([])).toEqual(expected);
+    expect(await lines(["--agent", "fixer"])).toEqual(expected);
+    const json = JSON.parse((await awfLogs(f, ["--json"])).stdout) as {
+      events: { kind?: string }[];
+    };
+    expect(
+      json.events.flatMap((event) => (String(event.kind).startsWith("tool-") ? [event.kind] : [])),
+    ).toEqual(["tool-called", "tool-ended", "tool-called"]);
+  });
+
   test("shows the run's events and its agents' activity, newest last, and what to run next", async () => {
     const f = await fixture();
     addActivity(f, T(2), [

@@ -1,6 +1,7 @@
 import { afterAll, describe, expect, test } from "bun:test";
 import { join } from "node:path";
 import type { JsonSchema } from "@agentswf/contract/schema";
+import { WIRE_VERSION } from "@agentswf/contract/wire";
 import {
   type AgentRef,
   type AgentTools,
@@ -14,8 +15,9 @@ import { createSingleSessionHostFactory } from "@agentswf/harness";
 import type { AgentRuntimeConfig, AgentSessionAdapter } from "@agentswf/harness/adapter";
 import { createFakeAdapter, type FakeAdapterTurnContext } from "@agentswf/harness/testing";
 import Type from "typebox";
+import { logsCommand } from "./logs-command";
 import { readTurns } from "./runs";
-import { createTempRunDirs, future, runNew } from "./testing";
+import { createTempRunDirs, exchange, future, runNew } from "./testing";
 import { ToolCalls, toolsLesson } from "./tools";
 
 const runDirs = createTempRunDirs();
@@ -823,8 +825,12 @@ describe("ToolCalls", () => {
   });
 
   test("an operation's end cancels its running call and waits for it to settle", async () => {
+    const recorded: string[] = [];
     const calls = new ToolCalls<undefined>({
-      record: async () => true,
+      record: async (event) => {
+        recorded.push(`${event.kind}${"outcome" in event ? ` ${event.outcome}` : ""}`);
+        return true;
+      },
       runIn: (_scope, fn) => fn(),
     });
     calls.give("a", spec);
@@ -835,6 +841,7 @@ describe("ToolCalls", () => {
     await calls.ended("op-1");
     expect(calls.running("a")).toBeUndefined();
     expect(await answer).toMatchObject({ kind: "tool-failed", outcome: "cancelled" });
+    expect(recorded).toEqual(["tool-called", "tool-ended cancelled"]);
   });
 });
 
@@ -1248,4 +1255,111 @@ describe("the tools lesson", () => {
     expect(prompts[0]!.split("Put every value in single quotes")).toHaveLength(2);
     expect(prompts[0]).not.toContain("return it by running");
   });
+});
+
+describe("tool records and awf logs", () => {
+  test("each call leaves its records; an envelope refusal leaves none; awf logs shows a call on one line", async () => {
+    const runRoot = runDirs.tempRunDir();
+    let envelope = "";
+    const adapter = createFakeAdapter({
+      script: (context) => ({
+        act: async () => {
+          const launcher = launcherOf(context);
+          await wf(launcher, ["tool", "close", "--id", "a1", "--status", "done"]);
+          await wf(launcher, ["tool", "nope"]);
+          await wf(launcher, ["tool", "close", "--id", "a1"]);
+          await wf(launcher, ["tool", "boom"]);
+          await wf(launcher, ["tool", "slow"]);
+          // An envelope wf would never send: refused before it is a call, and not recorded.
+          const socket = /--at '?([^' ]+)/.exec(await Bun.file(launcher).text())?.[1];
+          envelope = await exchange(
+            socket!,
+            `${JSON.stringify({ version: WIRE_VERSION, command: "tool", tool: "close", operationId: "x" })}\n`,
+          );
+          await wf(launcher, ["result", callIdOf(context)], '"done"');
+        },
+      }),
+    });
+    const workflow: WorkflowDefinition<null, null> = {
+      meta: { name: "records", description: "records" },
+      async run(context) {
+        const agent = await context.agents.open({
+          key: "triager",
+          runtime: "fake",
+          tools: {
+            close: tool({
+              description: "Close.",
+              input: CLOSE,
+              handler: ({ id }) => `Closed ${id}.`,
+            }),
+            boom: tool({
+              description: "Throws.",
+              handler: () => {
+                throw new Error("locked");
+              },
+            }),
+            slow: tool({
+              description: "Slow.",
+              timeoutMs: 50,
+              handler: () => new Promise((resolve) => setTimeout(resolve, 200)),
+            }),
+          },
+        });
+        await agent.run({ prompt: "work", schema: TEXT, nudge: false });
+        return null;
+      },
+    };
+    const result = await runNew(workflow, null, {
+      runRoot,
+      deadline: future(),
+      runtime: runtime(adapter),
+    });
+    expect(result.value).toBeNull();
+    expect(JSON.parse(envelope)).toMatchObject({ kind: "rejected", code: "invalid-request" });
+    const text = await Bun.file(join(runRoot, "records", result.runId, "turns.jsonl")).text();
+    const lines = text
+      .split("\n")
+      .filter(Boolean)
+      .map((line) => JSON.parse(line) as { kind: string; [key: string]: unknown })
+      .filter((line) => line.kind.startsWith("tool-"));
+    expect(
+      lines.map((line) =>
+        [line.kind, line.tool, line.outcome ?? line.code ?? "", line.error ? "error" : ""]
+          .join(" ")
+          .trim(),
+      ),
+    ).toEqual([
+      "tool-called close",
+      "tool-ended close ok",
+      "tool-refused nope unknown-tool",
+      "tool-refused close invalid-input error",
+      "tool-called boom",
+      "tool-ended boom failed error",
+      "tool-called slow",
+      "tool-ended slow timed-out error",
+    ]);
+    expect(lines[1]).toMatchObject({ result: "Closed a1.", agent: "triager", tool: "close" });
+    expect(lines[0]).toMatchObject({ input: { id: "a1", status: "done" } });
+
+    const out: string[] = [];
+    await logsCommand([`records/${result.runId}`, "--run-root", runRoot], process.cwd(), {
+      stdout: (text) => out.push(text),
+      stderr: (text) => out.push(text),
+    });
+    const shown = out
+      .join("\n")
+      .split("\n")
+      .filter((line) => line.includes("tool call "));
+    expect(shown.map((line) => line.replace(/^@\S+ \S+ triager {2}/, ""))).toEqual([
+      'tool call close {"id":"a1","status":"done"}  ok  → Closed a1.',
+      "tool call nope  refused  unknown-tool",
+      expect.stringMatching(
+        /^tool call close {2}refused {2}invalid-input {2}.*required property is missing/,
+      ),
+      "tool call boom  failed  locked",
+      expect.stringMatching(
+        /^tool call slow {2}timed-out {2}slow didn't answer in time \(0\.05 s\)/,
+      ),
+    ]);
+  }, 20_000);
 });

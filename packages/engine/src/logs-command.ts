@@ -1,4 +1,5 @@
 import type { LogEventJson, LogsJson, RouteEnds, RunLogLine } from "@agentswf/contract/records";
+import type { JsonObject } from "@agentswf/contract/workflow";
 import { duration } from "./duration";
 import { messageOf } from "./errors";
 import {
@@ -209,12 +210,22 @@ class Reader {
 
 type Read = Awaited<ReturnType<Reader["next"]>>;
 
-/** Each operation's stage and agent, from the lines that name them. */
-type Places = { stage: Map<string, string>; agent: Map<string, string> };
+/** Where each operation ran, and each tool call's input, by its id, so its end shows it. */
+type Places = {
+  stage: Map<string, string>;
+  agent: Map<string, string>;
+  calls: Map<string, { input: JsonObject; ended: boolean }>;
+};
 
 function operationPlaces(lines: readonly { line: RunLogLine }[]): Places {
-  const places: Places = { stage: new Map(), agent: new Map() };
+  const places: Places = { stage: new Map(), agent: new Map(), calls: new Map() };
   for (const { line } of lines) {
+    if (line.kind === "tool-called")
+      places.calls.set(line.call, { input: line.input, ended: false });
+    if (line.kind === "tool-ended") {
+      const call = places.calls.get(line.call);
+      if (call) call.ended = true;
+    }
     if (!("operationId" in line) || !line.operationId) continue;
     if ("stage" in line && line.stage) places.stage.set(line.operationId, line.stage);
     if ("agent" in line && line.agent) places.agent.set(line.operationId, line.agent);
@@ -258,10 +269,17 @@ function sidesOf(event: ReadEvent): readonly string[] {
   }
 }
 
-function kept(read: Read, options: LogsOptions) {
+function kept(read: Read, options: LogsOptions, json = false) {
   const stages = operationPlaces(read.log.lines);
   const events = read.events.filter(
     (event) =>
+      // A call that has ended shows on its end's line, with its input; `--json` keeps both.
+      !(
+        !json &&
+        event.source !== "activity" &&
+        event.line.kind === "tool-called" &&
+        stages.calls.get(event.line.call)?.ended
+      ) &&
       (options.agent === undefined ||
         agentOf(event, stages) === options.agent ||
         sidesOf(event).includes(options.agent)) &&
@@ -291,7 +309,7 @@ async function page(
   clock: LogsClock,
 ): Promise<number> {
   let read = await reader.next();
-  let { events, stages } = kept(read, options);
+  let { events, stages } = kept(read, options, json);
   const deadline = clock.now() + options.waitSeconds * 1000;
   let waited = false;
   // Without a cursor, a wait reads on from its first read: nothing before it is kept.
@@ -308,12 +326,12 @@ async function page(
     await clock.sleep(POLL_MS);
     await reader.refresh(place.runRoot);
     read = await reader.next(from);
-    ({ events, stages } = kept(read, options));
+    ({ events, stages } = kept(read, options, json));
     if (events.length > 0) {
       // A burst comes back as one page.
       await clock.sleep(SETTLE_MS);
       read = await reader.next(from);
-      ({ events, stages } = kept(read, options));
+      ({ events, stages } = kept(read, options, json));
     }
   }
   const status = reader.status;
@@ -533,11 +551,13 @@ function describeEvent(event: ReadEvent, stages: Places): string {
   const agent = agentOf(event, stages);
   const where = [stageOf(event, stages), agent && said(agent, 60)].filter(Boolean).join("  ");
   const what =
-    event.source === "activity" ? describeActivity(event.activity) : describeLine(event.line);
+    event.source === "activity"
+      ? describeActivity(event.activity)
+      : describeLine(event.line, stages);
   return `@${event.handle} ${clockTime(event.at)} ${where ? `${where}  ` : ""}${what}`;
 }
 
-function describeLine(line: RunLogLine): string {
+function describeLine(line: RunLogLine, places: Places): string {
   const operation = (of: "turn" | "compact") => (of === "compact" ? "compaction" : "turn");
   switch (line.kind) {
     case "attempt-started":
@@ -606,14 +626,54 @@ function describeLine(line: RunLogLine): string {
       return `${said(line.participant, 60)} connected${line.to === "code" ? " to the code" : ""}`;
     case "participant-post":
       return `run → ${said(line.participant, 60)}  ${said(line.text)}`;
-    // Placeholders until story 035's task 5 prints a call on one line.
+    // A call is one line, its end's: what it was given, how it ended, and what it said back.
+    // Shown alone only while its end isn't in the log: still running, or cut short by a crash.
     case "tool-called":
-      return `tool ${said(line.tool, 60)} called  ${said(JSON.stringify(line.input))}`;
-    case "tool-ended":
-      return `tool ${said(line.tool, 60)} ${line.outcome}  ${duration(line.durationMs)}${line.error ? `  ${said(line.error)}` : ""}`;
+      return toolLine(
+        line.tool,
+        line.input,
+        places.calls.get(line.call)?.ended ? "called" : "no end yet",
+      );
+    case "tool-ended": {
+      const answered =
+        line.outcome !== "ok"
+          ? line.error
+          : typeof line.result === "string"
+            ? `→ ${line.result}`
+            : line.result === undefined
+              ? undefined
+              : `→ ${JSON.stringify(line.result)}`;
+      return toolLine(
+        line.tool,
+        places.calls.get(line.call)?.input,
+        // Most calls take under a second; a duration says something only past one.
+        line.durationMs < 1000 ? line.outcome : `${line.outcome}  ${duration(line.durationMs)}`,
+        answered,
+      );
+    }
     case "tool-refused":
-      return `tool ${said(line.tool, 60)} refused  ${line.code}`;
+      return [
+        `tool call ${said(line.tool, 60)}`,
+        "refused",
+        line.code,
+        line.error && said(line.error),
+      ]
+        .filter(Boolean)
+        .join("  ");
   }
+}
+
+/** `tool call close_item {"id":"a1"}  ok  → Closed a1.`, apart from the harness's own tools. */
+function toolLine(
+  tool: string,
+  input: JsonObject | undefined,
+  how: string,
+  answered?: string,
+): string {
+  const given = input && Object.keys(input).length > 0 ? ` ${said(JSON.stringify(input), 80)}` : "";
+  return [`tool call ${said(tool, 60)}${given}`, how, answered && said(answered)]
+    .filter(Boolean)
+    .join("  ");
 }
 
 function routeEnds(line: RouteEnds): string {

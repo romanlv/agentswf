@@ -581,7 +581,7 @@ Alternatives rejected:
 - [x] 2. Flags for a simple input, on `wf result`: the engine reads them by the schema, the prompt shows the usage line
 - [x] 3. A tool called over the wire: binding, checks, the handler in its scope, its budget and end
 - [x] 4. The tools lesson
-- [ ] 5. Records and `awf logs`
+- [x] 5. Records and `awf logs`
 - [ ] 6. workflow-testing: a scripted agent calls a tool
 - [ ] 7. `examples/tools`, live
 - [ ] 8. With story 034: a started turn's calls, parking, `start()` from a handler, the sketch's `tools`
@@ -859,7 +859,16 @@ Outcome: every call is in the run's event log with its input, result or error an
 
 Execution:
 
-- [ ] Plan, implement, review, resolve, verify (as in the template).
+- [x] Plan, implement, review, resolve, verify (as in the template). Reviewed in two rounds,
+  the last clean.
+
+Implementation notes:
+
+- `awf logs` shows a call on its end's line, `tool call close_item {"id":"a1"}  ok  → Closed a1.`,
+  its input taken from its `tool-called` record, which is then not shown, and its duration only
+  past a second; a call whose end isn't in the log shows that record, `no end yet`. A refusal shows its code and, for `invalid-input`, what the agent
+  was told. "tool call" sets them apart from the harness's own tools, which `awf logs` shows as
+  `tool exec …`. `--json` keeps both records.
 
 Done when:
 
