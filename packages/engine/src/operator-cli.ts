@@ -27,11 +27,14 @@ import {
   terminalReader,
 } from "./coordinator-prompt";
 import { coordinatorSocket, prepareCoordinatorDir } from "./coordinator-socket";
+import { emitEvent } from "./emit";
+import { emitCommand } from "./emit-command";
 import { messageOf } from "./errors";
 import { type Caller, showOwnTab, startHere, takeCaller } from "./here";
 import { holderCommand } from "./holder-command";
 import { inboxCommand } from "./inbox-command";
 import { initCommand } from "./init-command";
+import { keyLockFile, withKeyLock } from "./key-lock";
 import { logsCommand } from "./logs-command";
 import { coordinatorDir, machinePaths, sandboxesDirOf } from "./machine";
 import {
@@ -49,6 +52,7 @@ import { findRun } from "./run-state";
 import { type Attempt, createRun, discardRun, type Run, RunRefused } from "./runs";
 import { runsCommand } from "./runs-command";
 import { testCommand } from "./test-command";
+import type { Launch } from "./wake";
 import type { LoadedWorkflow } from "./workflow-loader";
 import {
   type RunWorkflowOptions,
@@ -88,6 +92,8 @@ export type OperatorEnvironment = {
   install?: (dir: string) => Promise<number>;
   /** How `awf allowance` reads a harness's plan. */
   readAllowance?: (harness: Harness) => Promise<HarnessAllowance>;
+  /** Starts or continues a keyed run's attempt for `awf emit`; absent, a detached `awf run`. */
+  launch?: Launch;
   /**
    * Where agents may `--await-reply`, past the engine's list: for the live checks that decide
    * what goes on it (story 029's M2 gate).
@@ -164,6 +170,17 @@ export async function runOperatorCli(
         stderr,
         ...(environment.install ? { install: environment.install } : {}),
       }),
+    emit: () =>
+      emitCommand(
+        argv.slice(1),
+        cwd,
+        { stdout, stderr },
+        {
+          home: environment.home ?? homedir(),
+          environment: environment.environment ?? process.env,
+          ...(environment.launch ? { launch: environment.launch } : {}),
+        },
+      ),
     runs: () => runsCommand(argv.slice(1), cwd, { stdout, stderr }),
     logs: () => logsCommand(argv.slice(1), cwd, { stdout, stderr }),
     inbox: () => inboxCommand(argv.slice(1), cwd, { stdout, stderr }),
@@ -234,17 +251,18 @@ async function runCommand(
   output: Output,
 ): Promise<number> {
   const { stdout, stderr, notice, terminal, now } = output;
-  let command: RunCommand | "help";
+  let parsed: RunCommand | "help";
   try {
-    command = parseCommand(argv, environment.cwd ?? process.cwd());
+    parsed = parseCommand(argv, environment.cwd ?? process.cwd());
   } catch (error) {
     stderr(`awf: ${messageOf(error)}\n\n${usage}`);
     return 2;
   }
-  if (command === "help") {
+  if (parsed === "help") {
     stdout(usage);
     return 0;
   }
+  let command: RunCommand = parsed;
   const meant = await runNamed(command);
   if (meant) {
     const look = shellLine([
@@ -266,15 +284,17 @@ async function runCommand(
   };
   const home = environment.home ?? homedir();
   const { sandboxes, callers } = machinePaths(home);
+  const ready = await loadAndPrepare(command, now(), home);
+  if ("refused" in ready) {
+    stderr(`awf: ${ready.refused}`);
+    return unstarted(2);
+  }
+  // After loading: a keyed run's root is its project's, which this checks too.
+  command = ready.command;
   if (!relative(command.runRoot, sandboxes).startsWith("..")) {
     stderr(
       `awf: --run-root ${command.runRoot} holds ${sandboxes}, which every sandbox must reach and none may reach the run root`,
     );
-    return unstarted(2);
-  }
-  const ready = await loadAndPrepare(command, now());
-  if ("refused" in ready) {
-    stderr(`awf: ${ready.refused}`);
     return unstarted(2);
   }
   for (const line of ready.prepared.continued?.warnings ?? []) notice(line);
@@ -484,10 +504,13 @@ async function runAttempt(
     prompt ??
     replyHints(`${meta.name}/${id}`, placeFlags(command), n, (line) => progress.log(line));
   progress.showsMessages((message) => asked.shows(message));
+  const { key } = run.record;
+  let nudge: (() => void) | undefined;
   const socket = coordinatorSocket({
     dir: coordinatorRoot,
     runDir: run.dir,
     attempt: n,
+    ...(key === undefined ? {} : { nudged: () => nudge?.() }),
     failed: (reason) =>
       progress.log(
         `awf: the coordinator socket did not open, so awf reply and awf send cannot reach this run: ${reason}`,
@@ -505,7 +528,25 @@ async function runAttempt(
         label: workspaceLabel(meta.name, id, n),
         ...(command.fromStage === undefined ? {} : { fromStage: command.fromStage }),
         ...(command.values === undefined ? {} : { values: command.values.stages }),
+        ...(key === undefined
+          ? {}
+          : {
+              key,
+              locked: (work) => withKeyLock(keyLockFile(run.root, meta.name, id), work),
+              listenNudges: (given) => {
+                nudge = given;
+              },
+            }),
       },
+      emit: async (target, event, from) =>
+        (
+          await emitEvent(target, event, {
+            from,
+            home,
+            environment: environment.environment ?? process.env,
+            ...(environment.launch ? { launch: environment.launch } : {}),
+          })
+        ).outcome,
       runtime: installed.config,
       sandboxes: {
         providers: installed.sandboxes ?? { installed: {} },

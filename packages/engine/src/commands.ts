@@ -1,4 +1,5 @@
 import { allowanceUsage } from "./allowance-command";
+import { emitUsage } from "./emit-command";
 import { replyUsage } from "./holder-command";
 import { inboxUsage } from "./inbox-command";
 import { initUsage } from "./init-command";
@@ -23,6 +24,11 @@ export const COMMANDS = [
     group: "Run a workflow",
     commands: { init: "Set up a directory for writing workflows" },
     help: initUsage,
+  },
+  {
+    group: "Run a workflow",
+    commands: { emit: "Send an event to a workflow with events, starting or waking its run" },
+    help: emitUsage,
   },
   {
     group: "Look at runs",

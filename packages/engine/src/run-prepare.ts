@@ -1,8 +1,10 @@
 import { statSync } from "node:fs";
+import { homedir } from "node:os";
 import { type AttemptRecord, RUN_EVENT_VERSIONS } from "@agentswf/contract/records";
 import type { ExecutableWorkflow, JsonValue } from "@agentswf/contract/workflow";
 import { refusalMessage } from "./attempt-view";
 import { messageOf } from "./errors";
+import { projectOf, projectRunRoot } from "./projects";
 import type { RunCommand } from "./run-command";
 import {
   type Attempt,
@@ -35,17 +37,33 @@ export type PreparedRun = {
  * typed the command, before anything starts.
  */
 export async function loadAndPrepare(
-  command: RunCommand,
+  given: RunCommand,
   now: number,
-): Promise<{ loaded: LoadedWorkflow; prepared: PreparedRun } | { refused: string }> {
+  home: string = homedir(),
+): Promise<
+  { loaded: LoadedWorkflow; prepared: PreparedRun; command: RunCommand } | { refused: string }
+> {
   let loaded: LoadedWorkflow;
   try {
-    loaded = await loadWorkflowFile(command.workflowFile, command.shellCwd);
+    loaded = await loadWorkflowFile(given.workflowFile, given.shellCwd);
   } catch (error) {
     return { refused: `load: ${messageOf(error)}` };
   }
+  let command = given;
+  if (loaded.keyed) {
+    const refused = keyedRefusal(command, loaded.file);
+    if (refused) return { refused };
+    // A keyed run lives in its file's project, whoever continues it (Q15).
+    if (!command.runRootGiven) {
+      try {
+        command = { ...command, runRoot: projectRunRoot(await projectOf(loaded.file, home)) };
+      } catch (error) {
+        return { refused: messageOf(error) };
+      }
+    }
+  }
   try {
-    return { loaded, prepared: await prepareRun(command, loaded, now) };
+    return { loaded, prepared: await prepareRun(command, loaded, now), command };
   } catch (error) {
     return { refused: `${error instanceof RunRefused ? "" : "prepare: "}${messageOf(error)}` };
   }
@@ -105,6 +123,19 @@ async function prepareRun(
       ? [`awf: nothing is recorded for ${fromStage}; the attempt stops if it never reaches it`]
       : [];
   return { args, continued: { run, attempts, warnings: unrecorded } };
+}
+
+/**
+ * Why `awf run` doesn't take a workflow with `events` as asked: an event starts its runs, and
+ * `--continue` alone goes on with one, from wherever its attempt stopped.
+ */
+function keyedRefusal(command: RunCommand, file: string): string | undefined {
+  if (command.continueId === undefined)
+    return `${file} is a workflow with events, which an event starts: awf emit --target ${file} {event} {json}`;
+  if (command.fromStage !== undefined || command.values !== undefined)
+    return "a run of a workflow with events takes no --from-stage or --values";
+  if (command.workflowArgs.length > 0) return "a workflow with events takes no arguments";
+  return undefined;
 }
 
 /** The id the workflow's `id(args)` gives a new run, checked; undefined when it has none. */

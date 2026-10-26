@@ -80,7 +80,7 @@ export function coordinatorSocket(options: {
   attempt: number;
   /** Why the socket did not open: the run goes on, and no holder's command reaches it. */
   failed(reason: string): void;
-  /** A nudge: the run's mailbox has a new event. */
+  /** A nudge: the run's mailbox has a new event. Given, the socket opens at once, for awf's nudge. */
   nudged?(): void;
 }): CoordinatorPort & { close(): Promise<void>; readonly path: string } {
   const path = coordinatorSocketPath(options.dir, options.runDir);
@@ -190,6 +190,10 @@ export function coordinatorSocket(options: {
       .then((result) => socket.end(result ? `${JSON.stringify(result)}\n` : undefined));
   };
 
+  if (options.nudged)
+    opening = open().catch((error: unknown) =>
+      options.failed(error instanceof Error ? error.message : String(error)),
+    );
   return {
     path,
     attach(given) {

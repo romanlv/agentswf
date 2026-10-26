@@ -15,7 +15,7 @@ export async function readMailbox(runDir: string): Promise<MailboxRecord[]> {
   return lines.filter((line) => line.version === MAILBOX_RECORD_VERSION && KINDS.has(line.kind));
 }
 
-const KINDS = new Set<string>(["event", "wait", "took", "turn"]);
+const KINDS = new Set<string>(["event", "wait", "took", "turn", "launch-failed"]);
 
 /** Appends a record; the caller holds the key's lock. */
 export async function appendMailbox(runDir: string, record: MailboxRecord): Promise<void> {

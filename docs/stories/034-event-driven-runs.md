@@ -519,7 +519,7 @@ turn, which the case's files keep and the wait's `until` reads.
 - [x] 1. The contract: `events`, `key`, `starts`, `file`, `receive`, `emit`, `start`, `turn`, the records, the names (Q10–Q12); reviewed before building
 - [x] 2. Stages by content in a run with `events`
 - [x] 3. The mailbox and `receive` in the engine
-- [ ] 4. One way in: `awf emit --target`, the key's lock, append or refuse, `wake`
+- [x] 4. One way in: `awf emit --target`, the key's lock, append or refuse, `wake`
 - [ ] 5. Parking: the `parked` ending, a continue to the wait with agents on their kept sessions, and `awf tick`
 - [ ] 6. Turns not awaited: `start()`, `turn`, `agent:ended`, `cancel()`
 - [ ] 7. A participant routed to the code: `participant:reply`, `post`
@@ -578,7 +578,14 @@ into Q4. The published formats among them still stop for review at task 1.
   and `awf send` find keyed runs through it too. The run always runs in its project, with the
   `PATH` recorded at its first start, and reads the project's `.env` again at every start and
   continue: its values are never recorded, so no secret lands in `.awf/runs`, and a rotated token
-  reaches a run parked for weeks.
+  reaches a run parked for weeks. Of the waker's environment the attempt gets only who and where
+  the engineer is (`HOME`, `USER`, `LOGNAME`, `SHELL`, `TMPDIR`, `LANG`, `LC_*`, `TERM`), the
+  machine's plumbing (`SSH_AUTH_SOCK`, the proxy variables, `XDG_*`), and awf's own
+  `AWF_COORDINATOR_DIR` and `AWF_HERDR_SESSION`, which are the engineer's, not the run's, and only
+  in the environment, never in `.env`. A variable already set would win over `.env`, so anything
+  else a run needs, such as `CLAUDE_CONFIG_DIR` or a token, goes in the project's `.env`. An
+  operator's own `awf run --continue` runs with their whole environment. A file directly in home
+  has no project, as `~/.awf` is awf's own, and is refused (decided in task 4's review).
 
 ### 6. Turns not awaited
 
@@ -689,12 +696,18 @@ Done when:
   one and isn't deduplicated; each row of `wake`'s table, from an emit and, but for the first, from `awf tick`; an emit and a
   tick at once continue a parked run once;
   `awf emit` prints what `wake` did; `awf run` refuses a workflow with `events`; two events for one
-  key at once start one run (Q5); an event sent while the run parks is taken or wakes it; a nudge
-  that fails leaves the event in the mailbox and is not an error; a lock left by a killed process is
+  key at once start one run (Q5); a nudge that fails leaves the event in the mailbox and is not an
+  error; (`awf tick`'s rows, an emit and a tick at once, and an event while the run parks moved to
+  task 5, which builds both); a lock left by a killed process is
   taken over; `workflow.emit` to a target finds its file by its `file` (Q11), and a definition with
   `events` and no `file` is refused.
 
 ### 5. Parking
+
+Order in a continue's process, which `wake` relies on, since it holds the key's lock until the
+attempt is claimed: claim the attempt first, taking no key lock; then wait for the previous
+attempt's process to be gone; then stop its panes and agent processes and write the failed ends
+(Q17), each append under the lock. A test holds that order.
 
 Outcome: a run waiting with no turn running and no event unacknowledged ends `parked`,
 and its process exits; a continue runs from the top and takes what arrived at its wait, with its
@@ -709,8 +722,9 @@ Done when:
   on their session, and a pane agent opened on a continue starts no pane until its first turn;
   a continue resumes each agent's last session without sending its instructions again; `awf tick`
   continues a parked run whose `until` passed, a crashed one and a failed one under Q13's limit,
-  leaves the others, and leaves
-  crashed runs without `events`; senders in different directories, and `awf tick`, find the same
+  each row of `wake`'s table but the first from `awf tick`, leaves the others, and leaves
+  crashed runs without `events`; an emit and a tick at once continue a parked run once; an event
+  sent while the run parks is taken or wakes it; senders in different directories, and `awf tick`, find the same
   run, as Q15 decides; a continue from another directory with a stripped environment behaves like
   the first start, and reads a changed `.env`; a run started by an event is detached, with its output in the run's log, and outlives the
   sender's terminal closing (Q4, M1);
@@ -957,3 +971,79 @@ Built in the worktree `../worktrees/awf-event-driven-runs`, branch `event-driven
   done: a reused void stage reads the mailbox to find a batch, worth caching if wakes on long
   mailboxes get slow. Clear.
 - **Verified**: `bun test packages/engine` 862 pass; `bun run check` passes.
+
+### Task 4: one way in
+
+- **Where.** `emit.ts`, `emitEvent`: checks the event against its target (`EmitError` for a wrong
+  name, a colon, data its schema refuses, an id outside the grammar or starting `awf.`, a key
+  outside it, a target with events and no `file`), keys it, and under the key's lock finds a
+  duplicate, refuses it, or creates the run (with `key`, `cwd` its project and `env.PATH`, and the
+  project in `~/.awf/projects`), appends it and calls `wake`. `wake.ts`, `wake`: the table, from
+  the run's attempts and mailbox; `failuresInARow` for Q13. `key-lock.ts`, `withKeyLock`: the file
+  linked into place with the holder's pid and process start, taken over when that process is gone
+  (re-read just before the unlink, the one race left), and a queue per lock within a process.
+  `projects.ts`: the project of a file (Q15) and `~/.awf/projects`. `emit-command.ts`: `awf emit`.
+- **Start is a continue.** `wake` creates the run's folder, then launches `awf run {file}
+  --continue {id} --run-root {root}`, the same command that continues a parked run, so one path
+  starts and continues. It is spawned detached, in the run's project (Bun reads its `.env` there)
+  with the recorded `PATH`, output to the run's `process.log`, and `wake` returns once the attempt
+  has claimed its number, so its pid is recorded while the lock is held. The file is the target's
+  for an emit, and the last attempt's otherwise.
+- **`awf run`** loads a workflow with `events` as one with no arguments, `keyed` beside it, after
+  checking what `tsc` would have: no `.` in its name, no colon in an event's, `key` a function,
+  `starts` among its events, `file` its own path. It refuses one without `--continue`, and with
+  `--from-stage`, `--values` or arguments; a keyed run's root is its project's unless
+  `--run-root` is given. The attempt takes the key's lock for every mailbox append, and opens the
+  socket at once, which hands a nudge to the mailbox.
+- **`workflow.emit`** checks its target is an event workflow and sends through `emitEvent`, from
+  `{workflow}/{id}`; `RunWorkflowOptions.emit` replaces it, and `testWorkflow` records `run.emits`
+  instead of starting runs.
+- **Output.** `awf emit` prints `accepted dd-case/dd-case.k: started`, `duplicate {ref}`, `refused
+  {ref}: returned`; `--json` is `EmitResultJson`. Exit 0 for an outcome, 2 for an `EmitError`, 1
+  when the run couldn't be woken.
+- **Verified**: `emit.test.ts` (20: each outcome; errors not outcomes; ids made and not
+  deduplicated; each row of the table from an emit, with a fake launch and nudge; Q13's limit and
+  its reset; two events at once start one run; a stale lock taken over; the in-process queue; `awf
+  emit`'s lines, `--json` and exit codes), `emit-e2e.test.ts` (2: a real detached run started by
+  `awf emit` from another directory, nudged by the next, completed, and the next refused; `awf
+  run` refusing the workflow), `receive.test.ts`'s `workflow.emit` case. `bun test packages/engine`
+  885 pass; `bun run check` passes. Tried by hand in a scratch project too. Owed to task 5: `awf
+  tick`'s rows of the table, an emit and a tick at once, and an event while the run parks.
+- **Review 1** (two agents): 22 findings between them, fixed or recorded.
+  - Fixed, design: `emitEvent` is the sender's way in, its checks and key, and hands the event to
+    `deliver`, the one way in for every event (`awf send`'s replies, task 7, and the engine's own,
+    task 6, call `deliver` alone). The attempt gets an allowlist of the waker's environment (who
+    and where the engineer is, the ssh agent, proxies, `XDG_*`, awf's own `AWF_*`) and the recorded
+    `PATH`; tokens and harness settings come from the project's `.env`, which a variable already
+    set would override (written into Q15). A launch that never claims an attempt is `accepted`
+    with `did: "none", why: "launch-failed"` and its `error`, recorded in the mailbox as
+    `launch-failed` and counted with failed and crashed attempts toward `stuck`; the run record
+    keeps the file it was first started from, so a tick can relaunch a run with no attempt. A
+    duplicate still wakes the run: a sender retrying after a failed launch sends the same id.
+  - Fixed, bugs: a project is never `{home}/.awf`, awf's own, so a file under home with no `.awf/`
+    nearer runs in its own directory, not home; `awf emit` exits 1 and says why when the attempt
+    didn't start; the lock treats a holder `ps` can't be asked about as alive, and a holder
+    removes the lock on release only while it is still its own; a sender's `file` must be
+    absolute; the launch waits up to 5 s for the attempt's socket, so the next event nudges it;
+    the sandboxes check runs on a keyed run's project root; `starts` can't be empty; a malformed
+    event schema is an `EmitError`; the loader and the sender share the contract's
+    `eventWorkflowProblem`; `awf run`'s `workflow.emit` is built from its operator environment.
+  - Recorded: the order a continue's process keeps (claim, then wait for the old process, then
+    the failed ends), in task 5's details; the three items needing `awf tick` and parking moved to
+    task 5's Done when. Left: a nudge answered before the run's listener is set (the first wait
+    reads the mailbox anyway); a launch that times out at 60 s while its child still claims later
+    (the next wake's second child is refused at its claim); an operator's own `awf run --continue`
+    runs with their environment, not the allowlist.
+  - Tests added: `wake` directly for a parked run's `until` and nothing due; each loader refusal;
+    exit 1 on a failed launch; the project root under home; a lock held from another process; a
+    lock taken over not removed by its old holder; `awf run`'s refusals for a keyed run.
+- **Verified**: `bun test packages/engine` passes (898 before the last two tests); `bun run check`
+  passes.
+- **Review 2**: every round-1 fix confirmed; seven small findings, fixed: Q15 lists exactly what
+  the attempt keeps of the waker's environment, with `AWF_*` narrowed to `AWF_COORDINATOR_DIR` and
+  `AWF_HERDR_SESSION`, which live only in the environment; the project is found from the file's
+  real directory, so senders naming it through a link find the same runs; a file directly in home
+  is refused; the socket wait also stops on a signal; a duplicate doesn't nudge a live run, which
+  has the event already, and still starts or continues one that never took it; `wake` reads the
+  mailbox only where it needs it; the lock asks `ps` for its own start once. Clear.
+- **Verified**: `bun test packages/engine` 901 pass; `bun run check` passes.

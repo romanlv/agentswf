@@ -125,3 +125,30 @@ export function isEventWorkflow(workflow: {
 }): workflow is ExecutableEventWorkflow<EventSchemas, JsonValue> {
   return workflow.kind === EVENT_WORKFLOW_KIND;
 }
+
+/**
+ * Why a value is not a workflow definition with `events`, as `tsc` would have said for a file it
+ * never saw; undefined when it is one.
+ */
+export function eventWorkflowProblem(definition: unknown): string | undefined {
+  const given = definition as Partial<Record<string, unknown>> | null;
+  if (typeof given !== "object" || given === null) return "a workflow with events has a definition";
+  const events = given.events;
+  if (typeof events !== "object" || events === null)
+    return "a workflow with events declares them in definition.events";
+  const name = (given.meta as { name?: unknown } | undefined)?.name;
+  if (typeof name === "string" && name.includes("."))
+    return `meta.name: ${name} has a "."; in a workflow with events it separates the key`;
+  const colon = Object.keys(events).find((each) => each.includes(":"));
+  if (colon) return `events: ${colon} has a colon, which only awf's own names do`;
+  if (typeof given.key !== "function") return "a workflow with events has key(event)";
+  const starts = given.starts;
+  if (
+    !Array.isArray(starts) ||
+    starts.length === 0 ||
+    starts.some((each) => typeof each !== "string" || !(each in events))
+  )
+    return "starts lists the events, by their names, that start a run";
+  if (typeof given.file !== "string") return "a workflow with events gives file: import.meta.path";
+  return undefined;
+}

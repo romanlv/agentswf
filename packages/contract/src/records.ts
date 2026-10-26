@@ -302,6 +302,8 @@ export type RunRecord = {
   key?: string;
   /** With `key`: the `PATH` it was first started with, which every attempt runs with. */
   env?: { PATH: string };
+  /** With `key`: the file it was first started from; later, its last attempt's `file` says. */
+  file?: string;
 };
 
 export const ATTEMPT_RECORD_VERSION = 1 as const;
@@ -393,6 +395,11 @@ export type MailboxRecord = {
    * agent's key and the turn's id, so one end is ever kept.
    */
   | { kind: "turn"; attempt: number; agent: AgentKey; turn: TurnId; meta: JsonValue }
+  /**
+   * A start or continue whose attempt never claimed its number, such as a file that no longer
+   * loads: counted with failed and crashed attempts towards `stuck` (Q13).
+   */
+  | { kind: "launch-failed"; reason: string }
 );
 
 export const STAGE_RECORD_VERSION = 1 as const;
@@ -883,7 +890,7 @@ export type WakeDid = "started" | "nudged" | "continued" | "none";
 /**
  * Why an event was refused, or `wake` did nothing: the run returned; no run, and the event doesn't
  * start one; stuck, stopped or cancelled, which need the operator; parked with nothing due; a live
- * run's nudge that failed, whose wait takes the event anyway.
+ * run's nudge that failed, whose wait takes the event anyway; an attempt that never started.
  */
 export type WakeWhy =
   | "returned"
@@ -892,7 +899,8 @@ export type WakeWhy =
   | "stopped"
   | "cancelled"
   | "nothing-due"
-  | "nudge-failed";
+  | "nudge-failed"
+  | "launch-failed";
 
 /** `awf emit --json`, and `awf send --json` to a participant routed to the code. */
 export type EmitResultJson = {
@@ -904,6 +912,8 @@ export type EmitResultJson = {
   id: string;
   did: WakeDid;
   why?: WakeWhy;
+  /** With `launch-failed`: what the attempt said before it exited. */
+  error?: string;
 };
 
 /** `awf tick --json`: each run it woke, in the order woken. */

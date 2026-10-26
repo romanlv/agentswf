@@ -1,6 +1,7 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { randomUUID } from "node:crypto";
 import { mkdir, realpath, rm } from "node:fs/promises";
+import { homedir } from "node:os";
 import { dirname, join, relative } from "node:path";
 import { isDeepStrictEqual } from "node:util";
 import {
@@ -41,8 +42,10 @@ import {
   type CompactionId,
   type CompactSpec,
   DeadlineExceededError,
+  type EmitOutcome,
   type ExternalParticipantRef,
   type ExternalParticipantSpec,
+  isEventWorkflow,
   isJsonValue,
   type JsonObject,
   type JsonValue,
@@ -110,6 +113,7 @@ import {
 } from "./deadlines";
 import { RunDecisions } from "./decisions/directory";
 import type { DecisionInstallation } from "./decisions/seam";
+import { type EmitTarget, emitEvent } from "./emit";
 import { messageOf } from "./errors";
 import { RunMailbox } from "./mailbox";
 import { superviseMessageOperation } from "./message-operation";
@@ -173,6 +177,10 @@ export type RunWorkflowOptions = {
     values?: ReadonlyMap<string, JsonValue>;
     /** A run of a workflow with `events`: what its `key` made of the event that started it. */
     key?: string;
+    /** With `key`: runs `work` holding the key's lock, as every append to the mailbox is made. */
+    locked?<T>(work: () => Promise<T>): Promise<T>;
+    /** With `key`: calls `nudge` whenever awf tells the run its mailbox has a new event. */
+    listenNudges?(nudge: () => void): void;
   };
   runtime: AgentRuntimeConfig;
   /** The run's deadline; absent, it has none, and only deadlines the workflow sets bound it. */
@@ -199,7 +207,22 @@ export type RunWorkflowOptions = {
    * @internal
    */
   coordinators?: readonly CoordinatorPort[];
+  /**
+   * Sends `workflow.emit`'s event through the one way in; absent, `emitEvent` on this machine. A
+   * test records them instead.
+   */
+  emit?: Emitter;
 };
+
+/** Sends an event from a run to its target. */
+export type Emitter = (
+  target: EmitTarget,
+  event: { name: string; data: JsonValue; id?: string },
+  from: string,
+) => Promise<EmitOutcome>;
+
+const machineEmitter: Emitter = async (target, event, from) =>
+  (await emitEvent(target, event, { from, home: homedir(), environment: process.env })).outcome;
 
 /** What a run is known by once it has ended, whether or not it succeeded. */
 export type SettledRun = {
@@ -492,10 +515,10 @@ export async function startWorkflow<Args extends JsonValue, Result extends JsonV
       ? new RunMailbox({
           runDir,
           attempt,
-          // The key's lock comes with task 4; until then the run is the mailbox's only writer.
-          locked: (work) => work(),
+          locked: options.run.locked ?? ((work) => work()),
         })
       : undefined;
+  if (mailbox) options.run.listenNudges?.(() => mailbox.nudge());
   const owner = new WorkflowOwner({
     ...(mailbox ? { mailbox, key: options.run.key ?? runId } : {}),
     failRun: (error) => fatal.reject(error),
@@ -524,6 +547,8 @@ export async function startWorkflow<Args extends JsonValue, Result extends JsonV
     livenessPolicy: options.livenessPolicy,
     awaitReply: options.awaitReply ?? ((execution, confirms) => canAwaitReply(execution, confirms)),
     coordinators: options.coordinators ?? [],
+    emit: options.emit ?? machineEmitter,
+    workflow: definition.meta.name,
   });
   const stopped = new AbortController();
   // Aborted by a stop that comes after the body ended; the one that ended it does not cut short the
@@ -801,6 +826,9 @@ class WorkflowOwner {
       /** A run of a workflow with `events`: its mailbox, which its waits take from, and its key. */
       mailbox?: RunMailbox;
       key?: string;
+      emit: Emitter;
+      /** The workflow's name, which with the run's id is the ref its events are `from`. */
+      workflow: string;
     },
   ) {
     this.#messaging = new Messaging({
@@ -939,7 +967,29 @@ class WorkflowOwner {
         run: () => unavailable("steps.run"),
         sleep: () => unavailable("steps.sleep"),
       },
-      emit: () => unavailable("emit"),
+      emit: async (target, name, data, emitOptions) => {
+        if (this.#closed || this.#cleanupFailures.length)
+          throw new Error("workflow context is closed");
+        scopes.getStore()?.assertAccepting();
+        const given = target as { kind?: unknown; definition?: unknown } | undefined;
+        if (
+          !isEventWorkflow({ kind: String(given?.kind) }) ||
+          typeof given?.definition !== "object"
+        )
+          throw new Error("emit's target is a workflow with events, as its file exports it");
+        return options.emit(
+          {
+            file: target.definition.file,
+            definition: target.definition as unknown as EmitTarget["definition"],
+          },
+          {
+            name,
+            data: data as JsonValue,
+            ...(emitOptions?.id === undefined ? {} : { id: emitOptions.id }),
+          },
+          `${options.workflow}/${options.runId}`,
+        );
+      },
       parallel: (items, operation, parallelOptions) => {
         const inherited = scopes.getStore()?.deadline ?? options.deadline;
         const deadline = parallelOptions?.deadline

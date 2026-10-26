@@ -328,6 +328,7 @@ export async function testWorkflow<Args extends JsonValue, Result extends JsonVa
     },
   };
   let sandboxOf = new Map<string, AgentSandbox>();
+  const emits: EmittedEvent[] = [];
   let stages: StageRecord[] = [];
   let messages: (MessageRecord & { to: string })[] = [];
   const runRoot = directory();
@@ -372,6 +373,16 @@ export async function testWorkflow<Args extends JsonValue, Result extends JsonVa
         ? {}
         : { deadline: { unixMilliseconds: Date.now() + options.timeoutMs } }),
       signal: stopping.signal,
+      // A test starts no other workflow's run: what it sends is recorded.
+      emit: async (target, event) => {
+        emits.push({
+          target: target.file,
+          name: event.name,
+          data: event.data,
+          ...(event.id === undefined ? {} : { id: event.id }),
+        });
+        return "accepted";
+      },
       runtime: { aliases: { ...OPERATOR_ALIASES, ...options.runtimes }, host: host.factory },
       sandboxes: {
         providers: {
@@ -435,7 +446,7 @@ export async function testWorkflow<Args extends JsonValue, Result extends JsonVa
       throw new Error(`the workflow threw: ${messageOf(settled.error)}`, { cause: settled.error });
     },
     turns: host.turns,
-    emits: [],
+    emits,
     turnsOf: (agent) => host.turns.filter((turn) => turn.agent === agent),
     compactions: host.compactions,
     compactionsOf: (agent) => host.compactions.filter((compaction) => compaction.agent === agent),

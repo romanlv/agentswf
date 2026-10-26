@@ -1,12 +1,20 @@
+import { realpathSync } from "node:fs";
 import { stat } from "node:fs/promises";
 import { extname, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import * as workflowSurface from "@agentswf/contract/workflow";
 import {
+  EVENT_WORKFLOW_KIND,
+  type EventSchemas,
+  type EventWorkflowDefinition,
   EXECUTABLE_WORKFLOW_KIND,
+  type ExecutableEventWorkflow,
   type ExecutableWorkflow,
+  eventWorkflowProblem,
+  isEventWorkflow,
   isJsonValue,
   type JsonValue,
+  type WorkflowDefinition,
 } from "@agentswf/contract/workflow";
 import { plugin } from "bun";
 import * as typebox from "typebox";
@@ -44,7 +52,10 @@ const WORKFLOW_EXTENSIONS = new Set([".ts", ".mts", ".js", ".mjs"]);
 
 export type LoadedWorkflow = {
   file: string;
+  /** A workflow with `events` as one with no arguments, its definition beside it as `keyed`. */
   executable: ExecutableWorkflow<JsonValue, JsonValue>;
+  /** A workflow with `events`: started by an event, and continued only by `--continue`. */
+  keyed?: EventWorkflowDefinition<EventSchemas, JsonValue>;
 };
 
 export async function loadWorkflowFile(file: string, cwd: string): Promise<LoadedWorkflow> {
@@ -65,9 +76,22 @@ export async function loadWorkflowFile(file: string, cwd: string): Promise<Loade
 
   serveAuthorSurface();
   const namespace: unknown = await import(pathToFileURL(absolute).href);
-  const exported = record(namespace)?.default;
+  const given = record(namespace)?.default;
+  const keyed = isEventWorkflow({ kind: String(record(given)?.kind) })
+    ? checkedEvents(given as ExecutableEventWorkflow<EventSchemas, JsonValue>, absolute)
+    : undefined;
+  const exported: unknown = keyed
+    ? {
+        ...(given as object),
+        kind: EXECUTABLE_WORKFLOW_KIND,
+        definition: keyed as unknown as WorkflowDefinition<JsonValue, JsonValue>,
+        prepare: () => null,
+      }
+    : given;
   if (!isExecutableWorkflow(exported)) {
-    throw new Error(`default export must be an ${EXECUTABLE_WORKFLOW_KIND} executable workflow`);
+    throw new Error(
+      `default export must be an ${EXECUTABLE_WORKFLOW_KIND} or ${EVENT_WORKFLOW_KIND} workflow`,
+    );
   }
   const { name, version } = exported.definition.meta;
   // The name is a folder its runs are kept in, and the version's major decides which records a
@@ -79,7 +103,30 @@ export async function loadWorkflowFile(file: string, cwd: string): Promise<Loade
       `meta.version: ${JSON.stringify(version)} is not a semver version such as 1.2.0`,
     );
   }
-  return { file: absolute, executable: exported };
+  return { file: absolute, executable: exported, ...(keyed ? { keyed } : {}) };
+}
+
+function real(path: string): string {
+  try {
+    return realpathSync(resolve(path));
+  } catch {
+    return resolve(path);
+  }
+}
+
+/** A definition with `events`, checked as `tsc` would have for a file it never saw. */
+function checkedEvents(
+  workflow: ExecutableEventWorkflow<EventSchemas, JsonValue>,
+  file: string,
+): EventWorkflowDefinition<EventSchemas, JsonValue> {
+  const problem = eventWorkflowProblem(workflow.definition);
+  if (problem) throw new Error(problem);
+  const { definition } = workflow;
+  if (real(definition.file) !== real(file))
+    throw new Error(
+      `file is ${JSON.stringify(definition.file)}; a workflow with events gives file: import.meta.path, ${file}`,
+    );
+  return definition;
 }
 
 const SEMVER = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;

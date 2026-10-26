@@ -174,3 +174,21 @@ test("a stage holds one wait", async () => {
   );
   expect(() => run.value).toThrow("a stage holds one wait");
 });
+
+test("workflow.emit sends to its target by the target's file, and a test records it", async () => {
+  const target = caseRun(async () => null);
+  const run = await testWorkflow(
+    defineExecutableWorkflow({
+      definition: {
+        meta: { name: "dd-tick", description: "A tick." },
+        run: async (workflow) => workflow.emit(target, "dd.changes", { case: "k" }, { id: "c1" }),
+      },
+      prepare: () => null,
+    }),
+    null,
+  );
+  expect(run.value).toBe("accepted");
+  expect(run.emits).toEqual([
+    { target: import.meta.path, name: "dd.changes", data: { case: "k" }, id: "c1" },
+  ]);
+});
