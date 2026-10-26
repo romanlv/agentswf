@@ -145,6 +145,9 @@ status is one of `todo`, `draft`, `ready`, `in-progress`, `blocked`, `awaiting-h
   `ready` — a workflow declares the events it takes and their key; `awf emit` starts that key's
   run or lands in its mailbox, and the code takes events at a wait and starts turns it doesn't
   await.
+- [`035` — An agent calls a tool the workflow's code handles](035-workflow-tools.md) —
+  `ready` — a workflow gives an agent named, typed tools; the agent calls one with `wf tool`
+  mid-turn, and the handler's return value is the tool's result.
 
 - [[021-turn-liveness-and-limits|021 — Keep a waiting agent alive within fixed limits]] —
   `done` — Repeated cooperative check-ins share one deadline and result slot; an accepted

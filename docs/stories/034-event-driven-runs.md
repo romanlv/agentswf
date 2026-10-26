@@ -194,8 +194,9 @@ In scope:
 
 Out of scope:
 
-- tools an agent calls ([[workflow-tools]]), which builds on `workflow.emit`, and the emit to the
-  run's own mailbox that a tool's handler needs; this story's port has none;
+- tools an agent calls ([[035-workflow-tools|story 035]]), which doesn't depend on this one, and
+  the emit to the run's own mailbox a tool's handler may use, a follow-up after both; 035, landing
+  second, takes the rules in its "With story 034"; this story's port has none;
 - the rest of [[agent-keep-alive]]: an agent kept live for a while after its turn
   (`keepAlive.timeoutMs`), and compacting it before it parks;
 - a limit on how many runs of a workflow are live at once (the review loop's `MAX_NEW`); until it
@@ -792,7 +793,7 @@ Done when:
 
 Outcome: the watcher's case run is the sketch's `case.ts`; the polling and the triage tick's run
 management are gone. `verdict.json` stays, read when a turn ends, in place of the `close_case` tool,
-until [[workflow-tools]] lands; the triage tick runs without `singleton` and `workflow.allowance`,
+until [[035-workflow-tools|story 035]] lands; the triage tick runs without `singleton` and `workflow.allowance`,
 which aren't in the contract yet. `awf tick` runs in a loop in awf's Herdr session, as the engineer, so it starts runs in the
 environment their pane agents open in (M1).
 
