@@ -1,8 +1,13 @@
 import { afterAll, describe, expect, test } from "bun:test";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import type { AttemptRecord } from "@agentswf/contract/records";
+import {
+  type AttemptRecord,
+  MAILBOX_RECORD_VERSION,
+  type RunsJson,
+} from "@agentswf/contract/records";
 import { writeJson } from "./files";
+import { appendMailbox } from "./mailbox";
 import { createRun, processStart, type Run } from "./runs";
 import { runsCommand } from "./runs-command";
 import { createTempRunDirs } from "./testing";
@@ -493,4 +498,53 @@ describe("awf runs", () => {
     expect(read.exitCode).toBe(3);
     expect(read.stderr).toStartWith("awf: ");
   });
+});
+
+test("a keyed run at its wait shows the wait's label and until, live or parked", async () => {
+  const cwd = runDirs.tempRunDir();
+  const live = await makeRun(cwd, "dd-case", "dd-case.kombo", [{ ...ALIVE, started: T(10) }]);
+  const parked = await makeRun(cwd, "dd-case", "dd-case.other", [
+    { started: T(2), ended: T(3), outcome: "parked" },
+  ]);
+  for (const [run, label, until] of [
+    [live, "investigating", undefined],
+    [parked, "30 unseen", T(40)],
+  ] as const) {
+    await writeJson(join(run.dir, "run.json"), { ...run.record, key: run.record.id.slice(8) });
+    await appendMailbox(run.dir, {
+      version: MAILBOX_RECORD_VERSION,
+      at: T(3),
+      kind: "wait",
+      attempt: 1,
+      label,
+      ...(until ? { until } : {}),
+    });
+  }
+  const json = JSON.parse((await awfRuns(cwd, "--json")).stdout) as RunsJson;
+  expect(json.runs).toMatchObject([
+    { ref: "dd-case/dd-case.kombo", state: "running", waiting: { label: "investigating" } },
+    {
+      ref: "dd-case/dd-case.other",
+      state: "parked",
+      waiting: { label: "30 unseen", until: T(40) },
+    },
+  ]);
+  const text = (await awfRuns(cwd)).stdout;
+  // A wait an earlier attempt died in is not shown while a later one works.
+  const later = await makeRun(cwd, "dd-case", "dd-case.later", [
+    { started: T(1) },
+    { ...ALIVE, started: T(11) },
+  ]);
+  await writeJson(join(later.dir, "run.json"), { ...later.record, key: "later" });
+  await appendMailbox(later.dir, {
+    version: MAILBOX_RECORD_VERSION,
+    at: T(1),
+    kind: "wait",
+    attempt: 1,
+    label: "stale",
+  });
+  const again = JSON.parse((await awfRuns(cwd, "--json")).stdout) as RunsJson;
+  expect(again.runs.find((r) => r.ref === "dd-case/dd-case.later")).not.toHaveProperty("waiting");
+  expect(text).toContain("investigating");
+  expect(text).toMatch(/30 unseen · until /);
 });

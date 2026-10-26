@@ -378,10 +378,10 @@ export type MailboxRecord = {
       from: string;
     }
   /**
-   * A wait called: it acknowledges what the last `took` returned, unless a stage recorded that
-   * batch. `until` is an ISO time.
+   * A wait called. Outside a stage, it acknowledges what the last `took` outside one returned; in
+   * `stage`, it acknowledges nothing, as the stage holds its own batch. `until` is an ISO time.
    */
-  | { kind: "wait"; attempt: number; label?: string; until?: string }
+  | { kind: "wait"; attempt: number; label?: string; until?: string; stage?: string }
   /**
    * The wait returning these events, in order; none when its `until` passed. `stage`: it was in
    * that stage, which holds the batch, acknowledged, and returns it again on a rerun.

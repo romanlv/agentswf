@@ -356,8 +356,9 @@ As in "How it works". The rules and records in full:
   `awf inbox` shows, which is a coordinator's questions. Every append, the run's own included, is
   made under the key's lock. Each record has a `kind`:
   - `event`, `{ id, name, data, from, at }`;
-  - `wait`, `{ until, label }`, a wait called, which acknowledges what the last `took` returned;
-  - `took`, `{ ids }`, the wait returning, with `ids` empty when its `until` passed;
+  - `wait`, `{ until, label, stage }`, a wait called; outside a stage it acknowledges what the last
+    `took` outside one returned, and in a stage nothing, as the stage holds its own batch;
+  - `took`, `{ ids, stage }`, the wait returning, with `ids` empty when its `until` passed;
   - `turn`, `{ turn, agent, meta }`, written before the agent is launched; the rest of the turn is
     in `turns.jsonl`. Its end is the event `agent:ended`, from the agent's key, with
     `{ turn, outcome, meta }`, `outcome` a `TurnOutcome`, and an id made from the turn's, so only
@@ -405,7 +406,7 @@ As in "How it works". The rules and records in full:
   continues a parked run whose `until` has passed, a crashed one, and a failed one under Q13's
   limit. Runs without `events` are left as they are.
 - **Only a workflow with `events` waits.** `receive` exists only on a workflow with `events`, by
-  type and at run time. Such a workflow takes no input and is started only by an event: `awf run`
+  type; at run time a plain run's `receive` rejects. Such a workflow takes no input and is started only by an event: `awf run`
   refuses it, and `awf run --continue` is still allowed, for a run that needs the operator.
 - **`return`** cancels a turn still running, and its ending records how many events were never
   acknowledged, taken or not, which `awf runs` shows. A later event for the key is refused (Q14).
@@ -517,7 +518,7 @@ turn, which the case's files keep and the wait's `until` reads.
 
 - [x] 1. The contract: `events`, `key`, `starts`, `file`, `receive`, `emit`, `start`, `turn`, the records, the names (Q10–Q12); reviewed before building
 - [x] 2. Stages by content in a run with `events`
-- [ ] 3. The mailbox and `receive` in the engine
+- [x] 3. The mailbox and `receive` in the engine
 - [ ] 4. One way in: `awf emit --target`, the key's lock, append or refuse, `wake`
 - [ ] 5. Parking: the `parked` ending, a continue to the wait with agents on their kept sessions, and `awf tick`
 - [ ] 6. Turns not awaited: `start()`, `turn`, `agent:ended`, `cancel()`
@@ -906,3 +907,53 @@ Built in the worktree `../worktrees/awf-event-driven-runs`, branch `event-driven
   for; the fix is one line.
 - **Verified**: `bun test packages/engine/src/stage-ledger.test.ts` 21 pass; `bun test
   packages/engine` and `bun run check` pass.
+
+### Task 3: the mailbox and `receive`
+
+- **Where.** `engine/src/mailbox.ts`: `foldMailbox`, pure, which reads the records in order (a
+  `wait` acknowledges the last `took`; a `took` in a stage acknowledges its own batch, which the
+  stage holds; the first event under an id is the one kept), and `RunMailbox`, a live run's waits.
+  Every append goes through an `append` the runner gives it, so task 4 puts the key's lock there
+  and nothing here changes. The runner adds `key` and `receive` to the context of a run with
+  `events`; a plain run's `receive` rejects, "receive needs a workflow with events".
+- **A wait** writes `wait`, then reads the mailbox until it has events not yet acknowledged, or its
+  `until` passes, and writes `took`. It is armed before each read, so a nudge between the read and
+  the wait is not lost, and it polls the mailbox's size each second, so a nudge that failed loses
+  only that second. One wait at a time: a second while one waits throws.
+- **After a crash**, the attempt's first wait outside a stage returns the held batch alone and
+  writes nothing, so the batch stays held until the next wait acknowledges it. An empty `took`, an
+  `until` that passed, holds nothing (a bug the tests found: it was returned again).
+- **A stage around a wait.** The wait writes `took` with the stage; the stage records no value, and
+  on reuse returns the batch read back from the mailbox. A stage whose work returns other events
+  than its wait took fails.
+- **`awf runs`** reads a keyed run's last wait while it is running or parked: `waiting: { label,
+  until }` in `--json`, and the label and `until {time}` after the row.
+- **`testWorkflow`** starts an event workflow from `event`, appended as `awf emit` would, under the
+  key it makes, refusing one outside the grammar. Scripted events, `files`, parking and `maxTurns`
+  are task 8's.
+- **Verified**: `mailbox.test.ts` (9), `receive.test.ts` (5) and the new `runs-command.test.ts`
+  case pass; `bun test packages/engine` 856 pass; `bun run check` passes. Task 2's runner wiring is
+  proven here: a stage entered twice in a run with `events` runs once.
+- **Review 1** (two agents): 15 findings between them, all fixed. A wait in a stage that took its
+  batch and failed, or died before its record, returns that batch again and writes nothing, so the
+  batch isn't lost to the next events. A wait in a stage leaves the loop's batch to the loop: its
+  `wait` record carries `stage`, and only a wait outside a stage acknowledges a `took` outside
+  one, so a crash while the loop handles a batch doesn't lose it to a stage's wait (the story's
+  "each call acknowledges what the one before it returned" holds per wait: the loop's, or a
+  stage's). The work path compares against the batch the owner saw the stage's wait take, not the
+  mailbox. A wait ends with its run (the owner's closing signal) or its scope, so a deadline while
+  waiting no longer leaves it polling. `RunMailbox` takes `locked(work)`, not `append`, so parking
+  and emit can decide and write under one lock. The poll's baseline is taken before the read. An
+  attempt's first wait in a stage leaves a crash's held batch to the first one outside. `awf runs`
+  ignores a wait an earlier attempt died in, and spaces the label from the cost. `testWorkflow`
+  checks a starting event's data against its schema. Tests added for each, and for one wait at a
+  time; the design line now says a plain run's `receive` rejects.
+- **Verified**: `bun test packages/engine` 861 pass; `bun run check` passes.
+- **Review 2**: nothing blocking; five small findings, fixed: `testWorkflow` refuses `files`,
+  `events` and `maxTurns` until task 8 builds them, and a missing `event` says so; a stage holds
+  one wait, and a second throws; a wait cut by its scope rejects with an `Error`; with no `until`, a
+  wait sleeps until a nudge or the size poll wakes it rather than rereading each second; the
+  records' docs and the design's record list say how a wait in a stage acknowledges. Noted, not
+  done: a reused void stage reads the mailbox to find a batch, worth caching if wakes on long
+  mailboxes get slow. Clear.
+- **Verified**: `bun test packages/engine` 862 pass; `bun run check` passes.

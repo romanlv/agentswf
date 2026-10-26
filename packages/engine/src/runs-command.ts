@@ -106,6 +106,7 @@ async function list(place: ReadPlace, all: boolean, json: boolean, out: Out, now
         started: new Date(started).toISOString(),
         ...(ended === undefined ? {} : { duration: ended - started }),
         ...(estimate === undefined ? {} : { estimate }),
+        ...(status.waiting ? { waiting: status.waiting } : {}),
       };
     });
     const document: RunsJson = { v: 1, runs: runsJson, more: { older: older > 0 } };
@@ -130,7 +131,10 @@ async function list(place: ReadPlace, all: boolean, json: boolean, out: Out, now
       states[index]!.padEnd(stateWidth),
       dayTime(started).padEnd(13),
       duration(ms).padEnd(8),
-      money(estimate).join(""),
+      money(estimate)
+        .join("")
+        .concat(status.waiting ? "  " : ""),
+      waitingText(status.waiting),
     ]
       .join("")
       .trimEnd();
@@ -138,6 +142,13 @@ async function list(place: ReadPlace, all: boolean, json: boolean, out: Out, now
   if (older > 0) lines.push(`… ${older} older (--all)`);
   out.stdout(lines.join("\n"));
   return 0;
+}
+
+/** A run at its wait: its label, and until when. */
+function waitingText(waiting: RunStatus["waiting"]): string {
+  if (!waiting) return "";
+  const until = waiting.until ? `until ${dayTime(Date.parse(waiting.until))}` : "";
+  return [waiting.label, until].filter(Boolean).join(" · ") || "waiting";
 }
 
 function dayTime(at: number): string {
@@ -301,6 +312,7 @@ function runJson(view: RunView, place: ReadPlace, now: number): RunJson {
       ...(view.stage ? { stage: view.stage } : {}),
       ...(status.state !== "running" && ended !== undefined ? { duration: ended - started } : {}),
       ...(view.estimate === undefined ? {} : { estimate: view.estimate }),
+      ...(status.waiting ? { waiting: status.waiting } : {}),
       dir: status.run.dir,
     },
     attempts: status.attempts.map(({ attempt, started, ended, outcome, stage, reason }) => ({

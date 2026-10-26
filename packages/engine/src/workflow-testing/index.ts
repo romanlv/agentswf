@@ -2,19 +2,27 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  MAILBOX_RECORD_VERSION,
+  type MailboxRecord,
   type SandboxRecord,
   STAGE_RECORD_VERSION,
   type StageNeed,
   type StageRecord,
 } from "@agentswf/contract/records";
+import { parseJsonSchema, validate } from "@agentswf/contract/schema";
 import {
+  AWF_ID_PREFIX,
   type EventSchemas,
+  type EventWorkflowDefinition,
   EXECUTABLE_WORKFLOW_KIND,
   type ExecutableEventWorkflow,
   type ExecutableWorkflow,
+  isEventWorkflow,
   type JsonObject,
   type JsonValue,
+  nameProblem,
   type OutputOf,
+  type OwnEvent,
   type ParticipantReply,
   type RuntimeAliases,
   type WorkflowDefinition,
@@ -22,6 +30,7 @@ import {
 import { type Harness, sandboxTokens } from "@agentswf/harness";
 import { createFakeSandboxProvider } from "@agentswf/sandbox/testing/fake";
 import { messageOf } from "../errors";
+import { appendMailbox } from "../mailbox";
 import { OPERATOR_ALIASES } from "../operator-aliases";
 import { createRun, readEvents, readStageRecords, writeStageRecord } from "../runs";
 import { primaryFailure, WorkflowStopped } from "../stopped";
@@ -220,10 +229,26 @@ export async function testWorkflow<Args extends JsonValue, Result extends JsonVa
   args: NoInfer<Args>,
   options: TestOptions = {},
 ): Promise<TestRun<Result>> {
-  if ("definition" in workflow && "events" in workflow.definition)
-    throw new Error("testing a workflow with events is not built yet");
+  const keyed = "kind" in workflow && isEventWorkflow(workflow) ? workflow.definition : undefined;
+  if (keyed) {
+    options = args as unknown as TestOptions;
+    args = null as NoInfer<Args>;
+  }
+  if (keyed) {
+    const given = options as EventTestOptions<EventSchemas>;
+    // Built with task 8 of story 034; until then a test relying on one would pass for no reason.
+    const later = (["files", "events", "maxTurns"] as const).filter((name) => name in given);
+    if (later.length > 0) throw new Error(`testWorkflow's ${later.join(", ")} are not built yet`);
+    if (typeof given.event !== "object" || given.event === null)
+      throw new Error("a workflow with events is tested from the event that starts it: { event }");
+  }
+  const started = keyed && startingEvent(keyed, (options as EventTestOptions<EventSchemas>).event);
   const given = workflow as WorkflowDefinition<Args, Result> | ExecutableWorkflow<Args, Result>;
-  const definition = isExecutable(given) ? given.definition : given;
+  const definition = keyed
+    ? (keyed as unknown as WorkflowDefinition<Args, Result>)
+    : isExecutable(given)
+      ? given.definition
+      : given;
   const scripts = new Scripts(options.agents);
   const compactionScripts = new Scripts(options.compactions, {
     noun: "compaction",
@@ -307,7 +332,7 @@ export async function testWorkflow<Args extends JsonValue, Result extends JsonVa
   let messages: (MessageRecord & { to: string })[] = [];
   const runRoot = directory();
   const run = await createRun(runRoot, {
-    id: "test",
+    id: started ? `${definition.meta.name}.${started.key}` : "test",
     workflow: definition.meta.name,
     argv: [],
     cwd,
@@ -317,6 +342,7 @@ export async function testWorkflow<Args extends JsonValue, Result extends JsonVa
     throw error;
   });
   if (options.recorded) await recordEarlierAttempt(run.dir, options.recorded);
+  if (started) await appendMailbox(run.dir, started.record);
   const recordedStages = async ({ stages: entered = [] }: SettledRun) => {
     const records = await readStageRecords(run.dir);
     // A stage the plan stopped has no record of this attempt's: the one there is an earlier one's.
@@ -339,6 +365,7 @@ export async function testWorkflow<Args extends JsonValue, Result extends JsonVa
         ...(options.values === undefined
           ? {}
           : { values: new Map(Object.entries(options.values)) }),
+        ...(started ? { key: started.key } : {}),
       },
       cwd,
       ...(options.timeoutMs === undefined
@@ -503,6 +530,39 @@ async function recordEarlierAttempt(
       ...(value === undefined ? {} : { value }),
     });
   }
+}
+
+/** The event a test starts its run with, as `awf emit` would append it, and the key it makes. */
+function startingEvent(
+  definition: EventWorkflowDefinition<EventSchemas, JsonValue>,
+  event: { name: string; data: JsonValue; id?: string },
+): { key: string; record: MailboxRecord } {
+  if (!Object.hasOwn(definition.events, event.name))
+    throw new Error(`${definition.meta.name} declares no event ${event.name}`);
+  if (!definition.starts.includes(event.name))
+    throw new Error(
+      `${event.name} doesn't start a run of ${definition.meta.name}: its starts are ${definition.starts.join(", ")}`,
+    );
+  const errors = validate(parseJsonSchema(definition.events[event.name]), event.data);
+  if (errors.length > 0)
+    throw new Error(
+      `${event.name}'s data does not fit its schema: ${errors.map((e) => `${e.path}: ${e.message}`).join("; ")}`,
+    );
+  const key = definition.key(event as OwnEvent<EventSchemas>);
+  const problem = nameProblem(key);
+  if (problem) throw new Error(`the key ${JSON.stringify(key)} is not a key: ${problem}`);
+  return {
+    key,
+    record: {
+      version: MAILBOX_RECORD_VERSION,
+      at: new Date().toISOString(),
+      kind: "event",
+      id: event.id ?? `${AWF_ID_PREFIX}start`,
+      name: event.name,
+      data: event.data,
+      from: "operator",
+    },
+  };
 }
 
 function isExecutable<Args extends JsonValue, Result extends JsonValue>(

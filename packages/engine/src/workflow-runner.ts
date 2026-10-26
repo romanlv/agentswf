@@ -53,6 +53,7 @@ import {
   type PaneLayout,
   type PlacementChoice,
   placementOf,
+  type ReceiveOptions,
   type RunResult,
   type RuntimeSelection,
   type SettingsSpec,
@@ -63,6 +64,7 @@ import {
   type TurnOutcome,
   type WorkflowContext,
   type WorkflowDefinition,
+  type WorkflowEvent,
 } from "@agentswf/contract/workflow";
 import {
   type AgentSkills,
@@ -109,6 +111,7 @@ import {
 import { RunDecisions } from "./decisions/directory";
 import type { DecisionInstallation } from "./decisions/seam";
 import { messageOf } from "./errors";
+import { RunMailbox } from "./mailbox";
 import { superviseMessageOperation } from "./message-operation";
 import { canAwaitReply } from "./messaging/limits";
 import type { HolderRequest } from "./messaging/messaging";
@@ -168,6 +171,8 @@ export type RunWorkflowOptions = {
     fromStage?: string;
     /** `--values`: the values of stages before `fromStage` that have no record to reuse. */
     values?: ReadonlyMap<string, JsonValue>;
+    /** A run of a workflow with `events`: what its `key` made of the event that started it. */
+    key?: string;
   };
   runtime: AgentRuntimeConfig;
   /** The run's deadline; absent, it has none, and only deadlines the workflow sets bound it. */
@@ -482,7 +487,17 @@ export async function startWorkflow<Args extends JsonValue, Result extends JsonV
   });
   const fatal = Promise.withResolvers<never>();
   void fatal.promise.catch(() => undefined);
+  const mailbox =
+    "events" in definition
+      ? new RunMailbox({
+          runDir,
+          attempt,
+          // The key's lock comes with task 4; until then the run is the mailbox's only writer.
+          locked: (work) => work(),
+        })
+      : undefined;
   const owner = new WorkflowOwner({
+    ...(mailbox ? { mailbox, key: options.run.key ?? runId } : {}),
     failRun: (error) => fatal.reject(error),
     decisions,
     sandboxes,
@@ -783,6 +798,9 @@ class WorkflowOwner {
       onCallerStopped?: RunWorkflowOptions["onCallerStopped"];
       awaitReply: NonNullable<RunWorkflowOptions["awaitReply"]>;
       coordinators: readonly CoordinatorPort[];
+      /** A run of a workflow with `events`: its mailbox, which its waits take from, and its key. */
+      mailbox?: RunMailbox;
+      key?: string;
     },
   ) {
     this.#messaging = new Messaging({
@@ -942,6 +960,49 @@ class WorkflowOwner {
       usage: () => options.ledger.records(),
       log: (message, fields) => options.log(message, fields),
     };
+    const { mailbox } = options;
+    Object.assign(
+      this.context,
+      mailbox
+        ? { key: options.key, receive: (spec?: ReceiveOptions) => this.receive(mailbox, spec) }
+        : { receive: () => Promise.reject(new Error("receive needs a workflow with events")) },
+    );
+  }
+
+  #waiting = false;
+  /** The batch a wait in a stage took, by stage, until the stage ends: what it must return. */
+  readonly #stageBatches = new Map<string, WorkflowEvent<string, JsonValue>[]>();
+
+  /** A wait: one at a time, and in a stage, the stage's batch. */
+  private async receive(
+    mailbox: RunMailbox,
+    spec: ReceiveOptions | undefined,
+  ): Promise<WorkflowEvent<string, JsonValue>[]> {
+    if (this.#closed || this.#cleanupFailures.length) throw new Error("workflow context is closed");
+    const scope = scopes.getStore();
+    scope?.assertAccepting();
+    if (this.#waiting)
+      throw new Error("receive was called while another wait is waiting; one wait at a time");
+    if (scope?.stage !== undefined && this.#stageBatches.has(scope.stage))
+      throw new Error(`stage ${scope.stage} has waited once; a stage holds one wait`);
+    this.#waiting = true;
+    // The wait ends with the run, as its owner closes, or with the scope it waits in.
+    const cancelled = new AbortController();
+    const removeFromScope = scope?.add(async (stop) =>
+      cancelled.abort(new Error(String(stop.reason ?? "the wait's scope was cancelled"))),
+    );
+    try {
+      const taken = await mailbox.receive(
+        spec,
+        scope?.stage,
+        AbortSignal.any([this.#closingRun.signal, cancelled.signal]),
+      );
+      if (scope?.stage !== undefined) this.#stageBatches.set(scope.stage, taken);
+      return taken;
+    } finally {
+      removeFromScope?.();
+      this.#waiting = false;
+    }
   }
 
   /** An agent as messaging sees it, from its entry and its operations. */
@@ -1211,7 +1272,12 @@ class WorkflowOwner {
     });
     if (entered.kind === "reuse") {
       entered.release();
-      return entered.value;
+      // A stage around a wait returns the batch it took, which its record doesn't hold.
+      const batch =
+        entered.value === undefined && !options
+          ? await this.options.mailbox?.batchOf(name)
+          : undefined;
+      return (batch as JsonValue | undefined) ?? entered.value;
     }
     const open = entered.stage;
     const messages = this.#messaging.scope(name);
@@ -1230,6 +1296,19 @@ class WorkflowOwner {
       scope.seal();
       await this.drainMessages(messages, () => scope.settleOwned());
       if (this.options.stages.stopped?.stage === name) throw this.options.stages.caught();
+      const batch = this.#stageBatches.get(name);
+      if (batch && !options) {
+        const same =
+          Array.isArray(returned) &&
+          returned.length === batch.length &&
+          returned.every((event, i) => (event as { id?: unknown })?.id === batch[i]?.id);
+        if (!same)
+          throw new Error(
+            `stage ${name} returned other events than its wait took; its work is the wait alone`,
+          );
+        await open.succeed(undefined);
+        return batch as JsonValue;
+      }
       const value = stageValue(name, options, returned);
       await open.succeed(value, summaryOf(name, options, value, this.options.onLog));
       return value;
@@ -1247,6 +1326,7 @@ class WorkflowOwner {
       }
       throw error;
     } finally {
+      this.#stageBatches.delete(name);
       this.#messaging.closeScope(messages);
       this.#stageScopes.delete(messages);
       removeFromParent?.();

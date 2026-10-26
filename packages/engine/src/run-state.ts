@@ -1,7 +1,8 @@
 import { join } from "node:path";
-import type { AttemptRecord } from "@agentswf/contract/records";
+import type { AttemptRecord, WaitingJson } from "@agentswf/contract/records";
 import type { AttemptOutcome } from "@agentswf/contract/workflow";
 import { exists } from "./files";
+import { foldMailbox, readMailbox } from "./mailbox";
 import {
   entries,
   idProblem,
@@ -30,6 +31,8 @@ export type RunStatus = {
   state: RunState;
   /** False for a `running` whose process could not be asked about. */
   checked: boolean;
+  /** A run of a workflow with `events` at its wait, live or parked: what its mailbox says. */
+  waiting?: WaitingJson;
 };
 
 /** How long a run folder with no attempt yet may be an `awf run` still starting. */
@@ -40,7 +43,22 @@ export async function runStatus(
   probe: ProcessStatus = probeProcess,
   at = Date.now(),
 ): Promise<RunStatus> {
-  return statusOf(run, await readAttempts(run), probe, at);
+  const status = statusOf(run, await readAttempts(run), probe, at);
+  const waiting = await waitingOf(status);
+  return waiting ? { ...status, waiting } : status;
+}
+
+/** A keyed run's wait, while it is running or parked there: its label and `until`. */
+async function waitingOf(status: RunStatus): Promise<WaitingJson | undefined> {
+  if (status.run.record.key === undefined) return undefined;
+  if (status.state !== "running" && status.state !== "parked") return undefined;
+  const wait = foldMailbox(await readMailbox(status.run.dir)).lastWait;
+  // A wait an earlier attempt died in is not this one's.
+  if (!wait?.waiting || wait.attempt !== status.attempts.at(-1)?.attempt) return undefined;
+  return {
+    ...(wait.label === undefined ? {} : { label: wait.label }),
+    ...(wait.until === undefined ? {} : { until: wait.until }),
+  };
 }
 
 /** As `runStatus`, from its attempts as already read. */
