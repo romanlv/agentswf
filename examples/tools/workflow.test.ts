@@ -3,35 +3,39 @@ import { tool, type WorkflowDefinition } from "@agentswf/contract/workflow";
 import { answer, testWorkflow } from "@agentswf/engine/workflow-testing";
 import Type from "typebox";
 import { outputSchema } from "../output-schema";
-import { Summary, tools } from "./workflow";
+import toolsWorkflow, { Summary, tools } from "./workflow";
 
 describe("tools", () => {
   test("the agent closes items through its tools, and the workflow sees them closed", async () => {
     const run = await testWorkflow(
       tools,
-      { runtime: "codex" },
+      { runtimes: ["codex"] },
       {
         agents: {
-          triager: answer(Summary, async (turn) => {
+          "triager:*": answer(Summary, async (turn) => {
             const open = await turn.tool("list_open");
             expect(open).toEqual({
               kind: "result",
               output: expect.stringContaining("a1  The login page shows the old logo"),
             });
             await turn.tool("close_item", { id: "a1", status: "done", why: "Fixed yesterday." });
+            expect(await turn.tool("label_item", { id: "b2", labels: ["ops", "cron"] })).toEqual({
+              kind: "result",
+              output: "Labelled b2.",
+            });
             return { closed: 1, summary: "Closed the logo item." };
           }),
         },
       },
     );
-    expect(run.value.items).toEqual([
+    expect(run.value.triages[0]!.items).toEqual([
       {
         id: "a1",
         title: "The login page shows the old logo",
         status: "done",
         why: "Fixed yesterday.",
       },
-      expect.objectContaining({ id: "b2", status: "open" }),
+      expect.objectContaining({ id: "b2", status: "open", labels: ["ops", "cron"] }),
     ]);
   });
 
@@ -39,10 +43,10 @@ describe("tools", () => {
     const seen: unknown[] = [];
     const run = await testWorkflow(
       tools,
-      { runtime: "codex" },
+      { runtimes: ["codex"] },
       {
         agents: {
-          triager: answer(Summary, async (turn) => {
+          "triager:*": answer(Summary, async (turn) => {
             seen.push(await turn.tool("close_item", { id: "a1", status: "maybe", why: "?" }));
             seen.push(await turn.tool("close_item", { id: "zz", status: "done", why: "gone" }));
             return { closed: 0, summary: "Nothing closed." };
@@ -58,7 +62,7 @@ describe("tools", () => {
         error: "no open item zz; list_open shows the open ones",
       },
     ]);
-    expect(run.value.items.every((item) => item.status === "open")).toBe(true);
+    expect(run.value.triages[0]!.items.every((item) => item.status === "open")).toBe(true);
   });
 
   test("a scripted message turn's call closes an item too", async () => {
@@ -112,4 +116,13 @@ describe("tools", () => {
     });
     expect(run.value).toEqual(["a1"]);
   });
+});
+
+test("--slow= takes milliseconds, and unknown or repeated runtimes are refused", () => {
+  const prepare = (argv: string[]) => toolsWorkflow.prepare({ argv, cwd: "." });
+  expect(prepare(["--slow=15000", "codex"])).toEqual({ runtimes: ["codex"], slowMs: 15_000 });
+  expect(prepare([])).toEqual({ runtimes: ["codex"] });
+  expect(() => prepare(["--slow=soon"])).toThrow("--slow= takes milliseconds");
+  expect(() => prepare(["gemini"])).toThrow("unknown runtime gemini");
+  expect(() => prepare(["codex", "codex"])).toThrow("name each runtime once");
 });

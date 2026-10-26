@@ -169,7 +169,7 @@ import { QUOTING_RULE, simpleInput, usageLine } from "./simple-input";
 import { placeSkills, RunSkills, readSkillSources } from "./skills/run-skills";
 import { StageLedger, type StageProgress } from "./stage-ledger";
 import { FromStageUnreached } from "./stopped";
-import { inToolHandler, refusedInTool, ToolCalls, toolsLesson } from "./tools";
+import { inToolHandler, outsideTools, refusedInTool, ToolCalls, toolsLesson } from "./tools";
 
 export { WorkflowCancelledError } from "./deadlines";
 
@@ -2574,6 +2574,8 @@ class LogicalAgent implements AgentRef {
     const { turns } = this.options;
     if (!turns) return unavailable("AgentRef.start");
     if (this.#closed) throw new Error("logical agent is closed");
+    const inTool = refusedInTool(this.key, "start()");
+    if (inTool) throw inTool;
     const scope = scopes.getStore();
     if (scope !== undefined)
       throw new Error(
@@ -2591,6 +2593,9 @@ class LogicalAgent implements AgentRef {
         id,
         cancel: async (reason?: string) => {
           if (started.ended) return false;
+          // Its turn waits for the handler, which would wait for the turn's end.
+          const inTool = refusedInTool(this.key, "cancel()");
+          if (inTool) throw inTool;
           const stop = { kind: "cancelled" as const, reason: reason ?? "the turn was cancelled" };
           // Its own operation only: one queued behind a message settles cancelled when it is reached.
           const own = this.#stopsByTurn.get(id);
@@ -2618,7 +2623,7 @@ class LogicalAgent implements AgentRef {
     this.#launching = true;
     let launched: Promise<RunResult<JsonValue>>;
     try {
-      launched = this.run({ ...run, id } as AgentRunStructuredSpec<JsonValue>);
+      launched = outsideTools(() => this.run({ ...run, id } as AgentRunStructuredSpec<JsonValue>));
     } catch (error) {
       launched = Promise.reject(error);
     } finally {
@@ -3478,14 +3483,17 @@ class LogicalAgent implements AgentRef {
   private startMessageOperation(scope: MessagingScope): void {
     const owner = this.options.messageOwner(scope);
     if (!owner) return;
-    const result = this.queue(async () => {
-      if (this.#closed || this.options.isRunClosing()) return;
-      // What is first now: a message dropped since this was queued leaves another route's, which
-      // waits for an operation of its own scope.
-      const opening = this.options.messaging.opening(this.key);
-      if (opening?.scope !== scope) return;
-      await this.executeMessageOperation(opening.from, scope, owner.stage);
-    });
+    // Whatever code made the message due, a handler included, nothing waits for its operation.
+    const result = outsideTools(() =>
+      this.queue(async () => {
+        if (this.#closed || this.options.isRunClosing()) return;
+        // What is first now: a message dropped since this was queued leaves another route's, which
+        // waits for an operation of its own scope.
+        const opening = this.options.messaging.opening(this.key);
+        if (opening?.scope !== scope) return;
+        await this.executeMessageOperation(opening.from, scope, owner.stage);
+      }),
+    );
     this.options.track(result).catch(() => undefined);
     owner.adopt(result);
   }

@@ -11,7 +11,7 @@ harness.
 | --- | --- | --- |
 | Workflow author | Public TypeScript interface | [`packages/contract/src/workflow/`](../../packages/contract/src/workflow/) |
 | Engine and harness adapter | Internal TypeScript interface | [`packages/harness/src/adapter.ts`](../../packages/harness/src/adapter.ts) |
-| Agent inside a session | Prompt, skills, harness tools, and result CLI | Described below |
+| Agent inside a session | Prompt, skills, harness tools, the workflow's tools, and result CLI | Described below |
 
 The scenarios under [`examples/`](../../examples/) use only the public interface. They do not know how
 a terminal session is started or how an answer is collected.
@@ -175,14 +175,18 @@ A nudge is another prompt in the same logical operation sequence. A compaction i
 own command, with the workflow's focus; the agent answers nothing for it.
 Allowed messaging routes and their purposes are taught in its operation prompt, a message
 operation's first turn included; a route granted later is announced in the next envelope.
+The workflow's tools the agent holds are taught in each operation prompt, each with its
+description and its flags or schema.
 
-The engine-owned CLI provides result submission, route discovery, and messaging:
+The engine-owned CLI provides result submission, tool calls, route discovery, and messaging:
 
 ```sh
 wf result <call-id> --verdict 'approve'
 wf result <call-id> <<'WF_JSON'
 {"verdict":"approve"}
 WF_JSON
+
+wf tool close_item --id 'a1' --status 'done' --why 'Fixed in src/logo.ts'
 
 wf peers
 wf send reviewer 'Findings are ready in REVIEW.md'

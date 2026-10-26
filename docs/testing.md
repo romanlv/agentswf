@@ -80,6 +80,14 @@ What they cover between them:
   headless session's record, a claude pane's receipt), `unconfirmed` where it cannot (cursor's
   store, a codex, pi or cursor pane). `bun tests/messaging.eval.ts codex-pane` runs one; with no
   names, the four headless ones. 8 agents each way, ~25 s, ~$0.25.
+- `tools` — story 035's tools, from the lesson alone, on codex, pi and cursor headless and in a
+  pane, and claude in a pane: each agent lists the open items, a tool with no input, labels one, a
+  tool taught as JSON, and closes both with flags, one reason holding `'` and `$HOME`, which must
+  arrive word for word; then answers with flags. It prints each agent's refused and failed calls
+  and rejected results. `bun tests/tools.eval.ts slow` makes the no-input tool take 15 s on codex
+  and 40 s on cursor, past the time each lets a shell command run, and its handler must run once,
+  with no refusal. 7 agents, ~1 min; the five run so far, pi not yet, came to ~$0.11 at list
+  prices; `slow` 2 more, ~2 min.
 - `coordinator` — story 032's coordinator: each investigator reports to it and asks it for a
   codeword, the answer comes through the run's holder as an app's would, and the asker goes on in
   the same call. Claude and codex headless. `bun tests/coordinator.eval.ts --late` gives each
@@ -214,17 +222,19 @@ as story 002 did to check accounting against the session files.
   eval`, all of it — at the cost above there is no reason to pick. Record the date, outcome and cost in the
   story's Verification section.
 - **While working on one area:** the matching eval — `harnesses` for an adapter, liveness or usage
-  reader; `turn-liveness` for waiting, repeated check-ins, receipt or release; `minimum-review` for panes, the control plane or the result channel; `failed-run` for run
-  lifecycle, cancellation, accounting or `output.json`; `sandbox-srt` and `sandbox-docker` for
-  `packages/sandbox`, a harness's sandbox needs, or the engine's sandboxes; `skills` for
-  `engine/src/skills`, `harness/src/capabilities` or a harness's launch arguments; `sandbox-panes-srt` and
+  reader; `turn-liveness` for waiting, repeated check-ins, receipt or release; `minimum-review` for
+  panes, the control plane or the result channel; `failed-run` for run lifecycle, cancellation,
+  accounting or `output.json`; `sandbox-srt` and `sandbox-docker` for `packages/sandbox`, a
+  harness's sandbox needs, or the engine's sandboxes; `skills` for `engine/src/skills`,
+  `harness/src/capabilities` or a harness's launch arguments; `sandbox-panes-srt` and
   `sandbox-panes-docker` for a sandboxed pane, the Herdr host's typed start or a box's Herdr;
-  `run-sandbox` for `awf run --sandbox` or how awf-lab runs a trial; `calling-session` for
+  `run-sandbox` for `awf run --sandbox` or how awf-lab runs a trial; `tools` for workflow tools, the
+  lesson, flags on `wf tool` or `wf result`, or a harness's shell limits; `calling-session` for
   `awf run --here`, `agents.caller` or the caller's Herdr backend. `awf runs`, `awf logs` and the
   activity readers have no eval: run `examples/quick-check` on the harness you changed, headless and
   in a pane (`-- pi pi-pane`), and in another shell follow it with the `awf logs` its first line
-  names, then `--after {cursor} --wait 90` as each page says. Pane layout, `keepPane` and the
-  marks that sweep a dead run's panes have no eval, as their result is what a person sees: run
+  names, then `--after {cursor} --wait 90` as each page says. Pane layout, `keepPane` and the marks
+  that sweep a dead run's panes have no eval, as their result is what a person sees: run
   `examples/pane-layout` from a Herdr pane and look (three codex luna agents, a few cents).
 - **Level 4:** only when a story names it.
 

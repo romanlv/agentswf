@@ -368,13 +368,16 @@ exit codes: `tool-result` 0, `tool-failed` `failed` 1, `timed-out` and `cancelle
   is neither a positive integer nor `false`. The lesson goes in every prompt, and these keep it
   bounded.
 - **Checks, in order**, each a refusal that runs no handler (`TOOL_CODES`): the agent has a
-  current operation (`no-operation`); a result is
-  already accepted for the operation (`result-accepted`); a call of this agent still runs
-  (`tool-busy`); the tool is the agent's (`unknown-tool`); the input is a JSON object within 64 KiB
+  current operation (`no-operation`); a result is already accepted for the operation
+  (`result-accepted`); a call of this agent still runs (`tool-busy`), unless this is the same call
+  again, the same tool with the same input, which joins the running call once and gets its answer,
+  unrecorded; the tool is the agent's (`unknown-tool`); the input is a JSON object within 64 KiB
   that fits the schema, or is none for a tool that takes none (`invalid-input`, with the schema's
   errors, as `wf result` gives them).
   `tool-busy` keeps a waiting call from holding one of the 64 connections all agents share
-  (`control-plane.ts:17`); claude may run shell commands in parallel, and calls again.
+  (`control-plane.ts:17`); claude may run shell commands in parallel, and calls again. The join is
+  for codex, whose shell hands a slow command back with nothing left to read it from, so the agent
+  calls again (task 7): the handler runs once all the same.
 - **Simple input**, for a tool's input and for a turn's result alike: an object of at most 6
   properties, each a string, a number, an integer, a boolean or an enum, with no constraint but
   `required`, `minimum`, `maximum` and `minLength`, the bounds awf's schema has
@@ -488,6 +491,7 @@ exit codes: `tool-result` 0, `tool-failed` `failed` 1, `timed-out` and `cancelle
 - **Records**, in the run's event log, as their neighbours are written, keyed; `call` is
   `ToolCall.id`, and `tool-ended` names its call by it:
   - `tool-called` `{ call, callPath, stage?, operationId, agent, tool, input }`, once the checks pass;
+    a call that joins the one running writes nothing;
   - `tool-ended` `{ call, callPath, stage?, operationId, agent, tool, outcome: "ok" | "failed" |
     "timed-out" | "cancelled", error?, result?, durationMs }`, the call's keys repeated as
     `request-ended` repeats its question's, so `awf logs --agent` and `--stage` keep it;
@@ -551,6 +555,16 @@ Decided at task 1 (2026-10-26):
   the operation's deadline; there is no cap. M2 put codex's 10 s under any useful budget anyway, and
   a backgrounded call isn't lost.
 
+Decided at task 7 (2026-10-26):
+
+- The same call made again while it runs, the same tool with input equal once canonical, joins it
+  and gets its answer; one join per call, so a call still holds at most two of the shared
+  connections, and the join isn't recorded, the call's records being the call's. Codex re-calls a
+  handler past 10 s, since its shell hands the command back with nothing to poll, and no wording of
+  the refusal stopped it. The other ways: a codex-only lesson line, still a re-call when the agent
+  doesn't heed it; a default budget under 10 s, against Q11; or handlers that must be safe to run
+  twice, which every author would pay for.
+
 Alternatives rejected:
 
 - MCP first — native tool lists with schemas, but a config per harness, cursor's only in files in
@@ -583,8 +597,8 @@ Alternatives rejected:
 - [x] 4. The tools lesson
 - [x] 5. Records and `awf logs`
 - [x] 6. workflow-testing: a scripted agent calls a tool
-- [ ] 7. `examples/tools`, live
-- [ ] 8. With story 034: a started turn's calls, parking, `start()` from a handler, the sketch's `tools`
+- [x] 7. `examples/tools`, live (pi waits for its login)
+- [x] 8. With story 034: a started turn's calls, parking, `start()` from a handler, the sketch's `tools`
 
 ## Open questions
 
@@ -610,6 +624,9 @@ None.
     JSON. A command with nothing piped had `/dev/null` as standard input; every heredoc was a file.
     codex called `close_case` twice in 2 trials of 20, and claude `list_open` twice in 10.
   - Not measured: pi, whose login had expired; panes. Both go in task 7's live eval.
+  - Task 7, 2026-10-26, from the final lesson, with three tools (no input, JSON, flags) and a
+    result with flags: codex and cursor headless, codex, cursor and claude in a pane, each right
+    first time, 4 calls and no refusal or rejected result. Pi not run: its login had expired.
 - M2. **The shell's own timeout.** Measured 2026-10-26, from source and docs, and probed on codex
   `gpt-6-luna` and cursor `composer-2.5` headless with `sleep 40` and `sleep 150` (the scratchpad's
   `m2/`):
@@ -783,8 +800,8 @@ Done when:
   - an unknown tool, input that isn't JSON, isn't an object, is over 64 KiB or doesn't fit, and a
     call after a result is accepted are refused, exit 3, and the handler doesn't run;
   - a second call while the first runs is refused `tool-busy`, its stderr line saying to wait for
-    the running call; an `unknown` answer's line says it may have run; the owing line goes to
-    stderr;
+    the running call, unless it is the same call, which joins it once and prints its answer; an
+    `unknown` answer's line says it may have run; the owing line goes to stderr;
   - a handler that throws, or returns a `Date` or a cycle, exits 1 with the error, and the run goes
     on; a result over 64 KiB encoded fails;
 - tests, the budget and the end:
@@ -906,18 +923,45 @@ Outcome: a cheap model on each harness calls the example's tool from the lesson 
 
 Execution:
 
-- [ ] Plan, implement, review, resolve, verify (as in the template).
+- [x] Plan, implement, review, resolve, verify (as in the template).
+
+Implementation notes:
+
+- `examples/tools` runs one triager per runtime, each with three tools: `list_open`, no input;
+  `label_item`, taught as JSON, since its labels are a list; `close_item`, taught with flags. The
+  result is taught with flags too. `--slow={ms}` makes `list_open` take that long.
+  `tests/tools.eval.ts` checks each agent closed both items, the backup one with its title word for
+  word as the reason, and labelled it, and counts each agent's calls, refusals and failures from the
+  records.
+- Live, 2026-10-26, cheap models (codex `gpt-6-luna`, cursor `composer-2.5`, claude
+  `claude-sonnet-5-5`):
+  - codex and cursor headless, codex, cursor and claude in a pane: every agent right first time,
+    4 calls and no refusal each; the reason with `'` and `$HOME` arrived word for word every time.
+    About $0.11 at list prices for the five, run again after the join with the same result.
+  - cursor, `list_open` taking 40 s: the command was backgrounded at 30 s, the agent read the
+    result from it, one call.
+  - codex, `list_open` taking 15 s: its shell handed the command back at 10 s, and the agent didn't
+    poll it. It ran `wf tool list_open` again at 14 s, refused `tool-busy`; the first call ended at
+    15 s unread; it called a third time, which ran the handler again, and polled that one. So on
+    codex a handler past 10 s is called again: M2's risk, seen. Its session log says why: its first
+    `exec_command` printed only the output, so nothing was left to poll, and the process was gone.
+    Rewording `tool-busy` didn't change it. So the same call made again while it runs now joins it
+    and gets its answer: run again, codex called at 12 s, joined, read the list at 15 s, and the
+    handler ran once, no refusal.
+  - Not run: pi, whose login had expired again; claude headless, billed per token.
 
 Done when:
 
-- `examples/tools/*.eval.ts` passes on claude, codex, cursor and pi on their cheap models, in a pane
-  and headless, for a tool and a result taught with flags, a tool with no input, and a tool taught
-  with JSON, its input not simple, and its first-try rate is recorded beside M1's; in a pane on
-  every harness, a no-input call and a call with flags return at once, without waiting on standard
-  input.
-- a handler that takes 15 s, past codex's 10 s: codex polls the command and reads the result;
-  one that takes 40 s on cursor, past its 30 s: the agent reads it from the background; neither
-  calls the tool again.
+- `tests/tools.eval.ts` passes on codex, cursor and pi on their cheap models, in a pane and
+  headless, and claude in a pane (headless claude is billed per token, which `docs/testing.md`
+  keeps out where a feature doesn't need it), for a tool and a result taught with flags, a tool
+  with no input, and a tool taught with JSON, its input not simple, and its first-try rate is
+  recorded beside M1's; in a pane on every harness, a no-input call and a call with flags complete
+  the turn, which they wouldn't if they waited on standard input.
+- a handler that takes 15 s, past codex's 10 s, and one that takes 40 s on cursor, past its 30 s:
+  each agent reads the result, and the handler runs once with no refusal. A join isn't recorded, so
+  whether codex polled or joined is read from its session log, and its first-try count misses the
+  joined call.
 
 ### 8. With story 034
 
@@ -925,7 +969,25 @@ Outcome: tools work with 034's turns not awaited and parking, as "With story 034
 
 Execution:
 
-- [ ] Plan, implement, review, resolve, verify (as in the template).
+- [x] Plan, implement, review, resolve, verify (as in the template).
+
+Implementation notes:
+
+- Most of it held already: a started turn's operation waits for its calls before it ends, as every
+  operation does (task 3), so its end, `cancel()` and the run's parking come after; the tests in
+  `tools.test.ts` ("with started turns") pin it, a handler lingering 200 ms past its abort.
+- `cancel()` on a started turn from a handler of its agent is refused `agent-in-tool`; it waited
+  for the turn, which waits for the handler. `start()` checks `agent-in-tool` before 034's
+  refusal of a `start()` in a stage, so a handler of a turn in a stage hears the first.
+- A turn `start()` begins from a handler runs outside it, as nothing waits for it: its own
+  handlers may then work the first agent, whose later turns it would otherwise be refused. So does
+  a message turn a handler made due, by a run whose end let a held message through, or by `allow`.
+- Left: a handler that starts a turn and then cancels it, while that turn's handler runs work on
+  the first handler's agent, isn't refused; it waits until the settle drops the second handler,
+  5 s, and leaves that work queued: a real turn that later runs on the first agent, unawaited.
+  Refusing it would mean tracking which handler started a turn, and would refuse fair cancels.
+- `dd-case.ts` gives `close_case` through `tools`; its handler awaits `emitToSelf` with no id and
+  returns a line for the agent.
 
 Done when:
 

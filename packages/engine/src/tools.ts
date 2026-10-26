@@ -10,6 +10,7 @@ import {
   TOOL_LIMITS,
   type ToolSpec,
 } from "@agentswf/contract/workflow";
+import { canonical } from "./canonical-json";
 import { scheduleAt } from "./deadlines";
 import { messageOf } from "./errors";
 import type { RunEventBody } from "./run-event-log";
@@ -20,8 +21,9 @@ export const TOOL_SETTLE_MS = 5_000;
 
 /**
  * The agents whose handlers the current code runs in, innermost last: one of them can't be given
- * work, since its turn waits for the handler. It crosses into an operation started from a handler,
- * kept with the operation, so a call into that operation adds to it.
+ * work, since its turn waits for the handler. It crosses into an operation a handler awaits (`run`,
+ * `compact`, `set`, `fork`), kept with the operation, so a call into that operation adds to it; a
+ * turn `start()` begins and a message turn run outside it (`outsideTools`).
  */
 const toolStack = new AsyncLocalStorage<readonly AgentKey[]>();
 
@@ -31,6 +33,11 @@ export function refusedInTool(agent: AgentKey, what: string): Error | undefined 
   return new Error(
     `agent-in-tool: ${what} on agent ${agent} is refused, as its tool call is running and its turn waits for it`,
   );
+}
+
+/** Runs `fn` outside every handler: for a turn no handler waits for, started or a message's. */
+export function outsideTools<T>(fn: () => T): T {
+  return toolStack.run([], fn);
 }
 
 /** Whether the current code runs in a tool's handler. */
@@ -66,6 +73,11 @@ type Held = { specs: AgentTools; schemas: Map<string, JsonSchema | undefined> };
 
 type Running = {
   tool: string;
+  /** Its input, canonical, to tell the same call made again. */
+  input: string;
+  /** Its answer, for the one call that joins it. */
+  answered: Promise<ToolAnswer>;
+  joined: boolean;
   /** When it will have settled, at the latest; absent when only its handler ends it. */
   settledBy?: number;
   abort(cause: ToolFailure): void;
@@ -228,15 +240,31 @@ export class ToolCalls<Scope> {
         "your result is accepted, so this turn is ending; the tool wasn't run",
       );
     }
-    if (operation.running) {
-      return refuse(
-        "tool-busy",
-        `your call of ${operation.running.tool} is still running; wait for it to answer, then call again`,
-      );
-    }
     const tools = this.#held.get(agent);
     const spec =
       tools && Object.hasOwn(tools.specs, request.tool) ? tools.specs[request.tool] : undefined;
+    const busy = operation.running;
+    if (busy) {
+      // A harness that hands a slow command back before it ends leaves the agent nothing to read
+      // its answer from, so it calls again: the same call joins the one running, once.
+      const same =
+        spec && busy.tool === request.tool && !busy.joined
+          ? readInput(request.tool, tools?.schemas.get(request.tool), request)
+          : undefined;
+      if (same?.ok && inputKey(same.value) === busy.input) {
+        busy.joined = true;
+        lifetime(
+          busy.settledBy === undefined
+            ? undefined
+            : Math.max(busy.settledBy - this.#now(), 0) + TOOL_SETTLE_MS,
+        );
+        return busy.answered;
+      }
+      return refuse(
+        "tool-busy",
+        `your call of ${busy.tool} is still running; wait for it to answer, then call again`,
+      );
+    }
     if (!tools || !spec) {
       const names = tools ? Object.keys(tools.specs) : [];
       return refuse(
@@ -261,8 +289,12 @@ export class ToolCalls<Scope> {
     const bound =
       deadline !== undefined && budgetEnd === deadline ? ("deadline" as const) : timeoutMs;
     const { promise: settled, resolve: settle } = Promise.withResolvers<void>();
+    const { promise: answered, resolve: answer } = Promise.withResolvers<ToolAnswer>();
     const running: Running = {
       tool: request.tool,
+      input: inputKey(read.value),
+      answered,
+      joined: false,
       ...optional("settledBy", budgetEnd === undefined ? undefined : budgetEnd + TOOL_SETTLE_MS),
       abort: (why) => {
         if (cause || handlerEnded) return;
@@ -288,66 +320,71 @@ export class ToolCalls<Scope> {
       agent,
       tool: request.tool,
     };
-    try {
-      if (!(await this.#host.record({ kind: "tool-called", ...keys, input: read.value }))) {
-        return { kind: "refused", code: "internal-error", error: UNRECORDED_CALL };
-      }
-      // In steps, as every engine deadline is: a budget weeks away must not overflow a timer.
-      const cancelTimer =
-        budgetEnd === undefined
-          ? undefined
-          : scheduleAt({ unixMilliseconds: budgetEnd }, () => running.abort("timed-out"));
-      if (cause) {
-        // Its operation ended, or its budget passed, before it could start: the handler isn't run.
-        const error = `${request.tool} wasn't run: ${cause === "timed-out" ? "its time was up" : "your turn ended"} first`;
-        const recorded = await this.#host.record({
-          kind: "tool-ended",
-          ...keys,
-          outcome: cause,
-          error,
-          durationMs: 0,
-        });
-        cancelTimer?.();
-        return recorded
-          ? { kind: "tool-failed", outcome: cause, error }
-          : { kind: "refused", code: "internal-error", error: UNRECORDED_END };
-      }
-      const handlerStart = this.#now();
-      const ended = await this.#settle(
-        spec,
-        read.value,
-        { id, agent, signal: controller.signal },
-        operation,
-        // As soon as it returns or throws, before an abort racing it could count.
-        () => {
+    answer(
+      (async (): Promise<ToolAnswer> => {
+        try {
+          if (!(await this.#host.record({ kind: "tool-called", ...keys, input: read.value }))) {
+            return { kind: "refused", code: "internal-error", error: UNRECORDED_CALL };
+          }
+          // In steps, as every engine deadline is: a budget weeks away must not overflow a timer.
+          const cancelTimer =
+            budgetEnd === undefined
+              ? undefined
+              : scheduleAt({ unixMilliseconds: budgetEnd }, () => running.abort("timed-out"));
+          if (cause) {
+            // Its operation ended, or its budget passed, before it could start: the handler isn't run.
+            const error = `${request.tool} wasn't run: ${cause === "timed-out" ? "its time was up" : "your turn ended"} first`;
+            const recorded = await this.#host.record({
+              kind: "tool-ended",
+              ...keys,
+              outcome: cause,
+              error,
+              durationMs: 0,
+            });
+            cancelTimer?.();
+            return recorded
+              ? { kind: "tool-failed", outcome: cause, error }
+              : { kind: "refused", code: "internal-error", error: UNRECORDED_END };
+          }
+          const handlerStart = this.#now();
+          const ended = await this.#settle(
+            spec,
+            read.value,
+            { id, agent, signal: controller.signal },
+            operation,
+            // As soon as it returns or throws, before an abort racing it could count.
+            () => {
+              handlerEnded = true;
+            },
+          );
           handlerEnded = true;
-        },
-      );
-      handlerEnded = true;
-      cancelTimer?.();
-      const durationMs = this.#now() - handlerStart;
-      const answer = cause ? aborted(request.tool, cause, bound) : ended;
-      const outcome = answer.kind === "tool-result" ? "ok" : answer.outcome;
-      const recorded = await this.#host.record({
-        kind: "tool-ended",
-        ...keys,
-        outcome,
-        ...(answer.kind === "tool-result" &&
-        ended.kind === "tool-result" &&
-        ended.value !== undefined
-          ? { result: ended.value }
-          : {}),
-        ...(answer.kind === "tool-failed" ? { error: answer.error } : {}),
-        durationMs,
-      });
-      if (!recorded) return { kind: "refused", code: "internal-error", error: UNRECORDED_END };
-      return answer.kind === "tool-result"
-        ? { kind: "tool-result", ...optional("output", answer.output) }
-        : answer;
-    } finally {
-      operation.running = undefined;
-      settle();
-    }
+          cancelTimer?.();
+          const durationMs = this.#now() - handlerStart;
+          const answer = cause ? aborted(request.tool, cause, bound) : ended;
+          const outcome = answer.kind === "tool-result" ? "ok" : answer.outcome;
+          const recorded = await this.#host.record({
+            kind: "tool-ended",
+            ...keys,
+            outcome,
+            ...(answer.kind === "tool-result" &&
+            ended.kind === "tool-result" &&
+            ended.value !== undefined
+              ? { result: ended.value }
+              : {}),
+            ...(answer.kind === "tool-failed" ? { error: answer.error } : {}),
+            durationMs,
+          });
+          if (!recorded) return { kind: "refused", code: "internal-error", error: UNRECORDED_END };
+          return answer.kind === "tool-result"
+            ? { kind: "tool-result", ...optional("output", answer.output) }
+            : answer;
+        } finally {
+          operation.running = undefined;
+          settle();
+        }
+      })(),
+    );
+    return answered;
   }
 
   /** Runs the handler, and waits for it at most `TOOL_SETTLE_MS` once its signal aborts. */
@@ -448,6 +485,11 @@ function aborted(
     outcome: cause,
     error: `${what}; it may have run, so check before calling it again`,
   };
+}
+
+/** An input as a key, the same for the same input sent as flags or as JSON in any key order. */
+function inputKey(input: Record<string, JsonValue>): string {
+  return JSON.stringify(canonical(input));
 }
 
 function readInput(

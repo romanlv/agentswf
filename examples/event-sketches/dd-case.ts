@@ -1,12 +1,12 @@
 // The Datadog watcher's case run, from agent/workflows/datadog-watcher/style-c-sketch.md: one run
 // per case, keyed by the case id. A type-checked sketch: the case's files are declared below, and
-// so is what it uses from beyond story 034 (tools, and the emit to its own mailbox they need).
+// so is the emit to its own mailbox its tool's handler needs, which awf doesn't have yet.
 import {
-  type AgentOpenSpec,
   defineEventWorkflow,
   isAnswered,
   type JsonValue,
   type TurnOutcome,
+  tool,
 } from "@agentswf/contract/workflow";
 import Type from "typebox";
 import { outputSchema } from "../output-schema";
@@ -59,21 +59,12 @@ declare const INVESTIGATOR: { standing: string } & Record<
 declare function fill(template: string, ...values: unknown[]): string;
 declare function failedNote(outcome: TurnOutcome<JsonValue>): string;
 
-// Beyond story 034: tools an agent calls (workflow-tools), and the emit to the run's own mailbox
-// their handlers use. Until then the port reads verdict.json when a turn ends.
-type Tool<Input> = {
-  description: string;
-  input: unknown;
-  handler: (input: Input, call: { id: string }) => Promise<unknown>;
-};
-declare function withTools(
-  spec: AgentOpenSpec,
-  tools: Record<string, Tool<{ status: "closed" | "noise"; why: string }>>,
-): AgentOpenSpec;
+// The emit to the run's own mailbox, which awf doesn't have yet; until it does, the port reads
+// verdict.json when a turn ends.
 declare function emitToSelf(
   name: "dd.closed",
   data: ClosedData,
-  options: { id: string },
+  options?: { id?: string },
 ): Promise<unknown>;
 
 const caseRun = defineEventWorkflow({
@@ -93,23 +84,25 @@ const caseRun = defineEventWorkflow({
         to: "code",
         labels: { title: kase.title },
       });
-      const investigator = await workflow.agents.open(
-        withTools(
-          { key: "investigator", runtime: "claude", cwd: AIR, instructions: INVESTIGATOR.standing },
-          {
-            close_case: {
-              description: "Close the case when the engineer says it's fixed or noise.",
-              input: Type.Omit(Closed, ["case", "by"]),
-              handler: (input, call) =>
-                emitToSelf(
-                  "dd.closed",
-                  { ...input, case: workflow.key, by: "thread" },
-                  { id: call.id.toLowerCase() },
-                ),
+      const investigator = await workflow.agents.open({
+        key: "investigator",
+        runtime: "claude",
+        cwd: AIR,
+        instructions: INVESTIGATOR.standing,
+        tools: {
+          close_case: tool({
+            description: "Close the case when the engineer says it's fixed or noise.",
+            // Wrapped again: Type.Omit drops the static type outputSchema gave Closed.
+            input: outputSchema(Type.Omit(Closed, ["case", "by"])),
+            // No id: a call's id changes when a turn runs again after a crash, and the case's own
+            // would drop a close after a reopen. A repeated close is the case's to absorb.
+            handler: async (input) => {
+              await emitToSelf("dd.closed", { ...input, case: workflow.key, by: "thread" });
+              return `Closing the case as ${input.status}.`;
             },
-          },
-        ),
-      );
+          }),
+        },
+      });
 
       for (;;) {
         const events = await workflow.receive({

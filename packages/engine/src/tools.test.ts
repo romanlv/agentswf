@@ -5,8 +5,12 @@ import { WIRE_VERSION } from "@agentswf/contract/wire";
 import {
   type AgentRef,
   type AgentTools,
+  type EventAgentRef,
+  isAnswered,
   type JsonObject,
+  type JsonValue,
   type OutputSchema,
+  type StartedTurn,
   tool,
   type WorkflowContext,
   type WorkflowDefinition,
@@ -15,10 +19,12 @@ import { createSingleSessionHostFactory } from "@agentswf/harness";
 import type { AgentRuntimeConfig, AgentSessionAdapter } from "@agentswf/harness/adapter";
 import { createFakeAdapter, type FakeAdapterTurnContext } from "@agentswf/harness/testing";
 import Type from "typebox";
+import { messageOf } from "./errors";
 import { logsCommand } from "./logs-command";
 import { readTurns } from "./runs";
-import { createTempRunDirs, exchange, future, runNew } from "./testing";
+import { caseRun, createTempRunDirs, exchange, future, runNew, startCase } from "./testing";
 import { ToolCalls, toolsLesson } from "./tools";
+import { answer, testWorkflow } from "./workflow-testing";
 
 const runDirs = createTempRunDirs();
 afterAll(() => runDirs.cleanup());
@@ -221,38 +227,54 @@ describe("a tool call", () => {
     expect(value).toBeNull();
   });
 
-  test("a second call while one runs is refused tool-busy, and wf result tool-running", async () => {
+  test("the same call made again while it runs joins it once; another is refused tool-busy, and wf result tool-running", async () => {
     let release!: () => void;
     const held = new Promise<void>((resolve) => {
       release = resolve;
     });
     const entered = Promise.withResolvers<void>();
+    let ran = 0;
+    const ID: OutputSchema<{ id: string }> = {
+      type: "object",
+      properties: { id: { type: "string" } },
+      required: ["id"],
+    };
     const { seen } = await withTools(
       {
         slow: tool({
           description: "Slow.",
-          handler: async () => {
+          input: ID,
+          handler: async ({ id }) => {
+            ran += 1;
             entered.resolve();
             await held;
-            return "late";
+            return `late ${id}`;
           },
         }),
       },
       async (wf, context) => {
-        const first = wf(["tool", "slow"]);
+        const first = wf(["tool", "slow", "--id", "a1"]);
         await entered.promise;
-        const second = await wf(["tool", "slow"]);
+        const other = await wf(["tool", "slow", "--id", "b2"]);
+        // The same input, sent as JSON this time.
+        const again = wf(["tool", "slow"], '{ "id": "a1" }');
+        const third = wf(["tool", "slow", "--id=a1"]);
+        // Whichever of the two came second is refused, which ends it before the handler can.
+        const refused = await Promise.race([again, third]);
         const result = await wf(["result", callIdOf(context)], '"early"');
         release();
-        return [await first, second, result];
+        const joined = refused === (await again) ? await third : await again;
+        return [await first, joined, other, refused, result];
       },
     );
-    const [first, second, result] = seen as Ran[];
-    expect(first!.stdout).toBe("late");
-    expect(second!.exitCode).toBe(3);
-    expect(second!.stderr).toContain(
-      "(tool-busy): your call of slow is still running; wait for it",
-    );
+    const [first, joined, other, refused, result] = seen as Ran[];
+    expect(first).toEqual({ exitCode: 0, stdout: "late a1", stderr: "" });
+    expect(joined).toEqual(first!);
+    expect(ran).toBe(1);
+    for (const busy of [other!, refused!]) {
+      expect(busy.exitCode).toBe(3);
+      expect(busy.stderr).toContain("(tool-busy): your call of slow is still running; wait for it");
+    }
     expect(result!.exitCode).toBe(1);
     expect(result!.stderr).toContain("tool-running");
   });
@@ -1362,4 +1384,309 @@ describe("tool records and awf logs", () => {
       ),
     ]);
   }, 20_000);
+});
+
+describe("with started turns", () => {
+  /** A tool that runs until its signal aborts, then takes 200 ms more to settle. */
+  const lingering = (seen: { entered: PromiseWithResolvers<void>; settledAt?: number }) =>
+    tool({
+      description: "Lingers.",
+      handler: async (_input, call) => {
+        seen.entered.resolve();
+        await new Promise((resolve) =>
+          call.signal.addEventListener("abort", resolve, { once: true }),
+        );
+        await Bun.sleep(200);
+        seen.settledAt = Date.now();
+      },
+    });
+  const calls = answer(async (turn) => {
+    await turn.tool("linger");
+    return "done";
+  });
+
+  test("a cancelled turn's end is written, and cancel() resolves, once its call has settled", async () => {
+    const seen = { entered: Promise.withResolvers<void>() } as Parameters<typeof lingering>[0];
+    const run = await testWorkflow(
+      caseRun(async (workflow) => {
+        await workflow.receive();
+        const agent = await workflow.agents.open({
+          key: "investigator",
+          runtime: "claude",
+          tools: { linger: lingering(seen) },
+        });
+        const turn = await agent.start({ prompt: "look" });
+        await seen.entered.promise;
+        const cancelled = await turn.cancel("closed");
+        const resolvedAt = Date.now();
+        const [end] = await workflow.receive();
+        return {
+          cancelled,
+          settledFirst: seen.settledAt !== undefined && seen.settledAt <= resolvedAt,
+          kind: end && agent.ended(end) ? end.data.outcome.kind : null,
+        };
+      }),
+      { ...startCase, agents: { investigator: calls } },
+    );
+    expect(run.value).toEqual({ cancelled: true, settledFirst: true, kind: "cancelled" });
+    const end = run.mailbox.find((each) => each.kind === "event" && each.name === "agent:ended");
+    expect(Date.parse(end!.at)).toBeGreaterThanOrEqual(seen.settledAt!);
+  });
+
+  test("a run with a call settling doesn't park until the turn's end is taken", async () => {
+    const seen = { entered: Promise.withResolvers<void>() } as Parameters<typeof lingering>[0];
+    const taken: boolean[] = [];
+    const run = await testWorkflow(
+      caseRun(async (workflow) => {
+        await workflow.receive();
+        const agent = await workflow.agents.open({
+          key: "investigator",
+          runtime: "claude",
+          tools: { linger: lingering(seen) },
+        });
+        const turn = await agent.start({ prompt: "look" });
+        await seen.entered.promise;
+        void turn.cancel();
+        for (;;)
+          for (const e of await workflow.receive({ label: "idle" }))
+            if (agent.ended(e)) taken.push(seen.settledAt !== undefined);
+      }),
+      { ...startCase, agents: { investigator: calls } },
+    );
+    expect(run.parked).toEqual({ label: "idle" });
+    expect(taken).toEqual([true]);
+  });
+
+  test("a turn started from a handler isn't in it: its own handler may cancel the first agent's next turn", async () => {
+    const ready = Promise.withResolvers<void>();
+    let a!: EventAgentRef;
+    let b!: EventAgentRef;
+    let next!: StartedTurn;
+    let turns = 0;
+    const run = await testWorkflow(
+      caseRun(async (workflow) => {
+        await workflow.receive();
+        a = await workflow.agents.open({
+          key: "a",
+          runtime: "claude",
+          tools: {
+            kick: tool({
+              description: "Starts b.",
+              handler: async () => void (await b.start({ prompt: "go" })),
+            }),
+          },
+        });
+        b = await workflow.agents.open({
+          key: "b",
+          runtime: "claude",
+          tools: {
+            stop_a: tool({
+              description: "Cancels a's turn.",
+              handler: async () => {
+                await ready.promise;
+                return String(await next.cancel("by b"));
+              },
+            }),
+          },
+        });
+        await a.start({ prompt: "one" });
+        let said: JsonValue = null;
+        let waiting = 2;
+        while (waiting > 0)
+          for (const e of await workflow.receive()) {
+            if (a.ended(e) && e.data.outcome.kind === "answered" && !next) {
+              next = await a.start({ prompt: "two" });
+              ready.resolve();
+            } else if (a.ended(e)) waiting -= 1;
+            else if (b.ended(e)) {
+              said = isAnswered(e.data.outcome) ? e.data.outcome.value : e.data.outcome.kind;
+              waiting -= 1;
+            }
+          }
+        return said;
+      }),
+      {
+        ...startCase,
+        agents: {
+          a: answer(async (turn) => {
+            turns += 1;
+            if (turns === 1) {
+              await turn.tool("kick");
+              return "one";
+            }
+            await new Promise((resolve) =>
+              turn.signal.addEventListener("abort", resolve, { once: true }),
+            );
+            return "two";
+          }),
+          b: answer(async (turn) => {
+            const stopped = await turn.tool("stop_a");
+            return stopped.kind === "result" ? (stopped.output ?? "") : stopped.error;
+          }),
+        },
+      },
+    );
+    expect(run.value).toBe("true");
+  });
+
+  test("a message turn a handler's run made due isn't in that handler", async () => {
+    const aRunning = Promise.withResolvers<void>();
+    const sent = Promise.withResolvers<void>();
+    const heard = Promise.withResolvers<string>();
+    let b!: AgentRef;
+    const workflow: WorkflowDefinition<null, JsonValue> = {
+      meta: { name: "held", description: "held" },
+      async run(context) {
+        const a = await context.agents.open({
+          key: "a",
+          runtime: "claude",
+          tools: {
+            poke_b: tool({
+              description: "Asks b for more.",
+              // b's turn that ran a has ended by now, so this waits for nothing.
+              handler: () =>
+                b.run({ prompt: "again" }).then(
+                  () => "ran",
+                  (error: unknown) => messageOf(error),
+                ),
+            }),
+          },
+        });
+        b = await context.agents.open({
+          key: "b",
+          runtime: "claude",
+          tools: {
+            ask_a: tool({
+              description: "Has a work.",
+              handler: async () => void (await a.run({ prompt: "work" })),
+            }),
+          },
+        });
+        const c = await context.agents.open({ key: "c", runtime: "claude" });
+        await context.messages.allow({ between: [c, a], purpose: "Talk." });
+        await Promise.all([b.run({ prompt: "go" }), c.run({ prompt: "tell a" })]);
+        return heard.promise;
+      },
+    };
+    const run = await testWorkflow(workflow, null, {
+      agents: {
+        // a's run is b's handler's; c's message arrives during it, so it is held until it ends.
+        a: answer(async () => {
+          aRunning.resolve();
+          await sent.promise;
+          return "worked";
+        }),
+        b: [
+          answer(async (turn) => {
+            await turn.tool("ask_a");
+            return "asked";
+          }),
+          answer("again"),
+        ],
+        c: answer(async (turn) => {
+          await aRunning.promise;
+          await turn.send("a", "hello");
+          sent.resolve();
+          return "told";
+        }),
+      },
+      messages: {
+        a: async (message) => {
+          const poked = await message.tool("poke_b");
+          heard.resolve(poked.kind === "result" ? (poked.output ?? "") : poked.error);
+          return message.silent();
+        },
+      },
+    });
+    expect(run.value).toBe("ran");
+  });
+
+  test("start() from a handler of a turn in a stage is refused agent-in-tool, not as in a stage", async () => {
+    let agent!: EventAgentRef;
+    const run = await testWorkflow(
+      caseRun(async (workflow) => {
+        await workflow.receive();
+        agent = await workflow.agents.open({
+          key: "investigator",
+          runtime: "claude",
+          tools: {
+            poke: tool({
+              description: "Pokes.",
+              handler: () =>
+                agent.start({ prompt: "again" }).then(
+                  () => "taken",
+                  (error: unknown) => messageOf(error),
+                ),
+            }),
+          },
+        });
+        let said: JsonValue = null;
+        await workflow.stage("look", async () => {
+          const { outcome } = await agent.run({ prompt: "look" });
+          said = isAnswered(outcome) ? outcome.value : outcome.kind;
+        });
+        return said;
+      }),
+      {
+        ...startCase,
+        agents: {
+          investigator: answer(async (turn) => {
+            const poked = await turn.tool("poke");
+            return poked.kind === "result" ? (poked.output ?? "") : poked.kind;
+          }),
+        },
+      },
+    );
+    expect(run.value).toStartWith("agent-in-tool: start() on agent investigator is refused");
+  });
+
+  test("start(), cancel() and receive() from a handler of the agent's started turn are refused first", async () => {
+    let agent!: EventAgentRef;
+    let started!: StartedTurn;
+    const run = await testWorkflow(
+      caseRun(async (workflow) => {
+        await workflow.receive();
+        agent = await workflow.agents.open({
+          key: "investigator",
+          runtime: "claude",
+          tools: {
+            poke: tool({
+              description: "Pokes.",
+              handler: async () => {
+                const errors: string[] = [];
+                for (const attempt of [
+                  () => agent.start({ prompt: "again" }),
+                  () => started.cancel(),
+                  () => workflow.receive(),
+                ])
+                  await attempt().then(
+                    () => errors.push("taken"),
+                    (error: unknown) => errors.push(messageOf(error)),
+                  );
+                return errors;
+              },
+            }),
+          },
+        });
+        started = await agent.start({ prompt: "look" });
+        const [end] = await workflow.receive();
+        return end && agent.ended(end) && isAnswered(end.data.outcome)
+          ? end.data.outcome.value
+          : null;
+      }),
+      {
+        ...startCase,
+        agents: {
+          investigator: answer(async (turn) => {
+            const poked = await turn.tool("poke");
+            return poked.kind === "result" ? (poked.output ?? "") : poked.kind;
+          }),
+        },
+      },
+    );
+    const errors = JSON.parse(run.value as string) as string[];
+    expect(errors[0]).toStartWith("agent-in-tool: start() on agent investigator is refused");
+    expect(errors[1]).toStartWith("agent-in-tool: cancel() on agent investigator is refused");
+    expect(errors[2]).toContain("receive() is refused in a tool's handler");
+  });
 });

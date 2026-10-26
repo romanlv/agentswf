@@ -534,12 +534,15 @@ const triager = await workflow.agents.open({
 - **The handler runs during the turn**, while the agent waits, so keep it short. It has 30 s by
   default; `timeoutMs` sets its own, and `false` leaves only the turn's deadline. A shell command
   that runs long is backgrounded by claude after 2 minutes and cursor after 30 s, and handed back to
-  codex to poll after 10 s, so a handler that answers within 10 s is never waited on that way. A string result
+  codex to poll after 10 s, so a handler that answers within 10 s is never waited on that way. An
+  agent that calls again with the same input while the call runs gets its answer, once; a call
+  after it ended runs it again, so a handler past 10 s should be safe to repeat. A string result
   prints as is, other JSON as JSON, nothing as nothing; a throw fails the call, not the run. Input
   that doesn't fit the schema is refused before it runs, and the agent corrects it.
-- **It can't give work to the agent that called it**, which is in a turn: `run`, `compact`, `set`,
-  `fork` and `agents.stop` on it throw, as they do on an agent whose handler ran this one's. It may
-  run another agent, except in the message turns a stage runs after its body, where no code can.
+- **It can't give work to the agent that called it**, which is in a turn: `run`, `start`, `compact`,
+  `set`, `fork`, `agents.stop` and `cancel()` on its started turn throw, as they do on an agent
+  whose handler ran this one's. It may run another agent, except in the message turns a stage runs
+  after its body, where no code can.
 - **A fork has its parent's tools** unless its spec gives its own; `tools: {}` gives none. The calling
   session's forks take none.
 - **Recorded:** each call, its input and its result or error are in the run's event log, and
@@ -659,7 +662,9 @@ awf emit --target case.ts dd.changes '{"case":"kombo-unique"}' --id 83d34d7
 - **Turns not awaited.** `agent.start()` takes what `run()` takes, plus `meta`, and returns once
   the turn is launched. Its end arrives at a wait as `agent:ended`, from the agent's key, with the
   outcome and `meta`; `agent.ended(e)` narrows it. `agent.turn` is set until a wait takes that end,
-  and the agent refuses other work meanwhile. `agent.turn.cancel()` stops it.
+  and the agent refuses other work meanwhile. `agent.turn.cancel()` stops it; a tool call it has
+  running is aborted through `call.signal`, and the end and `cancel()` wait for the handler, at
+  most 5 s more.
 - **Parking.** Waiting with nothing else of the run working (no turn, decision, sandbox or other
   stage) and nothing unacknowledged, the run ends its attempt
   `parked` and its process exits. Plain code running beside the wait, outside any awf call, is
@@ -915,6 +920,5 @@ the run's deadline, none by default.
 These are in the types and throw `unavailable` today: `agents.attach` (beyond the calling
 session), `steps` (durable steps and sleep), and `call` (one workflow calling another). Events
 (story 034) are being built: `receive`, `emit`, `agent.start` and parking throw `unavailable` until
-it lands. Tools (story 035) are being built: `tools` is in the types, and `open` and `fork` refuse
-it until it lands. [`docs/status.md`](status.md) says what's next.
+it lands. [`docs/status.md`](status.md) says what's next.
 
