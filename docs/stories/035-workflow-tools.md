@@ -580,7 +580,7 @@ Alternatives rejected:
 - [x] 1. The contract: the tool spec, `ToolCall`, the wire, the records, the commands' usage, the lesson; reviewed before building
 - [x] 2. Flags for a simple input, on `wf result`: the engine reads them by the schema, the prompt shows the usage line
 - [x] 3. A tool called over the wire: binding, checks, the handler in its scope, its budget and end
-- [ ] 4. The tools lesson
+- [x] 4. The tools lesson
 - [ ] 5. Records and `awf logs`
 - [ ] 6. workflow-testing: a scripted agent calls a tool
 - [ ] 7. `examples/tools`, live
@@ -825,7 +825,23 @@ Outcome: every operation's prompt teaches the agent's tools, with their descript
 
 Execution:
 
-- [ ] Plan, implement, review, resolve, verify (as in the template).
+- [x] Plan, implement, review, resolve, verify (as in the template). Reviewed in three rounds,
+  the last clean; live on codex and cursor.
+
+Implementation notes:
+
+- `toolsLesson` in `tools.ts`, from `ToolCalls.taught`: the call form, the heredoc form only when a
+  tool is taught as JSON, the quoting rule only when a tool takes flags and the result block didn't
+  say it, then each tool. A workflow turn's block follows its result block in its first prompt; a
+  message turn's follows what it opens on. Check-ins don't repeat it: they continue the same turn,
+  as the routes lesson isn't repeated either.
+- A description's own lines are indented under it. An input schema of no properties,
+  `Type.Object({})`, is a tool that takes no input, called and taught by its name alone, unless it
+  says `additionalProperties: true`, which takes any JSON object.
+- Live, 2026-10-26: `examples/tools` on codex `gpt-6-luna` and cursor `composer-2.5` headless, from
+  the lesson alone: `list_open`, then both items closed with flags first time, the backup item's
+  title, with its `'` and `$HOME`, arriving word for word; three `tool-called` and `tool-ended`
+  records each.
 
 Done when:
 

@@ -1,5 +1,6 @@
 import { afterAll, describe, expect, test } from "bun:test";
 import { join } from "node:path";
+import type { JsonSchema } from "@agentswf/contract/schema";
 import {
   type AgentRef,
   type AgentTools,
@@ -15,7 +16,7 @@ import { createFakeAdapter, type FakeAdapterTurnContext } from "@agentswf/harnes
 import Type from "typebox";
 import { readTurns } from "./runs";
 import { createTempRunDirs, future, runNew } from "./testing";
-import { ToolCalls } from "./tools";
+import { ToolCalls, toolsLesson } from "./tools";
 
 const runDirs = createTempRunDirs();
 afterAll(() => runDirs.cleanup());
@@ -723,6 +724,34 @@ describe("ToolCalls", () => {
     });
   });
 
+  test("an input of no properties is no input: the name alone, and taught that way", async () => {
+    const calls = new ToolCalls<undefined>({
+      record: async () => true,
+      runIn: (_scope, fn) => fn(),
+    });
+    calls.give("a", {
+      ping: tool({ description: "Ping.", input: Type.Object({}), handler: () => "pong" }),
+    });
+    calls.opened(operation);
+    calls.give("b", {
+      bag: tool({
+        description: "Any JSON.",
+        input: Type.Object({}, { additionalProperties: true }),
+        handler: (input) => JSON.stringify(input),
+      }),
+    });
+    expect(calls.taught("b")[0]?.input).toEqual({
+      type: "object",
+      properties: {},
+      additionalProperties: true,
+    });
+    expect(calls.taught("a")).toEqual([{ name: "ping", description: "Ping." }]);
+    expect(await calls.call("a", { version: 5, command: "tool", tool: "ping" }, () => {})).toEqual({
+      kind: "tool-result",
+      output: "pong",
+    });
+  });
+
   test("a call whose deadline has already passed doesn't run its handler", async () => {
     let ran = false;
     const calls = new ToolCalls<undefined>({
@@ -1037,5 +1066,186 @@ describe("more of tools on a spec", () => {
       "fork: fork's own",
     ]);
     expect(result.value).toEqual([expect.stringContaining("a tool's name matches")]);
+  });
+});
+
+describe("the tools lesson", () => {
+  type Taught = { name: string; description: string; input?: JsonSchema };
+  const close: Taught & { input: JsonSchema } = {
+    name: "close_case",
+    description: "Close the case when the engineer says it's fixed or noise.",
+    input: {
+      type: "object",
+      properties: {
+        status: {
+          anyOf: [
+            { type: "string", const: "closed" },
+            { type: "string", const: "noise" },
+          ],
+        },
+        why: { type: "string" },
+      },
+      required: ["status", "why"],
+    },
+  };
+  const list = { name: "list_open", description: "The cases still open, one per line." };
+
+  test("is the story's: the call form, then each tool's description and usage line", () => {
+    expect(toolsLesson([close, list], "wf", true)).toBe(
+      [
+        "You have tools the workflow runs for you. Call one with:",
+        "",
+        "wf tool <name> --<option> '<value>' ...",
+        "",
+        "- close_case: Close the case when the engineer says it's fixed or noise.",
+        "  wf tool close_case --status closed|noise --why <text>",
+        "- list_open: The cases still open, one per line.",
+        "  wf tool list_open",
+      ].join("\n"),
+    );
+  });
+
+  test("says the quoting rule when the result block didn't; a tool taught as JSON adds the heredoc form", () => {
+    const nested: Taught = {
+      name: "file",
+      description: "File items.",
+      input: {
+        type: "object",
+        properties: { items: { type: "array", items: { type: "string" } } },
+      },
+    };
+    expect(toolsLesson([close, nested], "wf", false)).toBe(
+      [
+        "You have tools the workflow runs for you. Call one with:",
+        "",
+        "wf tool <name> --<option> '<value>' ...",
+        "wf tool <name> <<'WF_JSON'",
+        "<json>",
+        "WF_JSON",
+        "",
+        "Put every value in single quotes; a ' inside a value is written '\\''.",
+        "",
+        "- close_case: Close the case when the engineer says it's fixed or noise.",
+        "  wf tool close_case --status closed|noise --why <text>",
+        `- file: File items.\n  input: ${JSON.stringify(nested.input)}`,
+      ].join("\n"),
+    );
+    // A description's own lines stay under its tool.
+    expect(
+      toolsLesson([{ name: "two", description: "First.\n- not a tool" }], "wf", true),
+    ).toContain("- two: First.\n  - not a tool\n  wf tool two");
+    // Nothing to quote with no flags; no lesson with no tools.
+    expect(toolsLesson([list], "wf", false)).not.toContain("single quotes");
+    expect(toolsLesson([], "wf", false)).toBeUndefined();
+  });
+
+  test("comes after the result block in a turn, with the quoting rule said once; none without tools", async () => {
+    const prompts: string[] = [];
+    const adapter = createFakeAdapter({
+      script: (context) => ({
+        act: async () => {
+          prompts.push(context.prompt);
+          await wf(launcherOf(context), ["result", callIdOf(context), "--answer", "x"]);
+        },
+      }),
+    });
+    const ANSWER: OutputSchema<{ answer: string }> = {
+      type: "object",
+      properties: { answer: { type: "string" } },
+      required: ["answer"],
+    };
+    const workflow: WorkflowDefinition<null, null> = {
+      meta: { name: "lesson", description: "lesson" },
+      async run(context) {
+        const run = (agent: AgentRef) =>
+          agent.run({ prompt: "Work.", schema: ANSWER, nudge: false });
+        await run(
+          await context.agents.open({
+            key: "with",
+            runtime: "fake",
+            tools: {
+              close_case: tool({
+                description: close.description,
+                input: close.input as never,
+                handler: () => "ok",
+              }),
+            },
+          }),
+        );
+        await run(await context.agents.open({ key: "without", runtime: "fake" }));
+        return null;
+      },
+    };
+    await runNew(workflow, null, {
+      runRoot: runDirs.tempRunDir(),
+      deadline: future(),
+      runtime: runtime(adapter),
+    });
+    const [withTools, without] = prompts;
+    const launcher = /(\/\S+\/wf) result/.exec(withTools!)![1]!;
+    expect(withTools).toEndWith(
+      [
+        `${launcher} result ${/result (\S+)/.exec(withTools!)![1]} --answer <text>`,
+        "",
+        "Put every value in single quotes; a ' inside a value is written '\\''.",
+        "",
+        "You have tools the workflow runs for you. Call one with:",
+        "",
+        `${launcher} tool <name> --<option> '<value>' ...`,
+        "",
+        "- close_case: Close the case when the engineer says it's fixed or noise.",
+        `  ${launcher} tool close_case --status closed|noise --why <text>`,
+      ].join("\n"),
+    );
+    expect(withTools!.split("single quotes")).toHaveLength(2);
+    expect(without).not.toContain("You have tools");
+  });
+
+  test("a message turn's prompt carries the block, quoting rule and all", async () => {
+    const prompts: string[] = [];
+    const adapter = createFakeAdapter({
+      script: (context) => ({
+        act: async () => {
+          const launcher = launcherOf(context);
+          if (context.activation.key === "asker") {
+            await wf(launcher, ["send", "peer", "go"]);
+            await wf(launcher, ["result", callIdOf(context)], '"done"');
+          } else prompts.push(context.prompt);
+        },
+      }),
+    });
+    const workflow: WorkflowDefinition<null, null> = {
+      meta: { name: "message-lesson", description: "message-lesson" },
+      async run(context) {
+        const asker = await context.agents.open({ key: "asker", runtime: "fake" });
+        const peer = await context.agents.open({
+          key: "peer",
+          runtime: "fake",
+          tools: {
+            close_case: tool({
+              description: close.description,
+              input: close.input as never,
+              handler: () => "ok",
+            }),
+          },
+        });
+        await context.messages.allow({ from: asker, to: peer, purpose: "Ask." });
+        await asker.run({ prompt: "Ask.", schema: TEXT, nudge: false });
+        return null;
+      },
+    };
+    await runNew(workflow, null, {
+      runRoot: runDirs.tempRunDir(),
+      deadline: future(),
+      runtime: runtime(adapter),
+    });
+    expect(prompts).toHaveLength(1);
+    const [opening, block] = prompts[0]!.split("\n\nYou have tools the workflow runs for you.");
+    expect(opening).toContain("go");
+    expect(block).toEndWith(
+      `  ${launcherOf({ prompt: prompts[0]! } as FakeAdapterTurnContext)} tool close_case --status closed|noise --why <text>`,
+    );
+    expect(prompts[0]!.split("Put every value in single quotes")).toHaveLength(2);
+    expect(prompts[0]).not.toContain("return it by running");
   });
 });

@@ -13,7 +13,7 @@ import {
 import { scheduleAt } from "./deadlines";
 import { messageOf } from "./errors";
 import type { RunEventBody } from "./run-event-log";
-import { checkGiven, readGiven, simpleInput, usageLine } from "./simple-input";
+import { checkGiven, QUOTING_RULE, readGiven, simpleInput, usageLine } from "./simple-input";
 
 /** How long a handler that ignores its aborted signal is waited for before its call is settled. */
 export const TOOL_SETTLE_MS = 5_000;
@@ -475,11 +475,42 @@ function readInput(
   return { ok: true, value: value as Record<string, JsonValue> };
 }
 
-/** What the lesson shows for a tool's input: its usage line, or its schema when not simple. */
-export function toolUsage(input: JsonSchema | undefined): { flags: string } | { schema: string } {
-  if (!input) return { flags: "" };
-  const simple = simpleInput(input);
-  return simple ? { flags: usageLine(simple) } : { schema: JSON.stringify(input) };
+/**
+ * The tools block of an operation's prompt: how to call one, then each tool's name and description
+ * and its usage line, or the schema for an input that isn't simple. The quoting rule comes with it
+ * unless the result block above already said it; none for an agent without tools.
+ */
+export function toolsLesson(
+  tools: readonly { name: string; description: string; input?: JsonSchema }[],
+  launcher: string,
+  quotingSaid: boolean,
+): string | undefined {
+  if (tools.length === 0) return undefined;
+  const taught = tools.map((each) => {
+    const simple = each.input ? simpleInput(each.input) : [];
+    return { ...each, simple };
+  });
+  const flags = taught.some((each) => each.simple && each.simple.length > 0);
+  const json = taught.some((each) => !each.simple);
+  const forms = [
+    flags ? `${launcher} tool <name> --<option> '<value>' ...` : `${launcher} tool <name>`,
+    ...(json ? [`${launcher} tool <name> <<'WF_JSON'`, "<json>", "WF_JSON"] : []),
+  ];
+  const entries = taught.map(({ name, description, input, simple }) => {
+    const usage = simple
+      ? `  ${[`${launcher} tool ${name}`, usageLine(simple)].filter(Boolean).join(" ")}`
+      : `  input: ${JSON.stringify(input)}`;
+    // Its own lines indented, so one can't read as another tool.
+    return `- ${name}: ${description.replaceAll("\n", "\n  ")}\n${usage}`;
+  });
+  return [
+    "You have tools the workflow runs for you. Call one with:",
+    "",
+    ...forms,
+    ...(flags && !quotingSaid ? ["", QUOTING_RULE] : []),
+    "",
+    ...entries,
+  ].join("\n");
 }
 
 function held(agent: AgentKey, tools: AgentTools): Held {
@@ -524,6 +555,12 @@ function held(agent: AgentKey, tools: AgentTools): Held {
     }
     if (!("type" in input) || input.type !== "object") {
       throw new Error(`${where}: its input schema must be an object`);
+    }
+    // `Type.Object({})` is a tool that takes nothing: called by its name alone. One that says it
+    // takes any properties, `additionalProperties: true`, is a bag of JSON.
+    if (Object.keys(input.properties).length === 0 && input.additionalProperties !== true) {
+      schemas.set(name, undefined);
+      continue;
     }
     if (Buffer.byteLength(canonicalSchema(input)) > TOOL_LIMITS.schemaBytes) {
       throw new Error(`${where}: its input schema is over ${TOOL_LIMITS.schemaBytes} bytes`);

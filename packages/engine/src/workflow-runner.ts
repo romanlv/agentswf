@@ -169,7 +169,7 @@ import { QUOTING_RULE, simpleInput, usageLine } from "./simple-input";
 import { placeSkills, RunSkills, readSkillSources } from "./skills/run-skills";
 import { StageLedger, type StageProgress } from "./stage-ledger";
 import { FromStageUnreached } from "./stopped";
-import { inToolHandler, refusedInTool, ToolCalls } from "./tools";
+import { inToolHandler, refusedInTool, ToolCalls, toolsLesson } from "./tools";
 
 export { WorkflowCancelledError } from "./deadlines";
 
@@ -3292,7 +3292,16 @@ class LogicalAgent implements AgentRef {
           .start(
             {
               id: spec.id!,
-              prompt: operationPrompt(prompt, schema, this.options.launcher, operationId),
+              prompt: [
+                operationPrompt(prompt, schema, this.options.launcher, operationId),
+                toolsLesson(
+                  this.options.tools.taught(this.key),
+                  this.options.launcher,
+                  simpleInput(schema) !== undefined,
+                ),
+              ]
+                .filter(Boolean)
+                .join("\n\n"),
               deadline: harnessDeadline(deadline),
               authored,
               onSession: session,
@@ -3598,7 +3607,13 @@ class LogicalAgent implements AgentRef {
             .start(
               {
                 id: operationId,
-                prompt: opening.text,
+                // A message turn's tools block, as a workflow turn's: after what it opens on.
+                prompt: [
+                  opening.text,
+                  toolsLesson(this.options.tools.taught(this.key), this.options.launcher, false),
+                ]
+                  .filter(Boolean)
+                  .join("\n\n"),
                 deadline: { unixMilliseconds: deadline },
                 authored,
                 onSession: operation.session,
