@@ -6,6 +6,7 @@ import { writeJson } from "./files";
 import { appendMailbox } from "./mailbox";
 import { runOperatorCli } from "./operator-cli";
 import { createRun, openRun, previousGone, processStart, readAttempts } from "./runs";
+import { stopCrashed } from "./stop-crashed";
 import { createTempRunDirs } from "./testing";
 import { wake } from "./wake";
 
@@ -259,3 +260,41 @@ test("a continue claims its attempt first, so wake returns, then waits for the p
     ).includes('"attempt":2'),
   );
 }, 60_000);
+
+test("a continue after a crash stops what is left of the crashed attempt's group", async () => {
+  // A detached attempt, as wake starts one, that crashed and left a child running in its group.
+  const attempt = Bun.spawn({
+    cmd: ["sh", "-c", "sleep 30 & echo $!"],
+    stdout: "pipe",
+    detached: true,
+  });
+  const reader = attempt.stdout.getReader();
+  const agent = Number(new TextDecoder().decode((await reader.read()).value).trim());
+  const alive = (pid: number) => {
+    try {
+      process.kill(pid, 0);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+  const started = processStart(attempt.pid) ?? "";
+  await attempt.exited;
+  expect(alive(agent)).toBe(true);
+  const home = dirs.tempRunDir();
+  await stopCrashed(
+    {
+      version: 1,
+      attempt: 1,
+      file: "/f.ts",
+      flags: {},
+      pid: attempt.pid,
+      processStart: started,
+      started: new Date().toISOString(),
+    },
+    "awf e2e-case e2e-case.k #1",
+    { home, environment: {} },
+  );
+  await Bun.sleep(100);
+  expect(alive(agent)).toBe(false);
+});

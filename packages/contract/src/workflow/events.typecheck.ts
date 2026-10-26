@@ -24,6 +24,7 @@ const caseRun = defineEventWorkflow({
     async run(workflow) {
       const thread = await workflow.participants.connect({ key: "thread", to: "code" });
       const investigator = await workflow.agents.open({ key: "investigator", runtime: "claude" });
+      const triage = await workflow.agents.open({ key: "triage", runtime: "claude" });
       for (;;) {
         const events = await workflow.receive({ label: workflow.key, until: Date.now() });
         for (const e of events) {
@@ -32,6 +33,8 @@ const caseRun = defineEventWorkflow({
             if (isAnswered(e.data.outcome)) void given.occurrences;
           }
           if (thread.replied(e)) void e.data.text.length;
+          // A second agent's end is still possible after the first's guard said no.
+          if (triage.ended<{ seen: number }>(e)) void e.data.meta.seen.toFixed();
           if (e.name === "dd.closed") {
             const by: "triage" | "thread" = e.data.by;
             void by;

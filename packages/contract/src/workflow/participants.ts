@@ -1,5 +1,5 @@
 import type { PARTICIPANT } from "../participant";
-import type { ParticipantReplyEvent } from "./events";
+import type { Matched, ParticipantReplyEvent } from "./events";
 import type { JsonObject } from "./json";
 
 export type ParticipantKey = string;
@@ -53,7 +53,10 @@ export interface CodeParticipantRef extends ExternalParticipantRef {
   /** Writes to it without a turn: an item in `awf inbox` for whatever answers as it. */
   post(text: string): Promise<void>;
   /** True for a message on this participant. */
-  replied(event: { readonly name: string; readonly from: string }): event is ParticipantReplyEvent;
+  replied(event: {
+    readonly name: string;
+    readonly from: string;
+  }): event is ParticipantReplyEvent & Matched;
 }
 
 /**

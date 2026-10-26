@@ -65,6 +65,14 @@ export type ParticipantReply = {
   author?: string;
 };
 
+/**
+ * Type-only: marks an event as the one agent or participant whose guard matched it. Without it, a
+ * guard's false branch would rule out every agent's end or every participant's reply, so a second
+ * agent's `ended(e)` after the first's could never be true.
+ */
+declare const MATCHED: unique symbol;
+export type Matched = { readonly [MATCHED]: true };
+
 /** awf's own events, a closed set: the key of the agent or participant is in `from`. */
 export type AgentEndedEvent<
   Meta extends JsonValue = JsonValue,

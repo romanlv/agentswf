@@ -51,6 +51,7 @@ import { claimNext, loadAndPrepare, type PreparedRun, workspaceLabel } from "./r
 import { findRun } from "./run-state";
 import { type Attempt, createRun, discardRun, endAttempt, type Run, RunRefused } from "./runs";
 import { runsCommand } from "./runs-command";
+import { stopCrashed } from "./stop-crashed";
 import { testCommand } from "./test-command";
 import { tickCommand } from "./tick-command";
 import type { Launch } from "./wake";
@@ -421,6 +422,16 @@ async function runAttempt(
   // Claimed first, which `wake` waits for holding the key's lock; only then waited on: two
   // attempts never share an agent's session.
   const previous = prepared.continued?.attempts.at(-1);
+  // A keyed run continued after a crash: what that attempt left working is stopped first (Q17).
+  if (run.record.key !== undefined && previous && previous.ended === undefined)
+    await stopCrashed(previous, workspaceLabel(meta.name, run.record.id, previous.attempt), {
+      home,
+      environment: environment.environment ?? process.env,
+    }).catch((error: unknown) =>
+      notice(
+        `awf: what attempt ${previous.attempt} left running was not all stopped: ${messageOf(error)}`,
+      ),
+    );
   const goOn: GoOn = (stop, entered) => continueCommand(command, id, stop, entered);
   const records = {
     attempt,
@@ -561,6 +572,9 @@ async function runAttempt(
               listenNudges: (given) => {
                 nudge = given;
               },
+
+              // After a crash its agents start new sessions: a harness may still count the killed
+              // writer as its session's, as codex's thread store did (story 034, task 6).
               resumeSessions: previous === undefined || previous.ended !== undefined,
               park: async () => {
                 await endAttempt(attempt, { outcome: "parked" });

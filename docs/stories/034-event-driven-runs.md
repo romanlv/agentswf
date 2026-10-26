@@ -418,7 +418,9 @@ As in "How it works". The rules and records in full:
   the end comes through the mailbox, and `agent.ended<M, T>(e)` is true for this agent's end and
   narrows `e.data` to `{ turn, meta: M, outcome: TurnOutcome<T> }`, the code saying what it started
   the turn with; the engine checks `outcome.value` against the turn's `schema`, as `run()` does. While `agent.turn` isn't `null`, the agent refuses `start()`, `run()`, `compact()`,
-  `set()`, `fork()` and messages from other agents. An awaited `run()` writes no mailbox `turn`
+  `set()` and `fork()`; messages from other agents wait until a wait takes the end, and a reply
+  awaited from it is refused, as the code that would take the end may be waiting on that reply. An
+  awaited `run()` writes no mailbox `turn`
   record and no `agent:ended`, only its `turns.jsonl` record, and a run never parks
   during it, since the code isn't at a wait. `agent.turn` clears when a wait takes the turn's end;
   on a continue, it is restored from the mailbox for a turn whose end no wait took. `cancel()` returns once the cancelled end is in the
@@ -521,7 +523,7 @@ turn, which the case's files keep and the wait's `until` reads.
 - [x] 3. The mailbox and `receive` in the engine
 - [x] 4. One way in: `awf emit --target`, the key's lock, append or refuse, `wake`
 - [x] 5. Parking: the `parked` ending, a continue to the wait with agents on their kept sessions, and `awf tick`
-- [ ] 6. Turns not awaited: `start()`, `turn`, `agent:ended`, `cancel()`
+- [x] 6. Turns not awaited: `start()`, `turn`, `agent:ended`, `cancel()`
 - [ ] 7. A participant routed to the code: `participant:reply`, `post`
 - [ ] 8. workflow-testing: scripted events
 - [ ] 9. The Datadog case run on it, against its sketch
@@ -595,7 +597,12 @@ into Q4. The published formats among them still stop for review at task 1.
   writers on one session corrupt it and Q6 already gives up the turn: the continue stops the
   old run's panes and agent processes before writing the failed end and reopening, as Q6 already
   treats the turn as failed. Adopting a turn still running would keep its work but needs reattaching to
-  a pane; not now.
+  a pane; not now. Measured in task 6 (2026-10-26): with the old attempt's process group stopped
+  and its panes swept, resuming a codex session the killed attempt was writing is refused by codex
+  itself, "thread … already has an active writer", as its thread store still counts the killed
+  writer. So a continue after a crash stops the old panes and processes, writes the failed end, and
+  opens its agents on new sessions; a continue after a parked or ended attempt reopens the kept
+  ones. To confirm with the operator.
 
 ### 7. A participant routed to the code
 
@@ -741,7 +748,7 @@ Done when:
 
 - tests with a fake agent: an event during a turn is taken before the turn ends; code that throws
   with a turn running cancels it and writes its end before the `failed` ending; `start()`, `run()`,
-  `compact()`, `set()`, `fork()` and a message to the agent are refused while a started turn is set; a turn that ended but whose
+  `compact()`, `set()` and `fork()` are refused while a started turn is set, and a message to the agent waits; a turn that ended but whose
   end hasn't been taken still refuses them; a continue after a crash restores `agent.turn` from
   the mailbox for a turn whose end no wait took; `agent:ended` carries the turn's id and `meta`, also when the engine writes it after
   a crash, and `agent.ended(e)` matches only its own agent's; a process killed between writing the
@@ -1129,3 +1136,84 @@ Built in the worktree `../worktrees/awf-event-driven-runs`, branch `event-driven
   workflow API says plain code beside a wait is cut off at a park; stale wording. Clear.
 - **Verified**: `bun test packages/engine` 917 pass, `packages/harness` 438 pass; `bun run check`
   passes.
+
+### Task 6: turns not awaited
+
+- **Where.** `LogicalAgent.start()`: refused outside a keyed run, and anywhere but the run's root,
+  as a turn not awaited would outlive a stage or a `parallel`. It records the mailbox's `turn`
+  (under the key's lock) before launching, hands the turn to the agent's own `run()`, and returns
+  the `StartedTurn`. The turn's whole chain, `run()` then the end's append, is tracked, so the run
+  neither parks nor reads as idle until `agent:ended` is in the mailbox. `RunMailbox.endTurn`
+  appends the end once, `awf.end.{sha256 of agent, turn and attempt}`, and nudges the run's own
+  wait.
+- **`agent.turn`** is set from `start()` until the owner's wait takes the end
+  (`endTaken`); meanwhile `start`, `run`, `compact`, `set` and `fork` are refused, also once the
+  turn ended untaken, messages to the agent wait, and a reply awaited from it is refused.
+  `cancel()` stops the turn's own operation, or, queued behind other work, has it settle cancelled
+  when reached, and resolves once the end is in the mailbox, `true` when that end is the cancelled
+  one, `false` at once on a turn that ended.
+- **When the code returns or throws**, the owner cancels every started turn still running and
+  waits for its end before the attempt's ending (`endStartedTurns`).
+- **After a crash** (`recoverTurns`, before the code runs): a `turn` of an earlier attempt with no
+  end gets a failed one, `retryable`, with its `meta`, so a process killed between the record and
+  the launch leaves an end, not an orphan; each agent's last turn whose end no wait took (not yet
+  taken, or taken and not acknowledged) is restored as its `agent.turn` when it opens.
+- **Q17.** A continue after a crash, before the code runs, stops what is left of the crashed
+  attempt's process group (only once its leader is gone, so a reused pid's group is never hit) and
+  sweeps its Herdr session when it left a workspace, which closes the workspaces of runs whose
+  process is dead (`stop-crashed.ts`). A harness's own process runs in a session of its own
+  (`setsid`), so one the crash orphaned is not reached; it isn't stopped yet. Agents open new
+  sessions after a crash, as the amended Q17 says: codex refused to resume a killed attempt's
+  session. Owed: recording each agent launch's group, as `LaunchedGroups` in the sandbox package
+  does, so a continue can stop an orphaned harness too.
+- **A type fix in task 1's contract**, found by these tests: `agent.ended(e)` and
+  `participant.replied(e)` narrow to their event `& Matched`, a type-only brand, since without it
+  a false branch ruled out every agent's end, and a second agent's `ended(e)` after the first's
+  narrowed to `never`. `events.typecheck.ts` pins two agents.
+- **`testWorkflow`** returns `run.mailbox`, the run's mailbox as it left it, for tests to see ends.
+- **Tests** (`turns.test.ts`, 9): the end arrives with the turn's id, `meta` and outcome, and
+  `ended` matches only its agent; every refusal, before and after an untaken end; an event during
+  a turn is taken before it ends; `cancel()`'s two answers; a throw and a return each cancel a
+  running turn and write its end; no park while a started turn runs, and a park once its end is
+  taken; `start` refused in a stage; `recoverTurns` writes a failed end for a crash's turn, keeps
+  one end, and restores the turn whose end no wait took. `bun test packages/engine` 926 pass;
+  `packages/contract`, `harness` and `examples` 554 pass; `bun run check` passes.
+- **Review 1** (two agents): 18 findings between them, fixed or recorded.
+  - Fixed: a turn a crash left is restored from a map the owner keeps and the wait clears, read
+    when the agent first needs it, so an agent opened after the wait took its end is free, and one
+    opened before refuses work from its first call, not only once `turn` is read; a turn id is
+    begun once per attempt, and an end's id includes the attempt its turn began in, so code that
+    begins the same id again after a crash gets a turn of its own; two `start()` at once start one
+    turn (the turn is claimed before the first await); `start()` is refused while the agent works
+    on something else, so `cancel()` stops its own turn; `cancel()` is `true` only when the end it
+    waited for is the cancelled one; a synchronous throw from `run()` becomes the turn's failed
+    end; ending started turns at the body's end is bounded like cleanup, and a failure is logged;
+    the `turn` record keeps the agent's `execution`, which an end written after a crash carries;
+    a reply awaited from an agent with a started turn is refused, as it could wait on code that is
+    itself waiting (messages to it wait, as the design now says).
+  - Q17: a continue after a crash stops what is left of the crashed attempt's process group and
+    sweeps its Herdr workspace before the failed ends are written (`stop-crashed.ts`); live,
+    resuming the killed attempt's codex session was then refused by codex's thread store, so
+    agents still open new sessions after a crash, and Q17 says so, for the operator to confirm.
+  - Recorded: `Matched` is a published-type change, beta; `#launching` stays rather than a split
+    `run()`.
+  - Tests added: after a crash, the first wait gets the held batch and the failed end follows,
+    with its `meta`; an agent opened after the wait took its end runs, one opened before is refused
+    from its first call; one turn id per attempt and one turn for two starts at once; `start()`
+    refused while the agent works; a return's end is `cancelled`; `stopCrashed` stops a detached
+    attempt's whole group.
+  - Live (codex headless): a run killed mid-turn was continued by the next event; its turn ended
+    failed, a new turn answered `KITE` on a new session, and nothing of the killed attempt was left
+    running.
+- **Verified**: `bun test packages/engine` 931 pass; `packages/contract`, `harness` and `examples`
+  554; `bun run check` passes.
+- **Review 2**: every round-1 fix confirmed; six findings, fixed or recorded: the group kill
+  reaches only what the attempt itself spawned, as each harness runs in a session of its own, so
+  an orphaned harness isn't stopped (recorded above and owed), and the kill now waits until the
+  leader is gone, so a reused pid's group is never hit; `start()` no longer refuses an agent busy
+  with a message held during the last turn, which the wait's taking of the end had woken: it queues
+  behind it, and `cancel()` stops only its own turn, or has a queued one settle cancelled; an end
+  that can't be written fails the run rather than leaving the turn set silently; a message held
+  while `begin` failed is taken; stale wording in these notes and the Done when.
+- **Verified**: `bun test packages/engine` 932 pass; `packages/contract`, `harness` and `examples`
+  554; `bun run check` passes. Clear.

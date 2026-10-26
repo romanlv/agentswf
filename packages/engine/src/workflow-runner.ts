@@ -18,6 +18,7 @@ import type {
   SettledOperation,
 } from "@agentswf/contract/records";
 import {
+  MAILBOX_RECORD_VERSION,
   TURN_OPERATION_FIELDS,
   TURN_RECORD_VERSION,
   type TurnRecord,
@@ -50,6 +51,7 @@ import {
   type JsonObject,
   type JsonValue,
   type KeepPane,
+  type Matched,
   type MessageAccess,
   type OperationRecord,
   type OutputSchema,
@@ -64,6 +66,7 @@ import {
   type StageOptions,
   type StageSummary,
   type StartedTurn,
+  type TurnId,
   type TurnOutcome,
   type WorkflowContext,
   type WorkflowDefinition,
@@ -115,7 +118,7 @@ import { RunDecisions } from "./decisions/directory";
 import type { DecisionInstallation } from "./decisions/seam";
 import { type EmitTarget, emitEvent } from "./emit";
 import { messageOf } from "./errors";
-import { RunMailbox, RunParked } from "./mailbox";
+import { appendMailbox, endIdOf, foldMailbox, RunMailbox, RunParked, readMailbox } from "./mailbox";
 import { superviseMessageOperation } from "./message-operation";
 import { canAwaitReply } from "./messaging/limits";
 import type { HolderRequest } from "./messaging/messaging";
@@ -520,6 +523,12 @@ export async function startWorkflow<Args extends JsonValue, Result extends JsonV
   });
   const fatal = Promise.withResolvers<never>();
   void fatal.promise.catch(() => undefined);
+  // A turn an earlier attempt started and never ended, its process gone, ends failed before the code
+  // runs again (Q6); the turns whose ends no wait took are their agents' turns again.
+  const restoredTurns =
+    "events" in definition
+      ? await recoverTurns(runDir, attempt, options.run.locked ?? ((work) => work()))
+      : undefined;
   // A keyed run's agents reopen on the sessions its earlier attempts' turns ran on.
   const keptSessions =
     "events" in definition && options.run.resumeSessions !== false
@@ -537,11 +546,11 @@ export async function startWorkflow<Args extends JsonValue, Result extends JsonV
         })
       : undefined;
   if (mailbox) options.run.listenNudges?.(() => mailbox.nudge());
-  // biome-ignore lint/style/useConst: the mailbox's parking asks the owner, made after it.
-  let owner: WorkflowOwner;
-  owner = new WorkflowOwner({
+  // The mailbox's parking asks the owner, made after it: by then it is.
+  const owner: WorkflowOwner = new WorkflowOwner({
     ...(mailbox ? { mailbox, key: options.run.key ?? runId } : {}),
     ...(keptSessions ? { keptSessions } : {}),
+    ...(restoredTurns ? { restoredTurns } : {}),
     failRun: (error) => fatal.reject(error),
     decisions,
     sandboxes,
@@ -609,6 +618,8 @@ export async function startWorkflow<Args extends JsonValue, Result extends JsonV
       failed = true;
       failure = error;
     }
+    if (mailbox && !mailbox.parked)
+      await owner.endStartedTurns(failed ? "the workflow failed" : "the workflow returned");
     // Once `parked` is written, the attempt is parked, whatever the code did after.
     if (mailbox?.parked) {
       failed = true;
@@ -855,17 +866,23 @@ class WorkflowOwner {
       mailbox?: RunMailbox;
       /** With `mailbox`: each root agent's last session in earlier attempts, which it reopens on. */
       keptSessions?: ReadonlyMap<string, NativeFork>;
+      /** With `mailbox`: each agent's turn an earlier attempt started whose end no wait took. */
+      restoredTurns?: ReadonlyMap<string, { turn: TurnId; meta: JsonValue }>;
       key?: string;
       emit: Emitter;
       /** The workflow's name, which with the run's id is the ref its events are `from`. */
       workflow: string;
     },
   ) {
+    this.#restored = new Map(options.restoredTurns ?? []);
     this.#messaging = new Messaging({
       agent: (key) => this.#agentView(key),
       canAwait: (key) => {
         const agent = this.#logical.get(key);
-        return agent ? options.awaitReply(agent.execution, agent.confirmsDelivery) : false;
+        // One with a started turn takes messages only once a wait has its end: a reply awaited from
+        // it could wait on code that is itself waiting.
+        if (!agent || agent.hasStartedTurn) return false;
+        return options.awaitReply(agent.execution, agent.confirmsDelivery);
       },
       launcher: (key) => this.#logical.get(key)?.launcher ?? "wf",
       changed: (key) => {
@@ -1052,6 +1069,33 @@ class WorkflowOwner {
   }
 
   #waiting = false;
+  /** Each agent's turn an earlier attempt started whose end no wait has taken yet. */
+  readonly #restored: Map<string, { turn: TurnId; meta: JsonValue }>;
+
+  /** How an agent of a keyed run records its started turns in the mailbox. */
+  #turnsOf(key: string, mailbox: RunMailbox): NonNullable<LogicalAgentTurns> {
+    return {
+      begin: (turn, meta, execution) => mailbox.beginTurn(key, turn, meta, execution),
+      end: (turn, meta, outcome) =>
+        mailbox.endTurn(key, turn, { turn, meta, outcome } as unknown as JsonValue),
+      // Read when the agent first needs it: a wait before it opened may have taken the end.
+      restored: () => this.#restored.get(key),
+    };
+  }
+
+  /**
+   * The code returned or threw: each started turn still running is cancelled, and its end written,
+   * before the attempt's ending.
+   */
+  async endStartedTurns(reason: string): Promise<void> {
+    // Bounded as cleanup is: what is cut, a continue's recovery ends.
+    await waitForDeadline(
+      Promise.all([...this.#logical.values()].map((agent) => agent.endStarted(reason))),
+      { unixMilliseconds: Date.now() + CLEANUP_GRACE_MILLISECONDS },
+    ).catch((error: unknown) =>
+      this.options.onLog?.(`awf: a started turn's end was not written: ${messageOf(error)}`),
+    );
+  }
 
   /**
    * Nothing of the run is working but its wait: no agent's turn, message or compaction, and no
@@ -1097,6 +1141,14 @@ class WorkflowOwner {
       if (scope?.stage !== undefined) {
         this.#stageBatches.set(scope.stage, taken);
         this.#waitedStages.add(scope.stage);
+      }
+      // A turn's end taken: its agent takes other work again.
+      for (const event of taken) {
+        if (event.name !== "agent:ended") continue;
+        const turn = (event.data as { turn?: unknown } | null)?.turn;
+        if (typeof turn !== "string") continue;
+        if (this.#restored.get(event.from)?.turn === turn) this.#restored.delete(event.from);
+        this.#logical.get(event.from)?.endTaken(turn);
       }
       return taken;
     } catch (error) {
@@ -1982,6 +2034,7 @@ class WorkflowOwner {
         this.options.failRun(error);
       },
       livenessPolicy: this.options.livenessPolicy,
+      ...(this.options.mailbox ? { turns: this.#turnsOf(key, this.options.mailbox) } : {}),
       fork: (spec, take, settings) => this.forkAgent(key, spec, take, settings),
       keepPane: () => this.#agents.get(key)?.identity.keepPane,
       // Its socket is its authority: a kept agent's harness lives on, and must not answer.
@@ -2367,6 +2420,15 @@ class LogicalAgent implements AgentRef {
       /** After each operation settles, whatever its outcome. */
       afterOperation?(): Promise<void>;
       /**
+       * In a run of a workflow with `events`: records a turn `start()` begins and its end, and the
+       * turn an earlier attempt started whose end no wait took, which `turn` is from the start.
+       */
+      turns?: {
+        begin(turn: TurnId, meta: JsonValue, execution: AgentExecution): Promise<void>;
+        end(turn: TurnId, meta: JsonValue, outcome: TurnOutcome<JsonValue>): Promise<void>;
+        restored(): { turn: TurnId; meta: JsonValue } | undefined;
+      };
+      /**
        * Opens `spec`'s agent on the native fork `take` queues in this agent's operations, at
        * `settings`, this agent's once the operations before the fork have run.
        */
@@ -2419,23 +2481,164 @@ class LogicalAgent implements AgentRef {
    */
   messagesChanged(): void {
     for (const wake of this.#watchers) wake();
-    if (this.#queued > 0 || this.#closed || this.options.isRunClosing()) return;
+    // A started turn holds messages until a wait has taken its end.
+    this.#restore();
+    if (this.#queued > 0 || this.#started || this.#closed || this.options.isRunClosing()) return;
     const opening = this.options.messaging.opening(this.key);
     if (opening) this.startMessageOperation(opening.scope);
   }
 
+  /** The turn `start()` began, until a wait takes its end. */
+  #started: { ref: StartedTurn; meta: JsonValue; ended: boolean; done: Promise<void> } | undefined;
+  /** While `start()` hands its turn to `run()`, which refuses one otherwise. */
+  #launching = false;
+  /** Each running turn's own stop, by its id: what a started turn's `cancel()` stops. */
+  readonly #stopsByTurn = new Map<string, (stop: OperationStop) => Promise<void>>();
+  /** Started turns cancelled while still queued behind other work: they settle cancelled. */
+  readonly #cancelledTurns = new Map<string, string>();
+
   get turn(): StartedTurn | null {
-    return null;
+    this.#restore();
+    return this.#started?.ref ?? null;
   }
 
-  start(_spec: AgentStartSpec): Promise<never> {
-    return unavailable("AgentRef.start");
+  /** Whether a started turn is set: messages wait, and awaited replies are refused. */
+  get hasStartedTurn(): boolean {
+    this.#restore();
+    return this.#started !== undefined;
+  }
+
+  /** A turn an earlier attempt started whose end no wait took is this agent's turn again. */
+  #restore(): void {
+    if (this.#restoredOnce) return;
+    this.#restoredOnce = true;
+    const restored = this.options.turns?.restored();
+    if (!restored) return;
+    this.#started = {
+      ref: { id: restored.turn, cancel: async () => false },
+      meta: restored.meta,
+      ended: true,
+      done: Promise.resolve(),
+    };
+  }
+  #restoredOnce = false;
+
+  /** A wait took this turn's end: the agent takes other work again. */
+  endTaken(turn: TurnId): void {
+    this.#restore();
+    if (this.#started?.ref.id !== turn) return;
+    this.#started = undefined;
+    this.messagesChanged();
+  }
+
+  /** Cancels a started turn still running and waits for its end: the code returned or threw. */
+  async endStarted(reason: string): Promise<void> {
+    const started = this.#started;
+    if (!started || started.ended) return;
+    await started.ref.cancel(reason);
+  }
+
+  async start(spec: AgentStartSpec): Promise<StartedTurn> {
+    const { turns } = this.options;
+    if (!turns) return unavailable("AgentRef.start");
+    if (this.#closed) throw new Error("logical agent is closed");
+    const scope = scopes.getStore();
+    if (scope !== undefined)
+      throw new Error(
+        `agent ${this.key}: start() is called at the run's root, as a turn not awaited would outlive a stage or a parallel`,
+      );
+    this.#refuseWhileStarted("start");
+    const { meta = null, ...run } = spec;
+    const id = run.id ?? randomUUID();
+    if (!isJsonValue(meta)) throw new Error("a turn's meta is a JSON value");
+    const ended = Promise.withResolvers<void>();
+    let written: TurnOutcome<JsonValue>["kind"] | undefined;
+    const started = {
+      ref: {
+        id,
+        cancel: async (reason?: string) => {
+          if (started.ended) return false;
+          const stop = { kind: "cancelled" as const, reason: reason ?? "the turn was cancelled" };
+          // Its own operation only: one queued behind a message settles cancelled when it is reached.
+          const own = this.#stopsByTurn.get(id);
+          if (own) await own(stop);
+          else this.#cancelledTurns.set(id, stop.reason);
+          await started.done;
+          return written === "cancelled";
+        },
+      } satisfies StartedTurn,
+      meta,
+      ended: false,
+      done: ended.promise,
+    };
+    // Claimed before anything is awaited, so a second start() at once is refused.
+    this.#started = started;
+    try {
+      // Recorded before the agent is launched: a crash between leaves a turn a continue ends.
+      await turns.begin(id, meta, this.options.execution);
+    } catch (error) {
+      this.#started = undefined;
+      // A message held while it began is taken now.
+      this.messagesChanged();
+      throw error;
+    }
+    this.#launching = true;
+    let launched: Promise<RunResult<JsonValue>>;
+    try {
+      launched = this.run({ ...run, id } as AgentRunStructuredSpec<JsonValue>);
+    } catch (error) {
+      launched = Promise.reject(error);
+    } finally {
+      this.#launching = false;
+    }
+    // Tracked until the end is in the mailbox, so the run doesn't park with a turn's end on its way.
+    this.options.track(
+      launched
+        .then(
+          ({ outcome }) => outcome,
+          (error: unknown): TurnOutcome<JsonValue> => ({
+            kind: "failed",
+            reason: messageOf(error),
+            retryable: false,
+            usage: {
+              callPath: [],
+              agent: this.key,
+              operationId: id,
+              execution: this.options.execution,
+              sessions: [],
+            },
+          }),
+        )
+        .then(async (outcome) => {
+          await turns.end(id, meta, outcome);
+          written = outcome.kind;
+        })
+        // An end that can't be written leaves the turn set for good: the run can't go on.
+        .catch((error: unknown) =>
+          this.options.cleanupUnresolved(
+            `agent ${this.key}'s turn ${id} ended, and its end was not written: ${messageOf(error)}`,
+          ),
+        )
+        .finally(() => {
+          started.ended = true;
+          ended.resolve();
+        }),
+    );
+    return started.ref;
+  }
+
+  #refuseWhileStarted(what: string): void {
+    this.#restore();
+    if (this.#started && !this.#launching)
+      throw new Error(
+        `agent ${this.key} has a turn started (${this.#started.ref.id}) whose end no wait has taken; ${what}() waits for it`,
+      );
   }
 
   ended<Meta extends JsonValue = JsonValue, T extends JsonValue = JsonValue>(event: {
     readonly name: string;
     readonly from: string;
-  }): event is AgentEndedEvent<Meta, T> {
+  }): event is AgentEndedEvent<Meta, T> & Matched {
     return event.name === "agent:ended" && event.from === this.key;
   }
 
@@ -2445,6 +2648,11 @@ class LogicalAgent implements AgentRef {
     spec: AgentRunTextSpec | AgentRunStructuredSpec<T>,
   ): Promise<RunResult<string | T>> {
     if (this.#closed) return Promise.reject(new Error("logical agent is closed"));
+    try {
+      this.#refuseWhileStarted("run");
+    } catch (error) {
+      return Promise.reject(error);
+    }
     const scope = scopes.getStore();
     try {
       scope?.assertAccepting();
@@ -2486,6 +2694,23 @@ class LogicalAgent implements AgentRef {
         throw new Error("logical agent is closed");
       }
       scope?.assertActive();
+      const cancelled = this.#cancelledTurns.get(id);
+      if (cancelled !== undefined) {
+        this.#cancelledTurns.delete(id);
+        return {
+          outcome: {
+            kind: "cancelled",
+            reason: cancelled,
+            usage: {
+              callPath: [],
+              agent: this.key,
+              operationId: id,
+              execution: this.options.execution,
+              sessions: [],
+            },
+          },
+        } as RunResult<JsonValue>;
+      }
       const tags = tagsOf(scope, completeSpec.label);
       // Drawn here, so a turn that throws before it is delivered is still written as failed.
       const operation = this.operationLog(randomUUID(), "turn", tags);
@@ -2510,6 +2735,11 @@ class LogicalAgent implements AgentRef {
 
   compact(spec: CompactSpec): Promise<TurnOutcome<string>> {
     if (this.#closed) return Promise.reject(new Error("logical agent is closed"));
+    try {
+      this.#refuseWhileStarted("compact");
+    } catch (error) {
+      return Promise.reject(error);
+    }
     const scope = scopes.getStore();
     try {
       scope?.assertAccepting();
@@ -2568,6 +2798,11 @@ class LogicalAgent implements AgentRef {
   /** Not a turn: progress counts none for it, and it asks the model nothing. */
   set(spec: SettingsSpec): Promise<TurnOutcome<null>> {
     if (this.#closed) return Promise.reject(new Error("logical agent is closed"));
+    try {
+      this.#refuseWhileStarted("set");
+    } catch (error) {
+      return Promise.reject(error);
+    }
     const scope = scopes.getStore();
     try {
       scope?.assertAccepting();
@@ -2685,6 +2920,11 @@ class LogicalAgent implements AgentRef {
 
   fork(spec: AgentForkSpec): Promise<AgentRef> {
     if (this.#closed) return Promise.reject(new Error("logical agent is closed"));
+    try {
+      this.#refuseWhileStarted("fork");
+    } catch (error) {
+      return Promise.reject(error);
+    }
     const scope = scopes.getStore();
     const deadline = this.deadlineCeiling(scope);
     const { session, execution } = this.options;
@@ -3052,9 +3292,11 @@ class LogicalAgent implements AgentRef {
         }),
       onStop: (stop) => {
         this.#operationStops.add(stop);
+        this.#stopsByTurn.set(spec.id!, stop);
         const remove = scope?.add(stop);
         return () => {
           this.#operationStops.delete(stop);
+          if (this.#stopsByTurn.get(spec.id!) === stop) this.#stopsByTurn.delete(spec.id!);
           remove?.();
         };
       },
@@ -4013,4 +4255,52 @@ export function keptSessionsOf(turns: readonly TurnRecord[]): Map<string, Native
     if (session) kept.set(turn.agent, { harness: session.harness, sessionRef: session.id });
   }
   return kept;
+}
+
+type LogicalAgentTurns = ConstructorParameters<typeof LogicalAgent>[0]["turns"];
+
+/**
+ * Writes a failed end for each turn the mailbox has with no end, whose attempt is over, and returns
+ * each agent's last turn whose end no wait took: what `agent.turn` is when the agent opens.
+ */
+export async function recoverTurns(
+  runDir: string,
+  attempt: number,
+  locked: <T>(work: () => Promise<T>) => Promise<T>,
+): Promise<Map<string, { turn: TurnId; meta: JsonValue }>> {
+  await locked(async () => {
+    const state = foldMailbox(await readMailbox(runDir));
+    for (const turn of state.turns) {
+      const id = endIdOf(turn.agent, turn.turn, turn.attempt);
+      if (turn.attempt >= attempt || state.events.has(id)) continue;
+      const outcome: TurnOutcome<JsonValue> = {
+        kind: "failed",
+        reason: `attempt ${turn.attempt} ended before this turn did; its work, if any, is in the agent's session`,
+        retryable: true,
+        usage: {
+          callPath: [],
+          agent: turn.agent,
+          operationId: turn.turn,
+          execution: turn.execution,
+          sessions: [],
+        },
+      };
+      await appendMailbox(runDir, {
+        version: MAILBOX_RECORD_VERSION,
+        at: new Date().toISOString(),
+        kind: "event",
+        id,
+        name: "agent:ended",
+        data: { turn: turn.turn, meta: turn.meta, outcome } as unknown as JsonValue,
+        from: turn.agent,
+      });
+    }
+  });
+  const state = foldMailbox(await readMailbox(runDir));
+  const untaken = new Set([...state.unacknowledged, ...(state.held ?? [])]);
+  const restored = new Map<string, { turn: TurnId; meta: JsonValue }>();
+  for (const turn of state.turns)
+    if (untaken.has(endIdOf(turn.agent, turn.turn, turn.attempt)))
+      restored.set(turn.agent, { turn: turn.turn, meta: turn.meta });
+  return restored;
 }

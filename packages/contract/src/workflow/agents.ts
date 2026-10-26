@@ -1,4 +1,4 @@
-import type { AgentEndedEvent } from "./events";
+import type { AgentEndedEvent, Matched } from "./events";
 import type { JsonObject, JsonValue, OutputSchema } from "./json";
 import type { ParticipantRef } from "./participants";
 import type { InlineSandboxSpec, SandboxRef } from "./sandboxes";
@@ -456,7 +456,7 @@ export interface EventAgentRef extends AgentRef {
   ended<Meta extends JsonValue = JsonValue, T extends JsonValue = JsonValue>(event: {
     readonly name: string;
     readonly from: string;
-  }): event is AgentEndedEvent<Meta, T>;
+  }): event is AgentEndedEvent<Meta, T> & Matched;
   fork(spec: AgentForkSpec): Promise<EventAgentRef>;
 }
 

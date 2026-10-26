@@ -1,7 +1,13 @@
 import { stat } from "node:fs/promises";
 import { join } from "node:path";
 import { MAILBOX_RECORD_VERSION, type MailboxRecord } from "@agentswf/contract/records";
-import type { JsonValue, ReceiveOptions, WorkflowEvent } from "@agentswf/contract/workflow";
+import {
+  type AgentExecution,
+  AWF_ID_PREFIX,
+  type JsonValue,
+  type ReceiveOptions,
+  type WorkflowEvent,
+} from "@agentswf/contract/workflow";
 import { appendLine, endTornLine, readLines } from "./jsonl";
 
 /** `mailbox.jsonl`: a run's events, and what its waits did with them. */
@@ -24,6 +30,16 @@ export async function appendMailbox(runDir: string, record: MailboxRecord): Prom
 }
 
 type EventRecord = Extract<MailboxRecord, { kind: "event" }>;
+type TurnRecord = Extract<MailboxRecord, { kind: "turn" }>;
+
+/**
+ * The id of the end of `agent`'s turn `turn`: made from both, so it fits the grammar whatever
+ * either is, and is the same whoever writes it, so only one end is ever kept.
+ */
+export function endIdOf(agent: string, turn: string, attempt: number): string {
+  const hash = new Bun.CryptoHasher("sha256").update(`${agent}\0${turn}\0${attempt}`).digest("hex");
+  return `${AWF_ID_PREFIX}end.${hash.slice(0, 16)}`;
+}
 type WaitRecord = Extract<MailboxRecord, { kind: "wait" }>;
 
 /** What a run's mailbox says, folded from its records in order. */
@@ -41,6 +57,8 @@ export type MailboxState = {
   lastWait?: WaitRecord & { waiting: boolean };
   /** Each stage's batch, as a wait in it took it. */
   batches: ReadonlyMap<string, string[]>;
+  /** Every turn `start()` began, in order. */
+  turns: readonly TurnRecord[];
 };
 
 /**
@@ -54,6 +72,7 @@ export function foldMailbox(records: readonly MailboxRecord[]): MailboxState {
   const batches = new Map<string, string[]>();
   let held: string[] | undefined;
   let lastWait: (WaitRecord & { waiting: boolean }) | undefined;
+  const turns: TurnRecord[] = [];
   for (const record of records) {
     switch (record.kind) {
       case "event":
@@ -77,6 +96,9 @@ export function foldMailbox(records: readonly MailboxRecord[]): MailboxState {
           batches.set(record.stage, record.ids);
         } else held = record.ids.length > 0 ? record.ids : undefined;
         break;
+      case "turn":
+        turns.push(record);
+        break;
     }
   }
   const taken = new Set(held);
@@ -86,6 +108,7 @@ export function foldMailbox(records: readonly MailboxRecord[]): MailboxState {
     ...(held ? { held } : {}),
     ...(lastWait ? { lastWait } : {}),
     batches,
+    turns,
   };
 }
 
@@ -160,6 +183,59 @@ export class RunMailbox {
 
   async #append(record: MailboxRecord): Promise<void> {
     await this.options.locked(() => appendMailbox(this.options.runDir, record));
+  }
+
+  /**
+   * Records a turn `start()` begins, before its agent is launched. A turn id this attempt began
+   * already is refused: its end is kept once, so a second turn under it would never end.
+   */
+  async beginTurn(
+    agent: string,
+    turn: string,
+    meta: JsonValue,
+    execution: AgentExecution,
+  ): Promise<void> {
+    const { attempt, runDir } = this.options;
+    await this.options.locked(async () => {
+      const begun = foldMailbox(await readMailbox(runDir)).turns.some(
+        (each) => each.agent === agent && each.turn === turn && each.attempt === attempt,
+      );
+      if (begun)
+        throw new Error(
+          `agent ${agent} began turn ${turn} already in this attempt; an id names one turn`,
+        );
+      await appendMailbox(runDir, {
+        version: MAILBOX_RECORD_VERSION,
+        at: new Date(this.options.now?.() ?? Date.now()).toISOString(),
+        kind: "turn",
+        attempt,
+        agent,
+        turn,
+        meta,
+        execution,
+      });
+    });
+  }
+
+  /**
+   * Appends a turn's end, `agent:ended` from its agent, once: an end already there, as a crash's
+   * recovery may have written, is kept. Then this run's wait reads the mailbox again.
+   */
+  async endTurn(agent: string, turn: string, data: JsonValue): Promise<void> {
+    const id = endIdOf(agent, turn, this.options.attempt);
+    await this.options.locked(async () => {
+      if (foldMailbox(await readMailbox(this.options.runDir)).events.has(id)) return;
+      await appendMailbox(this.options.runDir, {
+        version: MAILBOX_RECORD_VERSION,
+        at: new Date(this.options.now?.() ?? Date.now()).toISOString(),
+        kind: "event",
+        id,
+        name: "agent:ended",
+        data,
+        from: agent,
+      });
+    });
+    this.nudge();
   }
 
   /** A new event was appended: a waiting `receive` reads the mailbox again. */

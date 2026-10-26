@@ -30,7 +30,7 @@ import {
 import { type Harness, sandboxTokens } from "@agentswf/harness";
 import { createFakeSandboxProvider } from "@agentswf/sandbox/testing/fake";
 import { messageOf } from "../errors";
-import { appendMailbox, RunParked } from "../mailbox";
+import { appendMailbox, RunParked, readMailbox } from "../mailbox";
 import { OPERATOR_ALIASES } from "../operator-aliases";
 import { createRun, readEvents, readStageRecords, writeStageRecord } from "../runs";
 import { primaryFailure, WorkflowStopped } from "../stopped";
@@ -161,6 +161,11 @@ export type EventTestOptions<Events extends EventSchemas> = Omit<
   events?: readonly ScriptedEvent<Events>[];
   /** More turns started than this fails the test, so a loop that never parks doesn't hang it; 20. */
   maxTurns?: number;
+  /**
+   * What an earlier attempt left in the run's mailbox, in order: given, the test's attempt is its
+   * continue, attempt 2, and `event` is appended after them, as the event that woke it.
+   */
+  mailbox?: readonly MailboxRecord[];
 };
 
 /** An event the run sent another workflow, which a test doesn't start. */
@@ -205,6 +210,11 @@ export type TestRun<Result> = {
   emits: EmittedEvent[];
   /** A run of a workflow with `events` that parked, and its last wait; absent when it returned. */
   parked?: { label?: string; until?: string };
+  /**
+   * A run of a workflow with `events`: its mailbox as the run left it, its events and what its
+   * waits and turns wrote, in order; empty for one without.
+   */
+  mailbox: MailboxRecord[];
 };
 
 /**
@@ -291,7 +301,8 @@ export async function testWorkflow<Args extends JsonValue, Result extends JsonVa
     onActivity: () => arm(stallMs),
     onScriptError: (message: string) => stopWith(message),
   };
-  const attempt = options.recorded ? 2 : 1;
+  const seeded = keyed ? (options as EventTestOptions<EventSchemas>).mailbox : undefined;
+  const attempt = options.recorded || seeded ? 2 : 1;
   const coordinators = new CoordinatorScripts(options.coordinators, attempt, events);
   const stopWith = (message: string) => {
     problems.push(message);
@@ -329,6 +340,7 @@ export async function testWorkflow<Args extends JsonValue, Result extends JsonVa
   };
   let sandboxOf = new Map<string, AgentSandbox>();
   const emits: EmittedEvent[] = [];
+  let mailbox: MailboxRecord[] = [];
   let stages: StageRecord[] = [];
   let messages: (MessageRecord & { to: string })[] = [];
   const runRoot = directory();
@@ -343,6 +355,7 @@ export async function testWorkflow<Args extends JsonValue, Result extends JsonVa
     throw error;
   });
   if (options.recorded) await recordEarlierAttempt(run.dir, options.recorded);
+  for (const record of seeded ?? []) await appendMailbox(run.dir, record);
   if (started) await appendMailbox(run.dir, started.record);
   const recordedStages = async ({ stages: entered = [] }: SettledRun) => {
     const records = await readStageRecords(run.dir);
@@ -421,6 +434,7 @@ export async function testWorkflow<Args extends JsonValue, Result extends JsonVa
       };
     }
     messages = await messagesIn(run.dir);
+    mailbox = await readMailbox(run.dir).catch(() => []);
     for (const path of temporary) rmSync(path, { recursive: true, force: true });
   }
   if (problems.length === 0) {
@@ -449,6 +463,7 @@ export async function testWorkflow<Args extends JsonValue, Result extends JsonVa
     },
     turns: host.turns,
     emits,
+    mailbox,
     turnsOf: (agent) => host.turns.filter((turn) => turn.agent === agent),
     compactions: host.compactions,
     compactionsOf: (agent) => host.compactions.filter((compaction) => compaction.agent === agent),

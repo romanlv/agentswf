@@ -392,9 +392,18 @@ export type MailboxRecord = {
   /**
    * A turn `start()` began, written before its agent is launched; the rest of it is in
    * `turns.jsonl`. Its end is the event `agent:ended`, with id `awf.end.{hash}`, the hash of the
-   * agent's key and the turn's id, so one end is ever kept.
+   * agent's key, the turn's id and this attempt, so one end is ever kept, and a turn the code
+   * begins again under its id in a later attempt is a turn of its own.
    */
-  | { kind: "turn"; attempt: number; agent: AgentKey; turn: TurnId; meta: JsonValue }
+  | {
+      kind: "turn";
+      attempt: number;
+      agent: AgentKey;
+      turn: TurnId;
+      meta: JsonValue;
+      /** The agent's settings it began at, which an end awf writes after a crash carries. */
+      execution: AgentExecution;
+    }
   /**
    * A start or continue whose attempt never claimed its number, such as a file that no longer
    * loads: counted with failed and crashed attempts towards `stuck` (Q13).
