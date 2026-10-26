@@ -2369,27 +2369,34 @@ describe("createHerdrRunHostFactory", () => {
     }
   });
 
-  test("release aborts an active peer and closes its authority-bearing pane", async () => {
+  /** A host whose first prompt runs until it is aborted, and answers `racing` if given. */
+  async function cancelledFirstTurn(options: { racing?: boolean; agentGet?: () => unknown } = {}) {
     const base = hostStub();
     let promptEntered!: () => void;
     const promptStarted = new Promise<void>((resolve) => {
       promptEntered = resolve;
     });
+    let prompts = 0;
     const run: RunProcess = async (input) => {
-      if (verb(input) !== "agent prompt") return base.run(input);
+      if (verb(input) === "agent get" && options.agentGet) {
+        base.calls.push(input);
+        return options.agentGet() as Awaited<ReturnType<RunProcess>>;
+      }
+      if (verb(input) !== "agent prompt" || ++prompts > 1) return base.run(input);
       base.calls.push(input);
       promptEntered();
       await new Promise<void>((resolve) => {
         if (input.signal?.aborted) resolve();
         else input.signal?.addEventListener("abort", () => resolve(), { once: true });
       });
-      return {
-        stdout: "",
-        stderr: "cancelled",
-        exitCode: 130,
-        timedOut: false,
-        cancelled: true,
-      };
+      return options.racing
+        ? commandResult({
+            agent: {
+              agent_status: "idle",
+              agent_session: { kind: "id", value: "racing-session" },
+            },
+          })
+        : { stdout: "", stderr: "cancelled", exitCode: 130, timedOut: false, cancelled: true };
     };
     const host = await createHerdrRunHostFactory(CONFIG, run).openRun({
       runId: "run-1",
@@ -2407,71 +2414,51 @@ describe("createHerdrRunHostFactory", () => {
       binding("op-1"),
     );
     await promptStarted;
+    const released = await turn.release("stop", deadline());
+    if (!options.racing)
+      expect(released).toMatchObject({ kind: "released", outcome: { state: "cancelled" } });
+    const later = (id: string) =>
+      session
+        .start({ id, prompt: "again", deadline: deadline() }, binding(id))
+        .then((next) => next.settled);
+    const count = (name: string) => base.calls.filter((call) => verb(call) === name).length;
+    return { host, later, count, calls: base.calls };
+  }
 
-    await expect(turn.release("stop", deadline())).resolves.toMatchObject({
-      kind: "released",
-      outcome: { state: "cancelled" },
+  test("a cancel interrupts its working harness, which takes the next turn in its own pane", async () => {
+    let gets = 0;
+    const { host, later, count } = await cancelledFirstTurn({
+      agentGet: () => commandResult({ agent: { agent_status: gets++ === 0 ? "working" : "idle" } }),
     });
-    expect(base.calls.filter((call) => verb(call) === "pane close")).toHaveLength(1);
-    for (const id of ["op-2", "op-3"] as const) {
-      const later = await session.start({ id, prompt: "again", deadline: deadline() }, binding(id));
-      await expect(later.settled).resolves.toMatchObject({
-        state: "failed",
-        detail: expect.stringContaining("pane was closed"),
-      });
-    }
-    expect(base.calls.filter((call) => verb(call) === "tab create")).toHaveLength(1);
+    expect(count("agent send-keys")).toBe(1);
+    expect(count("pane close")).toBe(0);
+    for (const id of ["op-2", "op-3"])
+      await expect(later(id)).resolves.toMatchObject({ state: "completed" });
+    expect(count("tab create")).toBe(1);
+    expect(count("agent start")).toBe(1);
     await host.close();
   });
 
-  test("a success racing cancellation cannot make the cancelled generation resumable", async () => {
-    const base = hostStub();
-    let promptEntered!: () => void;
-    const promptStarted = new Promise<void>((resolve) => {
-      promptEntered = resolve;
-    });
-    const run: RunProcess = async (input) => {
-      if (verb(input) !== "agent prompt") return base.run(input);
-      base.calls.push(input);
-      promptEntered();
-      await new Promise<void>((resolve) => {
-        if (input.signal?.aborted) resolve();
-        else input.signal?.addEventListener("abort", () => resolve(), { once: true });
-      });
-      return commandResult({
-        agent: {
-          agent_status: "idle",
-          agent_session: { kind: "id", value: "racing-session" },
-        },
-      });
-    };
-    const host = await createHerdrRunHostFactory(CONFIG, run).openRun({
-      runId: "run-race",
-      cwd: "/repo",
-      deadline: deadline(),
-    });
-    const session = await host.openAgent({
-      key: "reviewer",
-      cwd: "/repo",
-      deadline: deadline(),
-      execution: { harness: "claude", model: "opus" },
-    });
-    const turn = await session.start(
-      { id: "one", prompt: "review", deadline: deadline() },
-      binding("op-1"),
-    );
-    await promptStarted;
-    await turn.release("stop", deadline());
+  test("a success racing a cancel leaves the same harness going on, not a resumed session", async () => {
+    const { host, later, count, calls } = await cancelledFirstTurn({ racing: true });
+    await expect(later("op-2")).resolves.toMatchObject({ state: "completed" });
+    expect(count("tab create")).toBe(1);
+    expect(count("agent start")).toBe(1);
+    expect(calls.some((call) => call.argv.includes("racing-session"))).toBe(false);
+    await host.close();
+  });
 
-    const later = await session.start(
-      { id: "two", prompt: "again", deadline: deadline() },
-      binding("op-2"),
-    );
-    await expect(later.settled).resolves.toMatchObject({
-      state: "failed",
-      detail: expect.stringContaining("pane was closed"),
+  test("a cancelled harness that is gone closes its pane, and the session is not reopened", async () => {
+    const { host, later, count } = await cancelledFirstTurn({
+      agentGet: () => ({ stdout: "", stderr: "agent not found", exitCode: 1, timedOut: false }),
     });
-    expect(base.calls.filter((call) => verb(call) === "tab create")).toHaveLength(1);
+    expect(count("pane close")).toBe(1);
+    for (const id of ["op-2", "op-3"])
+      await expect(later(id)).resolves.toMatchObject({
+        state: "failed",
+        detail: expect.stringContaining("pane was closed"),
+      });
+    expect(count("tab create")).toBe(1);
     await host.close();
   });
 

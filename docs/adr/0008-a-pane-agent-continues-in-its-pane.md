@@ -7,6 +7,9 @@ until the prior pane is released; and story 001's refusal of a second operation 
 **Amended:** 2026-10-05, [[021-turn-liveness-and-limits|story 021]], to require native release
 before returning workflow success and permit bounded cooperative check-ins.
 
+**Amended:** 2026-10-26, [[034-event-driven-runs|story 034]]: a cancelled operation's harness is
+interrupted and, once settled, takes the agent's next operation in its pane.
+
 ## What was decided
 
 - **A pane agent keeps one pane for all its operations.** Its first operation starts the harness
@@ -22,11 +25,16 @@ before returning workflow success and permit bounded cooperative check-ins.
 - **Cooperative waits stay inside one operation.** On measured placements, `wf waiting` permits
   another check-in under the fixed deadline. Native queue acceptance and model receipt are
   separate signals. Unsupported combinations retain their explicit limitations.
-- **A pane agent that is done is not driven again.** Cancelling an operation once its harness
-  runs, or a relaunch that does not start, ends it, and a later operation on that agent fails. Its pane is closed, or, where the
-  workflow's `keepPane` says, left open with its harness released from the run
-  ([pane layout](../design/pane-layout.md), 2026-10-06); either way the session is no longer the
-  run's.
+- **A cancel interrupts the harness, which goes on in its pane.** Cancelling an operation once its
+  harness runs sends Escape if it is working and waits for it to settle; the next operation is
+  prompted into the same harness, as one after an answered turn stopped past its grace is. The
+  same process goes on, so no session is reopened and no second writer can appear.
+- **A pane agent that is done is not driven again.** A cancelled harness that is gone or does not
+  settle, or a relaunch that does not start, ends it, and a later operation on that agent fails.
+  Its pane is closed, or, where the workflow's `keepPane` says, left open with its harness released
+  from the run ([pane layout](../design/pane-layout.md), 2026-10-06); either way the session is no
+  longer the run's. It is not reopened in a new pane: a close acknowledgement does not prove the
+  process gone, and a codex session a killed process held refused a second writer (story 034).
 - **Each operation still has fresh result authority**: its own call id, slot and schema.
 
 ## Why
@@ -41,6 +49,12 @@ turns, which is why the host waits for the agent to settle before prompting.
 
 The use that asked for it: one agent carrying a ticket from plan to tested MR, compacted between
 stages (ADR 0007). Without continuation, a pane agent could not be compacted and then used.
+
+Story 034 made a cancel routine: in a run with events, a newer event cancels the turn it makes
+stale, and the agent writes up what replaced it. Ending the agent at the cancel failed that next
+turn, as the Datadog watcher's live run showed when a close cancelled an investigation. Escape
+already stopped an answered turn left past its grace without ending the agent, so a cancel does the
+same; only a harness that will not settle is given up.
 
 ## Not decided
 

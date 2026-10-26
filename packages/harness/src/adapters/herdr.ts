@@ -845,11 +845,6 @@ export function createHerdrRunHostFactory(
             | undefined;
           let closed = false;
           let hasExecuted = false;
-          /**
-           * Why it is done though its pane is open: a cancel left a pane that may be kept for
-           * `close` to decide on. It is not driven again (ADR 0008).
-           */
-          let done: string | undefined;
           const mayKeep = request.keepPane === "always" || request.keepPane === "on-failure";
           /** Whether its pane was kept when it was done, or why not. */
           let fate: Pick<PanePlacement, "kept" | "notKept"> = {};
@@ -868,7 +863,10 @@ export function createHerdrRunHostFactory(
            * Readies its harness to be left in a kept pane: interrupted if working, and settled, so a
            * kept agent goes on editing nothing. Why not, where it is gone or would not settle.
            */
-          /** Its harness was released by a cancel already: a second Escape opens codex's history. */
+          /**
+           * Its harness was released by a cancel, and prompted nothing since: a second Escape opens
+           * codex's history.
+           */
           let released = false;
           const release = async (agentName: string): Promise<string | undefined> => {
             if (released) return undefined;
@@ -1130,7 +1128,6 @@ export function createHerdrRunHostFactory(
             sessionRef?: string,
           ): Promise<void> => {
             if (closed) throw new Error("Herdr run session is closed");
-            if (done) throw new Error(done);
             if (!current) {
               if (hasExecuted) {
                 throw new Error("this agent's pane was closed, so its session cannot be switched");
@@ -1204,7 +1201,6 @@ export function createHerdrRunHostFactory(
             into?: SessionCopy,
           ): Promise<NativeFork> => {
             if (closed) throw new Error("Herdr run session is closed");
-            if (done) throw new Error(done);
             if (!current) {
               throw new Error(
                 placement === undefined
@@ -1335,7 +1331,7 @@ export function createHerdrRunHostFactory(
             },
             async execute(operation) {
               if (closed) throw new Error("Herdr run session is closed");
-              if (done) return localOutcome("failed", done);
+              released = false;
               const controller = new AbortController();
               activeController = controller;
               let finish!: () => void;
@@ -1362,8 +1358,9 @@ export function createHerdrRunHostFactory(
                   }
                 }
                 if (!current) {
-                  // A pane is closed only when an operation was cancelled or failed to start, and
-                  // its agent's session went with it.
+                  // A pane is closed only when a cancelled harness would not settle, or one failed
+                  // to start, and its agent's session went with it: a close proves no process gone,
+                  // so the session is not reopened (ADR 0008).
                   if (hasExecuted) {
                     return localOutcome(
                       "failed",
@@ -1552,17 +1549,15 @@ export function createHerdrRunHostFactory(
               if (!activeController && !current) return false;
               activeController?.abort();
               await activeCompletion;
-              // One that may be kept is left for `close`, which knows whether it is.
-              if (mayKeep && current && pane) {
-                done = "this agent's operation was cancelled, so its session cannot be continued";
-                // Released now, not at its close: it must not go on working meanwhile.
-                const why = await release(current.agentName);
-                if (why) {
-                  fate = { notKept: why };
-                  await closeCurrentPane();
-                } else released = true;
+              // Interrupted and settled, its harness stays the agent's: the next operation is
+              // prompted into it, as one after an answered turn stopped past its grace is. The same
+              // process goes on, so no session is reopened. One that won't settle is closed.
+              const why = current && pane ? await release(current.agentName) : "it has no pane";
+              if (!why) {
+                released = true;
                 return true;
               }
+              if (mayKeep) fate = { notKept: why };
               await closeCurrentPane();
               return true;
             },

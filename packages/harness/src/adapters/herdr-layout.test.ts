@@ -346,7 +346,7 @@ describe("keeping a pane", () => {
     await host.close();
   });
 
-  test("a cancel leaves a pane that may be kept for close, and the agent runs no more", async () => {
+  test("a cancel leaves a pane that may be kept for close, its agent taking the next turn in it", async () => {
     const herdr = createFakeHerdr({ startupBlocks: [] });
     const host = await openRun(herdr);
     const lead = await host.openAgent({
@@ -362,10 +362,8 @@ describe("keeping a pane", () => {
     );
     await started.release("stop", deadline());
     expect(paneOf(herdr, "lead")).toBeDefined();
-    await expect(turn(lead, "two")).resolves.toMatchObject({
-      state: "failed",
-      detail: expect.stringContaining("was cancelled"),
-    });
+    await expect(turn(lead, "two")).resolves.toMatchObject({ state: "completed" });
+    expect(calls(herdr, "tab create").length + calls(herdr, "pane split").length).toBe(1);
     await lead.close("done", { keep: true });
     expect(lead.pane?.()?.kept).toBe(true);
     await host.close();
