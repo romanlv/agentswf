@@ -1,6 +1,6 @@
 import { afterAll, expect, test } from "bun:test";
 import { MAILBOX_RECORD_VERSION, type MailboxRecord } from "@agentswf/contract/records";
-import { appendMailbox, foldMailbox, RunMailbox, readMailbox } from "./mailbox";
+import { appendMailbox, foldMailbox, RunMailbox, RunParked, readMailbox } from "./mailbox";
 import { createTempRunDirs } from "./testing";
 
 const runDirs = createTempRunDirs();
@@ -140,4 +140,71 @@ test("a wait's options are checked", async () => {
   const box = mailbox(runDirs.tempRunDir());
   await expect(box.receive({ take: "latest" as "all" })).rejects.toThrow('"all" or "oldest"');
   await expect(box.receive({ until: Number.NaN })).rejects.toThrow("epoch milliseconds or a Date");
+});
+
+test("an event sent as the run parks is taken: parking checks again under the key's lock", async () => {
+  const runDir = runDirs.tempRunDir();
+  let parked = false;
+  let first = true;
+  const box = new RunMailbox({
+    runDir,
+    attempt: 1,
+    // A sender that got the lock just before the park did: its event is in when the park looks.
+    locked: async (work) => {
+      if (first) {
+        first = false;
+        await appendMailbox(runDir, event("late"));
+      }
+      return work();
+    },
+    parking: {
+      idle: () => true,
+      park: async () => {
+        parked = true;
+      },
+    },
+  });
+  expect(ids(await box.receive(undefined))).toEqual(["late"]);
+  expect(parked).toBe(false);
+});
+
+test("with nothing to take and nothing running, the wait parks: its ending written under the lock", async () => {
+  const runDir = runDirs.tempRunDir();
+  const order: string[] = [];
+  const box = new RunMailbox({
+    runDir,
+    attempt: 1,
+    locked: async (work) => {
+      order.push("lock");
+      const result = await work();
+      order.push("unlock");
+      return result;
+    },
+    parking: {
+      idle: () => true,
+      park: async (wait) => {
+        order.push(`park ${wait.label}`);
+      },
+    },
+  });
+  await expect(box.receive({ label: "idle" })).rejects.toBeInstanceOf(RunParked);
+  // The wait's own record, then the check and the ending, each under the lock.
+  expect(order).toEqual(["lock", "unlock", "lock", "park idle", "unlock"]);
+});
+
+test("while a turn runs, the wait doesn't park, and parks once it has ended", async () => {
+  const runDir = runDirs.tempRunDir();
+  let busy = true;
+  setTimeout(() => {
+    busy = false;
+  }, 50);
+  const box = new RunMailbox({
+    runDir,
+    attempt: 1,
+    locked: (work) => work(),
+    parking: { idle: () => !busy, park: async () => undefined },
+  });
+  const started = Date.now();
+  await expect(box.receive(undefined)).rejects.toBeInstanceOf(RunParked);
+  expect(Date.now() - started).toBeGreaterThanOrEqual(40);
 });

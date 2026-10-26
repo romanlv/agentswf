@@ -1,7 +1,7 @@
 import { afterAll, describe, expect, test } from "bun:test";
 import { mkdirSync, realpathSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import type { AttemptRecord } from "@agentswf/contract/records";
+import type { AttemptRecord, RunsJson, TickResultJson } from "@agentswf/contract/records";
 import type { OutputSchema } from "@agentswf/contract/workflow";
 import { EmitError, type EmitTarget, emitEvent } from "./emit";
 import { emitCommand } from "./emit-command";
@@ -9,8 +9,10 @@ import { writeJson } from "./files";
 import { keyLockFile, withKeyLock } from "./key-lock";
 import { appendMailbox, foldMailbox, readMailbox } from "./mailbox";
 import { listProjects, projectOf } from "./projects";
-import { openRun, processStart, type Run, readAttempts } from "./runs";
+import { createRun, openRun, processStart, type Run, readAttempts } from "./runs";
+import { runsCommand } from "./runs-command";
 import { createTempRunDirs } from "./testing";
+import { tickCommand } from "./tick-command";
 import { attemptEnvironment, type Launch, STUCK_AFTER, wake } from "./wake";
 
 const dirs = createTempRunDirs();
@@ -459,7 +461,10 @@ describe("wake, directly", () => {
       did: "none",
       why: "nothing-due",
     });
-    expect(await wake(run, { ...context, now: () => until })).toEqual({ did: "continued" });
+    expect(await wake(run, { ...context, now: () => until })).toEqual({
+      did: "continued",
+      cause: "until",
+    });
     // No file named: the last attempt's.
     expect(launch.launched).toEqual(["/flows/case.ts"]);
   });
@@ -585,4 +590,150 @@ test("a duplicate of an event a parked run never took continues it: a retry afte
 test("a workflow file directly in home has no project", async () => {
   const home = dirs.tempRunDir();
   await expect(projectOf(join(home, "case.ts"), home)).rejects.toThrow("directly in home");
+});
+
+describe("awf tick", () => {
+  /** A keyed run with its attempts as given, its project recorded, as an emit would leave it. */
+  async function keyedRun(
+    p: ReturnType<typeof project>,
+    key: string,
+    fields: Partial<AttemptRecord>[],
+  ) {
+    await emit(p, "dd.changes", { case: key }, { id: `${key}-0`, launch: fakeLaunch() });
+    const run = await runOf(p, key);
+    const [first] = await readAttempts(run);
+    const [head, ...rest] = fields;
+    await writeJson(join(run.dir, "attempts", "1.json"), { ...first, ...head });
+    for (const each of rest) await attempt(run, each);
+    return run;
+  }
+  const ended = (outcome: AttemptRecord["outcome"]) => ({
+    ...GONE,
+    ended: new Date().toISOString(),
+    outcome,
+  });
+  const tick = async (p: ReturnType<typeof project>, launch: Launch) => {
+    const out: string[] = [];
+    const err: string[] = [];
+    const code = await tickCommand(
+      ["--json"],
+      { stdout: (t) => out.push(t), stderr: (t) => err.push(t) },
+      { home: p.home, environment: {}, launch },
+    );
+    return { code, woke: (JSON.parse(out[0]!) as TickResultJson).woke, err };
+  };
+
+  test("wakes each run that is due, from every project awf started one in", async () => {
+    const p = project();
+    const parkedDue = await keyedRun(p, "due", [ended("parked")]);
+    const past = new Date(Date.now() - 1_000).toISOString();
+    await appendMailbox(parkedDue.dir, {
+      version: 1,
+      at: past,
+      kind: "took",
+      attempt: 1,
+      ids: ["due-0"],
+    });
+    await appendMailbox(parkedDue.dir, {
+      version: 1,
+      at: past,
+      kind: "wait",
+      attempt: 1,
+      until: past,
+    });
+    const quiet = await keyedRun(p, "quiet", [ended("parked")]);
+    await appendMailbox(quiet.dir, {
+      version: 1,
+      at: past,
+      kind: "took",
+      attempt: 1,
+      ids: ["quiet-0"],
+    });
+    await appendMailbox(quiet.dir, { version: 1, at: past, kind: "wait", attempt: 1 });
+    await keyedRun(p, "crashed", [{ ...GONE }]);
+    await keyedRun(p, "failed", [ended("failed")]);
+    await keyedRun(p, "stuck", [ended("failed"), ended("failed"), ended("failed")]);
+    await keyedRun(p, "stopped", [ended("stopped")]);
+    await keyedRun(p, "live", [{ ...ALIVE }]);
+    const launch = fakeLaunch();
+    const { code, woke } = await tick(p, launch);
+    expect(code).toBe(0);
+    expect(woke.sort((a, b) => a.run.localeCompare(b.run))).toEqual([
+      { run: "dd-case/dd-case.crashed", did: "continued", why: "crashed" },
+      { run: "dd-case/dd-case.due", did: "continued", why: "until" },
+      { run: "dd-case/dd-case.failed", did: "continued", why: "failed" },
+    ]);
+    expect(launch.launched).toHaveLength(3);
+  });
+
+  test("a run never started and a parked run with an untaken event are woken; a run without events, and a project that's gone, are not", async () => {
+    const p = project();
+    await emit(
+      p,
+      "dd.changes",
+      { case: "never" },
+      {
+        id: "n0",
+        launch: async () => {
+          throw new Error("down");
+        },
+      },
+    );
+    const waiting = await keyedRun(p, "waiting", [ended("parked")]);
+    await appendMailbox(waiting.dir, {
+      version: 1,
+      at: new Date().toISOString(),
+      kind: "wait",
+      attempt: 1,
+    });
+    // A crashed run of a workflow without events, in the same project: left as it is.
+    const plain = await createRun(p.runRoot, {
+      id: "r1",
+      workflow: "plain",
+      argv: [],
+      cwd: p.root,
+      sandbox: null,
+    });
+    await attempt(plain, { ...GONE });
+    const gone = join(dirs.tempRunDir(), "gone");
+    await Bun.write(
+      join(p.home, ".awf", "projects"),
+      `${await Bun.file(join(p.home, ".awf", "projects")).text()}${gone}\n`,
+    );
+    const launch = fakeLaunch();
+    const { code, woke, err } = await tick(p, launch);
+    expect(woke.sort((a, b) => a.run.localeCompare(b.run))).toEqual([
+      { run: "dd-case/dd-case.never", did: "started", why: "event" },
+      { run: "dd-case/dd-case.waiting", did: "continued", why: "event" },
+    ]);
+    expect(code).toBe(1);
+    expect(err.join("\n")).toContain("is gone");
+  });
+
+  test("awf runs shows a keyed run that keeps failing as stuck", async () => {
+    const p = project();
+    await keyedRun(p, "k", [ended("failed"), ended("failed"), { ...GONE }]);
+    const out: string[] = [];
+    await runsCommand(["--json"], p.root, { stdout: (t) => out.push(t), stderr: () => undefined });
+    expect((JSON.parse(out[0]!) as RunsJson).runs).toMatchObject([
+      { ref: "dd-case/dd-case.k", state: "stuck" },
+    ]);
+  });
+
+  test("an emit and a tick at once continue a parked run once", async () => {
+    const p = project();
+    const run = await keyedRun(p, "k", [ended("parked")]);
+    const past = new Date(Date.now() - 1_000).toISOString();
+    await appendMailbox(run.dir, { version: 1, at: past, kind: "took", attempt: 1, ids: ["k-0"] });
+    await appendMailbox(run.dir, { version: 1, at: past, kind: "wait", attempt: 1, until: past });
+    const launch = fakeLaunch();
+    const [emitted, ticked] = await Promise.all([
+      emit(p, "dd.changes", { case: "k" }, { id: "k-1", launch, nudge: async () => true }),
+      tick(p, launch),
+    ]);
+    expect(launch.launched).toHaveLength(1);
+    // Whichever came second found it running: the emit nudged it, or the tick left it.
+    expect(ticked.woke).toHaveLength(emitted.did === "continued" ? 0 : 1);
+    expect(emitted.did === "continued" || emitted.did === "nudged").toBe(true);
+  });
 });

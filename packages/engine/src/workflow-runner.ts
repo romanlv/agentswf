@@ -115,7 +115,7 @@ import { RunDecisions } from "./decisions/directory";
 import type { DecisionInstallation } from "./decisions/seam";
 import { type EmitTarget, emitEvent } from "./emit";
 import { messageOf } from "./errors";
-import { RunMailbox } from "./mailbox";
+import { RunMailbox, RunParked } from "./mailbox";
 import { superviseMessageOperation } from "./message-operation";
 import { canAwaitReply } from "./messaging/limits";
 import type { HolderRequest } from "./messaging/messaging";
@@ -146,7 +146,7 @@ import {
   type OperationTags,
   type RunLedger,
 } from "./run-usage";
-import { endTurnsLine, readStageRecords } from "./runs";
+import { endTurnsLine, readStageRecords, readTurns } from "./runs";
 import { type CredentialLocks, placeCarried, seedHome } from "./sandbox-homes";
 import {
   RUN_SANDBOX_ONLY,
@@ -179,8 +179,18 @@ export type RunWorkflowOptions = {
     key?: string;
     /** With `key`: runs `work` holding the key's lock, as every append to the mailbox is made. */
     locked?<T>(work: () => Promise<T>): Promise<T>;
+    /**
+     * With `key`: false when the attempt before this one has no ending, its process gone with its
+     * agents perhaps still running: its sessions aren't reopened until they are stopped (Q17).
+     */
+    resumeSessions?: boolean;
     /** With `key`: calls `nudge` whenever awf tells the run its mailbox has a new event. */
     listenNudges?(nudge: () => void): void;
+    /**
+     * With `key`: writes the attempt's `parked` ending, which the run's wait calls holding the key's
+     * lock. Absent, the run never parks and waits in its process.
+     */
+    park?(wait: { label?: string; until?: string }): Promise<void>;
   };
   runtime: AgentRuntimeConfig;
   /** The run's deadline; absent, it has none, and only deadlines the workflow sets bound it. */
@@ -510,17 +520,28 @@ export async function startWorkflow<Args extends JsonValue, Result extends JsonV
   });
   const fatal = Promise.withResolvers<never>();
   void fatal.promise.catch(() => undefined);
+  // A keyed run's agents reopen on the sessions its earlier attempts' turns ran on.
+  const keptSessions =
+    "events" in definition && options.run.resumeSessions !== false
+      ? keptSessionsOf(await readTurns(runDir))
+      : undefined;
   const mailbox =
     "events" in definition
       ? new RunMailbox({
           runDir,
           attempt,
           locked: options.run.locked ?? ((work) => work()),
+          ...(options.run.park
+            ? { parking: { idle: (stage) => owner.idle(stage), park: options.run.park } }
+            : {}),
         })
       : undefined;
   if (mailbox) options.run.listenNudges?.(() => mailbox.nudge());
-  const owner = new WorkflowOwner({
+  // biome-ignore lint/style/useConst: the mailbox's parking asks the owner, made after it.
+  let owner: WorkflowOwner;
+  owner = new WorkflowOwner({
     ...(mailbox ? { mailbox, key: options.run.key ?? runId } : {}),
+    ...(keptSessions ? { keptSessions } : {}),
     failRun: (error) => fatal.reject(error),
     decisions,
     sandboxes,
@@ -572,6 +593,8 @@ export async function startWorkflow<Args extends JsonValue, Result extends JsonV
               return returned;
             }),
             fatal.promise,
+            // A park ends the body, even code that caught it.
+            ...(mailbox ? [mailbox.whenParked] : []),
           ]),
         signal,
         options.deadline,
@@ -585,6 +608,11 @@ export async function startWorkflow<Args extends JsonValue, Result extends JsonV
     } catch (error) {
       failed = true;
       failure = error;
+    }
+    // Once `parked` is written, the attempt is parked, whatever the code did after.
+    if (mailbox?.parked) {
+      failed = true;
+      failure = mailbox.parked;
     }
     const ending = stages.settle(
       failed ? failure : undefined,
@@ -825,6 +853,8 @@ class WorkflowOwner {
       coordinators: readonly CoordinatorPort[];
       /** A run of a workflow with `events`: its mailbox, which its waits take from, and its key. */
       mailbox?: RunMailbox;
+      /** With `mailbox`: each root agent's last session in earlier attempts, which it reopens on. */
+      keptSessions?: ReadonlyMap<string, NativeFork>;
       key?: string;
       emit: Emitter;
       /** The workflow's name, which with the run's id is the ref its events are `from`. */
@@ -977,17 +1007,19 @@ class WorkflowOwner {
           typeof given?.definition !== "object"
         )
           throw new Error("emit's target is a workflow with events, as its file exports it");
-        return options.emit(
-          {
-            file: target.definition.file,
-            definition: target.definition as unknown as EmitTarget["definition"],
-          },
-          {
-            name,
-            data: data as JsonValue,
-            ...(emitOptions?.id === undefined ? {} : { id: emitOptions.id }),
-          },
-          `${options.workflow}/${options.runId}`,
+        return this.track(
+          options.emit(
+            {
+              file: target.definition.file,
+              definition: target.definition as unknown as EmitTarget["definition"],
+            },
+            {
+              name,
+              data: data as JsonValue,
+              ...(emitOptions?.id === undefined ? {} : { id: emitOptions.id }),
+            },
+            `${options.workflow}/${options.runId}`,
+          ),
         );
       },
       parallel: (items, operation, parallelOptions) => {
@@ -1020,8 +1052,23 @@ class WorkflowOwner {
   }
 
   #waiting = false;
+
+  /**
+   * Nothing of the run is working but its wait: no agent's turn, message or compaction, and no
+   * decision, sandbox or agent opening in flight.
+   */
+  idle(waitStage?: string): boolean {
+    const open = this.options.stages.openStage;
+    return (
+      (open === undefined || open === waitStage) &&
+      this.#inFlight.size === 0 &&
+      [...this.#logical.values()].every((agent) => !agent.busy)
+    );
+  }
   /** The batch a wait in a stage took, by stage, until the stage ends: what it must return. */
   readonly #stageBatches = new Map<string, WorkflowEvent<string, JsonValue>[]>();
+  /** Stages around a wait this attempt entered: each is entered once, as a loop over one spins. */
+  readonly #waitedStages = new Set<string>();
 
   /** A wait: one at a time, and in a stage, the stage's batch. */
   private async receive(
@@ -1047,8 +1094,16 @@ class WorkflowOwner {
         scope?.stage,
         AbortSignal.any([this.#closingRun.signal, cancelled.signal]),
       );
-      if (scope?.stage !== undefined) this.#stageBatches.set(scope.stage, taken);
+      if (scope?.stage !== undefined) {
+        this.#stageBatches.set(scope.stage, taken);
+        this.#waitedStages.add(scope.stage);
+      }
       return taken;
+    } catch (error) {
+      // Parked in a stage: left unended now, before anything closes it, for the next attempt.
+      if (error instanceof RunParked && scope?.stage !== undefined)
+        this.options.stages.abandon(scope.stage);
+      throw error;
     } finally {
       removeFromScope?.();
       this.#waiting = false;
@@ -1327,6 +1382,13 @@ class WorkflowOwner {
         entered.value === undefined && !options
           ? await this.options.mailbox?.batchOf(name)
           : undefined;
+      if (batch) {
+        if (this.#waitedStages.has(name))
+          throw new Error(
+            `stage ${name} around a wait was entered again in this attempt, and would return the same batch forever; name it by what it waits for`,
+          );
+        this.#waitedStages.add(name);
+      }
       return (batch as JsonValue | undefined) ?? entered.value;
     }
     const open = entered.stage;
@@ -1370,6 +1432,8 @@ class WorkflowOwner {
       }).catch(() => undefined);
       const stopped = this.options.stages.stopped;
       if (stopped && error === stopped && stopped.stage === name) await open.stop(stopped.reason);
+      // Parked at a wait in it: not ended, so the next attempt runs it again.
+      else if (error instanceof RunParked) this.options.stages.abandon(name);
       else {
         this.options.stages.failedIn(name, error);
         await open.fail(messageOf(error));
@@ -1433,6 +1497,18 @@ class WorkflowOwner {
     }
 
     this.options.progress.agentOpened(spec.key, scope?.group);
+    const found = this.options.keptSessions?.get(spec.key);
+    // Reopened only where it can be: a key the code now opens on another harness starts afresh, and
+    // so does an agent with a home of its own, skills or a sandbox, made anew at every open, which
+    // its kept session isn't in. Either is given its instructions again.
+    const homeOfItsOwn = spec.skills !== undefined || spec.sandbox !== undefined || inRunSandbox;
+    const kept = found?.harness === execution.harness && !homeOfItsOwn ? found : undefined;
+    if (found && !kept)
+      this.options.onLog?.(
+        homeOfItsOwn
+          ? `agent ${spec.key} has skills or a sandbox, whose home is made anew; it starts a new session`
+          : `agent ${spec.key} now runs ${execution.harness}, not the ${found.harness} its session was kept on; it starts a new session`,
+      );
     // Opened before the session so registration below stays synchronous: two concurrent `agent()`
     // calls for one key must not each build an agent.
     const sessions: AgentSessions = { launcher: new Set(), forks: [] };
@@ -1454,7 +1530,10 @@ class WorkflowOwner {
         deadline: harnessDeadline(effectiveDeadline),
         cwd,
         execution,
-        ...(spec.instructions === undefined ? {} : { instructions: spec.instructions }),
+        // A kept session already holds the instructions; they are not sent again.
+        ...(kept ? { continues: kept } : {}),
+        ...(spec.instructions === undefined || kept ? {} : { instructions: spec.instructions }),
+        ...(this.options.mailbox ? { paneAtFirstTurn: true as const } : {}),
         ...(spec.labels === undefined ? {} : { labels: spec.labels }),
         ...(seated ? { occupant: seated.occupant } : {}),
         ...(seated?.webSearch ? { webSearch: true } : {}),
@@ -3920,4 +3999,18 @@ function stoppedError(key: string, reason: string): Error {
 
 function unavailable(name: string): Promise<never> {
   return Promise.reject(new Error(`${name} is not implemented by the minimum workflow runner`));
+}
+
+/**
+ * Each root agent's last native session in a run's turns, where its harness can resume it: what a
+ * keyed run's continue reopens it on.
+ */
+export function keptSessionsOf(turns: readonly TurnRecord[]): Map<string, NativeFork> {
+  const kept = new Map<string, NativeFork>();
+  for (const turn of turns) {
+    if ((turn.callPath?.length ?? 0) > 0) continue;
+    const session = turn.sessions.at(-1);
+    if (session) kept.set(turn.agent, { harness: session.harness, sessionRef: session.id });
+  }
+  return kept;
 }

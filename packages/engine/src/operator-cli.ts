@@ -49,9 +49,10 @@ import { parseCommand, type RunCommand, usage } from "./run-command";
 import { placeFlags, shellLine, startedLine } from "./run-commands";
 import { claimNext, loadAndPrepare, type PreparedRun, workspaceLabel } from "./run-prepare";
 import { findRun } from "./run-state";
-import { type Attempt, createRun, discardRun, type Run, RunRefused } from "./runs";
+import { type Attempt, createRun, discardRun, endAttempt, type Run, RunRefused } from "./runs";
 import { runsCommand } from "./runs-command";
 import { testCommand } from "./test-command";
+import { tickCommand } from "./tick-command";
 import type { Launch } from "./wake";
 import type { LoadedWorkflow } from "./workflow-loader";
 import {
@@ -174,6 +175,16 @@ export async function runOperatorCli(
       emitCommand(
         argv.slice(1),
         cwd,
+        { stdout, stderr },
+        {
+          home: environment.home ?? homedir(),
+          environment: environment.environment ?? process.env,
+          ...(environment.launch ? { launch: environment.launch } : {}),
+        },
+      ),
+    tick: () =>
+      tickCommand(
+        argv.slice(1),
         { stdout, stderr },
         {
           home: environment.home ?? homedir(),
@@ -407,8 +418,22 @@ async function runAttempt(
   const { id, cwd } = run.record;
   const sandbox = run.record.sandbox ?? undefined;
   const n = attempt.record.attempt;
+  // Claimed first, which `wake` waits for holding the key's lock; only then waited on: two
+  // attempts never share an agent's session.
+  const previous = prepared.continued?.attempts.at(-1);
   const goOn: GoOn = (stop, entered) => continueCommand(command, id, stop, entered);
-  const records = { attempt, executable, workflow: { name: meta.name, file: loaded.file }, stderr };
+  const records = {
+    attempt,
+    executable,
+    workflow: { name: meta.name, file: loaded.file },
+    stderr,
+    ...(run.record.key === undefined
+      ? {}
+      : {
+          locked: (work: () => Promise<void>) =>
+            withKeyLock(keyLockFile(run.root, meta.name, run.record.id), work),
+        }),
+  };
   const close = (end: AttemptEnd, kept: Kept, cleanupAlso?: string) =>
     printEnding(end, kept, {
       executable,
@@ -535,6 +560,10 @@ async function runAttempt(
               locked: (work) => withKeyLock(keyLockFile(run.root, meta.name, id), work),
               listenNudges: (given) => {
                 nudge = given;
+              },
+              resumeSessions: previous === undefined || previous.ended !== undefined,
+              park: async () => {
+                await endAttempt(attempt, { outcome: "parked" });
               },
             }),
       },

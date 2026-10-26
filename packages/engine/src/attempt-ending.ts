@@ -12,6 +12,7 @@ import {
 import { PUBLISHED_PRICES } from "./accounting/prices";
 import { summarizeRun } from "./accounting/summary";
 import { messageOf } from "./errors";
+import { RunParked } from "./mailbox";
 import type { Paint } from "./progress-view";
 import { FromStageUnreached, primaryFailure, WorkflowStopped } from "./stopped";
 import {
@@ -79,6 +80,19 @@ export function decideEnding(
   }
   const { error } = run;
   const settled = error instanceof WorkflowRunError ? error : undefined;
+  const parked = primaryFailure(unwrapped(error));
+  if (parked instanceof RunParked) {
+    return {
+      ending: {
+        kind: "parked",
+        stages: settled?.stages ?? [],
+        ...(parked.label === undefined ? {} : { label: parked.label }),
+        ...(parked.until === undefined ? {} : { until: parked.until }),
+      },
+      ...(settled ? { settled } : {}),
+      exitCode: OUTCOMES.parked.exitCode!,
+    };
+  }
   const { kind, stop, cancellation } = runOutcome(error, deadline);
   const cause = unwrapped(error);
   const beside =

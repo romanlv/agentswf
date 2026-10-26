@@ -133,8 +133,8 @@ async function list(place: ReadPlace, all: boolean, json: boolean, out: Out, now
       duration(ms).padEnd(8),
       money(estimate)
         .join("")
-        .concat(status.waiting ? "  " : ""),
-      waitingText(status.waiting),
+        .concat(status.waiting || status.attempts.at(-1)?.unacknowledged ? "  " : ""),
+      waitingText(status.waiting, status),
     ]
       .join("")
       .trimEnd();
@@ -144,9 +144,10 @@ async function list(place: ReadPlace, all: boolean, json: boolean, out: Out, now
   return 0;
 }
 
-/** A run at its wait: its label, and until when. */
-function waitingText(waiting: RunStatus["waiting"]): string {
-  if (!waiting) return "";
+/** A run at its wait: its label, and until when; a returned one, the events it never took. */
+function waitingText(waiting: RunStatus["waiting"], status?: RunStatus): string {
+  const never = status?.attempts.at(-1)?.unacknowledged;
+  if (!waiting) return never ? `${never} event${never === 1 ? "" : "s"} never taken` : "";
   const until = waiting.until ? `until ${dayTime(Date.parse(waiting.until))}` : "";
   return [waiting.label, until].filter(Boolean).join(" · ") || "waiting";
 }

@@ -129,7 +129,8 @@ export interface AgentOpenSpec {
 }
 
 /**
- * Where a pane agent's pane is placed, once, at its first turn: a new tab, or beside the pane of an agent
+ * Where a pane agent's pane is placed, once, as it opens, or in a run of a workflow with `events` at
+ * its first turn: a new tab, or beside the pane of an agent
  * already open, which it splits. Where it can't be used, the agent gets a tab of its own instead,
  * and the run says why; it never fails the agent. See `docs/design/pane-layout.md`.
  */

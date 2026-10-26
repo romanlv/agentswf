@@ -100,6 +100,31 @@ export function eventOf(record: EventRecord): WorkflowEvent<string, JsonValue> {
   });
 }
 
+/**
+ * Thrown from a wait that parked the run: nothing waits to be taken, no turn runs, and the
+ * attempt's `parked` ending is written. The runner ends the attempt with it.
+ */
+export class RunParked extends Error {
+  constructor(
+    readonly label: string | undefined,
+    readonly until: string | undefined,
+  ) {
+    super(`parked${label === undefined ? "" : `: ${label}`}`);
+    this.name = "RunParked";
+  }
+}
+
+/** How a run parks at a wait: whether it may, and the ending it writes when it does. */
+export type Parking = {
+  /**
+   * Nothing of the run works but this wait, in `stage` if it is in one: so nothing but a new event
+   * can change what the code would do.
+   */
+  idle(stage?: string): boolean;
+  /** Writes the attempt's `parked` ending, holding the key's lock, so a waker sees it at once. */
+  park(wait: { label?: string; until?: string }): Promise<void>;
+};
+
 /** How often a wait looks at its mailbox when no nudge comes: a nudge that failed still arrives. */
 const POLL_MILLISECONDS = 1_000;
 
@@ -110,6 +135,12 @@ const POLL_MILLISECONDS = 1_000;
  */
 export class RunMailbox {
   #first = true;
+  readonly #parked = Promise.withResolvers<never>();
+  /** Set once the run parked: its ending is `parked` whatever the code does after. */
+  parked: RunParked | undefined;
+  /** Rejects with the park, for the runner to race the workflow's body against. */
+  readonly whenParked: Promise<never> = this.#parked.promise;
+
   #wake: (() => void) | undefined;
 
   constructor(
@@ -118,9 +149,14 @@ export class RunMailbox {
       attempt: number;
       /** Runs `work` holding the key's lock. */
       locked<T>(work: () => Promise<T>): Promise<T>;
+      /** Absent, the run never parks: it waits in its process. */
+      parking?: Parking;
       now?: () => number;
     },
-  ) {}
+  ) {
+    // A run nobody races, such as a test's, leaves no rejection unhandled.
+    this.#parked.promise.catch(() => undefined);
+  }
 
   async #append(record: MailboxRecord): Promise<void> {
     await this.options.locked(() => appendMailbox(this.options.runDir, record));
@@ -201,8 +237,37 @@ export class RunMailbox {
         await took([]);
         return [];
       }
-      // With no `until`, only a nudge or the size poll wakes it: nothing else can change.
-      await this.#idle(woken, size, until === undefined ? 2 ** 31 - 1 : until - now(), signal);
+      const { parking } = this.options;
+      const idle = parking?.idle(stage) ?? false;
+      if (parking && idle) {
+        const untilIso = until === undefined ? undefined : new Date(until).toISOString();
+        // Checked once more under the lock, which every sender appends under: an event sent now is
+        // either seen here, or sent after `parked` is written and continues the run.
+        const parked = await this.options.locked(async () => {
+          const again = foldMailbox(await readMailbox(this.options.runDir));
+          if (again.unacknowledged.length > 0) return false;
+          await parking.park({
+            ...(label === undefined ? {} : { label }),
+            ...(untilIso === undefined ? {} : { until: untilIso }),
+          });
+          return true;
+        });
+        if (parked) {
+          this.parked = new RunParked(label, untilIso);
+          this.#parked.reject(this.parked);
+          throw this.parked;
+        }
+        continue;
+      }
+      // With no `until`, only a nudge or the size poll wakes it, or, with a turn running, its end,
+      // which may let the run park: looked at each second.
+      const longest = parking && !idle ? POLL_MILLISECONDS : 2 ** 31 - 1;
+      await this.#idle(
+        woken,
+        size,
+        Math.min(longest, until === undefined ? longest : until - now()),
+        signal,
+      );
     }
   }
 

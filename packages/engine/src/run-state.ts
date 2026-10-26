@@ -1,5 +1,5 @@
 import { join } from "node:path";
-import type { AttemptRecord, WaitingJson } from "@agentswf/contract/records";
+import type { AttemptRecord, MailboxRecord, WaitingJson } from "@agentswf/contract/records";
 import type { AttemptOutcome } from "@agentswf/contract/workflow";
 import { exists } from "./files";
 import { foldMailbox, readMailbox } from "./mailbox";
@@ -21,7 +21,7 @@ export type ProcessStatus = (pid: number) => string | "gone" | "unknown";
  * `running`; open and its process gone, `interrupted`; or how its last attempt ended. Read from
  * `run.json` and the attempt files, never the event log, so a run an older awf wrote reads too.
  */
-export type RunState = "running" | "interrupted" | AttemptOutcome;
+export type RunState = "running" | "interrupted" | "stuck" | AttemptOutcome;
 
 export type RunStatus = {
   run: Run;
@@ -45,7 +45,11 @@ export async function runStatus(
 ): Promise<RunStatus> {
   const status = statusOf(run, await readAttempts(run), probe, at);
   const waiting = await waitingOf(status);
-  return waiting ? { ...status, waiting } : status;
+  const stuck =
+    run.record.key !== undefined &&
+    status.state !== "running" &&
+    stuckOf(status.attempts, await readMailbox(run.dir));
+  return { ...status, ...(waiting ? { waiting } : {}), ...(stuck ? { state: "stuck" } : {}) };
 }
 
 /** A keyed run's wait, while it is running or parked there: its label and `until`. */
@@ -150,4 +154,41 @@ export async function findRun(
     throw new RunNotFound(`${ref} names a run of more than one workflow: ${refs}`);
   }
   return { status: await runStatus(found[0]!, probe), alsoRunning: [] };
+}
+
+/** Failed or crashed attempts in a row, counted together, after which a run is `stuck` (Q13). */
+export const STUCK_AFTER = 3;
+
+/**
+ * Failed, timed-out or crashed attempts at the end of the run, and launches since the last attempt
+ * that never claimed one, counted together; any other ending resets them.
+ */
+export function failuresInARow(
+  attempts: readonly AttemptRecord[],
+  records: readonly MailboxRecord[] = [],
+): number {
+  const since = attempts.at(-1)?.started ?? "";
+  let n = records.filter((record) => record.kind === "launch-failed" && record.at > since).length;
+  for (const attempt of [...attempts].reverse()) {
+    const failed =
+      attempt.outcome === undefined ||
+      attempt.outcome === "failed" ||
+      attempt.outcome === "timed-out";
+    if (!failed) break;
+    n++;
+  }
+  return n;
+}
+
+/**
+ * Whether a keyed run is `stuck` (Q13): failed, crashed or failed to launch three times in a row,
+ * whatever its last ending says, short of one the operator or the code chose.
+ */
+export function stuckOf(
+  attempts: readonly AttemptRecord[],
+  records: readonly MailboxRecord[],
+): boolean {
+  const last = attempts.at(-1)?.outcome;
+  if (last === "completed" || last === "stopped" || last === "cancelled") return false;
+  return failuresInARow(attempts, records) >= STUCK_AFTER;
 }

@@ -408,8 +408,8 @@ As in "How it works". The rules and records in full:
 - **Only a workflow with `events` waits.** `receive` exists only on a workflow with `events`, by
   type; at run time a plain run's `receive` rejects. Such a workflow takes no input and is started only by an event: `awf run`
   refuses it, and `awf run --continue` is still allowed, for a run that needs the operator.
-- **`return`** cancels a turn still running, and its ending records how many events were never
-  acknowledged, taken or not, which `awf runs` shows. A later event for the key is refused (Q14).
+- **`return`** cancels a turn still running, and its ending records how many events no wait
+  took, which `awf runs` shows; the batch the code returned after was handled. A later event for the key is refused (Q14).
 
 ### Turns
 
@@ -520,7 +520,7 @@ turn, which the case's files keep and the wait's `until` reads.
 - [x] 2. Stages by content in a run with `events`
 - [x] 3. The mailbox and `receive` in the engine
 - [x] 4. One way in: `awf emit --target`, the key's lock, append or refuse, `wake`
-- [ ] 5. Parking: the `parked` ending, a continue to the wait with agents on their kept sessions, and `awf tick`
+- [x] 5. Parking: the `parked` ending, a continue to the wait with agents on their kept sessions, and `awf tick`
 - [ ] 6. Turns not awaited: `start()`, `turn`, `agent:ended`, `cancel()`
 - [ ] 7. A participant routed to the code: `participant:reply`, `post`
 - [ ] 8. workflow-testing: scripted events
@@ -1047,3 +1047,85 @@ Built in the worktree `../worktrees/awf-event-driven-runs`, branch `event-driven
   has the event already, and still starts or continues one that never took it; `wake` reads the
   mailbox only where it needs it; the lock asks `ps` for its own start once. Clear.
 - **Verified**: `bun test packages/engine` 901 pass; `bun run check` passes.
+
+### Task 5: parking
+
+- **Where a run parks.** `RunMailbox`'s wait, given `parking` (`idle()`, `park()`), checks at the
+  point it would sleep: with nothing to take, no `until` passed, and every agent idle (no turn,
+  message or compaction), it takes the key's lock, reads the mailbox once more, writes the
+  attempt's `parked` ending through `park()` and throws `RunParked`. The runner's ending is
+  `parked`, with the wait's label and `until`; a stage the wait was in is abandoned, unrecorded, so
+  the next attempt runs it again. With a turn running the wait looks again each second, as the
+  turn's end may let it park. `awf run` gives `park()` as an early `endAttempt`, under the lock, so
+  a waker sees `parked` at once and continues the run while this process is still closing agents.
+  `testWorkflow` parks too: `run.parked` gives the wait, and `run.value` says the run parked.
+- **A continue** claims its attempt first, taking no key lock, then waits for the previous
+  attempt's process to be gone, stopping it past five minutes (`previousGone`), as `wake` holds the
+  lock until the claim.
+- **Agents reopen on kept sessions.** A keyed run reads its earlier turns at start
+  (`keptSessionsOf`): each root agent's last native session is handed to its activation as
+  `continues`, as a fork's session is, and its instructions are not sent again. In a keyed run every
+  pane agent opens with `paneAtFirstTurn`, a new harness option: the herdr adapter places its pane
+  at its first turn, so an agent reopened on a wake with nothing to do shows nothing. The
+  contract's placement wording says both ways.
+- **`awf tick`** (`tick-command.ts`): every project in `~/.awf/projects`, every keyed run in it,
+  under its key's lock, `wake` with no file and no nudge of a live run; a line per run woken,
+  `continued {ref}: until|event|crashed|failed`, and `started` for one whose first launch failed.
+  `TickResultJson.did` takes `started` for that.
+- **`stuck`** is derived in `runStatus` for a keyed run whose failed, crashed and failed-to-launch
+  attempts in a row reach three; `failuresInARow` and `STUCK_AFTER` moved to `run-state.ts`.
+- **A returned run** records `unacknowledged`, the events no wait took, and `awf runs` says
+  `{n} events never taken`. The batch it returned after counts as handled: the design's "taken or
+  not" now reads "no wait took".
+- **Live, on real harnesses** (`scratchpad/live`, `recall.ts`: one awaited turn per event):
+  codex headless and claude in a pane each took a first event ("remember PELICAN-42", "OSPREY-17"),
+  parked, and on the second event were continued by `awf emit`, reopened on the same native
+  session (`01a175c3…`, `4a8f8afe…`), and answered the word; the second turn's prompt carried no
+  instructions. Claude's pane opened from the detached run, whose environment had none of the
+  Herdr variables, and was billed `subscription` (awf's label).
+- **Tests**: `receive.test.ts` (a run parks at its wait's label and `until`), `mailbox.test.ts` (an
+  event sent as the run parks is taken; the park's lock order; no park while a turn runs),
+  `emit.test.ts`'s `awf tick` (each row, from every project; an emit and a tick at once continue
+  once), `emit-e2e.test.ts` (start, park, continue, complete and refuse across processes, with
+  `unacknowledged` and `process.log`; a continue reads a rotated `.env` and none of the sender's
+  `TOKEN` or `PATH`; `previousGone` waits for the old process), `herdr.test.ts` (no tab until the
+  first turn). `bun test packages/engine` 909 pass, `packages/harness` 438 pass; `bun run check`
+  passes.
+- **Owed to task 6**: Q17's stopping of the old attempt's panes and agent processes, and the
+  failed ends it writes, which need turns not awaited.
+- **Review 1** (two agents): 19 findings between them, fixed or recorded.
+  - Fixed: a park can't be swallowed: once `parked` is written the body is raced out and the ending
+    is `parked`, whatever the code caught. `idle()` counts every tracked operation and any open
+    stage but the wait's own, so a wait beside a stage or a decision doesn't park. Kept sessions
+    are reopened only when the attempt before ended (a crashed one's panes may still write its
+    sessions, until task 6 stops them, Q17), when the harness is the same, and when the agent has
+    no skills or sandbox, whose home is made anew; otherwise the agent starts afresh, with its
+    instructions, and the log says why. A continue waits for the previous process inside
+    `claimNext`, after the claim and before it writes a line, so the old attempt's records come
+    first; past five minutes it is cancelled, then killed after 30 s, each signal guarded. A keyed
+    run's ending, and a returned run's count, are written holding the key's lock, as parking's
+    is. One `stuckOf` for `awf runs` and `wake`. `wake` says what was due (`cause`), which `awf
+    tick` prints. A failed launch quotes only what it wrote. `awf tick` exits 1 for a project that
+    is gone. A stage around a wait entered again in one attempt throws: it would return its batch
+    forever. Forking a pane agent before its first turn says so.
+  - Recorded: before an agent's first turn in an attempt it can't be forked or compacted, and
+    `beside` it falls back to a tab (`docs/workflow-api.md`); a resumed claude headless turn's
+    printed dollars are dropped for that turn, tokens counted once (the usage window starts at the
+    attempt); instructions changed in the code don't reach a kept session; a stage abandoned at a
+    park leaves its `stage-started` without an end in the event log, followed by the attempt's
+    `parked` end; `TickResultJson.did` gained `started`, a published type for review.
+  - Tests added: a caught park still parks; a wait in a stage that parks leaves it unrecorded; a
+    wait beside an open stage parks only once it ends; `keptSessionsOf` keeps each root agent's
+    last session; `awf tick` starts a run never started, continues a parked one with an untaken
+    event, leaves a run without events, and exits 1 for a project gone; `awf runs` shows `stuck`
+    and `{n} events never taken`; a stage around a wait entered twice in one attempt is refused.
+- **Verified**: `bun test packages/engine` 916 pass, `packages/harness` 438 pass; `bun run check`
+  passes.
+- **Review 2**: every round-1 fix confirmed, no deadlock; six small findings, fixed: a failed
+  launch's quote is cut by bytes, not characters; `workflow.emit` is tracked, so a wait beside one
+  doesn't park; a stage a wait parked in is abandoned where the park is thrown, before anything
+  closes it; the claim-first order has a test, which found the launch waiting up to 5 s for the new
+  attempt's socket while the old process closed, now skipped while that process lives; the
+  workflow API says plain code beside a wait is cut off at a park; stale wording. Clear.
+- **Verified**: `bun test packages/engine` 917 pass, `packages/harness` 438 pass; `bun run check`
+  passes.

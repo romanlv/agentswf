@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import type { TurnRecord } from "@agentswf/contract/records";
 import {
   defineEventWorkflow,
   defineExecutableWorkflow,
@@ -6,6 +7,7 @@ import {
   type JsonValue,
   type OutputSchema,
 } from "@agentswf/contract/workflow";
+import { keptSessionsOf } from "./workflow-runner";
 import { testWorkflow } from "./workflow-testing";
 
 const Changes: OutputSchema<{ case: string }> = {
@@ -64,16 +66,14 @@ test("a stage around a wait returns its batch, and one returning other events fa
   );
   expect(kept.value).toEqual(["e1"]);
 
-  // Entered again, the stage is reused: its batch read back, not a later event.
-  const reused = await testWorkflow(
+  // Entered again in one attempt, a stage around a wait would return its batch forever: refused.
+  const again = await testWorkflow(
     caseRun(async (workflow) => {
-      const first = await workflow.stage("approval-1", () => workflow.receive());
-      const again = await workflow.stage("approval-1", () => workflow.receive());
-      return [...first, ...again].map((e) => e.id);
+      for (;;) await workflow.stage("approval-1", () => workflow.receive());
     }),
     { event: { name: "dd.changes", data: { case: "k" }, id: "e1" } },
   );
-  expect(reused.value).toEqual(["e1", "e1"]);
+  expect(() => again.value).toThrow("around a wait was entered again in this attempt");
 
   const filtered = await testWorkflow(
     caseRun(async (workflow) => {
@@ -135,20 +135,23 @@ test("a wait ends with its run: a deadline while waiting settles the run and the
 });
 
 test("one wait at a time", async () => {
+  let second = "";
   const run = await testWorkflow(
     caseRun(async (workflow) => {
       await workflow.receive();
       const waiting = workflow.receive({ until: Date.now() + 200 });
-      const second = await workflow.receive().then(
+      second = await workflow.receive().then(
         () => "taken",
         (error: unknown) => String(error),
       );
       await waiting;
-      return second;
+      return null;
     }),
     { event: { name: "dd.changes", data: { case: "k" } } },
   );
-  expect(run.value).toContain("one wait at a time");
+  expect(second).toContain("one wait at a time");
+  // The first, with nothing to take and no turn running, parked the run.
+  expect(run.parked).toBeDefined();
 });
 
 test("a starting event's data is checked against its schema", async () => {
@@ -191,4 +194,90 @@ test("workflow.emit sends to its target by the target's file, and a test records
   expect(run.emits).toEqual([
     { target: import.meta.path, name: "dd.changes", data: { case: "k" }, id: "c1" },
   ]);
+});
+
+test("a wait with nothing to take and no turn running parks the run, at its label and until", async () => {
+  const until = Date.now() + 60 * 60_000;
+  const run = await testWorkflow(
+    caseRun(async (workflow) => {
+      await workflow.receive();
+      await workflow.receive({ label: "3 unseen", until });
+      return null;
+    }),
+    { event: { name: "dd.changes", data: { case: "k" } } },
+  );
+  expect(run.parked).toEqual({ label: "3 unseen", until: new Date(until).toISOString() });
+  expect(() => run.value).toThrow("the run parked");
+});
+
+test("code that catches its park still parks, whatever it does after", async () => {
+  const run = await testWorkflow(
+    caseRun(async (workflow) => {
+      await workflow.receive();
+      try {
+        await workflow.receive({ label: "idle" });
+      } catch {
+        // Swallowed, as a careless author might.
+      }
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      return "went on";
+    }),
+    { event: { name: "dd.changes", data: { case: "k" } } },
+  );
+  expect(run.parked).toEqual({ label: "idle" });
+  expect(() => run.value).toThrow("the run parked");
+});
+
+test("a wait in a stage that parks leaves the stage unrecorded, for the next attempt to run again", async () => {
+  const run = await testWorkflow(
+    caseRun(async (workflow) => {
+      await workflow.receive();
+      await workflow.stage("approval-1", () => workflow.receive({ label: "approval" }));
+      return null;
+    }),
+    { event: { name: "dd.changes", data: { case: "k" } } },
+  );
+  expect(run.parked).toEqual({ label: "approval" });
+  expect(run.stages.map((s) => s.stage)).toEqual([]);
+});
+
+test("a wait beside an open stage doesn't park until the stage ends", async () => {
+  const order: string[] = [];
+  const run = await testWorkflow(
+    caseRun(async (workflow) => {
+      await workflow.receive();
+      await Promise.all([
+        workflow.receive({ label: "idle" }),
+        workflow.stage("slow", async () => {
+          await new Promise((resolve) => setTimeout(resolve, 300));
+          order.push("slow done");
+        }),
+      ]);
+      return null;
+    }),
+    { event: { name: "dd.changes", data: { case: "k" } } },
+  );
+  expect(run.parked).toEqual({ label: "idle" });
+  expect(order).toEqual(["slow done"]);
+  expect(run.stages).toMatchObject([{ stage: "slow", outcome: "succeeded" }]);
+});
+
+test("a keyed run's agents reopen on the last session of each root agent", () => {
+  const turn = (agent: string, session: string, callPath: string[] = []): TurnRecord => ({
+    version: 1,
+    attempt: 1,
+    kind: "turn",
+    outcome: "answered",
+    agent,
+    operationId: session,
+    execution: { harness: "claude", model: "m" },
+    callPath,
+    sessions: [{ harness: "claude", id: session }],
+  });
+  const kept = keptSessionsOf([
+    turn("investigator", "s1"),
+    turn("investigator", "s2"),
+    turn("child", "s3", ["call-1"]),
+  ]);
+  expect([...kept]).toEqual([["investigator", { harness: "claude", sessionRef: "s2" }]]);
 });

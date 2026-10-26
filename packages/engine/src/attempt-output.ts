@@ -9,6 +9,7 @@ import { attemptAccounting } from "./accounting/summary";
 import type { AttemptEnd } from "./attempt-ending";
 import { messageOf } from "./errors";
 import { writeJson, writeWhole } from "./files";
+import { foldMailbox, readMailbox } from "./mailbox";
 import { type Attempt, appendEvent, endAttempt, outputFile, reportFile } from "./runs";
 import { withoutValue } from "./stage-ledger";
 
@@ -33,6 +34,8 @@ export async function keepRecords(
     executable: ExecutableWorkflow<JsonValue, JsonValue>;
     workflow: { name: string; file: string };
     stderr: (text: string) => void;
+    /** A keyed run's: runs `work` holding its key's lock. */
+    locked?: (work: () => Promise<void>) => Promise<void>;
   },
 ): Promise<Kept> {
   const { attempt, stderr } = context;
@@ -97,14 +100,28 @@ export async function keepRecords(
     kind: "attempt-ended",
     outcome: ending.kind,
   }).catch((error) => stderr(`awf: the run's event log was not written: ${messageOf(error)}`));
-  try {
+  // A keyed run's ending is written holding its key's lock, as parking's is: a sender after it sees
+  // the run returned and is refused, so what no wait took is counted whole. Its last batch was
+  // handled, as the code returned after it.
+  const writeEnding = async () => {
+    const unacknowledged =
+      ending.kind === "completed" && attempt.run.record.key !== undefined
+        ? await readMailbox(dir).then(
+            (records) => foldMailbox(records).unacknowledged.length,
+            () => undefined,
+          )
+        : undefined;
     await endAttempt(attempt, {
       outcome: ending.kind,
+      ...(unacknowledged === undefined ? {} : { unacknowledged }),
       ...(unfinished ? { reason: unfinished.reason } : {}),
       ...at,
       ...(stages ? { stages } : {}),
       ...(settled ? { accounting: attemptAccounting(settled.accounting) } : {}),
     });
+  };
+  try {
+    await (context.locked ?? ((work: () => Promise<void>) => work()))(writeEnding);
   } catch (error) {
     stderr(`awf: the attempt's ending was not written to ${attempt.file}: ${messageOf(error)}`);
   }

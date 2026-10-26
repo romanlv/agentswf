@@ -306,6 +306,11 @@ export interface HarnessActivation {
   layoutFallback?: string;
   /** As the workflow wrote it, for a host that records it; never decided on: the engine decides at close. */
   keepPane?: KeepPane;
+  /**
+   * Its pane is placed at its first turn, not as it opens: a run of a workflow with `events`
+   * reopens its agents at every wake, and one with no turn to take then shows nothing.
+   */
+  paneAtFirstTurn?: true;
 }
 
 /** An opaque locator for a session the engine did not start; only the adapter interprets it. */

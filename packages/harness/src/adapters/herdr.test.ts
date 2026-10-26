@@ -1153,6 +1153,29 @@ describe("createHerdrRunHostFactory", () => {
     }
   });
 
+  test("an agent opened to place its pane at its first turn opens no tab until then", async () => {
+    const { run, calls } = hostStub();
+    const host = await createHerdrRunHostFactory(CONFIG, run).openRun({
+      runId: "run-1",
+      cwd: "/repo",
+      deadline: deadline(),
+    });
+    const agent = await host.openAgent({
+      key: "investigator",
+      cwd: "/repo",
+      deadline: deadline(),
+      execution: { harness: "claude", model: "opus" },
+      paneAtFirstTurn: true,
+    });
+    expect(calls.filter((call) => verb(call) === "tab create")).toHaveLength(0);
+    expect(agent.pane?.()).toBeUndefined();
+    await (await agent.start({ id: "one", prompt: "look", deadline: deadline() }, binding("op-1")))
+      .settled;
+    expect(calls.filter((call) => verb(call) === "tab create")).toHaveLength(1);
+    expect(agent.pane?.()).toBeDefined();
+    await host.close();
+  });
+
   test("gives each peer agent a tab of its own in one run workspace", async () => {
     const { run, calls } = hostStub();
     const host = await createHerdrRunHostFactory(CONFIG, run).openRun({

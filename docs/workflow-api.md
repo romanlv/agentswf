@@ -279,7 +279,8 @@ const [security, tests] = await Promise.all([
 ### Where panes go: `layout` and `keepPane`
 
 Each pane agent gets a tab of its own in the run's Herdr workspace, closed once it is done. A
-workflow can place it elsewhere, which happens at its first turn ([design](design/pane-layout.md)):
+workflow can place it elsewhere as it opens, or at its first turn in a workflow with events
+([design](design/pane-layout.md)):
 
 ```ts
 const lead = await workflow.agents.open({
@@ -607,10 +608,17 @@ awf emit --target case.ts dd.changes '{"case":"kombo-unique"}' --id 83d34d7
   the turn is launched. Its end arrives at a wait as `agent:ended`, from the agent's key, with the
   outcome and `meta`; `agent.ended(e)` narrows it. `agent.turn` is set until a wait takes that end,
   and the agent refuses other work meanwhile. `agent.turn.cancel()` stops it.
-- **Parking.** Waiting with no turn running and nothing unacknowledged, the run ends its attempt
-  `parked` and its process exits. The next event, or `awf tick` once `until` passes, continues it:
+- **Parking.** Waiting with nothing else of the run working (no turn, decision, sandbox or other
+  stage) and nothing unacknowledged, the run ends its attempt
+  `parked` and its process exits. Plain code running beside the wait, outside any awf call, is
+  cut off and runs again on the continue: work that must finish goes in a stage or before the
+  wait. The next event, or `awf tick` once `until` passes, continues it:
   agents reopen on their kept sessions, recorded stages are reused, and the loop's wait takes the
   new event. What must outlive that lives in files or a stage.
+- **Agents on a wake.** Each agent reopens on its kept session, without its instructions again, and
+  a pane agent's pane opens at its first turn. So before that turn, in an attempt, it can't be
+  forked or compacted, and an agent `beside` it gets a tab of its own. An agent with skills or a
+  sandbox, whose home is made anew, starts a new session, as one whose harness changed does.
 - **Stages by content.** In a run with `events`, a succeeded stage is reused wherever and however
   often its name is entered, in any attempt and any version of the code, while its value fits.
   Name it by its one effect: `close-{event id}`, `post-f3@abc123`.

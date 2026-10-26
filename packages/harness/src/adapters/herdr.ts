@@ -820,16 +820,22 @@ export function createHerdrRunHostFactory(
           });
           /**
            * Its pane, placed now so the workflow's order is the screen's, and any agent open is
-           * there to split; absent once closed.
+           * there to split, or at its first turn where the activation says; absent once closed.
            */
-          let pane: PlacedPane | undefined = await placing.place(paneRequest(request.deadline));
+          let pane: PlacedPane | undefined = request.paneAtFirstTurn
+            ? undefined
+            : await placing.place(paneRequest(request.deadline));
           // The session its pane is in, which a pane placed again may change.
-          let commands = pane.screen.commands;
-          const herdr: HerdrCommand = (...args) => commands.herdr(...args);
-          const startAgent: HerdrCommands["startAgent"] = (...args) => commands.startAgent(...args);
-          const adoptAgent: HerdrCommands["adoptAgent"] = (...args) => commands.adoptAgent(...args);
-          /** Where it was placed: kept once its pane closes, for the record. */
-          let placement = pane.report;
+          let commands = pane?.screen.commands;
+          const screen = () => {
+            if (!commands) throw new Error(`${request.key} has no pane yet`);
+            return commands;
+          };
+          const herdr: HerdrCommand = (...args) => screen().herdr(...args);
+          const startAgent: HerdrCommands["startAgent"] = (...args) => screen().startAgent(...args);
+          const adoptAgent: HerdrCommands["adoptAgent"] = (...args) => screen().adoptAgent(...args);
+          /** Where it was placed: kept once its pane closes, for the record; absent until it is. */
+          let placement = pane?.report;
           let current:
             | {
                 operationId: string;
@@ -1200,7 +1206,11 @@ export function createHerdrRunHostFactory(
             if (closed) throw new Error("Herdr run session is closed");
             if (done) throw new Error(done);
             if (!current) {
-              throw new Error("this agent's pane was closed, so its session cannot be forked");
+              throw new Error(
+                placement === undefined
+                  ? "this agent has had no turn in this attempt, so it has no pane to fork from yet; fork it after its first turn"
+                  : "this agent's pane was closed, so its session cannot be forked",
+              );
             }
             if (request.occupant && !into) {
               throw new Error("a sandboxed agent's session is forked by copy");
@@ -1297,7 +1307,12 @@ export function createHerdrRunHostFactory(
             // A box's pane is placed by its sandbox, not by a layout.
             ...(terminal && terminal.herdr !== "run"
               ? {}
-              : { pane: () => ({ ...(pane?.report ?? placement), ...fate }) }),
+              : {
+                  pane: () => {
+                    const placed = pane?.report ?? placement;
+                    return placed && { ...placed, ...fate };
+                  },
+                }),
             ...(spec.forkSession ? { fork: forkPane } : {}),
             ...(spec.setPane && spec.interactiveResume ? { set: relaunchAt } : {}),
             // The pane's agent is the session: an answered turn is left to end in it, and the next

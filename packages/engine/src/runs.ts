@@ -343,12 +343,12 @@ export async function claimAttempt(
 /** Writes the attempt's ending into its file, whole. */
 export async function endAttempt(
   attempt: Attempt,
-  ending: Pick<AttemptRecord, "stage" | "reason" | "stages" | "accounting"> & {
+  ending: Pick<AttemptRecord, "stage" | "reason" | "stages" | "accounting" | "unacknowledged"> & {
     outcome: AttemptOutcome;
   },
   now: Date = new Date(),
 ): Promise<AttemptRecord> {
-  const { stage, reason, stages, accounting } = ending;
+  const { stage, reason, stages, accounting, unacknowledged } = ending;
   const record: AttemptRecord = {
     ...attempt.record,
     ended: now.toISOString(),
@@ -357,6 +357,7 @@ export async function endAttempt(
     ...(reason === undefined ? {} : { reason }),
     ...(stages === undefined ? {} : { stages }),
     ...(accounting === undefined ? {} : { accounting }),
+    ...(unacknowledged === undefined ? {} : { unacknowledged }),
   };
   await writeJson(attempt.file, record);
   attempt.record = record;
@@ -713,3 +714,50 @@ const runPs: Ps = (pid) => {
     exitCode: done.exitCode,
   };
 };
+
+/** How long a continue waits for the attempt before it to exit before it stops that process. */
+const PREVIOUS_GONE_MS = 5 * 60_000;
+
+/**
+ * Waits until the attempt before `n`, a parked one closing its agents or one that crashed with
+ * its process left, is gone; past five minutes, cancels it, then kills it if it ignores that.
+ * Its agents' sessions are then this attempt's.
+ */
+export async function previousGone(
+  run: Run,
+  n: number,
+  notice: (text: string) => void,
+): Promise<void> {
+  const previous = (await readAttempts(run)).find((each) => each.attempt === n - 1);
+  if (!previous) return;
+  const alive = () => sameProcess(previous.pid, previous.processStart, processStart);
+  const giveUp = Date.now() + PREVIOUS_GONE_MS;
+  let said = false;
+  while (alive()) {
+    if (!said && Date.now() > giveUp - PREVIOUS_GONE_MS + 10_000) {
+      said = true;
+      notice(
+        `awf: waiting for attempt ${previous.attempt} (pid ${previous.pid}) to finish closing`,
+      );
+    }
+    if (Date.now() > giveUp) {
+      notice(
+        `awf: attempt ${previous.attempt} (pid ${previous.pid}) is still running; stopping it`,
+      );
+      // A cancel first, which closes its agents and sandboxes; only a process that ignores it is killed.
+      const signal = (name: NodeJS.Signals) => {
+        try {
+          process.kill(previous.pid, name);
+        } catch {
+          // Gone between the look and the signal.
+        }
+      };
+      signal("SIGTERM");
+      const killAt = Date.now() + 30_000;
+      while (alive() && Date.now() < killAt) await Bun.sleep(200);
+      if (alive()) signal("SIGKILL");
+      return;
+    }
+    await Bun.sleep(100);
+  }
+}

@@ -117,6 +117,11 @@ export class StageLedger {
     this.#records = new Map(options.records);
   }
 
+  /** The stage open now, if one is. */
+  get openStage(): string | undefined {
+    return this.#open?.name;
+  }
+
   /** A `--from-stage` the attempt never reached: a typo, or a branch not taken. */
   get fromStageUnreached(): string | undefined {
     return this.#started ? undefined : this.options.fromStage;
@@ -544,6 +549,16 @@ export class StageLedger {
     };
     this.#open = stage;
     return stage;
+  }
+
+  /**
+   * Leaves the open stage `name` unended and unrecorded, as the run parked at a wait in it: the
+   * next attempt runs it again.
+   */
+  abandon(name: string): void {
+    if (this.#open?.name !== name) return;
+    this.#open = undefined;
+    this.#stages.delete(name);
   }
 
   /** Once the workflow's body has ended, why: no stage is entered after it. */

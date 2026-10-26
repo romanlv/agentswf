@@ -30,7 +30,7 @@ import {
 import { type Harness, sandboxTokens } from "@agentswf/harness";
 import { createFakeSandboxProvider } from "@agentswf/sandbox/testing/fake";
 import { messageOf } from "../errors";
-import { appendMailbox } from "../mailbox";
+import { appendMailbox, RunParked } from "../mailbox";
 import { OPERATOR_ALIASES } from "../operator-aliases";
 import { createRun, readEvents, readStageRecords, writeStageRecord } from "../runs";
 import { primaryFailure, WorkflowStopped } from "../stopped";
@@ -366,7 +366,7 @@ export async function testWorkflow<Args extends JsonValue, Result extends JsonVa
         ...(options.values === undefined
           ? {}
           : { values: new Map(Object.entries(options.values)) }),
-        ...(started ? { key: started.key } : {}),
+        ...(started ? { key: started.key, park: async () => undefined } : {}),
       },
       cwd,
       ...(options.timeoutMs === undefined
@@ -443,6 +443,8 @@ export async function testWorkflow<Args extends JsonValue, Result extends JsonVa
   return {
     get value() {
       if ("value" in settled) return settled.value;
+      if (primaryFailure(settled.error) instanceof RunParked)
+        throw new Error("the run parked, and returned nothing: run.parked says at which wait");
       throw new Error(`the workflow threw: ${messageOf(settled.error)}`, { cause: settled.error });
     },
     turns: host.turns,
@@ -465,6 +467,7 @@ export async function testWorkflow<Args extends JsonValue, Result extends JsonVa
     logs,
     stages,
     ...stoppedOf(settled),
+    ...parkedOf(settled),
   };
 }
 
@@ -588,6 +591,21 @@ function sandboxesOf(sandboxes: readonly SandboxRecord[] | undefined): Map<strin
       agents.map(({ agent }) => [agent, { key, provider, spec, domains }] as const),
     ),
   );
+}
+
+/** A run that parked, and its last wait: what the attempt ended with. */
+function parkedOf(
+  settled: { value: unknown } | { error: unknown },
+): Partial<Pick<TestRun<unknown>, "parked">> {
+  if (!("error" in settled)) return {};
+  const parked = primaryFailure(settled.error);
+  if (!(parked instanceof RunParked)) return {};
+  return {
+    parked: {
+      ...(parked.label === undefined ? {} : { label: parked.label }),
+      ...(parked.until === undefined ? {} : { until: parked.until }),
+    },
+  };
 }
 
 /** Decided as `awf run` decides it: a stop is the run's first failure, whatever failed beside it. */

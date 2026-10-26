@@ -548,3 +548,12 @@ test("a keyed run at its wait shows the wait's label and until, live or parked",
   expect(text).toContain("investigating");
   expect(text).toMatch(/30 unseen · until /);
 });
+
+test("a keyed run that returned says how many events no wait took", async () => {
+  const cwd = runDirs.tempRunDir();
+  const run = await makeRun(cwd, "dd-case", "dd-case.done", [
+    { started: T(2), ended: T(3), outcome: "completed", unacknowledged: 2 },
+  ]);
+  await writeJson(join(run.dir, "run.json"), { ...run.record, key: "done" });
+  expect((await awfRuns(cwd)).stdout).toContain("2 events never taken");
+});

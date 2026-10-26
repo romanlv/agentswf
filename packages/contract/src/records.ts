@@ -345,8 +345,8 @@ export type AttemptRecord = {
   /** The messaging ceilings in force; absent on attempts an earlier awf ran. */
   messageLimits?: MessageLimits;
   /**
-   * A completed run of a workflow with `events`: how many events in its mailbox were never
-   * acknowledged, taken or not. Its key refuses every later event.
+   * A completed run of a workflow with `events`: how many events in its mailbox no wait took; the
+   * last batch taken was handled, as the code returned after it. Its key refuses every later event.
    */
   unacknowledged?: number;
 };
@@ -921,7 +921,8 @@ export type TickResultJson = {
   v: 1;
   woke: {
     run: string;
-    did: "continued";
+    /** `started` for a run whose first attempt never started, as its launch failed. */
+    did: "started" | "continued";
     why: "event" | "until" | "crashed" | "failed";
   }[];
 };

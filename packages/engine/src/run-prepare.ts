@@ -16,6 +16,7 @@ import {
   endTurnsLine,
   idProblem,
   openRun,
+  previousGone,
   type Run,
   RunRefused,
   readAttempts,
@@ -180,6 +181,10 @@ export async function claimNext(
   if ("refused" in claimed) {
     throw new RunRefused(refusalMessage(run.record.id, claimed.refused, now));
   }
+  // A keyed run's: claimed first, which `wake` waits for holding the key's lock, then waited on
+  // before this attempt writes anything, so the attempt before it has finished its own records and
+  // two never share an agent's session.
+  if (run.record.key !== undefined) await previousGone(run, claimed.attempt.record.attempt, notice);
   // A crash may have torn the last line an earlier attempt appended; this attempt's first line
   // must not be glued to it.
   await endTurnsLine(run.dir)

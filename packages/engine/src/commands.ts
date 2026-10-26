@@ -8,6 +8,7 @@ import { usage as runUsage } from "./run-command";
 import { shellLine } from "./run-commands";
 import { runsUsage } from "./runs-command";
 import { testUsage } from "./test-command";
+import { tickUsage } from "./tick-command";
 
 /**
  * Every `awf` command: what the index, `awf help` and the suggestion read, and what the dispatch is
@@ -29,6 +30,11 @@ export const COMMANDS = [
     group: "Run a workflow",
     commands: { emit: "Send an event to a workflow with events, starting or waking its run" },
     help: emitUsage,
+  },
+  {
+    group: "Run a workflow",
+    commands: { tick: "Wake the runs of workflows with events that are due" },
+    help: tickUsage,
   },
   {
     group: "Look at runs",

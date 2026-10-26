@@ -1,7 +1,6 @@
 import { closeSync, openSync } from "node:fs";
 import { join } from "node:path";
 import {
-  type AttemptRecord,
   MAILBOX_RECORD_VERSION,
   type MailboxRecord,
   type WakeDid,
@@ -13,15 +12,23 @@ import { messageOf } from "./errors";
 import { exists } from "./files";
 import { coordinatorDir } from "./machine";
 import { appendMailbox, foldMailbox, readMailbox } from "./mailbox";
-import { statusOf } from "./run-state";
-import { type ProcessProbe, type Run, readAttempts } from "./runs";
+import { STUCK_AFTER, statusOf, stuckOf } from "./run-state";
+
+export { STUCK_AFTER };
+
+import { type ProcessProbe, type Run, readAttempts, sameProcess } from "./runs";
 import { exchange } from "./socket-exchange";
 
-/** What `wake` did to a run, and why it did nothing when it did nothing. */
-export type Woken = { did: WakeDid; why?: WakeWhy; error?: string };
-
-/** Failed or crashed attempts in a row, counted together, after which a run is `stuck` (Q13). */
-export const STUCK_AFTER = 3;
+/**
+ * What `wake` did to a run: why it did nothing when it did nothing, and what was due when it
+ * started or continued it.
+ */
+export type Woken = {
+  did: WakeDid;
+  why?: WakeWhy;
+  error?: string;
+  cause?: "event" | "until" | "crashed" | "failed";
+};
 
 /**
  * Starts or continues a run's attempt, returning once that attempt has claimed its number, so
@@ -54,12 +61,15 @@ export async function wake(run: Run, context: WakeContext): Promise<Woken> {
     read ??= await readMailbox(run.dir);
     return read;
   };
-  const launch = async (did: "started" | "continued"): Promise<Woken> => {
+  const launch = async (
+    did: "started" | "continued",
+    cause: NonNullable<Woken["cause"]>,
+  ): Promise<Woken> => {
     const file = context.file ?? attempts.at(-1)?.file ?? run.record.file;
     try {
       if (file === undefined) throw new Error(`${run.record.id} has no file to run`);
       await (context.launch ?? detachedLaunch(context))(run, file);
-      return { did };
+      return { did, cause };
     } catch (error) {
       // The event is in the mailbox; the next wake tries again, until Q13's limit.
       const reason = messageOf(error);
@@ -73,9 +83,9 @@ export async function wake(run: Run, context: WakeContext): Promise<Woken> {
       return { did: "none", why: "launch-failed", error: reason };
     }
   };
-  const failures = async () => failuresInARow(attempts, await mailbox());
+  const stuck = async () => stuckOf(attempts, await mailbox());
   if (attempts.length === 0)
-    return (await failures()) >= STUCK_AFTER ? { did: "none", why: "stuck" } : launch("started");
+    return (await stuck()) ? { did: "none", why: "stuck" } : launch("started", "event");
   const { probe } = context;
   const { state } = statusOf(run, attempts, probe ? (pid) => probe(pid) ?? "gone" : undefined);
   switch (state) {
@@ -85,46 +95,28 @@ export async function wake(run: Run, context: WakeContext): Promise<Woken> {
         ? { did: "nudged" }
         : { did: "none", why: "nudge-failed" };
     case "parked": {
-      if ((await failures()) >= STUCK_AFTER) return { did: "none", why: "stuck" };
+      if (await stuck()) return { did: "none", why: "stuck" };
       const state = foldMailbox(await mailbox());
       const until = state.lastWait?.until;
       const passed = until !== undefined && (context.now?.() ?? Date.now()) >= Date.parse(until);
-      if (state.unacknowledged.length > 0 || passed) return launch("continued");
+      if (state.unacknowledged.length > 0) return launch("continued", "event");
+      if (passed) return launch("continued", "until");
       return { did: "none", why: "nothing-due" };
     }
     case "interrupted":
     case "failed":
     case "timed-out":
-      return (await failures()) >= STUCK_AFTER
+      return (await stuck())
         ? { did: "none", why: "stuck" }
-        : launch("continued");
+        : launch("continued", state === "interrupted" ? "crashed" : "failed");
     case "stopped":
     case "cancelled":
       return { did: "none", why: state };
+    case "stuck":
+      return { did: "none", why: "stuck" };
     case "completed":
       return { did: "none", why: "returned" };
   }
-}
-
-/**
- * Failed, timed-out or crashed attempts at the end of the run, and launches since the last attempt
- * that never claimed one, counted together; any other ending resets them.
- */
-export function failuresInARow(
-  attempts: readonly AttemptRecord[],
-  records: readonly MailboxRecord[] = [],
-): number {
-  const since = attempts.at(-1)?.started ?? "";
-  let n = records.filter((record) => record.kind === "launch-failed" && record.at > since).length;
-  for (const attempt of [...attempts].reverse()) {
-    const failed =
-      attempt.outcome === undefined ||
-      attempt.outcome === "failed" ||
-      attempt.outcome === "timed-out";
-    if (!failed) break;
-    n++;
-  }
-  return n;
 }
 
 /**
@@ -203,6 +195,8 @@ const CLAIM_MILLISECONDS = 60_000;
 function detachedLaunch(context: WakeContext): Launch {
   return async (run, file) => {
     const before = (await readAttempts(run)).length;
+    // Only what this launch writes is quoted if it fails: the log holds every attempt's output.
+    const from = Bun.file(join(run.dir, "process.log")).size;
     const log = openSync(join(run.dir, "process.log"), "a", 0o600);
     let child: ReturnType<typeof Bun.spawn>;
     try {
@@ -228,7 +222,12 @@ function detachedLaunch(context: WakeContext): Launch {
     child.unref();
     const giveUp = Date.now() + CLAIM_MILLISECONDS;
     for (;;) {
-      if ((await readAttempts(run)).length > before) {
+      const claimed = await readAttempts(run);
+      if (claimed.length > before) {
+        // The new attempt opens its socket only once the one before it is gone: no sender waits
+        // on that.
+        const previous = claimed.at(-2);
+        if (previous && sameProcess(previous.pid, previous.processStart)) return;
         // Best effort: an event sent next nudges the run rather than waiting for its poll.
         const socket = coordinatorSocketPath(
           coordinatorDir(context.home, attemptEnvironment(context.environment, run)),
@@ -246,6 +245,7 @@ function detachedLaunch(context: WakeContext): Launch {
       }
       if (child.exitCode !== null || child.signalCode !== null) {
         const tail = await Bun.file(join(run.dir, "process.log"))
+          .slice(from)
           .text()
           .then((text) => text.trim().split("\n").slice(-3).join(" / "))
           .catch((error: unknown) => messageOf(error));
