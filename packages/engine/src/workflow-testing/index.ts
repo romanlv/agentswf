@@ -8,10 +8,14 @@ import {
   type StageRecord,
 } from "@agentswf/contract/records";
 import {
+  type EventSchemas,
   EXECUTABLE_WORKFLOW_KIND,
+  type ExecutableEventWorkflow,
   type ExecutableWorkflow,
   type JsonObject,
   type JsonValue,
+  type OutputOf,
+  type ParticipantReply,
   type RuntimeAliases,
   type WorkflowDefinition,
 } from "@agentswf/contract/workflow";
@@ -119,6 +123,40 @@ export type TestOptions = {
   values?: Readonly<Record<string, JsonValue>>;
 };
 
+/** A file's contents, or a directory of them by name. */
+export type FileTree = string | { readonly [name: string]: FileTree };
+
+/** An event a test sends while the run goes on: while an agent's `n`th turn runs, `"{agent}#{n}"`. */
+export type ScriptedEvent<Events extends EventSchemas> = { during: string; id?: string } & (
+  | { [Name in keyof Events & string]: { name: Name; data: OutputOf<Events[Name]> } }[keyof Events &
+      string]
+  /** A reply on a participant routed to the code; awf fills its author and id when absent. */
+  | { name: "participant:reply"; from: string; data: ParticipantReply }
+);
+
+/**
+ * A test of a workflow with `events`: what a run is started with, then sends while it goes on.
+ * `recorded`, `fromStage` and `values` have no meaning for it.
+ */
+export type EventTestOptions<Events extends EventSchemas> = Omit<
+  TestOptions,
+  "recorded" | "fromStage" | "values"
+> & {
+  /** The event that starts the run, whose `key` is the run's key. */
+  event: {
+    [Name in keyof Events & string]: { name: Name; data: OutputOf<Events[Name]>; id?: string };
+  }[keyof Events & string];
+  /** Laid out before the run, by path: absolute, or under `cwd`. */
+  files?: Readonly<Record<string, FileTree>>;
+  /** Sent at points in the run, each once its point is reached. */
+  events?: readonly ScriptedEvent<Events>[];
+  /** More turns started than this fails the test, so a loop that never parks doesn't hang it; 20. */
+  maxTurns?: number;
+};
+
+/** An event the run sent another workflow, which a test doesn't start. */
+export type EmittedEvent = { target: string; name: string; data: JsonValue; id?: string };
+
 /** What the run did. Under `parallel`, what started first is scheduling: read by key. */
 export type TestRun<Result> = {
   /**
@@ -154,6 +192,10 @@ export type TestRun<Result> = {
   stages: StageRecord[];
   /** How the attempt stopped, apart from a failure, and the value it stopped for; absent when it didn't. */
   stopped?: { reason: string; stage?: string; needs?: readonly StageNeed[] };
+  /** Every event the run sent to another workflow, in order. */
+  emits: EmittedEvent[];
+  /** A run of a workflow with `events` that parked, and its last wait; absent when it returned. */
+  parked?: { label?: string; until?: string };
 };
 
 /**
@@ -161,12 +203,27 @@ export type TestRun<Result> = {
  * from its own. It rejects when a script cannot meet what the workflow asked, or leaves a list
  * unfinished, or the run stalls: those fail the test, never the workflow.
  */
+export async function testWorkflow<Events extends EventSchemas, Result extends JsonValue>(
+  workflow: ExecutableEventWorkflow<Events, Result>,
+  options: EventTestOptions<NoInfer<Events>>,
+): Promise<TestRun<Result>>;
 export async function testWorkflow<Args extends JsonValue, Result extends JsonValue>(
   workflow: WorkflowDefinition<Args, Result> | ExecutableWorkflow<Args, Result>,
   args: NoInfer<Args>,
+  options?: TestOptions,
+): Promise<TestRun<Result>>;
+export async function testWorkflow<Args extends JsonValue, Result extends JsonValue>(
+  workflow:
+    | WorkflowDefinition<Args, Result>
+    | ExecutableWorkflow<Args, Result>
+    | ExecutableEventWorkflow<EventSchemas, Result>,
+  args: NoInfer<Args>,
   options: TestOptions = {},
 ): Promise<TestRun<Result>> {
-  const definition = isExecutable(workflow) ? workflow.definition : workflow;
+  if ("definition" in workflow && "events" in workflow.definition)
+    throw new Error("testing a workflow with events is not built yet");
+  const given = workflow as WorkflowDefinition<Args, Result> | ExecutableWorkflow<Args, Result>;
+  const definition = isExecutable(given) ? given.definition : given;
   const scripts = new Scripts(options.agents);
   const compactionScripts = new Scripts(options.compactions, {
     noun: "compaction",
@@ -351,6 +408,7 @@ export async function testWorkflow<Args extends JsonValue, Result extends JsonVa
       throw new Error(`the workflow threw: ${messageOf(settled.error)}`, { cause: settled.error });
     },
     turns: host.turns,
+    emits: [],
     turnsOf: (agent) => host.turns.filter((turn) => turn.agent === agent),
     compactions: host.compactions,
     compactionsOf: (agent) => host.compactions.filter((compaction) => compaction.agent === agent),

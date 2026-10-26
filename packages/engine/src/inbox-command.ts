@@ -656,6 +656,8 @@ function textOf(item: InboxItemJson, all: boolean): string {
     }
     case "answered":
       return `${head}${item.id}  answered (${item.via})\n${body(item.answer)}`;
+    case "post":
+      return `${head}${item.id}  run → ${item.coordinator}\n${body(item.text)}`;
     case "expired":
       return `${head}${item.id}  closed unanswered: ${item.reason}`;
     case "ended":

@@ -40,17 +40,23 @@ export async function keepRecords(
   const dir = attempt.run.dir;
   const report = await writeReport(context.executable, ending, dir, stderr);
   const stages = settled?.stages?.map(withoutValue);
-  const at =
-    ending.kind !== "completed" && ending.stage !== undefined ? { stage: ending.stage } : {};
+  const unfinished = ending.kind !== "completed" && ending.kind !== "parked" ? ending : undefined;
+  const at = unfinished?.stage !== undefined ? { stage: unfinished.stage } : {};
   const ended =
     ending.kind === "completed"
       ? { outcome: "completed" as const, value: ending.value }
-      : {
-          outcome: ending.kind,
-          reason: ending.reason,
-          ...at,
-          ...(end.needs ? { needs: [...end.needs] } : {}),
-        };
+      : ending.kind === "parked"
+        ? {
+            outcome: "parked" as const,
+            ...(ending.label === undefined ? {} : { label: ending.label }),
+            ...(ending.until === undefined ? {} : { until: ending.until }),
+          }
+        : {
+            outcome: ending.kind,
+            reason: ending.reason,
+            ...at,
+            ...(end.needs ? { needs: [...end.needs] } : {}),
+          };
   const kept: Kept = report ? { report } : {};
   const output = outputFile(dir);
   if (!settled) {
@@ -94,7 +100,7 @@ export async function keepRecords(
   try {
     await endAttempt(attempt, {
       outcome: ending.kind,
-      ...(ending.kind === "completed" ? {} : { reason: ending.reason }),
+      ...(unfinished ? { reason: unfinished.reason } : {}),
       ...at,
       ...(stages ? { stages } : {}),
       ...(settled ? { accounting: attemptAccounting(settled.accounting) } : {}),

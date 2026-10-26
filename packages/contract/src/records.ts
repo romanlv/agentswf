@@ -10,9 +10,11 @@ import type {
   PaneLayout,
   PaneWorkspace,
   SkillSource,
+  TurnId,
   TurnOutcome,
 } from "./workflow/agents";
 import type { DecisionRecord, Question } from "./workflow/decisions";
+import type { EmitOutcome, EventId } from "./workflow/events";
 import type { AttemptOutcome, StageSummary, UnfinishedOutcome } from "./workflow/executable";
 import type { JsonObject, JsonValue } from "./workflow/json";
 import type {
@@ -293,6 +295,13 @@ export type RunRecord = {
   /** `awf run --sandbox`'s spec, as its file gave it, which every attempt runs in. */
   sandbox: JsonValue | null;
   created: string;
+  /**
+   * A run of a workflow with `events`: what its `key` made of the event that started it. Its `cwd`
+   * is its project, and its `argv` empty.
+   */
+  key?: string;
+  /** With `key`: the `PATH` it was first started with, which every attempt runs with. */
+  env?: { PATH: string };
 };
 
 export const ATTEMPT_RECORD_VERSION = 1 as const;
@@ -304,7 +313,10 @@ export const ATTEMPT_RECORD_VERSION = 1 as const;
 export type AttemptRecord = {
   version: typeof ATTEMPT_RECORD_VERSION;
   attempt: number;
-  /** The file it ran, for the record; never identity. */
+  /**
+   * The file it ran; never identity. A run of a workflow with `events` is continued from its last
+   * attempt's, unless what wakes it names its target, whose file the next attempt records.
+   */
   file: string;
   /** The workflow's `meta.version`, when it gives one. */
   workflowVersion?: string;
@@ -330,6 +342,11 @@ export type AttemptRecord = {
   accounting?: AttemptAccounting;
   /** The messaging ceilings in force; absent on attempts an earlier awf ran. */
   messageLimits?: MessageLimits;
+  /**
+   * A completed run of a workflow with `events`: how many events in its mailbox were never
+   * acknowledged, taken or not. Its key refuses every later event.
+   */
+  unacknowledged?: number;
 };
 
 /** What an attempt's file keeps of its accounting: what a run's total sums. */
@@ -340,6 +357,43 @@ export type AttemptAccounting = Pick<
 
 /** A stage an attempt entered, as its files record it: no value, which `stages/` holds. */
 export type AttemptStage = Omit<StageSummary, "value">;
+
+export const MAILBOX_RECORD_VERSION = 1 as const;
+
+/**
+ * A line of `mailbox.jsonl`, the run's events and what its waits did with them, appended under the
+ * key's lock by whoever writes it: a sender, the run, or awf on the run's behalf.
+ */
+export type MailboxRecord = {
+  version: typeof MAILBOX_RECORD_VERSION;
+  /** An ISO time. */
+  at: string;
+} & (
+  | {
+      kind: "event";
+      id: EventId;
+      name: string;
+      data: JsonValue;
+      /** As `WorkflowEvent.from`. */
+      from: string;
+    }
+  /**
+   * A wait called: it acknowledges what the last `took` returned, unless a stage recorded that
+   * batch. `until` is an ISO time.
+   */
+  | { kind: "wait"; attempt: number; label?: string; until?: string }
+  /**
+   * The wait returning these events, in order; none when its `until` passed. `stage`: it was in
+   * that stage, which holds the batch, acknowledged, and returns it again on a rerun.
+   */
+  | { kind: "took"; attempt: number; ids: EventId[]; stage?: string }
+  /**
+   * A turn `start()` began, written before its agent is launched; the rest of it is in
+   * `turns.jsonl`. Its end is the event `agent:ended`, with id `awf.end.{hash}`, the hash of the
+   * agent's key and the turn's id, so one end is ever kept.
+   */
+  | { kind: "turn"; attempt: number; agent: AgentKey; turn: TurnId; meta: JsonValue }
+);
 
 export const STAGE_RECORD_VERSION = 1 as const;
 
@@ -642,7 +696,14 @@ export type RunLogLine = TurnRecord | RunEvent;
  * What `awf runs --json` and `awf logs --json` print: one document per call. A reader ignores the
  * kinds and fields it does not know; `v` changes only when one is renamed or removed. Times are ISO.
  */
-export type RunStateJson = "running" | "interrupted" | AttemptOutcome;
+/**
+ * `stuck`: a run of a workflow with `events` that failed or crashed three attempts in a row; its
+ * events are kept, and only `awf run --continue` goes on.
+ */
+export type RunStateJson = "running" | "interrupted" | "stuck" | AttemptOutcome;
+
+/** A run of a workflow with `events` at its wait, live or parked: the wait's label and `until`. */
+export type WaitingJson = { label?: string; until?: string };
 
 /** A run as both commands head it. `checked: false`: a `running` whose process was not asked. */
 export type RunHeadJson = {
@@ -652,6 +713,7 @@ export type RunHeadJson = {
   stage?: string;
   /** Once the run has ended. */
   duration?: number;
+  waiting?: WaitingJson;
 };
 
 /** `awf runs --json`. */
@@ -665,6 +727,7 @@ export type RunsJson = {
         started: string;
         duration?: number;
         estimate?: number;
+        waiting?: WaitingJson;
       }
     | { ref: string; unreadable: string }
   )[];
@@ -793,6 +856,8 @@ export type InboxItemJson = {
       via?: OutsideVia;
     }
   | { kind: "answered"; coordinator: string; id: string; answer: string; via: OutsideVia }
+  /** `participant.post(text)` to a participant routed to the code, under `coordinator`, its key. */
+  | { kind: "post"; coordinator: string; id: string; text: string }
   | { kind: "expired"; coordinator: string; id: string; reason: InboxExpiry }
   | { kind: "ended"; attempt: number; outcome: AttemptOutcome | "interrupted" }
 );
@@ -811,6 +876,45 @@ export type HolderResultJson =
       /** For `ambiguous`: the coordinator keys, agent addresses or question ids to choose from. */
       choices?: string[];
     };
+
+/** What `wake` did to a run: started, nudged or continued it, or nothing. */
+export type WakeDid = "started" | "nudged" | "continued" | "none";
+
+/**
+ * Why an event was refused, or `wake` did nothing: the run returned; no run, and the event doesn't
+ * start one; stuck, stopped or cancelled, which need the operator; parked with nothing due; a live
+ * run's nudge that failed, whose wait takes the event anyway.
+ */
+export type WakeWhy =
+  | "returned"
+  | "not-a-start"
+  | "stuck"
+  | "stopped"
+  | "cancelled"
+  | "nothing-due"
+  | "nudge-failed";
+
+/** `awf emit --json`, and `awf send --json` to a participant routed to the code. */
+export type EmitResultJson = {
+  v: 1;
+  outcome: EmitOutcome;
+  /** `{workflow}/{id}`. */
+  run: string;
+  /** The event's id, as given or as awf made it. */
+  id: string;
+  did: WakeDid;
+  why?: WakeWhy;
+};
+
+/** `awf tick --json`: each run it woke, in the order woken. */
+export type TickResultJson = {
+  v: 1;
+  woke: {
+    run: string;
+    did: "continued";
+    why: "event" | "until" | "crashed" | "failed";
+  }[];
+};
 
 /** `awf inbox --json` when it read nothing. */
 export type InboxErrorJson = { v: 1; code: InboxCode; error: string };
@@ -901,6 +1005,8 @@ export type OutputRecord = {
   report?: string;
 } & (
   | { outcome: "completed"; value: JsonValue }
+  /** Parked: its last wait's label and `until`, an ISO time, as its mailbox records them. */
+  | { outcome: "parked"; label?: string; until?: string }
   | {
       outcome: UnfinishedOutcome;
       reason: string;

@@ -1,7 +1,6 @@
 import { afterAll, beforeEach, describe, expect, test } from "bun:test";
 import { copyFileSync, existsSync, mkdirSync, readdirSync, renameSync, rmSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
-import type { OutputRecord } from "../packages/contract/src/records";
 import { runOperatorCli } from "../packages/engine/src/operator-cli";
 import { createSingleSessionHostFactory } from "../packages/harness/src/single-session-host";
 import { createFakeAdapter } from "../packages/harness/src/testing/fake";
@@ -20,6 +19,7 @@ import {
   awfArgv,
   containedArgv,
   type Runner,
+  type RunOutput,
   type RunRequest,
   summaryOf,
 } from "../packages/lab/src/review/lab/runner";
@@ -89,7 +89,7 @@ function inProcess(options: { spend?: number } = {}) {
       }),
     });
     const text = output.join("\n").trim();
-    const record = text.startsWith("{") ? (JSON.parse(text) as OutputRecord) : undefined;
+    const record = text.startsWith("{") ? (JSON.parse(text) as RunOutput) : undefined;
     if (record && options.spend !== undefined) record.accounting.totals.estimate = options.spend;
     return {
       exitCode,
@@ -1068,7 +1068,7 @@ export default defineComparison({
           byModel: [],
           totals: { agents, known: agents, priced: agents, estimate: 0 },
         },
-      }) as unknown as OutputRecord;
+      }) as unknown as RunOutput;
     const refused =
       "Codex subscription authentication is required (ChatGPT login); `codex login status` reads as unknown";
     expect(
@@ -1141,7 +1141,7 @@ export default defineExecutableWorkflow({
             byModel: [],
             totals: { agents: 1, known: 1, priced: 1, estimate: 2 },
           },
-        } as unknown as OutputRecord;
+        } as unknown as RunOutput;
         return { exitCode: 0, stderr: "", ms: 1, record };
       }
       if (request.workflow.includes("tries")) candidateTrials += 1;
@@ -1259,7 +1259,7 @@ export default defineExecutableWorkflow({
           byModel: [],
           totals: { agents: 1, known: 1, priced: 1, estimate: 4 },
         },
-      } as unknown as OutputRecord;
+      } as unknown as RunOutput;
       return { exitCode: 0, stderr: "", ms: 1, record };
     };
     const previous = process.env.CODEX_HOME;

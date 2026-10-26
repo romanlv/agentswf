@@ -91,7 +91,9 @@ export function printEnding(
 export function toldOf(end: AttemptEnd, kept: Kept): string {
   const { ending } = end;
   const told = `${OUTCOMES[ending.kind].told}${kept.output ? `; its record is ${kept.output}` : ""}`;
-  return ending.kind === "completed" ? told : `${told}: ${ending.reason}`;
+  if (ending.kind === "completed") return told;
+  if (ending.kind === "parked") return ending.label ? `${told}: ${ending.label}` : told;
+  return `${told}: ${ending.reason}`;
 }
 
 /**
@@ -134,6 +136,17 @@ function describeEnding(
   const word = OUTCOMES[ending.kind].word;
   if (ending.kind === "completed") {
     return [`${mark} ${word} · ${run}`, ...figures, ...rows([], context)];
+  }
+  if (ending.kind === "parked") {
+    const waits = [ending.label, ending.until && `until ${ending.until}`]
+      .filter(Boolean)
+      .join(" · ");
+    return [
+      `${mark} ${word}${waits ? `: ${waits}` : ""}`,
+      `  ${run}`,
+      ...figures,
+      ...rows([], context),
+    ];
   }
   // A reason's later lines, such as a schema's problems, sit under it, apart from the rows.
   const [first, ...more] = ending.reason.split("\n");

@@ -1,4 +1,5 @@
 import type { PARTICIPANT } from "../participant";
+import type { ParticipantReplyEvent } from "./events";
 import type { JsonObject } from "./json";
 
 export type ParticipantKey = string;
@@ -37,4 +38,29 @@ export interface ParticipantDirectory {
   connect(spec: ExternalParticipantSpec): Promise<ExternalParticipantRef>;
   /** Finds an agent or connected participant visible in this workflow scope. */
   get(key: ParticipantKey): Promise<ParticipantRef | null>;
+}
+
+export interface CodeParticipantSpec extends ExternalParticipantSpec {
+  /**
+   * Its messages come to the run's code, each a `participant:reply` from its key taken at a wait,
+   * not to an agent: `awf send {ref} --as {key} --id {message id} {text}` delivers one, and continues
+   * a parked run.
+   */
+  to: "code";
+}
+
+export interface CodeParticipantRef extends ExternalParticipantRef {
+  /** Writes to it without a turn: an item in `awf inbox` for whatever answers as it. */
+  post(text: string): Promise<void>;
+  /** True for a message on this participant. */
+  replied(event: { readonly name: string; readonly from: string }): event is ParticipantReplyEvent;
+}
+
+/**
+ * The directory of a run of a workflow with `events`, which also connects participants routed to
+ * the code. A parked run keeps them connected.
+ */
+export interface CodeParticipantDirectory extends ParticipantDirectory {
+  connect(spec: CodeParticipantSpec): Promise<CodeParticipantRef>;
+  connect(spec: ExternalParticipantSpec): Promise<ExternalParticipantRef>;
 }

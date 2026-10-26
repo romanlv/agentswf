@@ -3,7 +3,7 @@ import { realpathSync } from "node:fs";
 import { chmod, mkdir, realpath, rm, stat } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import type { HolderResultJson } from "@agentswf/contract/records";
-import { decodeHolderRequest } from "@agentswf/contract/wire";
+import { decodeHolderRequest, type NudgeWireResult } from "@agentswf/contract/wire";
 import type { CoordinatorHolder, CoordinatorPort } from "./coordinator-port";
 import type { MessagingEventBody } from "./messaging/messaging";
 import type { RunStatus } from "./run-state";
@@ -80,6 +80,8 @@ export function coordinatorSocket(options: {
   attempt: number;
   /** Why the socket did not open: the run goes on, and no holder's command reaches it. */
   failed(reason: string): void;
+  /** A nudge: the run's mailbox has a new event. */
+  nudged?(): void;
 }): CoordinatorPort & { close(): Promise<void>; readonly path: string } {
   const path = coordinatorSocketPath(options.dir, options.runDir);
   let holder: CoordinatorHolder | undefined;
@@ -89,7 +91,7 @@ export function coordinatorSocket(options: {
   const id = (n: number) => `${options.attempt}.${n}`;
 
   /** Undefined for a request no `awf` command makes: the connection closes unanswered. */
-  const answer = async (frame: string): Promise<HolderResultJson | undefined> => {
+  const answer = async (frame: string): Promise<HolderResultJson | NudgeWireResult | undefined> => {
     let parsed: unknown;
     try {
       parsed = JSON.parse(frame);
@@ -98,8 +100,13 @@ export function coordinatorSocket(options: {
     }
     const decoded = decodeHolderRequest(parsed);
     if (!decoded.ok) return undefined;
-    if (!holder) return refused("no-coordinator", "the run has no coordinator connected");
     const request = decoded.value;
+    if (request.command === "nudge") {
+      if (!options.nudged) return undefined;
+      options.nudged();
+      return { v: 1, code: "nudged" };
+    }
+    if (!holder) return refused("no-coordinator", "the run has no coordinator connected");
     // Another attempt's question is never open in this one: a number no message has.
     const to =
       request.to === undefined

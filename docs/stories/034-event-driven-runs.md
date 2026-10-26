@@ -102,7 +102,7 @@ awf emit --target case.ts dd.changes {json} --id {commit}     the triage tick, a
 A Datadog case, cut down from the watcher's sketch:
 
 ```ts
-export default defineExecutableWorkflow({
+export default defineEventWorkflow({
   definition: {
     meta: { name: "dd-case", description: "Investigate one Datadog case in its own thread." },
     file: import.meta.path,
@@ -116,7 +116,7 @@ export default defineExecutableWorkflow({
 
       for (;;) {
         const events = await workflow.receive({                  // the first takes the event that started it
-          label: () => (investigator.turn ? "investigating" : `${kase.unseen().length} unseen`),
+          label: investigator.turn ? "investigating" : `${kase.unseen().length} unseen`,
           until: !investigator.turn && needsTurn(kase) ? kase.retryAt() : undefined,   // a retry, only when it would act
         });
         for (const e of events) {                                // in order: each event is handled
@@ -515,7 +515,7 @@ turn, which the case's files keep and the wait's `until` reads.
 
 ## Tasks at a glance
 
-- [ ] 1. The contract: `events`, `key`, `starts`, `file`, `receive`, `emit`, `start`, `turn`, the records, the names (Q10–Q12); reviewed before building
+- [x] 1. The contract: `events`, `key`, `starts`, `file`, `receive`, `emit`, `start`, `turn`, the records, the names (Q10–Q12); reviewed before building
 - [ ] 2. Stages by content in a run with `events`
 - [ ] 3. The mailbox and `receive` in the engine
 - [ ] 4. One way in: `awf emit --target`, the key's lock, append or refuse, `wake`
@@ -628,7 +628,7 @@ them, and reviewed by the operator before anything is built.
 
 Execution:
 
-- [ ] Plan, implement, review, resolve, verify (as in the template).
+- [x] Plan, implement, review, resolve, verify (as in the template).
 
 Work:
 
@@ -652,6 +652,8 @@ it is entered, in any attempt; a failed one runs again.
 
 Done when:
 
+- a stage replaced more than once in an attempt keeps each replaced record:
+  `replaced/{stage}.{attempt}.json` assumes one per attempt, so it gains a sequence number;
 - tests: a stage entered twice in one attempt runs once; a continue that runs a new stage first
   still reuses the old ones after it; a failed stage runs again on the next attempt and its record
   is replaced; a record from another version is handled as Q12 decides; `--from-stage` and
@@ -667,7 +669,8 @@ Done when:
 - tests: events taken in arrival order, and one at a time with `take: "oldest"`; a duplicate id
   appended once; a wait called again acknowledges its last batch and takes the next; after a crash,
   the first wait returns the batch it took and hadn't acknowledged, alone; a wait in a stage
-  returns its recorded batch on a rerun and takes no later event; a wait whose `until` passed
+  returns its recorded batch on a rerun and takes no later event, and one whose work returns
+  other events than its one wait took fails; a wait whose `until` passed
   returns none, recorded as an empty `took`; a rerun that computes the same `until` waits for the
   same time; `awf runs` shows a waiting run's label; `receive` on a workflow without `events` is an
   error.
@@ -774,3 +777,100 @@ Done when:
 - a live case: occurrences below the threshold start no turn; a reply during a turn, delivered by
   hand with Q18's command until awf-chat has it, gets the next one; a close from the triage tick
   cancels a running turn; a failed turn is retried by `awf tick` after its `until`.
+
+## Implementation notes
+
+### Task 1: the contract
+
+Built in the worktree `../worktrees/awf-event-driven-runs`, branch `event-driven-runs`.
+
+- **Where the types live.** A new `contract/src/workflow/events.ts` holds the event types, the name
+  grammar (`NAME_PATTERN`, `nameProblem`, used by stage names too) and emit's outcomes. A workflow
+  with `events` is its own definition and executable, `EventWorkflowDefinition` and
+  `ExecutableEventWorkflow`, made with `defineEventWorkflow` and its own kind,
+  `awf.event-workflow/v1`, which `isEventWorkflow` reads. Its context, `EventWorkflowContext`, has
+  `key`, `receive`, agents that are `EventAgentRef`s (`start`, `turn`, `ended`) and a participant
+  directory that routes to the code; a workflow without `events` fails `tsc` on each. `emit` is on
+  every context, since a tick without `events` sends.
+- **A function of its own, not an overload of `defineExecutableWorkflow`**: with overloads, a
+  definition wrapped in a generic helper took the first overload's context type. This is the
+  story's only rename: its snippets say `defineEventWorkflow`.
+- **A colon in an event name fails `tsc`** (`NoColonNames`), and at load for a file `tsc` didn't see.
+- **`receive`'s `label` is a string**, not the sketches' `() => string`: it is computed at each
+  call either way, and nothing changes while the code waits.
+- **A wait in a stage**: `took` carries `stage`, and on a rerun the stage returns the batch read
+  back from the mailbox, so `stage(name, () => workflow.receive(…))` needs no `result`;
+  `EventWorkflowContext.stage` has that overload.
+- **`agent.ended<Meta, T>(e)`**: `T` defaults to `JsonValue`, so `ended<Batch>(e)` is enough.
+  `start()` takes `run()`'s spec plus `meta` and returns the `StartedTurn`, which is also
+  `agent.turn`; `cancel()` resolves `false` on a turn that had ended. `enqueue` and `TurnRef` are
+  gone; `AgentTextTurnSpec` and `AgentStructuredTurnSpec` stay, as the harness's turn spec.
+- **Ids.** Ids starting `awf.` are awf's and a sender's are refused: an end is
+  `awf.end.{hash of agent key and turn id}`, so it fits the grammar whatever the key and is kept
+  once; an event sent without an id gets `awf.{random}`. A chat message id and an emit's id are
+  both a sender's, and may collide; naming occurrences apart is the senders'.
+- **`participant:reply`'s data is `{ text, author? }`**: the message id is the event's id and its
+  time the event's `at`. `awf send` takes `--author` for it.
+- **`parked`** is an `AttemptOutcome`, its own `Ending` arm and `output.json` outcome, each with the
+  last wait's `label` and `until`. Lab reads `awf run`'s record only, never parked since `awf run`
+  refuses a workflow with `events`: its `RunOutput` excludes it, and its formats are unchanged.
+- **Records.** `MailboxRecord` (`mailbox.jsonl`, version 1): `event`, `wait`, `took` and `turn`,
+  each with `at`, and `attempt` on the run's own. `RunRecord` gains `key` and `env: { PATH }`;
+  `AttemptRecord` gains `unacknowledged` for a returned run, and its `file` is where a wake that
+  names no target continues from. The wire gains `{ command: "nudge" }`, answered by the internal
+  `NudgeWireResult`, `{ v: 1, code: "nudged" }`, kept out of `awf send`'s published output.
+- **Names (Q10).** Stage names take the shared grammar in every run, a superset of today's; run ids
+  also take `@` past their first character, for `{workflow}.{key}`. An event workflow's `meta.name`
+  has no `.` (checked at load), and the whole run id is checked against 128.
+- **Commands and their output**, built in tasks 4, 5 and 7, typed in `records.ts`:
+  - `awf emit --target {file} {name} [{json}] [--id {id}] [--json]`: an outcome exits 0, `refused`
+    included, so a script going through cases doesn't stop; a wrong name or shape, a colon or an
+    `awf.` id exits 2. It prints `{outcome} {ref}: {did}`, with why when there is one, such as
+    `accepted dd-case/dd-case.kombo-unique: started` or `refused dd-case/dd-case.x: returned`;
+    `--json` is `EmitResultJson`, `{ v: 1, outcome, run, id, did, why? }`, with `did` one of
+    `started`, `nudged`, `continued`, `none` and `why` a closed set (`WakeWhy`).
+  - `awf tick [--json]`: a line per run it woke, `continued {ref}: until`, and nothing when it woke
+    none; `--json` is `TickResultJson`, `{ v: 1, woke: [{ run, did, why }] }`, the same words.
+  - `awf send {ref} --as {participant} --id {message id} [--author {name}] {text}`, for a
+    participant routed to the code: no agent, it prints as `awf emit` does, and `--json` is
+    `EmitResultJson`.
+  - `awf inbox` gains a `post` item, `{ kind: "post", coordinator, id, text }`, printed
+    `{id}  run → {participant}` and the text.
+  - `awf runs` gains the `parked` and `stuck` states, and `waiting: { label?, until? }` for a run
+    at its wait, live or parked.
+  - `~/.awf/projects`: one absolute project directory per line, appended when awf first starts a
+    keyed run there.
+- **The sketches as `.ts`** are in `examples/event-sketches/`: the Datadog case run and tick, and
+  the review loop's run and tick, with their domain files and what comes after this story (tools
+  and the emit to the run's own mailbox, `singleton`, the allowance) declared as stubs. Their tests
+  are `test.todo` until task 8 makes `testWorkflow` run them; they type-check now.
+  `events.typecheck.ts` holds what `tsc` must refuse: an undeclared or misspelled name read at a
+  wait, wrong data, awf's names sent by a sender, a colon in a declared name, and `receive`, `key`,
+  `start` or `to: "code"` on a workflow without `events`.
+- **Review 1** (architecture): 12 findings, all applied as above: the file a wake continues from,
+  awf's ids, a wait in a stage, `EventAgentRef`, the nudge's answer kept internal, the run-id
+  grammar, the undrafted formats, the parked record without a shim and lab left alone,
+  `defineEventWorkflow`, the colon in `tsc`, `env`, and the story's snippets.
+- **Review 1** (correctness): 11 findings. Four were the architecture review's, fixed above (a
+  colon in a name, awf's ids, `start` on every agent, a leading `@`). Fixed: `Pass` in the review
+  loop sketch has a value, so `bun test` loads it; `OutputOf` gives `JsonValue` for a schema
+  without a type carrier, as a stage's result does; `events.typecheck.ts` and `dd-case.test.ts` pin
+  each wrong shape of awf's own events. Dispositioned: a key too long for its run id is refused
+  where the run id is made, task 4, as `key`'s doc says; a starting event outside `starts` in a
+  test is refused at run time, as `awf emit` refuses it, rather than adding a type parameter for
+  `starts` to the published definition; a stage name over 128 is now refused, the one way the
+  grammar is not a superset (none in the repo or the sketches is near it); a parked attempt whose
+  cleanup failed stays parked, as a completed one stays completed.
+- **Review 2**: clear of blockers; six small findings, all fixed: a stage around a wait whose
+  work returns other events than its wait took fails (task 3's tests); `awf tick`'s `did` is only
+  `continued`; `stuck`'s doc on `RunStateJson`; reply ids are a sender's, not `awf.`; a generic
+  helper over `defineEventWorkflow` types its parameter `NoColonNames<E>`; a stage replaced twice
+  in an attempt keeps both (task 2's details). `docs/design/README.md` no longer lists `signals`,
+  `enqueue` or `TurnRef`.
+- **Review 3**: two leftovers, fixed: a sentence doubled in `stage`'s doc, and `Signals` still in
+  `docs/design/README.md`'s table, now `emit` on `WorkflowContext`. Clear.
+- **Verified**: `bun run check` passes (Biome, `tsc`, boundaries); `bun test` 1990 pass, 1 fail, the
+  workflow-api samples test that fails on main too; the sketches' tests are `todo`. Live, on the
+  changed engine, `examples/quick-check` completed on codex headless and on claude in a pane
+  (`quick-check/20261025-1950-bc1d`, `-3334`). Operator review of the formats was taken as a
+  self-review gate in this approved story; the formats above are what to look at first.

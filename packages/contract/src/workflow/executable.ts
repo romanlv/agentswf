@@ -1,7 +1,9 @@
+import type { EventSchemas, NoColonNames } from "./events";
 import type { JsonValue } from "./json";
-import type { StageOutcome, WorkflowDefinition } from "./workflow";
+import type { EventWorkflowDefinition, StageOutcome, WorkflowDefinition } from "./workflow";
 
 export const EXECUTABLE_WORKFLOW_KIND = "awf.executable-workflow/v1" as const;
+export const EVENT_WORKFLOW_KIND = "awf.event-workflow/v1" as const;
 
 export type WorkflowInvocation = Readonly<{
   argv: readonly string[];
@@ -24,8 +26,12 @@ export type StageSummary = {
   provided?: true;
 };
 
-/** How an attempt ended. `interrupted` is never written: it is an attempt with no ending and no process. */
-export type AttemptOutcome = "completed" | UnfinishedOutcome;
+/**
+ * How an attempt ended. `interrupted` is never written: it is an attempt with no ending and no
+ * process. `parked` is a run of a workflow with `events` waiting with nothing to do: the next event
+ * continues it.
+ */
+export type AttemptOutcome = "completed" | "parked" | UnfinishedOutcome;
 
 /**
  * How an attempt that didn't complete ended. `cancelled` is the operator stopping it, and wins over
@@ -37,6 +43,13 @@ export type UnfinishedOutcome = "stopped" | "failed" | "timed-out" | "cancelled"
 /** How an attempt ended, which `report` renders. */
 export type Ending<Result> =
   | { kind: "completed"; value: Result; stages: StageSummary[] }
+  | {
+      kind: "parked";
+      stages: StageSummary[];
+      /** Its last wait's label and `until`, an ISO time, which the mailbox records. */
+      label?: string;
+      until?: string;
+    }
   | {
       kind: UnfinishedOutcome;
       /** The stage it ended in; absent between stages. */
@@ -75,6 +88,14 @@ export interface ExecutableWorkflow<Args extends JsonValue, Result extends JsonV
   report?(value: Result | undefined, ending: Ending<Result>): string | undefined;
 }
 
+/** A workflow started by an event, with no input to prepare and no id to derive: its key is the id. */
+export interface ExecutableEventWorkflow<Events extends EventSchemas, Result extends JsonValue> {
+  readonly kind: typeof EVENT_WORKFLOW_KIND;
+  readonly definition: EventWorkflowDefinition<Events, Result>;
+  present?(value: Result, ending: Ending<Result>): string | undefined;
+  report?(value: Result | undefined, ending: Ending<Result>): string | undefined;
+}
+
 type ExecutableWorkflowSpec<Args extends JsonValue, Result extends JsonValue> = Omit<
   ExecutableWorkflow<Args, Result>,
   "kind"
@@ -84,4 +105,23 @@ export function defineExecutableWorkflow<Args extends JsonValue, Result extends 
   spec: ExecutableWorkflowSpec<Args, Result>,
 ): ExecutableWorkflow<Args, Result> {
   return { ...spec, kind: EXECUTABLE_WORKFLOW_KIND };
+}
+
+/**
+ * Defines a workflow started by events; an event name with a colon fails `tsc`. A generic helper
+ * that passes `events` through types its parameter `NoColonNames<E>`.
+ */
+export function defineEventWorkflow<Events extends EventSchemas, Result extends JsonValue>(
+  spec: Omit<ExecutableEventWorkflow<Events, Result>, "kind"> & {
+    definition: { events: NoColonNames<Events> };
+  },
+): ExecutableEventWorkflow<Events, Result> {
+  return { ...spec, kind: EVENT_WORKFLOW_KIND };
+}
+
+/** Whether a workflow is started by events. */
+export function isEventWorkflow(workflow: {
+  readonly kind: string;
+}): workflow is ExecutableEventWorkflow<EventSchemas, JsonValue> {
+  return workflow.kind === EVENT_WORKFLOW_KIND;
 }

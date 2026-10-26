@@ -1,6 +1,7 @@
 export * from "./agents";
 export * from "./composition";
 export * from "./decisions";
+export * from "./events";
 export * from "./executable";
 export * from "./json";
 export * from "./messaging";

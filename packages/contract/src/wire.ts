@@ -332,15 +332,32 @@ export type HolderWireRequest = {
   text: string;
 };
 
-export function decodeHolderRequest(value: unknown): WireDecodeResult<HolderWireRequest> {
+/**
+ * awf telling a live run of a workflow with `events` that its mailbox has a new event, which its
+ * wait then reads; answered `{ v: 1, code: "nudged" }`. Only a wake: the event is already appended,
+ * so a nudge that fails loses nothing.
+ * @internal
+ */
+export type NudgeWireRequest = { version: typeof WIRE_VERSION; command: "nudge" };
+
+/** @internal */
+export type NudgeWireResult = { v: 1; code: "nudged" };
+
+export function decodeHolderRequest(
+  value: unknown,
+): WireDecodeResult<HolderWireRequest | NudgeWireRequest> {
   const envelope = checkEnvelope(value, "request");
   if (!envelope.ok) return envelope;
   const request = envelope.value;
+  if (request.command === "nudge")
+    return extraFields(request, ["version", "command"])
+      ? invalid("request has unexpected fields")
+      : { ok: true, value: { version: WIRE_VERSION, command: "nudge" } };
   if (request.command !== "reply" && request.command !== "send")
     return {
       ok: false,
       code: "unsupported-command",
-      error: "request.command must be reply or send",
+      error: "request.command must be reply, send or nudge",
     };
   if (extraFields(request, ["version", "command", "coordinator", "agent", "to", "text"]))
     return invalid("request has unexpected fields");

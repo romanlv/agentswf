@@ -14,7 +14,7 @@ import {
   type StageRecord,
   type TurnRecord,
 } from "@agentswf/contract/records";
-import type { AttemptOutcome } from "@agentswf/contract/workflow";
+import { type AttemptOutcome, nameProblem } from "@agentswf/contract/workflow";
 import { exists, isCode, linkNew, writeJson } from "./files";
 import { appendLine, endTornLine, readLines } from "./jsonl";
 import { MESSAGE_LIMITS } from "./messaging/limits";
@@ -49,22 +49,20 @@ export type Attempt = { run: Run; file: string; record: AttemptRecord };
 /** The start time of process `pid` as an ISO time to the second, or undefined when it is gone. */
 export type ProcessProbe = (pid: number) => string | undefined;
 
-const ID = /^[A-Za-z0-9_-][A-Za-z0-9._-]{0,127}$/;
+// `@` for a keyed run's id, `{workflow}.{key}`, whose key may hold one past its first character.
+const ID = /^[A-Za-z0-9_-][A-Za-z0-9._@-]{0,127}$/;
 
 /** Why `id` can't name a run or a workflow, or undefined when it can. */
 export function idProblem(id: string): string | undefined {
   return ID.test(id)
     ? undefined
-    : `${JSON.stringify(id)} is not a valid id: letters, digits, '.', '_' and '-', up to 128, not starting with '.'`;
+    : `${JSON.stringify(id)} is not a valid id: letters, digits, '.', '_', '@' and '-', up to 128, not starting with '.'`;
 }
-
-const STAGE_NAME = /^[a-z][a-z0-9-]*$/;
 
 /** Why `name` can't name a stage, which is a file in the run's `stages/`; undefined when it can. */
 export function stageNameProblem(name: string): string | undefined {
-  return typeof name === "string" && STAGE_NAME.test(name)
-    ? undefined
-    : `${JSON.stringify(name)} is not a stage's name: lowercase letters, digits and '-', starting with a letter`;
+  const problem = typeof name === "string" ? nameProblem(name) : "a string";
+  return problem && `${JSON.stringify(name)} is not a stage's name: ${problem}`;
 }
 
 function checkIds(...ids: string[]): void {

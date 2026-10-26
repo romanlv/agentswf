@@ -39,7 +39,8 @@ const workflow: WorkflowDefinition<Args, Result> = {
 - `call` — run a child workflow in its own scope.
 - `parallel` — apply an async operation with bounded local concurrency.
 - `steps` — run a named operation or sleep.
-- `signals` — wait for external text or schema-validated JSON.
+- `emit` — send an event to a workflow with `events`, which starts or wakes its key's run; such a
+  run also has `key` and `receive`, its wait ([story 034](../stories/034-event-driven-runs.md)).
 - `usage()` — snapshot completed agent-operation times and sessions for the run. Tokens and cost
   are read when the run ends and returned by the engine, not to workflow code.
 - `log()` — record workflow diagnostics.
@@ -62,8 +63,8 @@ const reviewer = await context.agents.open({
 
 - `run()` queues one turn and waits for its terminal outcome. Its id is generated when omitted, and
   one standard missing-answer nudge runs unless `nudge: false` disables it.
-- `enqueue()` durably queues detached work and returns a `TurnRef` for later observation,
-  cancellation, or an unanswered-result nudge. Detached turns require a caller-supplied id.
+- `start()`, on an agent of a workflow with `events`, begins a turn without awaiting it; its end
+  arrives at the run's wait as `agent:ended`, and `agent.turn` holds it until then.
 - `compact()` runs the harness's own compaction, with the spec's prompt as its focus (ADR 0007).
   An `answered` outcome means the context was replaced; any other leaves it as it was.
 - `fork()` opens a new agent on a copy of the session, taken after the agent's earlier operations
@@ -76,12 +77,12 @@ The public call surface is:
 | --- | --- |
 | `AgentDirectory` | `open(spec)`, `attach(key, runtime?)`, `stop(key, reason?)` |
 | `ParticipantDirectory` | `connect(spec)`, `get(key)` |
-| `AgentRef` | `run(spec)`, `enqueue(spec)`, `compact(spec)`, `fork(spec)` |
-| `TurnRef` | `result`, `nudge(options)`, `cancel(reason?)` |
+| `AgentRef` | `run(spec)`, `compact(spec)`, `set(spec)`, `fork(spec)` |
+| `EventAgentRef` | as `AgentRef`, and `start(spec)`, `turn`, `ended(event)` |
+| `StartedTurn` | `id`, `cancel(reason?)` |
 | `Messaging` | `allow(access)` |
 | `Steps` | `run(spec, operation)`, `sleep(spec)` |
-| `Signals` | `receive(spec, schema?)` |
-| `WorkflowContext` | `call(spec)`, `parallel(items, operation, options?)`, `usage()`, `log(message, fields?)` |
+| `WorkflowContext` | `call(spec)`, `emit(target, name, data, options?)`, `parallel(items, operation, options?)`, `usage()`, `log(message, fields?)` |
 
 Every turn ends as `answered`, `unanswered`, `blocked`, `timed-out`, `failed`, or `cancelled`. An answered turn
 contains either text or JSON validated against the supplied `OutputSchema`. Every outcome carries

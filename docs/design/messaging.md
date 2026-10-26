@@ -1271,9 +1271,9 @@ Decided: one `awf send` for every holder, `awf send {workflow}/{id} {agent}`, bu
 participant in [[032-run-coordinator|story 032]] ([[#Coordinator CLI]]). The operator's own
 authority is `--as operator`, a reserved key, held until M3 is answered
 ([[#Operator authority]]); a missing `--as` never means the operator. The process inbox in [[workflow-styles#Loops, the inbox and the core]]
-takes `awf signal {key} {type}` instead, matching the `signals.receive` stub: one puts text into a
-model's context, the other a typed event `receive` consumes, and both take two positional
-arguments, so they cannot share a verb.
+takes `awf emit --target {file} {name}` instead ([[034-event-driven-runs|story 034]], which
+replaced the `signals.receive` stub): one puts text into a model's context, the other a typed
+event a wait takes, so they cannot share a verb.
 
 ### Q7. How does an agent reply?
 

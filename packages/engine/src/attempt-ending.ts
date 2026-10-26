@@ -53,6 +53,7 @@ export const OUTCOMES: Record<
   { word: string; told: string; mark: (paint: Paint) => string; exitCode?: number }
 > = {
   completed: { word: "completed", told: "completed", mark: (p) => p.ok("✓"), exitCode: 0 },
+  parked: { word: "parked", told: "parked", mark: (p) => p.ok("◇"), exitCode: 0 },
   stopped: { word: "stopped", told: "stopped", mark: (p) => p.busy("■"), exitCode: 3 },
   cancelled: { word: "cancelled", told: "was cancelled", mark: (p) => p.busy("■") },
   "timed-out": { word: "timed out", told: "timed out", mark: (p) => p.bad("✗"), exitCode: 1 },
@@ -111,7 +112,7 @@ export function endedBeforeStart(
   deadline: AbsoluteDeadline | undefined,
   run: { runId: string; startedAt: number; endedAt: number },
   goOn: GoOn,
-): AttemptEnd & { ending: Exclude<Ending<JsonValue>, { kind: "completed" }> } {
+): AttemptEnd & { ending: Exclude<Ending<JsonValue>, { kind: "completed" | "parked" }> } {
   const { kind, cancellation } = runOutcome(error, deadline);
   const times = {
     startedAt: new Date(run.startedAt).toISOString(),

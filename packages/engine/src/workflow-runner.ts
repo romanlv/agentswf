@@ -29,6 +29,7 @@ import {
 } from "@agentswf/contract/schema";
 import {
   type AbsoluteDeadline,
+  type AgentEndedEvent,
   type AgentExecution,
   type AgentForkSpec,
   type AgentKey,
@@ -36,8 +37,7 @@ import {
   type AgentRef,
   type AgentRunStructuredSpec,
   type AgentRunTextSpec,
-  type AgentStructuredTurnSpec,
-  type AgentTextTurnSpec,
+  type AgentStartSpec,
   type CompactionId,
   type CompactSpec,
   DeadlineExceededError,
@@ -59,6 +59,7 @@ import {
   type SkillSource,
   type StageOptions,
   type StageSummary,
+  type StartedTurn,
   type TurnOutcome,
   type WorkflowContext,
   type WorkflowDefinition,
@@ -916,7 +917,7 @@ class WorkflowOwner {
         run: () => unavailable("steps.run"),
         sleep: () => unavailable("steps.sleep"),
       },
-      signals: { receive: () => unavailable("signals.receive") },
+      emit: () => unavailable("emit"),
       parallel: (items, operation, parallelOptions) => {
         const inherited = scopes.getStore()?.deadline ?? options.deadline;
         const deadline = parallelOptions?.deadline
@@ -2210,10 +2211,19 @@ class LogicalAgent implements AgentRef {
     if (opening) this.startMessageOperation(opening.scope);
   }
 
-  enqueue(_spec: AgentTextTurnSpec): Promise<never>;
-  enqueue<T extends JsonValue>(_spec: AgentStructuredTurnSpec<T>): Promise<never>;
-  enqueue(): Promise<never> {
-    return unavailable("AgentRef.enqueue");
+  get turn(): StartedTurn | null {
+    return null;
+  }
+
+  start(_spec: AgentStartSpec): Promise<never> {
+    return unavailable("AgentRef.start");
+  }
+
+  ended<Meta extends JsonValue = JsonValue, T extends JsonValue = JsonValue>(event: {
+    readonly name: string;
+    readonly from: string;
+  }): event is AgentEndedEvent<Meta, T> {
+    return event.name === "agent:ended" && event.from === this.key;
   }
 
   run(spec: AgentRunTextSpec): Promise<RunResult<string>>;

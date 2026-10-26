@@ -1,3 +1,4 @@
+import type { AgentEndedEvent } from "./events";
 import type { JsonObject, JsonValue, OutputSchema } from "./json";
 import type { ParticipantRef } from "./participants";
 import type { InlineSandboxSpec, SandboxRef } from "./sandboxes";
@@ -128,7 +129,7 @@ export interface AgentOpenSpec {
 }
 
 /**
- * Where a pane agent's pane is placed, once, as it opens: a new tab, or beside the pane of an agent
+ * Where a pane agent's pane is placed, once, at its first turn: a new tab, or beside the pane of an agent
  * already open, which it splits. Where it can't be used, the agent gets a tab of its own instead,
  * and the run says why; it never fails the agent. See `docs/design/pane-layout.md`.
  */
@@ -176,24 +177,25 @@ interface AgentTurnBase {
   label?: string;
 }
 
+/** A turn as a harness is handed it: its id and deadline fixed. */
+interface HarnessTurnBase extends AgentTurnBase {
+  /** Idempotency key scoped to this agent. Reusing it with a different spec rejects. */
+  id: TurnId;
+}
+
+export interface AgentTextTurnSpec extends HarnessTurnBase {
+  schema?: undefined;
+}
+
+export interface AgentStructuredTurnSpec<T extends JsonValue> extends HarnessTurnBase {
+  schema: OutputSchema<T>;
+}
+
 export interface NudgeOptions {
   /** Bounds presentation and settlement of the continuation. */
   deadline: AbsoluteDeadline;
   /** Uses the engine's standard missing-answer recovery prompt when omitted. */
   prompt?: string;
-}
-
-interface EnqueuedTurnBase extends AgentTurnBase {
-  /** Idempotency key scoped to this agent. Reusing it with a different spec rejects. */
-  id: TurnId;
-}
-
-export interface AgentTextTurnSpec extends EnqueuedTurnBase {
-  schema?: undefined;
-}
-
-export interface AgentStructuredTurnSpec<T extends JsonValue> extends EnqueuedTurnBase {
-  schema: OutputSchema<T>;
 }
 
 interface AgentRunBase {
@@ -302,17 +304,18 @@ export type RunResult<T extends JsonValue> = {
   outcome: TurnOutcome<T>;
 };
 
-export interface TurnRef<T extends JsonValue> {
+/** `run()`'s spec, and what the turn's end carries back in `agent:ended`, `null` when absent. */
+export type AgentStartSpec = (AgentRunTextSpec | AgentRunStructuredSpec<JsonValue>) & {
+  meta?: JsonValue;
+};
+
+/** A turn `start()` began, until a wait takes its end. Its result comes as `agent:ended`. */
+export interface StartedTurn {
   readonly id: TurnId;
-  /** Resolves to an explicit terminal state; an absent agent answer is never successful data. */
-  readonly result: Promise<TurnOutcome<T>>;
   /**
-   * Makes one additional delivery attempt against this turn's existing result slot and authority.
-   * Repeating the same nudge returns the same ref; a different nudge or later queued operation
-   * rejects.
+   * Stops the turn; resolves once its `cancelled` end is in the mailbox, or at once, `false`, when
+   * it had ended already.
    */
-  nudge(options: NudgeOptions): Promise<TurnRef<T>>;
-  /** Returns false when cancellation is unsupported or the turn is already terminal. */
   cancel(reason?: string): Promise<boolean>;
 }
 
@@ -360,9 +363,6 @@ export interface AgentRef extends ParticipantRef {
    * harness, placement and alias never change.
    */
   readonly execution: AgentExecution;
-  /** Resolves once durably queued. Turns execute one at a time in enqueue order. */
-  enqueue(spec: AgentTextTurnSpec): Promise<TurnRef<string>>;
-  enqueue<T extends JsonValue>(spec: AgentStructuredTurnSpec<T>): Promise<TurnRef<T>>;
   /**
    * Runs and awaits. Supplied ids cover the complete spec; conflicting reuse rejects. Cancellation
    * by another ref or workflow shutdown resolves as `cancelled`.
@@ -432,4 +432,35 @@ export interface AgentDirectory {
    * session's spend. Root scope only (story 027).
    */
   forkCaller(spec: AgentForkSpec): Promise<AgentRef | null>;
+}
+
+/** An agent of a run of a workflow with `events`, which can also start a turn without awaiting it. */
+export interface EventAgentRef extends AgentRef {
+  /**
+   * The turn `start()` began, from then until a wait takes its end, restored on a continue for a
+   * turn whose end no wait took; `null` otherwise. While it is set, the agent refuses `start()`,
+   * `run()`, `compact()`, `set()`, `fork()` and messages from other agents.
+   */
+  readonly turn: StartedTurn | null;
+  /**
+   * Begins the turn `run()` would, and returns once it is recorded and launched. Its end arrives at
+   * the run's wait as `agent:ended` from this agent's key, with the outcome, checked against
+   * `schema` as `run()`'s is, and `meta`. At the run's root scope only.
+   */
+  start(spec: AgentStartSpec): Promise<StartedTurn>;
+  /**
+   * True for this agent's `agent:ended`, narrowing its data to the `meta` the code started the
+   * turn with and the outcome its `schema` gives.
+   */
+  ended<Meta extends JsonValue = JsonValue, T extends JsonValue = JsonValue>(event: {
+    readonly name: string;
+    readonly from: string;
+  }): event is AgentEndedEvent<Meta, T>;
+  fork(spec: AgentForkSpec): Promise<EventAgentRef>;
+}
+
+/** The agents of a run of a workflow with `events`. */
+export interface EventAgentDirectory extends AgentDirectory {
+  open(spec: AgentOpenSpec): Promise<EventAgentRef>;
+  attach(key: AgentKey, runtime?: RuntimeSelection): Promise<EventAgentRef | null>;
 }

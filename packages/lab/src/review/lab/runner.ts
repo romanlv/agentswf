@@ -35,7 +35,10 @@ export type Contained = {
   home: string;
 };
 
-export type RunResult = { exitCode: number; record?: OutputRecord; stderr: string; ms: number };
+/** `awf run`'s record: never parked, as `awf run` refuses a workflow with events. */
+export type RunOutput = Exclude<OutputRecord, { outcome: "parked" }>;
+
+export type RunResult = { exitCode: number; record?: RunOutput; stderr: string; ms: number };
 
 /**
  * Runs one workflow as an operator would and returns the record it wrote: the one seam between
@@ -186,13 +189,15 @@ export async function awfAllowance(
 }
 
 /** `awf run --json` prints the record, success or not; usage errors print none. */
-export function parseRecord(stdout: string): { record?: OutputRecord } {
+export function parseRecord(stdout: string): { record?: RunOutput } {
   const text = stdout.trim();
   if (!text.startsWith("{")) return {};
   try {
     const record = JSON.parse(text) as OutputRecord;
     // Written by the same checkout's awf; another version is a reader this one doesn't know.
-    return record.version === OUTPUT_RECORD_VERSION ? { record } : {};
+    return record.version === OUTPUT_RECORD_VERSION && record.outcome !== "parked"
+      ? { record }
+      : {};
   } catch {
     return {};
   }

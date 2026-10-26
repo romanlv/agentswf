@@ -1,15 +1,24 @@
-import type { AgentDirectory, OperationRecord } from "./agents";
+import type { AgentDirectory, EventAgentDirectory, OperationRecord } from "./agents";
 import type { WorkflowCallSpec } from "./composition";
 import type { DecisionDirectory } from "./decisions";
+import type {
+  EmitOptions,
+  EmitOutcome,
+  EventSchemas,
+  OutputOf,
+  OwnEvent,
+  ReceivedEvent,
+  ReceiveOptions,
+} from "./events";
+import type { ExecutableEventWorkflow } from "./executable";
 import type { JsonObject, JsonValue, OutputSchema } from "./json";
 import type { Messaging } from "./messaging";
-import type { ParticipantDirectory } from "./participants";
+import type { CodeParticipantDirectory, ParticipantDirectory } from "./participants";
 import type { SandboxDirectory } from "./sandboxes";
 import type { AbsoluteDeadline } from "./timing";
 
 export type WorkflowRunId = string;
 export type StepId = string;
-export type SignalId = string;
 
 export interface WorkflowMeta {
   /** What its runs are kept under; a file may move or be copied and stay the same workflow. */
@@ -43,20 +52,6 @@ export interface ParallelOptions {
   label?: string;
 }
 
-export interface SignalSpec {
-  /** Idempotency key scoped to this workflow context. Reusing it with a different spec rejects. */
-  id: SignalId;
-  name: string;
-  /** Defaults to the current workflow scope deadline. */
-  deadline?: AbsoluteDeadline;
-}
-
-export interface Signals {
-  /** Waits for one value and suspends only this branch, never workflow admission. */
-  receive(spec: SignalSpec): Promise<string>;
-  receive<T extends JsonValue>(spec: SignalSpec, schema: OutputSchema<T>): Promise<T>;
-}
-
 /**
  * A stage's end: `stopped` is `workflow.stop` inside it; `failed` covers a throw, a value its
  * schema rejects, and a cancellation.
@@ -86,7 +81,6 @@ export interface WorkflowContext {
   readonly participants: ParticipantDirectory;
   readonly messages: Messaging;
   readonly steps: Steps;
-  readonly signals: Signals;
   parallel<Item, Result>(
     items: readonly Item[],
     operation: (item: Item, index: number) => Promise<Result>,
@@ -96,7 +90,9 @@ export interface WorkflowContext {
   /**
    * A named step of the run, recorded when it ends. One stage is open at a time, and a name is
    * entered once per attempt; parallel work goes inside a stage. A stage with `result` returns a
-   * value it accepts; one without returns nothing.
+   * value it accepts; one without returns nothing. In a run of a workflow with `events`, a stage is
+   * named by its one effect and runs once ever: a succeeded record is reused wherever and however
+   * often its name is entered, whatever version of the code recorded it, while its value fits.
    */
   stage(name: string, work: () => Promise<void>): Promise<void>;
   stage<T extends JsonValue>(
@@ -117,6 +113,18 @@ export interface WorkflowContext {
     spec: WorkflowCallSpec<Args, Result>,
   ): Promise<Result>;
 
+  /**
+   * Sends an event to the workflow `target`, which keys it to a run: the run starts if it has none
+   * and the event is one of `target`'s `starts`, and is woken if it has one. A name `target`
+   * doesn't declare, or data its schema refuses, throws; the run's state is the outcome.
+   */
+  emit<Events extends EventSchemas, Name extends keyof Events & string>(
+    target: ExecutableEventWorkflow<Events, JsonValue>,
+    name: Name,
+    data: OutputOf<Events[Name]>,
+    options?: EmitOptions,
+  ): Promise<EmitOutcome>;
+
   /** Completed operations in this workflow scope and its descendants, ordered by dispatch. */
   usage(): OperationRecord[];
 
@@ -126,4 +134,61 @@ export interface WorkflowContext {
 export interface WorkflowDefinition<Args extends JsonValue, Result extends JsonValue> {
   readonly meta: WorkflowMeta;
   run(context: WorkflowContext, args: Args): Promise<Result>;
+}
+
+/**
+ * A run of a workflow with `events`: started by an event, keyed by `key`, and waiting for the next
+ * at `receive`. Waiting with no turn running and nothing unacknowledged, it parks: its process
+ * exits, and the next event continues it from the top. What must outlive that lives in files or a
+ * stage.
+ */
+export interface EventWorkflowContext<Events extends EventSchemas>
+  extends Omit<WorkflowContext, "participants" | "agents" | "stage"> {
+  /** What `key` made of the event that started the run; the run's id is `{workflow}.{key}`. */
+  readonly key: string;
+  readonly agents: EventAgentDirectory;
+  readonly participants: CodeParticipantDirectory;
+  /**
+   * As `WorkflowContext.stage`, and a stage around a wait: `stage(name, () => workflow.receive(…))`
+   * returns the batch that wait took, then and on every rerun, read back from the mailbox, so a
+   * wait in straight-line code takes no later events. The batch counts as acknowledged. Its work is
+   * the wait alone: one that returns other events than one wait took fails the stage.
+   */
+  stage(name: string, work: () => Promise<void>): Promise<void>;
+  stage(
+    name: string,
+    work: () => Promise<ReceivedEvent<Events>[]>,
+  ): Promise<ReceivedEvent<Events>[]>;
+  stage<T extends JsonValue>(
+    name: string,
+    options: StageOptions<T>,
+    work: () => Promise<T>,
+  ): Promise<T>;
+  /**
+   * Acknowledges what the last call returned, then waits for events not yet acknowledged and
+   * returns them in arrival order: the first call of a run takes the event that started it. After
+   * a crash, the first call returns the batch taken and not acknowledged, alone. In a stage, it
+   * returns the stage's recorded batch on a rerun.
+   */
+  receive(options?: ReceiveOptions): Promise<ReceivedEvent<Events>[]>;
+}
+
+/** A workflow started by an event: it takes no input, and `awf run` refuses it. */
+export interface EventWorkflowDefinition<Events extends EventSchemas, Result extends JsonValue> {
+  /** Its `name` has no `.`, which separates it from the key in a run's id. */
+  readonly meta: WorkflowMeta;
+  /**
+   * `import.meta.path`: where a sender finds the workflow, and which project its runs live in, the
+   * nearest directory above it holding `.awf/`, whoever sends.
+   */
+  readonly file: string;
+  readonly events: Events;
+  /**
+   * The run an event belongs to, by the grammar of `nameProblem`; one that doesn't fit is refused,
+   * as is one making the run's id, `{workflow}.{key}`, longer than 128.
+   */
+  key(event: OwnEvent<Events>): string;
+  /** The events that start a run for a key with none; any other is refused then. */
+  readonly starts: readonly (keyof Events & string)[];
+  run(context: EventWorkflowContext<Events>): Promise<Result>;
 }

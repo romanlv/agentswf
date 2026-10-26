@@ -110,7 +110,7 @@ describe("workflow.stage", () => {
       async (workflow: WorkflowContext) => {
         await workflow.stage("Doc Review", async () => {});
       },
-      "stage \"Doc Review\" is not a stage's name: lowercase letters, digits and '-'",
+      'stage "Doc Review" is not a stage\'s name: lowercase letters, digits, `.`, `_`, `@` and `-`',
     ],
   ])("%s fails the attempt", async (_name, body, reason) => {
     const run = await testWorkflow(

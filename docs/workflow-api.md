@@ -32,18 +32,27 @@ workflow.participants.connect({ key, labels? })               // → a coordinat
 workflow.stage(name, { result, summary? }?, async () => …)  // → its value; reused on a continue
 workflow.stop(reason)                                         // ends the attempt stopped
 
+// A workflow with events: definition { file: import.meta.path, events, key: (e) => …, starts }
+workflow.receive({ label?, until?, take? })                   // → the events not yet acknowledged
+workflow.key                                                  // what key(event) made of the starting event
+agent.start({ prompt, schema?, meta? })   agent.turn          // a turn not awaited; its end is agent:ended
+agent.ended<Meta, T>(e)   participant.replied(e)              // narrow awf's events
+workflow.participants.connect({ key, to: "code" })            // replies come as participant:reply; .post(text)
+workflow.emit(target, name, data, { id? })                    // → "accepted" | "duplicate" | "refused"
+
 workflow.log(message, fields?)   workflow.usage()   workflow.deadline   workflow.cwd
 workflow.runId   workflow.attempt
 
 // In a test, from "agentswf/testing"; `awf test` runs it:
 testWorkflow(workflow, args, { agents?, messages?, coordinators?, compactions?, awaitReply?, decisions?, runtimes?,
                               caller?, timeoutMs?, stallMs?, cwd?, recorded?, fromStage?, values? })  // → run
+testWorkflow(eventWorkflow, { event, files?, events?: [{ during: "agent#1", name, data, from? }], maxTurns?, … })  // → run, .emits, .parked
 answer(SCHEMA, value | (turn) => value)   answer("text")   reply.waiting(reason, timeoutMs?) | silent() | blocked() | failed() | needsLogin(provider?) | timedOut() | hang() | interrupted()
 ```
 
 | Concept | In one line |
 | --- | --- |
-| **Workflow** | A file that exports `defineExecutableWorkflow(…)`. `awf run file.ts` runs it. |
+| **Workflow** | A file that exports `defineExecutableWorkflow(…)`, which `awf run file.ts` runs, or `defineEventWorkflow(…)`, which events start. |
 | **Agent** | A coding agent (claude, codex, pi, cursor) behind a key. It keeps its session between turns. |
 | **Turn** | One `agent.run`: a prompt in, one outcome out. The answer is JSON checked against your schema. |
 | **Outcome** | Always a value, never an exception: `answered`, `unanswered`, `blocked`, `timed-out`, `failed` or `cancelled`. |
@@ -54,6 +63,7 @@ answer(SCHEMA, value | (turn) => value)   answer("text")   reply.waiting(reason,
 | **Coordinator** | A participant outside the run that agents report to and ask; a terminal, a session or an app answers for it. |
 | **Run** | One piece of work, with an id. Each `awf run` of it is an attempt; `--continue` adds one. |
 | **Stage** | A named step of a run. A continue reuses what stages succeeded and runs the rest. |
+| **Event** | Starts a keyed run or lands in its mailbox; the run takes it at a wait, and parks between events. |
 
 ## A workflow file
 
@@ -269,7 +279,7 @@ const [security, tests] = await Promise.all([
 ### Where panes go: `layout` and `keepPane`
 
 Each pane agent gets a tab of its own in the run's Herdr workspace, closed once it is done. A
-workflow can place it elsewhere as it opens ([design](design/pane-layout.md)):
+workflow can place it elsewhere, which happens at its first turn ([design](design/pane-layout.md)):
 
 ```ts
 const lead = await workflow.agents.open({
@@ -380,8 +390,10 @@ await workflow.stage("notify", async () => {          // no result: it only has 
   unset.
 - **Code between stages runs on every attempt**, so keep it safe to repeat. Push, post, compact or
   create inside a stage.
-- **One stage at a time, each name once per attempt.** Names are lowercase letters, digits and
-  `-`. Parallel work and loops go inside a stage.
+- **One stage at a time, each name once per attempt.** Names are lowercase letters, digits, `.`,
+  `_`, `@` and `-`, starting with a letter or digit. Parallel work and loops go inside a stage. A
+  workflow with `events` names a stage by its one effect instead, and enters it as often as it
+  likes ([Events](#events)).
 - **`workflow.stop(reason)`** ends the attempt `stopped` (exit 3) rather than failed; inside a
   stage, a continue redoes that stage. Don't catch it. Write `return workflow.stop(reason)` where
   TypeScript should know the code after it isn't reached.
@@ -539,6 +551,74 @@ await workflow.messages.allow({
 
 claude's own messaging between sessions is a different thing, on by default:
 [`design/messaging.md`](design/messaging.md#claudes-own-messaging) says what it reaches.
+
+## Events
+
+A workflow that reacts to things that happen declares the events it takes and which run each
+belongs to. An event starts its key's run, or lands in the run's mailbox; the run takes waiting
+events at a wait, handles them in plain code, and starts an agent turn only when one is needed.
+Between events the run parks: its process exits, and the next event runs its code from the top.
+
+```ts
+export default defineEventWorkflow({
+  definition: {
+    meta: { name: "dd-case", description: "Investigate one Datadog case." },
+    file: import.meta.path,                                   // where senders find it, and its runs live
+    events: { "dd.changes": Changes, "dd.closed": Closed },   // a schema per name; no colon
+    key: (e) => e.data.case,                                  // the run an event belongs to
+    starts: ["dd.changes"],                                   // the events that may start one
+    async run(workflow) {
+      const kase = openCase(workflow.key);                    // state lives in files, not variables
+      const investigator = await workflow.agents.open({ key: "investigator", runtime: "claude" });
+      for (;;) {
+        const events = await workflow.receive({ label: `${kase.unseen()} unseen` });
+        for (const e of events) {
+          if (investigator.ended<Given>(e) && isAnswered(e.data.outcome)) kase.markGiven(e.data.meta);
+          if (e.name === "dd.closed") await workflow.stage(`close-${e.id}`, () => kase.close(e.data));
+        }
+        if (!investigator.turn && kase.needsLook()) {
+          const given = kase.pending();
+          await investigator.start({ prompt: promptFor(given), meta: given });   // returns at once
+        }
+      }
+    },
+  },
+});
+```
+
+```sh
+awf emit --target case.ts dd.changes '{"case":"kombo-unique"}' --id 83d34d7
+```
+
+- **Sending.** `workflow.emit(caseRun, name, data, { id })` imports its target, so a wrong name or
+  shape fails `tsc`; `awf emit --target {file}` checks the same at run time. Either returns
+  `accepted`, `duplicate` (the id is in the run's mailbox already) or `refused` (the run returned,
+  or it has none and the event isn't one of `starts`). An id names one occurrence for good; without
+  one, nothing deduplicates the event.
+- **Names.** Keys, event ids and stage names are lowercase letters, digits, `.`, `_`, `@` and `-`,
+  starting with a letter or digit, so a stage named by an event id (`close-{id}`) is always valid.
+  The run's id is `{workflow}.{key}`.
+- **`receive`** acknowledges what its last call returned, then returns every event not yet
+  acknowledged, in arrival order, or the oldest alone with `take: "oldest"`. The first call takes
+  the event that started the run. After a crash, the first call returns the unacknowledged batch
+  again, alone. `label` is what `awf runs` shows; `until`, a time computed from the run's files,
+  returns with no event once passed, and `awf tick` honours it while the run is parked.
+- **Turns not awaited.** `agent.start()` takes what `run()` takes, plus `meta`, and returns once
+  the turn is launched. Its end arrives at a wait as `agent:ended`, from the agent's key, with the
+  outcome and `meta`; `agent.ended(e)` narrows it. `agent.turn` is set until a wait takes that end,
+  and the agent refuses other work meanwhile. `agent.turn.cancel()` stops it.
+- **Parking.** Waiting with no turn running and nothing unacknowledged, the run ends its attempt
+  `parked` and its process exits. The next event, or `awf tick` once `until` passes, continues it:
+  agents reopen on their kept sessions, recorded stages are reused, and the loop's wait takes the
+  new event. What must outlive that lives in files or a stage.
+- **Stages by content.** In a run with `events`, a succeeded stage is reused wherever and however
+  often its name is entered, in any attempt and any version of the code, while its value fits.
+  Name it by its one effect: `close-{event id}`, `post-f3@abc123`.
+- **A participant routed to the code**, `connect({ key, to: "code" })`, turns each message into
+  `participant:reply` from its key; `awf send {ref} --as {key} --id {message id} {text}` delivers
+  one, and `participant.post(text)` writes back without a turn.
+- **`return`** ends the run for good: later events for its key are refused. A run that may be
+  needed again records what happened in its files and keeps waiting instead.
 
 ## Logging and usage
 
@@ -741,6 +821,7 @@ the run's deadline, none by default.
 ## Not built yet
 
 These are in the types and throw `unavailable` today: `agents.attach` (beyond the calling
-session), `agent.enqueue`, `steps` (durable steps and sleep), `signals` (waiting for outside
-input), and `call` (one workflow calling another). [`docs/status.md`](status.md) says what's next.
+session), `steps` (durable steps and sleep), and `call` (one workflow calling another). Events
+(story 034) are being built: `receive`, `emit`, `agent.start` and parking throw `unavailable` until
+it lands. [`docs/status.md`](status.md) says what's next.
 
