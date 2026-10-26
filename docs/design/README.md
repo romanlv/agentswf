@@ -169,7 +169,8 @@ At activation it receives, through harness-specific mechanisms:
 - the workflow-supplied instructions;
 - the native tools and permissions granted by the harness adapter.
 
-For each operation it receives the turn prompt and, for structured work, the required JSON Schema.
+For each operation it receives the turn prompt and, for structured work, the required JSON Schema,
+or for a simple one the flags it takes.
 A nudge is another prompt in the same logical operation sequence. A compaction is the harness's
 own command, with the workflow's focus; the agent answers nothing for it.
 Allowed messaging routes and their purposes are taught in its operation prompt, a message
@@ -178,8 +179,10 @@ operation's first turn included; a route granted later is announced in the next 
 The engine-owned CLI provides result submission, route discovery, and messaging:
 
 ```sh
-wf result <call-id> '{"verdict":"approve"}'
-wf result <call-id> < result.json
+wf result <call-id> --verdict 'approve'
+wf result <call-id> <<'WF_JSON'
+{"verdict":"approve"}
+WF_JSON
 
 wf peers
 wf send reviewer 'Findings are ready in REVIEW.md'
@@ -206,14 +209,14 @@ The call id is scoped to one operation, not just the logical agent, so a delayed
 earlier operation cannot submit a result for the next queued operation. It is not a secret: it
 travels in the prompt, and a submission naming a call the connecting agent does not own is refused.
 
-JSON must come from exactly one source: the argument or standard input. This supports files and
-generated output without adding filesystem behavior to the CLI itself. Supplying both sources,
-neither source, or empty input is an error.
+A result comes as flags after the call id, read by the engine by the open schema, or as JSON on
+standard input, which `wf` reads only when nothing follows the call id. Nothing at all is `{}` where
+the schema is an object, and refused, saying to send JSON, where it isn't.
 
 The engine installs one launcher per agent and puts its path in the prompt; the adapter's whole
 duty is to deliver that prompt and let the agent execute the path. A pane's environment and `PATH`
 are not channels a harness can be relied on to deliver, so nothing the return channel needs may
-depend on one. `wf result` validates the JSON against the open schema. On rejection it exits
+depend on one. The engine reads what `wf result` sends, flags or JSON, by the open schema. On rejection it exits
 nonzero with a field-level error; the result slot stays open so the agent can correct the value and
 call it again during the same operation. An accepted value atomically closes the slot. A missing,
 closed, expired, or already-answered call is rejected, as is one belonging to another agent. Normal

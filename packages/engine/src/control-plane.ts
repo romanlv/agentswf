@@ -1,6 +1,11 @@
 import { chmod, mkdir, mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
-import { type ControlResponse, decodeControlRequest, WIRE_VERSION } from "@agentswf/contract/wire";
+import {
+  type ControlResponse,
+  decodeControlRequest,
+  type GivenInput,
+  WIRE_VERSION,
+} from "@agentswf/contract/wire";
 import { isCode } from "./files";
 import type { Messaging } from "./messaging/messaging";
 import { UNRECORDED } from "./messaging/text";
@@ -329,7 +334,7 @@ async function answerFrame(
   if (decoded.value.session) onSession?.(decoded.value.session);
 
   const request = decoded.value;
-  // Until story 035's tasks 2 and 3 read them.
+  // Until story 035's task 3 runs it.
   if (request.command === "tool")
     return rejected("unsupported-command", "tools are not available in this run");
   if (request.command !== "result" && request.command !== "waiting") {
@@ -378,12 +383,10 @@ async function answerFrame(
         ? { version: WIRE_VERSION, ...grant }
         : rejected(grant.code, grant.error);
     }
-    if (request.raw === undefined)
-      return rejected("invalid-result", "give the result as JSON on standard input");
     const result = await slots.submit({
       operationId: request.operationId,
       agentId,
-      raw: request.raw,
+      ...givenOf(request),
       source: "control-plane",
     });
     return result.kind === "accepted"
@@ -392,6 +395,11 @@ async function answerFrame(
   } catch {
     return rejected("internal-error", "control request failed internally");
   }
+}
+
+/** The input as the wire decoded it, without the request's other fields. */
+function givenOf({ raw, args }: GivenInput): GivenInput {
+  return raw !== undefined ? { raw } : args !== undefined ? { args } : {};
 }
 
 function rejected(

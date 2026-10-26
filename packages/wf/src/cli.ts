@@ -11,14 +11,16 @@ import { NotSentError, submitControl } from "./client";
 /** `wf` is its launcher's full path, as an agent must type it; `wf` alone when it is not known. */
 function usage(wf: string): string {
   return [
-    `usage: ${wf} result <call-id> '<json>'`,
-    `       ${wf} result <call-id> < result.json`,
+    `usage: ${wf} result <call-id> --<name> '<value>' ...`,
+    `       ${wf} result <call-id> <<'WF_JSON'`,
+    "       <json>",
+    "       WF_JSON",
     `       ${wf} waiting <call-id> --reason <text> [--timeout <duration>]`,
     `       ${wf} peers [--json]`,
     ...messageUsage(wf, "       "),
     "",
-    "The call id is the one named in the request. Pass JSON as one argument; with no argument,",
-    "JSON is read from standard input.",
+    "The call id is the one named in the request. Give the result as the flags the request names,",
+    "each value in single quotes, or as JSON on standard input, as a quoted heredoc.",
   ].join("\n");
 }
 
@@ -81,19 +83,17 @@ async function runResult(
   stdin: string | null,
   submit: Submit,
 ): Promise<CliOutcome> {
-  const [operationId, ...rest] = args;
-  if (!operationId) return usageError("wf result needs the call id it is answering");
-  if (rest.length > 1) {
-    return usageError("wf result takes exactly one JSON argument or standard input");
-  }
-  if (rest.length === 1 && stdin !== null) {
-    return usageError("wf result cannot read both an argument and standard input");
-  }
-  if (rest.length === 0 && stdin === null) {
-    return usageError("wf result needs one JSON argument or standard input");
-  }
-  const raw = rest[0] ?? stdin ?? "";
-  if (raw.trim() === "") return usageError("wf result input cannot be empty");
+  const [operationId, ...flags] = args;
+  if (!operationId?.trim() || operationId.startsWith("--"))
+    return usageError("wf result needs the call id it is answering");
+  // The engine reads the flags by the schema, which wf doesn't know. Standard input was read only
+  // with nothing after the call id; with nothing there either, the result is no input.
+  const given =
+    flags.length > 0
+      ? { args: flags }
+      : stdin !== null && stdin.trim() !== ""
+        ? { raw: stdin }
+        : {};
 
   let response: ControlResponse;
   try {
@@ -101,7 +101,7 @@ async function runResult(
       version: WIRE_VERSION,
       command: "result",
       operationId,
-      raw,
+      ...given,
       ...(session ? { session } : {}),
     });
   } catch (error) {
@@ -348,10 +348,7 @@ function rejection(
 ): string {
   switch (response.code) {
     case "invalid-result":
-      return (
-        `result rejected.\n${response.error}\nFix the value and run wf result again. ` +
-        "A long value can be written to a file and passed with < file."
-      );
+      return `result rejected.\n${response.error}\nFix the value and run wf result again.`;
     case "wrong-agent":
       return `${operationId} is another agent's call, not yours to answer`;
     case "unknown-operation":

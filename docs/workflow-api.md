@@ -155,8 +155,9 @@ const { outcome } = await reviewer.run<Type.Static<typeof FINDINGS>>({
 });
 ```
 
-- **With a `schema`**, the agent answers by running `wf result`, as its prompt tells it, and the
-  engine checks the JSON. A refused answer can be retried within the same turn.
+- **With a `schema`**, the agent answers by running `wf result`, as its prompt tells it: with flags,
+  `--verdict 'approve'`, for an object of up to 6 strings, numbers, booleans or enums, else with
+  JSON. The engine checks it, and a refused answer can be retried within the same turn.
 - **Without a schema**, the answer is a string.
 - **The type argument** (`run<Type.Static<typeof X>>`) gives the answer its TypeScript type; a
   TypeBox schema doesn't carry one on its own.

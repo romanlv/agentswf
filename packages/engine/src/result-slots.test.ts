@@ -233,6 +233,29 @@ describe("result slots", () => {
     );
   });
 
+  test("flags are read by the slot's schema, and recorded as given, whether or not they convert", async () => {
+    const runDir = tempRunDir();
+    const slots = createResultSlotRegistry({ runDir, now: () => NOW });
+    await slots.open(call({ schema: COUNT_SCHEMA }));
+    const given = (args: string[]) => ({
+      operationId: "op-1",
+      agentId: AGENT,
+      source: SOURCE,
+      args,
+    });
+
+    const wrong = await slots.submit(given(["--count", "three"]));
+    const right = await slots.submit(given(["--count", "3", "--even", "false"]));
+
+    expect(wrong).toMatchObject({ kind: "rejected", code: "invalid-result" });
+    expect(right).toMatchObject({ kind: "accepted" });
+    expect(await readAccepted(runDir, "op-1")).toMatchObject({ value: { count: 3, even: false } });
+    expect((await readCandidates(runDir, "op-1")).map((candidate) => candidate.raw)).toEqual([
+      '["--count","three"]',
+      '["--count","3","--even","false"]',
+    ]);
+  });
+
   test("closing during semantic validation prevents the late value from settling", async () => {
     let entered!: () => void;
     let release!: () => void;

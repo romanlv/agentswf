@@ -292,7 +292,7 @@ Out of scope:
   `tool` frame's connection lifetime re-armed once it decodes; the `result` path passing flags on as
   it passes `request.raw` now. Until tasks 2 and 3, a `tool` request is refused
   `unsupported-command` and a result given as flags `invalid-result`.
-- `result-slots.ts` — a result's flags converted by the slot's schema before `evaluateResult`, and
+- `result-slots.ts` — a result's flags converted by the slot's schema in `evaluateGiven`, and
   the accepted state `result-accepted` reads.
 - `run-event-log.ts`, `logs-command.ts` — the records and how they print.
 - `workflow-testing/script.ts`, `host.ts`, and `@agentswf/harness/testing`'s scripted agents —
@@ -578,7 +578,7 @@ Alternatives rejected:
 ## Tasks at a glance
 
 - [x] 1. The contract: the tool spec, `ToolCall`, the wire, the records, the commands' usage, the lesson; reviewed before building
-- [ ] 2. Flags for a simple input, on `wf result`: the engine reads them by the schema, the prompt shows the usage line
+- [x] 2. Flags for a simple input, on `wf result`: the engine reads them by the schema, the prompt shows the usage line
 - [ ] 3. A tool called over the wire: binding, checks, the handler in its scope, its budget and end
 - [ ] 4. The tools lesson
 - [ ] 5. Records and `awf logs`
@@ -672,7 +672,33 @@ by a schema, which task 3 calls for `wf tool`.
 
 Execution:
 
-- [ ] Plan, implement, review, resolve, verify (as in the template).
+- [x] Plan, implement, review, resolve, verify (as in the template). Reviewed in three rounds,
+  the last clean; live again on codex after the review fixes.
+
+Implementation notes:
+
+- `packages/engine/src/simple-input.ts` holds the rule (`simpleInput`), the usage line and
+  `readFlags`, and the quoting rule's text; `evaluateGiven` in `result-validation.ts` takes the
+  input as `wf` sent it, flags read by the slot's schema before the schema's own check.
+- Reading flags checks everything the usage line says, bounds and enum values included, so a value
+  it rules out is refused with that line, `expected: --verdict noise|real …`, and the quoting rule.
+  A missing required flag is left to the schema's check, which names the property.
+- Any annotation keyword (`description`, `title`, `default`, `examples` …) keeps a property simple;
+  a number's or boolean's `const` doesn't, since the usage line has no form for it. Nor does an
+  enum value that isn't a bare word (`^[A-Za-z0-9_.:-]+$`), which the line couldn't show between
+  `|`s or the agent type unquoted, an object with no properties, which is open or empty, or a
+  `required` name `properties` doesn't have, which no flag could give.
+- A missing required flag is refused with the schema's error and the usage line. No input is `{}`
+  only where the schema is an object; for any other, as a text answer's string, it is refused
+  saying to send JSON in a heredoc. Flags for a schema that isn't simple say the same, with the
+  schema. A word in brackets is told to leave the brackets out.
+- `readGiven` and `checkGiven` in `simple-input.ts` turn what `wf` sent into a value and check it,
+  for `wf result` here and `wf tool` in task 3.
+- `wf` drops the "passed with < file" hint from a rejection, and the JSON error asks for a quoted
+  heredoc rather than a single argument; neither form is taught any more.
+- Live, 2026-10-26: `quick-check` on codex `gpt-6-luna` and cursor `composer-2.5` headless, both
+  questions answered with flags first time (`--answer 391`, `--answer 400`), the candidates
+  recorded as the arguments given.
 
 Done when:
 

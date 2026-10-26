@@ -165,6 +165,7 @@ import {
   type RunSandboxOptions,
   type SeatedAgent,
 } from "./sandboxes";
+import { QUOTING_RULE, simpleInput, usageLine } from "./simple-input";
 import { placeSkills, RunSkills, readSkillSources } from "./skills/run-skills";
 import { StageLedger, type StageProgress } from "./stage-ledger";
 import { FromStageUnreached } from "./stopped";
@@ -4046,7 +4047,20 @@ function operationPrompt(
   // A quoted heredoc passes the JSON through untouched: a quoted argument broke on shell quoting
   // (story 002). Not indented: a copied terminator with leading spaces never closes the heredoc.
   // The schema itself, not a rendering of it: without its bounds, first answers were 0/160 valid
-  // (E5). `wf` says what to do about a rejection, so the prompt does not.
+  // (E5). `wf` says what to do about a rejection, so the prompt does not. A simple schema is taught
+  // as flags instead, its usage line carrying every bound, which held them as well (story 035, M1).
+  const simple = simpleInput(schema);
+  if (simple) {
+    return [
+      prompt,
+      "",
+      "When the answer is ready, return it by running:",
+      "",
+      `${launcher} result ${callId} ${usageLine(simple)}`,
+      "",
+      QUOTING_RULE,
+    ].join("\n");
+  }
   return [
     prompt,
     "",

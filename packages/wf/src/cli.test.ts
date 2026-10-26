@@ -11,10 +11,10 @@ const ENDPOINT = "/private/control.sock";
 const at = (...args: readonly string[]) => ["--at", ENDPOINT, ...args];
 
 describe("wf result", () => {
-  test("submits an exact argument request", async () => {
+  test("sends the flags as given, for the engine to read by the schema", async () => {
     const seen: Array<{ endpoint: string; request: ControlRequest }> = [];
     const outcome = await runCli(
-      at("result", "op-1", '{"count":3}'),
+      at("result", "op-1", "--count", "3", "--why=it's $HOME"),
       null,
       async (endpoint, request) => {
         seen.push({ endpoint, request });
@@ -30,7 +30,7 @@ describe("wf result", () => {
           version: WIRE_VERSION,
           command: "result",
           operationId: "op-1",
-          raw: '{"count":3}',
+          args: ["--count", "3", "--why=it's $HOME"],
         },
       },
     ]);
@@ -71,30 +71,45 @@ describe("wf result", () => {
     expect(raw).toBe('{"count":3}\n');
   });
 
-  test("argument input never waits for or consumes standard input", async () => {
+  test("flags never wait for or consume standard input, so a heredoc after them isn't read", async () => {
     const unreadable = new Proxy({} as ReadableStream<Uint8Array>, {
       get() {
         throw new Error("standard input was accessed");
       },
     });
 
-    expect(await readCliStdin(at("result", "op-1", '{"count":3}'), false, unreadable)).toBeNull();
+    expect(await readCliStdin(at("result", "op-1", "--count", "3"), false, unreadable)).toBeNull();
   });
 
-  test("both, neither, extra arguments, and empty input fail before connecting", async () => {
+  test("with nothing after the call id, standard input is the JSON, and without it no input", async () => {
+    const sent: ControlRequest[] = [];
+    const submit = async (_endpoint: string, request: ControlRequest) => {
+      sent.push(request);
+      return { version: WIRE_VERSION, kind: "accepted" } as const;
+    };
+    const base = { version: WIRE_VERSION, command: "result", operationId: "op-1" };
+
+    await runCli(at("result", "op-1"), '{"count":3}\n', submit);
+    await runCli(at("result", "op-1"), null, submit);
+    await runCli(at("result", "op-1"), "  \n", submit);
+    // A direct caller handing both: the flags win, as the executable never reads stdin after them.
+    await runCli(at("result", "op-1", "--count", "3"), "{}", submit);
+    expect(sent).toEqual([
+      { ...base, raw: '{"count":3}\n' },
+      base,
+      base,
+      { ...base, args: ["--count", "3"] },
+    ] as ControlRequest[]);
+  });
+
+  test("a missing call id fails before connecting", async () => {
     let calls = 0;
     const submit = async (): Promise<ResultSubmitResponse> => {
       calls += 1;
       return { version: WIRE_VERSION, kind: "accepted" };
     };
-
-    // Direct callers can still violate the single-source contract; the executable never reads
-    // stdin when an argument is present.
-    expect((await runCli(at("result", "op-1", "{}"), "{}", submit)).exitCode).toBe(2);
-    expect((await runCli(at("result", "op-1"), null, submit)).exitCode).toBe(2);
-    expect((await runCli(at("result", "op-1", "a", "b"), null, submit)).exitCode).toBe(2);
-    expect((await runCli(at("result", "op-1"), "  \n", submit)).exitCode).toBe(2);
     expect((await runCli(at("result"), "{}", submit)).exitCode).toBe(2);
+    expect((await runCli(at("result", "--count", "3"), null, submit)).exitCode).toBe(2);
     expect(calls).toBe(0);
   });
 

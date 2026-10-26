@@ -348,7 +348,7 @@ wf reply implementer <<'EOF'
 In the queue: the client is shared with the batch path.
 EOF
 
-wf result {call-id} '{"verdict":"approve"}'
+wf result {call-id} --verdict 'approve'
 ```
 
 The message comes from a quoted heredoc, standard input or the final argument; given an argument,
@@ -525,7 +525,7 @@ it awaits settles the operation and drops the wait, as cancelling it would
 ([[#Delivery and failure]]):
 
 ```text
-$ wf result c-41 '{"verdict":"approve"}'
+$ wf result c-41 --verdict 'approve'
 wf: result refused (owes-reply): you owe implementer a reply. Send it with wf reply implementer,
 then run wf result c-41 again.
 ```

@@ -64,7 +64,14 @@ describe("the launcher an agent is told to run", () => {
         deadline: DEADLINE,
       });
 
-      const answered = await run(fixture.alice.wf, ["result", "op-1", '{"count":3,"even":false}']);
+      const answered = await run(fixture.alice.wf, [
+        "result",
+        "op-1",
+        "--count",
+        "3",
+        "--even",
+        "false",
+      ]);
 
       expect(answered.exitCode).toBe(0);
       expect(await readAccepted(fixture.runDir, "op-1")).toEqual({
@@ -117,7 +124,14 @@ describe("the launcher an agent is told to run", () => {
         deadline: DEADLINE,
       });
 
-      const stolen = await run(fixture.bob.wf, ["result", "op-1", '{"count":3,"even":false}']);
+      const stolen = await run(fixture.bob.wf, [
+        "result",
+        "op-1",
+        "--count",
+        "3",
+        "--even",
+        "false",
+      ]);
 
       expect(stolen.exitCode).toBe(1);
       expect(stolen.stderr).toContain("another agent's call");
@@ -141,15 +155,24 @@ describe("the launcher an agent is told to run", () => {
         deadline: DEADLINE,
       });
 
-      const wrong = await run(fixture.alice.wf, ["result", "op-1", '{"count":"3","even":false}']);
+      const wrong = await run(fixture.alice.wf, ["result", "op-1", "--count", "three"]);
+      const missing = await run(fixture.alice.wf, ["result", "op-1", "--even", "false"]);
 
-      expect(wrong.exitCode).toBe(1);
-      expect(wrong.stderr).toContain("value.count: expected an integer");
+      expect([wrong.exitCode, missing.exitCode]).toEqual([1, 1]);
+      expect(wrong.stderr).toContain('--count takes <integer, at least 0>; got "three"');
+      expect(wrong.stderr).toContain("expected: --count <integer, at least 0> --even true|false");
       expect(wrong.stderr).toContain("run wf result again");
-      expect(wrong.stderr).toContain("passed with < file");
+      expect(missing.stderr).toContain("value.count: required property is missing");
 
       // The slot stays open, so the correction lands on the same call.
-      const corrected = await run(fixture.alice.wf, ["result", "op-1", '{"count":3,"even":false}']);
+      const corrected = await run(fixture.alice.wf, [
+        "result",
+        "op-1",
+        "--count",
+        "3",
+        "--even",
+        "false",
+      ]);
       expect(corrected.exitCode).toBe(0);
     } finally {
       await fixture.control.close();
@@ -215,8 +238,8 @@ describe("the launcher an agent is told to run", () => {
       });
 
       const refused = await run(wf, ["result", "op-7", "{}"], { CODEX_SESSION_ID: "s-1" });
-      const unnamed = await run(wf, ["result", "op-1", '{"count":3,"even":false}']);
-      const named = await run(wf, ["result", "op-1", '{"count":3,"even":false}'], {
+      const unnamed = await run(wf, ["result", "op-1", "--count", "3", "--even", "false"]);
+      const named = await run(wf, ["result", "op-1", "--count", "3", "--even", "false"], {
         CODEX_SESSION_ID: "s-2",
       });
 

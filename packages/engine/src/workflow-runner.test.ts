@@ -16,7 +16,7 @@ import type {
   WorkflowContext,
   WorkflowDefinition,
 } from "@agentswf/contract/workflow";
-import { DeadlineExceededError } from "@agentswf/contract/workflow";
+import { DeadlineExceededError, isAnswered } from "@agentswf/contract/workflow";
 import { createSingleSessionHostFactory } from "@agentswf/harness";
 import type {
   AgentRunHostFactory,
@@ -267,7 +267,7 @@ describe("runWorkflow", () => {
         expect(turn.prompt.startsWith(`${turn.authored!.prompt}\n\nWhen the answer is ready`)).toBe(
           true,
         );
-        expect(turn.prompt).toContain(JSON.stringify(ANSWER_SCHEMA));
+        expect(turn.prompt).toContain(" --answer <text>\n\nPut every value in single quotes");
         expect(turn.prompt).toContain(turn.binding!.operationId);
       }
     });
@@ -660,12 +660,43 @@ describe("runWorkflow", () => {
     expect(closeStarted).toBeGreaterThan(0);
   }, 6_500);
 
+  test("a schema that isn't simple is taught by the heredoc and the schema", async () => {
+    const LIST: OutputSchema<{ items: string[] }> = {
+      type: "object",
+      properties: { items: { type: "array", items: { type: "string" } } },
+      required: ["items"],
+    };
+    let prompt = "";
+    const adapter = createFakeAdapter({
+      script: (context) => {
+        prompt = context.prompt;
+        return {};
+      },
+    });
+    const workflow = workflowOf("not-simple", async (context) => {
+      const agent = await openReviewer(context);
+      return (await agent.run({ prompt: "list", schema: LIST, deadline: future(), nudge: false }))
+        .outcome.kind;
+    });
+
+    await runNew(workflow, null, {
+      runRoot: tempRunDir(),
+      deadline: future(),
+      runtime: runtime(adapter),
+    });
+
+    expect(prompt).toContain(" <<'WF_JSON'\n<json>\nWF_JSON\n\nThe JSON must match this schema:");
+    expect(prompt).toContain(JSON.stringify(LIST));
+    expect(prompt).not.toContain("single quotes");
+  });
+
   test("the command the prompt shows, copied as it stands with the value filled in, answers", async () => {
     const adapter = createFakeAdapter({
       script: (context) => ({
         act: async () => {
           const shown = context.prompt.split("return it by running:\n\n")[1]!.split("\n\n")[0]!;
-          const command = shown.replace("<json>", JSON.stringify({ answer: "ready" }));
+          // The rule's own escape, on a value the shell would otherwise change.
+          const command = shown.replace("<text>", "'it'\\''s $HOME'");
           const child = Bun.spawn(["sh", "-c", command], {
             env: {},
             stdout: "pipe",
@@ -692,7 +723,7 @@ describe("runWorkflow", () => {
         deadline: future(),
         nudge: false,
       });
-      return result.outcome.kind;
+      return isAnswered(result.outcome) ? result.outcome.value.answer : result.outcome.kind;
     });
 
     const result = await runNew(workflow, null, {
@@ -701,7 +732,7 @@ describe("runWorkflow", () => {
       runtime: runtime(adapter),
     });
 
-    expect(result.value).toBe("answered");
+    expect(result.value).toBe("it's $HOME");
   });
 
   test("runs a structured turn through a fake adapter and the real result endpoint", async () => {
@@ -712,7 +743,7 @@ describe("runWorkflow", () => {
         act: async () => {
           expect(context.binding).toBeDefined();
           // The schema itself, bounds and all, not a rendering that drops them (E5).
-          expect(context.prompt).toContain(JSON.stringify(ANSWER_SCHEMA));
+          expect(context.prompt).toContain(" --answer <text>\n\nPut every value in single quotes");
           await expect(submit(context.binding!, { answer: "ready" })).resolves.toMatchObject({
             kind: "accepted",
           });

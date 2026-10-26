@@ -1,10 +1,10 @@
 import { acceptAny, type SemanticCheck } from "@agentswf/contract";
 import type { CandidateSource } from "@agentswf/contract/records";
 import type { JsonSchema } from "@agentswf/contract/schema";
-import type { ResultSubmitCode } from "@agentswf/contract/wire";
+import type { GivenInput, ResultSubmitCode } from "@agentswf/contract/wire";
 import type { AbsoluteDeadline } from "@agentswf/contract/workflow";
 import { scheduleAt } from "./deadlines";
-import { evaluateResult } from "./result-validation";
+import { evaluateGiven } from "./result-validation";
 import { recordCandidate, writeAcceptedExclusive, writeCall } from "./runs";
 
 export type ResultRejectionCode = ResultSubmitCode;
@@ -59,9 +59,8 @@ interface ResultSlotPersistence {
 type SubmissionInput = {
   operationId: string;
   agentId: string;
-  raw: string;
   source: CandidateSource;
-};
+} & GivenInput;
 export interface ResultSlotRegistry {
   open(spec: ResultSlotSpec): Promise<ResultSlotBinding>;
   submit(input: SubmissionInput): Promise<ResultSubmission>;
@@ -110,7 +109,8 @@ export function createResultSlotRegistry(options: ResultSlotRegistryOptions): Re
           persistence.recordCandidate(options.runDir, slot.operationId, {
             at: new Date(now()).toISOString(),
             source: input.source,
-            raw: input.raw,
+            // Flags as given, whether or not they convert, so the record shows what the agent typed.
+            raw: input.raw ?? JSON.stringify(input.args ?? []),
             accepted,
             ...(error === undefined ? {} : { error }),
           }),
@@ -214,7 +214,7 @@ export function createResultSlotRegistry(options: ResultSlotRegistryOptions): Re
       if (input.agentId !== slot.agentId) return rejected("wrong-agent");
       const unavailable = unavailableCode(slot, now());
       if (unavailable) return rejectKnown(slot, input, unavailable);
-      const evaluated = await evaluateResult(slot, input.raw, slot.semantic ?? acceptAny);
+      const evaluated = await evaluateGiven(slot, input, slot.semantic ?? acceptAny);
       const admittedAt = now();
       const late = unavailableCode(slot, admittedAt);
       if (late) return rejectKnown(slot, input, late);

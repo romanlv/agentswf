@@ -29,7 +29,8 @@ type JsonPrimitive = string | number | boolean | null;
 export type SchemaError = { path: string; message: string };
 
 const ROOT = "value";
-const ANNOTATION_KEYS = [
+/** Keywords that describe a value without constraining it. */
+export const ANNOTATION_KEYS = [
   "$id",
   "$schema",
   "title",

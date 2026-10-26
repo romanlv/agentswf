@@ -1,37 +1,32 @@
 import { acceptAny, type SemanticCheck } from "@agentswf/contract";
 import type { CallSpec } from "@agentswf/contract/records";
-import { formatErrors, validate } from "@agentswf/contract/schema";
-import { messageOf } from "./errors";
+import type { GivenInput } from "@agentswf/contract/wire";
+import { checkGiven, readGiven } from "./simple-input";
 
 export type CandidateEvaluation =
   | { kind: "accepted"; value: unknown }
   | { kind: "rejected"; error: string };
 
-/** Validates without repairing or persisting; the result-slot transition owns acceptance. */
-export async function evaluateResult(
+/**
+ * A result as `wf` sent it, validated without repairing or persisting; the result-slot transition
+ * owns acceptance.
+ */
+export async function evaluateGiven(
   call: Pick<CallSpec, "question" | "schema">,
-  raw: string,
+  given: GivenInput,
   semantic: SemanticCheck = acceptAny,
 ): Promise<CandidateEvaluation> {
-  let value: unknown;
-  try {
-    value = JSON.parse(raw);
-  } catch (error) {
-    const reason = messageOf(error);
-    return {
-      kind: "rejected",
-      error: [
-        `the value is not valid JSON: ${reason}`,
-        `expected: ${expectedShape(call)}`,
-        "send one JSON value, quoted as a single shell argument.",
-      ].join("\n"),
-    };
+  const read = readGiven(call.schema, given);
+  if (!read.ok) {
+    const advice =
+      given.raw === undefined
+        ? ""
+        : "\nsend one JSON value in a quoted heredoc, as the request shows.";
+    return { kind: "rejected", error: `${read.error}${advice}` };
   }
-
-  if (call.schema) {
-    const errors = validate(call.schema, value);
-    if (errors.length > 0) return { kind: "rejected", error: formatErrors(errors) };
-  }
+  const value = read.value;
+  const invalid = call.schema ? checkGiven(call.schema, given, value) : undefined;
+  if (invalid) return { kind: "rejected", error: invalid };
 
   const verdict = await semantic({ question: call.question, value: structuredClone(value) });
   return verdict.kind === "accepted"
@@ -40,8 +35,4 @@ export async function evaluateResult(
         kind: "rejected",
         error: `the value does not answer what was asked: ${verdict.reason}`,
       };
-}
-
-function expectedShape(call: Pick<CallSpec, "schema">): string {
-  return call.schema ? JSON.stringify(call.schema) : "any JSON value";
 }
