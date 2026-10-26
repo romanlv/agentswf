@@ -800,6 +800,34 @@ and the sandbox evals (`bun run eval`) check what a real provider enforces.
 Under `parallel`, read agents by key, not by index. To prove two agents work at once, make one's
 answer wait for the other's: run one after the other, the test stalls and fails.
 
+### A workflow with events
+
+```ts
+const run = await testWorkflow(caseRun, {
+  event: { name: "dd.changes", data: { case: "kombo-unique" } },   // starts it; key(event) is its key
+  files: { cases: { "kombo-unique": { "case.md": "# kombo\n" } } },  // laid out under cwd first
+  agents: { investigator: answer("case.md updated") },
+  events: [{ during: "investigator#1", name: "participant:reply", from: "thread", data: { text: "is it the index?" } }],
+});
+run.parked;                                   // { label, until } of the wait it parked at
+run.turnsOf("investigator")[1]?.prompt;       // what the second turn was asked
+run.emits;                                    // events it sent other workflows, which a test doesn't start
+run.mailbox;                                  // its mailbox as it left it
+```
+
+- **`event`** starts the run, as `awf emit` would; its data is checked against its schema.
+- **`events`** are sent each while an agent's `n`th turn runs (`"{agent}#{n}"`), before its script
+  answers, in the order given; a reply's author, time and id are filled. `n` is the turn's
+  `TurnRecord.n`, counting the turns the workflow started: a nudge or a wake for a message keeps
+  the turn's number, so with one, `#2` is not `turnsOf(agent)[1]`. One whose turn never runs
+  fails the test.
+- **`files`** are laid out under the run's directory, which the test removes; a path outside it is
+  refused, so a workflow under test finds its files from `workflow.cwd`.
+- **`maxTurns`**, 20 by default, counts the turns the workflow started, not nudges or wakes for
+  messages: a run that starts more fails the test, so a loop that never parks doesn't hang it.
+- **`mailbox`** lays out what an earlier attempt left, and the test is its continue.
+- The test returns when the run parks or returns; `run.value` throws for a parked run.
+
 ### Continuing over recorded stages
 
 `recorded` runs the workflow as a continue over stages an earlier attempt recorded, keyed by

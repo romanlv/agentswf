@@ -525,7 +525,7 @@ turn, which the case's files keep and the wait's `until` reads.
 - [x] 5. Parking: the `parked` ending, a continue to the wait with agents on their kept sessions, and `awf tick`
 - [x] 6. Turns not awaited: `start()`, `turn`, `agent:ended`, `cancel()`
 - [x] 7. A participant routed to the code: `participant:reply`, `post`
-- [ ] 8. workflow-testing: scripted events
+- [x] 8. workflow-testing: scripted events
 - [ ] 9. The Datadog case run on it, against its sketch
 
 ## Open questions
@@ -801,6 +801,10 @@ Done when:
 - a live case: occurrences below the threshold start no turn; a reply during a turn, delivered by
   hand with Q18's command until awf-chat has it, gets the next one; a close from the triage tick
   cancels a running turn; a failed turn is retried by `awf tick` after its `until`.
+- the sketch's `case.test.ts`, ported beside `case.ts`, passes with no `todo` (task 8's Done when),
+  its files laid out under the run's directory, as `files` takes them, with the case root found
+  from `workflow.cwd`; `examples/event-sketches/mr-review.test.ts` stays a sketch, `todo`, until
+  the review loop is ported.
 
 ## Implementation notes
 
@@ -1265,3 +1269,33 @@ Built in the worktree `../worktrees/awf-event-driven-runs`, branch `event-driven
   exit is which; a malformed ref keeps its own message. Left: a code participant's connect opens
   the coordinator socket too, which is harmless. Clear.
 - **Verified**: `bun test packages/engine` 939 pass; `bun run check` passes.
+
+### Task 8: workflow-testing
+
+- Much of it landed with the tasks that needed it: the starting `event` (task 3), parking and
+  `run.parked` (task 5), `run.emits` (task 4), `run.mailbox` and a seeded `mailbox` for a continue
+  (task 6). `turnsOf` already gave each turn's `prompt`.
+- **`events`**: the scripted host calls `onTurnStarted` once a turn's record is made and before its
+  script answers; each scripted event due `during` that `{agent}#{n}` is appended to the mailbox
+  then, and the run nudged, so it is in before the turn's end. An own event's data is checked
+  against its schema; a reply's `author` defaults to `engineer`, its id to `awf.test.{n}`. One
+  never sent fails the test.
+- **`files`**, laid out under the run's `cwd` before it starts; **`maxTurns`**, 20, counted in the
+  same hook, fails the test past it.
+- **Tests** (`event-testing.test.ts`): a reply scripted during the first turn reaches the second's
+  prompt and the run parks; files laid out; a run that never parks fails at `maxTurns`; an unsent
+  scripted event fails; a scripted own event is checked against its schema.
+- **Done when** names the Datadog sketch's `case.test.ts`: it needs the case's files, which task 9's
+  port writes, so it is run there; `examples/event-sketches/dd-case.test.ts` stays `todo` beside
+  the sketch, whose case is declared, and these tests hold the same mechanics.
+- **Review** (one agent, both lenses): 6 findings, fixed. `files` lays out only under the run's
+  directory, which the test removes: an absolute path, or one escaping it, is refused, as it would
+  be left behind on the real disk (the sketch's `{ [DD_CASES]: … }` becomes a path under `cwd` in
+  task 9's port); it runs inside the test's `try`, so its failure leaks nothing. A scripted or
+  starting event's id is checked against the grammar and the `awf.` prefix, and an id given twice,
+  among them and a seeded mailbox, is refused rather than silently dropped. `maxTurns` is a whole
+  number from 1. The API docs say `#n` is `TurnRecord.n`, which a nudge or a message wake keeps,
+  and what `maxTurns` counts. Task 9's Done when names the sketch's `case.test.ts`, and
+  `mr-review.test.ts` stays a sketch. Test added: an own event and a reply due at one turn arrive
+  in order, the own event `from: "operator"`.
+- **Verified**: `bun test packages/engine` 946 pass; `bun run check` passes. Clear.

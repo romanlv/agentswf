@@ -1,6 +1,7 @@
 import { mkdtempSync, rmSync } from "node:fs";
+import { mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import {
   MAILBOX_RECORD_VERSION,
   type MailboxRecord,
@@ -246,9 +247,6 @@ export async function testWorkflow<Args extends JsonValue, Result extends JsonVa
   }
   if (keyed) {
     const given = options as EventTestOptions<EventSchemas>;
-    // Built with task 8 of story 034; until then a test relying on one would pass for no reason.
-    const later = (["files", "events", "maxTurns"] as const).filter((name) => name in given);
-    if (later.length > 0) throw new Error(`testWorkflow's ${later.join(", ")} are not built yet`);
     if (typeof given.event !== "object" || given.event === null)
       throw new Error("a workflow with events is tested from the event that starts it: { event }");
   }
@@ -297,9 +295,26 @@ export async function testWorkflow<Args extends JsonValue, Result extends JsonVa
       }`,
     );
   };
+  const scripted = keyed
+    ? new ScriptedEvents(keyed, options as EventTestOptions<EventSchemas>)
+    : undefined;
+  let deliverTo: string | undefined;
+  let nudge: (() => void) | undefined;
   const events = {
     onActivity: () => arm(stallMs),
     onScriptError: (message: string) => stopWith(message),
+    ...(scripted
+      ? {
+          onTurnStarted: async (turn: TurnRecord) => {
+            const problem = scripted.started(turn);
+            if (problem) return stopWith(problem);
+            const due = scripted.due(turn);
+            if (due.length === 0 || deliverTo === undefined) return;
+            for (const record of due) await appendMailbox(deliverTo, record);
+            nudge?.();
+          },
+        }
+      : {}),
   };
   const seeded = keyed ? (options as EventTestOptions<EventSchemas>).mailbox : undefined;
   const attempt = options.recorded || seeded ? 2 : 1;
@@ -357,6 +372,7 @@ export async function testWorkflow<Args extends JsonValue, Result extends JsonVa
   if (options.recorded) await recordEarlierAttempt(run.dir, options.recorded);
   for (const record of seeded ?? []) await appendMailbox(run.dir, record);
   if (started) await appendMailbox(run.dir, started.record);
+  deliverTo = run.dir;
   const recordedStages = async ({ stages: entered = [] }: SettledRun) => {
     const records = await readStageRecords(run.dir);
     // A stage the plan stopped has no record of this attempt's: the one there is an earlier one's.
@@ -367,6 +383,14 @@ export async function testWorkflow<Args extends JsonValue, Result extends JsonVa
   };
   events.onActivity();
   try {
+    // A path it can't lay out is the test's mistake, never the workflow's.
+    if (keyed)
+      await layOut((options as EventTestOptions<EventSchemas>).files, cwd).catch(
+        (error: unknown) => {
+          stopWith(messageOf(error));
+          throw error;
+        },
+      );
     const result = await runWorkflow(watched, args, {
       runRoot,
       livenessPolicy: { quietMs: 1, responseMs: 25, deliveryMs: 100, releaseMs: 1000 },
@@ -379,7 +403,15 @@ export async function testWorkflow<Args extends JsonValue, Result extends JsonVa
         ...(options.values === undefined
           ? {}
           : { values: new Map(Object.entries(options.values)) }),
-        ...(started ? { key: started.key, park: async () => undefined } : {}),
+        ...(started
+          ? {
+              key: started.key,
+              park: async () => undefined,
+              listenNudges: (given: () => void) => {
+                nudge = given;
+              },
+            }
+          : {}),
       },
       cwd,
       ...(options.timeoutMs === undefined
@@ -437,6 +469,7 @@ export async function testWorkflow<Args extends JsonValue, Result extends JsonVa
     mailbox = await readMailbox(run.dir).catch(() => []);
     for (const path of temporary) rmSync(path, { recursive: true, force: true });
   }
+  if (problems.length === 0 && scripted) problems.push(...scripted.unsent());
   if (problems.length === 0) {
     const leftovers = [
       ...scripts.leftovers(),
@@ -558,6 +591,117 @@ async function recordEarlierAttempt(
       sessions: [],
       ...(value === undefined ? {} : { value }),
     });
+  }
+}
+
+/**
+ * The events a test sends while its run goes on, each once its turn begins, and the count of
+ * turns started, past `maxTurns` of which the test fails: a loop that never parks.
+ */
+class ScriptedEvents {
+  readonly #pending: { during: string; record: MailboxRecord }[];
+  readonly #max: number;
+  #turns = 0;
+
+  constructor(
+    definition: EventWorkflowDefinition<EventSchemas, JsonValue>,
+    options: EventTestOptions<EventSchemas>,
+  ) {
+    this.#max = options.maxTurns ?? 20;
+    if (!Number.isInteger(this.#max) || this.#max < 1)
+      throw new Error(`maxTurns is a whole number of turns, at least 1, not ${options.maxTurns}`);
+    const ids = new Set<string>();
+    const idOf = (given: string | undefined, made: string) => {
+      const id = given ?? made;
+      if (given !== undefined) {
+        const problem = nameProblem(given);
+        if (problem) throw new Error(`the id ${JSON.stringify(given)}: ${problem}`);
+        if (given.startsWith(AWF_ID_PREFIX))
+          throw new Error(`the id ${given}: ids starting ${AWF_ID_PREFIX} are awf's own`);
+      }
+      // A repeated id would be appended and then dropped: the test says so instead.
+      if (ids.has(id)) throw new Error(`the id ${id} is given twice; an id names one event`);
+      ids.add(id);
+      return id;
+    };
+    for (const record of options.mailbox ?? []) if (record.kind === "event") ids.add(record.id);
+    idOf(options.event.id, `${AWF_ID_PREFIX}start`);
+    this.#pending = (options.events ?? []).map((event, index) => {
+      if (!/^[^#]+#[1-9]\d*$/.test(event.during))
+        throw new Error(
+          `a scripted event's during is "{agent}#{n}", an agent's nth turn, not ${event.during}`,
+        );
+      const own = event.name !== "participant:reply";
+      if (own) {
+        const schema = definition.events[event.name];
+        if (!schema) throw new Error(`${definition.meta.name} declares no event ${event.name}`);
+        const errors = validate(parseJsonSchema(schema), event.data);
+        if (errors.length > 0)
+          throw new Error(
+            `the scripted ${event.name}'s data does not fit its schema: ${errors.map((e) => `${e.path}: ${e.message}`).join("; ")}`,
+          );
+      }
+      const data = own ? event.data : { author: "engineer", ...(event.data as ParticipantReply) };
+      return {
+        during: event.during,
+        record: {
+          version: MAILBOX_RECORD_VERSION,
+          at: new Date().toISOString(),
+          kind: "event",
+          id: idOf(event.id, `${AWF_ID_PREFIX}test.${index + 1}`),
+          name: event.name,
+          data: data as JsonValue,
+          from: own ? "operator" : (event as { from: string }).from,
+        },
+      };
+    });
+  }
+
+  /** A turn began: why the test fails, when it is one too many. */
+  started(_turn: TurnRecord): string | undefined {
+    this.#turns += 1;
+    return this.#turns > this.#max
+      ? `the run started more than ${this.#max} turns (maxTurns): a loop that never parks?`
+      : undefined;
+  }
+
+  /** The events due during `turn`, taken off the list, stamped now. */
+  due(turn: TurnRecord): MailboxRecord[] {
+    const at = `${turn.agent}#${turn.n}`;
+    const due = this.#pending.filter((each) => each.during === at);
+    for (const each of due) this.#pending.splice(this.#pending.indexOf(each), 1);
+    return due.map((each) => ({ ...each.record, at: new Date().toISOString() }));
+  }
+
+  /** What was never sent, as its turn never ran: the test fails. */
+  unsent(): string[] {
+    return this.#pending.map(
+      (each) =>
+        `the scripted ${(each.record as { name: string }).name} during ${each.during} was never sent: that turn never ran`,
+    );
+  }
+}
+
+/** Lays out `files` before the run, each path absolute or under `cwd`. */
+async function layOut(
+  files: Readonly<Record<string, FileTree>> | undefined,
+  cwd: string,
+): Promise<void> {
+  const write = async (path: string, tree: FileTree): Promise<void> => {
+    if (typeof tree === "string") {
+      await mkdir(dirname(path), { recursive: true });
+      await Bun.write(path, tree);
+      return;
+    }
+    await mkdir(path, { recursive: true });
+    for (const [name, inner] of Object.entries(tree)) await write(join(path, name), inner);
+  };
+  for (const [path, tree] of Object.entries(files ?? {})) {
+    // Under the test's own directory, which it removes: a path outside would be left behind.
+    const target = resolve(cwd, path);
+    if (isAbsolute(path) || relative(cwd, target).startsWith(".."))
+      throw new Error(`files lays out under the run's directory; ${path} is outside it`);
+    await write(target, tree);
   }
 }
 

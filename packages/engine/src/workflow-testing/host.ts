@@ -133,6 +133,8 @@ export function createScriptedHost(
     onActivity(): void;
     /** The script could not meet a turn: the test fails. */
     onScriptError(message: string): void;
+    /** A turn began, before its script answers: what a test sends during it goes now. */
+    onTurnStarted?(turn: TurnRecord): Promise<void>;
   },
   /**
    * The session the run is started from, as `awf run --here` finds one, and the model its files
@@ -555,6 +557,7 @@ export function createScriptedHost(
     };
     turns.push(record);
     open.add(record);
+    if (!record.nudge && context.kind === "turn") await events.onTurnStarted?.(record);
 
     // A reply or a failure settles the send awaiting it, and resumes the script that awaits it.
     const settled: [Awaiting, MessageOutcome][] = [];
