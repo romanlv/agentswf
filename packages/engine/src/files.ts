@@ -1,6 +1,16 @@
 import { randomBytes } from "node:crypto";
+import { realpathSync } from "node:fs";
 import { link, lstat, open, rename, unlink } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
+
+/** `path` with its symlinks resolved, or only made absolute when it doesn't exist. */
+export function realPath(path: string): string {
+  try {
+    return realpathSync(resolve(path));
+  } catch {
+    return resolve(path);
+  }
+}
 
 /**
  * Writes `value` to `path` whole: a temp file beside it, synced, then renamed into place. A crash

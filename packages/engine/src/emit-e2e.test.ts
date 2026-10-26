@@ -1,13 +1,12 @@
 import { afterAll, expect, test } from "bun:test";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { emitCommand } from "./emit-command";
-import { writeJson } from "./files";
 import { appendMailbox } from "./mailbox";
 import { runOperatorCli } from "./operator-cli";
 import { createRun, openRun, previousGone, processStart, readAttempts } from "./runs";
 import { stopCrashed } from "./stop-crashed";
-import { createTempRunDirs } from "./testing";
+import { createTempRunDirs, keyedProject, until, writeAttempt } from "./testing";
 import { wake } from "./wake";
 
 const dirs = createTempRunDirs();
@@ -39,12 +38,7 @@ export default defineEventWorkflow({
 `;
 
 function setup() {
-  const root = dirs.tempRunDir();
-  mkdirSync(join(root, ".awf"));
-  mkdirSync(join(root, "flows"));
-  const file = join(root, "flows", "case.ts");
-  writeFileSync(file, WORKFLOW);
-  const home = dirs.tempRunDir();
+  const { root, file, home } = keyedProject(dirs, "case.ts", WORKFLOW);
   const out: string[] = [];
   const io = { stdout: (t: string) => out.push(t), stderr: (t: string) => out.push(`! ${t}`) };
   const send = (n: number) =>
@@ -55,14 +49,6 @@ function setup() {
       { home, environment: { ...process.env, HOME: home } },
     );
   return { root, file, home, out, send };
-}
-
-async function until(check: () => Promise<boolean>, ms = 20_000): Promise<void> {
-  const end = Date.now() + ms;
-  while (!(await check())) {
-    if (Date.now() > end) throw new Error("timed out");
-    await Bun.sleep(50);
-  }
 }
 
 test("an event starts a detached run, which parks; the next continues it, from any directory", async () => {
@@ -119,12 +105,9 @@ test("awf run --continue of a keyed run takes no stage, values or arguments", as
 });
 
 test("a continue reads the project's .env again, and not what the sender exported", async () => {
-  const root = dirs.tempRunDir();
-  mkdirSync(join(root, ".awf"));
-  mkdirSync(join(root, "flows"));
-  const file = join(root, "flows", "env.ts");
-  writeFileSync(
-    file,
+  const { root, file, home } = keyedProject(
+    dirs,
+    "env.ts",
     `import { appendFileSync } from "node:fs";
 import { defineEventWorkflow } from "agentswf/workflow";
 const Ping = { type: "object", properties: { n: { type: "number" } } };
@@ -138,7 +121,7 @@ export default defineEventWorkflow({
     async run(workflow) {
       for (;;) {
         const events = await workflow.receive();
-        appendFileSync(${JSON.stringify(join(root, "tokens.txt"))}, (process.env.TOKEN ?? "none") + "\\n");
+        appendFileSync(new URL("../tokens.txt", import.meta.url).pathname, (process.env.TOKEN ?? "none") + "\\n");
         if (events.some((e) => e.data.n === 2)) return null;
       }
     },
@@ -147,7 +130,6 @@ export default defineEventWorkflow({
 `,
   );
   writeFileSync(join(root, ".env"), "TOKEN=first\n");
-  const home = dirs.tempRunDir();
   const io = { stdout: () => undefined, stderr: () => undefined };
   const send = (n: number, environment: Record<string, string | undefined>) =>
     emitCommand(
@@ -184,15 +166,9 @@ test("a continue waits for the previous attempt's process to be gone", async () 
   });
   const previous = Bun.spawn({ cmd: ["sleep", "0.4"] });
   await Bun.sleep(50);
-  mkdirSync(join(run.dir, "attempts"), { recursive: true });
-  await writeJson(join(run.dir, "attempts", "1.json"), {
-    version: 1,
-    attempt: 1,
-    file: "/f.ts",
-    flags: {},
+  await writeAttempt(run, {
     pid: previous.pid,
-    processStart: processStart(previous.pid),
-    started: new Date().toISOString(),
+    processStart: processStart(previous.pid)!,
     ended: new Date().toISOString(),
     outcome: "parked",
   });
@@ -217,15 +193,11 @@ test("a continue claims its attempt first, so wake returns, then waits for the p
   // Attempt 1 parked, its process still closing for a second.
   const previous = Bun.spawn({ cmd: ["sleep", "1.5"] });
   await Bun.sleep(50);
-  mkdirSync(join(run.dir, "attempts"), { recursive: true });
   const now = new Date().toISOString();
-  await writeJson(join(run.dir, "attempts", "1.json"), {
-    version: 1,
-    attempt: 1,
+  await writeAttempt(run, {
     file,
-    flags: {},
     pid: previous.pid,
-    processStart: processStart(previous.pid),
+    processStart: processStart(previous.pid)!,
     started: now,
     ended: now,
     outcome: "parked",

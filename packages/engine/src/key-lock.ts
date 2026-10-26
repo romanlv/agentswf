@@ -1,7 +1,7 @@
 import { mkdir, readFile, unlink } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { isCode, linkNew } from "./files";
-import { type ProcessProbe, probeProcess, processStart, sameProcess, sameStart } from "./runs";
+import { probeProcess, processStart, sameStart } from "./runs";
 
 /**
  * `{root}/{workflow}/{run id}.lock`: the lock on a key, beside its run's folder so it exists before
@@ -31,18 +31,14 @@ const GIVE_UP_MILLISECONDS = 120_000;
  * another holds it, and taken over when the process that holds it is gone. Callers in one process
  * take it in turn. A lock is not reentrant: `work` that takes the same lock again waits on itself.
  */
-export async function withKeyLock<T>(
-  file: string,
-  work: () => Promise<T>,
-  options: { probe?: ProcessProbe; pid?: number; giveUpMs?: number } = {},
-): Promise<T> {
+export async function withKeyLock<T>(file: string, work: () => Promise<T>): Promise<T> {
   const previous = queues.get(file) ?? Promise.resolve();
   const turn = Promise.withResolvers<void>();
   const mine = previous.then(() => turn.promise);
   queues.set(file, mine);
   try {
     await previous;
-    const held = await claim(file, options);
+    const held = await claim(file);
     try {
       return await work();
     } finally {
@@ -56,17 +52,12 @@ export async function withKeyLock<T>(
   }
 }
 
-async function claim(
-  file: string,
-  options: { probe?: ProcessProbe; pid?: number; giveUpMs?: number },
-): Promise<Holder> {
-  const probe = options.probe ?? processStart;
-  const pid = options.pid ?? process.pid;
-  const started = options.probe || options.pid !== undefined ? probe(pid) : ownStart();
-  if (started === undefined) throw new Error(`no start time for this process (${pid})`);
-  const mine: Holder = { pid, processStart: started, at: new Date().toISOString() };
+async function claim(file: string): Promise<Holder> {
+  const started = ownStart();
+  if (started === undefined) throw new Error(`no start time for this process (${process.pid})`);
+  const mine: Holder = { pid: process.pid, processStart: started, at: new Date().toISOString() };
   await mkdir(dirname(file), { recursive: true, mode: 0o700 });
-  const giveUp = Date.now() + (options.giveUpMs ?? GIVE_UP_MILLISECONDS);
+  const giveUp = Date.now() + GIVE_UP_MILLISECONDS;
   let wait = 5;
   let lastLook = 0;
   for (;;) {
@@ -76,15 +67,13 @@ async function claim(
       lastLook = Date.now();
       const holder = await readHolder(file);
       if (holder === "gone") continue;
-      if (!holder || gone(holder, options.probe)) {
+      if (!holder || gone(holder)) {
         await takeOver(file, holder);
         continue;
       }
     }
     if (Date.now() > giveUp)
-      throw new Error(
-        `${file} is still held after ${Math.round((options.giveUpMs ?? GIVE_UP_MILLISECONDS) / 1000)} s`,
-      );
+      throw new Error(`${file} is still held after ${GIVE_UP_MILLISECONDS / 1000} s`);
     await Bun.sleep(wait);
     wait = Math.min(wait * 2, 100);
   }
@@ -94,8 +83,7 @@ async function claim(
  * Whether a holder's process is gone. Where `ps` can't be asked, it is taken as alive: taking a
  * live holder's lock over would let two writers in.
  */
-function gone(holder: Holder, probe: ProcessProbe | undefined): boolean {
-  if (probe) return !sameProcess(holder.pid, holder.processStart, probe);
+function gone(holder: Holder): boolean {
   const now = probeProcess(holder.pid);
   if (now === "unknown") return false;
   return now === "gone" || !sameStart(now, holder.processStart);

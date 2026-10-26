@@ -1,32 +1,8 @@
 import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import {
-  defineEventWorkflow,
-  type EventWorkflowContext,
-  type JsonValue,
-  type OutputSchema,
-} from "@agentswf/contract/workflow";
+import { caseRun, startCase } from "./testing";
 import { answer, testWorkflow } from "./workflow-testing";
-
-const Changes: OutputSchema<{ case: string }> = {
-  type: "object",
-  properties: { case: { type: "string" } },
-  required: ["case"],
-};
-const events = { "dd.changes": Changes };
-const caseRun = (run: (workflow: EventWorkflowContext<typeof events>) => Promise<JsonValue>) =>
-  defineEventWorkflow({
-    definition: {
-      meta: { name: "dd-case", description: "A case." },
-      file: import.meta.path,
-      events,
-      key: (e) => e.data.case,
-      starts: ["dd.changes"],
-      run,
-    },
-  });
-const start = { event: { name: "dd.changes" as const, data: { case: "k" } } };
 
 /** The sketch's shape, cut down: replies are pending until a turn is given them. */
 const replying = caseRun(async (workflow) => {
@@ -46,7 +22,7 @@ const replying = caseRun(async (workflow) => {
 
 test("a reply scripted during a turn is taken at the next wait and given to the turn after", async () => {
   const run = await testWorkflow(replying, {
-    ...start,
+    ...startCase,
     agents: { investigator: answer("case.md updated") },
     events: [
       {
@@ -70,7 +46,7 @@ test("files are laid out before the run, under its directory", async () => {
       await workflow.receive();
       return readFileSync(join(workflow.cwd, "cases", "k", "case.md"), "utf8");
     }),
-    { ...start, files: { cases: { k: { "case.md": "# kombo\n" } } } },
+    { ...startCase, files: { cases: { k: { "case.md": "# kombo\n" } } } },
   );
   expect(run.value).toBe("# kombo\n");
 });
@@ -86,7 +62,7 @@ test("a run that starts more turns than maxTurns fails the test instead of hangi
           await agent.run({ prompt: "again" });
         }
       }),
-      { ...start, maxTurns: 3, agents: { investigator: answer("again") } },
+      { ...startCase, maxTurns: 3, agents: { investigator: answer("again") } },
     ),
   ).rejects.toThrow("more than 3 turns");
 });
@@ -99,7 +75,7 @@ test("a scripted event whose turn never ran fails the test", async () => {
         return null;
       }),
       {
-        ...start,
+        ...startCase,
         events: [{ during: "investigator#1", name: "dd.changes", data: { case: "k" } }],
       },
     ),
@@ -111,7 +87,7 @@ test("a scripted own event is checked against its schema", async () => {
     testWorkflow(
       caseRun(async () => null),
       {
-        ...start,
+        ...startCase,
         // biome-ignore lint/suspicious/noExplicitAny: data a test without tsc could give.
         events: [{ during: "a#1", name: "dd.changes", data: { other: 1 } as any }],
       },
@@ -134,7 +110,7 @@ test("events due at one turn arrive in the order given, an own event from the op
         }
     }),
     {
-      ...start,
+      ...startCase,
       agents: { investigator: answer("done") },
       events: [
         { during: "investigator#1", name: "dd.changes", data: { case: "k" }, id: "c2" },
@@ -158,7 +134,7 @@ test("files outside the run's directory, and an id given twice, are refused", as
   await expect(
     testWorkflow(
       caseRun(async () => null),
-      { ...start, files: { "/tmp/elsewhere.md": "x" } },
+      { ...startCase, files: { "/tmp/elsewhere.md": "x" } },
     ),
   ).rejects.toThrow("is outside it");
   await expect(

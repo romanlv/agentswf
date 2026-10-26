@@ -487,25 +487,6 @@ describe("stages by content, in a run with events", () => {
     expect(byContent(runDir, 3, await readStageRecords(runDir)).progress().upcoming).toEqual([]);
   });
 
-  test("--from-stage and --values are refused", () => {
-    const runDir = runDirs.tempRunDir();
-    const refused = "a run of a workflow with events takes no --from-stage or --values";
-    expect(
-      () =>
-        new StageLedger({ runDir, attempt: 2, turns: () => [], byContent: true, fromStage: "x" }),
-    ).toThrow(refused);
-    expect(
-      () =>
-        new StageLedger({
-          runDir,
-          attempt: 2,
-          turns: () => [],
-          byContent: true,
-          values: new Map(),
-        }),
-    ).toThrow(refused);
-  });
-
   test("without events, a name is still entered once per attempt", async () => {
     const runDir = runDirs.tempRunDir();
     const ledger = new StageLedger({ runDir, attempt: 1, turns: () => [] });

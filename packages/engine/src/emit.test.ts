@@ -9,11 +9,12 @@ import { writeJson } from "./files";
 import { keyLockFile, withKeyLock } from "./key-lock";
 import { appendMailbox, foldMailbox, readMailbox } from "./mailbox";
 import { listProjects, projectOf } from "./projects";
+import { STUCK_AFTER } from "./run-state";
 import { createRun, openRun, processStart, type Run, readAttempts } from "./runs";
 import { runsCommand } from "./runs-command";
-import { createTempRunDirs } from "./testing";
+import { createTempRunDirs, writeAttempt } from "./testing";
 import { tickCommand } from "./tick-command";
-import { attemptEnvironment, type Launch, STUCK_AFTER, wake } from "./wake";
+import { attemptEnvironment, type Launch, wake } from "./wake";
 
 const dirs = createTempRunDirs();
 afterAll(() => dirs.cleanup());
@@ -61,19 +62,8 @@ function fakeLaunch(): Launch & { launched: string[] } {
   return launch;
 }
 
-async function attempt(run: Run, fields: Partial<AttemptRecord>): Promise<void> {
-  const n = (await readAttempts(run)).length + 1;
-  mkdirSync(join(run.dir, "attempts"), { recursive: true });
-  await writeJson(join(run.dir, "attempts", `${n}.json`), {
-    version: 1,
-    attempt: n,
-    file: "/flows/case.ts",
-    flags: {},
-    ...GONE,
-    started: new Date().toISOString(),
-    ...fields,
-  });
-}
+const attempt = (run: Run, fields: Partial<AttemptRecord>) =>
+  writeAttempt(run, { ...GONE, ...fields });
 
 function emit(
   p: ReturnType<typeof project>,

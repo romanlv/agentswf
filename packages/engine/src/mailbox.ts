@@ -1,11 +1,17 @@
 import { stat } from "node:fs/promises";
 import { join } from "node:path";
-import { MAILBOX_RECORD_VERSION, type MailboxRecord } from "@agentswf/contract/records";
+import {
+  MAILBOX_RECORD_VERSION,
+  type MailboxRecord,
+  type WaitingJson,
+} from "@agentswf/contract/records";
 import {
   type AgentExecution,
   AWF_ID_PREFIX,
   type JsonValue,
+  type OperationRecord,
   type ReceiveOptions,
+  type TurnOutcome,
   type WorkflowEvent,
 } from "@agentswf/contract/workflow";
 import { appendLine, endTornLine, readLines } from "./jsonl";
@@ -32,6 +38,8 @@ export async function appendMailbox(runDir: string, record: MailboxRecord): Prom
 type EventRecord = Extract<MailboxRecord, { kind: "event" }>;
 type TurnRecord = Extract<MailboxRecord, { kind: "turn" }>;
 
+type WaitRecord = Extract<MailboxRecord, { kind: "wait" }>;
+
 /**
  * The id of the end of `agent`'s turn `turn`: made from both, so it fits the grammar whatever
  * either is, and is the same whoever writes it, so only one end is ever kept.
@@ -40,7 +48,84 @@ export function endIdOf(agent: string, turn: string, attempt: number): string {
   const hash = new Bun.CryptoHasher("sha256").update(`${agent}\0${turn}\0${attempt}`).digest("hex");
   return `${AWF_ID_PREFIX}end.${hash.slice(0, 16)}`;
 }
-type WaitRecord = Extract<MailboxRecord, { kind: "wait" }>;
+
+/** An agent's turn an earlier attempt started whose end no wait took: its id and meta. */
+export type RestoredTurn = { turn: string; meta: JsonValue };
+
+/** What `agent:ended` says of a turn: its id and meta, as `start()` was given them, and its outcome. */
+export type TurnEnd = { turn: string; meta: JsonValue; outcome: TurnOutcome<JsonValue> };
+
+/** The usage of a turn no delivery settled: one refused, cancelled while queued, or cut off by a crash. */
+export function unrunUsage(
+  agent: string,
+  operationId: string,
+  execution: AgentExecution,
+): OperationRecord {
+  return { callPath: [], agent, operationId, execution, sessions: [] };
+}
+
+/**
+ * Appends a turn's end, `agent:ended` from its agent, once: an end already there is kept. The
+ * caller holds the key's lock.
+ */
+async function appendEnd(
+  runDir: string,
+  agent: string,
+  attempt: number,
+  end: TurnEnd,
+  at: string,
+): Promise<void> {
+  const id = endIdOf(agent, end.turn, attempt);
+  if (foldMailbox(await readMailbox(runDir)).events.has(id)) return;
+  await appendMailbox(runDir, {
+    version: MAILBOX_RECORD_VERSION,
+    at,
+    kind: "event",
+    id,
+    name: "agent:ended",
+    data: end as unknown as JsonValue,
+    from: agent,
+  });
+}
+
+/**
+ * Writes a failed end for each turn the mailbox has with no end, whose attempt is over, and returns
+ * each agent's last turn whose end no wait took: what `agent.turn` is when the agent opens.
+ */
+export async function recoverTurns(
+  runDir: string,
+  attempt: number,
+  locked: <T>(work: () => Promise<T>) => Promise<T>,
+): Promise<Map<string, RestoredTurn>> {
+  await locked(async () => {
+    for (const turn of foldMailbox(await readMailbox(runDir)).turns) {
+      if (turn.attempt >= attempt) continue;
+      await appendEnd(
+        runDir,
+        turn.agent,
+        turn.attempt,
+        {
+          turn: turn.turn,
+          meta: turn.meta,
+          outcome: {
+            kind: "failed",
+            reason: `attempt ${turn.attempt} ended before this turn did; its work, if any, is in the agent's session`,
+            retryable: true,
+            usage: unrunUsage(turn.agent, turn.turn, turn.execution),
+          },
+        },
+        new Date().toISOString(),
+      );
+    }
+  });
+  const state = foldMailbox(await readMailbox(runDir));
+  const untaken = new Set([...state.unacknowledged, ...(state.held ?? [])]);
+  const restored = new Map<string, RestoredTurn>();
+  for (const turn of state.turns)
+    if (untaken.has(endIdOf(turn.agent, turn.turn, turn.attempt)))
+      restored.set(turn.agent, { turn: turn.turn, meta: turn.meta });
+  return restored;
+}
 
 /** What a run's mailbox says, folded from its records in order. */
 export type MailboxState = {
@@ -113,7 +198,7 @@ export function foldMailbox(records: readonly MailboxRecord[]): MailboxState {
 }
 
 /** An event as a wait returns it. */
-export function eventOf(record: EventRecord): WorkflowEvent<string, JsonValue> {
+function eventOf(record: EventRecord): WorkflowEvent<string, JsonValue> {
   return Object.freeze({
     id: record.id,
     name: record.name,
@@ -128,11 +213,8 @@ export function eventOf(record: EventRecord): WorkflowEvent<string, JsonValue> {
  * attempt's `parked` ending is written. The runner ends the attempt with it.
  */
 export class RunParked extends Error {
-  constructor(
-    readonly label: string | undefined,
-    readonly until: string | undefined,
-  ) {
-    super(`parked${label === undefined ? "" : `: ${label}`}`);
+  constructor(readonly wait: WaitingJson) {
+    super(`parked${wait.label === undefined ? "" : `: ${wait.label}`}`);
     this.name = "RunParked";
   }
 }
@@ -145,7 +227,7 @@ export type Parking = {
    */
   idle(stage?: string): boolean;
   /** Writes the attempt's `parked` ending, holding the key's lock, so a waker sees it at once. */
-  park(wait: { label?: string; until?: string }): Promise<void>;
+  park(wait: WaitingJson): Promise<void>;
 };
 
 /** How often a wait looks at its mailbox when no nudge comes: a nudge that failed still arrives. */
@@ -181,6 +263,14 @@ export class RunMailbox {
     this.#parked.promise.catch(() => undefined);
   }
 
+  #now(): number {
+    return this.options.now?.() ?? Date.now();
+  }
+
+  #at(): string {
+    return new Date(this.#now()).toISOString();
+  }
+
   async #append(record: MailboxRecord): Promise<void> {
     await this.options.locked(() => appendMailbox(this.options.runDir, record));
   }
@@ -206,7 +296,7 @@ export class RunMailbox {
         );
       await appendMailbox(runDir, {
         version: MAILBOX_RECORD_VERSION,
-        at: new Date(this.options.now?.() ?? Date.now()).toISOString(),
+        at: this.#at(),
         kind: "turn",
         attempt,
         agent,
@@ -221,20 +311,9 @@ export class RunMailbox {
    * Appends a turn's end, `agent:ended` from its agent, once: an end already there, as a crash's
    * recovery may have written, is kept. Then this run's wait reads the mailbox again.
    */
-  async endTurn(agent: string, turn: string, data: JsonValue): Promise<void> {
-    const id = endIdOf(agent, turn, this.options.attempt);
-    await this.options.locked(async () => {
-      if (foldMailbox(await readMailbox(this.options.runDir)).events.has(id)) return;
-      await appendMailbox(this.options.runDir, {
-        version: MAILBOX_RECORD_VERSION,
-        at: new Date(this.options.now?.() ?? Date.now()).toISOString(),
-        kind: "event",
-        id,
-        name: "agent:ended",
-        data,
-        from: agent,
-      });
-    });
+  async endTurn(agent: string, end: TurnEnd): Promise<void> {
+    const { runDir, attempt } = this.options;
+    await this.options.locked(() => appendEnd(runDir, agent, attempt, end, this.#at()));
     this.nudge();
   }
 
@@ -265,20 +344,17 @@ export class RunMailbox {
   ): Promise<WorkflowEvent<string, JsonValue>[]> {
     const { label, until, take } = checked(options);
     if (stage !== undefined) {
-      const state = foldMailbox(await readMailbox(this.options.runDir));
-      const ids = state.batches.get(stage);
-      if (ids) return this.#events(state, ids);
+      const batch = await this.batchOf(stage);
+      if (batch) return batch;
     } else if (this.#first) {
       this.#first = false;
       const state = foldMailbox(await readMailbox(this.options.runDir));
       if (state.held) return this.#events(state, state.held);
     }
-    const now = () => this.options.now?.() ?? Date.now();
-    const at = () => new Date(now()).toISOString();
     const { attempt } = this.options;
     await this.#append({
       version: MAILBOX_RECORD_VERSION,
-      at: at(),
+      at: this.#at(),
       kind: "wait",
       attempt,
       ...(label === undefined ? {} : { label }),
@@ -288,7 +364,7 @@ export class RunMailbox {
     const took = async (ids: string[]) =>
       this.#append({
         version: MAILBOX_RECORD_VERSION,
-        at: at(),
+        at: this.#at(),
         kind: "took",
         attempt,
         ids,
@@ -309,27 +385,27 @@ export class RunMailbox {
         await took(ids);
         return this.#events(state, ids);
       }
-      if (until !== undefined && now() >= until) {
+      if (until !== undefined && this.#now() >= until) {
         await took([]);
         return [];
       }
       const { parking } = this.options;
       const idle = parking?.idle(stage) ?? false;
       if (parking && idle) {
-        const untilIso = until === undefined ? undefined : new Date(until).toISOString();
+        const wait: WaitingJson = {
+          ...(label === undefined ? {} : { label }),
+          ...(until === undefined ? {} : { until: new Date(until).toISOString() }),
+        };
         // Checked once more under the lock, which every sender appends under: an event sent now is
         // either seen here, or sent after `parked` is written and continues the run.
         const parked = await this.options.locked(async () => {
           const again = foldMailbox(await readMailbox(this.options.runDir));
           if (again.unacknowledged.length > 0) return false;
-          await parking.park({
-            ...(label === undefined ? {} : { label }),
-            ...(untilIso === undefined ? {} : { until: untilIso }),
-          });
+          await parking.park(wait);
           return true;
         });
         if (parked) {
-          this.parked = new RunParked(label, untilIso);
+          this.parked = new RunParked(wait);
           this.#parked.reject(this.parked);
           throw this.parked;
         }
@@ -337,11 +413,11 @@ export class RunMailbox {
       }
       // With no `until`, only a nudge or the size poll wakes it, or, with a turn running, its end,
       // which may let the run park: looked at each second.
-      const longest = parking && !idle ? POLL_MILLISECONDS : 2 ** 31 - 1;
+      const longest = parking && !idle ? POLL_MILLISECONDS : Number.POSITIVE_INFINITY;
       await this.#idle(
         woken,
         size,
-        Math.min(longest, until === undefined ? longest : until - now()),
+        Math.min(longest, until === undefined ? longest : until - this.#now()),
         signal,
       );
     }

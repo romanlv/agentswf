@@ -1,10 +1,10 @@
 import { createHash } from "node:crypto";
-import { realpathSync } from "node:fs";
 import { chmod, mkdir, realpath, rm, stat } from "node:fs/promises";
-import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, sep } from "node:path";
 import type { HolderResultJson } from "@agentswf/contract/records";
 import { decodeHolderRequest, type NudgeWireResult } from "@agentswf/contract/wire";
 import type { CoordinatorHolder, CoordinatorPort } from "./coordinator-port";
+import { realPath } from "./files";
 import type { MessagingEventBody } from "./messaging/messaging";
 import type { RunStatus } from "./run-state";
 
@@ -26,14 +26,7 @@ type Connection = {
  */
 export function coordinatorSocketPath(dir: string, runDir: string): string {
   // Its real path: a holder reaching it through a symlink, or `/tmp` for `/private/tmp`, names it alike.
-  const real = (() => {
-    try {
-      return realpathSync(runDir);
-    } catch {
-      return resolve(runDir);
-    }
-  })();
-  const name = createHash("sha256").update(real).digest("hex").slice(0, 32);
+  const name = createHash("sha256").update(realPath(runDir)).digest("hex").slice(0, 32);
   return join(dir, `${name}.sock`);
 }
 

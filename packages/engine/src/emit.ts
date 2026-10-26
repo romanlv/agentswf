@@ -11,6 +11,7 @@ import {
   nameProblem,
   type OwnEvent,
 } from "@agentswf/contract/workflow";
+import { messageOf } from "./errors";
 import { exists } from "./files";
 import { keyLockFile, withKeyLock } from "./key-lock";
 import { appendMailbox, foldMailbox, readMailbox } from "./mailbox";
@@ -57,7 +58,7 @@ export async function emitEvent(
   const problem = idProblem(runId);
   if (problem) throw new EmitError(`the run's id, ${runId}: ${problem}`);
   const project = await projectOf(target.file, context.home).catch((error: unknown) => {
-    throw new EmitError(String(error instanceof Error ? error.message : error));
+    throw new EmitError(messageOf(error));
   });
   return deliver(
     {
@@ -67,7 +68,7 @@ export async function emitEvent(
       event: { id, name, data, from: context.from, at },
       deduplicate: event.id !== undefined,
       file: target.file,
-      ...(definition.starts.includes(name) ? { start: { key, project, file: target.file } } : {}),
+      ...(definition.starts.includes(name) ? { start: { key, project } } : {}),
     },
     context,
   );
@@ -82,7 +83,7 @@ export type Delivery = {
   /** False for an id awf made at random, which nothing repeats. */
   deduplicate: boolean;
   /** Given when the event may start the run: what a new run records. */
-  start?: { key: string; project: string; file: string };
+  start?: { key: string; project: string };
   /** The file a sender named, which a start or continue runs; absent, the run's last. */
   file?: string;
 };
@@ -96,7 +97,8 @@ export async function deliver(
   delivery: Delivery,
   context: Omit<WakeContext, "file">,
 ): Promise<EmitResultJson> {
-  const { runRoot, workflow, runId, event, start } = delivery;
+  const { runRoot, workflow, runId, event, start, file } = delivery;
+  const woken = { ...context, ...(file ? { file } : {}) };
   const ref = `${workflow}/${runId}`;
   return withKeyLock(keyLockFile(runRoot, workflow, runId), async () => {
     let run: Run | undefined = (await exists(join(runRoot, workflow, runId, "run.json")))
@@ -108,13 +110,8 @@ export async function deliver(
     if (run) {
       // Not appended again, but it still wakes the run: a sender retrying after a launch that failed
       // sends the same id.
-      if (delivery.deduplicate && foldMailbox(await readMailbox(run.dir)).events.has(event.id)) {
-        const file = delivery.file ?? start?.file;
-        return result(
-          "duplicate",
-          await wake(run, { ...context, ...(file ? { file } : {}), nudgeLive: false }),
-        );
-      }
+      if (delivery.deduplicate && foldMailbox(await readMailbox(run.dir)).events.has(event.id))
+        return result("duplicate", await wake(run, { ...woken, nudgeLive: false }));
       if ((await readAttempts(run)).at(-1)?.outcome === "completed")
         return result("refused", { did: "none", why: "returned" });
     } else {
@@ -127,7 +124,7 @@ export async function deliver(
         sandbox: null,
         key: start.key,
         env: { PATH: context.environment.PATH ?? "" },
-        file: start.file,
+        ...(file ? { file } : {}),
       });
       await recordProject(context.home, start.project);
     }
@@ -136,8 +133,7 @@ export async function deliver(
       kind: "event",
       ...event,
     });
-    const file = delivery.file ?? start?.file;
-    return result("accepted", await wake(run, { ...context, ...(file ? { file } : {}) }));
+    return result("accepted", await wake(run, woken));
   });
 }
 
@@ -170,15 +166,19 @@ export function checkEvent(
     throw new EmitError(
       `${event.name}'s data does not fit its schema: ${errors.map((e) => `${e.path || "/"}: ${e.message}`).join("; ")}`,
     );
-  if (event.id !== undefined) {
-    const problem = nameProblem(event.id);
-    if (problem) throw new EmitError(`the id ${JSON.stringify(event.id)}: ${problem}`);
-    if (event.id.startsWith(AWF_ID_PREFIX))
-      throw new EmitError(`the id ${event.id}: ids starting ${AWF_ID_PREFIX} are awf's own`);
-  }
+  const badId = event.id === undefined ? undefined : eventIdProblem(event.id);
+  if (badId) throw new EmitError(`the id ${JSON.stringify(event.id)}: ${badId}`);
 }
 
-function keyOf(
+/** What is wrong with an id a sender gives an event, if anything: ids starting `awf.` are awf's. */
+export function eventIdProblem(id: string): string | undefined {
+  return (
+    nameProblem(id) ??
+    (id.startsWith(AWF_ID_PREFIX) ? `ids starting ${AWF_ID_PREFIX} are awf's own` : undefined)
+  );
+}
+
+export function keyOf(
   definition: EventWorkflowDefinition<EventSchemas, JsonValue>,
   event: OwnEvent<EventSchemas>,
 ): string {

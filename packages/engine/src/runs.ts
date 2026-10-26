@@ -731,10 +731,11 @@ export async function previousGone(
   const previous = (await readAttempts(run)).find((each) => each.attempt === n - 1);
   if (!previous) return;
   const alive = () => sameProcess(previous.pid, previous.processStart, processStart);
-  const giveUp = Date.now() + PREVIOUS_GONE_MS;
+  const started = Date.now();
+  const giveUp = started + PREVIOUS_GONE_MS;
   let said = false;
   while (alive()) {
-    if (!said && Date.now() > giveUp - PREVIOUS_GONE_MS + 10_000) {
+    if (!said && Date.now() > started + 10_000) {
       said = true;
       notice(
         `awf: waiting for attempt ${previous.attempt} (pid ${previous.pid}) to finish closing`,

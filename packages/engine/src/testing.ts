@@ -1,15 +1,24 @@
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { createConnection } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { AttemptRecord } from "@agentswf/contract/records";
 import { type ResultSubmitResponse, WIRE_VERSION } from "@agentswf/contract/wire";
-import type { JsonValue, WorkflowContext, WorkflowDefinition } from "@agentswf/contract/workflow";
+import {
+  defineEventWorkflow,
+  type EventWorkflowContext,
+  type JsonValue,
+  type OutputSchema,
+  type WorkflowContext,
+  type WorkflowDefinition,
+} from "@agentswf/contract/workflow";
 import { createSingleSessionHostFactory } from "@agentswf/harness";
 import type { AgentSessionAdapter } from "@agentswf/harness/adapter";
 import { createFakeAdapter } from "@agentswf/harness/testing";
 import Type from "typebox";
+import { writeJson } from "./files";
 import { OPERATOR_ALIASES } from "./operator-aliases";
-import { createRun, openRun } from "./runs";
+import { createRun, openRun, type Run, readAttempts } from "./runs";
 import { type RunWorkflowOptions, runWorkflow, startWorkflow } from "./workflow-runner";
 
 export function createTempRunDirs(): {
@@ -29,6 +38,68 @@ export function createTempRunDirs(): {
     },
   };
 }
+
+/** A project, `.awf/` at its root, with `source` at `flows/{name}`, and a home of its own. */
+export function keyedProject(
+  dirs: ReturnType<typeof createTempRunDirs>,
+  name: string,
+  source: string,
+): { root: string; file: string; home: string } {
+  const root = dirs.tempRunDir();
+  mkdirSync(join(root, ".awf"));
+  mkdirSync(join(root, "flows"));
+  const file = join(root, "flows", name);
+  writeFileSync(file, source);
+  return { root, file, home: dirs.tempRunDir() };
+}
+
+/** Polls `check` until it holds; throws after `ms`. */
+export async function until(check: () => Promise<boolean>, ms = 20_000): Promise<void> {
+  const end = Date.now() + ms;
+  while (!(await check())) {
+    if (Date.now() > end) throw new Error("timed out");
+    await Bun.sleep(50);
+  }
+}
+
+/** Writes the run's next attempt record, as `awf run` claims one, with `fields` over defaults. */
+export async function writeAttempt(run: Run, fields: Partial<AttemptRecord>): Promise<void> {
+  const n = (await readAttempts(run)).length + 1;
+  mkdirSync(join(run.dir, "attempts"), { recursive: true });
+  await writeJson(join(run.dir, "attempts", `${n}.json`), {
+    version: 1,
+    attempt: n,
+    file: "/flows/case.ts",
+    flags: {},
+    started: new Date().toISOString(),
+    ...fields,
+  });
+}
+
+const Changes: OutputSchema<{ case: string }> = {
+  type: "object",
+  properties: { case: { type: "string" } },
+  required: ["case"],
+};
+const caseEvents = { "dd.changes": Changes };
+
+/** A workflow with one event, `dd.changes`, keyed by its case, whose body is `run`. */
+export const caseRun = (
+  run: (workflow: EventWorkflowContext<typeof caseEvents>) => Promise<JsonValue>,
+) =>
+  defineEventWorkflow({
+    definition: {
+      meta: { name: "dd-case", description: "A case." },
+      file: import.meta.path,
+      events: caseEvents,
+      key: (e) => e.data.case,
+      starts: ["dd.changes"],
+      run,
+    },
+  });
+
+/** The options that start a `caseRun` under the key `k`. */
+export const startCase = { event: { name: "dd.changes" as const, data: { case: "k" } } };
 
 export { COUNT_SCHEMA } from "@agentswf/contract/testing";
 

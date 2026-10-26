@@ -1,4 +1,3 @@
-import { realpathSync } from "node:fs";
 import { stat } from "node:fs/promises";
 import { extname, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -19,6 +18,7 @@ import {
 import { plugin } from "bun";
 import * as typebox from "typebox";
 import * as typeboxValue from "typebox/value";
+import { realPath } from "./files";
 import { idProblem } from "./runs";
 
 /**
@@ -77,9 +77,7 @@ export async function loadWorkflowFile(file: string, cwd: string): Promise<Loade
   serveAuthorSurface();
   const namespace: unknown = await import(pathToFileURL(absolute).href);
   const given = record(namespace)?.default;
-  const keyed = isEventWorkflow({ kind: String(record(given)?.kind) })
-    ? checkedEvents(given as ExecutableEventWorkflow<EventSchemas, JsonValue>, absolute)
-    : undefined;
+  const keyed = isEventWorkflow(given) ? checkedEvents(given, absolute) : undefined;
   const exported: unknown = keyed
     ? {
         ...(given as object),
@@ -106,14 +104,6 @@ export async function loadWorkflowFile(file: string, cwd: string): Promise<Loade
   return { file: absolute, executable: exported, ...(keyed ? { keyed } : {}) };
 }
 
-function real(path: string): string {
-  try {
-    return realpathSync(resolve(path));
-  } catch {
-    return resolve(path);
-  }
-}
-
 /** A definition with `events`, checked as `tsc` would have for a file it never saw. */
 function checkedEvents(
   workflow: ExecutableEventWorkflow<EventSchemas, JsonValue>,
@@ -122,7 +112,7 @@ function checkedEvents(
   const problem = eventWorkflowProblem(workflow.definition);
   if (problem) throw new Error(problem);
   const { definition } = workflow;
-  if (real(definition.file) !== real(file))
+  if (realPath(definition.file) !== realPath(file))
     throw new Error(
       `file is ${JSON.stringify(definition.file)}; a workflow with events gives file: import.meta.path, ${file}`,
     );

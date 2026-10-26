@@ -112,8 +112,6 @@ export class StageLedger {
       now?: () => Date;
     },
   ) {
-    if (options.byContent && (options.fromStage !== undefined || options.values !== undefined))
-      throw new Error("a run of a workflow with events takes no --from-stage or --values");
     this.#records = new Map(options.records);
   }
 

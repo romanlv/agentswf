@@ -119,11 +119,15 @@ export function defineEventWorkflow<Events extends EventSchemas, Result extends 
   return { ...spec, kind: EVENT_WORKFLOW_KIND };
 }
 
-/** Whether a workflow is started by events. */
-export function isEventWorkflow(workflow: {
-  readonly kind: string;
-}): workflow is ExecutableEventWorkflow<EventSchemas, JsonValue> {
-  return workflow.kind === EVENT_WORKFLOW_KIND;
+/** Whether a value, as a file exports it, is a workflow started by events. */
+export function isEventWorkflow(
+  workflow: unknown,
+): workflow is ExecutableEventWorkflow<EventSchemas, JsonValue> {
+  return (
+    typeof workflow === "object" &&
+    workflow !== null &&
+    (workflow as { kind?: unknown }).kind === EVENT_WORKFLOW_KIND
+  );
 }
 
 /**

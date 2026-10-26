@@ -108,7 +108,10 @@ export async function keepRecords(
       ending.kind === "completed" && attempt.run.record.key !== undefined
         ? await readMailbox(dir).then(
             (records) => foldMailbox(records).unacknowledged.length,
-            () => undefined,
+            (error: unknown) => {
+              stderr(`awf: what no wait took was not counted: ${messageOf(error)}`);
+              return undefined;
+            },
           )
         : undefined;
     await endAttempt(attempt, {

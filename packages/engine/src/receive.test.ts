@@ -1,33 +1,9 @@
 import { expect, test } from "bun:test";
 import type { TurnRecord } from "@agentswf/contract/records";
-import {
-  defineEventWorkflow,
-  defineExecutableWorkflow,
-  type EventWorkflowContext,
-  type JsonValue,
-  type OutputSchema,
-} from "@agentswf/contract/workflow";
+import { defineExecutableWorkflow, type EventWorkflowContext } from "@agentswf/contract/workflow";
+import { caseRun } from "./testing";
 import { keptSessionsOf } from "./workflow-runner";
 import { testWorkflow } from "./workflow-testing";
-
-const Changes: OutputSchema<{ case: string }> = {
-  type: "object",
-  properties: { case: { type: "string" } },
-  required: ["case"],
-};
-const events = { "dd.changes": Changes };
-
-const caseRun = (run: (workflow: EventWorkflowContext<typeof events>) => Promise<JsonValue>) =>
-  defineEventWorkflow({
-    definition: {
-      meta: { name: "dd-case", description: "A case." },
-      file: import.meta.path,
-      events,
-      key: (e) => e.data.case,
-      starts: ["dd.changes"],
-      run,
-    },
-  });
 
 test("the first wait takes the event that started the run, under the key it made", async () => {
   const run = await testWorkflow(
@@ -93,7 +69,7 @@ test("receive on a workflow without events is an error", async () => {
       definition: {
         meta: { name: "plain", description: "No events." },
         run: async (workflow) => {
-          await (workflow as unknown as EventWorkflowContext<typeof events>).receive();
+          await (workflow as unknown as EventWorkflowContext<Record<string, never>>).receive();
           return null;
         },
       },
@@ -110,7 +86,7 @@ test("a key outside the grammar is refused", async () => {
       caseRun(async () => null),
       { event: { name: "dd.changes", data: { case: "Kombo" } } },
     ),
-  ).rejects.toThrow('the key "Kombo" is not a key');
+  ).rejects.toThrow('the key "Kombo": ');
 });
 
 test("a wait ends with its run: a deadline while waiting settles the run and the wait", async () => {
@@ -192,7 +168,7 @@ test("workflow.emit sends to its target by the target's file, and a test records
   );
   expect(run.value).toBe("accepted");
   expect(run.emits).toEqual([
-    { target: import.meta.path, name: "dd.changes", data: { case: "k" }, id: "c1" },
+    { target: target.definition.file, name: "dd.changes", data: { case: "k" }, id: "c1" },
   ]);
 });
 

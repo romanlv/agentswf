@@ -88,9 +88,14 @@ export async function inboxCommand(
   argv: readonly string[],
   shellCwd: string,
   out: Out,
-  clock: InboxClock = REAL_CLOCK,
-  /** Where `~/.awf/projects` is, through which a keyed run is found from anywhere. */
-  home: string = homedir(),
+  {
+    clock = REAL_CLOCK,
+    home = homedir(),
+  }: {
+    clock?: InboxClock;
+    /** Where `~/.awf/projects` is, through which a keyed run is found from anywhere. */
+    home?: string;
+  } = {},
 ): Promise<number> {
   if (argv.includes("-h") || argv.includes("--help")) {
     out.stdout(inboxUsage);

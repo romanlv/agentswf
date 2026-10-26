@@ -1,6 +1,6 @@
-import { realpathSync } from "node:fs";
 import { stat } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
+import { realPath } from "./files";
 import { appendLine } from "./jsonl";
 import { withKeyLock } from "./key-lock";
 
@@ -11,8 +11,8 @@ import { withKeyLock } from "./key-lock";
  */
 export async function projectOf(file: string, home: string): Promise<string> {
   // The real path, so a sender naming the file through a link finds the same runs.
-  const start = real(dirname(resolve(file)));
-  const ownHome = real(home);
+  const start = realPath(dirname(resolve(file)));
+  const ownHome = realPath(home);
   if (start === ownHome)
     throw new Error(
       `${file} is directly in home, where awf keeps its own .awf: move it into a directory`,
@@ -25,14 +25,6 @@ export async function projectOf(file: string, home: string): Promise<string> {
     );
     if (found) return dir;
     if (dirname(dir) === dir) return start;
-  }
-}
-
-function real(path: string): string {
-  try {
-    return realpathSync(resolve(path));
-  } catch {
-    return resolve(path);
   }
 }
 

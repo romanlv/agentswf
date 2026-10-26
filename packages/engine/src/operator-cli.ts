@@ -155,6 +155,11 @@ export async function runOperatorCli(
       ...(environment.environment ? { environment: environment.environment } : {}),
       ...(environment.home ? { home: environment.home } : {}),
     });
+  const wakes = {
+    home: environment.home ?? homedir(),
+    environment: environment.environment ?? process.env,
+    ...(environment.launch ? { launch: environment.launch } : {}),
+  };
   const handlers = {
     run: () => runCommand(argv, environment, { stdout, stderr, notice, terminal, now }),
     test: () => {
@@ -172,37 +177,11 @@ export async function runOperatorCli(
         stderr,
         ...(environment.install ? { install: environment.install } : {}),
       }),
-    emit: () =>
-      emitCommand(
-        argv.slice(1),
-        cwd,
-        { stdout, stderr },
-        {
-          home: environment.home ?? homedir(),
-          environment: environment.environment ?? process.env,
-          ...(environment.launch ? { launch: environment.launch } : {}),
-        },
-      ),
-    tick: () =>
-      tickCommand(
-        argv.slice(1),
-        { stdout, stderr },
-        {
-          home: environment.home ?? homedir(),
-          environment: environment.environment ?? process.env,
-          ...(environment.launch ? { launch: environment.launch } : {}),
-        },
-      ),
+    emit: () => emitCommand(argv.slice(1), cwd, { stdout, stderr }, wakes),
+    tick: () => tickCommand(argv.slice(1), { stdout, stderr }, wakes),
     runs: () => runsCommand(argv.slice(1), cwd, { stdout, stderr }),
     logs: () => logsCommand(argv.slice(1), cwd, { stdout, stderr }),
-    inbox: () =>
-      inboxCommand(
-        argv.slice(1),
-        cwd,
-        { stdout, stderr },
-        undefined,
-        environment.home ?? homedir(),
-      ),
+    inbox: () => inboxCommand(argv.slice(1), cwd, { stdout, stderr }, { home: wakes.home }),
     reply: () => holder(),
     send: () => holder(),
     allowance: () =>
@@ -424,6 +403,8 @@ async function runAttempt(
     return refuse(messageOf(error));
   }
   const { id, cwd } = run.record;
+  const locked = <T>(work: () => Promise<T>) =>
+    withKeyLock(keyLockFile(run.root, meta.name, id), work);
   const sandbox = run.record.sandbox ?? undefined;
   const n = attempt.record.attempt;
   // Claimed first, which `wake` waits for holding the key's lock; only then waited on: two
@@ -445,12 +426,7 @@ async function runAttempt(
     executable,
     workflow: { name: meta.name, file: loaded.file },
     stderr,
-    ...(run.record.key === undefined
-      ? {}
-      : {
-          locked: (work: () => Promise<void>) =>
-            withKeyLock(keyLockFile(run.root, meta.name, run.record.id), work),
-        }),
+    ...(run.record.key === undefined ? {} : { locked }),
   };
   const close = (end: AttemptEnd, kept: Kept, cleanupAlso?: string) =>
     printEnding(end, kept, {
@@ -575,7 +551,7 @@ async function runAttempt(
           ? {}
           : {
               key,
-              locked: (work) => withKeyLock(keyLockFile(run.root, meta.name, id), work),
+              locked,
               listenNudges: (given) => {
                 nudge = given;
               },

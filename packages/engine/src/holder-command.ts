@@ -1,10 +1,9 @@
 import { homedir } from "node:os";
 import type { HolderResultJson } from "@agentswf/contract/records";
 import { type HolderCode, WIRE_VERSION } from "@agentswf/contract/wire";
-import { AWF_ID_PREFIX, nameProblem } from "@agentswf/contract/workflow";
 import { liveCoordinatorSocket } from "./coordinator-socket";
-import { deliver } from "./emit";
-import { emitLine } from "./emit-command";
+import { deliver, eventIdProblem } from "./emit";
+import { printEmit } from "./emit-command";
 import { messageOf } from "./errors";
 import { isCode } from "./files";
 import { ItemFold } from "./inbox-command";
@@ -37,15 +36,17 @@ export const replyUsage = [
 type Options = {
   command: "reply" | "send";
   ref: string;
-  /** Absent with `id`: a reply to a participant routed to the code goes to no agent. */
-  agent: string;
-  /** `--id`: the message's own id, which a participant routed to the code takes as its event's. */
-  id?: string;
   author?: string;
   to?: string;
-  as?: string;
   text?: string;
-};
+} & (
+  | { agent: string; as?: string; id?: undefined }
+  /**
+   * `--id`: the message's own id, which a participant routed to the code takes as its event's. It
+   * goes to no agent.
+   */
+  | { id: string; as: string; agent?: undefined }
+);
 
 export type HolderIo = Out & {
   /** Stdin, when no text is given as an argument. */
@@ -96,7 +97,7 @@ export async function holderCommand(
     return usage("nothing to say: the text is blank");
   if (options.text === undefined && io.stdinIsTerminal)
     return usage("nothing to say: give the text as an argument, or pipe it in");
-  if (options.id !== undefined) return toTheCode(options, options.id, place, json, io);
+  if (options.id !== undefined) return toTheCode(options, place, json, io, { refused, usage });
   try {
     let status: RunStatus;
     try {
@@ -179,18 +180,24 @@ function parseHolder(command: "reply" | "send", rest: readonly string[]): Option
     else words.push(arg);
   }
   // With --id, the participant's reply goes to the run's code: there is no agent to name.
-  const [ref, agent, text, ...extra] =
-    id === undefined ? words : [words[0], "", words[1], ...words.slice(2)];
+  let target: { agent: string; as?: string } | { id: string; as: string };
+  let ref: string | undefined;
+  let text: string | undefined;
+  let extra: string[];
   if (id !== undefined) {
+    [ref, text, ...extra] = words;
     if (!ref) throw new Error("send needs a run, <workflow>/<id>");
     if (!as) throw new Error("--id sends as a participant routed to the code: --as names it");
-    const problem = nameProblem(id);
+    const problem = eventIdProblem(id);
     if (problem) throw new Error(`--id ${id}: ${problem}`);
-    if (id.startsWith(AWF_ID_PREFIX))
-      throw new Error(`--id ${id}: ids starting ${AWF_ID_PREFIX} are awf's own`);
-  } else if (author !== undefined) throw new Error("--author goes with --id");
-  if (!ref || agent === undefined || (id === undefined && !agent))
-    throw new Error(`${command} needs a run, <workflow>/<id>, and an agent`);
+    target = { id, as };
+  } else {
+    let agent: string | undefined;
+    [ref, agent, text, ...extra] = words;
+    if (author !== undefined) throw new Error("--author goes with --id");
+    if (!ref || !agent) throw new Error(`${command} needs a run, <workflow>/<id>, and an agent`);
+    target = { agent, ...(as === undefined ? {} : { as }) };
+  }
   if (!ref.includes("/")) throw new Error(`a run is <workflow>/<id>, not ${ref}`);
   if (extra.length > 0) throw new Error("the text is one argument: quote it, or pipe it in");
   if (to !== undefined && !/^\d+\.\d+$/.test(to))
@@ -198,11 +205,9 @@ function parseHolder(command: "reply" | "send", rest: readonly string[]): Option
   return {
     command,
     ref,
-    agent,
+    ...target,
     ...(to === undefined ? {} : { to }),
-    ...(as === undefined ? {} : { as }),
     ...(text === undefined ? {} : { text }),
-    ...(id === undefined ? {} : { id }),
     ...(author === undefined ? {} : { author }),
   };
 }
@@ -238,21 +243,16 @@ async function awaitedBy(
  * parked run. The run is found here, or in a project awf started a keyed run in (Q15).
  */
 async function toTheCode(
-  options: Options,
-  id: string,
+  options: Extract<Options, { id: string }>,
   place: ReadPlace,
   json: boolean,
   io: HolderIo,
+  say: { refused(code: HolderCode, error: string): number; usage(problem: string): number },
 ): Promise<number> {
   const home = io.home ?? homedir();
   const environment = io.environment ?? process.env;
-  const as = options.as!;
-  // A refusal is said as `awf send` says one, on stdout too under --json.
-  const refused = (code: HolderCode, error: string) => {
-    if (json) io.stdout(JSON.stringify({ v: 1, code, error } satisfies HolderResultJson));
-    io.stderr(`awf: send refused (${code}): ${error}`);
-    return 1;
-  };
+  const { id, as } = options;
+  const { refused } = say;
   let found: RunStatus | undefined;
   try {
     found = await findKeyedRun(options.ref, place, home);
@@ -271,10 +271,7 @@ async function toTheCode(
       `${found.ref} has no participant ${as} routed to its code; --id is for one`,
     );
   const text = options.text ?? (await io.stdin());
-  if (text.trim() === "") {
-    io.stderr(`awf: nothing to say: stdin was empty\n\n${replyUsage}`);
-    return 2;
-  }
+  if (text.trim() === "") return say.usage("nothing to say: stdin was empty");
   try {
     const result = await deliver(
       {
@@ -292,10 +289,7 @@ async function toTheCode(
       },
       { home, environment },
     );
-    io.stdout(json ? JSON.stringify(result) : emitLine(result));
-    if (result.why !== "launch-failed") return 0;
-    io.stderr(`awf: the run's attempt did not start: ${result.error}`);
-    return 1;
+    return printEmit(result, json, io);
   } catch (error) {
     return failed(error, place, io, messageOf(error));
   }

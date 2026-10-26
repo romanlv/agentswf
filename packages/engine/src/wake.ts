@@ -12,11 +12,8 @@ import { messageOf } from "./errors";
 import { exists } from "./files";
 import { coordinatorDir } from "./machine";
 import { appendMailbox, foldMailbox, readMailbox } from "./mailbox";
-import { STUCK_AFTER, statusOf, stuckOf } from "./run-state";
-
-export { STUCK_AFTER };
-
-import { type ProcessProbe, type Run, readAttempts, sameProcess } from "./runs";
+import { statusOf, stuckOf } from "./run-state";
+import { type Run, readAttempts, sameProcess } from "./runs";
 import { exchange } from "./socket-exchange";
 
 /**
@@ -44,7 +41,6 @@ export type WakeContext = {
   launch?: Launch;
   /** Asks a live run's wait to read its mailbox again; false when it couldn't be reached. */
   nudge?: (run: Run) => Promise<boolean>;
-  probe?: ProcessProbe;
   now?: () => number;
   /** False for a duplicate: a live run has the event already, and a nudge would tell it nothing. */
   nudgeLive?: boolean;
@@ -86,8 +82,7 @@ export async function wake(run: Run, context: WakeContext): Promise<Woken> {
   const stuck = async () => stuckOf(attempts, await mailbox());
   if (attempts.length === 0)
     return (await stuck()) ? { did: "none", why: "stuck" } : launch("started", "event");
-  const { probe } = context;
-  const { state } = statusOf(run, attempts, probe ? (pid) => probe(pid) ?? "gone" : undefined);
+  const { state } = statusOf(run, attempts);
   switch (state) {
     case "running":
       if (context.nudgeLive === false) return { did: "none" };
@@ -198,6 +193,7 @@ function detachedLaunch(context: WakeContext): Launch {
     // Only what this launch writes is quoted if it fails: the log holds every attempt's output.
     const from = Bun.file(join(run.dir, "process.log")).size;
     const log = openSync(join(run.dir, "process.log"), "a", 0o600);
+    const env = attemptEnvironment(context.environment, run);
     let child: ReturnType<typeof Bun.spawn>;
     try {
       child = Bun.spawn({
@@ -212,7 +208,7 @@ function detachedLaunch(context: WakeContext): Launch {
           run.root,
         ],
         cwd: run.record.cwd,
-        env: attemptEnvironment(context.environment, run),
+        env,
         stdio: ["ignore", log, log],
         detached: true,
       });
@@ -229,10 +225,7 @@ function detachedLaunch(context: WakeContext): Launch {
         const previous = claimed.at(-2);
         if (previous && sameProcess(previous.pid, previous.processStart)) return;
         // Best effort: an event sent next nudges the run rather than waiting for its poll.
-        const socket = coordinatorSocketPath(
-          coordinatorDir(context.home, attemptEnvironment(context.environment, run)),
-          run.dir,
-        );
+        const socket = coordinatorSocketPath(coordinatorDir(context.home, env), run.dir);
         const opened = Date.now() + SOCKET_MILLISECONDS;
         while (
           Date.now() < opened &&
@@ -252,7 +245,9 @@ function detachedLaunch(context: WakeContext): Launch {
         throw new Error(`the attempt of ${run.record.id} exited before it started: ${tail}`);
       }
       if (Date.now() > giveUp)
-        throw new Error(`the attempt of ${run.record.id} did not start within 60 s`);
+        throw new Error(
+          `the attempt of ${run.record.id} did not start within ${CLAIM_MILLISECONDS / 1000} s`,
+        );
       await Bun.sleep(25);
     }
   };

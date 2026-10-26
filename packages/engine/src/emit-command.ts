@@ -61,14 +61,19 @@ export async function emitCommand(
     out.stderr(`awf: ${messageOf(error)}`);
     return error instanceof EmitError ? 2 : 1;
   }
-  out.stdout(parsed.json ? JSON.stringify(result) : emitLine(result));
+  return printEmit(result, parsed.json, out);
+}
+
+/** Prints an emit's result, as `awf emit` and `awf send` do: 1 when the run's attempt didn't start. */
+export function printEmit(result: EmitResultJson, json: boolean, out: Out): number {
+  out.stdout(json ? JSON.stringify(result) : emitLine(result));
   if (result.why !== "launch-failed") return 0;
   out.stderr(`awf: the run's attempt did not start: ${result.error}`);
   return 1;
 }
 
-/** `accepted dd-case/dd-case.kombo: started`, as `awf emit` and `awf send` print an emit. */
-export function emitLine(result: EmitResultJson): string {
+/** `accepted dd-case/dd-case.kombo: started`. */
+function emitLine(result: EmitResultJson): string {
   const did = result.did === "none" ? result.why : result.did;
   return `${result.outcome} ${result.run}${did === undefined ? "" : `: ${did}`}`;
 }

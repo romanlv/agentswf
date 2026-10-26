@@ -1,38 +1,13 @@
 import { afterAll, expect, test } from "bun:test";
 import { MAILBOX_RECORD_VERSION, type MailboxRecord } from "@agentswf/contract/records";
-import {
-  defineEventWorkflow,
-  type EventWorkflowContext,
-  isAnswered,
-  type JsonValue,
-  type OutputSchema,
-} from "@agentswf/contract/workflow";
-import { appendMailbox, endIdOf, foldMailbox, readMailbox } from "./mailbox";
-import { createTempRunDirs } from "./testing";
-import { recoverTurns } from "./workflow-runner";
+import { isAnswered } from "@agentswf/contract/workflow";
+import { appendMailbox, endIdOf, foldMailbox, readMailbox, recoverTurns } from "./mailbox";
+import { caseRun, createTempRunDirs, startCase } from "./testing";
 import { answer, reply, testWorkflow } from "./workflow-testing";
 
 const dirs = createTempRunDirs();
 afterAll(() => dirs.cleanup());
 
-const Changes: OutputSchema<{ case: string }> = {
-  type: "object",
-  properties: { case: { type: "string" } },
-  required: ["case"],
-};
-const events = { "dd.changes": Changes };
-const caseRun = (run: (workflow: EventWorkflowContext<typeof events>) => Promise<JsonValue>) =>
-  defineEventWorkflow({
-    definition: {
-      meta: { name: "dd-case", description: "A case." },
-      file: import.meta.path,
-      events,
-      key: (e) => e.data.case,
-      starts: ["dd.changes"],
-      run,
-    },
-  });
-const start = { event: { name: "dd.changes" as const, data: { case: "k" } } };
 const ends = (mailbox: MailboxRecord[]) =>
   mailbox.flatMap((record) =>
     record.kind === "event" && record.name === "agent:ended" ? [record] : [],
@@ -43,7 +18,7 @@ const slow = (text: string, ms: number) =>
     return text;
   });
 
-test("start returns at once; the end arrives at a wait with the turn's id, meta and outcome", async () => {
+test("startCase returns at once; the end arrives at a wait with the turn's id, meta and outcome", async () => {
   const run = await testWorkflow(
     caseRun(async (workflow) => {
       await workflow.receive();
@@ -64,7 +39,7 @@ test("start returns at once; the end arrives at a wait with the turn's id, meta 
         }
       }
     }),
-    { ...start, agents: { investigator: answer("found it") } },
+    { ...startCase, agents: { investigator: answer("found it") } },
   );
   expect(run.value).toEqual({ same: true, given: 3, answered: "found it", cleared: true });
   expect(ends(run.mailbox)).toHaveLength(1);
@@ -101,7 +76,7 @@ test("while a started turn is set, the agent refuses other work, also once it en
       await tryAll();
       return null;
     }),
-    { ...start, agents: { investigator: answer("done") } },
+    { ...startCase, agents: { investigator: answer("done") } },
   );
   expect(run.value).toBeNull();
   expect(refusals).toEqual(
@@ -127,7 +102,7 @@ test("an event during a turn is taken before the turn ends", async () => {
         }
       }
     }),
-    { ...start, agents: { investigator: slow("slow", 300), triage: answer("quick") } },
+    { ...startCase, agents: { investigator: slow("slow", 300), triage: answer("quick") } },
   );
   expect(run.value).toEqual(["triage", "investigator"]);
 });
@@ -147,7 +122,7 @@ test("cancel returns once the cancelled end is in the mailbox, and at once on an
         kind: end && agent.ended(end) ? end.data.outcome.kind : null,
       };
     }),
-    { ...start, agents: { investigator: reply.hang() } },
+    { ...startCase, agents: { investigator: reply.hang() } },
   );
   expect(run.value).toEqual({ cancelled: true, again: false, kind: "cancelled" });
 });
@@ -160,7 +135,7 @@ test("code that throws with a turn running cancels it, and its end is written fi
       await agent.start({ prompt: "look" });
       throw new Error("a bug");
     }),
-    { ...start, agents: { investigator: reply.hang() } },
+    { ...startCase, agents: { investigator: reply.hang() } },
   );
   expect(() => run.value).toThrow("a bug");
   expect(
@@ -176,7 +151,7 @@ test("a return cancels a running turn", async () => {
       await agent.start({ prompt: "look" });
       return "merged";
     }),
-    { ...start, agents: { investigator: reply.hang() } },
+    { ...startCase, agents: { investigator: reply.hang() } },
   );
   expect(run.value).toBe("merged");
   expect(
@@ -192,13 +167,13 @@ test("a run doesn't park while a started turn runs, and parks once its end is ta
       await agent.start({ prompt: "look" });
       for (;;) await workflow.receive({ label: agent.turn ? "investigating" : "idle" });
     }),
-    { ...start, agents: { investigator: slow("done", 200) } },
+    { ...startCase, agents: { investigator: slow("done", 200) } },
   );
   expect(run.parked).toEqual({ label: "idle" });
   expect(ends(run.mailbox)).toHaveLength(1);
 });
 
-test("start is refused in a stage, whose end it would outlive", async () => {
+test("startCase is refused in a stage, whose end it would outlive", async () => {
   const run = await testWorkflow(
     caseRun(async (workflow) => {
       await workflow.receive();
@@ -208,7 +183,7 @@ test("start is refused in a stage, whose end it would outlive", async () => {
       });
       return null;
     }),
-    { ...start, agents: { investigator: answer("done") } },
+    { ...startCase, agents: { investigator: answer("done") } },
   );
   expect(() => run.value).toThrow("start() is called at the run's root");
 });
@@ -347,7 +322,7 @@ test("after a crash, an agent opened after the wait took its end is free, and on
   expect(held.value).toBe(true);
 });
 
-test("a turn id is begun once in an attempt, and two starts at once start one turn", async () => {
+test("a turn id is begun once in an attempt, and two starts at once startCase one turn", async () => {
   const run = await testWorkflow(
     caseRun(async (workflow) => {
       await workflow.receive();
@@ -363,13 +338,13 @@ test("a turn id is begun once in an attempt, and two starts at once start one tu
       );
       return { both: both.map((r) => r.status), again };
     }),
-    { ...start, agents: { investigator: answer("done") } },
+    { ...startCase, agents: { investigator: answer("done") } },
   );
   expect(run.value).toEqual({ both: ["fulfilled", "rejected"], again: true });
   expect(run.mailbox.filter((r) => r.kind === "turn")).toHaveLength(1);
 });
 
-test("a start behind other work waits for it, and its cancel stops only the turn", async () => {
+test("a startCase behind other work waits for it, and its cancel stops only the turn", async () => {
   const run = await testWorkflow(
     caseRun(async (workflow) => {
       await workflow.receive();
@@ -384,7 +359,7 @@ test("a start behind other work waits for it, and its cancel stops only the turn
         other: (await running).outcome.kind,
       };
     }),
-    { ...start, agents: { investigator: slow("done", 100) } },
+    { ...startCase, agents: { investigator: slow("done", 100) } },
   );
   expect(run.value).toEqual({ cancelled: true, end: "cancelled", other: "answered" });
 });
@@ -407,13 +382,13 @@ test("a message held during a started turn doesn't keep the next start() out", a
       for (;;)
         for (const e of await workflow.receive()) {
           if (!investigator.ended(e)) continue;
-          // Its end taken, the held message wakes it, and the next start waits behind it.
+          // Its end taken, the held message wakes it, and the next startCase waits behind it.
           const next = await investigator.start({ prompt: "look again" });
           return next.id.length > 0;
         }
     }),
     {
-      ...start,
+      ...startCase,
       agents: {
         investigator: slow("found", 150),
         triage: answer(async (turn) => {

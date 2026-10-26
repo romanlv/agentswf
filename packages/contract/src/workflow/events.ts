@@ -6,8 +6,8 @@ import type { ParticipantKey } from "./participants";
  * Keys, event ids and stage names: lowercase, since each becomes a file name on a disk that may not
  * tell case apart, and one grammar, so a stage named by an event id is always valid.
  */
-export const NAME_PATTERN = /^[a-z0-9][a-z0-9._@-]*$/;
-export const NAME_MAX_LENGTH = 128;
+const NAME_PATTERN = /^[a-z0-9][a-z0-9._@-]*$/;
+const NAME_MAX_LENGTH = 128;
 
 /** Why a key, event id or stage name doesn't fit the grammar; absent when it does. */
 export function nameProblem(name: string): string | undefined {

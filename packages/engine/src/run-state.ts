@@ -45,19 +45,17 @@ export async function runStatus(
   at = Date.now(),
 ): Promise<RunStatus> {
   const status = statusOf(run, await readAttempts(run), probe, at);
-  const waiting = await waitingOf(status);
-  const stuck =
-    run.record.key !== undefined &&
-    status.state !== "running" &&
-    stuckOf(status.attempts, await readMailbox(run.dir));
+  if (run.record.key === undefined) return status;
+  const records = await readMailbox(run.dir);
+  const waiting = waitingOf(status, records);
+  const stuck = status.state !== "running" && stuckOf(status.attempts, records);
   return { ...status, ...(waiting ? { waiting } : {}), ...(stuck ? { state: "stuck" } : {}) };
 }
 
 /** A keyed run's wait, while it is running or parked there: its label and `until`. */
-async function waitingOf(status: RunStatus): Promise<WaitingJson | undefined> {
-  if (status.run.record.key === undefined) return undefined;
+function waitingOf(status: RunStatus, records: readonly MailboxRecord[]): WaitingJson | undefined {
   if (status.state !== "running" && status.state !== "parked") return undefined;
-  const wait = foldMailbox(await readMailbox(status.run.dir)).lastWait;
+  const wait = foldMailbox(records).lastWait;
   // A wait an earlier attempt died in is not this one's.
   if (!wait?.waiting || wait.attempt !== status.attempts.at(-1)?.attempt) return undefined;
   return {
@@ -164,9 +162,9 @@ export const STUCK_AFTER = 3;
  * Failed, timed-out or crashed attempts at the end of the run, and launches since the last attempt
  * that never claimed one, counted together; any other ending resets them.
  */
-export function failuresInARow(
+function failuresInARow(
   attempts: readonly AttemptRecord[],
-  records: readonly MailboxRecord[] = [],
+  records: readonly MailboxRecord[],
 ): number {
   const since = attempts.at(-1)?.started ?? "";
   let n = records.filter((record) => record.kind === "launch-failed" && record.at > since).length;

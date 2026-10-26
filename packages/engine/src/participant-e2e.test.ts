@@ -7,7 +7,7 @@ import { foldMailbox, readMailbox } from "./mailbox";
 import { runOperatorCli } from "./operator-cli";
 import { findKeyedRun } from "./run-state";
 import { createRun, openRun, readAttempts } from "./runs";
-import { createTempRunDirs } from "./testing";
+import { createTempRunDirs, keyedProject, until } from "./testing";
 
 const dirs = createTempRunDirs();
 afterAll(() => dirs.cleanup());
@@ -38,21 +38,8 @@ export default defineEventWorkflow({
 });
 `;
 
-async function until(check: () => Promise<boolean>, ms = 20_000): Promise<void> {
-  const end = Date.now() + ms;
-  while (!(await check())) {
-    if (Date.now() > end) throw new Error("timed out");
-    await Bun.sleep(50);
-  }
-}
-
 test("a reply on a participant routed to the code reaches the run, live or parked, once", async () => {
-  const root = dirs.tempRunDir();
-  mkdirSync(join(root, ".awf"));
-  mkdirSync(join(root, "flows"));
-  const file = join(root, "flows", "thread.ts");
-  writeFileSync(file, WORKFLOW);
-  const home = dirs.tempRunDir();
+  const { root, file, home } = keyedProject(dirs, "thread.ts", WORKFLOW);
   const environment = { ...process.env, HOME: home };
   const out: string[] = [];
   const err: string[] = [];

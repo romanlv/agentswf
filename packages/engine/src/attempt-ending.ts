@@ -86,8 +86,7 @@ export function decideEnding(
       ending: {
         kind: "parked",
         stages: settled?.stages ?? [],
-        ...(parked.label === undefined ? {} : { label: parked.label }),
-        ...(parked.until === undefined ? {} : { until: parked.until }),
+        ...parked.wait,
       },
       ...(settled ? { settled } : {}),
       exitCode: OUTCOMES.parked.exitCode!,
