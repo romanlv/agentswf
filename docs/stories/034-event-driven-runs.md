@@ -524,7 +524,7 @@ turn, which the case's files keep and the wait's `until` reads.
 - [x] 4. One way in: `awf emit --target`, the key's lock, append or refuse, `wake`
 - [x] 5. Parking: the `parked` ending, a continue to the wait with agents on their kept sessions, and `awf tick`
 - [x] 6. Turns not awaited: `start()`, `turn`, `agent:ended`, `cancel()`
-- [ ] 7. A participant routed to the code: `participant:reply`, `post`
+- [x] 7. A participant routed to the code: `participant:reply`, `post`
 - [ ] 8. workflow-testing: scripted events
 - [ ] 9. The Datadog case run on it, against its sketch
 
@@ -587,7 +587,9 @@ into Q4. The published formats among them still stop for review at task 1.
   in the environment, never in `.env`. A variable already set would win over `.env`, so anything
   else a run needs, such as `CLAUDE_CONFIG_DIR` or a token, goes in the project's `.env`. An
   operator's own `awf run --continue` runs with their whole environment. A file directly in home
-  has no project, as `~/.awf` is awf's own, and is refused (decided in task 4's review).
+  has no project, as `~/.awf` is awf's own, and is refused (decided in task 4's review). A ref
+  found in two projects, workflows of one name keyed alike, is refused naming both; `--cwd`
+  chooses (task 7's review).
 
 ### 6. Turns not awaited
 
@@ -1217,3 +1219,49 @@ Built in the worktree `../worktrees/awf-event-driven-runs`, branch `event-driven
   while `begin` failed is taken; stale wording in these notes and the Done when.
 - **Verified**: `bun test packages/engine` 932 pass; `packages/contract`, `harness` and `examples`
   554; `bun run check` passes. Clear.
+
+### Task 7: a participant routed to the code
+
+- **Where.** `participants.connect({ key, to: "code" })`, in a run with `events` only, returns a
+  `CodeParticipantRef`: `replied(e)` is true for its `participant:reply` events, and `post(text)`
+  writes a `participant-post` line to the run's event log, which `awf inbox` turns into its `post`
+  item, `{ kind: "post", coordinator, id: "{attempt}.p{n}", text }`. `participant-connected`
+  records `to: "code"`; `awf logs` shows both.
+- **`awf send {ref} --as {participant} --id {message id} [--author {name}] [{text}]`**
+  (`holder-command.ts`, `toTheCode`): no agent; the id is checked against the grammar and refused
+  starting `awf.`; the run is found under `--cwd`'s runs, or in a project in `~/.awf/projects`
+  (Q15); the participant must be one the run connected to its code, in any attempt; the reply goes
+  through `deliver`, as `participant:reply` from the participant, with the message's id as the
+  event's and `{ text, author? }`, so it nudges a live run, continues a parked one, and is a
+  duplicate when the chat delivers it twice. It prints as `awf emit` does; `--json` is
+  `EmitResultJson`.
+- **A parked run keeps its participant**: the next attempt's code connects it again under the same
+  key, and `awf send` accepts it from the earlier attempt's record while the run is parked.
+- **Tests** (`participant-e2e.test.ts`, across processes): a reply while the run is live is nudged,
+  one while it is parked continues it, the same message id again is a duplicate and is appended
+  once; the replies reach the code with their id, text and author; the run's posts are `post`
+  items in `awf inbox --as thread`; an id outside the grammar is a usage error. `bun test
+  packages/engine` 934 pass; the rest pass but for the workflow-api samples test, as on main;
+  `bun run check` passes.
+- **Review 1** (one agent, both lenses): 10 findings, fixed or recorded. Fixed: a `post` item
+  carries the participant's `labels`, which a chat host titles its thread with (a code participant
+  has no routes, which carried them before); `awf inbox {ref}` finds a keyed run through
+  `~/.awf/projects` from anywhere, as `awf send` does (`findKeyedRun`, in `run-state.ts`), with
+  `home` passed through; `send --id`'s refusals print a `HolderResultJson` on stdout under
+  `--json`, and the usage says it exits as `awf emit` does; `participant-connected` is version 2,
+  read from 1, as it gained `to`; only `RunNotFound` falls through to the next project; a released
+  participant takes no more posts. Recorded: a reply id shares the run's one id space, as every
+  event's does, which the usage says ("one the run has not had from anyone"); a post's id is new
+  at each attempt, so a post made again after a crash may reach a host twice (the `post` item's
+  doc says so); a reply after a release still reaches the code, as a release leaves nothing on
+  disk for `awf send` to see; `awf inbox --all` still reads one run root, so a chat host watching
+  every keyed run reads each project's (owed); `awf inbox`'s JSON stands in for a chat host in the
+  tests. Tests added: the posts' ids and labels, read from a directory with no runs; attempt 2
+  connecting the same participant to its code; a participant not routed to the code refused, with
+  JSON on stdout; each usage error of `send --id`; `to: "code"` refused without `events`.
+- **Review 2**: every round-1 fix confirmed; five small findings, fixed: a ref that is a run in
+  two projects is refused naming both, `--cwd`'s own runs winning, as Q15 now says; the inbox
+  tests use a home of their own; a post after the attempt ended is refused; the usage says which
+  exit is which; a malformed ref keeps its own message. Left: a code participant's connect opens
+  the coordinator socket too, which is harmless. Clear.
+- **Verified**: `bun test packages/engine` 939 pass; `bun run check` passes.

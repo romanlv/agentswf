@@ -349,7 +349,7 @@ export class Messaging {
    * Connects a participant outside the run under `key`, which the runner has checked no agent
    * holds and is not reserved. A key connected before in the attempt, released or not, rejects.
    */
-  connect(key: AgentKey, labels?: JsonObject): void {
+  connect(key: AgentKey, labels?: JsonObject, to?: "code"): void {
     if (this.#closed) throw new Error("participants connect only while the attempt runs");
     if (this.#outside.has(key)) throw new Error(`${key} is already connected`);
     this.#outside.set(key, { key, released: false });
@@ -357,8 +357,23 @@ export class Messaging {
       kind: "participant-connected",
       participant: key,
       ...(labels === undefined ? {} : { labels }),
+      ...(to === undefined ? {} : { to }),
     });
   }
+
+  /** Writes `text` to a participant routed to the code, without a turn: an inbox item for it. */
+  async post(key: AgentKey, text: string): Promise<string> {
+    if (this.#closed) throw new Error("the attempt has ended; nothing more is posted");
+    if (!this.#outside.has(key)) throw new Error(`${key} is not connected`);
+    if (this.#outside.get(key)?.released)
+      throw new Error(`${key} was released; nothing is posted to it`);
+    // Numbered within the attempt; `awf inbox` puts the attempt before it.
+    this.#posts += 1;
+    const id = `p${this.#posts}`;
+    await this.#host.record({ kind: "participant-post", participant: key, id, text });
+    return id;
+  }
+  #posts = 0;
 
   /** Whether `key` is an outside participant's, connected in this attempt. */
   isOutside(key: AgentKey): boolean {

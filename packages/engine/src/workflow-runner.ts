@@ -40,6 +40,7 @@ import {
   type AgentRunStructuredSpec,
   type AgentRunTextSpec,
   type AgentStartSpec,
+  type CodeParticipantRef,
   type CompactionId,
   type CompactSpec,
   DeadlineExceededError,
@@ -56,6 +57,7 @@ import {
   type OperationRecord,
   type OutputSchema,
   type PaneLayout,
+  type ParticipantReplyEvent,
   type PlacementChoice,
   placementOf,
   type ReceiveOptions,
@@ -1190,7 +1192,18 @@ class WorkflowOwner {
         !isJsonValue(labels))
     )
       throw new Error("a participant's labels are a JSON object");
-    this.#messaging.connect(key, labels === undefined ? undefined : structuredClone(labels));
+    const to = (spec as { to?: unknown }).to;
+    if (to !== undefined && to !== "code")
+      throw new Error(`a participant's messages go to agents, or to: "code"; not ${String(to)}`);
+    if (to === "code" && !this.options.mailbox)
+      throw new Error(
+        "a participant routed to the code needs a workflow with events, whose waits take its replies",
+      );
+    this.#messaging.connect(
+      key,
+      labels === undefined ? undefined : structuredClone(labels),
+      to === "code" ? "code" : undefined,
+    );
     const ref: ExternalParticipantRef = {
       ...participantRef(key),
       release: async (reason) => {
@@ -1199,6 +1212,20 @@ class WorkflowOwner {
         return this.#messaging.release(key, reason);
       },
     };
+    if (to === "code") {
+      const routed: CodeParticipantRef = {
+        ...ref,
+        post: async (text) => {
+          if (typeof text !== "string" || text.trim() === "")
+            throw new Error("post takes the text to write");
+          await this.#messaging.post(key, text);
+        },
+        replied: (event): event is ParticipantReplyEvent & Matched =>
+          event.name === "participant:reply" && event.from === key,
+      };
+      this.#outsideRefs.set(key, routed);
+      return routed;
+    }
     this.#outsideRefs.set(key, ref);
     return ref;
   }

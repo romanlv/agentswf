@@ -195,7 +195,14 @@ export async function runOperatorCli(
       ),
     runs: () => runsCommand(argv.slice(1), cwd, { stdout, stderr }),
     logs: () => logsCommand(argv.slice(1), cwd, { stdout, stderr }),
-    inbox: () => inboxCommand(argv.slice(1), cwd, { stdout, stderr }),
+    inbox: () =>
+      inboxCommand(
+        argv.slice(1),
+        cwd,
+        { stdout, stderr },
+        undefined,
+        environment.home ?? homedir(),
+      ),
     reply: () => holder(),
     send: () => holder(),
     allowance: () =>

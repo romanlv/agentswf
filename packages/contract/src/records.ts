@@ -581,13 +581,19 @@ export type OutsideVia = "terminal" | "command" | "test";
  * delivery with what the harness confirmed.
  */
 export type MessagingEvent =
-  /** An outside participant connected, with the labels the workflow gave it. */
+  /**
+   * An outside participant connected, with the labels the workflow gave it; `to: "code"` when its
+   * messages go to the run's code, as `participant:reply` events, not to agents.
+   */
   | {
       kind: "participant-connected";
       callPath: string[];
       participant: string;
       labels?: JsonObject;
+      to?: "code";
     }
+  /** `participant.post(text)` to a participant routed to the code: `awf inbox`'s `post` item. */
+  | { kind: "participant-post"; callPath: string[]; participant: string; id: string; text: string }
   | ({
       kind: "route-opened";
       callPath: string[];
@@ -830,7 +836,7 @@ export type InboxExpiry = "timeout" | "released" | "cancelled" | "attempt-ended"
 
 /**
  * One line of `awf inbox --json`, oldest first. Agents are peer addresses, qualified in a child
- * call; message ids are `{attempt}.{n}`. A reader ignores the kinds and fields it does not know;
+ * call; message ids are `{attempt}.{n}`, a post's `{attempt}.p{n}`. A reader ignores the kinds and fields it does not know;
  * `v` changes only when one is renamed or removed.
  */
 export type InboxItemJson = {
@@ -872,8 +878,13 @@ export type InboxItemJson = {
       via?: OutsideVia;
     }
   | { kind: "answered"; coordinator: string; id: string; answer: string; via: OutsideVia }
-  /** `participant.post(text)` to a participant routed to the code, under `coordinator`, its key. */
-  | { kind: "post"; coordinator: string; id: string; text: string }
+  /**
+   * `participant.post(text)` to a participant routed to the code, under `coordinator`, its key,
+   * with the labels the workflow connected it with. Its id, `{attempt}.p{n}`, is new at every
+   * attempt: a post a crashed attempt made before its stage was recorded is made again, so a host
+   * may see it twice.
+   */
+  | { kind: "post"; coordinator: string; id: string; text: string; labels?: JsonObject }
   | { kind: "expired"; coordinator: string; id: string; reason: InboxExpiry }
   | { kind: "ended"; attempt: number; outcome: AttemptOutcome | "interrupted" }
 );
@@ -962,11 +973,13 @@ export const RUN_EVENT_VERSIONS = {
   "message-delivery": 1,
   "message-undelivered": 1,
   "request-ended": 2,
-  "participant-connected": 1,
+  "participant-connected": 2,
+  "participant-post": 1,
 } as const satisfies Record<RunEvent["kind"], number>;
 
 /** A kind whose older lines are a strict subset of its current shape, read as the current one. */
 const RUN_EVENT_OLDEST_READ: Partial<Record<RunEvent["kind"], number>> = {
+  "participant-connected": 1,
   "route-closed": 1,
   "message-sent": 1,
   "request-ended": 1,

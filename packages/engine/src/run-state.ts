@@ -3,6 +3,7 @@ import type { AttemptRecord, MailboxRecord, WaitingJson } from "@agentswf/contra
 import type { AttemptOutcome } from "@agentswf/contract/workflow";
 import { exists } from "./files";
 import { foldMailbox, readMailbox } from "./mailbox";
+import { listProjects, projectRunRoot } from "./projects";
 import {
   entries,
   idProblem,
@@ -191,4 +192,44 @@ export function stuckOf(
   const last = attempts.at(-1)?.outcome;
   if (last === "completed" || last === "stopped" || last === "cancelled") return false;
   return failuresInARow(attempts, records) >= STUCK_AFTER;
+}
+
+/** A run by its ref, under `--cwd`'s runs or in a project awf started a keyed run in (Q15). */
+export async function findKeyedRun(
+  ref: string,
+  place: { runRoot: string },
+  home: string,
+): Promise<RunStatus | undefined> {
+  // Here first: what `--cwd` names wins.
+  let here: RunNotFound;
+  try {
+    return (await findRun(place.runRoot, ref)).status;
+  } catch (error) {
+    if (!(error instanceof RunNotFound)) throw error;
+    here = error;
+  }
+  const found: RunStatus[] = [];
+  for (const project of await listProjects(home)) {
+    try {
+      found.push((await findRun(projectRunRoot(project), ref)).status);
+    } catch (error) {
+      if (!(error instanceof RunNotFound)) throw error;
+    }
+  }
+  // Workflows of one name in two projects make the same ref: naming the project is the caller's.
+  if (found.length > 1)
+    throw new RunNotFound(
+      `${ref} is a run in ${found.length} projects, ${found.map((each) => each.run.record.cwd).join(" and ")}; --cwd names one`,
+    );
+  if (found[0]) return found[0];
+  // Nowhere: a ref that can't name a run, malformed or naming two workflows, says why.
+  if (malformedRef(ref) || here.message.includes("more than one workflow")) throw here;
+  return undefined;
+}
+
+/** Why `ref` can't name a run at all, whatever is on disk; undefined when it can. */
+function malformedRef(ref: string): string | undefined {
+  const slash = ref.indexOf("/");
+  if (slash < 0) return idProblem(ref);
+  return idProblem(ref.slice(0, slash)) ?? idProblem(ref.slice(slash + 1));
 }

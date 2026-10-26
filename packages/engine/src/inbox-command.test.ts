@@ -103,6 +103,8 @@ async function waiting(root: string, between: (poll: number) => Promise<void>, .
     root,
     { stdout: (text) => stdout.push(text), stderr: (text) => stderr.push(text) },
     fake,
+    // A home of its own: no project of the developer's is looked in.
+    root,
   );
   const items = args.includes("--json")
     ? stdout.flatMap((text) => text.split("\n").filter(Boolean)).map((line) => JSON.parse(line))

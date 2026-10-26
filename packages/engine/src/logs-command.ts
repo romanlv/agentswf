@@ -603,7 +603,9 @@ function describeLine(line: RunLogLine): string {
     case "request-ended":
       return `request ${line.message} ${line.end}${line.reason ? `  ${said(line.reason)}` : ""}`;
     case "participant-connected":
-      return `${said(line.participant, 60)} connected`;
+      return `${said(line.participant, 60)} connected${line.to === "code" ? " to the code" : ""}`;
+    case "participant-post":
+      return `run → ${said(line.participant, 60)}  ${said(line.text)}`;
   }
 }
 

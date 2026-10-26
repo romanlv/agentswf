@@ -281,3 +281,20 @@ test("a keyed run's agents reopen on the last session of each root agent", () =>
   ]);
   expect([...kept]).toEqual([["investigator", { harness: "claude", sessionRef: "s2" }]]);
 });
+
+test("a participant routed to the code needs a workflow with events", async () => {
+  const run = await testWorkflow(
+    defineExecutableWorkflow({
+      definition: {
+        meta: { name: "plain", description: "No events." },
+        run: async (workflow) => {
+          await workflow.participants.connect({ key: "thread", to: "code" } as never);
+          return null;
+        },
+      },
+      prepare: () => null,
+    }),
+    null,
+  );
+  expect(() => run.value).toThrow("needs a workflow with events");
+});

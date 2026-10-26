@@ -1,3 +1,4 @@
+import { homedir } from "node:os";
 import { join } from "node:path";
 import type {
   AttemptRecord,
@@ -22,7 +23,7 @@ import {
   type ReadPlace,
   shellLine,
 } from "./run-commands";
-import { findRun, listRuns, RunNotFound, statusOf } from "./run-state";
+import { findKeyedRun, listRuns, RunNotFound, statusOf } from "./run-state";
 import {
   attemptsToken,
   type LogMark,
@@ -88,6 +89,8 @@ export async function inboxCommand(
   shellCwd: string,
   out: Out,
   clock: InboxClock = REAL_CLOCK,
+  /** Where `~/.awf/projects` is, through which a keyed run is found from anywhere. */
+  home: string = homedir(),
 ): Promise<number> {
   if (argv.includes("-h") || argv.includes("--help")) {
     out.stdout(inboxUsage);
@@ -128,11 +131,15 @@ export async function inboxCommand(
       checked = true;
     }
     const deadline = clock.now() + options.waitSeconds * 1000;
-    const watch = new Watch(place.runRoot, options.as);
-    const one =
-      options.ref === undefined
-        ? undefined
-        : watch.entry((await findRun(place.runRoot, options.ref)).status.run);
+    // A keyed run lives in its project, found through ~/.awf/projects from anywhere (Q15).
+    const keyed =
+      options.ref === undefined ? undefined : await findKeyedRun(options.ref, place, home);
+    if (options.ref !== undefined && !keyed)
+      throw new RunNotFound(
+        `no run ${options.ref} under ${place.runRoot}, or in a project awf knows`,
+      );
+    const watch = new Watch(keyed?.run.root ?? place.runRoot, options.as);
+    const one = keyed === undefined ? undefined : watch.entry(keyed.run);
     for (;;) {
       const runs = await readInbox(options, state, watch, one);
       // After a run that is not there, or never connected one: those come first.
@@ -471,6 +478,18 @@ export class ItemFold {
     if (line.kind === "participant-connected") {
       here.set(line.participant, line.labels);
       this.#connected.add(line.participant);
+      return;
+    }
+    if (line.kind === "participant-post") {
+      items.push({
+        kind: "post",
+        coordinator: line.participant,
+        id: `${attempt}.${line.id}`,
+        text: line.text,
+        ...(here.get(line.participant) === undefined ? {} : { labels: here.get(line.participant) }),
+        at,
+        position,
+      });
       return;
     }
     if (line.kind === "route-opened" || line.kind === "route-closed") {
