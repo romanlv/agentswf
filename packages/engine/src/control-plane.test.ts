@@ -312,3 +312,66 @@ function request(raw: string) {
 async function rawRequest(endpoint: string, frame: string): Promise<ControlResponse> {
   return JSON.parse(await exchange(endpoint, frame)) as ControlResponse;
 }
+
+describe("a tool call on the control plane", () => {
+  test("outlives the connection's own lifetime once its budget re-arms it", async () => {
+    const slots = createResultSlotRegistry({ runDir: tempRunDir() });
+    const control = await startResultControlPlane({
+      socketRoot: tempRunDir(),
+      slots,
+      connectionLifetimeMs: 100,
+    });
+    control.attachTools({
+      running: () => undefined,
+      accepted: () => {},
+      call: async (_agent, request, lifetime) => {
+        lifetime(2_000);
+        await Bun.sleep(400);
+        return { kind: "tool-result", output: `ran ${request.tool}` };
+      },
+    });
+    const channel = await control.openChannel(AGENT);
+    try {
+      const response = await exchange(
+        channel.endpoint,
+        `${JSON.stringify({ version: WIRE_VERSION, command: "tool", tool: "slow" })}\n`,
+      );
+      expect(JSON.parse(response)).toEqual({
+        version: WIRE_VERSION,
+        kind: "tool-result",
+        output: "ran slow",
+      });
+    } finally {
+      await control.close();
+    }
+  });
+
+  test("refuses wf result while the agent's call runs, saying when it will have answered", async () => {
+    const slots = createResultSlotRegistry({ runDir: tempRunDir() });
+    const control = await startResultControlPlane({ socketRoot: tempRunDir(), slots });
+    control.attachTools({
+      running: () => ({ tool: "slow", settledBy: Date.parse("2026-10-26T12:00:00Z") }),
+      accepted: () => {},
+      call: async () => ({ kind: "tool-result" }),
+    });
+    const channel = await control.openChannel(AGENT);
+    try {
+      const response = JSON.parse(
+        await exchange(channel.endpoint, `${JSON.stringify(request("{}"))}\n`),
+      );
+      const waiting = JSON.parse(
+        await exchange(
+          channel.endpoint,
+          `${JSON.stringify({ version: WIRE_VERSION, command: "waiting", operationId: "op-1", reason: "build" })}\n`,
+        ),
+      );
+      expect(waiting).toMatchObject({ kind: "rejected", code: "tool-running" });
+      expect(response).toMatchObject({ kind: "rejected", code: "tool-running" });
+      expect(response.error).toContain(
+        "your call of slow is still running; it will have answered by 2026-10-26T12:00:00.000Z",
+      );
+    } finally {
+      await control.close();
+    }
+  });
+});

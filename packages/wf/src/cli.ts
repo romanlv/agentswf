@@ -15,12 +15,19 @@ function usage(wf: string): string {
     `       ${wf} result <call-id> <<'WF_JSON'`,
     "       <json>",
     "       WF_JSON",
+    `       ${wf} tool <name> --<option> '<value>' ...`,
+    `       ${wf} tool <name> <<'WF_JSON'`,
+    "       <json>",
+    "       WF_JSON",
     `       ${wf} waiting <call-id> --reason <text> [--timeout <duration>]`,
     `       ${wf} peers [--json]`,
     ...messageUsage(wf, "       "),
     "",
     "The call id is the one named in the request. Give the result as the flags the request names,",
-    "each value in single quotes, or as JSON on standard input, as a quoted heredoc.",
+    "each value in single quotes, or as JSON on standard input, as a quoted heredoc. A tool takes",
+    "its input the same way, or nothing for one that takes none. wf tool exits 0 with the tool's",
+    "result, 1 when the tool failed, 3 when the call was refused and didn't run, and 4 when its",
+    "answer is unknown, so it may have run.",
   ].join("\n");
 }
 
@@ -43,7 +50,11 @@ const STDIN_TIMEOUT_MS = 30_000;
 
 export type CliOutcome = { exitCode: number; stdout: string; stderr: string };
 
-type Submit = (endpoint: string, request: ControlRequest) => Promise<ControlResponse>;
+type Submit = (
+  endpoint: string,
+  request: ControlRequest,
+  timeoutSeconds?: number | null,
+) => Promise<ControlResponse>;
 
 export async function runCli(
   argv: readonly string[],
@@ -66,6 +77,8 @@ export async function runCli(
       return runWaiting(endpoint, session, args, submit);
     case "result":
       return runResult(endpoint, session, args, stdin, submit);
+    case "tool":
+      return runTool(endpoint, session, args, stdin, submit);
     case "peers":
       return runPeers(endpoint, session, args, submit);
     case "send":
@@ -88,12 +101,7 @@ async function runResult(
     return usageError("wf result needs the call id it is answering");
   // The engine reads the flags by the schema, which wf doesn't know. Standard input was read only
   // with nothing after the call id; with nothing there either, the result is no input.
-  const given =
-    flags.length > 0
-      ? { args: flags }
-      : stdin !== null && stdin.trim() !== ""
-        ? { raw: stdin }
-        : {};
+  const given = givenInput(flags, stdin);
 
   let response: ControlResponse;
   try {
@@ -115,6 +123,81 @@ async function runResult(
   if (response.kind !== "accepted")
     return { exitCode: 1, stdout: "", stderr: "wf: unexpected waiting acknowledgement for result" };
   return succeeded(response, "wf: result accepted");
+}
+
+/** Standard input was read only with nothing after the name or call id; with nothing there, no input. */
+function givenInput(words: readonly string[], stdin: string | null) {
+  if (words.length > 0) return { args: [...words] };
+  return stdin !== null && stdin.trim() !== "" ? { raw: stdin } : {};
+}
+
+/**
+ * The result is the only stdout; anything else goes to stderr, so a script reads the result as it
+ * is. Each kind of answer has its exit code, so the agent never has to guess whether it ran.
+ */
+async function runTool(
+  endpoint: string,
+  session: string | undefined,
+  args: readonly string[],
+  stdin: string | null,
+  submit: Submit,
+): Promise<CliOutcome> {
+  const [tool, ...words] = args;
+  if (!tool?.trim() || tool.startsWith("--")) {
+    return usageError("wf tool needs the name of the tool to call");
+  }
+  let response: ControlResponse;
+  try {
+    response = await submit(
+      endpoint,
+      {
+        version: WIRE_VERSION,
+        command: "tool",
+        tool,
+        ...givenInput(words, stdin),
+        ...(session ? { session } : {}),
+      },
+      // The engine answers once the call settles, within its budget; it has no other limit here.
+      null,
+    );
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    return error instanceof NotSentError
+      ? {
+          exitCode: 3,
+          stdout: "",
+          stderr: `wf: the call of ${tool} didn't reach the workflow, so it didn't run.\n${reason}`,
+        }
+      : {
+          exitCode: 4,
+          stdout: "",
+          stderr: `wf: the answer to the call of ${tool} was lost (${reason}); it may have run, so check before calling it again.`,
+        };
+  }
+  const owing = response.owing ? `wf: ${response.owing}\n` : "";
+  switch (response.kind) {
+    case "tool-result":
+      return { exitCode: 0, stdout: response.output ?? "", stderr: owing.trimEnd() };
+    case "tool-failed":
+      return {
+        exitCode: response.outcome === "failed" ? 1 : 4,
+        stdout: "",
+        stderr: `${owing}wf: ${response.error}`,
+      };
+    case "rejected":
+      return {
+        // The code says nothing of whether the handler ran: its end's record may be what failed.
+        exitCode: response.code === "internal-error" ? 4 : 3,
+        stdout: "",
+        stderr: `${owing}wf: ${tool} refused (${response.code}): ${response.error}`,
+      };
+    default:
+      return {
+        exitCode: 4,
+        stdout: "",
+        stderr: `wf: an unexpected answer to the call of ${tool}; it may have run`,
+      };
+  }
 }
 
 async function runWaiting(
@@ -364,6 +447,7 @@ function rejection(
     // Messaging's: the engine names the peer and the next step.
     case "owes-reply":
     case "no-result":
+    case "tool-running":
       return `result refused (${response.code}): ${response.error}`;
     default:
       // Everything else — too large, malformed, wrong version — is only distinguishable by what
@@ -419,8 +503,8 @@ if (import.meta.main) {
 }
 
 /**
- * Standard input, for the commands that take it: `result <call-id>` and nothing more, or `send`
- * and `reply` with no message argument after the peer.
+ * Standard input, for the commands that take it: `result <call-id>` or `tool <name>` and nothing
+ * more, or `send` and `reply` with no message argument after the peer.
  */
 export async function readCliStdin(
   argv: readonly string[],
@@ -431,7 +515,7 @@ export async function readCliStdin(
   const [verb, ...args] = launched(argv).command;
   const parsed = verb === "send" || verb === "reply" ? messageArgs(args) : undefined;
   const reads =
-    (verb === "result" && args.length === 1) ||
+    ((verb === "result" || verb === "tool") && args.length === 1) ||
     (parsed !== undefined && !("error" in parsed) && parsed.message === undefined);
   if (!reads) return null;
   const text = await readBoundedStdin(stream);

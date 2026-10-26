@@ -6,6 +6,7 @@ import {
   WIRE_VERSION,
 } from "@agentswf/contract/wire";
 import { readBoundedStdin, readCliStdin, runCli } from "./cli";
+import { NotSentError } from "./client";
 
 const ENDPOINT = "/private/control.sock";
 const at = (...args: readonly string[]) => ["--at", ENDPOINT, ...args];
@@ -481,5 +482,100 @@ describe("wf peers, send and reply", () => {
     expect(await readCliStdin(as("send", "fixer", "inline"), false, stream())).toBeNull();
     expect(await readCliStdin(as("peers"), false, stream())).toBeNull();
     expect(await readCliStdin(as("send", "fixer"), true, stream())).toBeNull();
+  });
+});
+
+describe("wf tool", () => {
+  const answering =
+    (response: ControlResponse | Error, seen: ControlRequest[] = []) =>
+    async (_endpoint: string, request: ControlRequest, timeoutSeconds?: number | null) => {
+      seen.push(request);
+      expect(timeoutSeconds).toBeNull();
+      if (response instanceof Error) throw response;
+      return response;
+    };
+  const version = WIRE_VERSION;
+
+  test("sends its flags as given, or standard input, or no input, and waits with no timeout", async () => {
+    const seen: ControlRequest[] = [];
+    const ok = answering({ version, kind: "tool-result", output: "Closed." }, seen);
+    await runCli(at("tool", "close", "--why", "it's"), "{}", ok);
+    await runCli(at("tool", "close"), '{"id":"a"}', ok);
+    await runCli(at("tool", "list"), null, ok);
+    expect(seen).toEqual([
+      { version, command: "tool", tool: "close", args: ["--why", "it's"] },
+      { version, command: "tool", tool: "close", raw: '{"id":"a"}' },
+      { version, command: "tool", tool: "list" },
+    ]);
+    expect(await readCliStdin(at("tool", "list"), false, stream("{}"))).toBe("{}");
+    const unreadable = new Proxy({} as ReadableStream<Uint8Array>, {
+      get() {
+        throw new Error("standard input was accessed");
+      },
+    });
+    expect(await readCliStdin(at("tool", "close", "--id", "a"), false, unreadable)).toBeNull();
+  });
+
+  test("each kind of answer has its exit code; the result is the only stdout", async () => {
+    const cases: [ControlResponse | Error, number, string, string][] = [
+      [
+        { version, kind: "tool-result", output: "Closed.", owing: "you owe x a reply." },
+        0,
+        "Closed.",
+        "wf: you owe x a reply.",
+      ],
+      [{ version, kind: "tool-result" }, 0, "", ""],
+      [{ version, kind: "tool-failed", outcome: "failed", error: "locked" }, 1, "", "wf: locked"],
+      [
+        { version, kind: "tool-failed", outcome: "timed-out", error: "may have run" },
+        4,
+        "",
+        "wf: may have run",
+      ],
+      [
+        { version, kind: "tool-failed", outcome: "cancelled", error: "may have run" },
+        4,
+        "",
+        "wf: may have run",
+      ],
+      [
+        { version, kind: "rejected", code: "unknown-tool", error: "no such tool" },
+        3,
+        "",
+        "wf: close refused (unknown-tool): no such tool",
+      ],
+      [
+        { version, kind: "rejected", code: "internal-error", error: "lost" },
+        4,
+        "",
+        "wf: close refused (internal-error): lost",
+      ],
+    ];
+    for (const [response, exitCode, stdout, stderr] of cases) {
+      expect(await runCli(at("tool", "close"), null, answering(response))).toEqual({
+        exitCode,
+        stdout,
+        stderr,
+      });
+    }
+  });
+
+  test("a call that never reached the engine didn't run, exit 3; a lost answer may have, exit 4", async () => {
+    const notSent = await runCli(at("tool", "close"), null, answering(new NotSentError("ENOENT")));
+    const lost = await runCli(
+      at("tool", "close"),
+      null,
+      answering(new Error("control plane closed without a response")),
+    );
+    expect([notSent.exitCode, lost.exitCode]).toEqual([3, 4]);
+    expect(notSent.stderr).toContain("didn't reach the workflow, so it didn't run");
+    expect(lost.stderr).toContain("it may have run, so check before calling it again");
+  });
+
+  test("a missing name is a usage error", async () => {
+    expect((await runCli(at("tool"), null, answering(new Error("sent")))).exitCode).toBe(2);
+    expect(
+      (await runCli(at("tool", "--why", "x"), null, answering(new Error("sent")))).exitCode,
+    ).toBe(2);
   });
 });

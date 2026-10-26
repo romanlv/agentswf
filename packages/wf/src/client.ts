@@ -36,11 +36,12 @@ export function submitWaiting(
 export function submitControl<R extends ControlRequest>(
   endpoint: string,
   request: R,
-  timeoutSeconds = 30,
+  /** Null waits as long as the engine takes, as a tool call does: it answers once the call settles. */
+  timeoutSeconds: number | null = 30,
   connect: (endpoint: string) => Socket = createConnection,
 ): Promise<ResponseFor[R["command"]]> {
   type Response = ResponseFor[R["command"]];
-  if (!Number.isFinite(timeoutSeconds) || timeoutSeconds <= 0) {
+  if (timeoutSeconds !== null && (!Number.isFinite(timeoutSeconds) || timeoutSeconds <= 0)) {
     return Promise.reject(new Error("control-plane timeout must be positive"));
   }
   const outgoing = Buffer.from(`${JSON.stringify(request)}\n`);
@@ -51,10 +52,13 @@ export function submitControl<R extends ControlRequest>(
     let settled = false;
     let connected = false;
     const socket = connect(endpoint);
-    const lifetime = setTimeout(
-      () => fail(new Error("control plane response timed out")),
-      timeoutSeconds * 1000,
-    );
+    const lifetime =
+      timeoutSeconds === null
+        ? undefined
+        : setTimeout(
+            () => fail(new Error("control plane response timed out")),
+            timeoutSeconds * 1000,
+          );
 
     const fail = (error: Error): void => {
       if (settled) return;

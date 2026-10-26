@@ -579,7 +579,7 @@ Alternatives rejected:
 
 - [x] 1. The contract: the tool spec, `ToolCall`, the wire, the records, the commands' usage, the lesson; reviewed before building
 - [x] 2. Flags for a simple input, on `wf result`: the engine reads them by the schema, the prompt shows the usage line
-- [ ] 3. A tool called over the wire: binding, checks, the handler in its scope, its budget and end
+- [x] 3. A tool called over the wire: binding, checks, the handler in its scope, its budget and end
 - [ ] 4. The tools lesson
 - [ ] 5. Records and `awf logs`
 - [ ] 6. workflow-testing: a scripted agent calls a tool
@@ -725,7 +725,48 @@ Outcome: an agent's `wf tool` runs its handler in the operation's scope and prin
 
 Execution:
 
-- [ ] Plan, implement, review, resolve, verify (as in the template).
+- [x] Plan, implement, review, resolve, verify (as in the template). Reviewed in five rounds,
+  the last clean. Live with task 4, once the prompt teaches the tools.
+
+Implementation notes:
+
+- `packages/engine/src/tools.ts`, `ToolCalls`: each agent's tools, checked against `TOOL_LIMITS`
+  and kept with their schemas, and the calls of each operation. The runner registers an operation
+  where messaging's is (`opened`), and awaits `ended` before messaging's end, so `run()` and a
+  message turn resolve only once their call has settled. The control plane routes `tool` to it
+  (`attachTools`), asks it for `tool-running` before a result or a wait, and tells it when a result
+  is accepted.
+- A handler runs in `runIn(scope)`, the runner's `scopes.run` or `scopes.exit`, inside the
+  async-local stack of agents whose handlers it is in; an operation keeps the stack it was started
+  in. `refusedInTool` is checked first in `#refusedWhileStarted`, so `run`, `compact`, `set`,
+  `fork` and `start` refuse `agent-in-tool` before 034's own refusal; `agents.stop` checks it too,
+  and `receive()` refuses any handler.
+- A repeat `fork` with `tools` matches and replaces them as a reopen does; one without keeps the
+  fork's. The design's "an inherited set's with the parent's now" is dropped: a repeat that gives
+  nothing changes nothing, as an `open` that gives nothing does.
+- The lesson shows the schema's own key order: a schema is kept as its JSON, and compared in its
+  canonical form.
+- A cancel or a stop aborts a running call at once (`abort`, from the operation's stop), since the
+  turn may be waiting on it; its end then waits for the call (`ended`). A call whose operation ended
+  while it was being recorded isn't run, and ends `cancelled`, saying so. A handler that has
+  returned counts as ended before an abort racing it.
+- A message turn's later deadline reaches calls made after it (`extended`). Its credential
+  write-back runs once its call has settled.
+- A timeout says which bound it was: the tool's own, or the turn's deadline.
+- `ToolCalls.taught` and `toolUsage` are task 4's, for the lesson.
+- Accepted as is: a `wf tool` that arrives while a `wf result` is being accepted can start, and the
+  turn's end then cancels it. Like messaging's, an operation that throws between registering and
+  its end, before supervision starts, stays registered; nothing in that stretch throws today.
+- A stop takes its own kind to the call: a deadline's stop ends it `timed-out`, a cancel's
+  `cancelled`. The budget's timer and the connection's lifetime are kept within a timer's range.
+- Following by construction rather than tested one by one: a cancelled turn and an ended attempt
+  abort a call through the same stop as `agents.stop`, which is tested; a handler in a stage carries
+  the stage's deadline as it carries its tag, both from `scopes.run`.
+- Not tested here: `attach` returning the tools, since `attach` reaches only the calling session,
+  which has none; a call in a sealed stage's drained message turn, which runs in that scope where
+  `run()` throws as for any code there; a sandboxed agent, whose `wf` reaches the same socket; a
+  reused stage after a continue, which runs no code and so no handler. `receive()` in a handler is
+  tested with task 8, on a workflow with events.
 
 Done when:
 

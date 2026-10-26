@@ -169,6 +169,7 @@ import { QUOTING_RULE, simpleInput, usageLine } from "./simple-input";
 import { placeSkills, RunSkills, readSkillSources } from "./skills/run-skills";
 import { StageLedger, type StageProgress } from "./stage-ledger";
 import { FromStageUnreached } from "./stopped";
+import { inToolHandler, refusedInTool, ToolCalls } from "./tools";
 
 export { WorkflowCancelledError } from "./deadlines";
 
@@ -821,6 +822,7 @@ class WorkflowOwner {
   /** Each agent once it has opened, by key: what messaging asks about, and what a ref must be. */
   readonly #logical = new Map<string, LogicalAgent>();
   readonly #messaging: Messaging;
+  readonly #tools: ToolCalls<ExecutionScope>;
   /** A stage's execution scope, by its messaging scope: what owns the operations its routes open. */
   readonly #stageScopes = new Map<MessagingScope, ExecutionScope>();
   /** Message operations routes outside any stage opened, which the attempt owns. */
@@ -923,6 +925,11 @@ class WorkflowOwner {
       },
     });
     options.control.attach(this.#messaging);
+    this.#tools = new ToolCalls<ExecutionScope>({
+      record: (event) => options.events.event(event),
+      runIn: (scope, fn) => (scope ? scopes.run(scope, fn) : scopes.exit(fn)),
+    });
+    options.control.attachTools(this.#tools);
     const holder = {
       reply: (request: HolderRequest) => this.#messaging.holderReply(request),
       send: (request: HolderRequest) => this.#messaging.holderSend(request),
@@ -936,8 +943,6 @@ class WorkflowOwner {
       deadline: options.deadline,
       agents: {
         open: (spec) => {
-          // Until story 035's task 3 runs them.
-          if (spec.tools !== undefined) return unavailable("AgentOpenSpec.tools");
           try {
             return this.openAgent(spec);
           } catch (error) {
@@ -971,7 +976,7 @@ class WorkflowOwner {
         },
         forkCaller: (spec) => {
           if ((spec as AgentForkSpec).tools !== undefined)
-            return unavailable("AgentForkSpec.tools");
+            return Promise.reject(new Error("a fork of the calling session takes no tools"));
           try {
             return this.forkCaller(spec);
           } catch (error) {
@@ -1126,6 +1131,8 @@ class WorkflowOwner {
     spec: ReceiveOptions | undefined,
   ): Promise<WorkflowEvent<string, JsonValue>[]> {
     if (this.#closed || this.#cleanupFailures.length) throw new Error("workflow context is closed");
+    if (inToolHandler())
+      throw new Error("receive() is refused in a tool's handler: it would take the run's events");
     const scope = scopes.getStore();
     scope?.assertAccepting();
     if (this.#waiting)
@@ -1567,6 +1574,7 @@ class WorkflowOwner {
     assertDeadline(effectiveDeadline);
     if (existing) {
       assertCompatibleAgent(spec.key, existing.identity, identity, spec);
+      this.#tools.reopen(spec.key, spec.tools);
       const seated =
         spec.sandbox === undefined
           ? existing.state
@@ -1578,6 +1586,7 @@ class WorkflowOwner {
       return attached;
     }
 
+    this.#tools.give(spec.key, spec.tools ?? {});
     this.options.progress.agentOpened(spec.key, scope?.group);
     const found = this.options.keptSessions?.get(spec.key);
     // Reopened only where it can be: a key the code now opens on another harness starts afresh, and
@@ -1659,6 +1668,8 @@ class WorkflowOwner {
    */
   private stopAgent(key: string, reason?: string): Promise<boolean> {
     if (this.#closed || this.#cleanupFailures.length) throw new Error("workflow context is closed");
+    const inTool = refusedInTool(key, "agents.stop");
+    if (inTool) throw inTool;
     const scope = scopes.getStore();
     scope?.assertAccepting();
     this.options.stages.checkOperation();
@@ -2044,6 +2055,7 @@ class WorkflowOwner {
       key,
       runDir: this.options.runDir,
       messaging: this.#messaging,
+      tools: this.#tools,
       messageOwner: (scope) => this.#messageOwner(scope),
       execution,
       session,
@@ -2110,12 +2122,16 @@ class WorkflowOwner {
       throw new Error(`agent ${spec.key} is the calling session; it is not opened`);
     }
     this.#assertFreeKey(spec.key, "an agent");
-    const forkSpec = structuredClone(spec);
+    // Out before the clone, which throws on a handler, and out of the spec a repeat is compared by.
+    const { tools, ...cloned } = spec;
+    const forkSpec = structuredClone(cloned);
     if (forkSpec.layout !== undefined) forkSpec.layout = storedLayout(forkSpec.layout);
     const deadline = scope?.deadline ?? this.options.deadline;
     assertDeadline(deadline);
     // A fork of the calling session is one whichever way it was asked for.
     const from = unopened || this.#caller?.key === parentKey ? CALLING : parentKey;
+    if (from === CALLING && tools !== undefined)
+      throw new Error(`agent ${spec.key}: a fork of the calling session takes no tools`);
     const existing = this.#agents.get(spec.key);
     if (existing) {
       if (existing.stopped !== undefined) throw stoppedError(spec.key, existing.stopped);
@@ -2123,6 +2139,7 @@ class WorkflowOwner {
       if (forked?.parent !== from || !isDeepStrictEqual(forked.spec, forkSpec)) {
         throw new Error(`agent ${spec.key} is already open, not as this fork of ${from}`);
       }
+      this.#tools.reopen(spec.key, tools);
       const attached = this.track(waitForDeadline(existing.state, deadline));
       scope?.track(attached);
       return attached;
@@ -2130,6 +2147,8 @@ class WorkflowOwner {
     const parent = unopened ?? this.#agents.get(parentKey)!;
     const opening = parent.opening!;
     if (typeof take === "string") throw new Error(take);
+    // The parent's tools, with the handlers they have now, unless it gives its own.
+    this.#tools.give(spec.key, tools ?? this.#tools.of(parentKey));
     const sandboxed = parent.identity.sandbox !== undefined || this.options.sandboxes.hasRunSandbox;
     // A parent with a harness home of its own has its session copied out, and the fork made in the
     // child's home: anything added to the parent's would be read as the parent's.
@@ -2423,6 +2442,7 @@ class LogicalAgent implements AgentRef {
       key: string;
       runDir: string;
       messaging: Messaging;
+      tools: ToolCalls<ExecutionScope>;
       /**
        * What owns a message operation a route in `scope` opens: its stage, or the attempt outside
        * any stage. Undefined once that scope has closed: nothing opens for it then.
@@ -2635,6 +2655,9 @@ class LogicalAgent implements AgentRef {
   }
 
   #refusedWhileStarted(what: string): Error | undefined {
+    // First: from a handler this agent is in, its turn waits for the handler, started or not.
+    const inTool = refusedInTool(this.key, `${what}()`);
+    if (inTool) return inTool;
     if (this.#started && !this.#launching)
       return new Error(
         `agent ${this.key} has a turn started (${this.#started.ref.id}) whose end no wait has taken; ${what}() waits for it`,
@@ -2910,7 +2933,6 @@ class LogicalAgent implements AgentRef {
   }
 
   fork(spec: AgentForkSpec): Promise<AgentRef> {
-    if (spec.tools !== undefined) return unavailable("AgentForkSpec.tools");
     if (this.#closed) return Promise.reject(new Error("logical agent is closed"));
     const refused = this.#refusedWhileStarted("fork");
     if (refused) return Promise.reject(refused);
@@ -3193,6 +3215,14 @@ class LogicalAgent implements AgentRef {
       ...(ceiling ? { ceiling: ceiling.unixMilliseconds } : {}),
       scope: scope?.messages ?? messaging.attempt,
     });
+    this.options.tools.opened({
+      id: operationId,
+      agent: this.key,
+      callPath: [],
+      ...(scope?.stage === undefined ? {} : { stage: scope.stage }),
+      scope,
+      deadline: () => deadline?.unixMilliseconds,
+    });
     // After its prompt: how to use its routes, then each message held for it, wrapped.
     const joined = messaging.take(operationId, "joins");
     const prompt = [spec.prompt, messaging.lesson(this.key), joined?.text]
@@ -3279,7 +3309,12 @@ class LogicalAgent implements AgentRef {
           // A check-in delivers no messages: those its first prompt carried are not its own.
           authored: { ...withoutMessages(authored), prompt: recoveryPrompt },
         }),
-      onStop: (stop) => {
+      onStop: (settle) => {
+        // A cancel or stop reaches a running tool call at once: the turn may be waiting on it.
+        const stop = (request: OperationStop) => {
+          this.options.tools.abort(operationId, request.kind);
+          return settle(request);
+        };
         this.#operationStops.add(stop);
         this.#stopsByTurn.set(spec.id!, stop);
         const remove = scope?.add(stop);
@@ -3303,6 +3338,8 @@ class LogicalAgent implements AgentRef {
         }),
       )
       .finally(() => events.close());
+    // A call still running is stopped and waited for: run() resolves once its calls have settled.
+    await this.options.tools.ended(operationId);
     // Its wait is dropped and what it still owed fails, before a failure closes the agent.
     messaging.ended(operationId, operationEnd(outcome.kind));
     if (outcome.cleanupUnresolved) {
@@ -3461,6 +3498,14 @@ class LogicalAgent implements AgentRef {
       ceiling,
       scope,
     });
+    this.options.tools.opened({
+      id: operationId,
+      agent: this.key,
+      callPath: [],
+      ...(stage?.stage === undefined ? {} : { stage: stage.stage }),
+      scope: stage,
+      deadline: () => deadline,
+    });
     /** How it ended; unset until its supervisor says, or if it never opened. */
     let end: SupervisedOutcome["kind"] | undefined;
     try {
@@ -3496,9 +3541,13 @@ class LogicalAgent implements AgentRef {
         }
         throw error;
       } finally {
+        // Its agent ended its turn with a call running, say: the call is stopped and waited for, so
+        // nothing after it, nor the next operation, runs with this one's call still running.
+        await this.options.tools.ended(operationId);
         await this.options.afterOperation?.();
       }
     } finally {
+      await this.options.tools.ended(operationId);
       // A message operation that simply ends settles; its wait is dropped and what it owed fails.
       messaging.ended(
         operationId,
@@ -3534,6 +3583,7 @@ class LogicalAgent implements AgentRef {
       if (later <= deadline) return;
       deadline = later;
       messaging.extended(operationId, later);
+      this.options.tools.extended(operationId, later);
       events.record({ kind: "deadline-extended", at: Date.now(), sequence: 0, until: later });
     };
     const ceiling = this.deadlineCeiling(stage)?.unixMilliseconds;
@@ -3563,7 +3613,11 @@ class LogicalAgent implements AgentRef {
           record: events.record,
           extended,
         }),
-        onStop: (stop) => {
+        onStop: (settle) => {
+          const stop = (request: OperationStop) => {
+            this.options.tools.abort(operationId, request.kind);
+            return settle(request);
+          };
           this.#operationStops.add(stop);
           const remove = stage?.add(stop);
           return () => {

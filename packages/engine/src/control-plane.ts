@@ -10,6 +10,10 @@ import { isCode } from "./files";
 import type { Messaging } from "./messaging/messaging";
 import { UNRECORDED } from "./messaging/text";
 import type { ResultSlotRegistry } from "./result-slots";
+import type { ToolCalls } from "./tools";
+
+/** What the control plane asks of the run's tools, by the agent whose socket asked. */
+export type ToolHandler = Pick<ToolCalls<unknown>, "call" | "running" | "accepted">;
 
 /** What the control plane asks of the run's messaging, by the agent whose socket asked. */
 export type MessagingHandler = Pick<
@@ -21,6 +25,7 @@ export type MessagingHandler = Pick<
 const MAX_RESULT_REQUEST_BYTES = 2 * 1024 * 1024 + 4 * 1024;
 const MAX_CONTROL_CONNECTIONS = 64;
 const CONNECTION_TIMEOUT_SECONDS = 30;
+const MAX_TIMER_MS = 2_147_483_647;
 
 export type ResultChannel = {
   /** The socket this agent's launcher connects to. */
@@ -41,6 +46,8 @@ export type ResultControlPlane = {
   openChannel(agentId: string, onSession?: (id: string) => void): Promise<ResultChannel>;
   /** The run's messaging, once it exists; until then `peers`, `send` and `reply` are refused. */
   attach(messaging: MessagingHandler): void;
+  /** The run's tools, once it has them; until then `tool` is refused. */
+  attachTools(tools: ToolHandler): void;
   close(): Promise<void>;
 };
 
@@ -96,6 +103,7 @@ export async function startResultControlPlane(options: {
   await chmod(directory, 0o300);
 
   let messaging: MessagingHandler | undefined;
+  let tools: ToolHandler | undefined;
   // Shared across channels: the budget protects the engine, not any one agent.
   let activeConnections = 0;
   let accepting = true;
@@ -180,13 +188,22 @@ export async function startResultControlPlane(options: {
             const { promise: written, resolve } = Promise.withResolvers<void>();
             socket.data.responded = resolve;
             const handling = Promise.race([
-              handleFrame(
-                Buffer.concat(socket.data.chunks).toString("utf8"),
-                options.slots,
+              handleFrame(Buffer.concat(socket.data.chunks).toString("utf8"), {
+                slots: options.slots,
                 messaging,
+                tools,
                 agentId,
                 onSession,
-              ),
+                // A tool call lasts as long as its budget, not the connection's 30 s.
+                lifetime: (milliseconds) => {
+                  if (socket.data.lifetime) clearTimeout(socket.data.lifetime);
+                  // One past a timer's range is as good as none: the call's own end closes it.
+                  socket.data.lifetime =
+                    milliseconds === undefined || milliseconds > MAX_TIMER_MS
+                      ? undefined
+                      : setTimeout(() => socket.terminate(), milliseconds);
+                },
+              }),
               written.then(() => undefined),
             ])
               .then((response) => {
@@ -254,6 +271,9 @@ export async function startResultControlPlane(options: {
     attach(handler) {
       messaging = handler;
     },
+    attachTools(handler) {
+      tools = handler;
+    },
     close() {
       closing ??= (async () => {
         accepting = false;
@@ -292,14 +312,18 @@ function emptyConnection(): ConnectionState {
   };
 }
 
-async function handleFrame(
-  frame: string,
-  slots: ResultSlotRegistry,
-  messaging: MessagingHandler | undefined,
-  agentId: string,
-  onSession: ((id: string) => void) | undefined,
-): Promise<ControlResponse> {
-  const response = await answerFrame(frame, slots, messaging, agentId, onSession);
+type Handlers = {
+  slots: ResultSlotRegistry;
+  messaging: MessagingHandler | undefined;
+  tools: ToolHandler | undefined;
+  agentId: string;
+  onSession: ((id: string) => void) | undefined;
+  lifetime: (milliseconds: number | undefined) => void;
+};
+
+async function handleFrame(frame: string, handlers: Handlers): Promise<ControlResponse> {
+  const { messaging, agentId } = handlers;
+  const response = await answerFrame(frame, handlers);
   // Leads every response, so what is owed comes back after a compaction; not one that already
   // says it, about the wait it began or the answer it is refused for.
   const repeats =
@@ -313,10 +337,7 @@ async function handleFrame(
 
 async function answerFrame(
   frame: string,
-  slots: ResultSlotRegistry,
-  messaging: MessagingHandler | undefined,
-  agentId: string,
-  onSession: ((id: string) => void) | undefined,
+  { slots, messaging, tools, agentId, onSession, lifetime }: Handlers,
 ): Promise<ControlResponse> {
   if (!frame.endsWith("\n") || frame.slice(0, -1).includes("\n")) {
     return rejected("invalid-request", "expected exactly one newline-delimited JSON request");
@@ -334,9 +355,17 @@ async function answerFrame(
   if (decoded.value.session) onSession?.(decoded.value.session);
 
   const request = decoded.value;
-  // Until story 035's task 3 runs it.
-  if (request.command === "tool")
-    return rejected("unsupported-command", "tools are not available in this run");
+  if (request.command === "tool") {
+    if (!tools) return rejected("unsupported-command", "tools are not available in this run");
+    let answer: Awaited<ReturnType<ToolHandler["call"]>>;
+    try {
+      answer = await tools.call(agentId, request, lifetime);
+    } catch {
+      return rejected("internal-error", "the tool call failed internally; it may have run");
+    }
+    if (answer.kind === "refused") return rejected(answer.code, answer.error);
+    return { version: WIRE_VERSION, ...answer };
+  }
   if (request.command !== "result" && request.command !== "waiting") {
     if (!messaging)
       return rejected("unsupported-command", "messaging is not available in this run");
@@ -366,6 +395,15 @@ async function answerFrame(
   }
   // Before the slot is asked: a message operation has none, and an answer owed comes first.
   const gate = messaging?.checkFinish(agentId, request.operationId, request.command);
+  const running = tools?.running(agentId);
+  if (running && gate?.kind !== "refused") {
+    const by =
+      running.settledBy === undefined ? "" : ` by ${new Date(running.settledBy).toISOString()}`;
+    return rejected(
+      "tool-running",
+      `your call of ${running.tool} is still running; it will have answered${by || " when it ends"}. Run this again then.`,
+    );
+  }
   if (gate?.kind === "refused") return rejected(gate.code, gate.error);
   if (gate?.kind === "awaiting" && request.command === "waiting") {
     const { peer, until, notice } = gate;
@@ -389,9 +427,9 @@ async function answerFrame(
       ...givenOf(request),
       source: "control-plane",
     });
-    return result.kind === "accepted"
-      ? { version: WIRE_VERSION, kind: "accepted" }
-      : rejected(result.code, result.error);
+    if (result.kind !== "accepted") return rejected(result.code, result.error);
+    tools?.accepted(request.operationId);
+    return { version: WIRE_VERSION, kind: "accepted" };
   } catch {
     return rejected("internal-error", "control request failed internally");
   }
