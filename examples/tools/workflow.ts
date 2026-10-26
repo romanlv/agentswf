@@ -26,7 +26,7 @@ const CloseInput = outputSchema(
   }),
 );
 
-const Summary = outputSchema(
+export const Summary = outputSchema(
   Type.Object({ closed: Type.Integer({ minimum: 0 }), summary: Type.String({ minLength: 1 }) }),
 );
 

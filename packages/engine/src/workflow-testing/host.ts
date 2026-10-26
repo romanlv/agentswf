@@ -5,6 +5,9 @@ import {
   type ReplyCode,
   SEND_CODES,
   type SendCode,
+  TOOL_CODES,
+  type ToolCode,
+  type ToolResponse,
   WIRE_VERSION,
 } from "@agentswf/contract/wire";
 import {
@@ -44,6 +47,7 @@ import {
   type Scripts,
   type SendOptions,
   type Step,
+  type ToolOutcome,
   type Turn,
   type TurnOutcome,
 } from "./script";
@@ -52,7 +56,7 @@ import {
  * A turn as the workflow wrote it, and how it ended. `messages` are those it was shown, absent when
  * none were.
  */
-export type TurnRecord = Omit<Turn, "signal" | "messages" | "send" | "reply"> & {
+export type TurnRecord = Omit<Turn, "signal" | "messages" | "send" | "reply" | "tool"> & {
   messages?: readonly Message[];
   outcome: TurnOutcome;
 };
@@ -234,6 +238,51 @@ export function createScriptedHost(
     });
   };
 
+  /** `wf tool` from a running script, as JSON or no input; waits as long as the engine takes. */
+  const callTool = async (
+    invocation: Invocation,
+    name: string,
+    input: JsonObject | undefined,
+  ): Promise<ToolOutcome> => {
+    if (invocation.state !== "running") {
+      const why = `agent "${invocation.turn.agent}" turn ${invocation.turn.n}: its script called a tool after its turn ended`;
+      failTest(why);
+      throw new Error(why);
+    }
+    const call = submitControl(
+      invocation.operation.binding.endpoint,
+      {
+        version: WIRE_VERSION,
+        command: "tool",
+        tool: name,
+        ...(input === undefined ? {} : { raw: JSON.stringify(input) }),
+      },
+      null,
+    );
+    invocation.calls.add(call);
+    let response: ToolResponse;
+    try {
+      response = await call;
+    } finally {
+      invocation.calls.delete(call);
+      // A reply it awaits ends the turn once nothing of the host's is in flight, this call included.
+      suspendIfAwaiting(invocation);
+    }
+    switch (response.kind) {
+      case "tool-result":
+        return {
+          kind: "result",
+          ...(response.output === undefined ? {} : { output: response.output }),
+        };
+      case "tool-failed":
+        return { kind: "failed", outcome: response.outcome, error: response.error };
+      default:
+        if (response.code === "internal-error" || !TOOL_REFUSALS.has(response.code))
+          throw new Error(`wf tool was refused (${response.code}): ${response.error}`);
+        return { kind: "refused", code: response.code as ToolCode, error: response.error };
+    }
+  };
+
   /**
    * Ends the native turn when its script has gone still awaiting a reply, as an agent ends its turn
    * after `wf send --await-reply`: nothing of the host's in flight, and no step taken since.
@@ -273,6 +322,7 @@ export function createScriptedHost(
       messages,
       send: (peer, text, options) => message(invocation, "send", peer, text, options),
       reply: (peer, text, options) => message(invocation, "reply", peer, text, options),
+      tool: (name, input) => callTool(invocation, name, input),
       signal: context.signal,
     };
     invocation.turn = turn;
@@ -287,6 +337,7 @@ export function createScriptedHost(
           turn,
           reply: (text, options) => turn.reply(woke!.from, text, options),
           send: turn.send,
+          tool: turn.tool,
           silent: reply.silent,
           fail: (reason) => reply.failed(reason),
         } satisfies ReceivedMessage,
@@ -467,6 +518,7 @@ export function createScriptedHost(
         messages: [],
         send: noMessages,
         reply: noMessages,
+        tool: noTools,
         cwd: activation.cwd,
         model: context.settings.model,
         ...(context.settings.effort === undefined ? {} : { effort: context.settings.effort }),
@@ -738,6 +790,7 @@ type Invocation = {
 };
 
 const MESSAGE_CODES = new Set<string>([...SEND_CODES, ...REPLY_CODES]);
+const TOOL_REFUSALS = new Set<string>(TOOL_CODES);
 /** The call ended before the script's answer reached it: the turn was let go, not refused. */
 const CLOSED_CODES = new Set<string>([
   "closed-operation",
@@ -757,6 +810,10 @@ function settle(
 
 async function noMessages(): Promise<MessageOutcome> {
   throw new Error("a compaction sends no messages");
+}
+
+async function noTools(): Promise<ToolOutcome> {
+  throw new Error("a compaction calls no tools");
 }
 
 /** What the pane host refuses before it opens a pane. */

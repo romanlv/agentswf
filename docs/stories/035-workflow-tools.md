@@ -582,7 +582,7 @@ Alternatives rejected:
 - [x] 3. A tool called over the wire: binding, checks, the handler in its scope, its budget and end
 - [x] 4. The tools lesson
 - [x] 5. Records and `awf logs`
-- [ ] 6. workflow-testing: a scripted agent calls a tool
+- [x] 6. workflow-testing: a scripted agent calls a tool
 - [ ] 7. `examples/tools`, live
 - [ ] 8. With story 034: a started turn's calls, parking, `start()` from a handler, the sketch's `tools`
 
@@ -883,7 +883,17 @@ or the refusal, as `send()` does.
 
 Execution:
 
-- [ ] Plan, implement, review, resolve, verify (as in the template).
+- [x] Plan, implement, review, resolve, verify (as in the template). Reviewed in two rounds,
+  the last clean.
+
+Implementation notes:
+
+- `Turn.tool(name, input?)` and `ReceivedMessage.tool` send a real `tool` request over the agent's
+  socket with the input as JSON, as `send()` does, with no client timeout, and resolve to
+  `ToolOutcome`: `result`, `failed` or `refused`. An `internal-error` throws, as an unexpected
+  refusal of `send()` does. A compaction's script calls no tools.
+- `examples/tools/workflow.test.ts` tests the example, and a small workflow of its own for the
+  message turn, since the example has no routes.
 
 Done when:
 

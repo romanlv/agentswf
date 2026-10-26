@@ -66,6 +66,7 @@ export {
   reply,
   type Script,
   type SendOptions,
+  type ToolOutcome,
   type Turn,
 } from "./script";
 

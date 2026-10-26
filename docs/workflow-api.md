@@ -784,8 +784,12 @@ const asking = (change: string, summary: string) =>
 - **`turn.send(peer, text, { awaitReply? })`** resolves to `sent`, `replied` with `text`, `failed`
   with a `reason`, or `refused` with a `code`: values to test, not throws. **`turn.reply(peer, text)`**
   answers a question among `turn.messages`.
+- **`turn.tool(name, input?)`**, and `message.tool` in a message turn, calls the agent's tool through
+  the run's own checks and handler, as `wf tool` with JSON would, and resolves to `result` with its
+  `output`, `failed` with its `outcome` and `error`, or `refused` with a `code` and the `error`
+  the agent is told.
 - **`messages`** maps an agent's key, or a pattern, to the script for each message it is woken by:
-  `(message) => …`, with `message.from`, `text`, `asks`, and `reply`, `send`, `silent` and `fail`.
+  `(message) => …`, with `message.from`, `text`, `asks`, and `reply`, `send`, `tool`, `silent` and `fail`.
 - **`run.messagesOf(key)`** is the messages an agent got and how each ended; a turn's `cause` says
   which message started it.
 - **`awaitReply: "anywhere"`** lets a test use `--await-reply` on a harness the engine doesn't

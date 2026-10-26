@@ -1,5 +1,17 @@
-import type { HolderCode, ReplyCode, SendCode } from "@agentswf/contract/wire";
-import type { Effort, JsonValue, OperationCause, OutputSchema } from "@agentswf/contract/workflow";
+import type {
+  HolderCode,
+  ReplyCode,
+  SendCode,
+  ToolCode,
+  ToolFailure,
+} from "@agentswf/contract/wire";
+import type {
+  Effort,
+  JsonObject,
+  JsonValue,
+  OperationCause,
+  OutputSchema,
+} from "@agentswf/contract/workflow";
 import type Type from "typebox";
 import { canonical } from "../canonical-json";
 import { messageOf } from "../errors";
@@ -38,9 +50,23 @@ export type Turn = {
   send(peer: string, text: string, options?: SendOptions): Promise<MessageOutcome>;
   /** `wf reply`: answers the question `peer` asked. A result is refused while one is owed. */
   reply(peer: string, text: string, options?: SendOptions): Promise<MessageOutcome>;
+  /**
+   * `wf tool`: calls the agent's tool `name` with `input` as its JSON, or none, through the run's
+   * real checks and handler; resolves with what the agent would read.
+   */
+  tool(name: string, input?: JsonObject): Promise<ToolOutcome>;
   /** Fires when the engine cancels the turn. */
   signal: AbortSignal;
 };
+
+/**
+ * How a tool call ended, as `wf tool` reports it; a failure or a refusal is a value to test. A
+ * refusal carries what the agent is told, which for `invalid-input` is what it corrects from.
+ */
+export type ToolOutcome =
+  | { kind: "result"; output?: string }
+  | { kind: "failed"; outcome: ToolFailure; error: string }
+  | { kind: "refused"; code: ToolCode; error: string };
 
 /** A message as the agent was shown it. */
 export type Message = {
@@ -70,6 +96,7 @@ export type ReceivedMessage = Message & {
   turn: Turn;
   reply(text: string, options?: SendOptions): Promise<MessageOutcome>;
   send(peer: string, text: string, options?: SendOptions): Promise<MessageOutcome>;
+  tool(name: string, input?: JsonObject): Promise<ToolOutcome>;
   /** Ends the turn without a reply; one owed is reminded once, then fails. */
   silent(): Reply;
   /** The harness failed: the message operation fails, and the agent stops. */

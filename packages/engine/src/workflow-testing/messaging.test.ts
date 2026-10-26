@@ -1,5 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import type { JsonValue, OutputSchema, WorkflowDefinition } from "@agentswf/contract/workflow";
+import {
+  type JsonValue,
+  type OutputSchema,
+  tool,
+  type WorkflowDefinition,
+} from "@agentswf/contract/workflow";
 import { answer, reply, testWorkflow } from "./index";
 
 const VERDICT: OutputSchema<{ kind: string; summary?: string; reason?: string }> = {
@@ -421,4 +426,44 @@ describe("scripted messaging", () => {
       'agent "implementer" was asked 1 message operation; its message script has 2',
     );
   });
+});
+
+describe("a tool call while a reply is awaited", () => {
+  const slow: WorkflowDefinition<null, JsonValue> = {
+    meta: { name: "slow-tool", description: "slow-tool" },
+    async run(workflow) {
+      const impl = await workflow.agents.open({ key: "impl", runtime: "claude" });
+      const rev = await workflow.agents.open({
+        key: "rev",
+        runtime: "codex",
+        tools: {
+          t: tool({ description: "Slow.", handler: () => Bun.sleep(200).then(() => "ok") }),
+        },
+      });
+      await workflow.messages.allow({ between: [rev, impl], purpose: "Review." });
+      await impl.run({ prompt: "build" });
+      const review = await rev.run({ prompt: "review" });
+      return review.outcome.kind === "answered" ? review.outcome.value : review.outcome.kind;
+    },
+  };
+
+  for (const order of ["after the send", "before it"] as const) {
+    test(`a slow one, ${order}, still lets the turn end to wait for the reply`, async () => {
+      const run = await testWorkflow(slow, null, {
+        awaitReply: "anywhere",
+        agents: {
+          impl: answer("built"),
+          rev: answer(async (turn) => {
+            const called = order === "before it" ? turn.tool("t") : undefined;
+            const asked = turn.send("impl", "q", { awaitReply: true });
+            await (called ?? turn.tool("t"));
+            const reply = await asked;
+            return reply.kind === "replied" ? reply.text : reply.kind;
+          }),
+        },
+        messages: { impl: (message) => message.reply("fixed") },
+      });
+      expect(run.value).toBe("fixed");
+    });
+  }
 });
