@@ -528,10 +528,11 @@ turn, which the case's files keep and the wait's `until` reads.
 - [x] 7. A participant routed to the code: `participant:reply`, `post`
 - [x] 8. workflow-testing: scripted events
 - [ ] 9. The Datadog case run on it, against its sketch
+- [ ] 10. One kind of workflow: `events` optional on `defineExecutableWorkflow`, `defineEventWorkflow` gone; design reviewed before building
 
 ## Open questions
 
-None open. Q1–Q9 are decided in "Proposed design". Q10–Q18 came out of review and were settled
+Q19 is open. Q1–Q9 are decided in "Proposed design". Q10–Q18 came out of review and were settled
 there (2026-10-25), each by the reason it gives; they are grouped by the task they shape. Q16 went
 into Q4. The published formats among them still stop for review at task 1.
 
@@ -616,6 +617,14 @@ into Q4. The published formats among them still stop for review at task 1.
   has no `--id` and fails on a run that isn't live (`holder-command.ts`); for a participant routed
   to the code the agent is left out, `--id` is taken, and the reply goes through the one way in,
   not the socket, so it continues a parked run.
+
+- Q19. **What wakes a run isn't in its definition.** Open (2026-10-26). `events` lists only the
+  workflow's own events, `dd.changes` and `dd.closed`, yet a reply in the case's thread wakes the
+  parked run too: `participant:reply` comes from `participants.connect({ to: "code" })` inside
+  `run`, and `agent:ended` from `agent.start()`. Reading the definition, the operator can't tell
+  that a Slack reply starts an attempt; they have to know what `to: "code"` does. To decide: keep
+  it as it is and document it; declare the participant in the definition, beside `events`, so
+  every wake source is listed in one place; or something else.
 
 ## To measure
 
@@ -806,6 +815,32 @@ Done when:
   its files laid out under the run's directory, as `files` takes them, with the case root found
   from `workflow.cwd`; `examples/event-sketches/mr-review.test.ts` stays a sketch, `todo`, until
   the review loop is ported.
+
+### 10. One kind of workflow
+
+Outcome: a workflow is one definition, and `events` is optional on it. The split into
+`defineEventWorkflow` came from typing alone (task 1's notes: a context type per kind, and an
+overload a generic helper lost); the runtime needs only a run's way in, its id, and code safe to
+run again from the top, which `--continue` already asks of it (ADR 0011). The split costs: the
+watcher's tick, while it had `events`, could only start through a made-up `awf emit`, and a case
+can't be started by hand to try it. So:
+
+- `awf run {file}` starts any workflow with its args; one with `events` also starts from an event
+  in `starts`, routed by `key(e)`, and both name the run the same way, `id(args)` or the key.
+- any run may `receive` while it lives and park at a wait with nothing to do; it returns when done.
+- the context's typing follows whether `events` is declared, with no second function; that
+  replaces the overload task 1 rejected.
+
+To decide in review, before building: how an event finds a run started with args (its id as the
+key, or a `key(e)` that names it), and whether a run with no `events` may park at all.
+
+Done when:
+
+- `defineEventWorkflow` is gone, with no shim, and the watcher's `case.ts` and the examples use
+  the one definition; `tsc` still refuses `receive` in a workflow without `events`, including one
+  wrapped in a generic helper.
+- `awf run case.ts -- {args}` starts a case by hand, and an emit for its key lands in that run.
+- a workflow without `events` behaves as today.
 
 ## Implementation notes
 
