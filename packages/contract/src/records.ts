@@ -802,7 +802,8 @@ export type RunsJson = {
       }
     | { ref: string; unreadable: string }
   )[];
-  more: { older: boolean };
+  /** Present when the list is cut, as `LogsJson.more` is. */
+  more?: { older?: true };
 };
 
 /** `awf runs {ref} --json`: durable fields, and best effort under each agent's `live`. */
@@ -978,8 +979,8 @@ export type EmitResultJson = {
   outcome: EmitOutcome;
   /** `{workflow}/{id}`. */
   ref: string;
-  /** The event's id, as given or as awf made it. */
-  id: string;
+  /** The event's id, as `--event-id` gave it or as awf made it. */
+  eventId: string;
   did: WakeDid;
   why?: WakeWhy;
   /** With `launch-failed`: what the attempt said before it exited. */

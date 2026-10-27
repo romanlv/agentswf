@@ -64,7 +64,7 @@ declare function failedNote(outcome: TurnOutcome<JsonValue>): string;
 declare function emitToSelf(
   name: "dd.closed",
   data: ClosedData,
-  options?: { id?: string },
+  options?: { eventId?: string },
 ): Promise<unknown>;
 
 const caseRun = defineEventWorkflow({

@@ -14,8 +14,8 @@ import { readAttempts, readEvents, readNumberedEvents } from "./runs";
 import { exchange } from "./socket-exchange";
 
 export const replyUsage = [
-  "usage: awf reply <run> <agent> [--to <id>] [--as <key>] [<text>]",
-  "       awf send <run> <agent> [--as <key>] [<text>]",
+  "usage: awf reply <run> <agent> [--to <id>] [--as <participant>] [<text>]",
+  "       awf send <run> <agent> [--as <participant>] [<text>]",
   "       awf send <run> --as <participant> --event-id <id> [--author <name>] [<text>]",
   "each takes [--cwd <directory>] [--run-root <directory>] [--json]",
   "",
@@ -145,7 +145,7 @@ export async function holderCommand(
     const result = JSON.parse(answer) as ParticipantResultJson;
     if (result.code !== "delivered") return say(result, "");
     if (options.command === "reply") return say(result, `answered ${result.id}`);
-    // Held for an agent awaiting this coordinator's answer: it comes with that answer.
+    // Held for an agent awaiting this participant's answer: it comes with that answer.
     const awaited = await awaitedBy(status, options.agent, options.as);
     return say(
       result,

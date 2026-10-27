@@ -127,7 +127,7 @@ export async function inboxCommand(
       ? `all|${options.workflow ?? ""}|${options.as ?? ""}`
       : `run|${options.ref}|${options.as ?? ""}`;
     let state: CursorState = { f: filter, r: {} };
-    // Under --all no run is missing or unconnected, so a cursor is checked first, sparing a read.
+    // Reading every run here, none is missing or unconnected, so a cursor is checked first, sparing a read.
     let checked = options.after === undefined;
     if (!checked && options.all) {
       const given = decodeCursor(options.after!);

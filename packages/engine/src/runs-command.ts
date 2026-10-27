@@ -51,7 +51,7 @@ export async function runsCommand(
     return 0;
   }
   let parsed: ReturnType<typeof parsePlace>;
-  let limit = LISTED;
+  let limit: number | undefined;
   let ref: string | undefined;
   try {
     parsed = parsePlace(argv, shellCwd);
@@ -65,7 +65,7 @@ export async function runsCommand(
       else if (ref === undefined) ref = arg;
       else throw new Error(`one run at a time: ${ref} and ${arg}`);
     }
-    if (ref !== undefined && limit !== LISTED)
+    if (ref !== undefined && limit !== undefined)
       throw new Error("--limit lists runs; it takes no run");
   } catch (error) {
     out.stderr(`awf: ${messageOf(error)}\n\n${runsUsage}`);
@@ -73,7 +73,7 @@ export async function runsCommand(
   }
   const { place, json } = parsed;
   try {
-    if (ref === undefined) return await list(place, limit, json, out, now);
+    if (ref === undefined) return await list(place, limit ?? LISTED, json, out, now);
     const view = await viewRun(await findRunByRef(ref, place, home));
     out.stdout(
       json ? JSON.stringify(runJson(view, place, now), null, 2) : describe(view, place, now),
@@ -118,7 +118,11 @@ async function list(place: ReadPlace, limit: number, json: boolean, out: Out, no
         ...(status.waiting ? { waiting: status.waiting } : {}),
       };
     });
-    const document: RunsJson = { v: 1, runs: runsJson, more: { older: older > 0 } };
+    const document: RunsJson = {
+      v: 1,
+      runs: runsJson,
+      ...(older > 0 ? { more: { older: true } } : {}),
+    };
     out.stdout(JSON.stringify(document, null, 2));
     return 0;
   }

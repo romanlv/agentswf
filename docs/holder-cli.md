@@ -56,9 +56,10 @@ Text is for a person. `--json` prints one item per line, `InboxItemJson`
 | `message` | `participant`, `id`, `from`, `to`, `text`; a question has `asks`, and `until` when it closes unanswered at a limit; one the participant sent with `awf send` has `via` |
 | `answered` | `participant`, the question's `id`, the `answer`, and `via`: `terminal`, `command` or `test` |
 | `expired` | `participant`, the question's `id`, and `reason`: `timeout`, `released`, `cancelled` or `attempt-ended` |
+| `post` | `participant`, `id`, `text`, `labels`: the run's code wrote to a participant routed to it, with `participant.post` |
 | `ended` | an attempt ended: `attempt` and `outcome`, or `interrupted` when its process died; a `parked` one has `label`, its last wait's, when it gave one |
 
-Message ids are `{attempt}.{n}`. A coordinator's answer is an `answered` item only. An agent is
+Message ids are `{attempt}.{n}`. A participant's answer is an `answered` item only. An agent is
 named by its peer address. A route's `direction` says whether `awf send` may reach the agent at
 all. Readers ignore kinds and fields they don't know; `v` changes only when one is renamed or
 removed.
@@ -88,7 +89,7 @@ is `expired`. Anyone may answer, and the first answer wins.
 
 `awf send` messages an agent first, over a route the workflow allowed. A busy agent gets it with
 its next turn, and an idle one gets a turn of its own for it, a model call. One waiting for this
-coordinator's answer gets it with that answer; the command says so.
+participant's answer gets it with that answer; the command says so.
 
 Both print one line, or with `--json` `ParticipantResultJson`: `delivered` with the id an `awf inbox`
 item names (for a reply the question's, for a send the new message's), or a refusal. The first code
@@ -111,6 +112,16 @@ that applies, in this order:
 | `inbox-full` | the agent has 16 unread messages |
 
 Exit codes: 0 delivered, 1 refused, 2 a usage error, 3 the run could not be reached.
+
+### A participant routed to the code
+
+A participant the workflow connects with `to: "code"`, such as a chat thread, has no agent to
+answer: its messages go to the run's code. `awf send {run} --as {key} --event-id {id} {text}`
+delivers one, from the participant, whether the run is live or parked, and the same id again is a
+duplicate, so a chat's own message id makes a resend safe. It prints as `awf emit` does, and with
+`--json` `EmitResultJson`. Unlike a reply, it exits 0 for whatever the run did with it (accepted,
+duplicate, or refused by a run that returned), 1 when the run or the participant isn't found or
+its attempt didn't start. What the code writes back comes as `post` items.
 
 ## What reaches what
 

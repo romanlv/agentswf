@@ -156,8 +156,8 @@ participant's, a child call's included. One passed into a child call under anoth
 in the record and the CLI; the local key exists only inside the child. No agent anywhere in the
 run may take a key an outside participant holds, so a route's two ends never read alike in the
 record. To the holder's commands
-every outside participant is a coordinator: `awf inbox`'s `participant` field, `--as` and the
-`no-participant` code all mean this key.
+every participant is named by this key: `awf inbox`'s `participant` field, `--as` and the
+`no-participant` code all mean it.
 
 `connect` records the participant and its `labels` in the run log (`participant-connected`), and
 opens the socket `awf reply` and `awf send` reach the run through. It waits for no one and says
@@ -259,7 +259,7 @@ Return the verdict once nothing is open.
 The session holding the author participates with the same files and the holder's commands:
 
 ```sh
-awf inbox --all --as author --json --after {cursor} --wait 100
+awf inbox --as author --json --after {cursor} --wait 100
 awf reply review/2026-10-22-0915 review:claude/reviewer --to 1.4 < round2.md
 ```
 

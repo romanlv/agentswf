@@ -567,7 +567,7 @@ async function runAttempt(
     ...(events ? { nudged: () => nudge?.() } : {}),
     failed: (reason) =>
       progress.log(
-        `awf: the coordinator socket did not open, so awf reply and awf send cannot reach this run: ${reason}`,
+        `awf: the participants' socket did not open, so awf reply and awf send cannot reach this run: ${reason}`,
       ),
   });
   const coordinators = [...(environment.coordinators ?? []), socket, asked];

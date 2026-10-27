@@ -677,17 +677,17 @@ is always qualified, so an address never changes once printed. Every command has
 ```sh
 awf inbox {run}                                   # one run: what happened, for a person or a session
 awf inbox {run} --open                            # the questions in it still waiting for an answer
-awf inbox --all --json --after {cursor} --wait 300 [--workflow {name}] [--as {key}]   # an app
+awf inbox --json --after {cursor} --wait 300 [--workflow {name}] [--as {key}]   # an app, every run
 ```
 
-`--all` reads every run in the folder that connected an outside participant, of any workflow;
+With no run, it reads every run in the folder that connected a participant, of any workflow;
 `--workflow` and `--as` narrow it to one workflow or one participant key. Items come oldest first,
 across runs too, each run's in its log's order. `--wait` waits up to that many seconds, at most
 300, when nothing is new. `--open` is a snapshot of the questions open right now, with `{run}` or
-`--all` (and then `--workflow` and `--as` only): no cursor, no waiting.
+without (and then `--workflow` and `--as` only): no cursor, no waiting.
 
 Text is for a person; `--json` prints one item per line (`InboxItemJson`), and `--open --json` the
-`message` items of the open questions. Each item carries `v`, `run`, `at` and, outside `--open`,
+`message` items of the open questions. Each item carries `v`, `ref`, `at` and, outside `--open`,
 the `cursor` that reads on from just after it.
 
 | `kind` | Fields |
@@ -721,9 +721,9 @@ $ awf inbox investigate/2026-10-22-0915
 next: awf inbox investigate/2026-10-22-0915 --after c8f2a1
 ```
 
-**The cursor** is opaque and remembers a position in each run. It belongs to the run, or the
-`--all` filter, it was made with; using it with another is refused. Without `--after`, everything
-in the run logs is read, so an app's first call misses nothing. Under `--all`, any run in the
+**The cursor** is opaque and remembers a position in each run. It belongs to the run, or to
+every run here and its `--workflow`, it was made with; using it with another is refused. Without `--after`, everything
+in the run logs is read, so an app's first call misses nothing. Reading every run here, any run in the
 folder with new items since the cursor was made is read from where the cursor left it, or from its
 start if the cursor never saw it: a new run, a run that connects late, and a run continued with
 `awf run --continue` all show up on their own. `ended` is per attempt, so a continued run sends
@@ -742,9 +742,9 @@ holder that starts late still sees everything, and a run that has ended stays re
 
 It fails, in this order (`INBOX_CODES`), `not-found` for no such run, `no-participant` for a run that ended without connecting a participant, or
 that `--as`, and `bad-cursor` for a cursor made with another run or filter; `--json` prints
-`InboxErrorJson`, `{ v: 1, code, error }`. A run is always `{workflow}/{id}`, never a bare id, so
-none of the three commands is ever ambiguous about which run. A live
-run that has not connected one yet is not an error, only empty; under `--all` neither is ever an
+`InboxErrorJson`, `{ v: 1, code, error }`. A run is `{workflow}/{id}`, or an `{id}` only one workflow has, found as every command finds it;
+a bare id two workflows share is refused, so no command is ambiguous about which run. A live
+run that has not connected one yet is not an error, only empty; reading every run here, neither is ever an
 error.
 
 ### `awf reply` and `awf send`

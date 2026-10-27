@@ -286,7 +286,7 @@ export async function testWorkflow<Args extends JsonValue, Result extends JsonVa
       // A question that closes on its own is waited for; that wait is not a stall.
       if (closes.length > 0) return arm(Math.max(0, Math.min(...closes) - Date.now()) + stallMs);
       waitedOut = true;
-      stopping.abort(new Error("everything left waits on a coordinator"));
+      stopping.abort(new Error("everything left waits on a participant"));
       return;
     }
     const waiting = host

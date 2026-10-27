@@ -489,7 +489,7 @@ export interface AgentDirectory {
   /**
    * Reattaches by logical key when every supplied field matches; omitted optional fields do not
    * constrain an existing agent. Runtime requirements are never silently relaxed. A conflicting
-   * spec or occupied outside-participant key rejects rather than mutating the existing participant;
+   * spec or occupied outside-participant key rejects rather than mutating the existing agent;
    * so does a reserved key, `operator`, `awf`, `system` or `user`.
    */
   open(spec: AgentOpenSpec): Promise<AgentRef>;

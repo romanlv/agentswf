@@ -83,7 +83,7 @@ export default singleton(
               c.id,
               "dd.closed",
               { case: c.id, ...c.closed, by: "triage" },
-              { eventId: `-closed` },
+              { eventId: `${commit}-closed` },
             );
           }
         }

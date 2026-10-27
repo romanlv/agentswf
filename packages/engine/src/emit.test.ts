@@ -116,7 +116,7 @@ describe("outcomes", () => {
       v: 1,
       outcome: "accepted",
       ref: "dd-case/kombo",
-      id: "c1",
+      eventId: "c1",
       did: "started",
     });
     const run = await runOf(p, "kombo");
@@ -172,9 +172,9 @@ describe("outcomes", () => {
     const launch = fakeLaunch();
     const first = await emit(p, "dd.changes", { case: "k" }, { launch });
     const second = await emit(p, "dd.changes", { case: "k" }, { launch, nudge: async () => true });
-    expect(first.id).toMatch(/^awf\.[0-9a-f]{16}$/);
+    expect(first.eventId).toMatch(/^awf\.[0-9a-f]{16}$/);
     expect(second.outcome).toBe("accepted");
-    expect(await eventsOf(await runOf(p, "k"))).toEqual([first.id, second.id]);
+    expect(await eventsOf(await runOf(p, "k"))).toEqual([first.eventId, second.eventId]);
   });
 
   test.each([
