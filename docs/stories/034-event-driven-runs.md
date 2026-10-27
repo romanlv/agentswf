@@ -534,14 +534,16 @@ turn, which the case's files keep and the wait's `until` reads.
 - [x] 8. workflow-testing: scripted events
 - [ ] 9. The Datadog case run on it, against its sketch
 - [x] 10. One run id: the sender names the run, no `key`, no `{workflow}.` prefix, `starts` optional, `awf run --id` with no event
-- [ ] 11. One kind of workflow: `events` optional on `defineExecutableWorkflow`, `defineEventWorkflow` gone; design reviewed before building
+- [ ] 11. One kind of workflow: one flat `defineWorkflow`, `events` optional; `defineExecutableWorkflow`, `defineEventWorkflow` and the nested `definition` gone
 - [x] 12. `awf tick` wakes its own project's runs; `--all` wakes every project's
+- [ ] 13. Every wake source declared: `{key}:reply` and `{key}:ended` in `events`, checked when sent (Q19)
 
 ## Open questions
 
-Q19 is open. Q1–Q9 are decided in "Proposed design". Q10–Q18 came out of review and were settled
+Q1–Q9 are decided in "Proposed design". Q10–Q18 came out of review and were settled
 there (2026-10-25), each by the reason it gives; they are grouped by the task they shape. Q16 went
-into Q4. The published formats among them still stop for review at task 1.
+into Q4. The published formats among them still stop for review at task 1. Q19 came out of
+reviewing task 11 and was decided 2026-10-27.
 
 ### 1. The contract
 
@@ -630,13 +632,33 @@ into Q4. The published formats among them still stop for review at task 1.
   to the code the agent is left out, `--id` is taken, and the reply goes through the one way in,
   not the socket, so it continues a parked run.
 
-- Q19. **What wakes a run isn't in its definition.** Open (2026-10-26). `events` lists only the
-  workflow's own events, `dd.changes` and `dd.closed`, yet a reply in the case's thread wakes the
-  parked run too: `participant:reply` comes from `participants.connect({ to: "code" })` inside
-  `run`, and `agent:ended` from `agent.start()`. Reading the definition, the operator can't tell
-  that a Slack reply starts an attempt; they have to know what `to: "code"` does. To decide: keep
-  it as it is and document it; declare the participant in the definition, beside `events`, so
-  every wake source is listed in one place; or something else.
+- Q19. **What wakes a run isn't in its definition.** `events` listed only the workflow's own
+  events, `dd.changes` and `dd.closed`, yet a reply in the case's thread woke the parked run too:
+  `participant:reply` came from `participants.connect({ to: "code" })` inside `run`, and
+  `agent:ended` from `agent.start()`. Reading the definition, the operator couldn't tell that a
+  Slack reply starts an attempt. Decided (2026-10-27): every wake source is declared in `events`,
+  and whatever is sent to a run is checked against its definition when it is sent, so the author
+  of a workflow finds a missing declaration on the first test, not when a turn ends hours later.
+
+  - awf's events are named by key: `{key}:reply` for a participant's reply, `{key}:ended` for a
+    turn started with `start()`, as `thread:reply` and `investigator:ended`. Agents and
+    participants share one key namespace, so the two never collide. A name with a colon stays
+    awf's: a workflow declares one but never makes one up.
+  - Each entry is a name and a schema, and awf's take the schemas awf exports, `ParticipantReply`
+    and `AgentEnded`; `tsc` refuses a colon name with any other. The one wildcard is `*` before
+    `:reply` or `:ended`, as `*:ended` for agents whose keys the code makes. `starts` takes only
+    the workflow's own events.
+  - The declaration replaces `to: "code"`: connecting `thread` routes its replies to the code when
+    `thread:reply` or `*:reply` is declared, and to agents as today otherwise. It is said once, in
+    the definition, and a workflow with `*:reply` names its keys instead to keep a coordinator
+    whose replies go to agents.
+  - Checked when sent: `awf send --as thread --event-id …` is refused unless the definition covers
+    `thread:reply`, and its data must fit the schema; `agent.start()` throws unless `{key}:ended`
+    is covered; `workflow.emit` and `awf emit` are checked against `events` already (`checkEvent`).
+    `receive` returns only declared events, so `e.name === "thread:reply"` narrows as a workflow's
+    own events do.
+
+  Task 13 builds it.
 
 ## To measure
 
@@ -823,6 +845,7 @@ Done when:
 - a live case: occurrences below the threshold start no turn; a reply during a turn, delivered by
   hand with Q18's command until awf-chat has it, gets the next one; a close from the triage tick
   cancels a running turn; a failed turn is retried by `awf tick` after its `until`.
+- after tasks 11 and 13, on the one `defineWorkflow` with its wake sources declared.
 - the sketch's `case.test.ts`, ported beside `case.ts`, passes with no `todo` (task 8's Done when),
   its files laid out under the run's directory, as `files` takes them, with the case root found
   from `workflow.cwd`; `examples/event-sketches/mr-review.test.ts` stays a sketch, `todo`, until
@@ -848,29 +871,46 @@ Done when:
 
 ### 11. One kind of workflow
 
-Outcome: a workflow is one definition, and `events` is optional on it. The split into
-`defineEventWorkflow` came from typing alone (task 1's notes: a context type per kind, and an
-overload a generic helper lost); the runtime needs only a run's way in, its id, and code safe to
-run again from the top, which `--continue` already asks of it (ADR 0011). The split costs: the
-watcher's tick, while it had `events`, could only start through a made-up `awf emit`, and a case
-can't be started by hand to try it. So:
+Outcome: a workflow is one flat definition, made by `defineWorkflow`, and `events` is optional on
+it (decided 2026-10-27). The split into `defineEventWorkflow` came from typing alone (task 1's
+notes: a context type per kind, and an overload a generic helper lost); the runtime needs only a
+run's way in, its id, and code safe to run again from the top, which `--continue` already asks of
+it (ADR 0011). The split costs: the watcher's tick, while it had `events`, could only start through
+a made-up `awf emit`, and a case can't be started by hand to try it. The nesting in
+`defineExecutableWorkflow({ definition: { meta, run }, prepare, … })` goes with it: it kept a
+`WorkflowDefinition` apart for `workflow.call`, which isn't built, and a call needs only `meta` and
+`run`, which the flat workflow has.
 
-- `awf run {file}` starts any workflow with its args; one with `events` also starts from an event
-  in `starts`, sent to the run its sender names (task 10).
-- any run may `receive` while it lives and park at a wait with nothing to do; it returns when done.
-- the context's typing follows whether `events` is declared, with no second function; that
+```ts
+export default defineWorkflow({
+  meta: { name: "dd-case", description, whenToUse },
+  events: { "dd.changes": Changes, "dd.closed": Closed }, // optional
+  starts: ["dd.changes", "dd.closed"], // optional, with events only
+  prepare, // optional: argv to args; without it, no args
+  id, present, report, // optional, as today
+  async run(workflow, args) { … },
+});
+```
+
+- `awf run {file} -- {args}` starts any workflow with its args, one with `events` included; one with
+  `events` also starts from an event in `starts`, sent to the run its sender names (task 10).
+- A run started by an event has no args: when the workflow has `starts`, `run` takes
+  `Args | undefined`, so the code handles both ways in and `tsc` says so.
+- A run of a workflow with `events` may `receive` and park at a wait with nothing to do. One
+  without `events` has nothing that can wake it: no `receive`, no park, as today.
+- The context's typing follows whether `events` is declared, with no second function; that
   replaces the overload task 1 rejected.
-
-To decide in review, before building: whether a workflow with `events` takes args at all, since its
-run's id is its one input and the rest comes as events or files, and whether a run with no
-`events` may park at all.
+- One kind, `awf.workflow/v1`, in place of `awf.executable-workflow/v1` and
+  `awf.event-workflow/v1`; `defineExecutableWorkflow`, `defineEventWorkflow` and the nested
+  `definition` go with no shim, and a call would take the workflow itself.
 
 Done when:
 
-- `defineEventWorkflow` is gone, with no shim, and the watcher's `case.ts` and the examples use
-  the one definition; `tsc` still refuses `receive` in a workflow without `events`, including one
-  wrapped in a generic helper.
-- `awf run case.ts -- {args}` starts a case by hand, and an emit for its id lands in that run.
+- `defineWorkflow` is the one definition, and the watcher's `case.ts` and `tick.ts`, the examples,
+  the tests and the docs use it; `tsc` still refuses `receive` in a workflow without `events`,
+  including one wrapped in a generic helper.
+- `awf run case.ts --id {id} -- {args}` starts a case by hand, and an emit for its id lands in that
+  run; an event in `starts` still starts one with no args.
 - a workflow without `events` behaves as today.
 
 ### 12. A tick for its own project
@@ -890,6 +930,23 @@ Done when:
   only `--all`.
 - `awf tick --help`, `docs/workflow-api.md` and the watcher's `process-compose.yaml`, whose
   `awf-tick` runs in the watcher's folder, say the same.
+
+### 13. Every wake source declared
+
+Outcome: Q19 as decided. A workflow's `events` lists every event that can wake its run, its own and
+awf's `{key}:reply` and `{key}:ended`, and each is checked against the definition when it is sent.
+`participant:reply`, `agent:ended` and `to: "code"` go with no shim. Built after task 11, since both
+reshape a workflow's definition type; one design review covers both.
+
+Done when:
+
+- `tsc` refuses a colon name with a schema that isn't awf's, a wildcard other than `*:reply` and
+  `*:ended`, and an awf event in `starts`; `receive` narrows on `thread:reply` and `*:ended`.
+- `awf send --as {key} --event-id …` to a run whose definition doesn't cover `{key}:reply` is
+  refused, and so is data that doesn't fit; `agent.start()` for a key without `{key}:ended`
+  throws; both in tests, workflow-testing's scripted events included.
+- connecting a participant whose reply is declared routes it to the code, and one whose isn't, to
+  agents; the watcher's `case.ts`, the sketches and "Proposed design" name the events as declared.
 
 ## Implementation notes
 

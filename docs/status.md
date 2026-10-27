@@ -248,8 +248,9 @@ The inbox of possible stories is [`stories/todo/`](stories/todo/).
 - [033 — an agent learns awf from its help](stories/033-cli-help.md): done. `awf -h` lists every
   command from one table, with `awf help {command}`, `awf help reference` and typo suggestions.
 - [034 — an event starts a run, and wakes it while it runs](stories/034-event-driven-runs.md):
-  tasks 1–8, 10 and 12 built, awaiting human review; task 9, the Datadog case run live, and task 11,
-  one kind of workflow, are left, with Q19 open. `awf tick` wakes its own project's runs, `--all`
+  tasks 1–8, 10 and 12 built, awaiting human review; left are task 11, one flat `defineWorkflow`
+  with `events` optional, task 13, every wake source declared in `events` (Q19), and then task 9,
+  the Datadog case run live. `awf tick` wakes its own project's runs, `--all`
   every project's. A workflow declares its events; `awf emit --id
   {id}` appends to the run its sender names and wakes it, `awf run --id` starts one with no event,
   the code takes events at a wait, starts turns it doesn't await, and parks between events.
