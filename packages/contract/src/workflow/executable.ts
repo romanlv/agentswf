@@ -69,8 +69,8 @@ export interface ExecutableWorkflow<Args extends JsonValue, Result extends JsonV
   readonly definition: WorkflowDefinition<Args, Result>;
   prepare(invocation: WorkflowInvocation): Args;
   /**
-   * The run's id, derived from its args, such as a ticket's key: unique within the workflow,
-   * letters, digits, `.`, `_` and `-`. `awf run --id` overrides it; without either, one is
+   * The run's id, derived from its args, such as a ticket's: unique within the workflow, by the
+   * grammar of `nameProblem`. `awf run --id` overrides it; without either, one is
    * generated.
    */
   id?(args: Args): string;
@@ -88,7 +88,7 @@ export interface ExecutableWorkflow<Args extends JsonValue, Result extends JsonV
   report?(value: Result | undefined, ending: Ending<Result>): string | undefined;
 }
 
-/** A workflow started by an event, with no input to prepare and no id to derive: its key is the id. */
+/** A workflow with events, with no input to prepare: its definition's `id` names its runs. */
 export interface ExecutableEventWorkflow<Events extends EventSchemas, Result extends JsonValue> {
   readonly kind: typeof EVENT_WORKFLOW_KIND;
   readonly definition: EventWorkflowDefinition<Events, Result>;
@@ -140,19 +140,18 @@ export function eventWorkflowProblem(definition: unknown): string | undefined {
   const events = given.events;
   if (typeof events !== "object" || events === null)
     return "a workflow with events declares them in definition.events";
-  const name = (given.meta as { name?: unknown } | undefined)?.name;
-  if (typeof name === "string" && name.includes("."))
-    return `meta.name: ${name} has a "."; in a workflow with events it separates the key`;
   const colon = Object.keys(events).find((each) => each.includes(":"));
   if (colon) return `events: ${colon} has a colon, which only awf's own names do`;
-  if (typeof given.key !== "function") return "a workflow with events has key(event)";
+  if (typeof given.id !== "function" && typeof given.id !== "string")
+    return "a workflow with events has id(event), or a string for its one run";
   const starts = given.starts;
   if (
-    !Array.isArray(starts) ||
-    starts.length === 0 ||
-    starts.some((each) => typeof each !== "string" || !(each in events))
+    starts !== undefined &&
+    (!Array.isArray(starts) ||
+      starts.length === 0 ||
+      starts.some((each) => typeof each !== "string" || !(each in events)))
   )
-    return "starts lists the events, by their names, that start a run";
+    return "starts lists the events, by their names, that start a run; absent, every event does";
   if (typeof given.file !== "string") return "a workflow with events gives file: import.meta.path";
   return undefined;
 }

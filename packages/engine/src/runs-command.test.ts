@@ -500,17 +500,17 @@ describe("awf runs", () => {
   });
 });
 
-test("a keyed run at its wait shows the wait's label and until, live or parked", async () => {
+test("an event run at its wait shows the wait's label and until, live or parked", async () => {
   const cwd = runDirs.tempRunDir();
-  const live = await makeRun(cwd, "dd-case", "dd-case.kombo", [{ ...ALIVE, started: T(10) }]);
-  const parked = await makeRun(cwd, "dd-case", "dd-case.other", [
+  const live = await makeRun(cwd, "dd-case", "kombo", [{ ...ALIVE, started: T(10) }]);
+  const parked = await makeRun(cwd, "dd-case", "other", [
     { started: T(2), ended: T(3), outcome: "parked" },
   ]);
   for (const [run, label, until] of [
     [live, "investigating", undefined],
     [parked, "30 unseen", T(40)],
   ] as const) {
-    await writeJson(join(run.dir, "run.json"), { ...run.record, key: run.record.id.slice(8) });
+    await writeJson(join(run.dir, "run.json"), { ...run.record, events: true });
     await appendMailbox(run.dir, {
       version: MAILBOX_RECORD_VERSION,
       at: T(3),
@@ -522,20 +522,20 @@ test("a keyed run at its wait shows the wait's label and until, live or parked",
   }
   const json = JSON.parse((await awfRuns(cwd, "--json")).stdout) as RunsJson;
   expect(json.runs).toMatchObject([
-    { ref: "dd-case/dd-case.kombo", state: "running", waiting: { label: "investigating" } },
+    { ref: "dd-case/kombo", state: "running", waiting: { label: "investigating" } },
     {
-      ref: "dd-case/dd-case.other",
+      ref: "dd-case/other",
       state: "parked",
       waiting: { label: "30 unseen", until: T(40) },
     },
   ]);
   const text = (await awfRuns(cwd)).stdout;
   // A wait an earlier attempt died in is not shown while a later one works.
-  const later = await makeRun(cwd, "dd-case", "dd-case.later", [
+  const later = await makeRun(cwd, "dd-case", "later", [
     { started: T(1) },
     { ...ALIVE, started: T(11) },
   ]);
-  await writeJson(join(later.dir, "run.json"), { ...later.record, key: "later" });
+  await writeJson(join(later.dir, "run.json"), { ...later.record, events: true });
   await appendMailbox(later.dir, {
     version: MAILBOX_RECORD_VERSION,
     at: T(1),
@@ -544,16 +544,16 @@ test("a keyed run at its wait shows the wait's label and until, live or parked",
     label: "stale",
   });
   const again = JSON.parse((await awfRuns(cwd, "--json")).stdout) as RunsJson;
-  expect(again.runs.find((r) => r.ref === "dd-case/dd-case.later")).not.toHaveProperty("waiting");
+  expect(again.runs.find((r) => r.ref === "dd-case/later")).not.toHaveProperty("waiting");
   expect(text).toContain("investigating");
   expect(text).toMatch(/30 unseen · until /);
 });
 
-test("a keyed run that returned says how many events no wait took", async () => {
+test("an event run that returned says how many events no wait took", async () => {
   const cwd = runDirs.tempRunDir();
-  const run = await makeRun(cwd, "dd-case", "dd-case.done", [
+  const run = await makeRun(cwd, "dd-case", "done", [
     { started: T(2), ended: T(3), outcome: "completed", unacknowledged: 2 },
   ]);
-  await writeJson(join(run.dir, "run.json"), { ...run.record, key: "done" });
+  await writeJson(join(run.dir, "run.json"), { ...run.record, events: true });
   expect((await awfRuns(cwd)).stdout).toContain("2 events never taken");
 });

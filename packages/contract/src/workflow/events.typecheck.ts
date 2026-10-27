@@ -19,14 +19,14 @@ const caseRun = defineEventWorkflow({
     meta: { name: "dd-case", description: "One case." },
     file: import.meta.path,
     events: { "dd.changes": Changes, "dd.closed": Closed },
-    key: (e) => e.data.case,
+    id: (e) => e.data.case,
     starts: ["dd.changes"],
     async run(workflow) {
       const thread = await workflow.participants.connect({ key: "thread", to: "code" });
       const investigator = await workflow.agents.open({ key: "investigator", runtime: "claude" });
       const triage = await workflow.agents.open({ key: "triage", runtime: "claude" });
       for (;;) {
-        const events = await workflow.receive({ label: workflow.key, until: Date.now() });
+        const events = await workflow.receive({ label: workflow.runId, until: Date.now() });
         for (const e of events) {
           if (investigator.ended<Given>(e)) {
             const given: Given = e.data.meta;
@@ -89,13 +89,13 @@ defineEventWorkflow({
     file: import.meta.path,
     // @ts-expect-error An event of the workflow's own has no colon in its name.
     events: { "dd:changes": Changes },
-    key: () => "k",
+    id: () => "k",
     starts: [],
     run: async () => null,
   },
 });
 
-// A workflow without events has no wait, no key, no turn started without awaiting it, and no
+// A workflow without events has no wait, no turn started without awaiting it, and no
 // code-routed participant.
 const plain: ExecutableWorkflow<null, null> = defineExecutableWorkflow({
   definition: {
@@ -103,8 +103,6 @@ const plain: ExecutableWorkflow<null, null> = defineExecutableWorkflow({
     async run(workflow) {
       // @ts-expect-error Only a workflow with events waits.
       await workflow.receive();
-      // @ts-expect-error Only a workflow with events has a key.
-      void workflow.key;
       // @ts-expect-error A participant routed to the code needs a mailbox.
       const routed = await workflow.participants.connect({ key: "thread", to: "code" });
       void routed;

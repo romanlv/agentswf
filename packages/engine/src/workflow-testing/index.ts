@@ -28,11 +28,11 @@ import {
 } from "@agentswf/contract/workflow";
 import { type Harness, sandboxTokens } from "@agentswf/harness";
 import { createFakeSandboxProvider } from "@agentswf/sandbox/testing/fake";
-import { checkEvent, eventIdProblem, keyOf } from "../emit";
+import { checkEvent, eventIdProblem, runIdOf } from "../emit";
 import { messageOf } from "../errors";
 import { appendMailbox, RunParked, readMailbox } from "../mailbox";
 import { OPERATOR_ALIASES } from "../operator-aliases";
-import { createRun, readEvents, readStageRecords, writeStageRecord } from "../runs";
+import { createRun, idProblem, readEvents, readStageRecords, writeStageRecord } from "../runs";
 import { primaryFailure, WorkflowStopped } from "../stopped";
 import { runWorkflow, type SettledRun, WorkflowRunError } from "../workflow-runner";
 import { CoordinatorScripts } from "./coordinators";
@@ -154,10 +154,15 @@ export type EventTestOptions<Events extends EventSchemas> = Omit<
   TestOptions,
   "recorded" | "fromStage" | "values"
 > & {
-  /** The event that starts the run, whose `key` is the run's key. */
-  event: {
+  /**
+   * The event that starts the run, as `awf emit` would; the definition's `id` names the run. Absent,
+   * the run starts as `awf run --id` starts it, with no event: `id`, or the definition's own.
+   */
+  event?: {
     [Name in keyof Events & string]: { name: Name; data: OutputOf<Events[Name]>; id?: string };
   }[keyof Events & string];
+  /** The run's id when it starts with no `event`; a definition whose `id` is a string needs none. */
+  id?: string;
   /** Laid out before the run, by path under `cwd`. */
   files?: Readonly<Record<string, FileTree>>;
   /** Sent at points in the run, each once its point is reached. */
@@ -246,12 +251,12 @@ export async function testWorkflow<Args extends JsonValue, Result extends JsonVa
   // A workflow with events takes its test's options where another takes its args.
   const eventOptions = keyed ? (args as unknown as EventTestOptions<EventSchemas>) : undefined;
   if (eventOptions) {
-    if (typeof eventOptions.event !== "object" || eventOptions.event === null)
-      throw new Error("a workflow with events is tested from the event that starts it: { event }");
+    if (typeof eventOptions !== "object" || eventOptions === null)
+      throw new Error("a workflow with events is tested from { event } or { id }");
     options = eventOptions;
     args = null as NoInfer<Args>;
   }
-  const started = keyed && eventOptions && startingEvent(keyed, eventOptions.event);
+  const started = keyed && eventOptions && startOf(keyed, eventOptions);
   const given = workflow as WorkflowDefinition<Args, Result> | ExecutableWorkflow<Args, Result>;
   const definition = keyed
     ? (keyed as unknown as WorkflowDefinition<Args, Result>)
@@ -358,7 +363,7 @@ export async function testWorkflow<Args extends JsonValue, Result extends JsonVa
   let messages: (MessageRecord & { to: string })[] = [];
   const runRoot = directory();
   const run = await createRun(runRoot, {
-    id: started ? `${definition.meta.name}.${started.key}` : "test",
+    id: started ? started.id : "test",
     workflow: definition.meta.name,
     argv: [],
     cwd,
@@ -369,7 +374,7 @@ export async function testWorkflow<Args extends JsonValue, Result extends JsonVa
   });
   if (options.recorded) await recordEarlierAttempt(run.dir, options.recorded);
   for (const record of seeded ?? []) await appendMailbox(run.dir, record);
-  if (started) await appendMailbox(run.dir, started.record);
+  if (started?.record) await appendMailbox(run.dir, started.record);
   const recordedStages = async ({ stages: entered = [] }: SettledRun) => {
     const records = await readStageRecords(run.dir);
     // A stage the plan stopped has no record of this attempt's: the one there is an earlier one's.
@@ -399,7 +404,7 @@ export async function testWorkflow<Args extends JsonValue, Result extends JsonVa
           : { values: new Map(Object.entries(options.values)) }),
         ...(started
           ? {
-              key: started.key,
+              events: true as const,
               park: async () => undefined,
               listenNudges: (given: () => void) => {
                 nudge = given;
@@ -624,7 +629,7 @@ class ScriptedEvents {
       return id;
     };
     for (const record of options.mailbox ?? []) if (record.kind === "event") ids.add(record.id);
-    idOf(options.event.id, `${AWF_ID_PREFIX}start`);
+    if (options.event) idOf(options.event.id, `${AWF_ID_PREFIX}start`);
     this.#pending = (options.events ?? []).map((event, index) => {
       if (!/^[^#]+#[1-9]\d*$/.test(event.during))
         throw new Error(
@@ -700,15 +705,34 @@ async function layOut(
   }
 }
 
-/** The event a test starts its run with, as `awf emit` would append it, and the key it makes. */
-function startingEvent(
+/**
+ * The run a test starts: its id, and the event it starts with, as `awf emit` would append it, or
+ * none, as `awf run --id` starts one.
+ */
+function startOf(
   definition: EventWorkflowDefinition<EventSchemas, JsonValue>,
-  event: { name: string; data: JsonValue; id?: string },
-): { key: string; record: MailboxRecord } {
-  checkEvent({ file: definition.file, definition }, { name: event.name, data: event.data });
-  if (!definition.starts.includes(event.name))
+  options: EventTestOptions<EventSchemas>,
+): { id: string; record?: MailboxRecord } {
+  const { event } = options;
+  if (event === undefined) {
+    const id = options.id ?? (typeof definition.id === "string" ? definition.id : undefined);
+    if (id === undefined)
+      throw new Error(
+        `${definition.meta.name} names its runs from their events: { event } starts one, or { id }`,
+      );
+    const problem = idProblem(id);
+    if (problem) throw new Error(problem);
+    return { id };
+  }
+  if (options.id !== undefined)
     throw new Error(
-      `${event.name} doesn't start a run of ${definition.meta.name}: its starts are ${definition.starts.join(", ")}`,
+      "{ event } names the run by the definition's id; { id } is for a run with none",
+    );
+  checkEvent({ file: definition.file, definition }, { name: event.name, data: event.data });
+  const { starts } = definition;
+  if (starts && !starts.includes(event.name))
+    throw new Error(
+      `${event.name} doesn't start a run of ${definition.meta.name}: its starts are ${starts.join(", ")}`,
     );
   const record = {
     version: MAILBOX_RECORD_VERSION,
@@ -719,7 +743,7 @@ function startingEvent(
     data: event.data,
     from: "operator",
   };
-  return { key: keyOf(definition, record), record };
+  return { id: runIdOf(definition, record), record };
 }
 
 function isExecutable<Args extends JsonValue, Result extends JsonValue>(

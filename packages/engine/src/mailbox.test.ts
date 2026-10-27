@@ -142,7 +142,7 @@ test("a wait's options are checked", async () => {
   await expect(box.receive({ until: Number.NaN })).rejects.toThrow("epoch milliseconds or a Date");
 });
 
-test("an event sent as the run parks is taken: parking checks again under the key's lock", async () => {
+test("an event sent as the run parks is taken: parking checks again under the run's lock", async () => {
   const runDir = runDirs.tempRunDir();
   let parked = false;
   let first = true;

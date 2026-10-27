@@ -45,14 +45,14 @@ export async function runStatus(
   at = Date.now(),
 ): Promise<RunStatus> {
   const status = statusOf(run, await readAttempts(run), probe, at);
-  if (run.record.key === undefined) return status;
+  if (!run.record.events) return status;
   const records = await readMailbox(run.dir);
   const waiting = waitingOf(status, records);
   const stuck = status.state !== "running" && stuckOf(status.attempts, records);
   return { ...status, ...(waiting ? { waiting } : {}), ...(stuck ? { state: "stuck" } : {}) };
 }
 
-/** A keyed run's wait, while it is running or parked there: its label and `until`. */
+/** An event run's wait, while it is running or parked there: its label and `until`. */
 function waitingOf(status: RunStatus, records: readonly MailboxRecord[]): WaitingJson | undefined {
   if (status.state !== "running" && status.state !== "parked") return undefined;
   const wait = foldMailbox(records).lastWait;
@@ -180,7 +180,7 @@ function failuresInARow(
 }
 
 /**
- * Whether a keyed run is `stuck` (Q13): failed, crashed or failed to launch three times in a row,
+ * Whether an event run is `stuck` (Q13): failed, crashed or failed to launch three times in a row,
  * whatever its last ending says, short of one the operator or the code chose.
  */
 export function stuckOf(
@@ -192,7 +192,7 @@ export function stuckOf(
   return failuresInARow(attempts, records) >= STUCK_AFTER;
 }
 
-/** A run by its ref, under `--cwd`'s runs or in a project awf started a keyed run in (Q15). */
+/** A run by its ref, under `--cwd`'s runs or in a project awf started an event run in (Q15). */
 export async function findKeyedRun(
   ref: string,
   place: { runRoot: string },

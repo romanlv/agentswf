@@ -9,8 +9,8 @@ import { loadWorkflowFile } from "./workflow-loader";
 export const emitUsage = [
   "usage: awf emit --target <file> <event> [<json>] [--id <id>] [--json]",
   "",
-  "Sends an event to a workflow with events. Its key's run starts if it has none and the event is",
-  "one that starts one, and is woken if it has one: nudged while it runs, continued when it is",
+  "Sends an event to a workflow with events, to the run its id names. That run starts if it has",
+  "none and the event is one that starts one, and is woken if it has one: nudged while it runs, continued when it is",
   "parked or crashed. The run lives in the project of <file>, the nearest directory above it",
   "holding .awf/, whoever sends. --id names the occurrence: the same id again is a duplicate.",
   "",
@@ -72,7 +72,7 @@ export function printEmit(result: EmitResultJson, json: boolean, out: Out): numb
   return 1;
 }
 
-/** `accepted dd-case/dd-case.kombo: started`. */
+/** `accepted dd-case/kombo: started`. */
 function emitLine(result: EmitResultJson): string {
   const did = result.did === "none" ? result.why : result.did;
   return `${result.outcome} ${result.run}${did === undefined ? "" : `: ${did}`}`;

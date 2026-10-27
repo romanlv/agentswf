@@ -1,7 +1,7 @@
 ---
 id: "034"
 title: "An event starts a run, and wakes it while it runs"
-summary: "A workflow declares the events it takes and how they map to a key. awf emit starts that key's run or lands in its mailbox; the run's code takes every waiting event at a wait, starts agent turns without awaiting them, and hears their end as an event. Between events the run parks and no process runs. Code handles most events and an agent gets a turn only when judgement is needed."
+summary: "A workflow declares the events it takes and the id of the run each is for. awf emit starts that run or lands in its mailbox; the run's code takes every waiting event at a wait, starts agent turns without awaiting them, and hears their end as an event. Between events the run parks and no process runs. Code handles most events and an agent gets a turn only when judgement is needed."
 type: story
 status: ready
 depends_on: ["032"]
@@ -16,8 +16,8 @@ errors, an MR gets a push or a reply, CI fails, someone says "this is noise". To
 workflow can be reached only through an agent (`awf send`, `wf send`, each one a turn) or through
 files its code polls, so every such loop polls, and every event costs a turn.
 
-After this story, a workflow says which events it takes and which key each belongs to. An event
-starts that key's run if it has none, and otherwise lands in its mailbox. The run's code takes the
+After this story, a workflow says which events it takes and the id of the run each belongs to. An
+event starts that run if it has none, and otherwise lands in its mailbox. The run's code takes the
 waiting events at a wait, decides what they mean, records and counts in plain code, and
 starts an agent turn only when one is needed. A turn runs while more events arrive; its end is an
 event too.
@@ -40,11 +40,11 @@ written in it are the design's test cases: the Datadog watcher's case run
 awf emit --target case.ts dd.changes {json} --id {commit}     the triage tick, a script, a thread reply
         │  checked against case.ts's events: a wrong name or shape is an error
         ▼
-  key = key(event); under the key's lock: a repeated id ► duplicate; the run returned, or no run
+  id = id(event); under the run's lock: a repeated id ► duplicate; the run returned, or no run
         │  and not a starting event ► refused; otherwise appended ► accepted, and the run is woken:
         │    no run ► started    live ► nudged over its socket    parked or crashed ► continued
         ▼
-  ┌──────────────────────── run "dd-case.{key}" ───────────────────────┐
+  ┌──────────────────────── run "dd-case/{id}" ────────────────────────┐
   │ mailbox: dd.changes · participant:reply · agent:ended · …          │
   │                                                                    │
   │ for (;;) {                                                         │
@@ -56,9 +56,11 @@ awf emit --target case.ts dd.changes {json} --id {commit}     the triage tick, a
         waiting, no turn running, nothing unacknowledged → parked: the process exits
 ```
 
-- **The definition** declares `events: { name: schema }`, `key: (e) => …`, which maps each of its
-  events to a run, `starts: [names]`, the events that may start one, and `file: import.meta.path`,
-  which tells a sender where the workflow lives.
+- **The definition** declares `events: { name: schema }`, `id: (e) => …`, which names the run
+  each of its events is for, or a string for a workflow with one run, `starts: [names]`, optional,
+  the events that may start one, every event when absent, and `file: import.meta.path`, which
+  tells a sender where the workflow lives. A run's ref is `{workflow}/{id}`, as for any run, and
+  `awf run {file} --id {id}` starts one with no event, which parks at its first wait (task 10).
 - **The sender names its target**, the workflow the event is for, so a wrong name or shape fails
   at the sender: `tsc` for `workflow.emit(caseRun, "dd.changes", data, { id })`, which imports the
   workflow; a run-time error for `awf emit --target case.ts`; `testWorkflow` in a test. There is no
@@ -107,10 +109,10 @@ export default defineEventWorkflow({
     meta: { name: "dd-case", description: "Investigate one Datadog case in its own thread." },
     file: import.meta.path,
     events: { "dd.changes": Changes, "dd.closed": Closed },
-    key: (e) => e.data.case,
+    id: (e) => e.data.case,
     starts: ["dd.changes"],
     async run(workflow) {
-      const kase = openCase(workflow.key);                      // the files hold the state
+      const kase = openCase(workflow.runId);                     // the files hold the state
       const thread = await workflow.participants.connect({ key: "thread", to: "code" });
       const investigator = await workflow.agents.open({ key: "investigator", runtime: "claude" });
 
@@ -173,9 +175,9 @@ A run with two agents tells them apart by `from`, and `tsc` checks every name.
 
 In scope:
 
-- `events`, `key`, `starts` and `file` on the definition; `workflow.key`; `receive`;
+- `events`, `id`, `starts` and `file` on the definition; `receive`; `awf run --id` with no event;
   `workflow.emit` to a target;
-- the run's mailbox: append under the key's lock, deduplicate by id within the run, what each wait
+- the run's mailbox: append under the run's lock, deduplicate by id within the run, what each wait
   took and acknowledged, its `until` and label;
 - stages by content in a run with `events`: a record reused wherever it is entered;
 - `awf emit --target {workflow} {name} {json} [--id {id}]`: check against the target's schema,
@@ -245,7 +247,7 @@ Out of scope:
   records each turn (`TurnRecord`, `records.ts:397`).
 - Fact: today only the live attempt writes to a run directory, and claiming a folder or an attempt
   file are the only locks (`runs.ts`'s header). The mailbox has many writers, so this story adds
-  the key's lock for it.
+  the run's lock for it.
 - Fact: a participant today stays connected "until released, or until the workflow has returned"
   (`participants.ts:34`); a parked run hasn't returned, so it keeps its participants.
 - Constraint: published formats, which task 1 stops for review before any is built: `events`,
@@ -290,7 +292,7 @@ Out of scope:
 
 - `workflow-runner.ts` — the context's `signals` stub; the mailbox and waits go here or beside it.
 - `stage-plan.ts`, `stage-ledger.ts`, `runs.ts` (`replaceStale`, `stageNameProblem`, `idProblem`) —
-  stages by content in a run with `events`; the stage and run names of Q10; the key's lock.
+  stages by content in a run with `events`; the stage and run names of Q10; the run's lock.
 - `coordinator-socket.ts`, `control-plane.ts` — nudging a live run.
 - new `emit-command.ts` and `tick-command.ts`, each a row in `commands.ts` — `awf emit`, `awf tick`,
   and `wake` beside them; `holder-command.ts` — `awf send` for a participant routed to the code
@@ -328,13 +330,13 @@ As in "How it works". The rules and records in full:
   run twice gives one made from what the event is about. Ids awf takes in, a turn's end and a
   reply's message id, which comes from the chat, fit the same grammar (Q10).
 - **One way in, then `wake`.** Every event, from `awf emit`, `workflow.emit` or a participant, is
-  appended under the key's lock, and `wake(run)` acts on the run before the lock is let go. `awf
+  appended under the run's lock, and `wake(run)` acts on the run before the lock is let go. `awf
   tick` takes each run's lock and calls the same `wake`, so two wakers never both continue a run. A
   limit on live runs, later, goes here and nowhere else.
 
   | The run | `wake` |
   | --- | --- |
-  | none: a starting event was just appended | starts it |
+  | none: a starting event was just appended, or `awf run --id` made it | starts it |
   | live | nudges it over its socket; a nudge that fails isn't an error, its next wait takes the event |
   | parked | continues it if an event is unacknowledged or its `until` has passed; else nothing |
   | crashed: no ending, its process gone | continues it, under Q13's limit |
@@ -346,7 +348,7 @@ As in "How it works". The rules and records in full:
   let go; one whose process is gone and that has no ending is crashed. A run that has written
   `parked` is continued, even while its process is still exiting. `timed-out` doesn't occur: a run
   started by an event takes no `--timeout`.
-- **The key's lock** is a file beside the run directory, `{root}/{workflow}/{run id}.lock`, so it
+- **The run's lock** is a file beside the run directory, `{root}/{workflow}/{run id}.lock`, so it
   exists before the run does. It is claimed by linking into place, as a run folder is, and holds
   the holder's pid and process start; when `isLive` says that process is gone, it is stale and
   taken over.
@@ -355,7 +357,7 @@ As in "How it works". The rules and records in full:
 
 - **A mailbox per run**, an append-only file in the run directory, `mailbox.jsonl`; it is not what
   `awf inbox` shows, which is a coordinator's questions. Every append, the run's own included, is
-  made under the key's lock. Each record has a `kind`:
+  made under the run's lock. Each record has a `kind`:
   - `event`, `{ id, name, data, from, at }`;
   - `wait`, `{ until, label, stage }`, a wait called; outside a stage it acknowledges what the last
     `took` outside one returned, and in a stage nothing, as the stage holds its own batch;
@@ -391,7 +393,7 @@ As in "How it works". The rules and records in full:
 
 ### Parking and continuing
 
-- **Parking** takes the key's lock only to check once more for unacknowledged events and to write
+- **Parking** takes the run's lock only to check once more for unacknowledged events and to write
   the `parked` ending, which carries nothing its last `wait` record doesn't say. It then lets go,
   closes the run's agents (panes and headless processes) with their sessions kept, and exits. So an
   event that comes while a run parks is either taken or wakes the parked run, and no sender waits
@@ -407,8 +409,11 @@ As in "How it works". The rules and records in full:
   continues a parked run whose `until` has passed, a crashed one, and a failed one under Q13's
   limit. Runs without `events` are left as they are.
 - **Only a workflow with `events` waits.** `receive` exists only on a workflow with `events`, by
-  type; at run time a plain run's `receive` rejects. Such a workflow takes no input and is started only by an event: `awf run`
-  refuses it, and `awf run --continue` is still allowed, for a run that needs the operator.
+  type; at run time a plain run's `receive` rejects. Such a workflow takes no input. An event
+  starts its run, or `awf run --id {id}` with none, detached in its project like an event's, and
+  it parks at its first wait; a workflow whose `id` is a string needs no `--id`. That start
+  ignores `starts`, and wakes a run already there, as `awf tick` would. `awf run --continue` is
+  allowed too, for a run that needs the operator.
 - **`return`** cancels a turn still running, and its ending records how many events no wait
   took, which `awf runs` shows; the batch the code returned after was handled. A later event for the key is refused (Q14).
 
@@ -522,13 +527,14 @@ turn, which the case's files keep and the wait's `until` reads.
 - [x] 1. The contract: `events`, `key`, `starts`, `file`, `receive`, `emit`, `start`, `turn`, the records, the names (Q10–Q12); reviewed before building
 - [x] 2. Stages by content in a run with `events`
 - [x] 3. The mailbox and `receive` in the engine
-- [x] 4. One way in: `awf emit --target`, the key's lock, append or refuse, `wake`
+- [x] 4. One way in: `awf emit --target`, the run's lock, append or refuse, `wake`
 - [x] 5. Parking: the `parked` ending, a continue to the wait with agents on their kept sessions, and `awf tick`
 - [x] 6. Turns not awaited: `start()`, `turn`, `agent:ended`, `cancel()`
 - [x] 7. A participant routed to the code: `participant:reply`, `post`
 - [x] 8. workflow-testing: scripted events
 - [ ] 9. The Datadog case run on it, against its sketch
-- [ ] 10. One kind of workflow: `events` optional on `defineExecutableWorkflow`, `defineEventWorkflow` gone; design reviewed before building
+- [x] 10. One run id: `id` for `key`, no `{workflow}.` prefix, `starts` optional, `awf run --id` with no event
+- [ ] 11. One kind of workflow: `events` optional on `defineExecutableWorkflow`, `defineEventWorkflow` gone; design reviewed before building
 
 ## Open questions
 
@@ -549,6 +555,11 @@ into Q4. The published formats among them still stop for review at task 1.
   carries the workflow because a bare id that names runs of two workflows is ambiguous (`findRun`,
   `run-state.ts:126`) and `openRun` refuses one of another workflow (`runs.ts:178`). The ref becomes
   `dd-case/dd-case.kombo-unique`.
+  **Revised in task 10** (2026-10-26): the ref already names the workflow and every sender names
+  its target, so the prefix said it twice. `key` became `id`, the run's id is exactly what it
+  returns, and the ref is `dd-case/kombo-unique`, as for a run without events. Run ids keep one
+  grammar for both kinds, case kept as a ticket's key has it (`createRun` refuses an id differing
+  only in case); event ids and stage names stay lowercase.
 - Q11. **How `workflow.emit(caseRun, …)` finds the target's file.** Starting a run needs the file,
   and a definition doesn't know where it lives. Decided: the definition carries
   `file: import.meta.path`, written by the author, and a definition with `events` must have it.
@@ -705,7 +716,7 @@ Done when:
 ### 4. One way in
 
 Outcome: `awf emit --target` refuses an event its target doesn't declare, that doesn't match the
-schema, or that has a colon in its name; otherwise it appends under the key's lock, or refuses for
+schema, or that has a colon in its name; otherwise it appends under the run's lock, or refuses for
 a returned run or a non-starting event with no run, and `wake` starts, nudges or continues the run.
 
 Done when:
@@ -723,7 +734,7 @@ Done when:
 
 ### 5. Parking
 
-Order in a continue's process, which `wake` relies on, since it holds the key's lock until the
+Order in a continue's process, which `wake` relies on, since it holds the run's lock until the
 attempt is claimed: claim the attempt first, taking no key lock; then wait for the previous
 attempt's process to be gone; then stop its panes and agent processes and write the failed ends
 (Q17), each append under the lock. A test holds that order.
@@ -736,7 +747,7 @@ Done when:
 
 - tests: a parked run continued with one new event takes it at the loop's wait and runs no
   recorded stage again; a decision after the wait reads the files as they are at the wake; parking
-  holds the key's lock only to check and write `parked`, then closes the run's agents, and a
+  holds the run's lock only to check and write `parked`, then closes the run's agents, and a
   continue waits for the previous process to be gone; a pane and a headless agent each reopen
   on their session, and a pane agent opened on a continue starts no pane until its first turn;
   a continue resumes each agent's last session without sending its instructions again; `awf tick`
@@ -787,7 +798,7 @@ Done when:
 Outcome: a workflow's test gives the first event and scripts later ones at points in the run, such
 as `{ during: "investigator#1", name: "participant:reply", from: "thread" }`, where
 `investigator#1` is that agent's first turn. `testWorkflow` takes the starting `event`, whose
-`key(event)` is the run's key, and `files` to lay out before the run; it returns when the run parks
+`id(event)` is the run's id, and `files` to lay out before the run; it returns when the run parks
 or returns, and fails a run that starts more turns than `maxTurns` (20 by default), so a loop that
 never parks fails the test instead of hanging it. `run.stages`, as today, lists the stages that
 ran, and `run.emits` the events the run sent to other workflows, which a test doesn't start.
@@ -816,7 +827,24 @@ Done when:
   from `workflow.cwd`; `examples/event-sketches/mr-review.test.ts` stays a sketch, `todo`, until
   the review loop is ported.
 
-### 10. One kind of workflow
+### 10. One run id
+
+Outcome: a run of a workflow with events is named the way any run is. The definition's `id(event)`,
+or a string for a workflow with one run, is the run's id, with no `{workflow}.` prefix, so the ref
+is `{workflow}/{id}`; `workflow.key` goes, `workflow.runId` says it. `starts` may be left out, and
+then every event starts a run. `awf run {file} --id {id}`, or `awf run {file}` when `id` is a
+string, starts a run with no event, which parks at its first wait; `testWorkflow` takes `{ id }`
+for the same.
+
+Done when:
+
+- an emit with `starts` absent starts a run from any event, and a string `id` sends every event to
+  one run; `awf run --id` starts a run that parks with no event, says so for one already there and
+  for one that returned, and refuses a workflow with a function `id` given no `--id`; `--id` with
+  `--continue` is refused; `testWorkflow(…, { id })` parks at the first wait; the docs and the
+  sketches say `id`.
+
+### 11. One kind of workflow
 
 Outcome: a workflow is one definition, and `events` is optional on it. The split into
 `defineEventWorkflow` came from typing alone (task 1's notes: a context type per kind, and an
@@ -826,23 +854,27 @@ watcher's tick, while it had `events`, could only start through a made-up `awf e
 can't be started by hand to try it. So:
 
 - `awf run {file}` starts any workflow with its args; one with `events` also starts from an event
-  in `starts`, routed by `key(e)`, and both name the run the same way, `id(args)` or the key.
+  in `starts`, routed by `id(e)`, and both name the run the same way, `id(args)` or `id(e)`
+  (task 10).
 - any run may `receive` while it lives and park at a wait with nothing to do; it returns when done.
 - the context's typing follows whether `events` is declared, with no second function; that
   replaces the overload task 1 rejected.
 
-To decide in review, before building: how an event finds a run started with args (its id as the
-key, or a `key(e)` that names it), and whether a run with no `events` may park at all.
+To decide in review, before building: how an event finds a run started with args (`id(args)` and
+`id(e)` giving the same id, or one `id` over both), and whether a run with no `events` may park at all.
 
 Done when:
 
 - `defineEventWorkflow` is gone, with no shim, and the watcher's `case.ts` and the examples use
   the one definition; `tsc` still refuses `receive` in a workflow without `events`, including one
   wrapped in a generic helper.
-- `awf run case.ts -- {args}` starts a case by hand, and an emit for its key lands in that run.
+- `awf run case.ts -- {args}` starts a case by hand, and an emit for its id lands in that run.
 - a workflow without `events` behaves as today.
 
 ## Implementation notes
+
+Task 10 replaced `key` with `id` and dropped the `{workflow}.` prefix; the notes of tasks 1–8
+keep the names they were built with.
 
 ### Task 1: the contract
 
@@ -976,7 +1008,7 @@ Built in the worktree `../worktrees/awf-event-driven-runs`, branch `event-driven
 - **Where.** `engine/src/mailbox.ts`: `foldMailbox`, pure, which reads the records in order (a
   `wait` acknowledges the last `took`; a `took` in a stage acknowledges its own batch, which the
   stage holds; the first event under an id is the one kept), and `RunMailbox`, a live run's waits.
-  Every append goes through an `append` the runner gives it, so task 4 puts the key's lock there
+  Every append goes through an `append` the runner gives it, so task 4 puts the run's lock there
   and nothing here changes. The runner adds `key` and `receive` to the context of a run with
   `events`; a plain run's `receive` rejects, "receive needs a workflow with events".
 - **A wait** writes `wait`, then reads the mailbox until it has events not yet acknowledged, or its
@@ -1025,7 +1057,7 @@ Built in the worktree `../worktrees/awf-event-driven-runs`, branch `event-driven
 
 - **Where.** `emit.ts`, `emitEvent`: checks the event against its target (`EmitError` for a wrong
   name, a colon, data its schema refuses, an id outside the grammar or starting `awf.`, a key
-  outside it, a target with events and no `file`), keys it, and under the key's lock finds a
+  outside it, a target with events and no `file`), keys it, and under the run's lock finds a
   duplicate, refuses it, or creates the run (with `key`, `cwd` its project and `env.PATH`, and the
   project in `~/.awf/projects`), appends it and calls `wake`. `wake.ts`, `wake`: the table, from
   the run's attempts and mailbox; `failuresInARow` for Q13. `key-lock.ts`, `withKeyLock`: the file
@@ -1042,7 +1074,7 @@ Built in the worktree `../worktrees/awf-event-driven-runs`, branch `event-driven
   checking what `tsc` would have: no `.` in its name, no colon in an event's, `key` a function,
   `starts` among its events, `file` its own path. It refuses one without `--continue`, and with
   `--from-stage`, `--values` or arguments; a keyed run's root is its project's unless
-  `--run-root` is given. The attempt takes the key's lock for every mailbox append, and opens the
+  `--run-root` is given. The attempt takes the run's lock for every mailbox append, and opens the
   socket at once, which hands a nudge to the mailbox.
 - **`workflow.emit`** checks its target is an event workflow and sends through `emitEvent`, from
   `{workflow}/{id}`; `RunWorkflowOptions.emit` replaces it, and `testWorkflow` records `run.emits`
@@ -1101,7 +1133,7 @@ Built in the worktree `../worktrees/awf-event-driven-runs`, branch `event-driven
 
 - **Where a run parks.** `RunMailbox`'s wait, given `parking` (`idle()`, `park()`), checks at the
   point it would sleep: with nothing to take, no `until` passed, and every agent idle (no turn,
-  message or compaction), it takes the key's lock, reads the mailbox once more, writes the
+  message or compaction), it takes the run's lock, reads the mailbox once more, writes the
   attempt's `parked` ending through `park()` and throws `RunParked`. The runner's ending is
   `parked`, with the wait's label and `until`; a stage the wait was in is abandoned, unrecorded, so
   the next attempt runs it again. With a turn running the wait looks again each second, as the
@@ -1152,7 +1184,7 @@ Built in the worktree `../worktrees/awf-event-driven-runs`, branch `event-driven
     instructions, and the log says why. A continue waits for the previous process inside
     `claimNext`, after the claim and before it writes a line, so the old attempt's records come
     first; past five minutes it is cancelled, then killed after 30 s, each signal guarded. A keyed
-    run's ending, and a returned run's count, are written holding the key's lock, as parking's
+    run's ending, and a returned run's count, are written holding the run's lock, as parking's
     is. One `stuckOf` for `awf runs` and `wake`. `wake` says what was due (`cause`), which `awf
     tick` prints. A failed launch quotes only what it wrote. `awf tick` exits 1 for a project that
     is gone. A stage around a wait entered again in one attempt throws: it would return its batch
@@ -1183,7 +1215,7 @@ Built in the worktree `../worktrees/awf-event-driven-runs`, branch `event-driven
 
 - **Where.** `LogicalAgent.start()`: refused outside a keyed run, and anywhere but the run's root,
   as a turn not awaited would outlive a stage or a `parallel`. It records the mailbox's `turn`
-  (under the key's lock) before launching, hands the turn to the agent's own `run()`, and returns
+  (under the run's lock) before launching, hands the turn to the agent's own `run()`, and returns
   the `StartedTurn`. The turn's whole chain, `run()` then the end's append, is tracked, so the run
   neither parks nor reads as idle until `agent:ended` is in the mailbox. `RunMailbox.endTurn`
   appends the end once, `awf.end.{sha256 of agent, turn and attempt}`, and nudges the run's own
@@ -1335,3 +1367,36 @@ Built in the worktree `../worktrees/awf-event-driven-runs`, branch `event-driven
   `mr-review.test.ts` stays a sketch. Test added: an own event and a reply due at one turn arrive
   in order, the own event `from: "operator"`.
 - **Verified**: `bun test packages/engine` 946 pass; `bun run check` passes. Clear.
+
+### Task 10: one run id
+
+Settled with the engineer on 2026-10-26, while the story waited for review: `--id` on a plain run
+and `--key` on an event run, and `dd-case/dd-case.kombo-unique`, named one idea twice.
+
+- **The definition.** `id: string | ((event) => string)` replaces `key`; a string is the
+  workflow's one run, such as the triage tick's `main`. `starts` is optional: absent, every event
+  starts a run; `[]` is still refused at load, so "none" can't be spelled. The load check no longer
+  refuses a `.` in an event workflow's name, which only separated the key.
+- **The id.** `emit` and `testWorkflow` use `runIdOf`, which calls `id` or takes the string, and
+  check it with `idProblem`, the grammar of every run id: letters of either case, digits, `.`,
+  `_`, `@` and `-`, starting with a letter or digit. Lowercase-only was tried and dropped: plain
+  runs are named by ticket keys (`PROJ-1515`), and `createRun` already refuses an id differing only
+  in case. `workflow.key` is gone from `EventWorkflowContext`; `workflow.runId` is the same value.
+- **Records.** `RunRecord.key` became `events: true`, which marks a run of a workflow with events;
+  its value was the run's id.
+- **`awf run --id`.** `loadAndPrepare` returns `opens` for an event workflow with an id and no
+  `--continue`; `openEventRun` (`emit.ts`) makes the run under its lock, as `deliver` does, and
+  calls `wake`, which starts it detached, so every run with events runs the same way, its output in
+  `process.log`. It prints `{ref}: started`, or `{ref} was there: {what wake did}`, and exits 1 when
+  the launch fails. `--here` refuses it: it runs detached in its project. A first `receive` with an
+  empty mailbox parks at once, so nothing else was needed for the pending state; work to do once
+  goes in a stage, which a run with events reuses for good.
+- **Names inside the engine.** The key lock is the run lock (`run-lock.ts`, `withRunLock`), and
+  comments say "event run" for "keyed run". `LoadedWorkflow.keyed` and `findKeyedRun` keep their
+  names.
+- **Tests**: `emit.test.ts` (no `starts`, a string `id`), `emit-e2e.test.ts` (`awf run --id`
+  detached: parks, found there, returned, a function `id` without `--id`; a string `id` started by
+  `awf run` alone; `--id` with `--continue`), `receive.test.ts` (`testWorkflow` by `{ id }`). The
+  fixtures lost their `{workflow}.` prefixes.
+- **Verified**: `bun test` over contract, engine, wf and examples 1172 pass; `bun run check`
+  passes.

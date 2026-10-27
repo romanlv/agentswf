@@ -9,7 +9,7 @@ import type { ParticipantKey } from "./participants";
 const NAME_PATTERN = /^[a-z0-9][a-z0-9._@-]*$/;
 const NAME_MAX_LENGTH = 128;
 
-/** Why a key, event id or stage name doesn't fit the grammar; absent when it does. */
+/** Why a run id, event id or stage name doesn't fit the grammar; absent when it does. */
 export function nameProblem(name: string): string | undefined {
   if (!NAME_PATTERN.test(name))
     return "lowercase letters, digits, `.`, `_`, `@` and `-`, starting with a letter or digit";

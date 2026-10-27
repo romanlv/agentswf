@@ -240,7 +240,7 @@ async function awaitedBy(
 /**
  * `awf send {ref} --as {participant} --id {message id} {text}`: a reply on a participant the run
  * routed to the code, delivered through the one way in as `participant:reply`, so it continues a
- * parked run. The run is found here, or in a project awf started a keyed run in (Q15).
+ * parked run. The run is found here, or in a project awf started an event run in (Q15).
  */
 async function toTheCode(
   options: Extract<Options, { id: string }>,
@@ -265,7 +265,7 @@ async function toTheCode(
     (line) =>
       line.kind === "participant-connected" && line.participant === as && line.to === "code",
   );
-  if (run.record.key === undefined || !routed)
+  if (!run.record.events || !routed)
     return refused(
       "no-coordinator",
       `${found.ref} has no participant ${as} routed to its code; --id is for one`,

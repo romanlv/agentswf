@@ -1,7 +1,12 @@
 import { statSync } from "node:fs";
 import { homedir } from "node:os";
 import { type AttemptRecord, RUN_EVENT_VERSIONS } from "@agentswf/contract/records";
-import type { ExecutableWorkflow, JsonValue } from "@agentswf/contract/workflow";
+import type {
+  EventSchemas,
+  EventWorkflowDefinition,
+  ExecutableWorkflow,
+  JsonValue,
+} from "@agentswf/contract/workflow";
 import { refusalMessage } from "./attempt-view";
 import { messageOf } from "./errors";
 import { projectOf, projectRunRoot } from "./projects";
@@ -42,7 +47,9 @@ export async function loadAndPrepare(
   now: number,
   home: string = homedir(),
 ): Promise<
-  { loaded: LoadedWorkflow; prepared: PreparedRun; command: RunCommand } | { refused: string }
+  | { loaded: LoadedWorkflow; prepared: PreparedRun; command: RunCommand }
+  | { refused: string }
+  | { opens: { loaded: LoadedWorkflow; id: string } }
 > {
   let loaded: LoadedWorkflow;
   try {
@@ -52,9 +59,13 @@ export async function loadAndPrepare(
   }
   let command = given;
   if (loaded.keyed) {
-    const refused = keyedRefusal(command, loaded.file);
+    const refused = keyedRefusal(command, loaded.file, loaded.keyed.id);
     if (refused) return { refused };
-    // A keyed run lives in its file's project, whoever continues it (Q15).
+    if (command.continueId === undefined) {
+      const { id } = loaded.keyed;
+      return { opens: { loaded, id: command.id ?? (id as string) } };
+    }
+    // An event run lives in its file's project, whoever continues it (Q15).
     if (!command.runRootGiven) {
       try {
         command = { ...command, runRoot: projectRunRoot(await projectOf(loaded.file, home)) };
@@ -127,12 +138,26 @@ async function prepareRun(
 }
 
 /**
- * Why `awf run` doesn't take a workflow with `events` as asked: an event starts its runs, and
- * `--continue` alone goes on with one, from wherever its attempt stopped.
+ * Why `awf run` doesn't take a workflow with `events` as asked: a new run needs its id, from
+ * `--id` or a definition whose `id` is a string, and `--continue` goes on with one from wherever its
+ * attempt stopped.
  */
-function keyedRefusal(command: RunCommand, file: string): string | undefined {
-  if (command.continueId === undefined)
-    return `${file} is a workflow with events, which an event starts: awf emit --target ${file} {event} {json}`;
+function keyedRefusal(
+  command: RunCommand,
+  file: string,
+  id: EventWorkflowDefinition<EventSchemas, JsonValue>["id"],
+): string | undefined {
+  if (command.continueId !== undefined && command.id !== undefined)
+    return "--id names a new run; --continue names the run it goes on with";
+  if (command.workflowArgs.length > 0) return "a workflow with events takes no arguments";
+  if (command.continueId === undefined) {
+    const named = command.id !== undefined || typeof id === "string";
+    if (!named)
+      return `${file} names its runs from their events: awf run --id {id} starts one with no event, awf emit --target ${file} {event} {json} with one`;
+    if (command.fromStage !== undefined || command.values !== undefined)
+      return "a run of a workflow with events takes no --from-stage or --values";
+    return undefined;
+  }
   if (command.fromStage !== undefined || command.values !== undefined)
     return "a run of a workflow with events takes no --from-stage or --values";
   if (command.workflowArgs.length > 0) return "a workflow with events takes no arguments";
@@ -181,10 +206,10 @@ export async function claimNext(
   if ("refused" in claimed) {
     throw new RunRefused(refusalMessage(run.record.id, claimed.refused, now));
   }
-  // A keyed run's: claimed first, which `wake` waits for holding the key's lock, then waited on
+  // An event run's: claimed first, which `wake` waits for holding the run's lock, then waited on
   // before this attempt writes anything, so the attempt before it has finished its own records and
   // two never share an agent's session.
-  if (run.record.key !== undefined) await previousGone(run, claimed.attempt.record.attempt, notice);
+  if (run.record.events) await previousGone(run, claimed.attempt.record.attempt, notice);
   // A crash may have torn the last line an earlier attempt appended; this attempt's first line
   // must not be glued to it.
   await endTurnsLine(run.dir)

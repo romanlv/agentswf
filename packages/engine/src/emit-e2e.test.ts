@@ -24,7 +24,7 @@ export default defineEventWorkflow({
     meta: { name: "e2e-case", description: "Takes two events." },
     file: import.meta.path,
     events: { "dd.changes": Changes },
-    key: (e) => e.data.case,
+    id: (e) => e.data.case,
     starts: ["dd.changes"],
     async run(workflow) {
       for (;;) {
@@ -54,15 +54,12 @@ function setup() {
 test("an event starts a detached run, which parks; the next continues it, from any directory", async () => {
   const { root, out, send } = setup();
   expect(await send(1)).toBe(0);
-  const run = await openRun(join(root, ".awf", "runs"), "e2e-case", "e2e-case.k");
+  const run = await openRun(join(root, ".awf", "runs"), "e2e-case", "k");
   // It takes the starting event, waits with nothing to take and no turn running, and parks.
   await until(async () => (await readAttempts(run)).at(-1)?.outcome === "parked");
   expect(await send(2)).toBe(0);
   await until(async () => (await readAttempts(run)).at(-1)?.outcome === "completed");
-  expect(out).toEqual([
-    "accepted e2e-case/e2e-case.k: started",
-    "accepted e2e-case/e2e-case.k: continued",
-  ]);
+  expect(out).toEqual(["accepted e2e-case/k: started", "accepted e2e-case/k: continued"]);
   expect((await readAttempts(run)).map((a) => a.outcome)).toEqual(["parked", "completed"]);
   // It returned having taken every event; its output went to the run's log, not a terminal.
   expect((await readAttempts(run)).at(-1)?.unacknowledged).toBe(0);
@@ -72,29 +69,65 @@ test("an event starts a detached run, which parks; the next continues it, from a
   };
   expect(output.value).toEqual({ seen: [1, 2] });
   expect(await send(3)).toBe(0);
-  expect(out.at(-1)).toBe("refused e2e-case/e2e-case.k: returned");
+  expect(out.at(-1)).toBe("refused e2e-case/k: returned");
 }, 60_000);
 
-test("awf run refuses a workflow with events", async () => {
-  const { file, home } = setup();
-  const err: string[] = [];
+test("awf run starts a run of a workflow with events by its id, with no event, and it parks", async () => {
+  const { root, file, home, out, send } = setup();
+  const run = (...extra: string[]) =>
+    runOperatorCli(["run", file, ...extra], {
+      home,
+      environment: { ...process.env, HOME: home },
+      stdout: (t) => out.push(t),
+      stderr: (t) => out.push(`! ${t}`),
+    });
+  // Its id comes from its events: without --id there is nothing to name the run by.
+  expect(await run()).toBe(2);
+  expect(out.pop()).toContain("names its runs from their events: awf run --id {id}");
+  expect(await run("--id", "k")).toBe(0);
+  const opened = await openRun(join(root, ".awf", "runs"), "e2e-case", "k");
+  await until(async () => (await readAttempts(opened)).at(-1)?.outcome === "parked");
+  expect(await run("--id", "k")).toBe(0);
+  expect(out).toEqual(["e2e-case/k: started", "e2e-case/k was there: nothing-due"]);
+  // The first event it takes is the first one sent, not one awf made up.
+  expect(await send(1)).toBe(0);
+  expect(await send(2)).toBe(0);
+  await until(async () => (await readAttempts(opened)).at(-1)?.outcome === "completed");
+  expect(await run("--id", "k")).toBe(0);
+  expect(out.at(-1)).toBe("e2e-case/k was there: returned");
+}, 60_000);
+
+test("a workflow whose id is a string has one run, which awf run starts without --id", async () => {
+  const { root, file, home } = keyedProject(
+    dirs,
+    "tick.ts",
+    WORKFLOW.replace("id: (e) => e.data.case,", 'id: "main",').replace(
+      'starts: ["dd.changes"],\n',
+      "",
+    ),
+  );
+  const out: string[] = [];
   const code = await runOperatorCli(["run", file], {
     home,
-    stdout: () => undefined,
-    stderr: (t) => err.push(t),
+    environment: { ...process.env, HOME: home },
+    stdout: (t) => out.push(t),
+    stderr: (t) => out.push(`! ${t}`),
   });
-  expect(code).toBe(2);
-  expect(err.join("\n")).toContain("is a workflow with events, which an event starts: awf emit");
-});
+  expect(code).toBe(0);
+  expect(out).toEqual(["e2e-case/main: started"]);
+  const run = await openRun(join(root, ".awf", "runs"), "e2e-case", "main");
+  await until(async () => (await readAttempts(run)).at(-1)?.outcome === "parked");
+}, 60_000);
 
-test("awf run --continue of a keyed run takes no stage, values or arguments", async () => {
+test("awf run --continue of an event run takes no stage, values or arguments", async () => {
   const { file, home } = setup();
   for (const [extra, message] of [
     [["--from-stage", "x"], "takes no --from-stage or --values"],
     [["--", "arg"], "takes no arguments"],
+    [["--id", "j"], "--id names a new run"],
   ] as const) {
     const err: string[] = [];
-    const code = await runOperatorCli(["run", file, "--continue", "e2e-case.k", ...extra], {
+    const code = await runOperatorCli(["run", file, "--continue", "k", ...extra], {
       home,
       stdout: () => undefined,
       stderr: (t) => err.push(t),
@@ -116,7 +149,7 @@ export default defineEventWorkflow({
     meta: { name: "e2e-env", description: "Records its token at each wake." },
     file: import.meta.path,
     events: { ping: Ping },
-    key: () => "one",
+    id: () => "one",
     starts: ["ping"],
     async run(workflow) {
       for (;;) {
@@ -142,7 +175,7 @@ export default defineEventWorkflow({
       },
     );
   expect(await send(1, { HOME: home, PATH: process.env.PATH })).toBe(0);
-  const run = await openRun(join(root, ".awf", "runs"), "e2e-env", "e2e-env.one");
+  const run = await openRun(join(root, ".awf", "runs"), "e2e-env", "one");
   await until(async () => (await readAttempts(run)).at(-1)?.outcome === "parked");
   writeFileSync(join(root, ".env"), "TOKEN=rotated\n");
   // A sender with a stale token exported, and a PATH of its own: the run has neither.
@@ -157,12 +190,12 @@ export default defineEventWorkflow({
 test("a continue waits for the previous attempt's process to be gone", async () => {
   const root = dirs.tempRunDir();
   const run = await createRun(join(root, "runs"), {
-    id: "w.k",
+    id: "k",
     workflow: "w",
     argv: [],
     cwd: root,
     sandbox: null,
-    key: "k",
+    events: true,
   });
   const previous = Bun.spawn({ cmd: ["sleep", "0.4"] });
   await Bun.sleep(50);
@@ -181,12 +214,12 @@ test("a continue waits for the previous attempt's process to be gone", async () 
 test("a continue claims its attempt first, so wake returns, then waits for the previous process", async () => {
   const { root, file, home } = setup();
   const run = await createRun(join(root, ".awf", "runs"), {
-    id: "e2e-case.k",
+    id: "k",
     workflow: "e2e-case",
     argv: [],
     cwd: root,
     sandbox: null,
-    key: "k",
+    events: true,
     env: { PATH: process.env.PATH ?? "" },
     file,
   });
@@ -264,7 +297,7 @@ test("a continue after a crash stops what is left of the crashed attempt's group
       processStart: started,
       started: new Date().toISOString(),
     },
-    "awf e2e-case e2e-case.k #1",
+    "awf e2e-case k #1",
     { home, environment: {} },
   );
   await Bun.sleep(100);

@@ -75,10 +75,10 @@ const caseRun = defineEventWorkflow({
     },
     file: import.meta.path,
     events: { "dd.changes": Changes, "dd.closed": Closed },
-    key: (e) => e.data.case,
+    id: (e) => e.data.case,
     starts: ["dd.changes"],
     async run(workflow) {
-      const kase = openCase(DD_CASES, workflow.key);
+      const kase = openCase(DD_CASES, workflow.runId);
       const thread = await workflow.participants.connect({
         key: "thread",
         to: "code",
@@ -97,7 +97,7 @@ const caseRun = defineEventWorkflow({
             // No id: a call's id changes when a turn runs again after a crash, and the case's own
             // would drop a close after a reopen. A repeated close is the case's to absorb.
             handler: async (input) => {
-              await emitToSelf("dd.closed", { ...input, case: workflow.key, by: "thread" });
+              await emitToSelf("dd.closed", { ...input, case: workflow.runId, by: "thread" });
               return `Closing the case as ${input.status}.`;
             },
           }),

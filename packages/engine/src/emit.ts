@@ -13,9 +13,9 @@ import {
 } from "@agentswf/contract/workflow";
 import { messageOf } from "./errors";
 import { exists } from "./files";
-import { keyLockFile, withKeyLock } from "./key-lock";
 import { appendMailbox, foldMailbox, readMailbox } from "./mailbox";
 import { projectOf, projectRunRoot, recordProject } from "./projects";
+import { runLockFile, withRunLock } from "./run-lock";
 import { createRun, idProblem, openRun, type Run, readAttempts } from "./runs";
 import { type WakeContext, type Woken, wake } from "./wake";
 
@@ -39,7 +39,7 @@ export type EmitContext = Omit<WakeContext, "file"> & {
 };
 
 /**
- * A sender's way in: checks the event against its target, keys it, and delivers it. A wrong name,
+ * A sender's way in: checks the event against its target, names its run, and delivers it. A wrong name,
  * shape or id throws an `EmitError`; the run's state is the outcome.
  */
 export async function emitEvent(
@@ -53,10 +53,7 @@ export async function emitEvent(
   checkEvent(target, event);
   const id = event.id ?? `${AWF_ID_PREFIX}${randomBytes(8).toString("hex")}`;
   const at = new Date(context.now?.() ?? Date.now()).toISOString();
-  const key = keyOf(definition, { id, name, data, from: context.from, at });
-  const runId = `${workflow}.${key}`;
-  const problem = idProblem(runId);
-  if (problem) throw new EmitError(`the run's id, ${runId}: ${problem}`);
+  const runId = runIdOf(definition, { id, name, data, from: context.from, at });
   const project = await projectOf(target.file, context.home).catch((error: unknown) => {
     throw new EmitError(messageOf(error));
   });
@@ -68,13 +65,13 @@ export async function emitEvent(
       event: { id, name, data, from: context.from, at },
       deduplicate: event.id !== undefined,
       file: target.file,
-      ...(definition.starts.includes(name) ? { start: { key, project } } : {}),
+      ...((definition.starts?.includes(name) ?? true) ? { start: { project } } : {}),
     },
     context,
   );
 }
 
-/** An event for a keyed run, as `deliver` takes it. */
+/** An event for a run of a workflow with events, as `deliver` takes it. */
 export type Delivery = {
   runRoot: string;
   workflow: string;
@@ -83,14 +80,14 @@ export type Delivery = {
   /** False for an id awf made at random, which nothing repeats. */
   deduplicate: boolean;
   /** Given when the event may start the run: what a new run records. */
-  start?: { key: string; project: string };
+  start?: { project: string };
   /** The file a sender named, which a start or continue runs; absent, the run's last. */
   file?: string;
 };
 
 /**
- * The one way in, for every event a keyed run gets: a sender's, a participant's reply, or awf's
- * own. Under the key's lock it finds a duplicate, refuses the event, or creates the run, appends
+ * The one way in, for every event a run of a workflow with events gets: a sender's, a participant's reply, or awf's
+ * own. Under the run's lock it finds a duplicate, refuses the event, or creates the run, appends
  * the event and wakes the run.
  */
 export async function deliver(
@@ -100,7 +97,7 @@ export async function deliver(
   const { runRoot, workflow, runId, event, start, file } = delivery;
   const woken = { ...context, ...(file ? { file } : {}) };
   const ref = `${workflow}/${runId}`;
-  return withKeyLock(keyLockFile(runRoot, workflow, runId), async () => {
+  return withRunLock(runLockFile(runRoot, workflow, runId), async () => {
     let run: Run | undefined = (await exists(join(runRoot, workflow, runId, "run.json")))
       ? await openRun(runRoot, workflow, runId)
       : undefined;
@@ -116,17 +113,7 @@ export async function deliver(
         return result("refused", { did: "none", why: "returned" });
     } else {
       if (!start) return result("refused", { did: "none", why: "not-a-start" });
-      run = await createRun(runRoot, {
-        id: runId,
-        workflow,
-        argv: [],
-        cwd: start.project,
-        sandbox: null,
-        key: start.key,
-        env: { PATH: context.environment.PATH ?? "" },
-        ...(file ? { file } : {}),
-      });
-      await recordProject(context.home, start.project);
+      run = await createEventRun(runRoot, workflow, runId, start.project, file, context);
     }
     await appendMailbox(run.dir, {
       version: MAILBOX_RECORD_VERSION,
@@ -134,6 +121,63 @@ export async function deliver(
       ...event,
     });
     return result("accepted", await wake(run, woken));
+  });
+}
+
+/** A new run of a workflow with events, in `project`, recorded so `awf tick` finds it. */
+async function createEventRun(
+  runRoot: string,
+  workflow: string,
+  id: string,
+  project: string,
+  file: string | undefined,
+  context: Pick<WakeContext, "home" | "environment">,
+): Promise<Run> {
+  const run = await createRun(runRoot, {
+    id,
+    workflow,
+    argv: [],
+    cwd: project,
+    sandbox: null,
+    events: true,
+    env: { PATH: context.environment.PATH ?? "" },
+    ...(file ? { file } : {}),
+  });
+  await recordProject(context.home, project);
+  return run;
+}
+
+/** What `awf run --id` did to a run of a workflow with events: started it, or found it there. */
+export type Opened = { run: string; created: boolean } & Woken;
+
+/**
+ * `awf run --id` for a workflow with events: creates the run with no event, under its lock, and
+ * starts it, so it runs to its first wait and parks there. One already there is only woken, as
+ * `awf tick` would; one that returned is refused, as its events are.
+ */
+export async function openEventRun(
+  target: EmitTarget,
+  id: string,
+  context: Omit<WakeContext, "file">,
+): Promise<Opened> {
+  const workflow = target.definition.meta.name;
+  const problem = idProblem(id);
+  if (problem) throw new EmitError(problem);
+  const project = await projectOf(target.file, context.home).catch((error: unknown) => {
+    throw new EmitError(messageOf(error));
+  });
+  const runRoot = projectRunRoot(project);
+  const ref = `${workflow}/${id}`;
+  return withRunLock(runLockFile(runRoot, workflow, id), async () => {
+    const woken = { ...context, file: target.file };
+    if (await exists(join(runRoot, workflow, id, "run.json"))) {
+      const run = await openRun(runRoot, workflow, id);
+      if ((await readAttempts(run)).at(-1)?.outcome === "completed")
+        return { run: ref, created: false, did: "none", why: "returned" };
+      return { run: ref, created: false, ...(await wake(run, woken)) };
+    }
+    const run = await createEventRun(runRoot, workflow, id, project, target.file, context);
+    return { run: ref, created: true, ...(await wake(run, woken)) };
   });
 }
 
@@ -178,18 +222,22 @@ export function eventIdProblem(id: string): string | undefined {
   );
 }
 
-export function keyOf(
+/** The id of the run `event` is for, as the definition's `id` names it, checked. */
+export function runIdOf(
   definition: EventWorkflowDefinition<EventSchemas, JsonValue>,
   event: OwnEvent<EventSchemas>,
 ): string {
-  let key: unknown;
-  try {
-    key = definition.key(event);
-  } catch (error) {
-    throw new EmitError(`${definition.meta.name}'s key(event) threw: ${String(error)}`);
+  const given = definition.id;
+  let id: unknown = given;
+  if (typeof given === "function") {
+    try {
+      id = given(event);
+    } catch (error) {
+      throw new EmitError(`${definition.meta.name}'s id(event) threw: ${String(error)}`);
+    }
   }
-  if (typeof key !== "string") throw new EmitError(`key(event) gave a ${typeof key}, not a string`);
-  const problem = nameProblem(key);
-  if (problem) throw new EmitError(`the key ${JSON.stringify(key)}: ${problem}`);
-  return key;
+  if (typeof id !== "string") throw new EmitError(`id(event) gave a ${typeof id}, not a string`);
+  const problem = idProblem(id);
+  if (problem) throw new EmitError(`the run's id ${JSON.stringify(id)}: ${problem}`);
+  return id;
 }

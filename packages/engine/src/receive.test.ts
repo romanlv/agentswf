@@ -5,15 +5,34 @@ import { caseRun } from "./testing";
 import { keptSessionsOf } from "./workflow-runner";
 import { testWorkflow } from "./workflow-testing";
 
-test("the first wait takes the event that started the run, under the key it made", async () => {
+test("the first wait takes the event that started the run, under the id it made", async () => {
   const run = await testWorkflow(
     caseRun(async (workflow) => {
       const [first] = await workflow.receive({ label: "first" });
-      return { key: workflow.key, id: first?.id ?? null, data: first?.data ?? null };
+      return { run: workflow.runId, id: first?.id ?? null, data: first?.data ?? null };
     }),
     { event: { name: "dd.changes", data: { case: "kombo" }, id: "83d34d7" } },
   );
-  expect(run.value).toEqual({ key: "kombo", id: "83d34d7", data: { case: "kombo" } });
+  expect(run.value).toEqual({ run: "kombo", id: "83d34d7", data: { case: "kombo" } });
+});
+
+test("a run started by its id, with no event, parks at its first wait", async () => {
+  const run = await testWorkflow(
+    caseRun(async (workflow) => {
+      await workflow.stage("setup", async () => undefined);
+      await workflow.receive({ label: "nothing yet" });
+      return null;
+    }),
+    { id: "kombo" },
+  );
+  expect(run.parked).toEqual({ label: "nothing yet" });
+  expect(run.stages.map((record) => record.stage)).toEqual(["setup"]);
+  await expect(
+    testWorkflow(
+      caseRun(async () => null),
+      {},
+    ),
+  ).rejects.toThrow("names its runs from their events: { event } starts one, or { id }");
 });
 
 test("a stage entered twice in a run with events runs once", async () => {
@@ -80,13 +99,13 @@ test("receive on a workflow without events is an error", async () => {
   expect(() => run.value).toThrow("receive needs a workflow with events");
 });
 
-test("a key outside the grammar is refused", async () => {
+test("a run id outside the grammar is refused", async () => {
   await expect(
     testWorkflow(
       caseRun(async () => null),
-      { event: { name: "dd.changes", data: { case: "Kombo" } } },
+      { event: { name: "dd.changes", data: { case: "a/b" } } },
     ),
-  ).rejects.toThrow('the key "Kombo": ');
+  ).rejects.toThrow('the run\'s id "a/b": ');
 });
 
 test("a wait ends with its run: a deadline while waiting settles the run and the wait", async () => {
@@ -238,7 +257,7 @@ test("a wait beside an open stage doesn't park until the stage ends", async () =
   expect(run.stages).toMatchObject([{ stage: "slow", outcome: "succeeded" }]);
 });
 
-test("a keyed run's agents reopen on the last session of each root agent", () => {
+test("an event run's agents reopen on the last session of each root agent", () => {
   const turn = (agent: string, session: string, callPath: string[] = []): TurnRecord => ({
     version: 1,
     attempt: 1,

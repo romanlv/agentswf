@@ -29,7 +29,7 @@ export async function readMailbox(runDir: string): Promise<MailboxRecord[]> {
 
 const KINDS = new Set<string>(["event", "wait", "took", "turn", "launch-failed"]);
 
-/** Appends a record; the caller holds the key's lock. */
+/** Appends a record; the caller holds the run's lock. */
 export async function appendMailbox(runDir: string, record: MailboxRecord): Promise<void> {
   await endTornLine(mailboxFile(runDir));
   await appendLine(mailboxFile(runDir), JSON.stringify(record));
@@ -66,7 +66,7 @@ export function unrunUsage(
 
 /**
  * Appends a turn's end, `agent:ended` from its agent, once: an end already there is kept. The
- * caller holds the key's lock.
+ * caller holds the run's lock.
  */
 async function appendEnd(
   runDir: string,
@@ -226,7 +226,7 @@ export type Parking = {
    * can change what the code would do.
    */
   idle(stage?: string): boolean;
-  /** Writes the attempt's `parked` ending, holding the key's lock, so a waker sees it at once. */
+  /** Writes the attempt's `parked` ending, holding the run's lock, so a waker sees it at once. */
   park(wait: WaitingJson): Promise<void>;
 };
 
@@ -234,7 +234,7 @@ export type Parking = {
 const POLL_MILLISECONDS = 1_000;
 
 /**
- * A live run's waits on its mailbox. Every append is made inside `locked`, which holds the key's
+ * A live run's waits on its mailbox. Every append is made inside `locked`, which holds the run's
  * lock, as anything that decides from the mailbox and then writes must be; a nudge, or the poll
  * when one is lost, makes a waiting `receive` read the mailbox again.
  */
@@ -252,7 +252,7 @@ export class RunMailbox {
     private readonly options: {
       runDir: string;
       attempt: number;
-      /** Runs `work` holding the key's lock. */
+      /** Runs `work` holding the run's lock. */
       locked<T>(work: () => Promise<T>): Promise<T>;
       /** Absent, the run never parks: it waits in its process. */
       parking?: Parking;
