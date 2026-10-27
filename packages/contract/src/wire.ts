@@ -149,7 +149,7 @@ export const TOOL_CODES = [
 /**
  * Why `awf reply` or `awf send` was refused, in the order checked; the first that applies is
  * returned. `expired` is a reply's `--to` naming anything but an open question from that agent to
- * this coordinator, `--as` included, or no `--to` with none open; like `wf reply`'s, it comes
+ * this participant, `--as` included, or no `--to` with none open; like `wf reply`'s, it comes
  * before the route's state.
  */
 export const PARTICIPANT_CODES = [

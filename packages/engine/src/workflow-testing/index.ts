@@ -86,12 +86,12 @@ export type TestOptions = {
    */
   messages?: Readonly<Record<string, MessageScript | readonly MessageScript[]>>;
   /**
-   * Each coordinator's script, by the key the workflow connects it under. When no turn runs, no
-   * script is still working, and everything left waits on a coordinator with no `until`, the attempt
+   * Each participant's script, by the key the workflow connects it under. When no turn runs, no
+   * script is still working, and everything left waits on a participant with no `until`, the attempt
    * ends: its open questions expire `attempt-ended` and, unless the workflow returned, `run.value`
    * throws. While a question has an `until`, the test waits for the earliest, and `stallMs` does not
    * count that wait. A route
-   * or message reaching a coordinator with none here fails the test.
+   * or message reaching a participant with none here fails the test.
    */
   participants?: Readonly<Record<string, ParticipantScript>>;
   /**
@@ -467,7 +467,7 @@ export async function testWorkflow<Args extends JsonValue, Result extends JsonVa
     clearTimeout(stall);
     if (waitedOut) {
       settled = returned ?? {
-        error: new Error("the test ended the attempt: everything left waited on a coordinator"),
+        error: new Error("the test ended the attempt: everything left waited on a participant"),
       };
     }
     messages = await messagesIn(run.dir);

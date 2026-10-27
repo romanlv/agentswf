@@ -113,14 +113,14 @@ export type MessageScript = (
 ) => Reply | MessageOutcome | undefined | Promise<Reply | MessageOutcome | undefined>;
 
 /**
- * How a coordinator's script's `reply` or `send` ended, as `awf reply --json` reports it: a reply's
+ * How a participant's script's `reply` or `send` ended, as `awf reply --json` reports it: a reply's
  * `id` is the question's, a send's the new message's.
  */
 export type ParticipantOutcome = { code: "delivered"; id: string } | { code: ParticipantCode };
 
 /**
- * A message an agent sent a coordinator, and what the coordinator's script may do about it, as a
- * holder would with `awf reply` and `awf send`. An answer is recorded as coming through `test`.
+ * A message an agent sent a participant, and what the participant's script may do about it, as
+ * whoever answers for it would with `awf reply` and `awf send`. An answer is recorded as coming through `test`.
  */
 export type ParticipantMessage = {
   kind: "message";
@@ -137,7 +137,7 @@ export type ParticipantMessage = {
   send(agent: string, text: string): Promise<ParticipantOutcome>;
 };
 
-/** A route to or from a coordinator, as it opens: where a script that speaks first starts. */
+/** A route to or from a participant, as it opens: where a script that speaks first starts. */
 export type ParticipantRoute = {
   kind: "route";
   /** The agent's peer address. */
@@ -149,8 +149,8 @@ export type ParticipantRoute = {
 };
 
 /**
- * A coordinator's script: called with each route to it as it opens, and each message an agent sends
- * it, once recorded; the `awf inbox` items a holder would act on. What it returns is awaited and
+ * A participant's script: called with each route to it as it opens, and each message an agent sends
+ * it, once recorded; the `awf inbox` items whoever answers for it would act on. What it returns is awaited and
  * otherwise ignored: a question it does not answer stays open, and a throw fails the test.
  */
 export type ParticipantScript = (event: ParticipantRoute | ParticipantMessage) => unknown;

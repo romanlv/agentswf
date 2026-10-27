@@ -28,7 +28,7 @@ workflow.parallel(items, (item, i) => …, { concurrency?, label?, deadline? }) 
 workflow.sandboxes.open({ key, write?, read?, network?, sockets?, webSearch?, srt? | docker? }) // → pass as { sandbox }
 workflow.decisions.decide({ key, model: "jev", state, questions })              // → { answers } in ~200 ms
 workflow.messages.allow({ from, to, purpose, maxMessages?, timeoutMs? } | { between: [a, b], purpose, … })  // agents may message
-workflow.participants.connect({ key, labels? })               // → a coordinator outside the run, a route end; .release(reason?)
+workflow.participants.connect({ key, labels? })               // → a participant outside the run, a route end; .release(reason?)
 
 workflow.stage(name, { result, summary? }?, async () => …)  // → its value; reused on a continue
 workflow.stop(reason)                                         // ends the attempt stopped
@@ -61,7 +61,7 @@ answer(SCHEMA, value | (turn) => value)   answer("text")   reply.waiting(reason,
 | **Sandbox** | What agents inside it can read, write and reach. They share it or get a private one. |
 | **Decision** | Closed questions to a decision model (Jev). It returns probabilities, and no agent is involved. |
 | **Route** | Lets one agent message another while both work, for a purpose the workflow states. |
-| **Coordinator** | A participant outside the run that agents report to and ask; a terminal, a session or an app answers for it. |
+| **Participant** | Someone outside the run that agents report to and ask, such as a coordinator; a terminal, a session or an app answers for it. |
 | **Run** | One piece of work, with an id. Each `awf run` of it is an attempt; `--continue` adds one. |
 | **Stage** | A named step of a run. A continue reuses what stages succeeded and runs the rest. |
 | **Event** | Starts the run its sender names, or lands in its mailbox; the run takes it at a wait, and parks between events. |
@@ -600,7 +600,7 @@ await workflow.messages.allow({
   session, hours later if need be.
 - **`labels`** is any JSON object for whatever answers; awf only passes it along. `operator`, `awf`,
   `system` and `user` are refused as keys.
-- **`timeoutMs`**, only on a route to a coordinator, closes a question unanswered after that long;
+- **`timeoutMs`**, only on a route to a participant, closes a question unanswered after that long;
   without it, a question waits until it is answered. An agent's `--timeout` can only shorten it.
 - **It stays connected** past the workflow's return while a question to it is open, so the run
   waits for the answer. `coordinator.release(reason)` ends it sooner.
@@ -706,8 +706,8 @@ price table used.
 ## Plan allowance
 
 `workflow.allowance(harness)` reads what is left of a harness's plan now, as `awf allowance` does,
-with no model turn, on the login the run's agents get. It returns one harness of the
-`awf.allowance/1` record: each window's `usedPercent`, its `resetsAt` and, for a window that limits
+with no model turn, on the login the run's agents get. It returns one harness of
+`awf allowance --json`'s report: each window's `usedPercent`, its `resetsAt` and, for a window that limits
 only some models, which. A `none` says why there was nothing to read, and means unknown, not room to
 spare. The read isn't recorded: a continue reads again, and a stage keeps one.
 
@@ -825,9 +825,8 @@ const asking = (change: string, summary: string) =>
 
 ### A coordinator
 
-`participants` maps a participant's key, such as a coordinator's, to a function called with what a holder would act on: each
-route to the coordinator as it opens, and each message an agent sends it. It answers as a holder
-would, or leaves a question open by returning:
+`participants` maps a participant's key, such as a coordinator's, to a function called with what whoever answers for it would act
+on: each route to it as it opens, and each message an agent sends it. It answers as they would, or leaves a question open by returning:
 
 ```ts
 const run = await testWorkflow(investigate, args, {
@@ -843,11 +842,11 @@ const run = await testWorkflow(investigate, args, {
   `awf reply --to` would, and **`send(agent, text)`** messages an agent, as `awf send` would.
 - **A `route` event** has `agent`, `direction` and `purpose`; **`send(text)`** messages that agent
   first. Each resolves to `{ code: "delivered", id }` or a refusal's `code`.
-- **When no turn runs, no script is still working, and everything left waits on a coordinator with
+- **When no turn runs, no script is still working, and everything left waits on a participant with
   no `until`,** the attempt ends and its open questions expire `attempt-ended`, so the test ends
   rather than hangs; `run.value` throws if the workflow hadn't returned. While a question has an
   `until`, from a short `timeoutMs`, the test waits for it, so it can expire `timeout`. A script that throws fails the test,
-  and so does a route or message reaching a coordinator with no script.
+  and so does a route or message reaching a participant with no script.
 - **`run.messagesOf("coordinator")`** is what it was sent and how each ended; a message to it is
   `delivered` once recorded.
 
@@ -944,11 +943,11 @@ expect(run.compactions).toEqual([]); // a compaction inside implement isn't repe
 
 ### What fails the test, not the workflow
 
-- an agent, decision, message or coordinator with no script;
+- an agent, decision, message or participant with no script;
 - a turn past a list's end, or a list entry never reached;
 - an answer the turn's schema refuses, or a result while the agent owes a reply;
 - a script that throws;
-- a stall: nothing starting or ending for 2 s (`stallMs`), a wait for a coordinator question's
+- a stall: nothing starting or ending for 2 s (`stallMs`), a wait for a participant question's
   `until` aside, so a stuck test fails rather than hangs.
 
 Deadlines are real time: `reply.timedOut()` ends a turn as timed out at once, and `timeoutMs` sets
@@ -957,7 +956,6 @@ the run's deadline, none by default.
 ## Not built yet
 
 These are in the types and throw `unavailable` today: `agents.attach` (beyond the calling
-session), `steps` (durable steps and sleep), and `call` (one workflow calling another). Events
-(story 034) are being built: `receive`, `emit`, `agent.start` and parking throw `unavailable` until
-it lands. [`docs/status.md`](status.md) says what's next.
+session), `steps` (durable steps and sleep), and `call` (one workflow calling another).
+[`docs/status.md`](status.md) says what's next.
 

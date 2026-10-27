@@ -319,12 +319,12 @@ fixer: answer(FIX_REPORT, (turn) => {
 architect: (message) => message.reply("Retries live in the queue."),
 ```
 
-A coordinator is scripted under `coordinators`, by the key the workflow connects it under: a
+A coordinator is scripted under `participants`, by the key the workflow connects it under: a
 function called with the items a holder would act on, a `route` event as each route to it opens and
 a `message` event for each message an agent sends it, once recorded. A message's `reply(text)`
 answers as `awf reply --to` would, and either's `send` messages an agent as `awf send` would; a
 script that returns without answering leaves the question open. Each resolves to a `ParticipantOutcome`,
-`delivered` with an id as `awf reply --json` gives it, or a holder code. An answer is recorded `via:
+`delivered` with an id as `awf reply --json` gives it, or a `ParticipantCode`. An answer is recorded `via:
 "test"`. When no turn runs, no script is still working, and everything left waits on a coordinator
 with no `until`, the attempt ends, its open questions expire `attempt-ended`, and `run.value` throws
 if the workflow had not returned, so a test never hangs on it. While a question has an `until`, the
@@ -692,10 +692,10 @@ the `cursor` that reads on from just after it.
 
 | `kind` | Fields |
 | --- | --- |
-| `route` | `state` (`opened`, `closed`), `coordinator`, `agent`, `direction` (`both`, `to-coordinator`, `from-coordinator`), `purpose`, `timeoutMs`, the coordinator's `labels`; closed, its `reason` |
-| `message` | `coordinator`, `id`, `from`, `to`, `text`; a question `asks`, and `until` when it has a limit; one the coordinator sent with `awf send`, `via` |
-| `answered` | `coordinator`, the question's `id`, the `answer`, and `via`: `terminal`, `command` or `test` |
-| `expired` | `coordinator`, the question's `id`, and `reason`: `timeout`, `released`, `cancelled` or `attempt-ended` |
+| `route` | `state` (`opened`, `closed`), `participant`, `agent`, `direction` (`both`, `to-participant`, `from-participant`), `purpose`, `timeoutMs`, the participant's `labels`; closed, its `reason` |
+| `message` | `participant`, `id`, `from`, `to`, `text`; a question `asks`, and `until` when it has a limit; one the coordinator sent with `awf send`, `via` |
+| `answered` | `participant`, the question's `id`, the `answer`, and `via`: `terminal`, `command` or `test` |
+| `expired` | `participant`, the question's `id`, and `reason`: `timeout`, `released`, `cancelled` or `attempt-ended` |
 | `ended` | an attempt ended: `attempt` and `outcome`, or `interrupted` for one whose process died |
 
 Message ids are `{attempt}.{n}`: message numbers restart in each attempt. A coordinator's answer is
@@ -740,7 +740,7 @@ attempt reads on after them.
 Every message is in the run log before `wf send` returns, and `awf inbox` reads from there, so a
 holder that starts late still sees everything, and a run that has ended stays readable.
 
-It fails, in this order (`INBOX_CODES`), `not-found` for no such run, `no-coordinator` for a run that ended without connecting a participant, or
+It fails, in this order (`INBOX_CODES`), `not-found` for no such run, `no-participant` for a run that ended without connecting a participant, or
 that `--as`, and `bad-cursor` for a cursor made with another run or filter; `--json` prints
 `InboxErrorJson`, `{ v: 1, code, error }`. A run is always `{workflow}/{id}`, never a bare id, so
 none of the three commands is ever ambiguous about which run. A live
@@ -783,7 +783,7 @@ else ([[#Operator authority]]).
 **Anyone may answer; the first answer wins.** The terminal, an app and another session can all reply
 to one question. The first is delivered and shows up as `answered` for the others; a later one is
 `expired`, unless that first answer released the participant or let the run end, when it is
-`no-coordinator` or `ended`, which come first in the order.
+`no-participant` or `ended`, which come first in the order.
 
 Both print one line, or with `--json` a `ParticipantResultJson`: `delivered` with an id an `awf inbox` item names (for a
 reply, the question answered; for a send, the new message),
@@ -795,7 +795,7 @@ this order (`HOLDER_CODES`), is returned:
 | `delivered` | the agent will see it |
 | `not-found` | no run `{workflow}/{id}` in this folder |
 | `ended` | the run has ended, or for `awf send`, the workflow has returned |
-| `no-coordinator` | no outside participant by that key: not connected yet, released, or never; a reserved key such as `operator` included |
+| `no-participant` | no outside participant by that key: not connected yet, released, or never; a reserved key such as `operator` included |
 | `unknown-agent` | the run has no agent at that address |
 | `ambiguous` | a bare key two agents share; no `--as` when the workflow connects more than one; or no `--to` when the agent has more than one open question to this participant |
 | `expired` | not an open question from that agent to this participant (see `--to`) |
@@ -816,7 +816,7 @@ run over a socket it opens in `~/.awf/coordinator/` (`AWF_COORDINATOR_DIR` moves
 hash of the run's directory to stay within a socket path's 104 bytes, and removed when the run
 ends. Whether a run is live is checked as `awf runs` checks it, so a socket a killed run left is
 not trusted; a live run that has not connected the participant has no socket yet, and its state
-tells `no-coordinator` from `ended`. The folder is the operator's, mode 0700, never in the
+tells `no-participant` from `ended`. The folder is the operator's, mode 0700, never in the
 workflow's directory, and outside every sandbox: `awf run` refuses an `AWF_COORDINATOR_DIR` inside
 the workflow's directory, and a sandbox spec that reaches the folder through `read`, `write` or
 `sockets` is refused, as one reaching `~/.awf` is. An agent without a sandbox runs as the same
@@ -1271,7 +1271,7 @@ Decided: one `awf send` for every holder, `awf send {workflow}/{id} {agent}`, bu
 participant in [[032-run-coordinator|story 032]] ([[#Coordinator CLI]]). The operator's own
 authority is `--as operator`, a reserved key, held until M3 is answered
 ([[#Operator authority]]); a missing `--as` never means the operator. The process inbox in [[workflow-styles#Loops, the inbox and the core]]
-takes `awf emit --target {file} {name}` instead ([[034-event-driven-runs|story 034]], which
+takes `awf emit --target {file} --id {run} {name}` instead ([[034-event-driven-runs|story 034]], which
 replaced the `signals.receive` stub): one puts text into a model's context, the other a typed
 event a wait takes, so they cannot share a verb.
 

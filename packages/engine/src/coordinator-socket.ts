@@ -101,7 +101,7 @@ export function coordinatorSocket(options: {
       options.nudged();
       return { v: 1, code: "nudged" };
     }
-    if (!holder) return refused("no-participant", "the run has no coordinator connected");
+    if (!holder) return refused("no-participant", "the run has no participant connected");
     // Another attempt's question is never open in this one: a number no message has.
     const to =
       request.to === undefined

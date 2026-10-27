@@ -26,7 +26,7 @@ Nothing new after the wait prints nothing: run it again.
 What to do with each item, by `kind`:
 
 - `route`, `state` `opened`: an agent you may hear from, with the route's `purpose`. That purpose
-  says what the coordinator is for; `direction` `both` or `from-coordinator` means you may also
+  says what the coordinator is for; `direction` `both` or `from-participant` means you may also
   message the agent first.
 - `message` with `asks: true`: a question waiting for you. Answer it (below). `until`, when given,
   is when it closes unanswered.

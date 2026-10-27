@@ -48,7 +48,7 @@ export const COMMANDS = [
   },
   {
     group: "Coordinate a run from outside",
-    commands: { inbox: "What agents said to a coordinator, and what it said back" },
+    commands: { inbox: "What agents said to a participant outside the run, and what it said back" },
     help: inboxUsage,
   },
   {

@@ -1,8 +1,8 @@
-# Answering for a coordinator
+# Answering for a participant
 
-A workflow can connect a **coordinator**, a participant outside the run that its agents report to
-and ask ([workflow-api.md](workflow-api.md#a-coordinator-outside-the-run)). Whatever answers for
-it is the **holder**: `awf run`'s own terminal, another claude or codex session, or an app such as
+A workflow can connect a **participant** outside the run, such as a coordinator, that its agents
+report to and ask ([workflow-api.md](workflow-api.md#a-coordinator-outside-the-run)). Whatever
+answers for it is the **holder**: `awf run`'s own terminal, another claude or codex session, or an app such as
 a Slack bridge. This page is the holder's side: three commands on `awf`, the items they print, the
 result codes, and what the cursor guarantees. The design and its reasons are in
 [design/messaging.md](design/messaging.md#coordinator-cli).
@@ -20,7 +20,7 @@ Like `awf runs`, all three read the runs in the current folder's `.awf/runs`, or
 one loop per folder. A run is named `{workflow}/{id}`, or `{id}` when one workflow has it; a run
 not found there is looked for in each project awf has started a run with events in, as every
 command that takes a run does. Every command takes `--json`, and `--as {key}`
-when the workflow connects more than one coordinator.
+when the workflow connects more than one participant.
 
 ## In a terminal
 
@@ -42,7 +42,7 @@ run's progress with the command that answers it, and waits in the run log:
 
 Reads what the run log holds, so a holder that starts late, or after the run ended, still sees it
 all. Items come oldest first, across runs too, each run's in its log's order. `--all` reads every
-run in the folder that connected a coordinator; `--workflow {name}` and `--as {key}` narrow it.
+run in the folder that connected a participant; `--workflow {name}` and `--as {key}` narrow it.
 `--wait {seconds}`, at most 300, waits when nothing is new; a session's shell tool stops a command
 after 120 s by default, so it passes 100. `--open` is a snapshot of the questions waiting now, with
 no cursor and no waiting.
@@ -53,7 +53,7 @@ Text is for a person. `--json` prints one item per line, `InboxItemJson`
 | `kind` | Fields |
 | --- | --- |
 | `route` | `state` (`opened`, `closed`), `participant`, `agent`, `direction` (`both`, `to-participant`, `from-participant`), `purpose`, `timeoutMs`, `labels`; closed, its `reason` |
-| `message` | `participant`, `id`, `from`, `to`, `text`; a question has `asks`, and `until` when it closes unanswered at a limit; one the coordinator sent with `awf send` has `via` |
+| `message` | `participant`, `id`, `from`, `to`, `text`; a question has `asks`, and `until` when it closes unanswered at a limit; one the participant sent with `awf send` has `via` |
 | `answered` | `participant`, the question's `id`, the `answer`, and `via`: `terminal`, `command` or `test` |
 | `expired` | `participant`, the question's `id`, and `reason`: `timeout`, `released`, `cancelled` or `attempt-ended` |
 | `ended` | an attempt ended: `attempt` and `outcome`, or `interrupted` when its process died; a `parked` one has `label`, its last wait's, when it gave one |
@@ -82,7 +82,7 @@ The text is the last argument, or stdin without one, so an app passes a chat mes
 unchanged. Neither waits for the agent: its answer comes back in `awf inbox`.
 
 `awf reply` answers a question. `--to {id}` names it, as `awf inbox` printed it; it may be left out
-only when that agent has exactly one question open to this coordinator. A late answer to an old
+only when that agent has exactly one question open to this participant. A late answer to an old
 question never lands on a newer one: a `--to` naming anything but an open question from that agent
 is `expired`. Anyone may answer, and the first answer wins.
 
@@ -102,8 +102,8 @@ that applies, in this order:
 | `no-participant` | no participant by that key: not connected yet, released, or never; a reserved key such as `operator` included |
 | `unknown-agent` | the run has no agent at that address |
 | `ambiguous` | no `--as` when the workflow connects more than one; no `--to` when the agent has more than one open question; the choices are listed |
-| `expired` | not an open question from that agent to this coordinator |
-| `no-route` | the workflow allows no route from this coordinator to the agent |
+| `expired` | not an open question from that agent to this participant |
+| `no-route` | the workflow allows no route from this participant to the agent |
 | `stopped` | the agent has stopped |
 | `closed` | the route was allowed but has closed |
 | `too-large` | over 16 KB |
@@ -118,7 +118,7 @@ Exit codes: 0 delivered, 1 refused, 2 a usage error, 3 the run could not be reac
 alone; `AWF_COORDINATOR_DIR` moves it, never into the workflow's directory. No sandbox reaches it.
 An agent without a sandbox runs as the operator's user with `awf` on its path, and can do what a
 holder can, as it can do anything else on the machine; a workflow that needs the guarantee
-sandboxes its agents. A message from the coordinator carries a peer's authority plus what the
+sandboxes its agents. A message from the participant carries a peer's authority plus what the
 route's purpose grants, never the operator's.
 
 A session can learn the job from the `awf-coordinator` skill

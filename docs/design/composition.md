@@ -156,8 +156,8 @@ participant's, a child call's included. One passed into a child call under anoth
 in the record and the CLI; the local key exists only inside the child. No agent anywhere in the
 run may take a key an outside participant holds, so a route's two ends never read alike in the
 record. To the holder's commands
-every outside participant is a coordinator: `awf inbox`'s `coordinator` field, `--as` and the
-`no-coordinator` code all mean this key.
+every outside participant is a coordinator: `awf inbox`'s `participant` field, `--as` and the
+`no-participant` code all mean this key.
 
 `connect` records the participant and its `labels` in the run log (`participant-connected`), and
 opens the socket `awf reply` and `awf send` reach the run through. It waits for no one and says

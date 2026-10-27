@@ -21,6 +21,4 @@ export default defineExecutableWorkflow({
       return isAnswered(outcome) ? outcome.value : { unanswered: outcome.reason };
     },
   },
-  // Turns the command line into args: `awf run hello/workflow.ts -- ...`.
-  prepare: () => ({}),
 });

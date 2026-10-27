@@ -49,7 +49,7 @@ export interface Case {
   addReply(eventId: string, reply: { text: string; author?: string }): void;
   close(closed: ClosedData, at: string): Promise<void>;
 }
-declare function openCase(root: string, key: string): Case;
+declare function openCase(root: string, id: string): Case;
 declare const DD_CASES: string;
 declare const AIR: string;
 declare const INVESTIGATOR: { standing: string } & Record<

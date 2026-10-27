@@ -123,6 +123,9 @@ More in [`examples/`](examples/README.md), with how to run each. Every call is e
   without a coding agent.
 - **Runs you can follow and continue.** `awf runs` and `awf logs` show what a run did, to you or to
   another agent, and a stopped run goes on from the stage that stopped.
+- **Runs that react to events.** A workflow declares the events it takes; `awf emit` sends one to a
+  run by its id, and the run's code takes it at a wait. Between events the run parks and no
+  process runs, so a case that lives for weeks costs a file ([events](docs/workflow-api.md#events)).
 - **Deadlines and cleanup.** A stalled turn is stopped, deadlines you set nest, and every agent is
   closed when the run ends, however it ends, unless the workflow asked to keep its pane.
 
@@ -191,7 +194,6 @@ export default defineExecutableWorkflow({
       return isAnswered(outcome) ? outcome.value : { unanswered: outcome.reason };
     },
   },
-  prepare: () => ({}),
 });
 ```
 
@@ -341,8 +343,7 @@ its mistakes before anything runs. And it reads plainly: agents, prompts, schema
 
 ## Not yet
 
-Deliberately left out until something real needs them: calling one workflow from another, a
-workflow itself pausing for outside input (its agents can already ask a coordinator), and
+Deliberately left out until something real needs them: calling one workflow from another, and
 reopening a stopped run's agent sessions (a continue redoes the stage with fresh agents). Their
 types exist, and calling them fails with a clear "unavailable" error.
 [`docs/status.md`](docs/status.md) has what runs today and what's next.

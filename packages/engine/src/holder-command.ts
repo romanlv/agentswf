@@ -19,10 +19,10 @@ export const replyUsage = [
   "       awf send <workflow>/<id> --as <participant> --event-id <id> [--author <name>] [<text>]",
   "                [--cwd <directory>] [--run-root <directory>]",
   "",
-  "Answers a question an agent asked a coordinator outside the run, or messages an agent first,",
+  "Answers a question an agent asked a participant outside the run, or messages an agent first,",
   "over a route the workflow allowed. The text is the argument, or stdin without one. --to names",
   "the question, as awf inbox prints it; it may be left out when the agent has one open. --as",
-  "names the coordinator when the workflow connects more than one. Neither waits for an answer:",
+  "names the participant when the workflow connects more than one. Neither waits for an answer:",
   "it comes back in awf inbox. With --event-id, send is a reply on a participant the run routes to its",
   "code: no agent, it reaches the run whether it runs or is parked, and the same id again is a",
   "duplicate. The id is one the run has not had from anyone, as a chat's message ids are. It prints",
@@ -114,7 +114,7 @@ export async function holderCommand(
     const unreachable = () =>
       refused(
         "no-participant",
-        `${status.ref} has no coordinator${options.as ? ` ${options.as}` : ""} to reach yet; try again once it connects one`,
+        `${status.ref} has no participant${options.as ? ` ${options.as}` : ""} to reach yet; try again once it connects one`,
       );
     const dir = coordinatorDir(io.home ?? homedir(), io.environment ?? process.env);
     // Live with no socket: its attempt has not connected one yet, or is opening it.

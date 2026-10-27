@@ -876,7 +876,7 @@ export type LogsJson = {
 };
 
 /**
- * Why a question to a coordinator closed unanswered, as `awf inbox` reports it, from its
+ * Why a question to a participant closed unanswered, as `awf inbox` reports it, from its
  * `request-ended`: `timed-out` is `timeout`, and the others keep their names. Such a question is
  * shown when recorded, so never `withdrawn`; an outside participant is never reminded and never
  * stops, so never `failed`.
@@ -906,7 +906,7 @@ export type InboxItemJson = {
       purpose: string;
       /** How long a question on it waits; absent, until it is answered. */
       timeoutMs?: number;
-      /** The participant's key, as the workflow connected it. */
+      /** The participant's labels, as the workflow connected it. */
       labels?: JsonObject;
       /** Why it closed. */
       reason?: "stage-ended" | "agent-stopped" | "released" | "attempt-ended";
