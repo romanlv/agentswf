@@ -25,7 +25,7 @@ export interface WorkflowCallSpec<Args extends JsonValue, Result extends JsonVal
   definition: WorkflowDefinition<Args, Result>;
   args: Args;
   /** Parent participants exposed under child-local keys. */
-  participants?: Readonly<Record<ParticipantKey, ParticipantRef>>;
+  participants?: Readonly<Record<PeerKey, PeerRef>>;
   label?: string;
 }
 
@@ -103,29 +103,29 @@ terminal, another claude or codex session, or an app such as a Slack bridge; the
 knows which.
 
 ```ts
-export interface ParticipantRef {
+export interface PeerRef {
   /** Logical key in the workflow context that issued this reference. */
-  readonly key: ParticipantKey;
+  readonly key: PeerKey;
   /** Only the engine makes one, so a `{ key }` literal is not a ref. */
   readonly [PARTICIPANT]: true;
 }
 
-export interface ExternalParticipantSpec {
-  key: ParticipantKey;
+export interface ParticipantSpec {
+  key: PeerKey;
   /** For whatever answers as it: passed along in `awf inbox`'s `route` items, never read by awf. */
   labels?: JsonObject;
 }
 
-export interface ExternalParticipantRef extends ParticipantRef {
+export interface ParticipantRef extends PeerRef {
   /** Closes its routes and ends every question open to it, `released`; `false` when it was released already. */
   release(reason?: string): Promise<boolean>;
 }
 
 export interface ParticipantDirectory {
   /** Connects a participant outside the run; an occupied or reserved key rejects. */
-  connect(spec: ExternalParticipantSpec): Promise<ExternalParticipantRef>;
+  connect(spec: ParticipantSpec): Promise<ParticipantRef>;
   /** Finds an agent or connected participant visible in this workflow scope. */
-  get(key: ParticipantKey): Promise<ParticipantRef | null>;
+  get(key: PeerKey): Promise<PeerRef | null>;
 }
 ```
 
@@ -141,7 +141,7 @@ await workflow.messages.allow({
 });
 ```
 
-`AgentRef` also extends `ParticipantRef`, and messaging accepts `ParticipantRef` endpoints. A ref
+`AgentRef` also extends `PeerRef`, and messaging accepts `PeerRef` endpoints. A ref
 is branded with a symbol exported only from `@agentswf/contract/participant`, which a workflow
 cannot import, so only one the engine issued type-checks (built in story 029). Runtime validation
 ensures references belong to the current scope. Agents and outside participants share one key

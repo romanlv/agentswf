@@ -1,4 +1,4 @@
-import type { AgentRef, JsonValue, OutputSchema, ParticipantRef, WorkflowContext } from "./index";
+import type { AgentRef, JsonValue, OutputSchema, PeerRef, WorkflowContext } from "./index";
 import { isAnswered } from "./index";
 
 // The sketches in docs/design/messaging.md's "Routes by shape", as a workflow writes them.
@@ -94,8 +94,8 @@ async function routeForOneStage(): Promise<{ steps: string[] }> {
 
 async function refused(): Promise<void> {
   // A workflow names only participants the engine issued it.
-  // @ts-expect-error A `{ key }` literal is not a ParticipantRef.
-  const forged: ParticipantRef = { key: "reviewer" };
+  // @ts-expect-error A `{ key }` literal is not a PeerRef.
+  const forged: PeerRef = { key: "reviewer" };
   await workflow.messages.allow({
     // @ts-expect-error Nor is one inline.
     from: { key: "reviewer" },

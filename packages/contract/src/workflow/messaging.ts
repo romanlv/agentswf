@@ -1,4 +1,4 @@
-import type { ParticipantRef } from "./participants";
+import type { PeerRef } from "./participants";
 
 /**
  * A route: `from` may message `to`, which answers over it when asked; `between` is both directions,
@@ -6,8 +6,8 @@ import type { ParticipantRef } from "./participants";
  */
 export type MessageAccess =
   | {
-      from: ParticipantRef;
-      to: ParticipantRef;
+      from: PeerRef;
+      to: PeerRef;
       between?: never;
       purpose: string;
       /** Lowers the engine's ceiling of messages on this route an attempt, answers included. */
@@ -19,7 +19,7 @@ export type MessageAccess =
       timeoutMs?: number;
     }
   | {
-      between: readonly [ParticipantRef, ParticipantRef];
+      between: readonly [PeerRef, PeerRef];
       from?: never;
       to?: never;
       purpose: string;

@@ -1,6 +1,6 @@
 import type { AgentEndedEvent, Matched } from "./events";
 import type { JsonObject, JsonValue, OutputSchema } from "./json";
-import type { ParticipantRef } from "./participants";
+import type { PeerRef } from "./participants";
 import type { InlineSandboxSpec, SandboxRef } from "./sandboxes";
 import type { AbsoluteDeadline } from "./timing";
 
@@ -441,7 +441,7 @@ export interface SettingsSpec {
   timeoutMs?: number;
 }
 
-export interface AgentRef extends ParticipantRef {
+export interface AgentRef extends PeerRef {
   readonly key: AgentKey;
   /**
    * The agent's settings now: as it was opened, then as the last answered `set` left them. Its

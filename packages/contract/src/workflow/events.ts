@@ -1,6 +1,6 @@
 import type { AgentKey, TurnId, TurnOutcome } from "./agents";
 import type { JsonValue, OutputSchema } from "./json";
-import type { ParticipantKey } from "./participants";
+import type { PeerKey } from "./participants";
 
 /**
  * Keys, event ids and stage names: lowercase, since each becomes a file name on a disk that may not
@@ -79,7 +79,7 @@ export type AgentEndedEvent<
   T extends JsonValue = JsonValue,
 > = WorkflowEvent<"agent:ended", AgentEnded<Meta, T>> & { readonly from: AgentKey };
 export type ParticipantReplyEvent = WorkflowEvent<"participant:reply", ParticipantReply> & {
-  readonly from: ParticipantKey;
+  readonly from: PeerKey;
 };
 
 /** One of a workflow's own events, narrowed by `name`. */

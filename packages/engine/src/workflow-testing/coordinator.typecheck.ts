@@ -1,7 +1,7 @@
 // Checked by `tsc --noEmit`, never run: story 032's workflow and its test, as an author writes them.
 import {
-  type ExternalParticipantRef,
   isAnswered,
+  type ParticipantRef,
   type WorkflowContext,
   type WorkflowDefinition,
 } from "@agentswf/contract/workflow";
@@ -13,7 +13,7 @@ const investigate: WorkflowDefinition<null, string> = {
   meta: { name: "investigate", description: "watches checkout-api" },
   async run(workflow: WorkflowContext) {
     const investigator = await workflow.agents.open({ key: "investigator", runtime });
-    const coordinator: ExternalParticipantRef = await workflow.participants.connect({
+    const coordinator: ParticipantRef = await workflow.participants.connect({
       key: "coordinator",
       labels: { audience: "operator" },
     });

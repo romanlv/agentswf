@@ -1,5 +1,5 @@
 import type { JsonValue } from "./json";
-import type { ParticipantKey, ParticipantRef } from "./participants";
+import type { PeerKey, PeerRef } from "./participants";
 import type { AbsoluteDeadline } from "./timing";
 import type { WorkflowDefinition } from "./workflow";
 
@@ -13,6 +13,6 @@ export interface WorkflowCallSpec<Args extends JsonValue, Result extends JsonVal
   /** Defaults to the current workflow scope deadline. */
   deadline?: AbsoluteDeadline;
   /** Parent participants exposed under child-local keys; a reserved key such as `operator` rejects. */
-  participants?: Readonly<Record<ParticipantKey, ParticipantRef>>;
+  participants?: Readonly<Record<PeerKey, PeerRef>>;
   label?: string;
 }

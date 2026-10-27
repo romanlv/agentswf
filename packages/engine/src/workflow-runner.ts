@@ -44,8 +44,6 @@ import {
   type CompactSpec,
   DeadlineExceededError,
   type EmitOutcome,
-  type ExternalParticipantRef,
-  type ExternalParticipantSpec,
   type HarnessAllowance,
   isEventWorkflow,
   isJsonValue,
@@ -57,7 +55,9 @@ import {
   type OperationRecord,
   type OutputSchema,
   type PaneLayout,
+  type ParticipantRef,
   type ParticipantReplyEvent,
+  type ParticipantSpec,
   type PlacementChoice,
   placementOf,
   type ReceiveOptions,
@@ -845,7 +845,7 @@ class WorkflowOwner {
   /** Stops a fork of the session the run was started from, whose process is not an agent's. */
   readonly #closingRun = new AbortController();
   /** Outside participants the workflow connected, by key: the refs a route's ends must be. */
-  readonly #outsideRefs = new Map<string, ExternalParticipantRef>();
+  readonly #outsideRefs = new Map<string, ParticipantRef>();
 
   constructor(
     private readonly options: {
@@ -1201,7 +1201,7 @@ class WorkflowOwner {
   }
 
   /** Connects a participant outside the run under a key no agent holds and none reserved. */
-  private connectParticipant(spec: ExternalParticipantSpec): ExternalParticipantRef {
+  private connectParticipant(spec: ParticipantSpec): ParticipantRef {
     if (this.#closed || this.#cleanupFailures.length) throw new Error("workflow context is closed");
     scopes.getStore()?.assertAccepting();
     if (typeof spec !== "object" || spec === null || typeof spec.key !== "string" || !spec.key)
@@ -1230,7 +1230,7 @@ class WorkflowOwner {
       labels === undefined ? undefined : structuredClone(labels),
       to === "code" ? "code" : undefined,
     );
-    const ref: ExternalParticipantRef = {
+    const ref: ParticipantRef = {
       ...participantRef(key),
       release: async (reason) => {
         if (reason !== undefined && typeof reason !== "string")

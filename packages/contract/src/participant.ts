@@ -1,7 +1,7 @@
-import type { ParticipantKey, ParticipantRef } from "./workflow/participants";
+import type { PeerKey, PeerRef } from "./workflow/participants";
 
 /**
- * What makes a `ParticipantRef` one the engine issued. Exported only through
+ * What makes a `PeerRef` one the engine issued. Exported only through
  * `@agentswf/contract/participant`, which a workflow cannot import, so a `{ key }` literal does not
  * type-check as a ref.
  */
@@ -14,8 +14,6 @@ export const PARTICIPANT: unique symbol = Symbol("agentswf.participant");
 export const RESERVED_PARTICIPANT_KEYS = ["operator", "awf", "system", "user"] as const;
 
 /** A ref for a participant the engine opened. */
-export function participantRef<K extends ParticipantKey>(
-  key: K,
-): ParticipantRef & { readonly key: K } {
+export function participantRef<K extends PeerKey>(key: K): PeerRef & { readonly key: K } {
   return { key, [PARTICIPANT]: true };
 }

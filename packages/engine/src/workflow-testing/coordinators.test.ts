@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type {
-  ExternalParticipantRef,
   JsonValue,
+  ParticipantRef,
   WorkflowContext,
   WorkflowDefinition,
 } from "@agentswf/contract/workflow";
@@ -13,7 +13,7 @@ const PURPOSE = "report findings that hold up; ask when the logs can't settle it
 function investigate(
   options: {
     timeoutMs?: number;
-    beside?: (workflow: WorkflowContext, coordinator: ExternalParticipantRef) => Promise<unknown>;
+    beside?: (workflow: WorkflowContext, coordinator: ParticipantRef) => Promise<unknown>;
     run?: boolean;
   } = {},
 ): WorkflowDefinition<null, JsonValue> {

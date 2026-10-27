@@ -2,25 +2,25 @@ import type { PARTICIPANT } from "../participant";
 import type { Matched, ParticipantReplyEvent } from "./events";
 import type { JsonObject } from "./json";
 
-export type ParticipantKey = string;
+export type PeerKey = string;
 
 /**
- * A participant the engine issued: an agent this workflow opened, or an outside participant it
- * connected. Only the engine makes one, so a workflow cannot name a participant it was not given.
+ * A peer the engine issued: an agent this workflow opened, or a participant outside the run it
+ * connected. Only the engine makes one, so a workflow cannot name a peer it was not given.
  */
-export interface ParticipantRef {
+export interface PeerRef {
   /** Logical key in the workflow context that issued this reference. */
-  readonly key: ParticipantKey;
+  readonly key: PeerKey;
   readonly [PARTICIPANT]: true;
 }
 
-export interface ExternalParticipantSpec {
-  key: ParticipantKey;
+export interface ParticipantSpec {
+  key: PeerKey;
   /** For whatever answers as it: passed along in `awf inbox`'s `route` items, never read by awf. */
   labels?: JsonObject;
 }
 
-export interface ExternalParticipantRef extends ParticipantRef {
+export interface ParticipantRef extends PeerRef {
   /**
    * Closes its routes and ends every question open to it, `released`. `false` when it was
    * released already.
@@ -35,12 +35,12 @@ export interface ParticipantDirectory {
    * participant holds anywhere in the run, rejects. It stays connected until released, or until the workflow has returned and no question
    * to it is open.
    */
-  connect(spec: ExternalParticipantSpec): Promise<ExternalParticipantRef>;
+  connect(spec: ParticipantSpec): Promise<ParticipantRef>;
   /** Finds an agent or connected participant visible in this workflow scope. */
-  get(key: ParticipantKey): Promise<ParticipantRef | null>;
+  get(key: PeerKey): Promise<PeerRef | null>;
 }
 
-export interface CodeParticipantSpec extends ExternalParticipantSpec {
+export interface CodeParticipantSpec extends ParticipantSpec {
   /**
    * Its messages come to the run's code, each a `participant:reply` from its key taken at a wait,
    * not to an agent: `awf send {ref} --as {key} --event-id {message id} {text}` delivers one, and continues
@@ -49,7 +49,7 @@ export interface CodeParticipantSpec extends ExternalParticipantSpec {
   to: "code";
 }
 
-export interface CodeParticipantRef extends ExternalParticipantRef {
+export interface CodeParticipantRef extends ParticipantRef {
   /** Writes to it without a turn: an item in `awf inbox` for whatever answers as it. */
   post(text: string): Promise<void>;
   /** True for a message on this participant. */
@@ -65,5 +65,5 @@ export interface CodeParticipantRef extends ExternalParticipantRef {
  */
 export interface CodeParticipantDirectory extends ParticipantDirectory {
   connect(spec: CodeParticipantSpec): Promise<CodeParticipantRef>;
-  connect(spec: ExternalParticipantSpec): Promise<ExternalParticipantRef>;
+  connect(spec: ParticipantSpec): Promise<ParticipantRef>;
 }

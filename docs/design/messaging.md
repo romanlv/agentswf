@@ -15,8 +15,8 @@ still to be measured under [[#To measure]].
 ```ts
 export type MessageAccess =
   | {
-      from: ParticipantRef;
-      to: ParticipantRef;
+      from: PeerRef;
+      to: PeerRef;
       between?: never;
       purpose: string;
       maxMessages?: number;
@@ -24,7 +24,7 @@ export type MessageAccess =
       timeoutMs?: number;
     }
   | {
-      between: readonly [ParticipantRef, ParticipantRef];
+      between: readonly [PeerRef, PeerRef];
       from?: never;
       to?: never;
       purpose: string;
@@ -50,7 +50,7 @@ open route at a time, whatever shape or scope granted it: a grant naming a pair 
 open must be the same grant, or it rejects. A pair whose route has closed, with an earlier stage,
 may be granted again.
 
-`ParticipantRef` is branded with a private symbol, so only the engine issues one: a literal
+`PeerRef` is branded with a private symbol, so only the engine issues one: a literal
 `{ key: "reviewer" }` does not type-check. The symbol and the function that mints a ref live in a
 contract module that only an engine-side export path reaches, never `contract/workflow`; the
 boundary check already keeps examples to `contract/workflow`. It is an agent, or an outside
