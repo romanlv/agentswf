@@ -361,7 +361,7 @@ describe("awf runs", () => {
     expect(lines[6]).toMatch(/^ {6}fixer +working +turn 1/);
   });
 
-  test("lists twenty runs, says how many are older, and --all lists them all", async () => {
+  test("lists twenty runs, says how many are older, and --limit lists more", async () => {
     const cwd = runDirs.tempRunDir();
     for (let minute = 0; minute < 22; minute += 1) {
       await makeRun(cwd, "review", `r${minute}`, [
@@ -375,10 +375,10 @@ describe("awf runs", () => {
     await makeRun(cwd, "review", "abandoned", []);
     const listed = (await awfRuns(cwd)).stdout.split("\n");
     expect(listed).toHaveLength(21);
-    expect(listed.at(-1)).toBe("… 4 older (--all)");
-    expect((await awfRuns(cwd, "--all")).stdout.split("\n")).toHaveLength(24);
+    expect(listed.at(-1)).toBe("… 4 older (--limit 24)");
+    expect((await awfRuns(cwd, "--limit", "24")).stdout.split("\n")).toHaveLength(24);
     expect(JSON.parse((await awfRuns(cwd, "--json")).stdout).more).toEqual({ older: true });
-    const all = (await awfRuns(cwd, "--all")).stdout.split("\n");
+    const all = (await awfRuns(cwd, "--limit", "24")).stdout.split("\n");
     expect(all.find((line) => line.startsWith("review/starting"))).toMatch(
       /^review\/starting +running \(unchecked\) {2}\d\d-\d\d \d\d:\d\d {2}/,
     );

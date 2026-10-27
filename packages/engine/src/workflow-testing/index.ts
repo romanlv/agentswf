@@ -72,6 +72,8 @@ export {
 } from "./script";
 
 export type TestOptions = {
+  /** Laid out before the run, by path under its directory, which the test removes. */
+  files?: Readonly<Record<string, FileTree>>;
   /** Each agent's script, by its key or a pattern such as `"review:*"`. */
   agents?: Readonly<Record<string, Script>>;
   /**
@@ -160,8 +162,6 @@ export type EventTestOptions<Events extends EventSchemas> = Omit<
   event?: {
     [Name in keyof Events & string]: { name: Name; data: OutputOf<Events[Name]>; id?: string };
   }[keyof Events & string];
-  /** Laid out before the run, by path under `cwd`. */
-  files?: Readonly<Record<string, FileTree>>;
   /** Sent at points in the run, each once its point is reached. */
   events?: readonly ScriptedEvent<Events>[];
   /** More turns started than this fails the test, so a loop that never parks doesn't hang it; 20. */
@@ -329,6 +329,9 @@ export async function testWorkflow<Args extends JsonValue, Result extends JsonVa
     temporary.push(path);
     return path;
   };
+  // Laid out under a directory of the test's own, which it removes: never into one it was given.
+  if (options.files && options.cwd !== undefined)
+    throw new Error("files are laid out in the test's own directory: give files or cwd, not both");
   const cwd = options.cwd ?? directory();
   const host = createScriptedHost(
     scripts,
@@ -383,7 +386,7 @@ export async function testWorkflow<Args extends JsonValue, Result extends JsonVa
   events.onActivity();
   try {
     // A path it can't lay out is the test's mistake, never the workflow's.
-    await layOut(eventOptions?.files, cwd).catch((error: unknown) => {
+    await layOut(options.files, cwd).catch((error: unknown) => {
       stopWith(messageOf(error));
       throw error;
     });

@@ -282,7 +282,7 @@ describe("awf inbox", () => {
     expect(next.items.map((item: InboxItemJson) => item.kind)).toEqual(["route"]);
   });
 
-  test("--all reads every run here that connected one, new ones included, from a saved cursor", async () => {
+  test("with no run, it reads every run here that connected one, new ones included, from a saved cursor", async () => {
     const root = runDirs.tempRunDir();
     const one = await newRun(root, "investigate", "r1");
     await one.claim();
@@ -296,7 +296,7 @@ describe("awf inbox", () => {
     const quiet = await newRun(root, "build", "r2");
     await quiet.claim();
     await log(quiet.run, 1, { kind: "warning", text: "nothing" } as Body<RunLogLine>);
-    const first = await inbox(root, "--all", "--json");
+    const first = await inbox(root, "--json");
     expect(first.items.map((item: InboxItemJson) => item.ref)).toEqual(["investigate/r1"]);
     const cursor = first.items.at(-1).cursor;
     const late = await newRun(root, "triage", "r3");
@@ -308,15 +308,15 @@ describe("awf inbox", () => {
       opened("b"),
     );
     await log(one.run, 1, ask(1, "a", "And now?"));
-    const next = await inbox(root, "--all", "--json", "--after", cursor);
+    const next = await inbox(root, "--json", "--after", cursor);
     expect(next.items.map((item: InboxItemJson) => [item.ref, item.kind])).toEqual([
       ["triage/r3", "route"],
       ["investigate/r1", "message"],
     ]);
-    const narrowed = await inbox(root, "--all", "--workflow", "triage", "--json");
+    const narrowed = await inbox(root, "--workflow", "triage", "--json");
     expect(narrowed.items.map((item: InboxItemJson) => item.ref)).toEqual(["triage/r3"]);
     // A cursor belongs to the filter it was made with.
-    const refused = await inbox(root, "--all", "--workflow", "triage", "--json", "--after", cursor);
+    const refused = await inbox(root, "--workflow", "triage", "--json", "--after", cursor);
     expect(refused.code).toBe(1);
     expect(refused.items[0] as InboxErrorJson).toMatchObject({ v: 1, code: "bad-cursor" });
   });
@@ -518,7 +518,7 @@ describe("awf inbox --wait reads only what changed", () => {
       { kind: "participant-connected", participant: "coordinator" },
       opened("a"),
     );
-    const first = await inbox(root, "--all", "--json");
+    const first = await inbox(root, "--json");
     const spies = {
       log: spyOn(runs, "readEventsFrom"),
       attempts: spyOn(runs, "readAttempts"),
@@ -541,7 +541,6 @@ describe("awf inbox --wait reads only what changed", () => {
           if (poll === 3) await log(one.run, 1, noise("still working"));
           if (poll === 5) await log(one.run, 1, ask(1, "a", "Merge?"));
         },
-        "--all",
         "--json",
         "--wait",
         "30",
@@ -582,7 +581,6 @@ describe("awf inbox --wait reads only what changed", () => {
             opened("a"),
           );
       },
-      "--all",
       "--json",
       "--wait",
       "30",
@@ -598,7 +596,7 @@ describe("awf inbox --wait reads only what changed", () => {
     const attempt = await claim();
     await log(run, 1, { kind: "participant-connected", participant: "coordinator" }, opened("a"));
     await endAttempt(attempt, { outcome: "failed" });
-    const first = await inbox(root, "--all", "--json");
+    const first = await inbox(root, "--json");
     expect(first.items.at(-1)).toMatchObject({ kind: "ended", attempt: 1 });
     const read = await waiting(
       root,
@@ -612,7 +610,6 @@ describe("awf inbox --wait reads only what changed", () => {
           opened("b"),
         );
       },
-      "--all",
       "--json",
       "--wait",
       "30",

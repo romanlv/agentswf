@@ -10,7 +10,7 @@ result codes, and what the cursor guarantees. The design and its reasons are in
 ```sh
 awf inbox {workflow}/{id}                         # one run: what was said, both ways
 awf inbox {workflow}/{id} --open                  # the questions still waiting for an answer
-awf inbox --all --json --after {cursor} --wait 100   # every run here, for an app or a session
+awf inbox --json --after {cursor} --wait 100         # every run here, for an app or a session
 awf reply {workflow}/{id} {agent} --to {id} 'Keep two, and link them.'
 awf send {workflow}/{id} {agent} 'Also check the 09:12 deploy.'
 ```
@@ -41,7 +41,7 @@ run's progress with the command that answers it, and waits in the run log:
 ## `awf inbox`
 
 Reads what the run log holds, so a holder that starts late, or after the run ended, still sees it
-all. Items come oldest first, across runs too, each run's in its log's order. `--all` reads every
+all. Items come oldest first, across runs too, each run's in its log's order. With no run, it reads every
 run in the folder that connected a participant; `--workflow {name}` and `--as {key}` narrow it.
 `--wait {seconds}`, at most 300, waits when nothing is new; a session's shell tool stops a command
 after 120 s by default, so it passes 100. `--open` is a snapshot of the questions waiting now, with
@@ -63,7 +63,7 @@ named by its peer address. A route's `direction` says whether `awf send` may rea
 all. Readers ignore kinds and fields they don't know; `v` changes only when one is renamed or
 removed.
 
-**The cursor.** Opaque, for the run or the `--all` filter it was made with; another's is refused.
+**The cursor.** Opaque, for the run, or every run here and its `--workflow`, it was made with; another's is refused.
 Without `--after`, everything is read, so a first call misses nothing. From a saved cursor, a holder
 sees every item after it in every run here: a new run, one that connects late, and one continued
 with `awf run --continue` included. Save the cursor after handling a batch: after a crash, or

@@ -46,8 +46,8 @@ workflow.allowance(harness)                                   // → what is lef
 
 // In a test, from "agentswf/testing"; `awf test` runs it:
 testWorkflow(workflow, args, { agents?, messages?, participants?, compactions?, awaitReply?, decisions?, allowance?, runtimes?,
-                              caller?, timeoutMs?, stallMs?, cwd?, recorded?, fromStage?, values? })  // → run
-testWorkflow(eventWorkflow, { id, event?, files?, events?: [{ during: "agent#1", name, data, from? }], maxTurns?, … })  // → run, .emits, .parked
+                              caller?, timeoutMs?, stallMs?, cwd? | files?, recorded?, fromStage?, values? })  // → run
+testWorkflow(eventWorkflow, { id, event?, events?: [{ during: "agent#1", name, data, from? }], maxTurns?, … })  // → run, .emits, .parked
 answer(SCHEMA, value | (turn) => value)   answer("text")   reply.waiting(reason, timeoutMs?) | silent() | blocked() | failed() | needsLogin(provider?) | timedOut() | hang() | interrupted()
 ```
 
@@ -920,8 +920,9 @@ run.mailbox;                                  // its mailbox as it left it
   `TurnRecord.n`, counting the turns the workflow started: a nudge or a wake for a message keeps
   the turn's number, so with one, `#2` is not `turnsOf(agent)[1]`. One whose turn never runs
   fails the test.
-- **`files`** are laid out under the run's directory, which the test removes; a path outside it is
-  refused, so a workflow under test finds its files from `workflow.cwd`.
+- **`files`**, which any workflow's test takes, are laid out under the run's directory, which the
+  test removes; a path outside it is refused, so a workflow under test finds its files from
+  `workflow.cwd`, and `files` with a `cwd` of the test's own is refused.
 - **`maxTurns`**, 20 by default, counts the turns the workflow started, not nudges or wakes for
   messages: a run that starts more fails the test, so a loop that never parks doesn't hang it.
 - **`mailbox`** lays out what an earlier attempt left, and the test is its continue.

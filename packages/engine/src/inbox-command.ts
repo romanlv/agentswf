@@ -35,13 +35,13 @@ import {
 } from "./runs";
 
 export const inboxUsage = [
-  "usage: awf inbox <workflow>/<id> [--open] [--as <key>] [--after <cursor>] [--wait <seconds>]",
-  "       awf inbox --all [--open] [--workflow <name>] [--as <key>] [--after <cursor>] [--wait <seconds>]",
+  "usage: awf inbox [<run>] [--open] [--workflow <name>] [--as <key>] [--after <cursor>] [--wait <seconds>]",
   "                 [--cwd <directory>] [--run-root <directory>] [--json]",
   "",
   "What agents said to a participant outside the run, and what it said back: routes, messages,",
-  "answers, questions that closed unanswered, and each attempt's end, oldest first. --all reads",
-  "every run here that connected one. --after reads on from a cursor the last answer gave; --wait",
+  "answers, questions that closed unanswered, and each attempt's end, oldest first. Without a run,",
+  "every run here that connected one; --workflow narrows that. A run is <workflow>/<id>, or an <id>",
+  "only one workflow has. --after reads on from a cursor the last answer gave; --wait",
   "waits up to that many seconds, at most 300, when nothing is new. --open lists the questions",
   "still waiting for an answer, a snapshot. --json prints one item per line.",
   "",
@@ -188,12 +188,7 @@ export async function inboxCommand(
           for (const line of lines) out.stdout(line);
         } else {
           const words = options.all
-            ? [
-                "awf",
-                "inbox",
-                "--all",
-                ...(options.workflow ? ["--workflow", options.workflow] : []),
-              ]
+            ? ["awf", "inbox", ...(options.workflow ? ["--workflow", options.workflow] : [])]
             : ["awf", "inbox", options.ref!];
           const again = command(
             place,
@@ -225,8 +220,7 @@ function parseInbox(rest: readonly string[]): Options {
       index += 1;
       return given;
     };
-    if (arg === "--all") options.all = true;
-    else if (arg === "--open") options.open = true;
+    if (arg === "--open") options.open = true;
     else if (arg === "--workflow") options.workflow = value();
     else if (arg === "--as") options.as = value();
     else if (arg === "--after") options.after = value();
@@ -239,10 +233,9 @@ function parseInbox(rest: readonly string[]): Options {
     else if (options.ref === undefined) options.ref = arg;
     else throw new Error(`one run at a time: ${options.ref} and ${arg}`);
   }
-  if (options.all === (options.ref !== undefined))
-    throw new Error("name a run, <workflow>/<id> or <id>, or read them all with --all");
+  options.all = options.ref === undefined;
   if (options.workflow !== undefined && !options.all)
-    throw new Error("--workflow narrows --all; a run names its workflow already");
+    throw new Error("--workflow narrows every run here; a run names its workflow already");
   if (options.open && (options.after !== undefined || options.waitSeconds > 0))
     throw new Error("--open is a snapshot: it takes no --after or --wait");
   return options;

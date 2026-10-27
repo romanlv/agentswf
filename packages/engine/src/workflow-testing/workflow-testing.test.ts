@@ -1607,3 +1607,14 @@ describe("testWorkflow layouts", () => {
     expect(run.agentOf("left").keptPane).toBe(true);
   });
 });
+
+test("files are laid out for any workflow's test, in its own directory, and never into a given cwd", async () => {
+  const reads = workflowOf<null, string>(async (workflow) =>
+    readFileSync(join(workflow.cwd, "notes", "todo.md"), "utf8"),
+  );
+  const run = await testWorkflow(reads, null, { files: { notes: { "todo.md": "ship it\n" } } });
+  expect(run.value).toBe("ship it\n");
+  await expect(
+    testWorkflow(reads, null, { files: { "a.md": "x" }, cwd: tmpdir() }),
+  ).rejects.toThrow("give files or cwd, not both");
+});

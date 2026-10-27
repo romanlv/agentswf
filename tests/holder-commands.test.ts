@@ -84,7 +84,7 @@ function project(keys = ["coordinator"]) {
 
 async function openQuestion(awf: ReturnType<typeof project>["awf"]) {
   for (let tries = 0; tries < 200; tries += 1) {
-    const read = await awf(["inbox", "--all", "--open", "--json"]);
+    const read = await awf(["inbox", "--open", "--json"]);
     const [item] = read.stdout.split("\n").filter(Boolean);
     if (item) return JSON.parse(item) as InboxItemJson & { kind: "message" };
     await Bun.sleep(20);

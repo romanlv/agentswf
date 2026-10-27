@@ -14,11 +14,12 @@ import { readAttempts, readEvents, readNumberedEvents } from "./runs";
 import { exchange } from "./socket-exchange";
 
 export const replyUsage = [
-  "usage: awf reply <workflow>/<id> <agent> [--to <id>] [--as <key>] [<text>] [--json]",
-  "       awf send <workflow>/<id> <agent> [--as <key>] [<text>] [--json]",
-  "       awf send <workflow>/<id> --as <participant> --event-id <id> [--author <name>] [<text>]",
-  "                [--cwd <directory>] [--run-root <directory>]",
+  "usage: awf reply <run> <agent> [--to <id>] [--as <key>] [<text>]",
+  "       awf send <run> <agent> [--as <key>] [<text>]",
+  "       awf send <run> --as <participant> --event-id <id> [--author <name>] [<text>]",
+  "each takes [--cwd <directory>] [--run-root <directory>] [--json]",
   "",
+  "A run is <workflow>/<id>, or an <id> only one workflow has, here or in a project awf knows.",
   "Answers a question an agent asked a participant outside the run, or messages an agent first,",
   "over a route the workflow allowed. The text is the argument, or stdin without one. --to names",
   "the question, as awf inbox prints it; it may be left out when the agent has one open. --as",

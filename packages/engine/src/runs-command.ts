@@ -24,11 +24,12 @@ import { findRunByRef, listRuns, type RunStatus, runStatus } from "./run-state";
 import { type AgentView, describeActivity, type RunView, viewRun } from "./run-view";
 
 export const runsUsage = [
-  "usage: awf runs [--all] [--cwd <directory>] [--run-root <directory>] [--json]",
+  "usage: awf runs [--limit <n>] [--cwd <directory>] [--run-root <directory>] [--json]",
   "       awf runs <run> [--cwd <directory>] [--run-root <directory>] [--json]",
   "",
   "The runs here, newest first, or one run in depth: its attempts, the stages of the last, what",
-  "each agent is doing, and what to run next. A run is <workflow>/<id>, or an <id> only one",
+  "each agent is doing, and what to run next. The list shows 20 unless --limit says another",
+  "number. A run is <workflow>/<id>, or an <id> only one",
   "workflow has. Runs are listed under --cwd's .awf/runs, or --run-root, as awf run keeps them; a",
   "run named is found there first, then in each project awf has started a run with events in.",
   "",
@@ -50,24 +51,29 @@ export async function runsCommand(
     return 0;
   }
   let parsed: ReturnType<typeof parsePlace>;
-  let all = false;
+  let limit = LISTED;
   let ref: string | undefined;
   try {
     parsed = parsePlace(argv, shellCwd);
-    for (const arg of parsed.rest) {
-      if (arg === "--all") all = true;
-      else if (arg.startsWith("-")) throw new Error(`unknown option: ${arg}`);
+    for (let index = 0; index < parsed.rest.length; index++) {
+      const arg = parsed.rest[index]!;
+      if (arg === "--limit") {
+        limit = Number(parsed.rest[++index]);
+        if (!Number.isSafeInteger(limit) || limit < 1)
+          throw new Error("--limit needs a whole number");
+      } else if (arg.startsWith("-")) throw new Error(`unknown option: ${arg}`);
       else if (ref === undefined) ref = arg;
       else throw new Error(`one run at a time: ${ref} and ${arg}`);
     }
-    if (ref !== undefined && all) throw new Error("--all lists runs; it takes no run");
+    if (ref !== undefined && limit !== LISTED)
+      throw new Error("--limit lists runs; it takes no run");
   } catch (error) {
     out.stderr(`awf: ${messageOf(error)}\n\n${runsUsage}`);
     return 2;
   }
   const { place, json } = parsed;
   try {
-    if (ref === undefined) return await list(place, all, json, out, now);
+    if (ref === undefined) return await list(place, limit, json, out, now);
     const view = await viewRun(await findRunByRef(ref, place, home));
     out.stdout(
       json ? JSON.stringify(runJson(view, place, now), null, 2) : describe(view, place, now),
@@ -81,9 +87,9 @@ export async function runsCommand(
 /** A run listed, or why it could not be read: one bad run does not hide the others. */
 type Listed = { status: RunStatus } | { ref: string; unreadable: string };
 
-async function list(place: ReadPlace, all: boolean, json: boolean, out: Out, now: number) {
+async function list(place: ReadPlace, limit: number, json: boolean, out: Out, now: number) {
   const runs = await listRuns(place.runRoot);
-  const shown = all ? runs : runs.slice(0, LISTED);
+  const shown = runs.slice(0, limit);
   const listed: Listed[] = await Promise.all(
     shown.map((run) =>
       runStatus(run, undefined, now).then(
@@ -143,7 +149,7 @@ async function list(place: ReadPlace, all: boolean, json: boolean, out: Out, now
       .join("")
       .trimEnd();
   });
-  if (older > 0) lines.push(`… ${older} older (--all)`);
+  if (older > 0) lines.push(`… ${older} older (--limit ${runs.length})`);
   out.stdout(lines.join("\n"));
   return 0;
 }

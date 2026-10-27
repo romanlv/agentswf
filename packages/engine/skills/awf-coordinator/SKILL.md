@@ -15,12 +15,12 @@ can from the purpose and what the agents say; ask the user when a question needs
 Read everything first, then from where you left off:
 
 ```sh
-awf inbox --all --json --wait 100
-awf inbox --all --json --wait 100 --after {cursor}
+awf inbox --json --wait 100
+awf inbox --json --wait 100 --after {cursor}
 ```
 
 `--wait 100` keeps under the shell tool's 120 s limit. Each line is one JSON item; keep the last
-one's `cursor` and pass it next time. Without `--all`, `awf inbox {workflow}/{id}` reads one run.
+one's `cursor` and pass it next time. `awf inbox {workflow}/{id}` reads one run instead of all.
 Nothing new after the wait prints nothing: run it again.
 
 What to do with each item, by `kind`:
@@ -35,7 +35,7 @@ What to do with each item, by `kind`:
 - `ended`: that run's attempt ended. Stop watching the run once its last attempt has ended and
   none of its questions are open.
 
-To see only what still waits: `awf inbox --all --open --json`.
+To see only what still waits: `awf inbox --open --json`.
 
 ## Answering
 
