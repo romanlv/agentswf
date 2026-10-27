@@ -24,7 +24,6 @@ export default defineEventWorkflow({
     meta: { name: "e2e-case", description: "Takes two events." },
     file: import.meta.path,
     events: { "dd.changes": Changes },
-    id: (e) => e.data.case,
     starts: ["dd.changes"],
     async run(workflow) {
       for (;;) {
@@ -43,7 +42,16 @@ function setup() {
   const io = { stdout: (t: string) => out.push(t), stderr: (t: string) => out.push(`! ${t}`) };
   const send = (n: number) =>
     emitCommand(
-      ["--target", file, "dd.changes", JSON.stringify({ case: "k", n }), "--id", `c${n}`],
+      [
+        "--target",
+        file,
+        "--run",
+        "k",
+        "dd.changes",
+        JSON.stringify({ case: "k", n }),
+        "--id",
+        `c${n}`,
+      ],
       dirs.tempRunDir(),
       io,
       { home, environment: { ...process.env, HOME: home } },
@@ -81,9 +89,9 @@ test("awf run starts a run of a workflow with events by its id, with no event, a
       stdout: (t) => out.push(t),
       stderr: (t) => out.push(`! ${t}`),
     });
-  // Its id comes from its events: without --id there is nothing to name the run by.
+  // Without --id there is nothing to name the run by.
   expect(await run()).toBe(2);
-  expect(out.pop()).toContain("names its runs from their events: awf run --id {id}");
+  expect(out.pop()).toContain("is named by its id: awf run --id {id}");
   expect(await run("--id", "k")).toBe(0);
   const opened = await openRun(join(root, ".awf", "runs"), "e2e-case", "k");
   await until(async () => (await readAttempts(opened)).at(-1)?.outcome === "parked");
@@ -95,28 +103,6 @@ test("awf run starts a run of a workflow with events by its id, with no event, a
   await until(async () => (await readAttempts(opened)).at(-1)?.outcome === "completed");
   expect(await run("--id", "k")).toBe(0);
   expect(out.at(-1)).toBe("e2e-case/k was there: returned");
-}, 60_000);
-
-test("a workflow whose id is a string has one run, which awf run starts without --id", async () => {
-  const { root, file, home } = keyedProject(
-    dirs,
-    "tick.ts",
-    WORKFLOW.replace("id: (e) => e.data.case,", 'id: "main",').replace(
-      'starts: ["dd.changes"],\n',
-      "",
-    ),
-  );
-  const out: string[] = [];
-  const code = await runOperatorCli(["run", file], {
-    home,
-    environment: { ...process.env, HOME: home },
-    stdout: (t) => out.push(t),
-    stderr: (t) => out.push(`! ${t}`),
-  });
-  expect(code).toBe(0);
-  expect(out).toEqual(["e2e-case/main: started"]);
-  const run = await openRun(join(root, ".awf", "runs"), "e2e-case", "main");
-  await until(async () => (await readAttempts(run)).at(-1)?.outcome === "parked");
 }, 60_000);
 
 test("awf run --continue of an event run takes no stage, values or arguments", async () => {
@@ -149,7 +135,6 @@ export default defineEventWorkflow({
     meta: { name: "e2e-env", description: "Records its token at each wake." },
     file: import.meta.path,
     events: { ping: Ping },
-    id: () => "one",
     starts: ["ping"],
     async run(workflow) {
       for (;;) {
@@ -166,7 +151,7 @@ export default defineEventWorkflow({
   const io = { stdout: () => undefined, stderr: () => undefined };
   const send = (n: number, environment: Record<string, string | undefined>) =>
     emitCommand(
-      ["--target", file, "ping", JSON.stringify({ n }), "--id", `p${n}`],
+      ["--target", file, "--run", "one", "ping", JSON.stringify({ n }), "--id", `p${n}`],
       dirs.tempRunDir(),
       io,
       {

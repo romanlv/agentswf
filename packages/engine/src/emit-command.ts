@@ -7,9 +7,9 @@ import type { Launch } from "./wake";
 import { loadWorkflowFile } from "./workflow-loader";
 
 export const emitUsage = [
-  "usage: awf emit --target <file> <event> [<json>] [--id <id>] [--json]",
+  "usage: awf emit --target <file> --run <id> <event> [<json>] [--id <id>] [--json]",
   "",
-  "Sends an event to a workflow with events, to the run its id names. That run starts if it has",
+  "Sends an event to the run of a workflow with events that --run names. That run starts if it has",
   "none and the event is one that starts one, and is woken if it has one: nudged while it runs, continued when it is",
   "parked or crashed. The run lives in the project of <file>, the nearest directory above it",
   "holding .awf/, whoever sends. --id names the occurrence: the same id again is a duplicate.",
@@ -34,7 +34,14 @@ export async function emitCommand(
     out.stdout(emitUsage);
     return 0;
   }
-  let parsed: { target: string; name: string; data: JsonValue; id?: string; json: boolean };
+  let parsed: {
+    target: string;
+    run: string;
+    name: string;
+    data: JsonValue;
+    id?: string;
+    json: boolean;
+  };
   try {
     parsed = parse(argv);
   } catch (error) {
@@ -51,6 +58,7 @@ export async function emitCommand(
     result = await emitEvent(
       { file: loaded.file, definition: loaded.keyed },
       {
+        run: parsed.run,
         name: parsed.name,
         data: parsed.data,
         ...(parsed.id === undefined ? {} : { id: parsed.id }),
@@ -80,12 +88,14 @@ function emitLine(result: EmitResultJson): string {
 
 function parse(argv: readonly string[]): {
   target: string;
+  run: string;
   name: string;
   data: JsonValue;
   id?: string;
   json: boolean;
 } {
   let target: string | undefined;
+  let run: string | undefined;
   let id: string | undefined;
   let json = false;
   const words: string[] = [];
@@ -97,12 +107,14 @@ function parse(argv: readonly string[]): {
       return next;
     };
     if (word === "--target") target = value();
+    else if (word === "--run") run = value();
     else if (word === "--id") id = value();
     else if (word === "--json") json = true;
     else if (word.startsWith("--")) throw new Error(`unknown option ${word}`);
     else words.push(word);
   }
   if (target === undefined) throw new Error("--target names the workflow file the event is for");
+  if (run === undefined) throw new Error("--run names the run the event is for, by its id");
   const [name, text, ...more] = words;
   if (name === undefined) throw new Error("the event's name is missing");
   if (more.length > 0) throw new Error(`one event at a time; also given: ${more.join(" ")}`);
@@ -114,5 +126,5 @@ function parse(argv: readonly string[]): {
       throw new Error(`the event's data is not JSON: ${messageOf(error)}`);
     }
   }
-  return { target, name, data, ...(id === undefined ? {} : { id }), json };
+  return { target, run, name, data, ...(id === undefined ? {} : { id }), json };
 }

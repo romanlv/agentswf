@@ -7,7 +7,6 @@ import type {
   EmitOutcome,
   EventSchemas,
   OutputOf,
-  OwnEvent,
   ReceivedEvent,
   ReceiveOptions,
 } from "./events";
@@ -115,12 +114,13 @@ export interface WorkflowContext {
   ): Promise<Result>;
 
   /**
-   * Sends an event to the workflow `target`, whose `id` names the run it is for: the run starts if
-   * it has none and the event is one that starts one, and is woken if it has one. A name `target`
+   * Sends an event to the run of the workflow `target` whose id is `run`: the run starts if it has
+   * none and the event is one that starts one, and is woken if it has one. A name `target`
    * doesn't declare, or data its schema refuses, throws; the run's state is the outcome.
    */
   emit<Events extends EventSchemas, Name extends keyof Events & string>(
     target: ExecutableEventWorkflow<Events, JsonValue>,
+    run: string,
     name: Name,
     data: OutputOf<Events[Name]>,
     options?: EmitOptions,
@@ -145,7 +145,8 @@ export interface WorkflowDefinition<Args extends JsonValue, Result extends JsonV
 }
 
 /**
- * A run of a workflow with `events`: named by its `id`, started by an event or `awf run --id`, and
+ * A run of a workflow with `events`: named by whoever starts it or sends to it, started by an event
+ * or `awf run --id`, and
  * waiting for the next at `receive`. Waiting with no turn running and nothing unacknowledged, it parks: its process
  * exits, and the next event continues it from the top. What must outlive that lives in files or a
  * stage.
@@ -192,12 +193,7 @@ export interface EventWorkflowDefinition<Events extends EventSchemas, Result ext
   readonly file: string;
   readonly events: Events;
   /**
-   * The id of the run an event belongs to, by the grammar of `nameProblem`; one that doesn't fit is
-   * refused. A string is the workflow's one run, which `awf run` starts without `--id`.
-   */
-  readonly id: string | ((event: OwnEvent<Events>) => string);
-  /**
-   * The events that start a run for an id with none; any other is refused then. Absent, any event
+   * The events that start a run with an id that has none; any other is refused then. Absent, any event
    * starts one.
    */
   readonly starts?: readonly (keyof Events & string)[];

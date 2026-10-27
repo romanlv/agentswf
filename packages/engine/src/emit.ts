@@ -9,7 +9,6 @@ import {
   eventWorkflowProblem,
   type JsonValue,
   nameProblem,
-  type OwnEvent,
 } from "@agentswf/contract/workflow";
 import { messageOf } from "./errors";
 import { exists } from "./files";
@@ -39,12 +38,12 @@ export type EmitContext = Omit<WakeContext, "file"> & {
 };
 
 /**
- * A sender's way in: checks the event against its target, names its run, and delivers it. A wrong name,
+ * A sender's way in: checks the event against its target and delivers it to the run it names. A wrong name,
  * shape or id throws an `EmitError`; the run's state is the outcome.
  */
 export async function emitEvent(
   target: EmitTarget,
-  event: { name: string; data: JsonValue; id?: string },
+  event: { run: string; name: string; data: JsonValue; id?: string },
   context: EmitContext,
 ): Promise<EmitResultJson> {
   const { definition } = target;
@@ -53,7 +52,9 @@ export async function emitEvent(
   checkEvent(target, event);
   const id = event.id ?? `${AWF_ID_PREFIX}${randomBytes(8).toString("hex")}`;
   const at = new Date(context.now?.() ?? Date.now()).toISOString();
-  const runId = runIdOf(definition, { id, name, data, from: context.from, at });
+  const runId = event.run;
+  const problem = idProblem(runId);
+  if (problem) throw new EmitError(`the run's id: ${problem}`);
   const project = await projectOf(target.file, context.home).catch((error: unknown) => {
     throw new EmitError(messageOf(error));
   });
@@ -220,24 +221,4 @@ export function eventIdProblem(id: string): string | undefined {
     nameProblem(id) ??
     (id.startsWith(AWF_ID_PREFIX) ? `ids starting ${AWF_ID_PREFIX} are awf's own` : undefined)
   );
-}
-
-/** The id of the run `event` is for, as the definition's `id` names it, checked. */
-export function runIdOf(
-  definition: EventWorkflowDefinition<EventSchemas, JsonValue>,
-  event: OwnEvent<EventSchemas>,
-): string {
-  const given = definition.id;
-  let id: unknown = given;
-  if (typeof given === "function") {
-    try {
-      id = given(event);
-    } catch (error) {
-      throw new EmitError(`${definition.meta.name}'s id(event) threw: ${String(error)}`);
-    }
-  }
-  if (typeof id !== "string") throw new EmitError(`id(event) gave a ${typeof id}, not a string`);
-  const problem = idProblem(id);
-  if (problem) throw new EmitError(`the run's id ${JSON.stringify(id)}: ${problem}`);
-  return id;
 }

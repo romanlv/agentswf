@@ -92,14 +92,13 @@ export const caseRun = (
       meta: { name: "dd-case", description: "A case." },
       file: import.meta.path,
       events: caseEvents,
-      id: (e) => e.data.case,
       starts: ["dd.changes"],
       run,
     },
   });
 
 /** The options that start a `caseRun` under the key `k`. */
-export const startCase = { event: { name: "dd.changes" as const, data: { case: "k" } } };
+export const startCase = { id: "k", event: { name: "dd.changes" as const, data: { case: "k" } } };
 
 export { COUNT_SCHEMA } from "@agentswf/contract/testing";
 

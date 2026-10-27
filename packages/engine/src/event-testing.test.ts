@@ -141,6 +141,7 @@ test("files outside the run's directory, and an id given twice, are refused", as
     testWorkflow(
       caseRun(async () => null),
       {
+        id: "k",
         event: { name: "dd.changes", data: { case: "k" }, id: "c1" },
         events: [{ during: "a#1", name: "dd.changes", data: { case: "k" }, id: "c1" }],
       },

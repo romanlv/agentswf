@@ -19,7 +19,6 @@ const caseRun = defineEventWorkflow({
     meta: { name: "dd-case", description: "One case." },
     file: import.meta.path,
     events: { "dd.changes": Changes, "dd.closed": Closed },
-    id: (e) => e.data.case,
     starts: ["dd.changes"],
     async run(workflow) {
       const thread = await workflow.participants.connect({ key: "thread", to: "code" });
@@ -70,17 +69,18 @@ const typed: ExecutableEventWorkflow<
 async function sender(): Promise<void> {
   const outcome: "accepted" | "duplicate" | "refused" = await context.emit(
     caseRun,
+    "kombo",
     "dd.changes",
     { case: "kombo", occurrences: 3 },
     { id: "83d34d7" },
   );
   void outcome;
   // @ts-expect-error A name the target doesn't declare.
-  await context.emit(caseRun, "dd.opened", { case: "kombo" });
+  await context.emit(caseRun, "kombo", "dd.opened", { case: "kombo" });
   // @ts-expect-error Data its schema refuses.
-  await context.emit(caseRun, "dd.closed", { case: "kombo", by: "someone" });
+  await context.emit(caseRun, "kombo", "dd.closed", { case: "kombo", by: "someone" });
   // @ts-expect-error awf's own events are not sent.
-  await context.emit(caseRun, "agent:ended", { case: "kombo" });
+  await context.emit(caseRun, "kombo", "agent:ended", { case: "kombo" });
 }
 
 defineEventWorkflow({
@@ -89,7 +89,6 @@ defineEventWorkflow({
     file: import.meta.path,
     // @ts-expect-error An event of the workflow's own has no colon in its name.
     events: { "dd:changes": Changes },
-    id: () => "k",
     starts: [],
     run: async () => null,
   },

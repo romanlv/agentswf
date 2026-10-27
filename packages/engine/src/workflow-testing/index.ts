@@ -28,7 +28,7 @@ import {
 } from "@agentswf/contract/workflow";
 import { type Harness, sandboxTokens } from "@agentswf/harness";
 import { createFakeSandboxProvider } from "@agentswf/sandbox/testing/fake";
-import { checkEvent, eventIdProblem, runIdOf } from "../emit";
+import { checkEvent, eventIdProblem } from "../emit";
 import { messageOf } from "../errors";
 import { appendMailbox, RunParked, readMailbox } from "../mailbox";
 import { OPERATOR_ALIASES } from "../operator-aliases";
@@ -154,15 +154,12 @@ export type EventTestOptions<Events extends EventSchemas> = Omit<
   TestOptions,
   "recorded" | "fromStage" | "values"
 > & {
-  /**
-   * The event that starts the run, as `awf emit` would; the definition's `id` names the run. Absent,
-   * the run starts as `awf run --id` starts it, with no event: `id`, or the definition's own.
-   */
+  /** The run's id, as `awf run --id` or a sender names it. */
+  id: string;
+  /** The event the run starts with, as `awf emit` would send it; absent, it starts with none. */
   event?: {
     [Name in keyof Events & string]: { name: Name; data: OutputOf<Events[Name]>; id?: string };
   }[keyof Events & string];
-  /** The run's id when it starts with no `event`; a definition whose `id` is a string needs none. */
-  id?: string;
   /** Laid out before the run, by path under `cwd`. */
   files?: Readonly<Record<string, FileTree>>;
   /** Sent at points in the run, each once its point is reached. */
@@ -252,7 +249,7 @@ export async function testWorkflow<Args extends JsonValue, Result extends JsonVa
   const eventOptions = keyed ? (args as unknown as EventTestOptions<EventSchemas>) : undefined;
   if (eventOptions) {
     if (typeof eventOptions !== "object" || eventOptions === null)
-      throw new Error("a workflow with events is tested from { event } or { id }");
+      throw new Error("a workflow with events is tested from { id, event? }");
     options = eventOptions;
     args = null as NoInfer<Args>;
   }
@@ -713,21 +710,14 @@ function startOf(
   definition: EventWorkflowDefinition<EventSchemas, JsonValue>,
   options: EventTestOptions<EventSchemas>,
 ): { id: string; record?: MailboxRecord } {
-  const { event } = options;
-  if (event === undefined) {
-    const id = options.id ?? (typeof definition.id === "string" ? definition.id : undefined);
-    if (id === undefined)
-      throw new Error(
-        `${definition.meta.name} names its runs from their events: { event } starts one, or { id }`,
-      );
-    const problem = idProblem(id);
-    if (problem) throw new Error(problem);
-    return { id };
-  }
-  if (options.id !== undefined)
+  const { event, id } = options;
+  if (typeof id !== "string")
     throw new Error(
-      "{ event } names the run by the definition's id; { id } is for a run with none",
+      `a run of ${definition.meta.name} is named by its id: { id }, and an event if it starts with one`,
     );
+  const problem = idProblem(id);
+  if (problem) throw new Error(problem);
+  if (event === undefined) return { id };
   checkEvent({ file: definition.file, definition }, { name: event.name, data: event.data });
   const { starts } = definition;
   if (starts && !starts.includes(event.name))
@@ -743,7 +733,7 @@ function startOf(
     data: event.data,
     from: "operator",
   };
-  return { id: runIdOf(definition, record), record };
+  return { id, record };
 }
 
 function isExecutable<Args extends JsonValue, Result extends JsonValue>(

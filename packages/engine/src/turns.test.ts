@@ -263,7 +263,7 @@ const crashed: MailboxRecord[] = [
     execution: { harness: "claude", model: "m" },
   },
 ];
-const woken = { event: { name: "dd.changes" as const, data: { case: "k" }, id: "c1" } };
+const woken = { id: "k", event: { name: "dd.changes" as const, data: { case: "k" }, id: "c1" } };
 
 test("after a crash, the code's first wait takes the turn's failed end, with its meta", async () => {
   const run = await testWorkflow(

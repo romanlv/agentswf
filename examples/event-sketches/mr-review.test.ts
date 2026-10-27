@@ -15,6 +15,7 @@ declare const REVIEWS: string;
 
 test.todo("a push during a review is reviewed next, and nothing is posted at the old head", async () => {
   const run = await testWorkflow(mrReview, {
+    id: "2084",
     event: { name: "mr.changes", data: changes({ iid: 2084, head: "aaa", authorized: true }) },
     agents: { reviewer: answer(Pass, pass({ findings: [found({ verdict: "open" })] })) },
     events: [
@@ -33,6 +34,7 @@ test.todo("a push during a review is reviewed next, and nothing is posted at the
 async function refused(): Promise<void> {
   // @ts-expect-error An iid is a number.
   await testWorkflow(mrReview, {
+    id: "2084",
     event: { name: "mr.closed", data: { iid: "2084", merged: true } },
   });
 }

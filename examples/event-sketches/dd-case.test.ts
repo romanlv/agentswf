@@ -32,6 +32,7 @@ test.todo("a closed case is written up once, then answers replies and ignores oc
 
 test.todo("a reply during a turn gets the next turn", async () => {
   const run = await testWorkflow(caseRun, {
+    id: "kombo-unique",
     event: { name: "dd.changes", data: { case: "kombo-unique" } },
     files: { [DD_CASES]: fixture("open-case") },
     agents: { investigator: answer("case.md updated") },
@@ -50,21 +51,24 @@ test.todo("a reply during a turn gets the next turn", async () => {
 // What tsc refuses: an event the case run doesn't declare, and data its schema doesn't take.
 async function refused(): Promise<void> {
   // @ts-expect-error The case run declares no dd.opened.
-  await testWorkflow(caseRun, { event: { name: "dd.opened", data: { case: "x" } } });
+  await testWorkflow(caseRun, { id: "x", event: { name: "dd.opened", data: { case: "x" } } });
   // @ts-expect-error A close needs its status, why and by.
-  await testWorkflow(caseRun, { event: { name: "dd.closed", data: { case: "x" } } });
+  await testWorkflow(caseRun, { id: "x", event: { name: "dd.closed", data: { case: "x" } } });
   // @ts-expect-error A reply comes from a participant: `from` is required.
   await testWorkflow(caseRun, {
+    id: "x",
     event: { name: "dd.changes", data: { case: "x" } },
     events: [{ during: "investigator#1", name: "participant:reply", data: { text: "hi" } }],
   });
   // @ts-expect-error awf writes agent:ended; a test doesn't script one.
   await testWorkflow(caseRun, {
+    id: "x",
     event: { name: "dd.changes", data: { case: "x" } },
     events: [{ during: "investigator#1", name: "agent:ended", from: "investigator", data: {} }],
   });
   // @ts-expect-error A reply's data is its text.
   await testWorkflow(caseRun, {
+    id: "x",
     event: { name: "dd.changes", data: { case: "x" } },
     events: [{ during: "investigator#1", name: "participant:reply", from: "thread", data: {} }],
   });

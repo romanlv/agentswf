@@ -91,7 +91,6 @@ const mrReview = defineEventWorkflow({
     meta: { name: "mr-review", description: "Review one MR and keep its GitLab threads current." },
     file: import.meta.path,
     events: { "mr.changes": Changes, "mr.closed": Closed, "mr.rereview": Rereview },
-    id: (e) => String(e.data.iid),
     starts: ["mr.changes"],
     async run(workflow) {
       const iid = Number(workflow.runId);

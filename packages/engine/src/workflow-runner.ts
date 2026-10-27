@@ -245,7 +245,7 @@ export type RunWorkflowOptions = {
 /** Sends an event from a run to its target. */
 export type Emitter = (
   target: EmitTarget,
-  event: { name: string; data: JsonValue; id?: string },
+  event: { run: string; name: string; data: JsonValue; id?: string },
   from: string,
 ) => Promise<EmitOutcome>;
 
@@ -1036,7 +1036,7 @@ class WorkflowOwner {
         run: () => unavailable("steps.run"),
         sleep: () => unavailable("steps.sleep"),
       },
-      emit: async (target, name, data, emitOptions) => {
+      emit: async (target, run, name, data, emitOptions) => {
         if (this.#closed || this.#cleanupFailures.length)
           throw new Error("workflow context is closed");
         scopes.getStore()?.assertAccepting();
@@ -1049,6 +1049,7 @@ class WorkflowOwner {
               definition: target.definition as unknown as EmitTarget["definition"],
             },
             {
+              run,
               name,
               data: data as JsonValue,
               ...(emitOptions?.id === undefined ? {} : { id: emitOptions.id }),

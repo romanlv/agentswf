@@ -22,7 +22,6 @@ export default defineEventWorkflow({
     meta: { name: "e2e-thread", description: "Answers its thread." },
     file: import.meta.path,
     events: { "dd.changes": Changes },
-    id: (e) => e.data.case,
     starts: ["dd.changes"],
     async run(workflow) {
       const thread = await workflow.participants.connect({ key: "thread", to: "code", labels: { title: "kombo" } });
@@ -45,10 +44,15 @@ test("a reply on a participant routed to the code reaches the run, live or parke
   const err: string[] = [];
   const io = { stdout: (t: string) => out.push(t), stderr: (t: string) => err.push(t) };
   expect(
-    await emitCommand(["--target", file, "dd.changes", '{"case":"k"}'], dirs.tempRunDir(), io, {
-      home,
-      environment,
-    }),
+    await emitCommand(
+      ["--target", file, "--run", "k", "dd.changes", '{"case":"k"}'],
+      dirs.tempRunDir(),
+      io,
+      {
+        home,
+        environment,
+      },
+    ),
   ).toBe(0);
   const run = await openRun(join(root, ".awf", "runs"), "e2e-thread", "k");
   const send = (id: string, text: string, ...extra: string[]) =>

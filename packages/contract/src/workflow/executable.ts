@@ -88,7 +88,7 @@ export interface ExecutableWorkflow<Args extends JsonValue, Result extends JsonV
   report?(value: Result | undefined, ending: Ending<Result>): string | undefined;
 }
 
-/** A workflow with events, with no input to prepare: its definition's `id` names its runs. */
+/** A workflow with events, with no input to prepare: its sender, or `awf run --id`, names each run. */
 export interface ExecutableEventWorkflow<Events extends EventSchemas, Result extends JsonValue> {
   readonly kind: typeof EVENT_WORKFLOW_KIND;
   readonly definition: EventWorkflowDefinition<Events, Result>;
@@ -142,8 +142,6 @@ export function eventWorkflowProblem(definition: unknown): string | undefined {
     return "a workflow with events declares them in definition.events";
   const colon = Object.keys(events).find((each) => each.includes(":"));
   if (colon) return `events: ${colon} has a colon, which only awf's own names do`;
-  if (typeof given.id !== "function" && typeof given.id !== "string")
-    return "a workflow with events has id(event), or a string for its one run";
   const starts = given.starts;
   if (
     starts !== undefined &&

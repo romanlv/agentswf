@@ -1,12 +1,7 @@
 import { statSync } from "node:fs";
 import { homedir } from "node:os";
 import { type AttemptRecord, RUN_EVENT_VERSIONS } from "@agentswf/contract/records";
-import type {
-  EventSchemas,
-  EventWorkflowDefinition,
-  ExecutableWorkflow,
-  JsonValue,
-} from "@agentswf/contract/workflow";
+import type { ExecutableWorkflow, JsonValue } from "@agentswf/contract/workflow";
 import { refusalMessage } from "./attempt-view";
 import { messageOf } from "./errors";
 import { projectOf, projectRunRoot } from "./projects";
@@ -59,12 +54,9 @@ export async function loadAndPrepare(
   }
   let command = given;
   if (loaded.keyed) {
-    const refused = keyedRefusal(command, loaded.file, loaded.keyed.id);
+    const refused = keyedRefusal(command, loaded.file);
     if (refused) return { refused };
-    if (command.continueId === undefined) {
-      const { id } = loaded.keyed;
-      return { opens: { loaded, id: command.id ?? (id as string) } };
-    }
+    if (command.id !== undefined) return { opens: { loaded, id: command.id } };
     // An event run lives in its file's project, whoever continues it (Q15).
     if (!command.runRootGiven) {
       try {
@@ -138,22 +130,16 @@ async function prepareRun(
 }
 
 /**
- * Why `awf run` doesn't take a workflow with `events` as asked: a new run needs its id, from
- * `--id` or a definition whose `id` is a string, and `--continue` goes on with one from wherever its
- * attempt stopped.
+ * Why `awf run` doesn't take a workflow with `events` as asked: a new run needs `--id`, and
+ * `--continue` goes on with one from wherever its attempt stopped.
  */
-function keyedRefusal(
-  command: RunCommand,
-  file: string,
-  id: EventWorkflowDefinition<EventSchemas, JsonValue>["id"],
-): string | undefined {
+function keyedRefusal(command: RunCommand, file: string): string | undefined {
   if (command.continueId !== undefined && command.id !== undefined)
     return "--id names a new run; --continue names the run it goes on with";
   if (command.workflowArgs.length > 0) return "a workflow with events takes no arguments";
   if (command.continueId === undefined) {
-    const named = command.id !== undefined || typeof id === "string";
-    if (!named)
-      return `${file} names its runs from their events: awf run --id {id} starts one with no event, awf emit --target ${file} {event} {json} with one`;
+    if (command.id === undefined)
+      return `a run of ${file} is named by its id: awf run --id {id} starts one with no event, awf emit --target ${file} --run {id} {event} {json} with one`;
     if (command.fromStage !== undefined || command.values !== undefined)
       return "a run of a workflow with events takes no --from-stage or --values";
     return undefined;

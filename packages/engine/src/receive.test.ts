@@ -11,7 +11,7 @@ test("the first wait takes the event that started the run, under the id it made"
       const [first] = await workflow.receive({ label: "first" });
       return { run: workflow.runId, id: first?.id ?? null, data: first?.data ?? null };
     }),
-    { event: { name: "dd.changes", data: { case: "kombo" }, id: "83d34d7" } },
+    { id: "kombo", event: { name: "dd.changes", data: { case: "kombo" }, id: "83d34d7" } },
   );
   expect(run.value).toEqual({ run: "kombo", id: "83d34d7", data: { case: "kombo" } });
 });
@@ -30,9 +30,9 @@ test("a run started by its id, with no event, parks at its first wait", async ()
   await expect(
     testWorkflow(
       caseRun(async () => null),
-      {},
+      {} as { id: string },
     ),
-  ).rejects.toThrow("names its runs from their events: { event } starts one, or { id }");
+  ).rejects.toThrow("a run of dd-case is named by its id: { id }");
 });
 
 test("a stage entered twice in a run with events runs once", async () => {
@@ -45,7 +45,7 @@ test("a stage entered twice in a run with events runs once", async () => {
         });
       return ran;
     }),
-    { event: { name: "dd.changes", data: { case: "k" } } },
+    { id: "k", event: { name: "dd.changes", data: { case: "k" } } },
   );
   expect(run.value).toBe(1);
   expect(run.stages.map((s) => s.stage)).toEqual(["close-e1"]);
@@ -57,7 +57,7 @@ test("a stage around a wait returns its batch, and one returning other events fa
       const batch = await workflow.stage("approval-1", () => workflow.receive());
       return batch.map((e) => e.id);
     }),
-    { event: { name: "dd.changes", data: { case: "k" }, id: "e1" } },
+    { id: "k", event: { name: "dd.changes", data: { case: "k" }, id: "e1" } },
   );
   expect(kept.value).toEqual(["e1"]);
 
@@ -66,7 +66,7 @@ test("a stage around a wait returns its batch, and one returning other events fa
     caseRun(async (workflow) => {
       for (;;) await workflow.stage("approval-1", () => workflow.receive());
     }),
-    { event: { name: "dd.changes", data: { case: "k" }, id: "e1" } },
+    { id: "k", event: { name: "dd.changes", data: { case: "k" }, id: "e1" } },
   );
   expect(() => again.value).toThrow("around a wait was entered again in this attempt");
 
@@ -77,7 +77,7 @@ test("a stage around a wait returns its batch, and one returning other events fa
       );
       return null;
     }),
-    { event: { name: "dd.changes", data: { case: "k" } } },
+    { id: "k", event: { name: "dd.changes", data: { case: "k" } } },
   );
   expect(() => filtered.value).toThrow("returned other events than its wait took");
 });
@@ -103,9 +103,9 @@ test("a run id outside the grammar is refused", async () => {
   await expect(
     testWorkflow(
       caseRun(async () => null),
-      { event: { name: "dd.changes", data: { case: "a/b" } } },
+      { id: "a/b", event: { name: "dd.changes", data: { case: "a/b" } } },
     ),
-  ).rejects.toThrow('the run\'s id "a/b": ');
+  ).rejects.toThrow('"a/b" is not a valid id');
 });
 
 test("a wait ends with its run: a deadline while waiting settles the run and the wait", async () => {
@@ -120,7 +120,7 @@ test("a wait ends with its run: a deadline while waiting settles the run and the
       });
       return null;
     }),
-    { event: { name: "dd.changes", data: { case: "k" } }, timeoutMs: 300 },
+    { id: "k", event: { name: "dd.changes", data: { case: "k" } }, timeoutMs: 300 },
   );
   expect(() => run.value).toThrow();
   expect(Date.now() - started).toBeLessThan(2_000);
@@ -142,7 +142,7 @@ test("one wait at a time", async () => {
       await waiting;
       return null;
     }),
-    { event: { name: "dd.changes", data: { case: "k" } } },
+    { id: "k", event: { name: "dd.changes", data: { case: "k" } } },
   );
   expect(second).toContain("one wait at a time");
   // The first, with nothing to take and no turn running, parked the run.
@@ -154,7 +154,7 @@ test("a starting event's data is checked against its schema", async () => {
     testWorkflow(
       caseRun(async () => null),
       // biome-ignore lint/suspicious/noExplicitAny: data a sender without tsc could send.
-      { event: { name: "dd.changes", data: { other: 1 } as any } },
+      { id: "k", event: { name: "dd.changes", data: { other: 1 } as any } },
     ),
   ).rejects.toThrow("dd.changes's data does not fit its schema");
 });
@@ -168,7 +168,7 @@ test("a stage holds one wait", async () => {
       });
       return null;
     }),
-    { event: { name: "dd.changes", data: { case: "k" } } },
+    { id: "k", event: { name: "dd.changes", data: { case: "k" } } },
   );
   expect(() => run.value).toThrow("a stage holds one wait");
 });
@@ -179,7 +179,8 @@ test("workflow.emit sends to its target by the target's file, and a test records
     defineExecutableWorkflow({
       definition: {
         meta: { name: "dd-tick", description: "A tick." },
-        run: async (workflow) => workflow.emit(target, "dd.changes", { case: "k" }, { id: "c1" }),
+        run: async (workflow) =>
+          workflow.emit(target, "k", "dd.changes", { case: "k" }, { id: "c1" }),
       },
       prepare: () => null,
     }),
@@ -199,7 +200,7 @@ test("a wait with nothing to take and no turn running parks the run, at its labe
       await workflow.receive({ label: "3 unseen", until });
       return null;
     }),
-    { event: { name: "dd.changes", data: { case: "k" } } },
+    { id: "k", event: { name: "dd.changes", data: { case: "k" } } },
   );
   expect(run.parked).toEqual({ label: "3 unseen", until: new Date(until).toISOString() });
   expect(() => run.value).toThrow("the run parked");
@@ -217,7 +218,7 @@ test("code that catches its park still parks, whatever it does after", async () 
       await new Promise((resolve) => setTimeout(resolve, 100));
       return "went on";
     }),
-    { event: { name: "dd.changes", data: { case: "k" } } },
+    { id: "k", event: { name: "dd.changes", data: { case: "k" } } },
   );
   expect(run.parked).toEqual({ label: "idle" });
   expect(() => run.value).toThrow("the run parked");
@@ -230,7 +231,7 @@ test("a wait in a stage that parks leaves the stage unrecorded, for the next att
       await workflow.stage("approval-1", () => workflow.receive({ label: "approval" }));
       return null;
     }),
-    { event: { name: "dd.changes", data: { case: "k" } } },
+    { id: "k", event: { name: "dd.changes", data: { case: "k" } } },
   );
   expect(run.parked).toEqual({ label: "approval" });
   expect(run.stages.map((s) => s.stage)).toEqual([]);
@@ -250,7 +251,7 @@ test("a wait beside an open stage doesn't park until the stage ends", async () =
       ]);
       return null;
     }),
-    { event: { name: "dd.changes", data: { case: "k" } } },
+    { id: "k", event: { name: "dd.changes", data: { case: "k" } } },
   );
   expect(run.parked).toEqual({ label: "idle" });
   expect(order).toEqual(["slow done"]);

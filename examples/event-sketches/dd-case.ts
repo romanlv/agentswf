@@ -75,7 +75,6 @@ const caseRun = defineEventWorkflow({
     },
     file: import.meta.path,
     events: { "dd.changes": Changes, "dd.closed": Closed },
-    id: (e) => e.data.case,
     starts: ["dd.changes"],
     async run(workflow) {
       const kase = openCase(DD_CASES, workflow.runId);

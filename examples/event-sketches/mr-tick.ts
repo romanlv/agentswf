@@ -30,14 +30,17 @@ export default singleton(
           const authorized = mr.labels.includes("ai-review");
           const state = { head: mr.head, authorized, threads };
           if (seen.changed(mr.iid, state)) {
-            await workflow.emit(mrRun, "mr.changes", { iid: mr.iid, ...state });
+            await workflow.emit(mrRun, String(mr.iid), "mr.changes", { iid: mr.iid, ...state });
             seen.record(mr.iid, state);
           }
         }
         const gone = ledgers.tracked().filter((iid) => !mrs.some((mr) => mr.iid === iid));
         for (const mr of await gitlab.settled(gone)) {
           if (seen.changed(mr.iid, { closed: true })) {
-            await workflow.emit(mrRun, "mr.closed", { iid: mr.iid, merged: mr.merged });
+            await workflow.emit(mrRun, String(mr.iid), "mr.closed", {
+              iid: mr.iid,
+              merged: mr.merged,
+            });
             seen.record(mr.iid, { closed: true });
           }
         }

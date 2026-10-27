@@ -40,7 +40,6 @@ function project() {
       meta: { name: "dd-case", description: "A case." },
       file,
       events: { "dd.changes": Changes, "dd.closed": Closed },
-      id: (e) => (e.data as { case: string }).case,
       starts: ["dd.changes"],
       run: async () => null,
     },
@@ -72,9 +71,16 @@ function emit(
   extra: { id?: string; launch?: Launch; nudge?: (run: Run) => Promise<boolean> } = {},
 ) {
   const { launch, nudge, id } = extra;
+  // The sender names the run; these tests name it as the case's own field says.
+  const run = (data as { case?: unknown } | null)?.case;
   return emitEvent(
     p.target,
-    { name, data: data as never, ...(id === undefined ? {} : { id }) },
+    {
+      run: typeof run === "string" ? run : "k",
+      name,
+      data: data as never,
+      ...(id === undefined ? {} : { id }),
+    },
     {
       from: "operator",
       home: p.home,
@@ -90,21 +96,17 @@ const eventsOf = async (run: Run) =>
   [...foldMailbox(await readMailbox(run.dir)).events.values()].map((e) => e.id);
 
 describe("outcomes", () => {
-  test("without starts, any event starts its run; an id that is a string is the one run", async () => {
+  test("without starts, any event starts its run", async () => {
     const p = project();
     const { starts: _, ...rest } = p.target.definition;
-    p.target = { ...p.target, definition: { ...rest, id: "main" } };
+    p.target = { ...p.target, definition: rest };
     const launch = fakeLaunch();
     expect(await emit(p, "dd.closed", { case: "a" }, { id: "c1", launch })).toMatchObject({
       outcome: "accepted",
-      run: "dd-case/main",
+      run: "dd-case/a",
       did: "started",
     });
-    expect(await emit(p, "dd.changes", { case: "b" }, { id: "c2", launch })).toMatchObject({
-      outcome: "accepted",
-      run: "dd-case/main",
-    });
-    expect(await eventsOf(await runOf(p, "main"))).toEqual(["c1", "c2"]);
+    expect(await eventsOf(await runOf(p, "a"))).toEqual(["c1"]);
   });
 
   test("a starting event with no run starts one in the file's project, recorded once", async () => {
@@ -181,7 +183,7 @@ describe("outcomes", () => {
     ["data its schema refuses", "dd.changes", { other: 1 }, {}, "does not fit its schema"],
     ["an id outside the grammar", "dd.changes", { case: "k" }, { id: "Abc" }, "the id"],
     ["an id of awf's", "dd.changes", { case: "k" }, { id: "awf.x" }, "are awf's own"],
-    ["a run id outside the grammar", "dd.changes", { case: "a/b" }, {}, 'the run\'s id "a/b"'],
+    ["a run id outside the grammar", "dd.changes", { case: "a/b" }, {}, '"a/b" is not a valid id'],
   ])("%s is an error, not an outcome", async (_what, name, data, extra, message) => {
     const p = project();
     const error = await emit(p, name, data, extra).catch((caught: unknown) => caught);
@@ -194,7 +196,7 @@ describe("outcomes", () => {
     const { file: _file, ...definition } = p.target.definition;
     const error = await emitEvent(
       { file: p.file, definition: definition as EmitTarget["definition"] },
-      { name: "dd.changes", data: { case: "k" } },
+      { run: "k", name: "dd.changes", data: { case: "k" } },
       { from: "operator", home: p.home, environment: {} },
     ).catch((caught: unknown) => caught);
     expect(String(error)).toContain("gives file: import.meta.path");
@@ -394,7 +396,7 @@ describe("awf emit", () => {
     const context = { home: p.home, environment: { PATH: "/bin" }, launch: fakeLaunch() };
     expect(
       await emitCommand(
-        ["--target", p.file, "dd.changes", '{"case":"k"}', "--id", "c1"],
+        ["--target", p.file, "--run", "k", "dd.changes", '{"case":"k"}', "--id", "c1"],
         p.root,
         io,
         context,
@@ -402,7 +404,7 @@ describe("awf emit", () => {
     ).toBe(0);
     expect(
       await emitCommand(
-        ["--target", p.file, "dd.changes", '{"case":"k"}', "--id", "c1"],
+        ["--target", p.file, "--run", "k", "dd.changes", '{"case":"k"}', "--id", "c1"],
         p.root,
         io,
         context,
@@ -410,13 +412,18 @@ describe("awf emit", () => {
     ).toBe(0);
     expect(out).toEqual(["accepted dd-case/k: started", "duplicate dd-case/k"]);
     expect(
-      await emitCommand(["--target", p.file, "dd.changes", '{"case":1}'], p.root, io, context),
+      await emitCommand(
+        ["--target", p.file, "--run", "k", "dd.changes", '{"case":1}'],
+        p.root,
+        io,
+        context,
+      ),
     ).toBe(2);
     expect(err.at(-1)).toContain("does not fit its schema");
     out.length = 0;
     expect(
       await emitCommand(
-        ["--target", p.file, "dd.changes", '{"case":"j"}', "--json"],
+        ["--target", p.file, "--run", "j", "dd.changes", '{"case":"j"}', "--json"],
         p.root,
         io,
         context,
@@ -486,14 +493,13 @@ describe("refusals before a run", () => {
     return p;
   };
   const base = (over: string) =>
-    `{ meta: { name: "dd-case", description: "A case." }, file: import.meta.path, events: { "dd.changes": { type: "object", properties: {} } }, id: (e) => "k", starts: ["dd.changes"], run: async () => null, ${over} }`;
+    `{ meta: { name: "dd-case", description: "A case." }, file: import.meta.path, events: { "dd.changes": { type: "object", properties: {} } }, starts: ["dd.changes"], run: async () => null, ${over} }`;
 
   test.each([
     [
       'events: { "dd:changes": { type: "object", properties: {} } }, starts: ["dd:changes"]',
       "has a colon",
     ],
-    ["id: 3", "has id(event)"],
     ["starts: []", "starts lists the events"],
     ['starts: ["dd.opened"]', "starts lists the events"],
     ['file: "/elsewhere/case.ts"', "gives file: import.meta.path"],
@@ -501,11 +507,16 @@ describe("refusals before a run", () => {
     const p = write(base(over));
     const err: string[] = [];
     const io = { stdout: () => undefined, stderr: (t: string) => err.push(t) };
-    const code = await emitCommand(["--target", p.file, "dd.changes", "{}"], p.root, io, {
-      home: p.home,
-      environment: {},
-      launch: fakeLaunch(),
-    });
+    const code = await emitCommand(
+      ["--target", p.file, "--run", "k", "dd.changes", "{}"],
+      p.root,
+      io,
+      {
+        home: p.home,
+        environment: {},
+        launch: fakeLaunch(),
+      },
+    );
     expect(code).toBe(1);
     expect(err.join("\n")).toContain(message);
   });
@@ -515,7 +526,7 @@ describe("refusals before a run", () => {
     const err: string[] = [];
     const out: string[] = [];
     const code = await emitCommand(
-      ["--target", p.file, "dd.changes", "{}", "--id", "c1"],
+      ["--target", p.file, "--run", "k", "dd.changes", "{}", "--id", "c1"],
       p.root,
       { stdout: (t) => out.push(t), stderr: (t) => err.push(t) },
       {
