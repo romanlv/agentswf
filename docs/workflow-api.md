@@ -38,7 +38,7 @@ workflow.receive({ label?, until?, take? })                   // → the events 
 agent.start({ prompt, schema?, meta? })   agent.turn          // a turn not awaited; its end is agent:ended
 agent.ended<Meta, T>(e)   participant.replied(e)              // narrow awf's events
 workflow.participants.connect({ key, to: "code" })            // replies come as participant:reply; .post(text)
-workflow.emit(target, run, name, data, { id? })               // → "accepted" | "duplicate" | "refused"
+workflow.emit(target, run, name, data, { eventId? })          // → "accepted" | "duplicate" | "refused"
 
 workflow.log(message, fields?)   workflow.usage()   workflow.deadline   workflow.cwd
 workflow.runId   workflow.attempt
@@ -647,7 +647,7 @@ export default defineEventWorkflow({
 awf emit --target case.ts --id kombo-unique dd.changes '{"case":"kombo-unique"}' --event-id 83d34d7
 ```
 
-- **Sending.** `workflow.emit(caseRun, run, name, data, { id })` imports its target, so a wrong name or
+- **Sending.** `workflow.emit(caseRun, run, name, data, { eventId })` imports its target, so a wrong name or
   shape fails `tsc`; `awf emit --target {file}` checks the same at run time. Either returns
   `accepted`, `duplicate` (the id is in the run's mailbox already) or `refused` (the run returned,
   or it has none and `starts` doesn't list the event). An id names one occurrence for good; without
@@ -909,7 +909,7 @@ const run = await testWorkflow(caseRun, {
 });
 run.parked;                                   // { label, until } of the wait it parked at
 run.turnsOf("investigator")[1]?.prompt;       // what the second turn was asked
-run.emits;                                    // events it sent, { run: "{workflow}/{id}", name, data, id? }; none is delivered
+run.emits;                                    // events it sent, { ref, name, data, eventId? }; none is delivered
 run.mailbox;                                  // its mailbox as it left it
 ```
 

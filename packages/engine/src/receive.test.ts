@@ -180,7 +180,7 @@ test("workflow.emit sends to its target by the target's file, and a test records
       definition: {
         meta: { name: "dd-tick", description: "A tick." },
         run: async (workflow) =>
-          workflow.emit(target, "k", "dd.changes", { case: "k" }, { id: "c1" }),
+          workflow.emit(target, "k", "dd.changes", { case: "k" }, { eventId: "c1" }),
       },
       prepare: () => null,
     }),
@@ -188,7 +188,7 @@ test("workflow.emit sends to its target by the target's file, and a test records
   );
   expect(run.value).toBe("accepted");
   expect(run.emits).toEqual([
-    { run: "dd-case/k", name: "dd.changes", data: { case: "k" }, id: "c1" },
+    { ref: "dd-case/k", name: "dd.changes", data: { case: "k" }, eventId: "c1" },
   ]);
 });
 

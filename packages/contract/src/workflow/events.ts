@@ -107,8 +107,11 @@ export type ReceiveOptions = {
 };
 
 export type EmitOptions = {
-  /** Names the occurrence: a repeat is a duplicate. Absent, awf makes one, and nothing deduplicates it. */
-  id?: EventId;
+  /**
+   * The event's id, as `awf emit --event-id` gives it: a repeat is a duplicate. Absent, awf makes
+   * one, and nothing deduplicates it.
+   */
+  eventId?: EventId;
 };
 
 /**

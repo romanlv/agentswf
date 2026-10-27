@@ -75,7 +75,7 @@ export default singleton(
             c.id,
             "dd.changes",
             { case: c.id, reopened: c.reopened },
-            { id: commit },
+            { eventId: commit },
           );
           if (c.closed) {
             await workflow.emit(
@@ -83,7 +83,7 @@ export default singleton(
               c.id,
               "dd.closed",
               { case: c.id, ...c.closed, by: "triage" },
-              { id: `${commit}-closed` },
+              { eventId: `-closed` },
             );
           }
         }

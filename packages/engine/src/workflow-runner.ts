@@ -1052,7 +1052,7 @@ class WorkflowOwner {
               run,
               name,
               data: data as JsonValue,
-              ...(emitOptions?.id === undefined ? {} : { id: emitOptions.id }),
+              ...(emitOptions?.eventId === undefined ? {} : { id: emitOptions.eventId }),
             },
             `${options.workflow}/${options.runId}`,
           ),

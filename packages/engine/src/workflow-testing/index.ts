@@ -173,8 +173,8 @@ export type EventTestOptions<Events extends EventSchemas> = Omit<
   mailbox?: readonly MailboxRecord[];
 };
 
-/** An event the run sent, to the run `{workflow}/{id}` its sender named, which a test doesn't start. */
-export type EmittedEvent = { run: string; name: string; data: JsonValue; id?: string };
+/** An event the run sent, to the run whose ref is `ref`, which a test doesn't start. */
+export type EmittedEvent = { ref: string; name: string; data: JsonValue; eventId?: string };
 
 /** What the run did. Under `parallel`, what started first is scheduling: read by key. */
 export type TestRun<Result> = {
@@ -417,10 +417,10 @@ export async function testWorkflow<Args extends JsonValue, Result extends JsonVa
       // A test starts no other workflow's run: what it sends is recorded.
       emit: async (target, event) => {
         emits.push({
-          run: `${target.definition.meta.name}/${event.run}`,
+          ref: `${target.definition.meta.name}/${event.run}`,
           name: event.name,
           data: event.data,
-          ...(event.id === undefined ? {} : { id: event.id }),
+          ...(event.id === undefined ? {} : { eventId: event.id }),
         });
         return "accepted";
       },

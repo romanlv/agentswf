@@ -62,7 +62,7 @@ awf emit --target case.ts --id {case} dd.changes {json} --event-id {commit}     
   names a run; its ref is `{workflow}/{id}`, as for any run, and `awf run {file} --id {id}` starts
   one with no event, which parks at its first wait (task 10).
 - **The sender names its target**, the workflow the event is for, so a wrong name or shape fails
-  at the sender: `tsc` for `workflow.emit(caseRun, "dd.changes", data, { id })`, which imports the
+  at the sender: `tsc` for `workflow.emit(caseRun, run, "dd.changes", data, { eventId })`, which imports the
   workflow; a run-time error for `awf emit --target case.ts`; `testWorkflow` in a test. There is no
   registry and no routing by name. An emit returns `accepted`, `duplicate` or `refused`: whether
   the run has the event. What awf then did to the run (started, nudged or continued it) is printed,
@@ -1415,8 +1415,8 @@ that can't name a run, such as webhooks, without changing a call.
   on `emit`. Now `--id` is always the run's id (`awf run`, `awf emit`), `--event-id` the
   occurrence's (`awf emit`, `awf send`, where a message's id becomes its event's), and `--continue`
   a switch: `awf run {file} --id {id} --continue`. awf prints its go-on lines and `wake` launches
-  in that form, and awf-lab passes `--id`. In code the run is `emit`'s second argument, so
-  `EmitOptions.id` stays the event's.
+  in that form, and awf-lab passes `--id`. In code the run is `emit`'s second argument and the
+  event's id `EmitOptions.eventId`, as on the CLI; `run.emits` is `{ ref, name, data, eventId? }`.
 - **`awf run --id`.** `loadAndPrepare` returns `opens` for an event workflow with `--id` and no
   `--continue`, and refuses one without either, and one given `--timeout`, `--sandbox`, `--cwd` or
   `--run-root`, which a wake would not pass on to later attempts; `openEventRun` (`emit.ts`) makes the run under its

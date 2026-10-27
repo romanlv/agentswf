@@ -72,7 +72,7 @@ async function sender(): Promise<void> {
     "kombo",
     "dd.changes",
     { case: "kombo", occurrences: 3 },
-    { id: "83d34d7" },
+    { eventId: "83d34d7" },
   );
   void outcome;
   // @ts-expect-error A name the target doesn't declare.
