@@ -1377,7 +1377,7 @@ describe("an outside participant", () => {
     );
     expect(
       await messaging.holderReply({ agent: "investigator", text: "Keep.", via: "command" }),
-    ).toMatchObject({ code: "no-coordinator" });
+    ).toMatchObject({ code: "no-participant" });
     expect(messaging.connected()).toEqual([]);
     expect(() => messaging.connect("coordinator")).toThrow("already connected");
   });
@@ -1410,7 +1410,7 @@ describe("an outside participant", () => {
     messaging.connect("pager");
     const reply = (request: Partial<Parameters<Messaging["holderReply"]>[0]>) =>
       messaging.holderReply({ agent: "investigator", text: "Keep.", via: "command", ...request });
-    expect(await reply({ coordinator: "operator" })).toMatchObject({ code: "no-coordinator" });
+    expect(await reply({ coordinator: "operator" })).toMatchObject({ code: "no-participant" });
     expect(await reply({ agent: "ghost" })).toMatchObject({ code: "unknown-agent" });
     expect(await reply({})).toEqual({
       code: "ambiguous",

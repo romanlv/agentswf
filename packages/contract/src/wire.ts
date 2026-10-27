@@ -152,10 +152,10 @@ export const TOOL_CODES = [
  * this coordinator, `--as` included, or no `--to` with none open; like `wf reply`'s, it comes
  * before the route's state.
  */
-export const HOLDER_CODES = [
+export const PARTICIPANT_CODES = [
   "not-found",
   "ended",
-  "no-coordinator",
+  "no-participant",
   "unknown-agent",
   "ambiguous",
   "expired",
@@ -167,15 +167,15 @@ export const HOLDER_CODES = [
   "inbox-full",
 ] as const;
 
-/** Why `awf inbox` read nothing: no such run, no coordinator under `--as`, a cursor it cannot use. */
-export const INBOX_CODES = ["not-found", "no-coordinator", "bad-cursor"] as const;
+/** Why `awf inbox` read nothing: no such run, no participant under `--as`, a cursor it cannot use. */
+export const INBOX_CODES = ["not-found", "no-participant", "bad-cursor"] as const;
 
 export type EnvelopeCode = (typeof ENVELOPE_CODES)[number];
 export type ResultSubmitCode = (typeof RESULT_CODES)[number] | EnvelopeCode;
 export type SendCode = (typeof SEND_CODES)[number];
 export type ReplyCode = (typeof REPLY_CODES)[number];
 export type ToolCode = (typeof TOOL_CODES)[number];
-export type HolderCode = (typeof HOLDER_CODES)[number];
+export type ParticipantCode = (typeof PARTICIPANT_CODES)[number];
 export type InboxCode = (typeof INBOX_CODES)[number];
 export type ControlCode = ResultSubmitCode | SendCode | ReplyCode | ToolCode;
 
@@ -389,16 +389,16 @@ function decodeGivenInput(request: Record<string, unknown>): WireDecodeResult<Gi
 
 /**
  * A holder's request on a run's coordinator socket, as `awf reply` and `awf send` make it: speaking
- * as `coordinator` (`--as`), to the agent at its peer address, answering question `to`
+ * as `participant` (`--as`), to the agent at its peer address, answering question `to`
  * (`{attempt}.{n}`) for a reply. Internal: holders run the commands, which ship with the engine
  * that answers them; one this engine cannot decode is closed unanswered. The response is a
- * `HolderResultJson`.
+ * `ParticipantResultJson`.
  * @internal
  */
 export type HolderWireRequest = {
   version: typeof WIRE_VERSION;
   command: "reply" | "send";
-  coordinator?: string;
+  participant?: string;
   agent: string;
   to?: string;
   text: string;
@@ -431,10 +431,10 @@ export function decodeHolderRequest(
       code: "unsupported-command",
       error: "request.command must be reply, send or nudge",
     };
-  if (extraFields(request, ["version", "command", "coordinator", "agent", "to", "text"]))
+  if (extraFields(request, ["version", "command", "participant", "agent", "to", "text"]))
     return invalid("request has unexpected fields");
-  if (!optionalNonEmpty(request.coordinator))
-    return invalid("request.coordinator must be a non-empty string when present");
+  if (!optionalNonEmpty(request.participant))
+    return invalid("request.participant must be a non-empty string when present");
   if (!nonEmpty(request.agent)) return invalid("request.agent must be an agent's address");
   if (
     request.to !== undefined &&
@@ -447,7 +447,7 @@ export function decodeHolderRequest(
     value: {
       version: WIRE_VERSION,
       command: request.command,
-      ...(request.coordinator === undefined ? {} : { coordinator: request.coordinator }),
+      ...(request.participant === undefined ? {} : { participant: request.participant }),
       agent: request.agent,
       ...(request.to === undefined ? {} : { to: request.to as string }),
       text: request.text,

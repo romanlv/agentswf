@@ -5,7 +5,7 @@ import type {
   WorkflowContext,
   WorkflowDefinition,
 } from "@agentswf/contract/workflow";
-import { answer, type CoordinatorScript, reply, testWorkflow } from "./index";
+import { answer, type ParticipantScript, reply, testWorkflow } from "./index";
 
 const PURPOSE = "report findings that hold up; ask when the logs can't settle it";
 
@@ -56,7 +56,7 @@ describe("a coordinator in a workflow's test", () => {
     const seen: string[] = [];
     const run = await testWorkflow(investigate(), null, {
       agents: { investigator: [asks] },
-      coordinators: {
+      participants: {
         coordinator: async (event) => {
           seen.push(
             event.kind === "route"
@@ -94,7 +94,7 @@ describe("a coordinator in a workflow's test", () => {
   test("a question closes at its route's timeoutMs", async () => {
     const run = await testWorkflow(investigate({ timeoutMs: 50 }), null, {
       agents: { investigator: [asks] },
-      coordinators: { coordinator: () => undefined },
+      participants: { coordinator: () => undefined },
     });
     expect(run.value).toBe("no answer: failed");
     expect(run.messagesOf("coordinator")[1]).toEqual({
@@ -118,7 +118,7 @@ describe("a coordinator in a workflow's test", () => {
           }),
         ],
       },
-      coordinators: { coordinator: () => undefined },
+      participants: { coordinator: () => undefined },
     });
     expect(run.value).toBe("failed");
     expect(run.messagesOf("coordinator")).toEqual([
@@ -143,7 +143,7 @@ describe("a coordinator in a workflow's test", () => {
     };
     const run = await testWorkflow(staged, null, {
       agents: { investigator: [asks] },
-      coordinators: {
+      participants: {
         coordinator: async (event) => {
           if (event.kind === "message" && event.asks) {
             await Bun.sleep(30);
@@ -169,7 +169,7 @@ describe("a coordinator in a workflow's test", () => {
       null,
       {
         agents: { investigator: [asks] },
-        coordinators: {
+        participants: {
           coordinator: (event) => {
             if (event.kind === "message" && event.asks) asked.resolve();
           },
@@ -184,7 +184,7 @@ describe("a coordinator in a workflow's test", () => {
     const run = await testWorkflow(investigate(), null, {
       stallMs: 200,
       agents: { investigator: [asks] },
-      coordinators: { coordinator: () => undefined },
+      participants: { coordinator: () => undefined },
     });
     expect(() => run.value).toThrow();
     expect(run.messagesOf("coordinator")[1]).toEqual({
@@ -206,7 +206,7 @@ describe("a coordinator in a workflow's test", () => {
           }),
         ],
       },
-      coordinators: {
+      participants: {
         coordinator: async (event) => {
           if (event.kind === "message")
             expect(await event.send("investigator", "Also check the 09:12 deploy.")).toMatchObject({
@@ -228,7 +228,7 @@ describe("a coordinator in a workflow's test", () => {
             return message.silent();
           },
         },
-        coordinators: {
+        participants: {
           coordinator: (event) =>
             event.kind === "route" ? event.send("Look at the pool.") : undefined,
         },
@@ -252,7 +252,7 @@ describe("a coordinator in a workflow's test", () => {
           return message.silent();
         },
       },
-      coordinators: {
+      participants: {
         coordinator: async (event) => {
           if (event.kind === "route") return event.send("Go.");
           if (event.asks) {
@@ -286,7 +286,7 @@ describe("a coordinator in a workflow's test", () => {
     };
     const run = await testWorkflow(waited, null, {
       agents: { investigator: [asks] },
-      coordinators: {
+      participants: {
         coordinator: async (event) => {
           if (event.kind === "message" && event.asks) {
             // Twice the operation's 150 ms: it is answered and goes on.
@@ -322,7 +322,7 @@ describe("a coordinator in a workflow's test", () => {
         return "done";
       });
     const coordinators = {
-      coordinator: async (event: Parameters<CoordinatorScript>[0]) => {
+      coordinator: async (event: Parameters<ParticipantScript>[0]) => {
         if (event.kind === "message" && event.asks) {
           await Bun.sleep(400);
           await event.reply("Keep two.");
@@ -332,12 +332,12 @@ describe("a coordinator in a workflow's test", () => {
     // 200 ms of work, the wait not counted: 50 ms after the answer fits, 400 ms does not.
     const fits = await testWorkflow(slow, null, {
       agents: { investigator: [script(50)] },
-      coordinators,
+      participants: coordinators,
     });
     expect(fits.value).toBe("answered");
     const overruns = await testWorkflow(slow, null, {
       agents: { investigator: [script(400)] },
-      coordinators,
+      participants: coordinators,
     });
     expect(overruns.value).toBe("timed-out");
   });
@@ -346,7 +346,7 @@ describe("a coordinator in a workflow's test", () => {
     const run = await testWorkflow(investigate(), null, {
       timeoutMs: 300,
       agents: { investigator: [asks] },
-      coordinators: { coordinator: () => undefined },
+      participants: { coordinator: () => undefined },
     });
     expect(() => run.value).toThrow();
     expect(run.messagesOf("coordinator")[1]).toMatchObject({
@@ -377,7 +377,7 @@ describe("a coordinator in a workflow's test", () => {
     };
     const run = await testWorkflow(bounded, null, {
       agents: { investigator: [asks] },
-      coordinators: { coordinator: () => undefined },
+      participants: { coordinator: () => undefined },
     });
     expect(run.messagesOf("coordinator")[1]).toMatchObject({ end: "failed", reason: "cancelled" });
     expect(run.value).toBe("DeadlineExceededError");
@@ -412,7 +412,7 @@ describe("a coordinator in a workflow's test", () => {
         return errors;
       },
     };
-    const run = await testWorkflow(refusals, null, { coordinators: { coordinator: () => {} } });
+    const run = await testWorkflow(refusals, null, { participants: { coordinator: () => {} } });
     expect(run.value).toEqual([
       "operator is reserved: an agent could read a message from it as authority; a participant takes another key",
       "System is reserved: an agent could read a message from it as authority; a participant takes another key",
@@ -425,7 +425,7 @@ describe("a coordinator in a workflow's test", () => {
 
   test("a route to a coordinator with no script fails the test", async () => {
     await expect(
-      testWorkflow(investigate({ run: false }), null, { coordinators: {} }),
+      testWorkflow(investigate({ run: false }), null, { participants: {} }),
     ).rejects.toThrow(
       'a route reached coordinator "coordinator", which has no script under coordinators',
     );

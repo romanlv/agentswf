@@ -323,7 +323,7 @@ A coordinator is scripted under `coordinators`, by the key the workflow connects
 function called with the items a holder would act on, a `route` event as each route to it opens and
 a `message` event for each message an agent sends it, once recorded. A message's `reply(text)`
 answers as `awf reply --to` would, and either's `send` messages an agent as `awf send` would; a
-script that returns without answering leaves the question open. Each resolves to a `HolderOutcome`,
+script that returns without answering leaves the question open. Each resolves to a `ParticipantOutcome`,
 `delivered` with an id as `awf reply --json` gives it, or a holder code. An answer is recorded `via:
 "test"`. When no turn runs, no script is still working, and everything left waits on a coordinator
 with no `until`, the attempt ends, its open questions expire `attempt-ended`, and `run.value` throws
@@ -785,7 +785,7 @@ to one question. The first is delivered and shows up as `answered` for the other
 `expired`, unless that first answer released the participant or let the run end, when it is
 `no-coordinator` or `ended`, which come first in the order.
 
-Both print one line, or with `--json` a `HolderResultJson`: `delivered` with an id an `awf inbox` item names (for a
+Both print one line, or with `--json` a `ParticipantResultJson`: `delivered` with an id an `awf inbox` item names (for a
 reply, the question answered; for a send, the new message),
 or a refusal with its code and a line naming what to do instead. The first code that applies, in
 this order (`HOLDER_CODES`), is returned:

@@ -35,7 +35,7 @@ import { OPERATOR_ALIASES } from "../operator-aliases";
 import { createRun, idProblem, readEvents, readStageRecords, writeStageRecord } from "../runs";
 import { primaryFailure, WorkflowStopped } from "../stopped";
 import { runWorkflow, type SettledRun, WorkflowRunError } from "../workflow-runner";
-import { CoordinatorScripts } from "./coordinators";
+import { ParticipantScripts } from "./coordinators";
 import { createScriptedDecisions, type DecisionRequest, type DecisionScript } from "./decisions";
 import {
   type AgentSandbox,
@@ -46,9 +46,9 @@ import {
   type TurnRecord,
 } from "./host";
 import {
-  type CoordinatorScript,
   type MessageScript,
   MessageScripts,
+  type ParticipantScript,
   type Script,
   Scripts,
 } from "./script";
@@ -56,13 +56,13 @@ import {
 export type { DecisionRequest, DecisionScript } from "./decisions";
 export {
   answer,
-  type CoordinatorMessage,
-  type CoordinatorRoute,
-  type CoordinatorScript,
-  type HolderOutcome,
   type Message,
   type MessageOutcome,
   type MessageScript,
+  type ParticipantMessage,
+  type ParticipantOutcome,
+  type ParticipantRoute,
+  type ParticipantScript,
   type ReceivedMessage,
   reply,
   type Script,
@@ -93,7 +93,7 @@ export type TestOptions = {
    * count that wait. A route
    * or message reaching a coordinator with none here fails the test.
    */
-  coordinators?: Readonly<Record<string, CoordinatorScript>>;
+  participants?: Readonly<Record<string, ParticipantScript>>;
   /**
    * Where an agent may `--await-reply`: `listed`, where the engine's list allows it for the
    * agent's harness and placement, as a run would; `anywhere`, to test a workflow's messaging on a
@@ -318,7 +318,7 @@ export async function testWorkflow<Args extends JsonValue, Result extends JsonVa
   };
   const seeded = eventOptions?.mailbox;
   const attempt = options.recorded || seeded ? 2 : 1;
-  const coordinators = new CoordinatorScripts(options.coordinators, attempt, events);
+  const coordinators = new ParticipantScripts(options.participants, attempt, events);
   const stopWith = (message: string) => {
     problems.push(message);
     stopping.abort(new Error(message));

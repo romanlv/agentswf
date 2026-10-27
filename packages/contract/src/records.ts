@@ -1,5 +1,12 @@
 import type { JsonSchema } from "./schema";
-import type { HolderCode, InboxCode, ReplyCode, SendCode, ToolCode, ToolFailure } from "./wire";
+import type {
+  InboxCode,
+  ParticipantCode,
+  ReplyCode,
+  SendCode,
+  ToolCode,
+  ToolFailure,
+} from "./wire";
 import type {
   AgentExecution,
   AgentKey,
@@ -892,42 +899,42 @@ export type InboxItemJson = {
   | {
       kind: "route";
       state: "opened" | "closed";
-      coordinator: string;
+      participant: string;
       agent: string;
-      /** Which way it carries messages: `both` for `between`, else from or to the coordinator. */
-      direction: "both" | "to-coordinator" | "from-coordinator";
+      /** Which way it carries messages: `both` for `between`, else from or to the participant. */
+      direction: "both" | "to-participant" | "from-participant";
       purpose: string;
       /** How long a question on it waits; absent, until it is answered. */
       timeoutMs?: number;
-      /** The coordinator's, as the workflow connected it. */
+      /** The participant's key, as the workflow connected it. */
       labels?: JsonObject;
       /** Why it closed. */
       reason?: "stage-ended" | "agent-stopped" | "released" | "attempt-ended";
     }
   | {
       kind: "message";
-      coordinator: string;
+      participant: string;
       id: string;
-      /** One is the coordinator's key, the other an agent's address. */
+      /** One is the participant's key, the other an agent's address. */
       from: string;
       to: string;
       text: string;
-      /** A question to the coordinator, open until an `answered` or `expired` item says otherwise. */
+      /** A question to the participant, open until an `answered` or `expired` item says otherwise. */
       asks?: true;
       /** When the question closes unanswered, if it has a limit. */
       until?: string;
-      /** From the coordinator, an `awf send` or a script's: what it came through. Its answers are `answered` items. */
+      /** From the participant, an `awf send` or a script's: what it came through. Its answers are `answered` items. */
       via?: OutsideVia;
     }
-  | { kind: "answered"; coordinator: string; id: string; answer: string; via: OutsideVia }
+  | { kind: "answered"; participant: string; id: string; answer: string; via: OutsideVia }
   /**
-   * `participant.post(text)` to a participant routed to the code, under `coordinator`, its key,
+   * `participant.post(text)` to a participant routed to the code, under `participant`, its key,
    * with the labels the workflow connected it with. Its id, `{attempt}.p{n}`, is new at every
    * attempt: a post a crashed attempt made before its stage was recorded is made again, so a host
    * may see it twice.
    */
-  | { kind: "post"; coordinator: string; id: string; text: string; labels?: JsonObject }
-  | { kind: "expired"; coordinator: string; id: string; reason: InboxExpiry }
+  | { kind: "post"; participant: string; id: string; text: string; labels?: JsonObject }
+  | { kind: "expired"; participant: string; id: string; reason: InboxExpiry }
   /** `label`: a parked attempt's, as its last `receive` gave it, such as what the run waits for. */
   | { kind: "ended"; attempt: number; outcome: AttemptOutcome | "interrupted"; label?: string }
 );
@@ -936,14 +943,14 @@ export type InboxItemJson = {
  * `awf reply --json` and `awf send --json`. `delivered`'s `id` is what an `awf inbox` item names:
  * for a reply, the question answered, as its `answered` item has it; for a send, the new message.
  */
-export type HolderResultJson =
+export type ParticipantResultJson =
   | { v: 1; code: "delivered"; id: string }
   | {
       v: 1;
-      code: HolderCode;
+      code: ParticipantCode;
       /** The refusal as the command prints it, naming what to do instead. */
       error: string;
-      /** For `ambiguous`: the coordinator keys, agent addresses or question ids to choose from. */
+      /** For `ambiguous`: the participant keys, agent addresses or question ids to choose from. */
       choices?: string[];
     };
 

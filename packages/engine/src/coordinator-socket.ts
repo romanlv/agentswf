@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { chmod, mkdir, realpath, rm, stat } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative, sep } from "node:path";
-import type { HolderResultJson } from "@agentswf/contract/records";
+import type { ParticipantResultJson } from "@agentswf/contract/records";
 import { decodeHolderRequest, type NudgeWireResult } from "@agentswf/contract/wire";
 import type { CoordinatorHolder, CoordinatorPort } from "./coordinator-port";
 import { realPath } from "./files";
@@ -65,7 +65,7 @@ export async function prepareCoordinatorDir(
 /**
  * The socket `awf reply` and `awf send` reach a live run through. It opens once the workflow
  * connects an outside participant and goes when the run ends; each connection is one request
- * line and one `HolderResultJson` line back.
+ * line and one `ParticipantResultJson` line back.
  */
 export function coordinatorSocket(options: {
   dir: string;
@@ -84,7 +84,9 @@ export function coordinatorSocket(options: {
   const id = (n: number) => `${options.attempt}.${n}`;
 
   /** Undefined for a request no `awf` command makes: the connection closes unanswered. */
-  const answer = async (frame: string): Promise<HolderResultJson | NudgeWireResult | undefined> => {
+  const answer = async (
+    frame: string,
+  ): Promise<ParticipantResultJson | NudgeWireResult | undefined> => {
     let parsed: unknown;
     try {
       parsed = JSON.parse(frame);
@@ -99,7 +101,7 @@ export function coordinatorSocket(options: {
       options.nudged();
       return { v: 1, code: "nudged" };
     }
-    if (!holder) return refused("no-coordinator", "the run has no coordinator connected");
+    if (!holder) return refused("no-participant", "the run has no coordinator connected");
     // Another attempt's question is never open in this one: a number no message has.
     const to =
       request.to === undefined
@@ -108,7 +110,7 @@ export function coordinatorSocket(options: {
           ? Number(request.to.split(".")[1])
           : 0;
     const asked = {
-      ...(request.coordinator === undefined ? {} : { coordinator: request.coordinator }),
+      ...(request.participant === undefined ? {} : { coordinator: request.participant }),
       agent: request.agent,
       ...(to === undefined ? {} : { to }),
       text: request.text,
@@ -209,9 +211,9 @@ export function coordinatorSocket(options: {
 }
 
 function refused(
-  code: Exclude<HolderResultJson["code"], "delivered">,
+  code: Exclude<ParticipantResultJson["code"], "delivered">,
   error: string,
-): HolderResultJson {
+): ParticipantResultJson {
   return { v: 1, code, error };
 }
 

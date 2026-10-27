@@ -140,7 +140,7 @@ test("a reply on a participant routed to the code reaches the run, live or parke
       },
     ),
   ).toBe(1);
-  expect(JSON.parse(refused[0]!)).toMatchObject({ v: 1, code: "no-coordinator" });
+  expect(JSON.parse(refused[0]!)).toMatchObject({ v: 1, code: "no-participant" });
   expect(err).toEqual([]);
 }, 60_000);
 

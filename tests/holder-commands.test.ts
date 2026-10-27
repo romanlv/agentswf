@@ -1,7 +1,7 @@
 import { afterAll, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import type { HolderResultJson, InboxItemJson } from "../packages/contract/src/records";
+import type { InboxItemJson, ParticipantResultJson } from "../packages/contract/src/records";
 import { WIRE_VERSION } from "../packages/contract/src/wire";
 import { coordinatorSocketPath } from "../packages/engine/src/coordinator-socket";
 import { runOperatorCli } from "../packages/engine/src/operator-cli";
@@ -101,7 +101,7 @@ describe("awf reply and awf send", () => {
     const reply = (text: string) =>
       awf(["reply", question.ref, "investigator", "--to", question.id, text, "--json"]);
     const [first, second] = await Promise.all([reply("Keep two."), reply("Merge.")]);
-    const results = [first, second].map((each) => JSON.parse(each.stdout) as HolderResultJson);
+    const results = [first, second].map((each) => JSON.parse(each.stdout) as ParticipantResultJson);
     expect(results.map((each) => each.code).sort()).toEqual(["delivered", "expired"]);
     expect(results.find((each) => each.code === "delivered")).toEqual({
       v: 1,
@@ -133,14 +133,14 @@ describe("awf reply and awf send", () => {
     const question = await openQuestion(awf);
     const send = (...args: string[]) => awf(["send", question.ref, ...args, "--json"]);
     const result = async (pending: ReturnType<typeof send>) =>
-      JSON.parse((await pending).stdout) as HolderResultJson;
+      JSON.parse((await pending).stdout) as ParticipantResultJson;
     expect(await result(send("ghost", "Hi."))).toMatchObject({ code: "unknown-agent" });
     expect(await result(send("investigator", "Hi."))).toMatchObject({
       code: "ambiguous",
       choices: ["coordinator", "pager"],
     });
     expect(await result(send("investigator", "--as", "operator", "Hi."))).toMatchObject({
-      code: "no-coordinator",
+      code: "no-participant",
     });
     // To an agent awaiting this coordinator's answer: held, and the line says so.
     const held = await awf(["send", question.ref, "investigator", "--as", "coordinator", "FYI."]);
@@ -168,9 +168,9 @@ describe("awf reply and awf send", () => {
     const claimed = await claimAttempt(run, { file: "flow.js", flags: {} });
     if ("refused" in claimed) throw new Error("refused");
     const reply = () => awf(["reply", "investigate/r1", "investigator", "--json", "Keep two."]);
-    expect(JSON.parse((await reply()).stdout)).toMatchObject({ code: "no-coordinator" });
+    expect(JSON.parse((await reply()).stdout)).toMatchObject({ code: "no-participant" });
     await Bun.write(coordinatorSocketPath(coordinators, run.dir), "left by a killed attempt");
-    expect(JSON.parse((await reply()).stdout)).toMatchObject({ code: "no-coordinator" });
+    expect(JSON.parse((await reply()).stdout)).toMatchObject({ code: "no-participant" });
   });
 
   test("text after -- is the message's, whatever it says; blank text is a usage error", async () => {

@@ -45,7 +45,7 @@ workflow.runId   workflow.attempt
 workflow.allowance(harness)                                   // → what is left of its plan, as `awf allowance` reads it
 
 // In a test, from "agentswf/testing"; `awf test` runs it:
-testWorkflow(workflow, args, { agents?, messages?, coordinators?, compactions?, awaitReply?, decisions?, allowance?, runtimes?,
+testWorkflow(workflow, args, { agents?, messages?, participants?, compactions?, awaitReply?, decisions?, allowance?, runtimes?,
                               caller?, timeoutMs?, stallMs?, cwd?, recorded?, fromStage?, values? })  // → run
 testWorkflow(eventWorkflow, { id, event?, files?, events?: [{ during: "agent#1", name, data, from? }], maxTurns?, … })  // → run, .emits, .parked
 answer(SCHEMA, value | (turn) => value)   answer("text")   reply.waiting(reason, timeoutMs?) | silent() | blocked() | failed() | needsLogin(provider?) | timedOut() | hang() | interrupted()
@@ -825,14 +825,14 @@ const asking = (change: string, summary: string) =>
 
 ### A coordinator
 
-`coordinators` maps a coordinator's key to a function called with what a holder would act on: each
+`participants` maps a participant's key, such as a coordinator's, to a function called with what a holder would act on: each
 route to the coordinator as it opens, and each message an agent sends it. It answers as a holder
 would, or leaves a question open by returning:
 
 ```ts
 const run = await testWorkflow(investigate, args, {
   agents: { investigator: [answer("…")] },
-  coordinators: {
+  participants: {
     coordinator: (event) =>
       event.kind === "message" && event.asks ? event.reply("Keep two, and link them.") : undefined,
   },

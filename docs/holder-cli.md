@@ -52,10 +52,10 @@ Text is for a person. `--json` prints one item per line, `InboxItemJson`
 
 | `kind` | Fields |
 | --- | --- |
-| `route` | `state` (`opened`, `closed`), `coordinator`, `agent`, `direction` (`both`, `to-coordinator`, `from-coordinator`), `purpose`, `timeoutMs`, `labels`; closed, its `reason` |
-| `message` | `coordinator`, `id`, `from`, `to`, `text`; a question has `asks`, and `until` when it closes unanswered at a limit; one the coordinator sent with `awf send` has `via` |
-| `answered` | `coordinator`, the question's `id`, the `answer`, and `via`: `terminal`, `command` or `test` |
-| `expired` | `coordinator`, the question's `id`, and `reason`: `timeout`, `released`, `cancelled` or `attempt-ended` |
+| `route` | `state` (`opened`, `closed`), `participant`, `agent`, `direction` (`both`, `to-participant`, `from-participant`), `purpose`, `timeoutMs`, `labels`; closed, its `reason` |
+| `message` | `participant`, `id`, `from`, `to`, `text`; a question has `asks`, and `until` when it closes unanswered at a limit; one the coordinator sent with `awf send` has `via` |
+| `answered` | `participant`, the question's `id`, the `answer`, and `via`: `terminal`, `command` or `test` |
+| `expired` | `participant`, the question's `id`, and `reason`: `timeout`, `released`, `cancelled` or `attempt-ended` |
 | `ended` | an attempt ended: `attempt` and `outcome`, or `interrupted` when its process died; a `parked` one has `label`, its last wait's, when it gave one |
 
 Message ids are `{attempt}.{n}`. A coordinator's answer is an `answered` item only. An agent is
@@ -71,7 +71,7 @@ being down or asleep, reading on from it loses nothing. An item may come twice, 
 An attempt whose process died reads as `interrupted`: each question still open in it gets an
 `expired` (`attempt-ended`), so no holder waits on an answer no one can take.
 
-It fails `not-found` for no such run, `no-coordinator` for a run that ended without connecting one
+It fails `not-found` for no such run, `no-participant` for a run that ended without connecting one
 (or that `--as`), and `bad-cursor`, in that order; with `--json`, `{ v: 1, code, error }`. A live run
 that has not connected one yet is just empty. Exit codes: 0 read, 1 one of those, 2 a usage error,
 3 the run's files could not be read.
@@ -90,7 +90,7 @@ is `expired`. Anyone may answer, and the first answer wins.
 its next turn, and an idle one gets a turn of its own for it, a model call. One waiting for this
 coordinator's answer gets it with that answer; the command says so.
 
-Both print one line, or with `--json` `HolderResultJson`: `delivered` with the id an `awf inbox`
+Both print one line, or with `--json` `ParticipantResultJson`: `delivered` with the id an `awf inbox`
 item names (for a reply the question's, for a send the new message's), or a refusal. The first code
 that applies, in this order:
 
@@ -99,7 +99,7 @@ that applies, in this order:
 | `delivered` | the agent will see it |
 | `not-found` | no run `{workflow}/{id}` here, or in a project awf knows |
 | `ended` | the run has ended, or for `awf send`, the workflow has returned |
-| `no-coordinator` | no coordinator by that key: not connected yet, released, or never; a reserved key such as `operator` included |
+| `no-participant` | no participant by that key: not connected yet, released, or never; a reserved key such as `operator` included |
 | `unknown-agent` | the run has no agent at that address |
 | `ambiguous` | no `--as` when the workflow connects more than one; no `--to` when the agent has more than one open question; the choices are listed |
 | `expired` | not an open question from that agent to this coordinator |

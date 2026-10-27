@@ -1,5 +1,5 @@
 import type {
-  HolderCode,
+  ParticipantCode,
   ReplyCode,
   SendCode,
   ToolCode,
@@ -116,13 +116,13 @@ export type MessageScript = (
  * How a coordinator's script's `reply` or `send` ended, as `awf reply --json` reports it: a reply's
  * `id` is the question's, a send's the new message's.
  */
-export type HolderOutcome = { code: "delivered"; id: string } | { code: HolderCode };
+export type ParticipantOutcome = { code: "delivered"; id: string } | { code: ParticipantCode };
 
 /**
  * A message an agent sent a coordinator, and what the coordinator's script may do about it, as a
  * holder would with `awf reply` and `awf send`. An answer is recorded as coming through `test`.
  */
-export type CoordinatorMessage = {
+export type ParticipantMessage = {
   kind: "message";
   /** `{attempt}.{n}`, as `awf inbox` prints it. */
   id: string;
@@ -132,20 +132,20 @@ export type CoordinatorMessage = {
   /** A question: it stays open until the script answers it, or it expires. */
   asks?: true;
   /** Answers this question, as `awf reply --to` does. */
-  reply(text: string): Promise<HolderOutcome>;
+  reply(text: string): Promise<ParticipantOutcome>;
   /** Messages an agent over a route the workflow allowed, as `awf send` does. */
-  send(agent: string, text: string): Promise<HolderOutcome>;
+  send(agent: string, text: string): Promise<ParticipantOutcome>;
 };
 
 /** A route to or from a coordinator, as it opens: where a script that speaks first starts. */
-export type CoordinatorRoute = {
+export type ParticipantRoute = {
   kind: "route";
   /** The agent's peer address. */
   agent: string;
-  direction: "both" | "to-coordinator" | "from-coordinator";
+  direction: "both" | "to-participant" | "from-participant";
   purpose: string;
   /** Messages the agent, as `awf send` does. */
-  send(text: string): Promise<HolderOutcome>;
+  send(text: string): Promise<ParticipantOutcome>;
 };
 
 /**
@@ -153,7 +153,7 @@ export type CoordinatorRoute = {
  * it, once recorded; the `awf inbox` items a holder would act on. What it returns is awaited and
  * otherwise ignored: a question it does not answer stays open, and a throw fails the test.
  */
-export type CoordinatorScript = (event: CoordinatorRoute | CoordinatorMessage) => unknown;
+export type ParticipantScript = (event: ParticipantRoute | ParticipantMessage) => unknown;
 
 const ENTRY: unique symbol = Symbol("agentswf.script-entry");
 

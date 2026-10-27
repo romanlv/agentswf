@@ -5,7 +5,7 @@ import {
   type WorkflowContext,
   type WorkflowDefinition,
 } from "@agentswf/contract/workflow";
-import { answer, type CoordinatorScript, testWorkflow } from ".";
+import { answer, type ParticipantScript, testWorkflow } from ".";
 
 declare const runtime: string;
 
@@ -33,7 +33,7 @@ const investigate: WorkflowDefinition<null, string> = {
 export async function story(): Promise<string> {
   const run = await testWorkflow(investigate, null, {
     agents: { investigator: [answer("…")] },
-    coordinators: {
+    participants: {
       coordinator: (event) =>
         event.kind === "message" && event.asks
           ? event.reply("Keep two, and link them.")
@@ -43,7 +43,7 @@ export async function story(): Promise<string> {
   return run.value;
 }
 
-export const sendsFirst: CoordinatorScript = async (event) => {
+export const sendsFirst: ParticipantScript = async (event) => {
   if (event.kind !== "route") return;
   const sent = await event.send("Also check the 09:12 deploy.");
   if (sent.code !== "delivered") throw new Error(sent.code);

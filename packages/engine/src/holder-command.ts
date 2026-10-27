@@ -1,6 +1,6 @@
 import { homedir } from "node:os";
-import type { HolderResultJson } from "@agentswf/contract/records";
-import { type HolderCode, WIRE_VERSION } from "@agentswf/contract/wire";
+import type { ParticipantResultJson } from "@agentswf/contract/records";
+import { type ParticipantCode, WIRE_VERSION } from "@agentswf/contract/wire";
 import { liveCoordinatorSocket } from "./coordinator-socket";
 import { deliver, eventIdProblem } from "./emit";
 import { printEmit } from "./emit-command";
@@ -79,7 +79,7 @@ export async function holderCommand(
     io.stderr(`awf: ${messageOf(error)}\n\n${replyUsage}`);
     return 2;
   }
-  const say = (result: HolderResultJson, line: string): number => {
+  const say = (result: ParticipantResultJson, line: string): number => {
     if (json) io.stdout(JSON.stringify(result));
     else if (result.code === "delivered") io.stdout(line);
     else
@@ -88,7 +88,7 @@ export async function holderCommand(
       );
     return result.code === "delivered" ? 0 : 1;
   };
-  const refused = (code: HolderCode, error: string) => say({ v: 1, code, error }, "");
+  const refused = (code: ParticipantCode, error: string) => say({ v: 1, code, error }, "");
   const usage = (problem: string) => {
     io.stderr(`awf: ${problem}\n\n${replyUsage}`);
     return 2;
@@ -113,7 +113,7 @@ export async function holderCommand(
     if (text.trim() === "") return usage("nothing to say: stdin was empty");
     const unreachable = () =>
       refused(
-        "no-coordinator",
+        "no-participant",
         `${status.ref} has no coordinator${options.as ? ` ${options.as}` : ""} to reach yet; try again once it connects one`,
       );
     const dir = coordinatorDir(io.home ?? homedir(), io.environment ?? process.env);
@@ -123,7 +123,7 @@ export async function holderCommand(
     const request = {
       version: WIRE_VERSION,
       command: options.command,
-      ...(options.as === undefined ? {} : { coordinator: options.as }),
+      ...(options.as === undefined ? {} : { participant: options.as }),
       agent: options.agent,
       ...(options.to === undefined ? {} : { to: options.to }),
       text,
@@ -141,7 +141,7 @@ export async function holderCommand(
       throw new Error(
         `${status.ref} did not answer the request; it may run another version of awf`,
       );
-    const result = JSON.parse(answer) as HolderResultJson;
+    const result = JSON.parse(answer) as ParticipantResultJson;
     if (result.code !== "delivered") return say(result, "");
     if (options.command === "reply") return say(result, `answered ${result.id}`);
     // Held for an agent awaiting this coordinator's answer: it comes with that answer.
@@ -229,7 +229,7 @@ async function awaitedBy(
     item.kind === "message" &&
     item.asks === true &&
     item.from === agent &&
-    (as === undefined || item.coordinator === as) &&
+    (as === undefined || item.participant === as) &&
     !closed.has(item.id)
       ? [item.id]
       : [],
@@ -247,7 +247,7 @@ async function toTheCode(
   place: ReadPlace,
   json: boolean,
   io: HolderIo,
-  say: { refused(code: HolderCode, error: string): number; usage(problem: string): number },
+  say: { refused(code: ParticipantCode, error: string): number; usage(problem: string): number },
 ): Promise<number> {
   const home = io.home ?? homedir();
   const environment = io.environment ?? process.env;
@@ -267,7 +267,7 @@ async function toTheCode(
   );
   if (!run.record.events || !routed)
     return refused(
-      "no-coordinator",
+      "no-participant",
       `${found.ref} has no participant ${as} routed to its code; --event-id is for one`,
     );
   const text = options.text ?? (await io.stdin());

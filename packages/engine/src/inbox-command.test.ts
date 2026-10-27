@@ -163,7 +163,7 @@ describe("awf inbox", () => {
         ref,
         kind: "route",
         state: "opened",
-        coordinator: "coordinator",
+        participant: "coordinator",
         agent: "investigator",
         direction: "both",
         purpose: PURPOSE,
@@ -174,7 +174,7 @@ describe("awf inbox", () => {
         v: 1,
         ref,
         kind: "message",
-        coordinator: "coordinator",
+        participant: "coordinator",
         id: "1.1",
         from: "investigator",
         to: "coordinator",
@@ -184,7 +184,7 @@ describe("awf inbox", () => {
         v: 1,
         ref,
         kind: "message",
-        coordinator: "coordinator",
+        participant: "coordinator",
         id: "1.2",
         from: "investigator",
         to: "coordinator",
@@ -196,7 +196,7 @@ describe("awf inbox", () => {
         v: 1,
         ref,
         kind: "answered",
-        coordinator: "coordinator",
+        participant: "coordinator",
         id: "1.2",
         answer: "Keep two.",
         via: "terminal",
@@ -206,7 +206,7 @@ describe("awf inbox", () => {
         ref,
         kind: "route",
         state: "closed",
-        coordinator: "coordinator",
+        participant: "coordinator",
         agent: "investigator",
         direction: "both",
         purpose: PURPOSE,
@@ -406,7 +406,7 @@ describe("awf inbox", () => {
     expect(await inbox(root, ref, "--json")).toMatchObject({ code: 0, items: [] });
     await endAttempt(attempt, { outcome: "completed" });
     const ended = await inbox(root, ref, "--json", "--after", "junk");
-    expect(ended.items[0]).toMatchObject({ v: 1, code: "no-coordinator" });
+    expect(ended.items[0]).toMatchObject({ v: 1, code: "no-participant" });
     const other = await newRun(root, "triage");
     await other.claim();
     await log(other.run, 1, { kind: "participant-connected", participant: "coordinator" });

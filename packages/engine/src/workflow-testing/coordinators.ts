@@ -1,18 +1,18 @@
 import type { CoordinatorHolder, CoordinatorPort } from "../coordinator-port";
 import type { HolderResult, MessagingEventBody } from "../messaging/messaging";
 import type {
-  CoordinatorMessage,
-  CoordinatorRoute,
-  CoordinatorScript,
-  HolderOutcome,
+  ParticipantMessage,
+  ParticipantOutcome,
+  ParticipantRoute,
+  ParticipantScript,
 } from "./script";
 
 /**
  * Answers for a test's coordinators from their scripts, as a holder would: each route to one as it
  * opens, and each message an agent sends one once recorded, is handed to its script.
  */
-export class CoordinatorScripts implements CoordinatorPort {
-  readonly #scripts: Readonly<Record<string, CoordinatorScript>>;
+export class ParticipantScripts implements CoordinatorPort {
+  readonly #scripts: Readonly<Record<string, ParticipantScript>>;
   readonly #attempt: number;
   readonly #events: { onActivity(): void; onScriptError(message: string): void };
   #holder: CoordinatorHolder | undefined;
@@ -21,7 +21,7 @@ export class CoordinatorScripts implements CoordinatorPort {
   #working = 0;
 
   constructor(
-    scripts: Readonly<Record<string, CoordinatorScript>> | undefined,
+    scripts: Readonly<Record<string, ParticipantScript>> | undefined,
     attempt: number,
     events: { onActivity(): void; onScriptError(message: string): void },
   ) {
@@ -59,9 +59,9 @@ export class CoordinatorScripts implements CoordinatorPort {
         const direction = event.between
           ? "both"
           : event.from === coordinator
-            ? "from-coordinator"
-            : "to-coordinator";
-        const route: CoordinatorRoute = {
+            ? "from-participant"
+            : "to-participant";
+        const route: ParticipantRoute = {
           kind: "route",
           agent,
           direction,
@@ -74,7 +74,7 @@ export class CoordinatorScripts implements CoordinatorPort {
     }
     if (event.kind === "message-sent" && this.#connected.has(event.to)) {
       const coordinator = event.to;
-      const message: CoordinatorMessage = {
+      const message: ParticipantMessage = {
         kind: "message",
         id: this.#id(event.message),
         from: event.from,
@@ -96,7 +96,7 @@ export class CoordinatorScripts implements CoordinatorPort {
     }
   }
 
-  #call(coordinator: string, event: CoordinatorRoute | CoordinatorMessage): void {
+  #call(coordinator: string, event: ParticipantRoute | ParticipantMessage): void {
     const script = this.#scripts[coordinator];
     if (!script) {
       this.#events.onScriptError(
@@ -120,11 +120,11 @@ export class CoordinatorScripts implements CoordinatorPort {
       });
   }
 
-  #send(coordinator: string, agent: string, text: string): Promise<HolderOutcome> {
+  #send(coordinator: string, agent: string, text: string): Promise<ParticipantOutcome> {
     return this.#outcome(this.#holder!.send({ coordinator, agent, text, via: "test" }));
   }
 
-  async #outcome(result: Promise<HolderResult>): Promise<HolderOutcome> {
+  async #outcome(result: Promise<HolderResult>): Promise<ParticipantOutcome> {
     const settled = await result;
     return settled.code === "delivered"
       ? { code: "delivered", id: this.#id(settled.message) }

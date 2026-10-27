@@ -39,13 +39,13 @@ export const inboxUsage = [
   "       awf inbox --all [--open] [--workflow <name>] [--as <key>] [--after <cursor>] [--wait <seconds>]",
   "                 [--cwd <directory>] [--run-root <directory>] [--json]",
   "",
-  "What agents said to a coordinator outside the run, and what it said back: routes, messages,",
+  "What agents said to a participant outside the run, and what it said back: routes, messages,",
   "answers, questions that closed unanswered, and each attempt's end, oldest first. --all reads",
   "every run here that connected one. --after reads on from a cursor the last answer gave; --wait",
   "waits up to that many seconds, at most 300, when nothing is new. --open lists the questions",
   "still waiting for an answer, a snapshot. --json prints one item per line.",
   "",
-  "Exits 0 on a read that worked, 1 when there is no such run, it has no coordinator, or the",
+  "Exits 0 on a read that worked, 1 when there is no such run, it has no participant, or the",
   "cursor is another's, 2 on a usage error, 3 when the run's files could not be read.",
 ].join("\n");
 
@@ -250,7 +250,7 @@ function parseInbox(rest: readonly string[]): Options {
 
 type RunItems = { ref: string; items: Item[] };
 
-/** The runs to read, each with its items; a run that never connected a coordinator has none. */
+/** The runs to read, each with its items; a run that never connected a participant has none. */
 async function readInbox(
   options: Options,
   state: CursorState,
@@ -264,8 +264,8 @@ async function readInbox(
     await watch.read(one);
     if (one.items === undefined && !one.live)
       throw new Refused(
-        "no-coordinator",
-        `${ref} ended without connecting ${options.as ? `coordinator ${options.as}` : "a coordinator"}`,
+        "no-participant",
+        `${ref} ended without connecting ${options.as ? `participant ${options.as}` : "a participant"}`,
       );
     return [{ ref, items: one.items ?? [] }];
   }
@@ -294,7 +294,7 @@ type Watched = {
   labels: ReadonlyMap<number, string>;
   fold: ItemFold;
   mark: LogMark;
-  /** Undefined when it never connected a coordinator, or none under `as`. */
+  /** Undefined when it never connected a participant, or none under `as`. */
   items: Item[] | undefined;
   live: boolean;
   /**
@@ -400,9 +400,9 @@ type Numbered = { number: number; line: RunLogLine };
 export class ItemFold {
   readonly #items: Item[] = [];
   readonly #connected = new Set<string>();
-  /** By attempt: the coordinators connected and their labels. */
+  /** By attempt: the participants connected and their labels. */
   readonly #outside = new Map<number, Map<string, JsonObject | undefined>>();
-  readonly #open = new Map<string, { coordinator: string; attempt: number }>();
+  readonly #open = new Map<string, { participant: string; attempt: number }>();
   /** Each route as opened, by its ends, for the item that says it closed. */
   readonly #purposes = new Map<
     string,
@@ -422,7 +422,7 @@ export class ItemFold {
     return this;
   }
 
-  /** Its items in the log's order; undefined when it never connected a coordinator, or none under `as`. */
+  /** Its items in the log's order; undefined when it never connected a participant, or none under `as`. */
   items(
     attempts: readonly AttemptRecord[],
     live: boolean,
@@ -442,7 +442,7 @@ export class ItemFold {
           if (question.attempt === ended)
             ends.push({
               kind: "expired",
-              coordinator: question.coordinator,
+              participant: question.participant,
               id,
               reason: "attempt-ended",
               at: lastAt,
@@ -467,7 +467,7 @@ export class ItemFold {
     );
     return as === undefined
       ? items
-      : items.filter((item) => !("coordinator" in item) || item.coordinator === as);
+      : items.filter((item) => !("participant" in item) || item.participant === as);
   }
 
   #add(number: number, line: RunLogLine): void {
@@ -498,7 +498,7 @@ export class ItemFold {
     if (line.kind === "participant-post") {
       items.push({
         kind: "post",
-        coordinator: line.participant,
+        participant: line.participant,
         id: `${attempt}.${line.id}`,
         text: line.text,
         ...(here.get(line.participant) === undefined ? {} : { labels: here.get(line.participant) }),
@@ -509,16 +509,16 @@ export class ItemFold {
     }
     if (line.kind === "route-opened" || line.kind === "route-closed") {
       const [a, b] = line.between ?? [line.from, line.to];
-      const coordinator = here.has(a) ? a : here.has(b) ? b : undefined;
-      if (coordinator === undefined) return;
-      const agent = coordinator === a ? b : a;
+      const participant = here.has(a) ? a : here.has(b) ? b : undefined;
+      if (participant === undefined) return;
+      const agent = participant === a ? b : a;
       const direction = line.between
         ? "both"
-        : line.from === coordinator
-          ? "from-coordinator"
-          : "to-coordinator";
-      const labels = here.get(coordinator);
-      const ends = JSON.stringify([attempt, coordinator, agent, direction]);
+        : line.from === participant
+          ? "from-participant"
+          : "to-participant";
+      const labels = here.get(participant);
+      const ends = JSON.stringify([attempt, participant, agent, direction]);
       if (line.kind === "route-opened")
         this.#purposes.set(ends, {
           purpose: line.purpose,
@@ -530,7 +530,7 @@ export class ItemFold {
       items.push({
         kind: "route",
         state: line.kind === "route-opened" ? "opened" : "closed",
-        coordinator,
+        participant,
         agent: address(line.callPath, agent),
         direction,
         ...opening,
@@ -545,7 +545,7 @@ export class ItemFold {
         if (line.replyTo !== undefined) {
           items.push({
             kind: "answered",
-            coordinator: line.from,
+            participant: line.from,
             id: id(line.replyTo),
             answer: line.text,
             via: line.via ?? "command",
@@ -556,7 +556,7 @@ export class ItemFold {
         } else
           items.push({
             kind: "message",
-            coordinator: line.from,
+            participant: line.from,
             id: id(line.message),
             from: line.from,
             to: address(line.callPath, line.to),
@@ -571,7 +571,7 @@ export class ItemFold {
       const asks = line.awaitsReply !== undefined;
       items.push({
         kind: "message",
-        coordinator: line.to,
+        participant: line.to,
         id: id(line.message),
         from: address(line.callPath, line.from),
         to: line.to,
@@ -581,13 +581,13 @@ export class ItemFold {
         at,
         position,
       });
-      if (asks) this.#open.set(id(line.message), { coordinator: line.to, attempt });
+      if (asks) this.#open.set(id(line.message), { participant: line.to, attempt });
       return;
     }
     if (line.kind === "request-ended" && here.has(line.owedBy) && line.end !== "replied") {
       items.push({
         kind: "expired",
-        coordinator: line.owedBy,
+        participant: line.owedBy,
         id: id(line.message),
         reason: EXPIRY[line.end] ?? "attempt-ended",
         at,
@@ -672,10 +672,10 @@ function textOf(item: InboxItemJson, all: boolean): string {
     case "route": {
       const arrow =
         item.direction === "both"
-          ? `${item.agent} ↔ ${item.coordinator}`
-          : item.direction === "to-coordinator"
-            ? `${item.agent} → ${item.coordinator}`
-            : `${item.coordinator} → ${item.agent}`;
+          ? `${item.agent} ↔ ${item.participant}`
+          : item.direction === "to-participant"
+            ? `${item.agent} → ${item.participant}`
+            : `${item.participant} → ${item.agent}`;
       return item.state === "opened"
         ? `${head}route ${arrow} opened  “${item.purpose}”${item.timeoutMs === undefined ? "" : `  ${duration(item.timeoutMs)}`}`
         : `${head}route ${arrow} closed  ${item.reason}`;
@@ -691,7 +691,7 @@ function textOf(item: InboxItemJson, all: boolean): string {
     case "answered":
       return `${head}${item.id}  answered (${item.via})\n${body(item.answer)}`;
     case "post":
-      return `${head}${item.id}  run → ${item.coordinator}\n${body(item.text)}`;
+      return `${head}${item.id}  run → ${item.participant}\n${body(item.text)}`;
     case "expired":
       return `${head}${item.id}  closed unanswered: ${item.reason}`;
     case "ended":

@@ -48,7 +48,7 @@ END
 `{ref}`, `{from}` and `{id}` are the item's `ref`, `from` and `id`, exactly as printed. Always pass
 `--to`: it keeps a late answer off a newer question. To message an agent first, use
 `awf send {ref} {agent} --json` the same way. When the workflow connects more than one
-coordinator, add `--as {key}`, the item's `coordinator`.
+coordinator, add `--as {key}`, the item's `participant`.
 
 The result is one JSON line. `delivered` means the agent will see it. `expired` means the question
 closed or someone answered first: drop it. `ended` means the run is over. Any other `code` comes

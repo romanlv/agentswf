@@ -6,7 +6,7 @@ import type {
   RouteEnds,
   UndeliveredReason,
 } from "@agentswf/contract/records";
-import type { HolderCode, PeerView, ReplyCode, SendCode } from "@agentswf/contract/wire";
+import type { ParticipantCode, PeerView, ReplyCode, SendCode } from "@agentswf/contract/wire";
 import type { AgentKey, JsonObject } from "@agentswf/contract/workflow";
 import type { AuthoredMessage } from "@agentswf/harness/adapter";
 import { duration } from "../duration";
@@ -117,7 +117,7 @@ export type HolderRequest = {
 /** A holder's result: a reply's `message` is the question's number, a send's the new message's. */
 export type HolderResult =
   | { code: "delivered"; message: number }
-  | { code: Exclude<HolderCode, "not-found">; error: string; choices?: string[] };
+  | { code: Exclude<ParticipantCode, "not-found">; error: string; choices?: string[] };
 
 /** A question open to an outside participant, and when it closes unanswered if it has a limit. */
 export type OpenQuestion = {
@@ -420,7 +420,7 @@ export class Messaging {
 
   /**
    * A holder answers a question, as `awf reply` does: the first answer wins. Refusals come in
-   * `HOLDER_CODES`' order, a question's own state before its route's.
+   * `PARTICIPANT_CODES`' order, a question's own state before its route's.
    */
   async holderReply(request: HolderRequest): Promise<HolderResult> {
     if (this.#closed) return holderRefusal("ended", "the run has ended.");
@@ -557,14 +557,14 @@ export class Messaging {
       return {
         kind: "refused",
         result: holderRefusal(
-          "no-coordinator",
+          "no-participant",
           `no coordinator ${key} is connected${this.#outside.has(key) ? ": it was released" : ""}.`,
         ),
       };
     if (connected.length === 0)
       return {
         kind: "refused",
-        result: holderRefusal("no-coordinator", "the run has no coordinator connected."),
+        result: holderRefusal("no-participant", "the run has no coordinator connected."),
       };
     return {
       kind: "ok",
@@ -1677,7 +1677,7 @@ function refuse<C extends SendCode | ReplyCode>(code: C, error: string) {
 }
 
 function holderRefusal(
-  code: Exclude<HolderCode, "not-found">,
+  code: Exclude<ParticipantCode, "not-found">,
   error: string,
   choices?: string[],
 ): HolderResult {
