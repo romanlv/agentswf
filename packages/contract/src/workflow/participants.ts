@@ -43,7 +43,7 @@ export interface ParticipantDirectory {
 export interface CodeParticipantSpec extends ExternalParticipantSpec {
   /**
    * Its messages come to the run's code, each a `participant:reply` from its key taken at a wait,
-   * not to an agent: `awf send {ref} --as {key} --id {message id} {text}` delivers one, and continues
+   * not to an agent: `awf send {ref} --as {key} --event-id {message id} {text}` delivers one, and continues
    * a parked run.
    */
   to: "code";

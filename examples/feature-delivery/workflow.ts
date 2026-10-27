@@ -10,7 +10,7 @@
 // messages the author the changes it needs, and the author replies with each revision, up to
 // `--revisions` of them (3 by default). The run stops when an agent gives no answer, an author
 // moves the ticket doc, a reviewer can't decide, or a review still wants changes when it ends.
-// `--continue {ticket}` keeps the stages that finished and redoes the one that stopped, with fresh
+// `--id {ticket} --continue` keeps the stages that finished and redoes the one that stopped, with fresh
 // agents: each stage's value carries what later stages need, and each prompt says all its agent
 // needs to know.
 //

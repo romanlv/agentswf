@@ -69,9 +69,9 @@ export interface ExecutableWorkflow<Args extends JsonValue, Result extends JsonV
   readonly definition: WorkflowDefinition<Args, Result>;
   prepare(invocation: WorkflowInvocation): Args;
   /**
-   * The run's id, derived from its args, such as a ticket's: unique within the workflow, by the
-   * grammar of `nameProblem`. `awf run --id` overrides it; without either, one is
-   * generated.
+   * The run's id, derived from its args, such as a ticket's: unique within the workflow, letters,
+   * digits, `.`, `_`, `@` and `-`, starting with a letter or digit. `awf run --id` overrides it;
+   * without either, one is generated.
    */
   id?(args: Args): string;
   /**

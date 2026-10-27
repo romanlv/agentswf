@@ -45,11 +45,11 @@ function setup() {
       [
         "--target",
         file,
-        "--run",
+        "--id",
         "k",
         "dd.changes",
         JSON.stringify({ case: "k", n }),
-        "--id",
+        "--event-id",
         `c${n}`,
       ],
       dirs.tempRunDir(),
@@ -92,6 +92,8 @@ test("awf run starts a run of a workflow with events by its id, with no event, a
   // Without --id there is nothing to name the run by.
   expect(await run()).toBe(2);
   expect(out.pop()).toContain("is named by its id: awf run --id {id}");
+  expect(await run("--id", "k", "--timeout", "5m")).toBe(2);
+  expect(out.pop()).toContain("as every wake starts it: it takes no --timeout");
   expect(await run("--id", "k")).toBe(0);
   const opened = await openRun(join(root, ".awf", "runs"), "e2e-case", "k");
   await until(async () => (await readAttempts(opened)).at(-1)?.outcome === "parked");
@@ -110,10 +112,9 @@ test("awf run --continue of an event run takes no stage, values or arguments", a
   for (const [extra, message] of [
     [["--from-stage", "x"], "takes no --from-stage or --values"],
     [["--", "arg"], "takes no arguments"],
-    [["--id", "j"], "--id names a new run"],
   ] as const) {
     const err: string[] = [];
-    const code = await runOperatorCli(["run", file, "--continue", "k", ...extra], {
+    const code = await runOperatorCli(["run", file, "--id", "k", "--continue", ...extra], {
       home,
       stdout: () => undefined,
       stderr: (t) => err.push(t),
@@ -151,7 +152,7 @@ export default defineEventWorkflow({
   const io = { stdout: () => undefined, stderr: () => undefined };
   const send = (n: number, environment: Record<string, string | undefined>) =>
     emitCommand(
-      ["--target", file, "--run", "one", "ping", JSON.stringify({ n }), "--id", `p${n}`],
+      ["--target", file, "--id", "one", "ping", JSON.stringify({ n }), "--event-id", `p${n}`],
       dirs.tempRunDir(),
       io,
       {

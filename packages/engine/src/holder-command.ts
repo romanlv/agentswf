@@ -9,21 +9,21 @@ import { isCode } from "./files";
 import { ItemFold } from "./inbox-command";
 import { coordinatorDir } from "./machine";
 import { failed, type Out, parsePlace, type ReadPlace } from "./run-commands";
-import { findKeyedRun, findRun, RunNotFound, type RunStatus } from "./run-state";
+import { findRunByRef, RunNotFound, type RunStatus } from "./run-state";
 import { readAttempts, readEvents, readNumberedEvents } from "./runs";
 import { exchange } from "./socket-exchange";
 
 export const replyUsage = [
   "usage: awf reply <workflow>/<id> <agent> [--to <id>] [--as <key>] [<text>] [--json]",
   "       awf send <workflow>/<id> <agent> [--as <key>] [<text>] [--json]",
-  "       awf send <workflow>/<id> --as <participant> --id <message id> [--author <name>] [<text>]",
+  "       awf send <workflow>/<id> --as <participant> --event-id <id> [--author <name>] [<text>]",
   "                [--cwd <directory>] [--run-root <directory>]",
   "",
   "Answers a question an agent asked a coordinator outside the run, or messages an agent first,",
   "over a route the workflow allowed. The text is the argument, or stdin without one. --to names",
   "the question, as awf inbox prints it; it may be left out when the agent has one open. --as",
   "names the coordinator when the workflow connects more than one. Neither waits for an answer:",
-  "it comes back in awf inbox. With --id, send is a reply on a participant the run routes to its",
+  "it comes back in awf inbox. With --event-id, send is a reply on a participant the run routes to its",
   "code: no agent, it reaches the run whether it runs or is parked, and the same id again is a",
   "duplicate. The id is one the run has not had from anyone, as a chat's message ids are. It prints",
   "as awf emit does, and exits 0 for whatever the run did with it (delivered, duplicate, or refused",
@@ -42,7 +42,7 @@ type Options = {
 } & (
   | { agent: string; as?: string; id?: undefined }
   /**
-   * `--id`: the message's own id, which a participant routed to the code takes as its event's. It
+   * `--event-id`: the message's own id, which a participant routed to the code takes as its event's. It
    * goes to no agent.
    */
   | { id: string; as: string; agent?: undefined }
@@ -101,7 +101,7 @@ export async function holderCommand(
   try {
     let status: RunStatus;
     try {
-      ({ status } = await findRun(place.runRoot, options.ref));
+      status = await findRunByRef(options.ref, place, io.home ?? homedir());
     } catch (error) {
       if (error instanceof RunNotFound) return refused("not-found", error.message);
       throw error;
@@ -171,7 +171,7 @@ function parseHolder(command: "reply" | "send", rest: readonly string[]): Option
     };
     if (arg === "--to" && command === "reply") to = value();
     else if (arg === "--as") as = value();
-    else if (arg === "--id" && command === "send") id = value();
+    else if (arg === "--event-id" && command === "send") id = value();
     else if (arg === "--author" && command === "send") author = value();
     else if (arg === "--") {
       words.push(...rest.slice(index + 1));
@@ -179,26 +179,26 @@ function parseHolder(command: "reply" | "send", rest: readonly string[]): Option
     } else if (arg.startsWith("--")) throw new Error(`unknown option: ${arg}`);
     else words.push(arg);
   }
-  // With --id, the participant's reply goes to the run's code: there is no agent to name.
+  // With --event-id, the participant's reply goes to the run's code: there is no agent to name.
   let target: { agent: string; as?: string } | { id: string; as: string };
   let ref: string | undefined;
   let text: string | undefined;
   let extra: string[];
   if (id !== undefined) {
     [ref, text, ...extra] = words;
-    if (!ref) throw new Error("send needs a run, <workflow>/<id>");
-    if (!as) throw new Error("--id sends as a participant routed to the code: --as names it");
+    if (!ref) throw new Error("send needs a run, <workflow>/<id> or <id>");
+    if (!as) throw new Error("--event-id sends as a participant routed to the code: --as names it");
     const problem = eventIdProblem(id);
-    if (problem) throw new Error(`--id ${id}: ${problem}`);
+    if (problem) throw new Error(`--event-id ${id}: ${problem}`);
     target = { id, as };
   } else {
     let agent: string | undefined;
     [ref, agent, text, ...extra] = words;
-    if (author !== undefined) throw new Error("--author goes with --id");
-    if (!ref || !agent) throw new Error(`${command} needs a run, <workflow>/<id>, and an agent`);
+    if (author !== undefined) throw new Error("--author goes with --event-id");
+    if (!ref || !agent)
+      throw new Error(`${command} needs a run, <workflow>/<id> or <id>, and an agent`);
     target = { agent, ...(as === undefined ? {} : { as }) };
   }
-  if (!ref.includes("/")) throw new Error(`a run is <workflow>/<id>, not ${ref}`);
   if (extra.length > 0) throw new Error("the text is one argument: quote it, or pipe it in");
   if (to !== undefined && !/^\d+\.\d+$/.test(to))
     throw new Error(`--to takes a question's id as awf inbox prints it, such as 1.5, not ${to}`);
@@ -238,7 +238,7 @@ async function awaitedBy(
 }
 
 /**
- * `awf send {ref} --as {participant} --id {message id} {text}`: a reply on a participant the run
+ * `awf send {ref} --as {participant} --event-id {message id} {text}`: a reply on a participant the run
  * routed to the code, delivered through the one way in as `participant:reply`, so it continues a
  * parked run. The run is found here, or in a project awf started an event run in (Q15).
  */
@@ -253,13 +253,13 @@ async function toTheCode(
   const environment = io.environment ?? process.env;
   const { id, as } = options;
   const { refused } = say;
-  let found: RunStatus | undefined;
+  let found: RunStatus;
   try {
-    found = await findKeyedRun(options.ref, place, home);
+    found = await findRunByRef(options.ref, place, home);
   } catch (error) {
+    if (error instanceof RunNotFound) return refused("not-found", error.message);
     return failed(error, place, io, messageOf(error));
   }
-  if (!found) return refused("not-found", `no run ${options.ref} here, or in a project awf knows`);
   const { run } = found;
   const routed = (await readEvents(run.dir)).some(
     (line) =>
@@ -268,7 +268,7 @@ async function toTheCode(
   if (!run.record.events || !routed)
     return refused(
       "no-coordinator",
-      `${found.ref} has no participant ${as} routed to its code; --id is for one`,
+      `${found.ref} has no participant ${as} routed to its code; --event-id is for one`,
     );
   const text = options.text ?? (await io.stdin());
   if (text.trim() === "") return say.usage("nothing to say: stdin was empty");

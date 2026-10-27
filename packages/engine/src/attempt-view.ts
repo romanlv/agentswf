@@ -356,8 +356,9 @@ export function continueCommand(
     ...(command.runRootGiven ? ["--run-root", command.runRoot] : []),
     ...(command.cwdGiven ? ["--cwd", command.cwd] : []),
     pathFrom(command.shellCwd, command.workflowFile),
-    "--continue",
+    "--id",
     id,
+    "--continue",
     ...(redo === undefined ? [] : ["--from-stage", redo]),
     ...(values === undefined ? [] : ["--values", values]),
   ]

@@ -5,7 +5,7 @@ import type { InboxItemJson } from "@agentswf/contract/records";
 import { emitCommand } from "./emit-command";
 import { foldMailbox, readMailbox } from "./mailbox";
 import { runOperatorCli } from "./operator-cli";
-import { findKeyedRun } from "./run-state";
+import { findRunByRef } from "./run-state";
 import { createRun, openRun, readAttempts } from "./runs";
 import { createTempRunDirs, keyedProject, until } from "./testing";
 
@@ -45,7 +45,7 @@ test("a reply on a participant routed to the code reaches the run, live or parke
   const io = { stdout: (t: string) => out.push(t), stderr: (t: string) => err.push(t) };
   expect(
     await emitCommand(
-      ["--target", file, "--run", "k", "dd.changes", '{"case":"k"}'],
+      ["--target", file, "--id", "k", "dd.changes", '{"case":"k"}'],
       dirs.tempRunDir(),
       io,
       {
@@ -56,7 +56,7 @@ test("a reply on a participant routed to the code reaches the run, live or parke
   ).toBe(0);
   const run = await openRun(join(root, ".awf", "runs"), "e2e-thread", "k");
   const send = (id: string, text: string, ...extra: string[]) =>
-    runOperatorCli(["send", "e2e-thread/k", "--as", "thread", "--id", id, ...extra, text], {
+    runOperatorCli(["send", "e2e-thread/k", "--as", "thread", "--event-id", id, ...extra, text], {
       // Found through ~/.awf/projects, from a directory with no runs.
       cwd: dirs.tempRunDir(),
       home,
@@ -130,7 +130,7 @@ test("a reply on a participant routed to the code reaches the run, live or parke
   const refused: string[] = [];
   expect(
     await runOperatorCli(
-      ["send", "e2e-thread/k", "--as", "other", "--id", "1729.003", "--json", "hi"],
+      ["send", "e2e-thread/k", "--as", "other", "--event-id", "1729.003", "--json", "hi"],
       {
         cwd: dirs.tempRunDir(),
         home,
@@ -145,10 +145,10 @@ test("a reply on a participant routed to the code reaches the run, live or parke
 }, 60_000);
 
 test.each([
-  [["--as", "thread", "--id", "Bad Id"], "--id Bad Id"],
-  [["--as", "thread", "--id", "awf.x"], "are awf's own"],
-  [["--id", "m1"], "--as names it"],
-  [["agent", "--author", "e"], "--author goes with --id"],
+  [["--as", "thread", "--event-id", "Bad Id"], "--event-id Bad Id"],
+  [["--as", "thread", "--event-id", "awf.x"], "are awf's own"],
+  [["--event-id", "m1"], "--as names it"],
+  [["agent", "--author", "e"], "--author goes with --event-id"],
 ])("awf send %p is a usage error", async (flags, message) => {
   const err: string[] = [];
   const code = await runOperatorCli(["send", "x/y", ...flags, "hi"], {
@@ -175,10 +175,10 @@ test("a ref that is a run in two projects is refused, naming both; --cwd chooses
   }
   mkdirSync(join(home, ".awf"), { recursive: true });
   writeFileSync(join(home, ".awf", "projects"), `${roots.join("\n")}\n`);
-  await expect(findKeyedRun("w/k", { runRoot: dirs.tempRunDir() }, home)).rejects.toThrow(
+  await expect(findRunByRef("w/k", { runRoot: dirs.tempRunDir() }, home)).rejects.toThrow(
     "is a run in 2 projects",
   );
   expect(
-    (await findKeyedRun("w/k", { runRoot: join(roots[1]!, ".awf", "runs") }, home))?.run.root,
+    (await findRunByRef("w/k", { runRoot: join(roots[1]!, ".awf", "runs") }, home))?.run.root,
   ).toBe(join(roots[1]!, ".awf", "runs"));
 });

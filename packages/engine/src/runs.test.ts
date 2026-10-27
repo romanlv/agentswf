@@ -79,7 +79,7 @@ describe("runs", () => {
     const at = root();
     await createRun(at, run());
     await expect(createRun(at, run())).rejects.toThrow(
-      "PROJ-1515 exists; --continue it, or --id another to start over",
+      "PROJ-1515 exists; --continue goes on with it, or --id another id starts over",
     );
     await expect(createRun(at, run("proj-1515"))).rejects.toBeInstanceOf(RunRefused);
     await expect(createRun(at, run(".hidden"))).rejects.toThrow("not a valid id");

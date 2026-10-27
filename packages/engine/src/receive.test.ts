@@ -188,7 +188,7 @@ test("workflow.emit sends to its target by the target's file, and a test records
   );
   expect(run.value).toBe("accepted");
   expect(run.emits).toEqual([
-    { target: target.definition.file, name: "dd.changes", data: { case: "k" }, id: "c1" },
+    { run: "dd-case/k", name: "dd.changes", data: { case: "k" }, id: "c1" },
   ]);
 });
 

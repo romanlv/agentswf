@@ -1364,10 +1364,13 @@ describe("tool records and awf logs", () => {
     expect(lines[0]).toMatchObject({ input: { id: "a1", status: "done" } });
 
     const out: string[] = [];
-    await logsCommand([`records/${result.runId}`, "--run-root", runRoot], process.cwd(), {
-      stdout: (text) => out.push(text),
-      stderr: (text) => out.push(text),
-    });
+    await logsCommand(
+      [`records/${result.runId}`, "--run-root", runRoot],
+      process.cwd(),
+      { stdout: (text) => out.push(text), stderr: (text) => out.push(text) },
+      undefined,
+      runRoot,
+    );
     const shown = out
       .join("\n")
       .split("\n")

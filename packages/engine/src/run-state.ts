@@ -192,12 +192,16 @@ export function stuckOf(
   return failuresInARow(attempts, records) >= STUCK_AFTER;
 }
 
-/** A run by its ref, under `--cwd`'s runs or in a project awf started an event run in (Q15). */
-export async function findKeyedRun(
+/**
+ * The run `ref` names, `{workflow}/{id}` or an `{id}` only one workflow has: under `--cwd`'s runs
+ * first, then in each project awf started an event run in (Q15). Every command that takes a run
+ * finds it here.
+ */
+export async function findRunByRef(
   ref: string,
   place: { runRoot: string },
   home: string,
-): Promise<RunStatus | undefined> {
+): Promise<RunStatus> {
   // Here first: what `--cwd` names wins.
   let here: RunNotFound;
   try {
@@ -222,7 +226,7 @@ export async function findKeyedRun(
   if (found[0]) return found[0];
   // Nowhere: a ref that can't name a run, malformed or naming two workflows, says why.
   if (malformedRef(ref) || here.message.includes("more than one workflow")) throw here;
-  return undefined;
+  throw new RunNotFound(`no run ${ref} under ${place.runRoot}, or in a project awf knows`);
 }
 
 /** Why `ref` can't name a run at all, whatever is on disk; undefined when it can. */

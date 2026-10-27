@@ -8,13 +8,13 @@ import { idProblem, runRootOf, stageNameProblem } from "./runs";
 
 export const usage = [
   "usage: awf run [options] <workflow-file> [options] [-- workflow arguments...]",
-  "       awf run [options] <workflow-file> --continue <id>",
-  "run options: --id <id>, --continue <id>, --from-stage <stage>, --values <file>,",
+  "       awf run [options] <workflow-file> --id <id> --continue",
+  "run options: --id <id>, --continue, --from-stage <stage>, --values <file>,",
   "             --timeout <duration>, --run-root <directory>, --cwd <directory>, --sandbox <file>,",
   "             --json, --no-watch, --here",
   "",
-  "Each awf run is an attempt of a run: a new run, with --id's id or a generated one, or the run",
-  "--continue names, with the arguments, --cwd and --sandbox it was started with. A continue reuses",
+  "Each awf run is an attempt of a run: a new run, with --id's id or a generated one, or, with",
+  "--continue, the run --id names, with the arguments, --cwd and --sandbox it was started with. A continue reuses",
   "the stages that succeeded, up to the first with no record or to --from-stage, and runs the rest.",
   "A new run with --from-stage starts there. A stage before it with no record to reuse takes its",
   "value from --values, a JSON object by stage name, checked by its result; one that returns",
@@ -66,7 +66,7 @@ export type RunCommand = {
   runRoot: string;
   /** A new run's id, as `--id` gave it. */
   id?: string;
-  /** The run `--continue` adds an attempt to. */
+  /** The run `--id` names, which `--continue` adds an attempt to. */
   continueId?: string;
   /** The stage the attempt starts at, reusing those before it. */
   fromStage?: string;
@@ -92,8 +92,8 @@ export function parseCommand(argv: readonly string[], cwd: string): RunCommand |
   let timeout: string | undefined;
   let timeoutMilliseconds: number | undefined;
   let runRoot: string | undefined;
-  let id: string | undefined;
-  let continueId: string | undefined;
+  let named: string | undefined;
+  let continuing = false;
   let fromStage: string | undefined;
   let values: RunCommand["values"];
   let cwdGiven = false;
@@ -125,6 +125,10 @@ export function parseCommand(argv: readonly string[], cwd: string): RunCommand |
       here = true;
       continue;
     }
+    if (option === "--continue") {
+      continuing = true;
+      continue;
+    }
     const value = argv[index + 1];
     if (option === "--timeout") {
       if (!value) throw new Error("--timeout needs a duration such as 30m");
@@ -140,12 +144,11 @@ export function parseCommand(argv: readonly string[], cwd: string): RunCommand |
       if (!statSync(workCwd, { throwIfNoEntry: false })?.isDirectory()) {
         throw new Error(`--cwd: not a directory: ${workCwd}`);
       }
-    } else if (option === "--id" || option === "--continue") {
-      if (!value) throw new Error(`${option} needs a run's id`);
+    } else if (option === "--id") {
+      if (!value) throw new Error("--id needs a run's id");
       const problem = idProblem(value);
-      if (problem) throw new Error(`${option}: ${problem}`);
-      if (option === "--id") id = value;
-      else continueId = value;
+      if (problem) throw new Error(`--id: ${problem}`);
+      named = value;
     } else if (option === "--from-stage") {
       if (!value) throw new Error("--from-stage needs a stage's name");
       const problem = stageNameProblem(value);
@@ -170,9 +173,10 @@ export function parseCommand(argv: readonly string[], cwd: string): RunCommand |
   }
   if (!workflowFile) throw new Error("run needs one workflow file");
   if (here && session !== undefined) throw new Error("--here and --session do not go together");
-  if (id !== undefined && continueId !== undefined) {
-    throw new Error("--id names a new run and --continue an existing one; give one");
-  }
+  if (continuing && named === undefined)
+    throw new Error("--continue goes on with the run --id names");
+  const id = continuing ? undefined : named;
+  const continueId = continuing ? named : undefined;
   if (values !== undefined && fromStage === undefined) {
     throw new Error("--values goes with --from-stage: it gives the stages before it");
   }

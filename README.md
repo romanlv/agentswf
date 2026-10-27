@@ -269,7 +269,7 @@ stops, it says how to go on:
 ```
 ■ stopped in qa: the mr environment never came up
   ticket PROJ-1515 · attempt 1 · 52m 10s · …
-  go on    awf run ticket.ts --continue PROJ-1515
+  go on    awf run ticket.ts --id PROJ-1515 --continue
   records  .awf/runs/ticket/PROJ-1515
 ```
 

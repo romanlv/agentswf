@@ -54,7 +54,7 @@ they do.
      harness released and its result channel closed. What (2) adds is the run waiting on it.
    - The progress view shows the run as waiting on a person, with the pane to go to.
 3. **Continue from a stage**: [[018-workflow-stages|story 018]] builds the continue with fresh
-   agents (`--continue {run} --from-stage {stage}`, [[runs-and-stages]]). What's left here:
+   agents (`--id {run} --continue --from-stage {stage}`, [[runs-and-stages]]). What's left here:
    - reopening each agent's native session (`claude --resume`) on a restart, rather than opening
      fresh ones; this needs reopening measured per harness;
    - `--skip-stage` and stale-record checks (`fresh`), which 018 lists as later.

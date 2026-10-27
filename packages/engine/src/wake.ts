@@ -183,7 +183,7 @@ const SOCKET_MILLISECONDS = 5_000;
 const CLAIM_MILLISECONDS = 60_000;
 
 /**
- * Runs `awf run {file} --continue {id}` in a session of its own (Q4), so it outlives the sender's
+ * Runs `awf run {file} --id {id} --continue` in a session of its own (Q4), so it outlives the sender's
  * terminal, in the run's project with its recorded `PATH`, its output in the run's `process.log`.
  * Bun reads the project's `.env` there, as at every start, so a rotated token reaches it.
  */
@@ -202,8 +202,9 @@ function detachedLaunch(context: WakeContext): Launch {
           CLI,
           "run",
           file,
-          "--continue",
+          "--id",
           run.record.id,
+          "--continue",
           "--run-root",
           run.root,
         ],

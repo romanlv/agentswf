@@ -24,7 +24,7 @@ workflow   implement-ticket                 the meta.name in the file; the file'
        │    ├─ stage review       ran        succeeded  value ✓
        │    ├─ stage mr           ran        succeeded  value ✓
        │    └─ stage qa           ran        failed     (agent settled without an answer)
-       └─ attempt 2   flow.ts  v1.2.1        --continue PROJ-1515, after a code fix
+       └─ attempt 2   flow.ts  v1.2.1        --id PROJ-1515 --continue, after a code fix
             ├─ stage doc-review   reused     the value attempt 1 recorded
             ├─ stage implement    reused
             ├─ stage review       reused
@@ -421,12 +421,12 @@ projects reaches their `.awf/runs`, as it reaches their source.
 ## One attempt, start to end
 
 ```
-awf run flow.ts [--id I | --continue I] [--from-stage S [--values F]] -- argv
+awf run flow.ts [--id I [--continue]] [--from-stage S [--values F]] -- argv
  1. load flow.ts → meta.name, meta.version, id(args)?
  2. resolve the run
       new run     prepare(argv) → args; id = --id, else id(args), else generated;
                   claim runs/{workflow}/{id} with its run.json (taken → refuse: "PROJ-1515
-                  exists; --continue it, or --id another to start over").
+                  exists; --continue goes on with it, or --id another id starts over").
       --continue  read runs/{meta.name}/{id}/run.json (missing → look under the other workflows
                   and say where it is, or refuse "no run PROJ-1515 of implement-ticket in
                   {root}; a run is kept under the directory it works in, which --cwd names").
@@ -506,7 +506,7 @@ no record to reuse needs its value, and `--values {file}` gives them, a JSON obj
 ```
 awf run flow.ts --from-stage qa-local --json -- PROJ-1234
 → stopped in doc-review, needs: [{stage: "doc-review", schema: {…}}, {stage: "review", …}, {stage: "mr", …}]
-awf run flow.ts --continue PROJ-1234 --from-stage qa-local --values v.json --json
+awf run flow.ts --id PROJ-1234 --continue --from-stage qa-local --values v.json --json
 → qa-local runs
 ```
 
@@ -570,7 +570,7 @@ A refusal (the id taken, an attempt live, argv on a continue) exits 2, as usage 
 `report` is called for every ending, with the `Ending` ([[#The author API]]), so a stopped run
 can hand off what its stages found. `present` renders a completed attempt's value, and without it
 awf prints the JSON. An attempt that didn't complete is awf's to print: the stage, the reason and
-`continue`: `awf run {file} --continue {id}`, plus `--from-stage {stage}` when a plain continue
+`continue`: `awf run {file} --id {id} --continue`, plus `--from-stage {stage}` when a plain continue
 wouldn't start there. A completed attempt whose runtime then fails to clean up ends `failed`, and
 every record of it says so.
 

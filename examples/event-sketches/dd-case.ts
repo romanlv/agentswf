@@ -1,5 +1,5 @@
 // The Datadog watcher's case run, from agent/workflows/datadog-watcher/style-c-sketch.md: one run
-// per case, keyed by the case id. A type-checked sketch: the case's files are declared below, and
+// per case, named by the case id. A type-checked sketch: the case's files are declared below, and
 // so is the emit to its own mailbox its tool's handler needs, which awf doesn't have yet.
 import {
   defineEventWorkflow,

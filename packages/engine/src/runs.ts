@@ -136,7 +136,7 @@ async function claimRun(
 }
 
 function takenMessage(id: string): string {
-  return `${id} exists; --continue it, or --id another to start over`;
+  return `${id} exists; --continue goes on with it, or --id another id starts over`;
 }
 
 /** Another run whose id differs from `id` only in case; the same id is the rename's to refuse. */

@@ -7,12 +7,12 @@ import type { Launch } from "./wake";
 import { loadWorkflowFile } from "./workflow-loader";
 
 export const emitUsage = [
-  "usage: awf emit --target <file> --run <id> <event> [<json>] [--id <id>] [--json]",
+  "usage: awf emit --target <file> --id <id> <event> [<json>] [--event-id <id>] [--json]",
   "",
-  "Sends an event to the run of a workflow with events that --run names. That run starts if it has",
+  "Sends an event to the run of a workflow with events that --id names. That run starts if it has",
   "none and the event is one that starts one, and is woken if it has one: nudged while it runs, continued when it is",
   "parked or crashed. The run lives in the project of <file>, the nearest directory above it",
-  "holding .awf/, whoever sends. --id names the occurrence: the same id again is a duplicate.",
+  "holding .awf/, whoever sends. --event-id names the occurrence: the same id again is a duplicate.",
   "",
   "Prints what became of the event, and what was done to the run: accepted, duplicate or refused.",
   "--json prints one document. Exits 0 for any of the three, 1 when the run's attempt could not be",
@@ -107,14 +107,14 @@ function parse(argv: readonly string[]): {
       return next;
     };
     if (word === "--target") target = value();
-    else if (word === "--run") run = value();
-    else if (word === "--id") id = value();
+    else if (word === "--id") run = value();
+    else if (word === "--event-id") id = value();
     else if (word === "--json") json = true;
     else if (word.startsWith("--")) throw new Error(`unknown option ${word}`);
     else words.push(word);
   }
   if (target === undefined) throw new Error("--target names the workflow file the event is for");
-  if (run === undefined) throw new Error("--run names the run the event is for, by its id");
+  if (run === undefined) throw new Error("--id names the run the event is for, by its id");
   const [name, text, ...more] = words;
   if (name === undefined) throw new Error("the event's name is missing");
   if (more.length > 0) throw new Error(`one event at a time; also given: ${more.join(" ")}`);

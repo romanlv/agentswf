@@ -344,7 +344,7 @@ export type AttemptRecord = {
   messageLimits?: MessageLimits;
   /**
    * A completed run of a workflow with `events`: how many events in its mailbox no wait took; the
-   * last batch taken was handled, as the code returned after it. Its key refuses every later event.
+   * last batch taken was handled, as the code returned after it. The run refuses every later event.
    */
   unacknowledged?: number;
 };
@@ -362,7 +362,7 @@ export const MAILBOX_RECORD_VERSION = 1 as const;
 
 /**
  * A line of `mailbox.jsonl`, the run's events and what its waits did with them, appended under the
- * key's lock by whoever writes it: a sender, the run, or awf on the run's behalf.
+ * run's lock by whoever writes it: a sender, the run, or awf on the run's behalf.
  */
 export type MailboxRecord = {
   version: typeof MAILBOX_RECORD_VERSION;

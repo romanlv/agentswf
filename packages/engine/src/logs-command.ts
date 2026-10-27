@@ -1,3 +1,4 @@
+import { homedir } from "node:os";
 import type { LogEventJson, LogsJson, RouteEnds, RunLogLine } from "@agentswf/contract/records";
 import type { JsonObject } from "@agentswf/contract/workflow";
 import { duration } from "./duration";
@@ -30,7 +31,7 @@ import {
   readRun,
   timeOf,
 } from "./run-read";
-import { findRun, type RunStatus } from "./run-state";
+import { findRun, findRunByRef, type RunStatus } from "./run-state";
 import { describeActivity } from "./run-view";
 
 export const logsUsage = [
@@ -84,6 +85,7 @@ export async function logsCommand(
   shellCwd: string,
   out: Out,
   clock: LogsClock = REAL_CLOCK,
+  home: string = homedir(),
 ): Promise<number> {
   if (argv.includes("-h") || argv.includes("--help")) {
     out.stdout(logsUsage);
@@ -103,7 +105,10 @@ export async function logsCommand(
     return 2;
   }
   try {
-    const { status, alsoRunning } = await findRun(place.runRoot, options.ref);
+    const { status, alsoRunning } =
+      options.ref === undefined
+        ? await findRun(place.runRoot, undefined)
+        : { status: await findRunByRef(options.ref, place, home), alsoRunning: [] };
     const again = shellLine(command(place, "awf", "logs", status.ref));
     let after: Cursor | undefined;
     if (options.after !== undefined) {
@@ -202,8 +207,9 @@ class Reader {
     });
   }
 
-  async refresh(runRoot: string): Promise<RunStatus> {
-    this.status = (await findRun(runRoot, this.status.ref)).status;
+  /** The run read again where it was found, which may be another project's. */
+  async refresh(): Promise<RunStatus> {
+    this.status = (await findRun(this.status.run.root, this.status.ref)).status;
     return this.status;
   }
 }
@@ -324,7 +330,7 @@ async function page(
     waited = true;
     if (!reader.from) from = read.cursor;
     await clock.sleep(POLL_MS);
-    await reader.refresh(place.runRoot);
+    await reader.refresh();
     read = await reader.next(from);
     ({ events, stages } = kept(read, options, json));
     if (events.length > 0) {
@@ -436,7 +442,7 @@ async function follow(
       if (reader.status.state !== "running") break;
       await clock.sleep(POLL_MS);
     }
-    await reader.refresh(place.runRoot);
+    await reader.refresh();
     read = await reader.next(cursor);
   }
   out.stdout(trailer(reader.status, read, place, undefined, undefined, undefined));

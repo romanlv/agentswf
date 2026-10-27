@@ -38,7 +38,7 @@ workflow.receive({ label?, until?, take? })                   // → the events 
 agent.start({ prompt, schema?, meta? })   agent.turn          // a turn not awaited; its end is agent:ended
 agent.ended<Meta, T>(e)   participant.replied(e)              // narrow awf's events
 workflow.participants.connect({ key, to: "code" })            // replies come as participant:reply; .post(text)
-workflow.emit(target, name, data, { id? })                    // → "accepted" | "duplicate" | "refused"
+workflow.emit(target, run, name, data, { id? })               // → "accepted" | "duplicate" | "refused"
 
 workflow.log(message, fields?)   workflow.usage()   workflow.deadline   workflow.cwd
 workflow.runId   workflow.attempt
@@ -375,7 +375,7 @@ const reviews = await workflow.parallel(
 ## Stages
 
 A run is one piece of work, kept in `.awf/runs/{workflow}/{id}`, and each `awf run` of it is an
-attempt. A stage is a named step whose result the run keeps, so `awf run file.ts --continue {id}`
+attempt. A stage is a named step whose result the run keeps, so `awf run file.ts --id {id} --continue`
 reuses what succeeded and picks up at the stage that didn't.
 
 ```ts
@@ -611,8 +611,8 @@ claude's own messaging between sessions is a different thing, on by default:
 
 ## Events
 
-A workflow that reacts to things that happen declares the events it takes and which run each
-belongs to. An event starts its key's run, or lands in the run's mailbox; the run takes waiting
+A workflow that reacts to things that happen declares the events it takes, and each sender names
+the run an event is for. An event starts that run, or lands in its mailbox; the run takes waiting
 events at a wait, handles them in plain code, and starts an agent turn only when one is needed.
 Between events the run parks: its process exits, and the next event runs its code from the top.
 
@@ -643,7 +643,7 @@ export default defineEventWorkflow({
 ```
 
 ```sh
-awf emit --target case.ts --run kombo-unique dd.changes '{"case":"kombo-unique"}' --id 83d34d7
+awf emit --target case.ts --id kombo-unique dd.changes '{"case":"kombo-unique"}' --event-id 83d34d7
 ```
 
 - **Sending.** `workflow.emit(caseRun, run, name, data, { id })` imports its target, so a wrong name or
@@ -652,7 +652,7 @@ awf emit --target case.ts --run kombo-unique dd.changes '{"case":"kombo-unique"}
   or it has none and `starts` doesn't list the event). An id names one occurrence for good; without
   one, nothing deduplicates the event.
 - **The run's id.** The sender names the run an event is for, as `awf send` names the run it
-  writes to: `awf emit --run`, `workflow.emit`'s second argument. The ref is `{workflow}/{id}`, as
+  writes to: `awf emit --id`, `workflow.emit`'s second argument. The ref is `{workflow}/{id}`, as
   for a run without events, and `workflow.runId` is the id. Run ids are letters, digits, `.`, `_`, `@` and `-`, starting
   with a letter or digit; event ids and stage names are the same, lowercase, so a stage named by
   an event id (`close-{id}`) is always valid.
@@ -686,9 +686,9 @@ awf emit --target case.ts --run kombo-unique dd.changes '{"case":"kombo-unique"}
   often its name is entered, in any attempt and any version of the code, while its value fits.
   Name it by its one effect: `close-{event id}`, `post-f3@abc123`.
 - **A participant routed to the code**, `connect({ key, to: "code" })`, turns each message into
-  `participant:reply` from its key; `awf send {ref} --as {key} --id {message id} {text}` delivers
+  `participant:reply` from its key; `awf send {ref} --as {key} --event-id {message id} {text}` delivers
   one, and `participant.post(text)` writes back without a turn.
-- **`return`** ends the run for good: later events for its key are refused. A run that may be
+- **`return`** ends the run for good: later events for it are refused. A run that may be
   needed again records what happened in its files and keeps waiting instead.
 
 ## Logging and usage
@@ -909,7 +909,7 @@ const run = await testWorkflow(caseRun, {
 });
 run.parked;                                   // { label, until } of the wait it parked at
 run.turnsOf("investigator")[1]?.prompt;       // what the second turn was asked
-run.emits;                                    // events it sent other workflows, which a test doesn't start
+run.emits;                                    // events it sent, { run: "{workflow}/{id}", name, data, id? }; none is delivered
 run.mailbox;                                  // its mailbox as it left it
 ```
 

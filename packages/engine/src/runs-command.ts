@@ -1,3 +1,4 @@
+import { homedir } from "node:os";
 import type { RunJson, RunsJson } from "@agentswf/contract/records";
 import { duration } from "./duration";
 import { messageOf } from "./errors";
@@ -19,7 +20,7 @@ import {
   stateWord,
 } from "./run-commands";
 import { encodeCursor } from "./run-read";
-import { findRun, listRuns, type RunStatus, runStatus } from "./run-state";
+import { findRunByRef, listRuns, type RunStatus, runStatus } from "./run-state";
 import { type AgentView, describeActivity, type RunView, viewRun } from "./run-view";
 
 export const runsUsage = [
@@ -28,7 +29,8 @@ export const runsUsage = [
   "",
   "The runs here, newest first, or one run in depth: its attempts, the stages of the last, what",
   "each agent is doing, and what to run next. A run is <workflow>/<id>, or an <id> only one",
-  "workflow here has. Runs are read under --cwd's .awf/runs, or --run-root, as awf run keeps them.",
+  "workflow has. Runs are listed under --cwd's .awf/runs, or --run-root, as awf run keeps them; a",
+  "run named is found there first, then in each project awf has started a run with events in.",
   "",
   "--json prints one document, the interface for scripts. Exits 0 on any read that worked, 1 when",
   "there is no such run, 2 on a usage error, 3 when the run's files could not be read.",
@@ -41,6 +43,7 @@ export async function runsCommand(
   shellCwd: string,
   out: Out,
   now: number = Date.now(),
+  home: string = homedir(),
 ): Promise<number> {
   if (argv.includes("-h") || argv.includes("--help")) {
     out.stdout(runsUsage);
@@ -65,7 +68,7 @@ export async function runsCommand(
   const { place, json } = parsed;
   try {
     if (ref === undefined) return await list(place, all, json, out, now);
-    const view = await viewRun((await findRun(place.runRoot, ref)).status);
+    const view = await viewRun(await findRunByRef(ref, place, home));
     out.stdout(
       json ? JSON.stringify(runJson(view, place, now), null, 2) : describe(view, place, now),
     );

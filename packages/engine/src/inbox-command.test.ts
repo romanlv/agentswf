@@ -414,7 +414,7 @@ describe("awf inbox", () => {
       code: "bad-cursor",
     });
     void run;
-    expect((await inbox(root, "nope")).code).toBe(2);
+    expect((await inbox(root, "nope")).code).toBe(1);
   });
 });
 

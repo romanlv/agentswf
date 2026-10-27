@@ -24,7 +24,7 @@ import {
   type ReadPlace,
   shellLine,
 } from "./run-commands";
-import { findKeyedRun, listRuns, RunNotFound, statusOf } from "./run-state";
+import { findRunByRef, listRuns, RunNotFound, statusOf } from "./run-state";
 import {
   attemptsToken,
   type LogMark,
@@ -141,14 +141,10 @@ export async function inboxCommand(
     }
     const deadline = clock.now() + options.waitSeconds * 1000;
     // An event run lives in its project, found through ~/.awf/projects from anywhere (Q15).
-    const keyed =
-      options.ref === undefined ? undefined : await findKeyedRun(options.ref, place, home);
-    if (options.ref !== undefined && !keyed)
-      throw new RunNotFound(
-        `no run ${options.ref} under ${place.runRoot}, or in a project awf knows`,
-      );
-    const watch = new Watch(keyed?.run.root ?? place.runRoot, options.as);
-    const one = keyed === undefined ? undefined : watch.entry(keyed.run);
+    const found =
+      options.ref === undefined ? undefined : await findRunByRef(options.ref, place, home);
+    const watch = new Watch(found?.run.root ?? place.runRoot, options.as);
+    const one = found === undefined ? undefined : watch.entry(found.run);
     for (;;) {
       const runs = await readInbox(options, state, watch, one);
       // After a run that is not there, or never connected one: those come first.
@@ -244,9 +240,7 @@ function parseInbox(rest: readonly string[]): Options {
     else throw new Error(`one run at a time: ${options.ref} and ${arg}`);
   }
   if (options.all === (options.ref !== undefined))
-    throw new Error("name a run, <workflow>/<id>, or read them all with --all");
-  if (options.ref !== undefined && !options.ref.includes("/"))
-    throw new Error(`a run is <workflow>/<id>, not ${options.ref}`);
+    throw new Error("name a run, <workflow>/<id> or <id>, or read them all with --all");
   if (options.workflow !== undefined && !options.all)
     throw new Error("--workflow narrows --all; a run names its workflow already");
   if (options.open && (options.after !== undefined || options.waitSeconds > 0))

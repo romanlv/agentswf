@@ -147,7 +147,7 @@ Each example that spans more than one file has a folder of its own, with its wor
   the entry point. It prints a line per finding to act on, and writes `report.md` with the
   evidence, the verifier's reasons and what was refuted, to hand back to the implementer.
 - `feature-delivery/` takes a ticket from plan to approved change, each step a stage, so
-  `--continue {ticket}` redoes the step that stopped. `-- {ticket}` runs it with a claude planner
+  `--id {ticket} --continue` redoes the step that stopped. `-- {ticket}` runs it with a claude planner
   and codex for the implementer and the reviewer; `--revisions {n}` bounds each review's revisions and
   `--reviewer {name}={runtime}` adds a reviewer who looks last. Its planner has a skill, which claude
   takes only from outside its working directory, so `--run-root` puts the run's records elsewhere.

@@ -109,6 +109,7 @@ async function awfLogs(fixture: Fixture, argv: string[], clock = fakeClock()) {
     fixture.cwd,
     { stdout: (text) => out.push(text), stderr: (text) => err.push(text) },
     clock,
+    fixture.cwd,
   );
   return { exitCode, stdout: out.join("\n"), stderr: err.join("\n") };
 }
@@ -388,7 +389,7 @@ describe("awf logs", () => {
     );
     const gone = await fixture({ pid: Bun.spawnSync(["true"]).pid, processStart: T(0) });
     expect((await awfLogs(gone, [])).stdout.split("\n").at(-1)).toBe(
-      "run interrupted · continue: awf run review.ts --continue r1",
+      "run interrupted · continue: awf run review.ts --id r1 --continue",
     );
   });
 
@@ -796,7 +797,7 @@ describe("awf logs", () => {
     const f = await fixture();
     expect(await awfLogs(f, ["20261008-0000-ffff"])).toMatchObject({
       exitCode: 1,
-      stderr: `no run 20261008-0000-ffff under ${join(f.cwd, ".awf", "runs")}; runs here: awf runs`,
+      stderr: `no run 20261008-0000-ffff under ${join(f.cwd, ".awf", "runs")}, or in a project awf knows; runs here: awf runs`,
     });
     expect(await awfLogs(f, ["review/r1", "--after", "c1.zzz"])).toMatchObject({
       exitCode: 1,

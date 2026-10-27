@@ -37,7 +37,7 @@ written in it are the design's test cases: the Datadog watcher's case run
 ## How it works
 
 ```text
-awf emit --target case.ts --run {case} dd.changes {json} --id {commit}     the triage tick, a script
+awf emit --target case.ts --id {case} dd.changes {json} --event-id {commit}     the triage tick, a script
         │  checked against case.ts's events: a wrong name or shape is an error
         ▼
   run = dd-case/{case}; under the run's lock: a repeated id ► duplicate; the run returned, or no run
@@ -146,7 +146,7 @@ const needsTurn = (kase: Case) =>
 ```
 
 ```sh
-awf emit --target case.ts --run kombo-unique dd.changes '{"case":"kombo-unique"}' --id 83d34d7   # per changed case
+awf emit --target case.ts --id kombo-unique dd.changes '{"case":"kombo-unique"}' --event-id 83d34d7   # per changed case
 ```
 
 Thirty triage ticks that add occurrences are thirty events and no turn. A reply during a turn is
@@ -179,7 +179,7 @@ In scope:
 - the run's mailbox: append under the run's lock, deduplicate by id within the run, what each wait
   took and acknowledged, its `until` and label;
 - stages by content in a run with `events`: a record reused wherever it is entered;
-- `awf emit --target {workflow} --run {id} {name} {json} [--id {id}]`: check against the target's
+- `awf emit --target {workflow} --id {id} {name} {json} [--event-id {id}]`: check against the target's
   schema, append, wake the run, and print the outcome;
 - `workflow.emit` typed from the target it imports, so a wrong event fails `tsc`;
 - `agent.start()`, `agent.turn`, `agent:ended` written by the engine with the turn's id and
@@ -404,8 +404,8 @@ As in "How it works". The rules and records in full:
   earlier attempts' turns, without sending the workflow's instructions twice; a pane starts with
   the agent's first turn, not when it is opened. If a turn was cut, the engine writes its failed
   end before the code runs (Q17).
-- **`awf tick`**, run on any schedule, calls `wake` on every run of a workflow with `events`, so it
-  continues a parked run whose `until` has passed, a crashed one, and a failed one under Q13's
+- **`awf tick`**, run on any schedule, calls `wake` on every run of a workflow with `events` in
+  its project, or with `--all` in every project awf recorded (Q8, task 12), so it continues a parked run whose `until` has passed, a crashed one, and a failed one under Q13's
   limit. Runs without `events` are left as they are.
 - **Only a workflow with `events` waits.** `receive` exists only on a workflow with `events`, by
   type; at run time a plain run's `receive` rejects. Such a workflow takes no input. An event
@@ -480,8 +480,10 @@ would crash it; Q5, a lock per key, so two events at once
 start one run and the other lands in its mailbox; Q7, a run that may reopen doesn't `return`: it
 records the close in its files and parks, so a reopen is an ordinary continue, and a `return` ends
 the run for good; Q8, `awf tick`, run on any schedule, calls `wake` on every run of a workflow with
-`events`, which continues a parked one whose `until` has passed. A scheduler can be built on it
-later; Q9, below.
+`events` in the project it runs in, as every other command reads that folder's runs, and
+`awf tick --all` on every project in `~/.awf/projects`; a wake continues a parked run whose
+`until` has passed. Changed 2026-10-26 from every project by default (task 12). A scheduler can be
+built on it later; Q9, below.
 
 ### A wake doesn't replay the loop (Q9)
 
@@ -533,6 +535,7 @@ turn, which the case's files keep and the wait's `until` reads.
 - [ ] 9. The Datadog case run on it, against its sketch
 - [x] 10. One run id: the sender names the run, no `key`, no `{workflow}.` prefix, `starts` optional, `awf run --id` with no event
 - [ ] 11. One kind of workflow: `events` optional on `defineExecutableWorkflow`, `defineEventWorkflow` gone; design reviewed before building
+- [ ] 12. `awf tick` wakes its own project's runs; `--all` wakes every project's
 
 ## Open questions
 
@@ -587,7 +590,7 @@ into Q4. The published formats among them still stop for review at task 1.
   file is the one thing every sender names: a run with `events` lives under the `.awf/runs` of its
   project, the nearest directory above the target's file that holds `.awf/`, or else the file's
   own directory, whoever sends. awf records each such project in `~/.awf/projects` when it first
-  starts a run there; `awf tick` goes through that list, and `awf runs`, `awf logs`, `awf inbox`
+  starts a run there; `awf tick --all` goes through that list, and `awf runs`, `awf logs`, `awf inbox`
   and `awf send` find keyed runs through it too. The run always runs in its project, with the
   `PATH` recorded at its first start, and reads the project's `.env` again at every start and
   continue: its values are never recorded, so no secret lands in `.awf/runs`, and a rotated token
@@ -622,7 +625,7 @@ into Q4. The published formats among them still stop for review at task 1.
 - Q18. **A participant routed to the code.** Decided, as the smallest change to today's
   participants: `participants.connect({ key, to: "code" })` routes its messages to the code, where
   a participant without `to` keeps today's routes to agents. awf-chat delivers a reply with
-  `awf send dd-case/{id} --as thread --id {message id} {text}`. Today `awf send` needs an agent,
+  `awf send dd-case/{id} --as thread --event-id {message id} {text}`. Today `awf send` needs an agent,
   has no `--id` and fails on a run that isn't live (`holder-command.ts`); for a participant routed
   to the code the agent is left out, `--id` is taken, and the reply goes through the one way in,
   not the socket, so it continues a parked run.
@@ -787,7 +790,7 @@ parked run keeps its participants.
 Done when:
 
 - tests: a reply to a live run, and a reply to a parked run that continues it, both through
-  `awf send --as … --id …` with no agent; a reply delivered twice is appended once; a parked run's participant is still listed in `awf inbox`, and a continue
+  `awf send --as … --event-id …` with no agent; a reply delivered twice is appended once; a parked run's participant is still listed in `awf inbox`, and a continue
   reattaches the same participant; a fake chat host receives `post`'s text. awf-chat's own change
   follows this story.
 
@@ -828,7 +831,7 @@ Done when:
 ### 10. One run id
 
 Outcome: a run of a workflow with events is named the way any run is, by whoever starts it or
-sends to it: `awf emit --run {id}`, `workflow.emit(target, id, …)`, `awf run --id {id}`. The
+sends to it: `awf emit --id {id}`, `workflow.emit(target, id, …)`, `awf run --id {id}`. The
 definition has no `key` and no routing function, the run's id has no `{workflow}.` prefix, so the
 ref is `{workflow}/{id}`, and `workflow.key` goes, `workflow.runId` says it. `starts` may be left
 out, and then every event starts a run. `awf run {file} --id {id}` starts a run with no event,
@@ -836,11 +839,12 @@ which parks at its first wait; `testWorkflow` takes `{ id, event? }`.
 
 Done when:
 
-- an emit with `starts` absent starts a run from any event; `awf emit` without `--run` is an
+- an emit with `starts` absent starts a run from any event; `awf emit` without `--id` is an
   error; `awf run --id` starts a run that parks with no event, says so for one already there and
-  for one that returned, and refuses an event workflow without `--id`; `--id` with `--continue`
-  is refused; `testWorkflow(…, { id })` parks at the first wait; the docs and the sketches name
-  runs at the sender.
+  for one that returned, and refuses an event workflow without `--id`, and the flags a wake can't
+  pass on; `--id` names the run on `awf run` and `awf emit`, `--event-id` an occurrence on `awf
+  emit` and `awf send`, and `--continue` is a switch; `testWorkflow(…, { id })` parks at the
+  first wait; the docs and the sketches name runs at the sender.
 
 ### 11. One kind of workflow
 
@@ -868,6 +872,24 @@ Done when:
   wrapped in a generic helper.
 - `awf run case.ts -- {args}` starts a case by hand, and an emit for its id lands in that run.
 - a workflow without `events` behaves as today.
+
+### 12. A tick for its own project
+
+Outcome: `awf tick` wakes the runs with `events` of the project it runs in, the one `awf runs`
+there lists, and `awf tick --all` keeps today's loop over every project in `~/.awf/projects`
+(Q8, changed 2026-10-26). Why: every other command works on its folder, and a tick that reaches
+every project is the riskier default. A test in a scratch folder wakes real runs elsewhere, a
+folder in the list that is gone fails every tick on the machine, and each tick reads every
+project's runs when one is due. Finding a run by its id from any folder, for `emit`, `send`,
+`runs`, `logs` and `inbox` (Q15), stays as it is: only what the tick wakes changes.
+
+Done when:
+
+- tests: `awf tick` in one project leaves a due run in another; `--all` wakes both; `awf tick` in
+  a folder with no `.awf/runs` wakes nothing and exits 0; a gone folder in `~/.awf/projects` fails
+  only `--all`.
+- `awf tick --help`, `docs/workflow-api.md` and the watcher's `process-compose.yaml`, whose
+  `awf-tick` runs in the watcher's folder, say the same.
 
 ## Implementation notes
 
@@ -1380,7 +1402,7 @@ that can't name a run, such as webhooks, without changing a call.
   `[]` is still refused at load, so "none" can't be spelled. The load check no longer refuses a
   `.` in an event workflow's name, which only separated the key.
 - **The sender names the run.** `workflow.emit(target, run, name, data, { id })`,
-  `awf emit --target {file} --run {id} …`, and `emitEvent`'s event `{ run, name, data, id? }`;
+  `awf emit --target {file} --id {id} …`, and `emitEvent`'s event `{ run, name, data, id? }`;
   `deliver` was already given a run id. `idProblem` checks it, the grammar of every run id: letters
   of either case, digits, `.`, `_`, `@` and `-`, starting with a letter or digit. Lowercase-only
   was tried and dropped: plain runs are named by ticket keys (`PROJ-1515`), and `createRun` already
@@ -1388,8 +1410,16 @@ that can't name a run, such as webhooks, without changing a call.
   `workflow.runId` is the same value.
 - **Records.** `RunRecord.key` became `events: true`, which marks a run of a workflow with events;
   its value was the run's id.
+- **One name per id on the CLI.** `--id` was the run on `awf run`, the event on `awf emit` and
+  the message on `awf send`, while the run was also `--continue {id}` and, for a moment, `--run`
+  on `emit`. Now `--id` is always the run's id (`awf run`, `awf emit`), `--event-id` the
+  occurrence's (`awf emit`, `awf send`, where a message's id becomes its event's), and `--continue`
+  a switch: `awf run {file} --id {id} --continue`. awf prints its go-on lines and `wake` launches
+  in that form, and awf-lab passes `--id`. In code the run is `emit`'s second argument, so
+  `EmitOptions.id` stays the event's.
 - **`awf run --id`.** `loadAndPrepare` returns `opens` for an event workflow with `--id` and no
-  `--continue`, and refuses one without either; `openEventRun` (`emit.ts`) makes the run under its
+  `--continue`, and refuses one without either, and one given `--timeout`, `--sandbox`, `--cwd` or
+  `--run-root`, which a wake would not pass on to later attempts; `openEventRun` (`emit.ts`) makes the run under its
   lock, as `deliver` does, and calls `wake`, which starts it detached, so every run with events runs
   the same way, its output in `process.log`. It prints `{ref}: started`, or
   `{ref} was there: {what wake did}`, and exits 1 when the launch fails. `--here` refuses it: it
@@ -1401,8 +1431,14 @@ that can't name a run, such as webhooks, without changing a call.
 - **Names inside the engine.** The key lock is the run lock (`run-lock.ts`, `withRunLock`), and
   comments say "event run" for "keyed run". `LoadedWorkflow.keyed` and `findKeyedRun` keep their
   names.
-- **Tests**: `emit.test.ts` (no `starts`; `--run` on every `awf emit`), `emit-e2e.test.ts`
-  (`awf run --id` detached: parks, found there, returned, refused without `--id`; `--id` with
-  `--continue`), `receive.test.ts` (`testWorkflow` by `{ id }`). The fixtures lost their
+- **Tests**: `emit.test.ts` (no `starts`; `--id` on every `awf emit`), `emit-e2e.test.ts`
+  (`awf run --id` detached: parks, found there, returned, refused without `--id` and with
+  `--timeout`), `receive.test.ts` (`testWorkflow` by `{ id }`). The fixtures lost their
   `{workflow}.` prefixes; the sketches' ticks name each case's run.
-- **Verified**: `bun test` 2187 pass; `bun run check` passes.
+- **After an API review** (2026-10-27): a test's `run.emits` names the run each event went to,
+  `{ run: "{workflow}/{id}", name, data, id? }`, in place of the target's file. Every command that
+  takes a run (`awf runs`, `logs`, `inbox`, `reply`, `send`) finds it one way, `findRunByRef`:
+  `{workflow}/{id}` or an `{id}` one workflow has, under `--cwd` first, then in each project in
+  `~/.awf/projects`. Before, only `inbox` and `send --id` looked in other projects, and `inbox`,
+  `reply` and `send` refused a bare id.
+- **Verified**: `bun test` 2188 pass; `bun run check` passes.

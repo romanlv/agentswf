@@ -396,7 +396,7 @@ describe("awf emit", () => {
     const context = { home: p.home, environment: { PATH: "/bin" }, launch: fakeLaunch() };
     expect(
       await emitCommand(
-        ["--target", p.file, "--run", "k", "dd.changes", '{"case":"k"}', "--id", "c1"],
+        ["--target", p.file, "--id", "k", "dd.changes", '{"case":"k"}', "--event-id", "c1"],
         p.root,
         io,
         context,
@@ -404,7 +404,7 @@ describe("awf emit", () => {
     ).toBe(0);
     expect(
       await emitCommand(
-        ["--target", p.file, "--run", "k", "dd.changes", '{"case":"k"}', "--id", "c1"],
+        ["--target", p.file, "--id", "k", "dd.changes", '{"case":"k"}', "--event-id", "c1"],
         p.root,
         io,
         context,
@@ -413,7 +413,7 @@ describe("awf emit", () => {
     expect(out).toEqual(["accepted dd-case/k: started", "duplicate dd-case/k"]);
     expect(
       await emitCommand(
-        ["--target", p.file, "--run", "k", "dd.changes", '{"case":1}'],
+        ["--target", p.file, "--id", "k", "dd.changes", '{"case":1}'],
         p.root,
         io,
         context,
@@ -423,7 +423,7 @@ describe("awf emit", () => {
     out.length = 0;
     expect(
       await emitCommand(
-        ["--target", p.file, "--run", "j", "dd.changes", '{"case":"j"}', "--json"],
+        ["--target", p.file, "--id", "j", "dd.changes", '{"case":"j"}', "--json"],
         p.root,
         io,
         context,
@@ -508,7 +508,7 @@ describe("refusals before a run", () => {
     const err: string[] = [];
     const io = { stdout: () => undefined, stderr: (t: string) => err.push(t) };
     const code = await emitCommand(
-      ["--target", p.file, "--run", "k", "dd.changes", "{}"],
+      ["--target", p.file, "--id", "k", "dd.changes", "{}"],
       p.root,
       io,
       {
@@ -526,7 +526,7 @@ describe("refusals before a run", () => {
     const err: string[] = [];
     const out: string[] = [];
     const code = await emitCommand(
-      ["--target", p.file, "--run", "k", "dd.changes", "{}", "--id", "c1"],
+      ["--target", p.file, "--id", "k", "dd.changes", "{}", "--event-id", "c1"],
       p.root,
       { stdout: (t) => out.push(t), stderr: (t) => err.push(t) },
       {
@@ -730,7 +730,13 @@ describe("awf tick", () => {
     const p = project();
     await keyedRun(p, "k", [ended("failed"), ended("failed"), { ...GONE }]);
     const out: string[] = [];
-    await runsCommand(["--json"], p.root, { stdout: (t) => out.push(t), stderr: () => undefined });
+    await runsCommand(
+      ["--json"],
+      p.root,
+      { stdout: (t) => out.push(t), stderr: () => undefined },
+      Date.now(),
+      p.home,
+    );
     expect((JSON.parse(out[0]!) as RunsJson).runs).toMatchObject([
       { ref: "dd-case/k", state: "stuck" },
     ]);

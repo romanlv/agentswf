@@ -131,17 +131,24 @@ async function prepareRun(
 
 /**
  * Why `awf run` doesn't take a workflow with `events` as asked: a new run needs `--id`, and
- * `--continue` goes on with one from wherever its attempt stopped.
+ * `--continue` goes on with it from wherever its attempt stopped.
  */
 function keyedRefusal(command: RunCommand, file: string): string | undefined {
-  if (command.continueId !== undefined && command.id !== undefined)
-    return "--id names a new run; --continue names the run it goes on with";
   if (command.workflowArgs.length > 0) return "a workflow with events takes no arguments";
   if (command.continueId === undefined) {
     if (command.id === undefined)
-      return `a run of ${file} is named by its id: awf run --id {id} starts one with no event, awf emit --target ${file} --run {id} {event} {json} with one`;
+      return `a run of ${file} is named by its id: awf run --id {id} starts one with no event, awf emit --target ${file} --id {id} {event} {json} with one`;
     if (command.fromStage !== undefined || command.values !== undefined)
       return "a run of a workflow with events takes no --from-stage or --values";
+    // Every attempt after the first is started by a wake, which passes none of these on.
+    const unkept = [
+      command.timeout === undefined ? undefined : "--timeout",
+      command.sandbox === undefined ? undefined : "--sandbox",
+      command.cwdGiven ? "--cwd" : undefined,
+      command.runRootGiven ? "--run-root" : undefined,
+    ].filter((flag) => flag !== undefined);
+    if (unkept.length > 0)
+      return `a run of a workflow with events runs in its file's project, as every wake starts it: it takes no ${unkept.join(", ")}`;
     return undefined;
   }
   if (command.fromStage !== undefined || command.values !== undefined)

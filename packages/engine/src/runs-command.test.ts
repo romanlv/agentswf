@@ -4,6 +4,7 @@ import { join } from "node:path";
 import {
   type AttemptRecord,
   MAILBOX_RECORD_VERSION,
+  type RunJson,
   type RunsJson,
 } from "@agentswf/contract/records";
 import { writeJson } from "./files";
@@ -63,6 +64,7 @@ async function awfRuns(cwd: string, ...argv: string[]) {
     cwd,
     { stdout: (text) => out.push(text), stderr: (text) => err.push(text) },
     Date.parse(T(14)),
+    cwd,
   );
   return { exitCode, stdout: out.join("\n"), stderr: err.join("\n") };
 }
@@ -165,7 +167,7 @@ describe("awf runs", () => {
       ),
     ).toBe(true);
     expect(lines.at(-2)).toBe("see: awf logs implement-ticket/r2 --agent worker --limit 30");
-    expect(lines.at(-1)).toBe("continue: awf run review.ts --continue r2");
+    expect(lines.at(-1)).toBe("continue: awf run review.ts --id r2 --continue");
   });
 
   test("a run whose process is gone is interrupted, and says how to go on", async () => {
@@ -186,7 +188,7 @@ describe("awf runs", () => {
       /^review\/r3 {2}interrupted {2}stage fix {2}last event \d\d:\d\d:\d\d$/,
     );
     expect(lines.some((line) => /fixer +was working +turn 1/.test(line))).toBe(true);
-    expect(lines.at(-1)).toBe("continue: awf run review.ts --continue r3");
+    expect(lines.at(-1)).toBe("continue: awf run review.ts --id r3 --continue");
   });
 
   test("--json keeps durable fields apart from best-effort ones, and names next", async () => {
@@ -242,7 +244,7 @@ describe("awf runs", () => {
     const missing = await awfRuns(cwd, "nope");
     expect(missing.exitCode).toBe(1);
     expect(missing.stderr).toBe(
-      `no run nope under ${join(cwd, ".awf", "runs")}; runs here: awf runs`,
+      `no run nope under ${join(cwd, ".awf", "runs")}, or in a project awf knows; runs here: awf runs`,
     );
     expect((await awfRuns(cwd, "--bogus")).exitCode).toBe(2);
   });
@@ -556,4 +558,27 @@ test("an event run that returned says how many events no wait took", async () =>
   ]);
   await writeJson(join(run.dir, "run.json"), { ...run.record, events: true });
   expect((await awfRuns(cwd)).stdout).toContain("2 events never taken");
+});
+
+test("a run is found by its ref from anywhere: here first, then in each project awf knows", async () => {
+  const project = runDirs.tempRunDir();
+  const elsewhere = runDirs.tempRunDir();
+  await makeRun(project, "dd-case", "kombo", [{ started: T(2), ended: T(3), outcome: "parked" }]);
+  mkdirSync(join(elsewhere, ".awf"), { recursive: true });
+  writeFileSync(join(elsewhere, ".awf", "projects"), `${project}\n`);
+  const out: string[] = [];
+  const found = (ref: string) =>
+    runsCommand(
+      [ref, "--json"],
+      elsewhere,
+      { stdout: (text) => out.push(text), stderr: () => undefined },
+      Date.parse(T(14)),
+      elsewhere,
+    );
+  expect(await found("dd-case/kombo")).toBe(0);
+  expect(await found("kombo")).toBe(0);
+  expect(out.map((text) => (JSON.parse(text) as RunJson).run.ref)).toEqual([
+    "dd-case/kombo",
+    "dd-case/kombo",
+  ]);
 });

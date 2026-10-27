@@ -17,7 +17,9 @@ awf send {workflow}/{id} {agent} 'Also check the 09:12 deploy.'
 
 Like `awf runs`, all three read the runs in the current folder's `.awf/runs`, or in `--cwd` or
 `--run-root`, so a holder runs in the folder where runs start; an app watching several folders runs
-one loop per folder. A run is named `{workflow}/{id}`. Every command takes `--json`, and `--as {key}`
+one loop per folder. A run is named `{workflow}/{id}`, or `{id}` when one workflow has it; a run
+not found there is looked for in each project awf has started a run with events in, as every
+command that takes a run does. Every command takes `--json`, and `--as {key}`
 when the workflow connects more than one coordinator.
 
 ## In a terminal
@@ -95,7 +97,7 @@ that applies, in this order:
 | `code` | Meaning |
 | --- | --- |
 | `delivered` | the agent will see it |
-| `not-found` | no run `{workflow}/{id}` here |
+| `not-found` | no run `{workflow}/{id}` here, or in a project awf knows |
 | `ended` | the run has ended, or for `awf send`, the workflow has returned |
 | `no-coordinator` | no coordinator by that key: not connected yet, released, or never; a reserved key such as `operator` included |
 | `unknown-agent` | the run has no agent at that address |

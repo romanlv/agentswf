@@ -22,7 +22,7 @@ exists, the code is right, then this page.
   (story 027). The session waits on the run as on any command.
 - A run is one piece of work with an id, kept in `.awf/runs/{workflow}/{id}` under its working
   directory; each `awf run` of it is an attempt (story 018, ADR 0011). A workflow marks stages with
-  `workflow.stage`, and `awf run {file} --continue {id}` reuses the stages that succeeded and runs
+  `workflow.stage`, and `awf run {file} --id {id} --continue` reuses the stages that succeeded and runs
   the rest, or redoes from one with `--from-stage`. `workflow.stop` ends an attempt `stopped`.
 - While it runs, `awf run` shows its stages, each labelled `parallel` as a group, and its agents'
   turns: a block redrawn in place on a terminal, a line per change otherwise.
@@ -249,7 +249,7 @@ The inbox of possible stories is [`stories/todo/`](stories/todo/).
   command from one table, with `awf help {command}`, `awf help reference` and typo suggestions.
 - [034 — an event starts a run, and wakes it while it runs](stories/034-event-driven-runs.md):
   tasks 1–8 and 10 built, awaiting human review; task 9, the Datadog case run live, and task 11,
-  one kind of workflow, are left, with Q19 open. A workflow declares its events; `awf emit --run
+  one kind of workflow, are left, with Q19 open. A workflow declares its events; `awf emit --id
   {id}` appends to the run its sender names and wakes it, `awf run --id` starts one with no event,
   the code takes events at a wait, starts turns it doesn't await, and parks between events.
 - [035 — an agent calls a tool the workflow's code handles](stories/035-workflow-tools.md): built,
