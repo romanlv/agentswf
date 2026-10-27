@@ -13,10 +13,6 @@ import {
 import {
   AWF_ID_PREFIX,
   type EventSchemas,
-  type EventWorkflowDefinition,
-  EXECUTABLE_WORKFLOW_KIND,
-  type ExecutableEventWorkflow,
-  type ExecutableWorkflow,
   type HarnessAllowance,
   isEventWorkflow,
   type JsonObject,
@@ -24,6 +20,7 @@ import {
   type OutputOf,
   type ParticipantReply,
   type RuntimeAliases,
+  type Workflow,
   type WorkflowDefinition,
 } from "@agentswf/contract/workflow";
 import { type Harness, sandboxTokens } from "@agentswf/harness";
@@ -34,6 +31,7 @@ import { appendMailbox, RunParked, readMailbox } from "../mailbox";
 import { OPERATOR_ALIASES } from "../operator-aliases";
 import { createRun, idProblem, readEvents, readStageRecords, writeStageRecord } from "../runs";
 import { primaryFailure, WorkflowStopped } from "../stopped";
+import type { EventWorkflow } from "../workflow-loader";
 import { runWorkflow, type SettledRun, WorkflowRunError } from "../workflow-runner";
 import { ParticipantScripts } from "./coordinators";
 import { createScriptedDecisions, type DecisionRequest, type DecisionScript } from "./decisions";
@@ -152,12 +150,17 @@ export type ScriptedEvent<Events extends EventSchemas> = { during: string; id?: 
  * A test of a workflow with `events`: what a run is started with, then sends while it goes on.
  * `recorded`, `fromStage` and `values` have no meaning for it.
  */
-export type EventTestOptions<Events extends EventSchemas> = Omit<
+export type EventTestOptions<Events extends EventSchemas, Args = JsonValue> = Omit<
   TestOptions,
   "recorded" | "fromStage" | "values"
 > & {
   /** The run's id, as `awf run --id` or a sender names it. */
   id: string;
+  /**
+   * Its args, as `awf run --id {id} -- {args}` would prepare them; absent, what `prepare` makes of no
+   * argv, as a run an event starts has.
+   */
+  args?: Args;
   /** The event the run starts with, as `awf emit` would send it; absent, it starts with none. */
   event?: {
     [Name in keyof Events & string]: { name: Name; data: OutputOf<Events[Name]>; id?: string };
@@ -227,39 +230,34 @@ export type TestRun<Result> = {
  * from its own. It rejects when a script cannot meet what the workflow asked, or leaves a list
  * unfinished, or the run stalls: those fail the test, never the workflow.
  */
-export async function testWorkflow<Events extends EventSchemas, Result extends JsonValue>(
-  workflow: ExecutableEventWorkflow<Events, Result>,
-  options: EventTestOptions<NoInfer<Events>>,
+export async function testWorkflow<
+  Args extends JsonValue,
+  Result extends JsonValue,
+  Events extends EventSchemas,
+>(
+  workflow: Workflow<Args, Result, Events> & { readonly events: Events },
+  options: EventTestOptions<NoInfer<Events>, NoInfer<Args>>,
 ): Promise<TestRun<Result>>;
 export async function testWorkflow<Args extends JsonValue, Result extends JsonValue>(
-  workflow: WorkflowDefinition<Args, Result> | ExecutableWorkflow<Args, Result>,
+  workflow: WorkflowDefinition<Args, Result> & { readonly events?: undefined },
   args: NoInfer<Args>,
   options?: TestOptions,
 ): Promise<TestRun<Result>>;
 export async function testWorkflow<Args extends JsonValue, Result extends JsonValue>(
-  workflow:
-    | WorkflowDefinition<Args, Result>
-    | ExecutableWorkflow<Args, Result>
-    | ExecutableEventWorkflow<EventSchemas, Result>,
+  workflow: WorkflowDefinition<Args, Result> | Workflow<Args, Result, EventSchemas>,
   args: NoInfer<Args>,
   options: TestOptions = {},
 ): Promise<TestRun<Result>> {
-  const keyed = isEventWorkflow(workflow) ? workflow.definition : undefined;
+  const withEvents = isEventWorkflow(workflow) ? (workflow as EventWorkflow) : undefined;
   // A workflow with events takes its test's options where another takes its args.
-  const eventOptions = keyed ? (args as unknown as EventTestOptions<EventSchemas>) : undefined;
+  const eventOptions = withEvents ? (args as unknown as EventTestOptions<EventSchemas>) : undefined;
   if (eventOptions) {
     if (typeof eventOptions !== "object" || eventOptions === null)
       throw new Error("a workflow with events is tested from { id, event? }");
     options = eventOptions;
-    args = null as NoInfer<Args>;
   }
-  const started = keyed && eventOptions && startOf(keyed, eventOptions);
-  const given = workflow as WorkflowDefinition<Args, Result> | ExecutableWorkflow<Args, Result>;
-  const definition = keyed
-    ? (keyed as unknown as WorkflowDefinition<Args, Result>)
-    : isExecutable(given)
-      ? given.definition
-      : given;
+  const started = withEvents && eventOptions && startOf(withEvents, eventOptions);
+  const definition = workflow as WorkflowDefinition<Args, Result>;
   const scripts = new Scripts(options.agents);
   const compactionScripts = new Scripts(options.compactions, {
     noun: "compaction",
@@ -298,7 +296,7 @@ export async function testWorkflow<Args extends JsonValue, Result extends JsonVa
       }`,
     );
   };
-  const scripted = keyed && eventOptions && new ScriptedEvents(keyed, eventOptions);
+  const scripted = withEvents && eventOptions && new ScriptedEvents(withEvents, eventOptions);
   let nudge: (() => void) | undefined;
   const events = {
     onActivity: () => arm(stallMs),
@@ -333,6 +331,10 @@ export async function testWorkflow<Args extends JsonValue, Result extends JsonVa
   if (options.files && options.cwd !== undefined)
     throw new Error("files are laid out in the test's own directory: give files or cwd, not both");
   const cwd = options.cwd ?? directory();
+  if (withEvents && eventOptions)
+    args = (
+      "args" in eventOptions ? eventOptions.args : withEvents.prepare({ argv: [], cwd })
+    ) as NoInfer<Args>;
   const host = createScriptedHost(
     scripts,
     compactionScripts,
@@ -420,7 +422,7 @@ export async function testWorkflow<Args extends JsonValue, Result extends JsonVa
       // A test starts no other workflow's run: what it sends is recorded.
       emit: async (target, event) => {
         emits.push({
-          ref: `${target.definition.meta.name}/${event.run}`,
+          ref: `${target.meta.name}/${event.run}`,
           name: event.name,
           data: event.data,
           ...(event.id === undefined ? {} : { eventId: event.id }),
@@ -611,10 +613,7 @@ class ScriptedEvents {
   readonly #max: number;
   #turns = 0;
 
-  constructor(
-    definition: EventWorkflowDefinition<EventSchemas, JsonValue>,
-    options: EventTestOptions<EventSchemas>,
-  ) {
+  constructor(workflow: EventWorkflow, options: EventTestOptions<EventSchemas>) {
     this.#max = options.maxTurns ?? 20;
     if (!Number.isInteger(this.#max) || this.#max < 1)
       throw new Error(`maxTurns is a whole number of turns, at least 1, not ${options.maxTurns}`);
@@ -640,7 +639,7 @@ class ScriptedEvents {
       if (event.name === "participant:reply") {
         const reply = event as { from: string; data: ParticipantReply };
         sent = { from: reply.from, data: { author: "engineer", ...reply.data } };
-      } else checkEvent({ file: definition.file, definition }, event);
+      } else checkEvent(workflow, event);
       return {
         during: event.during,
         name: event.name,
@@ -710,22 +709,22 @@ async function layOut(
  * none, as `awf run --id` starts one.
  */
 function startOf(
-  definition: EventWorkflowDefinition<EventSchemas, JsonValue>,
+  workflow: EventWorkflow,
   options: EventTestOptions<EventSchemas>,
 ): { id: string; record?: MailboxRecord } {
   const { event, id } = options;
   if (typeof id !== "string")
     throw new Error(
-      `a run of ${definition.meta.name} is named by its id: { id }, and an event if it starts with one`,
+      `a run of ${workflow.meta.name} is named by its id: { id }, and an event if it starts with one`,
     );
   const problem = idProblem(id);
   if (problem) throw new Error(problem);
   if (event === undefined) return { id };
-  checkEvent({ file: definition.file, definition }, { name: event.name, data: event.data });
-  const { starts } = definition;
+  checkEvent(workflow, { name: event.name, data: event.data });
+  const { starts } = workflow;
   if (starts && !starts.includes(event.name))
     throw new Error(
-      `${event.name} doesn't start a run of ${definition.meta.name}: its starts are ${starts.join(", ")}`,
+      `${event.name} doesn't start a run of ${workflow.meta.name}: its starts are ${starts.join(", ")}`,
     );
   const record = {
     version: MAILBOX_RECORD_VERSION,
@@ -737,12 +736,6 @@ function startOf(
     from: "operator",
   };
   return { id, record };
-}
-
-function isExecutable<Args extends JsonValue, Result extends JsonValue>(
-  workflow: WorkflowDefinition<Args, Result> | ExecutableWorkflow<Args, Result>,
-): workflow is ExecutableWorkflow<Args, Result> {
-  return (workflow as { kind?: unknown }).kind === EXECUTABLE_WORKFLOW_KIND;
 }
 
 function sandboxesOf(sandboxes: readonly SandboxRecord[] | undefined): Map<string, AgentSandbox> {

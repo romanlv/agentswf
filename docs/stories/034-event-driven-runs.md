@@ -534,7 +534,7 @@ turn, which the case's files keep and the wait's `until` reads.
 - [x] 8. workflow-testing: scripted events
 - [ ] 9. The Datadog case run on it, against its sketch
 - [x] 10. One run id: the sender names the run, no `key`, no `{workflow}.` prefix, `starts` optional, `awf run --id` with no event
-- [ ] 11. One kind of workflow: one flat `defineWorkflow`, `events` optional; `defineExecutableWorkflow`, `defineEventWorkflow` and the nested `definition` gone
+- [x] 11. One kind of workflow: one flat `defineWorkflow`, `events` optional; `defineExecutableWorkflow`, `defineEventWorkflow` and the nested `definition` gone
 - [x] 12. `awf tick` wakes its own project's runs; `--all` wakes every project's
 - [ ] 13. Every wake source declared: `{key}:reply` and `{key}:ended` in `events`, checked when sent (Q19)
 
@@ -894,8 +894,11 @@ export default defineWorkflow({
 
 - `awf run {file} -- {args}` starts any workflow with its args, one with `events` included; one with
   `events` also starts from an event in `starts`, sent to the run its sender names (task 10).
-- A run started by an event has no args: when the workflow has `starts`, `run` takes
-  `Args | undefined`, so the code handles both ways in and `tsc` says so.
+- A run started by an event has no argv: its args are what `prepare` makes of none, as
+  `awf run {file}` with no arguments gets, and the sender checks that before it sends, so a
+  workflow whose `prepare` refuses no argv is refused at the sender. Changed 2026-10-27 from
+  `Args | undefined`, which needed a record of how the run started, apart from a run started by
+  hand with no arguments, and a type that follows `starts`.
 - A run of a workflow with `events` may `receive` and park at a wait with nothing to do. One
   without `events` has nothing that can wake it: no `receive`, no park, as today.
 - The context's typing follows whether `events` is declared, with no second function; that
@@ -1499,6 +1502,49 @@ that can't name a run, such as webhooks, without changing a call.
   `~/.awf/projects`. Before, only `inbox` and `send --id` looked in other projects, and `inbox`,
   `reply` and `send` refused a bare id.
 - **Verified**: `bun test` 2188 pass; `bun run check` passes.
+
+### Task 11: one kind of workflow
+
+Built on main.
+
+- **The contract.** `defineWorkflow` is the one function, and `Workflow<Args, Result, Events>` the
+  one type, kind `awf.workflow/v1`; `events`, `file` and `starts` sit beside `meta`, `run`,
+  `prepare`, `id`, `present` and `report`. `Events` defaults to `never`, and the context `run`
+  takes follows it. `defineWorkflow` has two overloads, with `events` and without, so `Events`,
+  the args and the result are inferred as for any workflow: a union of the two shapes, tried
+  first, loses its contextual type when `file` is `import.meta.path`, a plain `string`, which
+  discriminates nothing, and a conditional on `Events` in one signature left an unannotated
+  `prepare`'s args `| null` and the result `any`. A helper generic over its args keeps `tsc`'s
+  refusal of `receive`; one generic over its events isn't supported, as nothing wrote one.
+  `WorkflowDefinition` stays as the part a runner and a call need, `meta` and `run`, which any
+  workflow has; `WorkflowCallSpec.definition` is `workflow`.
+- **The engine.** The loader returns `{ file, workflow }`, and the engine reads `isEventWorkflow`
+  where it read `keyed`. A sender's target is the workflow itself, its `file` in it, in place of
+  `EmitTarget`. `awf run {file}` for a workflow with events prepares its argv in its project, takes
+  its id from `--id` or `id(args)`, and makes the run with that argv; a run there already, asked
+  for other args, is refused. `prepare` runs only for a run being made: an event that would start
+  one is refused at the sender, under the run's lock, when `prepare` refuses no argv, and
+  `awf run --id {id}` with none wakes a run there without preparing, so a workflow that needs
+  args still takes events and wakes for the runs it has.
+- **Tests.** `testWorkflow(workflow, { id, args? })`: absent, what `prepare` makes of no argv; the
+  overload for a workflow without events refuses one with them at `tsc`. An end-to-end test, its
+  `prepare` refusing no argv as the Datadog case's does, starts a run by hand with args, named by
+  `id(args)`, wakes it with `--id` and none, and lands an event in it; a start by an event or by
+  `--id` alone is refused and makes no run.
+- **Moved.** Every example, fixture, the lab's workflows, the init template, the README,
+  `docs/workflow-api.md` and `docs/design/composition.md`, and the watcher's `case.ts` and
+  `tick.ts`. Story docs keep the names they were written with.
+- **Review.** Two reviews, of the contract and engine and of the migration and docs, then one of
+  the fixes. The first found the start-args check refusing events for runs already there, and the
+  same on `awf run --id` with no args; an event workflow passing `testWorkflow`'s plain overload;
+  and the unannotated `prepare`'s `| null` args and `any` result. The second found the reverse:
+  a workflow without events passing the event overload, now refused at `tsc`. All fixed as above.
+- **Verified live** on codex `gpt-6-luna`, headless, in a scratch project: `word/pelican`, started
+  by `awf run -- PELICAN` and named by `id(args)`, answered two pings sent from outside the project;
+  `word/fresh`, started by an event, ran on no-argv args; `key/otter`, whose `prepare` refuses no
+  argv, started with its word, was woken by `--id` alone, refused other args and starts without
+  one, and completed on two pings. `quick-check/20261027-1635-f15d` ran a plain workflow end to end.
+  Each under $0.01 as awf prices it.
 
 ### Task 12: a tick for its own project
 

@@ -5,7 +5,7 @@ import { join } from "node:path";
 import type { AttemptRecord } from "@agentswf/contract/records";
 import { type ResultSubmitResponse, WIRE_VERSION } from "@agentswf/contract/wire";
 import {
-  defineEventWorkflow,
+  defineWorkflow,
   type EventWorkflowContext,
   type JsonValue,
   type OutputSchema,
@@ -40,7 +40,7 @@ export function createTempRunDirs(): {
 }
 
 /** A project, `.awf/` at its root, with `source` at `flows/{name}`, and a home of its own. */
-export function keyedProject(
+export function eventProject(
   dirs: ReturnType<typeof createTempRunDirs>,
   name: string,
   source: string,
@@ -87,14 +87,12 @@ const caseEvents = { "dd.changes": Changes };
 export const caseRun = (
   run: (workflow: EventWorkflowContext<typeof caseEvents>) => Promise<JsonValue>,
 ) =>
-  defineEventWorkflow({
-    definition: {
-      meta: { name: "dd-case", description: "A case." },
-      file: import.meta.path,
-      events: caseEvents,
-      starts: ["dd.changes"],
-      run,
-    },
+  defineWorkflow({
+    meta: { name: "dd-case", description: "A case." },
+    file: import.meta.path,
+    events: caseEvents,
+    starts: ["dd.changes"],
+    run,
   });
 
 /** The options that start a `caseRun` under the key `k`. */

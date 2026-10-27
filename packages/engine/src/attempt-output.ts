@@ -4,7 +4,7 @@ import {
   type OutputRecord,
   RUN_EVENT_VERSIONS,
 } from "@agentswf/contract/records";
-import type { Ending, ExecutableWorkflow, JsonValue } from "@agentswf/contract/workflow";
+import type { Ending, JsonValue } from "@agentswf/contract/workflow";
 import { attemptAccounting } from "./accounting/summary";
 import type { AttemptEnd } from "./attempt-ending";
 import { messageOf } from "./errors";
@@ -12,6 +12,7 @@ import { writeJson, writeWhole } from "./files";
 import { foldMailbox, readMailbox } from "./mailbox";
 import { type Attempt, appendEvent, endAttempt, outputFile, reportFile } from "./runs";
 import { withoutValue } from "./stage-ledger";
+import type { AnyWorkflow, LoadedWorkflow } from "./workflow-loader";
 
 /** Where an attempt's records went, and its output record as `--json` prints it. */
 export type Kept = {
@@ -31,8 +32,7 @@ export async function keepRecords(
   end: AttemptEnd,
   context: {
     attempt: Attempt;
-    executable: ExecutableWorkflow<JsonValue, JsonValue>;
-    workflow: { name: string; file: string };
+    loaded: LoadedWorkflow;
     stderr: (text: string) => void;
     /** An event run's: runs `work` holding its run's lock. */
     locked?: (work: () => Promise<void>) => Promise<void>;
@@ -41,7 +41,7 @@ export async function keepRecords(
   const { attempt, stderr } = context;
   const { ending, settled } = end;
   const dir = attempt.run.dir;
-  const report = await writeReport(context.executable, ending, dir, stderr);
+  const report = await writeReport(context.loaded.workflow, ending, dir, stderr);
   const stages = settled?.stages?.map(withoutValue);
   const unfinished = ending.kind !== "completed" && ending.kind !== "parked" ? ending : undefined;
   const at = unfinished?.stage !== undefined ? { stage: unfinished.stage } : {};
@@ -72,7 +72,7 @@ export async function keepRecords(
       version: OUTPUT_RECORD_VERSION,
       runId: settled.runId,
       attempt: attempt.record.attempt,
-      workflow: context.workflow,
+      workflow: { name: context.loaded.workflow.meta.name, file: context.loaded.file },
       accounting: settled.accounting,
       usage: settled.usage,
       artifacts: dir,
@@ -132,7 +132,7 @@ export async function keepRecords(
 }
 
 async function writeReport(
-  executable: ExecutableWorkflow<JsonValue, JsonValue>,
+  workflow: AnyWorkflow,
   ending: Ending<JsonValue>,
   dir: string,
   stderr: (text: string) => void,
@@ -140,11 +140,11 @@ async function writeReport(
   const file = reportFile(dir);
   // An earlier attempt's report is gone with it: report.md is the last ended attempt's.
   const none = () => rm(file, { force: true }).then(() => undefined);
-  if (!executable.report) return none();
+  if (!workflow.report) return none();
   // The result is still in output.json; a report that cannot be rendered or saved should not fail
   // the run, nor cost it its record.
   try {
-    const markdown = executable.report(
+    const markdown = workflow.report(
       ending.kind === "completed" ? ending.value : undefined,
       ending,
     );

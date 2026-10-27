@@ -1,8 +1,8 @@
 import {
-  defineExecutableWorkflow,
-  type ExecutableWorkflow,
+  defineWorkflow,
   isAnswered,
   type RuntimeSelection,
+  type Workflow,
   type WorkflowContext,
   type WorkflowDefinition,
   type WorkflowInvocation,
@@ -284,7 +284,7 @@ export type CatalogueReviewConfig = WorkflowMeta & {
  */
 export function defineCatalogueReview(
   config: CatalogueReviewConfig,
-): ExecutableWorkflow<CatalogueArgs, CatalogueResult> {
+): Workflow<CatalogueArgs, CatalogueResult> {
   const {
     lenses,
     runtime = "claude",
@@ -295,8 +295,9 @@ export function defineCatalogueReview(
     ...meta
   } = config;
   if (lenses.length === 0) throw new Error(`${meta.name}: the lens catalogue is empty`);
-  return defineExecutableWorkflow({
-    definition: { ...catalogueReview, meta },
+  return defineWorkflow({
+    ...catalogueReview,
+    meta,
     prepare: (invocation) => {
       const parsed = parseCatalogueArgs(meta.name, invocation, lenses, range);
       const selection =

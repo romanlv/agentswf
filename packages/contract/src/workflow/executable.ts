@@ -1,9 +1,8 @@
 import type { EventSchemas, NoColonNames } from "./events";
 import type { JsonValue } from "./json";
-import type { EventWorkflowDefinition, StageOutcome, WorkflowDefinition } from "./workflow";
+import type { EventWorkflowContext, StageOutcome, WorkflowContext, WorkflowMeta } from "./workflow";
 
-export const EXECUTABLE_WORKFLOW_KIND = "awf.executable-workflow/v1" as const;
-export const EVENT_WORKFLOW_KIND = "awf.event-workflow/v1" as const;
+export const WORKFLOW_KIND = "awf.workflow/v1" as const;
 
 export type WorkflowInvocation = Readonly<{
   argv: readonly string[];
@@ -60,18 +59,17 @@ export type Ending<Result> =
       continue: string;
     };
 
-/**
- * Adapts operator input to one programmatic workflow call, and its result back to the operator,
- * without owning runtime configuration.
- */
-export interface ExecutableWorkflow<Args extends JsonValue, Result extends JsonValue> {
-  readonly kind: typeof EXECUTABLE_WORKFLOW_KIND;
-  readonly definition: WorkflowDefinition<Args, Result>;
+type WorkflowParts<Args extends JsonValue, Result extends JsonValue> = {
+  readonly meta: WorkflowMeta;
+  /**
+   * Adapts operator input to the run's args. A run an event starts has no argv: it gets what
+   * `prepare` makes of none, which the sender checks before it sends.
+   */
   prepare(invocation: WorkflowInvocation): Args;
   /**
    * The run's id, derived from its args, such as a ticket's: unique within the workflow, letters,
    * digits, `.`, `_`, `@` and `-`, starting with a letter or digit. `awf run --id` overrides it;
-   * without either, one is generated.
+   * without either, one is generated, or for a workflow with `events` the run is refused.
    */
   id?(args: Args): string;
   /**
@@ -86,37 +84,68 @@ export interface ExecutableWorkflow<Args extends JsonValue, Result extends JsonV
    * hand off what its stages found. Undefined writes none.
    */
   report?(value: Result | undefined, ending: Ending<Result>): string | undefined;
-}
+};
 
-/** A workflow with events, with no input to prepare: its sender, or `awf run --id`, names each run. */
-export interface ExecutableEventWorkflow<Events extends EventSchemas, Result extends JsonValue> {
-  readonly kind: typeof EVENT_WORKFLOW_KIND;
-  readonly definition: EventWorkflowDefinition<Events, Result>;
-  present?(value: Result, ending: Ending<Result>): string | undefined;
-  report?(value: Result | undefined, ending: Ending<Result>): string | undefined;
-}
+type WithoutEvents<Args extends JsonValue, Result extends JsonValue> = {
+  readonly events?: undefined;
+  readonly starts?: undefined;
+  readonly file?: undefined;
+  run(context: WorkflowContext, args: Args): Promise<Result>;
+};
 
-type ExecutableWorkflowSpec<Args extends JsonValue, Result extends JsonValue> = Omit<
-  ExecutableWorkflow<Args, Result>,
-  "kind"
->;
+/** A run of a workflow with `events` is named by its sender, takes events at `receive` and parks. */
+type WithEvents<Args extends JsonValue, Result extends JsonValue, Events extends EventSchemas> = {
+  /**
+   * `import.meta.path`: where a sender finds the workflow, and which project its runs live in, the
+   * nearest directory above it holding `.awf/`, whoever sends.
+   */
+  readonly file: string;
+  readonly events: Events;
+  /**
+   * The events that start a run with an id that has none; any other is refused then. Absent, any
+   * event starts one.
+   */
+  readonly starts?: readonly (keyof Events & string)[];
+  run(context: EventWorkflowContext<Events>, args: Args): Promise<Result>;
+};
+
+/** A workflow, as its file exports it: with `events` when its runs take them. */
+export type Workflow<
+  Args extends JsonValue = JsonValue,
+  Result extends JsonValue = JsonValue,
+  Events extends EventSchemas = never,
+> = { readonly kind: typeof WORKFLOW_KIND } & WorkflowParts<Args, Result> &
+  ([Events] extends [never] ? WithoutEvents<Args, Result> : WithEvents<Args, Result, Events>);
+
+/** `prepare` may be left out only by a workflow of no arguments. */
+type PrepareSpec<Args extends JsonValue, Result extends JsonValue> = Omit<
+  WorkflowParts<Args, Result>,
+  "prepare"
+> &
+  ([Args] extends [null]
+    ? { prepare?: WorkflowParts<Args, Result>["prepare"] }
+    : { prepare: WorkflowParts<Args, Result>["prepare"] });
 
 /**
- * Defines a workflow `awf run` starts. A workflow whose args are `null` may leave out `prepare`:
- * then it takes no arguments, and any argv is refused.
+ * Defines a workflow. One whose args are `null` may leave out `prepare`: then it takes no arguments,
+ * and any argv is refused. With `events`, an event name with a colon fails `tsc`; its events are
+ * concrete here, as a helper generic over them can't make the context follow them.
  */
-export function defineExecutableWorkflow<
+export function defineWorkflow<
   Args extends JsonValue = null,
   Result extends JsonValue = JsonValue,
+  Events extends EventSchemas = never,
 >(
-  spec: Omit<ExecutableWorkflowSpec<Args, Result>, "prepare"> &
-    ([Args] extends [null]
-      ? { prepare?: ExecutableWorkflowSpec<Args, Result>["prepare"] }
-      : { prepare: ExecutableWorkflowSpec<Args, Result>["prepare"] }),
-): ExecutableWorkflow<Args, Result> {
-  const prepare =
-    spec.prepare ?? (noArguments as unknown as ExecutableWorkflow<Args, Result>["prepare"]);
-  return { ...spec, prepare, kind: EXECUTABLE_WORKFLOW_KIND };
+  spec: PrepareSpec<Args, Result> & { readonly events: NoColonNames<Events> } & Omit<
+      WithEvents<Args, Result, Events>,
+      "events"
+    >,
+): Workflow<Args, Result, Events>;
+export function defineWorkflow<Args extends JsonValue = null, Result extends JsonValue = JsonValue>(
+  spec: PrepareSpec<Args, Result> & WithoutEvents<Args, Result>,
+): Workflow<Args, Result>;
+export function defineWorkflow(spec: { readonly prepare?: unknown }): unknown {
+  return { ...spec, prepare: spec.prepare ?? noArguments, kind: WORKFLOW_KIND };
 }
 
 function noArguments({ argv }: WorkflowInvocation): null {
@@ -124,39 +153,28 @@ function noArguments({ argv }: WorkflowInvocation): null {
   return null;
 }
 
-/**
- * Defines a workflow started by events; an event name with a colon fails `tsc`. A generic helper
- * that passes `events` through types its parameter `NoColonNames<E>`.
- */
-export function defineEventWorkflow<Events extends EventSchemas, Result extends JsonValue>(
-  spec: Omit<ExecutableEventWorkflow<Events, Result>, "kind"> & {
-    definition: { events: NoColonNames<Events> };
-  },
-): ExecutableEventWorkflow<Events, Result> {
-  return { ...spec, kind: EVENT_WORKFLOW_KIND };
-}
-
-/** Whether a value, as a file exports it, is a workflow started by events. */
+/** Whether a workflow, as a file exports it, declares `events`. */
 export function isEventWorkflow(
   workflow: unknown,
-): workflow is ExecutableEventWorkflow<EventSchemas, JsonValue> {
+): workflow is Workflow<JsonValue, JsonValue, EventSchemas> {
   return (
     typeof workflow === "object" &&
     workflow !== null &&
-    (workflow as { kind?: unknown }).kind === EVENT_WORKFLOW_KIND
+    (workflow as { kind?: unknown }).kind === WORKFLOW_KIND &&
+    (workflow as { events?: unknown }).events !== undefined
   );
 }
 
 /**
- * Why a value is not a workflow definition with `events`, as `tsc` would have said for a file it
- * never saw; undefined when it is one.
+ * Why a workflow's `events`, `starts` and `file` are not as `tsc` would have them for a file it never
+ * saw; undefined when they are.
  */
-export function eventWorkflowProblem(definition: unknown): string | undefined {
-  const given = definition as Partial<Record<string, unknown>> | null;
-  if (typeof given !== "object" || given === null) return "a workflow with events has a definition";
+export function eventWorkflowProblem(workflow: unknown): string | undefined {
+  const given = workflow as Partial<Record<string, unknown>> | null;
+  if (typeof given !== "object" || given === null) return "a workflow is an object";
   const events = given.events;
   if (typeof events !== "object" || events === null)
-    return "a workflow with events declares them in definition.events";
+    return "a workflow with events declares them in events";
   const colon = Object.keys(events).find((each) => each.includes(":"));
   if (colon) return `events: ${colon} has a colon, which only awf's own names do`;
   const starts = given.starts;

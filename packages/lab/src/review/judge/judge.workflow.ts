@@ -6,7 +6,7 @@
 // settled, so two judges from different model families label every finding, a third voting on
 // their splits (`voting.ts`). Kept for scorers that name it; its records read as `panel@1.0`.
 import { resolve } from "node:path";
-import { defineExecutableWorkflow, type WorkflowInvocation } from "@agentswf/contract/workflow";
+import { defineWorkflow, type WorkflowInvocation } from "@agentswf/contract/workflow";
 import { runtimeOf } from "../format/runtime";
 import { SCORER_RESULT_FORMAT, type ScorerResult } from "../format/scoring";
 import { describeProblems } from "../format/validate";
@@ -17,32 +17,29 @@ import { type Voters, voteOnRest } from "./voting";
 
 type Args = { fixture: string; findings: string } & Voters;
 
-const executable = defineExecutableWorkflow<Args, ScorerResult>({
-  definition: {
-    meta: {
-      name: "review-panel-judge",
-      description:
-        "Label a review's findings against a fixture's answer key with a panel of judges.",
-      whenToUse: "Run by a scorer that names the panel; match first is awf-lab's own.",
-    },
-    async run(workflow, args) {
-      const input = await readJudgedCase(args.fixture, args.findings);
-      if (input.findings.length === 0) {
-        return { format: SCORER_RESULT_FORMAT, labels: [], missed: "The review found nothing." };
-      }
-      const { labels, votes, missed } = await voteOnRest(workflow, input, new Map(), args);
-      const judgement: ScorerResult = {
-        format: SCORER_RESULT_FORMAT,
-        labels: input.findings.map((_, index) => labels.get(index)!),
-        missed,
-        votes,
-      };
-      const checked = checkScorerResult(judgement, input.findings, input.key);
-      if (!checked.ok) {
-        throw new Error(describeProblems("the settled judgement", checked.problems));
-      }
-      return checked.value;
-    },
+export const panelJudge = defineWorkflow<Args, ScorerResult>({
+  meta: {
+    name: "review-panel-judge",
+    description: "Label a review's findings against a fixture's answer key with a panel of judges.",
+    whenToUse: "Run by a scorer that names the panel; match first is awf-lab's own.",
+  },
+  async run(workflow, args) {
+    const input = await readJudgedCase(args.fixture, args.findings);
+    if (input.findings.length === 0) {
+      return { format: SCORER_RESULT_FORMAT, labels: [], missed: "The review found nothing." };
+    }
+    const { labels, votes, missed } = await voteOnRest(workflow, input, new Map(), args);
+    const judgement: ScorerResult = {
+      format: SCORER_RESULT_FORMAT,
+      labels: input.findings.map((_, index) => labels.get(index)!),
+      missed,
+      votes,
+    };
+    const checked = checkScorerResult(judgement, input.findings, input.key);
+    if (!checked.ok) {
+      throw new Error(describeProblems("the settled judgement", checked.problems));
+    }
+    return checked.value;
   },
   prepare: parseArgs,
   present: (judgement) =>
@@ -76,5 +73,4 @@ function parseArgs(invocation: WorkflowInvocation): Args {
   };
 }
 
-export const panelJudge = executable.definition;
-export default executable;
+export default panelJudge;

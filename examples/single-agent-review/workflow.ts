@@ -1,5 +1,5 @@
 import {
-  defineExecutableWorkflow,
+  defineWorkflow,
   type ExecutionConfig,
   isAnswered,
   type SkillSource,
@@ -75,30 +75,28 @@ Severity: \`must-fix\` when merging causes harm with today's code and data; \`sh
 Don't change anything in the repository. Answer with every finding; an empty list if you found none.`;
 }
 
-const executable = defineExecutableWorkflow<SingleReviewArgs, SingleReviewResult>({
-  definition: {
-    meta: {
-      name: "single-agent-review",
-      description: "One agent reviews a change in one turn, with a public review skill or none.",
-      whenToUse: "Use as a baseline review, or to measure what a review skill adds.",
-    },
-    async run(workflow, args) {
-      const agent = await workflow.agents.open({
-        key: "reviewer",
-        runtime: args.runtime,
-        // Exactly the skill named, or none: what the agent has is the variable measured.
-        skills: args.skill ? [args.skill] : [],
-      });
-      const { outcome } = await agent.run({ prompt: reviewPrompt(args), schema: FINDINGS_SCHEMA });
-      if (!isAnswered(outcome)) throw new Error(`no review: ${outcome.kind}: ${outcome.reason}`);
-      return {
-        range: args.range,
-        skill: args.skill
-          ? `${args.skill.repo}/${args.skill.skill}${args.skill.ref ? `@${args.skill.ref}` : ""}`
-          : null,
-        findings: outcome.value.findings,
-      };
-    },
+export default defineWorkflow<SingleReviewArgs, SingleReviewResult>({
+  meta: {
+    name: "single-agent-review",
+    description: "One agent reviews a change in one turn, with a public review skill or none.",
+    whenToUse: "Use as a baseline review, or to measure what a review skill adds.",
+  },
+  async run(workflow, args) {
+    const agent = await workflow.agents.open({
+      key: "reviewer",
+      runtime: args.runtime,
+      // Exactly the skill named, or none: what the agent has is the variable measured.
+      skills: args.skill ? [args.skill] : [],
+    });
+    const { outcome } = await agent.run({ prompt: reviewPrompt(args), schema: FINDINGS_SCHEMA });
+    if (!isAnswered(outcome)) throw new Error(`no review: ${outcome.kind}: ${outcome.reason}`);
+    return {
+      range: args.range,
+      skill: args.skill
+        ? `${args.skill.repo}/${args.skill.skill}${args.skill.ref ? `@${args.skill.ref}` : ""}`
+        : null,
+      findings: outcome.value.findings,
+    };
   },
   prepare: parseArgs,
   present: ({ findings }) =>
@@ -159,5 +157,3 @@ function skillOf(spec: string): PublicSkill {
   const [, repo, skill, ref] = matched;
   return { repo: repo!, skill: skill!, ref: ref! };
 }
-
-export default executable;

@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import type { TurnRecord } from "@agentswf/contract/records";
-import { defineExecutableWorkflow, type EventWorkflowContext } from "@agentswf/contract/workflow";
+import { defineWorkflow, type EventWorkflowContext } from "@agentswf/contract/workflow";
 import { caseRun } from "./testing";
 import { keptSessionsOf } from "./workflow-runner";
 import { testWorkflow } from "./workflow-testing";
@@ -33,6 +33,24 @@ test("a run started by its id, with no event, parks at its first wait", async ()
       {} as { id: string },
     ),
   ).rejects.toThrow("a run of dd-case is named by its id: { id }");
+});
+
+test("a run of a workflow with events gets its args, or what prepare makes of none", async () => {
+  const Changes = { type: "object", properties: {} } as const;
+  type Case = { case: string };
+  const workflow = defineWorkflow<Case, Case, { "dd.changes": typeof Changes }>({
+    meta: { name: "dd-case", description: "A case." },
+    file: import.meta.path,
+    events: { "dd.changes": Changes },
+    prepare: ({ argv }) => ({ case: argv[0] ?? "none" }),
+    async run(_workflow, args) {
+      return args;
+    },
+  });
+  expect((await testWorkflow(workflow, { id: "k", args: { case: "kombo" } })).value).toEqual({
+    case: "kombo",
+  });
+  expect((await testWorkflow(workflow, { id: "k" })).value).toEqual({ case: "none" });
 });
 
 test("a stage entered twice in a run with events runs once", async () => {
@@ -84,13 +102,11 @@ test("a stage around a wait returns its batch, and one returning other events fa
 
 test("receive on a workflow without events is an error", async () => {
   const run = await testWorkflow(
-    defineExecutableWorkflow({
-      definition: {
-        meta: { name: "plain", description: "No events." },
-        run: async (workflow) => {
-          await (workflow as unknown as EventWorkflowContext<Record<string, never>>).receive();
-          return null;
-        },
+    defineWorkflow({
+      meta: { name: "plain", description: "No events." },
+      run: async (workflow) => {
+        await (workflow as unknown as EventWorkflowContext<Record<string, never>>).receive();
+        return null;
       },
       prepare: () => null,
     }),
@@ -176,12 +192,10 @@ test("a stage holds one wait", async () => {
 test("workflow.emit sends to its target by the target's file, and a test records it", async () => {
   const target = caseRun(async () => null);
   const run = await testWorkflow(
-    defineExecutableWorkflow({
-      definition: {
-        meta: { name: "dd-tick", description: "A tick." },
-        run: async (workflow) =>
-          workflow.emit(target, "k", "dd.changes", { case: "k" }, { eventId: "c1" }),
-      },
+    defineWorkflow({
+      meta: { name: "dd-tick", description: "A tick." },
+      run: async (workflow) =>
+        workflow.emit(target, "k", "dd.changes", { case: "k" }, { eventId: "c1" }),
       prepare: () => null,
     }),
     null,
@@ -280,13 +294,11 @@ test("an event run's agents reopen on the last session of each root agent", () =
 
 test("a participant routed to the code needs a workflow with events", async () => {
   const run = await testWorkflow(
-    defineExecutableWorkflow({
-      definition: {
-        meta: { name: "plain", description: "No events." },
-        run: async (workflow) => {
-          await workflow.participants.connect({ key: "thread", to: "code" } as never);
-          return null;
-        },
+    defineWorkflow({
+      meta: { name: "plain", description: "No events." },
+      run: async (workflow) => {
+        await workflow.participants.connect({ key: "thread", to: "code" } as never);
+        return null;
       },
       prepare: () => null,
     }),

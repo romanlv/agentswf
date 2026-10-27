@@ -2,8 +2,8 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { mkdirSync, realpathSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { AttemptRecord, RunsJson, TickResultJson } from "@agentswf/contract/records";
-import type { OutputSchema } from "@agentswf/contract/workflow";
-import { EmitError, type EmitTarget, emitEvent } from "./emit";
+import { defineWorkflow, type OutputSchema } from "@agentswf/contract/workflow";
+import { EmitError, emitEvent } from "./emit";
 import { emitCommand } from "./emit-command";
 import { writeJson } from "./files";
 import { appendMailbox, foldMailbox, readMailbox } from "./mailbox";
@@ -15,6 +15,7 @@ import { runsCommand } from "./runs-command";
 import { createTempRunDirs, writeAttempt } from "./testing";
 import { tickCommand } from "./tick-command";
 import { attemptEnvironment, type Launch, wake } from "./wake";
+import type { EventWorkflow } from "./workflow-loader";
 
 const dirs = createTempRunDirs();
 afterAll(() => dirs.cleanup());
@@ -34,16 +35,15 @@ function project() {
   const file = join(root, "flows", "case.ts");
   writeFileSync(file, "// the target; its definition is given to emitEvent directly\n");
   const home = dirs.tempRunDir();
-  const target: EmitTarget = {
+  const defined = defineWorkflow({
+    meta: { name: "dd-case", description: "A case." },
     file,
-    definition: {
-      meta: { name: "dd-case", description: "A case." },
-      file,
-      events: { "dd.changes": Changes, "dd.closed": Closed },
-      starts: ["dd.changes"],
-      run: async () => null,
-    },
-  };
+    events: { "dd.changes": Changes, "dd.closed": Closed },
+    starts: ["dd.changes"],
+    run: async () => null,
+  });
+  // Its run's context is its own events', which no wider type takes: the engine sees any workflow.
+  const target = defined as unknown as EventWorkflow;
   return { root, home, file, target, runRoot: join(root, ".awf", "runs") };
 }
 
@@ -98,8 +98,8 @@ const eventsOf = async (run: Run) =>
 describe("outcomes", () => {
   test("without starts, any event starts its run", async () => {
     const p = project();
-    const { starts: _, ...rest } = p.target.definition;
-    p.target = { ...p.target, definition: rest };
+    const { starts: _, ...rest } = p.target;
+    p.target = rest;
     const launch = fakeLaunch();
     expect(await emit(p, "dd.closed", { case: "a" }, { id: "c1", launch })).toMatchObject({
       outcome: "accepted",
@@ -191,11 +191,47 @@ describe("outcomes", () => {
     expect(String(error)).toContain(message);
   });
 
+  test("an event that may start a run is refused when prepare refuses no argv", async () => {
+    const p = project();
+    const target = {
+      ...p.target,
+      prepare: () => {
+        throw new Error("a case needs its key");
+      },
+    };
+    const error = await emitEvent(
+      target,
+      { run: "k", name: "dd.changes", data: { case: "k" } },
+      { from: "operator", home: p.home, environment: {} },
+    ).catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(EmitError);
+    expect(String(error)).toContain(
+      "a run an event starts has no arguments, which its prepare refuses: a case needs its key",
+    );
+  });
+
+  test("an event for a run there already lands though prepare refuses no argv", async () => {
+    const p = project();
+    await emit(p, "dd.changes", { case: "k" }, { id: "c0", launch: fakeLaunch() });
+    const target = {
+      ...p.target,
+      prepare: () => {
+        throw new Error("a case needs its key");
+      },
+    };
+    const result = await emitEvent(
+      target,
+      { run: "k", name: "dd.changes", data: { case: "k" } },
+      { from: "operator", home: p.home, environment: {}, launch: fakeLaunch() },
+    );
+    expect(result.outcome).toBe("accepted");
+  });
+
   test("a definition with events and no file is refused", async () => {
     const p = project();
-    const { file: _file, ...definition } = p.target.definition;
+    const { file: _file, ...definition } = p.target;
     const error = await emitEvent(
-      { file: p.file, definition: definition as EmitTarget["definition"] },
+      definition as EventWorkflow,
       { run: "k", name: "dd.changes", data: { case: "k" } },
       { from: "operator", home: p.home, environment: {} },
     ).catch((caught: unknown) => caught);
@@ -382,12 +418,12 @@ describe("awf emit", () => {
     writeFileSync(
       p.file,
       [
-        'import { defineEventWorkflow } from "agentswf/workflow";',
+        'import { defineWorkflow } from "agentswf/workflow";',
         'const Changes = { type: "object", properties: { case: { type: "string" } }, required: ["case"] };',
-        "export default defineEventWorkflow({ definition: {",
+        "export default defineWorkflow({",
         '  meta: { name: "dd-case", description: "A case." }, file: import.meta.path,',
-        '  events: { "dd.changes": Changes }, id: (e) => e.data.case, starts: ["dd.changes"],',
-        "  run: async () => null } });",
+        '  events: { "dd.changes": Changes }, starts: ["dd.changes"],',
+        "  run: async () => null });",
       ].join("\n"),
     );
     const out: string[] = [];
@@ -488,7 +524,7 @@ describe("refusals before a run", () => {
     const p = project();
     writeFileSync(
       p.file,
-      `import { defineEventWorkflow } from "agentswf/workflow";\nexport default defineEventWorkflow({ definition: ${body} });\n`,
+      `import { defineWorkflow } from "agentswf/workflow";\nexport default defineWorkflow(${body});\n`,
     );
     return p;
   };

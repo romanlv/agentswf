@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   choice,
-  defineExecutableWorkflow,
+  defineWorkflow,
   type HarnessAllowance,
   type JsonValue,
   type RuntimeSelection,
@@ -573,9 +573,9 @@ describe("testWorkflow", () => {
     );
   });
 
-  test("an executable is run by its definition", async () => {
-    const executable = defineExecutableWorkflow({ definition: solo(), prepare: () => null });
-    const run = await testWorkflow(executable, null, { agents: { solo: answer("hi") } });
+  test("a workflow as defineWorkflow makes it runs as its meta and run alone do", async () => {
+    const workflow = defineWorkflow({ ...solo(), prepare: () => null });
+    const run = await testWorkflow(workflow, null, { agents: { solo: answer("hi") } });
     expect(run.value).toEqual({ kind: "answered", value: "hi" });
   });
 

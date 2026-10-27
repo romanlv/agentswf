@@ -33,7 +33,7 @@ workflow.participants.connect({ key, labels? })               // → a participa
 workflow.stage(name, { result, summary? }?, async () => …)  // → its value; reused on a continue
 workflow.stop(reason)                                         // ends the attempt stopped
 
-// A workflow with events: definition { file: import.meta.path, events, starts? }; a sender names the run
+// A workflow with events adds { file: import.meta.path, events, starts? }; a sender names the run
 workflow.receive({ label?, until?, take? })                   // → the events not yet acknowledged
 agent.start({ prompt, schema?, meta? })   agent.turn          // a turn not awaited; its end is agent:ended
 agent.ended<Meta, T>(e)   participant.replied(e)              // narrow awf's events
@@ -47,13 +47,13 @@ workflow.allowance(harness)                                   // → what is lef
 // In a test, from "agentswf/testing"; `awf test` runs it:
 testWorkflow(workflow, args, { agents?, messages?, participants?, compactions?, awaitReply?, decisions?, allowance?, runtimes?,
                               caller?, timeoutMs?, stallMs?, cwd? | files?, recorded?, fromStage?, values? })  // → run
-testWorkflow(eventWorkflow, { id, event?, events?: [{ during: "agent#1", name, data, from? }], maxTurns?, … })  // → run, .emits, .parked
+testWorkflow(eventWorkflow, { id, args?, event?, events?: [{ during: "agent#1", name, data, from? }], maxTurns?, … })  // → run, .emits, .parked
 answer(SCHEMA, value | (turn) => value)   answer("text")   reply.waiting(reason, timeoutMs?) | silent() | blocked() | failed() | needsLogin(provider?) | timedOut() | hang() | interrupted()
 ```
 
 | Concept | In one line |
 | --- | --- |
-| **Workflow** | A file that exports `defineExecutableWorkflow(…)`, which `awf run file.ts` runs, or `defineEventWorkflow(…)`, which events start. |
+| **Workflow** | A file that exports `defineWorkflow(…)`, which `awf run file.ts` runs, and, with `events`, the events it declares start too. |
 | **Agent** | A coding agent (claude, codex, pi, cursor) behind a key. It keeps its session between turns. |
 | **Turn** | One `agent.run`: a prompt in, one outcome out. The answer is JSON checked against your schema. |
 | **Outcome** | Always a value, never an exception: `answered`, `unanswered`, `blocked`, `timed-out`, `failed` or `cancelled`. |
@@ -70,22 +70,20 @@ answer(SCHEMA, value | (turn) => value)   answer("text")   reply.waiting(reason,
 
 ```ts
 // summarize.ts
-import { defineExecutableWorkflow, isAnswered } from "agentswf/workflow";
+import { defineWorkflow, isAnswered } from "agentswf/workflow";
 import Type from "typebox";
 
 export const SUMMARY = Type.Object({ summary: Type.String() }, { additionalProperties: false });
 
-export default defineExecutableWorkflow({
-  definition: {
-    meta: { name: "summarize", description: "Summarize one file." },
-    async run(workflow, args: { file: string }) {
-      const agent = await workflow.agents.open({ key: "reader", runtime: "claude" });
-      const { outcome } = await agent.run<Type.Static<typeof SUMMARY>>({
-        prompt: `Read ${args.file} and summarize it in two sentences.`,
-        schema: SUMMARY,
-      });
-      return isAnswered(outcome) ? outcome.value : { summary: `no answer: ${outcome.reason}` };
-    },
+export default defineWorkflow({
+  meta: { name: "summarize", description: "Summarize one file." },
+  async run(workflow, args: { file: string }) {
+    const agent = await workflow.agents.open({ key: "reader", runtime: "claude" });
+    const { outcome } = await agent.run<Type.Static<typeof SUMMARY>>({
+      prompt: `Read ${args.file} and summarize it in two sentences.`,
+      schema: SUMMARY,
+    });
+    return isAnswered(outcome) ? outcome.value : { summary: `no answer: ${outcome.reason}` };
   },
   // Turns the command line into args: `awf run summarize.ts -- src/index.ts`.
   prepare: ({ argv }) => ({ file: argv[0] ?? "README.md" }),
@@ -96,11 +94,12 @@ export default defineExecutableWorkflow({
 });
 ```
 
-- **`definition`** is `meta` and `run(workflow, args)`. Args and result must be JSON.
+- **`meta`** and **`run(workflow, args)`** are the workflow; args and result must be JSON.
   `meta.name` names the folder its runs are kept in (letters, digits, `.`, `_`, `@` and `-`). An optional
   `meta.version` is semver; [Stages](#stages) says what it guards.
 - **`prepare`** turns the command line (`argv` after `--`, and `cwd`) into args. Left out, the
-  workflow takes no arguments: its args are `null`, and any argv is refused.
+  workflow takes no arguments: its args are `null`, and any argv is refused. A run an event starts
+  has no argv, so its args are what `prepare` makes of none.
 - **`id(args)`**, optional, names the run, such as by a ticket's key; `--id` overrides it. A run's
   ref is `{workflow}/{id}`, for this workflow and one with [events](#events) alike.
 - **`present(value, ending)`**, optional, is what a completed attempt prints. Without it, or when
@@ -612,33 +611,31 @@ claude's own messaging between sessions is a different thing, on by default:
 
 ## Events
 
-A workflow that reacts to things that happen declares the events it takes, and each sender names
-the run an event is for. An event starts that run, or lands in its mailbox; the run takes waiting
+A workflow that reacts to things that happen declares the events it takes, beside the rest of its
+definition, and each sender names the run an event is for. An event starts that run, or lands in its mailbox; the run takes waiting
 events at a wait, handles them in plain code, and starts an agent turn only when one is needed.
 Between events the run parks: its process exits, and the next event runs its code from the top.
 
 ```ts
-export default defineEventWorkflow({
-  definition: {
-    meta: { name: "dd-case", description: "Investigate one Datadog case." },
-    file: import.meta.path,                                   // where senders find it, and its runs live
-    events: { "dd.changes": Changes, "dd.closed": Closed },   // a schema per name; no colon
-    starts: ["dd.changes"],                                   // the events that may start one; absent, any
-    async run(workflow) {
-      const kase = openCase(workflow.runId);                 // state lives in files, not variables
-      const investigator = await workflow.agents.open({ key: "investigator", runtime: "claude" });
-      for (;;) {
-        const events = await workflow.receive({ label: `${kase.unseen()} unseen` });
-        for (const e of events) {
-          if (investigator.ended<Given>(e) && isAnswered(e.data.outcome)) kase.markGiven(e.data.meta);
-          if (e.name === "dd.closed") await workflow.stage(`close-${e.id}`, () => kase.close(e.data));
-        }
-        if (!investigator.turn && kase.needsLook()) {
-          const given = kase.pending();
-          await investigator.start({ prompt: promptFor(given), meta: given });   // returns at once
-        }
+export default defineWorkflow({
+  meta: { name: "dd-case", description: "Investigate one Datadog case." },
+  file: import.meta.path,                                   // where senders find it, and its runs live
+  events: { "dd.changes": Changes, "dd.closed": Closed },   // a schema per name; no colon
+  starts: ["dd.changes"],                                   // the events that may start one; absent, any
+  async run(workflow) {
+    const kase = openCase(workflow.runId);                 // state lives in files, not variables
+    const investigator = await workflow.agents.open({ key: "investigator", runtime: "claude" });
+    for (;;) {
+      const events = await workflow.receive({ label: `${kase.unseen()} unseen` });
+      for (const e of events) {
+        if (investigator.ended<Given>(e) && isAnswered(e.data.outcome)) kase.markGiven(e.data.meta);
+        if (e.name === "dd.closed") await workflow.stage(`close-${e.id}`, () => kase.close(e.data));
       }
-    },
+      if (!investigator.turn && kase.needsLook()) {
+        const given = kase.pending();
+        await investigator.start({ prompt: promptFor(given), meta: given });   // returns at once
+      }
+    }
   },
 });
 ```
@@ -657,10 +654,14 @@ awf emit --target case.ts --id kombo-unique dd.changes '{"case":"kombo-unique"}'
   for a run without events, and `workflow.runId` is the id. Run ids are letters, digits, `.`, `_`, `@` and `-`, starting
   with a letter or digit; event ids and stage names are the same, lowercase, so a stage named by
   an event id (`close-{id}`) is always valid.
-- **Starting with no event.** `awf run {file} --id {id}` makes the run and starts it, detached in
-  its project, as an event would; it runs to its first wait, which returns nothing, and parks. It
-  ignores `starts`, and a run already there is
-  only woken. Work to do once, on the first attempt, goes in a stage at the top of `run`.
+- **Starting by hand.** `awf run {file} --id {id} -- {args}` makes the run with those args and
+  starts it, detached in its project, as an event would; it runs to its first wait, which returns
+  nothing, and parks. `id(args)` may name it instead of `--id`. It ignores `starts`, and a run
+  already there is only woken. A run an event starts gets what `prepare` makes of no argv: a
+  sender is refused when `prepare` refuses that. Work to do once, on the first attempt, goes in a
+  stage at the top of `run`.
+- **Without `events`** a workflow has no `receive`, and its runs never park: nothing could wake
+  them.
 - **`receive`** acknowledges what its last call returned, then returns every event not yet
   acknowledged, in arrival order, or the oldest alone with `take: "oldest"`. The first call takes
   the event that started the run, if one did. After a crash, the first call returns the unacknowledged batch
@@ -915,7 +916,9 @@ run.mailbox;                                  // its mailbox as it left it
 ```
 
 - **`id`** names the run, as `awf run --id` or a sender does. **`event`** starts it, as `awf emit`
-  would, its data checked against its schema; without one, it starts with no event.
+  would, its data checked against its schema; without one, it starts with no event. **`args`** are
+  the run's, as `awf run --id {id} -- {args}` would prepare them; without them, what `prepare`
+  makes of no argv, as a run an event starts has.
 - **`events`** are sent each while an agent's `n`th turn runs (`"{agent}#{n}"`), before its script
   answers, in the order given; a reply's author, time and id are filled. `n` is the turn's
   `TurnRecord.n`, counting the turns the workflow started: a nudge or a wake for a message keeps

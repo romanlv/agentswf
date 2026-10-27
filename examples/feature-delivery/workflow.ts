@@ -18,7 +18,7 @@
 //   [--revisions 3] [--reviewer security=claude]…
 // The planner's skill is copied into the run's records, and claude takes no skill from inside its
 // working directory, so the records go outside the repo.
-import { defineExecutableWorkflow, type WorkflowContext } from "@agentswf/contract/workflow";
+import { defineWorkflow, type WorkflowContext } from "@agentswf/contract/workflow";
 import { parseArgs } from "./cli";
 import { md } from "./prompt";
 import {
@@ -107,21 +107,18 @@ async function deliverFeature(workflow: WorkflowContext, args: FeatureArgs): Pro
   };
 }
 
-const executable = defineExecutableWorkflow<FeatureArgs, Handoff>({
-  definition: {
-    meta: {
-      name: "feature-delivery",
-      description: "Plan, implement, review, and prepare a feature for human review.",
-      whenToUse: "Use when a ticket needs a verified plan before implementation begins.",
-      version: "1.0.0",
-    },
-    run: deliverFeature,
+export const featureDelivery = defineWorkflow<FeatureArgs, Handoff>({
+  meta: {
+    name: "feature-delivery",
+    description: "Plan, implement, review, and prepare a feature for human review.",
+    whenToUse: "Use when a ticket needs a verified plan before implementation begins.",
+    version: "1.0.0",
   },
+  run: deliverFeature,
   prepare: ({ argv }) => parseArgs(argv),
   id: (args) => args.ticket,
   present: ({ docPath, summary, review }) =>
     [summary, docPath, tally(review.additional)].join("\n"),
 });
 
-export const featureDelivery = executable.definition;
-export default executable;
+export default featureDelivery;

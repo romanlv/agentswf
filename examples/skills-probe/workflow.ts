@@ -1,5 +1,5 @@
 import {
-  defineExecutableWorkflow,
+  defineWorkflow,
   type ExecutionConfig,
   isAnswered,
   type WorkflowInvocation,
@@ -79,50 +79,48 @@ export type SkillsReport = {
   reason?: string;
 };
 
-const executable = defineExecutableWorkflow<SkillsPlan, { reports: SkillsReport[] }>({
-  definition: {
-    meta: {
-      name: "skills-probe",
-      description: "Give agents one probe skill each and ask for what only a probe can make.",
-      whenToUse: "Use to check that each harness has exactly the skills a workflow names.",
-    },
-    async run(workflow, plan) {
-      const box = await workflow.sandboxes.open({ key: "box", srt: {} });
-      const reports = await workflow.parallel(
-        plan.agents as AgentName[],
-        async (name): Promise<SkillsReport> => {
-          const given = AGENTS[name];
-          const agent = await workflow.agents.open({
-            key: name,
-            runtime: given.runtime,
-            skills: [plan.probes[given.probe]],
-            ...(given.sandboxed === "alone"
-              ? { sandbox: { srt: {} } }
-              : given.sandboxed
-                ? { sandbox: box }
-                : {}),
-          });
-          const build = plan.builds[name];
-          if (!build) throw new Error(`no build id for ${name}`);
-          const { outcome } = await agent.run({
-            prompt: [
-              `Build ${build} is ready. Give its release stamp and its audit seal.`,
-              "Each has to be made properly, with what you have available; if you have no way to",
-              "make one, give an empty string for it. Never invent or guess one.",
-              "Then list the name of every skill you can use, exactly as each is named, whether you",
-              "used it or not.",
-            ].join(" "),
-            schema: REPORT,
-            timeoutMs: 4 * 60_000,
-          });
-          return isAnswered(outcome)
-            ? { agent: name, outcome: outcome.kind, ...outcome.value }
-            : { agent: name, outcome: outcome.kind, reason: outcome.reason };
-        },
-        { label: "Skills probe" },
-      );
-      return { reports };
-    },
+export default defineWorkflow<SkillsPlan, { reports: SkillsReport[] }>({
+  meta: {
+    name: "skills-probe",
+    description: "Give agents one probe skill each and ask for what only a probe can make.",
+    whenToUse: "Use to check that each harness has exactly the skills a workflow names.",
+  },
+  async run(workflow, plan) {
+    const box = await workflow.sandboxes.open({ key: "box", srt: {} });
+    const reports = await workflow.parallel(
+      plan.agents as AgentName[],
+      async (name): Promise<SkillsReport> => {
+        const given = AGENTS[name];
+        const agent = await workflow.agents.open({
+          key: name,
+          runtime: given.runtime,
+          skills: [plan.probes[given.probe]],
+          ...(given.sandboxed === "alone"
+            ? { sandbox: { srt: {} } }
+            : given.sandboxed
+              ? { sandbox: box }
+              : {}),
+        });
+        const build = plan.builds[name];
+        if (!build) throw new Error(`no build id for ${name}`);
+        const { outcome } = await agent.run({
+          prompt: [
+            `Build ${build} is ready. Give its release stamp and its audit seal.`,
+            "Each has to be made properly, with what you have available; if you have no way to",
+            "make one, give an empty string for it. Never invent or guess one.",
+            "Then list the name of every skill you can use, exactly as each is named, whether you",
+            "used it or not.",
+          ].join(" "),
+          schema: REPORT,
+          timeoutMs: 4 * 60_000,
+        });
+        return isAnswered(outcome)
+          ? { agent: name, outcome: outcome.kind, ...outcome.value }
+          : { agent: name, outcome: outcome.kind, reason: outcome.reason };
+      },
+      { label: "Skills probe" },
+    );
+    return { reports };
   },
   prepare: parsePlan,
   present: ({ reports }) =>
@@ -147,5 +145,3 @@ function parsePlan(invocation: WorkflowInvocation): SkillsPlan {
   }
   return plan;
 }
-
-export default executable;

@@ -12,7 +12,7 @@ it, or collect a result from it. The one exception is the session a run was star
 
 ## Calling a child workflow
 
-Calling a `WorkflowDefinition.run` function directly is appropriate for a local helper. A reusable
+Calling a workflow's `run` function directly is appropriate for a local helper. A reusable
 child needs a scoped context so its agent keys, step ids, signals, routes, and nested calls cannot
 collide with siblings.
 
@@ -22,7 +22,8 @@ export type WorkflowCallId = string;
 export interface WorkflowCallSpec<Args extends JsonValue, Result extends JsonValue> {
   /** Idempotency key scoped to the caller. */
   id: WorkflowCallId;
-  definition: WorkflowDefinition<Args, Result>;
+  /** The workflow itself, as its file exports it. */
+  workflow: WorkflowDefinition<Args, Result>;
   args: Args;
   /** Parent participants exposed under child-local keys. */
   participants?: Readonly<Record<PeerKey, PeerRef>>;
@@ -75,7 +76,7 @@ The same child can therefore run more than once against one parent participant:
 const verdicts = await workflow.parallel(reviewers, (reviewer) =>
   workflow.call({
     id: `review:${reviewer.name}`,
-    definition: reviewLoop,
+    workflow: reviewLoop,
     args: { base: "main", runtime: reviewer.runtime },
     participants: { author },
   }),
@@ -218,7 +219,7 @@ const author = await workflow.participants.connect({ key: "author" });
 const verdicts = await workflow.parallel(reviewers, (reviewer) =>
   workflow.call({
     id: `review:${reviewer.name}`,
-    definition: reviewLoop,
+    workflow: reviewLoop,
     args: { base, runtime: reviewer.runtime, findingsPath: reviewer.findingsPath },
     participants: { author },
   }),

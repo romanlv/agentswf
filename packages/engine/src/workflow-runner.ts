@@ -120,7 +120,7 @@ import {
 } from "./deadlines";
 import { RunDecisions } from "./decisions/directory";
 import type { DecisionInstallation } from "./decisions/seam";
-import { type EmitTarget, emitEvent } from "./emit";
+import { emitEvent } from "./emit";
 import { messageOf } from "./errors";
 import {
   type RestoredTurn,
@@ -173,6 +173,7 @@ import { placeSkills, RunSkills, readSkillSources } from "./skills/run-skills";
 import { StageLedger, type StageProgress } from "./stage-ledger";
 import { FromStageUnreached } from "./stopped";
 import { inToolHandler, outsideTools, refusedInTool, ToolCalls, toolsLesson } from "./tools";
+import type { EventWorkflow } from "./workflow-loader";
 
 export { WorkflowCancelledError } from "./deadlines";
 
@@ -244,7 +245,7 @@ export type RunWorkflowOptions = {
 
 /** Sends an event from a run to its target. */
 export type Emitter = (
-  target: EmitTarget,
+  target: EventWorkflow,
   event: { run: string; name: string; data: JsonValue; id?: string },
   from: string,
 ) => Promise<EmitOutcome>;
@@ -419,9 +420,9 @@ export async function startWorkflow<Args extends JsonValue, Result extends JsonV
   assertDeadline(options.deadline);
   if (options.signal?.aborted) throw new WorkflowCancelledError(options.signal.reason);
   // Before anything opens, so a refusal leaves nothing to close.
-  const keyed = "events" in definition;
+  const withEvents = isEventWorkflow(definition);
   const locked = options.run.locked ?? (<T>(work: () => Promise<T>) => work());
-  if (keyed && (options.run.fromStage !== undefined || options.run.values))
+  if (withEvents && (options.run.fromStage !== undefined || options.run.values))
     throw new Error("a run of a workflow with events takes no --from-stage or --values");
   const { dir: runDir, id: runId, attempt } = options.run;
   const startedAt = Date.now();
@@ -499,7 +500,7 @@ export async function startWorkflow<Args extends JsonValue, Result extends JsonV
     ...(options.run.fromStage === undefined ? {} : { fromStage: options.run.fromStage }),
     ...(options.run.values === undefined ? {} : { values: options.run.values }),
     ...(definition.meta.version === undefined ? {} : { workflowVersion: definition.meta.version }),
-    ...(keyed ? { byContent: true } : {}),
+    ...(withEvents ? { byContent: true } : {}),
     turns: () => turns,
     event: (body, at) => events.event(body, at),
   });
@@ -542,13 +543,13 @@ export async function startWorkflow<Args extends JsonValue, Result extends JsonV
   void fatal.promise.catch(() => undefined);
   // A turn an earlier attempt started and never ended, its process gone, ends failed before the code
   // runs again (Q6); the turns whose ends no wait took are their agents' turns again.
-  const restoredTurns = keyed ? await recoverTurns(runDir, attempt, locked) : undefined;
+  const restoredTurns = withEvents ? await recoverTurns(runDir, attempt, locked) : undefined;
   // An event run's agents reopen on the sessions its earlier attempts' turns ran on.
   const keptSessions =
-    keyed && options.run.resumeSessions !== false
+    withEvents && options.run.resumeSessions !== false
       ? keptSessionsOf(await readTurns(runDir))
       : undefined;
-  const mailbox = keyed
+  const mailbox = withEvents
     ? new RunMailbox({
         runDir,
         attempt,
@@ -1040,14 +1041,11 @@ class WorkflowOwner {
         if (this.#closed || this.#cleanupFailures.length)
           throw new Error("workflow context is closed");
         scopes.getStore()?.assertAccepting();
-        if (!isEventWorkflow(target) || typeof target.definition !== "object")
+        if (!isEventWorkflow(target))
           throw new Error("emit's target is a workflow with events, as its file exports it");
         return this.track(
           options.emit(
-            {
-              file: target.definition.file,
-              definition: target.definition as unknown as EmitTarget["definition"],
-            },
+            target,
             {
               run,
               name,

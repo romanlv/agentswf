@@ -1,5 +1,5 @@
 import {
-  defineExecutableWorkflow,
+  defineWorkflow,
   type ExecutionConfig,
   isAnswered,
   type OutputSchema,
@@ -69,68 +69,66 @@ export type MessagingResult = {
   revisions: number;
 };
 
-const executable = defineExecutableWorkflow<{ runtime: RuntimeName }, MessagingResult>({
-  definition: {
-    meta: {
-      name: "messaging",
-      description: "A reviewer asks an implementer for a fix by message and waits for it.",
-      whenToUse: "Use to see agent messaging work end to end, for a few cents.",
-    },
-    async run(workflow, { runtime }) {
-      const execution = RUNTIMES[runtime];
-      const folder = `/tmp/awf-messaging/${workflow.runId}`;
-      const implementer = await workflow.agents.open({ key: "implementer", runtime: execution });
-      const reviewer = await workflow.agents.open({
-        key: "reviewer",
-        runtime: execution,
-        instructions: [
-          "You review code against the house style for slugs: lowercase ASCII, accents dropped,",
-          "every run of other characters one underscore, none at either end.",
-          ...CASES.map(({ title, slug }) => `${JSON.stringify(title)} -> ${slug}`),
-        ].join("\n"),
-      });
-      await workflow.messages.allow({
-        from: reviewer,
-        to: implementer,
-        purpose: "Ask the implementer to fix slugify() until it meets the house style.",
-        maxMessages: 4,
-      });
+export const messaging = defineWorkflow<{ runtime: RuntimeName }, MessagingResult>({
+  meta: {
+    name: "messaging",
+    description: "A reviewer asks an implementer for a fix by message and waits for it.",
+    whenToUse: "Use to see agent messaging work end to end, for a few cents.",
+  },
+  async run(workflow, { runtime }) {
+    const execution = RUNTIMES[runtime];
+    const folder = `/tmp/awf-messaging/${workflow.runId}`;
+    const implementer = await workflow.agents.open({ key: "implementer", runtime: execution });
+    const reviewer = await workflow.agents.open({
+      key: "reviewer",
+      runtime: execution,
+      instructions: [
+        "You review code against the house style for slugs: lowercase ASCII, accents dropped,",
+        "every run of other characters one underscore, none at either end.",
+        ...CASES.map(({ title, slug }) => `${JSON.stringify(title)} -> ${slug}`),
+      ].join("\n"),
+    });
+    await workflow.messages.allow({
+      from: reviewer,
+      to: implementer,
+      purpose: "Ask the implementer to fix slugify() until it meets the house style.",
+      maxMessages: 4,
+    });
 
-      const built = await implementer.run({
-        label: "Implement",
-        prompt: [
-          `Create the folder ${folder} and write ${folder}/slug.mjs in it, exporting`,
-          "slugify(title), which turns a title into a URL slug. Plain JavaScript, no dependencies.",
-          "Work only in that folder.",
-        ].join(" "),
-        schema: BUILT,
-      });
-      if (!isAnswered(built.outcome)) return workflow.stop(`implementer: ${built.outcome.reason}`);
+    const built = await implementer.run({
+      label: "Implement",
+      prompt: [
+        `Create the folder ${folder} and write ${folder}/slug.mjs in it, exporting`,
+        "slugify(title), which turns a title into a URL slug. Plain JavaScript, no dependencies.",
+        "Work only in that folder.",
+      ].join(" "),
+      schema: BUILT,
+    });
+    if (!isAnswered(built.outcome)) return workflow.stop(`implementer: ${built.outcome.reason}`);
 
-      const review = await reviewer.run({
-        label: "Review",
-        prompt: [
-          `Review ${built.outcome.value.file}. Run slugify() on each title in your instructions`,
-          "with node. If any slug is wrong, ask the implementer to fix it by message and wait for",
-          "its reply, then run them again. Return the slugs you got on your last run.",
-        ].join(" "),
-        schema: REVIEW,
-      });
-      if (!isAnswered(review.outcome)) return workflow.stop(`reviewer: ${review.outcome.reason}`);
+    const review = await reviewer.run({
+      label: "Review",
+      prompt: [
+        `Review ${built.outcome.value.file}. Run slugify() on each title in your instructions`,
+        "with node. If any slug is wrong, ask the implementer to fix it by message and wait for",
+        "its reply, then run them again. Return the slugs you got on your last run.",
+      ].join(" "),
+      schema: REVIEW,
+    });
+    if (!isAnswered(review.outcome)) return workflow.stop(`reviewer: ${review.outcome.reason}`);
 
-      const { approved, outputs } = review.outcome.value;
-      return {
-        folder,
-        approved,
-        checks: CASES.map(({ title, slug }) => {
-          const got = outputs.find((output) => output.title === title)?.slug;
-          return got === undefined ? { title, expected: slug } : { title, expected: slug, got };
-        }),
-        revisions: workflow
-          .usage()
-          .filter((operation) => operation.agent === "implementer" && operation.cause).length,
-      };
-    },
+    const { approved, outputs } = review.outcome.value;
+    return {
+      folder,
+      approved,
+      checks: CASES.map(({ title, slug }) => {
+        const got = outputs.find((output) => output.title === title)?.slug;
+        return got === undefined ? { title, expected: slug } : { title, expected: slug, got };
+      }),
+      revisions: workflow
+        .usage()
+        .filter((operation) => operation.agent === "implementer" && operation.cause).length,
+    };
   },
   prepare: parseRuntime,
   present: ({ folder, approved, checks, revisions }) =>
@@ -151,5 +149,4 @@ function parseRuntime({ argv }: WorkflowInvocation): { runtime: RuntimeName } {
   return { runtime: runtime as RuntimeName };
 }
 
-export const messaging = executable.definition;
-export default executable;
+export default messaging;

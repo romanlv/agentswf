@@ -1,5 +1,5 @@
 import {
-  defineExecutableWorkflow,
+  defineWorkflow,
   type ExecutionConfig,
   isAnswered,
   type JsonValue,
@@ -60,39 +60,37 @@ export type QuickCheck = { runtime: RuntimeName; answers: QuickAnswer[] };
 
 export type QuickCheckResult = { checks: QuickCheck[] };
 
-const executable = defineExecutableWorkflow<QuickCheckArgs, QuickCheckResult>({
-  definition: {
-    meta: {
-      name: "quick-check",
-      description: "Ask one agent per runtime questions with known answers.",
-      whenToUse:
-        "Use to smoke-test a harness, its result channel, a follow-up in the same session, and the run's accounting, for a few cents.",
-    },
-    async run(workflow, args) {
-      const checks = await workflow.parallel(
-        args.runtimes,
-        async (runtime): Promise<QuickCheck> => {
-          const execution: ExecutionConfig = RUNTIMES[runtime];
-          const agent = await workflow.agents.open({ key: `check:${runtime}`, runtime: execution });
-          const answers: QuickAnswer[] = [];
-          for (const { prompt, expected } of QUESTIONS) {
-            const { outcome } = await agent.run({
-              prompt,
-              schema: ANSWER_SCHEMA,
-              timeoutMs: 3 * 60_000,
-            });
-            if (!isAnswered(outcome)) {
-              answers.push({ outcome: outcome.kind, expected, reason: outcome.reason });
-              break;
-            }
-            answers.push({ outcome: outcome.kind, expected, answer: outcome.value.answer });
+export const quickCheck = defineWorkflow<QuickCheckArgs, QuickCheckResult>({
+  meta: {
+    name: "quick-check",
+    description: "Ask one agent per runtime questions with known answers.",
+    whenToUse:
+      "Use to smoke-test a harness, its result channel, a follow-up in the same session, and the run's accounting, for a few cents.",
+  },
+  async run(workflow, args) {
+    const checks = await workflow.parallel(
+      args.runtimes,
+      async (runtime): Promise<QuickCheck> => {
+        const execution: ExecutionConfig = RUNTIMES[runtime];
+        const agent = await workflow.agents.open({ key: `check:${runtime}`, runtime: execution });
+        const answers: QuickAnswer[] = [];
+        for (const { prompt, expected } of QUESTIONS) {
+          const { outcome } = await agent.run({
+            prompt,
+            schema: ANSWER_SCHEMA,
+            timeoutMs: 3 * 60_000,
+          });
+          if (!isAnswered(outcome)) {
+            answers.push({ outcome: outcome.kind, expected, reason: outcome.reason });
+            break;
           }
-          return { runtime, answers };
-        },
-        { label: "Quick check" },
-      );
-      return { checks };
-    },
+          answers.push({ outcome: outcome.kind, expected, answer: outcome.value.answer });
+        }
+        return { runtime, answers };
+      },
+      { label: "Quick check" },
+    );
+    return { checks };
   },
   prepare: parseRuntimes,
   present: ({ checks }) =>
@@ -121,5 +119,4 @@ function parseRuntimes(invocation: WorkflowInvocation): QuickCheckArgs {
   return { runtimes: names as RuntimeName[] };
 }
 
-export const quickCheck = executable.definition;
-export default executable;
+export default quickCheck;

@@ -1,7 +1,7 @@
 import { statSync } from "node:fs";
 import { homedir } from "node:os";
 import { type AttemptRecord, RUN_EVENT_VERSIONS } from "@agentswf/contract/records";
-import type { ExecutableWorkflow, JsonValue } from "@agentswf/contract/workflow";
+import { isEventWorkflow, type JsonValue } from "@agentswf/contract/workflow";
 import { refusalMessage } from "./attempt-view";
 import { messageOf } from "./errors";
 import { projectOf, projectRunRoot } from "./projects";
@@ -23,7 +23,12 @@ import {
   readStageRecords,
   readTurns,
 } from "./runs";
-import { assertJsonValue, type LoadedWorkflow, loadWorkflowFile } from "./workflow-loader";
+import {
+  type AnyWorkflow,
+  assertJsonValue,
+  type LoadedWorkflow,
+  loadWorkflowFile,
+} from "./workflow-loader";
 
 export type PreparedRun = {
   args: JsonValue;
@@ -44,7 +49,7 @@ export async function loadAndPrepare(
 ): Promise<
   | { loaded: LoadedWorkflow; prepared: PreparedRun; command: RunCommand }
   | { refused: string }
-  | { opens: { loaded: LoadedWorkflow; id: string } }
+  | { opens: { loaded: LoadedWorkflow; id: string; argv: readonly string[] } }
 > {
   let loaded: LoadedWorkflow;
   try {
@@ -53,16 +58,30 @@ export async function loadAndPrepare(
     return { refused: `load: ${messageOf(error)}` };
   }
   let command = given;
-  if (loaded.keyed) {
-    const refused = keyedRefusal(command, loaded.file);
+  if (isEventWorkflow(loaded.workflow)) {
+    const refused = eventRunRefusal(command);
     if (refused) return { refused };
-    if (command.id !== undefined) return { opens: { loaded, id: command.id } };
-    // An event run lives in its file's project, whoever continues it (Q15).
-    if (!command.runRootGiven) {
+    // An event run lives and works in its file's project, whoever starts or continues it (Q15).
+    let project: string;
+    try {
+      project = await projectOf(loaded.file, home);
+    } catch (error) {
+      return { refused: messageOf(error) };
+    }
+    if (!command.runRootGiven) command = { ...command, runRoot: projectRunRoot(project) };
+    if (command.continueId === undefined) {
+      // A run --id names is prepared only if it is made: one already there is woken with its own args.
       try {
-        command = { ...command, runRoot: projectRunRoot(await projectOf(loaded.file, home)) };
+        const id =
+          command.id ??
+          derivedId(loaded.workflow, prepareArgs(loaded.workflow, command.workflowArgs, project));
+        if (id === undefined)
+          return {
+            refused: `a run of ${loaded.file} is named by its id, which --id or the workflow's id(args) gives: awf run --id {id} starts one, awf emit --target ${loaded.file} --id {id} {event} {json} starts one with an event`,
+          };
+        return { opens: { loaded, id, argv: command.workflowArgs } };
       } catch (error) {
-        return { refused: messageOf(error) };
+        return { refused: `${error instanceof RunRefused ? "" : "prepare: "}${messageOf(error)}` };
       }
     }
   }
@@ -82,16 +101,12 @@ async function prepareRun(
   loaded: LoadedWorkflow,
   now: number,
 ): Promise<PreparedRun> {
-  const { executable, file } = loaded;
-  const { meta } = executable.definition;
-  const prepare = (argv: readonly string[], cwd: string) => {
-    const args = executable.prepare({ argv, cwd });
-    assertJsonValue(args, `${meta.name} arguments`);
-    return args;
-  };
+  const { workflow, file } = loaded;
+  const { meta } = workflow;
+  const prepare = (argv: readonly string[], cwd: string) => prepareArgs(workflow, argv, cwd);
   if (command.continueId === undefined) {
     const args = prepare(command.workflowArgs, command.cwd);
-    const id = command.id ?? derivedId(executable, args);
+    const id = command.id ?? derivedId(workflow, args);
     if (id !== undefined) await checkFree(command.runRoot, meta.name, id);
     return { args, ...(id === undefined ? {} : { id }) };
   }
@@ -129,43 +144,46 @@ async function prepareRun(
   return { args, continued: { run, attempts, warnings: unrecorded } };
 }
 
+/** The workflow's args from `argv`, as its `prepare` makes them, checked to be JSON. */
+export function prepareArgs(
+  workflow: AnyWorkflow,
+  argv: readonly string[],
+  cwd: string,
+): JsonValue {
+  const args = workflow.prepare({ argv, cwd });
+  assertJsonValue(args, `${workflow.meta.name} arguments`);
+  return args;
+}
+
 /**
- * Why `awf run` doesn't take a workflow with `events` as asked: a new run needs `--id`, and
- * `--continue` goes on with it from wherever its attempt stopped.
+ * Why `awf run` doesn't take a workflow with `events` as asked: every attempt after the first is
+ * started by a wake, which passes on none of the flags a run would have to keep.
  */
-function keyedRefusal(command: RunCommand, file: string): string | undefined {
-  if (command.workflowArgs.length > 0) return "a workflow with events takes no arguments";
-  if (command.continueId === undefined) {
-    if (command.id === undefined)
-      return `a run of ${file} is named by its id: awf run --id {id} starts one with no event, awf emit --target ${file} --id {id} {event} {json} with one`;
-    if (command.fromStage !== undefined || command.values !== undefined)
-      return "a run of a workflow with events takes no --from-stage or --values";
-    // Every attempt after the first is started by a wake, which passes none of these on.
-    const unkept = [
-      command.timeout === undefined ? undefined : "--timeout",
-      command.sandbox === undefined ? undefined : "--sandbox",
-      command.cwdGiven ? "--cwd" : undefined,
-      command.runRootGiven ? "--run-root" : undefined,
-    ].filter((flag) => flag !== undefined);
-    if (unkept.length > 0)
-      return `a run of a workflow with events runs in its file's project, as every wake starts it: it takes no ${unkept.join(", ")}`;
-    return undefined;
-  }
+function eventRunRefusal(command: RunCommand): string | undefined {
   if (command.fromStage !== undefined || command.values !== undefined)
     return "a run of a workflow with events takes no --from-stage or --values";
-  if (command.workflowArgs.length > 0) return "a workflow with events takes no arguments";
+  if (command.continueId !== undefined) {
+    if (command.workflowArgs.length > 0)
+      return "a continue takes no arguments: it goes on with those its run was started with";
+    return undefined;
+  }
+  const unkept = [
+    command.timeout === undefined ? undefined : "--timeout",
+    command.sandbox === undefined ? undefined : "--sandbox",
+    command.cwdGiven ? "--cwd" : undefined,
+    command.runRootGiven ? "--run-root" : undefined,
+  ].filter((flag) => flag !== undefined);
+  if (unkept.length > 0)
+    return `a run of a workflow with events runs in its file's project, as every wake starts it: it takes no ${unkept.join(", ")}`;
   return undefined;
 }
 
 /** The id the workflow's `id(args)` gives a new run, checked; undefined when it has none. */
-function derivedId(
-  executable: ExecutableWorkflow<JsonValue, JsonValue>,
-  args: JsonValue,
-): string | undefined {
-  if (!executable.id) return undefined;
+function derivedId(workflow: AnyWorkflow, args: JsonValue): string | undefined {
+  if (!workflow.id) return undefined;
   let id: unknown;
   try {
-    id = executable.id(args);
+    id = workflow.id(args);
   } catch (error) {
     throw new RunRefused(`the workflow's id(args) failed: ${messageOf(error)}; --id gives one`);
   }
@@ -183,7 +201,7 @@ export async function claimNext(
   notice: (text: string) => void,
   now: number,
 ): Promise<Attempt> {
-  const { meta } = loaded.executable.definition;
+  const { meta } = loaded.workflow;
   const claimed = await claimAttempt(
     run,
     {

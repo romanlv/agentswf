@@ -1,23 +1,19 @@
 import type { OutputRecord } from "@agentswf/contract/records";
-import { defineExecutableWorkflow } from "@agentswf/contract/workflow";
+import { defineWorkflow } from "@agentswf/contract/workflow";
 import { type RunSummary, SCORER_RESULT_FORMAT, type ScorerResult } from "./scoring";
 import { defineReviewScorer, defineReviewVariant } from "./variant";
 
 type Finding = { file: string; line?: number; claim: string; refuted: boolean };
 
-const review = defineExecutableWorkflow<{ range: string }, { findings: Finding[] }>({
-  definition: {
-    meta: { name: "review", description: "A review workflow with a shape of its own." },
-    run: async () => ({ findings: [] }),
-  },
+const review = defineWorkflow<{ range: string }, { findings: Finding[] }>({
+  meta: { name: "review", description: "A review workflow with a shape of its own." },
+  run: async () => ({ findings: [] }),
   prepare: () => ({ range: "HEAD" }),
 });
 
-const judge = defineExecutableWorkflow<{ fixture: string }, ScorerResult>({
-  definition: {
-    meta: { name: "judge", description: "A judge." },
-    run: async () => ({ format: SCORER_RESULT_FORMAT, labels: [], missed: "" }),
-  },
+const judge = defineWorkflow<{ fixture: string }, ScorerResult>({
+  meta: { name: "judge", description: "A judge." },
+  run: async () => ({ format: SCORER_RESULT_FORMAT, labels: [], missed: "" }),
   prepare: () => ({ fixture: "f" }),
 });
 

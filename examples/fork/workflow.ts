@@ -1,6 +1,6 @@
 import {
   type AgentPlacement,
-  defineExecutableWorkflow,
+  defineWorkflow,
   type ExecutionConfig,
   isAnswered,
   type WorkflowInvocation,
@@ -82,81 +82,79 @@ const RECALL =
 /** The codename and release the agents were checked against, beside their checks. */
 export type ForkResult = { codename: string; release: string; checks: ForkCheck[] };
 
-const executable = defineExecutableWorkflow<ForkArgs, ForkResult>({
-  definition: {
-    meta: {
-      name: "fork",
-      description: "Fork one worker per harness and placement, then ask each what it knows.",
-      whenToUse:
-        "Use to check that a fork starts from its parent's context, compacted or not, and that neither sees the other's turns after it.",
-    },
-    run: async (workflow, args) => ({
-      codename: args.codename,
-      release: args.release,
-      checks: await workflow.parallel(
-        args.cases,
-        async (item): Promise<ForkCheck> => {
-          const name = caseName(item);
-          const worker = await workflow.agents.open({
-            key: `worker:${name}`,
-            runtime: RUNTIMES[item.runtime].execution,
-            ...(item.sandbox ? { sandbox: {} } : {}),
-          });
-          const note = async (prompt: string) => {
-            const { outcome } = await worker.run({ prompt, schema: NOTED, timeoutMs: 4 * MINUTE });
-            return isAnswered(outcome) ? undefined : `${outcome.kind}: ${outcome.reason}`;
-          };
-          const recall = async (agent: typeof worker) => {
-            const { outcome } = await agent.run({
-              prompt: RECALL,
-              schema: RECALLED,
-              timeoutMs: 4 * MINUTE,
-            });
-            return isAnswered(outcome) ? outcome.value : `${outcome.kind}: ${outcome.reason}`;
-          };
-          const problem = await note(
-            `For later: this project's codename is ${args.codename}. Answer noted: true.`,
-          );
-          if (problem) return { name, problem };
-          const runtime = RUNTIMES[item.runtime];
-          if (item.compact && "inventoryLines" in runtime) {
-            const skimmed = await note(inventory(runtime.inventoryLines));
-            if (skimmed) return { name, problem: skimmed };
-          }
-          if (item.compact) {
-            const compacted = await worker.compact({
-              prompt: "Keep the project's codename.",
-              timeoutMs: 5 * MINUTE,
-            });
-            if (!isAnswered(compacted)) {
-              return { name, problem: `compaction ${compacted.kind}: ${compacted.reason}` };
-            }
-          }
-          // A fork its host refuses rejects, as an agent that will not open does, and fails the run.
-          const fork = await worker.fork({
-            key: `fork:${name}`,
-            ...(item.into ? { placement: item.into, metered: true } : {}),
-          });
-          const later = await note(
-            `Also for later: its next release is ${args.release}. Answer noted: true.`,
-          );
-          if (later) return { name, problem: later };
-          const [forked, worked] = await Promise.all([recall(fork), recall(worker)]);
-          return {
-            name,
-            ...(typeof forked === "string" ? {} : { fork: forked }),
-            ...(typeof worked === "string" ? {} : { worker: worked }),
-            ...(typeof forked === "string"
-              ? { problem: `fork: ${forked}` }
-              : typeof worked === "string"
-                ? { problem: `worker: ${worked}` }
-                : {}),
-          };
-        },
-        { label: "Forks" },
-      ),
-    }),
+export const fork = defineWorkflow<ForkArgs, ForkResult>({
+  meta: {
+    name: "fork",
+    description: "Fork one worker per harness and placement, then ask each what it knows.",
+    whenToUse:
+      "Use to check that a fork starts from its parent's context, compacted or not, and that neither sees the other's turns after it.",
   },
+  run: async (workflow, args) => ({
+    codename: args.codename,
+    release: args.release,
+    checks: await workflow.parallel(
+      args.cases,
+      async (item): Promise<ForkCheck> => {
+        const name = caseName(item);
+        const worker = await workflow.agents.open({
+          key: `worker:${name}`,
+          runtime: RUNTIMES[item.runtime].execution,
+          ...(item.sandbox ? { sandbox: {} } : {}),
+        });
+        const note = async (prompt: string) => {
+          const { outcome } = await worker.run({ prompt, schema: NOTED, timeoutMs: 4 * MINUTE });
+          return isAnswered(outcome) ? undefined : `${outcome.kind}: ${outcome.reason}`;
+        };
+        const recall = async (agent: typeof worker) => {
+          const { outcome } = await agent.run({
+            prompt: RECALL,
+            schema: RECALLED,
+            timeoutMs: 4 * MINUTE,
+          });
+          return isAnswered(outcome) ? outcome.value : `${outcome.kind}: ${outcome.reason}`;
+        };
+        const problem = await note(
+          `For later: this project's codename is ${args.codename}. Answer noted: true.`,
+        );
+        if (problem) return { name, problem };
+        const runtime = RUNTIMES[item.runtime];
+        if (item.compact && "inventoryLines" in runtime) {
+          const skimmed = await note(inventory(runtime.inventoryLines));
+          if (skimmed) return { name, problem: skimmed };
+        }
+        if (item.compact) {
+          const compacted = await worker.compact({
+            prompt: "Keep the project's codename.",
+            timeoutMs: 5 * MINUTE,
+          });
+          if (!isAnswered(compacted)) {
+            return { name, problem: `compaction ${compacted.kind}: ${compacted.reason}` };
+          }
+        }
+        // A fork its host refuses rejects, as an agent that will not open does, and fails the run.
+        const fork = await worker.fork({
+          key: `fork:${name}`,
+          ...(item.into ? { placement: item.into, metered: true } : {}),
+        });
+        const later = await note(
+          `Also for later: its next release is ${args.release}. Answer noted: true.`,
+        );
+        if (later) return { name, problem: later };
+        const [forked, worked] = await Promise.all([recall(fork), recall(worker)]);
+        return {
+          name,
+          ...(typeof forked === "string" ? {} : { fork: forked }),
+          ...(typeof worked === "string" ? {} : { worker: worked }),
+          ...(typeof forked === "string"
+            ? { problem: `fork: ${forked}` }
+            : typeof worked === "string"
+              ? { problem: `worker: ${worked}` }
+              : {}),
+        };
+      },
+      { label: "Forks" },
+    ),
+  }),
   prepare: parseArgs,
   present: ({ checks }) =>
     checks
@@ -202,5 +200,4 @@ function parseArgs(invocation: WorkflowInvocation): ForkArgs {
   return { cases, codename: `HERON-${code()}`, release: `R${code()}` };
 }
 
-export const fork = executable.definition;
-export default executable;
+export default fork;

@@ -2,7 +2,7 @@
 // by its iid. The reviewer judges and the code publishes. A type-checked sketch: the ledger and
 // GitLab are declared below.
 import {
-  defineEventWorkflow,
+  defineWorkflow,
   isAnswered,
   type OutputSchema,
   type WorkflowContext,
@@ -86,63 +86,61 @@ declare const gitlab: {
   summary(iid: number, how: string): Promise<{ noteId: number }>;
 };
 
-const mrReview = defineEventWorkflow({
-  definition: {
-    meta: { name: "mr-review", description: "Review one MR and keep its GitLab threads current." },
-    file: import.meta.path,
-    events: { "mr.changes": Changes, "mr.closed": Closed, "mr.rereview": Rereview },
-    starts: ["mr.changes"],
-    async run(workflow) {
-      const iid = Number(workflow.runId);
-      const ledger = openLedger(REVIEWS, iid);
-      const reviewer = await workflow.agents.open({
-        key: "reviewer",
-        runtime: "claude",
-        cwd: worktreeOf(iid),
-        instructions: REVIEWER.standing,
-      });
+const mrReview = defineWorkflow({
+  meta: { name: "mr-review", description: "Review one MR and keep its GitLab threads current." },
+  file: import.meta.path,
+  events: { "mr.changes": Changes, "mr.closed": Closed, "mr.rereview": Rereview },
+  starts: ["mr.changes"],
+  async run(workflow) {
+    const iid = Number(workflow.runId);
+    const ledger = openLedger(REVIEWS, iid);
+    const reviewer = await workflow.agents.open({
+      key: "reviewer",
+      runtime: "claude",
+      cwd: worktreeOf(iid),
+      instructions: REVIEWER.standing,
+    });
 
-      for (;;) {
-        const events = await workflow.receive({
-          label: `${reviewer.turn ? "reviewing" : "idle"} at ${short(ledger.mr.head)}`,
-          until: reviewer.turn || ledger.archived ? undefined : ledger.retryAt,
-        });
-        for (const e of events) {
-          if (e.name === "mr.changes") ledger.saw(e.data);
-          if (e.name === "mr.rereview") ledger.askAgain();
-          if (reviewer.ended<Ask, Pass>(e)) {
-            if (isAnswered(e.data.outcome)) {
-              const pass = e.data.outcome.value;
-              await workflow.stage(`apply-${e.id}`, () => ledger.apply(e.data.meta, pass));
-            } else if (e.data.outcome.kind !== "cancelled") {
-              ledger.failed(e.id);
-              workflow.log("review pass failed; retried in 15 minutes", {
-                outcome: e.data.outcome.kind,
-              });
-            }
-          }
-          if (e.name === "mr.closed") {
-            await reviewer.turn?.cancel();
-            await workflow.stage(`archive-${e.id}`, () => archive(iid, e.data));
-            if (e.data.merged) return { merged: true };
+    for (;;) {
+      const events = await workflow.receive({
+        label: `${reviewer.turn ? "reviewing" : "idle"} at ${short(ledger.mr.head)}`,
+        until: reviewer.turn || ledger.archived ? undefined : ledger.retryAt,
+      });
+      for (const e of events) {
+        if (e.name === "mr.changes") ledger.saw(e.data);
+        if (e.name === "mr.rereview") ledger.askAgain();
+        if (reviewer.ended<Ask, Pass>(e)) {
+          if (isAnswered(e.data.outcome)) {
+            const pass = e.data.outcome.value;
+            await workflow.stage(`apply-${e.id}`, () => ledger.apply(e.data.meta, pass));
+          } else if (e.data.outcome.kind !== "cancelled") {
+            ledger.failed(e.id);
+            workflow.log("review pass failed; retried in 15 minutes", {
+              outcome: e.data.outcome.kind,
+            });
           }
         }
-        if (reviewer.turn || ledger.retrying() || ledger.archived) continue;
-
-        const threads = await gitlab.threads(iid);
-        const ask = nextAsk(ledger, threads);
-        if (ask) {
-          await checkout(iid, ledger.mr.head);
-          await reviewer.start({ prompt: fill(REVIEWER[ask.kind], ask), schema: Pass, meta: ask });
-        } else if (ledger.mr.authorized) {
-          await publish(workflow, ledger, threads, iid);
-          if (ledger.passes > 0)
-            await workflow.stage(`compact-after-${ledger.passes}`, async () => {
-              await reviewer.compact(REVIEWER.compact);
-            });
+        if (e.name === "mr.closed") {
+          await reviewer.turn?.cancel();
+          await workflow.stage(`archive-${e.id}`, () => archive(iid, e.data));
+          if (e.data.merged) return { merged: true };
         }
       }
-    },
+      if (reviewer.turn || ledger.retrying() || ledger.archived) continue;
+
+      const threads = await gitlab.threads(iid);
+      const ask = nextAsk(ledger, threads);
+      if (ask) {
+        await checkout(iid, ledger.mr.head);
+        await reviewer.start({ prompt: fill(REVIEWER[ask.kind], ask), schema: Pass, meta: ask });
+      } else if (ledger.mr.authorized) {
+        await publish(workflow, ledger, threads, iid);
+        if (ledger.passes > 0)
+          await workflow.stage(`compact-after-${ledger.passes}`, async () => {
+            await reviewer.compact(REVIEWER.compact);
+          });
+      }
+    }
   },
 });
 export default mrReview;

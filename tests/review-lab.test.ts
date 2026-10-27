@@ -1118,14 +1118,12 @@ export default defineComparison({
         proposals += 1;
         await Bun.write(
           join(request.cwd, "candidate", "workflow.ts"),
-          `import { defineExecutableWorkflow } from "agentswf/workflow";
+          `import { defineWorkflow } from "agentswf/workflow";
 
-export default defineExecutableWorkflow({
-  definition: {
-    meta: { name: "candidate", description: "Finds nothing." },
-    async run() {
-      return { range: "", title: "", findings: [] };
-    },
+export default defineWorkflow({
+  meta: { name: "candidate", description: "Finds nothing." },
+  async run() {
+    return { range: "", title: "", findings: [] };
   },
   prepare: () => ({}),
 });
@@ -1211,20 +1209,18 @@ export default defineComparison({
     const codexHome = join(ws.root, "codex-home");
     await Bun.write(join(codexHome, "auth.json"), "{}");
     const candidates = [
-      `import { defineExecutableWorkflow } from "agentswf/workflow";
+      `import { defineWorkflow } from "agentswf/workflow";
 
-export default defineExecutableWorkflow({
-  definition: {
-    meta: { name: "candidate", description: "Finds nothing, on purpose." },
-    async run() {
-      return { range: "", title: "", findings: [] };
-    },
+export default defineWorkflow({
+  meta: { name: "candidate", description: "Finds nothing, on purpose." },
+  async run() {
+    return { range: "", title: "", findings: [] };
   },
   prepare: () => ({}),
 });
 `,
       `import { readFileSync } from "node:fs";\nexport default readFileSync;\n`,
-      `import { defineExecutableWorkflow } from "agentswf/workflow";\n`,
+      `import { defineWorkflow } from "agentswf/workflow";\n`,
       "export default 1;\n",
     ];
     const hypothesis = {

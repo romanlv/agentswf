@@ -1,5 +1,5 @@
 import {
-  defineExecutableWorkflow,
+  defineWorkflow,
   type ExecutionConfig,
   isAnswered,
   type OutputSchema,
@@ -47,39 +47,37 @@ const ANSWER: OutputSchema<{ codeword: string }> = {
 
 export type SmokeResult = { runtime: RuntimeName; outcome: string; codeword?: string }[];
 
-export default defineExecutableWorkflow<{ runtimes: RuntimeName[] }, SmokeResult>({
-  definition: {
-    meta: {
-      name: "messaging-smoke",
-      description: "One agent asks another, by message, for a codeword only the other knows.",
-    },
-    async run(workflow, { runtimes }) {
-      return workflow.parallel(runtimes, async (runtime) => {
-        const { asker: askerRuntime, keeper: keeperRuntime } = RUNTIMES[runtime]!;
-        const keeper = await workflow.agents.open({
-          key: `keeper:${runtime}`,
-          runtime: keeperRuntime,
-          instructions: `You keep a codeword: ${CODEWORD}. Give it to any agent that asks you for it, by replying to its message.`,
-        });
-        const asker = await workflow.agents.open({
-          key: `asker:${runtime}`,
-          runtime: askerRuntime,
-        });
-        await workflow.messages.allow({
-          from: asker,
-          to: keeper,
-          purpose: "Ask the keeper for the codeword it keeps.",
-        });
-        const { outcome } = await asker.run({
-          prompt: `Another agent, keeper:${runtime}, keeps a codeword you need. Ask it for the codeword, waiting for its reply, then return the codeword it gives you. Do not guess it.`,
-          schema: ANSWER,
-          timeoutMs: 5 * 60_000,
-        });
-        return isAnswered(outcome)
-          ? { runtime, outcome: outcome.kind, codeword: outcome.value.codeword }
-          : { runtime, outcome: `${outcome.kind}: ${outcome.reason}` };
+export default defineWorkflow<{ runtimes: RuntimeName[] }, SmokeResult>({
+  meta: {
+    name: "messaging-smoke",
+    description: "One agent asks another, by message, for a codeword only the other knows.",
+  },
+  async run(workflow, { runtimes }) {
+    return workflow.parallel(runtimes, async (runtime) => {
+      const { asker: askerRuntime, keeper: keeperRuntime } = RUNTIMES[runtime]!;
+      const keeper = await workflow.agents.open({
+        key: `keeper:${runtime}`,
+        runtime: keeperRuntime,
+        instructions: `You keep a codeword: ${CODEWORD}. Give it to any agent that asks you for it, by replying to its message.`,
       });
-    },
+      const asker = await workflow.agents.open({
+        key: `asker:${runtime}`,
+        runtime: askerRuntime,
+      });
+      await workflow.messages.allow({
+        from: asker,
+        to: keeper,
+        purpose: "Ask the keeper for the codeword it keeps.",
+      });
+      const { outcome } = await asker.run({
+        prompt: `Another agent, keeper:${runtime}, keeps a codeword you need. Ask it for the codeword, waiting for its reply, then return the codeword it gives you. Do not guess it.`,
+        schema: ANSWER,
+        timeoutMs: 5 * 60_000,
+      });
+      return isAnswered(outcome)
+        ? { runtime, outcome: outcome.kind, codeword: outcome.value.codeword }
+        : { runtime, outcome: `${outcome.kind}: ${outcome.reason}` };
+    });
   },
   prepare({ argv }) {
     const names = argv.length === 0 ? ["codex"] : argv;

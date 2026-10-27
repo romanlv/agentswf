@@ -5,11 +5,7 @@
 // from the tuning cases only, writes one changed review workflow to `candidate/workflow.ts`, and
 // answers with its hypothesis. `bundle/program.md`, the operator's, steers it; the rules of the
 // try are here. awf-lab checks the candidate's scope before anything runs it.
-import {
-  defineExecutableWorkflow,
-  isAnswered,
-  type WorkflowInvocation,
-} from "@agentswf/contract/workflow";
+import { defineWorkflow, isAnswered, type WorkflowInvocation } from "@agentswf/contract/workflow";
 import { runtimeOf } from "../../format/runtime";
 import { type Hypothesis, HypothesisSchema } from "./format";
 import { ALLOWED_IMPORTS } from "./scope";
@@ -36,22 +32,20 @@ The rules of a try:
 
 Answer with the change, the hypothesis, the predicted effect, and the mechanism the records must show if it holds.`;
 
-const executable = defineExecutableWorkflow<Args, Hypothesis>({
-  definition: {
-    meta: {
-      name: "loop-proposer",
-      description: "Write one changed review workflow from the tuning cases' feedback.",
-    },
-    async run(workflow, args) {
-      const agent = await workflow.agents.open({
-        key: "proposer",
-        runtime: runtimeOf(args.runtime),
-      });
-      const { outcome } = await agent.run({ prompt: PROMPT, schema: HypothesisSchema });
-      if (!isAnswered(outcome)) throw new Error(`no proposal: ${outcome.kind}: ${outcome.reason}`);
-      // Checked against the schema by `wf result` as it was answered.
-      return outcome.value as Hypothesis;
-    },
+export default defineWorkflow<Args, Hypothesis>({
+  meta: {
+    name: "loop-proposer",
+    description: "Write one changed review workflow from the tuning cases' feedback.",
+  },
+  async run(workflow, args) {
+    const agent = await workflow.agents.open({
+      key: "proposer",
+      runtime: runtimeOf(args.runtime),
+    });
+    const { outcome } = await agent.run({ prompt: PROMPT, schema: HypothesisSchema });
+    if (!isAnswered(outcome)) throw new Error(`no proposal: ${outcome.kind}: ${outcome.reason}`);
+    // Checked against the schema by `wf result` as it was answered.
+    return outcome.value as Hypothesis;
   },
   prepare: (invocation: WorkflowInvocation) => {
     const [flag, value, ...rest] = invocation.argv;
@@ -63,5 +57,3 @@ const executable = defineExecutableWorkflow<Args, Hypothesis>({
   },
   present: (hypothesis) => `${hypothesis.change}\n${hypothesis.predicted}`,
 });
-
-export default executable;

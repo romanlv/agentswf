@@ -1,4 +1,4 @@
-import { defineExecutableWorkflow, isAnswered } from "../../../packages/contract/src/workflow";
+import { defineWorkflow, isAnswered } from "../../../packages/contract/src/workflow";
 
 /**
  * Two agents that name no sandbox, for `tests/run-sandbox.eval.ts`: a prober runs fixed shell
@@ -39,37 +39,35 @@ const LINE = {
   additionalProperties: false,
 } as const;
 
-export default defineExecutableWorkflow({
-  definition: {
-    meta: { name: "run-sandbox-probe", description: "Probe the run's sandbox from two agents." },
-    async run(workflow, args: { request: string; commands: string[] }): Promise<ProbeResult> {
-      const prober = await workflow.agents.open({
-        key: "prober",
-        runtime: { harness: "codex", model: "gpt-5.6-sol", placement: "headless" },
-      });
-      const reader = await workflow.agents.open({
-        key: "reader",
-        runtime: { harness: "codex", model: "gpt-6-luna", placement: "headless" },
-      });
-      const [probed, read] = await Promise.all([
-        prober.run<Pick<ProbeResult, "results">>({
-          prompt: [
-            "This is a sandbox test. Run each shell command below exactly as written, one at a",
-            "time, and report each one's exit code and output verbatim. Do not retry, work around",
-            "or explain a failure: a failure is an expected result.",
-            ...args.commands.map((command, i) => `${i + 1}. ${command}`),
-          ].join("\n"),
-          schema: REPORT,
-        }),
-        reader.run<{ firstLine: string }>({
-          prompt: `Run \`head -1 ${args.request}\` and report the line it prints.`,
-          schema: LINE,
-        }),
-      ]);
-      if (!isAnswered(probed.outcome)) throw new Error(`prober: ${probed.outcome.kind}`);
-      if (!isAnswered(read.outcome)) throw new Error(`reader: ${read.outcome.kind}`);
-      return { results: probed.outcome.value.results, firstLine: read.outcome.value.firstLine };
-    },
+export default defineWorkflow({
+  meta: { name: "run-sandbox-probe", description: "Probe the run's sandbox from two agents." },
+  async run(workflow, args: { request: string; commands: string[] }): Promise<ProbeResult> {
+    const prober = await workflow.agents.open({
+      key: "prober",
+      runtime: { harness: "codex", model: "gpt-5.6-sol", placement: "headless" },
+    });
+    const reader = await workflow.agents.open({
+      key: "reader",
+      runtime: { harness: "codex", model: "gpt-6-luna", placement: "headless" },
+    });
+    const [probed, read] = await Promise.all([
+      prober.run<Pick<ProbeResult, "results">>({
+        prompt: [
+          "This is a sandbox test. Run each shell command below exactly as written, one at a",
+          "time, and report each one's exit code and output verbatim. Do not retry, work around",
+          "or explain a failure: a failure is an expected result.",
+          ...args.commands.map((command, i) => `${i + 1}. ${command}`),
+        ].join("\n"),
+        schema: REPORT,
+      }),
+      reader.run<{ firstLine: string }>({
+        prompt: `Run \`head -1 ${args.request}\` and report the line it prints.`,
+        schema: LINE,
+      }),
+    ]);
+    if (!isAnswered(probed.outcome)) throw new Error(`prober: ${probed.outcome.kind}`);
+    if (!isAnswered(read.outcome)) throw new Error(`reader: ${read.outcome.kind}`);
+    return { results: probed.outcome.value.results, firstLine: read.outcome.value.firstLine };
   },
   prepare: ({ argv }) => {
     const [flag, request, ...commands] = argv;

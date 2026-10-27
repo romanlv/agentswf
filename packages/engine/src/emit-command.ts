@@ -1,5 +1,5 @@
 import type { EmitResultJson } from "@agentswf/contract/records";
-import type { JsonValue } from "@agentswf/contract/workflow";
+import { isEventWorkflow, type JsonValue } from "@agentswf/contract/workflow";
 import { EmitError, emitEvent } from "./emit";
 import { messageOf } from "./errors";
 import type { Out } from "./run-commands";
@@ -51,12 +51,12 @@ export async function emitCommand(
   let result: EmitResultJson;
   try {
     const loaded = await loadWorkflowFile(parsed.target, shellCwd);
-    if (!loaded.keyed) {
+    if (!isEventWorkflow(loaded.workflow)) {
       out.stderr(`awf: ${loaded.file} declares no events; awf run starts it`);
       return 2;
     }
     result = await emitEvent(
-      { file: loaded.file, definition: loaded.keyed },
+      loaded.workflow,
       {
         run: parsed.run,
         name: parsed.name,

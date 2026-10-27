@@ -1,5 +1,5 @@
 import {
-  defineExecutableWorkflow,
+  defineWorkflow,
   type ExecutionConfig,
   isAnswered,
   type OutputSchema,
@@ -30,44 +30,42 @@ const ANSWER: OutputSchema<{ codeword: string }> = {
 export type CoordinatorSmokeResult = { runtime: string; outcome: string; codeword?: string }[];
 
 /** `--timeout-ms {n}` bounds each investigator's operation, which a late answer outlasts. */
-export default defineExecutableWorkflow<
+export default defineWorkflow<
   { runtimes: string[]; timeoutMs: number },
   CoordinatorSmokeResult
 >({
-  definition: {
-    meta: {
-      name: "coordinator-smoke",
-      description: "Agents report to a coordinator outside the run and ask it for a codeword.",
-    },
-    async run(workflow, { runtimes, timeoutMs }) {
-      const coordinator = await workflow.participants.connect({
-        key: "coordinator",
-        labels: { audience: "eval" },
+  meta: {
+    name: "coordinator-smoke",
+    description: "Agents report to a coordinator outside the run and ask it for a codeword.",
+  },
+  async run(workflow, { runtimes, timeoutMs }) {
+    const coordinator = await workflow.participants.connect({
+      key: "coordinator",
+      labels: { audience: "eval" },
+    });
+    return workflow.parallel(runtimes, async (runtime) => {
+      const investigator = await workflow.agents.open({
+        key: `investigator:${runtime}`,
+        runtime: HEADLESS[runtime as keyof typeof HEADLESS],
       });
-      return workflow.parallel(runtimes, async (runtime) => {
-        const investigator = await workflow.agents.open({
-          key: `investigator:${runtime}`,
-          runtime: HEADLESS[runtime as keyof typeof HEADLESS],
-        });
-        await workflow.messages.allow({
-          between: [investigator, coordinator],
-          purpose: "Report what you find; ask the coordinator what only it knows.",
-          timeoutMs: 5 * 60_000,
-        });
-        const { outcome } = await investigator.run({
-          prompt: [
-            "A coordinator outside this run keeps a codeword you need.",
-            "First send it a one-line report that you are starting, without waiting for an answer.",
-            "Then ask it for the codeword, waiting for its reply, and return the codeword it gives you. Do not guess it.",
-          ].join(" "),
-          schema: ANSWER,
-          timeoutMs,
-        });
-        return isAnswered(outcome)
-          ? { runtime, outcome: outcome.kind, codeword: outcome.value.codeword }
-          : { runtime, outcome: `${outcome.kind}: ${outcome.reason}` };
+      await workflow.messages.allow({
+        between: [investigator, coordinator],
+        purpose: "Report what you find; ask the coordinator what only it knows.",
+        timeoutMs: 5 * 60_000,
       });
-    },
+      const { outcome } = await investigator.run({
+        prompt: [
+          "A coordinator outside this run keeps a codeword you need.",
+          "First send it a one-line report that you are starting, without waiting for an answer.",
+          "Then ask it for the codeword, waiting for its reply, and return the codeword it gives you. Do not guess it.",
+        ].join(" "),
+        schema: ANSWER,
+        timeoutMs,
+      });
+      return isAnswered(outcome)
+        ? { runtime, outcome: outcome.kind, codeword: outcome.value.codeword }
+        : { runtime, outcome: `${outcome.kind}: ${outcome.reason}` };
+    });
   },
   prepare({ argv }) {
     const at = argv.indexOf("--timeout-ms");

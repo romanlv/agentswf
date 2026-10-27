@@ -16,7 +16,7 @@ import type {
 declare const deadline: AbsoluteDeadline;
 declare const context: WorkflowContext;
 declare const agentRef: AgentRef;
-declare const definition: WorkflowDefinition<null, string>;
+declare const workflow: WorkflowDefinition<null, string>;
 
 const turn = {
   prompt: "Review the change",
@@ -31,7 +31,7 @@ const inheritedParallel = { concurrency: 2 } satisfies ParallelOptions;
 const inheritedOpen = { key: "reviewer", runtime: "default" } satisfies AgentOpenSpec;
 const inheritedCall = {
   id: "child",
-  definition,
+  workflow,
   args: null,
 } satisfies WorkflowCallSpec<null, string>;
 const inheritedStep = { id: "step" } satisfies StepSpec;

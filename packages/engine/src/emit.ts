@@ -4,8 +4,6 @@ import { type EmitResultJson, MAILBOX_RECORD_VERSION } from "@agentswf/contract/
 import { parseJsonSchema, validate } from "@agentswf/contract/schema";
 import {
   AWF_ID_PREFIX,
-  type EventSchemas,
-  type EventWorkflowDefinition,
   eventWorkflowProblem,
   type JsonValue,
   nameProblem,
@@ -15,14 +13,10 @@ import { exists } from "./files";
 import { appendMailbox, foldMailbox, readMailbox } from "./mailbox";
 import { projectOf, projectRunRoot, recordProject } from "./projects";
 import { runLockFile, withRunLock } from "./run-lock";
+import { prepareArgs } from "./run-prepare";
 import { createRun, idProblem, openRun, type Run, readAttempts } from "./runs";
 import { type WakeContext, type Woken, wake } from "./wake";
-
-/** A workflow with `events`, as a sender has it: its definition, and the file it lives in. */
-export type EmitTarget = {
-  file: string;
-  definition: EventWorkflowDefinition<EventSchemas, JsonValue>;
-};
+import type { EventWorkflow } from "./workflow-loader";
 
 /** An event awf refuses to take at all: a name, shape or id no run of the target could have. */
 export class EmitError extends Error {
@@ -42,12 +36,11 @@ export type EmitContext = Omit<WakeContext, "file"> & {
  * shape or id throws an `EmitError`; the run's state is the outcome.
  */
 export async function emitEvent(
-  target: EmitTarget,
+  target: EventWorkflow,
   event: { run: string; name: string; data: JsonValue; id?: string },
   context: EmitContext,
 ): Promise<EmitResultJson> {
-  const { definition } = target;
-  const workflow = definition.meta.name;
+  const workflow = target.meta.name;
   const { name, data } = event;
   checkEvent(target, event);
   const id = event.id ?? `${AWF_ID_PREFIX}${randomBytes(8).toString("hex")}`;
@@ -58,6 +51,7 @@ export async function emitEvent(
   const project = await projectOf(target.file, context.home).catch((error: unknown) => {
     throw new EmitError(messageOf(error));
   });
+  const starts = target.starts?.includes(name) ?? true;
   return deliver(
     {
       runRoot: projectRunRoot(project),
@@ -66,7 +60,7 @@ export async function emitEvent(
       event: { id, name, data, from: context.from, at },
       deduplicate: event.id !== undefined,
       file: target.file,
-      ...((definition.starts?.includes(name) ?? true) ? { start: { project } } : {}),
+      ...(starts ? { start: { project, target } } : {}),
     },
     context,
   );
@@ -80,8 +74,8 @@ export type Delivery = {
   event: { id: string; name: string; data: JsonValue; from: string; at: string };
   /** False for an id awf made at random, which nothing repeats. */
   deduplicate: boolean;
-  /** Given when the event may start the run: what a new run records. */
-  start?: { project: string };
+  /** Given when the event may start the run: what a new run records, and the workflow it prepares. */
+  start?: { project: string; target: EventWorkflow };
   /** The file a sender named, which a start or continue runs; absent, the run's last. */
   file?: string;
 };
@@ -114,6 +108,7 @@ export async function deliver(
         return result("refused", { did: "none", why: "returned" });
     } else {
       if (!start) return result("refused", { did: "none", why: "not-a-start" });
+      checkStartArgs(start.target, start.project);
       run = await createEventRun(runRoot, workflow, runId, start.project, file, context);
     }
     await appendMailbox(run.dir, {
@@ -125,6 +120,20 @@ export async function deliver(
   });
 }
 
+/**
+ * A run an event starts has no argv: its args are what `prepare` makes of none, checked before the
+ * run is made, so a workflow that needs args refuses the sender and leaves no run.
+ */
+function checkStartArgs(target: EventWorkflow, project: string): void {
+  try {
+    prepareArgs(target, [], project);
+  } catch (error) {
+    throw new EmitError(
+      `${target.meta.name}: a run an event starts has no arguments, which its prepare refuses: ${messageOf(error)}`,
+    );
+  }
+}
+
 /** A new run of a workflow with events, in `project`, recorded so `awf tick` finds it. */
 async function createEventRun(
   runRoot: string,
@@ -133,11 +142,12 @@ async function createEventRun(
   project: string,
   file: string | undefined,
   context: Pick<WakeContext, "home" | "environment">,
+  argv: readonly string[] = [],
 ): Promise<Run> {
   const run = await createRun(runRoot, {
     id,
     workflow,
-    argv: [],
+    argv: [...argv],
     cwd: project,
     sandbox: null,
     events: true,
@@ -157,11 +167,12 @@ export type Opened = { run: string; created: boolean } & Woken;
  * `awf tick` would; one that returned is refused, as its events are.
  */
 export async function openEventRun(
-  target: EmitTarget,
+  target: EventWorkflow,
   id: string,
+  argv: readonly string[],
   context: Omit<WakeContext, "file">,
 ): Promise<Opened> {
-  const workflow = target.definition.meta.name;
+  const workflow = target.meta.name;
   const problem = idProblem(id);
   if (problem) throw new EmitError(problem);
   const project = await projectOf(target.file, context.home).catch((error: unknown) => {
@@ -175,30 +186,38 @@ export async function openEventRun(
       const run = await openRun(runRoot, workflow, id);
       if ((await readAttempts(run)).at(-1)?.outcome === "completed")
         return { run: ref, created: false, did: "none", why: "returned" };
+      if (argv.length > 0 && JSON.stringify(argv) !== JSON.stringify(run.record.argv))
+        throw new EmitError(
+          `${ref} is there already, started with ${run.record.argv.length > 0 ? "arguments of its own" : "none"}; awf run --id ${id} with none wakes it`,
+        );
       return { run: ref, created: false, ...(await wake(run, woken)) };
     }
-    const run = await createEventRun(runRoot, workflow, id, project, target.file, context);
+    try {
+      prepareArgs(target, argv, project);
+    } catch (error) {
+      throw new EmitError(`prepare: ${messageOf(error)}`);
+    }
+    const run = await createEventRun(runRoot, workflow, id, project, target.file, context, argv);
     return { run: ref, created: true, ...(await wake(run, woken)) };
   });
 }
 
 /** The event's name, shape and id, as the target declares them; an `EmitError` when they don't fit. */
 export function checkEvent(
-  target: EmitTarget,
+  target: EventWorkflow,
   event: { name: string; data: JsonValue; id?: string },
 ): void {
-  const { definition } = target;
-  const workflow = definition.meta.name;
-  const problem = eventWorkflowProblem(definition);
+  const workflow = target.meta.name;
+  const problem = eventWorkflowProblem(target);
   if (problem) throw new EmitError(`${workflow}: ${problem}`);
-  if (!isAbsolute(definition.file))
-    throw new EmitError(`${workflow}: its file, ${definition.file}, is import.meta.path, absolute`);
+  if (!isAbsolute(target.file))
+    throw new EmitError(`${workflow}: its file, ${target.file}, is import.meta.path, absolute`);
   if (event.name.includes(":"))
     throw new EmitError(`${event.name}: a name with a colon is awf's own, and not sent`);
-  const schema = definition.events[event.name];
+  const schema = target.events[event.name];
   if (!schema)
     throw new EmitError(
-      `${workflow} declares no event ${event.name}; its events are ${Object.keys(definition.events).join(", ")}`,
+      `${workflow} declares no event ${event.name}; its events are ${Object.keys(target.events).join(", ")}`,
     );
   let parsed: ReturnType<typeof parseJsonSchema>;
   try {

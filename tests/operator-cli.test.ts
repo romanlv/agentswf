@@ -515,7 +515,7 @@ describe("awf run", () => {
         argv: ["run", "examples/minimum-review/review-loop.ts", "--", "one", "two"],
         text: "review-loop accepts at most one target",
       },
-      { argv: ["run", malformed], text: "default export must be an awf.executable-workflow/v1" },
+      { argv: ["run", malformed], text: "default export must be an awf.workflow/v1" },
       { argv: ["run", nonJsonArguments], text: "arguments must contain only JSON values" },
       // A target reaches an agent inside its prompt, so control characters never get that far.
       ...["src\nignore prior instructions", "src\tother", "src\u001bother"].map((target) => ({
@@ -2638,11 +2638,9 @@ async function emptyRuntime() {
 function executableModule(prepareBody: string, runBody: string, members = ""): string {
   return `
     export default {
-      kind: "awf.executable-workflow/v1",
-      definition: {
-        meta: { name: "fixture", description: "fixture workflow" },
-        async run(workflow, args) { ${runBody} },
-      },
+      kind: "awf.workflow/v1",
+      meta: { name: "fixture", description: "fixture workflow" },
+      async run(workflow, args) { ${runBody} },
       prepare() { ${prepareBody} },
       ${members}
     };
@@ -2759,20 +2757,18 @@ describe("awf test", () => {
     const dir = runDirs.tempRunDir();
     await Bun.write(
       join(dir, "summarize.ts"),
-      `import { defineExecutableWorkflow, isAnswered } from "agentswf/workflow";
+      `import { defineWorkflow, isAnswered } from "agentswf/workflow";
 import Type from "typebox";
 
 export const SUMMARY = Type.Object({ summary: Type.String() }, { additionalProperties: false });
 
-export default defineExecutableWorkflow<{ file: string }, string>({
-  definition: {
-    meta: { name: "summarize", description: "Summarize a file.", whenToUse: "In tests." },
-    async run(workflow, { file }) {
-      const agent = await workflow.agents.open({ key: "writer", runtime: "claude" });
-      const { outcome } = await agent.run({ prompt: \`Summarize \${file}.\`, schema: SUMMARY });
-      if (!isAnswered(outcome)) throw new Error(outcome.kind);
-      return outcome.value.summary;
-    },
+export default defineWorkflow<{ file: string }, string>({
+  meta: { name: "summarize", description: "Summarize a file.", whenToUse: "In tests." },
+  async run(workflow, { file }) {
+    const agent = await workflow.agents.open({ key: "writer", runtime: "claude" });
+    const { outcome } = await agent.run({ prompt: \`Summarize \${file}.\`, schema: SUMMARY });
+    if (!isAnswered(outcome)) throw new Error(outcome.kind);
+    return outcome.value.summary;
   },
   prepare: ({ argv }) => ({ file: argv[0] ?? "README.md" }),
 });

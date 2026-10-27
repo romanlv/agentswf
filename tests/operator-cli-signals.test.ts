@@ -37,11 +37,9 @@ test("a cancelled run exits as the signal would, having written its record", asy
   writeFileSync(
     workflow,
     `export default {
-      kind: "awf.executable-workflow/v1",
-      definition: {
-        meta: { name: "waits", description: "waits to be cancelled" },
-        async run() { console.error("started"); await new Promise(() => {}); },
-      },
+      kind: "awf.workflow/v1",
+      meta: { name: "waits", description: "waits to be cancelled" },
+      async run() { console.error("started"); await new Promise(() => {}); },
       prepare() { return null; },
     };`,
   );

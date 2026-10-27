@@ -55,7 +55,7 @@ import { stopCrashed } from "./stop-crashed";
 import { testCommand } from "./test-command";
 import { tickCommand } from "./tick-command";
 import type { Launch } from "./wake";
-import type { LoadedWorkflow } from "./workflow-loader";
+import type { EventWorkflow, LoadedWorkflow } from "./workflow-loader";
 import {
   type RunWorkflowOptions,
   startWorkflow,
@@ -254,12 +254,12 @@ function help(
  * an event starts one, so it runs to its first wait and parks; one already there is only woken.
  */
 async function openRun(
-  { loaded, id }: { loaded: LoadedWorkflow; id: string },
+  { loaded, id, argv }: { loaded: LoadedWorkflow; id: string; argv: readonly string[] },
   environment: OperatorEnvironment,
   { stdout, stderr }: Output,
 ): Promise<number> {
   try {
-    const opened = await openEventRun({ file: loaded.file, definition: loaded.keyed! }, id, {
+    const opened = await openEventRun(loaded.workflow as EventWorkflow, id, argv, {
       home: environment.home ?? homedir(),
       environment: environment.environment ?? process.env,
       ...(environment.launch ? { launch: environment.launch } : {}),
@@ -379,8 +379,8 @@ async function runAttempt(
   output: Output,
 ): Promise<number> {
   const { stdout, stderr, notice, terminal, now } = output;
-  const { executable } = loaded;
-  const { meta } = executable.definition;
+  const { workflow } = loaded;
+  const { meta } = workflow;
   /** The run, once it is claimed. */
   let run: Run | undefined;
   // Once the run has taken the session over, however it ends, the session gets it back.
@@ -458,14 +458,13 @@ async function runAttempt(
   const goOn: GoOn = (stop, entered) => continueCommand(command, id, stop, entered);
   const records = {
     attempt,
-    executable,
-    workflow: { name: meta.name, file: loaded.file },
+    loaded,
     stderr,
     ...(!run.record.events ? {} : { locked }),
   };
   const close = (end: AttemptEnd, kept: Kept, cleanupAlso?: string) =>
     printEnding(end, kept, {
-      executable,
+      workflow,
       run: { id, dir: run.dir },
       n,
       earlier: prepared.continued?.attempts ?? [],
@@ -573,7 +572,7 @@ async function runAttempt(
   const coordinators = [...(environment.coordinators ?? []), socket, asked];
   let handle: WorkflowRunHandle<JsonValue>;
   try {
-    handle = await startWorkflow(executable.definition, prepared.args, {
+    handle = await startWorkflow(workflow, prepared.args, {
       runRoot: run.root,
       run: {
         dir: run.dir,

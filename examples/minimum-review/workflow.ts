@@ -1,8 +1,8 @@
 import {
-  defineExecutableWorkflow,
-  type ExecutableWorkflow,
+  defineWorkflow,
   isAnswered,
   type RuntimeSelection,
+  type Workflow,
   type WorkflowDefinition,
   type WorkflowInvocation,
   type WorkflowMeta,
@@ -119,11 +119,12 @@ export function createMinimumReview(
 
 export function defineReviewWorkflow(
   config: ReviewWorkflowConfig,
-): ExecutableWorkflow<MinimumReviewArgs, MinimumReviewResult> {
+): Workflow<MinimumReviewArgs, MinimumReviewResult> {
   const { reviewers, operationTimeoutMs, ...meta } = config;
   const minimumReview = createMinimumReview(reviewers, operationTimeoutMs);
-  const definition: WorkflowDefinition<MinimumReviewArgs, MinimumReviewResult> = {
+  return defineWorkflow<MinimumReviewArgs, MinimumReviewResult>({
     meta,
+    prepare: (invocation) => ({ target: parseReviewTarget(meta.name, invocation) }),
     async run(workflow, args) {
       const result = await minimumReview.run(workflow, args);
       const incomplete = result.reviews.filter((review) => review.kind === "incomplete");
@@ -134,10 +135,6 @@ export function defineReviewWorkflow(
       }
       return result;
     },
-  };
-  return defineExecutableWorkflow({
-    definition,
-    prepare: (invocation) => ({ target: parseReviewTarget(meta.name, invocation) }),
   });
 }
 

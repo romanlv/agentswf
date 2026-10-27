@@ -191,9 +191,8 @@ path, `bun test examples/feature-delivery`; outside this repository, `awf test` 
 `quick-check` and `sandbox-probe` have none, as they exist to watch real agents.
 [The workflow API](../docs/workflow-api.md#testing-a-workflow) says how to write one.
 
-Only `minimum-review/review-loop.ts`, `calling-session/workflow.ts`, `compaction/workflow.ts`, `effort/workflow.ts`,
-`feature-delivery/workflow.ts`, `fork/workflow.ts`, `fork-caller/workflow.ts`, `pane-layout/workflow.ts`, `quick-check/workflow.ts`, `sandboxes/workflow.ts`, `sandbox-probe/workflow.ts`,
-`skills-probe/workflow.ts`, `triage/workflow.ts` and `single-agent-review/workflow.ts` have the
-executable default export required by `awf run`.
+A file `awf run` takes default-exports its workflow. `minimum-review/workflow.ts` and
+`catalogue-review/workflow.ts` export the function that makes one instead, for an entry point
+that names its own model or catalogue.
 A catalogue review's entry point lives beside the catalogue it reads, outside this package, because
 reading one is I/O and a workflow here is pure.

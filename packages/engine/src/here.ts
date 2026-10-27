@@ -105,7 +105,7 @@ export async function startHere(
       // Under codex this can be another pane's workspace (E8); the run's tab still works from it.
       workspace,
       cwd: command.shellCwd,
-      label: tabLabel(ready.loaded.executable.definition.meta.name, id),
+      label: tabLabel(ready.loaded.workflow.meta.name, id),
       argv: [
         ...self,
         "run",
@@ -131,7 +131,7 @@ export async function startHere(
       "Run the workflow from a shell with awf run instead.",
     );
   }
-  notice(startedLine(ready.loaded.executable.definition.meta.name, id, command));
+  notice(startedLine(ready.loaded.workflow.meta.name, id, command));
   stdout(
     [
       `awf: ${basename(ready.loaded.file)} is starting in Herdr tab ${started.tabId}. Once this turn ends it takes this session over: each of its steps arrives here as a prompt, and a last message hands the session back.`,

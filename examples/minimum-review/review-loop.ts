@@ -1,6 +1,6 @@
 import { defineReviewWorkflow } from "./workflow";
 
-const executable = defineReviewWorkflow({
+export const reviewLoop = defineReviewWorkflow({
   name: "review-loop",
   description:
     "Review one working-tree target through independent correctness and maintainability lenses.",
@@ -17,5 +17,4 @@ const executable = defineReviewWorkflow({
   },
 });
 
-export const reviewLoop = executable.definition;
-export default executable;
+export default reviewLoop;

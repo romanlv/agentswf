@@ -1,5 +1,5 @@
 import {
-  defineExecutableWorkflow,
+  defineWorkflow,
   type ExecutionConfig,
   isAnswered,
   type JsonValue,
@@ -75,73 +75,71 @@ const PROMPT = [
   "Then say how many items you closed.",
 ].join("\n");
 
-const executable = defineExecutableWorkflow<ToolsArgs, ToolsResult>({
-  definition: {
-    meta: {
-      name: "tools",
-      description: "An agent closes backlog items through the workflow's tools.",
-      whenToUse: "Use to check that agents call a workflow's tools from their prompt alone.",
-    },
-    async run(workflow, args) {
-      const triages = await workflow.parallel(
-        args.runtimes,
-        async (runtime): Promise<Triage> => {
-          const items: Item[] = ITEMS.map((item) => ({ ...item, status: "open" }));
-          const open = (id: string) => {
-            const item = items.find((each) => each.id === id && each.status === "open");
-            if (!item) throw new Error(`no open item ${id}; list_open shows the open ones`);
-            return item;
-          };
-          const agent = await workflow.agents.open({
-            key: `triager:${runtime}`,
-            runtime: RUNTIMES[runtime],
-            tools: {
-              list_open: tool({
-                description: "The items still open, one per line: their id, then their title.",
-                // Slowed past every limit on purpose, so only the turn's deadline bounds it.
-                ...(args.slowMs ? { timeoutMs: false as const } : {}),
-                handler: async () => {
-                  if (args.slowMs) await new Promise((resolve) => setTimeout(resolve, args.slowMs));
-                  const left = items.filter((item) => item.status === "open");
-                  return left.map((item) => `${item.id}  ${item.title}`).join("\n") || "Nothing.";
-                },
-              }),
-              close_item: tool({
-                description: "Close an open item as done or won't fix, saying why.",
-                input: CloseInput,
-                handler: ({ id, status, why }) => {
-                  Object.assign(open(id), { status, why });
-                  return `Closed ${id}.`;
-                },
-              }),
-              label_item: tool({
-                description: "Set an open item's labels.",
-                input: LabelInput,
-                handler: ({ id, labels }) => {
-                  open(id).labels = labels;
-                  return `Labelled ${id}.`;
-                },
-              }),
-            },
-          });
-          const { outcome } = await agent.run({
-            prompt: PROMPT,
-            schema: Summary,
-            timeoutMs: 5 * 60_000,
-          });
-          return {
-            runtime,
-            outcome: outcome.kind,
-            items,
-            ...(isAnswered(outcome)
-              ? { summary: outcome.value.summary }
-              : { reason: outcome.reason }),
-          };
-        },
-        { label: "Triage" },
-      );
-      return { triages };
-    },
+export const tools = defineWorkflow<ToolsArgs, ToolsResult>({
+  meta: {
+    name: "tools",
+    description: "An agent closes backlog items through the workflow's tools.",
+    whenToUse: "Use to check that agents call a workflow's tools from their prompt alone.",
+  },
+  async run(workflow, args) {
+    const triages = await workflow.parallel(
+      args.runtimes,
+      async (runtime): Promise<Triage> => {
+        const items: Item[] = ITEMS.map((item) => ({ ...item, status: "open" }));
+        const open = (id: string) => {
+          const item = items.find((each) => each.id === id && each.status === "open");
+          if (!item) throw new Error(`no open item ${id}; list_open shows the open ones`);
+          return item;
+        };
+        const agent = await workflow.agents.open({
+          key: `triager:${runtime}`,
+          runtime: RUNTIMES[runtime],
+          tools: {
+            list_open: tool({
+              description: "The items still open, one per line: their id, then their title.",
+              // Slowed past every limit on purpose, so only the turn's deadline bounds it.
+              ...(args.slowMs ? { timeoutMs: false as const } : {}),
+              handler: async () => {
+                if (args.slowMs) await new Promise((resolve) => setTimeout(resolve, args.slowMs));
+                const left = items.filter((item) => item.status === "open");
+                return left.map((item) => `${item.id}  ${item.title}`).join("\n") || "Nothing.";
+              },
+            }),
+            close_item: tool({
+              description: "Close an open item as done or won't fix, saying why.",
+              input: CloseInput,
+              handler: ({ id, status, why }) => {
+                Object.assign(open(id), { status, why });
+                return `Closed ${id}.`;
+              },
+            }),
+            label_item: tool({
+              description: "Set an open item's labels.",
+              input: LabelInput,
+              handler: ({ id, labels }) => {
+                open(id).labels = labels;
+                return `Labelled ${id}.`;
+              },
+            }),
+          },
+        });
+        const { outcome } = await agent.run({
+          prompt: PROMPT,
+          schema: Summary,
+          timeoutMs: 5 * 60_000,
+        });
+        return {
+          runtime,
+          outcome: outcome.kind,
+          items,
+          ...(isAnswered(outcome)
+            ? { summary: outcome.value.summary }
+            : { reason: outcome.reason }),
+        };
+      },
+      { label: "Triage" },
+    );
+    return { triages };
   },
   prepare: parseArgs,
   present: ({ triages }) =>
@@ -178,5 +176,4 @@ function parseArgs(invocation: WorkflowInvocation): ToolsArgs {
   };
 }
 
-export const tools = executable.definition;
-export default executable;
+export default tools;

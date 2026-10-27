@@ -19,17 +19,15 @@ test("a workflow in a folder with no node_modules gets the engine's author surfa
   const file = join(folder, "x.ts");
   await writeFile(
     file,
-    `import { defineExecutableWorkflow } from "agentswf/workflow";
+    `import { defineWorkflow } from "agentswf/workflow";
 import TypeDefault, { Type } from "typebox";
 import { Value } from "typebox/value";
 
-globalThis.surfaceProbe = { defineExecutableWorkflow, Type, TypeDefault, Value };
+globalThis.surfaceProbe = { defineWorkflow, Type, TypeDefault, Value };
 
-export default defineExecutableWorkflow({
-  definition: {
-    meta: { name: "outside", description: "A workflow outside the repository." },
-    run: async () => Value.Check(Type.String(), "ok"),
-  },
+export default defineWorkflow({
+  meta: { name: "outside", description: "A workflow outside the repository." },
+  run: async () => Value.Check(Type.String(), "ok"),
   prepare: () => ({}),
 });
 `,
@@ -37,9 +35,9 @@ export default defineExecutableWorkflow({
 
   const loaded = await loadWorkflowFile("x.ts", folder);
 
-  expect(loaded.executable.definition.meta.name).toBe("outside");
+  expect(loaded.workflow.meta.name).toBe("outside");
   const surface = (globalThis as { surfaceProbe?: Record<string, unknown> }).surfaceProbe;
-  expect(surface?.defineExecutableWorkflow).toBe(workflowSurface.defineExecutableWorkflow);
+  expect(surface?.defineWorkflow).toBe(workflowSurface.defineWorkflow);
   expect(surface?.Type).toBe(typebox.Type);
   expect(surface?.TypeDefault).toBe(typebox.default);
   expect(surface?.Value).toBe(typeboxValue.Value);
@@ -56,8 +54,9 @@ test.each([
   await writeFile(
     join(folder, "x.js"),
     `export default {
-      kind: "awf.executable-workflow/v1",
-      definition: { meta: { description: "d", ...${JSON.stringify(meta)} }, run: async () => null },
+      kind: "awf.workflow/v1",
+      meta: { description: "d", ...${JSON.stringify(meta)} },
+      run: async () => null,
       prepare: () => null,
     };`,
   );
@@ -70,12 +69,11 @@ test("a semver meta.version loads", async () => {
   await writeFile(
     join(folder, "x.js"),
     `export default {
-      kind: "awf.executable-workflow/v1",
-      definition: { meta: { name: "ok", description: "d", version: "1.2.0-rc.1" }, run: async () => null },
+      kind: "awf.workflow/v1",
+      meta: { name: "ok", description: "d", version: "1.2.0-rc.1" },
+      run: async () => null,
       prepare: () => null,
     };`,
   );
-  expect((await loadWorkflowFile("x.js", folder)).executable.definition.meta.version).toBe(
-    "1.2.0-rc.1",
-  );
+  expect((await loadWorkflowFile("x.js", folder)).workflow.meta.version).toBe("1.2.0-rc.1");
 });

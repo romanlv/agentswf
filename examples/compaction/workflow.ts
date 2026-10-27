@@ -1,5 +1,5 @@
 import {
-  defineExecutableWorkflow,
+  defineWorkflow,
   type ExecutionConfig,
   isAnswered,
   type WorkflowInvocation,
@@ -71,62 +71,56 @@ export type CompactionResult = { codename: string; colour: string; checks: Compa
 
 const MINUTE = 60_000;
 
-const executable = defineExecutableWorkflow<CompactionArgs, CompactionResult>({
-  definition: {
-    meta: {
-      name: "compaction",
-      description: "Compact one agent per harness with a focus, then ask what it kept.",
-      whenToUse:
-        "Use to check that each harness compacts natively, that the focus reaches its compaction, and that the agent goes on afterwards in the same session.",
-    },
-    async run(workflow, args) {
-      const checks = await workflow.parallel(
-        args.runtimes,
-        async (runtime): Promise<CompactionCheck> => {
-          const { execution, ...rest } = RUNTIMES[runtime];
-          const agent = await workflow.agents.open({
-            key: `compact:${runtime}`,
-            runtime: execution,
-          });
-          const ask = async (prompt: string) => {
-            const { outcome } = await agent.run({ prompt, schema: NOTED, timeoutMs: 4 * MINUTE });
-            return isAnswered(outcome) ? undefined : `${outcome.kind}: ${outcome.reason}`;
-          };
-          const problem =
-            (await ask(
-              `Remember this for later: the shed is ${args.colour}. Answer noted: true.`,
-            )) ??
-            ("inventoryLines" in rest
-              ? ((await ask("Nothing to do this time. Answer noted: true.")) ??
-                (await ask(inventory(rest.inventoryLines as number))))
-              : undefined);
-          if (problem) return { runtime, compacted: "not run", problem };
+export const compaction = defineWorkflow<CompactionArgs, CompactionResult>({
+  meta: {
+    name: "compaction",
+    description: "Compact one agent per harness with a focus, then ask what it kept.",
+    whenToUse:
+      "Use to check that each harness compacts natively, that the focus reaches its compaction, and that the agent goes on afterwards in the same session.",
+  },
+  async run(workflow, args) {
+    const checks = await workflow.parallel(
+      args.runtimes,
+      async (runtime): Promise<CompactionCheck> => {
+        const { execution, ...rest } = RUNTIMES[runtime];
+        const agent = await workflow.agents.open({
+          key: `compact:${runtime}`,
+          runtime: execution,
+        });
+        const ask = async (prompt: string) => {
+          const { outcome } = await agent.run({ prompt, schema: NOTED, timeoutMs: 4 * MINUTE });
+          return isAnswered(outcome) ? undefined : `${outcome.kind}: ${outcome.reason}`;
+        };
+        const problem =
+          (await ask(`Remember this for later: the shed is ${args.colour}. Answer noted: true.`)) ??
+          ("inventoryLines" in rest
+            ? ((await ask("Nothing to do this time. Answer noted: true.")) ??
+              (await ask(inventory(rest.inventoryLines as number))))
+            : undefined);
+        if (problem) return { runtime, compacted: "not run", problem };
 
-          const compacted = await agent.compact({
-            prompt: `Record in the summary that the project codename is ${args.codename}, and keep the shed's colour.`,
-            timeoutMs: 5 * MINUTE,
-          });
-          const { outcome } = await agent.run({
-            prompt:
-              "Without running any command or reading any file: what is the project codename, and what colour is the shed? Answer unknown for what you do not know.",
-            schema: RECALLED,
-            timeoutMs: 4 * MINUTE,
-          });
-          return {
-            runtime,
-            compacted: compacted.kind,
-            ...(isAnswered(compacted)
-              ? { summary: compacted.value }
-              : { reason: compacted.reason }),
-            ...(isAnswered(outcome)
-              ? { recalled: outcome.value }
-              : { problem: `${outcome.kind}: ${outcome.reason}` }),
-          };
-        },
-        { label: "Compaction" },
-      );
-      return { codename: args.codename, colour: args.colour, checks };
-    },
+        const compacted = await agent.compact({
+          prompt: `Record in the summary that the project codename is ${args.codename}, and keep the shed's colour.`,
+          timeoutMs: 5 * MINUTE,
+        });
+        const { outcome } = await agent.run({
+          prompt:
+            "Without running any command or reading any file: what is the project codename, and what colour is the shed? Answer unknown for what you do not know.",
+          schema: RECALLED,
+          timeoutMs: 4 * MINUTE,
+        });
+        return {
+          runtime,
+          compacted: compacted.kind,
+          ...(isAnswered(compacted) ? { summary: compacted.value } : { reason: compacted.reason }),
+          ...(isAnswered(outcome)
+            ? { recalled: outcome.value }
+            : { problem: `${outcome.kind}: ${outcome.reason}` }),
+        };
+      },
+      { label: "Compaction" },
+    );
+    return { codename: args.codename, colour: args.colour, checks };
   },
   prepare: parseArgs,
   present: ({ checks }) =>
@@ -167,5 +161,4 @@ function parseArgs(invocation: WorkflowInvocation): CompactionArgs {
   };
 }
 
-export const compaction = executable.definition;
-export default executable;
+export default compaction;

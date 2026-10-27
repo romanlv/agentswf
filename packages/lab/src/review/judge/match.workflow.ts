@@ -19,11 +19,7 @@
 // Jev's known failure: it can match a new problem to the nearest known issue (p 0.97 seen), and it
 // passes the right symptom with a false cause, which the question asks it not to.
 import { resolve } from "node:path";
-import {
-  choice,
-  defineExecutableWorkflow,
-  type WorkflowInvocation,
-} from "@agentswf/contract/workflow";
+import { choice, defineWorkflow, type WorkflowInvocation } from "@agentswf/contract/workflow";
 import { runtimeName, runtimeOf } from "../format/runtime";
 import { type FindingLabel, SCORER_RESULT_FORMAT, type ScorerResult } from "../format/scoring";
 import { describeProblems } from "../format/validate";
@@ -49,85 +45,83 @@ export const MATCH_DEFAULTS = {
 
 type Args = { fixture: string; findings: string; settled?: string; sure: number } & Voters;
 
-const executable = defineExecutableWorkflow<Args, ScorerResult>({
-  definition: {
-    meta: {
-      name: "review-match-judge",
-      description:
-        "Label a review's findings against a case's key: Jev matches what the key knows, voters with the code label the rest.",
-      whenToUse: "Run by awf-lab to score a review run (story 011).",
-    },
-    async run(workflow, args) {
-      const input = await readJudgedCase(args.fixture, args.findings);
-      const { key, findings } = input;
-      if (findings.length === 0) {
-        return { format: SCORER_RESULT_FORMAT, labels: [], missed: "The review found nothing." };
-      }
-      // Given settled labels (`score --only`), the chosen findings go to the voters, not to Jev:
-      // they are the ones worth a voter, and Jev's hits beside given ones could claim an issue twice.
-      if (args.settled) {
-        const given: FindingLabel[] = await Bun.file(args.settled).json();
-        const settled = new Map(given.map((label) => [label.finding, label]));
-        const { labels, votes, missed } = await voteOnRest(workflow, input, settled, args);
-        return whole(labels, votes, missed, () => "not asked");
-      }
-      let settled = new Map<number, FindingLabel>();
-      let left = findings.map((_, finding) => ({ finding, why: "not matched" }));
-      if (args.sure < 1) {
-        const known = knownOptions(key);
-        const matched = await Promise.all(
-          findings.map(async (finding, index) => {
-            const { answers } = await workflow.decisions.decide({
-              key: `match:${index}`,
-              model: "jev",
-              state: { finding: finding.text },
-              questions: {
-                known: choice(KNOWN_QUESTION, known),
-                earlier: choice(EARLIER_QUESTION, earlierOptions(findings, index)),
-              },
-            });
-            return { known: answers.known.probabilities, earlier: answers.earlier.probabilities };
-          }),
-        );
-        ({ settled, left } = settleMatches(matched, key, args.sure));
-        workflow.log(`Jev settled ${settled.size} of ${findings.length}; ${left.length} left`);
-      }
+export const matchJudge = defineWorkflow<Args, ScorerResult>({
+  meta: {
+    name: "review-match-judge",
+    description:
+      "Label a review's findings against a case's key: Jev matches what the key knows, voters with the code label the rest.",
+    whenToUse: "Run by awf-lab to score a review run (story 011).",
+  },
+  async run(workflow, args) {
+    const input = await readJudgedCase(args.fixture, args.findings);
+    const { key, findings } = input;
+    if (findings.length === 0) {
+      return { format: SCORER_RESULT_FORMAT, labels: [], missed: "The review found nothing." };
+    }
+    // Given settled labels (`score --only`), the chosen findings go to the voters, not to Jev:
+    // they are the ones worth a voter, and Jev's hits beside given ones could claim an issue twice.
+    if (args.settled) {
+      const given: FindingLabel[] = await Bun.file(args.settled).json();
+      const settled = new Map(given.map((label) => [label.finding, label]));
       const { labels, votes, missed } = await voteOnRest(workflow, input, settled, args);
-      return whole(
-        labels,
-        votes,
-        missed,
-        (index) => left.find((l) => l.finding === index)?.why ?? "",
+      return whole(labels, votes, missed, () => "not asked");
+    }
+    let settled = new Map<number, FindingLabel>();
+    let left = findings.map((_, finding) => ({ finding, why: "not matched" }));
+    if (args.sure < 1) {
+      const known = knownOptions(key);
+      const matched = await Promise.all(
+        findings.map(async (finding, index) => {
+          const { answers } = await workflow.decisions.decide({
+            key: `match:${index}`,
+            model: "jev",
+            state: { finding: finding.text },
+            questions: {
+              known: choice(KNOWN_QUESTION, known),
+              earlier: choice(EARLIER_QUESTION, earlierOptions(findings, index)),
+            },
+          });
+          return { known: answers.known.probabilities, earlier: answers.earlier.probabilities };
+        }),
       );
+      ({ settled, left } = settleMatches(matched, key, args.sure));
+      workflow.log(`Jev settled ${settled.size} of ${findings.length}; ${left.length} left`);
+    }
+    const { labels, votes, missed } = await voteOnRest(workflow, input, settled, args);
+    return whole(
+      labels,
+      votes,
+      missed,
+      (index) => left.find((l) => l.finding === index)?.why ?? "",
+    );
 
-      /** Every finding labelled, one nobody labelled `unsettled` with why; checked. */
-      function whole(
-        labels: ReadonlyMap<number, FindingLabel>,
-        votes: NonNullable<ScorerResult["votes"]>,
-        missed: string,
-        whyLeft: (index: number) => string,
-      ): ScorerResult {
-        const judgement: ScorerResult = {
-          format: SCORER_RESULT_FORMAT,
-          labels: findings.map(
-            (_, index): FindingLabel =>
-              labels.get(index) ?? {
-                finding: index,
-                label: "unsettled",
-                why: `no match; ${whyLeft(index)}`,
-                read: [],
-              },
-          ),
-          missed,
-          ...(votes.length > 0 ? { votes } : {}),
-        };
-        const checked = checkScorerResult(judgement, findings, key);
-        if (!checked.ok) {
-          throw new Error(describeProblems("the settled judgement", checked.problems));
-        }
-        return checked.value;
+    /** Every finding labelled, one nobody labelled `unsettled` with why; checked. */
+    function whole(
+      labels: ReadonlyMap<number, FindingLabel>,
+      votes: NonNullable<ScorerResult["votes"]>,
+      missed: string,
+      whyLeft: (index: number) => string,
+    ): ScorerResult {
+      const judgement: ScorerResult = {
+        format: SCORER_RESULT_FORMAT,
+        labels: findings.map(
+          (_, index): FindingLabel =>
+            labels.get(index) ?? {
+              finding: index,
+              label: "unsettled",
+              why: `no match; ${whyLeft(index)}`,
+              read: [],
+            },
+        ),
+        missed,
+        ...(votes.length > 0 ? { votes } : {}),
+      };
+      const checked = checkScorerResult(judgement, findings, key);
+      if (!checked.ok) {
+        throw new Error(describeProblems("the settled judgement", checked.problems));
       }
-    },
+      return checked.value;
+    }
   },
   prepare: parseArgs,
   present: (judgement) =>
@@ -184,5 +178,4 @@ function parseArgs(invocation: WorkflowInvocation): Args {
   };
 }
 
-export const matchJudge = executable.definition;
-export default executable;
+export default matchJudge;

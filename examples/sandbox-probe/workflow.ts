@@ -1,5 +1,5 @@
 import {
-  defineExecutableWorkflow,
+  defineWorkflow,
   type ExecutionConfig,
   type JsonValue,
   type SandboxEnvironment,
@@ -73,54 +73,51 @@ export type ProbeReport = {
 
 export type ProbeResult = { reports: ProbeReport[] };
 
-const executable = defineExecutableWorkflow<ProbePlan, ProbeResult>({
-  definition: {
-    meta: {
-      name: "sandbox-probe",
-      description:
-        "Run fixed shell commands in shared and private sandboxes, and report each output.",
-      whenToUse:
-        "Use to check what agents in sandboxes reach, against canaries the caller planted.",
-    },
-    async run(workflow, plan) {
-      const environment: SandboxEnvironment =
-        plan.environment === "srt" ? { srt: {} } : { docker: {} };
-      const shared = await workflow.sandboxes.open({
-        key: "shared",
-        write: ["."],
-        network: plan.network,
-        ...environment,
+export default defineWorkflow<ProbePlan, ProbeResult>({
+  meta: {
+    name: "sandbox-probe",
+    description:
+      "Run fixed shell commands in shared and private sandboxes, and report each output.",
+    whenToUse: "Use to check what agents in sandboxes reach, against canaries the caller planted.",
+  },
+  async run(workflow, plan) {
+    const environment: SandboxEnvironment =
+      plan.environment === "srt" ? { srt: {} } : { docker: {} };
+    const shared = await workflow.sandboxes.open({
+      key: "shared",
+      write: ["."],
+      network: plan.network,
+      ...environment,
+    });
+    const probe = async (name: ProbeName): Promise<ProbeReport> => {
+      const pane = plan.panes?.includes(name) === true;
+      const {
+        placement: _placement,
+        metered: _metered,
+        ...target
+      } = PROBES[name] as ExecutionConfig;
+      const agent = await workflow.agents.open({
+        key: name,
+        runtime: pane ? target : PROBES[name],
+        sandbox: name === "reviewer" ? { network: plan.network, ...environment } : shared,
       });
-      const probe = async (name: ProbeName): Promise<ProbeReport> => {
-        const pane = plan.panes?.includes(name) === true;
-        const {
-          placement: _placement,
-          metered: _metered,
-          ...target
-        } = PROBES[name] as ExecutionConfig;
-        const agent = await workflow.agents.open({
-          key: name,
-          runtime: pane ? target : PROBES[name],
-          sandbox: name === "reviewer" ? { network: plan.network, ...environment } : shared,
-        });
-        const { outcome } = await agent.run({
-          prompt: probePrompt(plan.scripts[name]),
-          schema: REPORT,
-          timeoutMs: 3 * 60_000,
-        });
-        return outcome.kind === "answered"
-          ? {
-              agent: name,
-              outcome: outcome.kind,
-              results: sections(outcome.value.output, plan.commands[name]),
-            }
-          : { agent: name, outcome: outcome.kind, reason: outcome.reason };
-      };
-      // The tester reads what the coder wrote, and the reviewer tries the coder's home.
-      const coder = await probe("coder");
-      const rest = await Promise.all([probe("tester"), probe("reviewer")]);
-      return { reports: [coder, ...rest] };
-    },
+      const { outcome } = await agent.run({
+        prompt: probePrompt(plan.scripts[name]),
+        schema: REPORT,
+        timeoutMs: 3 * 60_000,
+      });
+      return outcome.kind === "answered"
+        ? {
+            agent: name,
+            outcome: outcome.kind,
+            results: sections(outcome.value.output, plan.commands[name]),
+          }
+        : { agent: name, outcome: outcome.kind, reason: outcome.reason };
+    };
+    // The tester reads what the coder wrote, and the reviewer tries the coder's home.
+    const coder = await probe("coder");
+    const rest = await Promise.all([probe("tester"), probe("reviewer")]);
+    return { reports: [coder, ...rest] };
   },
   prepare: parsePlan,
   present: ({ reports }) =>
@@ -169,5 +166,3 @@ function parsePlan(invocation: WorkflowInvocation): ProbePlan {
   }
   return plan;
 }
-
-export default executable;

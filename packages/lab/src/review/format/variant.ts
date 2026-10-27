@@ -1,4 +1,4 @@
-import type { ExecutableWorkflow, JsonValue } from "@agentswf/contract/workflow";
+import type { JsonValue, Workflow } from "@agentswf/contract/workflow";
 import type { ReviewFinding, ScorerResult } from "./scoring";
 
 export const REVIEW_VARIANT_KIND = "awf.review-variant/1";
@@ -9,13 +9,12 @@ export const REVIEW_SCORER_KIND = "awf.review-scorer/1";
  * command-line arguments, never typed.
  */
 // biome-ignore lint/suspicious/noExplicitAny: a workflow's Args sit in both variances, so only `any` admits every one.
-type AnyWorkflow = ExecutableWorkflow<any, JsonValue>;
+type AnyWorkflow = Workflow<any, JsonValue>;
 
 // biome-ignore lint/suspicious/noExplicitAny: as `AnyWorkflow`; only the result is constrained.
-type ScorerWorkflow = ExecutableWorkflow<any, ScorerResult>;
+type ScorerWorkflow = Workflow<any, ScorerResult>;
 
-export type ResultOf<W extends AnyWorkflow> =
-  W extends ExecutableWorkflow<infer _, infer R> ? R : never;
+export type ResultOf<W extends AnyWorkflow> = W extends Workflow<infer _, infer R> ? R : never;
 
 /**
  * What `awf-lab` needs beside the workflow: the command line `awf run` gives it after `--`, how

@@ -16,7 +16,7 @@ function candidate(files: Record<string, string>): string {
   return dir;
 }
 
-const surface = `import { defineExecutableWorkflow } from "agentswf/workflow";
+const surface = `import { defineWorkflow } from "agentswf/workflow";
 import Type from "typebox";
 `;
 

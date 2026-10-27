@@ -1,5 +1,5 @@
 import {
-  defineExecutableWorkflow,
+  defineWorkflow,
   type ExecutionConfig,
   type TurnOutcome,
 } from "@agentswf/contract/workflow";
@@ -60,51 +60,49 @@ export const REPORT = outputSchema(
   ),
 );
 
-const executable = defineExecutableWorkflow<null, SandboxesResult>({
-  definition: {
-    meta: {
-      name: "sandboxes",
-      description:
-        "Run a team of headed agents in one docker container, then a headless pi under srt.",
-      whenToUse: "Use to see what agents in a sandbox can read, write and reach.",
-    },
-    async run(workflow) {
-      const container = await workflow.sandboxes.open({
-        key: "team",
-        write: ["."],
-        network: [DOMAIN],
-        docker: {},
-      });
-      const team = await workflow.parallel(
-        TEAM,
-        async (name) => {
-          const agent = await workflow.agents.open({
-            key: name,
-            runtime: TEAM_RUNTIME,
-            sandbox: container,
-          });
-          const { outcome } = await agent.run({
-            prompt: prompt(teamCommands(name)),
-            schema: REPORT,
-            timeoutMs: 5 * 60_000,
-          });
-          return report(name, "docker, shared, headed", outcome);
-        },
-        { label: "Team in one container" },
-      );
-      // A spec instead of a ref: a sandbox of the auditor's own, closed when the run ends.
-      const auditor = await workflow.agents.open({
-        key: "auditor",
-        runtime: AUDITOR_RUNTIME,
-        sandbox: { srt: {} },
-      });
-      const { outcome } = await auditor.run({
-        prompt: prompt(AUDITOR_COMMANDS),
-        schema: REPORT,
-        timeoutMs: 5 * 60_000,
-      });
-      return { reports: [...team, report("auditor", "srt, private, headless", outcome)] };
-    },
+export default defineWorkflow<null, SandboxesResult>({
+  meta: {
+    name: "sandboxes",
+    description:
+      "Run a team of headed agents in one docker container, then a headless pi under srt.",
+    whenToUse: "Use to see what agents in a sandbox can read, write and reach.",
+  },
+  async run(workflow) {
+    const container = await workflow.sandboxes.open({
+      key: "team",
+      write: ["."],
+      network: [DOMAIN],
+      docker: {},
+    });
+    const team = await workflow.parallel(
+      TEAM,
+      async (name) => {
+        const agent = await workflow.agents.open({
+          key: name,
+          runtime: TEAM_RUNTIME,
+          sandbox: container,
+        });
+        const { outcome } = await agent.run({
+          prompt: prompt(teamCommands(name)),
+          schema: REPORT,
+          timeoutMs: 5 * 60_000,
+        });
+        return report(name, "docker, shared, headed", outcome);
+      },
+      { label: "Team in one container" },
+    );
+    // A spec instead of a ref: a sandbox of the auditor's own, closed when the run ends.
+    const auditor = await workflow.agents.open({
+      key: "auditor",
+      runtime: AUDITOR_RUNTIME,
+      sandbox: { srt: {} },
+    });
+    const { outcome } = await auditor.run({
+      prompt: prompt(AUDITOR_COMMANDS),
+      schema: REPORT,
+      timeoutMs: 5 * 60_000,
+    });
+    return { reports: [...team, report("auditor", "srt, private, headless", outcome)] };
   },
   present: ({ reports }) =>
     reports
@@ -147,5 +145,3 @@ function indent(output: string): string {
   const lines = output.trimEnd().split("\n").slice(0, 12);
   return lines[0] === "" ? "" : `${lines.map((line) => `    ${line}`).join("\n")}\n`;
 }
-
-export default executable;

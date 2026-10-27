@@ -10,7 +10,7 @@ import type {
   ReceivedEvent,
   ReceiveOptions,
 } from "./events";
-import type { ExecutableEventWorkflow } from "./executable";
+import type { Workflow } from "./executable";
 import type { JsonObject, JsonValue, OutputSchema } from "./json";
 import type { Messaging } from "./messaging";
 import type { CodeParticipantDirectory, ParticipantDirectory } from "./participants";
@@ -119,7 +119,7 @@ export interface WorkflowContext {
    * doesn't declare, or data its schema refuses, throws; the run's state is the outcome.
    */
   emit<Events extends EventSchemas, Name extends keyof Events & string>(
-    target: ExecutableEventWorkflow<Events, JsonValue>,
+    target: Workflow<JsonValue, JsonValue, Events>,
     run: string,
     name: Name,
     data: OutputOf<Events[Name]>,
@@ -139,6 +139,7 @@ export interface WorkflowContext {
   log(message: string, fields?: JsonObject): void;
 }
 
+/** What a call and the runner need of a workflow: its meta and its run. */
 export interface WorkflowDefinition<Args extends JsonValue, Result extends JsonValue> {
   readonly meta: WorkflowMeta;
   run(context: WorkflowContext, args: Args): Promise<Result>;
@@ -178,24 +179,4 @@ export interface EventWorkflowContext<Events extends EventSchemas>
    * returns the stage's recorded batch on a rerun.
    */
   receive(options?: ReceiveOptions): Promise<ReceivedEvent<Events>[]>;
-}
-
-/**
- * A workflow whose runs take events: it takes no arguments, and a run starts from an event, or from
- * `awf run --id`, which leaves it waiting at its first `receive`.
- */
-export interface EventWorkflowDefinition<Events extends EventSchemas, Result extends JsonValue> {
-  readonly meta: WorkflowMeta;
-  /**
-   * `import.meta.path`: where a sender finds the workflow, and which project its runs live in, the
-   * nearest directory above it holding `.awf/`, whoever sends.
-   */
-  readonly file: string;
-  readonly events: Events;
-  /**
-   * The events that start a run with an id that has none; any other is refused then. Absent, any event
-   * starts one.
-   */
-  readonly starts?: readonly (keyof Events & string)[];
-  run(context: EventWorkflowContext<Events>): Promise<Result>;
 }

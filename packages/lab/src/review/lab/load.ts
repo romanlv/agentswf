@@ -1,6 +1,6 @@
 import { realpathSync } from "node:fs";
 import { pathToFileURL } from "node:url";
-import { EXECUTABLE_WORKFLOW_KIND } from "@agentswf/contract/workflow";
+import { WORKFLOW_KIND } from "@agentswf/contract/workflow";
 import { COMPARISON_KIND, type Comparison } from "../../compare";
 import {
   REVIEW_SCORER_KIND,
@@ -31,7 +31,7 @@ async function load(file: string): Promise<Record<string, unknown>> {
   const loaded = await importDefault(file);
   const value = loaded as { kind?: unknown; review?: unknown } | null | undefined;
   // What `awf run` will load: the variant or scorer file is its workflow.
-  if (value?.kind !== EXECUTABLE_WORKFLOW_KIND || typeof value.review !== "object") {
+  if (value?.kind !== WORKFLOW_KIND || typeof value.review !== "object") {
     throw new Error(`${file}: the default export is not a variant or scorer`);
   }
   const review = value.review as Record<string, unknown> | null;

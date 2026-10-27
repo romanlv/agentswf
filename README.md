@@ -173,26 +173,24 @@ has.
 
 ```ts
 // hello/workflow.ts
-import { defineExecutableWorkflow, isAnswered } from "agentswf/workflow";
+import { defineWorkflow, isAnswered } from "agentswf/workflow";
 import Type from "typebox";
 
 export const ANSWER = Type.Object({ answer: Type.Integer() }, { additionalProperties: false });
 
-export default defineExecutableWorkflow({
-  definition: {
-    meta: { name: "hello", description: "Ask one agent a question with a known answer." },
-    async run(workflow) {
-      const agent = await workflow.agents.open({
-        key: "hello",
-        runtime: { harness: "codex", model: "gpt-6-luna", placement: "headless" },
-      });
-      const { outcome } = await agent.run<Type.Static<typeof ANSWER>>({
-        prompt: "What is 17 multiplied by 23? Work it out yourself; do not run any code.",
-        schema: ANSWER,
-        timeoutMs: 3 * 60_000,
-      });
-      return isAnswered(outcome) ? outcome.value : { unanswered: outcome.reason };
-    },
+export default defineWorkflow({
+  meta: { name: "hello", description: "Ask one agent a question with a known answer." },
+  async run(workflow) {
+    const agent = await workflow.agents.open({
+      key: "hello",
+      runtime: { harness: "codex", model: "gpt-6-luna", placement: "headless" },
+    });
+    const { outcome } = await agent.run<Type.Static<typeof ANSWER>>({
+      prompt: "What is 17 multiplied by 23? Work it out yourself; do not run any code.",
+      schema: ANSWER,
+      timeoutMs: 3 * 60_000,
+    });
+    return isAnswered(outcome) ? outcome.value : { unanswered: outcome.reason };
   },
 });
 ```

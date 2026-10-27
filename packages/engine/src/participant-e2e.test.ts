@@ -7,7 +7,7 @@ import { foldMailbox, readMailbox } from "./mailbox";
 import { runOperatorCli } from "./operator-cli";
 import { findRunByRef } from "./run-state";
 import { createRun, openRun, readAttempts } from "./runs";
-import { createTempRunDirs, keyedProject, until } from "./testing";
+import { createTempRunDirs, eventProject, until } from "./testing";
 
 const dirs = createTempRunDirs();
 afterAll(() => dirs.cleanup());
@@ -15,30 +15,28 @@ afterAll(() => dirs.cleanup());
 // A case run whose thread goes to its code: each reply is written down and answered with a post.
 // It sleeps a moment first at each wake, so a reply sent then finds it live.
 const WORKFLOW = `import { appendFileSync } from "node:fs";
-import { defineEventWorkflow } from "agentswf/workflow";
+import { defineWorkflow } from "agentswf/workflow";
 const Changes = { type: "object", properties: { case: { type: "string" } }, required: ["case"] };
-export default defineEventWorkflow({
-  definition: {
-    meta: { name: "e2e-thread", description: "Answers its thread." },
-    file: import.meta.path,
-    events: { "dd.changes": Changes },
-    starts: ["dd.changes"],
-    async run(workflow) {
-      const thread = await workflow.participants.connect({ key: "thread", to: "code", labels: { title: "kombo" } });
-      await new Promise((resolve) => setTimeout(resolve, 1500));
-      for (;;)
-        for (const e of await workflow.receive({ label: "listening" }))
-          if (thread.replied(e)) {
-            appendFileSync(new URL("../replies.txt", import.meta.url).pathname, e.id + " " + e.data.text + " " + (e.data.author ?? "") + "\\n");
-            await workflow.stage("answer-" + e.id, () => thread.post("got: " + e.data.text));
-          }
-    },
+export default defineWorkflow({
+  meta: { name: "e2e-thread", description: "Answers its thread." },
+  file: import.meta.path,
+  events: { "dd.changes": Changes },
+  starts: ["dd.changes"],
+  async run(workflow) {
+    const thread = await workflow.participants.connect({ key: "thread", to: "code", labels: { title: "kombo" } });
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+    for (;;)
+      for (const e of await workflow.receive({ label: "listening" }))
+        if (thread.replied(e)) {
+          appendFileSync(new URL("../replies.txt", import.meta.url).pathname, e.id + " " + e.data.text + " " + (e.data.author ?? "") + "\\n");
+          await workflow.stage("answer-" + e.id, () => thread.post("got: " + e.data.text));
+        }
   },
 });
 `;
 
 test("a reply on a participant routed to the code reaches the run, live or parked, once", async () => {
-  const { root, file, home } = keyedProject(dirs, "thread.ts", WORKFLOW);
+  const { root, file, home } = eventProject(dirs, "thread.ts", WORKFLOW);
   const environment = { ...process.env, HOME: home };
   const out: string[] = [];
   const err: string[] = [];

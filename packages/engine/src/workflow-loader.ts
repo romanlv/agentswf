@@ -3,17 +3,12 @@ import { extname, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import * as workflowSurface from "@agentswf/contract/workflow";
 import {
-  EVENT_WORKFLOW_KIND,
   type EventSchemas,
-  type EventWorkflowDefinition,
-  EXECUTABLE_WORKFLOW_KIND,
-  type ExecutableEventWorkflow,
-  type ExecutableWorkflow,
   eventWorkflowProblem,
-  isEventWorkflow,
   isJsonValue,
   type JsonValue,
-  type WorkflowDefinition,
+  WORKFLOW_KIND,
+  type Workflow,
 } from "@agentswf/contract/workflow";
 import { plugin } from "bun";
 import * as typebox from "typebox";
@@ -50,13 +45,11 @@ export function serveAuthorSurface(): void {
 
 const WORKFLOW_EXTENSIONS = new Set([".ts", ".mts", ".js", ".mjs"]);
 
-export type LoadedWorkflow = {
-  file: string;
-  /** A workflow with `events` as one with no arguments, its definition beside it as `keyed`. */
-  executable: ExecutableWorkflow<JsonValue, JsonValue>;
-  /** A workflow with `events`: started by an event, and continued only by `--continue`. */
-  keyed?: EventWorkflowDefinition<EventSchemas, JsonValue>;
-};
+/** A workflow as the engine takes one from a file, with `events` or without. */
+export type AnyWorkflow = Workflow<JsonValue, JsonValue> | EventWorkflow;
+export type EventWorkflow = Workflow<JsonValue, JsonValue, EventSchemas>;
+
+export type LoadedWorkflow = { file: string; workflow: AnyWorkflow };
 
 export async function loadWorkflowFile(file: string, cwd: string): Promise<LoadedWorkflow> {
   if (file.includes("://") || file.startsWith("file:")) {
@@ -77,21 +70,8 @@ export async function loadWorkflowFile(file: string, cwd: string): Promise<Loade
   serveAuthorSurface();
   const namespace: unknown = await import(pathToFileURL(absolute).href);
   const given = record(namespace)?.default;
-  const keyed = isEventWorkflow(given) ? checkedEvents(given, absolute) : undefined;
-  const exported: unknown = keyed
-    ? {
-        ...(given as object),
-        kind: EXECUTABLE_WORKFLOW_KIND,
-        definition: keyed as unknown as WorkflowDefinition<JsonValue, JsonValue>,
-        prepare: () => null,
-      }
-    : given;
-  if (!isExecutableWorkflow(exported)) {
-    throw new Error(
-      `default export must be an ${EXECUTABLE_WORKFLOW_KIND} or ${EVENT_WORKFLOW_KIND} workflow`,
-    );
-  }
-  const { name, version } = exported.definition.meta;
+  if (!isWorkflow(given)) throw new Error(`default export must be an ${WORKFLOW_KIND} workflow`);
+  const { name, version } = given.meta;
   // The name is a folder its runs are kept in, and the version's major decides which records a
   // continue may reuse.
   const problem = idProblem(name);
@@ -101,22 +81,16 @@ export async function loadWorkflowFile(file: string, cwd: string): Promise<Loade
       `meta.version: ${JSON.stringify(version)} is not a semver version such as 1.2.0`,
     );
   }
-  return { file: absolute, executable: exported, ...(keyed ? { keyed } : {}) };
-}
-
-/** A definition with `events`, checked as `tsc` would have for a file it never saw. */
-function checkedEvents(
-  workflow: ExecutableEventWorkflow<EventSchemas, JsonValue>,
-  file: string,
-): EventWorkflowDefinition<EventSchemas, JsonValue> {
-  const problem = eventWorkflowProblem(workflow.definition);
-  if (problem) throw new Error(problem);
-  const { definition } = workflow;
-  if (realPath(definition.file) !== realPath(file))
-    throw new Error(
-      `file is ${JSON.stringify(definition.file)}; a workflow with events gives file: import.meta.path, ${file}`,
-    );
-  return definition;
+  if (given.events !== undefined) {
+    // As `tsc` would have checked them, for a file it never saw.
+    const eventProblem = eventWorkflowProblem(given);
+    if (eventProblem) throw new Error(eventProblem);
+    if (realPath(given.file as string) !== realPath(absolute))
+      throw new Error(
+        `file is ${JSON.stringify(given.file)}; a workflow with events gives file: import.meta.path, ${absolute}`,
+      );
+  }
+  return { file: absolute, workflow: given };
 }
 
 const SEMVER = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
@@ -125,17 +99,16 @@ export function assertJsonValue(value: unknown, label: string): asserts value is
   if (!isJsonValue(value)) throw new Error(`${label} must contain only JSON values`);
 }
 
-function isExecutableWorkflow(value: unknown): value is ExecutableWorkflow<JsonValue, JsonValue> {
-  const executable = record(value);
-  const definition = record(executable?.definition);
-  const meta = record(definition?.meta);
+function isWorkflow(value: unknown): value is AnyWorkflow {
+  const workflow = record(value);
+  const meta = record(workflow?.meta);
   return (
-    executable?.kind === EXECUTABLE_WORKFLOW_KIND &&
-    typeof executable.prepare === "function" &&
-    (executable.present === undefined || typeof executable.present === "function") &&
-    (executable.report === undefined || typeof executable.report === "function") &&
-    (executable.id === undefined || typeof executable.id === "function") &&
-    typeof definition?.run === "function" &&
+    workflow?.kind === WORKFLOW_KIND &&
+    typeof workflow.prepare === "function" &&
+    (workflow.present === undefined || typeof workflow.present === "function") &&
+    (workflow.report === undefined || typeof workflow.report === "function") &&
+    (workflow.id === undefined || typeof workflow.id === "function") &&
+    typeof workflow.run === "function" &&
     typeof meta?.name === "string" &&
     meta.name.trim() !== "" &&
     typeof meta.description === "string" &&

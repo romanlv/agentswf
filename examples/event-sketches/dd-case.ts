@@ -2,7 +2,7 @@
 // per case, named by the case id. A type-checked sketch: the case's files are declared below, and
 // so is the emit to its own mailbox its tool's handler needs, which awf doesn't have yet.
 import {
-  defineEventWorkflow,
+  defineWorkflow,
   isAnswered,
   type JsonValue,
   type TurnOutcome,
@@ -67,70 +67,66 @@ declare function emitToSelf(
   options?: { eventId?: string },
 ): Promise<unknown>;
 
-const caseRun = defineEventWorkflow({
-  definition: {
-    meta: {
-      name: "dd-case",
-      description: "Investigate one Datadog case in its own #dd-watch thread.",
-    },
-    file: import.meta.path,
-    events: { "dd.changes": Changes, "dd.closed": Closed },
-    starts: ["dd.changes"],
-    async run(workflow) {
-      const kase = openCase(DD_CASES, workflow.runId);
-      const thread = await workflow.participants.connect({
-        key: "thread",
-        to: "code",
-        labels: { title: kase.title },
-      });
-      const investigator = await workflow.agents.open({
-        key: "investigator",
-        runtime: "claude",
-        cwd: AIR,
-        instructions: INVESTIGATOR.standing,
-        tools: {
-          close_case: tool({
-            description: "Close the case when the engineer says it's fixed or noise.",
-            // Wrapped again: Type.Omit drops the static type outputSchema gave Closed.
-            input: outputSchema(Type.Omit(Closed, ["case", "by"])),
-            // No id: a call's id changes when a turn runs again after a crash, and the case's own
-            // would drop a close after a reopen. A repeated close is the case's to absorb.
-            handler: async (input) => {
-              await emitToSelf("dd.closed", { ...input, case: workflow.runId, by: "thread" });
-              return `Closing the case as ${input.status}.`;
-            },
-          }),
-        },
-      });
+const caseRun = defineWorkflow({
+  meta: {
+    name: "dd-case",
+    description: "Investigate one Datadog case in its own #dd-watch thread.",
+  },
+  file: import.meta.path,
+  events: { "dd.changes": Changes, "dd.closed": Closed },
+  starts: ["dd.changes"],
+  async run(workflow) {
+    const kase = openCase(DD_CASES, workflow.runId);
+    const thread = await workflow.participants.connect({
+      key: "thread",
+      to: "code",
+      labels: { title: kase.title },
+    });
+    const investigator = await workflow.agents.open({
+      key: "investigator",
+      runtime: "claude",
+      cwd: AIR,
+      instructions: INVESTIGATOR.standing,
+      tools: {
+        close_case: tool({
+          description: "Close the case when the engineer says it's fixed or noise.",
+          // Wrapped again: Type.Omit drops the static type outputSchema gave Closed.
+          input: outputSchema(Type.Omit(Closed, ["case", "by"])),
+          // No id: a call's id changes when a turn runs again after a crash, and the case's own
+          // would drop a close after a reopen. A repeated close is the case's to absorb.
+          handler: async (input) => {
+            await emitToSelf("dd.closed", { ...input, case: workflow.runId, by: "thread" });
+            return `Closing the case as ${input.status}.`;
+          },
+        }),
+      },
+    });
 
-      for (;;) {
-        const events = await workflow.receive({
-          label: investigator.turn ? "investigating" : `${kase.unseen().length} unseen`,
-          until: !investigator.turn && needsTurn(kase) ? kase.retryAt() : undefined,
-        });
-        for (const e of events) {
-          if (investigator.ended<Batch>(e)) {
-            if (isAnswered(e.data.outcome)) kase.markGiven(e.data.meta);
-            else if (e.data.outcome.kind !== "cancelled") {
-              kase.markFailed(e.id);
-              if (kase.failuresInARow() === 1)
-                await workflow.stage(`failed-${e.id}`, () =>
-                  thread.post(failedNote(e.data.outcome)),
-                );
-            }
-          }
-          if (thread.replied(e)) kase.addReply(e.id, e.data);
-          if (e.name === "dd.closed") {
-            if (e.data.by === "triage") await investigator.turn?.cancel();
-            await workflow.stage(`close-${e.id}`, () => kase.close(e.data, e.at));
+    for (;;) {
+      const events = await workflow.receive({
+        label: investigator.turn ? "investigating" : `${kase.unseen().length} unseen`,
+        until: !investigator.turn && needsTurn(kase) ? kase.retryAt() : undefined,
+      });
+      for (const e of events) {
+        if (investigator.ended<Batch>(e)) {
+          if (isAnswered(e.data.outcome)) kase.markGiven(e.data.meta);
+          else if (e.data.outcome.kind !== "cancelled") {
+            kase.markFailed(e.id);
+            if (kase.failuresInARow() === 1)
+              await workflow.stage(`failed-${e.id}`, () => thread.post(failedNote(e.data.outcome)));
           }
         }
-        if (!investigator.turn && !kase.retrying() && needsTurn(kase)) {
-          const given = kase.pending();
-          await investigator.start({ prompt: promptFor(kase, given), meta: given });
+        if (thread.replied(e)) kase.addReply(e.id, e.data);
+        if (e.name === "dd.closed") {
+          if (e.data.by === "triage") await investigator.turn?.cancel();
+          await workflow.stage(`close-${e.id}`, () => kase.close(e.data, e.at));
         }
       }
-    },
+      if (!investigator.turn && !kase.retrying() && needsTurn(kase)) {
+        const given = kase.pending();
+        await investigator.start({ prompt: promptFor(kase, given), meta: given });
+      }
+    }
   },
 });
 export default caseRun;

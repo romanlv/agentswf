@@ -1,6 +1,6 @@
 import {
   choice,
-  defineExecutableWorkflow,
+  defineWorkflow,
   score,
   type WorkflowInvocation,
   yesNo,
@@ -53,37 +53,35 @@ export type Triage = {
 
 export type TriageResult = { triaged: Triage[] };
 
-const executable = defineExecutableWorkflow<TriageArgs, TriageResult>({
-  definition: {
-    meta: {
-      name: "triage",
-      description: "Route support tickets with a decision model: team, bug or not, and urgency.",
-      whenToUse:
-        "Use to see a decision model answer typed questions with probabilities, for well under a cent.",
-    },
-    async run(workflow, { tickets }) {
-      const triaged = await workflow.parallel(
-        tickets,
-        async (ticket, index): Promise<Triage> => {
-          const { answers } = await workflow.decisions.decide(triageTicket(`${index + 1}`, ticket));
-          const { team, bug, urgency } = answers;
-          const unsure = [
-            ...(team.probabilities[team.choice] < CONFIDENT ? ["team"] : []),
-            ...(Math.max(bug.yes, 1 - bug.yes) < CONFIDENT ? ["bug"] : []),
-            ...(urgency.probabilities[urgency.level]! < CONFIDENT ? ["urgency"] : []),
-          ];
-          return {
-            ticket,
-            team: team.choice,
-            bug: bug.yes >= 0.5,
-            urgency: URGENCY[urgency.level],
-            unsure,
-          };
-        },
-        { label: "Triage" },
-      );
-      return { triaged };
-    },
+export default defineWorkflow<TriageArgs, TriageResult>({
+  meta: {
+    name: "triage",
+    description: "Route support tickets with a decision model: team, bug or not, and urgency.",
+    whenToUse:
+      "Use to see a decision model answer typed questions with probabilities, for well under a cent.",
+  },
+  async run(workflow, { tickets }) {
+    const triaged = await workflow.parallel(
+      tickets,
+      async (ticket, index): Promise<Triage> => {
+        const { answers } = await workflow.decisions.decide(triageTicket(`${index + 1}`, ticket));
+        const { team, bug, urgency } = answers;
+        const unsure = [
+          ...(team.probabilities[team.choice] < CONFIDENT ? ["team"] : []),
+          ...(Math.max(bug.yes, 1 - bug.yes) < CONFIDENT ? ["bug"] : []),
+          ...(urgency.probabilities[urgency.level]! < CONFIDENT ? ["urgency"] : []),
+        ];
+        return {
+          ticket,
+          team: team.choice,
+          bug: bug.yes >= 0.5,
+          urgency: URGENCY[urgency.level],
+          unsure,
+        };
+      },
+      { label: "Triage" },
+    );
+    return { triaged };
   },
   prepare: (invocation: WorkflowInvocation) => ({
     tickets: invocation.argv.length === 0 ? [...SAMPLE_TICKETS] : [...invocation.argv],
@@ -98,5 +96,3 @@ const executable = defineExecutableWorkflow<TriageArgs, TriageResult>({
       )
       .join("\n"),
 });
-
-export default executable;

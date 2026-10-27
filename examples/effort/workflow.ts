@@ -1,6 +1,6 @@
 import {
   type AgentExecution,
-  defineExecutableWorkflow,
+  defineWorkflow,
   type Effort,
   type ExecutionConfig,
   isAnswered,
@@ -88,63 +88,61 @@ const MINUTE = 60_000;
 /** pi names its model and level to its shell; elsewhere the line comes back empty. */
 const SHELL = 'Run `echo "$PI_MODEL $PI_REASONING_LEVEL"` and give its output as `shell`.';
 
-const executable = defineExecutableWorkflow<EffortArgs, EffortResult>({
-  definition: {
-    meta: {
-      name: "effort",
-      description: "Open one agent per harness at an effort, switch its effort, then its model.",
-      whenToUse:
-        "Use to check that each harness runs at the effort and model awf sets, and that set switches them in the same session.",
-    },
-    async run(workflow, args) {
-      const checks = await workflow.parallel(
-        args.runtimes,
-        async (runtime): Promise<EffortCheck> => {
-          const { execution, switched: then } = RUNTIMES[runtime];
-          const agent = await workflow.agents.open({
-            key: `effort:${runtime}`,
-            runtime: execution,
+export const effort = defineWorkflow<EffortArgs, EffortResult>({
+  meta: {
+    name: "effort",
+    description: "Open one agent per harness at an effort, switch its effort, then its model.",
+    whenToUse:
+      "Use to check that each harness runs at the effort and model awf sets, and that set switches them in the same session.",
+  },
+  async run(workflow, args) {
+    const checks = await workflow.parallel(
+      args.runtimes,
+      async (runtime): Promise<EffortCheck> => {
+        const { execution, switched: then } = RUNTIMES[runtime];
+        const agent = await workflow.agents.open({
+          key: `effort:${runtime}`,
+          runtime: execution,
+        });
+        const steps: EffortStep[] = [];
+        const ask = async (prompt: string) => {
+          const { outcome } = await agent.run({
+            prompt: `${prompt} ${SHELL}`,
+            schema: ANSWER,
+            timeoutMs: 4 * MINUTE,
           });
-          const steps: EffortStep[] = [];
-          const ask = async (prompt: string) => {
-            const { outcome } = await agent.run({
-              prompt: `${prompt} ${SHELL}`,
-              schema: ANSWER,
-              timeoutMs: 4 * MINUTE,
-            });
-            steps.push({
-              kind: "turn",
-              outcome: outcome.kind,
-              execution: outcome.usage.execution,
-              sessions: outcome.usage.sessions.map(({ id }) => id),
-              ...(isAnswered(outcome) ? outcome.value : {}),
-            });
-            return isAnswered(outcome) ? undefined : `${outcome.kind}: ${outcome.reason}`;
-          };
-          const set = async (spec: { effort?: Effort; model?: string }) => {
-            const outcome = await agent.set({ ...spec, timeoutMs: 3 * MINUTE });
-            steps.push({
-              kind: "set",
-              outcome: outcome.kind,
-              execution: outcome.usage.execution,
-              sessions: outcome.usage.sessions.map(({ id }) => id),
-            });
-            return isAnswered(outcome) ? undefined : `set ${outcome.kind}: ${outcome.reason}`;
-          };
-          const problem =
-            (await ask(`Remember this word for later: ${args.word}. Answer it as \`word\`.`)) ??
-            (await set({ effort: then.effort })) ??
-            (await ask("Answer `word` with the word ok.")) ??
-            (await set({ model: then.model })) ??
-            (await ask(
-              "Without running any other command or reading any file: what word were you told to remember? Answer it as `word`, or unknown.",
-            ));
-          return { runtime, steps, ...(problem ? { problem } : {}) };
-        },
-        { label: "Effort" },
-      );
-      return { word: args.word, checks };
-    },
+          steps.push({
+            kind: "turn",
+            outcome: outcome.kind,
+            execution: outcome.usage.execution,
+            sessions: outcome.usage.sessions.map(({ id }) => id),
+            ...(isAnswered(outcome) ? outcome.value : {}),
+          });
+          return isAnswered(outcome) ? undefined : `${outcome.kind}: ${outcome.reason}`;
+        };
+        const set = async (spec: { effort?: Effort; model?: string }) => {
+          const outcome = await agent.set({ ...spec, timeoutMs: 3 * MINUTE });
+          steps.push({
+            kind: "set",
+            outcome: outcome.kind,
+            execution: outcome.usage.execution,
+            sessions: outcome.usage.sessions.map(({ id }) => id),
+          });
+          return isAnswered(outcome) ? undefined : `set ${outcome.kind}: ${outcome.reason}`;
+        };
+        const problem =
+          (await ask(`Remember this word for later: ${args.word}. Answer it as \`word\`.`)) ??
+          (await set({ effort: then.effort })) ??
+          (await ask("Answer `word` with the word ok.")) ??
+          (await set({ model: then.model })) ??
+          (await ask(
+            "Without running any other command or reading any file: what word were you told to remember? Answer it as `word`, or unknown.",
+          ));
+        return { runtime, steps, ...(problem ? { problem } : {}) };
+      },
+      { label: "Effort" },
+    );
+    return { word: args.word, checks };
   },
   prepare: parseArgs,
   present: ({ checks }) =>
@@ -176,5 +174,4 @@ function parseArgs(invocation: WorkflowInvocation): EffortArgs {
   };
 }
 
-export const effort = executable.definition;
-export default executable;
+export default effort;

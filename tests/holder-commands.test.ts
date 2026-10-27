@@ -28,19 +28,17 @@ function project(keys = ["coordinator"]) {
   const home = runDirs.tempRunDir();
   const module = `
     export default {
-      kind: "awf.executable-workflow/v1",
-      definition: {
-        meta: { name: "investigate", description: "asks a coordinator" },
-        async run(workflow) {
-          const investigator = await workflow.agents.open({ key: "investigator", runtime: "claude" });
-          const keys = ${JSON.stringify(keys)};
-          const connected = [];
-          for (const key of keys) connected.push(await workflow.participants.connect({ key }));
-          for (const coordinator of connected)
-            await workflow.messages.allow({ between: [investigator, coordinator], purpose: "Ask." });
-          const { outcome } = await investigator.run({ prompt: "Ask." });
-          return outcome.kind === "answered" ? outcome.value : outcome.kind;
-        },
+      kind: "awf.workflow/v1",
+      meta: { name: "investigate", description: "asks a coordinator" },
+      async run(workflow) {
+        const investigator = await workflow.agents.open({ key: "investigator", runtime: "claude" });
+        const keys = ${JSON.stringify(keys)};
+        const connected = [];
+        for (const key of keys) connected.push(await workflow.participants.connect({ key }));
+        for (const coordinator of connected)
+          await workflow.messages.allow({ between: [investigator, coordinator], purpose: "Ask." });
+        const { outcome } = await investigator.run({ prompt: "Ask." });
+        return outcome.kind === "answered" ? outcome.value : outcome.kind;
       },
       prepare() { return null; },
     };`;

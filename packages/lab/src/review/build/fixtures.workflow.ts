@@ -11,7 +11,7 @@
 import { existsSync } from "node:fs";
 import { join, resolve } from "node:path";
 import {
-  defineExecutableWorkflow,
+  defineWorkflow,
   type ExecutionConfig,
   type WorkflowInvocation,
 } from "@agentswf/contract/workflow";
@@ -47,122 +47,119 @@ type Built = {
 
 type Result = { built: Built[]; set: string };
 
-const executable = defineExecutableWorkflow<Args, Result>({
-  definition: {
-    meta: {
-      name: "build-review-fixtures",
-      description: "Freeze GitLab MRs as review fixtures and draft their answer keys.",
-      whenToUse: "Use to build or complete a review fixture set from a list of MRs (story 005).",
-    },
-    async run(workflow, args) {
-      const source = glabSource(args.hostname ? { hostname: args.hostname } : {});
-      const built = await workflow.parallel(
-        args.mrs,
-        async (mr): Promise<Built> => {
-          const dir = join(args.out, fixtureId(args.project, mr));
-          const log = (text: string) => workflow.log(`!${mr}: ${text}`);
-          let fixture: Built["fixture"] = "existing";
-          let keyProblems = "";
-          if (existsSync(dir)) {
-            const problems = await verifyFixture(dir, {
-              project: args.project,
-              number: mr,
-              clone: args.clone,
-            }).catch((error) => [{ path: dir, message: String(error) }]);
-            if (!problems.every(inKey)) {
+export const buildReviewFixtures = defineWorkflow<Args, Result>({
+  meta: {
+    name: "build-review-fixtures",
+    description: "Freeze GitLab MRs as review fixtures and draft their answer keys.",
+    whenToUse: "Use to build or complete a review fixture set from a list of MRs (story 005).",
+  },
+  async run(workflow, args) {
+    const source = glabSource(args.hostname ? { hostname: args.hostname } : {});
+    const built = await workflow.parallel(
+      args.mrs,
+      async (mr): Promise<Built> => {
+        const dir = join(args.out, fixtureId(args.project, mr));
+        const log = (text: string) => workflow.log(`!${mr}: ${text}`);
+        let fixture: Built["fixture"] = "existing";
+        let keyProblems = "";
+        if (existsSync(dir)) {
+          const problems = await verifyFixture(dir, {
+            project: args.project,
+            number: mr,
+            clone: args.clone,
+          }).catch((error) => [{ path: dir, message: String(error) }]);
+          if (!problems.every(inKey)) {
+            return {
+              mr,
+              fixture: "failed",
+              key: "none",
+              detail: describeProblems(dir, problems),
+            };
+          }
+          keyProblems = problems.length > 0 ? describeProblems(dir, problems) : "";
+        } else {
+          try {
+            const result = await collect(
+              {
+                project: args.project,
+                mr,
+                clone: args.clone,
+                out: args.out,
+                version: args.version,
+              },
+              { source, log },
+            );
+            if (result.status === "excluded") {
               return {
                 mr,
-                fixture: "failed",
+                fixture: "excluded",
                 key: "none",
-                detail: describeProblems(dir, problems),
+                detail: `${result.reason}: ${result.detail}`,
               };
             }
-            keyProblems = problems.length > 0 ? describeProblems(dir, problems) : "";
-          } else {
-            try {
-              const result = await collect(
-                {
-                  project: args.project,
-                  mr,
-                  clone: args.clone,
-                  out: args.out,
-                  version: args.version,
-                },
-                { source, log },
-              );
-              if (result.status === "excluded") {
-                return {
-                  mr,
-                  fixture: "excluded",
-                  key: "none",
-                  detail: `${result.reason}: ${result.detail}`,
-                };
-              }
-              fixture = "collected";
-            } catch (error) {
-              return { mr, fixture: "failed", key: "none", detail: String(error) };
-            }
+            fixture = "collected";
+          } catch (error) {
+            return { mr, fixture: "failed", key: "none", detail: String(error) };
           }
-          const keyFile = join(dir, "key", "key.json");
-          if (existsSync(keyFile)) {
-            const stale = !keyProblems && (await Bun.file(keyFile).json()).procedure !== PROCEDURE;
-            if (!keyProblems && !stale) return { mr, fixture, key: "existing", detail: "" };
-            if (args.keys !== "redraft") {
-              return keyProblems
-                ? { mr, fixture, key: "failed", detail: keyProblems }
-                : { mr, fixture, key: "stale", detail: "drafted under older instructions" };
-            }
+        }
+        const keyFile = join(dir, "key", "key.json");
+        if (existsSync(keyFile)) {
+          const stale = !keyProblems && (await Bun.file(keyFile).json()).procedure !== PROCEDURE;
+          if (!keyProblems && !stale) return { mr, fixture, key: "existing", detail: "" };
+          if (args.keys !== "redraft") {
+            return keyProblems
+              ? { mr, fixture, key: "failed", detail: keyProblems }
+              : { mr, fixture, key: "stale", detail: "drafted under older instructions" };
           }
-          if (args.keys === "none") return { mr, fixture, key: "none", detail: "" };
-          log("Draft the answer key");
-          const drafted = await draftKey(workflow, {
-            dir,
-            clone: args.clone,
-            drafter: args.drafter,
-            graders: args.graders,
-            attempts: args.attempts,
-          }).catch((error): Drafted => ({ status: "failed", detail: String(error) }));
-          if (drafted.status === "failed")
-            return { mr, fixture, key: "failed", detail: drafted.detail };
-          const { issues, refuted, excluded } = drafted.key;
-          const split = drafted.votes.issues.filter(
-            (v) => new Set(v.votes.map((x) => x.severity)).size > 1,
-          ).length;
-          return {
-            mr,
-            fixture,
-            key: "drafted",
-            detail: `${issues.length} issues, ${refuted.length} refuted, ${excluded.length} excluded; severity votes split on ${split} of ${drafted.votes.issues.length} (attempt ${drafted.attempts})`,
-          };
-        },
-        { concurrency: args.concurrency, label: "Build fixtures" },
-      );
-      workflow.log("Seal the set");
-      // An MR that failed to collect is listed too, so the set says what it lacks; its folder
-      // replaces the exclusion once a later run collects it.
-      const sealed = await sealSet(args.out, {
-        clone: args.clone,
-        builder: "build-review-fixtures",
-        procedure: PROCEDURE,
-        excluded: built
-          .filter(
-            (b) =>
-              b.fixture === "excluded" ||
-              (b.fixture === "failed" &&
-                !existsSync(join(args.out, fixtureId(args.project, b.mr)))),
-          )
-          .map((b) => ({
-            project: args.project,
-            number: b.mr,
-            reason: b.fixture === "failed" ? `collect failed: ${b.detail}` : b.detail,
-          })),
-      }).catch((error) => ({ status: "broken" as const, detail: String(error) }));
-      const set =
-        sealed.status === "broken"
-          ? `set.json not written; fix or remove these first:\n${sealed.detail}`
-          : `set.json ${sealed.status}: ${sealed.set.fixtures.length} fixtures, ${sealed.set.excluded.length} excluded`;
-      return { built, set };
-    },
+        }
+        if (args.keys === "none") return { mr, fixture, key: "none", detail: "" };
+        log("Draft the answer key");
+        const drafted = await draftKey(workflow, {
+          dir,
+          clone: args.clone,
+          drafter: args.drafter,
+          graders: args.graders,
+          attempts: args.attempts,
+        }).catch((error): Drafted => ({ status: "failed", detail: String(error) }));
+        if (drafted.status === "failed")
+          return { mr, fixture, key: "failed", detail: drafted.detail };
+        const { issues, refuted, excluded } = drafted.key;
+        const split = drafted.votes.issues.filter(
+          (v) => new Set(v.votes.map((x) => x.severity)).size > 1,
+        ).length;
+        return {
+          mr,
+          fixture,
+          key: "drafted",
+          detail: `${issues.length} issues, ${refuted.length} refuted, ${excluded.length} excluded; severity votes split on ${split} of ${drafted.votes.issues.length} (attempt ${drafted.attempts})`,
+        };
+      },
+      { concurrency: args.concurrency, label: "Build fixtures" },
+    );
+    workflow.log("Seal the set");
+    // An MR that failed to collect is listed too, so the set says what it lacks; its folder
+    // replaces the exclusion once a later run collects it.
+    const sealed = await sealSet(args.out, {
+      clone: args.clone,
+      builder: "build-review-fixtures",
+      procedure: PROCEDURE,
+      excluded: built
+        .filter(
+          (b) =>
+            b.fixture === "excluded" ||
+            (b.fixture === "failed" && !existsSync(join(args.out, fixtureId(args.project, b.mr)))),
+        )
+        .map((b) => ({
+          project: args.project,
+          number: b.mr,
+          reason: b.fixture === "failed" ? `collect failed: ${b.detail}` : b.detail,
+        })),
+    }).catch((error) => ({ status: "broken" as const, detail: String(error) }));
+    const set =
+      sealed.status === "broken"
+        ? `set.json not written; fix or remove these first:\n${sealed.detail}`
+        : `set.json ${sealed.status}: ${sealed.set.fixtures.length} fixtures, ${sealed.set.excluded.length} excluded`;
+    return { built, set };
   },
   prepare: parseArgs,
   present: ({ built, set }) =>
@@ -248,5 +245,4 @@ function parseArgs(invocation: WorkflowInvocation): Args {
 const DRAFTER = "codex/gpt-6-sol";
 const GRADERS = "codex/gpt-6-sol,claude/claude-sonnet-5,codex/gpt-6-luna";
 
-export const buildReviewFixtures = executable.definition;
-export default executable;
+export default buildReviewFixtures;

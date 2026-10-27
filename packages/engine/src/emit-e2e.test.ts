@@ -1,12 +1,12 @@
 import { afterAll, expect, test } from "bun:test";
-import { writeFileSync } from "node:fs";
+import { existsSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { emitCommand } from "./emit-command";
 import { appendMailbox } from "./mailbox";
 import { runOperatorCli } from "./operator-cli";
 import { createRun, openRun, previousGone, processStart, readAttempts } from "./runs";
 import { stopCrashed } from "./stop-crashed";
-import { createTempRunDirs, keyedProject, until, writeAttempt } from "./testing";
+import { createTempRunDirs, eventProject, until, writeAttempt } from "./testing";
 import { wake } from "./wake";
 
 const dirs = createTempRunDirs();
@@ -18,26 +18,24 @@ const WORKFLOW = `import { appendFileSync, readFileSync } from "node:fs";
 const Changes = { type: "object", properties: { case: { type: "string" }, n: { type: "number" } }, required: ["case"] };
 const SEEN = new URL("./seen.txt", import.meta.url).pathname;
 const seen = () => { try { return readFileSync(SEEN, "utf8").split("\\n").filter(Boolean).map(Number); } catch { return []; } };
-import { defineEventWorkflow } from "agentswf/workflow";
-export default defineEventWorkflow({
-  definition: {
-    meta: { name: "e2e-case", description: "Takes two events." },
-    file: import.meta.path,
-    events: { "dd.changes": Changes },
-    starts: ["dd.changes"],
-    async run(workflow) {
-      for (;;) {
-        for (const e of await workflow.receive({ label: seen().length + " seen" }))
-          appendFileSync(SEEN, e.data.n + "\\n");
-        if (seen().length >= 2) return { seen: seen() };
-      }
-    },
+import { defineWorkflow } from "agentswf/workflow";
+export default defineWorkflow({
+  meta: { name: "e2e-case", description: "Takes two events." },
+  file: import.meta.path,
+  events: { "dd.changes": Changes },
+  starts: ["dd.changes"],
+  async run(workflow) {
+    for (;;) {
+      for (const e of await workflow.receive({ label: seen().length + " seen" }))
+        appendFileSync(SEEN, e.data.n + "\\n");
+      if (seen().length >= 2) return { seen: seen() };
+    }
   },
 });
 `;
 
 function setup() {
-  const { root, file, home } = keyedProject(dirs, "case.ts", WORKFLOW);
+  const { root, file, home } = eventProject(dirs, "case.ts", WORKFLOW);
   const out: string[] = [];
   const io = { stdout: (t: string) => out.push(t), stderr: (t: string) => out.push(`! ${t}`) };
   const send = (n: number) =>
@@ -91,7 +89,7 @@ test("awf run starts a run of a workflow with events by its id, with no event, a
     });
   // Without --id there is nothing to name the run by.
   expect(await run()).toBe(2);
-  expect(out.pop()).toContain("is named by its id: awf run --id {id}");
+  expect(out.pop()).toContain("is named by its id, which --id or the workflow's id(args) gives");
   expect(await run("--id", "k", "--timeout", "5m")).toBe(2);
   expect(out.pop()).toContain("as every wake starts it: it takes no --timeout");
   expect(await run("--id", "k")).toBe(0);
@@ -105,6 +103,75 @@ test("awf run starts a run of a workflow with events by its id, with no event, a
   await until(async () => (await readAttempts(opened)).at(-1)?.outcome === "completed");
   expect(await run("--id", "k")).toBe(0);
   expect(out.at(-1)).toBe("e2e-case/k was there: returned");
+}, 60_000);
+
+// Started by hand with args or by an event without: what `prepare` made of its argv is in its output.
+const WITH_ARGS = `import { defineWorkflow } from "agentswf/workflow";
+const Changes = { type: "object", properties: { case: { type: "string" } }, required: ["case"] };
+export default defineWorkflow({
+  meta: { name: "e2e-args", description: "Returns its args at the first event." },
+  file: import.meta.path,
+  events: { "dd.changes": Changes },
+  prepare: ({ argv }) => {
+    if (argv[0] === undefined) throw new Error("a case needs its key");
+    if (argv[0] === "refuse") throw new Error("no such case");
+    return { case: argv[0] };
+  },
+  id: (args) => args.case,
+  async run(workflow, args) {
+    await workflow.receive();
+    return args;
+  },
+});
+`;
+
+test("awf run starts a run of a workflow with events with args, and an event for its id lands in it", async () => {
+  const { root, file, home } = eventProject(dirs, "args.ts", WITH_ARGS);
+  const out: string[] = [];
+  const io = { home, environment: { ...process.env, HOME: home } };
+  const run = (...extra: string[]) =>
+    runOperatorCli(["run", file, ...extra], {
+      ...io,
+      stdout: (t) => out.push(t),
+      stderr: (t) => out.push(`! ${t}`),
+    });
+  const send = (id: string) =>
+    emitCommand(
+      ["--target", file, "--id", id, "dd.changes", JSON.stringify({ case: id })],
+      dirs.tempRunDir(),
+      { stdout: (t) => out.push(t), stderr: (t) => out.push(`! ${t}`) },
+      io,
+    );
+  const output = async (id: string) => {
+    const opened = await openRun(join(root, ".awf", "runs"), "e2e-args", id);
+    await until(async () => (await readAttempts(opened)).at(-1)?.outcome === "completed");
+    return (
+      JSON.parse(await Bun.file(join(opened.dir, "output.json")).text()) as { value: unknown }
+    ).value;
+  };
+  // `id(args)` names it, so no --id is needed; prepare runs where the run works, its project.
+  expect(await run("--", "kombo")).toBe(0);
+  expect(out.pop()).toBe("e2e-args/kombo: started");
+  const opened = await openRun(join(root, ".awf", "runs"), "e2e-args", "kombo");
+  expect(opened.record.argv).toEqual(["kombo"]);
+  await until(async () => (await readAttempts(opened)).at(-1)?.outcome === "parked");
+  // Its args are its own: a run there already is refused other args, and woken by none, which
+  // prepare refuses only for a run it would make.
+  expect(await run("--id", "kombo", "--", "other")).toBe(2);
+  expect(out.pop()).toContain("is there already, started with arguments of its own");
+  expect(await run("--id", "kombo")).toBe(0);
+  expect(out.pop()).toStartWith("e2e-args/kombo was there");
+  expect(await send("kombo")).toBe(0);
+  expect(await output("kombo")).toEqual({ case: "kombo" });
+  // A run an event starts has no argv: its args are what prepare makes of none, refused here.
+  expect(await send("fresh")).toBe(2);
+  expect(out.pop()).toContain("which its prepare refuses: a case needs its key");
+  expect(await run("--id", "fresh")).toBe(2);
+  expect(out.pop()).toContain("prepare: a case needs its key");
+  expect(existsSync(join(root, ".awf", "runs", "e2e-args", "fresh"))).toBe(false);
+  // An argv prepare refuses is refused before any run is made.
+  expect(await run("--", "refuse")).toBe(2);
+  expect(out.pop()).toContain("prepare: no such case");
 }, 60_000);
 
 test("awf run --continue of an event run takes no stage, values or arguments", async () => {
@@ -125,25 +192,23 @@ test("awf run --continue of an event run takes no stage, values or arguments", a
 });
 
 test("a continue reads the project's .env again, and not what the sender exported", async () => {
-  const { root, file, home } = keyedProject(
+  const { root, file, home } = eventProject(
     dirs,
     "env.ts",
     `import { appendFileSync } from "node:fs";
-import { defineEventWorkflow } from "agentswf/workflow";
+import { defineWorkflow } from "agentswf/workflow";
 const Ping = { type: "object", properties: { n: { type: "number" } } };
-export default defineEventWorkflow({
-  definition: {
-    meta: { name: "e2e-env", description: "Records its token at each wake." },
-    file: import.meta.path,
-    events: { ping: Ping },
-    starts: ["ping"],
-    async run(workflow) {
-      for (;;) {
-        const events = await workflow.receive();
-        appendFileSync(new URL("../tokens.txt", import.meta.url).pathname, (process.env.TOKEN ?? "none") + "\\n");
-        if (events.some((e) => e.data.n === 2)) return null;
-      }
-    },
+export default defineWorkflow({
+  meta: { name: "e2e-env", description: "Records its token at each wake." },
+  file: import.meta.path,
+  events: { ping: Ping },
+  starts: ["ping"],
+  async run(workflow) {
+    for (;;) {
+      const events = await workflow.receive();
+      appendFileSync(new URL("../tokens.txt", import.meta.url).pathname, (process.env.TOKEN ?? "none") + "\\n");
+      if (events.some((e) => e.data.n === 2)) return null;
+    }
   },
 });
 `,

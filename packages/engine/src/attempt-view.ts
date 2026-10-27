@@ -5,12 +5,7 @@ import type {
   StageNeed,
   StageRecord,
 } from "@agentswf/contract/records";
-import type {
-  Ending,
-  ExecutableWorkflow,
-  JsonValue,
-  StageSummary,
-} from "@agentswf/contract/workflow";
+import type { Ending, JsonValue, StageSummary } from "@agentswf/contract/workflow";
 import { ago, describeAccounting, describeAttempts } from "./accounting/format";
 import { sumAttempts } from "./accounting/summary";
 import { type AttemptEnd, OUTCOMES } from "./attempt-ending";
@@ -22,6 +17,7 @@ import type { RunCommand } from "./run-command";
 import type { AttemptRefusal } from "./runs";
 import { schemaLines } from "./stage-schema";
 import { FromStageUnreached, type WorkflowStopped } from "./stopped";
+import type { AnyWorkflow } from "./workflow-loader";
 
 /**
  * Prints how the attempt ended, and returns its exit code. A completed one's result goes to stdout;
@@ -32,7 +28,7 @@ export function printEnding(
   end: AttemptEnd,
   kept: Kept,
   context: {
-    executable: ExecutableWorkflow<JsonValue, JsonValue>;
+    workflow: AnyWorkflow;
     /** The run's id and folder. */
     run: { id: string; dir: string };
     n: number;
@@ -56,7 +52,7 @@ export function printEnding(
   const { ending, settled } = end;
   const presented =
     ending.kind === "completed" && !context.json
-      ? present(context.executable, ending, stderr)
+      ? present(context.workflow, ending, stderr)
       : undefined;
   if (end.alsoFailed) stderr(`awf: also failed: ${end.alsoFailed}`);
   const again =
@@ -67,7 +63,7 @@ export function printEnding(
   if (context.cleanupAlso) stderr(`awf: runtime cleanup also failed: ${context.cleanupAlso}`);
   // Beside the result rather than in it: stdout stays the workflow's report or the JSON.
   const lines = describeEnding(ending, {
-    named: `${context.executable.definition.meta.name} ${context.run.id}`,
+    named: `${context.workflow.meta.name} ${context.run.id}`,
     n: context.n,
     ...(settled ? { accounting: settled.accounting } : {}),
     earlier: context.earlier,
@@ -78,7 +74,7 @@ export function printEnding(
     ...(end.needs ? { needs: end.needs } : {}),
     ...(settled?.panes ? { panes: settled.panes } : {}),
     // As the run's Herdr workspace is labelled.
-    runWorkspace: `awf ${context.executable.definition.meta.name} ${context.run.id} #${context.n}`,
+    runWorkspace: `awf ${context.workflow.meta.name} ${context.run.id} #${context.n}`,
     paint: context.terminal?.color ? ANSI : PLAIN,
   });
   for (const line of ["", ...lines]) stderr(line);
@@ -246,13 +242,13 @@ function runTotal(n: number, current: RunAccounting, earlier: readonly AttemptRe
 
 /** A completed attempt's value as the workflow presents it; undefined to print the JSON. */
 function present(
-  executable: ExecutableWorkflow<JsonValue, JsonValue>,
+  workflow: AnyWorkflow,
   ending: Extract<Ending<JsonValue>, { kind: "completed" }>,
   stderr: (text: string) => void,
 ): string | undefined {
-  if (!executable.present) return undefined;
+  if (!workflow.present) return undefined;
   try {
-    return executable.present(ending.value, ending)?.trimEnd();
+    return workflow.present(ending.value, ending)?.trimEnd();
   } catch (error) {
     stderr(`awf: present: ${messageOf(error)}; printing the full result instead`);
     return undefined;
