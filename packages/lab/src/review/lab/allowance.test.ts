@@ -28,7 +28,7 @@ const claude: HarnessAllowance = {
   windows: [{ id: "session", label: "session", usedPercent: 99, resetsAt: RESET }],
 };
 const report = (...harnesses: HarnessAllowance[]): AllowanceReport => ({
-  version: "awf.allowance/1",
+  v: 1,
   readAt: new Date(T0).toISOString(),
   harnesses,
 });

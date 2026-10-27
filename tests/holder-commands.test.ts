@@ -99,7 +99,7 @@ describe("awf reply and awf send", () => {
     const running = awf(["run", "--json", "flow.js"]);
     const question = await openQuestion(awf);
     const reply = (text: string) =>
-      awf(["reply", question.run, "investigator", "--to", question.id, text, "--json"]);
+      awf(["reply", question.ref, "investigator", "--to", question.id, text, "--json"]);
     const [first, second] = await Promise.all([reply("Keep two."), reply("Merge.")]);
     const results = [first, second].map((each) => JSON.parse(each.stdout) as HolderResultJson);
     expect(results.map((each) => each.code).sort()).toEqual(["delivered", "expired"]);
@@ -111,7 +111,7 @@ describe("awf reply and awf send", () => {
     const run = await running;
     expect(run.code).toBe(0);
     expect(JSON.parse(run.stdout).value).toBe(results[0]!.code === "delivered" ? "kept" : "other");
-    const inbox = await awf(["inbox", question.run, "--json"]);
+    const inbox = await awf(["inbox", question.ref, "--json"]);
     const answered = inbox.stdout
       .split("\n")
       .map((line) => JSON.parse(line) as InboxItemJson)
@@ -131,7 +131,7 @@ describe("awf reply and awf send", () => {
     });
     const running = awf(["run", "--json", "flow.js"]);
     const question = await openQuestion(awf);
-    const send = (...args: string[]) => awf(["send", question.run, ...args, "--json"]);
+    const send = (...args: string[]) => awf(["send", question.ref, ...args, "--json"]);
     const result = async (pending: ReturnType<typeof send>) =>
       JSON.parse((await pending).stdout) as HolderResultJson;
     expect(await result(send("ghost", "Hi."))).toMatchObject({ code: "unknown-agent" });
@@ -143,13 +143,13 @@ describe("awf reply and awf send", () => {
       code: "no-coordinator",
     });
     // To an agent awaiting this coordinator's answer: held, and the line says so.
-    const held = await awf(["send", question.run, "investigator", "--as", "coordinator", "FYI."]);
+    const held = await awf(["send", question.ref, "investigator", "--as", "coordinator", "FYI."]);
     expect(held.stdout).toMatch(
       /^delivered as 1\.\d+; investigator still awaits the reply to 1\.\d+$/,
     );
     // The answer, from stdin, speaks as the coordinator it was asked of.
     const answered = await awf(
-      ["reply", question.run, "investigator", "--to", question.id],
+      ["reply", question.ref, "investigator", "--to", question.id],
       "Keep two.\n",
     );
     expect(answered).toMatchObject({ code: 0, stdout: `answered ${question.id}` });

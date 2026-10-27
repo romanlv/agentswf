@@ -69,7 +69,7 @@ type Options = {
 /** An item's place in its run's log: its line, the attempts ended before it, and its turn among those after the line. */
 type Position = [line: number, ended: number, index: number];
 
-type Body<T> = T extends unknown ? Omit<T, "v" | "run" | "cursor"> : never;
+type Body<T> = T extends unknown ? Omit<T, "v" | "ref" | "cursor"> : never;
 /** An item without what the command adds to it: its run, and the cursor that reads on after it. */
 type Item = Body<InboxItemJson> & { position: Position };
 
@@ -178,7 +178,7 @@ export async function inboxCommand(
           const { position: _position, ...shown } = item;
           const published = {
             v: 1,
-            run: ref,
+            ref,
             ...shown,
             cursor: encodeCursor(state),
           } as InboxItemJson;
@@ -650,7 +650,7 @@ function openQuestions(runs: readonly RunItems[]): InboxItemJson[] {
   });
   return merged(open).map(({ ref, item }) => {
     const { position: _position, ...shown } = item;
-    return { v: 1, run: ref, ...shown } as InboxItemJson;
+    return { v: 1, ref, ...shown } as InboxItemJson;
   });
 }
 
@@ -662,7 +662,7 @@ function safe(text: string): string {
 
 function textOf(item: InboxItemJson, all: boolean): string {
   const time = item.at ? clockTime(item.at).slice(0, 5) : "     ";
-  const head = `${time}  ${all ? `${item.run}  ` : ""}`;
+  const head = `${time}  ${all ? `${item.ref}  ` : ""}`;
   const body = (text: string) =>
     safe(text)
       .split("\n")

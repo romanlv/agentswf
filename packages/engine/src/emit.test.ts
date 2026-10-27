@@ -103,7 +103,7 @@ describe("outcomes", () => {
     const launch = fakeLaunch();
     expect(await emit(p, "dd.closed", { case: "a" }, { id: "c1", launch })).toMatchObject({
       outcome: "accepted",
-      run: "dd-case/a",
+      ref: "dd-case/a",
       did: "started",
     });
     expect(await eventsOf(await runOf(p, "a"))).toEqual(["c1"]);
@@ -115,7 +115,7 @@ describe("outcomes", () => {
     expect(await emit(p, "dd.changes", { case: "kombo" }, { id: "c1", launch })).toEqual({
       v: 1,
       outcome: "accepted",
-      run: "dd-case/kombo",
+      ref: "dd-case/kombo",
       id: "c1",
       did: "started",
     });
@@ -674,10 +674,10 @@ describe("awf tick", () => {
     const launch = fakeLaunch();
     const { code, woke } = await tick(p, launch);
     expect(code).toBe(0);
-    expect(woke.sort((a, b) => a.run.localeCompare(b.run))).toEqual([
-      { run: "dd-case/crashed", did: "continued", why: "crashed" },
-      { run: "dd-case/due", did: "continued", why: "until" },
-      { run: "dd-case/failed", did: "continued", why: "failed" },
+    expect(woke.sort((a, b) => a.ref.localeCompare(b.ref))).toEqual([
+      { ref: "dd-case/crashed", did: "continued", why: "crashed" },
+      { ref: "dd-case/due", did: "continued", why: "until" },
+      { ref: "dd-case/failed", did: "continued", why: "failed" },
     ]);
     expect(launch.launched).toHaveLength(3);
   });
@@ -718,9 +718,9 @@ describe("awf tick", () => {
     );
     const launch = fakeLaunch();
     const { code, woke, err } = await tick(p, launch);
-    expect(woke.sort((a, b) => a.run.localeCompare(b.run))).toEqual([
-      { run: "dd-case/never", did: "started", why: "event" },
-      { run: "dd-case/waiting", did: "continued", why: "event" },
+    expect(woke.sort((a, b) => a.ref.localeCompare(b.ref))).toEqual([
+      { ref: "dd-case/never", did: "started", why: "event" },
+      { ref: "dd-case/waiting", did: "continued", why: "event" },
     ]);
     expect(code).toBe(1);
     expect(err.join("\n")).toContain("is gone");

@@ -884,7 +884,7 @@ export type InboxExpiry = "timeout" | "released" | "cancelled" | "attempt-ended"
 export type InboxItemJson = {
   v: 1;
   /** `{workflow}/{id}`. */
-  run: string;
+  ref: string;
   at: string;
   /** `--after` this reads on from just after the item; absent under `--open`, a snapshot. */
   cursor?: string;
@@ -970,7 +970,7 @@ export type EmitResultJson = {
   v: 1;
   outcome: EmitOutcome;
   /** `{workflow}/{id}`. */
-  run: string;
+  ref: string;
   /** The event's id, as given or as awf made it. */
   id: string;
   did: WakeDid;
@@ -983,7 +983,8 @@ export type EmitResultJson = {
 export type TickResultJson = {
   v: 1;
   woke: {
-    run: string;
+    /** `{workflow}/{id}`. */
+    ref: string;
     /** `started` for a run whose first attempt never started, as its launch failed. */
     did: "started" | "continued";
     why: "event" | "until" | "crashed" | "failed";
@@ -1098,11 +1099,9 @@ export type OutputRecord = {
 
 export type { AllowanceWindow, HarnessAllowance } from "./workflow/allowance";
 
-export const ALLOWANCE_VERSION = "awf.allowance/1";
-
 /** What `awf allowance --json` prints: each harness's plan, as the harness itself showed it. */
 export type AllowanceReport = {
-  version: typeof ALLOWANCE_VERSION;
+  v: 1;
   /** When the reads started, ISO 8601. */
   readAt: string;
   harnesses: HarnessAllowance[];

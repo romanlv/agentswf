@@ -1,6 +1,5 @@
 import { basename, dirname, join } from "node:path";
 import {
-  ALLOWANCE_VERSION,
   type AllowanceReport,
   OUTPUT_RECORD_VERSION,
   type OutputRecord,
@@ -182,7 +181,7 @@ export async function awfAllowance(
   const [stdout] = await Promise.all([new Response(child.stdout).text(), child.exited]);
   try {
     const report = JSON.parse(stdout) as AllowanceReport;
-    return report.version === ALLOWANCE_VERSION ? report : undefined;
+    return report.v === 1 ? report : undefined;
   } catch {
     return undefined;
   }

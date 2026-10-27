@@ -104,7 +104,7 @@ export async function deliver(
       : undefined;
     // What was due is `awf tick`'s to say; an emit's caller knows it sent an event.
     const result = (outcome: EmitResultJson["outcome"], { cause: _, ...woken }: Woken) =>
-      ({ v: 1, outcome, run: ref, id: event.id, ...woken }) satisfies EmitResultJson;
+      ({ v: 1, outcome, ref, id: event.id, ...woken }) satisfies EmitResultJson;
     if (run) {
       // Not appended again, but it still wakes the run: a sender retrying after a launch that failed
       // sends the same id.

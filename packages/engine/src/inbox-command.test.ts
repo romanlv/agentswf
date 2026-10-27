@@ -160,7 +160,7 @@ describe("awf inbox", () => {
     expect(items.map(({ cursor: _cursor, at: _at, ...item }) => item)).toEqual([
       {
         v: 1,
-        run: ref,
+        ref,
         kind: "route",
         state: "opened",
         coordinator: "coordinator",
@@ -172,7 +172,7 @@ describe("awf inbox", () => {
       },
       {
         v: 1,
-        run: ref,
+        ref,
         kind: "message",
         coordinator: "coordinator",
         id: "1.1",
@@ -182,7 +182,7 @@ describe("awf inbox", () => {
       },
       {
         v: 1,
-        run: ref,
+        ref,
         kind: "message",
         coordinator: "coordinator",
         id: "1.2",
@@ -194,7 +194,7 @@ describe("awf inbox", () => {
       },
       {
         v: 1,
-        run: ref,
+        ref,
         kind: "answered",
         coordinator: "coordinator",
         id: "1.2",
@@ -203,7 +203,7 @@ describe("awf inbox", () => {
       },
       {
         v: 1,
-        run: ref,
+        ref,
         kind: "route",
         state: "closed",
         coordinator: "coordinator",
@@ -214,7 +214,7 @@ describe("awf inbox", () => {
         labels: { audience: "ops" },
         reason: "released",
       },
-      { v: 1, run: ref, kind: "ended", attempt: 1, outcome: "completed" },
+      { v: 1, ref, kind: "ended", attempt: 1, outcome: "completed" },
     ]);
     // From any item's cursor, what came after it.
     const from = await inbox(root, ref, "--json", "--after", items[2]!.cursor!);
@@ -297,7 +297,7 @@ describe("awf inbox", () => {
     await quiet.claim();
     await log(quiet.run, 1, { kind: "warning", text: "nothing" } as Body<RunLogLine>);
     const first = await inbox(root, "--all", "--json");
-    expect(first.items.map((item: InboxItemJson) => item.run)).toEqual(["investigate/r1"]);
+    expect(first.items.map((item: InboxItemJson) => item.ref)).toEqual(["investigate/r1"]);
     const cursor = first.items.at(-1).cursor;
     const late = await newRun(root, "triage", "r3");
     await late.claim();
@@ -309,12 +309,12 @@ describe("awf inbox", () => {
     );
     await log(one.run, 1, ask(1, "a", "And now?"));
     const next = await inbox(root, "--all", "--json", "--after", cursor);
-    expect(next.items.map((item: InboxItemJson) => [item.run, item.kind])).toEqual([
+    expect(next.items.map((item: InboxItemJson) => [item.ref, item.kind])).toEqual([
       ["triage/r3", "route"],
       ["investigate/r1", "message"],
     ]);
     const narrowed = await inbox(root, "--all", "--workflow", "triage", "--json");
-    expect(narrowed.items.map((item: InboxItemJson) => item.run)).toEqual(["triage/r3"]);
+    expect(narrowed.items.map((item: InboxItemJson) => item.ref)).toEqual(["triage/r3"]);
     // A cursor belongs to the filter it was made with.
     const refused = await inbox(root, "--all", "--workflow", "triage", "--json", "--after", cursor);
     expect(refused.code).toBe(1);
@@ -549,7 +549,7 @@ describe("awf inbox --wait reads only what changed", () => {
         first.items.at(-1).cursor,
       );
       counted();
-      expect(next.items.map((item: InboxItemJson) => [item.run, item.kind])).toEqual([
+      expect(next.items.map((item: InboxItemJson) => [item.ref, item.kind])).toEqual([
         ["investigate/live", "message"],
       ]);
     } finally {
@@ -587,7 +587,7 @@ describe("awf inbox --wait reads only what changed", () => {
       "--wait",
       "30",
     );
-    expect(read.items.map((item: InboxItemJson) => [item.run, item.kind])).toEqual([
+    expect(read.items.map((item: InboxItemJson) => [item.ref, item.kind])).toEqual([
       ["triage/late", "route"],
     ]);
   });
@@ -620,7 +620,7 @@ describe("awf inbox --wait reads only what changed", () => {
       first.items.at(-1).cursor,
     );
     expect(
-      read.items.map((item: InboxItemJson) => [item.run, item.kind, "agent" in item && item.agent]),
+      read.items.map((item: InboxItemJson) => [item.ref, item.kind, "agent" in item && item.agent]),
     ).toEqual([[ref, "route", "b"]]);
   });
 });

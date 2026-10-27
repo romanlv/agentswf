@@ -60,7 +60,7 @@ export async function tickCommand(
             return undefined;
           return { did: woken.did, why: woken.cause };
         });
-        if (why) woke.push({ run: ref, ...why });
+        if (why) woke.push({ ref, ...why });
       } catch (error) {
         failed = true;
         out.stderr(`awf: ${ref}: ${messageOf(error)}`);
@@ -68,6 +68,6 @@ export async function tickCommand(
     }
   }
   if (json) out.stdout(JSON.stringify({ v: 1, woke } satisfies TickResultJson));
-  else for (const each of woke) out.stdout(`${each.did} ${each.run}: ${each.why}`);
+  else for (const each of woke) out.stdout(`${each.did} ${each.ref}: ${each.why}`);
   return failed ? 1 : 0;
 }

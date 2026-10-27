@@ -83,7 +83,7 @@ export function printEmit(result: EmitResultJson, json: boolean, out: Out): numb
 /** `accepted dd-case/kombo: started`. */
 function emitLine(result: EmitResultJson): string {
   const did = result.did === "none" ? result.why : result.did;
-  return `${result.outcome} ${result.run}${did === undefined ? "" : `: ${did}`}`;
+  return `${result.outcome} ${result.ref}${did === undefined ? "" : `: ${did}`}`;
 }
 
 function parse(argv: readonly string[]): {

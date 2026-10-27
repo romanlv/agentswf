@@ -1,8 +1,7 @@
-import {
-  ALLOWANCE_VERSION,
-  type AllowanceReport,
-  type AllowanceWindow,
-  type HarnessAllowance,
+import type {
+  AllowanceReport,
+  AllowanceWindow,
+  HarnessAllowance,
 } from "@agentswf/contract/records";
 import { HARNESS_NAMES, type Harness } from "@agentswf/harness";
 import { PLAN_BASIS, planPrice } from "./accounting/plans";
@@ -19,7 +18,7 @@ export const allowanceUsage = [
   "A plan's monthly price is the vendor's list price as of the table's date, not what was",
   `charged: ${PLAN_BASIS}.`,
   "",
-  `--json prints an ${ALLOWANCE_VERSION} record, the interface for scripts, with the plan as the`,
+  `--json prints one document, the interface for scripts, with the plan as the`,
   "harness names it and no price; what it prints otherwise is for reading. A harness that could",
   "not be read says why. Exits 0 once every harness was asked, 2 on a usage error.",
 ].join("\n");
@@ -67,7 +66,7 @@ export async function readReport(
   now: number,
 ): Promise<AllowanceReport> {
   return {
-    version: ALLOWANCE_VERSION,
+    v: 1,
     readAt: new Date(now).toISOString(),
     harnesses: await Promise.all(harnesses.map(read)),
   };

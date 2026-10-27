@@ -87,7 +87,7 @@ describe("awf allowance", () => {
     expect(exit).toBe(0);
     expect(asked).toEqual(["cursor"]);
     expect(JSON.parse(printed.join(""))).toEqual({
-      version: "awf.allowance/1",
+      v: 1,
       readAt: "2026-10-05T16:50:00.000Z",
       harnesses: [READS.cursor],
     });

@@ -48,7 +48,7 @@ after 120 s by default, so it passes 100. `--open` is a snapshot of the question
 no cursor and no waiting.
 
 Text is for a person. `--json` prints one item per line, `InboxItemJson`
-(`packages/contract/src/records.ts`), each with `v`, `run`, `at`, and outside `--open` a `cursor`:
+(`packages/contract/src/records.ts`), each with `v`, `ref`, `at`, and outside `--open` a `cursor`:
 
 | `kind` | Fields |
 | --- | --- |
