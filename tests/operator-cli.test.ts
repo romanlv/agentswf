@@ -431,7 +431,7 @@ describe("awf run", () => {
       installRuntime: emptyRuntime,
     });
     expect(exitCode).toBe(2);
-    expect(errors.join("\n")).toContain("unexpected argument firejail; this example takes none");
+    expect(errors.join("\n")).toContain("this workflow takes no arguments, not firejail");
   });
 
   test("fails when an operator alias drifts from the workflow's required model", async () => {

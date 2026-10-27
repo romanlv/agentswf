@@ -2,7 +2,6 @@ import {
   defineExecutableWorkflow,
   type ExecutionConfig,
   type TurnOutcome,
-  type WorkflowInvocation,
 } from "@agentswf/contract/workflow";
 import Type from "typebox";
 import { outputSchema } from "../output-schema";
@@ -107,7 +106,6 @@ const executable = defineExecutableWorkflow<null, SandboxesResult>({
       return { reports: [...team, report("auditor", "srt, private, headless", outcome)] };
     },
   },
-  prepare: noArguments,
   present: ({ reports }) =>
     reports
       .map((report) =>
@@ -148,13 +146,6 @@ function prompt(commands: readonly string[]): string {
 function indent(output: string): string {
   const lines = output.trimEnd().split("\n").slice(0, 12);
   return lines[0] === "" ? "" : `${lines.map((line) => `    ${line}`).join("\n")}\n`;
-}
-
-function noArguments(invocation: WorkflowInvocation): null {
-  if (invocation.argv.length > 0) {
-    throw new Error(`unexpected argument ${invocation.argv[0]}; this example takes none`);
-  }
-  return null;
 }
 
 export default executable;

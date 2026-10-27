@@ -99,7 +99,8 @@ export default defineExecutableWorkflow({
 - **`definition`** is `meta` and `run(workflow, args)`. Args and result must be JSON.
   `meta.name` names the folder its runs are kept in (letters, digits, `.`, `_`, `@` and `-`). An optional
   `meta.version` is semver; [Stages](#stages) says what it guards.
-- **`prepare`** turns the command line (`argv` after `--`, and `cwd`) into args.
+- **`prepare`** turns the command line (`argv` after `--`, and `cwd`) into args. Left out, the
+  workflow takes no arguments: its args are `null`, and any argv is refused.
 - **`id(args)`**, optional, names the run, such as by a ticket's key; `--id` overrides it. A run's
   ref is `{workflow}/{id}`, for this workflow and one with [events](#events) alike.
 - **`present(value, ending)`**, optional, is what a completed attempt prints. Without it, or when

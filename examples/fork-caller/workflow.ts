@@ -36,7 +36,6 @@ const executable = defineExecutableWorkflow<null, ForkCallerResult>({
       return { model: fork.execution.model, workingOn: outcome.value.working_on };
     },
   },
-  prepare: () => null,
   present: (result) => `the fork, on ${result.model}, says the session was: ${result.workingOn}`,
 });
 

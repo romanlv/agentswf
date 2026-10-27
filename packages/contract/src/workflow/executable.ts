@@ -101,10 +101,27 @@ type ExecutableWorkflowSpec<Args extends JsonValue, Result extends JsonValue> = 
   "kind"
 >;
 
-export function defineExecutableWorkflow<Args extends JsonValue, Result extends JsonValue>(
-  spec: ExecutableWorkflowSpec<Args, Result>,
+/**
+ * Defines a workflow `awf run` starts. A workflow whose args are `null` may leave out `prepare`:
+ * then it takes no arguments, and any argv is refused.
+ */
+export function defineExecutableWorkflow<
+  Args extends JsonValue = null,
+  Result extends JsonValue = JsonValue,
+>(
+  spec: Omit<ExecutableWorkflowSpec<Args, Result>, "prepare"> &
+    ([Args] extends [null]
+      ? { prepare?: ExecutableWorkflowSpec<Args, Result>["prepare"] }
+      : { prepare: ExecutableWorkflowSpec<Args, Result>["prepare"] }),
 ): ExecutableWorkflow<Args, Result> {
-  return { ...spec, kind: EXECUTABLE_WORKFLOW_KIND };
+  const prepare =
+    spec.prepare ?? (noArguments as unknown as ExecutableWorkflow<Args, Result>["prepare"]);
+  return { ...spec, prepare, kind: EXECUTABLE_WORKFLOW_KIND };
+}
+
+function noArguments({ argv }: WorkflowInvocation): null {
+  if (argv.length > 0) throw new Error(`this workflow takes no arguments, not ${argv.join(" ")}`);
+  return null;
 }
 
 /**

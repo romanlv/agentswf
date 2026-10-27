@@ -90,6 +90,5 @@ export default singleton(
         return { changed: changed.length };
       },
     },
-    prepare: () => null,
   }),
 );

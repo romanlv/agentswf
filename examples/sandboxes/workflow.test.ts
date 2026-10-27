@@ -96,6 +96,6 @@ describe("sandboxes", () => {
 
   test("takes no arguments", () => {
     expect(sandboxes.prepare({ argv: [], cwd: "." })).toBeNull();
-    expect(() => sandboxes.prepare({ argv: ["x"], cwd: "." })).toThrow("unexpected argument x");
+    expect(() => sandboxes.prepare({ argv: ["x"], cwd: "." })).toThrow("takes no arguments, not x");
   });
 });

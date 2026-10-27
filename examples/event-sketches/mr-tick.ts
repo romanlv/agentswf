@@ -47,6 +47,5 @@ export default singleton(
         return { mrs: mrs.length };
       },
     },
-    prepare: () => null,
   }),
 );
