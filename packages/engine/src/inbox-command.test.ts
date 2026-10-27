@@ -2,11 +2,13 @@ import { afterAll, describe, expect, spyOn, test } from "bun:test";
 import {
   type InboxErrorJson,
   type InboxItemJson,
+  MAILBOX_RECORD_VERSION,
   RUN_EVENT_VERSIONS,
   type RunLogLine,
   TURN_RECORD_VERSION,
 } from "@agentswf/contract/records";
 import { type InboxClock, ItemFold, inboxCommand } from "./inbox-command";
+import { appendMailbox } from "./mailbox";
 import * as runs from "./runs";
 import {
   appendEvent,
@@ -336,6 +338,61 @@ describe("awf inbox", () => {
     );
     expect(waited.items).toEqual([]);
     expect(waited.sleeps.reduce((sum, ms) => sum + ms, 0)).toBeGreaterThanOrEqual(2_900);
+  });
+
+  test("a parked attempt's end carries its last wait's label", async () => {
+    const root = runDirs.tempRunDir();
+    const { run, claim, ref } = await newRun(root);
+    const attempt = await claim();
+    await log(run, 1, {
+      kind: "participant-connected",
+      participant: "thread",
+      to: "code",
+    } as Body<RunLogLine>);
+    for (const label of ["investigating", "closed"])
+      await appendMailbox(run.dir, {
+        version: MAILBOX_RECORD_VERSION,
+        at: at(),
+        kind: "wait",
+        attempt: 1,
+        label,
+      });
+    await endAttempt(attempt, { outcome: "parked" });
+    const read = await inbox(root, ref, "--json");
+    expect(read.items.at(-1)).toMatchObject({
+      kind: "ended",
+      attempt: 1,
+      outcome: "parked",
+      label: "closed",
+    });
+  });
+
+  test("a stop ends a wait at its next poll, as its deadline would", async () => {
+    const root = runDirs.tempRunDir();
+    const { run, claim, ref } = await newRun(root);
+    await claim();
+    await log(run, 1, { kind: "participant-connected", participant: "coordinator" }, opened("a"));
+    const first = await inbox(root, ref, "--json");
+    const stop = new AbortController();
+    const sleeps: number[] = [];
+    const code = await inboxCommand(
+      [ref, "--json", "--after", first.items[0].cursor, "--wait", "300", "--run-root", root],
+      root,
+      { stdout: () => {}, stderr: () => {} },
+      {
+        clock: {
+          now: () => Date.now(),
+          sleep: async (ms) => {
+            sleeps.push(ms);
+            stop.abort();
+          },
+        },
+        home: root,
+        signal: stop.signal,
+      },
+    );
+    expect(code).toBe(0);
+    expect(sleeps).toHaveLength(1);
   });
 
   test("failures, in their order: not-found, no-coordinator, bad-cursor", async () => {

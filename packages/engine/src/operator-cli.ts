@@ -181,7 +181,13 @@ export async function runOperatorCli(
     tick: () => tickCommand(argv.slice(1), { stdout, stderr }, wakes),
     runs: () => runsCommand(argv.slice(1), cwd, { stdout, stderr }),
     logs: () => logsCommand(argv.slice(1), cwd, { stdout, stderr }),
-    inbox: () => inboxCommand(argv.slice(1), cwd, { stdout, stderr }, { home: wakes.home }),
+    inbox: () =>
+      inboxCommand(
+        argv.slice(1),
+        cwd,
+        { stdout, stderr },
+        { home: wakes.home, ...(environment.signal ? { signal: environment.signal } : {}) },
+      ),
     reply: () => holder(),
     send: () => holder(),
     allowance: () =>

@@ -14,6 +14,7 @@ import { maskCredentials } from "@agentswf/harness";
 import { duration } from "./duration";
 import { messageOf } from "./errors";
 import { exists } from "./files";
+import { readMailbox } from "./mailbox";
 import {
   clockTime,
   command,
@@ -91,10 +92,13 @@ export async function inboxCommand(
   {
     clock = REAL_CLOCK,
     home = homedir(),
+    signal,
   }: {
     clock?: InboxClock;
     /** Where `~/.awf/projects` is, through which a keyed run is found from anywhere. */
     home?: string;
+    /** A stop, as a signal to `awf`: a wait ends at the next poll, as at its deadline. */
+    signal?: AbortSignal;
   } = {},
 ): Promise<number> {
   if (argv.includes("-h") || argv.includes("--help")) {
@@ -171,7 +175,7 @@ export async function inboxCommand(
         return 0;
       }
       const fresh = newItems(runs, state);
-      if (fresh.length > 0 || clock.now() >= deadline) {
+      if (fresh.length > 0 || clock.now() >= deadline || signal?.aborted) {
         const lines: string[] = [];
         for (const { ref, item } of fresh) {
           state = { f: filter, r: { ...state.r, [ref]: item.position } };
@@ -292,6 +296,8 @@ type Watched = {
   /** The attempt files when `attempts` was read; undefined before the first read. */
   token?: string;
   attempts: AttemptRecord[];
+  /** Each attempt's last wait label, from the mailbox, read with `attempts`. */
+  labels: ReadonlyMap<number, string>;
   fold: ItemFold;
   mark: LogMark;
   /** Undefined when it never connected a coordinator, or none under `as`. */
@@ -328,6 +334,7 @@ class Watch {
     return {
       run,
       attempts: [],
+      labels: new Map(),
       fold: new ItemFold(),
       mark: { offset: 0, count: 0 },
       items: undefined,
@@ -347,6 +354,7 @@ class Watch {
     if (token !== entry.token) {
       const first = entry.token === undefined;
       entry.attempts = await readAttempts(run);
+      entry.labels = await waitLabels(run.dir);
       entry.token = token;
       entry.settled = false;
       const last = entry.attempts.at(-1);
@@ -363,6 +371,7 @@ class Watch {
       const again = await attemptsToken(run);
       if (again !== entry.token) {
         entry.attempts = await readAttempts(run);
+        entry.labels = await waitLabels(run.dir);
         entry.token = again;
         status = statusOf(run, entry.attempts);
       }
@@ -374,7 +383,7 @@ class Watch {
       entry.fold.add(read.lines);
       entry.mark = read.mark;
     }
-    entry.items = entry.fold.items(entry.attempts, entry.live, this.as);
+    entry.items = entry.fold.items(entry.attempts, entry.live, this.as, entry.labels);
     entry.settled = entry.attempts.length > 0 && status.checked && !entry.live;
   }
 }
@@ -420,7 +429,12 @@ export class ItemFold {
   }
 
   /** Its items in the log's order; undefined when it never connected a coordinator, or none under `as`. */
-  items(attempts: readonly AttemptRecord[], live: boolean, as?: string): Item[] | undefined {
+  items(
+    attempts: readonly AttemptRecord[],
+    live: boolean,
+    as?: string,
+    labels: ReadonlyMap<number, string> = new Map(),
+  ): Item[] | undefined {
     if (as === undefined ? this.#connected.size === 0 : !this.#connected.has(as)) return undefined;
     const ends: Item[] = [];
     const lastAttempt = attempts.at(-1)?.attempt ?? 0;
@@ -440,10 +454,12 @@ export class ItemFold {
               at: lastAt,
               position: [last, ended - 1, ++index],
             });
+      const label = record?.outcome === "parked" ? labels.get(ended) : undefined;
       ends.push({
         kind: "ended",
         attempt: ended,
         outcome: record?.outcome ?? "interrupted",
+        ...(label === undefined ? {} : { label }),
         at: record?.ended ?? lastAt,
         position: [last, ended, 0],
       });
@@ -712,4 +728,13 @@ function decodeCursor(text: string): CursorState | undefined {
   } catch {
     return undefined;
   }
+}
+
+/** Each attempt's last wait label: what a parked attempt is waiting for. */
+async function waitLabels(runDir: string): Promise<Map<number, string>> {
+  const labels = new Map<number, string>();
+  for (const record of await readMailbox(runDir))
+    if (record.kind === "wait" && record.label !== undefined)
+      labels.set(record.attempt, record.label);
+  return labels;
 }

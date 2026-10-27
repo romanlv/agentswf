@@ -931,7 +931,8 @@ export type InboxItemJson = {
    */
   | { kind: "post"; coordinator: string; id: string; text: string; labels?: JsonObject }
   | { kind: "expired"; coordinator: string; id: string; reason: InboxExpiry }
-  | { kind: "ended"; attempt: number; outcome: AttemptOutcome | "interrupted" }
+  /** `label`: a parked attempt's, as its last `receive` gave it, such as what the run waits for. */
+  | { kind: "ended"; attempt: number; outcome: AttemptOutcome | "interrupted"; label?: string }
 );
 
 /**

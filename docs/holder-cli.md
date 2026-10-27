@@ -54,7 +54,7 @@ Text is for a person. `--json` prints one item per line, `InboxItemJson`
 | `message` | `coordinator`, `id`, `from`, `to`, `text`; a question has `asks`, and `until` when it closes unanswered at a limit; one the coordinator sent with `awf send` has `via` |
 | `answered` | `coordinator`, the question's `id`, the `answer`, and `via`: `terminal`, `command` or `test` |
 | `expired` | `coordinator`, the question's `id`, and `reason`: `timeout`, `released`, `cancelled` or `attempt-ended` |
-| `ended` | an attempt ended: `attempt` and `outcome`, or `interrupted` when its process died |
+| `ended` | an attempt ended: `attempt` and `outcome`, or `interrupted` when its process died; a `parked` one has `label`, its last wait's, when it gave one |
 
 Message ids are `{attempt}.{n}`. A coordinator's answer is an `answered` item only. An agent is
 named by its peer address. A route's `direction` says whether `awf send` may reach the agent at
