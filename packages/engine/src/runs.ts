@@ -49,14 +49,14 @@ export type Attempt = { run: Run; file: string; record: AttemptRecord };
 /** The start time of process `pid` as an ISO time to the second, or undefined when it is gone. */
 export type ProcessProbe = (pid: number) => string | undefined;
 
-// `@` for a keyed run's id, `{workflow}.{key}`, whose key may hold one past its first character.
-const ID = /^[A-Za-z0-9_-][A-Za-z0-9._@-]{0,127}$/;
+// Case is kept, as a ticket's key has it; `createRun` refuses an id differing only in case.
+const ID = /^[A-Za-z0-9][A-Za-z0-9._@-]{0,127}$/;
 
 /** Why `id` can't name a run or a workflow, or undefined when it can. */
 export function idProblem(id: string): string | undefined {
-  return ID.test(id)
+  return typeof id === "string" && ID.test(id)
     ? undefined
-    : `${JSON.stringify(id)} is not a valid id: letters, digits, '.', '_', '@' and '-', up to 128, not starting with '.'`;
+    : `${JSON.stringify(id)} is not a valid id: letters, digits, '.', '_', '@' and '-', starting with a letter or digit, up to 128`;
 }
 
 /** Why `name` can't name a stage, which is a file in the run's `stages/`; undefined when it can. */

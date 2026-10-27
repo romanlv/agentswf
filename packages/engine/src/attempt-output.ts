@@ -34,7 +34,7 @@ export async function keepRecords(
     executable: ExecutableWorkflow<JsonValue, JsonValue>;
     workflow: { name: string; file: string };
     stderr: (text: string) => void;
-    /** A keyed run's: runs `work` holding its key's lock. */
+    /** An event run's: runs `work` holding its run's lock. */
     locked?: (work: () => Promise<void>) => Promise<void>;
   },
 ): Promise<Kept> {
@@ -100,12 +100,12 @@ export async function keepRecords(
     kind: "attempt-ended",
     outcome: ending.kind,
   }).catch((error) => stderr(`awf: the run's event log was not written: ${messageOf(error)}`));
-  // A keyed run's ending is written holding its key's lock, as parking's is: a sender after it sees
+  // An event run's ending is written holding its run's lock, as parking's is: a sender after it sees
   // the run returned and is refused, so what no wait took is counted whole. Its last batch was
   // handled, as the code returned after it.
   const writeEnding = async () => {
     const unacknowledged =
-      ending.kind === "completed" && attempt.run.record.key !== undefined
+      ending.kind === "completed" && attempt.run.record.events
         ? await readMailbox(dir).then(
             (records) => foldMailbox(records).unacknowledged.length,
             (error: unknown) => {

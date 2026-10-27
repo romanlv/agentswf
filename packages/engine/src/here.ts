@@ -53,6 +53,12 @@ export async function startHere(
     stderr(`awf: ${ready.refused}`);
     return 2;
   }
+  if ("opens" in ready) {
+    stderr(
+      "awf: a workflow with events runs detached, in its project; awf run --id starts it, without --here",
+    );
+    return 2;
+  }
   for (const line of ready.prepared.continued?.warnings ?? []) notice(line);
   const env = environment.environment ?? process.env;
   const run = environment.herdr ?? runProcess;

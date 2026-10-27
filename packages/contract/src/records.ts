@@ -296,14 +296,11 @@ export type RunRecord = {
   /** `awf run --sandbox`'s spec, as its file gave it, which every attempt runs in. */
   sandbox: JsonValue | null;
   created: string;
-  /**
-   * A run of a workflow with `events`: what its `key` made of the event that started it. Its `cwd`
-   * is its project, and its `argv` empty.
-   */
-  key?: string;
-  /** With `key`: the `PATH` it was first started with, which every attempt runs with. */
+  /** A run of a workflow with `events`: its `cwd` is its project, and its `argv` empty. */
+  events?: true;
+  /** With `events`: the `PATH` it was first started with, which every attempt runs with. */
   env?: { PATH: string };
-  /** With `key`: the file it was first started from; later, its last attempt's `file` says. */
+  /** With `events`: the file it was first started from; later, its last attempt's `file` says. */
   file?: string;
 };
 

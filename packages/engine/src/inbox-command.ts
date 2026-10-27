@@ -93,7 +93,7 @@ export async function inboxCommand(
     home = homedir(),
   }: {
     clock?: InboxClock;
-    /** Where `~/.awf/projects` is, through which a keyed run is found from anywhere. */
+    /** Where `~/.awf/projects` is, through which an event run is found from anywhere. */
     home?: string;
   } = {},
 ): Promise<number> {
@@ -136,7 +136,7 @@ export async function inboxCommand(
       checked = true;
     }
     const deadline = clock.now() + options.waitSeconds * 1000;
-    // A keyed run lives in its project, found through ~/.awf/projects from anywhere (Q15).
+    // An event run lives in its project, found through ~/.awf/projects from anywhere (Q15).
     const keyed =
       options.ref === undefined ? undefined : await findKeyedRun(options.ref, place, home);
     if (options.ref !== undefined && !keyed)

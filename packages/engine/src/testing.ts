@@ -92,7 +92,7 @@ export const caseRun = (
       meta: { name: "dd-case", description: "A case." },
       file: import.meta.path,
       events: caseEvents,
-      key: (e) => e.data.case,
+      id: (e) => e.data.case,
       starts: ["dd.changes"],
       run,
     },

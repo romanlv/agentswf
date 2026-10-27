@@ -1,9 +1,9 @@
 import type { TickResultJson } from "@agentswf/contract/records";
 import { messageOf } from "./errors";
 import { exists } from "./files";
-import { keyLockFile, withKeyLock } from "./key-lock";
 import { listProjects, projectRunRoot } from "./projects";
 import type { Out } from "./run-commands";
+import { runLockFile, withRunLock } from "./run-lock";
 import { listRuns } from "./run-state";
 import { type Launch, wake } from "./wake";
 
@@ -49,11 +49,11 @@ export async function tickCommand(
       continue;
     }
     for (const run of await listRuns(root)) {
-      if (run.record.key === undefined) continue;
+      if (!run.record.events) continue;
       const ref = `${run.record.workflow}/${run.record.id}`;
       try {
         const { workflow, id } = run.record;
-        const why = await withKeyLock(keyLockFile(root, workflow, id), async () => {
+        const why = await withRunLock(runLockFile(root, workflow, id), async () => {
           const woken = await wake(run, { ...context, nudgeLive: false });
           if (woken.why === "launch-failed") throw new Error(woken.error ?? "launch failed");
           if ((woken.did !== "started" && woken.did !== "continued") || !woken.cause)

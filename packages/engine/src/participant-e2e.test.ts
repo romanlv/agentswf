@@ -22,7 +22,7 @@ export default defineEventWorkflow({
     meta: { name: "e2e-thread", description: "Answers its thread." },
     file: import.meta.path,
     events: { "dd.changes": Changes },
-    key: (e) => e.data.case,
+    id: (e) => e.data.case,
     starts: ["dd.changes"],
     async run(workflow) {
       const thread = await workflow.participants.connect({ key: "thread", to: "code", labels: { title: "kombo" } });
@@ -50,19 +50,16 @@ test("a reply on a participant routed to the code reaches the run, live or parke
       environment,
     }),
   ).toBe(0);
-  const run = await openRun(join(root, ".awf", "runs"), "e2e-thread", "e2e-thread.k");
+  const run = await openRun(join(root, ".awf", "runs"), "e2e-thread", "k");
   const send = (id: string, text: string, ...extra: string[]) =>
-    runOperatorCli(
-      ["send", "e2e-thread/e2e-thread.k", "--as", "thread", "--id", id, ...extra, text],
-      {
-        // Found through ~/.awf/projects, from a directory with no runs.
-        cwd: dirs.tempRunDir(),
-        home,
-        environment,
-        stdout: (t) => out.push(t),
-        stderr: (t) => err.push(t),
-      },
-    );
+    runOperatorCli(["send", "e2e-thread/k", "--as", "thread", "--id", id, ...extra, text], {
+      // Found through ~/.awf/projects, from a directory with no runs.
+      cwd: dirs.tempRunDir(),
+      home,
+      environment,
+      stdout: (t) => out.push(t),
+      stderr: (t) => err.push(t),
+    });
   // Once it has connected its thread, which a chat host opens only then, and while it sleeps at its
   // first wake: live, so nudged.
   await until(async () =>
@@ -81,11 +78,11 @@ test("a reply on a participant routed to the code reaches the run, live or parke
   // Delivered twice, as a chat host may: appended once.
   expect(await send("1729.002", "never mind")).toBe(0);
   expect(out).toEqual([
-    "accepted e2e-thread/e2e-thread.k: started",
-    "accepted e2e-thread/e2e-thread.k: nudged",
-    "accepted e2e-thread/e2e-thread.k: continued",
+    "accepted e2e-thread/k: started",
+    "accepted e2e-thread/k: nudged",
+    "accepted e2e-thread/k: continued",
     // Parked with nothing new to take: not continued again.
-    "duplicate e2e-thread/e2e-thread.k: nothing-due",
+    "duplicate e2e-thread/k: nothing-due",
   ]);
   const replies = foldMailbox(await readMailbox(run.dir));
   expect([...replies.events.values()].filter((e) => e.name === "participant:reply")).toHaveLength(
@@ -98,7 +95,7 @@ test("a reply on a participant routed to the code reaches the run, live or parke
   const inbox: string[] = [];
   await runOperatorCli(
     // From a directory with no runs: found through ~/.awf/projects.
-    ["inbox", "e2e-thread/e2e-thread.k", "--as", "thread", "--json"],
+    ["inbox", "e2e-thread/k", "--as", "thread", "--json"],
     {
       cwd: dirs.tempRunDir(),
       home,
@@ -129,7 +126,7 @@ test("a reply on a participant routed to the code reaches the run, live or parke
   const refused: string[] = [];
   expect(
     await runOperatorCli(
-      ["send", "e2e-thread/e2e-thread.k", "--as", "other", "--id", "1729.003", "--json", "hi"],
+      ["send", "e2e-thread/k", "--as", "other", "--id", "1729.003", "--json", "hi"],
       {
         cwd: dirs.tempRunDir(),
         home,
@@ -164,20 +161,20 @@ test("a ref that is a run in two projects is refused, naming both; --cwd chooses
   const roots = [dirs.tempRunDir(), dirs.tempRunDir()];
   for (const root of roots) {
     await createRun(join(root, ".awf", "runs"), {
-      id: "w.k",
+      id: "k",
       workflow: "w",
       argv: [],
       cwd: root,
       sandbox: null,
-      key: "k",
+      events: true,
     });
   }
   mkdirSync(join(home, ".awf"), { recursive: true });
   writeFileSync(join(home, ".awf", "projects"), `${roots.join("\n")}\n`);
-  await expect(findKeyedRun("w/w.k", { runRoot: dirs.tempRunDir() }, home)).rejects.toThrow(
+  await expect(findKeyedRun("w/k", { runRoot: dirs.tempRunDir() }, home)).rejects.toThrow(
     "is a run in 2 projects",
   );
   expect(
-    (await findKeyedRun("w/w.k", { runRoot: join(roots[1]!, ".awf", "runs") }, home))?.run.root,
+    (await findKeyedRun("w/k", { runRoot: join(roots[1]!, ".awf", "runs") }, home))?.run.root,
   ).toBe(join(roots[1]!, ".awf", "runs"));
 });

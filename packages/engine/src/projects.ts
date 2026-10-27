@@ -2,7 +2,7 @@ import { stat } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { realPath } from "./files";
 import { appendLine } from "./jsonl";
-import { withKeyLock } from "./key-lock";
+import { withRunLock } from "./run-lock";
 
 /**
  * The project a workflow with `events` runs in: the nearest directory at or above its file that
@@ -33,12 +33,12 @@ export function projectRunRoot(project: string): string {
   return join(project, ".awf", "runs");
 }
 
-/** `~/.awf/projects`: each project awf has started a keyed run in, one absolute path a line. */
+/** `~/.awf/projects`: each project awf has started an event run in, one absolute path a line. */
 export function projectsFile(home: string): string {
   return join(home, ".awf", "projects");
 }
 
-/** The projects awf has started a keyed run in, each once, in the order first started. */
+/** The projects awf has started an event run in, each once, in the order first started. */
 export async function listProjects(home: string): Promise<string[]> {
   const text = await Bun.file(projectsFile(home))
     .text()
@@ -50,7 +50,7 @@ export async function listProjects(home: string): Promise<string[]> {
 export async function recordProject(home: string, project: string): Promise<void> {
   const file = projectsFile(home);
   if ((await listProjects(home)).includes(project)) return;
-  await withKeyLock(`${file}.lock`, async () => {
+  await withRunLock(`${file}.lock`, async () => {
     if ((await listProjects(home)).includes(project)) return;
     await appendLine(file, project);
   });

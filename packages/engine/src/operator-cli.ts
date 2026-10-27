@@ -27,14 +27,13 @@ import {
   terminalReader,
 } from "./coordinator-prompt";
 import { coordinatorSocket, prepareCoordinatorDir } from "./coordinator-socket";
-import { emitEvent } from "./emit";
+import { EmitError, emitEvent, openEventRun } from "./emit";
 import { emitCommand } from "./emit-command";
 import { messageOf } from "./errors";
 import { type Caller, showOwnTab, startHere, takeCaller } from "./here";
 import { holderCommand } from "./holder-command";
 import { inboxCommand } from "./inbox-command";
 import { initCommand } from "./init-command";
-import { keyLockFile, withKeyLock } from "./key-lock";
 import { logsCommand } from "./logs-command";
 import { coordinatorDir, machinePaths, sandboxesDirOf } from "./machine";
 import {
@@ -47,6 +46,7 @@ import {
 import { ANSI, describeRunSession, type Terminal, watchProgress } from "./progress-view";
 import { parseCommand, type RunCommand, usage } from "./run-command";
 import { placeFlags, shellLine, startedLine } from "./run-commands";
+import { runLockFile, withRunLock } from "./run-lock";
 import { claimNext, loadAndPrepare, type PreparedRun, workspaceLabel } from "./run-prepare";
 import { findRun } from "./run-state";
 import { type Attempt, createRun, discardRun, endAttempt, type Run, RunRefused } from "./runs";
@@ -94,7 +94,7 @@ export type OperatorEnvironment = {
   install?: (dir: string) => Promise<number>;
   /** How `awf allowance` reads a harness's plan. */
   readAllowance?: (harness: Harness) => Promise<HarnessAllowance>;
-  /** Starts or continues a keyed run's attempt for `awf emit`; absent, a detached `awf run`. */
+  /** Starts or continues an event run's attempt for `awf emit`; absent, a detached `awf run`. */
   launch?: Launch;
   /**
    * Where agents may `--await-reply`, past the engine's list: for the live checks that decide
@@ -243,6 +243,34 @@ function help(
 }
 
 /** `awf run`: parses it, then starts or continues the run, here or in a tab. */
+/**
+ * `awf run --id` for a workflow with events: the run is made with no event and started detached, as
+ * an event starts one, so it runs to its first wait and parks; one already there is only woken.
+ */
+async function openRun(
+  { loaded, id }: { loaded: LoadedWorkflow; id: string },
+  environment: OperatorEnvironment,
+  { stdout, stderr }: Output,
+): Promise<number> {
+  try {
+    const opened = await openEventRun({ file: loaded.file, definition: loaded.keyed! }, id, {
+      home: environment.home ?? homedir(),
+      environment: environment.environment ?? process.env,
+      ...(environment.launch ? { launch: environment.launch } : {}),
+    });
+    const did = opened.did === "none" ? opened.why : opened.did;
+    stdout(
+      `${opened.run}${opened.created ? "" : " was there"}${did === undefined ? "" : `: ${did}`}`,
+    );
+    if (opened.why !== "launch-failed") return 0;
+    stderr(`awf: the run's attempt did not start: ${opened.error}`);
+    return 1;
+  } catch (error) {
+    stderr(`awf: ${messageOf(error)}`);
+    return error instanceof EmitError ? 2 : 1;
+  }
+}
+
 async function runCommand(
   argv: readonly string[],
   environment: OperatorEnvironment,
@@ -287,7 +315,8 @@ async function runCommand(
     stderr(`awf: ${ready.refused}`);
     return unstarted(2);
   }
-  // After loading: a keyed run's root is its project's, which this checks too.
+  if ("opens" in ready) return openRun(ready.opens, environment, output);
+  // After loading: an event run's root is its project's, which this checks too.
   command = ready.command;
   if (!relative(command.runRoot, sandboxes).startsWith("..")) {
     stderr(
@@ -404,14 +433,14 @@ async function runAttempt(
   }
   const { id, cwd } = run.record;
   const locked = <T>(work: () => Promise<T>) =>
-    withKeyLock(keyLockFile(run.root, meta.name, id), work);
+    withRunLock(runLockFile(run.root, meta.name, id), work);
   const sandbox = run.record.sandbox ?? undefined;
   const n = attempt.record.attempt;
-  // Claimed first, which `wake` waits for holding the key's lock; only then waited on: two
+  // Claimed first, which `wake` waits for holding the run's lock; only then waited on: two
   // attempts never share an agent's session.
   const previous = prepared.continued?.attempts.at(-1);
-  // A keyed run continued after a crash: what that attempt left working is stopped first (Q17).
-  if (run.record.key !== undefined && previous && previous.ended === undefined)
+  // An event run continued after a crash: what that attempt left working is stopped first (Q17).
+  if (run.record.events && previous && previous.ended === undefined)
     await stopCrashed(previous, workspaceLabel(meta.name, run.record.id, previous.attempt), {
       home,
       environment: environment.environment ?? process.env,
@@ -426,7 +455,7 @@ async function runAttempt(
     executable,
     workflow: { name: meta.name, file: loaded.file },
     stderr,
-    ...(run.record.key === undefined ? {} : { locked }),
+    ...(!run.record.events ? {} : { locked }),
   };
   const close = (end: AttemptEnd, kept: Kept, cleanupAlso?: string) =>
     printEnding(end, kept, {
@@ -523,13 +552,13 @@ async function runAttempt(
     prompt ??
     replyHints(`${meta.name}/${id}`, placeFlags(command), n, (line) => progress.log(line));
   progress.showsMessages((message) => asked.shows(message));
-  const { key } = run.record;
+  const { events } = run.record;
   let nudge: (() => void) | undefined;
   const socket = coordinatorSocket({
     dir: coordinatorRoot,
     runDir: run.dir,
     attempt: n,
-    ...(key === undefined ? {} : { nudged: () => nudge?.() }),
+    ...(events ? { nudged: () => nudge?.() } : {}),
     failed: (reason) =>
       progress.log(
         `awf: the coordinator socket did not open, so awf reply and awf send cannot reach this run: ${reason}`,
@@ -547,10 +576,10 @@ async function runAttempt(
         label: workspaceLabel(meta.name, id, n),
         ...(command.fromStage === undefined ? {} : { fromStage: command.fromStage }),
         ...(command.values === undefined ? {} : { values: command.values.stages }),
-        ...(key === undefined
+        ...(!events
           ? {}
           : {
-              key,
+              events,
               locked,
               listenNudges: (given) => {
                 nudge = given;

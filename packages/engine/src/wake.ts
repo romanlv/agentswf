@@ -29,7 +29,7 @@ export type Woken = {
 
 /**
  * Starts or continues a run's attempt, returning once that attempt has claimed its number, so
- * its pid is recorded while the key's lock is held.
+ * its pid is recorded while the run's lock is held.
  */
 export type Launch = (run: Run, file: string) => Promise<void>;
 
@@ -48,7 +48,7 @@ export type WakeContext = {
 
 /**
  * The one policy for what an accepted event, or `awf tick`, does to a run: start it, nudge it,
- * continue it, or nothing. The caller holds the key's lock. A limit on live runs goes here.
+ * continue it, or nothing. The caller holds the run's lock. A limit on live runs goes here.
  */
 export async function wake(run: Run, context: WakeContext): Promise<Woken> {
   const attempts = await readAttempts(run);

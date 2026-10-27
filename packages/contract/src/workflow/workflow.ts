@@ -115,8 +115,8 @@ export interface WorkflowContext {
   ): Promise<Result>;
 
   /**
-   * Sends an event to the workflow `target`, which keys it to a run: the run starts if it has none
-   * and the event is one of `target`'s `starts`, and is woken if it has one. A name `target`
+   * Sends an event to the workflow `target`, whose `id` names the run it is for: the run starts if
+   * it has none and the event is one that starts one, and is woken if it has one. A name `target`
    * doesn't declare, or data its schema refuses, throws; the run's state is the outcome.
    */
   emit<Events extends EventSchemas, Name extends keyof Events & string>(
@@ -145,15 +145,13 @@ export interface WorkflowDefinition<Args extends JsonValue, Result extends JsonV
 }
 
 /**
- * A run of a workflow with `events`: started by an event, keyed by `key`, and waiting for the next
- * at `receive`. Waiting with no turn running and nothing unacknowledged, it parks: its process
+ * A run of a workflow with `events`: named by its `id`, started by an event or `awf run --id`, and
+ * waiting for the next at `receive`. Waiting with no turn running and nothing unacknowledged, it parks: its process
  * exits, and the next event continues it from the top. What must outlive that lives in files or a
  * stage.
  */
 export interface EventWorkflowContext<Events extends EventSchemas>
   extends Omit<WorkflowContext, "participants" | "agents" | "stage"> {
-  /** What `key` made of the event that started the run; the run's id is `{workflow}.{key}`. */
-  readonly key: string;
   readonly agents: EventAgentDirectory;
   readonly participants: CodeParticipantDirectory;
   /**
@@ -174,16 +172,18 @@ export interface EventWorkflowContext<Events extends EventSchemas>
   ): Promise<T>;
   /**
    * Acknowledges what the last call returned, then waits for events not yet acknowledged and
-   * returns them in arrival order: the first call of a run takes the event that started it. After
+   * returns them in arrival order: the first call of a run takes the event that started it, if one did. After
    * a crash, the first call returns the batch taken and not acknowledged, alone. In a stage, it
    * returns the stage's recorded batch on a rerun.
    */
   receive(options?: ReceiveOptions): Promise<ReceivedEvent<Events>[]>;
 }
 
-/** A workflow started by an event: it takes no input, and `awf run` refuses it. */
+/**
+ * A workflow whose runs take events: it takes no arguments, and a run starts from an event, or from
+ * `awf run --id`, which leaves it waiting at its first `receive`.
+ */
 export interface EventWorkflowDefinition<Events extends EventSchemas, Result extends JsonValue> {
-  /** Its `name` has no `.`, which separates it from the key in a run's id. */
   readonly meta: WorkflowMeta;
   /**
    * `import.meta.path`: where a sender finds the workflow, and which project its runs live in, the
@@ -192,11 +192,14 @@ export interface EventWorkflowDefinition<Events extends EventSchemas, Result ext
   readonly file: string;
   readonly events: Events;
   /**
-   * The run an event belongs to, by the grammar of `nameProblem`; one that doesn't fit is refused,
-   * as is one making the run's id, `{workflow}.{key}`, longer than 128.
+   * The id of the run an event belongs to, by the grammar of `nameProblem`; one that doesn't fit is
+   * refused. A string is the workflow's one run, which `awf run` starts without `--id`.
    */
-  key(event: OwnEvent<Events>): string;
-  /** The events that start a run for a key with none; any other is refused then. */
-  readonly starts: readonly (keyof Events & string)[];
+  readonly id: string | ((event: OwnEvent<Events>) => string);
+  /**
+   * The events that start a run for an id with none; any other is refused then. Absent, any event
+   * starts one.
+   */
+  readonly starts?: readonly (keyof Events & string)[];
   run(context: EventWorkflowContext<Events>): Promise<Result>;
 }

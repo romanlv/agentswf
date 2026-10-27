@@ -4,10 +4,10 @@ import { isCode, linkNew } from "./files";
 import { probeProcess, processStart, sameStart } from "./runs";
 
 /**
- * `{root}/{workflow}/{run id}.lock`: the lock on a key, beside its run's folder so it exists before
+ * `{root}/{workflow}/{run id}.lock`: the lock on a run, beside its run's folder so it exists before
  * the run does. Every append to the run's mailbox, and each decision made from it, holds it.
  */
-export function keyLockFile(runRoot: string, workflow: string, runId: string): string {
+export function runLockFile(runRoot: string, workflow: string, runId: string): string {
   return join(runRoot, workflow, `${runId}.lock`);
 }
 
@@ -27,11 +27,11 @@ const queues = new Map<string, Promise<void>>();
 const GIVE_UP_MILLISECONDS = 120_000;
 
 /**
- * Runs `work` holding the key's lock: claimed by linking its file into place, which fails while
+ * Runs `work` holding the run's lock: claimed by linking its file into place, which fails while
  * another holds it, and taken over when the process that holds it is gone. Callers in one process
  * take it in turn. A lock is not reentrant: `work` that takes the same lock again waits on itself.
  */
-export async function withKeyLock<T>(file: string, work: () => Promise<T>): Promise<T> {
+export async function withRunLock<T>(file: string, work: () => Promise<T>): Promise<T> {
   const previous = queues.get(file) ?? Promise.resolve();
   const turn = Promise.withResolvers<void>();
   const mine = previous.then(() => turn.promise);

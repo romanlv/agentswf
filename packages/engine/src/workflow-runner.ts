@@ -191,19 +191,19 @@ export type RunWorkflowOptions = {
     fromStage?: string;
     /** `--values`: the values of stages before `fromStage` that have no record to reuse. */
     values?: ReadonlyMap<string, JsonValue>;
-    /** A run of a workflow with `events`: what its `key` made of the event that started it. */
-    key?: string;
-    /** With `key`: runs `work` holding the key's lock, as every append to the mailbox is made. */
+    /** A run of a workflow with `events`. */
+    events?: true;
+    /** With `events`: runs `work` holding the run's lock, as every append to the mailbox is made. */
     locked?<T>(work: () => Promise<T>): Promise<T>;
     /**
-     * With `key`: false when the attempt before this one has no ending, its process gone with its
+     * With `events`: false when the attempt before this one has no ending, its process gone with its
      * agents perhaps still running: its sessions aren't reopened until they are stopped (Q17).
      */
     resumeSessions?: boolean;
-    /** With `key`: calls `nudge` whenever awf tells the run its mailbox has a new event. */
+    /** With `events`: calls `nudge` whenever awf tells the run its mailbox has a new event. */
     listenNudges?(nudge: () => void): void;
     /**
-     * With `key`: writes the attempt's `parked` ending, which the run's wait calls holding the key's
+     * With `events`: writes the attempt's `parked` ending, which the run's wait calls holding the run's
      * lock. Absent, the run never parks and waits in its process.
      */
     park?(wait: { label?: string; until?: string }): Promise<void>;
@@ -543,7 +543,7 @@ export async function startWorkflow<Args extends JsonValue, Result extends JsonV
   // A turn an earlier attempt started and never ended, its process gone, ends failed before the code
   // runs again (Q6); the turns whose ends no wait took are their agents' turns again.
   const restoredTurns = keyed ? await recoverTurns(runDir, attempt, locked) : undefined;
-  // A keyed run's agents reopen on the sessions its earlier attempts' turns ran on.
+  // An event run's agents reopen on the sessions its earlier attempts' turns ran on.
   const keptSessions =
     keyed && options.run.resumeSessions !== false
       ? keptSessionsOf(await readTurns(runDir))
@@ -561,7 +561,7 @@ export async function startWorkflow<Args extends JsonValue, Result extends JsonV
   if (mailbox) options.run.listenNudges?.(() => mailbox.nudge());
   // The mailbox's parking asks the owner, made after it: by then it is.
   const owner: WorkflowOwner = new WorkflowOwner({
-    ...(mailbox ? { mailbox, key: options.run.key ?? runId } : {}),
+    ...(mailbox ? { mailbox } : {}),
     ...(keptSessions ? { keptSessions } : {}),
     ...(restoredTurns ? { restoredTurns } : {}),
     failRun: (error) => fatal.reject(error),
@@ -878,13 +878,12 @@ class WorkflowOwner {
       onCallerStopped?: RunWorkflowOptions["onCallerStopped"];
       awaitReply: NonNullable<RunWorkflowOptions["awaitReply"]>;
       coordinators: readonly CoordinatorPort[];
-      /** A run of a workflow with `events`: its mailbox, which its waits take from, and its key. */
+      /** A run of a workflow with `events`: its mailbox, which its waits take from. */
       mailbox?: RunMailbox;
       /** With `mailbox`: each root agent's last session in earlier attempts, which it reopens on. */
       keptSessions?: ReadonlyMap<string, NativeFork>;
       /** With `mailbox`: each agent's turn an earlier attempt started whose end no wait took. */
       restoredTurns?: ReadonlyMap<string, RestoredTurn>;
-      key?: string;
       emit: Emitter;
       /** The workflow's name, which with the run's id is the ref its events are `from`. */
       workflow: string;
@@ -1091,7 +1090,7 @@ class WorkflowOwner {
     Object.assign(
       this.context,
       mailbox
-        ? { key: options.key, receive: (spec?: ReceiveOptions) => this.receive(mailbox, spec) }
+        ? { receive: (spec?: ReceiveOptions) => this.receive(mailbox, spec) }
         : { receive: () => Promise.reject(new Error("receive needs a workflow with events")) },
     );
   }
@@ -1100,7 +1099,7 @@ class WorkflowOwner {
   /** Each agent's turn an earlier attempt started whose end no wait has taken yet. */
   readonly #restored: Map<string, RestoredTurn>;
 
-  /** How an agent of a keyed run records its started turns in the mailbox. */
+  /** How an agent of an event run records its started turns in the mailbox. */
   #turnsOf(key: string, mailbox: RunMailbox): LogicalAgentTurns {
     return {
       begin: (turn, meta, execution) => mailbox.beginTurn(key, turn, meta, execution),
@@ -4340,7 +4339,7 @@ function unavailable(name: string): Promise<never> {
 
 /**
  * Each root agent's last native session in a run's turns, where its harness can resume it: what a
- * keyed run's continue reopens it on.
+ * event run's continue reopens it on.
  */
 export function keptSessionsOf(turns: readonly TurnRecord[]): Map<string, NativeFork> {
   const kept = new Map<string, NativeFork>();

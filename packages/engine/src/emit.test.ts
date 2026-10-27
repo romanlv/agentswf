@@ -6,9 +6,9 @@ import type { OutputSchema } from "@agentswf/contract/workflow";
 import { EmitError, type EmitTarget, emitEvent } from "./emit";
 import { emitCommand } from "./emit-command";
 import { writeJson } from "./files";
-import { keyLockFile, withKeyLock } from "./key-lock";
 import { appendMailbox, foldMailbox, readMailbox } from "./mailbox";
 import { listProjects, projectOf } from "./projects";
+import { runLockFile, withRunLock } from "./run-lock";
 import { STUCK_AFTER } from "./run-state";
 import { createRun, openRun, processStart, type Run, readAttempts } from "./runs";
 import { runsCommand } from "./runs-command";
@@ -40,7 +40,7 @@ function project() {
       meta: { name: "dd-case", description: "A case." },
       file,
       events: { "dd.changes": Changes, "dd.closed": Closed },
-      key: (e) => (e.data as { case: string }).case,
+      id: (e) => (e.data as { case: string }).case,
       starts: ["dd.changes"],
       run: async () => null,
     },
@@ -85,25 +85,41 @@ function emit(
   );
 }
 
-const runOf = (p: ReturnType<typeof project>, key: string) =>
-  openRun(p.runRoot, "dd-case", `dd-case.${key}`);
+const runOf = (p: ReturnType<typeof project>, key: string) => openRun(p.runRoot, "dd-case", key);
 const eventsOf = async (run: Run) =>
   [...foldMailbox(await readMailbox(run.dir)).events.values()].map((e) => e.id);
 
 describe("outcomes", () => {
+  test("without starts, any event starts its run; an id that is a string is the one run", async () => {
+    const p = project();
+    const { starts: _, ...rest } = p.target.definition;
+    p.target = { ...p.target, definition: { ...rest, id: "main" } };
+    const launch = fakeLaunch();
+    expect(await emit(p, "dd.closed", { case: "a" }, { id: "c1", launch })).toMatchObject({
+      outcome: "accepted",
+      run: "dd-case/main",
+      did: "started",
+    });
+    expect(await emit(p, "dd.changes", { case: "b" }, { id: "c2", launch })).toMatchObject({
+      outcome: "accepted",
+      run: "dd-case/main",
+    });
+    expect(await eventsOf(await runOf(p, "main"))).toEqual(["c1", "c2"]);
+  });
+
   test("a starting event with no run starts one in the file's project, recorded once", async () => {
     const p = project();
     const launch = fakeLaunch();
     expect(await emit(p, "dd.changes", { case: "kombo" }, { id: "c1", launch })).toEqual({
       v: 1,
       outcome: "accepted",
-      run: "dd-case/dd-case.kombo",
+      run: "dd-case/kombo",
       id: "c1",
       did: "started",
     });
     const run = await runOf(p, "kombo");
     expect(run.record).toMatchObject({
-      key: "kombo",
+      events: true,
       cwd: realpathSync(p.root),
       env: { PATH: "/usr/bin:/bin" },
     });
@@ -165,7 +181,7 @@ describe("outcomes", () => {
     ["data its schema refuses", "dd.changes", { other: 1 }, {}, "does not fit its schema"],
     ["an id outside the grammar", "dd.changes", { case: "k" }, { id: "Abc" }, "the id"],
     ["an id of awf's", "dd.changes", { case: "k" }, { id: "awf.x" }, "are awf's own"],
-    ["a key outside the grammar", "dd.changes", { case: "K" }, {}, 'the key "K"'],
+    ["a run id outside the grammar", "dd.changes", { case: "a/b" }, {}, 'the run\'s id "a/b"'],
   ])("%s is an error, not an outcome", async (_what, name, data, extra, message) => {
     const p = project();
     const error = await emit(p, name, data, extra).catch((caught: unknown) => caught);
@@ -317,7 +333,7 @@ test("an attempt gets who and where the engineer is and the recorded PATH; .env 
   });
 });
 
-describe("the key's lock", () => {
+describe("the run's lock", () => {
   test("two events for one key at once start one run, and the other lands in its mailbox", async () => {
     const p = project();
     const launch = fakeLaunch();
@@ -333,11 +349,11 @@ describe("the key's lock", () => {
 
   test("a lock a killed process left is taken over", async () => {
     const p = project();
-    const file = keyLockFile(p.runRoot, "dd-case", "dd-case.k");
+    const file = runLockFile(p.runRoot, "dd-case", "k");
     mkdirSync(join(p.runRoot, "dd-case"), { recursive: true });
     await writeJson(file, { ...GONE, at: new Date().toISOString() });
     const started = Date.now();
-    expect(await withKeyLock(file, async () => "held")).toBe("held");
+    expect(await withRunLock(file, async () => "held")).toBe("held");
     expect(Date.now() - started).toBeLessThan(2_000);
   });
 
@@ -345,12 +361,12 @@ describe("the key's lock", () => {
     const file = join(dirs.tempRunDir(), "x.lock");
     const order: string[] = [];
     await Promise.all([
-      withKeyLock(file, async () => {
+      withRunLock(file, async () => {
         order.push("a in");
         await Bun.sleep(30);
         order.push("a out");
       }),
-      withKeyLock(file, async () => {
+      withRunLock(file, async () => {
         order.push("b in");
       }),
     ]);
@@ -368,7 +384,7 @@ describe("awf emit", () => {
         'const Changes = { type: "object", properties: { case: { type: "string" } }, required: ["case"] };',
         "export default defineEventWorkflow({ definition: {",
         '  meta: { name: "dd-case", description: "A case." }, file: import.meta.path,',
-        '  events: { "dd.changes": Changes }, key: (e) => e.data.case, starts: ["dd.changes"],',
+        '  events: { "dd.changes": Changes }, id: (e) => e.data.case, starts: ["dd.changes"],',
         "  run: async () => null } });",
       ].join("\n"),
     );
@@ -392,7 +408,7 @@ describe("awf emit", () => {
         context,
       ),
     ).toBe(0);
-    expect(out).toEqual(["accepted dd-case/dd-case.k: started", "duplicate dd-case/dd-case.k"]);
+    expect(out).toEqual(["accepted dd-case/k: started", "duplicate dd-case/k"]);
     expect(
       await emitCommand(["--target", p.file, "dd.changes", '{"case":1}'], p.root, io, context),
     ).toBe(2);
@@ -470,15 +486,14 @@ describe("refusals before a run", () => {
     return p;
   };
   const base = (over: string) =>
-    `{ meta: { name: "dd-case", description: "A case." }, file: import.meta.path, events: { "dd.changes": { type: "object", properties: {} } }, key: (e) => "k", starts: ["dd.changes"], run: async () => null, ${over} }`;
+    `{ meta: { name: "dd-case", description: "A case." }, file: import.meta.path, events: { "dd.changes": { type: "object", properties: {} } }, id: (e) => "k", starts: ["dd.changes"], run: async () => null, ${over} }`;
 
   test.each([
-    ['meta: { name: "dd.case", description: "x" }', 'has a "."'],
     [
       'events: { "dd:changes": { type: "object", properties: {} } }, starts: ["dd:changes"]',
       "has a colon",
     ],
-    ['key: "k"', "has key(event)"],
+    ["id: 3", "has id(event)"],
     ["starts: []", "starts lists the events"],
     ['starts: ["dd.opened"]', "starts lists the events"],
     ['file: "/elsewhere/case.ts"', "gives file: import.meta.path"],
@@ -512,7 +527,7 @@ describe("refusals before a run", () => {
       },
     );
     expect(code).toBe(1);
-    expect(out).toEqual(["accepted dd-case/dd-case.k: launch-failed"]);
+    expect(out).toEqual(["accepted dd-case/k: launch-failed"]);
     expect(err).toEqual(["awf: the run's attempt did not start: it broke"]);
     expect(await eventsOf(await runOf(p, "k"))).toEqual(["c1"]);
   });
@@ -532,24 +547,24 @@ describe("refusals before a run", () => {
   });
 });
 
-describe("the key's lock, across processes", () => {
+describe("the run's lock, across processes", () => {
   test("a holder in another process is waited for", async () => {
     const file = join(dirs.tempRunDir(), "k.lock");
     const holder = Bun.spawn({
-      cmd: [process.execPath, join(import.meta.dir, "hold-key-lock.fixture.ts"), file, "400"],
+      cmd: [process.execPath, join(import.meta.dir, "hold-run-lock.fixture.ts"), file, "400"],
       stdout: "pipe",
     });
     const reader = holder.stdout.getReader();
     await reader.read();
     const started = Date.now();
-    await withKeyLock(file, async () => undefined);
+    await withRunLock(file, async () => undefined);
     expect(Date.now() - started).toBeGreaterThanOrEqual(200);
     await holder.exited;
   });
 
   test("a lock taken over from a holder is not removed by that holder", async () => {
     const file = join(dirs.tempRunDir(), "k.lock");
-    await withKeyLock(file, async () => {
+    await withRunLock(file, async () => {
       // Another takes it over, as if this process had looked gone.
       await writeJson(file, { pid: 1, processStart: "2026-01-01T00:00:00Z", at: "now" });
     });
@@ -583,7 +598,7 @@ test("a workflow file directly in home has no project", async () => {
 });
 
 describe("awf tick", () => {
-  /** A keyed run with its attempts as given, its project recorded, as an emit would leave it. */
+  /** An event run with its attempts as given, its project recorded, as an emit would leave it. */
   async function keyedRun(
     p: ReturnType<typeof project>,
     key: string,
@@ -649,9 +664,9 @@ describe("awf tick", () => {
     const { code, woke } = await tick(p, launch);
     expect(code).toBe(0);
     expect(woke.sort((a, b) => a.run.localeCompare(b.run))).toEqual([
-      { run: "dd-case/dd-case.crashed", did: "continued", why: "crashed" },
-      { run: "dd-case/dd-case.due", did: "continued", why: "until" },
-      { run: "dd-case/dd-case.failed", did: "continued", why: "failed" },
+      { run: "dd-case/crashed", did: "continued", why: "crashed" },
+      { run: "dd-case/due", did: "continued", why: "until" },
+      { run: "dd-case/failed", did: "continued", why: "failed" },
     ]);
     expect(launch.launched).toHaveLength(3);
   });
@@ -693,20 +708,20 @@ describe("awf tick", () => {
     const launch = fakeLaunch();
     const { code, woke, err } = await tick(p, launch);
     expect(woke.sort((a, b) => a.run.localeCompare(b.run))).toEqual([
-      { run: "dd-case/dd-case.never", did: "started", why: "event" },
-      { run: "dd-case/dd-case.waiting", did: "continued", why: "event" },
+      { run: "dd-case/never", did: "started", why: "event" },
+      { run: "dd-case/waiting", did: "continued", why: "event" },
     ]);
     expect(code).toBe(1);
     expect(err.join("\n")).toContain("is gone");
   });
 
-  test("awf runs shows a keyed run that keeps failing as stuck", async () => {
+  test("awf runs shows an event run that keeps failing as stuck", async () => {
     const p = project();
     await keyedRun(p, "k", [ended("failed"), ended("failed"), { ...GONE }]);
     const out: string[] = [];
     await runsCommand(["--json"], p.root, { stdout: (t) => out.push(t), stderr: () => undefined });
     expect((JSON.parse(out[0]!) as RunsJson).runs).toMatchObject([
-      { ref: "dd-case/dd-case.k", state: "stuck" },
+      { ref: "dd-case/k", state: "stuck" },
     ]);
   });
 
