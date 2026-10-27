@@ -628,18 +628,25 @@ describe("awf tick", () => {
     ended: new Date().toISOString(),
     outcome,
   });
-  const tick = async (p: ReturnType<typeof project>, launch: Launch) => {
+  const tick = async (
+    p: ReturnType<typeof project>,
+    launch: Launch,
+    args: string[] = [],
+    cwd = p.root,
+  ) => {
     const out: string[] = [];
     const err: string[] = [];
     const code = await tickCommand(
-      ["--json"],
+      ["--json", ...args],
+      cwd,
       { stdout: (t) => out.push(t), stderr: (t) => err.push(t) },
       { home: p.home, environment: {}, launch },
     );
-    return { code, woke: (JSON.parse(out[0]!) as TickResultJson).woke, err };
+    const woke = out[0] === undefined ? [] : (JSON.parse(out[0]) as TickResultJson).woke;
+    return { code, woke, err };
   };
 
-  test("wakes each run that is due, from every project awf started one in", async () => {
+  test("wakes each run that is due in its own project", async () => {
     const p = project();
     const parkedDue = await keyedRun(p, "due", [ended("parked")]);
     const past = new Date(Date.now() - 1_000).toISOString();
@@ -682,7 +689,33 @@ describe("awf tick", () => {
     expect(launch.launched).toHaveLength(3);
   });
 
-  test("a run never started and a parked run with an untaken event are woken; a run without events, and a project that's gone, are not", async () => {
+  test("wakes its own project's runs, and --all every project's", async () => {
+    const p = project();
+    const other = { ...project(), home: p.home };
+    await keyedRun(p, "here", [{ ...GONE }]);
+    await keyedRun(other, "there", [{ ...GONE }]);
+    const launch = fakeLaunch();
+    expect((await tick(p, launch)).woke.map((w) => w.ref)).toEqual(["dd-case/here"]);
+    expect((await tick(p, launch, ["--cwd", other.root])).woke.map((w) => w.ref)).toEqual([
+      "dd-case/there",
+    ]);
+    const empty = dirs.tempRunDir();
+    expect(await tick(p, launch, [], empty)).toMatchObject({ code: 0, woke: [] });
+    await keyedRun(p, "again", [{ ...GONE }]);
+    await keyedRun(other, "again", [{ ...GONE }]);
+    const all = await tick(p, launch, ["--all"], empty);
+    expect(all.code).toBe(0);
+    expect(all.woke.map((w) => w.ref).sort()).toEqual(["dd-case/again", "dd-case/again"]);
+  });
+
+  test("--all takes no place of its own", async () => {
+    const p = project();
+    const { code, err } = await tick(p, fakeLaunch(), ["--all", "--cwd", p.root]);
+    expect(code).toBe(2);
+    expect(err.join("\n")).toContain("--all wakes every project's runs");
+  });
+
+  test("a run never started and a parked run with an untaken event are woken; a run without events is not, and a project that's gone fails only --all", async () => {
     const p = project();
     await emit(
       p,
@@ -717,7 +750,8 @@ describe("awf tick", () => {
       `${await Bun.file(join(p.home, ".awf", "projects")).text()}${gone}\n`,
     );
     const launch = fakeLaunch();
-    const { code, woke, err } = await tick(p, launch);
+    expect(await tick(p, fakeLaunch(), [], dirs.tempRunDir())).toMatchObject({ code: 0, err: [] });
+    const { code, woke, err } = await tick(p, launch, ["--all"]);
     expect(woke.sort((a, b) => a.ref.localeCompare(b.ref))).toEqual([
       { ref: "dd-case/never", did: "started", why: "event" },
       { ref: "dd-case/waiting", did: "continued", why: "event" },

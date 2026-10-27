@@ -535,7 +535,7 @@ turn, which the case's files keep and the wait's `until` reads.
 - [ ] 9. The Datadog case run on it, against its sketch
 - [x] 10. One run id: the sender names the run, no `key`, no `{workflow}.` prefix, `starts` optional, `awf run --id` with no event
 - [ ] 11. One kind of workflow: `events` optional on `defineExecutableWorkflow`, `defineEventWorkflow` gone; design reviewed before building
-- [ ] 12. `awf tick` wakes its own project's runs; `--all` wakes every project's
+- [x] 12. `awf tick` wakes its own project's runs; `--all` wakes every project's
 
 ## Open questions
 
@@ -1442,3 +1442,18 @@ that can't name a run, such as webhooks, without changing a call.
   `~/.awf/projects`. Before, only `inbox` and `send --id` looked in other projects, and `inbox`,
   `reply` and `send` refused a bare id.
 - **Verified**: `bun test` 2188 pass; `bun run check` passes.
+
+### Task 12: a tick for its own project
+
+- **`awf tick`** takes `--cwd` and `--run-root` as `awf runs` does (`parsePlace`) and wakes the runs
+  with events under that one root; with neither, `{cwd}/.awf/runs`. A folder with no runs wakes
+  nothing and exits 0. It never reads `~/.awf/projects`, so a gone project there fails no bare
+  tick.
+- **`awf tick --all`** is the old loop over `~/.awf/projects`, a gone folder failing it with 1, as
+  before. It takes no `--cwd` or `--run-root` (usage error 2): it has no place of its own.
+- **The watcher.** Its runs are under `workflows/datadog-watcher/.awf/runs`, and
+  `process-compose.yaml`'s `awf-tick` already runs a bare `awf tick` in that folder, so it wakes the
+  watcher's runs alone; a comment there says so.
+- **Tests**: `emit.test.ts`'s `awf tick` block: its own project's run and not another's; `--cwd`
+  to the other; a folder with no runs; `--all` wakes both; `--all --cwd` refused; a gone project
+  fails only `--all`.

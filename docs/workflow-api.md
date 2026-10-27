@@ -678,7 +678,8 @@ awf emit --target case.ts --id kombo-unique dd.changes '{"case":"kombo-unique"}'
   cut off and runs again on the continue: work that must finish goes in a stage or before the
   wait. The next event, or `awf tick` once `until` passes, continues it:
   agents reopen on their kept sessions, recorded stages are reused, and the loop's wait takes the
-  new event. What must outlive that lives in files or a stage.
+  new event. What must outlive that lives in files or a stage. `awf tick` wakes the runs of the
+  project it runs in, the ones `awf runs` lists there; `awf tick --all`, every project's.
 - **Agents on a wake.** Each agent reopens on its kept session, without its instructions again, and
   a pane agent's pane opens at its first turn. So before that turn, in an attempt, it can't be
   forked or compacted, and an agent `beside` it gets a tab of its own. An agent with skills or a

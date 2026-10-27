@@ -178,7 +178,7 @@ export async function runOperatorCli(
         ...(environment.install ? { install: environment.install } : {}),
       }),
     emit: () => emitCommand(argv.slice(1), cwd, { stdout, stderr }, wakes),
-    tick: () => tickCommand(argv.slice(1), { stdout, stderr }, wakes),
+    tick: () => tickCommand(argv.slice(1), cwd, { stdout, stderr }, wakes),
     runs: () => runsCommand(argv.slice(1), cwd, { stdout, stderr }, Date.now(), wakes.home),
     logs: () => logsCommand(argv.slice(1), cwd, { stdout, stderr }, undefined, wakes.home),
     inbox: () =>

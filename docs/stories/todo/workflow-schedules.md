@@ -50,8 +50,9 @@ Notes, to settle when it is refined:
 - **Missed occurrences:** after a sleep or a reboot, run the latest once, or each one missed.
 - **A wake by `until`** may be the same mechanism: a named wait whose wake arrives as an event
   with an id, so a loop can name its work by it. Whether this story or a smaller one does that.
-- **What runs `awf tick`:** one launchd or cron entry per machine that `awf` installs, or a
-  long-running `awf` process; and how often, since that sets the latency of every schedule.
+- **What runs `awf tick`:** one launchd or cron entry per machine that `awf` installs, which
+  would run `awf tick --all`, since a bare tick wakes only its own project's runs (034 task 12),
+  or a long-running `awf` process; and how often, since that sets the latency of every schedule.
 - **Unattended turns:** an occurrence at 03:00 may open panes (`workflow-styles.md` §5, point 5).
 - **Testing:** a test that moves the clock past an occurrence needs
   [[workflow-test-virtual-time]], or a narrower clock for schedules only.
