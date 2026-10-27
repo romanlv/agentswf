@@ -53,7 +53,7 @@ Implementation notes. Tasks 5 and 6 are the operator's.
 
 - **Settled:**
   - the names: agents.wf, `agentswf`, `@agentswf/*`, `agentswf/workflow`, `awf`, `wf`, and the
-    repository `agentswf/awf`;
+    repository `romanlv/agentswf`;
   - the engine provides `agentswf/workflow` and `typebox`;
   - Bun only;
   - MIT;

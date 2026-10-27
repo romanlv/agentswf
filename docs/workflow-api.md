@@ -854,8 +854,17 @@ returned `Error` fails the call.
 ```ts
 // examples/triage/workflow.test.ts
 decisions: {
-  "triage:1": { team: { payments: 0.95, accounts: 0.03, frontend: 0.02 }, bug: 0.97, urgency: [0.1, 0.3, 0.6] },
+  "triage:1": {
+    team: { payments: 0.95, accounts: 0.03, frontend: 0.02 },
+    bug: 0.97,
+    urgency: [0.1, 0.3, 0.6],
+  },
   "triage:2": { team: "frontend", bug: 0.05, urgency: [0.92, 0.08, 0] },
+  "triage:3": {
+    team: { payments: 0.4, accounts: 0.5, frontend: 0.1 },
+    bug: 0.6,
+    urgency: [0.05, 0.9, 0.05],
+  },
 },
 ```
 

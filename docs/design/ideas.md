@@ -19,6 +19,7 @@ Raw notes on where awf could go. Not scope and not decisions: [`foundation.md`](
   used so far. (§7: `harness`, beside liveness and usage.)
 - Custom skills per agent: a path or a public skill, applied to this agent only, with or without the operator's — drafted as [story 007](../stories/007-agent-skills.md).
 - connecting to harness hooks in the code, and driving workflow with those signals, this should be integrated with event driven architecture
+- giving tools that connect to the workflow code, so agent gets cli tool and it executes the code in the same workflow
 
 ## Workflows
 
@@ -80,6 +81,27 @@ Ideally it should be a context (meaning triggered) but not sure if it's possible
 ### state machine 
 it is a state machine or graph engineering now 
 
+### Nice to have, from LangGraph and Mastra
+Read against the event-driven style comparison (`docs/research/workflow-styles.md`, 2026-10-24).
+Neither has an inbox, so events that arrive during a turn need one of awf's own; these three are
+worth taking on top of it:
+- **Reducers per event.** LangGraph declares how each update folds into state
+  (`comments: append`, `green: last`). A workflow could declare it once per event name, instead
+  of folding events by hand in every loop.
+- **The run as a picture.** LangGraph's current node answers "where is it now". awf could draw a
+  run's stages and waits, and mark where it is, for debugging and `awf runs`.
+- **Typed waits in both directions.** Mastra's `suspendSchema` says what a wait shows, and its `resumeSchema` what it
+  accepts. A wait's label and its event schema are the same pair.
+
+### Observing agents talking to each other
+Agent-to-agent messages are not events the workflow code sees. A route could opt in to being
+observed (`messages.allow({ between, observe: true })`), giving the code a copy (`reviewer:sent`)
+while the message still goes straight to the other agent. A copy only: the code never blocks or
+changes a message, since code in the path is a router, which a participant that goes to the code
+already is. Useful for limiting a debate to N rounds, reacting to "pass" before the turn ends,
+collaboration strategies that enforce who speaks when, and an audit trail. Nothing needs it yet
+(2026-10-25).
+
 ## time intervals
 workflow can have cron schedule, and fake up later, to have a script to get some signals
 
@@ -131,21 +153,26 @@ markdown linting is very useful here
 
 ## long running workflows 
 
+### scheduler 
+system service that monitors running workflows, schedules those that should be awaken, distributes tokens and resources budget
 
 ## chat to workflow 
 describe your workflow in markdown file, agent will go through it and clarify things 
 later it can codify it, if you update the doc, the diff is analyzed and changes applied back 
 
-
 ## run workflow with live agent 
 
 
-
 ## Value prop 
-build workflow with frontier model, run with cheap and fast
-make your workflow deterministic , add checks and balances
+- build workflow with frontier model, run with cheap and fast
+- make your workflow deterministic , add checks and balances
+- agentic workflows independent of AI provider, running on your own infra
+- understand how it works, 
 
 follow the process, remind users or do something in background on their behalf...
+manage all your agentic loops locally
+
+
 
 ## workflow router
 using a router for workflows, via single interface, like OpenClaw, which routes signals/events to proper workflow 
@@ -153,3 +180,4 @@ using a router for workflows, via single interface, like OpenClaw, which routes 
 
 ## workflow stats 
 part of the lab, what if running and testing workflows is the part of your everyday work, what if you have an idea on how to improve workflow, and you are testing it agianst a baseline, all data is recorded, you can run and compare, and this case can become future test case, part of the eval
+- optimizer , GEPA style

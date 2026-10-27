@@ -841,7 +841,7 @@ export default defineExecutableWorkflow({
 ```
 
 - **Closing:** "this is noise" reaches the investigator as a reply, and it closes the case with
-  the `close_case` tool ([[workflow-tools]]). The tool's handler emits `dd.closed`, so no regex
+  the `close_case` tool ([[035-workflow-tools|story 035]]). The tool's handler emits `dd.closed`, so no regex
   matches the engineer's words.
 - **Replies:** a reply during a turn waits in `replies` and starts the next turn.
 - **Failures:** a failed turn posts to the thread. Its occurrences stay unseen and its replies go
