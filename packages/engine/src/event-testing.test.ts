@@ -148,3 +148,15 @@ test("files outside the run's directory, and an id given twice, are refused", as
     ),
   ).rejects.toThrow("given twice");
 });
+
+test("a scripted event gives during or after, one of them", async () => {
+  const data = { case: "k" };
+  for (const timing of [{}, { during: "a#1", after: "a#1" }])
+    await expect(
+      testWorkflow(
+        caseRun(async () => null),
+        // biome-ignore lint/suspicious/noExplicitAny: timings tsc refuses, as a plain caller could give.
+        { ...startCase, events: [{ ...timing, name: "dd.changes", data } as any] },
+      ),
+    ).rejects.toThrow("during or after, one of them");
+});

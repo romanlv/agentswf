@@ -37,6 +37,7 @@ workflow.stop(reason)                                         // ends the attemp
 workflow.receive({ label?, until?, take? })                   // → the events not yet acknowledged
 agent.start({ prompt, schema?, meta? })   agent.turn          // a turn not awaited; its end is agent:ended
 agent.ended<Meta, T>(e)   participant.replied(e)              // narrow awf's events
+workflow.agents.open({ …, keepAlive: { timeoutMs?, onTimeout? } })  // the run stays live after its turns
 workflow.participants.connect({ key, to: "code" })            // replies come as participant:reply; .post(text)
 workflow.emit(target, run, name, data, { eventId? })          // → "accepted" | "duplicate" | "refused"
 
@@ -47,7 +48,7 @@ workflow.allowance(harness)                                   // → what is lef
 // In a test, from "agentswf/testing"; `awf test` runs it:
 testWorkflow(workflow, args, { agents?, messages?, participants?, compactions?, awaitReply?, decisions?, allowance?, runtimes?,
                               caller?, timeoutMs?, stallMs?, cwd? | files?, recorded?, fromStage?, values? })  // → run
-testWorkflow(eventWorkflow, { id, args?, event?, events?: [{ during: "agent#1", name, data, from? }], maxTurns?, … })  // → run, .emits, .parked
+testWorkflow(eventWorkflow, { id, args?, event?, events?: [{ during | after: "agent#1", name, data, from? }], maxTurns?, … })  // → run, .emits, .parked
 answer(SCHEMA, value | (turn) => value)   answer("text")   reply.waiting(reason, timeoutMs?) | silent() | blocked() | failed() | needsLogin(provider?) | timedOut() | hang() | interrupted()
 ```
 
@@ -681,6 +682,34 @@ awf emit --target case.ts --id kombo-unique dd.changes '{"case":"kombo-unique"}'
   agents reopen on their kept sessions, recorded stages are reused, and the loop's wait takes the
   new event. What must outlive that lives in files or a stage. `awf tick` wakes the runs of the
   project it runs in, the ones `awf runs` lists there; `awf tick --all`, every project's.
+- **Kept alive.** An agent opened with `keepAlive` keeps the run live, not parked, for a window
+  after each turn it runs, awaited, started or a message's: `timeoutMs`, an hour by default, the
+  life of claude's prompt cache on a subscription. Its pane and the run's process stay, so a
+  message then is a warm turn in the same pane, and its end opens a new window. Once the window
+  passes, a wait with nothing to take and nothing working calls `onTimeout(agent)`, if a turn ended
+  since it last ran, and awaits it in the wait's scope; the run parks once no window is open and no
+  handler is due. A turn the handler runs opens no window, though a message it sends a peer is that peer's turn,
+  and so is an answer the peer sends back after the handler's turn has ended, which opens this
+  agent's window again: a wrap-up that asks a peer each time keeps the run live; a started one ends at the loop as any
+  does, told apart by its `meta`. A throw is logged, and the run parks anyway. A turn that fails or
+  times out closes the agent, and a closed agent holds no window. Every agent's pane stays with the
+  run: none is released alone. Elsewhere `keepAlive` fails `tsc`, and open refuses it.
+
+  ```ts
+  const investigator = await workflow.agents.open({
+    key: "investigator",
+    runtime: "claude",
+    keepAlive: {
+      onTimeout: async (agent) => {
+        // Written when the window passes, from the case as it is then, while the cache is warm.
+        await agent.compact({ prompt: focusFor(kase.view()) });
+      },
+    },
+  });
+  ```
+
+  The run's terminal shows "live until {time}" on the row of each idle agent whose window is
+  open; `awf runs` shows the run live and waiting.
 - **Agents on a wake.** Each agent reopens on its kept session, without its instructions again, and
   a pane agent's pane opens at its first turn. So before that turn, in an attempt, it can't be
   forked or compacted, and an agent `beside` it gets a tab of its own. An agent with skills or a
@@ -919,11 +948,15 @@ run.mailbox;                                  // its mailbox as it left it
   would, its data checked against its schema; without one, it starts with no event. **`args`** are
   the run's, as `awf run --id {id} -- {args}` would prepare them; without them, what `prepare`
   makes of no argv, as a run an event starts has.
-- **`events`** are sent each while an agent's `n`th turn runs (`"{agent}#{n}"`), before its script
-  answers, in the order given; a reply's author, time and id are filled. `n` is the turn's
+- **`events`** are sent each while an agent's `n`th turn runs (`during: "{agent}#{n}"`), before its
+  script answers, or once it has ended (`after`) and the run waits live in a `keepAlive` window, in
+  the order given; a reply's author, time and id are filled. An `after` event the run parked
+  before sending fails the test, as an event the window should have taken. Windows are real time,
+  but one with no `timeoutMs` lasts 100 ms in a test rather than the hour, so a kept-alive
+  workflow's test doesn't stall in it. `n` is the turn's
   `TurnRecord.n`, counting the turns the workflow started: a nudge or a wake for a message keeps
   the turn's number, so with one, `#2` is not `turnsOf(agent)[1]`. One whose turn never runs
-  fails the test.
+  fails the test. A compaction `onTimeout` asks for is in `run.compactionsOf(key)`.
 - **`files`**, which any workflow's test takes, are laid out under the run's directory, which the
   test removes; a path outside it is refused, so a workflow under test finds its files from
   `workflow.cwd`, and `files` with a `cwd` of the test's own is refused.

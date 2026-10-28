@@ -10,6 +10,10 @@ before returning workflow success and permit bounded cooperative check-ins.
 **Amended:** 2026-10-26, [[034-event-driven-runs|story 034]]: a cancelled operation's harness is
 interrupted and, once settled, takes the agent's next operation in its pane.
 
+**Amended:** 2026-10-28, [[036-agent-keep-alive|story 036]] (ADR 0012): since 034, one pane per
+attempt. Parking closes every pane and the next attempt opens a new one on the kept session; an
+agent's `keepAlive` window keeps the run, and its panes, live between turns.
+
 ## What was decided
 
 - **A pane agent keeps one pane for all its operations.** Its first operation starts the harness

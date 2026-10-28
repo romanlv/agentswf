@@ -226,8 +226,20 @@ export type Parking = {
    * can change what the code would do.
    */
   idle(stage?: string): boolean;
+  /**
+   * With the run idle and nothing to take: calls one agent's due `onTimeout` and resolves true once
+   * it returns, or false with none due. The signal stops waiting on it.
+   */
+  timeout(signal?: AbortSignal): Promise<boolean>;
+  /** The end of the earliest agent window still open: the run stays live to it, not parked. */
+  liveUntil(): number | undefined;
   /** Writes the attempt's `parked` ending, holding the run's lock, so a waker sees it at once. */
   park(wait: WaitingJson): Promise<void>;
+  /**
+   * The wait stays live to `until` for an agent's window rather than parking, called on each pass
+   * that does: a test's hook, which sends what it scripted after a turn.
+   */
+  live?(until: number): Promise<void>;
 };
 
 /** How often a wait looks at its mailbox when no nudge comes: a nudge that failed still arrives. */
@@ -391,7 +403,11 @@ export class RunMailbox {
       }
       const { parking } = this.options;
       const idle = parking?.idle(stage) ?? false;
-      if (parking && idle) {
+      // Read again after a handler: what arrived meanwhile is taken first.
+      if (parking && idle && (await parking.timeout(signal))) continue;
+      const live = parking && idle ? parking.liveUntil() : undefined;
+      if (parking && live !== undefined) await parking.live?.(live);
+      else if (parking && idle) {
         const wait: WaitingJson = {
           ...(label === undefined ? {} : { label }),
           ...(until === undefined ? {} : { until: new Date(until).toISOString() }),
@@ -412,8 +428,13 @@ export class RunMailbox {
         continue;
       }
       // With no `until`, only a nudge or the size poll wakes it, or, with a turn running, its end,
-      // which may let the run park: looked at each second.
-      const longest = parking && !idle ? POLL_MILLISECONDS : Number.POSITIVE_INFINITY;
+      // which may let the run park: looked at each second. In a window, its end.
+      const longest =
+        parking && !idle
+          ? POLL_MILLISECONDS
+          : live !== undefined
+            ? live - this.#now()
+            : Number.POSITIVE_INFINITY;
       await this.#idle(
         woken,
         size,

@@ -3,7 +3,7 @@ id: "036"
 title: "An agent stays live after its turn, and compacts before the run parks"
 summary: "An agent opened with keepAlive keeps the run live for a while after its last turn, so a follow-up is a warm turn in the same pane; when its window passes, its onTimeout handler can compact it with a focus written then, while the cache is warm. The run parks once every window has passed and its handlers have run."
 type: story
-status: ready
+status: in-progress
 depends_on: ["034"]
 ---
 
@@ -65,8 +65,9 @@ const focusFor = (kase: CaseView) =>
   awaited, started, or a message from a peer. A turn that never reached the harness, refused or
   cancelled while queued, opens none; nor do a compaction, a `set`, a fork, a turn's end a crash's
   recovery wrote, or any turn begun inside a handler. So a wake that only takes an event opens no
-  window. An agent that closes has no window and its handler isn't called: a turn that fails, is
-  cancelled or times out closes it, as `agents.stop` and a cancelled stage do.
+  window. An agent that closes has no window and its handler isn't called: a turn that fails or
+  times out closes it, as `agents.stop` and a cancelled stage do. A cancelled turn leaves it open
+  (ADR 0008, since 034), and its end opens a window as any turn's does.
 - **The handler is due** once the agent's window has passed, the agent is idle with no started
   turn, and a turn that opened a window has ended since the handler last ran. What a handler runs
   on its own agent never makes it due again, so a wrap-up turn can't loop it. A message the
@@ -84,7 +85,7 @@ const focusFor = (kase: CaseView) =>
   to an `until`, without polling.
 - **The handler** gets the agent's ref and runs in the wait's scope, as the code at that wait
   would: in a stage, `start()` is refused there as anywhere out of the run's root, and a cancelled
-  stage cancels the handler's operations with the rest of the scope. `timeouts()` takes the wait's
+  stage cancels the handler's operations with the rest of the scope. `timeout()` takes the wait's
   signal: once the run stops or the wait's scope is cancelled, it calls no further handler and
   stops waiting on the one running. Its operations are recorded
   and costed as any. The agent stays live and usable after it. The code never runs beside a
@@ -96,7 +97,7 @@ const focusFor = (kase: CaseView) =>
   a new turn, and the run parks anyway. A compaction that answers `failed` leaves the agent's
   context as it was.
 - **On an agent whose session isn't kept** — with skills or a sandbox, on a harness the code now
-  changes, or in a nested call — the next wake starts it afresh, so a compaction in its handler
+  changes — the next wake starts it afresh, so a compaction in its handler
   buys nothing; the open logs that, as it logs a session not reopened.
 - **On a headless agent** there is no pane to keep: each headless claude turn is a process of its
   own, and the window keeps the run's process. A wake within the cache's life resumes warm anyway;
@@ -165,7 +166,7 @@ Out of scope:
   `failed` (`docs/workflow-api.md:685`, `herdr.ts:1352-1356`). A window opens only at the end of a
   turn that reached the harness in this attempt, and a turn whose pane never launched fails and
   closes the agent, so a handler never meets an agent before its first turn.
-- Fact: a turn that fails, is cancelled or times out closes an opened agent
+- Fact: a turn that fails or times out closes an opened agent
   (`closeAfterFailure`, `workflow-runner.ts:3120`); so do `agents.stop` (`agents.ts:499`) and a
   stage's cancellation (`workflow-runner.ts:3088`). A closed agent refuses every operation, so it
   can hold no window.
@@ -178,7 +179,7 @@ Out of scope:
 - Fact: `compact()` answers a failure as an outcome (`docs/workflow-api.md`, compact); it rejects
   only for a closed agent or a passed deadline.
 - Fact: an agent with skills or a sandbox, or reopened on another harness, starts afresh at a wake
-  (`workflow-runner.ts:1605-1612`), and a nested call's agents keep no session.
+  (`workflow-runner.ts:1605-1612`). `call`, one workflow calling another, isn't built.
 - Fact: a handler in the open spec has a precedent: a tool's `handler` (`ToolSpec`, `agents.ts`).
   On a wake the code opens the agent again, so the handler is always the current code's.
 - Fact: compaction is built for claude headless and pane, codex both ways and pi; cursor refuses
@@ -234,11 +235,13 @@ Out of scope:
   window's end while one is open.
 - `packages/engine/src/progress-view.ts` — an idle agent in a window shows "live until {time}" on
   its row (Q3).
-- `packages/engine/src/mailbox.ts` — `Parking` gains `timeouts()`: when the run is idle at a wait
-  with nothing to take, it calls the due handlers, the mailbox read again before each, and returns
-  the earliest open window's end; the wait parks only when none is open, and otherwise sleeps to it.
+- `packages/engine/src/mailbox.ts` — `Parking` gains `timeout(signal)`, which calls one due
+  handler and says whether it did, so the loop reads the mailbox again before the next, and
+  `liveUntil()`, the earliest open window's end; the wait parks only when none is open, and
+  otherwise sleeps to it. `live(until)`, the runner's option beside `park`, is the test's hook.
 - `packages/engine/src/workflow-testing/` — `ScriptedEvent` gains `after: "{agent}#{n}"`, sent once
-  that turn ends, beside `during`; a compaction in the handler shows in `run.compactionsOf(key)`, a
+  that turn has ended and the run waits live in a window, beside `during`; one the run parked
+  before sending fails the test; a compaction in the handler shows in `run.compactionsOf(key)`, a
   turn in it takes the agent's next scripted answer.
 
 ### harness
@@ -269,9 +272,9 @@ type ScriptedEvent = { during: string } | { after: string } /* & name, data, id 
 
 The engine keeps, per logical agent, the end of the last turn in this attempt that opened a window,
 and whether its handler is due. A window is open while `now < lastEnd + timeoutMs`. The wait loop
-is as today until it finds the run idle with nothing to take; then it calls `timeouts()`, which
-awaits each due handler in turn, reading the mailbox again before each and returning to the loop
-if an event is there, and returns the earliest window still open. With none open the wait parks
+is as today until it finds the run idle with nothing to take; then it calls `timeout()`, which
+awaits one due handler, and loops, reading the mailbox again, until none is due; then
+`liveUntil()` gives the earliest window still open. With none open the wait parks
 as today; otherwise it sleeps to the earliest of an event, `until` and that window's end.
 
 Alternatives rejected:
@@ -306,8 +309,8 @@ Alternatives rejected:
 
 ## Tasks at a glance
 
-- [ ] 1. The contract and the ADR
-- [ ] 2. The window and `onTimeout` at park, with tests
+- [x] 1. The contract and the ADR
+- [x] 2. The window and `onTimeout` at park, with tests
 - [ ] 3. The Datadog case run, live
 
 ## Open questions
@@ -343,14 +346,14 @@ window, and amends foundation's sentence and ADR 0008.
 
 Execution:
 
-- [ ] Plan: inspect the relevant code and tests, settle the cleanest module, interface, seam,
+- [x] Plan: inspect the relevant code and tests, settle the cleanest module, interface, seam,
   invariants, failure behavior, and focused proof, and record material alternatives before coding.
-- [ ] Implement: make only this task's coherent change and add focused tests with it.
-- [ ] Review: have two read-only subagents review this task's actual diff and test output—one for
+- [x] Implement: make only this task's coherent change and add focused tests with it.
+- [x] Review: have two read-only subagents review this task's actual diff and test output—one for
   architecture and scope, one for correctness and proof.
-- [ ] Resolve: fix or explicitly disposition every material finding; request targeted re-review
+- [x] Resolve: fix or explicitly disposition every material finding; request targeted re-review
   when a fix changes the selected architecture.
-- [ ] Verify: run this task's focused checks and satisfy every `Done when` item before checking the
+- [x] Verify: run this task's focused checks and satisfy every `Done when` item before checking the
   task in `Tasks at a glance` or starting the next task.
 
 Work:
@@ -374,15 +377,15 @@ handler is due.
 
 Execution:
 
-- [ ] Plan: inspect the relevant code and tests and record the architecture and focused proof.
-- [ ] Implement: make only this task's coherent change and add focused tests with it.
-- [ ] Review: obtain architecture/scope and correctness/proof subagent reviews of the actual diff.
-- [ ] Resolve: disposition findings and obtain targeted re-review after material design changes.
-- [ ] Verify: satisfy every `Done when` item before checking this task.
+- [x] Plan: inspect the relevant code and tests and record the architecture and focused proof.
+- [x] Implement: make only this task's coherent change and add focused tests with it.
+- [x] Review: obtain architecture/scope and correctness/proof subagent reviews of the actual diff.
+- [x] Resolve: disposition findings and obtain targeted re-review after material design changes.
+- [x] Verify: satisfy every `Done when` item before checking this task.
 
 Work:
 
-- the window and the due rule in the logical agent; the handler marker; `timeouts()` on
+- the window and the due rule in the logical agent; the handler marker; `timeout()` and `liveUntil()` on
   `Parking` and the wait's sleep to the window's end; the terminal's "live until {time}" line;
 - `testWorkflow`: `after` sends a scripted event once its turn ends.
 
@@ -442,9 +445,31 @@ Manual or live evaluation:
 
 ### Task 1
 
+Reviewed with task 2, as one diff: the contract and the engine landed together. See task 2.
+
 ### Task 2
 
+Two read-only reviews of the diff, 2026-10-28: architecture and scope, and correctness and proof.
+
+- Architecture: no blocker; the change sits on the seams the story names. Fixed: the handler's
+  "opens no window" said only of its own agent, a peer's message is the peer's turn (contract,
+  ADR 0012, API doc); `checkedKeepAlive` returns a copy; `onTimeout` may return nothing, as a
+  tool's handler may; `live`'s doc says it is called on each pass. Kept: `run.live`, the test's
+  hook beside `park`; the default window in the engine, not the contract; the ref handed to the
+  handler is the logical agent `open` returned.
+- Correctness: no runtime blocker. Fixed: two proofs passed with the feature broken, now each
+  caught by a mutation (a handler's own turns with nothing after them; a stop during a handler,
+  the wait's rejection asserted and the hanging handler let go after it); a timing bound that
+  could flake on a loaded machine; `after`'s ended check read the host's initial `hang`.
+  Documented, not changed: an answer a peer sends after the handler's turn ended is a message
+  turn of the agent and opens its window, so a wrap-up that asks a peer each time keeps the run
+  live, as two kept agents messaging each other can. Kept as defence: `takeTimeout`'s
+  started-turn guard, which idle already covers.
+
 ### Task 3
+
+- The watcher's own tests stalled with the default hour (11 of 48): a finding for awf, fixed by a
+  short default window in tests (Implementation notes).
 
 ## Readiness
 
@@ -459,6 +484,28 @@ Manual or live evaluation:
 - [x] Open questions are resolved or explicitly moved out of scope.
 
 ## Implementation notes
+
+- `Parking` gained `timeout(signal)`, one due handler per call, and `liveUntil()`, in place of the
+  design's single `timeouts()`: the loop reads the mailbox again between handlers by looping, so
+  no handler-side read is needed. `run.live(until)` beside `run.park` is the test's hook, where
+  `after` events are sent.
+- `after: "{agent}#{n}"` is sent once the turn has ended and the run waits live, not at the
+  turn's end: sent then, a run without a window would take it too, and the test would prove
+  nothing. One the run parked before sending fails the test.
+- A cancelled turn doesn't close the agent (ADR 0008, since 034), so its end opens a window; the
+  ready version said it closed it.
+- `call` isn't built, so "a nested call's agents keep no session" was dropped.
+- In a test, a window with no `timeoutMs` lasts 100 ms (`defaultWindowMs`, the runner's option,
+  as the test's liveness policy is short). Found in task 3: the watcher's tests, which can't give
+  the workflow a short window, stalled in the default hour. Published behaviour: for the
+  operator's review.
+- Live, 2026-10-28, `examples/keep-alive` (claude-haiku-5-5 in a pane, 90 s window, three notes
+  by `awf emit`): the second note, 25 s after the first turn, was nudged into the same attempt and
+  pane and answered in 3 s, reading 50,488 tokens from the cache and writing 550 (M3). At the
+  window's end, to the second, `onTimeout` compacted it, 51,736 tokens to 11,541, and the run
+  parked 7 s later. The third note woke attempt 2 on the same session, which answered with all
+  three notes in order. M1 on a real investigator, M2, and the case run's thread in Slack wait for
+  the operator: they post to a real channel.
 
 ## Human review
 

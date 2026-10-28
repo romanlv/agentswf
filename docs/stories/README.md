@@ -149,7 +149,7 @@ status is one of `todo`, `draft`, `ready`, `in-progress`, `blocked`, `awaiting-h
   `ready` — a workflow gives an agent named, typed tools; the agent calls one with `wf tool`
   mid-turn, and the handler's return value is the tool's result.
 - [`036` — An agent stays live after its turn, and compacts before the run parks](036-agent-keep-alive.md) —
-  `ready` — an agent opened with `keepAlive` keeps the run live for a window after its turn, so a
+  `in-progress` — an agent opened with `keepAlive` keeps the run live for a window after its turn, so a
   follow-up is a warm turn in the same pane; at the window's end its `onTimeout` handler can
   compact it with a focus written then; the run parks once every window has passed.
 

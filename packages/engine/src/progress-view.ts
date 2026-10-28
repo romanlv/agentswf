@@ -62,7 +62,7 @@ export function renderProgress(
     const shown =
       agents.length <= MAX_LISTED
         ? agents
-        : agents.filter((a) => isRunning(a) || isFailed(a) || a.stopped);
+        : agents.filter((a) => isRunning(a) || isFailed(a) || a.stopped || a.liveUntil);
     lines.push(...shown.slice(0, MAX_LISTED).map(agentLine));
     const hidden = agents.length - Math.min(shown.length, MAX_LISTED);
     if (hidden > 0) lines.push(paint.dim(`    … ${hidden} more`));
@@ -96,7 +96,9 @@ export function renderProgress(
   });
   // Agents opened outside any labelled parallel.
   const loose = snapshot.agents.filter((agent) => agent.group === undefined && !inStage(agent));
-  if (loose.some((agent) => isRunning(agent) || isFailed(agent) || agent.stopped))
+  if (
+    loose.some((agent) => isRunning(agent) || isFailed(agent) || agent.stopped || agent.liveUntil)
+  )
     listAgents(loose);
   return lines;
 }
@@ -147,6 +149,8 @@ export function progressEvents(
         `■ ${agent.key} stopped: ${oneLine(agent.stopped.reason)}`,
       );
     }
+    if (agent.liveUntil !== undefined && agent.liveUntil !== earlier?.liveUntil)
+      add(view.now, "agent phase", `… ${agent.key} · ${liveNote(agent.liveUntil)}`);
     if (!turn) continue;
     const fresh = earlier?.turns !== agent.turns;
     if (fresh && (turn.outcome === undefined || agent.stopped))
@@ -347,7 +351,7 @@ function stageAgentLine(
   const turn = agent.turn!;
   const [mark, note] =
     turn.outcome === "answered" && !agent.stopped
-      ? [paint.dim("·"), paint.dim("waiting")]
+      ? [paint.dim("·"), paint.dim(agent.liveUntil ? liveNote(agent.liveUntil) : "waiting")]
       : agentState(agent, now, paint, herdrSession);
   const took = duration((turn.settledAt ?? now) - turn.startedAt);
   const label = turn.label ?? (turn.kind === "turn" ? undefined : turn.kind);
@@ -382,7 +386,8 @@ function agentState(
     const queued = agent.queued ? `${agent.queued} queued` : "";
     return [paint.busy(spin(now)), [note, queued].filter(Boolean).join(" · ")];
   }
-  if (turn.outcome === "answered") return [paint.ok("✓"), ""];
+  if (turn.outcome === "answered")
+    return [paint.ok("✓"), agent.liveUntil ? paint.dim(liveNote(agent.liveUntil)) : ""];
   return [
     paint.bad("✗"),
     paint.bad(
@@ -470,6 +475,13 @@ function isFailed(agent: Agent): boolean {
   if (cancelledByStop(agent)) return false;
   if (!agent.turn) return agent.state === "missing" || agent.state === "quarantined";
   return agent.turn.outcome !== undefined && agent.turn.outcome !== "answered";
+}
+
+/** Kept alive: the run stays live, rather than parked, to this agent's window's end. */
+function liveNote(until: number): string {
+  const date = new Date(until);
+  const two = (n: number) => String(n).padStart(2, "0");
+  return `live until ${two(date.getHours())}:${two(date.getMinutes())}`;
 }
 
 function spin(now: number): string {

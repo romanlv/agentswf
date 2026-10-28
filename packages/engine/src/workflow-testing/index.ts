@@ -138,13 +138,23 @@ export type TestOptions = {
 /** A file's contents, or a directory of them by name. */
 export type FileTree = string | { readonly [name: string]: FileTree };
 
-/** An event a test sends while the run goes on: while an agent's `n`th turn runs, `"{agent}#{n}"`. */
-export type ScriptedEvent<Events extends EventSchemas> = { during: string; id?: string } & (
-  | { [Name in keyof Events & string]: { name: Name; data: OutputOf<Events[Name]> } }[keyof Events &
-      string]
-  /** A reply on a participant routed to the code; awf fills its author and id when absent. */
-  | { name: "participant:reply"; from: string; data: ParticipantReply }
-);
+/** A `keepAlive` window that gives no `timeoutMs`, in a test: the hour it would be stalls it. */
+const TEST_WINDOW_MS = 100;
+
+/**
+ * An event a test sends while the run goes on, at an agent's `n`th turn, `"{agent}#{n}"`: `during`
+ * it, or `after` it has ended, once the run waits live in an agent's `keepAlive` window.
+ */
+export type ScriptedEvent<Events extends EventSchemas> = (
+  | { during: string; after?: undefined }
+  | { after: string; during?: undefined }
+) & { id?: string } & (
+    | {
+        [Name in keyof Events & string]: { name: Name; data: OutputOf<Events[Name]> };
+      }[keyof Events & string]
+    /** A reply on a participant routed to the code; awf fills its author and id when absent. */
+    | { name: "participant:reply"; from: string; data: ParticipantReply }
+  );
 
 /**
  * A test of a workflow with `events`: what a run is started with, then sends while it goes on.
@@ -395,6 +405,8 @@ export async function testWorkflow<Args extends JsonValue, Result extends JsonVa
     const result = await runWorkflow(watched, args, {
       runRoot,
       livenessPolicy: { quietMs: 1, responseMs: 25, deliveryMs: 100, releaseMs: 1000 },
+      // A workflow's own default hour would stall its test; one it gives is kept.
+      defaultWindowMs: TEST_WINDOW_MS,
       ...(options.awaitReply === "anywhere" ? { awaitReply: () => true } : {}),
       run: {
         dir: run.dir,
@@ -408,6 +420,15 @@ export async function testWorkflow<Args extends JsonValue, Result extends JsonVa
           ? {
               events: true as const,
               park: async () => undefined,
+              ...(scripted
+                ? {
+                    live: async () => {
+                      const due = scripted.ended();
+                      for (const record of due) await appendMailbox(run.dir, record);
+                      if (due.length > 0) nudge?.();
+                    },
+                  }
+                : {}),
               listenNudges: (given: () => void) => {
                 nudge = given;
               },
@@ -608,8 +629,17 @@ async function recordEarlierAttempt(
  * The events a test sends while its run goes on, each once its turn begins, and the count of
  * turns started, past `maxTurns` of which the test fails: a loop that never parks.
  */
+type PendingEvent = {
+  at: string;
+  after: boolean;
+  name: string;
+  record: MailboxRecord;
+  /** Its turn, once begun: an `after` event waits for it to end. */
+  turn?: TurnRecord;
+};
+
 class ScriptedEvents {
-  readonly #pending: { during: string; name: string; record: MailboxRecord }[];
+  readonly #pending: PendingEvent[];
   readonly #max: number;
   #turns = 0;
 
@@ -630,9 +660,13 @@ class ScriptedEvents {
     for (const record of options.mailbox ?? []) if (record.kind === "event") ids.add(record.id);
     if (options.event) idOf(options.event.id, `${AWF_ID_PREFIX}start`);
     this.#pending = (options.events ?? []).map((event, index) => {
-      if (!/^[^#]+#[1-9]\d*$/.test(event.during))
+      if ((event.during === undefined) === (event.after === undefined))
+        throw new Error("a scripted event gives during or after, one of them");
+      const after = event.after !== undefined;
+      const at = event.after ?? event.during;
+      if (typeof at !== "string" || !/^[^#]+#[1-9]\d*$/.test(at))
         throw new Error(
-          `a scripted event's during is "{agent}#{n}", an agent's nth turn, not ${event.during}`,
+          `a scripted event's ${after ? "after" : "during"} is "{agent}#{n}", an agent's nth turn, not ${at}`,
         );
       const id = idOf(event.id, `${AWF_ID_PREFIX}test.${index + 1}`);
       let sent: { from: string; data: JsonValue } = { from: "operator", data: event.data };
@@ -641,7 +675,8 @@ class ScriptedEvents {
         sent = { from: reply.from, data: { author: "engineer", ...reply.data } };
       } else checkEvent(workflow, event);
       return {
-        during: event.during,
+        at,
+        after,
         name: event.name,
         record: {
           version: MAILBOX_RECORD_VERSION,
@@ -664,19 +699,33 @@ class ScriptedEvents {
       : undefined;
   }
 
-  /** The events due during `turn`, taken off the list, stamped now. */
+  /** The events due during `turn`, taken off the list, stamped now; those after it wait for it. */
   due(turn: TurnRecord): MailboxRecord[] {
     const at = `${turn.agent}#${turn.n}`;
-    const due = this.#pending.filter((each) => each.during === at);
+    for (const each of this.#pending) if (each.after && each.at === at) each.turn = turn;
+    return this.#take((each) => !each.after && each.at === at);
+  }
+
+  /** The run waits live: the events after a turn that has ended, taken off the list. */
+  ended(): MailboxRecord[] {
+    return this.#take((each) => each.turn !== undefined && each.turn.outcome !== "hang");
+  }
+
+  #take(which: (each: PendingEvent) => boolean): MailboxRecord[] {
+    const due = this.#pending.filter(which);
     for (const each of due) this.#pending.splice(this.#pending.indexOf(each), 1);
     return due.map((each) => ({ ...each.record, at: new Date().toISOString() }));
   }
 
-  /** What was never sent, as its turn never ran: the test fails. */
+  /** What was never sent: the test fails. */
   unsent(): string[] {
     return this.#pending.map(
       (each) =>
-        `the scripted ${each.name} during ${each.during} was never sent: that turn never ran`,
+        `the scripted ${each.name} ${each.after ? "after" : "during"} ${each.at} was never sent: ${
+          each.turn !== undefined && each.turn.outcome !== "hang"
+            ? "the run never waited live after that turn, in an agent's keepAlive window"
+            : "that turn never ran"
+        }`,
     );
   }
 }

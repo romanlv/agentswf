@@ -257,6 +257,11 @@ The inbox of possible stories is [`stories/todo/`](stories/todo/).
   the code takes events at a wait, starts turns it doesn't await, and parks between events.
 - [035 — an agent calls a tool the workflow's code handles](stories/035-workflow-tools.md): built,
   awaiting human review. Live on every harness, headless and in panes, claude in a pane only.
+- [036 — an agent stays live after its turn](stories/036-agent-keep-alive.md): tasks 1–2 built,
+  task 3's code and a live check done; the watcher's case run in Slack waits for the operator.
+  `keepAlive: { timeoutMs?, onTimeout? }` on an agent of a workflow with events keeps the run live
+  for a window after its turns, so a message then is a warm turn in the same pane, and its
+  `onTimeout` compacts it before the run parks. ADR 0012.
 
 ## Next
 

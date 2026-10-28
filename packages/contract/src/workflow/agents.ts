@@ -546,8 +546,30 @@ export interface EventAgentRef extends AgentRef {
   fork(spec: AgentForkSpec): Promise<EventAgentRef>;
 }
 
+/** How an agent of a run of a workflow with `events` opens. */
+export interface EventAgentOpenSpec extends AgentOpenSpec {
+  /**
+   * Keeps the run live, rather than parked, for a window after each turn this agent runs: awaited,
+   * started, or a message's. A message in the window is a turn in the same pane, its end a new
+   * window. The run parks once no agent's window is open and no `onTimeout` is due. A turn that
+   * fails or times out closes the agent, and a closed agent holds no window. On a reopen it takes
+   * the new spec; left out, the agent keeps what it has.
+   */
+  keepAlive?: {
+    /** How long the run stays live after this agent's last turn ends; absent, an hour. */
+    timeoutMs?: number;
+    /**
+     * Called once the window passes, if a turn ended since it last ran, at a wait with nothing to
+     * take and nothing working, which awaits it in its own scope: to compact the agent while its
+     * cache is warm, say. What it runs on this agent opens no window; a message to a peer is the
+     * peer's turn. A throw is logged; the run parks anyway.
+     */
+    onTimeout?: (agent: EventAgentRef) => Promise<void> | void;
+  };
+}
+
 /** The agents of a run of a workflow with `events`. */
 export interface EventAgentDirectory extends AgentDirectory {
-  open(spec: AgentOpenSpec): Promise<EventAgentRef>;
+  open(spec: EventAgentOpenSpec): Promise<EventAgentRef>;
   attach(key: AgentKey, runtime?: RuntimeSelection): Promise<EventAgentRef | null>;
 }

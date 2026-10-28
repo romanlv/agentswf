@@ -21,7 +21,17 @@ const caseRun = defineWorkflow({
   async run(workflow) {
     const thread = await workflow.participants.connect({ key: "thread", to: "code" });
     const investigator = await workflow.agents.open({ key: "investigator", runtime: "claude" });
-    const triage = await workflow.agents.open({ key: "triage", runtime: "claude" });
+    const triage = await workflow.agents.open({
+      key: "triage",
+      runtime: "claude",
+      keepAlive: {
+        timeoutMs: 60 * 60_000,
+        onTimeout: async (agent) => {
+          void agent.turn;
+          await agent.compact({ prompt: "Keep the findings." });
+        },
+      },
+    });
     for (;;) {
       const events = await workflow.receive({ label: workflow.runId, until: Date.now() });
       for (const e of events) {
@@ -149,3 +159,12 @@ async function noEvents(): Promise<void> {
 }
 
 void [typed, sender, plain, plainHelper, noEvents];
+
+defineWorkflow({
+  meta: { name: "plain", description: "No events: its runs never park." },
+  async run(workflow) {
+    // @ts-expect-error keepAlive is for a workflow with events.
+    await workflow.agents.open({ key: "a", runtime: "claude", keepAlive: {} });
+    return null;
+  },
+});

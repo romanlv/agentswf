@@ -266,10 +266,11 @@ Only successful answered operations preserve natural continuity of a run-owned p
 non-success stops the owned native work even when its foreground turn is already complete;
 caller-session interruption authority remains restricted by ADR 0010.
 A later operation may resume native context only when the host has measured continuation support
-and terminal evidence; native session references never cross into workflow or engine-owned state
-as resume authority. They cross only as accounting evidence, so the engine can read what an agent
-spent from the harness's own files, and nothing resumes from them
-([story 002](stories/002-cost-and-time-accounting.md)).
+and terminal evidence; native session references never cross into workflow state as resume
+authority. They cross as accounting evidence, so the engine can read what an agent spent from the
+harness's own files ([story 002](stories/002-cost-and-time-accounting.md)), and, in a run of a
+workflow with `events`, as the session a parked run's next attempt reopens each agent on, read
+from the engine's own records alone (ADR 0012).
 Result admission, durable publication, client acknowledgement and native release are distinct
 facts. The engine acknowledges a saved answer so the agent can finish its command, but returns
 `answered` only after bounded native release. A dispatched check-in must be consumed before
@@ -670,7 +671,8 @@ named trigger fires.
 | `decisions` package | `engine/src/decisions/`, the author surface in `contract/workflow` | a decision provider needs its own dependency |
 | journal / resume | shelved, **and its public types removed** | after deciding effect boundaries, persistence and versioning (E6) |
 | model settings | not built, **public types removed** — ADR 0001 | an implementation and a workflow that needs it land together |
-| agent retention and crash recovery | not built, **public types removed** — ADR 0001 | pane release is measured (Story 001), then as for model settings |
+| agent retention | an event run's kept sessions and `keepAlive`'s window — ADR 0012; releasing one agent's pane alone is not built ([[agent-release]]) | a harness release that proves the process gone, and a workflow with a second agent beside a kept one |
+| crash recovery | not built, **public types removed** — ADR 0001 | a continue after a crash keeps its agents' sessions: [[run-through-sleep]] |
 | remote execution | not built — [[workflow-in-sandbox]] | the engine runs where the agents are, so the local control plane never crosses a network |
 | TUI | not built | — |
 

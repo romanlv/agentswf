@@ -33,6 +33,8 @@ async function withEvents(...ids: string[]): Promise<string> {
 }
 
 const ids = (events: { id: string }[]) => events.map((e) => e.id);
+/** A run whose agents hold no window. */
+const NO_WINDOW = { timeout: async () => false, liveUntil: () => undefined };
 
 test("a wait takes every waiting event in arrival order, and the next acknowledges them", async () => {
   const runDir = await withEvents("a", "b");
@@ -158,6 +160,7 @@ test("an event sent as the run parks is taken: parking checks again under the ru
       return work();
     },
     parking: {
+      ...NO_WINDOW,
       idle: () => true,
       park: async () => {
         parked = true;
@@ -181,6 +184,7 @@ test("with nothing to take and nothing running, the wait parks: its ending writt
       return result;
     },
     parking: {
+      ...NO_WINDOW,
       idle: () => true,
       park: async (wait) => {
         order.push(`park ${wait.label}`);
@@ -202,9 +206,71 @@ test("while a turn runs, the wait doesn't park, and parks once it has ended", as
     runDir,
     attempt: 1,
     locked: (work) => work(),
-    parking: { idle: () => !busy, park: async () => undefined },
+    parking: { ...NO_WINDOW, idle: () => !busy, park: async () => undefined },
   });
   const started = Date.now();
   await expect(box.receive(undefined)).rejects.toBeInstanceOf(RunParked);
   expect(Date.now() - started).toBeGreaterThanOrEqual(40);
+});
+
+test("in an agent's window the wait sleeps to its end, looking once, then parks", async () => {
+  const runDir = runDirs.tempRunDir();
+  const end = Date.now() + 1_200;
+  let looks = 0;
+  const live: number[] = [];
+  const box = new RunMailbox({
+    runDir,
+    attempt: 1,
+    locked: (work) => work(),
+    parking: {
+      idle: () => {
+        looks += 1;
+        return true;
+      },
+      timeout: async () => false,
+      liveUntil: () => (Date.now() < end ? end : undefined),
+      park: async () => undefined,
+      live: async (until) => {
+        live.push(until);
+      },
+    },
+  });
+  await expect(box.receive(undefined)).rejects.toBeInstanceOf(RunParked);
+  expect(Date.now()).toBeGreaterThanOrEqual(end);
+  expect(live).toEqual([end]);
+  // Once in the window and once past it: no look each second.
+  expect(looks).toBe(2);
+});
+
+test("a due onTimeout runs before the wait parks, after an event already there is taken", async () => {
+  const runDir = runDirs.tempRunDir();
+  await appendMailbox(runDir, event("first"));
+  const calls: string[] = [];
+  let due = true;
+  const box = new RunMailbox({
+    runDir,
+    attempt: 1,
+    locked: (work) => work(),
+    parking: {
+      idle: () => true,
+      timeout: async () => {
+        if (!due) return false;
+        due = false;
+        calls.push("handler");
+        await appendMailbox(runDir, event("during"));
+        return true;
+      },
+      liveUntil: () => undefined,
+      park: async () => {
+        calls.push("park");
+      },
+    },
+  });
+  expect(ids(await box.receive(undefined))).toEqual(["first"]);
+  expect(calls).toEqual([]);
+  // The handler runs at the next wait, and what it let in is taken before the run parks.
+  expect(ids(await box.receive(undefined))).toEqual(["during"]);
+  expect(calls).toEqual(["handler"]);
+  await expect(box.receive(undefined)).rejects.toBeInstanceOf(RunParked);
+  expect(calls).toEqual(["handler", "park"]);
 });

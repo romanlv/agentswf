@@ -44,6 +44,8 @@ import {
   type CompactSpec,
   DeadlineExceededError,
   type EmitOutcome,
+  type EventAgentOpenSpec,
+  type EventAgentRef,
   type HarnessAllowance,
   isEventWorkflow,
   isJsonValue,
@@ -123,6 +125,14 @@ import type { DecisionInstallation } from "./decisions/seam";
 import { emitEvent } from "./emit";
 import { messageOf } from "./errors";
 import {
+  asTimeoutHandler,
+  checkedKeepAlive,
+  DEFAULT_WINDOW_MS,
+  inTimeoutHandler,
+  type KeepAlive,
+  outsideTimeouts,
+} from "./keep-alive";
+import {
   type RestoredTurn,
   RunMailbox,
   RunParked,
@@ -180,6 +190,8 @@ export { WorkflowCancelledError } from "./deadlines";
 export type RunWorkflowOptions = {
   /** Internal timing policy; workflow authors use the operation deadline. */
   livenessPolicy?: LivenessPolicy;
+  /** A `keepAlive` window that gives no `timeoutMs`; absent, an hour. A test's is short. */
+  defaultWindowMs?: number;
   runRoot: string;
   /** The run this is an attempt of, whose folder the operator claimed under `runRoot`. */
   run: {
@@ -208,6 +220,8 @@ export type RunWorkflowOptions = {
      * lock. Absent, the run never parks and waits in its process.
      */
     park?(wait: { label?: string; until?: string }): Promise<void>;
+    /** With `park`: the wait stays live to `until` for an agent's window instead. A test's hook. */
+    live?(until: number): Promise<void>;
   };
   runtime: AgentRuntimeConfig;
   /** The run's deadline; absent, it has none, and only deadlines the workflow sets bound it. */
@@ -337,6 +351,8 @@ export type WorkflowRunSnapshot = {
     key: AgentKey;
     /** Messages held for it and not yet shown; absent when none are. */
     queued?: number;
+    /** Idle with `keepAlive`, the end of its window: the run stays live to it. */
+    liveUntil?: number;
     execution: AgentExecution;
     state:
       | "starting"
@@ -365,6 +381,8 @@ type AgentEntry = {
   stopping?: Promise<boolean>;
   stopComplete?: boolean;
   releasedAt?: number;
+  /** As the open last gave it: a reopen that gives one replaces it. */
+  keepAlive?: KeepAlive;
   /** How it was opened, or found for the calling session, which its forks reuse. */
   opening?: {
     sessions: AgentSessions;
@@ -555,7 +573,15 @@ export async function startWorkflow<Args extends JsonValue, Result extends JsonV
         attempt,
         locked,
         ...(options.run.park
-          ? { parking: { idle: (stage) => owner.idle(stage), park: options.run.park } }
+          ? {
+              parking: {
+                idle: (stage) => owner.idle(stage),
+                timeout: (signal) => owner.timeout(signal),
+                liveUntil: () => owner.liveUntil(),
+                park: options.run.park,
+                ...(options.run.live ? { live: options.run.live } : {}),
+              },
+            }
           : {}),
       })
     : undefined;
@@ -590,6 +616,7 @@ export async function startWorkflow<Args extends JsonValue, Result extends JsonV
     events,
     onCallerStopped: options.onCallerStopped,
     livenessPolicy: options.livenessPolicy,
+    ...(options.defaultWindowMs === undefined ? {} : { defaultWindowMs: options.defaultWindowMs }),
     awaitReply: options.awaitReply ?? ((execution, confirms) => canAwaitReply(execution, confirms)),
     coordinators: options.coordinators ?? [],
     emit: options.emit ?? machineEmitter,
@@ -735,10 +762,12 @@ export async function startWorkflow<Args extends JsonValue, Result extends JsonV
         messages: known.messages,
         agents: agents.map((agent) => {
           const queued = owner.held(agent.key);
+          const liveUntil = owner.liveUntilOf(agent.key);
           return {
             ...known.agents.get(agent.key),
             ...agent,
             ...(queued > 0 ? { queued } : {}),
+            ...(liveUntil === undefined ? {} : { liveUntil }),
           };
         }),
       };
@@ -855,6 +884,7 @@ class WorkflowOwner {
       failRun(error: Error): void;
       runDir: string;
       livenessPolicy?: LivenessPolicy;
+      defaultWindowMs?: number;
       locks: CredentialLocks;
       environment: Readonly<Record<string, string | undefined>>;
       decisions: RunDecisions;
@@ -1133,6 +1163,41 @@ class WorkflowOwner {
       this.#inFlight.size === 0 &&
       [...this.#logical.values()].every((agent) => !agent.busy)
     );
+  }
+
+  /** The end of an idle agent's open window. */
+  liveUntilOf(key: AgentKey): number | undefined {
+    const agent = this.#logical.get(key);
+    return agent && !agent.busy ? agent.liveUntil() : undefined;
+  }
+
+  /** The end of the earliest window an agent holds open: the run stays live to it. */
+  liveUntil(): number | undefined {
+    const ends = [...this.#logical.values()].flatMap((agent) => agent.liveUntil() ?? []);
+    return ends.length > 0 ? Math.min(...ends) : undefined;
+  }
+
+  /**
+   * Calls one agent's due `onTimeout`, in the scope of the wait that calls this, and says whether
+   * it did. A stop or the scope's cancellation stops waiting on it.
+   */
+  async timeout(signal?: AbortSignal): Promise<boolean> {
+    for (const agent of this.#logical.values()) {
+      const onTimeout = agent.takeTimeout();
+      if (!onTimeout) continue;
+      try {
+        await runUntilStopped(
+          async () => asTimeoutHandler(() => onTimeout(agent as unknown as EventAgentRef)),
+          signal,
+          undefined,
+        );
+      } catch (error) {
+        if (signal?.aborted) throw error;
+        this.options.onLog?.(`awf: agent ${agent.key}'s onTimeout threw: ${messageOf(error)}`);
+      }
+      return true;
+    }
+    return false;
   }
   /** The batch a wait in a stage took, by stage, until the stage ends: what it must return. */
   readonly #stageBatches = new Map<string, WorkflowEvent<string, JsonValue>[]>();
@@ -1562,6 +1627,12 @@ class WorkflowOwner {
       throw new Error(`agent ${spec.key}: ${RUN_SANDBOX_ONLY}`);
     const existing = this.#agents.get(spec.key);
     if (existing?.stopped !== undefined) throw stoppedError(spec.key, existing.stopped);
+    const given = (spec as EventAgentOpenSpec).keepAlive;
+    if (given !== undefined && !this.options.mailbox)
+      throw new Error(
+        `agent ${spec.key}: keepAlive is for a workflow with events, whose runs park; this one's never do`,
+      );
+    const keepAlive = given === undefined ? undefined : checkedKeepAlive(spec.key, given);
     const execution = existing
       ? constrainExistingExecution(spec.runtime, existing.identity.execution)
       : withKnownEffort(resolveExecution(spec.runtime, this.options.runtime));
@@ -1589,6 +1660,7 @@ class WorkflowOwner {
     if (existing) {
       assertCompatibleAgent(spec.key, existing.identity, identity, spec);
       this.#tools.reopen(spec.key, spec.tools);
+      if (keepAlive) existing.keepAlive = keepAlive;
       const seated =
         spec.sandbox === undefined
           ? existing.state
@@ -1670,6 +1742,7 @@ class WorkflowOwner {
         (opened) => opened,
         () => undefined,
       ),
+      ...(keepAlive ? { keepAlive } : {}),
     });
     const activated = this.track(waitForDeadline(ownedState, effectiveDeadline));
     scope?.track(activated);
@@ -2093,6 +2166,8 @@ class WorkflowOwner {
       ...(this.options.mailbox ? { turns: this.#turnsOf(key, this.options.mailbox) } : {}),
       fork: (spec, take, settings) => this.forkAgent(key, spec, take, settings),
       keepPane: () => this.#agents.get(key)?.identity.keepPane,
+      keepAlive: () => this.#agents.get(key)?.keepAlive,
+      defaultWindowMs: this.options.defaultWindowMs ?? DEFAULT_WINDOW_MS,
       // Its socket is its authority: a kept agent's harness lives on, and must not answer.
       revoke: () =>
         this.#agents
@@ -2450,6 +2525,10 @@ class LogicalAgent implements AgentRef {
   #hasRun = false;
   /** Supervisors of its open operation, woken when something arrives for it. */
   readonly #watchers = new Set<() => void>();
+  /** When its last turn this attempt that opens a window ended. */
+  #lastEnd: number | undefined;
+  /** A turn that opens a window ended since its `onTimeout` was last called. */
+  #timeoutOwed = false;
 
   constructor(
     private readonly options: {
@@ -2495,6 +2574,10 @@ class LogicalAgent implements AgentRef {
       ): Promise<AgentRef>;
       /** As the workflow wrote it; decides, at close, whether its pane stays. */
       keepPane(): KeepPane | undefined;
+      /** As the workflow's last open of it gave it. */
+      keepAlive(): KeepAlive | undefined;
+      /** Its window when `keepAlive` gives no `timeoutMs`. */
+      defaultWindowMs: number;
       /** Closes its result channel, once its pane is kept. */
       revoke(): Promise<void> | undefined;
     },
@@ -2538,6 +2621,27 @@ class LogicalAgent implements AgentRef {
 
   get closedReason(): string | undefined {
     return this.#closed ? (this.#closedReason ?? "closed") : undefined;
+  }
+
+  /** The end of its window while one is open; a closed agent holds none. */
+  liveUntil(now = Date.now()): number | undefined {
+    const keepAlive = this.options.keepAlive();
+    if (this.#closed || !keepAlive || this.#lastEnd === undefined) return undefined;
+    const until = this.#lastEnd + (keepAlive.timeoutMs ?? this.options.defaultWindowMs);
+    return until > now ? until : undefined;
+  }
+
+  /**
+   * Its `onTimeout`, once its window has passed with it idle and a turn owed it, taken: it isn't
+   * due again until another turn ends.
+   */
+  takeTimeout(now = Date.now()): KeepAlive["onTimeout"] {
+    const onTimeout = this.options.keepAlive()?.onTimeout;
+    if (!onTimeout || !this.#timeoutOwed || this.#closed || this.busy || this.#started)
+      return undefined;
+    if (this.liveUntil(now) !== undefined) return undefined;
+    this.#timeoutOwed = false;
+    return onTimeout;
   }
 
   /**
@@ -2705,6 +2809,7 @@ class LogicalAgent implements AgentRef {
     } catch (error) {
       return Promise.reject(error);
     }
+    const opensWindow = !inTimeoutHandler();
     const id = spec.id ?? randomUUID();
     const completeSpec = structuredClone({ ...spec, id }) as
       | AgentRunTextSpec
@@ -2756,7 +2861,7 @@ class LogicalAgent implements AgentRef {
       this.options.progress.turnStarted(this.key, tags);
       try {
         const settled = await this.executeOperation(completeSpec, scope, deadline, operation);
-        this.turnEnded(settled.outcome, "turn");
+        this.turnEnded(settled.outcome, "turn", opensWindow);
         return settled;
       } catch (error) {
         operation.failed(error);
@@ -2944,7 +3049,16 @@ class LogicalAgent implements AgentRef {
   }
 
   /** A turn or compaction that settled, as the view shows it and `turns.jsonl` keeps it. */
-  private turnEnded(outcome: TurnOutcome<JsonValue>, kind: TurnRecord["kind"]): void {
+  private turnEnded(
+    outcome: TurnOutcome<JsonValue>,
+    kind: TurnRecord["kind"],
+    opensWindow = false,
+  ): void {
+    // A failure has closed it by now, and a closed agent holds no window.
+    if (opensWindow && !this.#closed) {
+      this.#lastEnd = Date.now();
+      this.#timeoutOwed = true;
+    }
     this.#last = outcome.kind;
     const reason = "reason" in outcome ? outcome.reason : undefined;
     this.options.progress.turnSettled(this.key, outcome.kind, reason);
@@ -3498,15 +3612,17 @@ class LogicalAgent implements AgentRef {
     const owner = this.options.messageOwner(scope);
     if (!owner) return;
     // Whatever code made the message due, a handler included, nothing waits for its operation.
-    const result = outsideTools(() =>
-      this.queue(async () => {
-        if (this.#closed || this.options.isRunClosing()) return;
-        // What is first now: a message dropped since this was queued leaves another route's, which
-        // waits for an operation of its own scope.
-        const opening = this.options.messaging.opening(this.key);
-        if (opening?.scope !== scope) return;
-        await this.executeMessageOperation(opening.from, scope, owner.stage);
-      }),
+    const result = outsideTimeouts(() =>
+      outsideTools(() =>
+        this.queue(async () => {
+          if (this.#closed || this.options.isRunClosing()) return;
+          // What is first now: a message dropped since this was queued leaves another route's,
+          // which waits for an operation of its own scope.
+          const opening = this.options.messaging.opening(this.key);
+          if (opening?.scope !== scope) return;
+          await this.executeMessageOperation(opening.from, scope, owner.stage);
+        }),
+      ),
     );
     this.options.track(result).catch(() => undefined);
     owner.adopt(result);
@@ -3692,6 +3808,7 @@ class LogicalAgent implements AgentRef {
           ? { kind: "failed", reason: outcome.reason, retryable: false, usage }
           : { kind: outcome.kind, reason: outcome.reason, usage },
       "turn",
+      true,
     );
     return outcome;
   }

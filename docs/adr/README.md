@@ -23,3 +23,5 @@ One file per decision: what was decided, what it replaces, and what evidence mov
 - [0010](0010-the-calling-session-is-an-agent.md) — the calling session is an agent of the run it
   started
 - [0011](0011-a-run-continues-from-its-stages.md) — a run continues from its stages
+- [0012](0012-a-kept-session-and-its-window.md) — an event run keeps its agents' sessions, and a
+  kept-alive agent holds the run live
