@@ -561,8 +561,9 @@ export interface EventAgentOpenSpec extends AgentOpenSpec {
     /**
      * Called once the window passes, if a turn ended since it last ran, at a wait with nothing to
      * take and nothing working, which awaits it in its own scope: to compact the agent while its
-     * cache is warm, say. What it runs on this agent opens no window; a message to a peer is the
-     * peer's turn. A throw is logged; the run parks anyway.
+     * cache is warm, say. No turn it begins opens a window, on any agent; a message it has a peer
+     * send is the peer's turn. It must settle: the wait takes no event until it does. A throw is
+     * logged; the run parks anyway.
      */
     onTimeout?: (agent: EventAgentRef) => Promise<void> | void;
   };

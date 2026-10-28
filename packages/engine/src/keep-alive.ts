@@ -8,7 +8,7 @@ export const DEFAULT_WINDOW_MS = 60 * 60_000;
 
 /**
  * Set while an `onTimeout` handler runs: a turn begun in it opens no window, so a wrap-up can't keep
- * its own agent live. A message turn runs outside it (`outsideTimeouts`): it is the peer's.
+ * its own agent live. A message turn opens one whatever the context: it is the peer's.
  */
 const inHandler = new AsyncLocalStorage<boolean>();
 
@@ -18,10 +18,6 @@ export function inTimeoutHandler(): boolean {
 
 export function asTimeoutHandler<T>(fn: () => T): T {
   return inHandler.run(true, fn);
-}
-
-export function outsideTimeouts<T>(fn: () => T): T {
-  return inHandler.run(false, fn);
 }
 
 /** `keepAlive` as an open gave it, checked: what a typed caller can't get wrong, a plain one can. */

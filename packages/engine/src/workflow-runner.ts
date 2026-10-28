@@ -130,7 +130,6 @@ import {
   DEFAULT_WINDOW_MS,
   inTimeoutHandler,
   type KeepAlive,
-  outsideTimeouts,
 } from "./keep-alive";
 import {
   type RestoredTurn,
@@ -3612,17 +3611,15 @@ class LogicalAgent implements AgentRef {
     const owner = this.options.messageOwner(scope);
     if (!owner) return;
     // Whatever code made the message due, a handler included, nothing waits for its operation.
-    const result = outsideTimeouts(() =>
-      outsideTools(() =>
-        this.queue(async () => {
-          if (this.#closed || this.options.isRunClosing()) return;
-          // What is first now: a message dropped since this was queued leaves another route's,
-          // which waits for an operation of its own scope.
-          const opening = this.options.messaging.opening(this.key);
-          if (opening?.scope !== scope) return;
-          await this.executeMessageOperation(opening.from, scope, owner.stage);
-        }),
-      ),
+    const result = outsideTools(() =>
+      this.queue(async () => {
+        if (this.#closed || this.options.isRunClosing()) return;
+        // What is first now: a message dropped since this was queued leaves another route's, which
+        // waits for an operation of its own scope.
+        const opening = this.options.messaging.opening(this.key);
+        if (opening?.scope !== scope) return;
+        await this.executeMessageOperation(opening.from, scope, owner.stage);
+      }),
     );
     this.options.track(result).catch(() => undefined);
     owner.adopt(result);

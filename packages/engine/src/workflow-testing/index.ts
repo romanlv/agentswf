@@ -297,6 +297,10 @@ export async function testWorkflow<Args extends JsonValue, Result extends JsonVa
       stopping.abort(new Error("everything left waits on a participant"));
       return;
     }
+    if (host.inFlight().length === 0 && liveUntil !== undefined && liveUntil > Date.now())
+      return stopWith(
+        `the run stalled: it waits live in an agent's keepAlive window for ${liveUntil - Date.now()} ms more; a test gives the agent a short timeoutMs, or none`,
+      );
     const waiting = host
       .inFlight()
       .map((turn) => `"${turn.agent}" turn ${turn.n}${turn.nudge ? " (nudge)" : ""}`);
@@ -307,6 +311,8 @@ export async function testWorkflow<Args extends JsonValue, Result extends JsonVa
     );
   };
   const scripted = withEvents && eventOptions && new ScriptedEvents(withEvents, eventOptions);
+  /** The end of the window the run last waited live to. */
+  let liveUntil: number | undefined;
   let nudge: (() => void) | undefined;
   const events = {
     onActivity: () => arm(stallMs),
@@ -420,15 +426,12 @@ export async function testWorkflow<Args extends JsonValue, Result extends JsonVa
           ? {
               events: true as const,
               park: async () => undefined,
-              ...(scripted
-                ? {
-                    live: async () => {
-                      const due = scripted.ended();
-                      for (const record of due) await appendMailbox(run.dir, record);
-                      if (due.length > 0) nudge?.();
-                    },
-                  }
-                : {}),
+              live: async (until: number) => {
+                liveUntil = until;
+                const due = scripted ? scripted.ended() : [];
+                for (const record of due) await appendMailbox(run.dir, record);
+                if (due.length > 0) nudge?.();
+              },
               listenNudges: (given: () => void) => {
                 nudge = given;
               },

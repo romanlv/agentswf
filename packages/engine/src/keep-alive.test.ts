@@ -161,7 +161,7 @@ test("an event during onTimeout is returned once it finishes, and its turn opens
   expect(order).toEqual(["start", "handler", "handler done", "event", "handler", "handler done"]);
 });
 
-test("onTimeout isn't called while its agent's started turn runs; a window that passes meanwhile is handled at the next idle wait", async () => {
+test("a window that passes while another agent works is handled at the next idle wait", async () => {
   const calls: { investigator: number[]; lens: number[] } = { investigator: [], lens: [] };
   const started = Date.now();
   let lensEnded = 0;
@@ -437,4 +437,14 @@ test("in a test, a window that gives no timeoutMs is short, not the hour, so the
   );
   expect(run.parked).toBeDefined();
   expect(calls).toEqual(["handler"]);
+});
+
+test("a test whose run sits in a long window stalls, and says it waits live in one", async () => {
+  await expect(
+    testWorkflow(watcher({ timeoutMs: 60_000 }), {
+      ...startCase,
+      stallMs: 300,
+      agents: { investigator: answer("looked") },
+    }),
+  ).rejects.toThrow("waits live in an agent's keepAlive window");
 });

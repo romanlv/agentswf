@@ -466,6 +466,15 @@ Two read-only reviews of the diff, 2026-10-28: architecture and scope, and corre
   live, as two kept agents messaging each other can. Kept as defence: `takeTimeout`'s
   started-turn guard, which idle already covers.
 
+A second review of the whole branch, 2026-10-28: no blocker. Fixed: the contract and ADR said
+only the handler's own agent's turns open no window, where no turn begun in it opens one on any
+agent; a test sitting in a long window stalled with "no turn in flight", and now says it waits
+live in a `keepAlive` window; `outsideTimeouts` was redundant, since a message turn opens its
+window explicitly, and is gone; a test's name claimed a started-turn guard idle already covers;
+the contract says a handler must settle, since the wait takes nothing until it does; the
+watcher's closed-case focus is tested. Kept: a reopen replaces `keepAlive` before its sandbox
+check settles, as it replaces tools.
+
 ### Task 3
 
 - The watcher's own tests stalled with the default hour (11 of 48): a finding for awf, fixed by a
