@@ -274,3 +274,32 @@ test("a due onTimeout runs before the wait parks, after an event already there i
   await expect(box.receive(undefined)).rejects.toBeInstanceOf(RunParked);
   expect(calls).toEqual(["handler", "park"]);
 });
+
+test("a window that passes between the wait's two looks is handled, not parked past", async () => {
+  const runDir = runDirs.tempRunDir();
+  // Each look at the clock comes later than the one before: the window ends between two.
+  let now = 0;
+  const END = 1;
+  const calls: string[] = [];
+  let owed = true;
+  const box = new RunMailbox({
+    runDir,
+    attempt: 1,
+    locked: (work) => work(),
+    parking: {
+      idle: () => true,
+      liveUntil: () => (now++ < END ? END : undefined),
+      timeout: async () => {
+        if (!owed || now++ < END) return false;
+        owed = false;
+        calls.push("handler");
+        return true;
+      },
+      park: async () => {
+        calls.push("park");
+      },
+    },
+  });
+  await expect(box.receive(undefined)).rejects.toBeInstanceOf(RunParked);
+  expect(calls).toEqual(["handler", "park"]);
+});

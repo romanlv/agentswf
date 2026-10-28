@@ -401,7 +401,7 @@ Done when:
   handler that throws still parks; a turn that fails closes the agent, opens no window, and the
   run parks; two agents' handlers each run at their own window's end and the run parks after the
   later; a window that passes while another agent works is handled at the next idle wait; the
-  wait in a window doesn't read the mailbox each second; the agent's row shows "live until
+  wait in a window doesn't read the mailbox and look at the run each second, past the size check every wait makes for a lost nudge; the agent's row shows "live until
   {time}"; no `keepAlive` parks as today.
 
 ### 3. The Datadog case run, live
@@ -474,6 +474,12 @@ window explicitly, and is gone; a test's name claimed a started-turn guard idle 
 the contract says a handler must settle, since the wait takes nothing until it does; the
 watcher's closed-case focus is tested. Kept: a reopen replaces `keepAlive` before its sandbox
 check settles, as it replaces tools.
+
+A third review, 2026-10-28: one race, fixed. The wait asked whether a handler was due, then
+whether a window was open, each on its own clock: a window ending between the two parked the run
+with its handler owed, and the compaction lost. It now asks for the window first; a mailbox test
+with a clock that moves between looks fails on the old order. Wording: in a window the wait still
+checks the mailbox file's size each second, as every wait does for a lost nudge.
 
 ### Task 3
 

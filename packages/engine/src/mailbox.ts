@@ -403,9 +403,11 @@ export class RunMailbox {
       }
       const { parking } = this.options;
       const idle = parking?.idle(stage) ?? false;
+      // Before the handlers, on the same clock: a window that passes between the two is due by the
+      // time `timeout` looks, never parked past.
+      const live = parking && idle ? parking.liveUntil() : undefined;
       // Read again after a handler: what arrived meanwhile is taken first.
       if (parking && idle && (await parking.timeout(signal))) continue;
-      const live = parking && idle ? parking.liveUntil() : undefined;
       if (parking && live !== undefined) await parking.live?.(live);
       else if (parking && idle) {
         const wait: WaitingJson = {
