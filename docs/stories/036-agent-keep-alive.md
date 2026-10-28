@@ -3,7 +3,7 @@ id: "036"
 title: "An agent stays live after its turn, and compacts before the run parks"
 summary: "An agent opened with keepAlive keeps the run live for a while after its last turn, so a follow-up is a warm turn in the same pane; when its window passes, its onTimeout handler can compact it with a focus written then, while the cache is warm. The run parks once every window has passed and its handlers have run."
 type: story
-status: draft
+status: ready
 depends_on: ["034"]
 ---
 
@@ -65,7 +65,8 @@ const focusFor = (kase: CaseView) =>
   awaited, started, or a message from a peer. A turn that never reached the harness, refused or
   cancelled while queued, opens none; nor do a compaction, a `set`, a fork, a turn's end a crash's
   recovery wrote, or any turn begun inside a handler. So a wake that only takes an event opens no
-  window.
+  window. An agent that closes has no window and its handler isn't called: a turn that fails, is
+  cancelled or times out closes it, as `agents.stop` and a cancelled stage do.
 - **The handler is due** once the agent's window has passed, the agent is idle with no started
   turn, and a turn that opened a window has ended since the handler last ran. What a handler runs
   on its own agent never makes it due again, so a wrap-up turn can't loop it. A message the
@@ -75,10 +76,10 @@ const focusFor = (kase: CaseView) =>
   agent stays with it, with `keepAlive` or not: nothing is released alone. The run parks when the
   wait has nothing to take, nothing works, no window is open and no handler is due, as in 034, and
   every pane closes with the attempt.
-- **Handlers run at a wait, and the wait awaits them.** At a wait with nothing to take, the wait
-  calls the due handlers one by one, reading the mailbox again before each: an event there is
-  returned first, and its turn opens a new window instead. A window that passes while the code
-  works between waits is handled at its next wait. Two agents' windows pass each on its own clock;
+- **Handlers run at a wait, and the wait awaits them.** At a wait with nothing to take and nothing
+  else working, the wait calls the due handlers one by one, reading the mailbox again before each:
+  an event there is returned first, and its turn opens a new window instead. A window that passes
+  while the code or another agent works is handled at the next wait where nothing does. Two agents' windows pass each on its own clock;
   the run parks after the later. Between windows the wait sleeps to the earliest window's end, as
   to an `until`, without polling.
 - **The handler** gets the agent's ref and runs in the wait's scope, as the code at that wait
@@ -162,8 +163,12 @@ Out of scope:
   `workflow-runner.ts:546`); it is no turn of this attempt, so it opens no window.
 - Fact: an agent can't be compacted before its first turn in an attempt; the harness answers
   `failed` (`docs/workflow-api.md:685`, `herdr.ts:1352-1356`). A window opens only at the end of a
-  turn that reached the harness in this attempt, so the handler meets that only where a turn ran
-  and its pane never launched; then the compaction answers `failed`, harmlessly.
+  turn that reached the harness in this attempt, and a turn whose pane never launched fails and
+  closes the agent, so a handler never meets an agent before its first turn.
+- Fact: a turn that fails, is cancelled or times out closes an opened agent
+  (`closeAfterFailure`, `workflow-runner.ts:3120`); so do `agents.stop` (`agents.ts:499`) and a
+  stage's cancellation (`workflow-runner.ts:3088`). A closed agent refuses every operation, so it
+  can hold no window.
 - Fact: a wait inside a stage carries the stage's scope: a `start()` there is refused, as root
   only (`workflow-runner.ts:2593-2597`), and work in it is cancelled with the stage. The stage
   can't end while its wait awaits a handler, so the handler runs in that scope like the code.
@@ -185,7 +190,9 @@ Out of scope:
   default window.
 - Fact: `awf runs` renders a run at its wait as its label and `until`
   (`packages/engine/src/runs-command.ts:161-167`, from the wait record, `run-state.ts:56-66`); it
-  can't show when a window ends without the record saying so.
+  can't show when a window ends without the record saying so. The run's terminal draws
+  `WorkflowRunSnapshot` (`workflow-runner.ts:326`, `progress-view.ts`): a row per agent, and no
+  wait.
 - Fact: `testWorkflow` runs on real timers, and a scripted event is sent only during a turn,
   `during: "{agent}#{n}"` (`workflow-testing/index.ts:142`); nothing sends one after a turn ends.
 - Fact: today's watcher case run opens a pane per message: the operator saw it in Slack on
@@ -201,7 +208,8 @@ Out of scope:
   [[agent-release]].
 - Constraint: ADR 0008, a pane agent keeps one pane for its operations: since 034 that holds per
   attempt. The ADR says so; this story changes nothing else in it.
-- Assumption: a compacted investigator is much smaller (M1); the story's value rests on it.
+- Assumption: a compacted investigator is much smaller (M1). The compaction's value rests on it;
+  the window's doesn't, since it saves a pane and a resume per message (M3).
 
 ## Code map
 
@@ -221,8 +229,11 @@ Out of scope:
   marked, as a tool handler's is (`inToolHandler`), and `startMessageOperation` clears the mark as
   it clears the tool one (`outsideTools`, `workflow-runner.ts:3501`): a peer's message drained from
   the agent's queue during a handler is the peer's turn, not the handler's. Nothing else begun in
-  it opens a window or makes
-  a handler due; open refuses `keepAlive` outside a workflow with `events`.
+  it opens a window or makes a handler due; closing the agent drops its window; open refuses
+  `keepAlive` outside a workflow with `events`. The snapshot's agent gains `liveUntil`, its
+  window's end while one is open.
+- `packages/engine/src/progress-view.ts` — an idle agent in a window shows "live until {time}" on
+  its row (Q3).
 - `packages/engine/src/mailbox.ts` — `Parking` gains `timeouts()`: when the run is idle at a wait
   with nothing to take, it calls the due handlers, the mailbox read again before each, and returns
   the earliest open window's end; the wait parks only when none is open, and otherwise sleeps to it.
@@ -305,7 +316,7 @@ Alternatives rejected:
 - Q2. **A default `timeoutMs`.** Decided: an hour, claude's cache life on a subscription.
 - Q3. **Showing when a kept-alive run will park.** Decided: nothing is saved for it. `awf runs`
   shows the run as live and waiting, as today; the run's own terminal output prints
-  "live until {time}" as it waits.
+  "live until {time}" as it waits, on the row of each agent whose window is open.
 
 ## To measure
 
@@ -384,9 +395,11 @@ Done when:
   event already in the mailbox when a window passes is returned before the handler runs; an event
   during the handler is returned once it finishes; a peer's message that reaches the agent during
   its handler opens a window; a stop during a handler ends the wait without calling the next; a
-  handler that throws still parks; two agents'
-  handlers each run at their own window's end and the run parks after the later; the wait in a
-  window doesn't read the mailbox each second; no `keepAlive` parks as today.
+  handler that throws still parks; a turn that fails closes the agent, opens no window, and the
+  run parks; two agents' handlers each run at their own window's end and the run parks after the
+  later; a window that passes while another agent works is handled at the next idle wait; the
+  wait in a window doesn't read the mailbox each second; the agent's row shows "live until
+  {time}"; no `keepAlive` parks as today.
 
 ### 3. The Datadog case run, live
 
@@ -437,7 +450,9 @@ Manual or live evaluation:
 
 - [x] Outcome and boundaries are concrete.
 - [x] Relevant implementation, callers, and tests are mapped.
-- [ ] Evidence and research support the proposed design. (M1 is owed: the size a compaction saves.)
+- [x] Evidence and research support the proposed design. (M1, the size a compaction saves, is
+  measured in task 3; the window stands without it, and a poor M1 changes only the watcher's
+  handler.)
 - [x] Expensive interface, record-format, and stage-gate decisions are settled. (No record
   change.)
 - [x] Tasks are ordered, coherent, and independently verifiable.
