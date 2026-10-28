@@ -102,6 +102,7 @@ live runs.
 
 ### P3
 
+- [[agent-release]] — release one agent's pane while its run stays live; after story 036.
 - [[npm-launch]], [[scrub-private-references]], [[node-runtime]], [[live-eval-disclosure]] — the
   launch.
 - [[judge-opus-voter]], [[workflow-test-generated-answers]],

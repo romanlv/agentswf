@@ -198,7 +198,7 @@ Out of scope:
 - tools an agent calls ([[035-workflow-tools|story 035]]), which doesn't depend on this one, and
   the emit to the run's own mailbox a tool's handler may use, a follow-up after both; 035, landing
   second, takes the rules in its "With story 034"; this story's port has none;
-- the rest of [[agent-keep-alive]]: an agent kept live for a while after its turn
+- the rest of [[036-agent-keep-alive|story 036]]: an agent kept live for a while after its turn
   (`keepAlive.timeoutMs`), and compacting it before it parks;
 - a limit on how many runs of a workflow are live at once (the review loop's `MAX_NEW`); until it
   exists, a triage tick that changes twenty cases starts twenty runs. It goes in `wake`;

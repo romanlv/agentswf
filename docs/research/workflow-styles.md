@@ -775,7 +775,7 @@ fixed, though: this table is what to weigh if a better one turns up.
    that doesn't line up. The label comes from A's `condition`, so `awf runs` shows what the run is
    waiting for.
 3. **`again(state)` for processes that live for months,** with the agent kept across rounds
-   ([[agent-keep-alive]]). Otherwise every round starts the agent cold.
+   ([[036-agent-keep-alive|story 036]]). Otherwise every round starts the agent cold.
 
 From the others, it would also keep event schemas declared per workflow and refused at the sender
 (A), event ids deduplicated on emit (C, D), and a turn cut by a reboot arriving as `failed`,
