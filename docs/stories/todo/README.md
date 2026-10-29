@@ -89,6 +89,10 @@ live runs.
 - [[readable-workflows]] — durations a person writes; the ticket workflow as its process.
 - [[run-through-sleep]] — keep the machine awake for a run; record time slept through.
 - [[review-shapes-and-models]] — the research program once the loop is cheap.
+- [[crash-leftovers-reaper]] — a later awf ends the agents, sandboxes and control-plane
+  directories a dead one left, from records each owner writes as it launches.
+- [[woken-run-bounds]] — a woken run gets a deadline, and `awf tick` reaps an ended attempt still
+  alive; one reading of liveness when `ps` can't answer.
 
 ### P2
 
@@ -98,6 +102,7 @@ live runs.
 - [[mid-turn-messages]] — a message folded into a running claude turn; after story 029.
 - [[key-growth-from-runs]], [[jev-noise-audit]], [[second-case-kind]] — the lab's data and scorer.
 - [[workflow-in-sandbox]], [[sandbox-host-protection]] — containment.
+- [[sandbox-setsid-escape]] — what leaves a sandbox's process group is ended with it.
 - [[split-large-modules]].
 
 ### P3
@@ -107,3 +112,4 @@ live runs.
   launch.
 - [[judge-opus-voter]], [[workflow-test-generated-answers]],
   [[workflow-test-virtual-time]].
+- [[test-host-teardown]] — a failing test still closes its Herdr hosts.
