@@ -53,8 +53,10 @@ export interface Ledger {
   saw(changes: Type.Static<typeof Changes>): void;
   askAgain(): void;
   apply(ask: Ask, pass: Pass): Promise<void>;
-  failed(eventId: string): void;
-  retrying(): boolean;
+  /** Records a failed pass; returns when to retry it. */
+  failed(eventId: string): Date;
+  /** A failed pass's backoff hasn't passed at `now`. */
+  retrying(now: Date): boolean;
   posted(finding: string, note: { noteId: number }): void;
   resolved(finding: string, at: { at: string }): void;
   summarised(note: { noteId: number }): void;
@@ -112,8 +114,7 @@ const mrReview = defineWorkflow({
             const pass = e.data.outcome.value;
             await workflow.stage(`apply-${e.id}`, () => ledger.apply(e.data.meta, pass));
           } else if (e.data.outcome.kind !== "cancelled") {
-            ledger.failed(e.id);
-            workflow.timer(`retry-${e.id}`, "15m");
+            workflow.timer(`retry-${e.id}`, ledger.failed(e.id));
             workflow.log("review pass failed; retried in 15 minutes", {
               outcome: e.data.outcome.kind,
             });
@@ -125,7 +126,7 @@ const mrReview = defineWorkflow({
           if (e.data.merged) return { merged: true };
         }
       }
-      if (reviewer.turn || ledger.retrying() || ledger.archived) continue;
+      if (reviewer.turn || ledger.retrying(workflow.now()) || ledger.archived) continue;
 
       const threads = await gitlab.threads(iid);
       const ask = nextAsk(ledger, threads);

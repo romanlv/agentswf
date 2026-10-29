@@ -41,7 +41,8 @@ export interface Case {
   pending(): Batch;
   writeUpDue(): Batch["writeUp"];
   closed(): boolean;
-  retrying(): boolean;
+  /** A failed turn's backoff hasn't passed at `now`. */
+  retrying(now: Date): boolean;
   retryAt(): number | undefined;
   failuresInARow(): number;
   markGiven(given: Batch): void;
@@ -111,7 +112,7 @@ const caseRun = defineWorkflow({
           if (isAnswered(e.data.outcome)) kase.markGiven(e.data.meta);
           else if (e.data.outcome.kind !== "cancelled") {
             kase.markFailed(e.id);
-            // Its event wakes the wait; `retrying()` is false by then.
+            // Its timer:due wakes the wait, at the run's time `retrying` reads.
             const retryAt = kase.retryAt();
             if (retryAt !== undefined) workflow.timer(`retry-${e.id}`, new Date(retryAt));
             if (kase.failuresInARow() === 1)
@@ -124,7 +125,7 @@ const caseRun = defineWorkflow({
           await workflow.stage(`close-${e.id}`, () => kase.close(e.data, e.at));
         }
       }
-      if (!investigator.turn && !kase.retrying() && needsTurn(kase)) {
+      if (!investigator.turn && !kase.retrying(workflow.now()) && needsTurn(kase)) {
         const given = kase.pending();
         await investigator.start({ prompt: promptFor(kase, given), meta: given });
       }

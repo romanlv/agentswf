@@ -78,11 +78,11 @@ The public call surface is:
 | `AgentDirectory` | `open(spec)`, `attach(key, runtime?)`, `stop(key, reason?)` |
 | `ParticipantDirectory` | `connect(spec)`, `get(key)` |
 | `AgentRef` | `run(spec)`, `compact(spec)`, `set(spec)`, `fork(spec)` |
-| `EventAgentRef` | as `AgentRef`, and `start(spec)`, `turn`, `ended(event)` |
-| `StartedTurn` | `id`, `cancel(reason?)` |
+| `EventAgentRef` | as `AgentRef`, and `start(spec)`, `turn`, `is(event)`; a source of its turns' ends |
+| `StartedTurn` | `id`, `cancel(reason?)`, `is(event)`; a source of its end |
 | `Messaging` | `allow(access)` |
 | `Steps` | `run(spec, operation)`, `sleep(spec)` |
-| `WorkflowContext` | `call(spec)`, `emit(target, name, data, options?)`, `parallel(items, operation, options?)`, `usage()`, `log(message, fields?)` |
+| `WorkflowContext` | `call(spec)`, `emit(target, name, data, options?)`, `parallel(items, operation, options?)`, `usage()`, `log(message, fields?)`, `sleep(name, when)`, `now()`; with `events`, `receive`, `race`, `select`, `timer`, `timers`, `signal`, `started` |
 
 Every turn ends as `answered`, `unanswered`, `blocked`, `timed-out`, `failed`, or `cancelled`. An answered turn
 contains either text or JSON validated against the supplied `OutputSchema`. Every outcome carries

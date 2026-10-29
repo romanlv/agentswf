@@ -3,7 +3,7 @@ id: "037"
 title: "A workflow waits on time in code that says what it waits for"
 summary: "Reminders, expiries, retries, debounces and follow-ups read as what they are, in a loop and in straight-line code alike: named timers, typed sources, a named race that takes only its winner, select as its loop form beside receive, and sleep."
 type: story
-status: in-progress
+status: awaiting-human-review
 depends_on: ["034"]
 ---
 
@@ -463,9 +463,10 @@ replaced:
   clock skips past it.
 - **A limit stops a loop that never ends**: a reminder every two days with no reply is skipped
   to the limit (a number of firings, or a virtual time), and the test fails naming it.
-- **The run's time is the clock's.** A timer's `at`, an event's `at` and a stage's record use the
-  virtual time, and so does `workflow.now()`; a workflow that read `Date.now()` would disagree
-  with the clock, which the lints below catch.
+- **The run's time is the clock's.** A timer's `at`, an event's `at`, an agent's `keepAlive`
+  window and `workflow.now()` use the virtual time; a workflow that read `Date.now()` would
+  disagree with the clock, which the lints below catch. A stage's and a turn's records keep real
+  time, which orders nothing.
 - **`TestRun` shows the timers**: set, due, cancelled and pending, by name, beside `run.parked`.
 
 What the clock does not cover yet: an agent turn's `timeoutMs`, a `parallel`'s deadline and the
@@ -540,9 +541,9 @@ Three reviewers read the draft with `race({ … })` unnamed and a fired timer th
 
 - [x] 1. The author surface: sources, timers, `race`, `select`, `sleep`, `started`, `now()`
 - [x] 2. Timers and selective waits in the mailbox: fire, take, park and wake
-- [ ] 3. A virtual clock in `testWorkflow`
-- [ ] 4. Timers and `sleep` in a workflow without `events`
-- [ ] 5. The sketches and docs on timers, and a live run
+- [x] 3. A virtual clock in `testWorkflow`
+- [x] 4. Timers and `sleep` in a workflow without `events`
+- [x] 5. The sketches and docs on timers, and a live run
 
 ## Implementation decisions
 
@@ -557,6 +558,12 @@ Where building it met something the model above didn't settle (2026-10-29):
 - **An agent is a source of its turns' ends**, as a participant is of its replies: `ended:
   investigator` in a `select`, where `investigator.turn` is one turn's end. Every source's `is(e)`
   replaces `replied(e)` and `ended(e)`.
+- **A test's clock skips where the run would park**, up to `maxTimers`, 20 by default; at it the
+  run parks, so `maxTimers: 0` tests the parking itself, and `run.value` says the clock stopped.
+  One knob in place of a firing count and a virtual end time.
+- **A workflow without `events` sleeps in its process**: `awf run` gives a plain run no parking, so
+  its wait sleeps to the timer, and a `--continue` after a crash keeps the recorded due time.
+  Parking one waits on api-consolidation item 1, where such a run would live.
 - **A wait's record names what it takes** (`takes`), and the parked ending's `until` is the
   earliest timer it takes, so `awf runs` and `awf tick` read the same thing they did; `awf tick`'s
   cause `until` becomes `timer`.
@@ -638,11 +645,11 @@ its timers.
 
 Execution:
 
-- [ ] Plan: inspect the relevant code and tests and record the architecture and focused proof.
-- [ ] Implement: make only this task's coherent change and add focused tests with it.
-- [ ] Review: obtain architecture/scope and correctness/proof subagent reviews of the actual diff.
-- [ ] Resolve: disposition findings and obtain targeted re-review after material design changes.
-- [ ] Verify: satisfy every `Done when` item before checking this task.
+- [x] Plan: inspect the relevant code and tests and record the architecture and focused proof.
+- [x] Implement: make only this task's coherent change and add focused tests with it.
+- [x] Review: obtain architecture/scope and correctness/proof subagent reviews of the actual diff.
+- [x] Resolve: disposition findings and obtain targeted re-review after material design changes.
+- [x] Verify: satisfy every `Done when` item before checking this task.
 
 Work:
 
@@ -661,11 +668,11 @@ stays a workflow with `events`'s.
 
 Execution:
 
-- [ ] Plan: inspect the relevant code and tests and record the architecture and focused proof.
-- [ ] Implement: make only this task's coherent change and add focused tests with it.
-- [ ] Review: obtain architecture/scope and correctness/proof subagent reviews of the actual diff.
-- [ ] Resolve: disposition findings and obtain targeted re-review after material design changes.
-- [ ] Verify: satisfy every `Done when` item before checking this task.
+- [x] Plan: inspect the relevant code and tests and record the architecture and focused proof.
+- [x] Implement: make only this task's coherent change and add focused tests with it.
+- [x] Review: obtain architecture/scope and correctness/proof subagent reviews of the actual diff.
+- [x] Resolve: disposition findings and obtain targeted re-review after material design changes.
+- [x] Verify: satisfy every `Done when` item before checking this task.
 
 Work:
 
@@ -683,11 +690,11 @@ parks and wakes on its timer.
 
 Execution:
 
-- [ ] Plan: inspect the relevant code and tests and record the architecture and focused proof.
-- [ ] Implement: make only this task's coherent change and add focused tests with it.
-- [ ] Review: obtain architecture/scope and correctness/proof subagent reviews of the actual diff.
-- [ ] Resolve: disposition findings and obtain targeted re-review after material design changes.
-- [ ] Verify: satisfy every `Done when` item before checking this task.
+- [x] Plan: inspect the relevant code and tests and record the architecture and focused proof.
+- [x] Implement: make only this task's coherent change and add focused tests with it.
+- [x] Review: obtain architecture/scope and correctness/proof subagent reviews of the actual diff.
+- [x] Resolve: disposition findings and obtain targeted re-review after material design changes.
+- [x] Verify: satisfy every `Done when` item before checking this task.
 
 Work:
 
@@ -702,13 +709,13 @@ Done when:
 
 Automated:
 
-- [ ] `bun test`
-- [ ] `bunx tsc --noEmit`
-- [ ] `bun run check`
+- [x] `bun test`: 2245 pass, 0 fail
+- [x] `bunx tsc --noEmit`
+- [x] `bun run check`
 
 Manual or live evaluation:
 
-- [ ] Task 5's live run, on a cheap model.
+- [x] Task 5's live run, on a cheap model (Implementation notes).
 
 ## Review record
 
@@ -741,7 +748,35 @@ Manual or live evaluation:
   pending: every branch is checked before a timer is set, and a race that throws, not parked,
   cancels its own. A name that returns a cancelled timer is logged.
 
+### Tasks 3 and 4
+
+- Correctness and architecture, together: a skip comes only where the run is idle and would park,
+  after a `keepAlive` window and its handler, so it never jumps a turn, a stage or a scripted
+  event; a plain run in `awf run` never parks. Taken: `maxTimers` checked as a whole number; the
+  parked message blames it only when the clock stopped there; the stall check reads one clock; doc
+  comments for plain runs' parking and mailbox; proofs of an event's virtual `at` and of a plain
+  run sleeping in its process. Narrowed: stage and turn records keep real time (Testing, above).
+
+### Task 5
+
+- Docs, sketches and example against the code: the docs said a second `timer()` with another time
+  is logged, and it is also ignored; they left out that `race`, `sleep` and `select` throw in a
+  stage, that a race branch takes a duration and not a `Date`, that races and sleeps share names,
+  and that `select` refuses a duration; `docs/design/README.md` still said `ended(event)`. All
+  fixed. The sketches set a retry timer but gated the retry on their files' clock, which a test's
+  clock never reaches: `retrying(workflow.now())` now, and `mr-review`'s timer is the ledger's own
+  backoff. The example's approval check, `/\bapprove/`, matched "not approved": a reply that
+  starts "approved" now, said to be a stand-in.
+
 ## Implementation notes
 
+- Live run, 2026-10-29, `examples/approval-reminders` on codex `gpt-6-luna`, headless, reminding
+  every minute with a ten-minute expiry: `awf emit` started it and it parked at round 1, `until`
+  16:53; `awf tick` before then woke nothing, and after, continued it, `why: "timer"`. The rerun
+  answered round 1 from its record, the writer drafted a reminder in 7 s (40k tokens, under $0.01
+  at list prices, on the subscription), posted to `awf inbox`, and the run parked at round 2.
+  `awf send --as approvals "Approved, thanks."` continued it, and it returned `approved` at round
+  2, the round's own reminder cancelled. `awf runs` counted the starting event as never taken;
+  the event that started a run is `workflow.started`'s now, and isn't counted.
 - `until` leaves the wait record without a `MAILBOX_RECORD_VERSION` bump: an old parked mailbox's
   `until` is ignored (beta, no compatibility). `awf tick`'s cause `until` is `timer`.

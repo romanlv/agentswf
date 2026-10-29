@@ -262,6 +262,10 @@ The inbox of possible stories is [`stories/todo/`](stories/todo/).
   `keepAlive: { timeoutMs?, onTimeout? }` on an agent of a workflow with events keeps the run live
   for a window after its turns, so a message then is a warm turn in the same pane, and its
   `onTimeout` compacts it before the run parks. ADR 0012.
+- [037 — a workflow waits on time in code that says what it waits for](stories/037-workflow-timers.md):
+  built, awaiting human review. Named timers that fire into the mailbox as `timer:due`; sources
+  (timers, signals, participants, agents, turns); `race`, recorded by name; `select`, a loop beside
+  `receive`; `sleep` in any workflow; `until` gone. A test's clock skips to the next timer.
 
 ## Next
 

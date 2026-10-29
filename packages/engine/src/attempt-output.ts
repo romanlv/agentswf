@@ -107,7 +107,11 @@ export async function keepRecords(
     const unacknowledged =
       ending.kind === "completed" && attempt.run.record.events
         ? await readMailbox(dir).then(
-            (records) => foldMailbox(records).unacknowledged.length,
+            // The event that started the run is `workflow.started`'s, taken or not.
+            (records) => {
+              const state = foldMailbox(records);
+              return state.unacknowledged.filter((id) => id !== state.started?.id).length;
+            },
             (error: unknown) => {
               stderr(`awf: what no wait took was not counted: ${messageOf(error)}`);
               return undefined;

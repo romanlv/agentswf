@@ -32,11 +32,18 @@ workflow.participants.connect({ key, labels? })               // → a participa
 
 workflow.stage(name, { result, summary? }?, async () => …)  // → its value; reused on a continue
 workflow.stop(reason)                                         // ends the attempt stopped
+workflow.sleep(name, "14d" | date)                            // → once the time recorded under name has come
+workflow.now()                                                // the run's time: a test's virtual clock in a test
 
 // A workflow with events adds { file: import.meta.path, events, starts? }; a sender names the run
-workflow.receive({ label?, until?, take? })                   // → the events not yet acknowledged
+workflow.receive({ label?, take? })                           // → the events not yet acknowledged
+workflow.race(name, { branch: source | "2d", … }, { label? })  // → { key, [key]: what won }, recorded under name
+for await (const next of workflow.select({ branch: source, … }))  // each event a branch takes, one at a time
+workflow.timer(name, "2d" | date)   timer.cancel()            // a source: due once, fires as timer:due
+workflow.signal("dd.closed")   workflow.timers()             // sources: a declared event, any timer
+workflow.started                                              // the event that started the run
 agent.start({ prompt, schema?, meta? })   agent.turn          // a turn not awaited; its end is agent:ended
-agent.ended<Meta, T>(e)   participant.replied(e)              // narrow awf's events
+agent.is<Meta, T>(e)   participant.is(e)   timer.is(e)        // narrow an event; each is a source too
 workflow.agents.open({ …, keepAlive: { timeoutMs?, onTimeout? } })  // the run stays live after its turns
 workflow.participants.connect({ key, to: "code" })            // replies come as participant:reply; .post(text)
 workflow.emit(target, run, name, data, { eventId? })          // → "accepted" | "duplicate" | "refused"
@@ -48,7 +55,7 @@ workflow.allowance(harness)                                   // → what is lef
 // In a test, from "agentswf/testing"; `awf test` runs it:
 testWorkflow(workflow, args, { agents?, messages?, participants?, compactions?, awaitReply?, decisions?, allowance?, runtimes?,
                               caller?, timeoutMs?, stallMs?, cwd? | files?, recorded?, fromStage?, values? })  // → run
-testWorkflow(eventWorkflow, { id, args?, event?, events?: [{ during | after: "agent#1", name, data, from? }], maxTurns?, … })  // → run, .emits, .parked
+testWorkflow(eventWorkflow, { id, args?, event?, events?: [{ during | after: "agent#1", name, data, from? }], maxTurns?, maxTimers?, … })  // → run, .emits, .parked, .timers
 answer(SCHEMA, value | (turn) => value)   answer("text")   reply.waiting(reason, timeoutMs?) | silent() | blocked() | failed() | needsLogin(provider?) | timedOut() | hang() | interrupted()
 ```
 
@@ -629,7 +636,7 @@ export default defineWorkflow({
     for (;;) {
       const events = await workflow.receive({ label: `${kase.unseen()} unseen` });
       for (const e of events) {
-        if (investigator.ended<Given>(e) && isAnswered(e.data.outcome)) kase.markGiven(e.data.meta);
+        if (investigator.is<Given>(e) && isAnswered(e.data.outcome)) kase.markGiven(e.data.meta);
         if (e.name === "dd.closed") await workflow.stage(`close-${e.id}`, () => kase.close(e.data));
       }
       if (!investigator.turn && kase.needsLook()) {
@@ -662,23 +669,23 @@ awf emit --target case.ts --id kombo-unique dd.changes '{"case":"kombo-unique"}'
   sender is refused when `prepare` refuses that. Work to do once, on the first attempt, goes in a
   stage at the top of `run`.
 - **Without `events`** a workflow has no `receive`, and its runs never park: nothing could wake
-  them.
+  them. It can `sleep`, which waits in its process.
 - **`receive`** acknowledges what its last call returned, then returns every event not yet
   acknowledged, in arrival order, or the oldest alone with `take: "oldest"`. The first call takes
   the event that started the run, if one did. After a crash, the first call returns the unacknowledged batch
-  again, alone. `label` is what `awf runs` shows; `until`, a time computed from the run's files,
-  returns with no event once passed, and `awf tick` honours it while the run is parked.
+  again, alone. `label` is what `awf runs` shows. A time to act is a timer, which comes as an
+  event: see [Waiting on time](#waiting-on-time).
 - **Turns not awaited.** `agent.start()` takes what `run()` takes, plus `meta`, and returns once
   the turn is launched. Its end arrives at a wait as `agent:ended`, from the agent's key, with the
-  outcome and `meta`; `agent.ended(e)` narrows it. `agent.turn` is set until a wait takes that end,
+  outcome and `meta`; `agent.is(e)` narrows it. `agent.turn` is set until a wait takes that end,
   and the agent refuses other work meanwhile. `agent.turn.cancel()` stops it; a tool call it has
   running is aborted through `call.signal`, and the end and `cancel()` wait for the handler, at
   most 5 s more.
 - **Parking.** Waiting with nothing else of the run working (no turn, decision, sandbox or other
-  stage) and nothing unacknowledged, the run ends its attempt
+  stage) and nothing the wait takes, the run ends its attempt
   `parked` and its process exits. Plain code running beside the wait, outside any awf call, is
   cut off and runs again on the continue: work that must finish goes in a stage or before the
-  wait. The next event, or `awf tick` once `until` passes, continues it:
+  wait. The next event the wait takes, or `awf tick` once its timer is due, continues it:
   agents reopen on their kept sessions, recorded stages are reused, and the loop's wait takes the
   new event. What must outlive that lives in files or a stage. `awf tick` wakes the runs of the
   project it runs in, the ones `awf runs` lists there; `awf tick --all`, every project's.
@@ -722,6 +729,71 @@ awf emit --target case.ts --id kombo-unique dd.changes '{"case":"kombo-unique"}'
   one, and `participant.post(text)` writes back without a turn.
 - **`return`** ends the run for good: later events for it are refused. A run that may be
   needed again records what happened in its files and keeps waiting instead.
+
+### Waiting on time
+
+A timer is a time recorded once under a name; due, it fires into the mailbox as `timer:due`, from
+its name, at its due time. A **source** is something a wait can take: a timer, a declared event
+(`workflow.signal(name)`), a participant routed to the code, an agent (any of its turns' ends) or
+a started turn (its end). Three waits take sources, beside `receive`:
+
+```ts
+// A reminder every two days, an approval, or an expiry at fourteen.
+const expiry = workflow.timer("doc-expires", "14d");
+for (let round = 1; ; round++) {
+  const next = await workflow.race(`approval-${round}`, {
+    reply: approvals,                 // a participant routed to the code
+    remind: "2d",                     // a timer of the race's own
+    expiry,                           // a timer the code made, shared by every round
+  }, { label: "awaiting approval" });
+  if (next.expiry) return abandon();
+  if (next.reply && isApproval(next.reply.text)) return approve(next.reply);
+  if (next.remind) await workflow.stage(`remind-${round}`, () => approvals.post(REMINDER));
+}
+
+// Straight-line code that waits, and goes on.
+await workflow.stage("release", () => release(ticket));
+await workflow.sleep("follow-up", "14d");
+
+// A loop that handles the events it names, one at a time.
+for await (const next of workflow.select({ reply: thread, closed: workflow.signal("dd.closed") })) {
+  if (next.closed) return close(next.closed.data);
+  if (next.reply) await answer(next.reply);
+}
+```
+
+- **`workflow.timer(name, when)`** returns its source at once. `when` is `"{n}d"`, `"{n}h"` or
+  `"{n}m"` from the first call under the name, or a `Date`. The first call names the time: a later
+  one, in this attempt or any other, gets the recorded timer, and one asking another time is
+  logged and ignored. So a timer per round is named per round, and a fixed time is a duration or
+  a `Date` from the run's files: one built from `now()` differs on every rerun. `timer.cancel()` stops it, and a `timer:due` of it not yet taken is withdrawn; a name
+  stays cancelled. A name has no `@`. In a `receive` loop, `timer.is(e)` tells its event, or
+  `e.name === "timer:due"` with `e.from`, its name, for one an earlier attempt made.
+- **`race(name, branches)`** waits for the first of its branches and answers `{ key, [key]: … }`:
+  `if (next.reply)` and `switch (next.key)` both narrow. It takes only what it names: the rest
+  stays in the mailbox for a later wait, and doesn't wake a run parked at the race. Its answer is
+  recorded under `name`, so a rerun gets it back and walks on: a race in a loop is named per round,
+  and a name answers once an attempt. Of two ready, the earlier `at` wins; of two branches taking
+  one event, the first declared. A branch given a duration is a timer of the race's own,
+  `{name}@{branch}`, cancelled when another branch wins; a `workflow.timer()` passed in is the
+  code's to cancel. A branch takes a duration, not a `Date`: a fixed time is
+  `workflow.timer(name, date)`. `race`, `sleep` and `select` throw in a stage or a tool's
+  handler, and races and sleeps share their names.
+- **What a branch hands back**: a reply as its `text` and `author`, a turn's end as its `outcome`
+  and `meta`, a timer's as its `name`, each with the event's `id` and `at`; a signal, the event.
+- **`sleep(name, when)`** is a race of one timer of its own, `{name}@sleep`: past its time, it
+  returns at once. A sleep in a loop is named per round, as a race is.
+- **`select(branches)`** yields each event its branches take, one at a time, under its branch's
+  name, until the loop returns or breaks. An event is acknowledged when the loop asks for the next;
+  after a crash, the one taken and not acknowledged comes back once. `workflow.timers()` takes any
+  of the run's timers, so one made in the loop, `retry-{id}`, is caught by `next.timer.name`. Its
+  `label` may be a function, asked at each wait. A branch is a source, not a duration: a timer in
+  a loop is `workflow.timer()`'s.
+- **`workflow.started`** is the event that started the run, absent for one started by hand.
+- **`workflow.now()`** is the run's time. Workflow code reads it, not `Date.now()`, so a test's
+  clock is the one it reads.
+- **Parked**, a run's `until` in `awf runs` is the earliest timer its wait takes, and `awf tick`
+  continues it once that is due.
 
 ## Logging and usage
 
@@ -939,6 +1011,7 @@ const run = await testWorkflow(caseRun, {
   events: [{ during: "investigator#1", name: "participant:reply", from: "thread", data: { text: "is it the index?" } }],
 });
 run.parked;                                   // { label, until } of the wait it parked at
+run.timers;                                   // [{ name, due, state: "fired" | "cancelled" | "pending" }]
 run.turnsOf("investigator")[1]?.prompt;       // what the second turn was asked
 run.emits;                                    // events it sent, { ref, name, data, eventId? }; none is delivered
 run.mailbox;                                  // its mailbox as it left it
@@ -962,6 +1035,13 @@ run.mailbox;                                  // its mailbox as it left it
   `workflow.cwd`, and `files` with a `cwd` of the test's own is refused.
 - **`maxTurns`**, 20 by default, counts the turns the workflow started, not nudges or wakes for
   messages: a run that starts more fails the test, so a loop that never parks doesn't hang it.
+- **The clock is virtual.** Where the run would park with a timer to come, the test moves its clock
+  to the timer, which fires: a two-day reminder takes no time, and `workflow.now()`, timers and
+  the events a test sends read that clock. **`maxTimers`**, 20 by default, any workflow's test
+  takes: after that many, the run parks instead, and `run.value` says so; `maxTimers: 0` parks at
+  the first, to test the parking. `run.timers` lists each timer, its due time, and whether it
+  fired, was cancelled, or is pending. A turn's `timeoutMs` and `keepAlive` windows stay on real
+  time.
 - **`mailbox`** lays out what an earlier attempt left, and the test is its continue.
 - The test returns when the run parks or returns; `run.value` throws for a parked run.
 
