@@ -48,7 +48,6 @@ export interface Ledger {
   readonly mr: { head: string; authorized: boolean };
   readonly head: string | null;
   readonly archived: boolean;
-  readonly retryAt: number | undefined;
   readonly passes: number;
   readonly summaryChanges: number;
   saw(changes: Type.Static<typeof Changes>): void;
@@ -104,17 +103,17 @@ const mrReview = defineWorkflow({
     for (;;) {
       const events = await workflow.receive({
         label: `${reviewer.turn ? "reviewing" : "idle"} at ${short(ledger.mr.head)}`,
-        until: reviewer.turn || ledger.archived ? undefined : ledger.retryAt,
       });
       for (const e of events) {
         if (e.name === "mr.changes") ledger.saw(e.data);
         if (e.name === "mr.rereview") ledger.askAgain();
-        if (reviewer.ended<Ask, Pass>(e)) {
+        if (reviewer.is<Ask, Pass>(e)) {
           if (isAnswered(e.data.outcome)) {
             const pass = e.data.outcome.value;
             await workflow.stage(`apply-${e.id}`, () => ledger.apply(e.data.meta, pass));
           } else if (e.data.outcome.kind !== "cancelled") {
             ledger.failed(e.id);
+            workflow.timer(`retry-${e.id}`, "15m");
             workflow.log("review pass failed; retried in 15 minutes", {
               outcome: e.data.outcome.kind,
             });

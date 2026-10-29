@@ -1,6 +1,7 @@
 import type { PARTICIPANT } from "../participant";
-import type { Matched, ParticipantReplyEvent } from "./events";
+import type { Matched, ParticipantReply, ParticipantReplyEvent } from "./events";
 import type { JsonObject } from "./json";
+import type { EventLike, Source, Taken } from "./waits";
 
 export type PeerKey = string;
 
@@ -49,14 +50,12 @@ export interface CodeParticipantSpec extends ParticipantSpec {
   to: "code";
 }
 
-export interface CodeParticipantRef extends ParticipantRef {
+/** A participant routed to the code: a source of its replies, one per wait. */
+export interface CodeParticipantRef extends ParticipantRef, Source<Taken<ParticipantReply>> {
   /** Writes to it without a turn: an item in `awf inbox` for whatever answers as it. */
   post(text: string): Promise<void>;
   /** True for a message on this participant. */
-  replied(event: {
-    readonly name: string;
-    readonly from: string;
-  }): event is ParticipantReplyEvent & Matched;
+  is(event: EventLike): event is ParticipantReplyEvent & Matched;
 }
 
 /**

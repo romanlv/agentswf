@@ -1426,7 +1426,7 @@ describe("with started turns", () => {
         return {
           cancelled,
           settledFirst: seen.settledAt !== undefined && seen.settledAt <= resolvedAt,
-          kind: end && agent.ended(end) ? end.data.outcome.kind : null,
+          kind: end && agent.is(end) ? end.data.outcome.kind : null,
         };
       }),
       { ...startCase, agents: { investigator: calls } },
@@ -1452,7 +1452,7 @@ describe("with started turns", () => {
         void turn.cancel();
         for (;;)
           for (const e of await workflow.receive({ label: "idle" }))
-            if (agent.ended(e)) taken.push(seen.settledAt !== undefined);
+            if (agent.is(e)) taken.push(seen.settledAt !== undefined);
       }),
       { ...startCase, agents: { investigator: calls } },
     );
@@ -1497,11 +1497,11 @@ describe("with started turns", () => {
         let waiting = 2;
         while (waiting > 0)
           for (const e of await workflow.receive()) {
-            if (a.ended(e) && e.data.outcome.kind === "answered" && !next) {
+            if (a.is(e) && e.data.outcome.kind === "answered" && !next) {
               next = await a.start({ prompt: "two" });
               ready.resolve();
-            } else if (a.ended(e)) waiting -= 1;
-            else if (b.ended(e)) {
+            } else if (a.is(e)) waiting -= 1;
+            else if (b.is(e)) {
               said = isAnswered(e.data.outcome) ? e.data.outcome.value : e.data.outcome.kind;
               waiting -= 1;
             }
@@ -1673,7 +1673,7 @@ describe("with started turns", () => {
         });
         started = await agent.start({ prompt: "look" });
         const [end] = await workflow.receive();
-        return end && agent.ended(end) && isAnswered(end.data.outcome)
+        return end && agent.is(end) && isAnswered(end.data.outcome)
           ? end.data.outcome.value
           : null;
       }),

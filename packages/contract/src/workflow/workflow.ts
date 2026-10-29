@@ -7,6 +7,8 @@ import type {
   EmitOutcome,
   EventSchemas,
   OutputOf,
+  OwnEvent,
+  OwnEventOf,
   ReceivedEvent,
   ReceiveOptions,
 } from "./events";
@@ -16,6 +18,20 @@ import type { Messaging } from "./messaging";
 import type { CodeParticipantDirectory, ParticipantDirectory } from "./participants";
 import type { SandboxDirectory } from "./sandboxes";
 import type { AbsoluteDeadline } from "./timing";
+import type {
+  Branches,
+  Checked,
+  Next,
+  RaceBranches,
+  SelectOptions,
+  Signal,
+  Source,
+  Taken,
+  Timer,
+  TimerDue,
+  WaitOptions,
+  When,
+} from "./waits";
 
 export type WorkflowRunId = string;
 export type StepId = string;
@@ -137,6 +153,16 @@ export interface WorkflowContext {
   allowance(harness: HarnessKind): Promise<HarnessAllowance>;
 
   log(message: string, fields?: JsonObject): void;
+
+  /**
+   * Waits until `when`, a duration from the first call under `name` or a time, and goes on. The
+   * time is recorded under `name` the first time, so a rerun waits for what is left of it, and
+   * returns at once once it has passed.
+   */
+  sleep(name: string, when: When): Promise<void>;
+
+  /** The run's time: the clock's in a run, the virtual clock's in a test. Read it, not `Date.now()`. */
+  now(): Date;
 }
 
 /** What a call and the runner need of a workflow: its meta and its run. */
@@ -179,4 +205,40 @@ export interface EventWorkflowContext<Events extends EventSchemas>
    * returns the stage's recorded batch on a rerun.
    */
   receive(options?: ReceiveOptions): Promise<ReceivedEvent<Events>[]>;
+
+  /**
+   * Waits for the first of `branches` and returns it under its branch's name, recorded under
+   * `name`, so a rerun gets the same answer back. It takes only what it names: the rest stays in
+   * the mailbox for a later wait, and doesn't wake a run parked here. Of two ready, the earlier
+   * wins. A duration as a branch is a timer of the race's own, `{name}@{branch}`, cancelled when
+   * another branch wins; a `workflow.timer()` passed in is the code's to cancel.
+   */
+  race<B extends RaceBranches>(
+    name: string,
+    branches: Checked<B>,
+    options?: WaitOptions,
+  ): Promise<Next<B>>;
+
+  /**
+   * A loop over the events `branches` take, one at a time, each under its branch's name, until the
+   * loop returns or breaks. An event is acknowledged when the loop asks for the next; after a crash,
+   * the one taken and not acknowledged comes back once. What no branch names stays in the mailbox.
+   */
+  select<B extends Branches>(branches: Checked<B>, options?: SelectOptions): AsyncIterable<Next<B>>;
+
+  /**
+   * A timer, recorded the first time `name` is called: due `when`, a duration from then or a time.
+   * A later call gets the recorded timer; one asking another time is logged and ignored. Its name
+   * has no `@`, which a race's own timers use.
+   */
+  timer(name: string, when: When): Timer;
+
+  /** Any of the run's timers, told apart by `name`: one a loop made is caught without a branch of its own. */
+  timers(): Source<Taken<TimerDue>>;
+
+  /** One of the workflow's declared events, as a source. */
+  signal<Name extends keyof Events & string>(name: Name): Signal<OwnEventOf<Events, Name>>;
+
+  /** The event that started the run; absent for a run started by hand. Typed by `events`, not `starts`. */
+  readonly started?: OwnEvent<Events>;
 }

@@ -9,4 +9,5 @@ export * from "./messaging";
 export * from "./participants";
 export * from "./sandboxes";
 export * from "./timing";
+export * from "./waits";
 export * from "./workflow";

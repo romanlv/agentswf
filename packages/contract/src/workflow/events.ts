@@ -1,6 +1,7 @@
 import type { AgentKey, TurnId, TurnOutcome } from "./agents";
 import type { JsonValue, OutputSchema } from "./json";
 import type { PeerKey } from "./participants";
+import type { TimerDueEvent } from "./waits";
 
 /**
  * Keys, event ids and stage names: lowercase, since each becomes a file name on a disk that may not
@@ -43,11 +44,12 @@ export type WorkflowEvent<Name extends string = string, Data = JsonValue> = {
   readonly name: Name;
   readonly data: Data;
   /**
-   * Who it is from: the agent's or participant's key for awf's events, the sending run's ref
-   * (`{workflow}/{id}`) for `workflow.emit`, `operator` for `awf emit`.
+   * Who it is from: the agent's or participant's key for awf's events, the timer's name for
+   * `timer:due`, the sending run's ref (`{workflow}/{id}`) for `workflow.emit`, `operator` for
+   * `awf emit`.
    */
   readonly from: string;
-  /** When it was appended, an ISO time. */
+  /** When it was appended, an ISO time; for `timer:due`, when the timer was due. */
   readonly at: string;
 };
 
@@ -87,21 +89,22 @@ export type OwnEvent<Events extends EventSchemas> = {
   [Name in keyof Events & string]: WorkflowEvent<Name, OutputOf<Events[Name]>>;
 }[keyof Events & string];
 
+/** One of a workflow's own events of one name. */
+export type OwnEventOf<Events extends EventSchemas, Name extends keyof Events & string> = WorkflowEvent<
+  Name,
+  OutputOf<Events[Name]>
+>;
+
 /** Any event a run of a workflow with `events` takes at its wait. */
 export type ReceivedEvent<Events extends EventSchemas> =
   | OwnEvent<Events>
   | AgentEndedEvent
-  | ParticipantReplyEvent;
+  | ParticipantReplyEvent
+  | TimerDueEvent;
 
 export type ReceiveOptions = {
   /** What `awf runs` shows while the run waits here or is parked at this wait. */
   label?: string;
-  /**
-   * When to return with no event, as epoch milliseconds or a `Date`: computed from the run's files,
-   * so a rerun computes the same one. A time already passed returns at once. Once the run parks,
-   * `awf tick` honours it.
-   */
-  until?: number | Date;
   /** `all`, the default: every event not yet acknowledged; `oldest`: the first of them alone. */
   take?: "all" | "oldest";
 };

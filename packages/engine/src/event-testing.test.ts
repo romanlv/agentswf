@@ -12,7 +12,7 @@ const replying = caseRun(async (workflow) => {
   let first = true;
   for (;;) {
     for (const e of await workflow.receive({ label: investigator.turn ? "investigating" : "idle" }))
-      if (thread.replied(e)) pending.push(`${e.data.author}: ${e.data.text}`);
+      if (thread.is(e)) pending.push(`${e.data.author}: ${e.data.text}`);
     if (!investigator.turn && (first || pending.length > 0)) {
       first = false;
       await investigator.start({ prompt: `Look. Replies: ${pending.splice(0).join("; ")}` });
@@ -106,7 +106,7 @@ test("events due at one turn arrive in the order given, an own event from the op
       for (;;)
         for (const e of await workflow.receive()) {
           seen.push(`${e.name} from ${e.from}`);
-          if (agent.ended(e)) return seen;
+          if (agent.is(e)) return seen;
         }
     }),
     {

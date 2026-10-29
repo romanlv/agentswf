@@ -86,7 +86,7 @@ test("a turn onTimeout runs, awaited or started, opens no window; a turn after i
       for (;;)
         for (const e of await workflow.receive()) {
           // The handler's started turn ends at the loop, told by its meta.
-          if (agent.ended(e) && e.data.meta === "handler's") {
+          if (agent.is(e) && e.data.meta === "handler's") {
             ended += 1;
             await agent.run({ prompt: "follow up" });
           }
@@ -186,7 +186,7 @@ test("a window that passes while another agent works is handled at the next idle
       await lens.start({ prompt: "look slowly" });
       for (;;)
         for (const e of await workflow.receive())
-          if (lens.ended(e)) lensEnded = Date.now() - started;
+          if (lens.is(e)) lensEnded = Date.now() - started;
     }),
     {
       ...startCase,

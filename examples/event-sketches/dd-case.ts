@@ -105,18 +105,20 @@ const caseRun = defineWorkflow({
     for (;;) {
       const events = await workflow.receive({
         label: investigator.turn ? "investigating" : `${kase.unseen().length} unseen`,
-        until: !investigator.turn && needsTurn(kase) ? kase.retryAt() : undefined,
       });
       for (const e of events) {
-        if (investigator.ended<Batch>(e)) {
+        if (investigator.is<Batch>(e)) {
           if (isAnswered(e.data.outcome)) kase.markGiven(e.data.meta);
           else if (e.data.outcome.kind !== "cancelled") {
             kase.markFailed(e.id);
+            // Its event wakes the wait; `retrying()` is false by then.
+            const retryAt = kase.retryAt();
+            if (retryAt !== undefined) workflow.timer(`retry-${e.id}`, new Date(retryAt));
             if (kase.failuresInARow() === 1)
               await workflow.stage(`failed-${e.id}`, () => thread.post(failedNote(e.data.outcome)));
           }
         }
-        if (thread.replied(e)) kase.addReply(e.id, e.data);
+        if (thread.is(e)) kase.addReply(e.id, e.data);
         if (e.name === "dd.closed") {
           if (e.data.by === "triage") await investigator.turn?.cancel();
           await workflow.stage(`close-${e.id}`, () => kase.close(e.data, e.at));

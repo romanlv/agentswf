@@ -385,15 +385,34 @@ export type MailboxRecord = {
       from: string;
     }
   /**
-   * A wait called. Outside a stage, it acknowledges what the last `took` outside one returned; in
-   * `stage`, it acknowledges nothing, as the stage holds its own batch. `until` is an ISO time.
+   * A wait called. Outside a stage and a race, it acknowledges what the last `took` outside one
+   * returned; in `stage` or `race`, it acknowledges nothing, as each holds what it took. `takes`:
+   * what it takes, absent for every event.
    */
-  | { kind: "wait"; attempt: number; label?: string; until?: string; stage?: string }
+  | {
+      kind: "wait";
+      attempt: number;
+      label?: string;
+      stage?: string;
+      race?: string;
+      takes?: WaitTake[];
+    }
   /**
-   * The wait returning these events, in order; none when its `until` passed. `stage`: it was in
-   * that stage, which holds the batch, acknowledged, and returns it again on a rerun.
+   * The wait returning these events, in order. `stage`: it was in that stage, which holds the
+   * batch, acknowledged, and returns it again on a rerun. `race`: the race of that name, won by
+   * `branch`, which holds its winner, acknowledged, and answers with it again on a rerun.
    */
-  | { kind: "took"; attempt: number; ids: EventId[]; stage?: string }
+  | { kind: "took"; attempt: number; ids: EventId[]; stage?: string; race?: string; branch?: string }
+  /**
+   * A timer set: due `due`, an ISO time, from `when` as the code gave it, a duration or an ISO
+   * time. The first under a name is kept. A race's own timer is `{race}@{branch}`, and a sleep's
+   * `{sleep}@sleep`, a race of one. Due, its event `timer:due` is appended with id
+   * `awf.timer.{hash}`, the hash of its name: its `at` is the due time, which may be earlier than
+   * the lines above it, and the waits take events in order of `at`.
+   */
+  | { kind: "timer"; attempt: number; name: string; due: string; when: string }
+  /** A timer cancelled: it doesn't fire, and its `timer:due` not yet taken is withdrawn. */
+  | { kind: "timer-cancelled"; attempt: number; name: string }
   /**
    * A turn `start()` began, written before its agent is launched; the rest of it is in
    * `turns.jsonl`. Its end is the event `agent:ended`, with id `awf.end.{hash}`, the hash of the
@@ -773,7 +792,16 @@ export type RunLogLine = TurnRecord | RunEvent;
  */
 export type RunStateJson = "running" | "interrupted" | "stuck" | AttemptOutcome;
 
-/** A run of a workflow with `events` at its wait, live or parked: the wait's label and `until`. */
+/**
+ * What a wait takes: events of `name`, from `from` when given, and of the turn `turn` when given.
+ * A timer's `timer:due` is from its name.
+ */
+export type WaitTake = { name: string; from?: string; turn?: string };
+
+/**
+ * A run of a workflow with `events` at its wait, live or parked: the wait's label, and `until`, an
+ * ISO time, when the earliest timer the wait takes is due.
+ */
 export type WaitingJson = { label?: string; until?: string };
 
 /** A run as both commands head it. `checked: false`: a `running` whose process was not asked. */
@@ -995,7 +1023,7 @@ export type TickResultJson = {
     ref: string;
     /** `started` for a run whose first attempt never started, as its launch failed. */
     did: "started" | "continued";
-    why: "event" | "until" | "crashed" | "failed";
+    why: "event" | "timer" | "crashed" | "failed";
   }[];
 };
 
@@ -1093,7 +1121,7 @@ export type OutputRecord = {
   report?: string;
 } & (
   | { outcome: "completed"; value: JsonValue }
-  /** Parked: its last wait's label and `until`, an ISO time, as its mailbox records them. */
+  /** Parked: its last wait's label, and `until`, when the earliest timer it takes is due. */
   | { outcome: "parked"; label?: string; until?: string }
   | {
       outcome: UnfinishedOutcome;

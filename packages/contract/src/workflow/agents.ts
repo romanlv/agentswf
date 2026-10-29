@@ -1,8 +1,9 @@
-import type { AgentEndedEvent, Matched } from "./events";
+import type { AgentEnded, AgentEndedEvent, Matched } from "./events";
 import type { JsonObject, JsonValue, OutputSchema } from "./json";
 import type { PeerRef } from "./participants";
 import type { InlineSandboxSpec, SandboxRef } from "./sandboxes";
 import type { AbsoluteDeadline } from "./timing";
+import type { EventLike, Source, Taken } from "./waits";
 
 export type AgentKey = string;
 /**
@@ -389,9 +390,14 @@ export type AgentStartSpec = (AgentRunTextSpec | AgentRunStructuredSpec<JsonValu
   meta?: JsonValue;
 };
 
-/** A turn `start()` began, until a wait takes its end. Its result comes as `agent:ended`. */
-export interface StartedTurn {
+/**
+ * A turn `start()` began, until a wait takes its end. Its result comes as `agent:ended`; as a
+ * source, a wait takes that end.
+ */
+export interface StartedTurn extends Source<Taken<AgentEnded>> {
   readonly id: TurnId;
+  /** True for this turn's `agent:ended`. */
+  is<Meta extends JsonValue = JsonValue, T extends JsonValue = JsonValue>(event: EventLike): event is AgentEndedEvent<Meta, T> & Matched;
   /**
    * Stops the turn; resolves once its `cancelled` end is in the mailbox, or at once, `false`, when
    * it had ended already.
@@ -521,8 +527,11 @@ export interface AgentDirectory {
   forkCaller(spec: Omit<AgentForkSpec, "tools">): Promise<AgentRef | null>;
 }
 
-/** An agent of a run of a workflow with `events`, which can also start a turn without awaiting it. */
-export interface EventAgentRef extends AgentRef {
+/**
+ * An agent of a run of a workflow with `events`, which can also start a turn without awaiting it.
+ * As a source, a wait takes the end of any of its turns.
+ */
+export interface EventAgentRef extends AgentRef, Source<Taken<AgentEnded>> {
   /**
    * The turn `start()` began, from then until a wait takes its end, restored on a continue for a
    * turn whose end no wait took; `null` otherwise. While it is set, the agent refuses `start()`,
@@ -539,10 +548,7 @@ export interface EventAgentRef extends AgentRef {
    * True for this agent's `agent:ended`, narrowing its data to the `meta` the code started the
    * turn with and the outcome its `schema` gives.
    */
-  ended<Meta extends JsonValue = JsonValue, T extends JsonValue = JsonValue>(event: {
-    readonly name: string;
-    readonly from: string;
-  }): event is AgentEndedEvent<Meta, T> & Matched;
+  is<Meta extends JsonValue = JsonValue, T extends JsonValue = JsonValue>(event: EventLike): event is AgentEndedEvent<Meta, T> & Matched;
   fork(spec: AgentForkSpec): Promise<EventAgentRef>;
 }
 

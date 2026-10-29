@@ -1308,7 +1308,7 @@ class WorkflowOwner {
             throw new Error("post takes the text to write");
           await this.#messaging.post(key, text);
         },
-        replied: (event): event is ParticipantReplyEvent & Matched =>
+        is: (event): event is ParticipantReplyEvent & Matched =>
           event.name === "participant:reply" && event.from === key,
       };
       this.#outsideRefs.set(key, routed);

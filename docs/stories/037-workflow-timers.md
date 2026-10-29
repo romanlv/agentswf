@@ -538,7 +538,7 @@ Three reviewers read the draft with `race({ … })` unnamed and a fired timer th
 
 ## Tasks at a glance
 
-- [ ] 1. The author surface: sources, timers, `race`, `select`, `sleep`, `started`, `now()`
+- [x] 1. The author surface: sources, timers, `race`, `select`, `sleep`, `started`, `now()`
 - [ ] 2. Timers and selective waits in the mailbox: fire, take, park and wake
 - [ ] 3. A virtual clock in `testWorkflow`
 - [ ] 4. Timers and `sleep` in a workflow without `events`
@@ -579,14 +579,14 @@ Outcome: the types a workflow writes against, typechecked by examples of every c
 
 Execution:
 
-- [ ] Plan: inspect the relevant code and tests, settle the cleanest module, interface, seam,
+- [x] Plan: inspect the relevant code and tests, settle the cleanest module, interface, seam,
   invariants, failure behavior, and focused proof, and record material alternatives before coding.
-- [ ] Implement: make only this task's coherent change and add focused tests with it.
-- [ ] Review: have two read-only subagents review this task's actual diff and test output—one for
+- [x] Implement: make only this task's coherent change and add focused tests with it.
+- [x] Review: have two read-only subagents review this task's actual diff and test output—one for
   architecture and scope, one for correctness and proof.
-- [ ] Resolve: fix or explicitly disposition every material finding; request targeted re-review
+- [x] Resolve: fix or explicitly disposition every material finding; request targeted re-review
   when a fix changes the selected architecture.
-- [ ] Verify: run this task's focused checks and satisfy every `Done when` item before checking the
+- [x] Verify: run this task's focused checks and satisfy every `Done when` item before checking the
   task in `Tasks at a glance` or starting the next task.
 
 Work:
@@ -656,7 +656,8 @@ Done when:
 
 ### 4. Timers and `sleep` in a workflow without `events`
 
-Outcome: a plain workflow sleeps and races timers.
+Outcome: a plain workflow sleeps, and reads `workflow.now()`; a race needs events to take, so it
+stays a workflow with `events`'s.
 
 Execution:
 
@@ -673,7 +674,7 @@ Work:
 
 Done when:
 
-- a plain workflow's `sleep` and a race of a stage-free timer work in a run and in a test.
+- a plain workflow's `sleep` works in a run and in a test.
 
 ### 5. The sketches, the docs, and a live run
 
@@ -711,4 +712,21 @@ Manual or live evaluation:
 
 ## Review record
 
+### Task 1
+
+- Architecture and scope: the formats carry every rule. Taken: task 4's text matched to the surface
+  (`sleep` and `now()` on every workflow, the rest with `events`); a `timer:due`'s `at` is its due
+  time, said in the format; a race's own timers are `{race}@{branch}` and a sleep's `{name}@sleep`,
+  with `@` refused in a `workflow.timer()` name; the duration parser kept out of the author surface;
+  a timer's branch carries its event's `id`, as a reply's and a turn's do; one `EventLike` for every
+  `is(e)`. Kept: `started` typed by `events`, not `starts`, said in its comment.
+- Correctness and proof: every `@ts-expect-error` fails for its stated reason. Taken: a branch named
+  `key` and an empty race fail `tsc` (`Checked<B>`); a duration's number is checked where it is
+  given, as a template literal can't; proofs of narrowing the whole answer, of `signal.is` and
+  `turn.is` with their false branches. Of two branches taking one event, the first declared takes
+  it.
+
 ## Implementation notes
+
+- `until` leaves the wait record without a `MAILBOX_RECORD_VERSION` bump: an old parked mailbox's
+  `until` is ignored (beta, no compatibility). `awf tick`'s cause `until` is `timer`.

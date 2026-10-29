@@ -27,8 +27,8 @@ test("startCase returns at once; the end arrives at a wait with the turn's id, m
       const turn = await agent.start({ prompt: "look", meta: { given: 3 } });
       for (;;) {
         for (const e of await workflow.receive()) {
-          if (other.ended(e)) return "the other agent's";
-          if (agent.ended<{ given: number }>(e)) {
+          if (other.is(e)) return "the other agent's";
+          if (agent.is<{ given: number }>(e)) {
             return {
               same: e.data.turn === turn.id,
               given: e.data.meta.given,
@@ -98,7 +98,7 @@ test("an event during a turn is taken before the turn ends", async () => {
       for (;;) {
         for (const e of await workflow.receive()) {
           if (e.name === "agent:ended") order.push(e.from);
-          if (slowOne.ended(e)) return order;
+          if (slowOne.is(e)) return order;
         }
       }
     }),
@@ -119,7 +119,7 @@ test("cancel returns once the cancelled end is in the mailbox, and at once on an
       return {
         cancelled,
         again,
-        kind: end && agent.ended(end) ? end.data.outcome.kind : null,
+        kind: end && agent.is(end) ? end.data.outcome.kind : null,
       };
     }),
     { ...startCase, agents: { investigator: reply.hang() } },
@@ -271,12 +271,12 @@ test("after a crash, the code's first wait takes the turn's failed end, with its
       const agent = await workflow.agents.open({ key: "investigator", runtime: "claude" });
       const restored = agent.turn?.id ?? null;
       const taken = await workflow.receive();
-      const end = taken.find((e) => agent.ended(e));
+      const end = taken.find((e) => agent.is(e));
       return {
         restored,
         names: taken.map((e) => e.name),
         end:
-          end && agent.ended<{ batch: number }>(end)
+          end && agent.is<{ batch: number }>(end)
             ? [end.data.turn, end.data.meta.batch, end.data.outcome.kind]
             : null,
         cleared: agent.turn === null,
@@ -355,7 +355,7 @@ test("a startCase behind other work waits for it, and its cancel stops only the 
       const [end] = await workflow.receive();
       return {
         cancelled,
-        end: end && agent.ended(end) ? end.data.outcome.kind : null,
+        end: end && agent.is(end) ? end.data.outcome.kind : null,
         other: (await running).outcome.kind,
       };
     }),
@@ -381,7 +381,7 @@ test("a message held during a started turn doesn't keep the next start() out", a
       await triage.run({ prompt: "tell the investigator" });
       for (;;)
         for (const e of await workflow.receive()) {
-          if (!investigator.ended(e)) continue;
+          if (!investigator.is(e)) continue;
           // Its end taken, the held message wakes it, and the next startCase waits behind it.
           const next = await investigator.start({ prompt: "look again" });
           return next.id.length > 0;
