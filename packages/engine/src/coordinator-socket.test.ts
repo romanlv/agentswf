@@ -1,5 +1,5 @@
 import { afterAll, describe, expect, test } from "bun:test";
-import { mkdir, stat, symlink, writeFile } from "node:fs/promises";
+import { mkdir, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { WIRE_VERSION } from "@agentswf/contract/wire";
 import {
@@ -13,7 +13,11 @@ import type { RunStatus } from "./run-state";
 import { createTempRunDirs, exchange } from "./testing";
 
 const runDirs = createTempRunDirs();
-afterAll(() => runDirs.cleanup());
+const folders: string[] = [];
+afterAll(async () => {
+  runDirs.cleanup();
+  await Promise.all(folders.map((dir) => rm(dir, { recursive: true, force: true })));
+});
 
 /** A coordinator folder short enough for `sun_path`, as `~/.awf/coordinator` is. */
 async function folder(): Promise<string> {
@@ -21,6 +25,7 @@ async function folder(): Promise<string> {
     "/tmp",
     `awf-coord-test-${process.pid}-${Math.random().toString(16).slice(2, 8)}`,
   );
+  folders.push(dir);
   await prepareCoordinatorDir(dir, runDirs.tempRunDir());
   return dir;
 }

@@ -133,23 +133,21 @@ export const runProcess: RunProcess = async (input) => {
   timer = setTimeout(expire, Math.min(timeoutMs, 2_147_483_647));
 
   let answered: ReturnType<typeof setTimeout> | undefined;
-  let onLine: ((line: string) => void) | undefined;
-  if (holdStdinUntil) {
-    const pipe = child.stdin as Bun.FileSink;
-    if (stdin !== undefined) pipe.write(stdin);
-    void pipe.flush();
-    onLine = (line) => {
-      if (answered || !holdStdinUntil(line)) return;
-      void pipe.end();
-      // Closing stdin is how it is told to exit; one that does not is stopped.
-      answered = setTimeout(kill, HELD_EXIT_GRACE_MS);
-    };
-  }
-
-  let result: ProcessResult;
+  let result: ProcessResult | undefined;
   try {
+    let held: ((line: string) => void) | undefined;
+    if (holdStdinUntil) {
+      const pipe = child.stdin as Bun.FileSink;
+      if (stdin !== undefined) pipe.write(stdin);
+      void pipe.flush();
+      held = (line) => {
+        if (answered || !holdStdinUntil(line)) return;
+        void pipe.end();
+        // Closing stdin is how it is told to exit; one that does not is stopped.
+        answered = setTimeout(kill, HELD_EXIT_GRACE_MS);
+      };
+    }
     const { onStdoutLine } = input;
-    const held = onLine;
     const out = capture(
       child.stdout,
       onStdoutLine && held
@@ -160,6 +158,9 @@ export const runProcess: RunProcess = async (input) => {
         : (onStdoutLine ?? held),
     );
     const err = capture(child.stderr);
+    // A line callback that throws stops the reading, so the command could block on a full pipe;
+    // it is stopped instead, and the throw surfaces below.
+    out.text.catch(kill);
     const exitCode = await child.exited;
     // What a sandboxed or ended command left running goes before its pipes are read. An
     // unsandboxed one that exited on its own is left its descendants, though one may still hold
@@ -180,10 +181,12 @@ export const runProcess: RunProcess = async (input) => {
       ...(answered ? { answered: true } : {}),
     };
   } finally {
+    if (!result) kill();
     running.delete(child.pid);
     clearTimeout(timer);
     clearTimeout(answered);
     signal?.removeEventListener("abort", abort);
+    if (!result && reap) await reapWithin(reap);
   }
   return reaped(result);
 };

@@ -61,6 +61,26 @@ describe("a sandboxed command", () => {
     expect([running(timeout), running(aborted), running(exited)]).toEqual(["", "", ""]);
   });
 
+  test("a line callback that throws stops the command and still reaps its sandbox", async () => {
+    const seconds = marker();
+    let reaped = false;
+    await expect(
+      runProcess({
+        ...sandboxed(`echo hi; sleep ${seconds}`, {
+          reap: async () => {
+            reaped = true;
+          },
+        }),
+        onStdoutLine: () => {
+          throw new Error("callback threw");
+        },
+      }),
+    ).rejects.toThrow("callback threw");
+    expect(reaped).toBe(true);
+    await Bun.sleep(100);
+    expect(running(seconds)).toBe("");
+  });
+
   test("an unsandboxed process runs as before, leaving what it started", async () => {
     const seconds = marker();
     const result = await runProcess({

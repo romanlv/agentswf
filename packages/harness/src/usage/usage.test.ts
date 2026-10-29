@@ -309,6 +309,26 @@ describe("claude sessions", () => {
     await dropClaudeForkCommand("missing", "fork", root);
     expect(readFileSync(join(root, PROJECT, "fork.jsonl"), "utf8")).toBe(fork);
   });
+
+  test("a leaf in a cycle of the fork's own rows ends, its rows still dropped", async () => {
+    const line = (row: Record<string, unknown>) => JSON.stringify(row);
+    const parent = [line({ type: "user", uuid: "a1", message: { content: "hi" } })];
+    const root = projects({
+      [`${PROJECT}/${SESSION}.jsonl`]: parent,
+      [`${PROJECT}/fork.jsonl`]: [
+        ...parent,
+        line({ type: "user", uuid: "c1", parentUuid: "c2", message: { content: "x" } }),
+        line({ type: "user", uuid: "c2", parentUuid: "c1", message: { content: "y" } }),
+        line({ type: "last-prompt", leafUuid: "c1" }),
+      ],
+    });
+    await dropClaudeForkCommand(SESSION, "fork", root);
+    const fork = readFileSync(join(root, PROJECT, "fork.jsonl"), "utf8")
+      .trim()
+      .split("\n");
+    expect(fork).toHaveLength(2);
+    expect(fork[0]).toBe(parent[0]);
+  });
 });
 
 describe("codex sessions", () => {
@@ -709,6 +729,10 @@ describe("a codex pane's session, which Herdr does not name", () => {
     try {
       expect(await findCodexSession("op-1", since, "/repo", root)).toBe("mine");
       expect(await findCodexSession("op-2", since, "/repo", root)).toBeUndefined();
+      // No launch time to start from is no day to read, not an endless walk back.
+      expect(
+        await findCodexSession("op-1", Number.NEGATIVE_INFINITY, "/repo", root),
+      ).toBeUndefined();
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

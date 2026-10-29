@@ -278,9 +278,17 @@ async function probe(options: SrtOptions, context: SandboxContext): Promise<void
       env: { PATH: SYSTEM_PATH.join(":"), HOME: options.home },
       stdout: "pipe",
       stderr: "pipe",
+      // Its own group, so the timeout stops the sandbox and what runs in it, not srt alone.
+      detached: true,
     });
     const timer = setTimeout(
-      () => child.kill("SIGKILL"),
+      () => {
+        try {
+          process.kill(-child.pid, "SIGKILL");
+        } catch {
+          // It ended meanwhile.
+        }
+      },
       // A timer overflows past 2^31 - 1 ms, and would fire at once.
       Math.min(Math.max(0, context.deadline.unixMilliseconds - Date.now()), 2_147_483_647),
     );

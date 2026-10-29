@@ -199,7 +199,11 @@ export async function dropClaudeForkCommand(
   if (follows.size === 0) return;
   const keptAncestor = (uuid: unknown) => {
     let at = uuid;
-    while (follows.has(at)) at = follows.get(at);
+    const visited = new Set<unknown>();
+    while (follows.has(at) && !visited.has(at)) {
+      visited.add(at);
+      at = follows.get(at);
+    }
     return at;
   };
   const written = lines.flatMap((line, at) => {

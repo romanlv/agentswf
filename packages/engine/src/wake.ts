@@ -245,10 +245,19 @@ function detachedLaunch(context: WakeContext): Launch {
           .catch((error: unknown) => messageOf(error));
         throw new Error(`the attempt of ${run.record.id} exited before it started: ${tail}`);
       }
-      if (Date.now() > giveUp)
+      if (Date.now() > giveUp) {
+        // One that claimed meanwhile goes on. Left running, one that did not could still claim the
+        // run later and race the next launch.
+        if ((await readAttempts(run)).length > before) continue;
+        try {
+          process.kill(-child.pid, "SIGTERM");
+        } catch {
+          // It ended meanwhile.
+        }
         throw new Error(
           `the attempt of ${run.record.id} did not start within ${CLAIM_MILLISECONDS / 1000} s`,
         );
+      }
       await Bun.sleep(25);
     }
   };

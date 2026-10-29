@@ -222,7 +222,7 @@ function createSession(
       const ended = await Promise.race([
         pending.settled.then(() => true),
         new Promise<boolean>((resolve) => {
-          timer = setTimeout(() => resolve(false), Math.max(0, wait));
+          timer = setTimeout(() => resolve(false), Math.max(0, Math.min(wait, 2_147_483_647)));
         }),
       ]);
       clearTimeout(timer);
@@ -605,7 +605,7 @@ async function releaseBefore(
   if (remaining <= 0) return { kind: "quarantined", reason: "release deadline exceeded" };
   let timer: ReturnType<typeof setTimeout> | undefined;
   const expiry = new Promise<"expired">((resolve) => {
-    timer = setTimeout(() => resolve("expired"), remaining);
+    timer = setTimeout(() => resolve("expired"), Math.min(remaining, 2_147_483_647));
   });
   try {
     const outcome = await Promise.race([releasing, expiry]);

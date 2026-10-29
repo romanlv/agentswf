@@ -660,3 +660,21 @@ test("a400KiB marked input is validated before the assistant in its final read c
     await scannedReceipt(`${JSON.stringify(input)}\n${JSON.stringify(assistant("input"))}\n`),
   ).toEqual({ accepted: true, received: true });
 });
+
+test("a watch with nothing to read and a pause that answers at once still ends at its abort", async () => {
+  const home = await mkdtemp(join(tmpdir(), "awf-receipt-"));
+  const controller = new AbortController();
+  try {
+    const receipt = await prepareClaudeReceipt("/nowhere", marker, home, { sessionRef: "s" });
+    setTimeout(() => controller.abort(), 50);
+    await receipt.watch(
+      controller.signal,
+      () => {},
+      () => {},
+      async () => true,
+    );
+    expect(controller.signal.aborted).toBe(true);
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});

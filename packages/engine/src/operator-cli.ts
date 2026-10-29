@@ -717,6 +717,8 @@ function describeVersion(): string {
 
 /** How soon a repeated signal is the copy `bun awf` forwards, not the operator pressing again. */
 const REPEAT_MS = 1_000;
+/** How long a command that has returned and written its output may keep the process. */
+const EXIT_GRACE_MS = 2_000;
 
 /**
  * Cancels `controller` at the first signal that asks the run to stop, and stops the process at
@@ -755,6 +757,15 @@ export async function main(): Promise<void> {
   } finally {
     stop();
   }
+  // A workflow's body can leave a timer or a pending call behind once its run has ended and its
+  // records are written; a woken run, detached, would otherwise live on with nothing to reap it.
+  // Output still queued for a slow reader is written first.
+  await Promise.all(
+    [process.stdout, process.stderr].map(
+      (stream) => new Promise<void>((resolve) => stream.write("", () => resolve())),
+    ),
+  );
+  setTimeout(() => process.exit(), EXIT_GRACE_MS).unref();
 }
 
 if (import.meta.main) await main();

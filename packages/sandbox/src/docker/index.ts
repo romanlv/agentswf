@@ -493,8 +493,6 @@ async function admitAgent(
     agent.door.boxScript,
   );
   const agentId = randomUUID();
-  const relay = await startRelay(client, box, agent.door.endpoint, `/run/awf-relay/${agentId}`);
-  const pids = `${BOX_PIDS}/${agentId}`;
   // A box's `/tmp` is its own; its co-tenants share the agent's uid, as they share everything.
   const short = agent.harness.shortDirectory ? `/tmp/awf-${agentId.slice(0, 8)}` : undefined;
   if (short) {
@@ -505,6 +503,9 @@ async function admitAgent(
       throw new Error(`docker: making ${short} failed in the box: ${made.stderr.trim()}`);
     }
   }
+  // Last, as no release follows an admit that fails, and the relay would run until awf exits.
+  const relay = await startRelay(client, box, agent.door.endpoint, `/run/awf-relay/${agentId}`);
+  const pids = `${BOX_PIDS}/${agentId}`;
   const env: Record<string, string> = {
     HOME: agent.home,
     ...agent.harness.env,

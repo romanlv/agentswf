@@ -97,6 +97,8 @@ export async function findCodexSession(
 /** Codex's day directories, `YYYY/MM/DD`, from `since` to now, in local time and in UTC. */
 function daysSince(since: number): string[] {
   const days = new Set<string>();
+  // From -Infinity the hour steps below would never move.
+  if (!Number.isFinite(since)) return [];
   const pad = (n: number) => String(n).padStart(2, "0");
   for (let at = since - 86_400_000; at <= Date.now() + 86_400_000; at += 3_600_000) {
     const date = new Date(at);

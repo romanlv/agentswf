@@ -119,6 +119,9 @@ export async function runWorkflowTests(
     );
   if (signal?.aborted) stop();
   signal?.addEventListener("abort", stop, { once: true });
+  // awf exiting at a second signal does not wait for the tests, which would outlive it.
+  const orphaned = () => child.kill("SIGKILL");
+  process.on("exit", orphaned);
   try {
     if (output) {
       const [out, err] = await Promise.all([
@@ -134,5 +137,6 @@ export async function runWorkflowTests(
     return ended ? 128 + constants.signals[ended] : code;
   } finally {
     signal?.removeEventListener("abort", stop);
+    process.off("exit", orphaned);
   }
 }

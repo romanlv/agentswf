@@ -388,6 +388,9 @@ export async function prepareClaudeReceipt(
           if (workBytes < MAX_BYTES && (scan || dirty.size > 0)) continue;
           workBytes = 0;
           if (!(await pause(signal))) return;
+          // A pause that resolves at once would leave this loop to microtasks alone, and the
+          // deadline's and the signal's timers would never fire.
+          await Bun.sleep(0);
         }
       } finally {
         watcher?.close();
