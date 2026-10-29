@@ -62,7 +62,6 @@ import {
   type OutputSchema,
   type PaneLayout,
   type ParticipantRef,
-  type ParticipantReplyEvent,
   type ParticipantSpec,
   type PlacementChoice,
   placementOf,
@@ -189,7 +188,7 @@ import {
 } from "./sandboxes";
 import { QUOTING_RULE, simpleInput, usageLine } from "./simple-input";
 import { placeSkills, RunSkills, readSkillSources } from "./skills/run-skills";
-import { asSource, branchValue, matches, takeOf } from "./sources";
+import { asSource, branchOf, branchValue, source, takeOf } from "./sources";
 import { StageLedger, type StageProgress } from "./stage-ledger";
 import { FromStageUnreached } from "./stopped";
 import { inToolHandler, outsideTools, refusedInTool, ToolCalls, toolsLesson } from "./tools";
@@ -234,6 +233,8 @@ export type RunWorkflowOptions = {
     park?(wait: { label?: string; until?: string }): Promise<void>;
     /** With `park`: the wait stays live to `until` for an agent's window instead. A test's hook. */
     live?(until: number): Promise<void>;
+    /** With `park`: moves a virtual clock to the timer due at `until` rather than parking. A test's hook. */
+    skip?(until: number): Promise<boolean>;
   };
   runtime: AgentRuntimeConfig;
   /** The run's deadline; absent, it has none, and only deadlines the workflow sets bound it. */
@@ -571,39 +572,42 @@ export async function startWorkflow<Args extends JsonValue, Result extends JsonV
   });
   const fatal = Promise.withResolvers<never>();
   void fatal.promise.catch(() => undefined);
+  const now = options.now ?? Date.now;
   // A turn an earlier attempt started and never ended, its process gone, ends failed before the code
   // runs again (Q6); the turns whose ends no wait took are their agents' turns again.
-  const restoredTurns = withEvents ? await recoverTurns(runDir, attempt, locked) : undefined;
+  const restoredTurns = withEvents ? await recoverTurns(runDir, attempt, locked, now) : undefined;
   // An event run's agents reopen on the sessions its earlier attempts' turns ran on.
   const keptSessions =
     withEvents && options.run.resumeSessions !== false
       ? keptSessionsOf(await readTurns(runDir))
       : undefined;
-  const now = options.now ?? Date.now;
-  const mailbox = withEvents
-    ? new RunMailbox({
-        runDir,
-        attempt,
-        locked,
-        now,
-        ...(options.run.park
-          ? {
-              parking: {
-                idle: (stage) => owner.idle(stage),
-                timeout: (signal) => owner.timeout(signal),
-                liveUntil: () => owner.liveUntil(),
-                park: options.run.park,
-                ...(options.run.live ? { live: options.run.live } : {}),
-              },
-            }
-          : {}),
-      })
-    : undefined;
-  await mailbox?.open();
+  // Every run's timers live in a mailbox; a run of a workflow with events takes its events there too.
+  // A plain run without `park` waits for its timers in its process.
+  const waits = new RunMailbox({
+    runDir,
+    attempt,
+    locked,
+    now,
+    ...(options.run.park
+      ? {
+          parking: {
+            idle: (stage) => owner.idle(stage),
+            timeout: (signal) => owner.timeout(signal),
+            liveUntil: () => owner.liveUntil(),
+            park: options.run.park,
+            ...(options.run.live ? { live: options.run.live } : {}),
+            ...(options.run.skip ? { skip: options.run.skip } : {}),
+          },
+        }
+      : {}),
+  });
+  await waits.open();
+  const mailbox = withEvents ? waits : undefined;
   if (mailbox) options.run.listenNudges?.(() => mailbox.nudge());
   // The mailbox's parking asks the owner, made after it: by then it is.
   const owner: WorkflowOwner = new WorkflowOwner({
     ...(mailbox ? { mailbox } : {}),
+    waits,
     ...(keptSessions ? { keptSessions } : {}),
     ...(restoredTurns ? { restoredTurns } : {}),
     failRun: (error) => fatal.reject(error),
@@ -661,7 +665,7 @@ export async function startWorkflow<Args extends JsonValue, Result extends JsonV
             }),
             fatal.promise,
             // A park ends the body, even code that caught it.
-            ...(mailbox ? [mailbox.whenParked] : []),
+            waits.whenParked,
           ]),
         signal,
         options.deadline,
@@ -679,9 +683,9 @@ export async function startWorkflow<Args extends JsonValue, Result extends JsonV
     if (mailbox && !mailbox.parked)
       await owner.endStartedTurns(failed ? "the workflow failed" : "the workflow returned");
     // Once `parked` is written, the attempt is parked, whatever the code did after.
-    if (mailbox?.parked) {
+    if (waits.parked) {
       failed = true;
-      failure = mailbox.parked;
+      failure = waits.parked;
     }
     const ending = stages.settle(
       failed ? failure : undefined,
@@ -929,6 +933,8 @@ class WorkflowOwner {
       mailbox?: RunMailbox;
       /** The run's time. */
       now: () => number;
+      /** Its timers: the mailbox for a run with `events`, one of its own for a plain run. */
+      waits: RunMailbox;
       /** With `mailbox`: each root agent's last session in earlier attempts, which it reopens on. */
       keptSessions?: ReadonlyMap<string, NativeFork>;
       /** With `mailbox`: each agent's turn an earlier attempt started whose end no wait took. */
@@ -1134,9 +1140,12 @@ class WorkflowOwner {
       log: (message, fields) => options.log(message, fields),
       now: () => new Date(options.now()),
       sleep: async (name, when) => {
-        const { mailbox } = options;
-        if (!mailbox) throw new Error("sleep needs a workflow with events, until plain runs park");
-        await this.race(mailbox, name, { sleep: checkedWhen(when) } as RaceBranches, undefined);
+        await this.race(
+          options.waits,
+          name,
+          { sleep: checkedWhen(when) } as RaceBranches,
+          undefined,
+        );
       },
     };
     const { mailbox } = options;
@@ -1150,7 +1159,7 @@ class WorkflowOwner {
             select: (branches: Branches, selectOptions?: SelectOptions) =>
               this.select(mailbox, branches, selectOptions),
             timer: (name: string, when: When) => this.timer(mailbox, name, when),
-            timers: () => asSource({}, { name: "timer:due" }),
+            timers: () => source({}, { name: "timer:due" }),
             signal: (name: string) => signalSource(name),
             ...(mailbox.started ? { started: mailbox.started } : {}),
           }
@@ -1171,7 +1180,7 @@ class WorkflowOwner {
   }
 
   /** Runs a wait, which ends with the run, as its owner closes, or with the scope it waits in. */
-  async #inWait(
+  async #holdingWait(
     scope: ExecutionScope | undefined,
     wait: (signal: AbortSignal) => Promise<WorkflowEvent<string, JsonValue>[]>,
   ): Promise<WorkflowEvent<string, JsonValue>[]> {
@@ -1208,7 +1217,11 @@ class WorkflowOwner {
     }
     const given = parseWhen(when, this.options.now());
     const { timer, asked } = mailbox.setTimer(name, given.due, given.when);
-    if (asked !== undefined)
+    if (timer.cancelled)
+      this.options.onLog?.(
+        `awf: timer ${name} was cancelled; a name stays cancelled, so it won't fire`,
+      );
+    else if (asked !== undefined)
       this.options.onLog?.(
         `awf: timer ${name} is due ${timer.due}, as first set (${timer.when}); ${asked} is ignored`,
       );
@@ -1229,22 +1242,42 @@ class WorkflowOwner {
       );
     if (scope?.stage !== undefined)
       throw new Error(`race ${name} is in stage ${scope.stage}: a race is recorded on its own`);
+    if (this.#raced.has(name))
+      throw new Error(
+        `race ${name} has answered in this attempt; a wait in a loop is named per round, as approval-\${round}`,
+      );
+    this.#raced.add(name);
     const label = checkedLabel(raceOptions?.label);
+    const given = branchesOf(`race ${name}`, branches, true);
+    // A sleep's time may be a Date, its own timer as a duration is.
+    const own = (source: unknown) => typeof source === "string" || source instanceof Date;
+    // Every branch checked before a timer is set, so a refused race leaves none behind.
+    const takes = new Map(
+      given.flatMap(([branch, source]) =>
+        own(source) ? [] : [[branch, sourceTake(`race ${name}`, branch, source)] as const],
+      ),
+    );
     const owned = new Map<string, string>();
-    const pairs: (readonly [string, WaitTake])[] = [];
-    for (const [branch, source] of branchesOf(`race ${name}`, branches, true)) {
-      // A sleep's time may be a Date, its own timer as a duration is.
-      if (typeof source === "string" || source instanceof Date) {
-        const timer = this.timer(mailbox, `${name}@${branch}`, source as When, true);
-        owned.set(branch, timer.name);
-        pairs.push([branch, { name: "timer:due", from: timer.name }]);
-      } else pairs.push([branch, sourceTake(`race ${name}`, branch, source)]);
-    }
-    let won: { branch: string; event: WorkflowEvent<string, JsonValue> } | undefined;
-    await this.#inWait(scope, async (signal) => {
-      won = await mailbox.race(name, pairs, owned, label, signal);
-      return [won.event];
+    const pairs: (readonly [string, WaitTake])[] = given.map(([branch, source]) => {
+      if (!own(source)) return [branch, takes.get(branch) as WaitTake] as const;
+      const timer = this.timer(mailbox, `${name}@${branch}`, source as When, true);
+      owned.set(branch, timer.name);
+      return [branch, { name: "timer:due", from: timer.name }] as const;
     });
+    let won: { branch: string; event: WorkflowEvent<string, JsonValue> } | undefined;
+    try {
+      await this.#holdingWait(scope, async (signal) => {
+        won = await mailbox.race(name, pairs, owned, label, signal);
+        return [won.event];
+      });
+    } catch (error) {
+      // Cut short, not parked: its own timers would fire into a later wait. A park's rerun races again.
+      if (!(error instanceof RunParked))
+        await Promise.all([...owned.values()].map((timer) => mailbox.cancelTimer(timer))).catch(
+          () => undefined,
+        );
+      throw error;
+    }
     const { branch, event } = won as { branch: string; event: WorkflowEvent<string, JsonValue> };
     return { key: branch, [branch]: branchValue(event) } as Next<RaceBranches>;
   }
@@ -1267,11 +1300,11 @@ class WorkflowOwner {
       const scope = this.#beginWait("select");
       if (scope?.stage !== undefined)
         throw new Error(`select is in stage ${scope.stage}: a loop's wait is not a stage's`);
-      const [event] = await this.#inWait(scope, async (signal) => [
+      const [event] = await this.#holdingWait(scope, async (signal) => [
         await mailbox.select(takes, labelOf(), signal),
       ]);
       const taken = event as WorkflowEvent<string, JsonValue>;
-      const branch = pairs.find(([, take]) => matches(taken, take))?.[0] as string;
+      const branch = branchOf(pairs, taken) as string;
       return { key: branch, [branch]: branchValue(taken) } as Next<Branches>;
     };
     return {
@@ -1283,6 +1316,8 @@ class WorkflowOwner {
   }
 
   #waiting = false;
+  /** The races and sleeps this attempt has run, each by its name once. */
+  readonly #raced = new Set<string>();
   /** Each agent's turn an earlier attempt started whose end no wait has taken yet. */
   readonly #restored: Map<string, RestoredTurn>;
 
@@ -1371,7 +1406,7 @@ class WorkflowOwner {
     if (scope?.stage !== undefined && this.#stageBatches.has(scope.stage))
       throw new Error(`stage ${scope.stage} has waited once; a stage holds one wait`);
     try {
-      const taken = await this.#inWait(scope, (signal) =>
+      const taken = await this.#holdingWait(scope, (signal) =>
         mailbox.receive(spec, scope?.stage, signal),
       );
       if (scope?.stage !== undefined) {
@@ -1436,7 +1471,7 @@ class WorkflowOwner {
       },
     };
     if (to === "code") {
-      const routed = asSource(
+      const routed = source(
         {
           ...ref,
           post: async (text: string) => {
@@ -1444,8 +1479,6 @@ class WorkflowOwner {
               throw new Error("post takes the text to write");
             await this.#messaging.post(key, text);
           },
-          is: (event: { name: string; from: string }): event is ParticipantReplyEvent & Matched =>
-            event.name === "participant:reply" && event.from === key,
         },
         { name: "participant:reply", from: key },
       ) as unknown as CodeParticipantRef;
@@ -1712,6 +1745,8 @@ class WorkflowOwner {
       this.#messaging.finishing(messages);
       scope.seal();
       await this.drainMessages(messages, () => scope.settleOwned());
+      // A timer it set is written before its record, which a rerun reuses without its work.
+      await this.options.waits.flush();
       if (this.options.stages.stopped?.stage === name) throw this.options.stages.caught();
       const batch = this.#stageBatches.get(name);
       if (batch && !options) {
@@ -2305,6 +2340,7 @@ class WorkflowOwner {
       keepPane: () => this.#agents.get(key)?.identity.keepPane,
       keepAlive: () => this.#agents.get(key)?.keepAlive,
       defaultWindowMs: this.options.defaultWindowMs ?? DEFAULT_WINDOW_MS,
+      now: this.options.now,
       // Its socket is its authority: a kept agent's harness lives on, and must not answer.
       revoke: () =>
         this.#agents
@@ -2715,6 +2751,8 @@ class LogicalAgent implements AgentRef {
       keepAlive(): KeepAlive | undefined;
       /** Its window when `keepAlive` gives no `timeoutMs`. */
       defaultWindowMs: number;
+      /** The run's time, which its window is measured on. */
+      now: () => number;
       /** Closes its result channel, once its pane is kept. */
       revoke(): Promise<void> | undefined;
     },
@@ -2762,7 +2800,7 @@ class LogicalAgent implements AgentRef {
   }
 
   /** The end of its window while one is open; a closed agent holds none. */
-  liveUntil(now = Date.now()): number | undefined {
+  liveUntil(now = this.options.now()): number | undefined {
     const keepAlive = this.options.keepAlive();
     if (this.#closed || !keepAlive || this.#lastEnd === undefined) return undefined;
     const until = this.#lastEnd + (keepAlive.timeoutMs ?? this.options.defaultWindowMs);
@@ -2773,7 +2811,7 @@ class LogicalAgent implements AgentRef {
    * Its `onTimeout`, once its window has passed with it idle and a turn owed it, taken: it isn't
    * due again until another turn ends.
    */
-  takeTimeout(now = Date.now()): KeepAlive["onTimeout"] {
+  takeTimeout(now = this.options.now()): KeepAlive["onTimeout"] {
     const onTimeout = this.options.keepAlive()?.onTimeout;
     if (!onTimeout || !this.#timeoutOwed || this.#closed || this.busy || this.#started)
       return undefined;
@@ -3191,7 +3229,7 @@ class LogicalAgent implements AgentRef {
   ): void {
     // A failure has closed it by now, and a closed agent holds no window.
     if (opensWindow && !this.#closed) {
-      this.#lastEnd = Date.now();
+      this.#lastEnd = this.options.now();
       this.#timeoutOwed = true;
     }
     this.#last = outcome.kind;
@@ -4089,25 +4127,13 @@ function sourceTake(what: string, branch: string, source: unknown): WaitTake {
 function signalSource(name: string): unknown {
   if (typeof name !== "string" || name.includes(":"))
     throw new Error(`a signal is one of the workflow's own events, by name; not ${String(name)}`);
-  return asSource(
-    Object.freeze({
-      name,
-      is: (event: { name: string }) => event.name === name,
-    }),
-    { name },
-  );
+  return source({ name }, { name });
 }
 
 /** Timer `name`'s source. */
 function timerSource(mailbox: RunMailbox, name: string, due: string): Timer {
-  return asSource(
-    Object.freeze({
-      name,
-      due,
-      cancel: () => mailbox.cancelTimer(name),
-      is: (event: { name: string; from: string }) =>
-        event.name === "timer:due" && event.from === name,
-    }),
+  return source(
+    { name, due, cancel: () => mailbox.cancelTimer(name) },
     { name: "timer:due", from: name },
   ) as unknown as Timer;
 }
@@ -4118,14 +4144,9 @@ function turnRef(
   id: string,
   cancel: (reason?: string) => Promise<boolean>,
 ): StartedTurn {
-  const take = { name: "agent:ended", from: agent, turn: id };
-  return asSource(
-    Object.freeze({
-      id,
-      cancel,
-      is: (event: { name: string; from: string; data?: unknown }) => matches(event, take),
-    }),
-    take,
+  return source(
+    { id, cancel },
+    { name: "agent:ended", from: agent, turn: id },
   ) as unknown as StartedTurn;
 }
 

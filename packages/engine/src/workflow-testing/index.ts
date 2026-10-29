@@ -27,7 +27,7 @@ import { type Harness, sandboxTokens } from "@agentswf/harness";
 import { createFakeSandboxProvider } from "@agentswf/sandbox/testing/fake";
 import { checkEvent, eventIdProblem } from "../emit";
 import { messageOf } from "../errors";
-import { appendMailbox, RunParked, readMailbox } from "../mailbox";
+import { appendMailbox, foldMailbox, RunParked, readMailbox } from "../mailbox";
 import { OPERATOR_ALIASES } from "../operator-aliases";
 import { createRun, idProblem, readEvents, readStageRecords, writeStageRecord } from "../runs";
 import { primaryFailure, WorkflowStopped } from "../stopped";
@@ -110,6 +110,12 @@ export type TestOptions = {
   timeoutMs?: number;
   /** Real time with no turn or decision starting or ending before the test fails; 2 s. */
   stallMs?: number;
+  /**
+   * The run's clock is virtual: where a run would park with a timer to come, the clock moves to it
+   * and the timer fires, so a two-day reminder takes no time. After this many, the run parks
+   * instead, as a loop of reminders nobody answers would; 20. Zero parks at the first.
+   */
+  maxTimers?: number;
   /** Where the agents work; by default a temporary directory, removed afterwards. */
   cwd?: string;
   /**
@@ -228,6 +234,8 @@ export type TestRun<Result> = {
   emits: EmittedEvent[];
   /** A run of a workflow with `events` that parked, and its last wait; absent when it returned. */
   parked?: { label?: string; until?: string };
+  /** The run's timers in the order set: when each was due, and whether it fired or was cancelled. */
+  timers: { name: string; due: string; state: "fired" | "cancelled" | "pending" }[];
   /**
    * A run of a workflow with `events`: its mailbox as the run left it, its events and what its
    * waits and turns wrote, in order; empty for one without.
@@ -310,7 +318,19 @@ export async function testWorkflow<Args extends JsonValue, Result extends JsonVa
       }`,
     );
   };
-  const scripted = withEvents && eventOptions && new ScriptedEvents(withEvents, eventOptions);
+  /** How far the virtual clock is ahead of the real one. */
+  let ahead = 0;
+  const now = () => Date.now() + ahead;
+  const maxTimers = options.maxTimers ?? 20;
+  let skipped = 0;
+  const skip = async (until: number) => {
+    if (skipped >= maxTimers) return false;
+    skipped += 1;
+    ahead += Math.max(0, until - now());
+    events.onActivity();
+    return true;
+  };
+  const scripted = withEvents && eventOptions && new ScriptedEvents(withEvents, eventOptions, now);
   /** The end of the window the run last waited live to. */
   let liveUntil: number | undefined;
   let nudge: (() => void) | undefined;
@@ -413,6 +433,7 @@ export async function testWorkflow<Args extends JsonValue, Result extends JsonVa
       livenessPolicy: { quietMs: 1, responseMs: 25, deliveryMs: 100, releaseMs: 1000 },
       // A workflow's own default hour would stall its test; one it gives is kept.
       defaultWindowMs: TEST_WINDOW_MS,
+      now,
       ...(options.awaitReply === "anywhere" ? { awaitReply: () => true } : {}),
       run: {
         dir: run.dir,
@@ -426,6 +447,7 @@ export async function testWorkflow<Args extends JsonValue, Result extends JsonVa
           ? {
               events: true as const,
               park: async () => undefined,
+              skip,
               live: async (until: number) => {
                 liveUntil = until;
                 const due = scripted ? scripted.ended() : [];
@@ -436,7 +458,8 @@ export async function testWorkflow<Args extends JsonValue, Result extends JsonVa
                 nudge = given;
               },
             }
-          : {}),
+          : // A plain run waits for a timer in its process; a test moves its clock, or parks it.
+            { park: async () => undefined, skip }),
       },
       cwd,
       ...(options.timeoutMs === undefined
@@ -525,7 +548,11 @@ export async function testWorkflow<Args extends JsonValue, Result extends JsonVa
     get value() {
       if ("value" in settled) return settled.value;
       if (primaryFailure(settled.error) instanceof RunParked)
-        throw new Error("the run parked, and returned nothing: run.parked says at which wait");
+        throw new Error(
+          skipped > 0 && skipped >= maxTimers
+            ? `the run parked after ${maxTimers} timers fired (maxTimers): a loop of timers that nothing answers?`
+            : "the run parked, and returned nothing: run.parked says at which wait",
+        );
       throw new Error(`the workflow threw: ${messageOf(settled.error)}`, { cause: settled.error });
     },
     turns: host.turns,
@@ -548,9 +575,18 @@ export async function testWorkflow<Args extends JsonValue, Result extends JsonVa
     decisions: decisions.asked,
     logs,
     stages,
+    timers: timersOf(mailbox),
     ...stoppedOf(settled),
     ...parkedOf(settled),
   };
+}
+
+function timersOf(records: readonly MailboxRecord[]): TestRun<unknown>["timers"] {
+  return [...foldMailbox(records).timers.values()].map(({ name, due, fired, cancelled }) => ({
+    name,
+    due,
+    state: fired ? "fired" : cancelled ? "cancelled" : "pending",
+  }));
 }
 
 /**
@@ -646,7 +682,12 @@ class ScriptedEvents {
   readonly #max: number;
   #turns = 0;
 
-  constructor(workflow: EventWorkflow, options: EventTestOptions<EventSchemas>) {
+  constructor(
+    workflow: EventWorkflow,
+    options: EventTestOptions<EventSchemas>,
+    /** The run's clock, which stamps what is sent. */
+    private readonly now: () => number,
+  ) {
     this.#max = options.maxTurns ?? 20;
     if (!Number.isInteger(this.#max) || this.#max < 1)
       throw new Error(`maxTurns is a whole number of turns, at least 1, not ${options.maxTurns}`);
@@ -717,7 +758,7 @@ class ScriptedEvents {
   #take(which: (each: PendingEvent) => boolean): MailboxRecord[] {
     const due = this.#pending.filter(which);
     for (const each of due) this.#pending.splice(this.#pending.indexOf(each), 1);
-    return due.map((each) => ({ ...each.record, at: new Date().toISOString() }));
+    return due.map((each) => ({ ...each.record, at: new Date(this.now()).toISOString() }));
   }
 
   /** What was never sent: the test fails. */
