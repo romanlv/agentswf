@@ -227,8 +227,8 @@ export type RunWorkflowOptions = {
     /** With `events`: calls `nudge` whenever awf tells the run its mailbox has a new event. */
     listenNudges?(nudge: () => void): void;
     /**
-     * With `events`: writes the attempt's `parked` ending, which the run's wait calls holding the run's
-     * lock. Absent, the run never parks and waits in its process.
+     * Writes the attempt's `parked` ending, which the run's wait calls holding the run's lock: an
+     * event run's, or a test's. Absent, the run never parks and waits in its process.
      */
     park?(wait: { label?: string; until?: string }): Promise<void>;
     /** With `park`: the wait stays live to `until` for an agent's window instead. A test's hook. */

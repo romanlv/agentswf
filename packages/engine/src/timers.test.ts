@@ -1,9 +1,14 @@
-import { expect, test } from "bun:test";
+import { afterAll, expect, test } from "bun:test";
+import type { WorkflowDefinition } from "@agentswf/contract/workflow";
 import { defineWorkflow } from "@agentswf/contract/workflow";
-import { caseRun, startCase } from "./testing";
+import { createSingleSessionHostFactory } from "@agentswf/harness";
+import { createFakeAdapter } from "@agentswf/harness/testing";
+import { caseRun, createTempRunDirs, runNew, startCase } from "./testing";
 import { answer, testWorkflow } from "./workflow-testing";
 
 const DAY = 86_400_000;
+const runDirs = createTempRunDirs();
+afterAll(() => runDirs.cleanup());
 
 /** Story 037's case 1: a reminder every two days, an approval, or an expiry at fourteen. */
 const approval = caseRun(async (workflow) => {
@@ -66,7 +71,7 @@ test("a loop of timers that nothing answers parks after maxTimers, and the test 
     { ...startCase, maxTimers: 5 },
   );
   expect(run.parked).toBeDefined();
-  expect(() => run.value).toThrow("after 5 timers fired (maxTimers)");
+  expect(() => run.value).toThrow("skipped to 5 timers (maxTimers)");
   expect(run.timers.filter((t) => t.state === "fired")).toHaveLength(5);
 });
 
@@ -84,6 +89,8 @@ test("workflow.now() and the events a test sends follow the test's clock", async
     startCase,
   );
   expect(run.value).toEqual({ days: 14, event: "dd.changes" });
+  const due = run.mailbox.find((r) => r.kind === "event" && r.name === "timer:due");
+  expect(Date.parse(due?.at ?? "") - Date.now()).toBeGreaterThan(13 * DAY);
 });
 
 const followUp = defineWorkflow({
@@ -103,3 +110,29 @@ test("a workflow without events sleeps: on the test's clock in no time, or parks
   expect(parked.parked?.until).toBeDefined();
   expect(parked.stages.map((record) => record.stage)).toEqual(["release"]);
 });
+
+test("a workflow without events waits for its timer in its process, as awf run runs it", async () => {
+  const run = await startPlain(
+    defineWorkflow({
+      meta: { name: "nap", description: "Sleeps a moment." },
+      async run(workflow) {
+        await workflow.sleep("nap", new Date(workflow.now().getTime() + 150));
+        return "rested";
+      },
+    }),
+  );
+  expect(run.value).toBe("rested");
+  expect(run.ms).toBeGreaterThanOrEqual(140);
+});
+
+async function startPlain(workflow: WorkflowDefinition<null, string>) {
+  const started = Date.now();
+  const result = await runNew(workflow, null, {
+    runRoot: runDirs.tempRunDir(),
+    runtime: {
+      aliases: {},
+      host: createSingleSessionHostFactory(createFakeAdapter({ script: () => ({}) })),
+    },
+  });
+  return { value: result.value, ms: Date.now() - started };
+}

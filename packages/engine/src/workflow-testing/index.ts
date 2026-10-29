@@ -232,13 +232,13 @@ export type TestRun<Result> = {
   stopped?: { reason: string; stage?: string; needs?: readonly StageNeed[] };
   /** Every event the run sent to another workflow, in order. */
   emits: EmittedEvent[];
-  /** A run of a workflow with `events` that parked, and its last wait; absent when it returned. */
+  /** A run that parked, and its last wait; absent when it returned. A plain run parks only at maxTimers. */
   parked?: { label?: string; until?: string };
   /** The run's timers in the order set: when each was due, and whether it fired or was cancelled. */
   timers: { name: string; due: string; state: "fired" | "cancelled" | "pending" }[];
   /**
-   * A run of a workflow with `events`: its mailbox as the run left it, its events and what its
-   * waits and turns wrote, in order; empty for one without.
+   * Its mailbox as the run left it: its events, timers, and what its waits and turns wrote, in
+   * order; a plain run's holds its timers alone.
    */
   mailbox: MailboxRecord[];
 };
@@ -305,9 +305,9 @@ export async function testWorkflow<Args extends JsonValue, Result extends JsonVa
       stopping.abort(new Error("everything left waits on a participant"));
       return;
     }
-    if (host.inFlight().length === 0 && liveUntil !== undefined && liveUntil > Date.now())
+    if (host.inFlight().length === 0 && liveUntil !== undefined && liveUntil > now())
       return stopWith(
-        `the run stalled: it waits live in an agent's keepAlive window for ${liveUntil - Date.now()} ms more; a test gives the agent a short timeoutMs, or none`,
+        `the run stalled: it waits live in an agent's keepAlive window for ${liveUntil - now()} ms more; a test gives the agent a short timeoutMs, or none`,
       );
     const waiting = host
       .inFlight()
@@ -322,11 +322,19 @@ export async function testWorkflow<Args extends JsonValue, Result extends JsonVa
   let ahead = 0;
   const now = () => Date.now() + ahead;
   const maxTimers = options.maxTimers ?? 20;
+  if (!Number.isInteger(maxTimers) || maxTimers < 0)
+    throw new Error(`maxTimers is a whole number of timers, 0 or more, not ${options.maxTimers}`);
   let skipped = 0;
+  /** The clock stopped at maxTimers, and the run parked there. */
+  let stoppedSkipping = false;
   const skip = async (until: number) => {
-    if (skipped >= maxTimers) return false;
+    if (skipped >= maxTimers) {
+      stoppedSkipping = true;
+      return false;
+    }
     skipped += 1;
     ahead += Math.max(0, until - now());
+    liveUntil = undefined;
     events.onActivity();
     return true;
   };
@@ -549,8 +557,8 @@ export async function testWorkflow<Args extends JsonValue, Result extends JsonVa
       if ("value" in settled) return settled.value;
       if (primaryFailure(settled.error) instanceof RunParked)
         throw new Error(
-          skipped > 0 && skipped >= maxTimers
-            ? `the run parked after ${maxTimers} timers fired (maxTimers): a loop of timers that nothing answers?`
+          stoppedSkipping && maxTimers > 0
+            ? `the run parked after the clock skipped to ${maxTimers} timers (maxTimers): a loop of timers that nothing answers?`
             : "the run parked, and returned nothing: run.parked says at which wait",
         );
       throw new Error(`the workflow threw: ${messageOf(settled.error)}`, { cause: settled.error });
