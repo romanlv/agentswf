@@ -48,11 +48,15 @@ Notes, to settle when it is refined:
 - **Overlap:** an occurrence due while the previous one's run is live is skipped, queued once, or
   started anyway.
 - **Missed occurrences:** after a sleep or a reboot, run the latest once, or each one missed.
-- **A wake by `until`** may be the same mechanism: a named wait whose wake arrives as an event
-  with an id, so a loop can name its work by it. Whether this story or a smaller one does that.
+- **A wake by `until`** gets a name in [[037-workflow-timers|story 037]], as a timer or a delayed
+  event; an occurrence emitted to a keyed run could arrive the same way.
 - **What runs `awf tick`:** one launchd or cron entry per machine that `awf` installs, which
   would run `awf tick --all`, since a bare tick wakes only its own project's runs (034 task 12),
   or a long-running `awf` process; and how often, since that sets the latency of every schedule.
 - **Unattended turns:** an occurrence at 03:00 may open panes (`workflow-styles.md` §5, point 5).
+- **Recurring timers inside one run**, `workflow.timer("remind", { every: "2d" })` with `n` on
+  each firing, were left out of [[037-workflow-timers|story 037]]: a reminder per round is a timer
+  per round. A daily digest inside one run, named from `Date.now()`, can skip a day on a rerun
+  after midnight; an occurrence per run, or `every`, would fix it.
 - **Testing:** a test that moves the clock past an occurrence needs
   [[workflow-test-virtual-time]], or a narrower clock for schedules only.

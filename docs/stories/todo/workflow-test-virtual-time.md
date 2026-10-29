@@ -21,6 +21,10 @@ equalled the run's ended as `timed-out` in 4 runs of 6 and failed the run in the
 
 Notes:
 
+- [[037-workflow-timers|Story 037]] builds the clock for a workflow's timers and waits: it skips
+  to the next timer when the run would park. What remains here is the engine's own deadlines
+  (a turn's `timeoutMs`, `parallel`'s deadline, `--timeout`) on that clock.
+
 - Temporal's rule is the one to copy ([[workflow-testing]]): the clock skips while nothing runs,
   and a scripted step says how long it took (`.After(d)` in Temporal Go, Conductor's
   `executionTime`).

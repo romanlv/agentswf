@@ -152,6 +152,10 @@ status is one of `todo`, `draft`, `ready`, `in-progress`, `blocked`, `awaiting-h
   `in-progress` — an agent opened with `keepAlive` keeps the run live for a window after its turn, so a
   follow-up is a warm turn in the same pane; at the window's end its `onTimeout` handler can
   compact it with a focus written then; the run parks once every window has passed.
+- [`037` — A workflow waits on time in code that says what it waits for](037-workflow-timers.md) —
+  `in-progress` — named timers, typed sources, a named `race` that takes only its winner, `select`
+  as its loop form beside `receive`, and `sleep`, so time reads well in a loop and in straight-line
+  code alike.
 
 - [[021-turn-liveness-and-limits|021 — Keep a waiting agent alive within fixed limits]] —
   `done` — Repeated cooperative check-ins share one deadline and result slot; an accepted
