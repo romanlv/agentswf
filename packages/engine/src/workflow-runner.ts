@@ -21,6 +21,7 @@ import {
   TURN_OPERATION_FIELDS,
   TURN_RECORD_VERSION,
   type TurnRecord,
+  type WaitTake,
 } from "@agentswf/contract/records";
 import {
   formatErrors,
@@ -39,6 +40,7 @@ import {
   type AgentRunStructuredSpec,
   type AgentRunTextSpec,
   type AgentStartSpec,
+  type Branches,
   type CodeParticipantRef,
   type CompactionId,
   type CompactSpec,
@@ -54,6 +56,8 @@ import {
   type KeepPane,
   type Matched,
   type MessageAccess,
+  type Next,
+  nameProblem,
   type OperationRecord,
   type OutputSchema,
   type PaneLayout,
@@ -62,16 +66,21 @@ import {
   type ParticipantSpec,
   type PlacementChoice,
   placementOf,
+  type RaceBranches,
   type ReceiveOptions,
   type RunResult,
   type RuntimeSelection,
+  type SelectOptions,
   type SettingsSpec,
   type SkillSource,
   type StageOptions,
   type StageSummary,
   type StartedTurn,
+  type Timer,
   type TurnId,
   type TurnOutcome,
+  type WaitOptions,
+  type When,
   type WorkflowContext,
   type WorkflowDefinition,
   type WorkflowEvent,
@@ -122,6 +131,7 @@ import {
 } from "./deadlines";
 import { RunDecisions } from "./decisions/directory";
 import type { DecisionInstallation } from "./decisions/seam";
+import { parseWhen } from "./duration";
 import { emitEvent } from "./emit";
 import { messageOf } from "./errors";
 import {
@@ -179,6 +189,7 @@ import {
 } from "./sandboxes";
 import { QUOTING_RULE, simpleInput, usageLine } from "./simple-input";
 import { placeSkills, RunSkills, readSkillSources } from "./skills/run-skills";
+import { asSource, branchValue, matches, takeOf } from "./sources";
 import { StageLedger, type StageProgress } from "./stage-ledger";
 import { FromStageUnreached } from "./stopped";
 import { inToolHandler, outsideTools, refusedInTool, ToolCalls, toolsLesson } from "./tools";
@@ -191,6 +202,8 @@ export type RunWorkflowOptions = {
   livenessPolicy?: LivenessPolicy;
   /** A `keepAlive` window that gives no `timeoutMs`; absent, an hour. A test's is short. */
   defaultWindowMs?: number;
+  /** The run's time, which its timers and `workflow.now()` read; absent, the clock's. A test's is virtual. */
+  now?: () => number;
   runRoot: string;
   /** The run this is an attempt of, whose folder the operator claimed under `runRoot`. */
   run: {
@@ -566,11 +579,13 @@ export async function startWorkflow<Args extends JsonValue, Result extends JsonV
     withEvents && options.run.resumeSessions !== false
       ? keptSessionsOf(await readTurns(runDir))
       : undefined;
+  const now = options.now ?? Date.now;
   const mailbox = withEvents
     ? new RunMailbox({
         runDir,
         attempt,
         locked,
+        now,
         ...(options.run.park
           ? {
               parking: {
@@ -584,6 +599,7 @@ export async function startWorkflow<Args extends JsonValue, Result extends JsonV
           : {}),
       })
     : undefined;
+  await mailbox?.open();
   if (mailbox) options.run.listenNudges?.(() => mailbox.nudge());
   // The mailbox's parking asks the owner, made after it: by then it is.
   const owner: WorkflowOwner = new WorkflowOwner({
@@ -604,6 +620,7 @@ export async function startWorkflow<Args extends JsonValue, Result extends JsonV
     runId,
     attempt,
     cwd,
+    now,
     deadline: options.deadline,
     runtime: options.runtime,
     host,
@@ -910,6 +927,8 @@ class WorkflowOwner {
       coordinators: readonly CoordinatorPort[];
       /** A run of a workflow with `events`: its mailbox, which its waits take from. */
       mailbox?: RunMailbox;
+      /** The run's time. */
+      now: () => number;
       /** With `mailbox`: each root agent's last session in earlier attempts, which it reopens on. */
       keptSessions?: ReadonlyMap<string, NativeFork>;
       /** With `mailbox`: each agent's turn an earlier attempt started whose end no wait took. */
@@ -1113,14 +1132,154 @@ class WorkflowOwner {
         return this.track(options.allowance(harness as Harness));
       },
       log: (message, fields) => options.log(message, fields),
+      now: () => new Date(options.now()),
+      sleep: async (name, when) => {
+        const { mailbox } = options;
+        if (!mailbox) throw new Error("sleep needs a workflow with events, until plain runs park");
+        await this.race(mailbox, name, { sleep: checkedWhen(when) } as RaceBranches, undefined);
+      },
     };
     const { mailbox } = options;
     Object.assign(
       this.context,
       mailbox
-        ? { receive: (spec?: ReceiveOptions) => this.receive(mailbox, spec) }
+        ? {
+            receive: (spec?: ReceiveOptions) => this.receive(mailbox, spec),
+            race: (name: string, branches: RaceBranches, raceOptions?: WaitOptions) =>
+              this.race(mailbox, name, branches, raceOptions),
+            select: (branches: Branches, selectOptions?: SelectOptions) =>
+              this.select(mailbox, branches, selectOptions),
+            timer: (name: string, when: When) => this.timer(mailbox, name, when),
+            timers: () => asSource({}, { name: "timer:due" }),
+            signal: (name: string) => signalSource(name),
+            ...(mailbox.started ? { started: mailbox.started } : {}),
+          }
         : { receive: () => Promise.reject(new Error("receive needs a workflow with events")) },
     );
+  }
+
+  /** Checks a wait may begin here: one at a time, outside a tool's handler, in an open scope. */
+  #beginWait(what: string): ExecutionScope | undefined {
+    if (this.#closed || this.#cleanupFailures.length) throw new Error("workflow context is closed");
+    if (inToolHandler())
+      throw new Error(`${what} is refused in a tool's handler: it would take the run's events`);
+    const scope = scopes.getStore();
+    scope?.assertAccepting();
+    if (this.#waiting)
+      throw new Error(`${what} was called while another wait is waiting; one wait at a time`);
+    return scope;
+  }
+
+  /** Runs a wait, which ends with the run, as its owner closes, or with the scope it waits in. */
+  async #inWait(
+    scope: ExecutionScope | undefined,
+    wait: (signal: AbortSignal) => Promise<WorkflowEvent<string, JsonValue>[]>,
+  ): Promise<WorkflowEvent<string, JsonValue>[]> {
+    this.#waiting = true;
+    const cancelled = new AbortController();
+    const removeFromScope = scope?.add(async (stop) =>
+      cancelled.abort(new Error(String(stop.reason ?? "the wait's scope was cancelled"))),
+    );
+    try {
+      const taken = await wait(AbortSignal.any([this.#closingRun.signal, cancelled.signal]));
+      // A turn's end taken: its agent takes other work again.
+      for (const event of taken) {
+        if (event.name !== "agent:ended") continue;
+        const { turn } = event.data as unknown as TurnEnd;
+        if (this.#restored.get(event.from)?.turn === turn) this.#restored.delete(event.from);
+        this.#logical.get(event.from)?.endTaken(turn);
+      }
+      return taken;
+    } finally {
+      removeFromScope?.();
+      this.#waiting = false;
+    }
+  }
+
+  /** A timer, by name: the recorded one, or set now. A race's own are named `{race}@{branch}`. */
+  private timer(mailbox: RunMailbox, name: string, when: When, own = false): Timer {
+    if (this.#closed || this.#cleanupFailures.length) throw new Error("workflow context is closed");
+    if (typeof name !== "string") throw new Error("a timer's name is a string");
+    if (!own) {
+      const problem = name.includes("@")
+        ? "without @, which a race's own timers use"
+        : nameProblem(name);
+      if (problem) throw new Error(`timer ${name}: its name is ${problem}`);
+    }
+    const given = parseWhen(when, this.options.now());
+    const { timer, asked } = mailbox.setTimer(name, given.due, given.when);
+    if (asked !== undefined)
+      this.options.onLog?.(
+        `awf: timer ${name} is due ${timer.due}, as first set (${timer.when}); ${asked} is ignored`,
+      );
+    return timerSource(mailbox, name, timer.due);
+  }
+
+  /** Waits for the first of `branches`, recorded under `name`. */
+  private async race(
+    mailbox: RunMailbox,
+    name: string,
+    branches: RaceBranches,
+    raceOptions: WaitOptions | undefined,
+  ): Promise<Next<RaceBranches>> {
+    const scope = this.#beginWait(`race ${name}`);
+    if (typeof name !== "string" || nameProblem(name))
+      throw new Error(
+        `a race's name is ${typeof name === "string" ? nameProblem(name) : "a string"}`,
+      );
+    if (scope?.stage !== undefined)
+      throw new Error(`race ${name} is in stage ${scope.stage}: a race is recorded on its own`);
+    const label = checkedLabel(raceOptions?.label);
+    const owned = new Map<string, string>();
+    const pairs: (readonly [string, WaitTake])[] = [];
+    for (const [branch, source] of branchesOf(`race ${name}`, branches, true)) {
+      // A sleep's time may be a Date, its own timer as a duration is.
+      if (typeof source === "string" || source instanceof Date) {
+        const timer = this.timer(mailbox, `${name}@${branch}`, source as When, true);
+        owned.set(branch, timer.name);
+        pairs.push([branch, { name: "timer:due", from: timer.name }]);
+      } else pairs.push([branch, sourceTake(`race ${name}`, branch, source)]);
+    }
+    let won: { branch: string; event: WorkflowEvent<string, JsonValue> } | undefined;
+    await this.#inWait(scope, async (signal) => {
+      won = await mailbox.race(name, pairs, owned, label, signal);
+      return [won.event];
+    });
+    const { branch, event } = won as { branch: string; event: WorkflowEvent<string, JsonValue> };
+    return { key: branch, [branch]: branchValue(event) } as Next<RaceBranches>;
+  }
+
+  /** A loop over the events `branches` take, one at a time. */
+  private select(
+    mailbox: RunMailbox,
+    branches: Branches,
+    selectOptions: SelectOptions | undefined,
+  ): AsyncIterable<Next<Branches>> {
+    const pairs = branchesOf("select", branches, false).map(
+      ([branch, source]) => [branch, sourceTake("select", branch, source)] as const,
+    );
+    const takes = pairs.map(([, take]) => take);
+    const labelOf = () => {
+      const given = selectOptions?.label;
+      return checkedLabel(typeof given === "function" ? given() : given);
+    };
+    const next = async (): Promise<Next<Branches>> => {
+      const scope = this.#beginWait("select");
+      if (scope?.stage !== undefined)
+        throw new Error(`select is in stage ${scope.stage}: a loop's wait is not a stage's`);
+      const [event] = await this.#inWait(scope, async (signal) => [
+        await mailbox.select(takes, labelOf(), signal),
+      ]);
+      const taken = event as WorkflowEvent<string, JsonValue>;
+      const branch = pairs.find(([, take]) => matches(taken, take))?.[0] as string;
+      return { key: branch, [branch]: branchValue(taken) } as Next<Branches>;
+    };
+    return {
+      [Symbol.asyncIterator]: () => ({
+        next: async () => ({ done: false, value: await next() }),
+        return: async () => ({ done: true, value: undefined }),
+      }),
+    };
   }
 
   #waiting = false;
@@ -1208,37 +1367,16 @@ class WorkflowOwner {
     mailbox: RunMailbox,
     spec: ReceiveOptions | undefined,
   ): Promise<WorkflowEvent<string, JsonValue>[]> {
-    if (this.#closed || this.#cleanupFailures.length) throw new Error("workflow context is closed");
-    if (inToolHandler())
-      throw new Error("receive() is refused in a tool's handler: it would take the run's events");
-    const scope = scopes.getStore();
-    scope?.assertAccepting();
-    if (this.#waiting)
-      throw new Error("receive was called while another wait is waiting; one wait at a time");
+    const scope = this.#beginWait("receive()");
     if (scope?.stage !== undefined && this.#stageBatches.has(scope.stage))
       throw new Error(`stage ${scope.stage} has waited once; a stage holds one wait`);
-    this.#waiting = true;
-    // The wait ends with the run, as its owner closes, or with the scope it waits in.
-    const cancelled = new AbortController();
-    const removeFromScope = scope?.add(async (stop) =>
-      cancelled.abort(new Error(String(stop.reason ?? "the wait's scope was cancelled"))),
-    );
     try {
-      const taken = await mailbox.receive(
-        spec,
-        scope?.stage,
-        AbortSignal.any([this.#closingRun.signal, cancelled.signal]),
+      const taken = await this.#inWait(scope, (signal) =>
+        mailbox.receive(spec, scope?.stage, signal),
       );
       if (scope?.stage !== undefined) {
         this.#stageBatches.set(scope.stage, taken);
         this.#waitedStages.add(scope.stage);
-      }
-      // A turn's end taken: its agent takes other work again.
-      for (const event of taken) {
-        if (event.name !== "agent:ended") continue;
-        const { turn } = event.data as unknown as TurnEnd;
-        if (this.#restored.get(event.from)?.turn === turn) this.#restored.delete(event.from);
-        this.#logical.get(event.from)?.endTaken(turn);
       }
       return taken;
     } catch (error) {
@@ -1246,9 +1384,6 @@ class WorkflowOwner {
       if (error instanceof RunParked && scope?.stage !== undefined)
         this.options.stages.abandon(scope.stage);
       throw error;
-    } finally {
-      removeFromScope?.();
-      this.#waiting = false;
     }
   }
 
@@ -1301,16 +1436,19 @@ class WorkflowOwner {
       },
     };
     if (to === "code") {
-      const routed: CodeParticipantRef = {
-        ...ref,
-        post: async (text) => {
-          if (typeof text !== "string" || text.trim() === "")
-            throw new Error("post takes the text to write");
-          await this.#messaging.post(key, text);
+      const routed = asSource(
+        {
+          ...ref,
+          post: async (text: string) => {
+            if (typeof text !== "string" || text.trim() === "")
+              throw new Error("post takes the text to write");
+            await this.#messaging.post(key, text);
+          },
+          is: (event: { name: string; from: string }): event is ParticipantReplyEvent & Matched =>
+            event.name === "participant:reply" && event.from === key,
         },
-        is: (event): event is ParticipantReplyEvent & Matched =>
-          event.name === "participant:reply" && event.from === key,
-      };
+        { name: "participant:reply", from: key },
+      ) as unknown as CodeParticipantRef;
       this.#outsideRefs.set(key, routed);
       return routed;
     }
@@ -2582,11 +2720,12 @@ class LogicalAgent implements AgentRef {
     },
   ) {
     this.#execution = options.execution;
+    asSource(this, { name: "agent:ended", from: options.key });
     // A turn an earlier attempt started whose end no wait took is this agent's turn again.
     const restored = options.turns?.restored();
     if (restored)
       this.#started = {
-        ref: { id: restored.turn, cancel: async () => false },
+        ref: turnRef(options.key, restored.turn, async () => false),
         meta: restored.meta,
         ended: true,
         done: Promise.resolve(),
@@ -2706,22 +2845,19 @@ class LogicalAgent implements AgentRef {
     const ended = Promise.withResolvers<void>();
     let written: TurnOutcome<JsonValue>["kind"] | undefined;
     const started = {
-      ref: {
-        id,
-        cancel: async (reason?: string) => {
-          if (started.ended) return false;
-          // Its turn waits for the handler, which would wait for the turn's end.
-          const inTool = refusedInTool(this.key, "cancel()");
-          if (inTool) throw inTool;
-          const stop = { kind: "cancelled" as const, reason: reason ?? "the turn was cancelled" };
-          // Its own operation only: one queued behind a message settles cancelled when it is reached.
-          const own = this.#stopsByTurn.get(id);
-          if (own) await own(stop);
-          else this.#cancelledTurns.set(id, stop.reason);
-          await started.done;
-          return written === "cancelled";
-        },
-      } satisfies StartedTurn,
+      ref: turnRef(this.key, id, async (reason?: string) => {
+        if (started.ended) return false;
+        // Its turn waits for the handler, which would wait for the turn's end.
+        const inTool = refusedInTool(this.key, "cancel()");
+        if (inTool) throw inTool;
+        const stop = { kind: "cancelled" as const, reason: reason ?? "the turn was cancelled" };
+        // Its own operation only: one queued behind a message settles cancelled when it is reached.
+        const own = this.#stopsByTurn.get(id);
+        if (own) await own(stop);
+        else this.#cancelledTurns.set(id, stop.reason);
+        await started.done;
+        return written === "cancelled";
+      }),
       meta,
       ended: false,
       done: ended.promise,
@@ -2786,7 +2922,7 @@ class LogicalAgent implements AgentRef {
       );
   }
 
-  ended<Meta extends JsonValue = JsonValue, T extends JsonValue = JsonValue>(event: {
+  is<Meta extends JsonValue = JsonValue, T extends JsonValue = JsonValue>(event: {
     readonly name: string;
     readonly from: string;
   }): event is AgentEndedEvent<Meta, T> & Matched {
@@ -3913,6 +4049,84 @@ class LogicalAgent implements AgentRef {
     this.options.track(lateRelease);
     this.closeAfterFailure(reason);
   }
+}
+
+/** A sleep's time, checked where it is given. */
+function checkedWhen(when: unknown): string | Date {
+  if (when instanceof Date || typeof when === "string") return when;
+  throw new Error('sleep is for a duration, "2h", or until a Date');
+}
+
+function checkedLabel(label: unknown): string | undefined {
+  if (label !== undefined && typeof label !== "string")
+    throw new Error("a wait's label is a string");
+  return label;
+}
+
+/** A wait's branches, by name, checked: a race may give a duration where a select may not. */
+function branchesOf(what: string, branches: unknown, durations: boolean): [string, unknown][] {
+  if (typeof branches !== "object" || branches === null || Array.isArray(branches))
+    throw new Error(`${what} takes its branches as an object, { name: source }`);
+  const entries = Object.entries(branches);
+  if (entries.length === 0) throw new Error(`${what} has no branches: it would never return`);
+  if ("key" in branches) throw new Error(`${what}: no branch is named key, which the answer uses`);
+  for (const [branch, source] of entries)
+    if (typeof source === "string" && !durations)
+      throw new Error(`${what}'s ${branch} is a duration: a timer in a loop is workflow.timer()'s`);
+  return entries;
+}
+
+/** What `source` takes, as a branch gives it. */
+function sourceTake(what: string, branch: string, source: unknown): WaitTake {
+  const take = takeOf(source);
+  if (take) return take;
+  throw new Error(
+    `${what}'s ${branch} is not a source: a timer, a signal, a participant routed to the code, an agent, or a started turn`,
+  );
+}
+
+/** One of the workflow's own events, by name, as a source. */
+function signalSource(name: string): unknown {
+  if (typeof name !== "string" || name.includes(":"))
+    throw new Error(`a signal is one of the workflow's own events, by name; not ${String(name)}`);
+  return asSource(
+    Object.freeze({
+      name,
+      is: (event: { name: string }) => event.name === name,
+    }),
+    { name },
+  );
+}
+
+/** Timer `name`'s source. */
+function timerSource(mailbox: RunMailbox, name: string, due: string): Timer {
+  return asSource(
+    Object.freeze({
+      name,
+      due,
+      cancel: () => mailbox.cancelTimer(name),
+      is: (event: { name: string; from: string }) =>
+        event.name === "timer:due" && event.from === name,
+    }),
+    { name: "timer:due", from: name },
+  ) as unknown as Timer;
+}
+
+/** A started turn, as the code holds it: its id, its cancel, and a source of its end. */
+function turnRef(
+  agent: string,
+  id: string,
+  cancel: (reason?: string) => Promise<boolean>,
+): StartedTurn {
+  const take = { name: "agent:ended", from: agent, turn: id };
+  return asSource(
+    Object.freeze({
+      id,
+      cancel,
+      is: (event: { name: string; from: string; data?: unknown }) => matches(event, take),
+    }),
+    take,
+  ) as unknown as StartedTurn;
 }
 
 class ExecutionScope {

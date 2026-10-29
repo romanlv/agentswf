@@ -1673,9 +1673,7 @@ describe("with started turns", () => {
         });
         started = await agent.start({ prompt: "look" });
         const [end] = await workflow.receive();
-        return end && agent.is(end) && isAnswered(end.data.outcome)
-          ? end.data.outcome.value
-          : null;
+        return end && agent.is(end) && isAnswered(end.data.outcome) ? end.data.outcome.value : null;
       }),
       {
         ...startCase,

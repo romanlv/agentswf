@@ -19,3 +19,22 @@ export function duration(milliseconds: number): string {
   if (minutes < 60) return `${minutes}m${String(seconds % 60).padStart(2, "0")}s`;
   return `${Math.floor(minutes / 60)}h${String(minutes % 60).padStart(2, "0")}m`;
 }
+
+/**
+ * When a timer given `when` is due, epoch ms, from `now`, and `when` as its record keeps it: a
+ * duration of days, hours or minutes as given, or a `Date` as an ISO time.
+ */
+export function parseWhen(when: unknown, now: number): { due: number; when: string } {
+  if (when instanceof Date) {
+    const due = when.getTime();
+    if (!Number.isFinite(due)) throw new Error("a timer's time is a valid Date");
+    return { due, when: when.toISOString() };
+  }
+  const matched = typeof when === "string" ? /^(\d+(?:\.\d+)?)(d|h|m)$/.exec(when) : null;
+  if (!matched)
+    throw new Error(
+      `a timer is due in days, hours or minutes, "14d", "4h", "1.5h", or at a Date; not ${String(when)}`,
+    );
+  const unit = matched[2] === "d" ? 86_400_000 : matched[2] === "h" ? 3_600_000 : 60_000;
+  return { due: now + Math.round(Number(matched[1]) * unit), when: when as string };
+}

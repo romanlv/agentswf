@@ -1,6 +1,13 @@
 import { afterAll, expect, test } from "bun:test";
 import { MAILBOX_RECORD_VERSION, type MailboxRecord } from "@agentswf/contract/records";
-import { appendMailbox, foldMailbox, RunMailbox, RunParked, readMailbox } from "./mailbox";
+import {
+  appendMailbox,
+  foldMailbox,
+  RunMailbox,
+  RunParked,
+  readMailbox,
+  timerEventId,
+} from "./mailbox";
 import { createTempRunDirs } from "./testing";
 
 const runDirs = createTempRunDirs();
@@ -68,31 +75,102 @@ test("after a crash, the first wait returns the batch taken and not acknowledged
   expect(ids(await next.receive(undefined))).toEqual(["c"]);
 });
 
-test("a wait whose until passed returns none, recorded as an empty took", async () => {
+test("a timer due fires into the mailbox as timer:due, at its due time, from its name", async () => {
   const runDir = runDirs.tempRunDir();
-  const until = Date.parse(at) + 60_000;
-  const box = mailbox(runDir, 1, () => until + 1);
-  expect(await box.receive({ until, label: "retrying" })).toEqual([]);
-  const records = await readMailbox(runDir);
-  expect(records.map((r) => r.kind)).toEqual(["wait", "took"]);
-  expect(records[0]).toMatchObject({ label: "retrying", until: new Date(until).toISOString() });
-  expect(records[1]).toMatchObject({ ids: [] });
+  const due = Date.parse(at) + 60_000;
+  const box = mailbox(runDir, 1, () => due + 5_000);
+  box.setTimer("retry", due, "1m");
+  expect(await box.receive({ label: "retrying" })).toEqual([
+    {
+      id: timerEventId("retry"),
+      name: "timer:due",
+      data: { name: "retry" },
+      from: "retry",
+      at: new Date(due).toISOString(),
+    },
+  ]);
+  const kinds = (await readMailbox(runDir)).map((r) => r.kind);
+  expect(kinds).toEqual(["timer", "wait", "event", "took"]);
 });
 
-test("an until still to come waits for it, recorded as the same time on every rerun", async () => {
+test("a timer still to come is waited for, and a rerun keeps the time first set", async () => {
   const runDir = runDirs.tempRunDir();
-  const until = new Date(Date.now() + 80);
   const box = mailbox(runDir);
   const started = Date.now();
-  expect(await box.receive({ until })).toEqual([]);
+  box.setTimer("retry", started + 80, "80ms");
+  expect(ids(await box.receive(undefined))).toEqual([timerEventId("retry")]);
   expect(Date.now() - started).toBeGreaterThanOrEqual(70);
-  // A rerun computes the same until from the files: the record says the same time.
-  await mailbox(runDir, 2, () => until.getTime() + 1).receive({ until });
-  const waits = (await readMailbox(runDir)).filter((r) => r.kind === "wait");
-  expect(waits.map((w) => (w.kind === "wait" ? w.until : undefined))).toEqual([
-    until.toISOString(),
-    until.toISOString(),
-  ]);
+  const again = mailbox(runDir, 2);
+  await again.open();
+  const { timer, asked } = again.setTimer("retry", Date.now() + 10_000, "10s");
+  expect(timer.due).toBe(new Date(started + 80).toISOString());
+  expect(asked).toBe("10s");
+});
+
+test("a cancelled timer doesn't fire, and its timer:due not taken is withdrawn", async () => {
+  const runDir = runDirs.tempRunDir();
+  const due = Date.parse(at);
+  const box = mailbox(runDir, 1, () => due + 1);
+  box.setTimer("quiet", due + 10_000, "10s");
+  box.setTimer("late", due, "0m");
+  await appendMailbox(runDir, { ...event("a"), at: new Date(due + 1).toISOString() });
+  expect(ids(await box.receive({ take: "oldest" }))).toEqual([timerEventId("late")]);
+  await box.cancelTimer("quiet");
+  const state = foldMailbox(await readMailbox(runDir));
+  expect(state.timers.get("quiet")?.cancelled).toBe(true);
+  expect(ids(await box.receive(undefined))).toEqual(["a"]);
+});
+
+test("a race takes only what it names, recorded, and a rerun gets the same answer", async () => {
+  const runDir = await withEvents("a");
+  await appendMailbox(runDir, event("b", "dd.closed"));
+  const box = mailbox(runDir);
+  const branches = [
+    ["closed", { name: "dd.closed" }],
+    ["nudge", { name: "timer:due", from: "ask@nudge" }],
+  ] as const;
+  box.setTimer("ask@nudge", Date.now() + 60_000, "1m");
+  const owned = new Map([["nudge", "ask@nudge"]]);
+  const won = await box.race("ask", branches, owned, undefined);
+  expect(won.branch).toBe("closed");
+  expect(won.event.id).toBe("b");
+  // The loser, the race's own timer, is cancelled; what it didn't name stays.
+  const state = foldMailbox(await readMailbox(runDir));
+  expect(state.timers.get("ask@nudge")?.cancelled).toBe(true);
+  expect(state.unacknowledged).toEqual(["a"]);
+  const again = await mailbox(runDir, 2).race("ask", branches, owned, undefined);
+  expect(again).toEqual(won);
+});
+
+test("a race leaves a loop's batch held: after a crash, the next receive returns it", async () => {
+  const runDir = await withEvents("a");
+  const box = mailbox(runDir);
+  expect(ids(await box.receive(undefined))).toEqual(["a"]);
+  await appendMailbox(runDir, event("b", "dd.closed"));
+  await box.race("closed", [["closed", { name: "dd.closed" }]], new Map(), undefined);
+  // The attempt died handling a: the race acknowledged nothing of the loop's.
+  expect(ids(await mailbox(runDir, 2).receive(undefined))).toEqual(["a"]);
+});
+
+test("select takes one event it names at a time; after a crash, the one held comes back once", async () => {
+  const runDir = await withEvents("a", "b");
+  await appendMailbox(runDir, event("c", "dd.closed"));
+  const takes = [{ name: "dd.changes" }];
+  const box = mailbox(runDir);
+  expect((await box.select(takes, undefined)).id).toBe("a");
+  const again = mailbox(runDir, 2);
+  expect((await again.select(takes, undefined)).id).toBe("a");
+  expect((await again.select(takes, undefined)).id).toBe("b");
+  expect(foldMailbox(await readMailbox(runDir)).unacknowledged).toEqual(["c"]);
+});
+
+test("ready events are taken in order of their at: a timer fired late takes its place", async () => {
+  const runDir = runDirs.tempRunDir();
+  const due = Date.parse(at);
+  await appendMailbox(runDir, { ...event("later"), at: new Date(due + 1_000).toISOString() });
+  const box = mailbox(runDir, 1, () => due + 5_000);
+  box.setTimer("early", due, "0m");
+  expect(ids(await box.receive(undefined))).toEqual([timerEventId("early"), "later"]);
 });
 
 test("a waiting receive takes an event appended later, nudged or not", async () => {
@@ -141,7 +219,7 @@ test("a first wait in a stage leaves a crash's held batch to the first wait outs
 test("a wait's options are checked", async () => {
   const box = mailbox(runDirs.tempRunDir());
   await expect(box.receive({ take: "latest" as "all" })).rejects.toThrow('"all" or "oldest"');
-  await expect(box.receive({ until: Number.NaN })).rejects.toThrow("epoch milliseconds or a Date");
+  await expect(box.receive({ until: 1 } as never)).rejects.toThrow("a timer");
 });
 
 test("an event sent as the run parks is taken: parking checks again under the run's lock", async () => {

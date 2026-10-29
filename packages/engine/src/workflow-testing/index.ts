@@ -786,6 +786,7 @@ function startOf(
     name: event.name,
     data: event.data,
     from: "operator",
+    starts: true as const,
   };
   return { id, record };
 }

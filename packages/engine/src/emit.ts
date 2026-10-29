@@ -106,7 +106,9 @@ export async function deliver(
         return result("duplicate", await wake(run, { ...woken, nudgeLive: false }));
       if ((await readAttempts(run)).at(-1)?.outcome === "completed")
         return result("refused", { did: "none", why: "returned" });
-    } else {
+    }
+    const starts = !run;
+    if (!run) {
       if (!start) return result("refused", { did: "none", why: "not-a-start" });
       checkStartArgs(start.target, start.project);
       run = await createEventRun(runRoot, workflow, runId, start.project, file, context);
@@ -115,6 +117,7 @@ export async function deliver(
       version: MAILBOX_RECORD_VERSION,
       kind: "event",
       ...event,
+      ...(starts ? { starts: true as const } : {}),
     });
     return result("accepted", await wake(run, woken));
   });

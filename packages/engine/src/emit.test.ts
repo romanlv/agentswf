@@ -470,7 +470,51 @@ describe("awf emit", () => {
 });
 
 describe("wake, directly", () => {
-  test("parked: continued once its until has passed, else nothing due", async () => {
+  test("parked at a race: woken only by what it names, an event or its timer", async () => {
+    const p = project();
+    const launch = fakeLaunch();
+    await emit(p, "dd.changes", { case: "k" }, { id: "c0", launch });
+    const run = await runOf(p, "k");
+    const [first] = await readAttempts(run);
+    await writeJson(join(run.dir, "attempts", "1.json"), {
+      ...first,
+      ...GONE,
+      ended: new Date().toISOString(),
+      outcome: "parked",
+    });
+    const due = Date.parse("2026-10-25T12:00:00Z");
+    const at = new Date(due - 60_000).toISOString();
+    await appendMailbox(run.dir, {
+      version: 1,
+      at,
+      kind: "timer",
+      attempt: 1,
+      name: "ask@nudge",
+      due: new Date(due).toISOString(),
+      when: "1m",
+    });
+    await appendMailbox(run.dir, {
+      version: 1,
+      at,
+      kind: "wait",
+      attempt: 1,
+      race: "ask",
+      takes: [{ name: "dd.closed" }, { name: "timer:due", from: "ask@nudge" }],
+    });
+    launch.launched.length = 0;
+    const context = { home: p.home, environment: {}, launch };
+    // c0 waits unacknowledged, but the race doesn't name it.
+    expect(await wake(run, { ...context, now: () => due - 1 })).toEqual({
+      did: "none",
+      why: "nothing-due",
+    });
+    expect(await wake(run, { ...context, now: () => due })).toEqual({
+      did: "continued",
+      cause: "timer",
+    });
+  });
+
+  test("parked: continued once its timer is due, else nothing due", async () => {
     const p = project();
     const launch = fakeLaunch();
     await emit(p, "dd.changes", { case: "k" }, { id: "c0", launch });
@@ -486,9 +530,17 @@ describe("wake, directly", () => {
     await appendMailbox(run.dir, {
       version: 1,
       at: new Date().toISOString(),
+      kind: "timer",
+      attempt: 1,
+      name: "retry",
+      due: new Date(until).toISOString(),
+      when: new Date(until).toISOString(),
+    });
+    await appendMailbox(run.dir, {
+      version: 1,
+      at: new Date().toISOString(),
       kind: "wait",
       attempt: 1,
-      until: new Date(until).toISOString(),
     });
     await appendMailbox(run.dir, {
       version: 1,
@@ -502,7 +554,6 @@ describe("wake, directly", () => {
       at: new Date().toISOString(),
       kind: "wait",
       attempt: 1,
-      until: new Date(until).toISOString(),
     });
     launch.launched.length = 0;
     const context = { home: p.home, environment: {}, launch };
@@ -512,7 +563,7 @@ describe("wake, directly", () => {
     });
     expect(await wake(run, { ...context, now: () => until })).toEqual({
       did: "continued",
-      cause: "until",
+      cause: "timer",
     });
     // No file named: the last attempt's.
     expect(launch.launched).toEqual(["/flows/case.ts"]);
@@ -696,10 +747,13 @@ describe("awf tick", () => {
     await appendMailbox(parkedDue.dir, {
       version: 1,
       at: past,
-      kind: "wait",
+      kind: "timer",
       attempt: 1,
-      until: past,
+      name: "retry",
+      due: past,
+      when: past,
     });
+    await appendMailbox(parkedDue.dir, { version: 1, at: past, kind: "wait", attempt: 1 });
     const quiet = await keyedRun(p, "quiet", [ended("parked")]);
     await appendMailbox(quiet.dir, {
       version: 1,
@@ -719,7 +773,7 @@ describe("awf tick", () => {
     expect(code).toBe(0);
     expect(woke.sort((a, b) => a.ref.localeCompare(b.ref))).toEqual([
       { ref: "dd-case/crashed", did: "continued", why: "crashed" },
-      { ref: "dd-case/due", did: "continued", why: "until" },
+      { ref: "dd-case/due", did: "continued", why: "timer" },
       { ref: "dd-case/failed", did: "continued", why: "failed" },
     ]);
     expect(launch.launched).toHaveLength(3);
@@ -817,7 +871,16 @@ describe("awf tick", () => {
     const run = await keyedRun(p, "k", [ended("parked")]);
     const past = new Date(Date.now() - 1_000).toISOString();
     await appendMailbox(run.dir, { version: 1, at: past, kind: "took", attempt: 1, ids: ["k-0"] });
-    await appendMailbox(run.dir, { version: 1, at: past, kind: "wait", attempt: 1, until: past });
+    await appendMailbox(run.dir, {
+      version: 1,
+      at: past,
+      kind: "timer",
+      attempt: 1,
+      name: "retry",
+      due: past,
+      when: past,
+    });
+    await appendMailbox(run.dir, { version: 1, at: past, kind: "wait", attempt: 1 });
     const launch = fakeLaunch();
     const [emitted, ticked] = await Promise.all([
       emit(p, "dd.changes", { case: "k" }, { id: "k-1", launch, nudge: async () => true }),

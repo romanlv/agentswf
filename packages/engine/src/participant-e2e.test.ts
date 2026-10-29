@@ -27,7 +27,7 @@ export default defineWorkflow({
     await new Promise((resolve) => setTimeout(resolve, 1500));
     for (;;)
       for (const e of await workflow.receive({ label: "listening" }))
-        if (thread.replied(e)) {
+        if (thread.is(e)) {
           appendFileSync(new URL("../replies.txt", import.meta.url).pathname, e.id + " " + e.data.text + " " + (e.data.author ?? "") + "\\n");
           await workflow.stage("answer-" + e.id, () => thread.post("got: " + e.data.text));
         }

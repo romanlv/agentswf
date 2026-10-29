@@ -185,8 +185,7 @@ test("a window that passes while another agent works is handled at the next idle
       // Its window passes while the lens works: nothing is called until that turn's end is taken.
       await lens.start({ prompt: "look slowly" });
       for (;;)
-        for (const e of await workflow.receive())
-          if (lens.is(e)) lensEnded = Date.now() - started;
+        for (const e of await workflow.receive()) if (lens.is(e)) lensEnded = Date.now() - started;
     }),
     {
       ...startCase,

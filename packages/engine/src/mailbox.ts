@@ -4,6 +4,7 @@ import {
   MAILBOX_RECORD_VERSION,
   type MailboxRecord,
   type WaitingJson,
+  type WaitTake,
 } from "@agentswf/contract/records";
 import {
   type AgentExecution,
@@ -15,6 +16,7 @@ import {
   type WorkflowEvent,
 } from "@agentswf/contract/workflow";
 import { appendLine, endTornLine, readLines } from "./jsonl";
+import { matches, wouldTake } from "./sources";
 
 /** `mailbox.jsonl`: a run's events, and what its waits did with them. */
 export function mailboxFile(runDir: string): string {
@@ -27,7 +29,15 @@ export async function readMailbox(runDir: string): Promise<MailboxRecord[]> {
   return lines.filter((line) => line.version === MAILBOX_RECORD_VERSION && KINDS.has(line.kind));
 }
 
-const KINDS = new Set<string>(["event", "wait", "took", "turn", "launch-failed"]);
+const KINDS = new Set<string>([
+  "event",
+  "wait",
+  "took",
+  "turn",
+  "launch-failed",
+  "timer",
+  "timer-cancelled",
+]);
 
 /** Appends a record; the caller holds the run's lock. */
 export async function appendMailbox(runDir: string, record: MailboxRecord): Promise<void> {
@@ -39,6 +49,12 @@ type EventRecord = Extract<MailboxRecord, { kind: "event" }>;
 type TurnRecord = Extract<MailboxRecord, { kind: "turn" }>;
 
 type WaitRecord = Extract<MailboxRecord, { kind: "wait" }>;
+
+/** The id of timer `name`'s `timer:due`: made from its name, so it fires once. */
+export function timerEventId(name: string): string {
+  const hash = new Bun.CryptoHasher("sha256").update(name).digest("hex");
+  return `${AWF_ID_PREFIX}timer.${hash.slice(0, 16)}`;
+}
 
 /**
  * The id of the end of `agent`'s turn `turn`: made from both, so it fits the grammar whatever
@@ -144,17 +160,38 @@ export type MailboxState = {
   batches: ReadonlyMap<string, string[]>;
   /** Every turn `start()` began, in order. */
   turns: readonly TurnRecord[];
+  /** Every timer by name, as first set. */
+  timers: ReadonlyMap<string, TimerState>;
+  /** What each race took, by its name: the branch that won and the event. */
+  races: ReadonlyMap<string, { branch: string; ids: string[] }>;
+  /** The event that created the run. */
+  started?: EventRecord;
+};
+
+/** A timer as the mailbox has it: when it is due, an ISO time, and what became of it. */
+export type TimerState = {
+  name: string;
+  due: string;
+  /** As the code gave it: a duration, or an ISO time. */
+  when: string;
+  cancelled: boolean;
+  /** Its `timer:due` is in the mailbox. */
+  fired: boolean;
 };
 
 /**
- * Folds a mailbox. A `wait` outside a stage acknowledges what the last `took` outside one
- * returned; a `took` in a stage acknowledges its own batch, which the stage holds.
+ * Folds a mailbox. A `wait` outside a stage and a race acknowledges what the last `took` outside one
+ * returned; a `took` in a stage or a race acknowledges its own, which the stage or race holds. A
+ * cancelled timer's `timer:due` counts as acknowledged. Events not acknowledged are in order of `at`,
+ * so a timer that fired late takes its place at its due time.
  */
 export function foldMailbox(records: readonly MailboxRecord[]): MailboxState {
   const events = new Map<string, EventRecord>();
   const order: string[] = [];
   const acknowledged = new Set<string>();
   const batches = new Map<string, string[]>();
+  const races = new Map<string, { branch: string; ids: string[] }>();
+  const timers = new Map<string, TimerState>();
   let held: string[] | undefined;
   let lastWait: (WaitRecord & { waiting: boolean }) | undefined;
   const turns: TurnRecord[] = [];
@@ -167,8 +204,8 @@ export function foldMailbox(records: readonly MailboxRecord[]): MailboxState {
         }
         break;
       case "wait":
-        // A wait in a stage leaves the loop's batch to the loop.
-        if (record.stage === undefined) {
+        // A wait in a stage or a race leaves the loop's batch to the loop.
+        if (record.stage === undefined && record.race === undefined) {
           for (const id of held ?? []) acknowledged.add(id);
           held = undefined;
         }
@@ -176,7 +213,11 @@ export function foldMailbox(records: readonly MailboxRecord[]): MailboxState {
         break;
       case "took":
         if (lastWait) lastWait.waiting = false;
-        if (record.stage !== undefined) {
+        if (record.race !== undefined) {
+          for (const id of record.ids) acknowledged.add(id);
+          if (!races.has(record.race))
+            races.set(record.race, { branch: record.branch ?? "", ids: record.ids });
+        } else if (record.stage !== undefined) {
           for (const id of record.ids) acknowledged.add(id);
           batches.set(record.stage, record.ids);
         } else held = record.ids.length > 0 ? record.ids : undefined;
@@ -184,17 +225,99 @@ export function foldMailbox(records: readonly MailboxRecord[]): MailboxState {
       case "turn":
         turns.push(record);
         break;
+      case "timer":
+        if (!timers.has(record.name))
+          timers.set(record.name, {
+            name: record.name,
+            due: record.due,
+            when: record.when,
+            cancelled: false,
+            fired: false,
+          });
+        break;
+      case "timer-cancelled": {
+        const timer = timers.get(record.name);
+        if (timer) timer.cancelled = true;
+        acknowledged.add(timerEventId(record.name));
+        break;
+      }
     }
   }
+  for (const timer of timers.values()) timer.fired = events.has(timerEventId(timer.name));
+  const started = [...events.values()].find((event) => event.starts);
   const taken = new Set(held);
+  const at = (id: string) => Date.parse(events.get(id)?.at ?? "");
   return {
     events,
-    unacknowledged: order.filter((id) => !acknowledged.has(id) && !taken.has(id)),
+    unacknowledged: order
+      .filter((id) => !acknowledged.has(id) && !taken.has(id))
+      .sort((a, b) => at(a) - at(b)),
     ...(held ? { held } : {}),
     ...(lastWait ? { lastWait } : {}),
     batches,
     turns,
+    timers,
+    races,
+    ...(started ? { started } : {}),
   };
+}
+
+/** The events not acknowledged that a wait taking `takes` would take, in order. */
+export function readyFor(state: MailboxState, takes: readonly WaitTake[] | undefined): string[] {
+  return state.unacknowledged.filter((id) => {
+    const event = state.events.get(id);
+    return event !== undefined && wouldTake(event, takes);
+  });
+}
+
+/** A timer's `timer:due`, as a wait would test it. */
+function dueEventOf(timer: TimerState): { name: string; from: string } {
+  return { name: "timer:due", from: timer.name };
+}
+
+/** Timers neither fired nor cancelled, earliest first. */
+function pendingTimers(state: MailboxState): TimerState[] {
+  return [...state.timers.values()]
+    .filter((timer) => !timer.fired && !timer.cancelled)
+    .sort((a, b) => Date.parse(a.due) - Date.parse(b.due));
+}
+
+/** When the earliest timer a wait taking `takes` would take is due, epoch ms; undefined with none. */
+export function nextTimer(
+  state: MailboxState,
+  takes: readonly WaitTake[] | undefined,
+): number | undefined {
+  const timer = pendingTimers(state).find((each) => wouldTake(dueEventOf(each), takes));
+  return timer && Date.parse(timer.due);
+}
+
+/**
+ * Whether a wait taking `takes` has something to take at `now`: an event, or a timer due. The one
+ * test for taking, parking, and waking a parked run.
+ */
+export function hasWork(
+  state: MailboxState,
+  takes: readonly WaitTake[] | undefined,
+  now: number,
+): boolean {
+  if (readyFor(state, takes).length > 0) return true;
+  const due = nextTimer(state, takes);
+  return due !== undefined && due <= now;
+}
+
+/** The `timer:due` records of the timers due at `now` and not fired, to append. */
+export function dueRecords(state: MailboxState, now: number): MailboxRecord[] {
+  return pendingTimers(state)
+    .filter((timer) => Date.parse(timer.due) <= now)
+    .map((timer) => ({
+      version: MAILBOX_RECORD_VERSION,
+      at: timer.due,
+      kind: "event",
+      id: timerEventId(timer.name),
+      name: "timer:due",
+      data: { name: timer.name },
+      from: timer.name,
+    }));
 }
 
 /** An event as a wait returns it. */
@@ -341,12 +464,92 @@ export class RunMailbox {
     return ids && this.#events(state, ids);
   }
 
+  /** The run's timers, as the mailbox had them when the attempt began and as set since. */
+  readonly #timers = new Map<string, TimerState>();
+  /** Timer records not yet written: each wait, and `flush`, waits for them. */
+  #writes: Promise<void> = Promise.resolve();
+
+  /** Reads the timers an earlier attempt set: once, before the code runs. */
+  async open(): Promise<void> {
+    const state = foldMailbox(await readMailbox(this.options.runDir));
+    for (const timer of state.timers.values()) this.#timers.set(timer.name, { ...timer });
+    if (state.started) this.started = eventOf(state.started);
+  }
+
+  /** The event that created the run, once `open` has read it. */
+  started: WorkflowEvent<string, JsonValue> | undefined;
+
+  /** The run's timers by name. */
+  timers(): ReadonlyMap<string, TimerState> {
+    return this.#timers;
+  }
+
+  /**
+   * Timer `name`: the one recorded, or one set now, due at `due`, epoch ms, from `when` as the code
+   * gave it. `asked` is a `when` that differs from the recorded one, which is kept. Its record is
+   * written before the next wait.
+   */
+  setTimer(name: string, due: number, when: string): { timer: TimerState; asked?: string } {
+    const known = this.#timers.get(name);
+    if (known) return known.when === when ? { timer: known } : { timer: known, asked: when };
+    const timer: TimerState = {
+      name,
+      due: new Date(due).toISOString(),
+      when,
+      cancelled: false,
+      fired: false,
+    };
+    this.#timers.set(name, timer);
+    this.#queue({
+      version: MAILBOX_RECORD_VERSION,
+      at: this.#at(),
+      kind: "timer",
+      attempt: this.options.attempt,
+      name,
+      due: timer.due,
+      when,
+    });
+    return { timer };
+  }
+
+  /** Cancels timer `name`: it won't fire, and its `timer:due` not taken is withdrawn. */
+  async cancelTimer(name: string): Promise<void> {
+    const timer = this.#timers.get(name);
+    if (timer && !timer.cancelled) {
+      timer.cancelled = true;
+      this.#queue(this.#cancelled(name));
+    }
+    await this.flush();
+  }
+
+  #cancelled(name: string): MailboxRecord {
+    return {
+      version: MAILBOX_RECORD_VERSION,
+      at: this.#at(),
+      kind: "timer-cancelled",
+      attempt: this.options.attempt,
+      name,
+    };
+  }
+
+  #queue(record: MailboxRecord): void {
+    const written = this.#writes.then(() => this.#append(record));
+    // Its failure is the next wait's, which awaits it.
+    written.catch(() => undefined);
+    this.#writes = written;
+  }
+
+  /** Writes the timer records set and not yet written. */
+  async flush(): Promise<void> {
+    await this.#writes;
+  }
+
   /**
    * Acknowledges what the last call returned, then takes the events not yet acknowledged, waiting
-   * for one when there is none, until `until`. The attempt's first call, outside a stage, returns a
-   * batch an earlier attempt took and never acknowledged, alone, and writes nothing. In a stage that
-   * has taken its batch, as one that failed or died before its record did has, it returns that
-   * batch and writes nothing.
+   * for one when there is none. The attempt's first call, outside a stage, returns a batch an earlier
+   * attempt took and never acknowledged, alone, and writes nothing. In a stage that has taken its
+   * batch, as one that failed or died before its record did has, it returns that batch and writes
+   * nothing.
    */
   async receive(
     options: ReceiveOptions | undefined,
@@ -354,7 +557,7 @@ export class RunMailbox {
     /** Rejects the wait: the run ended, or the scope it waits in was cancelled. */
     signal?: AbortSignal,
   ): Promise<WorkflowEvent<string, JsonValue>[]> {
-    const { label, until, take } = checked(options);
+    const { label, take } = checked(options);
     if (stage !== undefined) {
       const batch = await this.batchOf(stage);
       if (batch) return batch;
@@ -363,24 +566,115 @@ export class RunMailbox {
       const state = foldMailbox(await readMailbox(this.options.runDir));
       if (state.held) return this.#events(state, state.held);
     }
-    const { attempt } = this.options;
+    return this.#wait(
+      {
+        ...(label === undefined ? {} : { label }),
+        take,
+        ...(stage === undefined ? {} : { stage }),
+      },
+      signal,
+    );
+  }
+
+  /**
+   * As `receive`, taking the oldest event `takes` names, alone: a select's next. After a crash, the
+   * attempt's first call returns the one an earlier attempt took and never acknowledged.
+   */
+  async select(
+    takes: readonly WaitTake[],
+    label: string | undefined,
+    signal?: AbortSignal,
+  ): Promise<WorkflowEvent<string, JsonValue>> {
+    if (this.#first) {
+      this.#first = false;
+      const state = foldMailbox(await readMailbox(this.options.runDir));
+      const held = state.held?.length === 1 ? state.events.get(state.held[0] as string) : undefined;
+      if (held && wouldTake(held, takes)) return eventOf(held);
+    }
+    const [event] = await this.#wait(
+      { ...(label === undefined ? {} : { label }), take: "oldest", takes: [...takes] },
+      signal,
+    );
+    return event as WorkflowEvent<string, JsonValue>;
+  }
+
+  /**
+   * Race `name`: what it took, recorded, or the first event its branches take, under the first
+   * branch that takes it. Its own timers, by branch, are cancelled with the win when another branch
+   * wins. It acknowledges nothing else, so a loop's batch stays held.
+   */
+  async race(
+    name: string,
+    branches: readonly (readonly [string, WaitTake])[],
+    owned: ReadonlyMap<string, string>,
+    label: string | undefined,
+    signal?: AbortSignal,
+  ): Promise<{ branch: string; event: WorkflowEvent<string, JsonValue> }> {
+    await this.flush();
+    const state = foldMailbox(await readMailbox(this.options.runDir));
+    const won = state.races.get(name);
+    const recorded = won && state.events.get(won.ids[0] as string);
+    if (won && recorded) return { branch: won.branch, event: eventOf(recorded) };
+    const [event] = await this.#wait(
+      {
+        ...(label === undefined ? {} : { label }),
+        take: "oldest",
+        takes: branches.map(([, take]) => take),
+        race: { name, branches, owned },
+      },
+      signal,
+    );
+    const taken = event as WorkflowEvent<string, JsonValue>;
+    return { branch: branchOf(branches, taken) as string, event: taken };
+  }
+
+  async #wait(
+    spec: {
+      label?: string;
+      take: "all" | "oldest";
+      takes?: WaitTake[];
+      stage?: string;
+      race?: {
+        name: string;
+        branches: readonly (readonly [string, WaitTake])[];
+        owned: ReadonlyMap<string, string>;
+      };
+    },
+    signal: AbortSignal | undefined,
+  ): Promise<WorkflowEvent<string, JsonValue>[]> {
+    const { label, take, takes, stage, race } = spec;
+    const { attempt, runDir } = this.options;
+    await this.flush();
     await this.#append({
       version: MAILBOX_RECORD_VERSION,
       at: this.#at(),
       kind: "wait",
       attempt,
       ...(label === undefined ? {} : { label }),
-      ...(until === undefined ? {} : { until: new Date(until).toISOString() }),
       ...(stage === undefined ? {} : { stage }),
+      ...(race === undefined ? {} : { race: race.name }),
+      ...(takes === undefined ? {} : { takes }),
     });
-    const took = async (ids: string[]) =>
-      this.#append({
-        version: MAILBOX_RECORD_VERSION,
-        at: this.#at(),
-        kind: "took",
-        attempt,
-        ids,
-        ...(stage === undefined ? {} : { stage }),
+    const took = (events: EventRecord[]) =>
+      this.options.locked(async () => {
+        const branch = race && branchOf(race.branches, events[0] as EventRecord);
+        await appendMailbox(runDir, {
+          version: MAILBOX_RECORD_VERSION,
+          at: this.#at(),
+          kind: "took",
+          attempt,
+          ids: events.map((event) => event.id),
+          ...(stage === undefined ? {} : { stage }),
+          ...(race === undefined ? {} : { race: race.name }),
+          ...(branch === undefined ? {} : { branch }),
+        });
+        // In the same hold as the win: a crash between can't leave a loser's timer to fire.
+        for (const [owner, timer] of race?.owned ?? []) {
+          const known = this.#timers.get(timer);
+          if (owner === branch || known?.cancelled) continue;
+          if (known) known.cancelled = true;
+          await appendMailbox(runDir, this.#cancelled(timer));
+        }
       });
     for (;;) {
       signal?.throwIfAborted();
@@ -389,18 +683,17 @@ export class RunMailbox {
         this.#wake = resolve;
       });
       // Before the read too: what is appended after the read changes it, nudged or not.
-      const size = await mailboxSize(this.options.runDir);
-      const state = foldMailbox(await readMailbox(this.options.runDir));
-      const ready = state.unacknowledged;
+      const size = await mailboxSize(runDir);
+      const state = await this.#fired();
+      const ready = readyFor(state, takes);
       if (ready.length > 0) {
         const ids = take === "oldest" ? ready.slice(0, 1) : ready;
-        await took(ids);
-        return this.#events(state, ids);
+        const events = ids.map((id) => state.events.get(id) as EventRecord);
+        await took(events);
+        return events.map(eventOf);
       }
-      if (until !== undefined && this.#now() >= until) {
-        await took([]);
-        return [];
-      }
+      const next = nextTimer(state, takes);
+      if (next !== undefined && next <= this.#now()) continue;
       const { parking } = this.options;
       const idle = parking?.idle(stage) ?? false;
       // Before the handlers, on the same clock: a window that passes between the two is due by the
@@ -412,13 +705,13 @@ export class RunMailbox {
       else if (parking && idle) {
         const wait: WaitingJson = {
           ...(label === undefined ? {} : { label }),
-          ...(until === undefined ? {} : { until: new Date(until).toISOString() }),
+          ...(next === undefined ? {} : { until: new Date(next).toISOString() }),
         };
         // Checked once more under the lock, which every sender appends under: an event sent now is
         // either seen here, or sent after `parked` is written and continues the run.
         const parked = await this.options.locked(async () => {
-          const again = foldMailbox(await readMailbox(this.options.runDir));
-          if (again.unacknowledged.length > 0) return false;
+          const again = foldMailbox(await readMailbox(runDir));
+          if (hasWork(again, takes, this.#now())) return false;
           await parking.park(wait);
           return true;
         });
@@ -429,7 +722,7 @@ export class RunMailbox {
         }
         continue;
       }
-      // With no `until`, only a nudge or the size poll wakes it, or, with a turn running, its end,
+      // Only a nudge, the size poll or the next timer wakes it, or, with a turn running, its end,
       // which may let the run park: looked at each second. In a window, its end.
       const longest =
         parking && !idle
@@ -440,10 +733,28 @@ export class RunMailbox {
       await this.#idle(
         woken,
         size,
-        Math.min(longest, until === undefined ? longest : until - this.#now()),
+        Math.min(longest, next === undefined ? longest : next - this.#now()),
         signal,
       );
     }
+  }
+
+  /** The mailbox, with every timer due by now fired into it. */
+  async #fired(): Promise<MailboxState> {
+    const { runDir } = this.options;
+    const state = foldMailbox(await readMailbox(runDir));
+    if (dueRecords(state, this.#now()).length === 0) return state;
+    return this.options.locked(async () => {
+      const again = foldMailbox(await readMailbox(runDir));
+      const due = dueRecords(again, this.#now());
+      for (const record of due) await appendMailbox(runDir, record);
+      for (const record of due)
+        if (record.kind === "event") {
+          const timer = this.#timers.get(record.from);
+          if (timer) timer.fired = true;
+        }
+      return foldMailbox(await readMailbox(runDir));
+    });
   }
 
   async #idle(
@@ -501,21 +812,23 @@ async function mailboxSize(runDir: string): Promise<number> {
 /** A wait's options as given, checked: what a typed caller can't get wrong, a plain one can. */
 function checked(options: ReceiveOptions | undefined): {
   label?: string;
-  until?: number;
   take: "all" | "oldest";
 } {
   if (options !== undefined && (typeof options !== "object" || options === null))
-    throw new Error("receive takes { label?, until?, take? }");
-  const { label, until, take = "all" } = options ?? {};
+    throw new Error("receive takes { label?, take? }");
+  const { label, take = "all" } = options ?? {};
   if (label !== undefined && typeof label !== "string")
     throw new Error("receive's label is a string");
   if (take !== "all" && take !== "oldest") throw new Error('receive\'s take is "all" or "oldest"');
-  const ms = until instanceof Date ? until.getTime() : until;
-  if (ms !== undefined && (typeof ms !== "number" || !Number.isFinite(ms)))
-    throw new Error("receive's until is epoch milliseconds or a Date");
-  return {
-    ...(label === undefined ? {} : { label }),
-    ...(ms === undefined ? {} : { until: ms }),
-    take,
-  };
+  if ("until" in (options ?? {}))
+    throw new Error("receive has no until: a timer, workflow.timer(name, when), wakes it");
+  return { ...(label === undefined ? {} : { label }), take };
+}
+
+/** The first branch that takes `event`. */
+function branchOf(
+  branches: readonly (readonly [string, WaitTake])[],
+  event: { name: string; from: string; data?: unknown },
+): string | undefined {
+  return branches.find(([, take]) => matches(event, take))?.[0];
 }

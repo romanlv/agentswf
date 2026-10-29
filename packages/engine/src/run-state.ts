@@ -2,7 +2,7 @@ import { join } from "node:path";
 import type { AttemptRecord, MailboxRecord, WaitingJson } from "@agentswf/contract/records";
 import type { AttemptOutcome } from "@agentswf/contract/workflow";
 import { exists } from "./files";
-import { foldMailbox, readMailbox } from "./mailbox";
+import { foldMailbox, nextTimer, readMailbox } from "./mailbox";
 import { listProjects, projectRunRoot } from "./projects";
 import {
   entries,
@@ -55,12 +55,14 @@ export async function runStatus(
 /** An event run's wait, while it is running or parked there: its label and `until`. */
 function waitingOf(status: RunStatus, records: readonly MailboxRecord[]): WaitingJson | undefined {
   if (status.state !== "running" && status.state !== "parked") return undefined;
-  const wait = foldMailbox(records).lastWait;
+  const state = foldMailbox(records);
+  const wait = state.lastWait;
   // A wait an earlier attempt died in is not this one's.
   if (!wait?.waiting || wait.attempt !== status.attempts.at(-1)?.attempt) return undefined;
+  const until = nextTimer(state, wait.takes);
   return {
     ...(wait.label === undefined ? {} : { label: wait.label }),
-    ...(wait.until === undefined ? {} : { until: wait.until }),
+    ...(until === undefined ? {} : { until: new Date(until).toISOString() }),
   };
 }
 

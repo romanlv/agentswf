@@ -56,9 +56,10 @@ test("a run that starts more turns than maxTurns fails the test instead of hangi
     testWorkflow(
       caseRun(async (workflow) => {
         const agent = await workflow.agents.open({ key: "investigator", runtime: "claude" });
-        // A retry time always passed: it never parks, a turn after every wait.
-        for (;;) {
-          await workflow.receive({ until: 0 });
+        // A retry always due: it never parks, a turn after every wait.
+        for (let n = 0; ; n++) {
+          workflow.timer(`retry-${n}`, new Date(0));
+          await workflow.receive();
           await agent.run({ prompt: "again" });
         }
       }),

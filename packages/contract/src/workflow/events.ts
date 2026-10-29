@@ -90,10 +90,10 @@ export type OwnEvent<Events extends EventSchemas> = {
 }[keyof Events & string];
 
 /** One of a workflow's own events of one name. */
-export type OwnEventOf<Events extends EventSchemas, Name extends keyof Events & string> = WorkflowEvent<
-  Name,
-  OutputOf<Events[Name]>
->;
+export type OwnEventOf<
+  Events extends EventSchemas,
+  Name extends keyof Events & string,
+> = WorkflowEvent<Name, OutputOf<Events[Name]>>;
 
 /** Any event a run of a workflow with `events` takes at its wait. */
 export type ReceivedEvent<Events extends EventSchemas> =

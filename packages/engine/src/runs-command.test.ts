@@ -502,7 +502,7 @@ describe("awf runs", () => {
   });
 });
 
-test("an event run at its wait shows the wait's label and until, live or parked", async () => {
+test("an event run at its wait shows the wait's label and next timer, live or parked", async () => {
   const cwd = runDirs.tempRunDir();
   const live = await makeRun(cwd, "dd-case", "kombo", [{ ...ALIVE, started: T(10) }]);
   const parked = await makeRun(cwd, "dd-case", "other", [
@@ -513,13 +513,22 @@ test("an event run at its wait shows the wait's label and until, live or parked"
     [parked, "30 unseen", T(40)],
   ] as const) {
     await writeJson(join(run.dir, "run.json"), { ...run.record, events: true });
+    if (until)
+      await appendMailbox(run.dir, {
+        version: MAILBOX_RECORD_VERSION,
+        at: T(3),
+        kind: "timer",
+        attempt: 1,
+        name: "retry",
+        due: until,
+        when: until,
+      });
     await appendMailbox(run.dir, {
       version: MAILBOX_RECORD_VERSION,
       at: T(3),
       kind: "wait",
       attempt: 1,
       label,
-      ...(until ? { until } : {}),
     });
   }
   const json = JSON.parse((await awfRuns(cwd, "--json")).stdout) as RunsJson;

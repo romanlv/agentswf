@@ -397,7 +397,9 @@ export type AgentStartSpec = (AgentRunTextSpec | AgentRunStructuredSpec<JsonValu
 export interface StartedTurn extends Source<Taken<AgentEnded>> {
   readonly id: TurnId;
   /** True for this turn's `agent:ended`. */
-  is<Meta extends JsonValue = JsonValue, T extends JsonValue = JsonValue>(event: EventLike): event is AgentEndedEvent<Meta, T> & Matched;
+  is<Meta extends JsonValue = JsonValue, T extends JsonValue = JsonValue>(
+    event: EventLike,
+  ): event is AgentEndedEvent<Meta, T> & Matched;
   /**
    * Stops the turn; resolves once its `cancelled` end is in the mailbox, or at once, `false`, when
    * it had ended already.
@@ -548,7 +550,9 @@ export interface EventAgentRef extends AgentRef, Source<Taken<AgentEnded>> {
    * True for this agent's `agent:ended`, narrowing its data to the `meta` the code started the
    * turn with and the outcome its `schema` gives.
    */
-  is<Meta extends JsonValue = JsonValue, T extends JsonValue = JsonValue>(event: EventLike): event is AgentEndedEvent<Meta, T> & Matched;
+  is<Meta extends JsonValue = JsonValue, T extends JsonValue = JsonValue>(
+    event: EventLike,
+  ): event is AgentEndedEvent<Meta, T> & Matched;
   fork(spec: AgentForkSpec): Promise<EventAgentRef>;
 }
 

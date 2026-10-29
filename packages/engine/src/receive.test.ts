@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import type { TurnRecord } from "@agentswf/contract/records";
 import { defineWorkflow, type EventWorkflowContext } from "@agentswf/contract/workflow";
-import { caseRun } from "./testing";
+import { caseRun, startCase } from "./testing";
 import { keptSessionsOf } from "./workflow-runner";
 import { testWorkflow } from "./workflow-testing";
 
@@ -150,7 +150,7 @@ test("one wait at a time", async () => {
   const run = await testWorkflow(
     caseRun(async (workflow) => {
       await workflow.receive();
-      const waiting = workflow.receive({ until: Date.now() + 200 });
+      const waiting = workflow.receive();
       second = await workflow.receive().then(
         () => "taken",
         (error: unknown) => String(error),
@@ -206,17 +206,18 @@ test("workflow.emit sends to its target by the target's file, and a test records
   ]);
 });
 
-test("a wait with nothing to take and no turn running parks the run, at its label and until", async () => {
-  const until = Date.now() + 60 * 60_000;
+test("a wait with nothing to take and no turn running parks the run, at its label and next timer", async () => {
+  const until = new Date(Date.now() + 60 * 60_000);
   const run = await testWorkflow(
     caseRun(async (workflow) => {
       await workflow.receive();
-      await workflow.receive({ label: "3 unseen", until });
+      workflow.timer("retry", until);
+      await workflow.receive({ label: "3 unseen" });
       return null;
     }),
     { id: "k", event: { name: "dd.changes", data: { case: "k" } } },
   );
-  expect(run.parked).toEqual({ label: "3 unseen", until: new Date(until).toISOString() });
+  expect(run.parked).toEqual({ label: "3 unseen", until: until.toISOString() });
   expect(() => run.value).toThrow("the run parked");
 });
 
@@ -305,4 +306,118 @@ test("a participant routed to the code needs a workflow with events", async () =
     null,
   );
   expect(() => run.value).toThrow("needs a workflow with events");
+});
+
+test("a race takes the first of what it names, under its branch, and cancels its own timers", async () => {
+  const run = await testWorkflow(
+    caseRun(async (workflow) => {
+      const next = await workflow.race("first", {
+        changes: workflow.signal("dd.changes"),
+        nudge: "1h",
+      });
+      return {
+        key: next.key,
+        id: next.changes?.id ?? null,
+        started: workflow.started?.id ?? null,
+      };
+    }),
+    { ...startCase, event: { ...startCase.event, id: "c0" } },
+  );
+  expect(run.value).toEqual({ key: "changes", id: "c0", started: "c0" });
+  expect(run.mailbox.filter((r) => r.kind.startsWith("timer"))).toMatchObject([
+    { kind: "timer", name: "first@nudge", when: "1h" },
+    { kind: "timer-cancelled", name: "first@nudge" },
+  ]);
+});
+
+test("a timer due wins a race; a wait it doesn't name leaves an event for a later receive", async () => {
+  const run = await testWorkflow(
+    caseRun(async (workflow) => {
+      const late = workflow.timer("late", new Date(0));
+      const next = await workflow.race("quiet", { late, other: workflow.timer("other", "1h") });
+      const rest = await workflow.receive();
+      return { key: next.key, at: next.late?.at ?? null, rest: rest.map((e) => e.name) };
+    }),
+    startCase,
+  );
+  expect(run.value).toEqual({
+    key: "late",
+    at: new Date(0).toISOString(),
+    rest: ["dd.changes"],
+  });
+});
+
+test("sleep past its time goes on; one still to come parks the run until it", async () => {
+  const until = new Date(Date.now() + 60 * 60_000);
+  const run = await testWorkflow(
+    caseRun(async (workflow) => {
+      await workflow.sleep("past", new Date(0));
+      await workflow.sleep("later", until);
+      return null;
+    }),
+    startCase,
+  );
+  expect(run.parked).toEqual({ until: until.toISOString() });
+});
+
+test("select takes each event it names, one at a time, timers made in the loop too", async () => {
+  const run = await testWorkflow(
+    caseRun(async (workflow) => {
+      const seen: string[] = [];
+      workflow.timer("a", new Date(0));
+      for await (const next of workflow.select({
+        changes: workflow.signal("dd.changes"),
+        timer: workflow.timers(),
+      })) {
+        seen.push(next.key === "timer" ? next.timer.name : next.key);
+        if (next.timer?.name === "a") workflow.timer("b", new Date(1));
+        if (seen.length === 3) break;
+      }
+      return seen;
+    }),
+    startCase,
+  );
+  // In order of their at: b was due in 1970, before the run's event arrived.
+  expect(run.value).toEqual(["a", "b", "changes"]);
+});
+
+test("a timer asked again with another time keeps the first, and says so", async () => {
+  const run = await testWorkflow(
+    caseRun(async (workflow) => {
+      const first = workflow.timer("remind", "2d");
+      const again = workflow.timer("remind", "3d");
+      return first.due === again.due;
+    }),
+    startCase,
+  );
+  expect(run.value).toBe(true);
+  expect(run.logs.map((l) => l.message).join("\n")).toContain("timer remind is due");
+});
+
+test("a wait's sources are checked: a promise, a name with @, a race in a stage", async () => {
+  const run = await testWorkflow(
+    caseRun(async (workflow) => {
+      const errors: string[] = [];
+      const attempt = async (work: () => unknown) => {
+        try {
+          await work();
+        } catch (error) {
+          errors.push(String(error));
+        }
+      };
+      await attempt(() => workflow.race("p", { done: Promise.resolve() } as never));
+      await attempt(() => workflow.timer("a@b", "1h"));
+      await attempt(() => workflow.sleep("s", "30s" as never));
+      await workflow.stage("in-stage", async () => {
+        await attempt(() => workflow.race("r", { later: "1h" }));
+      });
+      return errors;
+    }),
+    startCase,
+  );
+  const errors = run.value as string[];
+  expect(errors[0]).toContain("is not a source");
+  expect(errors[1]).toContain("timer a@b");
+  expect(errors[2]).toContain("days, hours or minutes");
+  expect(errors[3]).toContain("a race is recorded on its own");
 });

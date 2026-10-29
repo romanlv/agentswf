@@ -11,7 +11,7 @@ import { coordinatorSocketPath, liveCoordinatorSocket } from "./coordinator-sock
 import { messageOf } from "./errors";
 import { exists } from "./files";
 import { coordinatorDir } from "./machine";
-import { appendMailbox, foldMailbox, readMailbox } from "./mailbox";
+import { appendMailbox, foldMailbox, nextTimer, readMailbox, readyFor } from "./mailbox";
 import { statusOf, stuckOf } from "./run-state";
 import { type Run, readAttempts, sameProcess } from "./runs";
 import { exchange } from "./socket-exchange";
@@ -24,7 +24,7 @@ export type Woken = {
   did: WakeDid;
   why?: WakeWhy;
   error?: string;
-  cause?: "event" | "until" | "crashed" | "failed";
+  cause?: "event" | "timer" | "crashed" | "failed";
 };
 
 /**
@@ -91,11 +91,13 @@ export async function wake(run: Run, context: WakeContext): Promise<Woken> {
         : { did: "none", why: "nudge-failed" };
     case "parked": {
       if (await stuck()) return { did: "none", why: "stuck" };
+      // Only for what the wait it parked at would take: an event it names, or its timer due.
       const state = foldMailbox(await mailbox());
-      const until = state.lastWait?.until;
-      const passed = until !== undefined && (context.now?.() ?? Date.now()) >= Date.parse(until);
-      if (state.unacknowledged.length > 0) return launch("continued", "event");
-      if (passed) return launch("continued", "until");
+      const takes = state.lastWait?.takes;
+      if (readyFor(state, takes).length > 0) return launch("continued", "event");
+      const due = nextTimer(state, takes);
+      if (due !== undefined && (context.now?.() ?? Date.now()) >= due)
+        return launch("continued", "timer");
       return { did: "none", why: "nothing-due" };
     }
     case "interrupted":

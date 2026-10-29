@@ -48,7 +48,8 @@ export interface Timer extends Source<Taken<TimerDue>> {
 }
 
 /** One of the workflow's declared events, as a wait takes it. */
-export interface Signal<Event extends { readonly name: string; readonly from: string }> extends Source<Event> {
+export interface Signal<Event extends { readonly name: string; readonly from: string }>
+  extends Source<Event> {
   readonly name: string;
   /** True for an event of this name. */
   is(event: EventLike): event is Event & Matched;
@@ -66,7 +67,11 @@ type ValueOf<B> = B extends Source<infer T> ? T : B extends Duration ? Taken<Tim
  * Branches as a wait takes them: at least one, and none named `key`, which the answer uses. Of two
  * branches that take one event, the first declared takes it.
  */
-export type Checked<B> = keyof B extends never ? never : B extends { readonly key: unknown } ? never : B;
+export type Checked<B> = keyof B extends never
+  ? never
+  : B extends { readonly key: unknown }
+    ? never
+    : B;
 
 /**
  * What a race or a select took: the branch's name as `key`, and what it took under that name. The

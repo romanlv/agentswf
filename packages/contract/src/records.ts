@@ -383,6 +383,8 @@ export type MailboxRecord = {
       data: JsonValue;
       /** As `WorkflowEvent.from`. */
       from: string;
+      /** The event that created its run: `workflow.started`. */
+      starts?: true;
     }
   /**
    * A wait called. Outside a stage and a race, it acknowledges what the last `took` outside one
@@ -402,7 +404,14 @@ export type MailboxRecord = {
    * batch, acknowledged, and returns it again on a rerun. `race`: the race of that name, won by
    * `branch`, which holds its winner, acknowledged, and answers with it again on a rerun.
    */
-  | { kind: "took"; attempt: number; ids: EventId[]; stage?: string; race?: string; branch?: string }
+  | {
+      kind: "took";
+      attempt: number;
+      ids: EventId[];
+      stage?: string;
+      race?: string;
+      branch?: string;
+    }
   /**
    * A timer set: due `due`, an ISO time, from `when` as the code gave it, a duration or an ISO
    * time. The first under a name is kept. A race's own timer is `{race}@{branch}`, and a sleep's
