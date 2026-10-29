@@ -13,7 +13,7 @@ export const tickUsage = [
   "       awf tick --all [--json]",
   "",
   "Wakes every run of a workflow with events under --cwd's .awf/runs, or --run-root, the runs awf",
-  "runs lists there, as an event would: continues a parked run whose wait's until has passed, and a",
+  "runs lists there, as an event would: continues a parked run whose wait's timer is due, and a",
   "crashed or failed one until it has failed three times in a row. Runs of other workflows are left",
   "as they are. --all wakes them in every project awf has started one in, as ~/.awf/projects lists",
   "them. Run it on any schedule; a run is continued once however many wakers come at once.",

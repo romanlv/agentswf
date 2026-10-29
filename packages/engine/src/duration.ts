@@ -22,7 +22,8 @@ export function duration(milliseconds: number): string {
 
 /**
  * When a timer given `when` is due, epoch ms, from `now`, and `when` as its record keeps it: a
- * duration of days, hours or minutes as given, or a `Date` as an ISO time.
+ * duration of days, hours or minutes as given, or a `Date` as an ISO time. A workflow's grammar,
+ * apart from the CLI's `parseDuration`: a wait is days long, and `1.5h` reads as written.
  */
 export function parseWhen(when: unknown, now: number): { due: number; when: string } {
   if (when instanceof Date) {

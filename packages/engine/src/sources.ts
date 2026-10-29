@@ -10,6 +10,24 @@ export function asSource<T extends object>(value: T, take: WaitTake): T {
   return value;
 }
 
+/** A source of `fields` that takes `take`, its `is(e)` the test its waits use. */
+export function source<T extends object>(
+  fields: T,
+  take: WaitTake,
+): T & { is(event: Looked): boolean } {
+  return asSource(Object.freeze({ ...fields, is: (event: Looked) => matches(event, take) }), take);
+}
+
+type Looked = { name: string; from: string; data?: unknown };
+
+/** The first of `branches` that takes `event`. */
+export function branchOf(
+  branches: readonly (readonly [string, WaitTake])[],
+  event: Looked,
+): string | undefined {
+  return branches.find(([, take]) => matches(event, take))?.[0];
+}
+
 /** What a source takes; undefined for anything the run didn't issue as one. */
 export function takeOf(value: unknown): WaitTake | undefined {
   return typeof value === "object" && value !== null ? takes.get(value) : undefined;

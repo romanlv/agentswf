@@ -539,7 +539,7 @@ Three reviewers read the draft with `race({ … })` unnamed and a fired timer th
 ## Tasks at a glance
 
 - [x] 1. The author surface: sources, timers, `race`, `select`, `sleep`, `started`, `now()`
-- [ ] 2. Timers and selective waits in the mailbox: fire, take, park and wake
+- [x] 2. Timers and selective waits in the mailbox: fire, take, park and wake
 - [ ] 3. A virtual clock in `testWorkflow`
 - [ ] 4. Timers and `sleep` in a workflow without `events`
 - [ ] 5. The sketches and docs on timers, and a live run
@@ -551,7 +551,7 @@ Where building it met something the model above didn't settle (2026-10-29):
 - **A race owns the timers written inline, as a duration.** The code can't tell, at run time, a
   `workflow.timer()` made in the race's call from one made just before it, so "a race cancels
   the timers made in its call" is written as a branch given a duration:
-  `race("answer", { reply: thread, nudge: "4h" })`. That timer is named `{race}.{branch}` and
+  `race("answer", { reply: thread, nudge: "4h" })`. That timer is named `{race}@{branch}` and
   cancelled when another branch wins. A `workflow.timer()` passed in is the code's: a race never
   cancels it. Case 1 reads `remind: "2d"`.
 - **An agent is a source of its turns' ends**, as a participant is of its replies: `ended:
@@ -610,11 +610,11 @@ name; a run parks and wakes on what its wait takes, timers included.
 
 Execution:
 
-- [ ] Plan: inspect the relevant code and tests and record the architecture and focused proof.
-- [ ] Implement: make only this task's coherent change and add focused tests with it.
-- [ ] Review: obtain architecture/scope and correctness/proof subagent reviews of the actual diff.
-- [ ] Resolve: disposition findings and obtain targeted re-review after material design changes.
-- [ ] Verify: satisfy every `Done when` item before checking this task.
+- [x] Plan: inspect the relevant code and tests and record the architecture and focused proof.
+- [x] Implement: make only this task's coherent change and add focused tests with it.
+- [x] Review: obtain architecture/scope and correctness/proof subagent reviews of the actual diff.
+- [x] Resolve: disposition findings and obtain targeted re-review after material design changes.
+- [x] Verify: satisfy every `Done when` item before checking this task.
 
 Work:
 
@@ -725,6 +725,21 @@ Manual or live evaluation:
   given, as a template literal can't; proofs of narrowing the whole answer, of `signal.is` and
   `turn.is` with their false branches. Of two branches taking one event, the first declared takes
   it.
+
+### Task 2
+
+- Architecture and scope: one predicate, `hasWork`, for taking, parking and `wake`. Taken: `wake`
+  calls it; every source's `is(e)` is the same match its waits use (`source()`), `timers()`
+  included; one `branchOf`; the in-memory timers only answer `setTimer` and `cancelTimer` at once,
+  the file says what fired; the agent's window, a recovered turn's end and a test's events on the
+  run's clock; `awf tick`'s help names the timer.
+- Correctness and proof: five found, each fixed with a test. A crash between a race's win and its
+  losers' cancels: the rerun, answering from the win, cancels them. A rerun's first `select` that
+  doesn't take what a crash held: its wait record says `returns`, and the held events wait again
+  rather than being acknowledged. A race or sleep name reused in an attempt answered at once, so a
+  loop spun: refused, naming per-round names. A refused or cut-short race left its own timers
+  pending: every branch is checked before a timer is set, and a race that throws, not parked,
+  cancels its own. A name that returns a cancelled timer is logged.
 
 ## Implementation notes
 

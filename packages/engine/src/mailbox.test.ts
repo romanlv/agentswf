@@ -381,3 +381,42 @@ test("a window that passes between the wait's two looks is handled, not parked p
   await expect(box.receive(undefined)).rejects.toBeInstanceOf(RunParked);
   expect(calls).toEqual(["handler", "park"]);
 });
+
+test("a race recorded before its loser's cancel was written cancels it on the rerun", async () => {
+  const runDir = await withEvents("a");
+  await appendMailbox(runDir, event("b", "dd.closed"));
+  const branches = [
+    ["closed", { name: "dd.closed" }],
+    ["nudge", { name: "timer:due", from: "ask@nudge" }],
+  ] as const;
+  const owned = new Map([["nudge", "ask@nudge"]]);
+  // The attempt died after its win and before its cancel.
+  const due = new Date(Date.now() + 60_000).toISOString();
+  for (const record of [
+    { kind: "timer", attempt: 1, name: "ask@nudge", due, when: "1m" },
+    { kind: "wait", attempt: 1, race: "ask" },
+    { kind: "took", attempt: 1, ids: ["b"], race: "ask", branch: "closed" },
+  ])
+    await appendMailbox(runDir, {
+      version: MAILBOX_RECORD_VERSION,
+      at,
+      ...record,
+    } as MailboxRecord);
+  const again = mailbox(runDir, 2);
+  await again.open();
+  expect((await again.race("ask", branches, owned, undefined)).branch).toBe("closed");
+  expect(foldMailbox(await readMailbox(runDir)).timers.get("ask@nudge")?.cancelled).toBe(true);
+});
+
+test("a rerun's first select leaves a held event it doesn't take waiting, not acknowledged", async () => {
+  const runDir = await withEvents("x");
+  await appendMailbox(runDir, event("y", "dd.closed"));
+  const box = mailbox(runDir);
+  expect((await box.select([{ name: "dd.changes" }], undefined)).id).toBe("x");
+  expect((await box.select([{ name: "dd.closed" }], undefined)).id).toBe("y");
+  // The attempt died handling y; the rerun's first select takes dd.changes only.
+  await appendMailbox(runDir, event("z"));
+  const again = mailbox(runDir, 2);
+  expect((await again.select([{ name: "dd.changes" }], undefined)).id).toBe("z");
+  expect((await again.select([{ name: "dd.closed" }], undefined)).id).toBe("y");
+});

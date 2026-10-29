@@ -389,7 +389,8 @@ export type MailboxRecord = {
   /**
    * A wait called. Outside a stage and a race, it acknowledges what the last `took` outside one
    * returned; in `stage` or `race`, it acknowledges nothing, as each holds what it took. `takes`:
-   * what it takes, absent for every event.
+   * what it takes, absent for every event. `returns`: an attempt's first wait that didn't take
+   * what a crash left held, which goes back to waiting rather than being acknowledged.
    */
   | {
       kind: "wait";
@@ -398,6 +399,7 @@ export type MailboxRecord = {
       stage?: string;
       race?: string;
       takes?: WaitTake[];
+      returns?: true;
     }
   /**
    * The wait returning these events, in order. `stage`: it was in that stage, which holds the

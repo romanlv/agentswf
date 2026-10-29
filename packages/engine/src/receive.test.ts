@@ -215,7 +215,7 @@ test("a wait with nothing to take and no turn running parks the run, at its labe
       await workflow.receive({ label: "3 unseen" });
       return null;
     }),
-    { id: "k", event: { name: "dd.changes", data: { case: "k" } } },
+    { id: "k", event: { name: "dd.changes", data: { case: "k" } }, maxTimers: 0 },
   );
   expect(run.parked).toEqual({ label: "3 unseen", until: until.toISOString() });
   expect(() => run.value).toThrow("the run parked");
@@ -355,7 +355,7 @@ test("sleep past its time goes on; one still to come parks the run until it", as
       await workflow.sleep("later", until);
       return null;
     }),
-    startCase,
+    { ...startCase, maxTimers: 0 },
   );
   expect(run.parked).toEqual({ until: until.toISOString() });
 });
@@ -420,4 +420,25 @@ test("a wait's sources are checked: a promise, a name with @, a race in a stage"
   expect(errors[1]).toContain("timer a@b");
   expect(errors[2]).toContain("days, hours or minutes");
   expect(errors[3]).toContain("a race is recorded on its own");
+});
+
+test("a race's name answers once an attempt; a refused race sets none of its timers", async () => {
+  const run = await testWorkflow(
+    caseRun(async (workflow) => {
+      const errors: string[] = [];
+      await workflow
+        .race("p", { a: "1h", done: Promise.resolve() } as never)
+        .catch((error: unknown) => errors.push(String(error)));
+      await workflow.sleep("pause", new Date(0));
+      await workflow
+        .sleep("pause", new Date(0))
+        .catch((error: unknown) => errors.push(String(error)));
+      return errors;
+    }),
+    startCase,
+  );
+  const errors = run.value as string[];
+  expect(errors[0]).toContain("is not a source");
+  expect(errors[1]).toContain("named per round");
+  expect(run.timers.map((t) => t.name)).toEqual(["pause@sleep"]);
 });
