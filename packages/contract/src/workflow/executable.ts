@@ -1,6 +1,12 @@
 import type { EventSchemas, NoColonNames } from "./events";
 import type { JsonValue } from "./json";
-import type { EventWorkflowContext, StageOutcome, WorkflowContext, WorkflowMeta } from "./workflow";
+import type {
+  EventWorkflowContext,
+  StageOutcome,
+  WorkflowContext,
+  WorkflowDefinition,
+  WorkflowMeta,
+} from "./workflow";
 
 export const WORKFLOW_KIND = "awf.workflow/v1" as const;
 
@@ -146,6 +152,25 @@ export function defineWorkflow<Args extends JsonValue = null, Result extends Jso
 ): Workflow<Args, Result>;
 export function defineWorkflow(spec: { readonly prepare?: unknown }): unknown {
   return { ...spec, prepare: spec.prepare ?? noArguments, kind: WORKFLOW_KIND };
+}
+
+/**
+ * @deprecated Use `defineWorkflow`, with `meta` and `run` beside `prepare`. Kept, for now, for
+ * workflows written against 0.1.0-beta.2, whose nested `definition` it flattens.
+ */
+export function defineExecutableWorkflow<
+  Args extends JsonValue = null,
+  Result extends JsonValue = JsonValue,
+>(
+  spec: Omit<WorkflowParts<Args, Result>, "meta" | "prepare"> & {
+    readonly definition: WorkflowDefinition<Args, Result>;
+  } & ([Args] extends [null]
+      ? { prepare?: WorkflowParts<Args, Result>["prepare"] }
+      : { prepare: WorkflowParts<Args, Result>["prepare"] }),
+): Workflow<Args, Result> {
+  const { definition, ...rest } = spec;
+  return defineWorkflow({ ...rest, ...definition } as PrepareSpec<Args, Result> &
+    WithoutEvents<Args, Result>);
 }
 
 function noArguments({ argv }: WorkflowInvocation): null {
