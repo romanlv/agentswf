@@ -116,6 +116,7 @@ const main = async () => {
     for (const { name, tarball } of todo) {
       console.log(`\nrelease: publishing ${name}@${version}`);
       // Under latest even as a prerelease: until a stable release, a plain install gets the newest.
+      // TODO: once out of beta, publish a prerelease under its id (beta, rc) and only a stable under latest.
       // Its exit code isn't trusted: a sign-in that times out still exits 0. The registry is.
       await $`bun publish ${tarball} --tag latest`.cwd(ROOT).nothrow();
       const until = Date.now() + APPEAR_MS;
