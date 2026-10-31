@@ -280,7 +280,11 @@ export interface NudgeOptions {
 }
 
 interface AgentRunBase {
-  /** Idempotency key scoped to this agent. Generated when omitted. */
+  /**
+   * Idempotency key scoped to this agent within one attempt: `run()` with an id it already ran
+   * returns that turn's result, and `start()` refuses it. A later attempt doesn't know it, so a
+   * turn started before a park is started again by the wake's rerun. Generated when omitted.
+   */
   id?: TurnId;
   prompt: string;
   /**

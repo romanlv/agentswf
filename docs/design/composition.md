@@ -266,6 +266,27 @@ awf reply review/2026-10-22-0915 review:claude/reviewer --to 1.4 < round2.md
 
 Durable findings remain in files; messages carry only coordination.
 
+## Open: a call from a run with events
+
+A review loop that keeps one run per MR, woken by pushes and replies, wants its review to be a
+swappable child (one reviewer today, the lenses later). The design above doesn't serve it yet, in
+three places:
+
+- **A child's agents outlive the call.** The reviewer keeps its session across every pass on one
+  MR, and its pane is where the engineer asks follow-ups. Here, child-created agents stop when the
+  call returns.
+- **A call not awaited.** A long review should not hold the run: a push or a close during it must
+  still be taken. That is a call started like `agent.start`, its end arriving as an event, which
+  this design lists as deliberately absent.
+- **A start a wake recognises.** A run with events reruns its code from the top on every wake.
+  A race or sleep is recorded under its name and walks on, but a turn's `id` holds only within
+  one attempt (`mailbox.beginTurn`), so straight-line code that starts a turn and then races its
+  end starts it again after a park. A loop that asks the run's files what to do next avoids this,
+  and today's event workflows are written that way. A call not awaited would hit the same thing:
+  its id would have to hold across attempts, giving back the running call or its recorded end.
+
+None is decided. Each is an input to building `call`, not a reason to build it.
+
 ## Deliberately absent
 
 - detached child workflows or signal-delivered child results;
