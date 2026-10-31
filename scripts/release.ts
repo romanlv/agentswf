@@ -5,8 +5,9 @@
  * `bun publish` exits 0 when npm's sign-in times out, and fills `workspace:*` from `bun.lock`'s
  * workspace versions, which `bun install` doesn't update; 0.1.0-beta.1 went up depending on beta.0,
  * and 0.1.0-beta.2 without engine and wf. So every tarball is packed and read before anything is
- * published, each one published is looked for on the registry afterwards, and a package already
- * there is skipped: running it again finishes a release that stopped.
+ * published, a package goes on only when bun publish's output says npm took it, every one is
+ * looked for on the registry at the end, since npm can take minutes to list a version, and a
+ * package already there is skipped: running it again finishes a release that stopped.
  *
  *   bun run release             # publish what isn't on npm yet
  *   bun run release --dry-run   # pack and check, publish nothing
@@ -84,6 +85,40 @@ const pack = async (dir: string, out: string): Promise<{ tarball: string; manife
   return { tarball, manifest };
 };
 
+/**
+ * Whether bun publish's output says npm took the version: its `+ name@version` line, or npm
+ * refusing it as already there, which a rerun meets for a version taken but not yet listed. Its
+ * exit code isn't trusted: a sign-in that times out still exits 0.
+ */
+export const accepted = (output: string, name: string, version: string): boolean =>
+  output.split("\n").some((line) => line.trim() === `+ ${name}@${version}`) ||
+  /cannot publish over the previously published versions/i.test(output);
+
+/** Runs bun publish in the open, so its sign-in prompt is answerable, and returns what it printed. */
+const publish = async (tarball: string): Promise<string> => {
+  const child = Bun.spawn(["bun", "publish", tarball, "--tag", "latest"], {
+    cwd: ROOT,
+    stdin: "inherit",
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  const tee = async (stream: ReadableStream<Uint8Array>, to: NodeJS.WriteStream) => {
+    let text = "";
+    const decoder = new TextDecoder();
+    for await (const chunk of stream) {
+      to.write(chunk);
+      text += decoder.decode(chunk, { stream: true });
+    }
+    return text;
+  };
+  const [out, err] = await Promise.all([
+    tee(child.stdout, process.stdout),
+    tee(child.stderr, process.stderr),
+  ]);
+  await child.exited;
+  return `${out}\n${err}`;
+};
+
 const main = async () => {
   const dryRun = process.argv.includes("--dry-run");
   const manifests = PACKAGES.map(readManifest);
@@ -118,19 +153,26 @@ const main = async () => {
       console.log(`\nrelease: publishing ${name}@${version}`);
       // Under latest even as a prerelease: until a stable release, a plain install gets the newest.
       // TODO: once out of beta, publish a prerelease under its id (beta, rc) and only a stable under latest.
-      // Its exit code isn't trusted: a sign-in that times out still exits 0. The registry is.
-      await $`bun publish ${tarball} --tag latest`.cwd(ROOT).nothrow();
-      console.log(`release: waiting for ${name}@${version} to appear on npm`);
-      const until = Date.now() + APPEAR_MS;
+      const output = await publish(tarball);
+      if (!accepted(output, name, version))
+        fail(
+          `npm did not take ${name}@${version}, so the release stopped here.\n` +
+            `Fix what bun publish said above (\`npm whoami\` to check the sign-in), then run \`bun run release\` again.`,
+        );
+    }
+
+    // npm takes a version before it lists it, sometimes minutes before; nothing above waited on that.
+    console.log(`\nrelease: waiting for npm to list ${version} of each`);
+    const until = Date.now() + APPEAR_MS;
+    for (const { name } of todo)
       while (!(await publishedVersions(name)).has(version)) {
         if (Date.now() > until)
           fail(
-            `${name}@${version} is not on npm, so the release stopped here.\n` +
-              `Run \`bun run release\` again to publish it and what's after it.`,
+            `npm took ${name}@${version} but hasn't listed it yet.\n` +
+              `Run \`bun run release\` later: it reports what is listed and publishes nothing twice.`,
           );
-        await Bun.sleep(3_000);
+        await Bun.sleep(5_000);
       }
-    }
     console.log(`\nrelease: ${version} is on npm whole, under latest`);
   } finally {
     rmSync(out, { recursive: true, force: true });

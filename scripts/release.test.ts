@@ -1,11 +1,29 @@
 import { describe, expect, test } from "bun:test";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { manifestProblems, PACKAGES } from "./release";
+import { accepted, manifestProblems, PACKAGES } from "./release";
 
 const names = new Set(["@agentswf/contract", "@agentswf/engine", "agentswf"]);
 
 describe("release", () => {
+  test("npm took a version when bun publish prints it, or refuses it as already there", () => {
+    const took =
+      "Tag: latest\nRegistry: https://registry.npmjs.org/\n\n + @agentswf/wf@0.1.0-beta.3\n";
+    expect(accepted(took, "@agentswf/wf", "0.1.0-beta.3")).toBe(true);
+    const again =
+      "error: 403 Forbidden - You cannot publish over the previously published versions: 0.1.0-beta.3.";
+    expect(accepted(again, "@agentswf/wf", "0.1.0-beta.3")).toBe(true);
+  });
+
+  test("a failed sign-in, or another package's line, is not taken", () => {
+    const signIn = "404 Not Found: https://registry.npmjs.org/@agentswf%2fwf\n";
+    expect(accepted(signIn, "@agentswf/wf", "0.1.0-beta.3")).toBe(false);
+    expect(accepted(" + @agentswf/wf@0.1.0-beta.2", "@agentswf/wf", "0.1.0-beta.3")).toBe(false);
+    expect(accepted(" + @agentswf/engine@0.1.0-beta.3", "@agentswf/wf", "0.1.0-beta.3")).toBe(
+      false,
+    );
+  });
+
   test("a manifest whose siblings are at its own version is fine", () => {
     const manifest = {
       name: "agentswf",
