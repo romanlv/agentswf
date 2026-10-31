@@ -22,7 +22,8 @@ export const PACKAGES = ["contract", "sandbox", "harness", "wf", "engine", "agen
 
 const ROOT = resolve(import.meta.dir, "..");
 const REGISTRY = "https://registry.npmjs.org";
-const APPEAR_MS = 120_000;
+/** npm can take minutes to list a version it has accepted. */
+const APPEAR_MS = 600_000;
 
 type Manifest = {
   name: string;
@@ -119,6 +120,7 @@ const main = async () => {
       // TODO: once out of beta, publish a prerelease under its id (beta, rc) and only a stable under latest.
       // Its exit code isn't trusted: a sign-in that times out still exits 0. The registry is.
       await $`bun publish ${tarball} --tag latest`.cwd(ROOT).nothrow();
+      console.log(`release: waiting for ${name}@${version} to appear on npm`);
       const until = Date.now() + APPEAR_MS;
       while (!(await publishedVersions(name)).has(version)) {
         if (Date.now() > until)
