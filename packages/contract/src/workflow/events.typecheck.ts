@@ -283,3 +283,31 @@ defineWorkflow({
     return null;
   },
 });
+
+defineWorkflow({
+  meta: { name: "nudges", description: "A time read from state, moved by the loop." },
+  file: import.meta.path,
+  events: { "doc.approved": Approved },
+  async run(workflow) {
+    const engineer = await workflow.participants.connect({ key: "engineer", to: "code" });
+    const ledger = { nextNudge: workflow.after("4h") as Date | null };
+    for await (const next of workflow.select({
+      reply: engineer,
+      nudge: workflow.at(() => ledger.nextNudge),
+    })) {
+      if (next.nudge) {
+        const due: string = next.nudge.at;
+        void due;
+        ledger.nextNudge = workflow.after("1d");
+      }
+      if (next.reply) ledger.nextNudge = null;
+    }
+    // @ts-expect-error A race answers once: it takes a timer, not a time read from state.
+    await workflow.race("r", { reply: engineer, nudge: workflow.at(() => null) });
+    // @ts-expect-error A time read from state is a Date or null, not a duration.
+    workflow.at(() => "4h");
+    // @ts-expect-error after takes a duration.
+    workflow.after(new Date());
+    return null;
+  },
+});

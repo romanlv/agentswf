@@ -41,6 +41,8 @@ workflow.race(name, { branch: source | "2d", … }, { label? })  // → { key, [
 for await (const next of workflow.select({ branch: source, … }))  // each event a branch takes, one at a time
 workflow.timer(name, "2d" | date)   timer.cancel()            // a source: due once, fires as timer:due
 workflow.signal("dd.closed")   workflow.timers()             // sources: a declared event, any timer
+workflow.at(() => ledger.nextNudge())                         // a select's branch: due at a time the state holds
+workflow.after("3h")                                          // a Date: now() plus it, for the run's state to keep
 workflow.started                                              // the event that started the run
 agent.start({ prompt, schema?, meta? })   agent.turn          // a turn not awaited; its end is agent:ended
 agent.is<Meta, T>(e)   participant.is(e)   timer.is(e)        // narrow an event; each is a source too
@@ -789,11 +791,36 @@ for await (const next of workflow.select({ reply: thread, closed: workflow.signa
   of the run's timers, so one made in the loop, `retry-{id}`, is caught by `next.timer.name`. Its
   `label` may be a function, asked at each wait. A branch is a source, not a duration: a timer in
   a loop is `workflow.timer()`'s.
+- **`workflow.at(read)`** is a select's branch due at a time the run's state holds: `read` returns
+  a `Date`, or `null` for none, and is called at each wait, so the branch follows the state as the
+  code moves the time. It answers `{ at }`, the time it came for.
+
+  ```ts
+  for await (const next of workflow.select({
+    reply: engineer,
+    nudge: workflow.at(() => ledger.nextNudge()),   // Date | null, from the ledger's file
+  })) {
+    if (next.nudge) await nudge();                  // which puts ledger's nextNudge off, or clears it
+    if (next.reply) ledger.answered();              // nextNudge = null: no more nudges
+  }
+  ```
+
+  It isn't a timer: nothing is recorded under a name, there is nothing to cancel, and it lives as
+  long as its loop. Events ready at the wait, timers' among them, come before it, as the handler may
+  move the time. A time returned once isn't returned again by a branch of that name, so a handler
+  that leaves the state alone doesn't fire on every pass. After a crash, a time returned and not
+  acknowledged comes back once, if the state still says it. `read` is cheap and synchronous, and
+  reads state that outlives the process (files, or what is rebuilt from them): a parked run wakes in
+  a new one and reads it again. A time is kept in the state, not made at the read, which would never
+  come due: `workflow.now()` and `workflow.after()` throw inside it, as does anything but a valid
+  `Date` or `null`. A race refuses it; a fixed time there is `workflow.timer(name, date)`.
+- **`workflow.after(duration)`** is `now()` plus `"{n}d"`, `"{n}h"` or `"{n}m"`: a time for the
+  state to keep, where it is set.
 - **`workflow.started`** is the event that started the run, absent for one started by hand.
 - **`workflow.now()`** is the run's time. Workflow code reads it, not `Date.now()`, so a test's
   clock is the one it reads.
-- **Parked**, a run's `until` in `awf runs` is the earliest timer its wait takes, and `awf tick`
-  continues it once that is due.
+- **Parked**, a run's `until` in `awf runs` is the earliest timer, or time read from state, its
+  wait takes, and `awf tick` continues it once that is due.
 
 ## Logging and usage
 

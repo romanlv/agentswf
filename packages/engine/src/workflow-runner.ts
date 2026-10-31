@@ -45,6 +45,7 @@ import {
   type CompactionId,
   type CompactSpec,
   DeadlineExceededError,
+  type Duration,
   type EmitOutcome,
   type EventAgentOpenSpec,
   type EventAgentRef,
@@ -75,6 +76,7 @@ import {
   type StageOptions,
   type StageSummary,
   type StartedTurn,
+  type TimeRead,
   type Timer,
   type TurnId,
   type TurnOutcome,
@@ -141,6 +143,7 @@ import {
   type KeepAlive,
 } from "./keep-alive";
 import {
+  AT_DUE,
   type RestoredTurn,
   RunMailbox,
   RunParked,
@@ -1138,7 +1141,10 @@ class WorkflowOwner {
         return this.track(options.allowance(harness as Harness));
       },
       log: (message, fields) => options.log(message, fields),
-      now: () => new Date(options.now()),
+      now: () => {
+        this.#notReading("workflow.now()");
+        return new Date(options.now());
+      },
       sleep: async (name, when) => {
         await this.race(
           options.waits,
@@ -1160,11 +1166,50 @@ class WorkflowOwner {
               this.select(mailbox, branches, selectOptions),
             timer: (name: string, when: When) => this.timer(mailbox, name, when),
             timers: () => source({}, { name: "timer:due" }),
+            at: (read: () => Date | null) => timeRead(read),
+            after: (duration: Duration) => {
+              this.#notReading("workflow.after()");
+              if (typeof duration !== "string" || !/^\d+(?:\.\d+)?[dhm]$/.test(duration))
+                throw new Error(
+                  `workflow.after takes days, hours or minutes, "1d", "3h", "1.5h"; not ${String(duration)}`,
+                );
+              return new Date(parseWhen(duration, options.now()).due);
+            },
             signal: (name: string) => signalSource(name),
             ...(mailbox.started ? { started: mailbox.started } : {}),
           }
         : { receive: () => Promise.reject(new Error("receive needs a workflow with events")) },
     );
+  }
+
+  /** Set while a select reads a time from state. */
+  #reading = false;
+
+  /** Refuses `what` in a time read from state: a time made at the read is never due. */
+  #notReading(what: string): void {
+    if (this.#reading)
+      throw new Error(
+        `${what} in workflow.at's read: a time made at the read moves with every wait and never comes due; keep the time in the run's state where it is set`,
+      );
+  }
+
+  /** Branch `branch`'s time, read from state now: an ISO time, or undefined for `null`. */
+  #readTime(branch: string, read: () => Date | null): string | undefined {
+    this.#reading = true;
+    let value: unknown;
+    try {
+      value = read();
+    } finally {
+      this.#reading = false;
+    }
+    if (value === null) return undefined;
+    if (!(value instanceof Date) || !Number.isFinite(value.getTime()))
+      throw new Error(
+        `select's ${branch}: workflow.at reads a valid Date or null from the run's state, not ${
+          value instanceof Date ? "an invalid Date" : (JSON.stringify(value) ?? String(value))
+        }`,
+      );
+    return value.toISOString();
   }
 
   /** Checks a wait may begin here: one at a time, outside a tool's handler, in an open scope. */
@@ -1288,10 +1333,27 @@ class WorkflowOwner {
     branches: Branches,
     selectOptions: SelectOptions | undefined,
   ): AsyncIterable<Next<Branches>> {
-    const pairs = branchesOf("select", branches, false).map(
-      ([branch, source]) => [branch, sourceTake("select", branch, source)] as const,
+    const given = branchesOf("select", branches, false);
+    const reads = new Map(
+      given.flatMap(([branch, source]) => {
+        const read = readOf(source);
+        return read ? [[branch, read] as const] : [];
+      }),
     );
-    const takes = pairs.map(([, take]) => take);
+    const pairs = given.map(
+      ([branch, source]) =>
+        [
+          branch,
+          reads.has(branch) ? { name: AT_DUE, from: branch } : sourceTake("select", branch, source),
+        ] as const,
+    );
+    // Read at each pass of the wait: a time follows the state as it moves.
+    const takes = (): WaitTake[] =>
+      pairs.map(([branch, take]) => {
+        const read = reads.get(branch);
+        const due = read && this.#readTime(branch, read);
+        return due === undefined ? take : { ...take, due };
+      });
     const labelOf = () => {
       const given = selectOptions?.label;
       return checkedLabel(typeof given === "function" ? given() : given);
@@ -4092,6 +4154,10 @@ class LogicalAgent implements AgentRef {
 /** A sleep's time, checked where it is given. */
 function checkedWhen(when: unknown): string | Date {
   if (when instanceof Date || typeof when === "string") return when;
+  if (readOf(when))
+    throw new Error(
+      "sleep is for a duration or a Date; workflow.at() is a select's branch, read at each of its waits",
+    );
   throw new Error('sleep is for a duration, "2h", or until a Date');
 }
 
@@ -4114,10 +4180,33 @@ function branchesOf(what: string, branches: unknown, durations: boolean): [strin
   return entries;
 }
 
+/** What a time read from state reads, by its source. */
+const timeReads = new WeakMap<object, () => Date | null>();
+
+/** `workflow.at(read)`: a select's branch, due at the time `read` returns. */
+function timeRead(read: () => Date | null): TimeRead {
+  if (typeof read !== "function")
+    throw new Error(
+      "workflow.at takes a function that reads a Date or null from the run's state, as () => ledger.nextNudge()",
+    );
+  const value = Object.freeze({});
+  timeReads.set(value, read);
+  return value as unknown as TimeRead;
+}
+
+/** What a time read from state reads; undefined for any other value. */
+function readOf(value: unknown): (() => Date | null) | undefined {
+  return typeof value === "object" && value !== null ? timeReads.get(value) : undefined;
+}
+
 /** What `source` takes, as a branch gives it. */
 function sourceTake(what: string, branch: string, source: unknown): WaitTake {
   const take = takeOf(source);
   if (take) return take;
+  if (readOf(source))
+    throw new Error(
+      `${what}'s ${branch} is workflow.at(), a select's: a race answers once, so it takes a timer, workflow.timer(name, date)`,
+    );
   throw new Error(
     `${what}'s ${branch} is not a source: a timer, a signal, a participant routed to the code, an agent, or a started turn`,
   );

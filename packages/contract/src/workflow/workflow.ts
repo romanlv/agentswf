@@ -21,12 +21,15 @@ import type { AbsoluteDeadline } from "./timing";
 import type {
   Branches,
   Checked,
+  Duration,
   Next,
   RaceBranches,
+  RaceChecked,
   SelectOptions,
   Signal,
   Source,
   Taken,
+  TimeRead,
   Timer,
   TimerDue,
   WaitOptions,
@@ -215,7 +218,7 @@ export interface EventWorkflowContext<Events extends EventSchemas>
    */
   race<B extends RaceBranches>(
     name: string,
-    branches: Checked<B>,
+    branches: RaceChecked<B>,
     options?: WaitOptions,
   ): Promise<Next<B>>;
 
@@ -235,6 +238,21 @@ export interface EventWorkflowContext<Events extends EventSchemas>
 
   /** Any of the run's timers, told apart by `name`: one a loop made is caught without a branch of its own. */
   timers(): Source<Taken<TimerDue>>;
+
+  /**
+   * A select's branch due at the time `read` returns from the run's state, or never for `null`;
+   * read at each wait, so it follows the state as it moves. Not a timer: nothing is recorded, and
+   * events ready at the wait come first. A time returned once isn't returned again by a branch of
+   * this name. `read` is cheap and synchronous, and its state outlives the process: in files, or
+   * rebuilt from them, as a parked run reads it again in a new one.
+   */
+  at(read: () => Date | null): TimeRead;
+
+  /**
+   * `now()` plus `duration`: a time for the run's state to keep, as `workflow.at` reads it. Kept
+   * where it is written, it doesn't move on a rerun; made at a read, it would never come due.
+   */
+  after(duration: Duration): Date;
 
   /** One of the workflow's declared events, as a source. */
   signal<Name extends keyof Events & string>(name: Name): Signal<OwnEventOf<Events, Name>>;

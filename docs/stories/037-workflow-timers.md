@@ -130,10 +130,12 @@ workflow.signal("dd.closed")                          // Source<the declared eve
 thread                                                // a participant: Source<its next reply>
 investigator.turn                                     // an agent's started turn: Source<its end>
 workflow.timers()                                     // Source<TimerDue>: any of the run's timers
+workflow.at(() => date | null)                        // a select's deadline, read from state at each wait
 
 timer.cancel()                                        // it won't fire; a cancelled name stays cancelled
 workflow.started                                      // the event that started the run, typed by `starts`
 workflow.now()                                        // the run's time: real in a run, virtual in a test
+workflow.after("3h")                                  // a Date: now() plus a duration, for state to keep
 ```
 
 ```ts
@@ -211,15 +213,15 @@ narrows. Shorthand properties make the branch the variable's name:
 - **One wait at a time**, recorded in the mailbox with what it names, so a parked run says what
   it waits for and when its next timer is due.
 - **Wake only for what the wait would take.** `wake` continues a parked run only when an
-  unacknowledged event matches its recorded wait (for `receive`, any) or its earliest timer is
-  due. Parking uses the same test, so a run sleeping with a reply queued parks, and an event no
+  unacknowledged event matches its recorded wait (for `receive`, any) or its earliest timer, or
+  time read from state, is due. Parking uses the same test, so a run sleeping with a reply queued parks, and an event no
   wait names never wakes it in a loop.
 - **A race takes only its winner, and acknowledges nothing else.** It doesn't acknowledge a
   `receive` batch still being handled; after a crash, a held batch returns to the next
   `receive`, and a race's winner is in its record.
 - **Order is by time.** Of two ready sources the earlier `at` wins: an event's arrival, a timer's
   due time, even when a parked run's `timer:due` is appended later. `receive` returns the same
-  order.
+  order. A time read from state comes after every ready event (A time read from state, below).
 - **No exceptions for time.** A timeout is an expected answer, so it is a branch, never a throw.
 - **Nothing is lost silently.** A run that parks with events no wait named logs them.
 
@@ -441,7 +443,19 @@ const woke = await workflow.race("cool-down", { reply: thread, rested: workflow.
   a workflow wants it.
 - **No timer that moves** (`reset: e`). A debounce or a silence is a timer per event, as case 5
   shows, and an absolute `Date` covers a fixed time; moving a timer is rare enough to wait for a
-  workflow that needs it.
+  workflow that needs it. Reopened as Q1, as review-loop3 is that workflow.
+
+2026-10-31:
+
+- **A time that moves is read from state, not a timer**: `workflow.at(() => Date | null)`, a
+  `select` branch read at each wait, with no name and no record of its own; `workflow.after(d)`
+  turns a duration into the `Date` the state keeps. `workflow.timer()` takes no function: a timer
+  is a time recorded under a name, and this isn't. See "A time read from state" below.
+- **Only in `select`.** A race would read it once and answer from its record, which is a `Date`
+  branch with a function around it; straight-line code with a time passes a timer.
+- **Events first** for a time read from state, against "order is by time": the handler may move
+  it, and it is read again.
+- **"Once per time" is run-wide, by branch name**: the only key a rerun finds again.
 
 ## Testing on a virtual clock
 
@@ -473,9 +487,151 @@ What the clock does not cover yet: an agent turn's `timeoutMs`, a `parallel`'s d
 run's `--timeout`, which run on real timers in the engine and harness;
 [[workflow-test-virtual-time]] keeps those.
 
+## A time read from state
+
+Decided 2026-10-31, from Q1. A `select` branch can be a time the run's state already holds,
+`workflow.at(() => Date | null)`. It is a deadline on the wait, read each time the loop asks for the
+next event, not a timer: nothing is set, moved or cancelled.
+
+A time moves when the code changes it while it is pending, or sets it again after it fired: a nudge
+put off to the next working hour, a retry backed off further, an idle timeout restarted by each
+activity. A timer's first call fixes its time for good, and it fires once, so moving one means a
+new name. review-loop3's `flow.ts` does that for its nudge and retry:
+
+```ts
+select({ …, timer: workflow.timers(), … })                              // catch-all: nudge-{n}, retry-{n}
+workflow.timer(`nudge-${view.nudgeTimers}`, new Date(view.nextNudge));  // at every wait on the engineer
+if (next.timer?.name.startsWith("nudge-")) {
+  if (next.timer.name !== `nudge-${view.nudgeTimers}`) return;           // an earlier one: stale
+  …
+}
+```
+
+The ledger counts `nudgeTimers` only to make the next name; every earlier timer still fires and is
+dropped by name; a branch can't name a timer made after the `select` started, so one catch-all
+takes them all. The ledger already holds the time. With `at`, the branch reads it:
+
+```ts
+for await (const next of workflow.select({
+  changes: workflow.signal("mr.changes"),
+  reply: run.engineer,
+  nudge: workflow.at(() => run.ledger.nextNudge()),        // Date | null
+  retry: workflow.at(() => run.ledger.retryAt()),
+})) {
+  if (next.nudge) await nudge(run);                        // next.nudge.at: the time it came for
+  …
+}
+
+run.ledger.handedOver(first);                              // set: the next wait reads it
+run.ledger.nudgePutOff(workflow.after("3h"));              // moved: a duration becomes a Date where it's written
+run.ledger.approved(…);                                    // nextNudge = null: no nudge
+```
+
+It is a method of its own, not a `Date` a branch happens to hold, so a reader sees a time that
+follows the state, beside `signal()` and a participant.
+
+**Why it has no name.** A timer is named because code reruns from the top: `timer("2d")` unnamed
+would count two days from each rerun and never come due, so its time is recorded once, under a
+name, and a rerun finds it. A time read from state needs neither: a rerun reads the same saved
+state and gets the same `Date`. Nothing is recorded ahead of time, so nothing has to be found
+again.
+
+**At each wait**, the engine calls each `at` and writes the times beside the wait's `takes`:
+
+- with no event ready, a time due is what the wait returns: `{ key: "nudge", nudge: { at } }`. It
+  becomes an event, `at:due` from its branch, appended and taken in one step, so a crash and the
+  next wait treat it as they treat any event the loop took;
+- otherwise the wait sleeps to the earliest time, and a parked run records it as `until`, so
+  `wake` and `awf tick` read it as they read a timer's, and report it as `timer`;
+- `null` is no deadline.
+
+**The rules.**
+
+- **Only a `Date`.** A duration would count from each read and never come due, so the code turns
+  one into a time where it writes the state: `workflow.after("3h")`, the run's `now()` plus it,
+  real in a run and virtual in a test.
+- **Once per time, run-wide by branch.** A branch's `at:due` has an id from the branch and the
+  time, so a time returned once is never returned again, by this loop or a later one with a branch
+  of the same name. A time already returned is no deadline: it isn't in `until`, doesn't wake a
+  parked run and isn't skipped to in a test, so a handler that leaves the state alone neither
+  spins nor wakes on every tick.
+- **Taken like an event.** Returned and not yet acknowledged when the run crashed, it comes back
+  once to a rerun's first `select`, if the state still says that time; another time, `null`, a
+  `select` without the branch or a `receive`, and it is acknowledged instead. Nothing is queued
+  ahead, so a moved or dropped time can't fire late.
+- **Events first.** A ready event, a timer's `timer:due` among them, is taken before a time read
+  from state, whatever their times: the handler may move the time, and a time still due is read
+  again at the next wait. Of two times due, the earlier; at the same time, the branch declared
+  first.
+- **The state has to outlive the process.** A parked run wakes in a new process and a crash
+  restarts one, and the function is read again after both, so a plain local reads `null` there
+  and the deadline is lost. A local rebuilt from files at the start of the run, as review-loop3's
+  ledger is, is fine: 034's Q9 rule, that state lives in files, in a new place.
+- **Read at each pass of the wait**, before it takes, sleeps or parks, and after a wake or a
+  restart: a pass comes with an event, a timer, a wake, or each second while a turn runs, so a
+  time an agent's `onTimeout` moves is seen. Code running beside an idle wait that moves a time
+  earlier isn't seen until the next pass. A changed time is
+  a new wait record, so a parked run's `until` is the one read last. A file changed while the run
+  is parked isn't seen until something wakes it.
+- **Cheap, synchronous, and a `Date`.** It reads state and nothing else: `workflow.now()` and
+  `workflow.after()` throw inside it, as a time made at the read is never due. Anything but a
+  valid `Date` or `null` throws, and so does the function, from the loop's `for await`.
+- **It lives as long as its loop.** It isn't a timer: no name, no `cancel()`, no `is(e)`, not in
+  `timers()`, not in a `receive`; when the loop ends, it's gone. Cases 3 and 5 are `receive`
+  loops and keep a timer per event; one rewritten as a `select` could read its time instead.
+
+**How other engines say it.** Three families, from [[timers-waits-and-state]]:
+
+- **Set by key, setting again replaces**: `gen_statem`'s `{{timeout, Name}, T, Msg}`, Akka's
+  `startSingleTimer(key, …)`, Orleans' `RegisterOrUpdateReminder(name, …)`, a Durable Object's one
+  alarm. No name per move, but the time lives in the timer, apart from the state, and the code
+  keeps the two in step.
+- **Derived from state, re-armed when a value changes**: React's `useEffect(…, [nudgeAt])`, Vue's
+  `watch`, Svelte's `$effect`, Temporal's `condition(fn, timeout)` in a loop. Nothing to keep in
+  step. Every one arms from an absolute time, and Temporal warns that a relative timeout in a loop
+  restarts each pass.
+- **Tied to a phase, or configuration**: `gen_statem`'s `state_timeout`, XState's `after`,
+  Inngest's `debounce: { period, timeout }`. Neat when the timer is the phase; it can't put a nudge
+  off to a working hour.
+
+`workflow.at` is the second family, durable because the state it reads is; the answer says which
+time it came for, as `gen_statem`'s message and Orleans' status do. A debounce with a cap is code
+over two `Date`s: the earlier of `workflow.after("10m")` and an hour after the first event.
+
+**Considered.**
+
+- **A timer that moves, by name** (`workflow.at("nudge", fn)`, or a function as `workflow.timer()`'s
+  time): a record per move, a fold that keeps the latest, a queued due withdrawn when the time
+  moves, timers dropped when the loop ends, and exceptions to "the first call names the time" and
+  "a cancelled name stays cancelled". All of it to record a time the state already keeps.
+- **Several named `until`s at the wait** (Other shapes, above): the same deadlines, computed at the
+  wait rather than read from where their reason is.
+- **`select(() => ({ …, nudge: view.nextNudge }))`**, a function for the whole branch object, a
+  bare `Date` a deadline. More general, as any branch could change between passes, but `select`
+  changes form and a `Date` changes meaning silently; nothing needs the generality yet.
+- **A handle by name** (`const nudge = workflow.timer("nudge"); nudge.at(…)`): the same line makes
+  the timer or reaches an existing one, and reads the same either way.
+- **Declared timers** (`timers: ["nudge"]`, `workflow.timers.nudge.at(…)`): clear, but the time is
+  kept twice, in the ledger and the timer, and they drift when a path moves one.
+- **Set by name** (`setTimer("nudge", …)`): two rules for a named timer, told apart by a verb.
+- **Owned by the loop** (`loop.timers.nudge.at(…)`): the loop has to be passed to every function
+  that moves a timer.
+- **A prefix on `timers()`**: keeps the counter and the stale check.
+- **A timer restarted by an event** (`reset: e`): can't put a nudge off to a working hour or back a
+  retry off.
+- **A callback on the timer** (`timer("nudge", { onFire })`): says what happens when it fires, not
+  when; it has to be registered again in every process, and a `return` in it leaves the callback.
+
+[[reconciled-runs]] explored a wider model around this question, state, effects and work
+reconciled by key; this story takes only the time.
+
 ## Open questions
 
-None open.
+### Q1. The name of a time read from state
+
+The shape is decided (A time read from state, above), and built as `workflow.at`. Left: whether
+`workflow.due` or `workflow.when` reads better. `at` matches the answer's `.at`; a rename is cheap
+until it ships.
 
 ## Lints to write
 
@@ -544,6 +700,7 @@ Three reviewers read the draft with `race({ … })` unnamed and a fired timer th
 - [x] 3. A virtual clock in `testWorkflow`
 - [x] 4. Timers and `sleep` in a workflow without `events`
 - [x] 5. The sketches and docs on timers, and a live run
+- [x] 6. A time read from state: `workflow.at` and `workflow.after`, in `select`
 
 ## Implementation decisions
 
@@ -558,7 +715,8 @@ Where building it met something the model above didn't settle (2026-10-29):
 - **An agent is a source of its turns' ends**, as a participant is of its replies: `ended:
   investigator` in a `select`, where `investigator.turn` is one turn's end. Every source's `is(e)`
   replaces `replied(e)` and `ended(e)`.
-- **A test's clock skips where the run would park**, up to `maxTimers`, 20 by default; at it the
+- **A test's clock skips where the run would park**, to the next timer or time read from state,
+  up to `maxTimers`, 20 by default, which counts both; at it the
   run parks, so `maxTimers: 0` tests the parking itself, and `run.value` says the clock stopped.
   One knob in place of a firing count and a virtual end time.
 - **A workflow without `events` sleeps in its process**: `awf run` gives a plain run no parking, so
@@ -705,17 +863,61 @@ Done when:
 
 - the live run parks on its reminder, `awf tick` wakes it when due, and a reply ends it.
 
+### 6. A time read from state
+
+Outcome: a `select` branch reads a time from the run's state at each wait, so review-loop3 nudges
+and retries without a counter, per-round names or a stale check. Q1 settled first.
+
+Execution:
+
+- [x] Plan: inspect the relevant code and tests and record the architecture and focused proof.
+- [x] Implement: make only this task's coherent change and add focused tests with it.
+- [x] Review: obtain architecture/scope and correctness/proof subagent reviews of the actual diff.
+- [x] Resolve: disposition findings and obtain targeted re-review after material design changes.
+- [x] Verify: satisfy every `Done when` item before checking this task.
+
+Work:
+
+- the surface: `workflow.at(() => Date | null)` as a select's branch, answering `{ at }`;
+  `workflow.after(duration)`; a race, a `receive` and a duration from the function fail `tsc` or
+  throw, naming why;
+- the wait record: each `at` branch's take carries the time read, `due`; a changed time appends a
+  wait record. A time returned is an `at:due` event from its branch, id from the branch and the
+  time, appended with its `took` under the lock. `MAILBOX_RECORD_VERSION` stays (beta, no
+  compatibility);
+- the wait reads its `at`s at each pass; one predicate still: `hasWork` and `nextTimer` take the
+  earliest time read and not yet returned, so taking, parking, `wake`, `awf tick` and the test's
+  clock skip agree; ready events first;
+- a crash: a rerun's first `select` returns a held `at:due` only if its branch still reads that
+  time; otherwise, and in a `receive`, it is acknowledged;
+- `now()` and `after()` throw inside a read; a non-`Date`, an invalid one, and a race or sleep given
+  an `at`, throw naming why;
+- `docs/workflow-api.md`; an example in `examples/` on `at`, run live.
+
+Done when:
+
+- tests cover: a time moved later doesn't fire at the earlier one; `null` doesn't fire; a parked
+  run wakes at the time it read and not before; a time returned and left in state neither spins,
+  nor parks with an `until`, nor wakes on a tick; a crash after a time was returned returns it once
+  if the state still says it, and not if it moved, nor to a `receive`; a ready event comes first;
+  two times due at once go in branch order; a time moved while the wait waits is seen; a throwing
+  read, an invalid `Date`, `now()` in a read, and `at` in a race are refused; a test's clock skips
+  to the time read;
+- the example runs live: parks on a time read from state, `awf tick` wakes it, and a reply moves or
+  clears the time.
+
 ## Verification
 
 Automated:
 
-- [x] `bun test`: 2245 pass, 0 fail
+- [x] `bun test`: 2258 pass, 0 fail (task 6)
 - [x] `bunx tsc --noEmit`
 - [x] `bun run check`
 
 Manual or live evaluation:
 
 - [x] Task 5's live run, on a cheap model (Implementation notes).
+- [x] Task 6's live run, `examples/nudges` (Implementation notes).
 
 ## Review record
 
@@ -768,7 +970,32 @@ Manual or live evaluation:
   backoff. The example's approval check, `/\bapprove/`, matched "not approved": a reply that
   starts "approved" now, said to be a stand-in.
 
+### Task 6
+
+- Architecture and scope: the surface is minimal and the record change fits, since a time returned is
+  an event taken at once. Taken: `after` moved to event workflows beside `at`, as a plain workflow's
+  `sleep` already takes a duration; `TimeDue` as `Taken<…>`; `due` said not to be part of a take's
+  match; the API doc's example made consistent; the read-at-each-pass claim narrowed to what a pass
+  is; the example's ledger path said, and `.nudges/` ignored. Kept: the boundary exception for
+  `examples/nudges/ledger.ts`, the one example module with `node:fs`, as a time read from state
+  needs state that outlives the process ([[workflow-state]] would remove it).
+- Correctness and proof: a crash between an `at:due` and its `took` left an event any wait took,
+  whatever the state said. The fold now drops an `at:due` no `took` holds, so its time comes again.
+  `#takeTime` reads the time again under the lock, so code beside the wait that moved it isn't
+  overtaken. `sleep` given an `at`, and `after` given a bad duration, say why. Tests for each. Kept: the
+  example's "later" counts from the rerun's `now()` after a crash, as at-least-once handling allows.
+  Not proven by a test: a time moved by a real `onTimeout` (the pass is, by a nudge).
+
 ## Implementation notes
+
+- Live run of task 6, 2026-10-31, `examples/nudges` on codex `gpt-6-luna`, headless, nudging each
+  minute, a "later" putting off two: `awf emit` started it, and it parked with `until` a minute out.
+  An early `awf tick` woke nothing, and one after the time continued it, `why: "timer"`. The writer
+  drafted nudge 1 and it parked again with the ledger's next time. `awf send --as engineer --event-id`
+  "later, in a meeting" moved the time from 14:04:04 to 14:06:03, and the parked `until` followed.
+  The earlier time never fired: the mailbox has `at:due` for 14:02:30 and 14:06:03 only. A tick after
+  14:06 sent nudge 2, and the answer returned `{ answer, nudges: 2 }` at attempt 5, under $0.01 at
+  list prices. Attempts after 14:06 ran with the review's fixes in.
 
 - Live run, 2026-10-29, `examples/approval-reminders` on codex `gpt-6-luna`, headless, reminding
   every minute with a ten-minute expiry: `awf emit` started it and it parked at round 1, `until`

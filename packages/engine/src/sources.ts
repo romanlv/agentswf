@@ -60,6 +60,7 @@ export function wouldTake(
 export function branchValue(event: WorkflowEvent<string, JsonValue>): unknown {
   switch (event.name) {
     case "timer:due":
+    case "at:due":
     case "participant:reply":
     case "agent:ended":
       return Object.freeze({ ...(event.data as object), id: event.id, at: event.at });

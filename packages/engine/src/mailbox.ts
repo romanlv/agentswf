@@ -56,6 +56,18 @@ export function timerEventId(name: string): string {
   return `${AWF_ID_PREFIX}timer.${hash.slice(0, 16)}`;
 }
 
+/** The name of the event a select's time read from state becomes, from its branch, as it is taken. */
+export const AT_DUE = "at:due";
+
+/**
+ * The id of branch `branch`'s `at:due` for time `due`, an ISO time: made from both, so a time is
+ * returned once by a branch of that name, whichever loop reads it.
+ */
+export function atEventId(branch: string, due: string): string {
+  const hash = new Bun.CryptoHasher("sha256").update(`${branch}\n${due}`).digest("hex");
+  return `${AWF_ID_PREFIX}at.${hash.slice(0, 16)}`;
+}
+
 /**
  * The id of the end of `agent`'s turn `turn`: made from both, so it fits the grammar whatever
  * either is, and is the same whoever writes it, so only one end is ever kept.
@@ -195,6 +207,7 @@ export function foldMailbox(records: readonly MailboxRecord[]): MailboxState {
   const batches = new Map<string, string[]>();
   const races = new Map<string, { branch: string; ids: string[] }>();
   const timers = new Map<string, TimerState>();
+  const tookIds = new Set<string>();
   let held: string[] | undefined;
   let heldTakes: WaitTake[] | undefined;
   let lastWait: (WaitRecord & { waiting: boolean }) | undefined;
@@ -216,6 +229,7 @@ export function foldMailbox(records: readonly MailboxRecord[]): MailboxState {
         lastWait = { ...record, waiting: true };
         break;
       case "took":
+        for (const id of record.ids) tookIds.add(id);
         if (lastWait) lastWait.waiting = false;
         if (record.race !== undefined) {
           for (const id of record.ids) acknowledged.add(id);
@@ -250,6 +264,12 @@ export function foldMailbox(records: readonly MailboxRecord[]): MailboxState {
       }
     }
   }
+  // An `at:due` is appended with its `took`; one a crash tore from it was never returned.
+  for (const [id, record] of events)
+    if (record.name === AT_DUE && !tookIds.has(id)) {
+      events.delete(id);
+      order.splice(order.indexOf(id), 1);
+    }
   for (const timer of timers.values()) timer.fired = events.has(timerEventId(timer.name));
   const started = [...events.values()].find((event) => event.starts);
   const taken = new Set(held);
@@ -278,6 +298,11 @@ export function readyFor(state: MailboxState, takes: readonly WaitTake[] | undef
   });
 }
 
+/** Whether `ids`, a crash's held batch, is a select's time read from state, alone. */
+function isTimeRead(state: MailboxState, ids: readonly string[]): boolean {
+  return ids.length === 1 && state.events.get(ids[0] as string)?.name === AT_DUE;
+}
+
 /** A timer's `timer:due`, as a wait would test it. */
 function dueEventOf(timer: TimerState): { name: string; from: string } {
   return { name: "timer:due", from: timer.name };
@@ -290,13 +315,39 @@ function pendingTimers(state: MailboxState): TimerState[] {
     .sort((a, b) => Date.parse(a.due) - Date.parse(b.due));
 }
 
-/** When the earliest timer a wait taking `takes` would take is due, epoch ms; undefined with none. */
+/**
+ * A select's times read from state that it hasn't returned, earliest first, and of two at once the
+ * branch declared first. A time returned is no deadline, so state left as it was doesn't spin.
+ */
+function pendingTimes(
+  state: MailboxState,
+  takes: readonly WaitTake[] | undefined,
+): { branch: string; due: string }[] {
+  return (takes ?? [])
+    .flatMap((take, order) =>
+      take.name === AT_DUE &&
+      take.from !== undefined &&
+      take.due !== undefined &&
+      !state.events.has(atEventId(take.from, take.due))
+        ? [{ branch: take.from, due: take.due, order }]
+        : [],
+    )
+    .sort((a, b) => Date.parse(a.due) - Date.parse(b.due) || a.order - b.order)
+    .map(({ branch, due }) => ({ branch, due }));
+}
+
+/**
+ * When the earliest timer, or time read from state, a wait taking `takes` would take is due, epoch
+ * ms; undefined with none.
+ */
 export function nextTimer(
   state: MailboxState,
   takes: readonly WaitTake[] | undefined,
 ): number | undefined {
   const timer = pendingTimers(state).find((each) => wouldTake(dueEventOf(each), takes));
-  return timer && Date.parse(timer.due);
+  const time = pendingTimes(state, takes)[0];
+  const dues = [timer?.due, time?.due].flatMap((due) => (due ? [Date.parse(due)] : []));
+  return dues.length > 0 ? Math.min(...dues) : undefined;
 }
 
 /**
@@ -575,7 +626,8 @@ export class RunMailbox {
     } else if (this.#first) {
       this.#first = false;
       const state = foldMailbox(await readMailbox(this.options.runDir));
-      if (state.held) return this.#events(state, state.held);
+      // A select's time read from state is the select's: this wait acknowledges it.
+      if (state.held && !isTimeRead(state, state.held)) return this.#events(state, state.held);
     }
     return this.#wait(
       {
@@ -592,10 +644,12 @@ export class RunMailbox {
    * attempt's first call returns the one an earlier attempt took and never acknowledged.
    */
   async select(
-    takes: readonly WaitTake[],
+    takes: readonly WaitTake[] | (() => readonly WaitTake[]),
     label: string | undefined,
     signal?: AbortSignal,
   ): Promise<WorkflowEvent<string, JsonValue>> {
+    const read = typeof takes === "function" ? takes : undefined;
+    const first = read ? read() : (takes as readonly WaitTake[]);
     let returns = false;
     if (this.#first) {
       this.#first = false;
@@ -605,15 +659,26 @@ export class RunMailbox {
         state.held?.length === 1 && state.heldTakes
           ? state.events.get(state.held[0] as string)
           : undefined;
-      if (held && wouldTake(held, takes)) return eventOf(held);
-      // What this select doesn't take is waiting again, for the wait that does.
-      returns = state.held !== undefined;
+      if (held?.name === AT_DUE) {
+        // Its time, if the state still says it; moved or dropped, this wait acknowledges it.
+        if (
+          first.some(
+            (take) => take.name === AT_DUE && take.from === held.from && take.due === held.at,
+          )
+        )
+          return eventOf(held);
+      } else {
+        if (held && wouldTake(held, first)) return eventOf(held);
+        // What this select doesn't take is waiting again, for the wait that does.
+        returns = state.held !== undefined;
+      }
     }
     const [event] = await this.#wait(
       {
         ...(label === undefined ? {} : { label }),
         take: "oldest",
-        takes: [...takes],
+        takes: [...first],
+        ...(read ? { read } : {}),
         ...(returns ? { returns } : {}),
       },
       signal,
@@ -662,6 +727,8 @@ export class RunMailbox {
       label?: string;
       take: "all" | "oldest";
       takes?: WaitTake[];
+      /** Reads the takes again at each pass: a select's times read from state. */
+      read?: () => readonly WaitTake[];
       returns?: boolean;
       stage?: string;
       race?: {
@@ -672,10 +739,11 @@ export class RunMailbox {
     },
     signal: AbortSignal | undefined,
   ): Promise<WorkflowEvent<string, JsonValue>[]> {
-    const { label, take, takes, returns, stage, race } = spec;
+    const { label, take, read, returns, stage, race } = spec;
+    let { takes } = spec;
     const { attempt, runDir } = this.options;
     await this.flush();
-    await this.#append({
+    const waitRecord = (again?: boolean): MailboxRecord => ({
       version: MAILBOX_RECORD_VERSION,
       at: this.#at(),
       kind: "wait",
@@ -684,8 +752,9 @@ export class RunMailbox {
       ...(stage === undefined ? {} : { stage }),
       ...(race === undefined ? {} : { race: race.name }),
       ...(takes === undefined ? {} : { takes }),
-      ...(returns ? { returns: true as const } : {}),
+      ...(returns && !again ? { returns: true as const } : {}),
     });
+    await this.#append(waitRecord());
     const took = (events: EventRecord[]) =>
       this.options.locked(async () => {
         const branch = race && branchOf(race.branches, events[0] as EventRecord);
@@ -709,6 +778,15 @@ export class RunMailbox {
       });
     for (;;) {
       signal?.throwIfAborted();
+      if (read) {
+        // A time moved while it waited, by an agent's onTimeout or a parallel branch: a parked
+        // run's `until`, and its wake, read the last wait record.
+        const fresh = [...read()];
+        if (JSON.stringify(fresh) !== JSON.stringify(takes)) {
+          takes = fresh;
+          await this.#append(waitRecord(true));
+        }
+      }
       // Armed before reading, so a nudge between the read and the wait is not lost.
       const woken = new Promise<void>((resolve) => {
         this.#wake = resolve;
@@ -722,6 +800,12 @@ export class RunMailbox {
         const events = ids.map((id) => state.events.get(id) as EventRecord);
         await took(events);
         return events.map(eventOf);
+      }
+      const time = pendingTimes(state, takes)[0];
+      if (time && Date.parse(time.due) <= this.#now()) {
+        const taken = await this.#takeTime(time, takes, read);
+        if (taken) return [eventOf(taken)];
+        continue;
       }
       const next = nextTimer(state, takes);
       if (next !== undefined && next <= this.#now()) continue;
@@ -769,6 +853,46 @@ export class RunMailbox {
         signal,
       );
     }
+  }
+
+  /**
+   * A select's time read from state, due with no event ready: its `at:due` appended and taken in one
+   * step under the lock, so it is never queued ahead to fire after the time moved. Undefined when an
+   * event arrived meanwhile, which goes first.
+   */
+  async #takeTime(
+    time: { branch: string; due: string },
+    takes: readonly WaitTake[] | undefined,
+    read: (() => readonly WaitTake[]) | undefined,
+  ): Promise<EventRecord | undefined> {
+    const { attempt, runDir } = this.options;
+    const id = atEventId(time.branch, time.due);
+    return this.options.locked(async () => {
+      const again = foldMailbox(await readMailbox(runDir));
+      // Code beside the wait may have moved it while the lock was awaited.
+      if (read && !read().some((take) => take.from === time.branch && take.due === time.due))
+        return undefined;
+      if (again.events.has(id) || readyFor(again, takes).length > 0) return undefined;
+      if (dueRecords(again, this.#now()).length > 0) return undefined;
+      const event: EventRecord = {
+        version: MAILBOX_RECORD_VERSION,
+        at: time.due,
+        kind: "event",
+        id,
+        name: AT_DUE,
+        data: {},
+        from: time.branch,
+      };
+      await appendMailbox(runDir, event);
+      await appendMailbox(runDir, {
+        version: MAILBOX_RECORD_VERSION,
+        at: this.#at(),
+        kind: "took",
+        attempt,
+        ids: [id],
+      });
+      return event;
+    });
   }
 
   /** The mailbox, with every timer due by now fired into it. */

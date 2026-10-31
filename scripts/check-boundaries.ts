@@ -316,7 +316,7 @@ const RULES: Rule[] = [
   },
   {
     dir: "examples",
-    except: ["**/*.test.ts"],
+    except: ["**/*.test.ts", "nudges/ledger.ts"],
     allow: ["@agentswf/contract/workflow"],
     forbid: [
       {
@@ -325,6 +325,19 @@ const RULES: Rule[] = [
       },
     ],
     pure: true,
+  },
+  // A time read from state needs state that outlives the process, which a workflow keeps in files
+  // (034's Q9): the nudges example's ledger is the one example module that writes one.
+  {
+    dir: "examples",
+    files: "nudges/ledger.ts",
+    allow: [],
+    forbid: [
+      {
+        pattern: /^@agentswf\//,
+        reason: "the ledger is the workflow's own state, not a use of awf",
+      },
+    ],
   },
   // A workflow's test is written against the testing surface, as an author outside the repository
   // writes one; it may read and write files, as its fakes do.

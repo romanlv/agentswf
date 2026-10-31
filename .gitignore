@@ -15,3 +15,6 @@ docs/.obsidian/workspace*.json
 
 # Local secrets, such as CLAUDE_CODE_OAUTH_TOKEN for the sandbox experiments
 .env
+
+# examples/nudges keeps its live runs' state here
+.nudges/

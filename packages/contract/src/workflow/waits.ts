@@ -29,6 +29,19 @@ export type TimerDue = { readonly name: string };
 /** A timer's event, `timer:due`, from the timer's name, `at` the time it was due. */
 export type TimerDueEvent = WorkflowEvent<"timer:due", TimerDue>;
 
+/** A time read from state, as a select returns it: `at`, the time it came for, an ISO time. */
+export type TimeDue = Taken<Record<never, never>>;
+
+/**
+ * A select's branch that comes due at a time the run's state holds: `workflow.at(() => …)`. Not a
+ * timer: nothing is recorded under a name, and it lives as long as its loop.
+ */
+export interface TimeRead extends Source<TimeDue> {
+  readonly [TIME_READ]: true;
+}
+
+declare const TIME_READ: unique symbol;
+
 /** What `is(e)` reads of an event. */
 export type EventLike = { readonly name: string; readonly from: string; readonly data?: unknown };
 
@@ -60,6 +73,11 @@ export type Branches = Readonly<Record<string, Source<unknown>>>;
 
 /** A race's branches: a source, or a duration, which is a timer of the race's own. */
 export type RaceBranches = Readonly<Record<string, Source<unknown> | Duration>>;
+
+/** Race branches as a race takes them: as `Checked`, and none a time read from state, a select's. */
+export type RaceChecked<B> = Checked<B> & {
+  readonly [K in keyof B]: B[K] extends TimeRead ? never : B[K];
+};
 
 type ValueOf<B> = B extends Source<infer T> ? T : B extends Duration ? Taken<TimerDue> : never;
 

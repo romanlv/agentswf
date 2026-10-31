@@ -390,7 +390,8 @@ export type MailboxRecord = {
    * A wait called. Outside a stage and a race, it acknowledges what the last `took` outside one
    * returned; in `stage` or `race`, it acknowledges nothing, as each holds what it took. `takes`:
    * what it takes, absent for every event. `returns`: an attempt's first wait that didn't take
-   * what a crash left held, which goes back to waiting rather than being acknowledged.
+   * what a crash left held, which goes back to waiting rather than being acknowledged. A select
+   * whose times read from state change while it waits writes another.
    */
   | {
       kind: "wait";
@@ -805,9 +806,12 @@ export type RunStateJson = "running" | "interrupted" | "stuck" | AttemptOutcome;
 
 /**
  * What a wait takes: events of `name`, from `from` when given, and of the turn `turn` when given.
- * A timer's `timer:due` is from its name.
+ * A timer's `timer:due` is from its name. A select's time read from state is `at:due` from its
+ * branch, with `due`, the ISO time read, when the read gave one: a deadline, not part of the match.
+ * With no event ready, the wait appends its event, id `awf.at.{hash}` of the branch and the time,
+ * and takes it at once.
  */
-export type WaitTake = { name: string; from?: string; turn?: string };
+export type WaitTake = { name: string; from?: string; turn?: string; due?: string };
 
 /**
  * A run of a workflow with `events` at its wait, live or parked: the wait's label, and `until`, an

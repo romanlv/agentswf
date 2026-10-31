@@ -265,7 +265,9 @@ The inbox of possible stories is [`stories/todo/`](stories/todo/).
 - [037 — a workflow waits on time in code that says what it waits for](stories/037-workflow-timers.md):
   built, awaiting human review. Named timers that fire into the mailbox as `timer:due`; sources
   (timers, signals, participants, agents, turns); `race`, recorded by name; `select`, a loop beside
-  `receive`; `sleep` in any workflow; `until` gone. A test's clock skips to the next timer.
+  `receive`; `sleep` in any workflow; `until` gone. A test's clock skips to the next timer. A
+  select's branch can be a time read from state, `workflow.at(() => date)`, that follows the state
+  as it moves (`examples/nudges`).
 
 ## Next
 
