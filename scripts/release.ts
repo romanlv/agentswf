@@ -30,10 +30,6 @@ type Manifest = {
   dependencies?: Record<string, string>;
 };
 
-/** The dist-tag a version goes up under: its prerelease id (`beta` for 0.1.0-beta.2), else latest. */
-export const distTag = (version: string): string =>
-  /^\d+\.\d+\.\d+-([a-z]+)/i.exec(version)?.[1] ?? "latest";
-
 /**
  * What is wrong with a packed manifest: a `workspace:` left in, or a sibling at another version.
  * Siblings are the names in `names`; every one must be exactly `version`.
@@ -98,7 +94,6 @@ const main = async () => {
   if (dirty && !dryRun) fail(`commit these first, so the release is what git has:\n${dirty}`);
 
   const names = new Set(manifests.map((manifest) => manifest.name));
-  const tag = distTag(version);
   const out = mkdtempSync(join(tmpdir(), "awf-release-"));
   try {
     // Everything is packed and checked before anything is published.
@@ -116,12 +111,13 @@ const main = async () => {
       console.log(`${published ? "on npm  " : "to go up"} ${name}@${version}`);
     const todo = plan.filter((entry) => !entry.published);
     if (todo.length === 0) return console.log(`release: ${version} is on npm whole`);
-    if (dryRun) return console.log(`release: dry run, ${todo.length} to publish under ${tag}`);
+    if (dryRun) return console.log(`release: dry run, ${todo.length} to publish`);
 
     for (const { name, tarball } of todo) {
-      console.log(`\nrelease: publishing ${name}@${version} under ${tag}`);
+      console.log(`\nrelease: publishing ${name}@${version}`);
+      // Under latest even as a prerelease: until a stable release, a plain install gets the newest.
       // Its exit code isn't trusted: a sign-in that times out still exits 0. The registry is.
-      await $`bun publish ${tarball} --tag ${tag}`.cwd(ROOT).nothrow();
+      await $`bun publish ${tarball} --tag latest`.cwd(ROOT).nothrow();
       const until = Date.now() + APPEAR_MS;
       while (!(await publishedVersions(name)).has(version)) {
         if (Date.now() > until)
@@ -132,7 +128,7 @@ const main = async () => {
         await Bun.sleep(3_000);
       }
     }
-    console.log(`\nrelease: ${version} is on npm whole, under ${tag}`);
+    console.log(`\nrelease: ${version} is on npm whole, under latest`);
   } finally {
     rmSync(out, { recursive: true, force: true });
   }

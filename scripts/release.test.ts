@@ -1,17 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { distTag, manifestProblems, PACKAGES } from "./release";
+import { manifestProblems, PACKAGES } from "./release";
 
 const names = new Set(["@agentswf/contract", "@agentswf/engine", "agentswf"]);
 
 describe("release", () => {
-  test("a prerelease goes up under its id, a release under latest", () => {
-    expect(distTag("0.1.0-beta.2")).toBe("beta");
-    expect(distTag("1.0.0-rc.1")).toBe("rc");
-    expect(distTag("1.0.0")).toBe("latest");
-  });
-
   test("a manifest whose siblings are at its own version is fine", () => {
     const manifest = {
       name: "agentswf",
