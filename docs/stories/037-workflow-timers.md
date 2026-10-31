@@ -456,6 +456,7 @@ const woke = await workflow.race("cool-down", { reply: thread, rested: workflow.
 - **Events first** for a time read from state, against "order is by time": the handler may move
   it, and it is read again.
 - **"Once per time" is run-wide, by branch name**: the only key a rerun finds again.
+- **The name is `workflow.at`**, from Q1, over `due` and `when`: it matches the answer's `.at`.
 
 ## Testing on a virtual clock
 
@@ -627,11 +628,7 @@ reconciled by key; this story takes only the time.
 
 ## Open questions
 
-### Q1. The name of a time read from state
-
-The shape is decided (A time read from state, above), and built as `workflow.at`. Left: whether
-`workflow.due` or `workflow.when` reads better. `at` matches the answer's `.at`; a rename is cheap
-until it ships.
+None open.
 
 ## Lints to write
 
