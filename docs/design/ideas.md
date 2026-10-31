@@ -81,6 +81,10 @@ Ideally it should be a context (meaning triggered) but not sure if it's possible
 ### state machine 
 it is a state machine or graph engineering now 
 
+### state storage 
+currently in files in pre-defined format, but should have different connectors so it can be stored anywhere
+
+
 ### Nice to have, from LangGraph and Mastra
 Read against the event-driven style comparison (`docs/research/workflow-styles.md`, 2026-10-24).
 Neither has an inbox, so events that arrive during a turn need one of awf's own; these three are
