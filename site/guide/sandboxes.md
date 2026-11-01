@@ -127,7 +127,7 @@ for it.
   gives the `docker build` command
   ([Troubleshooting](/guide/troubleshooting#docker-the-sandbox-image-image-is-not-built)).
 - **The workflow isn't sandboxed.** A sandbox holds agents. Your workflow code runs on the host with
-  your authority; see [Limits](/guide/limits).
+  your authority ([Security](/guide/security#a-workflow-is-trusted-code)).
 - **A sandboxed agent still uses your login.** It runs on your subscription like any other agent.
 
 The record of a run, `output.json`, lists every sandbox once: its provider, the spec with paths

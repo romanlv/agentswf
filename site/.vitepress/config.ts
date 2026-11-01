@@ -19,7 +19,6 @@ const SITE_MAP: { text: string; items: [link: string, text: string][] }[] = [
       ["/guide/install", "Install"],
       ["/guide/quick-start", "Quick start"],
       ["/guide/how-it-works", "How it works"],
-      ["/guide/limits", "Limits"],
     ],
   },
   { text: "Build with AI", items: [["/ai/", "Build with AI"]] },

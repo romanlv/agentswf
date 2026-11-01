@@ -78,6 +78,12 @@ waits on it as on any command, or hands itself to the run
 - **You want the agent to choose the steps.** Use its own subagents.
 - **You need a hosted service.** awf runs on your machine, with your agents' logins.
 
+## Help shape it
+
+agents.wf is in its evaluation phase, and what people build with it shapes the next release. If
+your use case is missing or the design gets in your way, [open an issue](https://github.com/romanlv/agentswf/issues): say what you
+were building and where awf stopped you.
+
 ## Next
 
 [Install](/guide/install) `awf`, then follow the [quick start](/guide/quick-start): a first

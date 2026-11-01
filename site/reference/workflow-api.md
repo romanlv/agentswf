@@ -972,5 +972,4 @@ These are in the types, and the promise each returns rejects with
 - **`wf.steps.run` and `wf.steps.sleep`**, durable steps. `wf.sleep` is built.
 - **`wf.call`**, one workflow calling another.
 
-[Limits](/guide/limits) says what else isn't built, and
-[`docs/status.md`](https://github.com/romanlv/agentswf/blob/main/docs/status.md) what's next.
+What's next is in [`docs/status.md`](https://github.com/romanlv/agentswf/blob/main/docs/status.md).

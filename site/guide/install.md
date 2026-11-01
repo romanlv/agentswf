@@ -94,7 +94,17 @@ bun add -g agentswf
 ```
 
 That updates `awf` and what it serves your workflows. The types in a workflow folder are that
-folder's own dev dependency; update them there with `bun add -d agentswf`.
+folder's own dev dependency; update them there with `bun add -d agentswf`, then run the `check`
+and `test` scripts [`awf init`](/guide/quick-start) wrote:
+
+```sh
+bun run check   # tsc --noEmit
+bun run test    # awf test
+```
+
+A release can improve the API. If it changed something your workflow uses, these show where,
+before any agent runs; hand the errors and the current [`llms.txt`](/ai/#what-the-agent-reads)
+to your coding agent, and it moves the workflow over.
 
 ## Catches
 

@@ -130,4 +130,3 @@ behind sandboxes and permissions is in
 - [Harnesses](/guide/harnesses#subscription-and-metered): subscription and metered
 - [Configuration](/reference/configuration#environment-variables): every environment variable awf
   reads or refuses
-- [Limits](/guide/limits): what awf doesn't do, by design

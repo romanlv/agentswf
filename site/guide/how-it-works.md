@@ -188,8 +188,7 @@ awf logs   # what the newest run did, and its agents
 
 ## Next
 
-- [Limits](/guide/limits): what awf doesn't do, and how updates reach your workflows. Then
-  [Agents](/guide/agents), the first of the Learn pages, or [the review loop](/patterns/review-loop)
+- [Agents](/guide/agents), the first of the Learn pages, or [the review loop](/patterns/review-loop)
   for a whole workflow.
 - [The workflow API](/reference/workflow-api): every call, option and default, on one page;
   [A workflow file](/reference/workflow-api#a-workflow-file) and

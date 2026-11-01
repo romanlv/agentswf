@@ -59,7 +59,7 @@ result control plane requires POSIX Unix-domain sockets
 ```
 
 A run on Windows fails with this as its reason. An agent answers awf over a Unix-domain socket,
-which Windows lacks. Run awf on macOS or Linux: [Limits](/guide/limits).
+which Windows lacks. Run awf on macOS or Linux ([Install](/guide/install)).
 
 ## Logins
 

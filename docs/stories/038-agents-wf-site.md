@@ -269,19 +269,19 @@ Read from each site's `llms.txt` (Hono, Vitest, Elysia, Herdr, Mastra, Trigger.d
   extended to every page, whichever M3 shows is simpler. Either way a sample can't go stale
   without a red check.
 - **Trust is in the content,** not a badge:
-  - Limits says what awf doesn't do; Durability says what survives what; Security lists the known
+  - Each page's catches say what awf doesn't do there; Durability says what survives what; Security lists the known
     gaps from `docs/status.md` (an agent outside a sandbox has the operator's authority; a
     sandboxed agent still spends the operator's login).
-  - Limits also says it is in its evaluation phase (real work shapes the API; a change makes it
-    better, and the agent that wrote a workflow moves it over), and links what runs today (`docs/status.md`), how awf is
-    tested (`docs/testing.md`) and what was measured (`docs/findings/`) on GitHub. The landing
-    page's trust strip links the same. The site doesn't restate them.
+  - The landing page's "Where it is" says it is in its evaluation phase and invites an issue on
+    GitHub for a missing use case or a design idea; the overview's "Help shape it" says the same.
+    It links what runs today (`docs/status.md`), how awf is tested (`docs/testing.md`) and what
+    was measured (`docs/findings/`) on GitHub. The site doesn't restate them.
   - Patterns give each workflow's estimated cost and time from a recorded run.
   - Claims about spend follow the records' own words: a headless claude being "metered" is a
     rule, not a bill.
 - **One home per fact.** Subscription and metered billing are explained on `/guide/harnesses`
   and linked from cost, troubleshooting and the reference; "not built yet" lives in
-  `docs/status.md`, linked from Limits.
+  `docs/status.md`, linked from the landing page and the API page.
 - **Agent outputs:** nothing is written twice. Each page has one `.md` source, and the build makes
   everything else from it: the HTML page, the same Markdown served at `{page}.md`, its entry in
   `/llms.txt` and its part of `/llms-full.txt`. `{page}.md` is the source as a reader needs it, not
@@ -319,8 +319,6 @@ Get started
   /guide/how-it-works     the words (workflow, run, agent, turn, outcome, harness, pane,
                           stage) and the engine's side: the agent's socket, the wfa commands an
                           agent uses in its session, the record
-  /guide/limits           what awf doesn't do, by design; the evaluation phase; links to what runs
-                          today, how it is tested and what was measured, on GitHub
 
 Build with AI
   /ai/                    a coding agent writes the workflow: llms.txt, a .md for every page,
@@ -413,8 +411,8 @@ a later task (Q11). Top to bottom:
 5. **Built for agents to write.** "Point your coding agent at `agents.wf/llms.txt`": every page
    as Markdown, the API on one page, `awf init`'s AGENTS.md, typecheck and `awf test` as the
    safety net. Links `/ai/`.
-6. **Honest about where it is.** MIT and open on GitHub; in evaluation, real work still
-   shapes the API; what it doesn't do (Limits); how it is tested and what was measured, on GitHub.
+6. **Honest about where it is.** MIT and open on GitHub; in evaluation, an issue on GitHub
+   for a missing use case or a design idea; how it is tested and what was measured, on GitHub.
 7. **Closing call.** "Your first workflow in 10 minutes", to the quick start.
 
 Top navigation: Guide, Patterns, Reference, the version, and GitHub and npm icons. The
@@ -429,7 +427,7 @@ Alternatives rejected:
 - **An Examples section named after the examples.** A reader looks for "review loop", not
   `catalogue-review`; Patterns name the problem and link the example.
 - **A Project section** (how awf is tested, measurements, status, lab, contributing), the third
-  draft. That is for developing awf and would overwhelm a visitor; Limits links it on GitHub.
+  draft. That is for developing awf and would overwhelm a visitor; the landing page links it on GitHub.
 - **Separate pages for typed answers, outcomes, participants and the `wfa` commands.** Each is
   part of one idea a reader learns once: calling an agent, people outside the run, how it works.
 - **Keep `docs/workflow-api.md` and write a site page from it.** Two copies of 1,100 lines drift;
@@ -508,7 +506,7 @@ Settled 2026-10-31 and 2026-11-01:
   an event pattern and the trust content, and cut lab, contributing, beta and llms-small as
   pages.
 - The site gives enough guidance, not everything: no Project section (testing, measurements and
-  status stay on GitHub, linked from Limits); typed answers and outcomes fold into
+  status stay on GitHub, linked from the landing page); typed answers and outcomes fold into
   `/guide/agents`, participants into `/guide/people`, the `wfa` commands into how it works;
   calling the session that started a run is in depth, not in Build with AI.
 - User docs live only in `site/`: `docs/workflow-api.md` and `docs/holder-cli.md` move there;
@@ -580,7 +578,7 @@ Work:
   rules. Mentions in `docs/design/pane-layout.md`, `docs/research/` and the stories
   are history and stay.
 - `docs/status.md` keeps "What runs today" and "Known gaps": they are the state of development,
-  which Limits links; the site's pages say what a user can do, not what changed when.
+  which the landing page links; the site's pages say what a user can do, not what changed when.
 
 Done when:
 
@@ -617,7 +615,6 @@ run, and knows what awf is, how it works and what it doesn't do.
 | `/guide/install` | the README's install; each harness's requirements in `packages/harness/`; `docs/findings/` for metered claude |
 | `/guide/quick-start` | `awf init` and its template; `examples/quick-check/` |
 | `/guide/how-it-works` | the README's diagram; `docs/design/README.md`'s three interfaces; `engine/src/agent-cli` for the `wfa` commands |
-| `/guide/limits` | `docs/status.md`'s "Known gaps"; the API page's "Not built yet"; `docs/foundation.md` §10 |
 
 Done when, beyond the shared bar: the quick start, followed word for word in an empty directory
 with `agentswf@beta` from npm, ends with the result it shows, in the time it claims.
@@ -858,6 +855,11 @@ Manual or live evaluation:
 - 2026-11-01, Patterns carry no cost or time yet: no recorded run of the current examples exists
   (the messaging run on disk predates the prompt fix; plan-implement's figures were for an older
   route). Each page marks the spot `TODO(operator)`; recording needs the operator's live runs.
+- 2026-11-01, the operator's review: `/guide/limits` is cut. It mostly repeated catches other
+  pages own, and it framed beta as a warning. The site says instead that agents.wf is in its
+  evaluation phase and invites an issue on GitHub for a missing use case or a design idea (the
+  landing page and the overview); Install's "Updating" runs the checks and hands what they find to
+  the coding agent.
 
 ## Human review
 
